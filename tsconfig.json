@@ -1,21 +1,22 @@
 {
   "compilerOptions": {
-    "target": "ESNext",
+    "target": "ES2022",
     "module": "ESNext",
-    "moduleResolution": "bundler",
-    "declaration": true,
-    "declarationDir": "dist",
-    "outDir": "dist",
-    "rootDir": "packages/omo-opencode/src",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "types": ["node"],
     "strict": true,
-    "allowArbitraryExtensions": true,
-    "esModuleInterop": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "lib": ["ESNext"],
-    "types": ["bun-types"]
+    "noEmit": true
   },
-  "include": ["packages/omo-opencode/src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "script"]
+  "include": ["src", "test", "vite.config.ts"]
 }

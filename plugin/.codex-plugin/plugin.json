@@ -1,0 +1,19 @@
+{
+  "name": "holycodex",
+  "version": "0.1.0",
+  "description": "Lean Codex-only agents, skills, hooks, and MCP defaults.",
+  "author": { "name": "David Basile Filho", "url": "https://github.com/davidbasilefilho" },
+  "homepage": "https://github.com/davidbasilefilho/holycodex",
+  "repository": "https://github.com/davidbasilefilho/holycodex",
+  "license": "MIT",
+  "skills": "./skills/",
+  "hooks": ["./hooks/hooks.json"],
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "HolyCodex",
+    "shortDescription": "Lean Codex tools",
+    "developerName": "David Basile Filho",
+    "category": "Developer Tools",
+    "capabilities": ["Hooks", "MCP Tools", "Code Intelligence"]
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Load only path-relevant HolyCodex rules. Never reinject AGENTS.md. Keep rule context small and deduplicated."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "exec_command",
+        "hooks": [
+          { "type": "prompt", "prompt": "Windows: prefer enabled git_bash MCP for shell commands." }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch|Write|Edit",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Check new comments. Remove stale, redundant, or narrative comments; preserve required directives and rationale."
+          }
+        ]
+      },
+      {
+        "matcher": "apply_patch|Write|Edit",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Run targeted LSP diagnostics for edited supported files only."
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "*",
+        "hooks": [{ "type": "prompt", "prompt": "Reset scoped rule and LSP diagnostic caches." }]
+      }
+    ]
+  }
+}

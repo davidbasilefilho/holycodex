@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "git_bash": { "command": "holycodex", "args": ["mcp", "git-bash"], "required": false },
+    "lsp": { "command": "holycodex", "args": ["mcp", "lsp"], "required": false },
+    "grep_app": { "url": "https://mcp.grep.app" },
+    "context7": { "url": "https://mcp.context7.com/mcp" }
+  }
+}
