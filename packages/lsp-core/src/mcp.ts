@@ -17,7 +17,7 @@ import { coerceToolArguments, executeLspTool, LSP_MCP_TOOLS } from "./tools.js";
 export type { JsonRpcError, JsonRpcId, JsonRpcResponse, JsonRpcResult, McpToolDescriptor };
 
 const SERVER_NAME = "lsp";
-const SERVER_VERSION = "0.4.0";
+const SERVER_VERSION = "0.4.1";
 
 export async function handleLspMcpRequest(input: unknown): Promise<JsonRpcResponse | undefined> {
   if (!isPlainRecord(input)) {

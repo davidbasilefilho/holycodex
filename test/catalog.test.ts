@@ -80,6 +80,17 @@ describe("HolyCodex catalog", () => {
         readFile(join(root, "plugin", "runtime", file), "utf8"),
       ),
     );
+    expect((await readdir(join(root, "plugin", "runtime"))).sort()).toEqual(
+      [
+        "bootstrap.js",
+        "cli.js",
+        "core-instructions.js",
+        "git-bash.js",
+        "lsp.js",
+        "mcp-stdio-core.js",
+        "rules.js",
+      ].sort(),
+    );
   });
 
   it("gives every local MCP tool invocation guidance", async () => {

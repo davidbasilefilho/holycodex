@@ -20,7 +20,16 @@ export default defineConfig({
     minify: false,
     rollupOptions: {
       external: [/^node:/],
-      output: { entryFileNames: "[name].js" },
+      output: {
+        entryFileNames: "[name].js",
+        chunkFileNames: "[name].js",
+        manualChunks(id) {
+          const path = id.replaceAll("\\", "/");
+          if (path.endsWith("/src/core-instructions.ts")) return "core-instructions";
+          if (path.includes("/packages/mcp-stdio-core/src/")) return "mcp-stdio-core";
+          return undefined;
+        },
+      },
     },
   },
 });
