@@ -1,26 +1,18 @@
 ---
 name: compress
-description: Rewrite any text, skill, prompt, documentation, instructions, prose, notes, or structured content to use fewer words and tokens while preserving meaning, facts, constraints, safety, tone, and required structure. Use when asked to compress, condense, tighten, shorten, de-duplicate, optimize token usage, or rewrite using caveman principles.
+description: Use to shorten text without losing meaning, constraints, tone, safety, structure, or exact technical content.
 ---
 
 # Compress
 
-Rewrite with caveman principles: all substance stays; filler dies. Do not automatically adopt caveman voice unless user requests it. Default output remains clear, grammatical, and natural.
+1. Identify purpose, audience, format, facts, exact strings, constraints, gates, warnings, links, and tone.
+2. Remove repetition, filler, redundant headings, obvious explanation, decorative wording, and weak transitions.
+3. Merge related rules. Use direct verbs, familiar words, compact lists, and one statement per fact.
+4. Preserve names, code, commands, paths, APIs, errors, numbers, citations, legal terms, user terminology, and order where it matters.
+5. Compare result with source: no lost rule, changed meaning, weaker prohibition, invented claim, broken reference, or scope change.
 
-## Workflow
+Keep grammar when terseness risks ambiguity, especially for safety, irreversible actions, legal or medical text, and ordered work. Do not adopt caveman voice unless requested.
 
-1. Identify purpose, audience, format, required facts, exact strings, constraints, decision gates, safety warnings, examples, links, and tone.
-2. Remove repetition, throat-clearing, filler, redundant headings, obvious explanation, decorative adjectives, and verbose transitions.
-3. Merge related rules. Prefer direct verbs, short familiar words, compact lists, and one statement per fact.
-4. Preserve technical names, code, commands, paths, APIs, error strings, numbers, citations, legal terms, and user-defined terminology exactly unless correction is requested.
-5. Preserve ordering when sequence matters. Keep full grammar where compression could create ambiguity, especially safety, irreversible actions, legal/medical guidance, or multi-step operations.
-6. Check compressed output against source: no lost requirement, changed meaning, weakened prohibition, invented claim, broken reference, or altered scope.
+For skills and prompts, preserve frontmatter, triggers, tool and resource routing, permissions, stop conditions, and validation. For code or config, change prose only unless refactoring was requested. Keep evidence and nuance in prose; keep tables only when they improve scanning.
 
-## Content Rules
-
-- **Skills/prompts:** preserve YAML frontmatter, trigger coverage, imperative instructions, tool/resource references, permissions, stop conditions, and validation. Remove duplicated “when to use” prose from body when frontmatter already carries it.
-- **Code/config:** never compress syntax or identifiers unless explicitly asked to refactor. Compress surrounding explanation only.
-- **Prose/docs:** preserve thesis, evidence, nuance, attribution, and intended tone. Remove repeated framing and examples that add no distinct value.
-- **Lists/tables:** merge duplicates; keep mappings and comparisons when format improves scan speed.
-
-If user sets length/ratio/style, follow it. Otherwise aim for largest safe reduction, not shortest possible output. Report before/after size only when useful or requested.
+Honor requested size or style; otherwise maximize safe reduction. Report size only when useful or requested.

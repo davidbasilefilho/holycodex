@@ -1,6 +1,6 @@
 ---
 name: lsp-setup
-description: Configure and verify one language server. Use when semantic tooling is missing, unconfigured, or reports that its server is not installed.
+description: Use to configure and verify one missing or unconfigured language server.
 ---
 
 # LSP Setup

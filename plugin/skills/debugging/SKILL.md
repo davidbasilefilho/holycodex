@@ -1,6 +1,6 @@
 ---
 name: debugging
-description: Reproduce, isolate, prove, and minimally fix runtime bugs. Use for crashes, wrong behavior, hangs, races, leaks, or unexplained performance.
+description: Use to prove and minimally fix crashes, wrong behavior, hangs, races, leaks, or slowness.
 ---
 
 # Debugging
@@ -9,15 +9,14 @@ No guess-fix loop.
 
 1. Reproduce exact symptom with smallest command.
 2. Minimize input, environment, and path.
-3. Write at least three plausible causes from distinct layers.
-4. Rank by evidence and cheap falsifier.
-5. Instrument narrow boundary. Capture values, ordering, ownership, timing, process state.
-6. Disprove causes. After two failed rounds, change angle; do not add reviewer or oracle agent.
-7. Confirm root cause with evidence that predicts symptom.
-8. Add failing public-behavior regression test.
-9. Make minimum root fix.
-10. Run targeted test, then proportional suite. Remove temporary instrumentation.
+3. List three plausible cross-layer causes; rank by evidence and cheapest falsifier.
+4. Instrument narrow boundary. Capture values, ordering, ownership, timing, process state.
+5. Disprove causes. Change angle after two failed rounds; add no reviewer or oracle agent.
+6. Confirm root cause with evidence that predicts symptom.
+7. Add failing public-behavior regression test.
+8. Make minimum root fix.
+9. Run targeted test, then proportional suite. Remove temporary instrumentation.
 
-No sleeps for async proof. Use event, signal, fake clock, trace, debugger, profiler, sanitizer, or deterministic fixture. No implementation before root cause unless user explicitly asks for mitigation.
+No sleeps for async proof; use deterministic events, clocks, traces, debuggers, profilers, sanitizers, or fixtures. Do not implement before proving cause unless user requests mitigation.
 
 Load only relevant runtime/tool reference under `references/`. Report reproduction, hypotheses rejected, root cause, proof, fix, checks, residual uncertainty.

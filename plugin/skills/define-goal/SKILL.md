@@ -1,6 +1,6 @@
 ---
 name: define-goal
-description: Define or refine one measurable goal before work. Use only when explicitly asked to set, create, quantify, or clarify a goal.
+description: Use to define one measurable goal when explicitly asked to set or refine one.
 ---
 
 # Define Goal
@@ -9,12 +9,12 @@ On activation, first user-visible line must be:
 
 **GOAL MODE ACTIVATED**
 
-Turn intent into one bounded, verifiable objective. No plan, log, snapshot, ledger, or handoff.
+Create one bounded, verifiable objective; no plan, log, snapshot, ledger, or handoff.
 
 ## Flow
 
 1. State outcome, target, proof, scope, exclusions, stop condition.
-2. Add meaningful thresholds: exact checks, paths, environments, counts, limits. No fake precision.
+2. Add useful checks, paths, environments, counts, or limits; no fake precision.
 3. Replace activity goals like “improve” with observable state.
 4. Ask one short question only if missing scope or validator changes intent.
 5. Call `get_goal`.

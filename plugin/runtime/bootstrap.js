@@ -1,4 +1,4 @@
-import { t as CORE_INSTRUCTIONS } from "./core-instructions-C3FKctng.js";
+import { t as CORE_INSTRUCTIONS } from "./core-instructions-D4kR5ZFv.js";
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 //#region src/bootstrap.ts

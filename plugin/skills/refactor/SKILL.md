@@ -1,6 +1,6 @@
 ---
 name: refactor
-description: Behavior-preserving structural change with tests and semantic navigation. Use when asked to refactor, restructure, extract, simplify, or modernize code.
+description: Use to refactor, restructure, extract, simplify, or modernize code without behavior changes.
 ---
 
 # Refactor

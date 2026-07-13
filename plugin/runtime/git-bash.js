@@ -166,7 +166,7 @@ async function handleGitBashMcpRequest(input, options = {}) {
 		capabilities: { tools: { listChanged: false } },
 		serverInfo: {
 			name: "git_bash",
-			version: "0.3.3"
+			version: "0.4.0"
 		},
 		protocolVersion: protocolVersionFromInput(input) ?? "2024-11-05"
 	});
@@ -222,7 +222,7 @@ async function runToolResponse(id, args, options) {
 function toolsForOptions(options) {
 	const sharedTools = [{
 		name: "which_bash",
-		description: "Use before Windows shell work when the Git Bash executable path must be confirmed.",
+		description: "Use to find Git Bash on Windows.",
 		inputSchema: {
 			type: "object",
 			properties: {},
@@ -230,7 +230,7 @@ function toolsForOptions(options) {
 		}
 	}, {
 		name: "diagnose",
-		description: "Use when git_bash cannot run or Windows shell readiness needs diagnosis.",
+		description: "Use to diagnose Git Bash readiness.",
 		inputSchema: {
 			type: "object",
 			properties: {},
@@ -240,27 +240,27 @@ function toolsForOptions(options) {
 	if (!canRunGitBash(options)) return sharedTools;
 	return [{
 		name: "run",
-		description: "Use on native Windows for Bash commands, POSIX behavior, Git tooling, or Unix utilities; use exec_command only when git_bash is unavailable or the operation is not shell work.",
+		description: "Use to run Bash, Git, POSIX, or Unix commands on Windows; use exec_command only if unavailable or nonshell.",
 		inputSchema: {
 			type: "object",
 			properties: {
 				command: {
 					type: "string",
-					description: "The command to execute."
+					description: "Command to run."
 				},
 				timeout: {
 					type: "integer",
 					minimum: 1,
 					maximum: MAX_TIMEOUT_MS,
-					description: `Optional timeout in milliseconds. If omitted, uses the inherited exec_command timeout when configured; otherwise ${defaultTimeoutMs(options)}ms.`
+					description: `Timeout in milliseconds; defaults to inherited exec_command timeout or ${defaultTimeoutMs(options)}ms.`
 				},
 				workdir: {
 					type: "string",
-					description: "The working directory to run the command in. Defaults to the current directory. Use this instead of 'cd' commands."
+					description: "Working directory. Use this instead of 'cd'. Defaults to current directory."
 				},
 				description: {
 					type: "string",
-					description: "Clear, concise description of what this command does in 5-10 words."
+					description: "Command purpose in 5-10 words."
 				}
 			},
 			required: ["command"],

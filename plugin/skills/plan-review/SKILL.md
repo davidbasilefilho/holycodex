@@ -1,6 +1,6 @@
 ---
 name: plan-review
-description: Review and repair an existing plan once. Use only when the user explicitly asks to review, critique, validate, or improve a plan.
+description: Use to review and repair a plan once when explicitly requested.
 ---
 
 # Plan Review

@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Public-seam vertical red-green-refactor development. Use when the user requests test-first work, TDD, regression tests, or integration tests.
+description: Use public-seam red-green-refactor for requested TDD, regression, or integration tests.
 ---
 
 # TDD

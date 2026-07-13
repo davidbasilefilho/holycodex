@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Compact conversation state into a safe resumable handoff. Use when asked to hand off, save context, or prepare another agent/session to continue.
+description: Use to save compact, safe context for another agent or session.
 ---
 
 # Handoff

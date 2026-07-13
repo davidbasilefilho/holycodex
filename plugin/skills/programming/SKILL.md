@@ -1,13 +1,11 @@
 ---
 name: programming
-description: Strict Python, Rust, TypeScript, and Go implementation. Use whenever creating or changing .py, .pyi, .rs, .ts, .tsx, .mts, .cts, or .go files.
+description: Use strict Python, Rust, TypeScript, and Go rules for matching source files.
 ---
 
 # Programming
 
-Use for `.py`, `.pyi`, `.rs`, `.ts`, `.tsx`, `.mts`, `.cts`, `.go`, or matching project manifest.
-
-Before code, read language `references/<language>/README.md`; load only linked topic needed. Read `references/logging.md` only when touching logs. Rust unsafe/FFI also loads all `references/rust-ub/`.
+Before editing `.py`, `.pyi`, `.rs`, `.ts`, `.tsx`, `.mts`, `.cts`, `.go`, or matching manifests, read `references/<language>/README.md`. Load `references/logging.md` only for logs and all `references/rust-ub/` for Rust unsafe or FFI.
 
 ## Core
 

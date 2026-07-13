@@ -1,6 +1,6 @@
 ---
 name: remove-ai-slops
-description: Remove AI-authored code smells while preserving behavior. Use when asked to clean generated code, remove AI slop, or simplify branch changes without feature work.
+description: Use to remove AI-generated code smells without behavior or feature changes.
 ---
 
 # Remove AI Slops

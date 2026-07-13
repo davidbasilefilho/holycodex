@@ -1,6 +1,6 @@
 ---
 name: security-research
-description: Exploitability-led security audit with optional narrow research. Use for repository security reviews, threat analysis, vulnerability validation, or attack paths.
+description: Use for exploitability-led repo security review, threat analysis, validation, or attack paths.
 ---
 
 # Security Research

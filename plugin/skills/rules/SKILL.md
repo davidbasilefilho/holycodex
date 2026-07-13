@@ -1,6 +1,6 @@
 ---
 name: rules
-description: Explain or inspect HolyCodex scoped rule loading and cache. Use for rule locations, matching, injection, deduplication, limits, or cache behavior.
+description: Use to inspect HolyCodex rule discovery, matching, injection, deduplication, limits, or cache.
 ---
 
 # Rules

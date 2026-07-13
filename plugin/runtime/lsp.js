@@ -2877,7 +2877,7 @@ var LSP_MCP_TOOLS = [
 		name: "status",
 		aliases: ["lsp_status"],
 		title: "LSP Status",
-		description: "Use to inspect configured and active LSP servers without starting one.",
+		description: "Use to list LSP servers without starting them.",
 		inputSchema: objectSchema({}),
 		execute: executeLspStatus
 	},
@@ -2885,7 +2885,7 @@ var LSP_MCP_TOOLS = [
 		name: "diagnostics",
 		aliases: ["lsp_diagnostics"],
 		title: "LSP Diagnostics",
-		description: "Use after code edits or during diagnosis to get errors, warnings, and hints for a file or directory.",
+		description: "Use to get file or directory diagnostics.",
 		inputSchema: objectSchema({
 			filePath: {
 				type: "string",
@@ -2909,7 +2909,7 @@ var LSP_MCP_TOOLS = [
 		name: "goto_definition",
 		aliases: ["lsp_goto_definition"],
 		title: "LSP Goto Definition",
-		description: "Use to find the exact definition of a symbol before changing or explaining it.",
+		description: "Use to find a symbol's definition.",
 		inputSchema: objectSchema({
 			filePath: {
 				type: "string",
@@ -2934,7 +2934,7 @@ var LSP_MCP_TOOLS = [
 		name: "find_references",
 		aliases: ["lsp_find_references"],
 		title: "LSP Find References",
-		description: "Use to find every workspace reference before refactoring, renaming, or assessing impact.",
+		description: "Use to find all workspace references to a symbol.",
 		inputSchema: objectSchema({
 			filePath: {
 				type: "string",
@@ -2963,7 +2963,7 @@ var LSP_MCP_TOOLS = [
 		name: "symbols",
 		aliases: ["lsp_symbols"],
 		title: "LSP Symbols",
-		description: "Use to outline one file or locate named symbols across the workspace.",
+		description: "Use to outline a file or search workspace symbols.",
 		inputSchema: objectSchema({
 			filePath: {
 				type: "string",
@@ -2972,7 +2972,7 @@ var LSP_MCP_TOOLS = [
 			scope: {
 				type: "string",
 				enum: ["document", "workspace"],
-				description: "Use document for file outline or workspace for project-wide search."
+				description: "document outlines a file; workspace searches the project."
 			},
 			query: {
 				type: "string",
@@ -2989,7 +2989,7 @@ var LSP_MCP_TOOLS = [
 		name: "prepare_rename",
 		aliases: ["lsp_prepare_rename"],
 		title: "LSP Prepare Rename",
-		description: "Use before rename to verify the symbol and position support a semantic rename.",
+		description: "Use to check whether a symbol supports semantic rename.",
 		inputSchema: objectSchema({
 			filePath: {
 				type: "string",
@@ -3014,7 +3014,7 @@ var LSP_MCP_TOOLS = [
 		name: "rename",
 		aliases: ["lsp_rename"],
 		title: "LSP Rename",
-		description: "Use for a semantic workspace-wide symbol rename after prepare_rename succeeds.",
+		description: "Use to rename a symbol workspace-wide after prepare_rename succeeds.",
 		inputSchema: objectSchema({
 			filePath: {
 				type: "string",
@@ -3044,16 +3044,16 @@ var LSP_MCP_TOOLS = [
 		name: "install_decision",
 		aliases: ["lsp_install_decision"],
 		title: "LSP Install Decision",
-		description: "Use after a missing-server prompt to record explicit install permission or a decline; decline when permission was not explicit.",
+		description: "Use to record explicit LSP install permission or decline.",
 		inputSchema: objectSchema({
 			server_id: {
 				type: "string",
-				description: "The LSP server id from the not-installed message (e.g. 'rust')."
+				description: "Server id from the not-installed message, e.g. rust."
 			},
 			decision: {
 				type: "string",
 				enum: ["declined", "allowed"],
-				description: "'declined' silences future prompts; 'allowed' pre-authorizes installation."
+				description: "declined silences prompts; allowed authorizes installation."
 			}
 		}, ["server_id", "decision"]),
 		execute: executeLspInstallDecision
@@ -3072,7 +3072,7 @@ function coerceToolArguments(value) {
 //#endregion
 //#region packages/lsp-core/src/mcp.ts
 var SERVER_NAME = "lsp";
-var SERVER_VERSION = "0.3.3";
+var SERVER_VERSION = "0.4.0";
 async function handleLspMcpRequest(input) {
 	if (!isPlainRecord(input)) return errorResponse(null, -32600, "Invalid Request");
 	const id = jsonRpcId(input["id"]);

@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Write a concise executable plan. Use only when the user explicitly asks for a plan before implementation.
+description: Use to write an executable plan only when explicitly requested before implementation.
 ---
 
 # Plan

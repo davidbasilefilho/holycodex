@@ -1,21 +1,21 @@
 ---
 name: lsp
-description: Use when Codex needs language-server diagnostics, definitions, references, symbols, or rename safety checks in the current workspace.
+description: Use LSP diagnostics, definitions, references, symbols, or safe rename.
 ---
 
-# Codex LSP
+# LSP
 
-Call `lsp` MCP tools through the tool interface; `lsp.*`/`mcp__lsp__*` are tool-call names, not shell commands.
+Call `lsp` MCP tools, never their names as shell commands.
 
 ## Tools
 
-- `lsp.status`: list configured, installed, missing, disabled, and active language servers.
-- `lsp.diagnostics`: check one file or directory for LSP diagnostics. Prefer `severity: "error"` after edits.
-- `lsp.goto_definition`: locate a symbol definition from file, line, and character.
-- `lsp.find_references`: find usages of a symbol across the workspace.
-- `lsp.symbols`: inspect document symbols or search workspace symbols.
-- `lsp.prepare_rename`: check whether a rename is valid at a position.
-- `lsp.rename`: apply a language-server workspace edit for a rename.
+- `lsp.status`: server state.
+- `lsp.diagnostics`: file or directory diagnostics; prefer `severity: "error"` after edits.
+- `lsp.goto_definition`: symbol definition.
+- `lsp.find_references`: workspace usages.
+- `lsp.symbols`: document outline or workspace symbol search.
+- `lsp.prepare_rename`: rename validity.
+- `lsp.rename`: workspace rename edit.
 
 ## Config
 

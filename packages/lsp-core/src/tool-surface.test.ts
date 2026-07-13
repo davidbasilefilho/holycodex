@@ -6,14 +6,13 @@ const expectedToolSurface = [
   {
     name: "status",
     title: "LSP Status",
-    description: "Use to inspect configured and active LSP servers without starting one.",
+    description: "Use to list LSP servers without starting them.",
     inputSchema: { type: "object", properties: {}, required: [] },
   },
   {
     name: "diagnostics",
     title: "LSP Diagnostics",
-    description:
-      "Use after code edits or during diagnosis to get errors, warnings, and hints for a file or directory.",
+    description: "Use to get file or directory diagnostics.",
     inputSchema: {
       type: "object",
       properties: {
@@ -30,7 +29,7 @@ const expectedToolSurface = [
   {
     name: "goto_definition",
     title: "LSP Goto Definition",
-    description: "Use to find the exact definition of a symbol before changing or explaining it.",
+    description: "Use to find a symbol's definition.",
     inputSchema: {
       type: "object",
       properties: {
@@ -44,8 +43,7 @@ const expectedToolSurface = [
   {
     name: "find_references",
     title: "LSP Find References",
-    description:
-      "Use to find every workspace reference before refactoring, renaming, or assessing impact.",
+    description: "Use to find all workspace references to a symbol.",
     inputSchema: {
       type: "object",
       properties: {
@@ -63,7 +61,7 @@ const expectedToolSurface = [
   {
     name: "symbols",
     title: "LSP Symbols",
-    description: "Use to outline one file or locate named symbols across the workspace.",
+    description: "Use to outline a file or search workspace symbols.",
     inputSchema: {
       type: "object",
       properties: {
@@ -71,7 +69,7 @@ const expectedToolSurface = [
         scope: {
           type: "string",
           enum: ["document", "workspace"],
-          description: "Use document for file outline or workspace for project-wide search.",
+          description: "document outlines a file; workspace searches the project.",
         },
         query: { type: "string", description: "Workspace symbol query." },
         limit: { type: "number", description: "Maximum number of symbols to return." },
@@ -82,7 +80,7 @@ const expectedToolSurface = [
   {
     name: "prepare_rename",
     title: "LSP Prepare Rename",
-    description: "Use before rename to verify the symbol and position support a semantic rename.",
+    description: "Use to check whether a symbol supports semantic rename.",
     inputSchema: {
       type: "object",
       properties: {
@@ -96,7 +94,7 @@ const expectedToolSurface = [
   {
     name: "rename",
     title: "LSP Rename",
-    description: "Use for a semantic workspace-wide symbol rename after prepare_rename succeeds.",
+    description: "Use to rename a symbol workspace-wide after prepare_rename succeeds.",
     inputSchema: {
       type: "object",
       properties: {
@@ -111,19 +109,18 @@ const expectedToolSurface = [
   {
     name: "install_decision",
     title: "LSP Install Decision",
-    description:
-      "Use after a missing-server prompt to record explicit install permission or a decline; decline when permission was not explicit.",
+    description: "Use to record explicit LSP install permission or decline.",
     inputSchema: {
       type: "object",
       properties: {
         server_id: {
           type: "string",
-          description: "The LSP server id from the not-installed message (e.g. 'rust').",
+          description: "Server id from the not-installed message, e.g. rust.",
         },
         decision: {
           type: "string",
           enum: ["declined", "allowed"],
-          description: "'declined' silences future prompts; 'allowed' pre-authorizes installation.",
+          description: "declined silences prompts; allowed authorizes installation.",
         },
       },
       required: ["server_id", "decision"],

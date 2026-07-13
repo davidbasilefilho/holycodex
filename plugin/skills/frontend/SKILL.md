@@ -1,18 +1,18 @@
 ---
 name: frontend
-description: Build, style, debug, audit, or polish web UI. Use for frontend components, pages, visual QA, accessibility, performance, or premium editorial design.
+description: Use to build, debug, audit, or polish web UI, accessibility, performance, or editorial design.
 ---
 
 # Frontend
 
-Preserve stack, behavior, design tokens, component patterns, and supplied screenshot/URL contract. Small request stays small. No forced `DESIGN.md`, research lane, new dependency, GSAP, or heavyweight QA.
+Preserve stack, behavior, tokens, patterns, and supplied visual contract. Keep scope small. Do not force `DESIGN.md`, research, dependencies, GSAP, or heavy QA.
 
 ## Route
 
-- Build/redesign: inspect app shell, tokens, target component, responsive contract.
-- Visual reference: use supplied screenshot/URL first. Measure layout, type, color, spacing, surface, motion.
+- Build/redesign: inspect shell, tokens, target component, responsive contract.
+- Visual reference: use it first; measure layout, type, color, spacing, surface, and motion.
 - Performance: load `references/perfection/README.md` only for real audit or regression.
-- Palette/type/style lookup: load only relevant `references/ui-ux-db` data.
+- Palette/type/style: load only relevant `references/ui-ux-db` data.
 - Premium editorial: use rules below.
 
 ## Premium editorial mode
