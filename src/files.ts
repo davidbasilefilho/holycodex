@@ -1,4 +1,14 @@
-import { cp, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  readlink,
+  rename,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 export async function exists(path: string): Promise<boolean> {
@@ -15,8 +25,24 @@ export async function backup(path: string, root: string): Promise<string | undef
   if (!(await exists(path))) return undefined;
   const target = join(root, path.replace(/^([A-Za-z]:)?[\\/]+/, "").replaceAll(":", ""));
   await mkdir(dirname(target), { recursive: true });
-  await cp(path, target, { recursive: true });
+  await copyBackup(path, target);
   return target;
+}
+
+async function copyBackup(source: string, target: string): Promise<void> {
+  const metadata = await lstat(source);
+  if (metadata.isSymbolicLink()) {
+    await writeFile(`${target}.symlink`, await readlink(source), "utf8");
+    return;
+  }
+  if (!metadata.isDirectory()) {
+    await copyFile(source, target);
+    return;
+  }
+  await mkdir(target, { recursive: true });
+  for (const entry of await readdir(source)) {
+    await copyBackup(join(source, entry), join(target, entry));
+  }
 }
 
 export async function atomicWrite(path: string, content: string): Promise<void> {

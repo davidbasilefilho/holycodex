@@ -35,7 +35,14 @@ export function removeLegacyOmo(input: string): string {
     .filter((section) => {
       const header = /^\s*\[([^\]]+)]/.exec(section)?.[1];
       if (header === undefined) return true;
-      if (OLD_NAMESPACES.some((name) => header === name || header.startsWith(`${name}.`)))
+      if (
+        OLD_NAMESPACES.some(
+          (name) =>
+            header === name ||
+            header.startsWith(`${name}.`) ||
+            (name.includes('"omo@') && header.startsWith(name)),
+        )
+      )
         return false;
       const sharedAgent = ["agents.explorer", "agents.librarian", "agents.worker"].some(
         (name) => header === name || header.startsWith(`${name}.`),

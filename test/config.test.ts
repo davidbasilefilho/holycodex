@@ -23,10 +23,11 @@ describe("Codex configuration", () => {
 
   it("removes legacy OMO namespaces", () => {
     const input =
-      '[marketplaces.sisyphuslabs]\nsource = "old"\n[agents.metis]\nmodel = "old"\n[custom]\nvalue = true\n';
+      '[marketplaces.sisyphuslabs]\nsource = "old"\n[agents.metis]\nmodel = "old"\n[hooks.state."omo@sisyphuslabs:old"]\nenabled = true\n[custom]\nvalue = true\n';
     const output = installConfig(input, false);
     expect(output).not.toContain("sisyphuslabs");
     expect(output).not.toContain("agents.metis");
+    expect(output).not.toContain("hooks.state");
   });
 
   it("preserves an explicit shared agent preference", () => {

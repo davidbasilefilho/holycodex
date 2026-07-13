@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import process$1 from "node:process";
 import { homedir, tmpdir } from "node:os";
@@ -34,7 +34,7 @@ function removeLegacyOmo(input) {
 	return input.split(/(?=^\s*\[)/m).filter((section) => {
 		const header = /^\s*\[([^\]]+)]/.exec(section)?.[1];
 		if (header === void 0) return true;
-		if (OLD_NAMESPACES.some((name) => header === name || header.startsWith(`${name}.`))) return false;
+		if (OLD_NAMESPACES.some((name) => header === name || header.startsWith(`${name}.`) || name.includes("\"omo@") && header.startsWith(name))) return false;
 		return ![
 			"agents.explorer",
 			"agents.librarian",
@@ -85,8 +85,21 @@ async function backup(path, root) {
 	if (!await exists(path)) return void 0;
 	const target = join(root, path.replace(/^([A-Za-z]:)?[\\/]+/, "").replaceAll(":", ""));
 	await mkdir(dirname(target), { recursive: true });
-	await cp(path, target, { recursive: true });
+	await copyBackup(path, target);
 	return target;
+}
+async function copyBackup(source, target) {
+	const metadata = await lstat(source);
+	if (metadata.isSymbolicLink()) {
+		await writeFile(`${target}.symlink`, await readlink(source), "utf8");
+		return;
+	}
+	if (!metadata.isDirectory()) {
+		await copyFile(source, target);
+		return;
+	}
+	await mkdir(target, { recursive: true });
+	for (const entry of await readdir(source)) await copyBackup(join(source, entry), join(target, entry));
 }
 async function atomicWrite(path, content) {
 	await mkdir(dirname(path), { recursive: true });
