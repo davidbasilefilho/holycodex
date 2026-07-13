@@ -17,3 +17,10 @@ export async function readinessContext(pluginRoot: string): Promise<string> {
   if (missing.length === 0) return CORE_INSTRUCTIONS;
   return `${CORE_INSTRUCTIONS}\n\nHolyCodex incomplete: missing runtime/${missing.join(", runtime/")}. Reinstall HolyCodex before using its local MCPs or hooks.`;
 }
+
+export async function readinessOutput(pluginRoot: string): Promise<string> {
+  const additionalContext = await readinessContext(pluginRoot);
+  return `${JSON.stringify({
+    hookSpecificOutput: { hookEventName: "SessionStart", additionalContext },
+  })}\n`;
+}

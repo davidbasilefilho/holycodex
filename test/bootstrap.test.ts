@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { readinessContext } from "../src/bootstrap";
+import { readinessContext, readinessOutput } from "../src/bootstrap";
 
 describe("bootstrap readiness", () => {
   it("reports missing local runtimes and stays silent when ready", async () => {
@@ -26,5 +26,15 @@ describe("bootstrap readiness", () => {
     expect(context).toContain("Never delegate responsibility, trivial, or tightly coupled work.");
     expect(context).toContain("Subagents cut cost, not form organization.");
     expect(context).toContain("Match reasoning effort to complexity.");
+  });
+
+  it("emits SessionStart context in the Codex command-hook envelope", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-bootstrap-"));
+    const output = JSON.parse(await readinessOutput(root)) as {
+      hookSpecificOutput?: { hookEventName?: string; additionalContext?: string };
+    };
+
+    expect(output.hookSpecificOutput?.hookEventName).toBe("SessionStart");
+    expect(output.hookSpecificOutput?.additionalContext).toContain("Shell: git_bash MCP");
   });
 });
