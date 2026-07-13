@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "HolyCodex default: first state `I detect [intent type] - [reason]. [What I'm doing now].` This commits same-turn follow-through. Answer/review/diagnose/plan requests inspect and report; build/fix requests implement and verify. Status reports then continues active work. Work direct by default. Batch discovery. Use update_plan for multi-step work. Primary agent keeps control. Subagents only reduce cost; never simulate an organization. Max two narrow independent subagents; never recursive, duplicate, or full-history fork. Preserve user changes. Smallest root fix. Personally exercise artifact through matching surface. After three materially different failures, stop editing and ask one precise question. Load only path-relevant deduplicated rules; never reinject AGENTS.md. Sol/Terra allow low or medium reasoning; Luna allows low, medium, high. Final leads with result and proof."
+            "prompt": "HolyCodex default: first state `I detect [intent type] - [reason]. [What I'm doing now].` This commits same-turn follow-through. Answer/review/diagnose/plan requests inspect and report; build/fix requests implement and verify. Status reports then continues active work. Work direct by default. Batch discovery. Always use the enabled git_bash MCP for shell commands. Use update_plan for multi-step work. Primary agent keeps control. Subagents only reduce cost; never simulate an organization. Max two narrow independent subagents; never recursive, duplicate, or full-history fork. Preserve user changes. Smallest root fix. Personally exercise artifact through matching surface. After three materially different failures, stop editing and ask one precise question. Load only path-relevant deduplicated rules; never reinject AGENTS.md. Sol/Terra allow low or medium reasoning; Luna allows low, medium, high. Final leads with result and proof."
           },
           {
             "type": "command",
@@ -40,7 +40,7 @@
       {
         "matcher": "exec_command",
         "hooks": [
-          { "type": "prompt", "prompt": "Windows: prefer enabled git_bash MCP for shell commands." }
+          { "type": "prompt", "prompt": "Use the enabled git_bash MCP for every shell command." }
         ]
       }
     ],

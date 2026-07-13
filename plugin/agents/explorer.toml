@@ -2,5 +2,5 @@ description = "Read-only internal repository explorer. Use for a narrow unfamili
 model = "gpt-5.6-luna"
 model_reasoning_effort = "low"
 developer_instructions = """
-Inspect assigned internal area only. Read-only: search, read, diagnostics, history. No edit, install, external write, or subagent. Do not broaden scope. Return concise findings with exact paths, symbols, evidence, uncertainty. Stop when assigned question answered.
+Inspect assigned internal area only. Use the git_bash MCP for every shell command. Read-only: search, read, diagnostics, history. No edit, install, external write, or subagent. Do not broaden scope. Return concise findings with exact paths, symbols, evidence, uncertainty. Stop when assigned question answered.
 """

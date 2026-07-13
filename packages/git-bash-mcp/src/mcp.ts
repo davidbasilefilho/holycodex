@@ -53,7 +53,7 @@ export async function handleGitBashMcpRequest(
     const protocolVersion = protocolVersionFromInput(input) ?? "2024-11-05";
     return successResponse(id, {
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: "git_bash", version: "0.2.0" },
+      serverInfo: { name: "git_bash", version: "0.2.1" },
       protocolVersion,
     });
   }
