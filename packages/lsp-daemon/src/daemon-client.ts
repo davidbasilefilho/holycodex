@@ -87,8 +87,9 @@ function withContext(
 }
 
 function daemonUnreachableResult(paths: DaemonPaths, error: unknown): ToolExecutionResult {
+  const errorMessage = error instanceof Error ? error.message : String(error);
   const text = [
-    `LSP daemon unreachable: ${errorText(error)}.`,
+    `LSP daemon unreachable: ${errorMessage}.`,
     "The MCP server is a thin proxy and never runs language servers in-process.",
     `Socket: ${paths.socket}`,
     `Logs: ${paths.log}`,
@@ -155,8 +156,4 @@ function toToolResult(message: unknown): ToolExecutionResult | null {
     isError: result["isError"] === true,
     details: result["details"],
   };
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

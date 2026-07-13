@@ -112,9 +112,10 @@ async function runGitBashCommand(input) {
 				stderr
 			};
 		}
+		const env = input.env === void 0 ? void 0 : Object.fromEntries(Object.entries(input.env).filter(([key]) => key.toLowerCase() !== "original_path"));
 		const child = spawn(input.bashPath, ["-lc", input.command], {
 			cwd: input.cwd,
-			env: input.env,
+			env,
 			windowsHide: true,
 			stdio: [
 				"ignore",
@@ -165,7 +166,7 @@ async function handleGitBashMcpRequest(input, options = {}) {
 		capabilities: { tools: { listChanged: false } },
 		serverInfo: {
 			name: "git_bash",
-			version: "0.2.0"
+			version: "0.3.0"
 		},
 		protocolVersion: protocolVersionFromInput(input) ?? "2024-11-05"
 	});
@@ -190,7 +191,7 @@ async function runMcpStdioServer(input, output, options = {}) {
 	});
 }
 async function callTool(id, name, args, options) {
-	if (name === "which_bash") return toolResponse(id, whichBashPayload(resolve$1(options)));
+	if (name === "which_bash") return toolResponse(id, JSON.stringify(resolve$1(options), null, 2));
 	if (name === "diagnose") return toolResponse(id, diagnosePayload(resolve$1(options), platformFromOptions(options)));
 	if (name === "run") return await runToolResponse(id, args, options);
 	return toolResponse(id, `Unknown git_bash tool: ${name}`, true);
@@ -204,15 +205,16 @@ async function runToolResponse(id, args, options) {
 	const timeoutMs = parseTimeoutMs(args.timeout ?? args.timeout_ms, options);
 	if (timeoutMs === null) return toolResponse(id, `run.timeout must be an integer between 1 and ${MAX_TIMEOUT_MS}.`, true);
 	const resolution = resolve$1(options);
-	if (!resolution.found || resolution.path === null) return toolResponse(id, whichBashPayload(resolution), true);
+	if (!resolution.found || resolution.path === null) return toolResponse(id, JSON.stringify(resolution, null, 2), true);
 	try {
-		return toolResponse(id, runPayload(await (options.runGitBash ?? runGitBashCommand)({
+		const result = await (options.runGitBash ?? runGitBashCommand)({
 			bashPath: resolution.path,
 			command,
 			cwd,
 			timeoutMs,
 			env: options.env ?? process.env
-		})));
+		});
+		return toolResponse(id, JSON.stringify(result, null, 2));
 	} catch (error) {
 		return toolResponse(id, error instanceof Error ? error.message : String(error), true);
 	}
@@ -286,9 +288,6 @@ function resolve$1(options) {
 function platformFromOptions(options) {
 	return options.platform ?? process.platform;
 }
-function whichBashPayload(resolution) {
-	return JSON.stringify(resolution, null, 2);
-}
 function diagnosePayload(resolution, platform) {
 	const enabled = platform === "win32" && resolution.found && resolution.path !== null;
 	return JSON.stringify({
@@ -297,9 +296,6 @@ function diagnosePayload(resolution, platform) {
 		status: platform === "win32" ? enabled ? "ready" : "missing-git-bash" : "disabled: git_bash command execution is only exposed on native Windows",
 		resolution
 	}, null, 2);
-}
-function runPayload(result) {
-	return JSON.stringify(result, null, 2);
 }
 function toolResponse(id, text, isError = false) {
 	return successResponse(id, {

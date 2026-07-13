@@ -47,9 +47,15 @@ export async function runGitBashCommand(input: GitBashRunInput): Promise<GitBash
       return { stdout, stderr };
     }
 
+    const env =
+      input.env === undefined
+        ? undefined
+        : Object.fromEntries(
+            Object.entries(input.env).filter(([key]) => key.toLowerCase() !== "original_path"),
+          );
     const child = spawn(input.bashPath, ["-lc", input.command], {
       cwd: input.cwd,
-      env: input.env,
+      env,
       windowsHide: true,
       stdio: ["ignore", stdoutFd, stderrFd],
     });

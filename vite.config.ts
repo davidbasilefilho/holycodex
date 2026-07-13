@@ -1,6 +1,9 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  staged: {
+    "*": "vp check --fix",
+  },
   build: {
     lib: {
       entry: {

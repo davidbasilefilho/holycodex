@@ -2476,13 +2476,10 @@ async function executeLspInstallDecision(params) {
 		errorKind: "unknown_server"
 	}, true);
 	recordInstallDecision(serverId, decision);
-	return text(`Recorded install decision for '${serverId}': ${decision}. ${decisionFollowUp(decision)}`, {
+	return text(`Recorded install decision for '${serverId}': ${decision}. ${decision === "declined" ? "Future LSP lookups for this server stay quiet; proceed without LSP." : "Future LSP lookups keep install instructions without asking the user."}`, {
 		serverId,
 		decision
 	});
-}
-function decisionFollowUp(decision) {
-	return decision === "declined" ? "Future LSP lookups for this server stay quiet; proceed without LSP." : "Future LSP lookups keep install instructions without asking the user.";
 }
 //#endregion
 //#region packages/lsp-core/src/tools/navigation.ts
@@ -3065,12 +3062,9 @@ var LSP_MCP_TOOLS = [
 //#endregion
 //#region packages/lsp-core/src/tools/runtime.ts
 async function executeLspTool(name, params, signal) {
-	const tool = LSP_MCP_TOOLS.find((candidate) => matchesToolName(candidate, name));
+	const tool = LSP_MCP_TOOLS.find((candidate) => candidate.name === name || (candidate.aliases?.includes(name) ?? false));
 	if (!tool) throw new Error(`Unknown LSP tool: ${name}`);
 	return tool.execute(params, signal);
-}
-function matchesToolName(tool, name) {
-	return tool.name === name || (tool.aliases?.includes(name) ?? false);
 }
 function coerceToolArguments(value) {
 	return isRecord(value) ? value : {};
@@ -3078,7 +3072,7 @@ function coerceToolArguments(value) {
 //#endregion
 //#region packages/lsp-core/src/mcp.ts
 var SERVER_NAME = "lsp";
-var SERVER_VERSION = "0.2.0";
+var SERVER_VERSION = "0.3.0";
 async function handleLspMcpRequest(input) {
 	if (!isPlainRecord(input)) return errorResponse(null, -32600, "Invalid Request");
 	const id = jsonRpcId(input["id"]);
@@ -3445,7 +3439,7 @@ function daemonUnreachableResult(paths, error) {
 		content: [{
 			type: "text",
 			text: [
-				`LSP daemon unreachable: ${errorText(error)}.`,
+				`LSP daemon unreachable: ${error instanceof Error ? error.message : String(error)}.`,
 				"The MCP server is a thin proxy and never runs language servers in-process.",
 				`Socket: ${paths.socket}`,
 				`Logs: ${paths.log}`,
@@ -3500,9 +3494,6 @@ function toToolResult(message) {
 		isError: result["isError"] === true,
 		details: result["details"]
 	};
-}
-function errorText(error) {
-	return error instanceof Error ? error.message : String(error);
 }
 //#endregion
 //#region packages/lsp-daemon/src/proxy.ts

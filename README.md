@@ -9,7 +9,7 @@ HolyCodex installs one focused Codex toolkit:
 - 18 on-demand skills for programming, debugging, frontend, LSP, AST search, TDD, security research, planning, handoffs, goal definition, compression, and related workflows.
 - Three optional subagents: `explorer` for internal inspection, `librarian` for external research, and `worker` for bounded implementation.
 - Four MCP defaults: `git_bash`, `lsp`, `grep_app`, and `context7`.
-- Small hooks for readiness, OMO-style intent detection, Windows Git Bash guidance, comment checks, targeted LSP diagnostics, and scoped rules.
+- Small command hooks for readiness and scoped rules.
 - A Node-compatible installer and prebuilt runtime usable through npm or Bun.
 
 The primary agent always owns the task and decisions. Subagents exist only to reduce cost on narrow independent work—not to simulate an organization.
@@ -47,6 +47,8 @@ Installation is noninteractive. It:
 4. Installs the HolyCodex marketplace, plugin, agents, skills, hooks, and MCP definitions.
 5. Sets `max_concurrent_threads_per_session = 2` and defaults the root model to GPT-5.6 Sol low only when no root preference exists.
 
+Codex may still ask you to review and trust the installed command hooks. This security review is the only manual installation step.
+
 Options:
 
 ```sh
@@ -70,7 +72,7 @@ Cleanup backs up affected files, removes only HolyCodex-owned configuration and 
 
 - `plugin/skills/` — shipped skill catalogue and on-demand references.
 - `plugin/agents/` — the three cost-focused subagent definitions.
-- `plugin/hooks/` — readiness and lightweight behavior hooks.
+- `plugin/hooks/` — supported command hooks for readiness and scoped rules.
 - `plugin/.mcp.json` — local and remote MCP defaults.
 - `plugin/runtime/` — prebuilt Node-compatible CLI, rules, Git Bash, and LSP runtime.
 - `src/` — installer, cleanup, bootstrap, and scoped-rules source.

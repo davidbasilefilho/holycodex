@@ -12,7 +12,7 @@ import {
   resolveGitBashForCurrentProcess,
   type GitBashResolution,
 } from "./git-bash-resolver";
-import { runGitBashCommand, type GitBashRunResult, type RunGitBashCommand } from "./runner";
+import { runGitBashCommand, type RunGitBashCommand } from "./runner";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 30 * 60_000;
@@ -53,7 +53,7 @@ export async function handleGitBashMcpRequest(
     const protocolVersion = protocolVersionFromInput(input) ?? "2024-11-05";
     return successResponse(id, {
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: "git_bash", version: "0.2.1" },
+      serverInfo: { name: "git_bash", version: "0.3.0" },
       protocolVersion,
     });
   }
@@ -96,7 +96,7 @@ async function callTool(
   args: Record<string, unknown>,
   options: GitBashMcpOptions,
 ): Promise<JsonRpcResponse> {
-  if (name === "which_bash") return toolResponse(id, whichBashPayload(resolve(options)));
+  if (name === "which_bash") return toolResponse(id, JSON.stringify(resolve(options), null, 2));
   if (name === "diagnose")
     return toolResponse(id, diagnosePayload(resolve(options), platformFromOptions(options)));
   if (name === "run") return await runToolResponse(id, args, options);
@@ -130,7 +130,7 @@ async function runToolResponse(
 
   const resolution = resolve(options);
   if (!resolution.found || resolution.path === null)
-    return toolResponse(id, whichBashPayload(resolution), true);
+    return toolResponse(id, JSON.stringify(resolution, null, 2), true);
 
   try {
     const run = options.runGitBash ?? runGitBashCommand;
@@ -141,7 +141,7 @@ async function runToolResponse(
       timeoutMs,
       env: options.env ?? process.env,
     });
-    return toolResponse(id, runPayload(result));
+    return toolResponse(id, JSON.stringify(result, null, 2));
   } catch (error) {
     return toolResponse(id, error instanceof Error ? error.message : String(error), true);
   }
@@ -221,10 +221,6 @@ function platformFromOptions(options: GitBashMcpOptions): string {
   return options.platform ?? process.platform;
 }
 
-function whichBashPayload(resolution: GitBashResolution): string {
-  return JSON.stringify(resolution, null, 2);
-}
-
 function diagnosePayload(resolution: GitBashResolution, platform: string): string {
   const enabled = platform === "win32" && resolution.found && resolution.path !== null;
   const payload = {
@@ -239,10 +235,6 @@ function diagnosePayload(resolution: GitBashResolution, platform: string): strin
     resolution,
   };
   return JSON.stringify(payload, null, 2);
-}
-
-function runPayload(result: GitBashRunResult): string {
-  return JSON.stringify(result, null, 2);
 }
 
 function toolResponse(id: string | number | null, text: string, isError = false): JsonRpcResponse {

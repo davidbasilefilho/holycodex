@@ -1,6 +1,6 @@
 {
   "name": "holycodex",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Lean Codex-only agents, skills, hooks, and MCP defaults.",
   "author": {
     "name": "David Basile Filho",
@@ -10,20 +10,14 @@
   "repository": "https://github.com/davidbasilefilho/holycodex",
   "license": "SUL-1.0",
   "skills": "./skills/",
-  "hooks": [
-    "./hooks/hooks.json"
-  ],
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "HolyCodex",
     "shortDescription": "Codex agents, routed skills, scoped rules, Git Bash, LSP, code search, and docs lookup.",
     "longDescription": "Use HolyCodex agents only for narrow delegated exploration, research, or isolated implementation. Skills declare their own triggers. Use git_bash for reliable Windows shell execution, lsp for semantic diagnostics and navigation, grep_app for public code examples, and context7 for current library documentation.",
+    "defaultPrompt": "Use HolyCodex to implement and verify this task.",
     "developerName": "David Basile Filho",
     "category": "Developer Tools",
-    "capabilities": [
-      "Hooks",
-      "MCP Tools",
-      "Code Intelligence"
-    ]
+    "capabilities": ["Hooks", "MCP Tools", "Code Intelligence"]
   }
 }

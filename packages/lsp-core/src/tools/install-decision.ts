@@ -1,9 +1,5 @@
 import { getMergedServers } from "../lsp/config-loader.js";
-import {
-  type InstallDecision,
-  isInstallDecision,
-  recordInstallDecision,
-} from "../lsp/server-install-state.js";
+import { isInstallDecision, recordInstallDecision } from "../lsp/server-install-state.js";
 import { requireString } from "./parameters.js";
 import { text } from "./result.js";
 import type { ToolExecutionResult } from "./types.js";
@@ -32,17 +28,12 @@ export async function executeLspInstallDecision(
   }
 
   recordInstallDecision(serverId, decision);
-  return text(
-    `Recorded install decision for '${serverId}': ${decision}. ${decisionFollowUp(decision)}`,
-    {
-      serverId,
-      decision,
-    },
-  );
-}
-
-function decisionFollowUp(decision: InstallDecision): string {
-  return decision === "declined"
-    ? "Future LSP lookups for this server stay quiet; proceed without LSP."
-    : "Future LSP lookups keep install instructions without asking the user.";
+  const followUp =
+    decision === "declined"
+      ? "Future LSP lookups for this server stay quiet; proceed without LSP."
+      : "Future LSP lookups keep install instructions without asking the user.";
+  return text(`Recorded install decision for '${serverId}': ${decision}. ${followUp}`, {
+    serverId,
+    decision,
+  });
 }
