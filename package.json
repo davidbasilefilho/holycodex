@@ -39,7 +39,11 @@
     "check": "vp check",
     "test": "vp test",
     "build": "vp build",
-    "prepack": "vp build"
+    "prepack": "vp build",
+    "version:check": "node scripts/version.mjs check",
+    "version:patch": "node scripts/version.mjs patch",
+    "version:minor": "node scripts/version.mjs minor",
+    "version:set": "node scripts/version.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
