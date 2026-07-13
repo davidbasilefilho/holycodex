@@ -18,10 +18,6 @@
     "defaultPrompt": "Use HolyCodex to implement and verify this task.",
     "developerName": "David Basile Filho",
     "category": "Developer Tools",
-    "capabilities": [
-      "Hooks",
-      "MCP Tools",
-      "Code Intelligence"
-    ]
+    "capabilities": ["Hooks", "MCP Tools", "Code Intelligence"]
   }
 }

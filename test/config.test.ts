@@ -40,9 +40,7 @@ describe("Codex configuration", () => {
   it("maps each bundled subagent to its own instruction file", () => {
     const output = installConfig("", false);
     for (const agent of ["explorer", "librarian", "worker"]) {
-      expect(output).toContain(
-        `[agents.${agent}]\nconfig_file = "holycodex/agents/${agent}.toml"`,
-      );
+      expect(output).toContain(`[agents.${agent}]\nconfig_file = "holycodex/agents/${agent}.toml"`);
     }
     expect(output).not.toContain("developer_instructions");
   });
