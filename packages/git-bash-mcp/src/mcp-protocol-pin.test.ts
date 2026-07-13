@@ -23,7 +23,7 @@ describe("git_bash MCP protocol pins", () => {
       id: 1,
       result: {
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "git_bash", version: "0.4.4" },
+        serverInfo: { name: "git_bash", version: "0.4.5" },
         protocolVersion: "2024-11-05",
       },
     });

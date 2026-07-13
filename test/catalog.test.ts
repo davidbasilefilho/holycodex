@@ -42,8 +42,10 @@ describe("HolyCodex catalog", () => {
       const prompt = await readFile(join(root, "plugin", "agents", agent), "utf8");
       expect(prompt).toMatch(/^description = ".*Use .*"$/m);
       expect(prompt).toContain('Start: "I detect ');
-      expect(prompt).toContain("Use git_bash MCP for every shell command.");
-      expect(prompt).not.toContain("Delegate bounded labor");
+      expect(prompt).toContain("MUST use git_bash MCP for every shell command.");
+      expect(prompt).toContain("Use exec_command only after git_bash MCP is confirmed unavailable");
+      expect(prompt).toContain("never use it merely by preference or because a command failed");
+      expect(prompt).not.toMatch(/delegat|subagent/i);
     }
     expect(await readFile(join(root, "plugin", "agents", "worker.toml"), "utf8")).toContain(
       "Prompt, skill, or instruction task: load caveman skill first; write terse without losing constraints.",

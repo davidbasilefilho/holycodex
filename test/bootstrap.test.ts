@@ -16,15 +16,21 @@ describe("bootstrap readiness", () => {
     );
     const context = await readinessContext(root);
     expect(context).toContain('Start first user-facing update: "I detect ');
-    expect(context).toContain("Shell: git_bash MCP");
+    expect(context).toContain("MUST use git_bash MCP for every shell command");
+    expect(context).toContain("Use exec_command only after git_bash MCP is confirmed unavailable");
+    expect(context).toContain("never use it merely by preference or because a command failed");
     expect(context).toContain("load caveman");
-    expect(context).toContain("Primary owns decisions, integration, verification.");
-    expect(context).toContain("Delegate only bounded independent work that saves cost/time");
+    expect(context).toContain("Main agent owns decisions, integration, and verification.");
+    expect(context).toContain(
+      "Main agent MUST delegate every suitable low-complexity, bounded, independent subtask to reduce cost",
+    );
     expect(context).toContain("explorer=repo facts");
     expect(context).toContain("librarian=current external facts");
     expect(context).toContain("worker=isolated implementation");
-    expect(context).toContain("Never delegate responsibility, trivial, or tightly coupled work.");
-    expect(context).toContain("Subagents cut cost, not form organization.");
+    expect(context).toContain(
+      "Main agent must not delegate responsibility, trivial work, or tightly coupled work.",
+    );
+    expect(context).toContain("Delegation reduces cost; it does not create organization.");
     expect(context).toContain("Match reasoning effort to complexity.");
   });
 
@@ -35,6 +41,8 @@ describe("bootstrap readiness", () => {
     };
 
     expect(output.hookSpecificOutput?.hookEventName).toBe("SessionStart");
-    expect(output.hookSpecificOutput?.additionalContext).toContain("Shell: git_bash MCP");
+    expect(output.hookSpecificOutput?.additionalContext).toContain(
+      "Use exec_command only after git_bash MCP is confirmed unavailable",
+    );
   });
 });
