@@ -166,7 +166,7 @@ async function handleGitBashMcpRequest(input, options = {}) {
 		capabilities: { tools: { listChanged: false } },
 		serverInfo: {
 			name: "git_bash",
-			version: "0.3.0"
+			version: "0.3.1"
 		},
 		protocolVersion: protocolVersionFromInput(input) ?? "2024-11-05"
 	});

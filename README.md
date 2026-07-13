@@ -79,20 +79,6 @@ Cleanup backs up affected files, removes only HolyCodex-owned configuration and 
 - `packages/` — Git Bash and LSP MCP source.
 - `test/` — CLI, lifecycle, catalogue, rules, bootstrap, and MCP tests.
 
-### Versioning for maintainers
-
-HolyCodex follows [ZeroVer](https://0ver.org/): versions stay below `1.0.0`; fixes increment the third component, while breaking changes increment the second.
-
-```sh
-npm run version:check       # verify every package/runtime version matches
-npm run version:patch       # compatible release: 0.2.0 -> 0.2.1
-npm run version:minor       # breaking release: 0.2.7 -> 0.3.0
-npm run version:set -- 0.4.3
-node scripts/version.mjs patch --dry-run
-```
-
-The helper updates the root package, plugin manifest, private workspace packages, CLI/cache version, MCP server versions, and pinned tests together. It does not commit, tag, publish, or push. After a bump, review the diff and run the four checks printed by the command.
-
 ## Thanks
 
 HolyCodex exists because of the work of:
