@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { t as CORE_INSTRUCTIONS } from "./core-instructions-CKS8xwZK.js";
+import { t as CORE_INSTRUCTIONS } from "./core-instructions-C3FKctng.js";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { stdin, stdout } from "node:process";
