@@ -1,6 +1,6 @@
 ---
 name: caveman
-description: Terse, technically exact replies in lite, full, ultra, or Wenyan variants. Use for caveman mode, brief replies, fewer tokens, or `/caveman`.
+description: Use when the user requests caveman mode, terse replies, fewer tokens, or `/caveman`, or when HolyCodex prompt and instruction edits require dense wording; do not remove required detail or silently change ordinary prose tone. Produces constraint-preserving lite, full, ultra, or Wenyan text; unlike compress it controls ongoing voice.
 ---
 
 # Caveman

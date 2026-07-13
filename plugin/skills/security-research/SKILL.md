@@ -1,6 +1,6 @@
 ---
 name: security-research
-description: Use for exploitability-led repo security review, threat analysis, validation, or attack paths.
+description: Use when an authorized task needs repository security review, threat analysis, vulnerability validation, or attack-path and exploitability proof; do not use for generic review, ordinary debugging, unsupported hardening claims, or real-system attacks. Produces evidence-calibrated findings and minimum fixes; unlike debugging it evaluates attacker reachability and impact.
 ---
 
 # Security Research

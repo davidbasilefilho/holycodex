@@ -21,17 +21,18 @@ describe("bootstrap readiness", () => {
     expect(context).toContain("never use it merely by preference or because a command failed");
     expect(context).toContain("load caveman");
     expect(context).toContain("Default user-facing replies:");
-    expect(context).toContain("Main agent owns decisions, integration, and verification.");
     expect(context).toContain(
-      "Main agent MUST delegate every suitable low-complexity, bounded, independent subtask to reduce cost",
+      "Main agent owns intent, scope, architecture, decisions, integration, and final verification.",
     );
-    expect(context).toContain("explorer=repo facts");
-    expect(context).toContain("librarian=current external facts");
+    expect(context).toContain("a skill alone is sufficient");
+    expect(context).toContain("Delegate only a useful low-complexity slice");
+    expect(context).toContain("explorer=read-only repo facts");
+    expect(context).toContain("librarian=read-only current external facts");
     expect(context).toContain("worker=isolated implementation");
-    expect(context).toContain(
-      "Main agent must not delegate responsibility, trivial work, or tightly coupled work.",
-    );
-    expect(context).toContain("Delegation reduces cost; it does not create organization.");
+    expect(context).toContain("Never delegate trivial work, tightly coupled work, architecture");
+    expect(context).toContain("exact scope, deliverable, acceptance criteria, evidence");
+    expect(context).toContain("Treat returned work as input");
+    expect(context).toContain("never recurse or create organization");
     expect(context).toContain("Match reasoning effort to complexity.");
   });
 

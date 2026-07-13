@@ -10,7 +10,7 @@ const run = promisify(execFile);
 describe("CLI", () => {
   it("prints version under Node", async () => {
     const result = await run(process.execPath, ["src/cli.ts", "--version"]);
-    expect(result.stdout).toBe("0.4.6\n");
+    expect(result.stdout).toBe("0.5.0\n");
   });
 
   it("enables autonomous Codex permissions by default", async () => {

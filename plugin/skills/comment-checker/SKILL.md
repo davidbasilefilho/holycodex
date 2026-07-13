@@ -1,6 +1,6 @@
 ---
 name: comment-checker
-description: Use to handle comment-checker warnings after edits.
+description: Use when an edit produces a comment-checker warning that must be fixed or explained; do not use for ordinary comments, lint output, or before an edit. Produces a disposition for every blocking warning; unlike programming checks it handles the edit hook only.
 ---
 
 # Comment Checker

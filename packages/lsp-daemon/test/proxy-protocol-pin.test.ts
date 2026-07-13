@@ -22,7 +22,7 @@ describe("lsp-daemon MCP proxy protocol pins", () => {
       id: 1,
       result: {
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "lsp", version: "0.4.6" },
+        serverInfo: { name: "lsp", version: "0.5.0" },
         protocolVersion: "2024-11-05",
       },
     });

@@ -38,7 +38,6 @@ describe("install lifecycle", () => {
       mcpServers: {
         git_bash: { command: "node", args: ["runtime/git-bash.js", "mcp"], cwd: "." },
         lsp: { command: "node", args: ["runtime/lsp.js", "mcp"], cwd: "." },
-        grep_app: { url: "https://mcp.grep.app" },
         context7: { url: "https://mcp.context7.com/mcp" },
       },
     });

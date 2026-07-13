@@ -32,11 +32,23 @@ const responseStyleContract = [
 ] as const;
 
 describe("HolyCodex catalog", () => {
+  it("uses the HolyCodex marketplace label", async () => {
+    const marketplace = JSON.parse(await readFile(join(root, "marketplace.json"), "utf8")) as {
+      name: string;
+      interface?: { displayName?: string };
+    };
+    expect(marketplace.name).toBe("HolyCodex");
+    expect(marketplace.interface?.displayName).toBe("HolyCodex");
+  });
+
   it("ships only routed skills and three described agents", async () => {
     expect((await readdir(join(root, "plugin", "skills"))).sort()).toEqual([...skills].sort());
     for (const skill of skills) {
       const text = await readFile(join(root, "plugin", "skills", skill, "SKILL.md"), "utf8");
-      expect(text).toMatch(/^description:\s*(?:>|.*(?:Use|use|Explicit request))/m);
+      expect(text).toMatch(/^description: Use when /m);
+      const description = text.match(/^description:\s*(.*)$/m)?.[1] ?? "";
+      expect(description).toMatch(/do not|only when|only after|before editing/i);
+      expect(description).toMatch(/Produces|Applies|Creates|Returns/i);
     }
     expect((await readdir(join(root, "plugin", "agents"))).sort()).toEqual([
       "explorer.toml",
@@ -52,7 +64,22 @@ describe("HolyCodex catalog", () => {
       expect(prompt).toContain("never use it merely by preference or because a command failed");
       for (const rule of responseStyleContract) expect(prompt).toContain(rule);
       expect(prompt).not.toMatch(/delegat|subagent/i);
+      expect(prompt).toContain("Accept one task packet:");
+      expect(prompt).toContain("acceptance criteria");
+      expect(prompt).toContain("prohibited expansion");
+      expect(prompt).toContain("stop condition");
+      expect(prompt).toContain("Return exactly:");
+      expect(prompt).toContain("no proposed extra work");
     }
+    expect(await readFile(join(root, "plugin", "agents", "explorer.toml"), "utf8")).toContain(
+      'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "low"',
+    );
+    expect(await readFile(join(root, "plugin", "agents", "librarian.toml"), "utf8")).toContain(
+      'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "low"',
+    );
+    expect(await readFile(join(root, "plugin", "agents", "worker.toml"), "utf8")).toContain(
+      'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "medium"',
+    );
     expect(await readFile(join(root, "plugin", "agents", "worker.toml"), "utf8")).toContain(
       "Prompt, skill, or instruction task: load caveman skill first; write terse without losing constraints.",
     );
@@ -80,7 +107,6 @@ describe("HolyCodex catalog", () => {
     expect(manifest.mcpServers).toEqual({
       git_bash: { command: "node", args: ["runtime/git-bash.js", "mcp"], cwd: "." },
       lsp: { command: "node", args: ["runtime/lsp.js", "mcp"], cwd: "." },
-      grep_app: { url: "https://mcp.grep.app" },
       context7: { url: "https://mcp.context7.com/mcp" },
     });
     await Promise.all(
@@ -99,6 +125,16 @@ describe("HolyCodex catalog", () => {
         "rules.js",
       ].sort(),
     );
+  });
+
+  it("keeps plugin routing ownership explicit", async () => {
+    const manifest = JSON.parse(
+      await readFile(join(root, "plugin", ".codex-plugin", "plugin.json"), "utf8"),
+    ) as { interface?: { longDescription?: string } };
+    const description = manifest.interface?.longDescription ?? "";
+    expect(description).toContain("Skills own their declared methods and gates");
+    expect(description).toContain("main agent owns decisions, integration, and verification");
+    expect(description).toContain("do not delegate trivial, coupled, ambiguous, architectural");
   });
 
   it("gives every local MCP tool invocation guidance", async () => {

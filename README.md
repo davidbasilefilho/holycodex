@@ -8,21 +8,20 @@ HolyCodex installs one focused Codex toolkit:
 
 - 18 on-demand skills for programming, debugging, frontend, LSP, AST search, TDD, security research, planning, handoffs, goal definition, compression, and related workflows.
 - Three optional subagents: `explorer` for internal inspection, `librarian` for external research, and `worker` for bounded implementation.
-- Four MCP defaults: `git_bash`, `lsp`, `grep_app`, and `context7`.
+- Three MCP defaults: `git_bash`, `lsp`, and `context7`.
 - Small command hooks for readiness and scoped rules.
 - A Node-compatible installer and prebuilt runtime usable through npm or Bun.
 
-The primary agent always owns the task and decisions. Subagents exist only to reduce cost on narrow independent work—not to simulate an organization.
+The primary agent owns intent, scope, architecture, decisions, integration, and final verification. Subagents only reduce cost on narrow independent work; skills own their declared methods and gates.
 
 ## Why
 
 Large always-on prompts, agent hierarchies, review loops, and duplicated context consume tokens before useful work begins. HolyCodex takes a smaller approach:
 
-- Skills load only when their descriptions match the task.
-- Descriptions explain both what each capability does and when to use it.
+- Skills load only when descriptions match the task and state activation, exclusions, outcome, and adjacent boundary.
 - Rules are path-scoped, size-limited, cached, and deduplicated; `AGENTS.md` is never reinjected.
-- Delegation is capped at two and remains under primary-agent control.
-- Sol and Terra use low or medium reasoning; Luna may also use high.
+- Concurrent delegation is capped at two; every delegated slice has fixed scope, evidence, acceptance, and stop conditions under primary-agent control.
+- Explorer and librarian use GPT-5.6 Luna low; worker uses GPT-5.6 Luna medium.
 - OMO workflows and retained references are rewritten with caveman-style token efficiency.
 - The OMO frontend skill is merged with GPT Taste instead of shipping another overlapping skill.
 

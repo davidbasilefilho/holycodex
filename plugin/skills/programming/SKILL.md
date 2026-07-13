@@ -1,6 +1,6 @@
 ---
 name: programming
-description: Use strict Python, Rust, TypeScript, and Go rules for matching source files.
+description: Use when a task edits Python, Rust, TypeScript, Go, or their matching manifests; do not use for prose-only edits or unsupported languages. Applies language-specific correctness, typing, size, and verification rules; debugging, TDD, or refactor may additionally own the workflow.
 ---
 
 # Programming

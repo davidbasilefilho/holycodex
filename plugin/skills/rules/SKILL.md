@@ -1,6 +1,6 @@
 ---
 name: rules
-description: Use to inspect HolyCodex rule discovery, matching, injection, deduplication, limits, or cache.
+description: Use when a task asks how HolyCodex rules are discovered, matched, injected, deduplicated, limited, cached, or why rule loading is wrong; do not use merely because repository instructions exist or for skill routing. Produces an evidence-backed rule trace without exposing unrelated content; unlike general debugging it owns this pipeline.
 ---
 
 # Rules

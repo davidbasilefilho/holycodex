@@ -1,6 +1,6 @@
 ---
 name: remove-ai-slops
-description: Use to remove AI-generated code smells without behavior or feature changes.
+description: Use when a task asks to remove AI-generated code smells from an explicit diff or file scope without behavior changes; do not use for general refactors, features, bug fixes, or repository-wide cleanup. Produces behavior-locked removal of proven smell instances; unlike refactor it may cover several categories in fixed scope.
 ---
 
 # Remove AI Slops

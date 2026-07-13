@@ -1,6 +1,6 @@
 ---
 name: compress
-description: Use to shorten text without losing meaning, constraints, tone, safety, structure, or exact technical content.
+description: Use when a task needs text, prompts, or instructions shortened without losing meaning or constraints; do not use for lossy summaries, code refactors, or ongoing voice changes. Produces a denser constraint-equivalent version; unlike caveman it preserves source tone unless asked otherwise.
 ---
 
 # Compress

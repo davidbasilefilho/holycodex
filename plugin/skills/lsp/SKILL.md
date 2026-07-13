@@ -1,6 +1,6 @@
 ---
 name: lsp
-description: Use LSP diagnostics, definitions, references, symbols, or safe rename.
+description: Use when a coding task needs semantic diagnostics, definitions, references, symbols, or safe rename from a configured language server; do not use for text search, syntax-shape search, or server installation. Produces semantic locations, diagnostics, or workspace edits; unlike lsp-setup it assumes a usable server.
 ---
 
 # LSP

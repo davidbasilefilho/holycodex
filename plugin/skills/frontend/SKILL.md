@@ -1,11 +1,20 @@
 ---
 name: frontend
-description: Use for web UI build, debugging, audit, accessibility, or performance. Motion-rich premium React/Tailwind page creation or redesign activates mandatory GPT Taste: AIDA, wide hero, dense bento, GSAP, assets, and preflight proof.
+description: Use when a task needs frontend, web UI, UX, visual design, interaction, responsive layout, accessibility, or browser-performance work; do not use for backend-only work, static prose, or non-web artifacts. Produces context-aware approved design decisions followed by accessible responsive implementation or findings; premium React/Tailwind creation adds the GPT Taste route.
 ---
 
 # Frontend
 
-Preserve stack, behavior, tokens, patterns, and supplied visual contract. Keep scope small. Do not force `DESIGN.md`, research, dependencies, GSAP, or heavy QA.
+Preserve stack, behavior, tokens, patterns, supplied visual contract, and existing product identity. Keep scope small. Avoid generic AI styling. Do not force `DESIGN.md`, research, dependencies, GSAP, or heavy QA.
+
+## Approval sequence
+
+1. Load `frontend`; inspect the request, product shell, target surface, design tokens, nearest pattern, responsive contract, supplied references, and relevant states.
+2. Select only material design decisions: theme or visual direction, typography, layout and density, color and surfaces, asset role, interaction and motion, responsive behavior, and accessibility or state treatment. Preserve established decisions unless change is requested.
+3. Present the compact decision set with existing constraints and ask for approval before implementation. For a fix, audit, accessibility, or performance task, include only decisions that alter user-visible design; diagnosis and technical implementation details need no approval.
+4. After approval, ask whether the user wants to define a goal. Only after explicit agreement load `define-goal`; otherwise implement.
+
+Approval owns visible direction and material interaction changes. Existing component APIs, code structure, exact CSS values, breakpoint mechanics, libraries already required by the approved route, and other reversible implementation details remain implementation decisions.
 
 ## Route
 
@@ -17,7 +26,7 @@ Preserve stack, behavior, tokens, patterns, and supplied visual contract. Keep s
 
 ## Mandatory GPT Taste route
 
-- Before code, emit `<design_plan>` with deterministic prompt-derived selection: one hero, one approved font stack (`Satoshi`, `Cabinet Grotesk`, `Outfit`, or `Geist`; never `Inter`), three component architectures, two GSAP paradigms. Do not repeat default combination or replace established type contract.
+- During the approval decision set, emit `<design_plan>` with deterministic prompt-derived selection: one hero, one approved font stack (`Satoshi`, `Cabinet Grotesk`, `Outfit`, or `Geist`; never `Inter`), three component architectures, two GSAP paradigms. Do not repeat a default combination or replace an established type contract.
 - Follow AIDA: premium nav; Attention hero; Interest bento/features; Desire scroll/media; Action CTA/footer. Separate chapters with `py-32 md:py-48`.
 - Select cinematic center, artistic asymmetry, or editorial split. Build one hero: wide `max-w-5xl`/`max-w-6xl` H1, responsive `clamp`, maximum 2–3 lines, strong art direction, perfect button contrast, no stamp icons, pill tags, or raw stats.
 - Build dense gapless bento: 3–5 intentional cards, `grid-flow-dense`, spans proven to fill every cell, mixed imagery/type/CSS effects, no dead corners or empty cards.
@@ -36,7 +45,7 @@ Required `<design_plan>`:
 4. Grid-span math and `grid-flow-dense` proof.
 5. Meta-label sweep and button-contrast check.
 
-Only then output UI code.
+Only after approval and optional goal choice may implementation begin.
 
 ## Implementation
 

@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Use public-seam red-green-refactor for requested TDD, regression, or integration tests.
+description: Use when a task requests TDD, regression coverage, integration tests, or a public-seam failing test before implementation; do not use for test inspection, unrelated failures, or work with adequate existing proof. Produces deterministic red-green-refactor slices; unlike debugging it governs test-first delivery after behavior is known.
 ---
 
 # TDD

@@ -1,6 +1,6 @@
 ---
 name: ast-grep
-description: Search or rewrite code by syntax shape; use for safe repeatable codemods.
+description: Use when a task needs syntax-aware code search or a repeatable structural rewrite across AST-shaped matches; do not use for plain text search, one local edit, or symbol navigation. Produces reviewed deterministic matches or a codemod; unlike LSP it matches syntax, not symbol identity.
 ---
 
 # ast-grep

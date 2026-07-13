@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Use to save compact, safe context for another agent or session.
+description: Use when a task needs compact resumable context transferred to another agent or session; do not use for routine summaries, delegation packets, or completed work. Produces one redacted temporary handoff referencing durable artifacts; unlike planning it records state without choosing future work.
 ---
 
 # Handoff

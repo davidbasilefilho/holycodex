@@ -1,6 +1,6 @@
 ---
 name: lsp-setup
-description: Use to configure and verify one missing or unconfigured language server.
+description: Use when a task needs language-server installation or configuration because the user requests setup or the required LSP is missing; do not use when an existing server works or for general dependency setup. Produces one minimal verified server configuration; unlike lsp it establishes capability rather than using it.
 ---
 
 # LSP Setup
