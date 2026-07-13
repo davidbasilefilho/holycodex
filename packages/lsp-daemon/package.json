@@ -1,0 +1,39 @@
+{
+  "name": "@holycodex/lsp-daemon",
+  "version": "0.2.0",
+  "description": "Shared per-user Language Server Protocol daemon over a unix socket, with a stdio MCP proxy and a tool client.",
+  "license": "MIT",
+  "bin": {
+    "holycodex-lsp-daemon": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && bun build src/cli.ts src/index.ts --outdir dist --target node --format esm && node scripts/stamp-dist-version.mjs",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "check": "tsc --noEmit && biome check . && npm run build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
+    "@holycodex/lsp-core": "workspace:*",
+    "@holycodex/mcp-stdio-core": "workspace:*",
+    "@types/node": "^25.9.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "npm@11.16.0"
+}

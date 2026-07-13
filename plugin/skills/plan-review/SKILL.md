@@ -1,6 +1,12 @@
 ---
 name: plan-review
-description: Explicit-only one-pass plan review.
+description: Review and repair an existing plan once. Use only when the user explicitly asks to review, critique, validate, or improve a plan.
 ---
 
-Use only when user explicitly asks. One pass. Find genuine blockers, ambiguity, missing proof. Repair directly. Stop. No reviewer agent or ceremony.
+# Plan Review
+
+On activation, first user-visible line must be:
+
+**PLAN REVIEW ACTIVATED**
+
+One pass. Check plan against request and repo facts. Find only real blockers: wrong seam, missing dependency, unsafe mutation, unverifiable step, incompatible contract, omitted required scope. Repair directly. Keep good parts. No reviewer agent, scoring theater, evidence folder, or second review loop. Stop after corrected executable plan.

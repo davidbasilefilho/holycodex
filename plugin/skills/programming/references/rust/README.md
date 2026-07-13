@@ -1,0 +1,3 @@
+# Rust
+
+Preserve crate choices. Greenfield: stable edition, rustfmt, Clippy warnings denied, cargo test. Model states with enums/newtypes; borrow before clone; iterator when clearer. Libraries return typed `thiserror` errors; applications may add `anyhow` context at boundary. No `unwrap`, `expect`, panic, ignored `Result`, needless clone, blocking call in async runtime, or unbounded task. Use cancellation-aware structured tasks. Test public behavior; add property tests only for real invariants. Unsafe/FFI also loads `../rust-ub/README.md`. Run fmt, check, Clippy, targeted tests; Miri when unsafe touched.

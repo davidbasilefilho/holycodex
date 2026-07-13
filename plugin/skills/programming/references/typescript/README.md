@@ -1,0 +1,3 @@
+# TypeScript
+
+Preserve workspace runtime/package manager. Strict `tsc`; project formatter/linter/test runner. `unknown` at boundaries, then narrow or schema-parse. Prefer discriminated unions, `readonly`, `satisfies`, type-only imports, named exports. No `any`, ignored diagnostic, non-null assertion, unchecked cast, enum, empty catch, or swallowed error. Async work must expose cancellation/timeout where caller needs it. React: semantic HTML, stable keys, minimal effects; derive state instead of syncing it. Test public behavior with Vitest/project runner. Run formatter, typecheck, targeted tests.

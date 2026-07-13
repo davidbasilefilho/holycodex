@@ -1,2 +1,2 @@
 #!/usr/bin/env node
-import "../dist/cli.js";
+import "../plugin/runtime/cli.js";

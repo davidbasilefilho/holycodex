@@ -2,3 +2,8 @@ node_modules/
 dist/
 *.tgz
 .vite/
+coverage/
+.tmp-*/
+*.log
+pack.json
+pack-files.txt

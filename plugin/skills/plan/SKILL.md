@@ -1,6 +1,14 @@
 ---
 name: plan
-description: Explicit-only concise executable planning.
+description: Write a concise executable plan. Use only when the user explicitly asks for a plan before implementation.
 ---
 
-Use only when user explicitly asks. Main agent writes ordered steps with files, outcome, check. No subagents, evidence directory, execution waves, or commit ritual unless requested.
+# Plan
+
+On activation, first user-visible line must be:
+
+**PLAN MODE ACTIVATED**
+
+Main agent writes plan. No subagent, reviewer, evidence directory, execution waves, commit ritual, or ceremony unless user asks.
+
+Inspect enough repo context first. Then give ordered steps. Each step names relevant files or surface, exact change, expected outcome, smallest proof. Mark dependencies and user decisions only when material. Preserve architecture and scope. Stop when plan is executable.

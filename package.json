@@ -1,6 +1,6 @@
 {
   "name": "holycodex",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lean Codex-only agent toolkit for ChatGPT Plus",
   "keywords": [
     "agents",
@@ -21,9 +21,14 @@
   "bin": {
     "holycodex": "bin/holycodex.js"
   },
+  "workspaces": [
+    "packages/git-bash-mcp",
+    "packages/lsp-core",
+    "packages/lsp-daemon",
+    "packages/mcp-stdio-core"
+  ],
   "files": [
     "bin",
-    "dist",
     "plugin",
     "marketplace.json",
     "LICENSE",

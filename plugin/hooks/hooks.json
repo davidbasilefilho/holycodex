@@ -6,7 +6,32 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Load only path-relevant HolyCodex rules. Never reinject AGENTS.md. Keep rule context small and deduplicated."
+            "prompt": "HolyCodex default: first state `I detect [intent type] - [reason]. [What I'm doing now].` This commits same-turn follow-through. Answer/review/diagnose/plan requests inspect and report; build/fix requests implement and verify. Status reports then continues active work. Work direct by default. Batch discovery. Use update_plan for multi-step work. Primary agent keeps control. Subagents only reduce cost; never simulate an organization. Max two narrow independent subagents; never recursive, duplicate, or full-history fork. Preserve user changes. Smallest root fix. Personally exercise artifact through matching surface. After three materially different failures, stop editing and ask one precise question. Load only path-relevant deduplicated rules; never reinject AGENTS.md. Sol/Terra allow low or medium reasoning; Luna allows low, medium, high. Final leads with result and proof."
+          },
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/runtime/bootstrap.js\"",
+            "timeout": 10,
+            "statusMessage": "HolyCodex: checking readiness"
+          },
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/runtime/rules.js\"",
+            "timeout": 10,
+            "statusMessage": "HolyCodex: loading scoped rules"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/runtime/rules.js\"",
+            "timeout": 10,
+            "statusMessage": "HolyCodex: loading scoped rules"
           }
         ]
       }
@@ -37,12 +62,31 @@
             "prompt": "Run targeted LSP diagnostics for edited supported files only."
           }
         ]
+      },
+      {
+        "matcher": "^apply_patch$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/runtime/rules.js\"",
+            "timeout": 10,
+            "statusMessage": "HolyCodex: matching scoped rules"
+          }
+        ]
       }
     ],
     "PostCompact": [
       {
         "matcher": "*",
-        "hooks": [{ "type": "prompt", "prompt": "Reset scoped rule and LSP diagnostic caches." }]
+        "hooks": [
+          { "type": "prompt", "prompt": "Reset scoped rule and LSP diagnostic caches." },
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/runtime/rules.js\"",
+            "timeout": 10,
+            "statusMessage": "HolyCodex: resetting scoped rule cache"
+          }
+        ]
       }
     ]
   }
