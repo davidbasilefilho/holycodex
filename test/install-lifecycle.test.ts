@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -61,9 +61,16 @@ describe("install lifecycle", () => {
     expect(installed).toContain('[plugins."holycodex@holycodex"]\nenabled = true');
     expect((await install({ autonomous: false, json: false })).action).toBe("install");
 
+    const staleCache = join(home, "plugins", "cache", "holycodex", "holycodex", "0.2.1");
+    await mkdir(staleCache, { recursive: true });
+    await writeFile(join(staleCache, "hooks.json"), '{"type":"prompt"}');
+
     await cleanup({ autonomous: false, json: false });
     await cleanup({ autonomous: false, json: false });
     expect(await readFile(join(home, "config.toml"), "utf8")).toBe("[custom]\nvalue = true\n");
+    await expect(access(join(home, "plugins", "cache", "holycodex"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it("removes a config created solely by HolyCodex", async () => {

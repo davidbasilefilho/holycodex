@@ -16,12 +16,14 @@ const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(moduleDirectory, basename(moduleDirectory) === "runtime" ? "../.." : "..");
 
 function paths(home = process.env.CODEX_HOME ?? join(homedir(), ".codex")) {
-  const cacheRoot = join(home, "plugins", "cache", "holycodex", "holycodex");
+  const marketplaceCache = join(home, "plugins", "cache", "holycodex");
+  const cacheRoot = join(marketplaceCache, "holycodex");
   return {
     home,
     config: join(home, "config.toml"),
+    marketplaceCache,
     cacheRoot,
-    cache: join(cacheRoot, "0.4.1"),
+    cache: join(cacheRoot, "0.4.2"),
     agents: join(home, "holycodex", "agents"),
     legacy: [
       join(home, "plugins", "cache", "sisyphuslabs", "omo"),
@@ -40,13 +42,13 @@ export async function install(options: RunOptions): Promise<RunResult> {
   const root = backupRoot();
   const backups = [
     await backup(target.config, root),
-    await backup(target.cacheRoot, root),
+    await backup(target.marketplaceCache, root),
     await backup(target.agents, root),
     ...(await Promise.all(target.legacy.map((path) => backup(path, root)))),
   ].filter((path) => path !== undefined);
   const config = installConfig(await readText(target.config), options.autonomous);
   await atomicWrite(target.config, config);
-  await rm(target.cacheRoot, { recursive: true, force: true });
+  await rm(target.marketplaceCache, { recursive: true, force: true });
   await mkdir(dirname(target.cache), { recursive: true });
   await cp(join(packageRoot, "plugin"), target.cache, { recursive: true });
   await rm(target.agents, { recursive: true, force: true });
@@ -69,7 +71,7 @@ export async function cleanup(_options: RunOptions): Promise<RunResult> {
   const root = backupRoot();
   const backups = [
     await backup(target.config, root),
-    await backup(target.cacheRoot, root),
+    await backup(target.marketplaceCache, root),
     await backup(target.agents, root),
   ].filter((path) => path !== undefined);
   const changed: string[] = [];
@@ -85,9 +87,9 @@ export async function cleanup(_options: RunOptions): Promise<RunResult> {
       changed.push(target.config);
     }
   }
-  if (await exists(target.cacheRoot)) {
-    await rm(target.cacheRoot, { recursive: true });
-    changed.push(target.cacheRoot);
+  if (await exists(target.marketplaceCache)) {
+    await rm(target.marketplaceCache, { recursive: true });
+    changed.push(target.marketplaceCache);
   }
   if (await exists(target.agents)) {
     await rm(target.agents, { recursive: true });

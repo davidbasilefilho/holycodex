@@ -1,7 +1,7 @@
 import process from "node:process";
 import { cleanup, install, type RunOptions } from "./install.ts";
 
-const VERSION = "0.4.1";
+const VERSION = "0.4.2";
 const HELP = `HolyCodex ${VERSION}\n\nUsage: holycodex <install|cleanup> [options]\n\nOptions:\n  --help              Show help\n  --version           Show version\n  --no-tui            Accepted; commands are noninteractive\n  --codex-autonomous  Set autonomous Codex permissions\n  --json              Print machine-readable result\n`;
 
 async function main(): Promise<void> {
