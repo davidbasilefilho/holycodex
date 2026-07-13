@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { t as CORE_INSTRUCTIONS } from "./core-instructions-CKS8xwZK.js";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { stdin, stdout } from "node:process";
@@ -44,7 +45,10 @@ async function runRulesHook(input) {
 	const cache = cachePath(input.session_id);
 	if (event === "PostCompact") {
 		await rm(cache, { force: true });
-		return "";
+		return `${JSON.stringify({ hookSpecificOutput: {
+			hookEventName: event,
+			additionalContext: CORE_INSTRUCTIONS
+		} })}\n`;
 	}
 	const target = event === "PostToolUse" ? editPath(input.tool_input, input.cwd) : void 0;
 	if (event === "PostToolUse" && target === void 0) return "";

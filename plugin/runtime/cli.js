@@ -120,7 +120,7 @@ function paths(home = process.env.CODEX_HOME ?? join(homedir(), ".codex")) {
 		home,
 		config: join(home, "config.toml"),
 		cacheRoot,
-		cache: join(cacheRoot, "0.3.1"),
+		cache: join(cacheRoot, "0.3.2"),
 		agents: join(home, "holycodex", "agents"),
 		legacy: [
 			join(home, "plugins", "cache", "sisyphuslabs", "omo"),
@@ -208,7 +208,7 @@ async function cleanup(_options) {
 }
 //#endregion
 //#region src/cli.ts
-var VERSION = "0.3.1";
+var VERSION = "0.3.2";
 var HELP = `HolyCodex ${VERSION}\n\nUsage: holycodex <install|cleanup> [options]\n\nOptions:\n  --help              Show help\n  --version           Show version\n  --no-tui            Accepted; commands are noninteractive\n  --codex-autonomous  Set autonomous Codex permissions\n  --json              Print machine-readable result\n`;
 async function main() {
 	const args = process$1.argv.slice(2);

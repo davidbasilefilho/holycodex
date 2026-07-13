@@ -46,7 +46,9 @@ describe("scoped rules", () => {
     await writeFile(transcript, "");
     expect(await runRulesHook(input)).toContain("shared project context");
     expect(await runRulesHook(input)).toBe("");
-    await runRulesHook({ ...input, hook_event_name: "PostCompact" });
+    expect(await runRulesHook({ ...input, hook_event_name: "PostCompact" })).toContain(
+      'Start first user-facing update: \\"I detect ',
+    );
     expect(await runRulesHook(input)).toContain("shared project context");
   });
 });

@@ -14,6 +14,13 @@ describe("bootstrap readiness", () => {
         writeFile(join(root, "runtime", file), ""),
       ),
     );
-    expect(await readinessContext(root)).toBe("");
+    const context = await readinessContext(root);
+    expect(context).toContain('Start first user-facing update: "I detect ');
+    expect(context).toContain("Use git_bash MCP for every shell command.");
+    expect(context).toContain("load caveman skill first");
+    expect(context).toContain("Primary agent keeps control.");
+    expect(context).toContain("Subagents reduce cost, never simulate an organization.");
+    expect(context).toContain("Delegate bounded labor, never responsibility.");
+    expect(context).toContain("Spend intelligence only where complexity requires it.");
   });
 });

@@ -39,10 +39,15 @@ describe("HolyCodex catalog", () => {
       "worker.toml",
     ]);
     for (const agent of await readdir(join(root, "plugin", "agents"))) {
-      expect(await readFile(join(root, "plugin", "agents", agent), "utf8")).toMatch(
-        /^description = ".*Use .*"$/m,
-      );
+      const prompt = await readFile(join(root, "plugin", "agents", agent), "utf8");
+      expect(prompt).toMatch(/^description = ".*Use .*"$/m);
+      expect(prompt).toContain('Start: "I detect ');
+      expect(prompt).toContain("Use git_bash MCP for every shell command.");
+      expect(prompt).not.toContain("Delegate bounded labor");
     }
+    expect(await readFile(join(root, "plugin", "agents", "worker.toml"), "utf8")).toContain(
+      "Prompt, skill, or instruction task: load caveman skill first; write terse without losing constraints.",
+    );
   });
 
   it("pins activation phrases and enables every MCP default", async () => {

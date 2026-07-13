@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { CORE_INSTRUCTIONS } from "./core-instructions.ts";
 
 export type Rule = { readonly path: string; readonly body: string };
 type HookInput = {
@@ -57,7 +58,7 @@ export async function runRulesHook(input: HookInput): Promise<string> {
   const cache = cachePath(input.session_id);
   if (event === "PostCompact") {
     await rm(cache, { force: true });
-    return "";
+    return `${JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: CORE_INSTRUCTIONS } })}\n`;
   }
   const target = event === "PostToolUse" ? editPath(input.tool_input, input.cwd) : undefined;
   if (event === "PostToolUse" && target === undefined) return "";

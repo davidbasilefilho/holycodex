@@ -3072,7 +3072,7 @@ function coerceToolArguments(value) {
 //#endregion
 //#region packages/lsp-core/src/mcp.ts
 var SERVER_NAME = "lsp";
-var SERVER_VERSION = "0.3.1";
+var SERVER_VERSION = "0.3.2";
 async function handleLspMcpRequest(input) {
 	if (!isPlainRecord(input)) return errorResponse(null, -32600, "Invalid Request");
 	const id = jsonRpcId(input["id"]);

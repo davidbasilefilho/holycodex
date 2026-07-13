@@ -1,3 +1,4 @@
+import { t as CORE_INSTRUCTIONS } from "./core-instructions-CKS8xwZK.js";
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 //#region src/bootstrap.ts
@@ -14,7 +15,8 @@ async function readinessContext(pluginRoot) {
 		if (error instanceof Error && "code" in error && error.code === "ENOENT") missing.push(file);
 		else throw error;
 	}
-	return missing.length === 0 ? "" : `HolyCodex incomplete: missing runtime/${missing.join(", runtime/")}. Reinstall HolyCodex before using its local MCPs or hooks.`;
+	if (missing.length === 0) return CORE_INSTRUCTIONS;
+	return `${CORE_INSTRUCTIONS}\n\nHolyCodex incomplete: missing runtime/${missing.join(", runtime/")}. Reinstall HolyCodex before using its local MCPs or hooks.`;
 }
 //#endregion
 //#region src/bootstrap-cli.ts

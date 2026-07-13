@@ -1,5 +1,6 @@
 import { access } from "node:fs/promises";
 import { join } from "node:path";
+import { CORE_INSTRUCTIONS } from "./core-instructions.ts";
 
 const REQUIRED = ["git-bash.js", "lsp.js", "rules.js"] as const;
 
@@ -13,7 +14,6 @@ export async function readinessContext(pluginRoot: string): Promise<string> {
       else throw error;
     }
   }
-  return missing.length === 0
-    ? ""
-    : `HolyCodex incomplete: missing runtime/${missing.join(", runtime/")}. Reinstall HolyCodex before using its local MCPs or hooks.`;
+  if (missing.length === 0) return CORE_INSTRUCTIONS;
+  return `${CORE_INSTRUCTIONS}\n\nHolyCodex incomplete: missing runtime/${missing.join(", runtime/")}. Reinstall HolyCodex before using its local MCPs or hooks.`;
 }
