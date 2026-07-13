@@ -5,7 +5,7 @@
   "author": { "name": "David Basile Filho", "url": "https://github.com/davidbasilefilho" },
   "homepage": "https://github.com/davidbasilefilho/holycodex",
   "repository": "https://github.com/davidbasilefilho/holycodex",
-  "license": "MIT",
+  "license": "SUL-1.0",
   "skills": "./skills/",
   "hooks": ["./hooks/hooks.json"],
   "mcpServers": "./.mcp.json",
