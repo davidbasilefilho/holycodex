@@ -37,6 +37,16 @@ describe("Codex configuration", () => {
     expect(output).toContain('model = "user/model"');
   });
 
+  it("maps each bundled subagent to its own instruction file", () => {
+    const output = installConfig("", false);
+    for (const agent of ["explorer", "librarian", "worker"]) {
+      expect(output).toContain(
+        `[agents.${agent}]\nconfig_file = "holycodex/agents/${agent}.toml"`,
+      );
+    }
+    expect(output).not.toContain("developer_instructions");
+  });
+
   it("rewrites forbidden Sol reasoning", () => {
     const input = 'model = "gpt-5.6-sol"\nmodel_reasoning_effort = "high"\n';
     expect(installConfig(input, false)).toContain('model_reasoning_effort = "medium"');

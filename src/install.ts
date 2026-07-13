@@ -23,7 +23,7 @@ function paths(home = process.env.CODEX_HOME ?? join(homedir(), ".codex")) {
     config: join(home, "config.toml"),
     marketplaceCache,
     cacheRoot,
-    cache: join(cacheRoot, "0.4.5"),
+    cache: join(cacheRoot, "0.4.6"),
     agents: join(home, "holycodex", "agents"),
     legacy: [
       join(home, "plugins", "cache", "sisyphuslabs", "omo"),

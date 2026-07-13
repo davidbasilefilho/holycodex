@@ -1,6 +1,6 @@
 ---
 name: frontend
-description: Use to build, debug, audit, or polish web UI, accessibility, performance, or editorial design.
+description: Use for web UI build, debugging, audit, accessibility, or performance. Motion-rich premium React/Tailwind page creation or redesign activates mandatory GPT Taste: AIDA, wide hero, dense bento, GSAP, assets, and preflight proof.
 ---
 
 # Frontend
@@ -13,22 +13,30 @@ Preserve stack, behavior, tokens, patterns, and supplied visual contract. Keep s
 - Visual reference: use it first; measure layout, type, color, spacing, surface, and motion.
 - Performance: load `references/perfection/README.md` only for real audit or regression.
 - Palette/type/style: load only relevant `references/ui-ux-db` data.
-- Premium editorial: use rules below.
+- Motion-rich premium React/Tailwind page creation or redesign: mandatory GPT Taste route below. Ordinary fixes, debugging, accessibility, and performance work stay on normal route.
 
-## Premium editorial mode
+## Mandatory GPT Taste route
 
-- Before code, emit `<design_plan>` only for premium page/redesign work. Derive choices from prompt; vary combination. Include hero, font, three component patterns, two motion patterns, AIDA map, H1 width/line proof, grid span math, label/contrast sweep.
-- AIDA page sequence when landing-page persuasion matters.
-- Cinematic, asymmetric, editorial hero. Wide two-to-three-line headline. Strong art direction.
-- Dense gapless bento where content supports it. Cards must carry real information.
-- Strong contrast, deliberate type scale, responsive containment, contextual assets.
-- Font fits project; for greenfield premium work consider Satoshi, Cabinet Grotesk, Outfit, or Geist. Never replace established type contract.
-- Choose three useful structures: inline heading image, expanding accordion, partner marquee, restrained carousel, pinned gallery, stacked cards.
-- Real GSAP, `@gsap/react`, and ScrollTrigger only when user asks for advanced motion or project already uses them. Choose at most two motion systems: pinned split, image scale/fade, scrubbed word reveal, stacked cards.
-- Motion must explain hierarchy, state, or navigation. No decoration-only motion.
-- Contain animated overflow with full-width `overflow-x-hidden` shell when needed.
+- Before code, emit `<design_plan>` with deterministic prompt-derived selection: one hero, one approved font stack (`Satoshi`, `Cabinet Grotesk`, `Outfit`, or `Geist`; never `Inter`), three component architectures, two GSAP paradigms. Do not repeat default combination or replace established type contract.
+- Follow AIDA: premium nav; Attention hero; Interest bento/features; Desire scroll/media; Action CTA/footer. Separate chapters with `py-32 md:py-48`.
+- Select cinematic center, artistic asymmetry, or editorial split. Build one hero: wide `max-w-5xl`/`max-w-6xl` H1, responsive `clamp`, maximum 2–3 lines, strong art direction, perfect button contrast, no stamp icons, pill tags, or raw stats.
+- Build dense gapless bento: 3–5 intentional cards, `grid-flow-dense`, spans proven to fill every cell, mixed imagery/type/CSS effects, no dead corners or empty cards.
+- Use contextual `https://picsum.photos/seed/{keyword}/1920/1080` assets; art-direct coherent grayscale/blend/contrast/opacity with subtle radial blur, grain mesh, or dark overlays.
+- Select three architectures: inline heading image, horizontal expanding accordion, infinite partner marquee, restrained testimonial carousel, pinned gallery, or stacked cards.
+- Use real GSAP with `@gsap/react` and `ScrollTrigger`. Select two systems: pinned title/gallery split, image scale/fade scroll, scrubbed word reveal, or stacked cards. Motion explains hierarchy, state, or navigation; static interface fails. Interactive images/cards use slow contained scale hover.
+- Wrap page: `<main className="overflow-x-hidden w-full max-w-full">`.
 
-Ban generic meta-labels, empty cards, narrow centered heroes, flat repeated sections, emoji icons, fake dashboards, meaningless gradients, and copied reference text.
+Ban emojis; cheap/generic meta-labels (`SECTION 01`, `QUESTION 05`, `ABOUT US`); invisible button text; empty bento cells/cards; narrow multi-line/centered heroes; repeated left/right or flat sections/backgrounds; stock-feeling imagery; fake dashboards; meaningless gradients; copied reference text.
+
+Required `<design_plan>`:
+
+1. Three-line deterministic selection: hero, font stack, three architectures, two GSAP systems.
+2. AIDA map.
+3. H1 max-width and 2–3-line proof; confirm no stamps/tags.
+4. Grid-span math and `grid-flow-dense` proof.
+5. Meta-label sweep and button-contrast check.
+
+Only then output UI code.
 
 ## Implementation
 

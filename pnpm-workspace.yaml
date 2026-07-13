@@ -1,7 +1,0 @@
-allowBuilds:
-  esbuild: true
-packages:
-  - packages/*
-
-onlyBuiltDependencies:
-  - esbuild

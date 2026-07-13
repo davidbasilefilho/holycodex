@@ -20,6 +20,7 @@ describe("bootstrap readiness", () => {
     expect(context).toContain("Use exec_command only after git_bash MCP is confirmed unavailable");
     expect(context).toContain("never use it merely by preference or because a command failed");
     expect(context).toContain("load caveman");
+    expect(context).toContain("Default user-facing replies:");
     expect(context).toContain("Main agent owns decisions, integration, and verification.");
     expect(context).toContain(
       "Main agent MUST delegate every suitable low-complexity, bounded, independent subtask to reduce cost",

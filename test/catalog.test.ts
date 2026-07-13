@@ -25,6 +25,11 @@ const skills = [
   "security-research",
   "tdd",
 ] as const;
+const responseStyleContract = [
+  "Default user-facing replies: grammatical sentences; no filler or hedging.",
+  "Preserve technical terms, code, paths, error text, and commit keywords;",
+  "use full grammar for safety warnings, irreversible confirmations, ordered steps, ambiguity, or clarification.",
+] as const;
 
 describe("HolyCodex catalog", () => {
   it("ships only routed skills and three described agents", async () => {
@@ -45,6 +50,7 @@ describe("HolyCodex catalog", () => {
       expect(prompt).toContain("MUST use git_bash MCP for every shell command.");
       expect(prompt).toContain("Use exec_command only after git_bash MCP is confirmed unavailable");
       expect(prompt).toContain("never use it merely by preference or because a command failed");
+      for (const rule of responseStyleContract) expect(prompt).toContain(rule);
       expect(prompt).not.toMatch(/delegat|subagent/i);
     }
     expect(await readFile(join(root, "plugin", "agents", "worker.toml"), "utf8")).toContain(
