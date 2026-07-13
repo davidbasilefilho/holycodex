@@ -1,6 +1,6 @@
 {
   "name": "holycodex",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Lean Codex-only agents, skills, hooks, and MCP defaults.",
   "author": {
     "name": "David Basile Filho",

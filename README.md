@@ -53,7 +53,7 @@ Options:
 
 ```sh
 holycodex install --json
-holycodex install --codex-autonomous
+holycodex install
 holycodex --help
 holycodex --version
 ```

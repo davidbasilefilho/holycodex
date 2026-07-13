@@ -1,8 +1,8 @@
 import process from "node:process";
 import { cleanup, install, type RunOptions } from "./install.ts";
 
-const VERSION = "0.4.3";
-const HELP = `HolyCodex ${VERSION}\n\nUsage: holycodex <install|cleanup> [options]\n\nOptions:\n  --help              Show help\n  --version           Show version\n  --no-tui            Accepted; commands are noninteractive\n  --codex-autonomous  Set autonomous Codex permissions\n  --json              Print machine-readable result\n`;
+const VERSION = "0.4.4";
+const HELP = `HolyCodex ${VERSION}\n\nUsage: holycodex <install|cleanup> [options]\n\nOptions:\n  --help                 Show help\n  --version              Show version\n  --no-tui               Accepted; commands are noninteractive\n  --codex-autonomous     Set autonomous Codex permissions (default)\n  --no-codex-autonomous  Preserve existing Codex permissions\n  --json                 Print machine-readable result\n`;
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -16,7 +16,7 @@ async function main(): Promise<void> {
   }
   const command = args.find((arg) => !arg.startsWith("--"));
   const options: RunOptions = {
-    autonomous: args.includes("--codex-autonomous"),
+    autonomous: !args.includes("--no-codex-autonomous"),
     json: args.includes("--json"),
   };
   const result =
