@@ -1,6 +1,6 @@
 ---
 name: debugging
-description: Use when a task involves a crash, wrong result, hang, race, leak, slowdown, or other reproducible defect that needs root-cause proof; do not use for feature work, behavior-preserving refactors, or speculative cleanup. Produces reproduction, evidence, regression proof, and an authorized minimal fix; unlike TDD it starts from a symptom.
+description: Use when a task involves a crash, wrong result, hang, race, leak, slowdown, or other reproducible defect that needs root-cause proof; do not use for feature work, behavior-preserving refactors, or speculative cleanup. Produces reproduction, evidence, regression proof, and an authorized minimal fix; unlike programming it owns symptom-to-cause diagnosis.
 ---
 
 # Debugging

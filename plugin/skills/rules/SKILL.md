@@ -9,7 +9,7 @@ Automatic when plugin enabled. Static rules load on session start and user promp
 
 Sources: `CONTEXT.md`, `.holycodex/rules/**/*.md`, `.codex/rules/**/*.md`, `.github/instructions/**/*.md`, `.github/copilot-instructions.md`. Never load or reinject `AGENTS.md`.
 
-Frontmatter: `alwaysApply: true` for static rule; `globs` string or list for path match. Body after frontmatter is injected. Native and plugin rules dedupe by normalized content hash. Per-rule cap 8,000 chars; event cap 24,000 chars.
+Frontmatter: `alwaysApply: true` for static rule; `globs` accepts quoted or unquoted scalar, inline array, or multiline array. Body after frontmatter is injected. Native and plugin rules dedupe by normalized content hash. Per-rule cap 8,000 chars; event cap 24,000 chars.
 
 Environment: `HOLYCODEX_RULES_DISABLED=1`, `HOLYCODEX_RULES_MAX_RULE_CHARS`, `HOLYCODEX_RULES_MAX_RESULT_CHARS`.
 

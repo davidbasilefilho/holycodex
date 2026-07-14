@@ -53,7 +53,7 @@ export async function handleGitBashMcpRequest(
     const protocolVersion = protocolVersionFromInput(input) ?? "2024-11-05";
     return successResponse(id, {
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: "git_bash", version: "0.5.0" },
+      serverInfo: { name: "git_bash", version: "0.5.1" },
       protocolVersion,
     });
   }
@@ -85,7 +85,7 @@ export async function runMcpStdioServer(
     handler: handleGitBashMcpRequest,
     handlerOptions: options,
     idleTimeoutMs: 0,
-    log: options.lifecycleLog,
+    ...(options.lifecycleLog === undefined ? {} : { log: options.lifecycleLog }),
     parseErrorResponse: () => errorResponse(null, -32601, "Method not found"),
   });
 }
@@ -137,7 +137,7 @@ async function runToolResponse(
     const result = await run({
       bashPath: resolution.path,
       command,
-      cwd,
+      ...(cwd === undefined ? {} : { cwd }),
       timeoutMs,
       env: options.env ?? process.env,
     });
@@ -203,8 +203,8 @@ function canRunGitBash(options: GitBashMcpOptions): boolean {
 function resolve(options: GitBashMcpOptions): GitBashResolution {
   if (options.exists === undefined && options.where === undefined) {
     return resolveGitBashForCurrentProcess({
-      platform: options.platform,
-      env: options.env,
+      ...(options.platform === undefined ? {} : { platform: options.platform }),
+      ...(options.env === undefined ? {} : { env: options.env }),
     });
   }
 

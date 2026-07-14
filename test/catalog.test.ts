@@ -8,7 +8,6 @@ const root = join(import.meta.dirname, "..");
 const skills = [
   "ast-grep",
   "caveman",
-  "comment-checker",
   "compress",
   "debugging",
   "define-goal",
@@ -23,7 +22,6 @@ const skills = [
   "remove-ai-slops",
   "rules",
   "security-research",
-  "tdd",
 ] as const;
 const responseStyleContract = [
   "Default user-facing replies: grammatical sentences; no filler or hedging.",
@@ -59,16 +57,26 @@ describe("HolyCodex catalog", () => {
       const prompt = await readFile(join(root, "plugin", "agents", agent), "utf8");
       expect(prompt).toMatch(/^description = ".*Use .*"$/m);
       expect(prompt).toContain('Start: "I detect ');
-      expect(prompt).toContain("MUST use git_bash MCP for every shell command.");
-      expect(prompt).toContain("Use exec_command only after git_bash MCP is confirmed unavailable");
-      expect(prompt).toContain("never use it merely by preference or because a command failed");
+      expect(prompt).toContain("On native Windows use git_bash MCP when its run tool is available");
+      expect(prompt).toContain("otherwise use native shell directly without probing git_bash");
       for (const rule of responseStyleContract) expect(prompt).toContain(rule);
       expect(prompt).not.toMatch(/delegat|subagent/i);
-      expect(prompt).toContain("Accept one task packet:");
+      expect(prompt).toContain("Accept one task packet containing exact");
+      expect(prompt).toContain("repository root");
+      expect(prompt).toContain("allowed paths");
+      expect(prompt).toContain("forbidden paths");
+      expect(prompt).toContain("relevant architecture and existing behavior");
+      expect(prompt).toContain("required skills");
+      expect(prompt).toContain("exact inputs");
+      expect(prompt).toContain("output format");
       expect(prompt).toContain("acceptance criteria");
+      expect(prompt).toContain("required commands or evidence");
+      expect(prompt).toContain("unchanged constraints");
       expect(prompt).toContain("prohibited expansion");
+      expect(prompt).toContain("known uncertainty");
+      expect(prompt).toContain("blocker behavior");
       expect(prompt).toContain("stop condition");
-      expect(prompt).toContain("Return exactly:");
+      expect(prompt).toContain("Return exactly requested format");
       expect(prompt).toContain("no proposed extra work");
     }
     expect(await readFile(join(root, "plugin", "agents", "explorer.toml"), "utf8")).toContain(
@@ -81,7 +89,7 @@ describe("HolyCodex catalog", () => {
       'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "medium"',
     );
     expect(await readFile(join(root, "plugin", "agents", "worker.toml"), "utf8")).toContain(
-      "Prompt, skill, or instruction task: load caveman skill first; write terse without losing constraints.",
+      "Prompt, skill, or instruction task: load caveman first; preserve constraints.",
     );
   });
 
@@ -143,7 +151,8 @@ describe("HolyCodex catalog", () => {
       { jsonrpc: "2.0", id: 1, method: "tools/list" },
       { platform: "linux", env: {}, exists: () => false, where: () => [] },
     );
-    if (response === undefined || "error" in response) throw new Error("tools/list failed");
+    if (response === undefined || "error" in response || response.result === undefined)
+      throw new Error("tools/list failed");
     const tools = response.result.tools as Array<{ description: string }>;
     for (const tool of tools) expect(tool.description).toMatch(/^Use /);
   });

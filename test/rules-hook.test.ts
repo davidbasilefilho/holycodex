@@ -32,6 +32,24 @@ describe("scoped rules", () => {
     expect(unrelated.map((rule) => rule.body)).not.toContain("use strict types");
   });
 
+  it.each([
+    ["unquoted scalar", "globs: src/**/*.ts"],
+    ["quoted scalar", 'globs: "src/**/*.ts"'],
+    ["unquoted inline array", "globs: [src/**/*.ts, test/**/*.ts]"],
+    ["quoted inline array", 'globs: ["src/**/*.ts", "test/**/*.ts"]'],
+    ["multiline array", "globs:\n  - src/**/*.ts\n  - 'test/**/*.ts'"],
+  ])("parses %s globs", async (_name, frontmatter) => {
+    const root = await fixture();
+    await writeFile(
+      join(root, ".holycodex", "rules", "forms.md"),
+      `---\n${frontmatter}\n---\nparsed form`,
+      "utf8",
+    );
+    expect(await loadRules(root, join(root, "src", "feature", "index.ts"))).toContainEqual(
+      expect.objectContaining({ body: "parsed form" }),
+    );
+  });
+
   it("deduplicates native transcript rules and resets its cache after compaction", async () => {
     const root = await fixture();
     const transcript = join(root, "transcript.jsonl");

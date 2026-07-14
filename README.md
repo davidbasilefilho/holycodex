@@ -6,7 +6,7 @@ HolyCodex is a modified, standalone Codex-only hard fork of [oh-my-openagent](ht
 
 HolyCodex installs one focused Codex toolkit:
 
-- 18 on-demand skills for programming, debugging, frontend, LSP, AST search, TDD, security research, planning, handoffs, goal definition, compression, and related workflows.
+- 16 on-demand skills for programming, debugging, frontend, LSP, AST search, security research, planning, handoffs, goal definition, compression, and related workflows.
 - Three optional subagents: `explorer` for internal inspection, `librarian` for external research, and `worker` for bounded implementation.
 - Three MCP defaults: `git_bash`, `lsp`, and `context7`.
 - Small command hooks for readiness and scoped rules.
@@ -22,6 +22,7 @@ Large always-on prompts, agent hierarchies, review loops, and duplicated context
 - Rules are path-scoped, size-limited, cached, and deduplicated; `AGENTS.md` is never reinjected.
 - Concurrent delegation is capped at two; every delegated slice has fixed scope, evidence, acceptance, and stop conditions under primary-agent control.
 - Explorer and librarian use GPT-5.6 Luna low; worker uses GPT-5.6 Luna medium.
+- Git Bash shell execution is required only on native Windows when its MCP run tool is available; other environments use their native shell directly.
 - OMO workflows and retained references are rewritten with caveman-style token efficiency.
 - The OMO frontend skill is merged with GPT Taste instead of shipping another overlapping skill.
 

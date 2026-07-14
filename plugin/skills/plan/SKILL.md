@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Use when the user asks for a plan or when a complex, risky, ambiguous, or multi-stage task needs an approved plan before implementation; do not use for simple direct work, status, or explanation. Produces one repo-grounded reviewed plan with approval and optional goal gates; unlike plan-review, it owns the full planning sequence.
+description: Use when the user asks for a plan or implementation requires unresolved architecture, cross-cutting coordination, irreversible decisions, high risk, or material ambiguity; do not use for multiple obvious steps, simple direct work, status, or explanation. Produces one repo-grounded reviewed plan with approval and optional goal gates; unlike plan-review, it owns the full planning sequence.
 ---
 
 # Plan

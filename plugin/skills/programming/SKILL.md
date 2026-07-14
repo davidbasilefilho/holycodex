@@ -1,6 +1,6 @@
 ---
 name: programming
-description: Use when a task edits Python, Rust, TypeScript, Go, or their matching manifests; do not use for prose-only edits or unsupported languages. Applies language-specific correctness, typing, size, and verification rules; debugging, TDD, or refactor may additionally own the workflow.
+description: Use when a task edits Python, Rust, TypeScript, Go, or their matching manifests; do not use for prose-only edits or unsupported languages. Applies language-specific correctness, typing, size, and verification rules; debugging or refactor may additionally own the workflow.
 ---
 
 # Programming
@@ -22,7 +22,7 @@ Before editing `.py`, `.pyi`, `.rs`, `.ts`, `.tsx`, `.mts`, `.cts`, `.go`, or ma
 
 ## Test
 
-Public behavior red first. Confirm intended failure. Minimum green. Refactor. Use real object or fake before mock. Deterministic fixture; no sleep. At least one end-to-end user outcome for a new feature. Run smallest test in loop.
+Defect: add a public-seam regression test first and confirm the intended failure. Explicit test-first request or clearly defined new behavior without adequate proof: test public seam first, confirm failure, implement minimum green, then refactor. Existing tests may lock small covered changes. Do not force red-green for prose, configuration-only work, trivial mechanical edits, or behavior already adequately covered. Use real object or fake before mock. Deterministic fixture; no sleep. Add an end-to-end user outcome for new behavior when proportional. Run smallest test in loop.
 
 ## Size
 

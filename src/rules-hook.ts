@@ -86,15 +86,42 @@ function parseRule(text: string): {
   const end = text.indexOf("\n---\n", 4);
   if (end < 0) return { alwaysApply: false, globs: [], body: text.trim() };
   const header = text.slice(4, end);
-  const globLine = /^globs:\s*(.+)$/m.exec(header)?.[1] ?? "";
-  const globs = [...globLine.matchAll(/["']([^"']+)["']/g)]
-    .map((match) => match[1])
-    .filter((value) => value !== undefined);
   return {
     alwaysApply: /^alwaysApply:\s*true\s*$/m.test(header),
-    globs,
+    globs: parseGlobs(header),
     body: text.slice(end + 5).trim(),
   };
+}
+
+function parseGlobs(header: string): readonly string[] {
+  const lines = header.split("\n");
+  const index = lines.findIndex((line) => /^globs\s*:/.test(line));
+  if (index < 0) return [];
+  const value = lines[index]?.replace(/^globs\s*:\s*/, "").trim() ?? "";
+  if (value.length > 0) {
+    const inline = value.startsWith("[") && value.endsWith("]") ? value.slice(1, -1) : value;
+    return inline
+      .split(",")
+      .map(unquote)
+      .filter((glob) => glob.length > 0);
+  }
+  const globs: string[] = [];
+  for (const line of lines.slice(index + 1)) {
+    const item = /^\s+-\s*(.+?)\s*$/.exec(line)?.[1];
+    if (item === undefined) break;
+    const glob = unquote(item);
+    if (glob.length > 0) globs.push(glob);
+  }
+  return globs;
+}
+
+function unquote(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'")))
+    ? trimmed.slice(1, -1)
+    : trimmed;
 }
 
 function globMatches(glob: string, path: string): boolean {
@@ -139,16 +166,17 @@ async function readable(path: string): Promise<string | undefined> {
 
 function editPath(value: unknown, cwd: string): string | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-  const input: Record<string, unknown> = value;
+  const input = new Map(Object.entries(value));
   for (const key of ["filePath", "file_path", "path", "targetPath", "target_path"]) {
-    if (typeof input[key] === "string")
-      return isAbsolute(input[key]) ? input[key] : resolve(cwd, input[key]);
+    const candidate = input.get(key);
+    if (typeof candidate === "string")
+      return isAbsolute(candidate) ? candidate : resolve(cwd, candidate);
   }
   const patch =
-    typeof input.patch === "string"
-      ? input.patch
-      : typeof input.input === "string"
-        ? input.input
+    typeof input.get("patch") === "string"
+      ? input.get("patch")
+      : typeof input.get("input") === "string"
+        ? input.get("input")
         : undefined;
   const path =
     patch === undefined

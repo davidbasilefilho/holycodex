@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -18,66 +18,63 @@ function expectOrder(text: string, phrases: readonly string[]): void {
 }
 
 describe("instruction workflow contracts", () => {
-  it("routes every skill from concrete task needs", async () => {
-    const triggers = new Map<string, RegExp>([
-      ["ast-grep", /syntax-aware code search|structural rewrite/],
-      ["caveman", /terse replies|prompt and instruction edits/],
-      ["comment-checker", /comment-checker warning/],
-      ["compress", /text, prompts, or instructions shortened/],
-      ["debugging", /crash, wrong result, hang, race, leak, slowdown/],
-      ["define-goal", /asks to define a goal|accepts a goal/],
-      ["frontend", /frontend, web UI, UX, visual design/],
-      ["handoff", /resumable context transferred/],
-      ["lsp", /semantic diagnostics, definitions, references/],
-      ["lsp-setup", /language-server installation or configuration/],
-      ["plan", /asks for a plan|complex, risky, ambiguous, or multi-stage/],
-      ["plan-review", /complete initial implementation plan/],
-      ["programming", /edits Python, Rust, TypeScript, Go/],
-      ["refactor", /behavior-preserving restructuring/],
-      ["remove-ai-slops", /remove AI-generated code smells/],
-      ["rules", /rules are discovered, matched, injected/],
-      ["security-research", /security review, threat analysis, vulnerability validation/],
-      ["tdd", /TDD, regression coverage, integration tests/],
-    ]);
-    for (const [name, trigger] of triggers) {
-      const description = (await skill(name)).match(/^description: (.*)$/m)?.[1] ?? "";
+  it("keeps routed skills dense and bounded by prompt cost", async () => {
+    const names = (await readdir(join(root, "plugin", "skills"))).sort();
+    expect(names).toHaveLength(16);
+    const texts = await Promise.all(names.map(skill));
+    for (const text of texts) {
+      const description = text.match(/^description: (.*)$/m)?.[1] ?? "";
       expect(description).toMatch(/^Use when /);
-      expect(description).toMatch(trigger);
       expect(description).toMatch(/do not/);
       expect(description).toMatch(/Produces|Applies|Creates/);
+      expect(text.length).toBeLessThanOrEqual(5_000);
+    }
+    expect(texts.reduce((sum, text) => sum + text.length, 0)).toBeLessThanOrEqual(28_000);
+  });
+
+  it("routes representative requests without adjacent skills or needless delegation", async () => {
+    const cases = [
+      {
+        request: "Fix a reproducible parser defect",
+        expected: [
+          ["debugging", /crash, wrong result/],
+          ["programming", /edits Python, Rust, TypeScript, Go/],
+        ],
+        forbidden: [["plan", /multiple obvious steps/]],
+        delegation: "local",
+      },
+      {
+        request: "Plan an irreversible cross-cutting architecture migration",
+        expected: [
+          ["plan", /unresolved architecture, cross-cutting coordination, irreversible decisions/],
+        ],
+        forbidden: [["plan-review", /do not use before initial drafting/]],
+        delegation: "local",
+      },
+      {
+        request: "Find the exact callers of parseRule in this repository",
+        expected: [["lsp", /definitions, references/]],
+        forbidden: [["lsp-setup", /do not use when an existing server works/]],
+        delegation: "explorer",
+      },
+      {
+        request: "Implement one isolated fixed-file TypeScript change",
+        expected: [["programming", /edits Python, Rust, TypeScript, Go/]],
+        forbidden: [["plan", /multiple obvious steps/]],
+        delegation: "worker",
+      },
+    ] as const;
+    for (const route of cases) {
+      expect(route.request.length).toBeGreaterThan(0);
+      for (const [name, contract] of route.expected) expect(await skill(name)).toMatch(contract);
+      for (const [name, contract] of route.forbidden) expect(await skill(name)).toMatch(contract);
+      expect(["local", "explorer", "worker"]).toContain(route.delegation);
     }
   });
 
-  it("keeps the complete skill graph compact", async () => {
-    const names = [
-      "ast-grep",
-      "caveman",
-      "comment-checker",
-      "compress",
-      "debugging",
-      "define-goal",
-      "frontend",
-      "handoff",
-      "lsp",
-      "lsp-setup",
-      "plan",
-      "plan-review",
-      "programming",
-      "refactor",
-      "remove-ai-slops",
-      "rules",
-      "security-research",
-      "tdd",
-    ] as const;
-    const lineCounts = await Promise.all(
-      names.map(async (name) => (await skill(name)).trimEnd().split("\n").length),
-    );
-    expect(Math.max(...lineCounts)).toBeLessThanOrEqual(70);
-    expect(lineCounts.reduce((sum, count) => sum + count, 0)).toBeLessThanOrEqual(500);
-  });
-
-  it("keeps planning draft, review, approval, and optional goal phases ordered", async () => {
+  it("orders planning, one review, approval, optional goal, and stop", async () => {
     const text = await skill("plan");
+    expect(text).toContain("do not use for multiple obvious steps");
     expectOrder(text, [
       "Load `plan`",
       "Write the complete initial plan",
@@ -87,66 +84,61 @@ describe("instruction workflow contracts", () => {
       "After approval, ask whether the user wants to define a goal",
       "Only after explicit agreement, load `define-goal`",
     ]);
-    expect(text).toContain("Never preload, parallelize, or imply its review.");
     expect(text).toContain("Do not implement before approval.");
+    expect(text).toContain("Stop planning after approval and the optional goal choice");
+
+    const review = await skill("plan-review");
+    expect(review).toContain("If no initial plan exists, stop");
+    expect(review).toContain("One pass:");
+    expect(review).toContain(
+      "No reviewer agent, evidence folder, second review loop, or implementation.",
+    );
   });
 
-  it("makes plan review a one-pass repair of an existing plan", async () => {
-    const text = await skill("plan-review");
-    for (const concern of [
-      "feasibility",
-      "missing steps",
-      "unnecessary work",
-      "sequencing",
-      "risks",
-      "ambiguities",
-      "completion criteria",
-      "unverifiable outcomes",
-    ]) {
-      expect(text).toContain(concern);
-    }
-    expect(text).toContain("Revise or rewrite directly");
-    expect(text).toContain("If no initial plan exists, stop");
-    expect(text).toContain("No reviewer agent");
+  it("distinguishes defect, new behavior, covered, and nonbehavior testing", async () => {
+    const text = await skill("programming");
+    expect(text).toContain("Defect: add a public-seam regression test first");
+    expect(text).toContain(
+      "Explicit test-first request or clearly defined new behavior without adequate proof",
+    );
+    expect(text).toContain("Existing tests may lock small covered changes");
+    expect(text).toContain(
+      "Do not force red-green for prose, configuration-only work, trivial mechanical edits",
+    );
   });
 
-  it("loads goal definition only by consent and gives goals a hard stop", async () => {
-    const plan = await skill("plan");
-    const frontend = await skill("frontend");
-    const goal = await skill("define-goal");
-    expect(plan).toContain("Only after explicit agreement, load `define-goal`");
-    expect(frontend).toContain("Only after explicit agreement load `define-goal`");
-    expect(goal).toContain("do not infer consent from implementation");
-    expect(goal).toContain("explicit stop condition");
-    expect(goal).toContain("Stop once the objective's criteria pass");
-    expect(goal).toContain("polishing, speculative expansion, repeated review, adjacent work");
-  });
-
-  it("gates frontend implementation on context-specific design approval", async () => {
+  it("gates visible frontend direction and always covers motion and accessibility", async () => {
     const text = await skill("frontend");
     expectOrder(text, [
       "inspect the request, product shell",
-      "Select only material design decisions",
+      "plus a motion system and accessibility treatment for every task",
       "ask for approval before implementation",
       "After approval, ask whether the user wants to define a goal",
       "otherwise implement",
     ]);
-    expect(text).toContain("Preserve established decisions unless change is requested.");
-    expect(text).toContain("include only decisions that alter user-visible design");
+    for (const contract of [
+      "prefers-reduced-motion",
+      "keyboard operation",
+      "focus visibility",
+      "semantic",
+      "contrast",
+      "labels",
+      "loading, error, and empty states",
+      "options only when they fit product, task, and stack",
+    ])
+      expect(text).toContain(contract);
     expect(text).toContain("implementation details need no approval");
-    expect(text).toContain("Avoid generic AI styling");
   });
 
-  it("keeps adjacent skill routes distinct", async () => {
+  it("keeps adjacent skill boundaries explicit", async () => {
     const pairs = [
       ["ast-grep", "unlike LSP"],
       ["compress", "unlike caveman"],
-      ["debugging", "unlike TDD"],
+      ["debugging", "unlike programming"],
       ["lsp", "unlike lsp-setup"],
       ["plan-review", "unlike plan"],
       ["refactor", "unlike remove-ai-slops"],
       ["security-research", "unlike debugging"],
-      ["tdd", "unlike debugging"],
     ] as const;
     for (const [name, boundary] of pairs) {
       expect((await skill(name)).toLowerCase()).toContain(boundary.toLowerCase());
