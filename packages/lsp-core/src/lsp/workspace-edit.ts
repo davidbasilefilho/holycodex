@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { messageFromError as errorMessage } from "@holycodex/mcp-stdio-core/responses";
 
 import { contextCwd } from "../request-context.js";
 import type { TextEdit, WorkspaceEdit } from "./types.js";
@@ -25,10 +26,6 @@ export interface ApplyWorkspaceEditOptions {
 type PathValidationResult =
   | { readonly success: true; readonly path: string }
   | { readonly success: false; readonly error: string };
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function isPathInsideWorkspace(filePath: string, workspaceRoot: string): boolean {
   const relativePath = relative(workspaceRoot, filePath);

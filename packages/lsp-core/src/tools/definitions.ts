@@ -5,7 +5,13 @@ import { executeLspPrepareRename, executeLspRename } from "./rename.js";
 import { objectSchema } from "./schema.js";
 import { executeLspStatus } from "./status.js";
 import { executeLspSymbols } from "./symbols.js";
-import type { LspMcpTool } from "./types.js";
+import type { JsonSchema, LspMcpTool } from "./types.js";
+
+const POSITION_PROPERTIES = {
+  line: { type: "number", description: "1-based line number." },
+  character: { type: "number", description: "0-based column." },
+} satisfies Record<string, JsonSchema>;
+const POSITION_REQUIRED = ["filePath", "line", "character"];
 
 export const LSP_MCP_TOOLS: LspMcpTool[] = [
   {
@@ -42,10 +48,9 @@ export const LSP_MCP_TOOLS: LspMcpTool[] = [
     inputSchema: objectSchema(
       {
         filePath: { type: "string", description: "Source file containing the symbol." },
-        line: { type: "number", description: "1-based line number." },
-        character: { type: "number", description: "0-based column." },
+        ...POSITION_PROPERTIES,
       },
-      ["filePath", "line", "character"],
+      POSITION_REQUIRED,
     ),
     execute: executeLspGotoDefinition,
   },
@@ -57,14 +62,13 @@ export const LSP_MCP_TOOLS: LspMcpTool[] = [
     inputSchema: objectSchema(
       {
         filePath: { type: "string", description: "Source file containing the symbol." },
-        line: { type: "number", description: "1-based line number." },
-        character: { type: "number", description: "0-based column." },
+        ...POSITION_PROPERTIES,
         includeDeclaration: {
           type: "boolean",
           description: "Include the declaration. Defaults to true.",
         },
       },
-      ["filePath", "line", "character"],
+      POSITION_REQUIRED,
     ),
     execute: executeLspFindReferences,
   },
@@ -96,10 +100,9 @@ export const LSP_MCP_TOOLS: LspMcpTool[] = [
     inputSchema: objectSchema(
       {
         filePath: { type: "string", description: "Source file path." },
-        line: { type: "number", description: "1-based line number." },
-        character: { type: "number", description: "0-based column." },
+        ...POSITION_PROPERTIES,
       },
-      ["filePath", "line", "character"],
+      POSITION_REQUIRED,
     ),
     execute: executeLspPrepareRename,
   },
@@ -111,8 +114,7 @@ export const LSP_MCP_TOOLS: LspMcpTool[] = [
     inputSchema: objectSchema(
       {
         filePath: { type: "string", description: "Source file path." },
-        line: { type: "number", description: "1-based line number." },
-        character: { type: "number", description: "0-based column." },
+        ...POSITION_PROPERTIES,
         newName: { type: "string", description: "New symbol name." },
       },
       ["filePath", "line", "character", "newName"],

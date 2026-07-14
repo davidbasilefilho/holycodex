@@ -1,8 +1,8 @@
 import { formatApplyResult, formatPrepareRenameResult } from "../lsp/formatters.js";
 import { withLspClient } from "../lsp/client-wrapper.js";
 import { applyWorkspaceEdit } from "../lsp/workspace-edit.js";
-import { missingDependencyResult } from "../missing-dependency-result.js";
-import { clientOptions, requireNumber, requireString } from "./parameters.js";
+import { missingDependencyResultOrThrow } from "../missing-dependency-result.js";
+import { clientOptions, requireString, sourcePosition } from "./parameters.js";
 import { text } from "./result.js";
 import type { LspPrepareRenameDetails, LspRenameDetails, ToolExecutionResult } from "./types.js";
 
@@ -10,9 +10,7 @@ export async function executeLspPrepareRename(
   params: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
-  const filePath = requireString(params, "filePath");
-  const line = requireNumber(params, "line");
-  const character = requireNumber(params, "character");
+  const { filePath, line, character } = sourcePosition(params);
 
   try {
     const result = await withLspClient(
@@ -24,14 +22,12 @@ export async function executeLspPrepareRename(
     const details: LspPrepareRenameDetails = { filePath, line, character, result };
     return text(formatPrepareRenameResult(result), details);
   } catch (error) {
-    const missingDependency = missingDependencyResult(error, {
+    return missingDependencyResultOrThrow(error, {
       filePath,
       line,
       character,
       result: null,
     } satisfies Omit<LspPrepareRenameDetails, "error" | "errorKind">);
-    if (missingDependency) return missingDependency;
-    throw error;
   }
 }
 
@@ -39,9 +35,7 @@ export async function executeLspRename(
   params: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
-  const filePath = requireString(params, "filePath");
-  const line = requireNumber(params, "line");
-  const character = requireNumber(params, "character");
+  const { filePath, line, character } = sourcePosition(params);
   const newName = requireString(params, "newName");
 
   try {
@@ -65,7 +59,7 @@ export async function executeLspRename(
     };
     return text(formatApplyResult(apply), details, !apply.success);
   } catch (error) {
-    const missingDependency = missingDependencyResult(error, {
+    return missingDependencyResultOrThrow(error, {
       filePath,
       line,
       character,
@@ -73,7 +67,5 @@ export async function executeLspRename(
       apply: null,
       edit: null,
     } satisfies Omit<LspRenameDetails, "error" | "errorKind">);
-    if (missingDependency) return missingDependency;
-    throw error;
   }
 }

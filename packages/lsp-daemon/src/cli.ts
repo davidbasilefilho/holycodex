@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { argv, stderr } from "node:process";
+import { stackOrMessageFromError } from "@holycodex/mcp-stdio-core";
 
 import { runMcpStdioProxy } from "./proxy.js";
 import { runDaemon } from "./run-daemon.js";
@@ -21,6 +22,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+  stderr.write(`${stackOrMessageFromError(error)}\n`);
   process.exitCode = 1;
 });

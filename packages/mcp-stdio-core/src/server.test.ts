@@ -1,9 +1,15 @@
 import { describe, expect, test } from "vitest";
 import { PassThrough } from "node:stream";
-import { successResponse } from "./responses.js";
+import { stackOrMessageFromError, successResponse } from "./responses.js";
 import { runJsonRpcStdioServer } from "./server.js";
 
 describe("JSON-RPC stdio server", () => {
+  test("#given CLI failures #when formatted #then errors keep stacks and unknown values stringify", () => {
+    const error = new Error("boom");
+    expect(stackOrMessageFromError(error)).toBe(error.stack);
+    expect(stackOrMessageFromError("boom")).toBe("boom");
+  });
+
   test("#given request handler #when line request arrives #then response is written", async () => {
     const input = new PassThrough();
     const output = new PassThrough();

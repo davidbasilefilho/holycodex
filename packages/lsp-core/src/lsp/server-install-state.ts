@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
+import { isPlainRecord as isRecord } from "@holycodex/mcp-stdio-core/record";
 
 import { contextEnv } from "../request-context.js";
 
@@ -63,8 +64,4 @@ function isInstallDecisions(value: unknown): value is InstallDecisions {
 function isInstallDecisionRecord(value: unknown): value is InstallDecisionRecord {
   if (!isRecord(value)) return false;
   return isInstallDecision(value["decision"]) && typeof value["decidedAt"] === "string";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

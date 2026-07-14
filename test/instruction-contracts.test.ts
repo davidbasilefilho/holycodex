@@ -29,7 +29,26 @@ describe("instruction workflow contracts", () => {
       expect(description).toMatch(/Produces|Applies|Creates/);
       expect(text.length).toBeLessThanOrEqual(5_000);
     }
-    expect(texts.reduce((sum, text) => sum + text.length, 0)).toBeLessThanOrEqual(28_000);
+    expect(texts.reduce((sum, text) => sum + text.length, 0)).toBeLessThanOrEqual(26_800);
+  });
+
+  it("bounds the complete routed instruction surface", async () => {
+    const skillsRoot = join(root, "plugin", "skills");
+    const references = (await readdir(skillsRoot, { recursive: true }))
+      .filter((path) => path.endsWith(".md") && !path.endsWith("ATTRIBUTION.md"))
+      .map((path) => readFile(join(skillsRoot, path), "utf8"));
+    const agentsRoot = join(root, "plugin", "agents");
+    const agents = (await readdir(agentsRoot))
+      .filter((path) => path.endsWith(".toml"))
+      .map((path) => readFile(join(agentsRoot, path), "utf8"));
+    const texts = await Promise.all([
+      ...references,
+      ...agents,
+      readFile(join(root, "src", "core-instructions.ts"), "utf8"),
+    ]);
+    expect(texts.reduce((sum, text) => sum + Buffer.byteLength(text), 0)).toBeLessThanOrEqual(
+      43_700,
+    );
   });
 
   it("routes representative requests without adjacent skills or needless delegation", async () => {
@@ -105,6 +124,17 @@ describe("instruction workflow contracts", () => {
     expect(text).toContain(
       "Do not force red-green for prose, configuration-only work, trivial mechanical edits",
     );
+  });
+
+  it("requires one reusable implementation for shared behavior", async () => {
+    const text = await skill("programming");
+    expect(text).toContain("One behavior, one implementation");
+    expect(text).toContain("Search before writing; reuse or extend the existing implementation");
+    expect(text).toContain("Never copy-paste logic or maintain parallel variants");
+    expect(text).toContain(
+      "Put shared behavior in the smallest stable function, method, type, or module at its common ownership seam",
+    );
+    expect(text).toContain("Extract repetition when a second caller or copy exists");
   });
 
   it("gates visible frontend direction and always covers motion and accessibility", async () => {

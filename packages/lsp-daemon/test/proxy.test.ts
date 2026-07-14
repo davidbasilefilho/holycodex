@@ -1,12 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough, Readable, Writable } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { type DaemonServerHandle, startDaemonServer } from "../src/daemon-server.js";
 import { type DaemonPaths, daemonPaths } from "../src/paths.js";
 import { runMcpStdioProxy } from "../src/proxy.js";
+import { collectingWritable, inputStream, noSpawn } from "./proxy-fixtures.js";
 
 const tempDirectories: string[] = [];
 const servers: DaemonServerHandle[] = [];
@@ -23,19 +24,6 @@ function tempPaths(): DaemonPaths {
   return daemonPaths({ CODEX_LSP_DAEMON_DIR: dir }, "test");
 }
 
-function inputStream(messages: object[]): Readable {
-  return Readable.from([`${messages.map((message) => JSON.stringify(message)).join("\n")}\n`]);
-}
-
-function collectingWritable(chunks: string[]): Writable {
-  return new Writable({
-    write(chunk, _encoding, callback): void {
-      chunks.push(chunk.toString());
-      callback();
-    },
-  });
-}
-
 function parseResponses(chunks: string[]): Array<Record<string, unknown>> {
   return chunks
     .join("")
@@ -44,8 +32,6 @@ function parseResponses(chunks: string[]): Array<Record<string, unknown>> {
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
-
-const noSpawn = (): Promise<void> => Promise.resolve();
 
 describe("mcp stdio proxy", () => {
   it("#given initialize and tools/call #when proxied #then initialize is local and the tool goes to the daemon", async () => {

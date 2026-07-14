@@ -1,3 +1,4 @@
+import { messageFromError } from "@holycodex/mcp-stdio-core/responses";
 import { LspProcessExitedError } from "./errors.js";
 
 const RUST_SRC_REPAIR_MESSAGE = [
@@ -8,9 +9,7 @@ const RUST_SRC_REPAIR_MESSAGE = [
   "  rustup component add rust-src",
 ];
 
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+export const errorMessage = messageFromError;
 
 export function formatKnownLspStartupFailure(error: unknown): string | null {
   if (!(error instanceof LspProcessExitedError)) return null;

@@ -1,8 +1,8 @@
 import { DEFAULT_MAX_REFERENCES } from "../lsp/constants.js";
 import { formatLocation } from "../lsp/formatters.js";
 import { withLspClient } from "../lsp/client-wrapper.js";
-import { missingDependencyResult } from "../missing-dependency-result.js";
-import { clientOptions, optionalBoolean, requireNumber, requireString } from "./parameters.js";
+import { missingDependencyResultOrThrow } from "../missing-dependency-result.js";
+import { clientOptions, optionalBoolean, sourcePosition } from "./parameters.js";
 import { text } from "./result.js";
 import type {
   LspFindReferencesDetails,
@@ -14,9 +14,7 @@ export async function executeLspGotoDefinition(
   params: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
-  const filePath = requireString(params, "filePath");
-  const line = requireNumber(params, "line");
-  const character = requireNumber(params, "character");
+  const { filePath, line, character } = sourcePosition(params);
 
   try {
     const result = await withLspClient(
@@ -30,14 +28,12 @@ export async function executeLspGotoDefinition(
     if (locations.length === 0) return text("No definition found", details);
     return text(locations.map(formatLocation).join("\n"), details);
   } catch (error) {
-    const missingDependency = missingDependencyResult(error, {
+    return missingDependencyResultOrThrow(error, {
       filePath,
       line,
       character,
       locations: [],
     } satisfies Omit<LspGotoDefinitionDetails, "error" | "errorKind">);
-    if (missingDependency) return missingDependency;
-    throw error;
   }
 }
 
@@ -45,9 +41,7 @@ export async function executeLspFindReferences(
   params: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
-  const filePath = requireString(params, "filePath");
-  const line = requireNumber(params, "line");
-  const character = requireNumber(params, "character");
+  const { filePath, line, character } = sourcePosition(params);
   const includeDeclaration = optionalBoolean(params, "includeDeclaration") ?? true;
 
   try {
@@ -78,7 +72,7 @@ export async function executeLspFindReferences(
     ].join("\n");
     return text(output, details);
   } catch (error) {
-    const missingDependency = missingDependencyResult(error, {
+    return missingDependencyResultOrThrow(error, {
       filePath,
       line,
       character,
@@ -86,7 +80,5 @@ export async function executeLspFindReferences(
       totalReferences: 0,
       truncated: false,
     } satisfies Omit<LspFindReferencesDetails, "error" | "errorKind">);
-    if (missingDependency) return missingDependency;
-    throw error;
   }
 }

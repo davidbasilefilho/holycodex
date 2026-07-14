@@ -3,6 +3,7 @@ import {
   errorResponse,
   isPlainRecord,
   jsonRpcId,
+  messageFromError,
   runJsonRpcStdioServer,
   successResponse,
 } from "@holycodex/mcp-stdio-core";
@@ -53,7 +54,7 @@ export async function handleGitBashMcpRequest(
     const protocolVersion = protocolVersionFromInput(input) ?? "2024-11-05";
     return successResponse(id, {
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: "git_bash", version: "0.5.2" },
+      serverInfo: { name: "git_bash", version: "0.5.3" },
       protocolVersion,
     });
   }
@@ -143,7 +144,7 @@ async function runToolResponse(
     });
     return toolResponse(id, JSON.stringify(result, null, 2));
   } catch (error) {
-    return toolResponse(id, error instanceof Error ? error.message : String(error), true);
+    return toolResponse(id, messageFromError(error), true);
   }
 }
 

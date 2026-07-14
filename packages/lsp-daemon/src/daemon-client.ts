@@ -1,6 +1,7 @@
 import { connect } from "node:net";
 
 import type { ToolExecutionResult } from "@holycodex/lsp-core/tools";
+import { messageFromError } from "@holycodex/mcp-stdio-core/responses";
 import { isPlainRecord } from "@holycodex/mcp-stdio-core/record";
 
 import { ensureDaemonRunning } from "./ensure-daemon.js";
@@ -87,7 +88,7 @@ function withContext(
 }
 
 function daemonUnreachableResult(paths: DaemonPaths, error: unknown): ToolExecutionResult {
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorMessage = messageFromError(error);
   const text = [
     `LSP daemon unreachable: ${errorMessage}.`,
     "The MCP server is a thin proxy and never runs language servers in-process.",

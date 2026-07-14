@@ -13,15 +13,15 @@ Create one bounded, verifiable objective; no plan, log, snapshot, ledger, handof
 
 ## Flow
 
-1. State concrete desired outcome, target, completion criteria, acceptable proof, scope, exclusions, input blocker, and explicit stop condition.
+1. State concrete outcome, target, completion criteria, proof, scope, exclusions, input blocker, and stop condition.
 2. Add useful checks, paths, environments, counts, or limits; no fake precision or quality ratchet.
-3. Replace activity goals like “improve” with observable state. Bound subjective quality by the approved task and named validator.
+3. Replace activity goals such as “improve” with observable state. Bound subjective quality by approved task and named validator.
 4. Ask one short question only if missing scope or proof would materially change intent.
 5. Call `get_goal`.
    - No goal: quality-check, then `create_goal`.
    - Same active goal: reuse.
    - Conflicting goal: ask whether to finish it or use another task.
-6. Call `create_goal` with one concise objective. Set token budget only when user explicitly asks. Stop once the objective's criteria pass; do not extend it for polishing, speculative expansion, repeated review, adjacent work, or newly noticed opportunities.
+6. Call `create_goal` with one concise objective. Set token budget only when explicitly requested. Stop when criteria pass; do not extend for polish, speculation, repeated review, adjacent work, or new opportunities.
 
 ## Quality gate
 

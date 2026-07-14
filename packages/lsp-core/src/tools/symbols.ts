@@ -2,7 +2,7 @@ import { DEFAULT_MAX_SYMBOLS } from "../lsp/constants.js";
 import { formatDocumentSymbol, formatSymbolInfo } from "../lsp/formatters.js";
 import { withLspClient } from "../lsp/client-wrapper.js";
 import type { DocumentSymbol, SymbolInfo } from "../lsp/types.js";
-import { missingDependencyResult } from "../missing-dependency-result.js";
+import { missingDependencyResultOrThrow } from "../missing-dependency-result.js";
 import { clientOptions, optionalNumber, optionalString, requireString } from "./parameters.js";
 import { text } from "./result.js";
 import type { LspSymbolsDetails, ToolExecutionResult } from "./types.js";
@@ -57,7 +57,7 @@ export async function executeLspSymbols(
     return formatSymbolsResult(filePath, scope, symbols, limit);
   } catch (error) {
     const query = optionalString(params, "query");
-    const missingDependency = missingDependencyResult(error, {
+    return missingDependencyResultOrThrow(error, {
       filePath,
       scope,
       symbols: [],
@@ -65,8 +65,6 @@ export async function executeLspSymbols(
       truncated: false,
       ...(query === undefined ? {} : { query }),
     } satisfies Omit<LspSymbolsDetails, "error" | "errorKind">);
-    if (missingDependency) return missingDependency;
-    throw error;
   }
 }
 

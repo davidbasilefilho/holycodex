@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
+import { isPlainRecord as isRecord } from "@holycodex/mcp-stdio-core/record";
 
 import { contextCwd, contextEnv } from "../request-context.js";
 import { BUILTIN_SERVERS } from "./server-definitions.js";
@@ -247,10 +248,6 @@ function isStringArray(value: unknown): value is string[] {
 
 function isStringRecord(value: unknown): value is Record<string, string> {
   return isRecord(value) && Object.values(value).every((item) => typeof item === "string");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function getDisabledServerIds(): Set<string> {

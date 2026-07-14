@@ -1,3 +1,5 @@
+import { isPlainRecord } from "@holycodex/mcp-stdio-core/record";
+
 type JsonRpcId = number | string | null;
 
 interface PendingRequest {
@@ -277,10 +279,6 @@ function parseContentLength(headers: string): number | null {
   return null;
 }
 
-function isJsonRpcObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function getMessageId(message: Record<string, unknown>): JsonRpcId | undefined {
   const id = message["id"];
   if (typeof id === "number" || typeof id === "string" || id === null) return id;
@@ -288,7 +286,7 @@ function getMessageId(message: Record<string, unknown>): JsonRpcId | undefined {
 }
 
 function jsonRpcErrorToError(value: unknown): Error {
-  if (!isJsonRpcObject(value)) return new Error("JSON-RPC request failed");
+  if (!isPlainRecord(value)) return new Error("JSON-RPC request failed");
   const message =
     typeof value["message"] === "string" ? value["message"] : "JSON-RPC request failed";
   const error = new Error(message);

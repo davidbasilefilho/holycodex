@@ -24,3 +24,7 @@ export function jsonRpcId(value: unknown): JsonRpcId {
 export function messageFromError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+export function stackOrMessageFromError(error: unknown): string {
+  return error instanceof Error ? (error.stack ?? error.message) : String(error);
+}

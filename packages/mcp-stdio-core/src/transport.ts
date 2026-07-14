@@ -1,4 +1,5 @@
 import type { Readable, Writable } from "node:stream";
+import { messageFromError } from "./responses.js";
 
 export type StdioJsonRpcResponseMode = "line" | "framed";
 
@@ -131,7 +132,7 @@ function parseJsonPayload(
   } catch (error) {
     return {
       kind: "parse_error",
-      message: error instanceof Error ? error.message : String(error),
+      message: messageFromError(error),
       responseMode,
     };
   }

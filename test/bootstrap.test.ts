@@ -16,6 +16,10 @@ describe("bootstrap readiness", () => {
     );
     const context = await readinessContext(root);
     expect(context).toContain('Start first user-facing update: "I detect ');
+    expect(context).toContain(
+      "Before any plan, skill routing, delegation, or task action, inspect the full callable tool registry, including deferred tools",
+    );
+    expect(context).toContain("treat only that registry as availability evidence");
     expect(context).toContain("on native Windows, before any shell call");
     expect(context).toContain("resolve `mcp__git_bash__run` from the full callable registry");
     expect(context).toContain("including deferred tools");

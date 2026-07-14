@@ -1,3 +1,4 @@
+import { isPlainRecord as isRecord } from "@holycodex/mcp-stdio-core/record";
 import { reportBestEffortCleanupError } from "./cleanup-errors.js";
 import {
   INIT_TIMEOUT_MS,
@@ -21,10 +22,6 @@ interface ConfigurationItem {
 interface DiagnosticsParams {
   uri: string;
   diagnostics: Diagnostic[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseConfigurationItems(params: unknown): ConfigurationItem[] {

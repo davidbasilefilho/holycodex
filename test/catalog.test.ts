@@ -57,6 +57,10 @@ describe("HolyCodex catalog", () => {
       const prompt = await readFile(join(root, "plugin", "agents", agent), "utf8");
       expect(prompt).toMatch(/^description = ".*Use .*"$/m);
       expect(prompt).toContain('Start: "I detect ');
+      expect(prompt).toContain(
+        "Before any plan, skill routing, or task action, inspect the full callable tool registry, including deferred tools",
+      );
+      expect(prompt).toContain("treat only that registry as availability evidence");
       expect(prompt).toContain("On native Windows, before any shell call");
       expect(prompt).toContain("resolve `mcp__git_bash__run` from the full callable registry");
       expect(prompt).toContain("including deferred tools");

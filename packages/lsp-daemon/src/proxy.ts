@@ -1,5 +1,10 @@
 import type { Readable, Writable } from "node:stream";
-import { jsonRpcId, runJsonRpcStdioServer, successResponse } from "@holycodex/mcp-stdio-core";
+import {
+  jsonRpcId,
+  messageFromError,
+  runJsonRpcStdioServer,
+  successResponse,
+} from "@holycodex/mcp-stdio-core";
 import { isPlainRecord } from "@holycodex/mcp-stdio-core/record";
 import { handleLspMcpRequest, type JsonRpcId, type JsonRpcResponse } from "@holycodex/lsp-core/mcp";
 
@@ -43,9 +48,7 @@ export async function runMcpStdioProxy(options: ProxyOptions = {}): Promise<void
     handler: handleProxyRequest,
     handlerOptions: callOptions,
     onHandlerError: (error: unknown) => {
-      process.stderr.write(
-        `[lsp-daemon] proxy error: ${error instanceof Error ? error.message : String(error)}\n`,
-      );
+      process.stderr.write(`[lsp-daemon] proxy error: ${messageFromError(error)}\n`);
     },
   });
 }

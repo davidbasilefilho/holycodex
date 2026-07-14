@@ -6,7 +6,7 @@ import { aggregateDiagnosticsForDirectory } from "../lsp/directory-diagnostics.j
 import { filterDiagnosticsBySeverity, formatDiagnostic } from "../lsp/formatters.js";
 import { inferExtensionFromDirectory } from "../lsp/infer-extension.js";
 import type { Diagnostic } from "../lsp/types.js";
-import { missingDependencyResult } from "../missing-dependency-result.js";
+import { missingDependencyResultOrThrow } from "../missing-dependency-result.js";
 import { contextCwd } from "../request-context.js";
 import { clientOptions, requireString, severityFilter } from "./parameters.js";
 import { text } from "./result.js";
@@ -87,7 +87,7 @@ export async function executeLspDiagnostics(
     };
     return text(output, details);
   } catch (error) {
-    const missingDependency = missingDependencyResult(error, {
+    return missingDependencyResultOrThrow(error, {
       filePath,
       severity,
       mode: "file",
@@ -95,7 +95,5 @@ export async function executeLspDiagnostics(
       totalDiagnostics: 0,
       truncated: false,
     } satisfies Omit<LspDiagnosticsDetails, "error" | "errorKind">);
-    if (missingDependency) return missingDependency;
-    throw error;
   }
 }

@@ -1,8 +1,21 @@
+import { isPlainRecord } from "@holycodex/mcp-stdio-core/record";
 import type { WithLspClientOptions } from "../lsp/client-wrapper.js";
 import type { SeverityFilter } from "../lsp/types.js";
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+export const isRecord = isPlainRecord;
+
+export interface SourcePosition {
+  readonly filePath: string;
+  readonly line: number;
+  readonly character: number;
+}
+
+export function sourcePosition(params: Record<string, unknown>): SourcePosition {
+  return {
+    filePath: requireString(params, "filePath"),
+    line: requireNumber(params, "line"),
+    character: requireNumber(params, "character"),
+  };
 }
 
 export function requireString(params: Record<string, unknown>, key: string): string {

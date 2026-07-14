@@ -1,8 +1,9 @@
-import { Readable, Writable } from "node:stream";
+import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
 
 import { type DaemonPaths, daemonPaths } from "../src/paths.js";
 import { runMcpStdioProxy } from "../src/proxy.js";
+import { collectingWritable, inputStream, noSpawn } from "./proxy-fixtures.js";
 
 describe("lsp-daemon MCP proxy protocol pins", () => {
   it("given initialize request when proxied then exact server info and capabilities stay stable", async () => {
@@ -22,7 +23,7 @@ describe("lsp-daemon MCP proxy protocol pins", () => {
       id: 1,
       result: {
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "lsp", version: "0.5.2" },
+        serverInfo: { name: "lsp", version: "0.5.3" },
         protocolVersion: "2024-11-05",
       },
     });
@@ -50,23 +51,8 @@ describe("lsp-daemon MCP proxy protocol pins", () => {
   });
 });
 
-const noSpawn = (): Promise<void> => Promise.resolve();
-
 function inertPaths(): DaemonPaths {
   return daemonPaths({ CODEX_LSP_DAEMON_DIR: "/tmp/holycodex-lsp-daemon-protocol-pin" }, "test");
-}
-
-function inputStream(messages: readonly object[]): Readable {
-  return Readable.from([`${messages.map((message) => JSON.stringify(message)).join("\n")}\n`]);
-}
-
-function collectingWritable(chunks: string[]): Writable {
-  return new Writable({
-    write(chunk, _encoding, callback): void {
-      chunks.push(chunk.toString());
-      callback();
-    },
-  });
 }
 
 function parseSingleResponse(chunks: readonly string[]): unknown {
