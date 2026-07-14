@@ -16,8 +16,10 @@ describe("bootstrap readiness", () => {
     );
     const context = await readinessContext(root);
     expect(context).toContain('Start first user-facing update: "I detect ');
-    expect(context).toContain("on native Windows, use git_bash MCP");
-    expect(context).toContain("otherwise use the native shell directly without probing git_bash");
+    expect(context).toContain("on native Windows, before any shell call");
+    expect(context).toContain("resolve `mcp__git_bash__run` from the full callable registry");
+    expect(context).toContain("including deferred tools");
+    expect(context).toContain("otherwise use the native shell directly");
     expect(context).toContain("load caveman");
     expect(context).toContain("Default user-facing replies:");
     expect(context).toContain(
@@ -42,7 +44,7 @@ describe("bootstrap readiness", () => {
 
     expect(output.hookSpecificOutput?.hookEventName).toBe("SessionStart");
     expect(output.hookSpecificOutput?.additionalContext).toContain(
-      "otherwise use the native shell directly without probing git_bash",
+      "otherwise use the native shell directly",
     );
   });
 });

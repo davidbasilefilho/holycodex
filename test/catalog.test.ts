@@ -57,8 +57,10 @@ describe("HolyCodex catalog", () => {
       const prompt = await readFile(join(root, "plugin", "agents", agent), "utf8");
       expect(prompt).toMatch(/^description = ".*Use .*"$/m);
       expect(prompt).toContain('Start: "I detect ');
-      expect(prompt).toContain("On native Windows use git_bash MCP when its run tool is available");
-      expect(prompt).toContain("otherwise use native shell directly without probing git_bash");
+      expect(prompt).toContain("On native Windows, before any shell call");
+      expect(prompt).toContain("resolve `mcp__git_bash__run` from the full callable registry");
+      expect(prompt).toContain("including deferred tools");
+      expect(prompt).toContain("otherwise use native shell directly");
       for (const rule of responseStyleContract) expect(prompt).toContain(rule);
       expect(prompt).not.toMatch(/delegat|subagent/i);
       expect(prompt).toContain("Accept one task packet containing exact");

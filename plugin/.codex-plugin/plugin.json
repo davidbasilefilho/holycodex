@@ -1,6 +1,6 @@
 {
   "name": "holycodex",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Lean Codex workflows with routed skills, bounded subagents, scoped rules, Git Bash, and LSP.",
   "author": {
     "name": "David Basile Filho",
