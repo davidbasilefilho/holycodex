@@ -2,7 +2,7 @@ import { access, mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/pr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, install } from "../src/install";
+import { assertGitBashReady, cleanup, install } from "../src/install";
 
 const originalHome = process.env.CODEX_HOME;
 const packageVersion = (
@@ -17,6 +17,11 @@ afterEach(() => {
 });
 
 describe("install lifecycle", () => {
+  it("blocks install before mutation when native Windows lacks Git Bash", () => {
+    expect(() =>
+      assertGitBashReady({ found: false, checkedPaths: [], installHint: "Install Git Bash." }),
+    ).toThrow("Install Git Bash.");
+  });
   it("preserves unrelated config, removes legacy OMO, and cleans only HolyCodex", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-test-"));
     process.env.CODEX_HOME = home;
@@ -24,7 +29,7 @@ describe("install lifecycle", () => {
     await writeFile(join(home, "plugins", "cache", "sisyphuslabs", "omo", "old.txt"), "old");
     await writeFile(join(home, "config.toml"), "[custom]\nvalue = true\n");
 
-    const first = await install({ autonomous: false, json: false });
+    const first = await install({ autonomy: "default", json: false });
     const installed = await readFile(join(home, "config.toml"), "utf8");
     expect(installed).toContain("[custom]\nvalue = true");
     expect(first.changed).toContain(join(home, "plugins", "cache", "sisyphuslabs", "omo"));
@@ -38,7 +43,7 @@ describe("install lifecycle", () => {
       mcpServers: {
         git_bash: { command: "node", args: ["runtime/git-bash.js", "mcp"], cwd: "." },
         lsp: { command: "node", args: ["runtime/lsp.js", "mcp"], cwd: "." },
-        context7: { url: "https://mcp.context7.com/mcp" },
+        context7: { command: "bunx", args: ["@upstash/context7-mcp"] },
       },
     });
     await Promise.all(
@@ -58,14 +63,14 @@ describe("install lifecycle", () => {
     expect(await readdir(join(cache, "skills"))).not.toHaveLength(0);
     expect(installed).toContain("[marketplaces.holycodex]");
     expect(installed).toContain('[plugins."holycodex@holycodex"]\nenabled = true');
-    expect((await install({ autonomous: false, json: false })).action).toBe("install");
+    expect((await install({ autonomy: "default", json: false })).action).toBe("install");
 
     const staleCache = join(home, "plugins", "cache", "holycodex", "holycodex", "0.2.1");
     await mkdir(staleCache, { recursive: true });
     await writeFile(join(staleCache, "hooks.json"), '{"type":"prompt"}');
 
-    await cleanup({ autonomous: false, json: false });
-    await cleanup({ autonomous: false, json: false });
+    await cleanup({ autonomy: "default", json: false });
+    await cleanup({ autonomy: "default", json: false });
     expect(await readFile(join(home, "config.toml"), "utf8")).toBe("[custom]\nvalue = true\n");
     await expect(access(join(home, "plugins", "cache", "holycodex"))).rejects.toMatchObject({
       code: "ENOENT",
@@ -75,8 +80,8 @@ describe("install lifecycle", () => {
   it("removes a config created solely by HolyCodex", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-test-"));
     process.env.CODEX_HOME = home;
-    await install({ autonomous: false, json: false });
-    await cleanup({ autonomous: false, json: false });
+    await install({ autonomy: "default", json: false });
+    await cleanup({ autonomy: "default", json: false });
     await expect(readFile(join(home, "config.toml"), "utf8")).rejects.toMatchObject({
       code: "ENOENT",
     });

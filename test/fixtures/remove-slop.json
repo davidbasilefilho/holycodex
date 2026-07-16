@@ -1,0 +1,5 @@
+[
+  { "file": "src/changed.ts", "generated": false, "proof": true, "expected": "eligible" },
+  { "file": "src/uncovered.ts", "generated": false, "proof": false, "expected": "stop" },
+  { "file": "plugin/runtime/cli.js", "generated": true, "proof": true, "expected": "exclude" }
+]

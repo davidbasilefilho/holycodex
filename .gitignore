@@ -5,6 +5,17 @@ plugin/runtime/
 .vite/
 coverage/
 .tmp-*/
+tmp/
+temp/
 *.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.env
+.env.*
+!.env.example
 pack.json
 pack-files.txt

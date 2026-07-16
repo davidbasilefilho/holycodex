@@ -29,7 +29,7 @@ describe("instruction workflow contracts", () => {
       expect(description).toMatch(/Produces|Applies|Creates/);
       expect(text.length).toBeLessThanOrEqual(5_000);
     }
-    expect(texts.reduce((sum, text) => sum + text.length, 0)).toBeLessThanOrEqual(26_800);
+    expect(texts.reduce((sum, text) => sum + text.length, 0)).toBeLessThanOrEqual(27_500);
   });
 
   it("bounds the complete routed instruction surface", async () => {
@@ -47,7 +47,7 @@ describe("instruction workflow contracts", () => {
       readFile(join(root, "src", "core-instructions.ts"), "utf8"),
     ]);
     expect(texts.reduce((sum, text) => sum + Buffer.byteLength(text), 0)).toBeLessThanOrEqual(
-      43_700,
+      44_400,
     );
   });
 
@@ -114,6 +114,69 @@ describe("instruction workflow contracts", () => {
     );
   });
 
+  it("covers realistic adversarial plan-review failures", async () => {
+    const review = await skill("plan-review");
+    const fixtures = JSON.parse(
+      await readFile(join(root, "test", "fixtures", "plan-review.json"), "utf8"),
+    ) as Array<{ expected: string[] }>;
+    const contracts: Record<string, RegExp> = {
+      "missing-requirement": /Map every material requirement/,
+      "unsupported-assumption": /unsupported assumptions/,
+      "wrong-scope": /wrong scope\/order/,
+      "dependency-cycle": /circular dependencies/,
+      "write-overlap": /overlapping writes/,
+      "unsafe-parallelism": /unsafe parallelism/,
+      "unresolved-decision": /unresolved product choices/,
+      "compatibility-risk": /compatibility/,
+      "windows-shell": /Windows Git Bash/,
+      "frontend-accessibility": /frontend accessibility\/motion/,
+      "weak-proof": /vague criteria, unverifiable outcomes/,
+      "missing-package": /generated\/package/,
+      "token-waste": /token-heavy delegation/,
+      "behavior-changing-cleanup": /behavior-changing cleanup/,
+      "missing-attribution": /attribution\/license/,
+      "continues-past-goal": /continuing beyond real goal/,
+    };
+    for (const fixture of fixtures) {
+      for (const issue of fixture.expected) {
+        const contract = contracts[issue];
+        expect(contract, `unknown fixture issue: ${issue}`).toBeDefined();
+        if (contract !== undefined)
+          expect(review, `uncovered fixture issue: ${issue}`).toMatch(contract);
+      }
+    }
+    expect(review).toContain(
+      "Block architecture or user decisions; label lesser repairs suggestions.",
+    );
+    expect(review).toContain("Rank findings by impact before revising.");
+    expect(review).toContain("Revise once");
+  });
+
+  it("validates semantic compression examples", async () => {
+    const cases = JSON.parse(
+      await readFile(join(root, "test", "fixtures", "compress.json"), "utf8"),
+    ) as Array<{ source: string; compressed: string; preserve: string[]; absent: string[] }>;
+    for (const item of cases) {
+      expect(item.compressed.length).toBeLessThan(item.source.length);
+      expect(item.compressed).toMatch(/[.!?]$/);
+      for (const exact of item.preserve) expect(item.compressed).toContain(exact);
+      for (const waste of item.absent) expect(item.compressed.toLowerCase()).not.toContain(waste);
+    }
+  });
+
+  it("validates remove-slop behavior-lock fixtures", async () => {
+    const cases = JSON.parse(
+      await readFile(join(root, "test", "fixtures", "remove-slop.json"), "utf8"),
+    ) as Array<{ file: string; generated: boolean; proof: boolean; expected: string }>;
+    for (const item of cases) {
+      const actual = item.generated ? "exclude" : item.proof ? "eligible" : "stop";
+      expect(actual, item.file).toBe(item.expected);
+    }
+    const contract = await skill("remove-slop");
+    expect(contract).toContain("generated");
+    expect(contract).toContain("stop if unverified");
+  });
+
   it("distinguishes defect, new behavior, covered, and nonbehavior testing", async () => {
     const text = await skill("programming");
     expect(text).toContain("Defect: add a public-seam regression test first");
@@ -167,11 +230,48 @@ describe("instruction workflow contracts", () => {
       ["debugging", "unlike programming"],
       ["lsp", "unlike lsp-setup"],
       ["plan-review", "unlike plan"],
-      ["refactor", "unlike remove-ai-slops"],
+      ["refactor", "unlike remove-slop"],
       ["security-research", "unlike debugging"],
     ] as const;
     for (const [name, boundary] of pairs) {
       expect((await skill(name)).toLowerCase()).toContain(boundary.toLowerCase());
     }
+  });
+
+  it("defines semantic compression before caveman rendering", async () => {
+    const text = await skill("compress");
+    for (const requirement of [
+      "repetition, filler, hedging, ceremony, inflated wording",
+      "distinctions, exact values/order, constraints, exceptions",
+      "permissions, gates, warnings, evidence/citations, stops",
+      "exact names/strings, code/commands/paths/APIs/errors/numbers/links",
+      "weaker prohibition",
+      "omitted exception, warning, validation, or stop",
+      "Both: compress, then render lite unless explicit",
+    ])
+      expect(text).toContain(requirement);
+    expect(text).toContain("`compress` owns semantic compression.");
+    expect(text).toContain("`caveman` owns persistent voice and stronger modes.");
+  });
+
+  it("locks remove-slop scope, behavior, exceptions, and proof", async () => {
+    const text = await skill("remove-slop");
+    expectOrder(text, [
+      "Explicit files win",
+      "Lock observable behavior",
+      "Remove only proven",
+      "Keep boundary",
+      "Work safest first",
+      "Run targeted proof",
+    ]);
+    for (const rule of [
+      "never expand scope",
+      "stop if unverified",
+      "Skip uncertain changes",
+      "Ask before module splits",
+      "never copy unsupported OpenCode mechanics",
+      "THIRD-PARTY-NOTICES.md",
+    ])
+      expect(text).toContain(rule);
   });
 });

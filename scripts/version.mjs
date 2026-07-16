@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +13,7 @@ const jsonFiles = [
 ];
 const textFiles = [
   "src/cli.ts",
+  "src/doctor.ts",
   "src/install.ts",
   "test/cli.test.ts",
   "packages/git-bash-mcp/src/mcp.ts",

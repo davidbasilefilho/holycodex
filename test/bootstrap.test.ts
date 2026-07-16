@@ -20,10 +20,9 @@ describe("bootstrap readiness", () => {
       "Before any plan, skill routing, delegation, or task action, inspect the full callable tool registry, including deferred tools",
     );
     expect(context).toContain("treat only that registry as availability evidence");
-    expect(context).toContain("on native Windows, before any shell call");
-    expect(context).toContain("resolve `mcp__git_bash__run` from the full callable registry");
+    expect(context).toContain("on native Windows use `mcp__git_bash__run` for every shell call");
     expect(context).toContain("including deferred tools");
-    expect(context).toContain("otherwise use the native shell directly");
+    expect(context).toContain("never fall back to PowerShell or cmd");
     expect(context).toContain("load caveman");
     expect(context).toContain("Default user-facing replies:");
     expect(context).toContain(
@@ -48,7 +47,23 @@ describe("bootstrap readiness", () => {
 
     expect(output.hookSpecificOutput?.hookEventName).toBe("SessionStart");
     expect(output.hookSpecificOutput?.additionalContext).toContain(
-      "otherwise use the native shell directly",
+      "never fall back to PowerShell or cmd",
     );
+  });
+
+  it("blocks native Windows readiness when Git Bash is missing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-bootstrap-"));
+    await mkdir(join(root, "runtime"));
+    await Promise.all(
+      ["git-bash.js", "lsp.js", "rules.js"].map((file) =>
+        writeFile(join(root, "runtime", file), ""),
+      ),
+    );
+    const context = await readinessContext(root, {
+      found: false,
+      checkedPaths: [],
+      installHint: "Git Bash required. Install Git for Windows.",
+    });
+    expect(context).toContain("Git Bash required");
   });
 });

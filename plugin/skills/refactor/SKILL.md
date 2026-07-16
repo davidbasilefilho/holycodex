@@ -1,6 +1,6 @@
 ---
 name: refactor
-description: Use when a task needs behavior-preserving restructuring, extraction, simplification, modernization, or cleanup of one named seam; do not use for features, bug fixes, formatting sweeps, or broad AI-slop cleanup. Produces a behavior-locked structural change; unlike remove-ai-slops it targets one seam or smell.
+description: Use when a task needs behavior-preserving restructuring, extraction, simplification, modernization, or cleanup of one named seam; do not use for features, bug fixes, formatting sweeps, or broad AI-slop cleanup. Produces a behavior-locked structural change; unlike remove-slop it targets one seam or smell.
 ---
 
 # Refactor

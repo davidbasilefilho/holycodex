@@ -1,0 +1,14 @@
+[
+  {
+    "source": "It is very important to note that you must run bunx vp test, and you must preserve API_KEY=alpha exactly. However, do not run deployment unless approval is explicit.",
+    "compressed": "Run bunx vp test; preserve API_KEY=alpha exactly. Do not deploy without explicit approval.",
+    "preserve": ["bunx vp test", "API_KEY=alpha", "Do not deploy", "explicit approval"],
+    "absent": ["very important to note", "it is"]
+  },
+  {
+    "source": "In order to continue, please keep Error: EACCES and C:\\work\\app.ts unchanged, but skip validation only when --trusted is explicitly provided.",
+    "compressed": "Keep Error: EACCES and C:\\work\\app.ts unchanged. Skip validation only with explicit --trusted.",
+    "preserve": ["Error: EACCES", "C:\\work\\app.ts", "--trusted", "only"],
+    "absent": ["in order to", "please"]
+  }
+]

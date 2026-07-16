@@ -22,7 +22,7 @@ Large always-on prompts, agent hierarchies, review loops, and duplicated context
 - Rules are path-scoped, size-limited, cached, and deduplicated; `AGENTS.md` is never reinjected.
 - Concurrent delegation is capped at two; every delegated slice has fixed scope, evidence, acceptance, and stop conditions under primary-agent control.
 - Explorer and librarian use GPT-5.6 Luna low; worker uses GPT-5.6 Luna medium.
-- Git Bash shell execution is required only on native Windows when its MCP run tool is available; other environments use their native shell directly.
+- Native Windows shell work always uses the Git Bash MCP. If it is unavailable, HolyCodex stops instead of falling back to PowerShell or cmd.
 - OMO workflows and retained references are rewritten with caveman-style token efficiency.
 - The OMO frontend skill is merged with GPT Taste instead of shipping another overlapping skill.
 
@@ -45,7 +45,8 @@ Installation is noninteractive. It:
 2. Removes legacy OMO configuration and cache after backup.
 3. Preserves unrelated Codex settings and explicit model or agent preferences.
 4. Installs the HolyCodex marketplace, plugin, agents, skills, hooks, and MCP definitions.
-5. Sets `max_concurrent_threads_per_session = 2` and defaults the root model to GPT-5.6 Sol low only when no root preference exists.
+5. Sets two-thread concurrency, request-user-input support, and a footer showing remaining context; defaults the root model to GPT-5.6 Terra medium only when no root preference exists.
+6. Runs Context7 locally with `bunx @upstash/context7-mcp`; no Context7 authentication is required.
 
 Codex may still ask you to review and trust the installed command hooks. This security review is the only manual installation step.
 
@@ -53,10 +54,19 @@ Options:
 
 ```sh
 holycodex install --json
-holycodex install
+holycodex install                         # on-request, workspace-write, network on
+holycodex install --codex-autonomous      # never ask, workspace-write, network on
+holycodex install --dangerous-codex-autonomous # never ask, full filesystem access
+holycodex install --no-codex-autonomous   # same safe behavior as no flag
+holycodex doctor
+holycodex doctor --json
 holycodex --help
 holycodex --version
 ```
+
+Dangerous autonomy prints an explicit warning. `holycodex doctor` distinguishes missing Bun or bunx, malformed or stale Context7 configuration, obsolete authentication, wrong package configuration, startup failure, and healthy operation.
+
+Migration: `--codex-autonomous` now keeps workspace containment. Existing users who intentionally need its former unrestricted host access must select `--dangerous-codex-autonomous`; HolyCodex never infers or silently enables that mode. Context7 deliberately follows the latest `@upstash/context7-mcp` release.
 
 ### Cleanup
 
@@ -73,7 +83,7 @@ Cleanup backs up affected files, removes only HolyCodex-owned configuration and 
 - `plugin/skills/` — shipped skill catalogue and on-demand references.
 - `plugin/agents/` — the three cost-focused subagent definitions.
 - `plugin/hooks/` — supported command hooks for readiness and scoped rules.
-- `plugin/.mcp.json` — local and remote MCP defaults.
+- `plugin/.mcp.json` — local MCP defaults.
 - `plugin/runtime/` — prebuilt Node-compatible CLI, rules, Git Bash, and LSP runtime.
 - `src/` — installer, cleanup, bootstrap, and scoped-rules source.
 - `packages/` — Git Bash and LSP MCP source.

@@ -1,0 +1,25 @@
+[
+  {
+    "name": "unsafe cross-platform release migration",
+    "expected": [
+      "missing-requirement",
+      "unsupported-assumption",
+      "wrong-scope",
+      "dependency-cycle",
+      "write-overlap",
+      "unsafe-parallelism",
+      "unresolved-decision",
+      "compatibility-risk",
+      "windows-shell",
+      "weak-proof",
+      "missing-package",
+      "token-waste",
+      "missing-attribution",
+      "continues-past-goal"
+    ]
+  },
+  {
+    "name": "frontend cleanup presented as refactor",
+    "expected": ["frontend-accessibility", "behavior-changing-cleanup", "weak-proof"]
+  }
+]

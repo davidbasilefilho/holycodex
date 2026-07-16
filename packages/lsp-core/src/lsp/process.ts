@@ -1,6 +1,10 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
+import {
+  resolveGitBashForCurrentProcess,
+  type GitBashResolution,
+} from "../../../git-bash-mcp/src/git-bash-resolver.js";
 
 import { reportBestEffortCleanupError } from "./cleanup-errors.js";
 import { LspInvalidPathError, LspProcessSpawnError } from "./errors.js";
@@ -153,8 +157,8 @@ function resolveWindowsCommand(command: string, env: Record<string, string | und
 export function createSpawnCommand(
   command: string[],
   platform: NodeJS.Platform = process.platform,
-  commandProcessor: string = process.env["ComSpec"] ?? "cmd.exe",
   env: Record<string, string | undefined> = process.env,
+  gitBash: GitBashResolution = resolveGitBashForCurrentProcess({ platform, env }),
 ): PreparedSpawnCommand {
   const [cmd, ...args] = command;
   if (!cmd) {
@@ -170,9 +174,13 @@ export function createSpawnCommand(
     return { command: resolvedCommand, args, shell: false };
   }
 
+  if (!gitBash.found || gitBash.path === null)
+    throw new LspProcessSpawnError(
+      "[lsp] Git Bash is required to launch Windows command shims. Install Git for Windows or set HOLYCODEX_GIT_BASH_PATH.",
+    );
   return {
-    command: commandProcessor,
-    args: ["/d", "/s", "/c", resolvedCommand, ...args],
+    command: gitBash.path,
+    args: ["-lc", 'exec "$@"', "holycodex-lsp", resolvedCommand, ...args],
     shell: false,
   };
 }
@@ -188,12 +196,7 @@ export function spawnProcess(command: string[], options: SpawnOptions): SpawnedP
     throw new LspProcessSpawnError("[lsp] empty command");
   }
 
-  const preparedCommand = createSpawnCommand(
-    command,
-    process.platform,
-    process.env["ComSpec"] ?? "cmd.exe",
-    options.env,
-  );
+  const preparedCommand = createSpawnCommand(command, process.platform, options.env);
   const proc = spawn(preparedCommand.command, preparedCommand.args, {
     cwd: options.cwd,
     env: options.env,

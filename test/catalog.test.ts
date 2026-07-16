@@ -19,7 +19,7 @@ const skills = [
   "plan-review",
   "programming",
   "refactor",
-  "remove-ai-slops",
+  "remove-slop",
   "rules",
   "security-research",
 ] as const;
@@ -61,10 +61,9 @@ describe("HolyCodex catalog", () => {
         "Before any plan, skill routing, or task action, inspect the full callable tool registry, including deferred tools",
       );
       expect(prompt).toContain("treat only that registry as availability evidence");
-      expect(prompt).toContain("On native Windows, before any shell call");
-      expect(prompt).toContain("resolve `mcp__git_bash__run` from the full callable registry");
+      expect(prompt).toContain("On native Windows use `mcp__git_bash__run` for every shell call");
       expect(prompt).toContain("including deferred tools");
-      expect(prompt).toContain("otherwise use native shell directly");
+      expect(prompt).toContain("if unavailable, stop and report the blocker");
       for (const rule of responseStyleContract) expect(prompt).toContain(rule);
       expect(prompt).not.toMatch(/delegat|subagent/i);
       expect(prompt).toContain("Accept one task packet containing exact");
@@ -85,14 +84,14 @@ describe("HolyCodex catalog", () => {
       expect(prompt).toContain("Return exactly requested format");
       expect(prompt).toContain("no proposed extra work");
     }
-    expect(await readFile(join(root, "plugin", "agents", "explorer.toml"), "utf8")).toContain(
-      'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "low"',
+    expect(await readFile(join(root, "plugin", "agents", "explorer.toml"), "utf8")).toMatch(
+      /model = "gpt-5\.6-luna"\r?\nmodel_reasoning_effort = "low"/,
     );
-    expect(await readFile(join(root, "plugin", "agents", "librarian.toml"), "utf8")).toContain(
-      'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "low"',
+    expect(await readFile(join(root, "plugin", "agents", "librarian.toml"), "utf8")).toMatch(
+      /model = "gpt-5\.6-luna"\r?\nmodel_reasoning_effort = "low"/,
     );
-    expect(await readFile(join(root, "plugin", "agents", "worker.toml"), "utf8")).toContain(
-      'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "medium"',
+    expect(await readFile(join(root, "plugin", "agents", "worker.toml"), "utf8")).toMatch(
+      /model = "gpt-5\.6-luna"\r?\nmodel_reasoning_effort = "medium"/,
     );
     expect(await readFile(join(root, "plugin", "agents", "worker.toml"), "utf8")).toContain(
       "Prompt, skill, or instruction task: load caveman first; preserve constraints.",
@@ -121,7 +120,7 @@ describe("HolyCodex catalog", () => {
     expect(manifest.mcpServers).toEqual({
       git_bash: { command: "node", args: ["runtime/git-bash.js", "mcp"], cwd: "." },
       lsp: { command: "node", args: ["runtime/lsp.js", "mcp"], cwd: "." },
-      context7: { url: "https://mcp.context7.com/mcp" },
+      context7: { command: "bunx", args: ["@upstash/context7-mcp"] },
     });
     await Promise.all(
       ["git-bash.js", "lsp.js"].map((file) =>
@@ -134,6 +133,7 @@ describe("HolyCodex catalog", () => {
         "cli.js",
         "core-instructions.js",
         "git-bash.js",
+        "git-bash-resolver.js",
         "lsp.js",
         "mcp-stdio-core.js",
         "rules.js",

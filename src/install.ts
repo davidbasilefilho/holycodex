@@ -2,10 +2,14 @@ import { cp, mkdir, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { installConfig, removeManaged } from "./config.ts";
+import { installConfig, removeManaged, type AutonomyMode } from "./config.ts";
 import { atomicWrite, backup, exists, readText } from "./files.ts";
+import {
+  resolveGitBashForCurrentProcess,
+  type GitBashResolution,
+} from "../packages/git-bash-mcp/src/git-bash-resolver.ts";
 
-export type RunOptions = { readonly autonomous: boolean; readonly json: boolean };
+export type RunOptions = { readonly autonomy: AutonomyMode; readonly json: boolean };
 export type RunResult = {
   readonly action: "install" | "cleanup";
   readonly changed: readonly string[];
@@ -37,7 +41,14 @@ function backupRoot(): string {
   return join(tmpdir(), "holycodex-backups", new Date().toISOString().replaceAll(":", "-"));
 }
 
+export function assertGitBashReady(
+  resolution: GitBashResolution = resolveGitBashForCurrentProcess(),
+): void {
+  if (!resolution.found) throw new Error(resolution.installHint);
+}
+
 export async function install(options: RunOptions): Promise<RunResult> {
+  assertGitBashReady();
   const target = paths();
   const root = backupRoot();
   const backups = [
@@ -46,7 +57,7 @@ export async function install(options: RunOptions): Promise<RunResult> {
     await backup(target.agents, root),
     ...(await Promise.all(target.legacy.map((path) => backup(path, root)))),
   ].filter((path) => path !== undefined);
-  const config = installConfig(await readText(target.config), options.autonomous);
+  const config = installConfig(await readText(target.config), options.autonomy);
   await atomicWrite(target.config, config);
   await rm(target.marketplaceCache, { recursive: true, force: true });
   await mkdir(dirname(target.cache), { recursive: true });
