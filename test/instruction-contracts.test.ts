@@ -53,10 +53,10 @@ describe("instruction workflow contracts", () => {
     );
   });
 
-  it("routes representative requests without adjacent skills or needless delegation", async () => {
+  it("routes representative requests without adjacent skills or wasteful delegation", async () => {
     const cases = [
       {
-        request: "Fix a reproducible parser defect",
+        request: "Fix one known parser line in a named function",
         expected: [
           ["debugging", /crash, wrong result/],
           ["programming", /changes code or its manifests/],

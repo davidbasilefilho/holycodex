@@ -12,8 +12,7 @@ export function rootTomlString(input: string, key: string): string | undefined {
   if (match[2] !== undefined) return match[2];
 
   try {
-    const parsed: unknown = JSON.parse(`"${match[1] ?? ""}"`);
-    return typeof parsed === "string" ? parsed : undefined;
+    return z.string().safeParse(JSON.parse(`"${match[1] ?? ""}"`)).data;
   } catch {
     return undefined;
   }
@@ -59,9 +58,9 @@ function parseRootTomlStringArray(input: string, key: string): RootTomlStringArr
         escaped = true;
       } else if (character === '"') {
         try {
-          const parsed: unknown = JSON.parse(`"${raw}"`);
-          if (typeof parsed !== "string") return undefined;
-          items.push(parsed);
+          const parsed = z.string().safeParse(JSON.parse(`"${raw}"`));
+          if (!parsed.success) return undefined;
+          items.push(parsed.data);
         } catch {
           return undefined;
         }
@@ -98,3 +97,4 @@ function parseRootTomlStringArray(input: string, key: string): RootTomlStringArr
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+import { z } from "zod";

@@ -2,21 +2,28 @@ import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { z } from "zod";
+
 import {
   resolveGitBashForCurrentProcess,
   type GitBashResolution,
 } from "../../git-bash-mcp/src/git-bash-resolver.ts";
 import { runManagedProcess } from "../../mcp-stdio-core/src/process.ts";
 import {
-  AGENT_MODELS,
   AGENTS,
+  MODEL_ROUTING_PLANS,
   effectiveMcpServers,
   type McpServerConfig,
   requiredPackageRuntimes,
   SKILLS,
   VERSION,
 } from "./catalog.ts";
+import { readManagedPlan } from "./config.ts";
 import { rootTomlString, rootTomlStringArray } from "./toml.ts";
+
+const McpManifestSchema = z.looseObject({
+  mcpServers: z.record(z.string(), z.record(z.string(), z.unknown())),
+});
 
 export type CheckStatus = "ok" | "warning" | "error";
 export type DoctorCheck = {
@@ -184,16 +191,22 @@ export async function doctor(
         ),
   );
 
-  let mcp: { readonly mcpServers?: Record<string, Record<string, unknown>> } | undefined;
+  let mcp: z.infer<typeof McpManifestSchema> | undefined;
   try {
-    mcp = JSON.parse(await readFile(join(pluginRoot, ".mcp.json"), "utf8")) as typeof mcp;
+    mcp = McpManifestSchema.parse(
+      JSON.parse(await readFile(join(pluginRoot, ".mcp.json"), "utf8")),
+    );
   } catch (error) {
     checks.push(
       check(
         "mcp-config",
         "error",
         "malformed-mcp-config",
-        error instanceof Error ? error.message : "Invalid MCP JSON.",
+        error instanceof z.ZodError
+          ? "Invalid MCP JSON structure."
+          : error instanceof Error
+            ? error.message
+            : "Invalid MCP JSON.",
         "Reinstall HolyCodex.",
       ),
     );
@@ -271,7 +284,7 @@ export async function doctor(
         "Reinstall HolyCodex.",
       ),
     );
-  else if (typeof context7.url === "string")
+  else if (z.string().safeParse(context7.url).success)
     checks.push(
       check(
         "context7-config",
@@ -398,6 +411,18 @@ export async function doctor(
     );
   }
   const mode = autonomy(config);
+  const plan = readManagedPlan(config);
+  checks.push(
+    plan === undefined
+      ? check(
+          "routing-plan",
+          "error",
+          "routing-plan-missing",
+          "No managed model routing plan is recorded.",
+          "Rerun holycodex install.",
+        )
+      : check("routing-plan", "ok", "routing-plan-ready", `Model routing plan ${plan} is active.`),
+  );
   checks.push(
     mode === "unknown"
       ? check(
@@ -466,8 +491,9 @@ export async function doctor(
   for (const agent of AGENTS) {
     try {
       const text = await readFile(join(agentRoot, `${agent}.toml`), "utf8");
-      const expected = AGENT_MODELS[agent];
+      const expected = plan === undefined ? undefined : MODEL_ROUTING_PLANS[plan].agents[agent];
       if (
+        expected === undefined ||
         rootTomlString(text, "model") !== expected.model ||
         rootTomlString(text, "model_reasoning_effort") !== expected.reasoningEffort
       )
@@ -482,7 +508,7 @@ export async function doctor(
           "agent-models",
           "ok",
           "agent-models-ready",
-          "Explorer and librarian use Luna low; worker uses Terra high.",
+          `Specialist models match the ${plan ?? "unknown"} routing plan.`,
         )
       : check(
           "agent-models",

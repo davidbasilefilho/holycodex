@@ -1,6 +1,6 @@
 {
   "name": "@holycodex/plugin",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "HolyCodex prompts, skills, agents, hooks, MCP metadata, and runtime assets",
   "keywords": [
     "agents",
@@ -44,6 +44,9 @@
   },
   "scripts": {
     "prepack": "vp run --workspace-root build"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
   },
   "engines": {
     "node": ">=20"

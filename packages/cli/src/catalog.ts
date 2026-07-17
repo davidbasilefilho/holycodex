@@ -1,4 +1,6 @@
-export const VERSION = "0.7.1";
+import { z } from "zod";
+
+export const VERSION = "0.7.2";
 
 export const SKILLS = [
   "ast-grep",
@@ -19,39 +21,107 @@ export const SKILLS = [
   "security-research",
 ] as const;
 
-export const AGENTS = ["explorer", "librarian", "worker"] as const;
+export const AgentNameSchema = z.enum(["explorer", "librarian", "worker"]);
+export const AGENTS = AgentNameSchema.options;
+export type AgentName = z.infer<typeof AgentNameSchema>;
 
-export type AgentName = (typeof AGENTS)[number];
+export const PlanNameSchema = z.enum(["go", "plus", "pro-5x", "pro-20x"]);
+export const PLAN_NAMES = PlanNameSchema.options;
+export type PlanName = z.infer<typeof PlanNameSchema>;
 
-export const ROOT_MODEL = {
-  model: "gpt-5.6-sol",
-  reasoningEffort: "medium",
-} as const;
+export const ReasoningEffortSchema = z.enum(["low", "medium", "high", "xhigh"]);
+export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
 
-export const AGENT_MODELS = {
-  explorer: { model: "gpt-5.6-luna", reasoningEffort: "low" },
-  librarian: { model: "gpt-5.6-luna", reasoningEffort: "low" },
-  worker: { model: "gpt-5.6-terra", reasoningEffort: "high" },
-} as const satisfies Record<
-  AgentName,
-  { readonly model: string; readonly reasoningEffort: string }
->;
+const ModelRouteSchema = z.discriminatedUnion("model", [
+  z.strictObject({
+    model: z.literal("gpt-5.6-luna"),
+    reasoningEffort: z.enum(["low", "medium"]),
+  }),
+  z.strictObject({
+    model: z.literal("gpt-5.6-terra"),
+    reasoningEffort: z.enum(["low", "medium", "high"]),
+  }),
+  z.strictObject({
+    model: z.literal("gpt-5.6-sol"),
+    reasoningEffort: z.enum(["medium", "high", "xhigh"]),
+  }),
+]);
+export type ModelRoute = z.infer<typeof ModelRouteSchema>;
+
+const RoutingPresetSchema = z.strictObject({
+  root: ModelRouteSchema,
+  agents: z.strictObject({
+    explorer: ModelRouteSchema,
+    librarian: ModelRouteSchema,
+    worker: ModelRouteSchema,
+  }),
+});
+export type RoutingPreset = z.infer<typeof RoutingPresetSchema>;
+
+export const ModelRoutingPlansSchema = z.strictObject({
+  go: RoutingPresetSchema,
+  plus: RoutingPresetSchema,
+  "pro-5x": RoutingPresetSchema,
+  "pro-20x": RoutingPresetSchema,
+});
+
+export const DEFAULT_PLAN = "plus" satisfies PlanName;
+
+export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
+  go: {
+    root: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+    agents: {
+      explorer: { model: "gpt-5.6-terra", reasoningEffort: "low" },
+      librarian: { model: "gpt-5.6-terra", reasoningEffort: "low" },
+      worker: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+    },
+  },
+  plus: {
+    root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+    agents: {
+      explorer: { model: "gpt-5.6-luna", reasoningEffort: "low" },
+      librarian: { model: "gpt-5.6-luna", reasoningEffort: "low" },
+      worker: { model: "gpt-5.6-terra", reasoningEffort: "high" },
+    },
+  },
+  "pro-5x": {
+    root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
+    agents: {
+      explorer: { model: "gpt-5.6-terra", reasoningEffort: "high" },
+      librarian: { model: "gpt-5.6-terra", reasoningEffort: "high" },
+      worker: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+    },
+  },
+  "pro-20x": {
+    root: { model: "gpt-5.6-sol", reasoningEffort: "xhigh" },
+    agents: {
+      explorer: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+      librarian: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+      worker: { model: "gpt-5.6-sol", reasoningEffort: "high" },
+    },
+  },
+});
+
+export const ROOT_MODEL = MODEL_ROUTING_PLANS[DEFAULT_PLAN].root;
+export const AGENT_MODELS = MODEL_ROUTING_PLANS[DEFAULT_PLAN].agents;
+
+function managedAgentModels(agent: AgentName): readonly ModelRoute[] {
+  const routes = PLAN_NAMES.map((plan) => MODEL_ROUTING_PLANS[plan].agents[agent]);
+  return agent === "worker"
+    ? [...routes, { model: "gpt-5.6-luna", reasoningEffort: "medium" }]
+    : routes;
+}
 
 export const MANAGED_AGENT_MODEL_HISTORY = {
-  explorer: [{ model: "gpt-5.6-luna", reasoningEffort: "low" }],
-  librarian: [{ model: "gpt-5.6-luna", reasoningEffort: "low" }],
-  worker: [
-    { model: "gpt-5.6-luna", reasoningEffort: "medium" },
-    { model: "gpt-5.6-terra", reasoningEffort: "high" },
-  ],
-} as const satisfies Record<
-  AgentName,
-  readonly { readonly model: string; readonly reasoningEffort: string }[]
->;
+  explorer: managedAgentModels("explorer"),
+  librarian: managedAgentModels("librarian"),
+  worker: managedAgentModels("worker"),
+} satisfies Record<AgentName, readonly ModelRoute[]>;
 
 export const GENERATED_RUNTIMES = [
   "bootstrap.js",
   "core-instructions.js",
+  "detect-lsp.js",
   "git-bash.js",
   "git-bash-resolver.js",
   "LICENSE-LSP-MIT.txt",
@@ -92,14 +162,14 @@ export function effectiveMcpServers(platform: NodeJS.Platform): Record<string, M
   };
 }
 
-/** Reads and validates d runtimes. */
+/** Returns runtime files required on a platform. */
 export function requiredRuntimes(platform: NodeJS.Platform): readonly string[] {
   return platform === "win32"
     ? [...BASE_REQUIRED_RUNTIMES, ...WINDOWS_REQUIRED_RUNTIMES]
     : BASE_REQUIRED_RUNTIMES;
 }
 
-/** Reads and validates d package runtimes. */
+/** Returns packaged runtime files required on a platform. */
 export function requiredPackageRuntimes(platform: NodeJS.Platform): readonly string[] {
   return platform === "win32"
     ? GENERATED_RUNTIMES

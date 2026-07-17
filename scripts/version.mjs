@@ -2,6 +2,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { z } from "zod";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const jsonFiles = [
   "package.json",
@@ -16,6 +18,15 @@ const jsonFiles = [
 const packageFile = "packages/cli/package.json";
 const catalogFile = "packages/cli/src/catalog.ts";
 const generatedVersionFiles = ["packages/plugin/plugin/runtime/core-instructions.js"];
+const JsonObjectSchema = z.record(z.string(), z.unknown());
+const PackageManifestSchema = z.looseObject({
+  version: z.string().min(1),
+  dependencies: z.record(z.string(), z.string()).optional(),
+});
+
+async function readPackageManifest(path) {
+  return PackageManifestSchema.parse(JSON.parse(await readFile(path, "utf8")));
+}
 
 /** Computes the next stable zero-major version. */
 export function nextZeroVersion(current, change) {
@@ -46,7 +57,7 @@ async function main() {
   if (change === undefined)
     throw new Error("Missing version change: patch, minor, 0.x.y, dev, or check");
   const packagePath = join(root, packageFile);
-  const current = JSON.parse(await readFile(packagePath, "utf8")).version;
+  const current = (await readPackageManifest(packagePath)).version;
   if (change === "check") {
     await checkVersions(current);
     process.stdout.write(`All package and runtime versions match ${current}.\n`);
@@ -69,7 +80,7 @@ async function main() {
 
 async function updateJson(file, version) {
   const path = join(root, file);
-  const value = JSON.parse(await readFile(path, "utf8"));
+  const value = JsonObjectSchema.parse(JSON.parse(await readFile(path, "utf8")));
   await writeFile(
     path,
     `${JSON.stringify(versionedJson(file, value, version), null, 2)}\n`,
@@ -79,9 +90,11 @@ async function updateJson(file, version) {
 
 /** Returns JSON content updated to the requested version. */
 export function versionedJson(file, value, version) {
-  const next = { ...value, version };
+  const parsed = JsonObjectSchema.parse(value);
+  const next = { ...parsed, version };
   if (file !== packageFile) return next;
-  return { ...next, dependencies: { ...value.dependencies, "@holycodex/plugin": version } };
+  const dependencies = z.record(z.string(), z.string()).parse(parsed.dependencies);
+  return { ...next, dependencies: { ...dependencies, "@holycodex/plugin": version } };
 }
 
 async function replaceVersion(file, current, next) {
@@ -93,11 +106,11 @@ async function replaceVersion(file, current, next) {
 
 async function checkVersions(expected) {
   for (const file of jsonFiles) {
-    const version = JSON.parse(await readFile(join(root, file), "utf8")).version;
+    const version = (await readPackageManifest(join(root, file))).version;
     if (version !== expected) throw new Error(`${file}: expected ${expected}, found ${version}`);
   }
-  const cli = JSON.parse(await readFile(join(root, packageFile), "utf8"));
-  if (cli.dependencies["@holycodex/plugin"] !== expected)
+  const cli = await readPackageManifest(join(root, packageFile));
+  if (cli.dependencies?.["@holycodex/plugin"] !== expected)
     throw new Error(`${packageFile}: @holycodex/plugin must match ${expected}`);
   if (!(await readFile(join(root, catalogFile), "utf8")).includes(`VERSION = "${expected}"`))
     throw new Error(`${catalogFile}: missing ${expected}`);

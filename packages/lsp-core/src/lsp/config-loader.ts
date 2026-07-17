@@ -2,24 +2,27 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 
-import { isPlainRecord as isRecord } from "@holycodex/mcp-stdio-core/record";
+import { UnknownRecordSchema } from "@holycodex/mcp-stdio-core/schemas";
+import { z } from "zod";
 
 import { contextCwd, contextEnv } from "../request-context.js";
 import { BUILTIN_SERVERS } from "./server-definitions.js";
 import type { ResolvedServer } from "./types.js";
 
-interface LspEntry {
-  disabled?: boolean;
-  command?: string[];
-  extensions?: string[];
-  priority?: number;
-  env?: Record<string, string>;
-  initialization?: Record<string, unknown>;
-}
+const LspEntrySchema = z.looseObject({
+  disabled: z.boolean().optional(),
+  command: z.array(z.string()).optional(),
+  extensions: z.array(z.string()).optional(),
+  priority: z.number().finite().optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  initialization: UnknownRecordSchema.optional(),
+});
+type LspEntry = z.infer<typeof LspEntrySchema>;
 
-interface ConfigJson {
-  lsp?: Record<string, unknown>;
-}
+const ConfigJsonSchema = z.looseObject({
+  lsp: z.record(z.string(), z.unknown()).optional(),
+});
+type ConfigJson = z.infer<typeof ConfigJsonSchema>;
 
 type ConfigSource = "project" | "user";
 
@@ -56,8 +59,7 @@ function getUserConfigPath(): string {
 function loadJsonFile(path: string): ConfigJson | null {
   if (!existsSync(path)) return null;
   try {
-    const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
-    return isConfigJson(parsed) ? parsed : null;
+    return ConfigJsonSchema.safeParse(JSON.parse(readFileSync(path, "utf-8"))).data ?? null;
   } catch {
     return null;
   }
@@ -218,40 +220,8 @@ function applyOptionalServerFields(server: ServerWithSource, entry: LspEntry): v
   }
 }
 
-function isConfigJson(value: unknown): value is ConfigJson {
-  if (!isRecord(value)) return false;
-  const lsp = value["lsp"];
-  return lsp === undefined || isRecord(lsp);
-}
-
 function parseLspEntry(value: unknown): LspEntry | null {
-  return isLspEntry(value) ? value : null;
-}
-
-function isLspEntry(value: unknown): value is LspEntry {
-  if (!isRecord(value)) return false;
-  const disabled = value["disabled"];
-  const command = value["command"];
-  const extensions = value["extensions"];
-  const priority = value["priority"];
-  const env = value["env"];
-  const initialization = value["initialization"];
-  return (
-    (disabled === undefined || typeof disabled === "boolean") &&
-    (command === undefined || isStringArray(command)) &&
-    (extensions === undefined || isStringArray(extensions)) &&
-    (priority === undefined || typeof priority === "number") &&
-    (env === undefined || isStringRecord(env)) &&
-    (initialization === undefined || isRecord(initialization))
-  );
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-
-function isStringRecord(value: unknown): value is Record<string, string> {
-  return isRecord(value) && Object.values(value).every((item) => typeof item === "string");
+  return LspEntrySchema.safeParse(value).data ?? null;
 }
 
 /** Gets disabled server ids. */

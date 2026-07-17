@@ -1,4 +1,4 @@
-import { isPlainRecord as isRecord } from "@holycodex/mcp-stdio-core/record";
+import { z } from "zod";
 
 import { reportBestEffortCleanupError } from "./cleanup-errors.js";
 import {
@@ -25,23 +25,35 @@ interface DiagnosticsParams {
   diagnostics: Diagnostic[];
 }
 
+const PositionSchema = z.strictObject({ line: z.number(), character: z.number() });
+const RangeSchema = z.strictObject({ start: PositionSchema, end: PositionSchema });
+const DiagnosticSchema: z.ZodType<Diagnostic> = z.looseObject({
+  range: RangeSchema,
+  message: z.string(),
+});
+const ConfigurationParamsSchema = z.looseObject({
+  items: z.array(z.looseObject({ section: z.string().optional() })),
+});
+const DiagnosticsParamsSchema = z.looseObject({
+  uri: z.string(),
+  diagnostics: z.array(z.unknown()).optional(),
+});
+const StringErrorCodeSchema = z.looseObject({ code: z.string() });
+
 function parseConfigurationItems(params: unknown): ConfigurationItem[] {
-  if (!isRecord(params) || !Array.isArray(params["items"])) return [];
-  const items: ConfigurationItem[] = [];
-  for (const item of params["items"]) {
-    if (!isRecord(item)) continue;
-    const section = item["section"];
-    items.push(section === undefined || typeof section !== "string" ? {} : { section });
-  }
-  return items;
+  return (ConfigurationParamsSchema.safeParse(params).data?.items ?? []).map((item) =>
+    item.section === undefined ? {} : { section: item.section },
+  );
 }
 
 function parseDiagnosticsParams(params: unknown): DiagnosticsParams | null {
-  if (!isRecord(params) || typeof params["uri"] !== "string") return null;
-  const diagnostics = Array.isArray(params["diagnostics"])
-    ? params["diagnostics"].filter(isDiagnostic)
-    : [];
-  return { uri: params["uri"], diagnostics };
+  const parsed = DiagnosticsParamsSchema.safeParse(params);
+  if (!parsed.success) return null;
+  const diagnostics = (parsed.data.diagnostics ?? []).flatMap((value) => {
+    const diagnostic = DiagnosticSchema.safeParse(value);
+    return diagnostic.success ? [diagnostic.data] : [];
+  });
+  return { uri: parsed.data.uri, diagnostics };
 }
 
 export interface LspClientTimeoutOptions {
@@ -145,22 +157,24 @@ export class LspClientTransport {
     if (!(error instanceof Error)) {
       return false;
     }
-    const code = "code" in error && typeof error.code === "string" ? error.code : undefined;
+    const code = StringErrorCodeSchema.safeParse(error).data?.code;
     return (
       code === "ERR_STREAM_DESTROYED" ||
       /connection closed|connection is disposed|stream was destroyed/i.test(error.message)
     );
   }
 
-  protected sendRequest<T>(method: string): Promise<T>;
-  protected sendRequest<T>(method: string, params: unknown): Promise<T>;
+  protected sendRequest<T>(method: string, schema: z.ZodType<T>): Promise<T>;
+  protected sendRequest<T>(method: string, schema: z.ZodType<T>, params: unknown): Promise<T>;
   protected sendRequest<T>(
     method: string,
+    schema: z.ZodType<T>,
     params: unknown,
     options: { timeoutMs?: number },
   ): Promise<T>;
   protected async sendRequest<T>(
     method: string,
+    schema: z.ZodType<T>,
     ...args: [] | [unknown] | [unknown, { timeoutMs?: number }]
   ): Promise<T> {
     if (!this.connection) throw new Error("LSP client not started");
@@ -187,8 +201,8 @@ export class LspClientTransport {
     try {
       const requestPromise =
         args.length === 0
-          ? this.connection.sendRequest<T>(method)
-          : this.connection.sendRequest<T>(method, args[0]);
+          ? this.connection.sendRequest(method, schema)
+          : this.connection.sendRequest(method, schema, args[0]);
       const result = await Promise.race([requestPromise, timeoutPromise]);
       if (timeoutHandle !== null) clearTimeout(timeoutHandle);
       return result;
@@ -235,7 +249,7 @@ export class LspClientTransport {
   async stop(): Promise<void> {
     if (this.connection) {
       try {
-        await this.sendRequest<null>("shutdown");
+        await this.sendRequest("shutdown", z.null());
       } catch (error) {
         reportBestEffortCleanupError("shutdown request", error);
       }
@@ -303,18 +317,4 @@ export function createLspSpawnEnv(
   input: Record<string, string | undefined>,
 ): Record<string, string | undefined> {
   return { ...input };
-}
-
-function isDiagnostic(value: unknown): value is Diagnostic {
-  return isRecord(value) && isRange(value["range"]) && typeof value["message"] === "string";
-}
-
-function isRange(value: unknown): value is Diagnostic["range"] {
-  return isRecord(value) && isPosition(value["start"]) && isPosition(value["end"]);
-}
-
-function isPosition(value: unknown): value is Diagnostic["range"]["start"] {
-  return (
-    isRecord(value) && typeof value["line"] === "number" && typeof value["character"] === "number"
-  );
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { MODEL_ROUTING_PLANS, PLAN_NAMES, type PlanName } from "../packages/cli/src/catalog";
 import {
   installConfig as installPlatformConfig,
   removeManaged,
@@ -8,6 +9,8 @@ import {
 
 const installConfig = (input: string, mode: AutonomyMode): string =>
   installPlatformConfig(input, mode, "win32");
+const installPlanConfig = (input: string, plan: PlanName): string =>
+  installPlatformConfig(input, "default", "win32", plan);
 
 describe("Codex configuration", () => {
   it("preserves unrelated settings when installing", () => {
@@ -29,6 +32,32 @@ describe("Codex configuration", () => {
   it("is idempotent when installed repeatedly", () => {
     const once = installConfig("", "default");
     expect(installConfig(once, "default")).toBe(once);
+  });
+
+  it("defaults to plus and applies every root plan", () => {
+    expect(installPlatformConfig("", "default", "win32")).toBe(
+      installPlatformConfig("", "default", "win32", "plus"),
+    );
+    for (const plan of PLAN_NAMES) {
+      const output = installPlanConfig("", plan);
+      const route = MODEL_ROUTING_PLANS[plan].root;
+      expect(output).toContain(`# holycodex plan: ${plan}`);
+      expect(output).toContain(`model = "${route.model}"`);
+      expect(output).toContain(`model_reasoning_effort = "${route.reasoningEffort}"`);
+      expect(output).toContain("max_threads = 2");
+      expect(output).toContain("max_depth = 1");
+    }
+  });
+
+  it("updates managed root routing when the selected plan changes", () => {
+    const original = "[custom]\nvalue = true\n";
+    const plus = installPlanConfig(original, "plus");
+    const pro = installPlanConfig(plus, "pro-20x");
+    const route = MODEL_ROUTING_PLANS["pro-20x"].root;
+    expect(pro).toContain("# holycodex plan: pro-20x");
+    expect(pro).toContain(`model = "${route.model}"`);
+    expect(pro).toContain(`model_reasoning_effort = "${route.reasoningEffort}"`);
+    expect(removeManaged(pro)).toBe(original.trim());
   });
 
   it("removes only its managed block during cleanup", () => {

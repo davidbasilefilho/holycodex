@@ -2,12 +2,13 @@ import type { Readable, Writable } from "node:stream";
 
 import { handleLspMcpRequest, type JsonRpcId, type JsonRpcResponse } from "@holycodex/lsp-core/mcp";
 import {
+  JsonRpcRequestSchema,
   jsonRpcId,
+  McpToolCallParamsSchema,
   messageFromError,
   runJsonRpcStdioServer,
   successResponse,
 } from "@holycodex/mcp-stdio-core";
-import { isPlainRecord } from "@holycodex/mcp-stdio-core/record";
 
 import {
   type CallToolOptions,
@@ -71,13 +72,13 @@ async function handleProxyRequest(
 }
 
 function asToolCall(parsed: unknown): ToolCall | null {
-  if (!isPlainRecord(parsed) || parsed["method"] !== "tools/call") return null;
-  const params = parsed["params"];
-  if (!isPlainRecord(params) || typeof params["name"] !== "string") return null;
-  const args = params["arguments"];
+  const request = JsonRpcRequestSchema.safeParse(parsed);
+  if (!request.success || request.data.method !== "tools/call") return null;
+  const params = McpToolCallParamsSchema.safeParse(request.data.params);
+  if (!params.success) return null;
   return {
-    id: jsonRpcId(parsed["id"]),
-    name: params["name"],
-    args: isPlainRecord(args) ? args : {},
+    id: jsonRpcId(request.data.id),
+    name: params.data.name,
+    args: params.data.arguments ?? {},
   };
 }

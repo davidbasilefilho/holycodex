@@ -168,6 +168,31 @@ describe("git_bash MCP", () => {
     expect(textFromResponse(response)).toContain("non-empty string");
     expect(didRun).toBe(false);
   });
+
+  it("#given unknown run input #when handled #then rejects before spawning", async () => {
+    let didRun = false;
+    const response = await handleGitBashMcpRequest(
+      {
+        jsonrpc: "2.0",
+        id: "run",
+        method: "tools/call",
+        params: { name: "run", arguments: { command: "printf ok", shell: "cmd" } },
+      },
+      {
+        platform: "win32",
+        env: { HOLYCODEX_GIT_BASH_PATH: "C:\\Program Files\\Git\\bin\\bash.exe" },
+        exists: () => true,
+        where: () => [],
+        runGitBash: async () => {
+          didRun = true;
+          return { exitCode: 0, stdout: "", stderr: "", timedOut: false };
+        },
+      },
+    );
+
+    expect(isErrorFromResponse(response)).toBe(true);
+    expect(didRun).toBe(false);
+  });
 });
 
 function textFromResponse(response: Awaited<ReturnType<typeof handleGitBashMcpRequest>>): string {

@@ -1,7 +1,7 @@
 import type { Readable, Writable } from "node:stream";
 
-import { isPlainRecord } from "./record.js";
 import { errorResponse, jsonRpcId } from "./responses.js";
+import { JsonRpcRequestSchema } from "./schemas.js";
 import { readStdioJsonRpcMessages, writeStdioJsonRpcResponse } from "./transport.js";
 import type { StdioJsonRpcMessage } from "./transport.js";
 import type { JsonRpcResponse, McpLifecycleLog } from "./types.js";
@@ -72,9 +72,9 @@ async function handleRequest<HandlerOptions>(
   log: McpLifecycleLog,
 ): Promise<void> {
   const parsed = message.payload;
-  const id = isPlainRecord(parsed) ? jsonRpcId(parsed["id"]) : null;
-  const method =
-    isPlainRecord(parsed) && typeof parsed["method"] === "string" ? parsed["method"] : null;
+  const request = JsonRpcRequestSchema.safeParse(parsed);
+  const id = request.success ? jsonRpcId(request.data.id) : null;
+  const method = request.success ? request.data.method : null;
   log("request", { id: id === null ? null : String(id), method });
   try {
     const response = await config.handler(parsed, config.handlerOptions);

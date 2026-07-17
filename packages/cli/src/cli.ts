@@ -1,12 +1,14 @@
 import process from "node:process";
 
-import { VERSION } from "./catalog.ts";
+import { DEFAULT_PLAN, PLAN_NAMES, PlanNameSchema, VERSION } from "./catalog.ts";
 import { doctor } from "./doctor.ts";
 import { cleanup, install, type RunOptions } from "./install.ts";
 import {
   renderDoctor,
   renderError,
+  formatCliError,
   renderHelp,
+  renderInstallHelp,
   renderNotice,
   renderRunResult,
   supportsColor,
@@ -16,15 +18,29 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const stdoutColor = supportsColor(process.stdout.isTTY, process.env.NO_COLOR);
   const stderrColor = supportsColor(process.stderr.isTTY, process.env.NO_COLOR);
+  const command = args.find((arg, index) => !arg.startsWith("-") && args[index - 1] !== "--plan");
   if (args.includes("--help") || args.includes("-h") || args.length === 0) {
-    process.stdout.write(renderHelp(VERSION, stdoutColor));
+    process.stdout.write(
+      command === "install"
+        ? renderInstallHelp(VERSION, stdoutColor)
+        : renderHelp(VERSION, stdoutColor),
+    );
     return;
   }
   if (args.includes("--version") || args.includes("-v")) {
     process.stdout.write(`${VERSION}\n`);
     return;
   }
-  const command = args.find((arg) => !arg.startsWith("--"));
+  const planFlags = args.flatMap((arg, index) => (arg === "--plan" ? [index] : []));
+  if (planFlags.length > 1) throw new Error("--plan may be specified only once.");
+  const planFlagIndex = args.indexOf("--plan");
+  const planValue = planFlagIndex < 0 ? DEFAULT_PLAN : args[planFlagIndex + 1];
+  if (planValue === undefined || planValue.startsWith("-") || planValue === command)
+    throw new Error(`Missing --plan value. Valid plans: ${PLAN_NAMES.join(", ")}.`);
+  const parsedPlan = PlanNameSchema.safeParse(planValue);
+  if (!parsedPlan.success)
+    throw new Error(`Unknown plan: ${planValue}. Valid plans: ${PLAN_NAMES.join(", ")}.`);
+  const plan = parsedPlan.data;
   const autonomyFlags = args.filter((arg) =>
     ["--codex-autonomous", "--no-codex-autonomous", "--dangerous-codex-autonomous"].includes(arg),
   );
@@ -42,6 +58,7 @@ async function main(): Promise<void> {
         ? "autonomous"
         : "default",
     json: args.includes("--json"),
+    plan,
   };
   if (command === "doctor") {
     const result = await doctor();
@@ -87,8 +104,6 @@ try {
   await main();
 } catch (error) {
   const stderrColor = supportsColor(process.stderr.isTTY, process.env.NO_COLOR);
-  process.stderr.write(
-    renderError(error instanceof Error ? error.message : String(error), stderrColor),
-  );
+  process.stderr.write(renderError(formatCliError(error), stderrColor));
   process.exitCode = 1;
 }
