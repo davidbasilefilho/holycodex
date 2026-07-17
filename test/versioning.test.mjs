@@ -17,8 +17,8 @@ describe("zerover versioning", () => {
 
   it("derives unique npm dev-channel prerelease versions", () => {
     expect(nextDevVersion("0.6.0", "42", "3")).toBe("0.6.0-dev.42.3");
+    expect(nextDevVersion("0.6.0-rc.2", "42", "3")).toBe("0.6.0-dev.42.3");
     expect(() => nextDevVersion("0.6.0", "run", "1")).toThrow(/Usage/);
-    expect(() => nextDevVersion("0.6.0-dev.1.1", "2", "1")).toThrow(/Usage/);
   });
 
   it("keeps the CLI and plugin package versions exact", () => {

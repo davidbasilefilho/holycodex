@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { VERSION } from "../packages/cli/src/catalog.ts";
@@ -48,29 +48,67 @@ describe("public package layout", () => {
 });
 
 describe("npm release workflows", () => {
-  it("publishes stable plugin before CLI through OIDC", async () => {
+  it("uses one trusted workflow for stable and dev publication", async () => {
+    const workflowDirectory = join(root, ".github", "workflows");
+    const publishingWorkflows: string[] = [];
+    for (const file of await readdir(workflowDirectory)) {
+      const source = await readFile(join(workflowDirectory, file), "utf8");
+      if (source.includes("npm publish")) publishingWorkflows.push(file);
+    }
+    expect(publishingWorkflows).toEqual(["publish.yml"]);
+
     const workflow = await readFile(join(root, ".github", "workflows", "publish.yml"), "utf8");
+    expect(workflow).toContain("- main");
+    expect(workflow).toContain("- dev");
+    expect(workflow).toContain("contents: read");
     expect(workflow).toContain("id-token: write");
-    expect(workflow).toContain("bunx vp check");
-    expect(workflow).toContain("bunx vp test");
-    expect(workflow.indexOf("npm publish ./packages/plugin")).toBeLessThan(
-      workflow.indexOf("npm publish ./packages/cli"),
-    );
-    expect(workflow).not.toContain("--tag dev");
+    expect(workflow).toContain('node-version: "24"');
+    expect(workflow).toContain("npm@11.5.1");
+    expect(workflow).toContain('registry-url: "https://registry.npmjs.org"');
+    expect(workflow).toContain("package-manager-cache: false");
+    expect(workflow).toContain("group: npm-publish-${{ github.ref_name }}");
+    expect(workflow).toContain("cancel-in-progress: false");
+    expect(workflow).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN|npm whoami/);
   });
 
-  it("publishes unique dev versions under the dev dist-tag", async () => {
-    const workflow = await readFile(join(root, ".github", "workflows", "dev.yml"), "utf8");
-    expect(workflow).toContain("- dev");
-    expect(workflow).toContain("github.run_number");
-    expect(workflow).toContain("github.run_attempt");
-    expect(workflow).toContain("secrets.NPM_TOKEN");
+  it("keeps validation ahead of branch-specific publication", async () => {
+    const workflow = await readFile(join(root, ".github", "workflows", "publish.yml"), "utf8");
+    expect(workflow).toContain("bunx vp check");
+    expect(workflow).toContain("bunx vp test");
+    expect(workflow.indexOf("bunx vp run build")).toBeLessThan(workflow.indexOf("bunx vp test"));
+    expect(workflow.indexOf("bunx vp test")).toBeLessThan(
+      workflow.indexOf("npm publish ./packages/plugin"),
+    );
+  });
+
+  it("publishes stable versions under latest and skips versions already present", async () => {
+    const workflow = await readFile(join(root, ".github", "workflows", "publish.yml"), "utf8");
+    expect(workflow).toContain("github.ref_name == 'main'");
+    expect(workflow).toContain("npm view");
+    expect(workflow.match(/--tag latest/g)).toHaveLength(2);
+    expect(
+      workflow.indexOf("npm publish ./packages/plugin --access public --tag latest"),
+    ).toBeLessThan(workflow.indexOf("npm publish ./packages/cli --tag latest"));
+  });
+
+  it("publishes unique dev versions under only the dev dist-tag", async () => {
+    const workflow = await readFile(join(root, ".github", "workflows", "publish.yml"), "utf8");
+    expect(workflow).toContain("github.ref_name == 'dev'");
+    expect(workflow).toContain("GITHUB_RUN_ID");
+    expect(workflow).toContain("GITHUB_RUN_ATTEMPT");
+    expect(workflow).toContain(
+      'DEV_VERSION="${BASE_VERSION}-dev.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"',
+    );
+    expect(workflow).toContain('npm version "$DEV_VERSION" --no-git-tag-version');
     expect(workflow.indexOf("bunx vp check")).toBeLessThan(
       workflow.indexOf("Derive unique dev version"),
     );
-    expect(workflow.indexOf("npm publish ./packages/plugin")).toBeLessThan(
-      workflow.indexOf("npm publish ./packages/cli"),
+    expect(workflow.indexOf("Derive unique dev version")).toBeLessThan(
+      workflow.indexOf("bunx vp run build"),
     );
+    expect(
+      workflow.indexOf("npm publish ./packages/plugin --access public --tag dev"),
+    ).toBeLessThan(workflow.indexOf("npm publish ./packages/cli --tag dev"));
     expect(workflow.match(/--tag dev/g)).toHaveLength(2);
   });
 });

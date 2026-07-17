@@ -2,12 +2,17 @@ name: Publish to npm
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+      - dev
 
 permissions:
   contents: read
   id-token: write
+
+concurrency:
+  group: npm-publish-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -20,11 +25,53 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
-      - run: npm install --global npm@11
+      - run: npm install --global npm@11.5.1
       - run: bunx --package vite-plus@0.2.4 vp install --frozen-lockfile
       - run: bunx vp check
+      - name: Derive unique dev version
+        if: github.ref_name == 'dev'
+        shell: bash
+        run: |
+          BASE_VERSION="$(node -p "require('./packages/cli/package.json').version.replace(/[-+].*$/, '')")"
+          DEV_VERSION="${BASE_VERSION}-dev.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
+          npm version "$DEV_VERSION" --no-git-tag-version --package-lock=false
+          bun scripts/version.mjs dev "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          test "$(node -p "require('./packages/cli/package.json').version")" = "$DEV_VERSION"
       - run: bunx vp run build
       - run: bunx vp test
       - run: bunx vp run version:check
-      - run: npm publish ./packages/plugin --access public
-      - run: npm publish ./packages/cli
+      - name: Check existing stable package versions
+        id: stable
+        if: github.ref_name == 'main'
+        shell: bash
+        run: |
+          check_package() {
+            local key="$1"
+            local spec="$2"
+            local error_log="${RUNNER_TEMP}/npm-view-${key}.log"
+            if npm view "$spec" version > /dev/null 2> "$error_log"; then
+              echo "${key}_exists=true" >> "$GITHUB_OUTPUT"
+            elif grep -q "E404" "$error_log"; then
+              echo "${key}_exists=false" >> "$GITHUB_OUTPUT"
+            else
+              cat "$error_log" >&2
+              return 1
+            fi
+          }
+
+          PLUGIN_SPEC="$(node -p "const p=require('./packages/plugin/package.json'); p.name+'@'+p.version")"
+          CLI_SPEC="$(node -p "const p=require('./packages/cli/package.json'); p.name+'@'+p.version")"
+          check_package plugin "$PLUGIN_SPEC"
+          check_package cli "$CLI_SPEC"
+      - name: Publish stable plugin
+        if: github.ref_name == 'main' && steps.stable.outputs.plugin_exists == 'false'
+        run: npm publish ./packages/plugin --access public --tag latest
+      - name: Publish stable CLI
+        if: github.ref_name == 'main' && steps.stable.outputs.cli_exists == 'false'
+        run: npm publish ./packages/cli --tag latest
+      - name: Publish dev plugin
+        if: github.ref_name == 'dev'
+        run: npm publish ./packages/plugin --access public --tag dev
+      - name: Publish dev CLI
+        if: github.ref_name == 'dev'
+        run: npm publish ./packages/cli --tag dev

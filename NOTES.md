@@ -6,8 +6,8 @@
 - Root `src/` moved to `packages/cli/src/`. Plugin payload moved to `packages/plugin/plugin/`. CLI resolves assets through the installed plugin package instead of filesystem adjacency.
 - Vite+ builds separate outputs: `packages/cli/dist/cli.js` and `packages/plugin/plugin/runtime/*`. Validation follows the supplied latest Vite+ `AGENTS.md`: `vp install`, `vp check`, `vp test`, and `vp run` tasks.
 - CLI presentation is dependency-free, TTY-aware, and honors `NO_COLOR`; JSON and redirected output remain noninteractive. OpenTUI would add native/runtime weight without value for one-shot commands.
-- Stable tags publish plugin before CLI through `publish.yml` OIDC. Pushes to `dev` derive `<base>-dev.<run_number>.<run_attempt>` and publish both with npm `dev` tags through `dev.yml`.
-- npm permits one trusted-publisher workflow per package, so `dev.yml` uses repository secret `NPM_TOKEN`; `publish.yml` retains stable OIDC. `@holycodex/plugin` returned npm `E404` before implementation and needs first-publication bootstrap through the token.
+- `publish.yml` is the sole npm-trusted workflow. Pushes to `main` publish intentional repository versions under `latest`; pushes to `dev` derive `<base>-dev.<GITHUB_RUN_ID>.<GITHUB_RUN_ATTEMPT>` and publish under `dev` without moving `latest`.
+- Both public packages use GitHub Actions OIDC through the exact `publish.yml` trust binding. Stable publication skips exact versions already present. No long-lived npm publishing credential is used.
 - The user approved the reviewed plan and declined a durable goal.
 
 ### Package redesign verification
@@ -22,7 +22,7 @@
 - CLI dry-run package: six files; 13,954-byte tarball; 43,463 bytes unpacked.
 - Real prepack hooks built both outputs. A fresh temporary npm project installed both tarballs, ran `holycodex --version` and `--help`, completed JSON installation, and resolved an installed plugin skill through `@holycodex/plugin`.
 - Dev-version dry run maps 0.6.0 plus run 42 attempt 3 to `0.6.0-dev.42.3` without changing the worktree.
-- No npm publication or external state mutation occurred. `bunx holycodex@dev` remains unavailable until `NPM_TOKEN` is configured and the first `dev.yml` run publishes both packages.
+- npm must configure `publish.yml` as the GitHub Actions trusted publisher for both public packages. Protect both `main` and `dev`; either branch can execute the npm-authorized workflow.
 
 ## 0.6.0 architecture update (2026-07-16)
 

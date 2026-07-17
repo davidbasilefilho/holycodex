@@ -99,9 +99,30 @@ The root package is private and orchestrates the Vite+ workspace. The CLI depend
 
 ## npm publishing
 
-`publish.yml` publishes `@holycodex/plugin` before `holycodex` for `v*` tags using npm trusted publishing. `dev.yml` publishes pushes to `dev` as `<version>-dev.<run_number>.<run_attempt>` with `--tag dev`.
+`.github/workflows/publish.yml` is the only npm publishing workflow. It uses npm trusted publishing for pushes to both `main` and `dev`, publishes `@holycodex/plugin` before `holycodex`, and never uses a long-lived npm credential.
 
-npm allows only one trusted-publisher workflow per package. Stable publishing retains OIDC through `publish.yml`; `dev.yml` therefore requires a repository `NPM_TOKEN` secret authorized for both public packages. `@holycodex/plugin` does not exist on npm yet, so its first publication must use that token. Afterward, configure `publish.yml` as its trusted publisher for stable releases.
+- `main` publishes the intentional repository version with the explicit `latest` tag. Each package is skipped when that exact version already exists, so non-version changes do not fail or republish.
+- `dev` removes any prerelease suffix from the repository version, derives `<base>-dev.<GITHUB_RUN_ID>.<GITHUB_RUN_ATTEMPT>`, applies it only inside the runner, builds with that embedded version, and publishes with the explicit `dev` tag.
+
+Configure npm trusted publishing separately for `holycodex` and `@holycodex/plugin` with:
+
+```text
+Trusted publisher provider: GitHub Actions
+GitHub owner: davidbasilefilho
+Repository: holycodex
+Workflow filename: publish.yml
+Allowed action: npm publish
+```
+
+Both `main` and `dev` must be protected because either branch contains an npm-authorized workflow. No GitHub environment is currently used. If one is added, its workflow `environment` name must exactly match the optional environment configured in npm trusted publishing.
+
+Resulting npm resolution:
+
+```text
+npm install holycodex         -> stable version tagged latest, published from main
+npm install holycodex@latest  -> same stable version
+npm install holycodex@dev     -> newest unique prerelease published from dev
+```
 
 Release validation follows [Vite+ guidance](https://cdn.jsdelivr.net/npm/vite-plus@latest/AGENTS.md): `vp install`, `vp check`, `vp test`, and `vp run` for configured build/version tasks.
 

@@ -31,11 +31,12 @@ export function nextZeroVersion(current, change) {
 }
 
 export function nextDevVersion(current, runNumber, runAttempt) {
-  if (!/^0\.\d+\.\d+$/.test(current) || !/^\d+$/.test(runNumber ?? ""))
+  const base = /^(0\.\d+\.\d+)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.exec(current)?.[1];
+  if (base === undefined || !/^\d+$/.test(runNumber ?? ""))
     throw new Error("Usage: node scripts/version.mjs dev <run-number> <run-attempt>");
   if (!/^\d+$/.test(runAttempt ?? ""))
     throw new Error("Usage: node scripts/version.mjs dev <run-number> <run-attempt>");
-  return `${current}-dev.${Number(runNumber)}.${Number(runAttempt)}`;
+  return `${base}-dev.${Number(runNumber)}.${Number(runAttempt)}`;
 }
 
 async function main() {
