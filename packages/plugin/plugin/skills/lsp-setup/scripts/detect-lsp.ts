@@ -1,3 +1,3 @@
 #!/usr/bin/env bun
 
-import "../../../runtime/detect-lsp.js";
+await import(new URL("../../../runtime/detect-lsp.js", import.meta.url).href);
