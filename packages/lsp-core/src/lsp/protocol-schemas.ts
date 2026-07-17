@@ -115,7 +115,10 @@ export const DefinitionResultSchema = z
     z.array(z.union([LocationSchema, LocationLinkSchema])),
   ])
   .nullable();
-export const ReferencesResultSchema = z.array(LocationSchema);
+export const ReferencesResultSchema: z.ZodType<Location[]> = z
+  .array(LocationSchema)
+  .nullable()
+  .transform((value) => value ?? []);
 export const DocumentSymbolsResultSchema = z.array(
   z.union([DocumentSymbolSchema, SymbolInfoSchema]),
 );

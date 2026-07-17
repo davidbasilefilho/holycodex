@@ -18,7 +18,7 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const stdoutColor = supportsColor(process.stdout.isTTY, process.env.NO_COLOR);
   const stderrColor = supportsColor(process.stderr.isTTY, process.env.NO_COLOR);
-  const command = args.find((arg) => ["install", "cleanup", "doctor"].includes(arg));
+  const command = args.find((arg, index) => !arg.startsWith("-") && args[index - 1] !== "--plan");
   if (args.includes("--help") || args.includes("-h") || args.length === 0) {
     process.stdout.write(
       command === "install"

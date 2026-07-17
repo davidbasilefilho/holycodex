@@ -1,24 +1,39 @@
 # HolyCodex
 
-HolyCodex is a lean Codex-only hard fork of [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent). It keeps useful engineering workflows, removes OpenCode-specific machinery, and minimizes persistent prompt cost for ChatGPT Plus.
+## What
 
-## Architecture
+HolyCodex is a lean Codex-only hard fork of [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent). It packages a Codex-native multi-agent workflow, focused engineering skills, scoped rules, readiness hooks, LSP and Context7 integrations, and a safe Git Bash bridge for native Windows.
 
-Root is the default user-facing agent. It uses GPT-5.6 Sol at medium reasoning unless the user already configured either root value. Root owns user interaction, intent, scope, architecture, product decisions, ambiguity resolution, integration, final judgment, and final verification.
+## Why
+
+HolyCodex keeps the useful engineering discipline of its upstream project while removing OpenCode-specific machinery and minimizing persistent prompt cost. It gives Root clear ownership, delegates bounded work to purpose-built specialists, validates external data at runtime, and preserves user configuration across install, upgrade, and cleanup.
+
+The goal is a small, predictable Codex toolkit: strong defaults, explicit dangerous actions, reproducible checks, and no permanent terminal UI or hidden autonomy.
+
+## How it works
+
+Root is the default user-facing agent. It owns user interaction, intent, scope, architecture, product decisions, ambiguity resolution, integration, final judgment, and final verification. The selected routing plan configures Root and each specialist; explicit user model preferences are preserved.
+
+| Plan      | Root                 | Explorer           | Librarian          | Worker               |
+| --------- | -------------------- | ------------------ | ------------------ | -------------------- |
+| `go`      | GPT-5.6 Terra medium | GPT-5.6 Terra low  | GPT-5.6 Terra low  | GPT-5.6 Terra medium |
+| `plus`    | GPT-5.6 Sol medium   | GPT-5.6 Luna low   | GPT-5.6 Luna low   | GPT-5.6 Terra high   |
+| `pro-5x`  | GPT-5.6 Sol high     | GPT-5.6 Terra high | GPT-5.6 Terra high | GPT-5.6 Sol medium   |
+| `pro-20x` | GPT-5.6 Sol xhigh    | GPT-5.6 Sol medium | GPT-5.6 Sol medium | GPT-5.6 Sol high     |
 
 Bounded independent work is presumed delegable to the cheapest capable specialist:
 
-| Specialist  | Model              | Scope                                                           |
-| ----------- | ------------------ | --------------------------------------------------------------- |
-| `explorer`  | GPT-5.6 Luna low   | Bounded read-only repository facts                              |
-| `librarian` | GPT-5.6 Luna low   | Bounded current external research from primary sources          |
-| `worker`    | GPT-5.6 Terra high | Isolated implementation after root fixes architecture and proof |
+| Specialist  | Scope                                                           |
+| ----------- | --------------------------------------------------------------- |
+| `explorer`  | Bounded read-only repository facts                              |
+| `librarian` | Bounded current external research from primary sources          |
+| `worker`    | Isolated implementation after Root fixes architecture and proof |
 
 Root delegates repository inspection when it likely needs more than two root tool calls, spans multiple files or symbols, asks a separable factual question, or can run while root handles decisions. It delegates current external research when multiple primary sources, version or date verification, or a bounded factual answer is needed. It delegates implementation after architecture, behavior, scope, constraints, write ownership, proof, and stop conditions are fixed. Root retains user interaction, intent, architecture, product decisions, ambiguity resolution, integration, final judgment, and final verification.
 
 Root uses at most two specialists in one wave by default. Packets carry five concepts: exact outcome or question, allowed scope, constraints and fixed decisions, required evidence or proof, and stop and blocker conditions. Optional context stays optional. Local work is reserved for atomic or tightly coupled work, unresolved architecture, unsafe isolation, or cases where dispatch plus review is concretely more expensive. Specialists do not delegate, overlap write ownership, review one another, retry unchanged packets, or raise their model or effort automatically. Root reviews actual returns before spot-checking only load-bearing claims, avoids duplicate reassurance work, integrates results, and performs final verification.
 
-HolyCodex also ships 16 on-demand skills, scoped rules, readiness hooks, LSP and Context7 MCPs, and a Windows-only Git Bash MCP. Planning, plan review, and goal definition print exact activation headings. A durable goal is created only after explicit user consent.
+HolyCodex also ships 16 on-demand skills, scoped rules, readiness hooks, LSP and Context7 MCPs, and a Windows-only Git Bash MCP. Planning, plan review, and goal definition print exact activation headings. A durable goal is created only after explicit user consent. Zod schemas validate CLI input, configuration, manifests, persisted state, MCP and JSON-RPC envelopes, LSP responses, daemon messages, environment values, and metadata scripts at their runtime boundaries.
 
 ## Platform behavior
 
@@ -59,6 +74,10 @@ Version 0.6.0 migrates the old managed worker default from Luna medium to Terra 
 
 ```sh
 holycodex install                              # on-request, workspace-write, network on
+holycodex install --plan go                    # lower-cost routing plan
+holycodex install --plan plus                  # default routing plan
+holycodex install --plan pro-5x                # higher-capability routing plan
+holycodex install --plan pro-20x               # highest-capability routing plan
 holycodex install --codex-autonomous           # never ask, workspace-write, network on
 holycodex install --dangerous-codex-autonomous # never ask, unrestricted host access
 holycodex install --no-codex-autonomous        # same contained behavior as no flag
@@ -128,8 +147,12 @@ npm install holycodex@dev     -> newest unique prerelease published from dev
 
 Release validation follows [Vite+ guidance](https://cdn.jsdelivr.net/npm/vite-plus@latest/AGENTS.md): `vp install`, `vp check --fix`, `vp test`, and `vp run` for configured build/version tasks.
 
-## Attribution and license
+## Thanks
 
 HolyCodex exists because of YeonGyu Kim and the oh-my-openagent contributors, Julius Brussee and caveman contributors, the authors credited in `packages/plugin/plugin/skills/frontend/ATTRIBUTION.md`, and the upstream projects listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+Thank you to everyone who built, reviewed, documented, tested, or maintained the projects that HolyCodex depends on.
+
+## Licenses
 
 HolyCodex uses the [Sustainable Use License 1.0](LICENSE.md), not MIT. Third-party components retain their original licenses and notices.

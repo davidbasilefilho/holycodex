@@ -18,7 +18,7 @@ import {
   VERSION,
   WINDOWS_SHELL_POLICY,
 } from "./catalog.ts";
-import { installConfig, removeManaged, type AutonomyMode } from "./config.ts";
+import { installConfig, readManagedPlan, removeManaged, type AutonomyMode } from "./config.ts";
 import { atomicWrite, backup, exists, readText } from "./files.ts";
 import { rootTomlString } from "./toml.ts";
 
@@ -86,18 +86,15 @@ export async function install(
     await backup(target.agents, root),
     ...(await Promise.all(target.legacy.map((path) => backup(path, root)))),
   ].filter((path) => path !== undefined);
-  const config = installConfig(
-    await readText(target.config),
-    options.autonomy,
-    runtime.platform,
-    plan,
-  );
+  const existingConfig = await readText(target.config);
+  const previousPlan = readManagedPlan(existingConfig);
+  const config = installConfig(existingConfig, options.autonomy, runtime.platform, plan);
   await atomicWrite(target.config, config);
   await rm(target.marketplaceCache, { recursive: true, force: true });
   await mkdir(dirname(target.cache), { recursive: true });
   await cp(pluginRoot, target.cache, { recursive: true });
   await writePlatformPlugin(target.cache, runtime.platform, plan);
-  const existingAgentPreferences = await readAgentPreferences(target.agents);
+  const existingAgentPreferences = await readAgentPreferences(target.agents, previousPlan);
   await rm(target.agents, { recursive: true, force: true });
   await cp(join(pluginRoot, "agents"), target.agents, { recursive: true });
   await writeInstalledAgents(target.agents, runtime.platform, plan);
@@ -119,7 +116,10 @@ export async function install(
 type AgentPreferences = Partial<Record<(typeof AGENTS)[number], AgentModelPreference>>;
 type AgentModelPreference = { readonly model?: string; readonly reasoningEffort?: string };
 
-async function readAgentPreferences(root: string): Promise<AgentPreferences> {
+async function readAgentPreferences(
+  root: string,
+  previousPlan: PlanName | undefined,
+): Promise<AgentPreferences> {
   const preferences: AgentPreferences = {};
   await Promise.all(
     AGENTS.map(async (agent) => {
@@ -127,7 +127,11 @@ async function readAgentPreferences(root: string): Promise<AgentPreferences> {
       const model = rootTomlString(source, "model");
       const reasoningEffort = rootTomlString(source, "model_reasoning_effort");
       if (model === undefined && reasoningEffort === undefined) return;
-      const managed = MANAGED_AGENT_MODEL_HISTORY[agent].some(
+      const managedRoutes =
+        previousPlan === undefined
+          ? MANAGED_AGENT_MODEL_HISTORY[agent]
+          : [MODEL_ROUTING_PLANS[previousPlan].agents[agent]];
+      const managed = managedRoutes.some(
         (item) => item.model === model && item.reasoningEffort === reasoningEffort,
       );
       if (!managed)

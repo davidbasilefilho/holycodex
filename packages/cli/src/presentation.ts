@@ -41,7 +41,7 @@ export function renderHelp(version: string, color: boolean): string {
 export function renderInstallHelp(version: string, color: boolean): string {
   const title = paint(color, `${BOLD}${CYAN}`, `HOLYCODEX ${version}`);
   const section = (text: string): string => paint(color, BOLD, text);
-  return `${title}\n\n${section("Usage:")}\n  holycodex install [options]\n\n${section("Options:")}\n  --plan <plan>    Model routing plan: go, plus, pro-5x, or pro-20x\n                   Default: plus\n\nPlans optimize model routing for the corresponding ChatGPT subscription allowance.\n\n${section("Examples:")}\n  bunx holycodex install\n  bunx holycodex install --plan go\n  bunx holycodex install --plan pro-5x\n  bunx holycodex install --plan pro-20x\n`;
+  return `${title}\n\n${section("Usage:")}\n  holycodex install [options]\n\n${section("Options:")}\n  --plan <plan>                   Model routing plan: go, plus, pro-5x, or pro-20x\n                                   Default: plus\n  --json                          Print machine-readable output\n  --no-tui                        Accepted; install remains noninteractive\n  --codex-autonomous              Never ask; keep workspace sandbox\n  --no-codex-autonomous           Safe interactive defaults\n  --dangerous-codex-autonomous    Never ask; disable filesystem sandbox\n  -h, --help                      Show help\n\nPlans optimize model routing for the corresponding ChatGPT subscription allowance.\n\n${section("Examples:")}\n  bunx holycodex install\n  bunx holycodex install --plan go\n  bunx holycodex install --plan pro-5x\n  bunx holycodex install --plan pro-20x\n`;
 }
 
 /** Renders error. */

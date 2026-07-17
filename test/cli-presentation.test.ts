@@ -24,6 +24,11 @@ describe("CLI presentation", () => {
     expect(output).toContain("go, plus, pro-5x, or pro-20x");
     expect(output).toContain("Default: plus");
     expect(output).toContain("bunx holycodex install --plan pro-20x");
+    expect(output).toContain("--json");
+    expect(output).toContain("--no-tui");
+    expect(output).toContain("--codex-autonomous");
+    expect(output).toContain("--no-codex-autonomous");
+    expect(output).toContain("--dangerous-codex-autonomous");
   });
 
   it("uses color only for a TTY without NO_COLOR", () => {

@@ -88,6 +88,18 @@ describe("CLI", () => {
     });
   });
 
+  it("rejects a stray positional before a valid command", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-cli-stray-positional-"));
+    await expect(
+      run(process.execPath, ["packages/cli/src/cli.ts", "typo", "cleanup"], {
+        env: { ...process.env, CODEX_HOME: home },
+      }),
+    ).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining("Unknown command: typo"),
+    });
+  });
+
   it("rejects conflicting autonomy flags", async () => {
     await expect(
       run(process.execPath, [

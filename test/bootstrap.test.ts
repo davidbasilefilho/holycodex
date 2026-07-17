@@ -40,9 +40,10 @@ describe("bootstrap readiness", () => {
     expect(context).toContain("do not require user-visible orchestration commentary");
     expect(context).toContain("Skills govern method, not routing");
     expect(context).toContain("at most two concurrently per wave");
-    expect(context).toContain("Explorer uses GPT 5.6 Luna low");
-    expect(context).toContain("Librarian uses GPT 5.6 Luna low");
-    expect(context).toContain("Worker uses GPT 5.6 Terra high");
+    expect(context).toContain("Explorer handles bounded read-only repository facts");
+    expect(context).toContain("Librarian handles current external facts from primary sources");
+    expect(context).toContain("Worker handles isolated implementation");
+    expect(context).not.toMatch(/(?:Explorer|Librarian|Worker) (?:uses|runs) GPT 5\.6/);
     expect(context).toContain("Packets have five concepts");
     expect(context).toContain("Do not duplicate specialist work");
     expect(context).toContain("spot-check only load-bearing claims");

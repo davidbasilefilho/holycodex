@@ -152,6 +152,24 @@ describe("install lifecycle", () => {
     expect(worker).toContain('model_reasoning_effort = "high"');
   });
 
+  it("preserves an override that matches a different routing plan", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-agent-plan-override-test-"));
+    process.env.CODEX_HOME = home;
+    await install({ autonomy: "default", json: false, plan: "plus" }, windowsRuntime);
+    const explorerPath = join(home, "holycodex", "agents", "explorer.toml");
+    const goRoute = MODEL_ROUTING_PLANS.go.agents.explorer;
+    await writeFile(
+      explorerPath,
+      `model = "${goRoute.model}"\nmodel_reasoning_effort = "${goRoute.reasoningEffort}"\n`,
+    );
+
+    await install({ autonomy: "default", json: false, plan: "plus" }, windowsRuntime);
+
+    const explorer = await readFile(explorerPath, "utf8");
+    expect(explorer).toContain(`model = "${goRoute.model}"`);
+    expect(explorer).toContain(`model_reasoning_effort = "${goRoute.reasoningEffort}"`);
+  });
+
   it("renders every plan and updates managed specialist routing on reinstall", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-routing-plan-test-"));
     process.env.CODEX_HOME = home;

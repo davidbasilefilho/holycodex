@@ -9,7 +9,7 @@ import { contextCwd, contextEnv } from "../request-context.js";
 import { BUILTIN_SERVERS } from "./server-definitions.js";
 import type { ResolvedServer } from "./types.js";
 
-const LspEntrySchema = z.strictObject({
+const LspEntrySchema = z.looseObject({
   disabled: z.boolean().optional(),
   command: z.array(z.string()).optional(),
   extensions: z.array(z.string()).optional(),

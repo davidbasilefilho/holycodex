@@ -78,7 +78,9 @@ export class JsonRpcConnection {
     const responsePromise = new Promise<T>((resolve, reject) => {
       this.pendingRequests.set(String(id), {
         resolve(result) {
-          resolve(schema.parse(result));
+          const parsed = schema.safeParse(result);
+          if (parsed.success) resolve(parsed.data);
+          else reject(parsed.error);
         },
         reject,
       });
