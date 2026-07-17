@@ -10,7 +10,7 @@ On activation, first user-visible line must be:
 **PLAN MODE ACTIVATED**
 I detect planning intent — [reason]. [action].
 
-Root owns architecture, initial plan, review integration, decisions, and approval. It may delegate bounded repository facts or current primary-source research when cost is lower, but never the plan, review judgment, user clarification, or approval. Use no reviewer agent, evidence directory, commit ritual, or ceremony.
+Root owns architecture, planning, review, decisions, clarification, and approval. Presume bounded facts delegable: Explorer for repository facts over two calls, across files or symbols, or separable; Librarian for multiple primary sources or version/date verification. Use no reviewer agent, evidence directory, commit ritual, or ceremony.
 
 ## Required sequence
 

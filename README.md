@@ -4,9 +4,9 @@ HolyCodex is a lean Codex-only hard fork of [oh-my-openagent](https://github.com
 
 ## Architecture
 
-Root is the default user-facing agent. It uses GPT-5.6 Sol at medium reasoning unless the user already configured either root value. Root owns intent, scope, architecture, user decisions, integration, final judgment, and final verification.
+Root is the default user-facing agent. It uses GPT-5.6 Sol at medium reasoning unless the user already configured either root value. Root owns user interaction, intent, scope, architecture, product decisions, ambiguity resolution, integration, final judgment, and final verification.
 
-Three specialists are available when delegation costs less than doing the work locally:
+Bounded independent work is presumed delegable to the cheapest capable specialist:
 
 | Specialist  | Model              | Scope                                                           |
 | ----------- | ------------------ | --------------------------------------------------------------- |
@@ -14,7 +14,9 @@ Three specialists are available when delegation costs less than doing the work l
 | `librarian` | GPT-5.6 Luna low   | Bounded current external research from primary sources          |
 | `worker`    | GPT-5.6 Terra high | Isolated implementation after root fixes architecture and proof |
 
-Before substantial work, root separates root-owned decisions from independent slices. It uses at most two specialists in one wave by default. Packets carry an exact outcome, scope, unchanged constraints, forbidden expansion, acceptance evidence, blocker behavior, and stop condition. Root keeps work local when it is trivial, coupled, unresolved, unsafe to isolate, or cheaper than packet creation and integration. Specialists do not recursively delegate, review one another, retry unchanged work, or raise their model or effort automatically.
+Root delegates repository inspection when it likely needs more than two root tool calls, spans multiple files or symbols, asks a separable factual question, or can run while root handles decisions. It delegates current external research when multiple primary sources, version or date verification, or a bounded factual answer is needed. It delegates implementation after architecture, behavior, scope, constraints, write ownership, proof, and stop conditions are fixed. Root retains user interaction, intent, architecture, product decisions, ambiguity resolution, integration, final judgment, and final verification.
+
+Root uses at most two specialists in one wave by default. Packets carry five concepts: exact outcome or question, allowed scope, constraints and fixed decisions, required evidence or proof, and stop and blocker conditions. Optional context stays optional. Local work is reserved for atomic or tightly coupled work, unresolved architecture, unsafe isolation, or cases where dispatch plus review is concretely more expensive. Specialists do not delegate, overlap write ownership, review one another, retry unchanged packets, or raise their model or effort automatically. Root reviews actual returns before spot-checking only load-bearing claims, avoids duplicate reassurance work, integrates results, and performs final verification.
 
 HolyCodex also ships 16 on-demand skills, scoped rules, readiness hooks, LSP and Context7 MCPs, and a Windows-only Git Bash MCP. Planning, plan review, and goal definition print exact activation headings. A durable goal is created only after explicit user consent.
 

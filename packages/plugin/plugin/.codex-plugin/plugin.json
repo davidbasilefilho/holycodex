@@ -14,7 +14,7 @@
   "interface": {
     "displayName": "HolyCodex",
     "shortDescription": "Codex agents, routed skills, scoped rules, Git Bash, LSP, code search, and docs lookup.",
-    "longDescription": "Root remains the default user-facing agent and owns architecture, decisions, integration, and final verification. HolyCodex uses cost-aware decomposition: Luna low handles bounded repository or primary-source research, while Terra high handles isolated implementation. Skills govern method without replacing delegation analysis. Git Bash is mandatory only on native Windows; LSP and Context7 remain cross-platform.",
+    "longDescription": "Root remains the default user-facing agent and owns user interaction, architecture, product decisions, ambiguity resolution, integration, and final verification. HolyCodex uses cost-aware decomposition and presumes bounded independent work delegable: Luna low handles repository facts and current primary-source research, while Terra high handles isolated implementation after decisions and proof are fixed. Local work stays atomic, coupled, unresolved, unsafe to isolate, or concretely cheaper after dispatch and review costs. Git Bash is mandatory only on native Windows; LSP and Context7 remain cross-platform.",
     "defaultPrompt": "Use HolyCodex to implement and verify this task.",
     "developerName": "David Basile Filho",
     "category": "Developer Tools",

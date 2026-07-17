@@ -5,9 +5,9 @@ description: Use when the user requests caveman mode, terse replies, fewer token
 
 # Caveman
 
-Write terse. Keep all technical meaning; remove filler.
+Write tersely; keep all meaning, remove filler.
 
-Active every reply until user says `stop caveman` or `normal mode`. Default `full`; switch with `/caveman lite|full|ultra` or Wenyan equivalent.
+Active until `stop caveman` or `normal mode`; default `full`. `/caveman lite|full|ultra` or Wenyan selects level. No activation heading or mode label.
 
 ## Rules
 

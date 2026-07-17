@@ -20,9 +20,16 @@ const root = join(import.meta.dirname, "..");
 const pluginRoot = join(root, "packages", "plugin", "plugin");
 const skills = SKILLS;
 const responseStyleContract = [
-  "Default user-facing replies: grammatical sentences; no filler or hedging.",
+  "Use grammatical sentences without filler or hedging.",
   "Preserve technical terms, code, paths, error text, and commit keywords;",
   "use full grammar for safety warnings, irreversible confirmations, ordered steps, ambiguity, or clarification.",
+] as const;
+const specialistPacketConcepts = [
+  "exact outcome or question",
+  "allowed scope",
+  "constraints and fixed decisions",
+  "required evidence or proof",
+  "stop and blocker conditions",
 ] as const;
 
 describe("HolyCodex catalog", () => {
@@ -73,22 +80,21 @@ describe("HolyCodex catalog", () => {
     for (const agent of await readdir(join(pluginRoot, "agents"))) {
       const prompt = await readFile(join(pluginRoot, "agents", agent), "utf8");
       expect(prompt).toMatch(/^description = ".*Use .*"$/m);
-      expect(prompt).toContain('Start: "I detect ');
+      expect(prompt).not.toContain("I detect");
+      expect(prompt).toContain(
+        "Begin with requested evidence, status, results, uncertainty, or blockers.",
+      );
       expect(prompt).toContain("before the first shell action");
       expect(prompt).toContain("callable and deferred tools");
       expect(prompt).toContain("Use it for every shell command");
       expect(prompt).toContain("If unavailable, stop and report the blocker");
       for (const rule of responseStyleContract) expect(prompt).toContain(rule);
-      expect(prompt).toMatch(/Accept one (?:bounded|coherent) packet containing exact/);
-      expect(prompt).toContain("allowed scope");
-      expect(prompt).toContain("unchanged constraints");
-      expect(prompt).toContain("forbidden expansion");
-      expect(prompt).toContain("acceptance evidence");
-      expect(prompt).toContain("blocker behavior");
-      expect(prompt).toContain("exact stop condition");
-      expect(prompt).toContain("only when relevant");
-      expect(prompt).toContain("irrelevant optional field");
+      expect(prompt).toContain("Accept five packet concepts");
+      for (const concept of specialistPacketConcepts) expect(prompt).toContain(concept);
+      expect(prompt).toContain("Other context is optional and task-specific");
+      expect(prompt).toContain("without irrelevant optional fields");
       expect(prompt).toContain("propose no extra work");
+      expect(prompt).toContain("escalate automatically");
       expect(prompt).toContain("or delegate");
     }
     for (const agent of AGENTS) {
@@ -112,6 +118,16 @@ describe("HolyCodex catalog", () => {
         phrase,
       );
     }
+    const headings = new Map<string, string>();
+    for (const name of skills) {
+      const text = await readFile(join(pluginRoot, "skills", name, "SKILL.md"), "utf8");
+      const heading = text.match(/^\*\*.* MODE ACTIVATED\*\*$/m)?.[0];
+      if (heading !== undefined) headings.set(name, heading);
+    }
+    expect(headings).toEqual(expected);
+    expect(await readFile(join(pluginRoot, "skills", "caveman", "SKILL.md"), "utf8")).toContain(
+      "No activation heading or mode label.",
+    );
     const plugin = JSON.parse(
       await readFile(join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8"),
     ) as { mcpServers?: unknown };

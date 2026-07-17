@@ -21,24 +21,35 @@ describe("bootstrap readiness", () => {
     expect(context).toContain(
       'Root is the default user-facing agent. Start the first user-facing update: "I detect ',
     );
-    expect(context).toContain("Mode activation takes precedence");
+    expect(context).toContain("Only plan, plan-review, and define-goal print");
+    expect(context).toContain("no other skill or style mode prints an activation heading");
     expect(context).toContain("before the first shell action, inspect callable and deferred tools");
     expect(context).toContain("Use it for every shell command");
     expect(context).toContain("Never fall back to PowerShell or cmd");
     expect(context).toContain("load caveman");
     expect(context).toContain("Default user-facing replies:");
     expect(context).toContain(
-      "Root owns intent, scope, architecture, decisions, user clarification, reconciliation, integration, final judgment, and final verification.",
+      "Root owns user interaction, intent, scope, architecture, product decisions, ambiguity resolution, integration, final judgment, and final verification.",
     );
-    expect(context).toContain("Skills govern method; they do not replace cost-aware delegation");
-    expect(context).toContain("one wave by default");
-    expect(context).toContain("at most two specialists concurrently");
-    expect(context).toContain("Explorer handles exact read-only repository facts");
-    expect(context).toContain("Librarian handles current external facts from primary sources");
-    expect(context).toContain("Worker handles isolated fixed-scope implementation");
-    expect(context).toContain("Every packet contains exact outcome or question");
-    expect(context).toContain("Never duplicate delegated work");
-    expect(context).toContain("Treat specialist returns as input");
+    expect(context).toContain("Presume bounded independent work delegable");
+    expect(context).not.toContain("Before substantial");
+    expect(context).toContain("more than two root tool calls");
+    expect(context).toContain("multiple sources or version/date verification");
+    expect(context).toContain("dispatch plus review is concretely more expensive");
+    expect(context).toContain("record one concise concrete reason internally");
+    expect(context).toContain("do not require user-visible orchestration commentary");
+    expect(context).toContain("Skills govern method, not routing");
+    expect(context).toContain("at most two concurrently per wave");
+    expect(context).toContain("Explorer uses GPT 5.6 Luna low");
+    expect(context).toContain("Librarian uses GPT 5.6 Luna low");
+    expect(context).toContain("Worker uses GPT 5.6 Terra high");
+    expect(context).toContain("Packets have five concepts");
+    expect(context).toContain("Do not duplicate specialist work");
+    expect(context).toContain("spot-check only load-bearing claims");
+    expect(context).toContain("Never repeat Explorer/Librarian searches for reassurance");
+    expect(context).toContain("Never recurse, let specialists delegate");
+    expect(context).toContain("overlapping write ownership");
+    expect(context).toContain("Specialists stop when their bounded task is complete");
   });
 
   it("emits SessionStart context in the Codex command-hook envelope", async () => {
