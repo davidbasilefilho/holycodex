@@ -65,6 +65,9 @@ describe("npm release workflows", () => {
     expect(workflow).toContain("github.run_number");
     expect(workflow).toContain("github.run_attempt");
     expect(workflow).toContain("secrets.NPM_TOKEN");
+    expect(workflow.indexOf("bunx vp check")).toBeLessThan(
+      workflow.indexOf("Derive unique dev version"),
+    );
     expect(workflow.indexOf("npm publish ./packages/plugin")).toBeLessThan(
       workflow.indexOf("npm publish ./packages/cli"),
     );
