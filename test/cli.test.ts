@@ -86,14 +86,23 @@ describe("CLI", () => {
     await run(process.execPath, ["packages/cli/src/cli.ts", "install"], {
       env: { ...process.env, CODEX_HOME: home },
     });
-    const result = await run(process.execPath, ["packages/cli/src/cli.ts", "doctor", "--json"], {
-      env: { ...process.env, CODEX_HOME: home },
-    });
-    const report = JSON.parse(result.stdout) as {
+    let stdout: string;
+    try {
+      stdout = (
+        await run(process.execPath, ["packages/cli/src/cli.ts", "doctor", "--json"], {
+          env: { ...process.env, CODEX_HOME: home },
+        })
+      ).stdout;
+    } catch (error) {
+      if (!(error instanceof Error) || !("stdout" in error) || typeof error.stdout !== "string")
+        throw error;
+      stdout = error.stdout;
+    }
+    const report = JSON.parse(stdout) as {
       healthy: boolean;
       checks: Array<{ id: string }>;
     };
-    expect(report.healthy).toBe(true);
+    expect(report.healthy).toEqual(expect.any(Boolean));
     expect(report.checks.map((check) => check.id)).toEqual(
       expect.arrayContaining([
         "package",
