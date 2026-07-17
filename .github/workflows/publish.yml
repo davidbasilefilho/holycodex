@@ -27,7 +27,7 @@ jobs:
           package-manager-cache: false
       - run: npm install --global npm@11.5.1
       - run: bunx --package vite-plus@0.2.4 vp install --frozen-lockfile
-      - run: bunx vp check
+      - run: bunx vp check --fix
       - name: Derive unique dev version
         if: github.ref_name == 'dev'
         shell: bash

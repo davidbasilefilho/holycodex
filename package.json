@@ -1,6 +1,6 @@
 {
   "name": "holycodex-workspace",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "description": "Lean Codex-only agent toolkit for ChatGPT Plus",
   "keywords": [
@@ -24,7 +24,7 @@
   ],
   "type": "module",
   "scripts": {
-    "check": "vp check",
+    "check": "vp check --fix",
     "test": "vp run build && vp test",
     "build": "vp build --config vite.config.ts && vp build --config packages/cli/vite.config.ts",
     "version:check": "bun scripts/version.mjs check",

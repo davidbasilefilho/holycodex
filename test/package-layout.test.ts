@@ -73,7 +73,7 @@ describe("npm release workflows", () => {
 
   it("keeps validation ahead of branch-specific publication", async () => {
     const workflow = await readFile(join(root, ".github", "workflows", "publish.yml"), "utf8");
-    expect(workflow).toContain("bunx vp check");
+    expect(workflow).toContain("bunx vp check --fix");
     expect(workflow).toContain("bunx vp test");
     expect(workflow.indexOf("bunx vp run build")).toBeLessThan(workflow.indexOf("bunx vp test"));
     expect(workflow.indexOf("bunx vp test")).toBeLessThan(
@@ -100,7 +100,7 @@ describe("npm release workflows", () => {
       'DEV_VERSION="${BASE_VERSION}-dev.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"',
     );
     expect(workflow).toContain('npm version "$DEV_VERSION" --no-git-tag-version');
-    expect(workflow.indexOf("bunx vp check")).toBeLessThan(
+    expect(workflow.indexOf("bunx vp check --fix")).toBeLessThan(
       workflow.indexOf("Derive unique dev version"),
     );
     expect(workflow.indexOf("Derive unique dev version")).toBeLessThan(

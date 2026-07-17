@@ -4,7 +4,7 @@
 
 - Approved public packages: `holycodex` owns CLI source/executable; `@holycodex/plugin` owns prompts, skills, agents, hooks, MCP metadata, notices, and generated plugin runtime. Root is private workspace orchestration.
 - Root `src/` moved to `packages/cli/src/`. Plugin payload moved to `packages/plugin/plugin/`. CLI resolves assets through the installed plugin package instead of filesystem adjacency.
-- Vite+ builds separate outputs: `packages/cli/dist/cli.js` and `packages/plugin/plugin/runtime/*`. Validation follows the supplied latest Vite+ `AGENTS.md`: `vp install`, `vp check`, `vp test`, and `vp run` tasks.
+- Vite+ builds separate outputs: `packages/cli/dist/cli.js` and `packages/plugin/plugin/runtime/*`. Validation follows the supplied latest Vite+ `AGENTS.md`: `vp install`, `vp check --fix`, `vp test`, and `vp run` tasks.
 - CLI presentation is dependency-free, TTY-aware, and honors `NO_COLOR`; JSON and redirected output remain noninteractive. OpenTUI would add native/runtime weight without value for one-shot commands.
 - `publish.yml` is the sole npm-trusted workflow. Pushes to `main` publish intentional repository versions under `latest`; pushes to `dev` derive `<base>-dev.<GITHUB_RUN_ID>.<GITHUB_RUN_ATTEMPT>` and publish under `dev` without moving `latest`.
 - Both public packages use GitHub Actions OIDC through the exact `publish.yml` trust binding. Stable publication skips exact versions already present. No long-lived npm publishing credential is used.
@@ -13,7 +13,7 @@
 ### Package redesign verification
 
 - `vp install`: workspace links and `bun.lock` refreshed successfully.
-- `vp check`: all 204 files formatted; no warnings or lint errors in 127 checked files.
+- `vp check --fix`: all 204 files formatted; no warnings or lint errors in 127 checked files.
 - `vp run build`: plugin runtime and CLI built independently; plugin runtime contains seven JavaScript chunks plus the generated LSP MIT license, while CLI emits one external-plugin-aware bundle.
 - `vp test`: 37 test files passed; 191 tests passed; one Windows-path-specific test skipped.
 - Root, CLI, Git Bash, LSP core, LSP daemon, and stdio-core strict TypeScript projects passed.
@@ -38,7 +38,7 @@
 
 ### 0.6.0 final verification
 
-- `bunx vp check`: all 188 files formatted; no warnings or lint errors in 121 checked files.
+- `bunx vp check --fix`: all 188 files formatted; no warnings or lint errors in 121 checked files.
 - `bunx tsc --noEmit` plus all four package `tsconfig.json` projects: passed strict TypeScript.
 - `bun run test`: generated eight runtime chunks; 35 test files passed; 179 tests passed; one platform-specific test skipped.
 - `bun run version:check` and generated CLI `--version`: all package/runtime surfaces report 0.6.0.
@@ -208,7 +208,7 @@ All sizes are bytes unless stated. Baseline is `main` at `b402bcfc277561b87e38d2
 
 ## Prior 0.5.3 final verification run
 
-- `bunx vp check`: all 183 files formatted; no warnings or lint errors in 118 checked files.
+- `bunx vp check --fix`: all 183 files formatted; no warnings or lint errors in 118 checked files.
 - `bunx tsc --noEmit`: passed strict TypeScript.
 - `bun run test`: build passed; 34 files passed; 163 tests passed; one platform-specific test skipped.
 - `bun run version:check`: all package and runtime versions match `0.5.3`.

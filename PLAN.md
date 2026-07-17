@@ -10,6 +10,6 @@ Status: implemented and verified on `dev`. Durable goal declined.
 6. Add dependency-free TTY/`NO_COLOR` presentation for help, warnings, lifecycle summaries, and doctor output. Preserve JSON, plain redirected output, exit codes, and noninteractive behavior.
 7. Keep `publish.yml` as the sole npm-trusted workflow. Publish intentional `main` versions under `latest`; publish unique CI prereleases from `dev` under `dev` without moving `latest`.
 8. Add package-layout, version-rewrite, workflow, renderer, install, packed-resolution, and package-content contracts. Update documentation, migration guidance, notices, and npm prerequisites.
-9. Run `vp install`, `vp check`, `vp test`, `vp run build`, `vp run version:check`, strict package types, separate package dry-runs, packed-tarball installation, CLI smoke tests, and final Git audit. Do not publish locally.
+9. Run `vp install`, `vp check --fix`, `vp test`, `vp run build`, `vp run version:check`, strict package types, separate package dry-runs, packed-tarball installation, CLI smoke tests, and final Git audit. Do not publish locally.
 
 Acceptance: both tarballs are independently valid; CLI installs assets from its exact plugin dependency; stable and dev workflows publish plugin before CLI; `bunx holycodex@dev` is enabled after the first successful dev publication; all deterministic checks pass.

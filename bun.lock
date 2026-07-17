@@ -14,17 +14,17 @@
     },
     "packages/cli": {
       "name": "holycodex",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "bin": {
         "holycodex": "bin/holycodex.js",
       },
       "dependencies": {
-        "@holycodex/plugin": "0.6.0",
+        "@holycodex/plugin": "0.6.1",
       },
     },
     "packages/git-bash-mcp": {
       "name": "@holycodex/git-bash-mcp",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "bin": {
         "holycodex-git-bash": "dist/cli.js",
       },
@@ -37,14 +37,14 @@
     },
     "packages/lsp-core": {
       "name": "@holycodex/lsp-core",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "dependencies": {
         "@holycodex/mcp-stdio-core": "workspace:*",
       },
     },
     "packages/lsp-daemon": {
       "name": "@holycodex/lsp-daemon",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "bin": {
         "holycodex-lsp-daemon": "./dist/cli.js",
       },
@@ -59,14 +59,14 @@
     },
     "packages/mcp-stdio-core": {
       "name": "@holycodex/mcp-stdio-core",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "devDependencies": {
         "bun-types": "1.3.12",
       },
     },
     "packages/plugin": {
       "name": "@holycodex/plugin",
-      "version": "0.6.0",
+      "version": "0.6.1",
     },
   },
   "packages": {

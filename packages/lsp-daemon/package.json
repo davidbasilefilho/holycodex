@@ -1,6 +1,6 @@
 {
   "name": "@holycodex/lsp-daemon",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Shared per-user Language Server Protocol daemon over a unix socket, with a stdio MCP proxy and a tool client.",
   "license": "MIT",
   "bin": {

@@ -61,7 +61,7 @@ async function main() {
   await Promise.all(jsonFiles.map((file) => updateJson(file, next)));
   await replaceVersion(catalogFile, current, next);
   process.stdout.write(
-    `Bumped ${current} -> ${next}. Run vp install, vp check, vp test, and vp build.\n`,
+    `Bumped ${current} -> ${next}. Run vp install, vp check --fix, vp test, and vp build.\n`,
   );
 }
 

@@ -124,7 +124,7 @@ npm install holycodex@latest  -> same stable version
 npm install holycodex@dev     -> newest unique prerelease published from dev
 ```
 
-Release validation follows [Vite+ guidance](https://cdn.jsdelivr.net/npm/vite-plus@latest/AGENTS.md): `vp install`, `vp check`, `vp test`, and `vp run` for configured build/version tasks.
+Release validation follows [Vite+ guidance](https://cdn.jsdelivr.net/npm/vite-plus@latest/AGENTS.md): `vp install`, `vp check --fix`, `vp test`, and `vp run` for configured build/version tasks.
 
 ## Attribution and license
 
