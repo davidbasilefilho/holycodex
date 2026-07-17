@@ -14,6 +14,7 @@ import {
   SKILLS,
   VERSION,
 } from "./catalog.ts";
+import { rootTomlString } from "./toml.ts";
 
 export type CheckStatus = "ok" | "warning" | "error";
 export type DoctorCheck = {
@@ -106,10 +107,6 @@ async function missingFiles(root: string, paths: readonly string[]): Promise<str
   return missing;
 }
 
-function rootString(config: string, key: string): string | undefined {
-  return new RegExp(`^\\s*${key}\\s*=\\s*"([^"]+)"`, "m").exec(config)?.[1];
-}
-
 function tableBoolean(config: string, table: string, key: string): boolean | undefined {
   const body = new RegExp(
     `^\\s*\\[${table.replaceAll(".", "\\.")}]\\s*$([\\s\\S]*?)(?=^\\s*\\[|(?![\\s\\S]))`,
@@ -123,8 +120,8 @@ function tableBoolean(config: string, table: string, key: string): boolean | und
 }
 
 function autonomy(config: string): DoctorResult["autonomy"] {
-  const approval = rootString(config, "approval_policy");
-  const sandbox = rootString(config, "sandbox_mode");
+  const approval = rootTomlString(config, "approval_policy");
+  const sandbox = rootTomlString(config, "sandbox_mode");
   const network = tableBoolean(config, "sandbox_workspace_write", "network_access");
   if (approval === "on-request" && sandbox === "workspace-write" && network === true)
     return "safe-workspace";
@@ -443,8 +440,8 @@ export async function doctor(
       const text = await readFile(join(agentRoot, `${agent}.toml`), "utf8");
       const expected = AGENT_MODELS[agent];
       if (
-        !text.includes(`model = "${expected.model}"`) ||
-        !text.includes(`model_reasoning_effort = "${expected.reasoningEffort}"`)
+        rootTomlString(text, "model") !== expected.model ||
+        rootTomlString(text, "model_reasoning_effort") !== expected.reasoningEffort
       )
         agentModelFailures.push(agent);
     } catch {

@@ -70,6 +70,29 @@ describe("HolyCodex doctor", () => {
     expect(codes(result)).toContain("agent-models-stale");
   });
 
+  it("ignores commented defaults when checking active agent models", async () => {
+    const { home } = await fixture();
+    await writeFile(
+      join(home, "holycodex", "agents", "explorer.toml"),
+      '# model = "gpt-5.6-luna"\nmodel = "user/model"\n# model_reasoning_effort = "low"\nmodel_reasoning_effort = "high"\n',
+    );
+    const result = await doctor(home, runtime());
+    expect(result.healthy).toBe(false);
+    expect(codes(result)).toContain("agent-models-stale");
+    expect(codes(result)).not.toContain("agent-models-ready");
+  });
+
+  it("does not read autonomy settings from named tables", async () => {
+    const { home } = await fixture();
+    await writeFile(
+      join(home, "config.toml"),
+      '[profiles.safe]\napproval_policy = "on-request"\nsandbox_mode = "workspace-write"\n\n[sandbox_workspace_write]\nnetwork_access = true\n',
+    );
+    const result = await doctor(home, runtime());
+    expect(result.autonomy).toBe("unknown");
+    expect(codes(result)).toContain("invalid-autonomy-config");
+  });
+
   it("warns without failing for explicitly dangerous autonomy", async () => {
     const { home } = await fixture("dangerous");
     const result = await doctor(home, runtime());

@@ -134,7 +134,7 @@ describe("install lifecycle", () => {
     await mkdir(agents, { recursive: true });
     await writeFile(
       join(agents, "explorer.toml"),
-      'model = "user/explorer"\nmodel_reasoning_effort = "high"\n',
+      "  model = 'user/explorer'\n\tmodel_reasoning_effort = 'high'\n",
     );
     await writeFile(
       join(agents, "worker.toml"),

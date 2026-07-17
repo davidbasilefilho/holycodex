@@ -15,6 +15,7 @@ import {
   resolveGitBashForCurrentProcess,
   type GitBashResolution,
 } from "../../git-bash-mcp/src/git-bash-resolver.ts";
+import { rootTomlString } from "./toml.ts";
 
 export type RunOptions = { readonly autonomy: AutonomyMode; readonly json: boolean };
 export type RunResult = {
@@ -104,8 +105,8 @@ async function readAgentPreferences(root: string): Promise<AgentPreferences> {
   await Promise.all(
     AGENTS.map(async (agent) => {
       const source = await readText(join(root, `${agent}.toml`));
-      const model = tomlString(source, "model");
-      const reasoningEffort = tomlString(source, "model_reasoning_effort");
+      const model = rootTomlString(source, "model");
+      const reasoningEffort = rootTomlString(source, "model_reasoning_effort");
       if (model === undefined && reasoningEffort === undefined) return;
       const managed = MANAGED_AGENT_MODEL_HISTORY[agent].some(
         (item) => item.model === model && item.reasoningEffort === reasoningEffort,
@@ -137,10 +138,6 @@ async function preserveAgentPreferences(
       await atomicWrite(path, source);
     }),
   );
-}
-
-function tomlString(input: string, key: string): string | undefined {
-  return new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, "m").exec(input)?.[1];
 }
 
 function replaceTomlString(input: string, key: string, value: string): string {
