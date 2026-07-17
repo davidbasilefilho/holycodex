@@ -27,8 +27,13 @@ async function main(): Promise<void> {
   const autonomyFlags = args.filter((arg) =>
     ["--codex-autonomous", "--no-codex-autonomous", "--dangerous-codex-autonomous"].includes(arg),
   );
-  if (autonomyFlags.length > 1)
-    throw new Error(`Conflicting autonomy flags: ${autonomyFlags.join(", ")}`);
+  if (autonomyFlags.length > 1) {
+    process.stderr.write(
+      renderError(`Conflicting autonomy flags: ${autonomyFlags.join(", ")}`, stderrColor),
+    );
+    process.exitCode = 1;
+    return;
+  }
   const options: RunOptions = {
     autonomy: args.includes("--dangerous-codex-autonomous")
       ? "dangerous"

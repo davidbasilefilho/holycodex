@@ -53,7 +53,13 @@ describe("CLI", () => {
         "--codex-autonomous",
         "--dangerous-codex-autonomous",
       ]),
-    ).rejects.toMatchObject({ stderr: expect.stringContaining("Conflicting autonomy flags") });
+    ).rejects.toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: expect.stringMatching(
+        /^✗ ERROR  Conflicting autonomy flags: --codex-autonomous, --dangerous-codex-autonomous\r?\n  Run holycodex --help for usage\.\r?\n$/,
+      ),
+    });
   });
 
   it("uses safe interactive permissions by default", async () => {

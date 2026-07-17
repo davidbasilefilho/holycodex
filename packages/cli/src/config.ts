@@ -5,6 +5,11 @@ const START = "# >>> holycodex managed >>>";
 const END = "# <<< holycodex managed <<<";
 const ORIGINAL_ROOT = "# holycodex original root: ";
 const ORIGINAL_TABLE_KEY = "# holycodex original table key: ";
+const ROOT_PREFERENCES = [
+  ["model", `model = "${ROOT_MODEL.model}"`],
+  ["model_reasoning_effort", `model_reasoning_effort = "${ROOT_MODEL.reasoningEffort}"`],
+  ["model_verbosity", 'model_verbosity = "low"'],
+] as const;
 
 export type AutonomyMode = "default" | "autonomous" | "dangerous";
 
@@ -116,12 +121,32 @@ function removeRootValue(input: string, value: string | undefined): string {
   return value === undefined ? input : input.replace(value, "");
 }
 
+function preserveManagedRootPreferences(input: string, base: string): string {
+  const managedRoot = new RegExp(`^${START}\\r?\\n([\\s\\S]*?)^${END}\\r?$`, "m").exec(input)?.[1];
+  if (managedRoot === undefined) return base;
+  const firstTable = base.search(/^\s*\[/m);
+  const root = firstTable < 0 ? base : base.slice(0, firstTable);
+  const tables = firstTable < 0 ? "" : base.slice(firstTable);
+  let updatedRoot = root.trim();
+  for (const [key, fallback] of ROOT_PREFERENCES) {
+    const live = rootValue(managedRoot, key)?.trim();
+    if (live === undefined || live === (rootValue(root, key)?.trim() ?? fallback)) continue;
+    updatedRoot = removeRootValue(updatedRoot, rootValue(updatedRoot, key)).trim();
+    updatedRoot = `${updatedRoot}${updatedRoot ? "\n" : ""}${live}`;
+  }
+  if (updatedRoot === root.trim()) return base;
+  return `${updatedRoot}${tables ? `\n${tables.trimStart()}` : ""}`;
+}
+
 function mergedStatusLine(original: string | undefined): string {
   if (original === undefined) return '["model-with-reasoning", "context-remaining", "current-dir"]';
   const source = original.slice(original.indexOf("=") + 1);
-  const items = [...source.matchAll(/"((?:\\.|[^"\\])*)"/g)].map(
-    (match) => JSON.parse(`"${match[1]}"`) as string,
-  );
+  const items = [...source.matchAll(/"((?:\\.|[^"\\])*)"|'([^']*)'/g)].map((match) => {
+    if (match[1] === undefined) return match[2] ?? "";
+    const parsed: unknown = JSON.parse(`"${match[1]}"`);
+    if (typeof parsed !== "string") throw new Error("Invalid status-line string");
+    return parsed;
+  });
   if (!items.includes("context-remaining")) items.push("context-remaining");
   return `[${items.map((item) => JSON.stringify(item)).join(", ")}]`;
 }
@@ -131,7 +156,8 @@ export function installConfig(
   mode: AutonomyMode,
   _platform: NodeJS.Platform,
 ): string {
-  const base = removeLegacyOmo(removeManaged(input));
+  const unmanaged = removeLegacyOmo(removeManaged(input));
+  const base = preserveManagedRootPreferences(input, unmanaged);
   const firstTable = base.search(/^\s*\[/m);
   const root = firstTable < 0 ? base : base.slice(0, firstTable);
   const tables = firstTable < 0 ? "" : base.slice(firstTable);

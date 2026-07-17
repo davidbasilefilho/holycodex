@@ -122,6 +122,24 @@ describe("Codex configuration", () => {
     expect(removeManaged(output)).toBe('model_verbosity = "high"');
   });
 
+  it("preserves root preference edits across reinstalls and cleanup", () => {
+    const installed = installConfig("", "default")
+      .replace('model = "gpt-5.6-sol"', 'model = "user/model"')
+      .replace('model_reasoning_effort = "medium"', 'model_reasoning_effort = "high"')
+      .replace('model_verbosity = "low"', 'model_verbosity = "high"');
+    const reinstalled = installConfig(installed, "default");
+    expect(reinstalled.match(/^model\s*=/gm)).toHaveLength(1);
+    expect(reinstalled.match(/^model_reasoning_effort\s*=/gm)).toHaveLength(1);
+    expect(reinstalled.match(/^model_verbosity\s*=/gm)).toHaveLength(1);
+    expect(reinstalled).toContain('model = "user/model"');
+    expect(reinstalled).toContain('model_reasoning_effort = "high"');
+    expect(reinstalled).toContain('model_verbosity = "high"');
+    expect(removeManaged(reinstalled)).toBe(
+      'model = "user/model"\nmodel_reasoning_effort = "high"\nmodel_verbosity = "high"',
+    );
+    expect(installConfig(reinstalled, "default")).toBe(reinstalled);
+  });
+
   it("preserves both explicit root values exactly once", () => {
     const output = installConfig(
       'model = "user/model"\nmodel_reasoning_effort = "xhigh"\n',
@@ -196,6 +214,13 @@ describe("Codex configuration", () => {
     const input = 'status_line = [\n  "model",\n  "context-remaining",\n  "git-branch",\n]\n';
     const output = installConfig(input, "autonomous");
     expect(output.match(/context-remaining/g)).toHaveLength(1);
+    expect(removeManaged(output)).toBe(input.trim());
+  });
+
+  it("preserves valid single-quoted status-line entries", () => {
+    const input = "status_line = ['git-branch', 'current-dir']\n";
+    const output = installConfig(input, "default");
+    expect(output).toContain('status_line = ["git-branch", "current-dir", "context-remaining"]');
     expect(removeManaged(output)).toBe(input.trim());
   });
 });
