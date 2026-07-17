@@ -1,6 +1,6 @@
 {
   "name": "holycodex-workspace",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "description": "Lean Codex-only agent toolkit for ChatGPT Plus",
   "keywords": [

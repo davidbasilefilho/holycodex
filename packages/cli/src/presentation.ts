@@ -21,7 +21,13 @@ export function renderHelp(version: string, color: boolean): string {
   const title = paint(color, `${BOLD}${CYAN}`, `HOLYCODEX ${version}`);
   const section = (text: string): string => paint(color, BOLD, text);
   const muted = (text: string): string => paint(color, DIM, text);
-  return `${title}\n${muted("Lean Codex toolkit installer and doctor")}\n\n${section("USAGE")}\n  holycodex <command> [options]\n\n${section("COMMANDS")}\n  install                         Install or update HolyCodex\n  cleanup                         Remove HolyCodex-owned state\n  doctor                          Diagnose installation and runtime\n\n${section("OPTIONS")}\n  --help                          Show help\n  --version                       Show version\n  --no-tui                        Accepted; commands remain noninteractive\n  --codex-autonomous              Never ask; keep workspace sandbox\n  --no-codex-autonomous           Safe interactive defaults\n  --dangerous-codex-autonomous    Never ask; disable filesystem sandbox\n  --json                          Print machine-readable output\n`;
+  return `${title}\n${muted("Lean Codex toolkit installer and doctor")}\n\n${section("USAGE")}\n  holycodex <command> [options]\n\n${section("COMMANDS")}\n  install                         Install or update HolyCodex\n  cleanup                         Remove HolyCodex-owned state\n  doctor                          Diagnose installation and runtime\n\n${section("OPTIONS")}\n  -h, --help                      Show help\n  -v, --version                   Show version\n  --no-tui                        Accepted; commands remain noninteractive\n  --codex-autonomous              Never ask; keep workspace sandbox\n  --no-codex-autonomous           Safe interactive defaults\n  --dangerous-codex-autonomous    Never ask; disable filesystem sandbox\n  --json                          Print machine-readable output\n`;
+}
+
+export function renderError(message: string, color: boolean): string {
+  const label = paint(color, `${BOLD}${RED}`, "✗ ERROR");
+  const hint = paint(color, DIM, "Run holycodex --help for usage.");
+  return `${label}  ${message}\n  ${hint}\n`;
 }
 
 export function renderDoctor(result: DoctorResult, color: boolean): string {

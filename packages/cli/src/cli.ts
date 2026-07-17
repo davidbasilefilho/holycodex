@@ -4,6 +4,7 @@ import { doctor } from "./doctor.ts";
 import { cleanup, install, type RunOptions } from "./install.ts";
 import {
   renderDoctor,
+  renderError,
   renderHelp,
   renderNotice,
   renderRunResult,
@@ -14,11 +15,11 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const stdoutColor = supportsColor(process.stdout.isTTY, process.env.NO_COLOR);
   const stderrColor = supportsColor(process.stderr.isTTY, process.env.NO_COLOR);
-  if (args.includes("--help") || args.length === 0) {
+  if (args.includes("--help") || args.includes("-h") || args.length === 0) {
     process.stdout.write(renderHelp(VERSION, stdoutColor));
     return;
   }
-  if (args.includes("--version")) {
+  if (args.includes("--version") || args.includes("-v")) {
     process.stdout.write(`${VERSION}\n`);
     return;
   }
@@ -66,7 +67,11 @@ async function main(): Promise<void> {
       : command === "cleanup"
         ? await cleanup(options)
         : undefined;
-  if (result === undefined) throw new Error(`Unknown command: ${command ?? ""}`);
+  if (result === undefined) {
+    process.stderr.write(renderError(`Unknown command: ${command ?? args[0] ?? ""}`, stderrColor));
+    process.exitCode = 1;
+    return;
+  }
   process.stdout.write(
     options.json ? `${JSON.stringify(result)}\n` : renderRunResult(result, stdoutColor),
   );

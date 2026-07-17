@@ -145,15 +145,17 @@ export function installConfig(
   const preservedRoot = controlled.reduce(removeRootValue, root).trim();
   const hasModel = /^\s*model\s*=/m.test(preservedRoot);
   const hasEffort = /^\s*model_reasoning_effort\s*=/m.test(preservedRoot);
+  const hasVerbosity = /^\s*model_verbosity\s*=/m.test(preservedRoot);
   const model = hasModel ? "" : `model = "${ROOT_MODEL.model}"\n`;
   const effort = hasEffort ? "" : `model_reasoning_effort = "${ROOT_MODEL.reasoningEffort}"\n`;
+  const verbosity = hasVerbosity ? "" : 'model_verbosity = "low"\n';
   const approval = mode === "default" ? "on-request" : "never";
   const sandbox = mode === "dangerous" ? "danger-full-access" : "workspace-write";
   const original = originalRoot
     ? `${ORIGINAL_ROOT}${Buffer.from(originalRoot).toString("base64")}\n`
     : "";
   const preserved = preservedRoot ? `${preservedRoot}\n` : "";
-  const rootBlock = `${START}\n${original}${model}${effort}${preserved}approval_policy = "${approval}"\nsandbox_mode = "${sandbox}"\nstatus_line = ${mergedStatusLine(controlled[3])}\n${END}`;
+  const rootBlock = `${START}\n${original}${model}${effort}${verbosity}${preserved}approval_policy = "${approval}"\nsandbox_mode = "${sandbox}"\nstatus_line = ${mergedStatusLine(controlled[3])}\n${END}`;
   let configured = `${rootBlock}${tables ? `\n\n${tables}` : ""}`;
   configured = injectTableKey(configured, "features", "default_mode_request_user_input", "true");
   configured = injectTableKey(configured, "features", "multi_agent", "true");

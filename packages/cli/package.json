@@ -1,6 +1,6 @@
 {
   "name": "holycodex",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Lean Codex-only agent toolkit installer and doctor",
   "keywords": [
     "agents",
@@ -39,7 +39,7 @@
     "prepack": "vp run --workspace-root build"
   },
   "dependencies": {
-    "@holycodex/plugin": "0.6.1"
+    "@holycodex/plugin": "0.7.0"
   },
   "engines": {
     "node": ">=20"

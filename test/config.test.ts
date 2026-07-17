@@ -106,6 +106,22 @@ describe("Codex configuration", () => {
     expect(output).toContain('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"');
   });
 
+  it("adds low model verbosity at the root before named sections", () => {
+    const output = installConfig('[profiles.deep]\nmodel = "custom/model"\n', "default");
+    expect(output.match(/^model_verbosity\s*=/gm)).toHaveLength(1);
+    expect(output).toContain('model_verbosity = "low"');
+    expect(output.indexOf('model_verbosity = "low"')).toBeLessThan(
+      output.indexOf("[profiles.deep]"),
+    );
+  });
+
+  it("preserves an explicit root model verbosity without duplication", () => {
+    const output = installConfig('model_verbosity = "high"\n', "default");
+    expect(output.match(/^model_verbosity\s*=/gm)).toHaveLength(1);
+    expect(output).toContain('model_verbosity = "high"');
+    expect(removeManaged(output)).toBe('model_verbosity = "high"');
+  });
+
   it("preserves both explicit root values exactly once", () => {
     const output = installConfig(
       'model = "user/model"\nmodel_reasoning_effort = "xhigh"\n',

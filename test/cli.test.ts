@@ -14,12 +14,35 @@ describe("CLI", () => {
     expect(result.stdout).toBe(`${VERSION}\n`);
   });
 
+  it("supports the short version alias", async () => {
+    const result = await run(process.execPath, ["packages/cli/src/cli.ts", "-v"]);
+    expect(result.stdout).toBe(`${VERSION}\n`);
+  });
+
   it("documents all autonomy modes and doctor output", async () => {
     const result = await run(process.execPath, ["packages/cli/src/cli.ts", "--help"]);
     expect(result.stdout).toContain("--codex-autonomous");
     expect(result.stdout).toContain("--dangerous-codex-autonomous");
     expect(result.stdout).toContain("doctor");
     expect(result.stdout).toContain("--json");
+  });
+
+  it("supports the short help alias", async () => {
+    const result = await run(process.execPath, ["packages/cli/src/cli.ts", "-h"]);
+    expect(result.stdout).toContain(`HOLYCODEX ${VERSION}`);
+    expect(result.stdout).toContain("USAGE");
+  });
+
+  it("prints a concise error for an unknown command", async () => {
+    await expect(
+      run(process.execPath, ["packages/cli/src/cli.ts", "definitely-not-a-command"]),
+    ).rejects.toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: expect.stringMatching(
+        /^✗ ERROR  Unknown command: definitely-not-a-command\r?\n  Run holycodex --help for usage\.\r?\n$/,
+      ),
+    });
   });
 
   it("rejects conflicting autonomy flags", async () => {
