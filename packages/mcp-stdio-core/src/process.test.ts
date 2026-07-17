@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runManagedProcess } from "./process";
+import { killProcessTree, runManagedProcess } from "./process";
 
 const platform = process.platform;
 const executable = process.execPath;
@@ -46,6 +46,28 @@ describe("managed child process", () => {
     });
     expect(result.timedOut).toBe(true);
     expect(result.matched).toBe(false);
+  });
+
+  it("escalates an ignored graceful timeout to a hard kill before settling", async () => {
+    const signals: NodeJS.Signals[] = [];
+    const result = await runManagedProcess(
+      {
+        command: executable,
+        args: ["-e", "setInterval(() => {}, 1000)"],
+        platform,
+        timeoutMs: 10,
+        maxOutputChars: 1024,
+      },
+      {
+        terminationGraceMs: 0,
+        kill(child, childPlatform, signal) {
+          signals.push(signal);
+          if (signal === "SIGKILL") killProcessTree(child, childPlatform, signal);
+        },
+      },
+    );
+    expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(result.timedOut).toBe(true);
   });
 
   it("terminates after a success marker without double settlement", async () => {

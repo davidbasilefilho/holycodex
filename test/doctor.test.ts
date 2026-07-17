@@ -27,6 +27,7 @@ async function fixture(mode: AutonomyMode = "default"): Promise<{ home: string; 
   const plugin = join(home, "plugins", "cache", "holycodex", "holycodex", VERSION);
   await mkdir(join(plugin, ".."), { recursive: true });
   await cp(join(root, "packages", "plugin", "plugin"), plugin, { recursive: true });
+  await cp(join(plugin, "agents"), join(home, "holycodex", "agents"), { recursive: true });
   await writeFile(join(home, "config.toml"), installConfig("", mode, "win32"));
   return { home, plugin };
 }
@@ -56,6 +57,17 @@ describe("HolyCodex doctor", () => {
         "codex-version",
       ]),
     );
+  });
+
+  it("checks active agent models instead of the pristine package cache", async () => {
+    const { home } = await fixture();
+    await writeFile(
+      join(home, "holycodex", "agents", "explorer.toml"),
+      'model = "user/model"\nmodel_reasoning_effort = "high"\n',
+    );
+    const result = await doctor(home, runtime());
+    expect(result.healthy).toBe(false);
+    expect(codes(result)).toContain("agent-models-stale");
   });
 
   it("warns without failing for explicitly dangerous autonomy", async () => {

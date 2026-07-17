@@ -140,6 +140,7 @@ export async function doctor(
 ): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
   const pluginRoot = join(home, "plugins", "cache", "holycodex", "holycodex", VERSION);
+  const agentRoot = join(home, "holycodex", "agents");
   const configPath = join(home, "config.toml");
   const required = [
     ".codex-plugin/plugin.json",
@@ -439,7 +440,7 @@ export async function doctor(
   const agentModelFailures: string[] = [];
   for (const agent of AGENTS) {
     try {
-      const text = await readFile(join(pluginRoot, "agents", `${agent}.toml`), "utf8");
+      const text = await readFile(join(agentRoot, `${agent}.toml`), "utf8");
       const expected = AGENT_MODELS[agent];
       if (
         !text.includes(`model = "${expected.model}"`) ||

@@ -14,6 +14,11 @@ export type ManagedProcessInput = {
   readonly matchOutput?: (output: string) => boolean;
 };
 
+export type ManagedProcessRuntime = {
+  readonly terminationGraceMs: number;
+  readonly kill: (child: ChildProcess, platform: NodeJS.Platform, signal: NodeJS.Signals) => void;
+};
+
 export type ManagedProcessResult = {
   readonly exitCode: number | null;
   readonly stdout: string;
@@ -26,7 +31,15 @@ export type ManagedProcessResult = {
 
 type OutputState = { head: string; tail: string; truncated: boolean };
 
-export async function runManagedProcess(input: ManagedProcessInput): Promise<ManagedProcessResult> {
+const defaultManagedProcessRuntime: ManagedProcessRuntime = {
+  terminationGraceMs: 2_000,
+  kill: killProcessTree,
+};
+
+export async function runManagedProcess(
+  input: ManagedProcessInput,
+  runtime: ManagedProcessRuntime = defaultManagedProcessRuntime,
+): Promise<ManagedProcessResult> {
   return await new Promise<ManagedProcessResult>((resolve) => {
     const child = spawn(input.command, [...input.args], {
       ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
@@ -40,13 +53,13 @@ export async function runManagedProcess(input: ManagedProcessInput): Promise<Man
     let timedOut = false;
     let matched = false;
     let settled = false;
-    let terminationFallback: NodeJS.Timeout | undefined;
+    let forceKillTimeout: NodeJS.Timeout | undefined;
 
     const finish = (exitCode: number | null, error?: string): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      if (terminationFallback !== undefined) clearTimeout(terminationFallback);
+      if (forceKillTimeout !== undefined) clearTimeout(forceKillTimeout);
       const stdoutText = outputText(stdout);
       const stderrText = outputText(stderr);
       resolve({
@@ -61,9 +74,12 @@ export async function runManagedProcess(input: ManagedProcessInput): Promise<Man
     };
 
     const terminate = (): void => {
-      killProcessTree(child, input.platform);
-      terminationFallback ??= setTimeout(() => finish(child.exitCode), 2_000);
-      terminationFallback.unref();
+      if (forceKillTimeout !== undefined) return;
+      runtime.kill(child, input.platform, "SIGTERM");
+      forceKillTimeout = setTimeout(() => {
+        runtime.kill(child, input.platform, "SIGKILL");
+      }, runtime.terminationGraceMs);
+      forceKillTimeout.unref();
     };
 
     const inspectMatch = (): void => {

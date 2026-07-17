@@ -223,4 +223,13 @@ describe("Codex configuration", () => {
     expect(output).toContain('status_line = ["git-branch", "current-dir", "context-remaining"]');
     expect(removeManaged(output)).toBe(input.trim());
   });
+
+  it("ignores quoted status-line items in inline comments", () => {
+    const input = 'status_line = ["current-dir"] # formerly "git-branch"\n';
+    const output = installConfig(input, "default");
+    expect(output.match(/^status_line = .*$/m)?.[0]).toBe(
+      'status_line = ["current-dir", "context-remaining"]',
+    );
+    expect(removeManaged(output)).toBe(input.trim());
+  });
 });
