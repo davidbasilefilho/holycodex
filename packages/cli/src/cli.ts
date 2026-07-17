@@ -1,4 +1,5 @@
 import process from "node:process";
+
 import { VERSION } from "./catalog.ts";
 import { doctor } from "./doctor.ts";
 import { cleanup, install, type RunOptions } from "./install.ts";

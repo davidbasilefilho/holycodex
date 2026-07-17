@@ -60,6 +60,7 @@ export class LspProcessSpawnError extends Error {
   override readonly name = "LspProcessSpawnError";
 }
 
+/** Checks whether lsp dead connection error. */
 export function isLspDeadConnectionError(
   err: unknown,
 ): err is LspConnectionClosedError | LspProcessExitedError {

@@ -1,9 +1,13 @@
 import { cp, mkdir, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
 import { pluginRoot } from "@holycodex/plugin";
-import { installConfig, removeManaged, type AutonomyMode } from "./config.ts";
-import { atomicWrite, backup, exists, readText } from "./files.ts";
+
+import {
+  resolveGitBashForCurrentProcess,
+  type GitBashResolution,
+} from "../../git-bash-mcp/src/git-bash-resolver.ts";
 import {
   AGENTS,
   effectiveMcpServers,
@@ -11,10 +15,8 @@ import {
   VERSION,
   WINDOWS_SHELL_POLICY,
 } from "./catalog.ts";
-import {
-  resolveGitBashForCurrentProcess,
-  type GitBashResolution,
-} from "../../git-bash-mcp/src/git-bash-resolver.ts";
+import { installConfig, removeManaged, type AutonomyMode } from "./config.ts";
+import { atomicWrite, backup, exists, readText } from "./files.ts";
 import { rootTomlString } from "./toml.ts";
 
 export type RunOptions = { readonly autonomy: AutonomyMode; readonly json: boolean };
@@ -55,11 +57,13 @@ function backupRoot(): string {
   return join(tmpdir(), "holycodex-backups", new Date().toISOString().replaceAll(":", "-"));
 }
 
+/** Validates git bash ready. */
 export function assertGitBashReady(platform: NodeJS.Platform, resolution: GitBashResolution): void {
   if (platform !== "win32") return;
   if (!resolution.found) throw new Error(resolution.installHint);
 }
 
+/** Provides install. */
 export async function install(
   options: RunOptions,
   runtime: InstallRuntime = defaultRuntime,
@@ -168,6 +172,7 @@ async function writePlatformAgents(root: string, platform: NodeJS.Platform): Pro
   );
 }
 
+/** Provides cleanup. */
 export async function cleanup(_options: RunOptions): Promise<RunResult> {
   const target = paths();
   const root = backupRoot();

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+
 import { missingDependencyResultOrThrow } from "./missing-dependency-result.js";
 
 describe("missingDependencyResultOrThrow", () => {

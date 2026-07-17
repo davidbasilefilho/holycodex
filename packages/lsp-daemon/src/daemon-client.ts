@@ -1,8 +1,8 @@
 import { connect } from "node:net";
 
 import type { ToolExecutionResult } from "@holycodex/lsp-core/tools";
-import { messageFromError } from "@holycodex/mcp-stdio-core/responses";
 import { isPlainRecord } from "@holycodex/mcp-stdio-core/record";
+import { messageFromError } from "@holycodex/mcp-stdio-core/responses";
 
 import { ensureDaemonRunning } from "./ensure-daemon.js";
 import { type DaemonPaths, daemonPaths } from "./paths.js";
@@ -33,6 +33,7 @@ export interface CallToolOptions {
   ensure?: (paths: DaemonPaths) => Promise<void>;
 }
 
+/** Calls tool via daemon. */
 export async function callToolViaDaemon(
   name: string,
   args: Record<string, unknown>,
@@ -57,6 +58,7 @@ export async function callToolViaDaemon(
   return daemonUnreachableResult(paths, lastError);
 }
 
+/** Calls diagnostics via daemon. */
 export function callDiagnosticsViaDaemon(
   filePath: string,
   options: CallToolOptions = {},
@@ -70,6 +72,7 @@ const FORWARDED_ENV_KEYS = [
   "LSP_TOOLS_MCP_INSTALL_DECISIONS",
 ] as const;
 
+/** Provides current request context. */
 export function currentRequestContext(env: NodeJS.ProcessEnv = process.env): DaemonToolContext {
   const forwarded: Record<string, string> = {};
   for (const key of FORWARDED_ENV_KEYS) {

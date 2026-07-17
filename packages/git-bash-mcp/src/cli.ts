@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { argv, stderr } from "node:process";
+
 import { stackOrMessageFromError } from "@holycodex/mcp-stdio-core";
+
 import { runMcpStdioServer } from "./mcp";
 
 async function main(): Promise<void> {

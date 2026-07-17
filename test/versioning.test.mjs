@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { nextDevVersion, nextZeroVersion, versionedJson } from "../scripts/version.mjs";
 
 describe("zerover versioning", () => {

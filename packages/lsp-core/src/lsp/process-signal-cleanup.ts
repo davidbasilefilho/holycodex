@@ -1,5 +1,6 @@
 import { reportBestEffortCleanupError } from "./cleanup-errors.js";
 
+/** Installs process signal cleanup. */
 export function installProcessSignalCleanup(cleanup: () => Promise<void>): () => void {
   const signals: readonly NodeJS.Signals[] =
     process.platform === "win32" ? ["SIGINT", "SIGTERM", "SIGBREAK"] : ["SIGINT", "SIGTERM"];

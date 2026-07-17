@@ -1,6 +1,6 @@
+import { withLspClient } from "../lsp/client-wrapper.js";
 import { DEFAULT_MAX_SYMBOLS } from "../lsp/constants.js";
 import { formatDocumentSymbol, formatSymbolInfo } from "../lsp/formatters.js";
-import { withLspClient } from "../lsp/client-wrapper.js";
 import type { DocumentSymbol, SymbolInfo } from "../lsp/types.js";
 import { missingDependencyResultOrThrow } from "../missing-dependency-result.js";
 import { clientOptions, optionalNumber, optionalString, requireString } from "./parameters.js";
@@ -11,6 +11,7 @@ function isDocumentSymbol(symbol: DocumentSymbol | SymbolInfo): symbol is Docume
   return "range" in symbol;
 }
 
+/** Executes lsp symbols. */
 export async function executeLspSymbols(
   params: Record<string, unknown>,
   signal?: AbortSignal,

@@ -1,4 +1,6 @@
 import type { Readable, Writable } from "node:stream";
+
+import { handleLspMcpRequest, type JsonRpcId, type JsonRpcResponse } from "@holycodex/lsp-core/mcp";
 import {
   jsonRpcId,
   messageFromError,
@@ -6,7 +8,6 @@ import {
   successResponse,
 } from "@holycodex/mcp-stdio-core";
 import { isPlainRecord } from "@holycodex/mcp-stdio-core/record";
-import { handleLspMcpRequest, type JsonRpcId, type JsonRpcResponse } from "@holycodex/lsp-core/mcp";
 
 import {
   type CallToolOptions,
@@ -30,6 +31,7 @@ interface ToolCall {
   args: Record<string, unknown>;
 }
 
+/** Runs mcp stdio proxy. */
 export async function runMcpStdioProxy(options: ProxyOptions = {}): Promise<void> {
   const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;

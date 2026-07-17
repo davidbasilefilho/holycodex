@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, Readable } from "node:stream";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { type DaemonServerHandle, startDaemonServer } from "../src/daemon-server.js";

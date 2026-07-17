@@ -1,9 +1,11 @@
 import type { JsonRpcId, JsonRpcResponse, JsonRpcResult } from "./types.js";
 
+/** Creates a successful JSON-RPC response. */
 export function successResponse(id: JsonRpcId, result: JsonRpcResult): JsonRpcResponse {
   return { jsonrpc: "2.0", id, result };
 }
 
+/** Creates an error JSON-RPC response. */
 export function errorResponse(
   id: JsonRpcId,
   code: number,
@@ -17,14 +19,17 @@ export function errorResponse(
   };
 }
 
+/** Parses a JSON-RPC request ID. */
 export function jsonRpcId(value: unknown): JsonRpcId {
   return typeof value === "string" || typeof value === "number" || value === null ? value : null;
 }
 
+/** Extracts a message from an unknown error. */
 export function messageFromError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Extracts the best diagnostic text from an unknown error. */
 export function stackOrMessageFromError(error: unknown): string {
   return error instanceof Error ? (error.stack ?? error.message) : String(error);
 }

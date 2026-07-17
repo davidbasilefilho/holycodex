@@ -1,6 +1,7 @@
 import { handleMissingDependencyError } from "./lsp/startup-failure.js";
 import type { ToolExecutionResult } from "./tools.js";
 
+/** Provides missing dependency result. */
 export function missingDependencyResult<TDetails extends object>(
   error: unknown,
   details: TDetails,
@@ -18,6 +19,7 @@ export function missingDependencyResult<TDetails extends object>(
   };
 }
 
+/** Provides missing dependency result or throw. */
 export function missingDependencyResultOrThrow<TDetails extends object>(
   error: unknown,
   details: TDetails,

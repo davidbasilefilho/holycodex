@@ -1,8 +1,8 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
-import { LSP_MCP_TOOLS } from "../packages/lsp-core/src/tools";
-import { handleGitBashMcpRequest } from "../packages/git-bash-mcp/src/mcp";
+
 import {
   AGENT_MODELS,
   AGENTS,
@@ -13,6 +13,8 @@ import {
   SKILLS,
   VERSION,
 } from "../packages/cli/src/catalog";
+import { handleGitBashMcpRequest } from "../packages/git-bash-mcp/src/mcp";
+import { LSP_MCP_TOOLS } from "../packages/lsp-core/src/tools";
 
 const root = join(import.meta.dirname, "..");
 const pluginRoot = join(root, "packages", "plugin", "plugin");

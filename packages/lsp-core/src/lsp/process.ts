@@ -1,12 +1,13 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
+
 import { killProcessTree } from "@holycodex/mcp-stdio-core/process";
+
 import {
   resolveGitBashForCurrentProcess,
   type GitBashResolution,
 } from "../../../git-bash-mcp/src/git-bash-resolver.js";
-
 import { LspInvalidPathError, LspProcessSpawnError } from "./errors.js";
 
 export interface SpawnedProcess {
@@ -31,6 +32,7 @@ export interface PreparedSpawnCommand {
   shell: false;
 }
 
+/** Validates working directory. */
 export function validateCwd(cwd: string): { valid: boolean; error?: string } {
   try {
     if (!existsSync(cwd)) {
@@ -117,6 +119,7 @@ function resolveWindowsCommand(command: string, env: Record<string, string | und
   return command;
 }
 
+/** Creates spawn command. */
 export function createSpawnCommand(
   command: string[],
   platform: NodeJS.Platform = process.platform,
@@ -148,6 +151,7 @@ export function createSpawnCommand(
   };
 }
 
+/** Spawns process. */
 export function spawnProcess(command: string[], options: SpawnOptions): SpawnedProcess {
   const cwdValidation = validateCwd(options.cwd);
   if (!cwdValidation.valid) {

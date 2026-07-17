@@ -1,12 +1,14 @@
 import { access } from "node:fs/promises";
 import { join } from "node:path";
-import { coreInstructions } from "./core-instructions.ts";
-import { requiredRuntimes } from "./catalog.ts";
+
 import {
   resolveGitBashForCurrentProcess,
   type GitBashResolution,
 } from "../../git-bash-mcp/src/git-bash-resolver.ts";
+import { requiredRuntimes } from "./catalog.ts";
+import { coreInstructions } from "./core-instructions.ts";
 
+/** Reads iness context. */
 export async function readinessContext(
   pluginRoot: string,
   platform: NodeJS.Platform,
@@ -33,6 +35,7 @@ export async function readinessContext(
     : `${instructions}\n\nHolyCodex incomplete: ${failures.join("; ")}.`;
 }
 
+/** Reads iness output. */
 export async function readinessOutput(
   pluginRoot: string,
   platform: NodeJS.Platform = process.platform,

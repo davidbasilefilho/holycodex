@@ -1,9 +1,10 @@
 import type { Readable, Writable } from "node:stream";
-import { errorResponse, jsonRpcId } from "./responses.js";
+
 import { isPlainRecord } from "./record.js";
-import type { JsonRpcResponse, McpLifecycleLog } from "./types.js";
+import { errorResponse, jsonRpcId } from "./responses.js";
 import { readStdioJsonRpcMessages, writeStdioJsonRpcResponse } from "./transport.js";
 import type { StdioJsonRpcMessage } from "./transport.js";
+import type { JsonRpcResponse, McpLifecycleLog } from "./types.js";
 
 export type McpRequestHandler<HandlerOptions> = (
   input: unknown,
@@ -25,6 +26,7 @@ export interface JsonRpcStdioServerConfig<HandlerOptions> {
 const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60_000;
 const noopLog: McpLifecycleLog = () => {};
 
+/** Runs json-rpc stdio server. */
 export async function runJsonRpcStdioServer<HandlerOptions>(
   config: JsonRpcStdioServerConfig<HandlerOptions>,
 ): Promise<void> {

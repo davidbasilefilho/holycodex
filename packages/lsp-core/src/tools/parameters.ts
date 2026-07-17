@@ -1,4 +1,5 @@
 import { isPlainRecord } from "@holycodex/mcp-stdio-core/record";
+
 import type { WithLspClientOptions } from "../lsp/client-wrapper.js";
 import type { SeverityFilter } from "../lsp/types.js";
 
@@ -10,6 +11,7 @@ export interface SourcePosition {
   readonly character: number;
 }
 
+/** Provides source position. */
 export function sourcePosition(params: Record<string, unknown>): SourcePosition {
   return {
     filePath: requireString(params, "filePath"),
@@ -18,6 +20,7 @@ export function sourcePosition(params: Record<string, unknown>): SourcePosition 
   };
 }
 
+/** Reads and validates string. */
 export function requireString(params: Record<string, unknown>, key: string): string {
   const value = params[key];
   if (typeof value !== "string" || value.length === 0) {
@@ -26,11 +29,13 @@ export function requireString(params: Record<string, unknown>, key: string): str
   return value;
 }
 
+/** Reads optional string. */
 export function optionalString(params: Record<string, unknown>, key: string): string | undefined {
   const value = params[key];
   return typeof value === "string" ? value : undefined;
 }
 
+/** Reads and validates number. */
 export function requireNumber(params: Record<string, unknown>, key: string): number {
   const value = params[key];
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -39,16 +44,19 @@ export function requireNumber(params: Record<string, unknown>, key: string): num
   return value;
 }
 
+/** Reads optional number. */
 export function optionalNumber(params: Record<string, unknown>, key: string): number | undefined {
   const value = params[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+/** Reads optional boolean. */
 export function optionalBoolean(params: Record<string, unknown>, key: string): boolean | undefined {
   const value = params[key];
   return typeof value === "boolean" ? value : undefined;
 }
 
+/** Provides severity filter. */
 export function severityFilter(params: Record<string, unknown>): SeverityFilter {
   const value = params["severity"];
   if (
@@ -63,6 +71,7 @@ export function severityFilter(params: Record<string, unknown>): SeverityFilter 
   return "all";
 }
 
+/** Provides client options. */
 export function clientOptions(signal: AbortSignal | undefined): WithLspClientOptions {
   return signal === undefined ? {} : { signal };
 }

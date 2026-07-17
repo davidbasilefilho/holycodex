@@ -5,6 +5,7 @@ export interface LockHandle {
   release(): void;
 }
 
+/** Checks whether process alive. */
 export function isProcessAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -15,6 +16,7 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
+/** Reads lock pid. */
 export function readLockPid(lockPath: string): number | null {
   try {
     const pid = Number.parseInt(readFileSync(lockPath, "utf8").trim(), 10);
@@ -24,6 +26,7 @@ export function readLockPid(lockPath: string): number | null {
   }
 }
 
+/** Provides try acquire lock. */
 export function tryAcquireLock(
   lockPath: string,
   ownerPid: number = process.pid,
@@ -56,6 +59,7 @@ function reapStaleLock(lockPath: string): boolean {
   return true;
 }
 
+/** Provides unlink quietly. */
 export function unlinkQuietly(path: string): void {
   try {
     unlinkSync(path);

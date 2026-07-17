@@ -7,6 +7,7 @@ import { EXT_TO_LANG } from "./language-mappings.js";
 const SKIP_DIRECTORIES = new Set(["node_modules", ".git", "dist", "build", ".next", "out"]);
 const MAX_SCAN_ENTRIES = 500;
 
+/** Infers extension from directory. */
 export function inferExtensionFromDirectory(directory: string): string | null {
   const extensionCounts = new Map<string, number>();
   let scanned = 0;

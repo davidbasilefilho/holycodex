@@ -1,4 +1,5 @@
 import { messageFromError } from "@holycodex/mcp-stdio-core/responses";
+
 import { LspProcessExitedError } from "./errors.js";
 
 const RUST_SRC_REPAIR_MESSAGE = [
@@ -11,6 +12,7 @@ const RUST_SRC_REPAIR_MESSAGE = [
 
 export const errorMessage = messageFromError;
 
+/** Formats known lsp startup failure. */
 export function formatKnownLspStartupFailure(error: unknown): string | null {
   if (!(error instanceof LspProcessExitedError)) return null;
   if (error.serverId !== "rust") return null;
@@ -30,6 +32,7 @@ export function formatKnownLspStartupFailure(error: unknown): string | null {
   return [...RUST_SRC_REPAIR_MESSAGE, "", "Original stderr tail:", details].join("\n");
 }
 
+/** Handles missing dependency error. */
 export function handleMissingDependencyError(error: unknown): string | null {
   const knownStartupFailure = formatKnownLspStartupFailure(error);
   if (knownStartupFailure) return knownStartupFailure;

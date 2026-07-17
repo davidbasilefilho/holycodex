@@ -1,5 +1,6 @@
 const TOML_TABLE = /^[ \t]*(?:\[[^\]\r\n]+\]|\[\[[^\]\r\n]+\]\])[ \t]*(?:#.*)?$/m;
 
+/** Reads a root TOML string value. */
 export function rootTomlString(input: string, key: string): string | undefined {
   const table = TOML_TABLE.exec(input);
   const root = table === null ? input : input.slice(0, table.index);
@@ -20,10 +21,12 @@ export function rootTomlString(input: string, key: string): string | undefined {
 
 type RootTomlStringArray = { readonly source: string; readonly items: string[] };
 
+/** Reads a root TOML string array. */
 export function rootTomlStringArray(input: string, key: string): string[] | undefined {
   return parseRootTomlStringArray(input, key)?.items;
 }
 
+/** Reads the source text of a root TOML string array. */
 export function rootTomlStringArraySource(input: string, key: string): string | undefined {
   return parseRootTomlStringArray(input, key)?.source;
 }

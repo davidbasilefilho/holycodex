@@ -1,4 +1,4 @@
-export const VERSION = "0.7.0";
+export const VERSION = "0.7.1";
 
 export const SKILLS = [
   "ast-grep",
@@ -74,6 +74,7 @@ export type McpServerConfig = {
   readonly enabled_tools?: readonly string[];
 };
 
+/** Provides effective mcp servers. */
 export function effectiveMcpServers(platform: NodeJS.Platform): Record<string, McpServerConfig> {
   return {
     ...(platform === "win32"
@@ -91,12 +92,14 @@ export function effectiveMcpServers(platform: NodeJS.Platform): Record<string, M
   };
 }
 
+/** Reads and validates d runtimes. */
 export function requiredRuntimes(platform: NodeJS.Platform): readonly string[] {
   return platform === "win32"
     ? [...BASE_REQUIRED_RUNTIMES, ...WINDOWS_REQUIRED_RUNTIMES]
     : BASE_REQUIRED_RUNTIMES;
 }
 
+/** Reads and validates d package runtimes. */
 export function requiredPackageRuntimes(platform: NodeJS.Platform): readonly string[] {
   return platform === "win32"
     ? GENERATED_RUNTIMES

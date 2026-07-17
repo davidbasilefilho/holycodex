@@ -3,6 +3,7 @@ import { BUILTIN_SERVERS, LSP_INSTALL_HINTS } from "./server-definitions.js";
 import { isServerInstalled } from "./server-installation.js";
 import type { ServerLookupResult } from "./types.js";
 
+/** Finds server for extension. */
 export function findServerForExtension(ext: string): ServerLookupResult {
   const servers = getMergedServers();
 
@@ -70,6 +71,7 @@ export interface ServerStatus {
   priority: number;
 }
 
+/** Gets all servers. */
 export function getAllServers(): ServerStatus[] {
   const servers = getMergedServers();
   const disabled = getDisabledServerIds();

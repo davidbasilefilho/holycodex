@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
+
 import { isPlainRecord as isRecord } from "@holycodex/mcp-stdio-core/record";
 
 import { contextEnv } from "../request-context.js";
@@ -14,12 +15,14 @@ export interface InstallDecisionRecord {
 
 type InstallDecisions = Record<string, InstallDecisionRecord>;
 
+/** Gets install decisions path. */
 export function getInstallDecisionsPath(): string {
   const override = contextEnv("LSP_TOOLS_MCP_INSTALL_DECISIONS");
   if (!override) return join(homedir(), ".codex", "lsp-install-decisions.json");
   return isAbsolute(override) ? override : join(homedir(), override);
 }
 
+/** Loads install decisions. */
 export function loadInstallDecisions(): InstallDecisions {
   const path = getInstallDecisionsPath();
   if (!existsSync(path)) return {};
@@ -31,10 +34,12 @@ export function loadInstallDecisions(): InstallDecisions {
   }
 }
 
+/** Loads install decision. */
 export function loadInstallDecision(serverId: string): InstallDecisionRecord | undefined {
   return loadInstallDecisions()[serverId];
 }
 
+/** Records install decision. */
 export function recordInstallDecision(
   serverId: string,
   decision: InstallDecision,
@@ -45,6 +50,7 @@ export function recordInstallDecision(
   writeInstallDecisions(decisions);
 }
 
+/** Checks whether install decision. */
 export function isInstallDecision(value: unknown): value is InstallDecision {
   return value === "declined" || value === "allowed";
 }

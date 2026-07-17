@@ -9,6 +9,7 @@ export interface RoutedRequest {
   context: RequestContext | undefined;
 }
 
+/** Extracts request context. */
 export function extractRequestContext(raw: unknown): RoutedRequest {
   if (!isPlainRecord(raw) || raw["method"] !== "tools/call")
     return { input: raw, context: undefined };
@@ -25,6 +26,7 @@ export function extractRequestContext(raw: unknown): RoutedRequest {
   return { input: cleaned, context };
 }
 
+/** Handles daemon message. */
 export function handleDaemonMessage(raw: unknown): Promise<JsonRpcResponse | undefined> {
   const { input, context } = extractRequestContext(raw);
   if (context) return runWithRequestContext(context, () => handleLspMcpRequest(input));

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { messageFromError as errorMessage } from "@holycodex/mcp-stdio-core/responses";
 
 import { contextCwd } from "../request-context.js";
@@ -101,6 +102,7 @@ function applyTextEditsToFile(filePath: string, edits: TextEdit[]): FileApplyRes
   }
 }
 
+/** Applies workspace edit. */
 export function applyWorkspaceEdit(
   edit: WorkspaceEdit | null,
   options: ApplyWorkspaceEditOptions = {},

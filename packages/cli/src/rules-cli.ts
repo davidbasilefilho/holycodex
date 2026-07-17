@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { stdin, stdout } from "node:process";
+
 import { runRulesHook } from "./rules-hook.ts";
 
 let raw = "";

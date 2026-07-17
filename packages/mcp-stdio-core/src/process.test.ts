@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { killProcessTree, runManagedProcess } from "./process";
 
 const platform = process.platform;

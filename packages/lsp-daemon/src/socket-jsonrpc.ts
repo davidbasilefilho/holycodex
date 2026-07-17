@@ -1,3 +1,4 @@
+/** Provides encode json line. */
 export function encodeJsonLine(message: unknown): string {
   return `${JSON.stringify(message)}\n`;
 }
@@ -6,6 +7,7 @@ export interface LineDecoder {
   push(chunk: Buffer | string): void;
 }
 
+/** Creates line decoder. */
 export function createLineDecoder(
   onMessage: (value: unknown) => void,
   onParseError?: (raw: string, error: unknown) => void,

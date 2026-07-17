@@ -1,4 +1,5 @@
 import type { Readable, Writable } from "node:stream";
+
 import { messageFromError } from "./responses.js";
 
 export type StdioJsonRpcResponseMode = "line" | "framed";
@@ -46,6 +47,7 @@ export async function* readStdioJsonRpcMessages(
   }
 }
 
+/** Writes stdio json-rpc response. */
 export function writeStdioJsonRpcResponse(
   output: Writable,
   response: unknown,

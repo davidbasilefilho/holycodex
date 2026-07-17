@@ -3,6 +3,7 @@ import { getAllServers } from "../lsp/server-resolution.js";
 import { text } from "./result.js";
 import type { ToolExecutionResult } from "./types.js";
 
+/** Executes lsp status. */
 export async function executeLspStatus(): Promise<ToolExecutionResult> {
   const servers = getAllServers();
   const snapshots = getLspManager().getSnapshot();

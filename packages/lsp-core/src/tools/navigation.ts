@@ -1,6 +1,6 @@
+import { withLspClient } from "../lsp/client-wrapper.js";
 import { DEFAULT_MAX_REFERENCES } from "../lsp/constants.js";
 import { formatLocation } from "../lsp/formatters.js";
-import { withLspClient } from "../lsp/client-wrapper.js";
 import { missingDependencyResultOrThrow } from "../missing-dependency-result.js";
 import { clientOptions, optionalBoolean, sourcePosition } from "./parameters.js";
 import { text } from "./result.js";
@@ -10,6 +10,7 @@ import type {
   ToolExecutionResult,
 } from "./types.js";
 
+/** Executes lsp goto definition. */
 export async function executeLspGotoDefinition(
   params: Record<string, unknown>,
   signal?: AbortSignal,
@@ -37,6 +38,7 @@ export async function executeLspGotoDefinition(
   }
 }
 
+/** Executes lsp find references. */
 export async function executeLspFindReferences(
   params: Record<string, unknown>,
   signal?: AbortSignal,

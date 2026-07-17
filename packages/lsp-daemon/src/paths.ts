@@ -17,6 +17,7 @@ export interface DaemonPaths {
   log: string;
 }
 
+/** Resolves daemon version. */
 export function resolveDaemonVersion(requireFn: (id: string) => unknown = requireFromHere): string {
   for (const candidate of ["./package.json", "../package.json"]) {
     try {
@@ -27,6 +28,7 @@ export function resolveDaemonVersion(requireFn: (id: string) => unknown = requir
   return "0";
 }
 
+/** Provides daemon base dir. */
 export function daemonBaseDir(env: NodeJS.ProcessEnv = process.env): string {
   const explicit = env["CODEX_LSP_DAEMON_DIR"]?.trim();
   if (explicit) return explicit;
@@ -37,6 +39,7 @@ export function daemonBaseDir(env: NodeJS.ProcessEnv = process.env): string {
   return join(home, "codex-lsp", "daemon");
 }
 
+/** Provides daemon paths. */
 export function daemonPaths(
   env: NodeJS.ProcessEnv = process.env,
   version: string = resolveDaemonVersionFromEnv(env) ?? resolveDaemonVersion(),
@@ -52,6 +55,7 @@ export function daemonPaths(
   };
 }
 
+/** Resolves daemon version from env. */
 export function resolveDaemonVersionFromEnv(env: NodeJS.ProcessEnv = process.env): string | null {
   const version = env[CODEX_LSP_DAEMON_VERSION_ENV]?.trim();
   return version && version.length > 0 ? version : null;

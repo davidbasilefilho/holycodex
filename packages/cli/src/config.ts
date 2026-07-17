@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+
 import { AGENTS, ROOT_MODEL } from "./catalog.ts";
 import { rootTomlStringArray, rootTomlStringArraySource } from "./toml.ts";
 
@@ -34,6 +35,7 @@ const OLD_NAMESPACES = [
   'hooks.state."omo@code-yeongyu-codex-plugins',
 ] as const;
 
+/** Removes managed. */
 export function removeManaged(input: string): string {
   const escapedStart = START.replaceAll(">", "\\>");
   const escapedEnd = END.replaceAll("<", "\\<");
@@ -52,6 +54,7 @@ export function removeManaged(input: string): string {
     .trim();
 }
 
+/** Removes legacy omo. */
 export function removeLegacyOmo(input: string): string {
   return input
     .split(/(?=^\s*\[)/m)
@@ -142,6 +145,7 @@ function mergedStatusLine(original: string | undefined): string {
   return `[${items.map((item) => JSON.stringify(item)).join(", ")}]`;
 }
 
+/** Installs config. */
 export function installConfig(
   input: string,
   mode: AutonomyMode,

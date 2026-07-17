@@ -1,7 +1,8 @@
 import { Readable } from "node:stream";
-import { describe, expect, it } from "vitest";
-import { VERSION } from "../../cli/src/catalog.ts";
 
+import { describe, expect, it } from "vitest";
+
+import { VERSION } from "../../cli/src/catalog.ts";
 import { type DaemonPaths, daemonPaths } from "../src/paths.js";
 import { runMcpStdioProxy } from "../src/proxy.js";
 import { collectingWritable, inputStream, noSpawn } from "./proxy-fixtures.js";

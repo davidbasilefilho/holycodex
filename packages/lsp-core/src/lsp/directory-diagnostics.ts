@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, readdirSync, type Stats } from "node:fs";
 import { join, resolve } from "node:path";
+
 import { contextCwd } from "../request-context.js";
 import { findWorkspaceRoot, formatServerLookupError } from "./client-wrapper.js";
 import { DEFAULT_MAX_DIAGNOSTICS, DEFAULT_MAX_DIRECTORY_FILES } from "./constants.js";
@@ -17,6 +18,7 @@ interface FileDiagnostic {
   diagnostic: Diagnostic;
 }
 
+/** Collects files with extension. */
 export function collectFilesWithExtension(
   dir: string,
   extension: string,
@@ -62,6 +64,7 @@ export function collectFilesWithExtension(
   return files;
 }
 
+/** Aggregates diagnostics for directory. */
 export async function aggregateDiagnosticsForDirectory(
   directory: string,
   extension: string,

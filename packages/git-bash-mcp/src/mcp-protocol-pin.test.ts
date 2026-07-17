@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
 import { PassThrough } from "node:stream";
+
+import { describe, expect, it } from "vitest";
+
 import { VERSION } from "../../cli/src/catalog.ts";
 import { handleGitBashMcpRequest, runMcpStdioServer } from "./mcp";
 
