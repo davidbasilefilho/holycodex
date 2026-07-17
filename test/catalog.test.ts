@@ -8,6 +8,7 @@ import {
   AGENTS,
   effectiveMcpServers,
   GENERATED_RUNTIMES,
+  requiredPackageRuntimes,
   ROOT_MODEL,
   SKILLS,
   VERSION,
@@ -37,6 +38,11 @@ describe("HolyCodex catalog", () => {
       model: "gpt-5.6-terra",
       reasoningEffort: "high",
     });
+  });
+
+  it("retains the shared Git Bash resolver in non-Windows packages", () => {
+    expect(requiredPackageRuntimes("linux")).toContain("git-bash-resolver.js");
+    expect(requiredPackageRuntimes("linux")).not.toContain("git-bash.js");
   });
 
   it("uses the HolyCodex marketplace label", async () => {

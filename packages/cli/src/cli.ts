@@ -82,4 +82,12 @@ async function main(): Promise<void> {
   );
 }
 
-await main();
+try {
+  await main();
+} catch (error) {
+  const stderrColor = supportsColor(process.stderr.isTTY, process.env.NO_COLOR);
+  process.stderr.write(
+    renderError(error instanceof Error ? error.message : String(error), stderrColor),
+  );
+  process.exitCode = 1;
+}

@@ -62,6 +62,24 @@ describe("CLI", () => {
     });
   });
 
+  it.runIf(process.platform === "win32")(
+    "renders Git Bash preflight failures without a stack trace",
+    async () => {
+      await expect(
+        run(process.execPath, ["packages/cli/src/cli.ts", "install"], {
+          env: {
+            ...process.env,
+            HOLYCODEX_GIT_BASH_PATH: "C:\\missing\\bash.exe",
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: 1,
+        stdout: "",
+        stderr: expect.not.stringContaining("at "),
+      });
+    },
+  );
+
   it("uses safe interactive permissions by default", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
     await run(process.execPath, ["packages/cli/src/cli.ts", "install", "--json"], {

@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { AGENTS, ROOT_MODEL } from "./catalog.ts";
+import { rootTomlStringArray } from "./toml.ts";
 
 const START = "# >>> holycodex managed >>>";
 const END = "# <<< holycodex managed <<<";
@@ -140,46 +141,9 @@ function preserveManagedRootPreferences(input: string, base: string): string {
 
 function mergedStatusLine(original: string | undefined): string {
   if (original === undefined) return '["model-with-reasoning", "context-remaining", "current-dir"]';
-  const source = tomlArrayValue(original.slice(original.indexOf("=") + 1));
-  const items = [...source.matchAll(/"((?:\\.|[^"\\])*)"|'([^']*)'/g)].map((match) => {
-    if (match[1] === undefined) return match[2] ?? "";
-    const parsed: unknown = JSON.parse(`"${match[1]}"`);
-    if (typeof parsed !== "string") throw new Error("Invalid status-line string");
-    return parsed;
-  });
+  const items = rootTomlStringArray(original, "status_line") ?? [];
   if (!items.includes("context-remaining")) items.push("context-remaining");
   return `[${items.map((item) => JSON.stringify(item)).join(", ")}]`;
-}
-
-function tomlArrayValue(input: string): string {
-  const start = input.indexOf("[");
-  if (start < 0) return input;
-
-  let quote: '"' | "'" | undefined;
-  let escaped = false;
-  for (let index = start + 1; index < input.length; index += 1) {
-    const character = input[index];
-    if (quote === '"') {
-      if (escaped) {
-        escaped = false;
-      } else if (character === "\\") {
-        escaped = true;
-      } else if (character === '"') {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (quote === "'") {
-      if (character === "'") quote = undefined;
-      continue;
-    }
-    if (character === '"' || character === "'") {
-      quote = character;
-    } else if (character === "]") {
-      return input.slice(start, index + 1);
-    }
-  }
-  return input.slice(start);
 }
 
 export function installConfig(

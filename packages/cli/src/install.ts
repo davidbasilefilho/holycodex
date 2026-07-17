@@ -158,7 +158,12 @@ async function writePlatformAgents(root: string, platform: NodeJS.Platform): Pro
     AGENTS.map(async (agent) => {
       const path = join(root, `${agent}.toml`);
       const source = await readText(path);
-      await atomicWrite(path, source.replace(`${WINDOWS_SHELL_POLICY}\n\n`, ""));
+      await atomicWrite(
+        path,
+        source
+          .replace(`${WINDOWS_SHELL_POLICY}\r\n\r\n`, "")
+          .replace(`${WINDOWS_SHELL_POLICY}\n\n`, ""),
+      );
     }),
   );
 }

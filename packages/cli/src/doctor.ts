@@ -10,11 +10,12 @@ import {
   AGENT_MODELS,
   AGENTS,
   effectiveMcpServers,
+  type McpServerConfig,
   requiredPackageRuntimes,
   SKILLS,
   VERSION,
 } from "./catalog.ts";
-import { rootTomlString } from "./toml.ts";
+import { rootTomlString, rootTomlStringArray } from "./toml.ts";
 
 export type CheckStatus = "ok" | "warning" | "error";
 export type DoctorCheck = {
@@ -32,6 +33,7 @@ export type DoctorResult = {
 type CommandResult = { readonly ok: boolean; readonly output: string };
 type Context7Result = {
   readonly ok: boolean;
+  readonly timedOut: boolean;
   readonly packageFailure: boolean;
   readonly detail: string;
 };
@@ -72,7 +74,8 @@ async function startContext7(platform: NodeJS.Platform): Promise<Context7Result>
   });
   const diagnostic = `${result.stdout}\n${result.stderr}`.trim() || result.error || "";
   return {
-    ok: result.matched,
+    ok: result.matched && !result.timedOut,
+    timedOut: result.timedOut,
     packageFailure: /(?:404|failed to resolve|package.*not found|error: GET)/i.test(diagnostic),
     detail: diagnostic,
   };
@@ -93,6 +96,19 @@ function check(
   fix?: string,
 ): DoctorCheck {
   return { id, status, code, detail, ...(fix === undefined ? {} : { fix }) };
+}
+
+function mcpConfigMatches(actual: Record<string, unknown>, expected: McpServerConfig): boolean {
+  const expectedEntries = Object.entries(expected);
+  if (Object.keys(actual).length !== expectedEntries.length) return false;
+  return expectedEntries.every(([key, expectedValue]) => {
+    const actualValue = actual[key];
+    return Array.isArray(expectedValue)
+      ? Array.isArray(actualValue) &&
+          actualValue.length === expectedValue.length &&
+          actualValue.every((value, index) => value === expectedValue[index])
+      : actualValue === expectedValue;
+  });
 }
 
 async function missingFiles(root: string, paths: readonly string[]): Promise<string[]> {
@@ -183,9 +199,12 @@ export async function doctor(
   const servers = mcp?.mcpServers;
   const requiredMcps =
     runtime.platform === "win32" ? (["git_bash", "lsp"] as const) : (["lsp"] as const);
-  for (const name of requiredMcps)
+  const expectedMcps = effectiveMcpServers(runtime.platform);
+  for (const name of requiredMcps) {
+    const configured = servers?.[name];
+    const expected = expectedMcps[name];
     checks.push(
-      servers?.[name] === undefined
+      configured === undefined
         ? check(
             `mcp-${name}`,
             "error",
@@ -193,13 +212,22 @@ export async function doctor(
             `${name} is not configured.`,
             "Reinstall HolyCodex.",
           )
-        : check(`mcp-${name}`, "ok", "required-mcp-ready", `${name} is configured locally.`),
+        : !mcpConfigMatches(configured, expected)
+          ? check(
+              `mcp-${name}`,
+              "error",
+              "invalid-required-mcp-config",
+              `${name} configuration is stale or contains unsupported settings.`,
+              "Reinstall HolyCodex.",
+            )
+          : check(`mcp-${name}`, "ok", "required-mcp-ready", `${name} is configured locally.`),
     );
+  }
   const gitBashConfig = servers?.git_bash;
   if (runtime.platform === "win32" && gitBashConfig !== undefined) {
     const expected = effectiveMcpServers("win32").git_bash;
     checks.push(
-      JSON.stringify(gitBashConfig) === JSON.stringify(expected)
+      mcpConfigMatches(gitBashConfig, expected)
         ? check(
             "mcp-git_bash-config",
             "ok",
@@ -304,7 +332,7 @@ export async function doctor(
   if (bun.ok && bunx.ok && checks.some((item) => item.code === "local-context7-config")) {
     const started = await runtime.context7();
     checks.push(
-      started.ok
+      started.ok && !started.timedOut
         ? check(
             "context7-startup",
             "ok",
@@ -407,7 +435,7 @@ export async function doctor(
         ),
   );
   checks.push(
-    /^\s*status_line\s*=\s*\[[\s\S]*?context-remaining[\s\S]*?]/m.test(config)
+    rootTomlStringArray(config, "status_line")?.includes("context-remaining") === true
       ? check(
           "context-visibility",
           "warning",

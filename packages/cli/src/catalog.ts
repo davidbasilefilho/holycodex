@@ -100,7 +100,5 @@ export function requiredRuntimes(platform: NodeJS.Platform): readonly string[] {
 export function requiredPackageRuntimes(platform: NodeJS.Platform): readonly string[] {
   return platform === "win32"
     ? GENERATED_RUNTIMES
-    : GENERATED_RUNTIMES.filter(
-        (file) => file !== "git-bash.js" && file !== "git-bash-resolver.js",
-      );
+    : GENERATED_RUNTIMES.filter((file) => file !== "git-bash.js");
 }

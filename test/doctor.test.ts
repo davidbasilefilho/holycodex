@@ -16,7 +16,7 @@ function runtime(overrides: Partial<DoctorRuntime> = {}): DoctorRuntime {
       ok: true,
       output: name === "codex" ? "codex-cli 1.2.3" : "1.3.14",
     }),
-    context7: async () => ({ ok: true, packageFailure: false, detail: "" }),
+    context7: async () => ({ ok: true, timedOut: false, packageFailure: false, detail: "" }),
     gitBash: () => gitBashReady,
     ...overrides,
   };
@@ -134,7 +134,12 @@ describe("HolyCodex doctor", () => {
   it("distinguishes package resolution from startup failure", async () => {
     const first = await fixture();
     const packageFailure = runtime({
-      context7: async () => ({ ok: false, packageFailure: true, detail: "package not found" }),
+      context7: async () => ({
+        ok: false,
+        timedOut: false,
+        packageFailure: true,
+        detail: "package not found",
+      }),
     });
     expect(codes(await doctor(first.home, packageFailure))).toContain(
       "context7-package-resolution-failed",
@@ -142,9 +147,77 @@ describe("HolyCodex doctor", () => {
 
     const second = await fixture();
     const startupFailure = runtime({
-      context7: async () => ({ ok: false, packageFailure: false, detail: "handshake timeout" }),
+      context7: async () => ({
+        ok: false,
+        timedOut: false,
+        packageFailure: false,
+        detail: "handshake timeout",
+      }),
     });
     expect(codes(await doctor(second.home, startupFailure))).toContain("context7-startup-failed");
+  });
+
+  it("rejects a Context7 handshake that matched after timing out", async () => {
+    const { home } = await fixture();
+    const result = await doctor(
+      home,
+      runtime({
+        context7: async () => ({
+          ok: true,
+          timedOut: true,
+          packageFailure: false,
+          detail: "late handshake",
+        }),
+      }),
+    );
+    expect(codes(result)).toContain("context7-startup-failed");
+    expect(codes(result)).not.toContain("context7-healthy");
+  });
+
+  it("rejects stale LSP configuration", async () => {
+    const { home, plugin } = await fixture();
+    const mcpPath = join(plugin, ".mcp.json");
+    const mcp = JSON.parse(await readFile(mcpPath, "utf8")) as {
+      mcpServers: Record<string, Record<string, unknown>>;
+    };
+    mcp.mcpServers.lsp = { command: "node", args: ["runtime/missing-lsp.js", "mcp"], cwd: "." };
+    await writeFile(mcpPath, JSON.stringify(mcp));
+
+    const result = await doctor(home, runtime());
+    expect(result.healthy).toBe(false);
+    expect(result.checks.find((check) => check.id === "mcp-lsp")?.code).toBe(
+      "invalid-required-mcp-config",
+    );
+  });
+
+  it("accepts reordered Git Bash configuration keys", async () => {
+    const { home, plugin } = await fixture();
+    const mcpPath = join(plugin, ".mcp.json");
+    const mcp = JSON.parse(await readFile(mcpPath, "utf8")) as {
+      mcpServers: Record<string, Record<string, unknown>>;
+    };
+    mcp.mcpServers.git_bash = {
+      enabled_tools: ["run"],
+      cwd: ".",
+      args: ["runtime/git-bash.js", "mcp"],
+      command: "node",
+    };
+    await writeFile(mcpPath, JSON.stringify(mcp));
+
+    const result = await doctor(home, runtime());
+    expect(result.healthy).toBe(true);
+    expect(codes(result)).toContain("git-bash-mcp-config-ready");
+  });
+
+  it("ignores commented status-line items", async () => {
+    const { home } = await fixture();
+    await writeFile(
+      join(home, "config.toml"),
+      'approval_policy = "on-request"\nsandbox_mode = "workspace-write"\nstatus_line = [\n  # "context-remaining"\n]\n\n[sandbox_workspace_write]\nnetwork_access = true\n\n[features]\ndefault_mode_request_user_input = true\n',
+    );
+    const result = await doctor(home, runtime());
+    expect(codes(result)).toContain("context-hidden");
+    expect(codes(result)).not.toContain("context-visible-support-unverified");
   });
 
   it("reports package, Git Bash, config, feature, and visibility failures", async () => {
@@ -173,7 +246,6 @@ describe("HolyCodex doctor", () => {
   it("treats Git Bash as not applicable off Windows", async () => {
     const { home, plugin } = await fixture();
     await rm(join(plugin, "runtime", "git-bash.js"));
-    await rm(join(plugin, "runtime", "git-bash-resolver.js"));
     await writeFile(
       join(plugin, ".mcp.json"),
       JSON.stringify({ mcpServers: effectiveMcpServers("linux") }),
