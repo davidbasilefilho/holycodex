@@ -1,6 +1,6 @@
 {
   "name": "@holycodex/plugin",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "HolyCodex prompts, skills, agents, hooks, MCP metadata, and runtime assets",
   "keywords": [
     "agents",

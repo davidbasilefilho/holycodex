@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+
 import { CORE_INSTRUCTIONS } from "./core-instructions.ts";
 
 export type Rule = { readonly path: string; readonly body: string };
@@ -17,6 +18,7 @@ const DEFAULT_RULE_LIMIT = 8_000;
 const DEFAULT_RESULT_LIMIT = 24_000;
 const SOURCES = [".holycodex/rules", ".codex/rules", ".github/instructions"] as const;
 
+/** Loads rules. */
 export async function loadRules(cwd: string, targetPath?: string): Promise<readonly Rule[]> {
   if (process.env.HOLYCODEX_RULES_DISABLED === "1") return [];
   const candidates = [join(cwd, "CONTEXT.md"), join(cwd, ".github", "copilot-instructions.md")];
@@ -52,6 +54,7 @@ export async function loadRules(cwd: string, targetPath?: string): Promise<reado
   return rules;
 }
 
+/** Runs rules hook. */
 export async function runRulesHook(input: HookInput): Promise<string> {
   if (typeof input.cwd !== "string" || typeof input.session_id !== "string") return "";
   const event = input.hook_event_name;

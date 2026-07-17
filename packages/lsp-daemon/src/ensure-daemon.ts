@@ -34,6 +34,7 @@ export interface EnsureDaemonOptions {
   pollIntervalMs?: number;
 }
 
+/** Ensures daemon running. */
 export async function ensureDaemonRunning(
   paths: DaemonPaths,
   deps: EnsureDaemonDeps = defaultEnsureDaemonDeps(),
@@ -74,6 +75,7 @@ async function waitUntilReachable(
   }
 }
 
+/** Probes socket. */
 export function probeSocket(
   socketPath: string,
   timeoutMs: number = PROBE_TIMEOUT_MS,
@@ -97,6 +99,7 @@ export function probeSocket(
   });
 }
 
+/** Spawns daemon process. */
 export function spawnDaemonProcess(paths: DaemonPaths): void {
   mkdirSync(dirname(paths.log), { recursive: true });
   const logFd = openSync(paths.log, "a");
@@ -112,6 +115,7 @@ export function spawnDaemonProcess(paths: DaemonPaths): void {
   }
 }
 
+/** Resolves daemon cli path. */
 export function resolveDaemonCliPath(env: NodeJS.ProcessEnv = process.env): string {
   const override = env[CODEX_LSP_DAEMON_CLI_ENV]?.trim();
   if (override) return override;
@@ -119,6 +123,7 @@ export function resolveDaemonCliPath(env: NodeJS.ProcessEnv = process.env): stri
   return basename(current) === "ensure-daemon.ts" ? join(dirname(current), "cli.ts") : current;
 }
 
+/** Provides default ensure daemon deps. */
 export function defaultEnsureDaemonDeps(): EnsureDaemonDeps {
   return {
     probe: (socketPath) => probeSocket(socketPath),

@@ -1,5 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+
 import { contextCwd } from "../request-context.js";
 import type { LspClient } from "./client.js";
 import { effectiveExtension } from "./effective-extension.js";
@@ -25,6 +26,7 @@ const WORKSPACE_MARKERS = [
   "build.gradle",
 ];
 
+/** Checks whether directory path. */
 export function isDirectoryPath(filePath: string): boolean {
   try {
     return statSync(filePath).isDirectory();
@@ -33,6 +35,7 @@ export function isDirectoryPath(filePath: string): boolean {
   }
 }
 
+/** Finds workspace root. */
 export function findWorkspaceRoot(filePath: string): string {
   const abs = resolve(contextCwd(), filePath);
   let dir = abs;
@@ -55,6 +58,7 @@ export function findWorkspaceRoot(filePath: string): string {
   return dirname(abs);
 }
 
+/** Formats server lookup error. */
 export function formatServerLookupError(
   result: Exclude<ServerLookupResult, { status: "found" }>,
 ): string {
@@ -134,6 +138,7 @@ const READ_ONLY_RETRY_TOOLS = new Set([
   "prepareRename",
 ]);
 
+/** Provides with lsp client. */
 export async function withLspClient<T>(
   filePath: string,
   fn: (client: LspClient, workspaceRoot: string) => Promise<T>,

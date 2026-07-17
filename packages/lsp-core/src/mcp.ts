@@ -1,4 +1,5 @@
 import type { Readable, Writable } from "node:stream";
+
 import {
   errorResponse,
   isPlainRecord,
@@ -12,6 +13,7 @@ import {
   type JsonRpcResult,
   type McpToolDescriptor,
 } from "@holycodex/mcp-stdio-core";
+
 import { VERSION } from "../../cli/src/catalog.ts";
 import { coerceToolArguments, executeLspTool, LSP_MCP_TOOLS } from "./tools.js";
 
@@ -20,6 +22,7 @@ export type { JsonRpcError, JsonRpcId, JsonRpcResponse, JsonRpcResult, McpToolDe
 const SERVER_NAME = "lsp";
 const SERVER_VERSION = VERSION;
 
+/** Handles lsp mcp request. */
 export async function handleLspMcpRequest(input: unknown): Promise<JsonRpcResponse | undefined> {
   if (!isPlainRecord(input)) {
     return errorResponse(null, -32600, "Invalid Request");
@@ -49,6 +52,7 @@ export async function handleLspMcpRequest(input: unknown): Promise<JsonRpcRespon
   return errorResponse(id, -32601, `Method not found: ${String(method)}`);
 }
 
+/** Runs mcp stdio server. */
 export async function runMcpStdioServer(
   input: Readable = process.stdin,
   output: Writable = process.stdout,

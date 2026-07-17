@@ -17,6 +17,7 @@ const packageFile = "packages/cli/package.json";
 const catalogFile = "packages/cli/src/catalog.ts";
 const generatedVersionFiles = ["packages/plugin/plugin/runtime/core-instructions.js"];
 
+/** Computes the next stable zero-major version. */
 export function nextZeroVersion(current, change) {
   const match = /^0\.(\d+)\.(\d+)$/.exec(current);
   if (match === null) throw new Error(`Expected zerover version, received: ${current}`);
@@ -30,6 +31,7 @@ export function nextZeroVersion(current, change) {
   );
 }
 
+/** Computes a unique development version. */
 export function nextDevVersion(current, runNumber, runAttempt) {
   const base = /^(0\.\d+\.\d+)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.exec(current)?.[1];
   if (base === undefined || !/^\d+$/.test(runNumber ?? ""))
@@ -75,6 +77,7 @@ async function updateJson(file, version) {
   );
 }
 
+/** Returns JSON content updated to the requested version. */
 export function versionedJson(file, value, version) {
   const next = { ...value, version };
   if (file !== packageFile) return next;

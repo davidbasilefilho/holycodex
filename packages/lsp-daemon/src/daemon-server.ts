@@ -23,6 +23,7 @@ export interface DaemonServerHandle {
   close(): Promise<void>;
 }
 
+/** Starts daemon server. */
 export async function startDaemonServer(
   paths: DaemonPaths,
   options: DaemonServerOptions = {},

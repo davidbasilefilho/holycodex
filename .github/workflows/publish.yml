@@ -7,7 +7,7 @@ on:
       - dev
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 concurrency:
@@ -69,6 +69,16 @@ jobs:
       - name: Publish stable CLI
         if: github.ref_name == 'main' && steps.stable.outputs.cli_exists == 'false'
         run: npm publish ./packages/cli --tag latest
+      - name: Create GitHub release
+        if: github.ref_name == 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./packages/cli/package.json').version")"
+          if ! gh release view "v${VERSION}" > /dev/null 2>&1; then
+            gh release create "v${VERSION}" --generate-notes --target "$GITHUB_SHA" --title "v${VERSION}"
+          fi
       - name: Publish dev plugin
         if: github.ref_name == 'dev'
         run: npm publish ./packages/plugin --access public --tag dev

@@ -3,7 +3,9 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+
 import { describe, expect, it } from "vitest";
+
 import { VERSION } from "../packages/cli/src/catalog";
 
 const run = promisify(execFile);
@@ -154,7 +156,8 @@ describe("CLI", () => {
       expect.arrayContaining([
         "package",
         "context7-config",
-        "context7-startup",
+        "bun",
+        "bunx",
         "git-bash",
         "autonomy",
         "context-visibility",

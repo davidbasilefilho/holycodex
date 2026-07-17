@@ -20,6 +20,7 @@ function asDiagnosticArray(
   return result.items ?? [];
 }
 
+/** Executes lsp diagnostics. */
 export async function executeLspDiagnostics(
   params: Record<string, unknown>,
   signal?: AbortSignal,

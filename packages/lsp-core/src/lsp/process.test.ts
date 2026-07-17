@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createSpawnCommand } from "./process.js";
 
 describe("Windows LSP process spawning", () => {

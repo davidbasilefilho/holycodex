@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { handleGitBashMcpRequest } from "./mcp";
 
 describe("git_bash MCP run schema", () => {

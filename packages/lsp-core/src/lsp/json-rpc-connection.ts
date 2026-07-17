@@ -8,7 +8,7 @@ interface PendingRequest {
 }
 
 type NotificationHandler = (params: unknown) => void;
-type RequestHandler = (params: unknown) => Promise<unknown> | unknown;
+type RequestHandler = (params: unknown) => unknown;
 
 const HEADER_SEPARATOR = "\r\n\r\n";
 const PARSE_ERROR = -32700;

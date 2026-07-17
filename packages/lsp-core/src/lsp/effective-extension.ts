@@ -5,6 +5,7 @@ const BASENAME_EXTENSIONS: Record<string, string> = {
   Containerfile: ".dockerfile",
 };
 
+/** Provides effective extension. */
 export function effectiveExtension(filePath: string): string {
   return BASENAME_EXTENSIONS[basename(filePath)] ?? extname(filePath);
 }

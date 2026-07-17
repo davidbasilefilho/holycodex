@@ -17,6 +17,7 @@ export interface GitBashRunResult {
 
 export type RunGitBashCommand = (input: GitBashRunInput) => Promise<GitBashRunResult>;
 
+/** Runs git bash command. */
 export async function runGitBashCommand(input: GitBashRunInput): Promise<GitBashRunResult> {
   const env =
     input.env === undefined

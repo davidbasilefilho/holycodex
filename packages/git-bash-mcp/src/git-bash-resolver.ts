@@ -28,6 +28,7 @@ export interface GitBashResolverInput {
   readonly where: (command: "bash") => readonly string[];
 }
 
+/** Resolves git bash. */
 export function resolveGitBash(input: GitBashResolverInput): GitBashResolution {
   if (input.platform !== "win32")
     return { found: true, path: null, source: "not-required", checkedPaths: [] };
@@ -59,6 +60,7 @@ export function resolveGitBash(input: GitBashResolverInput): GitBashResolution {
   return missing(checkedPaths);
 }
 
+/** Resolves git bash for current process. */
 export function resolveGitBashForCurrentProcess(
   input: {
     readonly platform?: string;

@@ -13,10 +13,12 @@ function paint(enabled: boolean, code: string, text: string): string {
   return enabled ? `${code}${text}${RESET}` : text;
 }
 
+/** Checks whether terminal color output is supported. */
 export function supportsColor(isTTY: boolean | undefined, noColor: string | undefined): boolean {
   return isTTY === true && noColor === undefined;
 }
 
+/** Renders help. */
 export function renderHelp(version: string, color: boolean): string {
   const title = paint(color, `${BOLD}${CYAN}`, `HOLYCODEX ${version}`);
   const section = (text: string): string => paint(color, BOLD, text);
@@ -24,12 +26,14 @@ export function renderHelp(version: string, color: boolean): string {
   return `${title}\n${muted("Lean Codex toolkit installer and doctor")}\n\n${section("USAGE")}\n  holycodex <command> [options]\n\n${section("COMMANDS")}\n  install                         Install or update HolyCodex\n  cleanup                         Remove HolyCodex-owned state\n  doctor                          Diagnose installation and runtime\n\n${section("OPTIONS")}\n  -h, --help                      Show help\n  -v, --version                   Show version\n  --no-tui                        Accepted; commands remain noninteractive\n  --codex-autonomous              Never ask; keep workspace sandbox\n  --no-codex-autonomous           Safe interactive defaults\n  --dangerous-codex-autonomous    Never ask; disable filesystem sandbox\n  --json                          Print machine-readable output\n`;
 }
 
+/** Renders error. */
 export function renderError(message: string, color: boolean): string {
   const label = paint(color, `${BOLD}${RED}`, "✗ ERROR");
   const hint = paint(color, DIM, "Run holycodex --help for usage.");
   return `${label}  ${message}\n  ${hint}\n`;
 }
 
+/** Renders doctor. */
 export function renderDoctor(result: DoctorResult, color: boolean): string {
   const headline = result.healthy
     ? paint(color, GREEN, "✓ HolyCodex doctor: healthy")
@@ -45,11 +49,13 @@ export function renderDoctor(result: DoctorResult, color: boolean): string {
   return `${headline}\n${checks.join("\n")}\n`;
 }
 
+/** Renders run result. */
 export function renderRunResult(result: RunResult, color: boolean): string {
   const title = paint(color, GREEN, `✓ HolyCodex ${result.action} complete`);
   return `${title}\n  Changed: ${result.changed.length}\n  Backups: ${result.backups.length}\n`;
 }
 
+/** Renders notice. */
 export function renderNotice(kind: "notice" | "warning", message: string, color: boolean): string {
   const label = kind === "warning" ? "WARNING" : "NOTICE";
   return `${paint(color, kind === "warning" ? RED : YELLOW, `! ${label}`)}  ${message}\n`;

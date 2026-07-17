@@ -4,6 +4,7 @@ import { requireString } from "./parameters.js";
 import { text } from "./result.js";
 import type { ToolExecutionResult } from "./types.js";
 
+/** Executes lsp install decision. */
 export async function executeLspInstallDecision(
   params: Record<string, unknown>,
 ): Promise<ToolExecutionResult> {

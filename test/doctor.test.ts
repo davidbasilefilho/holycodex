@@ -1,10 +1,12 @@
 import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
-import { doctor, type DoctorRuntime } from "../packages/cli/src/doctor";
-import { installConfig, type AutonomyMode } from "../packages/cli/src/config";
+
 import { effectiveMcpServers, VERSION } from "../packages/cli/src/catalog";
+import { installConfig, type AutonomyMode } from "../packages/cli/src/config";
+import { doctor, type DoctorRuntime } from "../packages/cli/src/doctor";
 
 const root = join(import.meta.dirname, "..");
 const gitBashReady = { found: true, path: null, source: "not-required", checkedPaths: [] } as const;

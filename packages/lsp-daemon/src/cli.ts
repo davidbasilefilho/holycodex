@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { argv, stderr } from "node:process";
+
 import { stackOrMessageFromError } from "@holycodex/mcp-stdio-core";
 
 import { runMcpStdioProxy } from "./proxy.js";

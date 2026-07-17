@@ -1,5 +1,7 @@
-import { describe, expect, test } from "vitest";
 import { PassThrough } from "node:stream";
+
+import { describe, expect, test } from "vitest";
+
 import { stackOrMessageFromError, successResponse } from "./responses.js";
 import { runJsonRpcStdioServer } from "./server.js";
 

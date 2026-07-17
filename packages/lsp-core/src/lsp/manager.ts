@@ -353,6 +353,7 @@ export class LspManager {
 
 let _defaultInstance: LspManager | null = null;
 
+/** Gets lsp manager. */
 export function getLspManager(): LspManager {
   if (!_defaultInstance) {
     _defaultInstance = new LspManager();
@@ -360,6 +361,7 @@ export function getLspManager(): LspManager {
   return _defaultInstance;
 }
 
+/** Disposes default lsp manager. */
 export async function disposeDefaultLspManager(): Promise<void> {
   if (_defaultInstance) {
     const m = _defaultInstance;

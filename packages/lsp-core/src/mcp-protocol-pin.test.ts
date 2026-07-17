@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { VERSION } from "../../cli/src/catalog.ts";
 import { Readable, Writable } from "node:stream";
+
+import { describe, expect, it } from "vitest";
+
+import { VERSION } from "../../cli/src/catalog.ts";
 import { handleLspMcpRequest, runMcpStdioServer } from "./mcp";
 
 describe("lsp MCP protocol pins", () => {

@@ -1,11 +1,12 @@
-import { formatApplyResult, formatPrepareRenameResult } from "../lsp/formatters.js";
 import { withLspClient } from "../lsp/client-wrapper.js";
+import { formatApplyResult, formatPrepareRenameResult } from "../lsp/formatters.js";
 import { applyWorkspaceEdit } from "../lsp/workspace-edit.js";
 import { missingDependencyResultOrThrow } from "../missing-dependency-result.js";
 import { clientOptions, requireString, sourcePosition } from "./parameters.js";
 import { text } from "./result.js";
 import type { LspPrepareRenameDetails, LspRenameDetails, ToolExecutionResult } from "./types.js";
 
+/** Executes lsp prepare rename. */
 export async function executeLspPrepareRename(
   params: Record<string, unknown>,
   signal?: AbortSignal,
@@ -31,6 +32,7 @@ export async function executeLspPrepareRename(
   }
 }
 
+/** Executes lsp rename. */
 export async function executeLspRename(
   params: Record<string, unknown>,
   signal?: AbortSignal,

@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
 import { Readable, Writable } from "node:stream";
+
+import { describe, expect, it } from "vitest";
+
 import { runMcpStdioServer } from "./mcp";
 
 describe("git_bash MCP startup gate", () => {

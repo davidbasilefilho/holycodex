@@ -1,5 +1,7 @@
 import { PassThrough } from "node:stream";
+
 import { describe, expect, it } from "vitest";
+
 import { JsonRpcConnection } from "./json-rpc-connection";
 
 function frame(value: unknown): string {

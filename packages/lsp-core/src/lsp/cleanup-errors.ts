@@ -1,5 +1,6 @@
 import { messageFromError } from "@holycodex/mcp-stdio-core/responses";
 
+/** Reports best effort cleanup error. */
 export function reportBestEffortCleanupError(operation: string, error: unknown): void {
   if (process.env["CODEX_LSP_DEBUG_CLEANUP"] !== "1") return;
   const message = messageFromError(error);

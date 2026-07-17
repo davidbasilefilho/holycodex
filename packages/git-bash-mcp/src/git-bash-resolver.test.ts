@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { resolveGitBash } from "./git-bash-resolver";
 
 const PROGRAM_FILES_GIT_BASH = "C:\\Program Files\\Git\\bin\\bash.exe";

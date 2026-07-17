@@ -1,5 +1,7 @@
-import { describe, expect, test } from "vitest";
 import { PassThrough } from "node:stream";
+
+import { describe, expect, test } from "vitest";
+
 import { readStdioJsonRpcMessages, writeStdioJsonRpcResponse } from "./transport.js";
 
 describe("stdio JSON-RPC transport", () => {

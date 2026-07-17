@@ -1,6 +1,7 @@
 import { startDaemonServer } from "./daemon-server.js";
 import { daemonPaths } from "./paths.js";
 
+/** Runs daemon. */
 export async function runDaemon(): Promise<void> {
   process.on("uncaughtException", (error) => logNonFatal("uncaughtException", error));
   process.on("unhandledRejection", (reason) => logNonFatal("unhandledRejection", reason));

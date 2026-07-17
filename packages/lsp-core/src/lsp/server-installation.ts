@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
+/** Checks whether server installed. */
 export function isServerInstalled(command: string[], _workingDirectory?: string): boolean {
   if (command.length === 0) return false;
 

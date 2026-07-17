@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
+
 import { isPlainRecord as isRecord } from "@holycodex/mcp-stdio-core/record";
 
 import { contextCwd, contextEnv } from "../request-context.js";
@@ -26,6 +27,7 @@ export interface ServerWithSource extends ResolvedServer {
   source: "project" | "user" | "builtin";
 }
 
+/** Gets config paths. */
 export function getConfigPaths(): { project: string; user: string } {
   return {
     project: getProjectConfigPaths()[0] ?? join(process.cwd(), ".codex", "lsp-client.json"),
@@ -61,6 +63,7 @@ function loadJsonFile(path: string): ConfigJson | null {
   }
 }
 
+/** Loads all configs. */
 export function loadAllConfigs(): Map<ConfigSource, ConfigJson> {
   const configs = new Map<ConfigSource, ConfigJson>();
 
@@ -81,6 +84,7 @@ function loadFirstJsonFile(paths: readonly string[]): ConfigJson | null {
   return null;
 }
 
+/** Gets merged servers. */
 export function getMergedServers(): ServerWithSource[] {
   const configs = loadAllConfigs();
   const servers: ServerWithSource[] = [];
@@ -250,6 +254,7 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   return isRecord(value) && Object.values(value).every((item) => typeof item === "string");
 }
 
+/** Gets disabled server ids. */
 export function getDisabledServerIds(): Set<string> {
   const configs = loadAllConfigs();
   const disabled = new Set<string>();

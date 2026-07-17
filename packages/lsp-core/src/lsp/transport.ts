@@ -1,4 +1,5 @@
 import { isPlainRecord as isRecord } from "@holycodex/mcp-stdio-core/record";
+
 import { reportBestEffortCleanupError } from "./cleanup-errors.js";
 import {
   INIT_TIMEOUT_MS,
@@ -296,6 +297,7 @@ export class LspClientTransport {
   }
 }
 
+/** Creates lsp spawn env. */
 export function createLspSpawnEnv(
   _root: string,
   input: Record<string, string | undefined>,

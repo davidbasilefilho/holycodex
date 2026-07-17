@@ -1,6 +1,8 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
+
 import { VERSION } from "../packages/cli/src/catalog.ts";
 import { pluginRoot as resolvedPluginRoot } from "../packages/plugin/index.js";
 
@@ -60,7 +62,7 @@ describe("npm release workflows", () => {
     const workflow = await readFile(join(root, ".github", "workflows", "publish.yml"), "utf8");
     expect(workflow).toContain("- main");
     expect(workflow).toContain("- dev");
-    expect(workflow).toContain("contents: read");
+    expect(workflow).toContain("contents: write");
     expect(workflow).toContain("id-token: write");
     expect(workflow).toContain('node-version: "24"');
     expect(workflow).toContain("npm@11.5.1");
@@ -69,6 +71,8 @@ describe("npm release workflows", () => {
     expect(workflow).toContain("group: npm-publish-${{ github.ref_name }}");
     expect(workflow).toContain("cancel-in-progress: false");
     expect(workflow).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN|npm whoami/);
+    expect(workflow).toContain("gh release create");
+    expect(workflow).toContain("gh release view");
   });
 
   it("keeps validation ahead of branch-specific publication", async () => {

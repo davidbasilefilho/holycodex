@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+/** Provides exists. */
 export async function exists(path: string): Promise<boolean> {
   try {
     await stat(path);
@@ -21,6 +22,7 @@ export async function exists(path: string): Promise<boolean> {
   }
 }
 
+/** Provides backup. */
 export async function backup(path: string, root: string): Promise<string | undefined> {
   if (!(await exists(path))) return undefined;
   const target = join(root, path.replace(/^([A-Za-z]:)?[\\/]+/, "").replaceAll(":", ""));
@@ -45,6 +47,7 @@ async function copyBackup(source: string, target: string): Promise<void> {
   }
 }
 
+/** Provides atomic write. */
 export async function atomicWrite(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.tmp`;
@@ -52,6 +55,7 @@ export async function atomicWrite(path: string, content: string): Promise<void> 
   await rename(temporary, path);
 }
 
+/** Reads text. */
 export async function readText(path: string): Promise<string> {
   return (await exists(path)) ? readFile(path, "utf8") : "";
 }

@@ -1,5 +1,6 @@
 import { copyFile } from "node:fs/promises";
 import { join } from "node:path";
+
 import { defineConfig } from "vite-plus";
 
 const root = import.meta.dirname;
@@ -19,6 +20,20 @@ export default defineConfig({
   ],
   staged: {
     "*": "vp check --fix",
+  },
+  lint: {
+    ignorePatterns: ["dist/**"],
+    options: {
+      typeAware: true,
+      typeCheck: true,
+    },
+    plugins: ["oxc", "jsdoc", "node", "import", "promise", "unicorn", "typescript"],
+  },
+  fmt: {
+    bracketSameLine: true,
+    jsdoc: true,
+    sortImports: true,
+    sortPackageJson: true,
   },
   build: {
     lib: {

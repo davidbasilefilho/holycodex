@@ -1,4 +1,5 @@
 import type { Readable, Writable } from "node:stream";
+
 import {
   errorResponse,
   isPlainRecord,
@@ -7,8 +8,9 @@ import {
   runJsonRpcStdioServer,
   successResponse,
 } from "@holycodex/mcp-stdio-core";
-import { VERSION } from "../../cli/src/catalog.ts";
 import type { JsonRpcResponse, McpLifecycleLog } from "@holycodex/mcp-stdio-core";
+
+import { VERSION } from "../../cli/src/catalog.ts";
 import {
   resolveGitBash,
   resolveGitBashForCurrentProcess,
@@ -45,6 +47,7 @@ interface ToolDefinition {
   readonly inputSchema: Record<string, unknown>;
 }
 
+/** Handles git bash mcp request. */
 export async function handleGitBashMcpRequest(
   input: unknown,
   options: GitBashMcpOptions = {},
@@ -77,6 +80,7 @@ export async function handleGitBashMcpRequest(
   return errorResponse(id, -32601, "Method not found");
 }
 
+/** Runs mcp stdio server. */
 export async function runMcpStdioServer(
   input: Readable,
   output: Writable,

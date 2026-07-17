@@ -36,6 +36,7 @@ const defaultManagedProcessRuntime: ManagedProcessRuntime = {
   kill: killProcessTree,
 };
 
+/** Runs managed process. */
 export async function runManagedProcess(
   input: ManagedProcessInput,
   runtime: ManagedProcessRuntime = defaultManagedProcessRuntime,
@@ -112,6 +113,7 @@ export async function runManagedProcess(
   });
 }
 
+/** Terminates process tree. */
 export function killProcessTree(
   child: ChildProcess,
   platform: NodeJS.Platform,

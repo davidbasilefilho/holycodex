@@ -1,6 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+
 import {
   resolveGitBashForCurrentProcess,
   type GitBashResolution,
@@ -147,6 +148,7 @@ function autonomy(config: string): DoctorResult["autonomy"] {
   return "unknown";
 }
 
+/** Runs HolyCodex installation and environment health checks. */
 export async function doctor(
   home = process.env.CODEX_HOME ?? join(homedir(), ".codex"),
   runtime: DoctorRuntime = defaultRuntime,
@@ -204,7 +206,7 @@ export async function doctor(
     const configured = servers?.[name];
     const expected = expectedMcps[name];
     checks.push(
-      configured === undefined
+      configured === undefined || expected === undefined
         ? check(
             `mcp-${name}`,
             "error",
@@ -227,7 +229,7 @@ export async function doctor(
   if (runtime.platform === "win32" && gitBashConfig !== undefined) {
     const expected = effectiveMcpServers("win32").git_bash;
     checks.push(
-      mcpConfigMatches(gitBashConfig, expected)
+      expected !== undefined && mcpConfigMatches(gitBashConfig, expected)
         ? check(
             "mcp-git_bash-config",
             "ok",
@@ -289,7 +291,7 @@ export async function doctor(
         "Remove auth settings and reinstall.",
       ),
     );
-  else if (!mcpConfigMatches(context7, expectedContext7))
+  else if (expectedContext7 === undefined || !mcpConfigMatches(context7, expectedContext7))
     checks.push(
       check(
         "context7-config",

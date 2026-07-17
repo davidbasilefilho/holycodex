@@ -23,10 +23,12 @@ const DIAGNOSTIC_SEVERITY_FILTERS = {
   hint: 4,
 } as const satisfies Readonly<Record<FilteredSeverity, number>>;
 
+/** Converts a file URI to a local path. */
 export function uriToPath(uri: string): string {
   return fileURLToPath(uri);
 }
 
+/** Formats location. */
 export function formatLocation(loc: Location | LocationLink): string {
   if ("targetUri" in loc) {
     const uri = uriToPath(loc.targetUri);
@@ -41,15 +43,18 @@ export function formatLocation(loc: Location | LocationLink): string {
   return `${uri}:${line}:${char}`;
 }
 
+/** Formats symbol kind. */
 export function formatSymbolKind(kind: number): string {
   return SYMBOL_KIND_MAP[kind] ?? `Unknown(${kind})`;
 }
 
+/** Formats severity. */
 export function formatSeverity(severity: number | undefined): string {
   if (!severity) return "unknown";
   return SEVERITY_MAP[severity] ?? `unknown(${severity})`;
 }
 
+/** Formats document symbol. */
 export function formatDocumentSymbol(symbol: DocumentSymbol, indent = 0): string {
   const prefix = "  ".repeat(indent);
   const kind = formatSymbolKind(symbol.kind);
@@ -65,6 +70,7 @@ export function formatDocumentSymbol(symbol: DocumentSymbol, indent = 0): string
   return result;
 }
 
+/** Formats symbol info. */
 export function formatSymbolInfo(symbol: SymbolInfo): string {
   const kind = formatSymbolKind(symbol.kind);
   const loc = formatLocation(symbol.location);
@@ -72,6 +78,7 @@ export function formatSymbolInfo(symbol: SymbolInfo): string {
   return `${symbol.name} (${kind})${container} - ${loc}`;
 }
 
+/** Formats diagnostic. */
 export function formatDiagnostic(diag: Diagnostic): string {
   const severity = formatSeverity(diag.severity);
   const line = diag.range.start.line + 1;
@@ -81,6 +88,7 @@ export function formatDiagnostic(diag: Diagnostic): string {
   return `${severity}${source}${code} at ${line}:${char}: ${diag.message}`;
 }
 
+/** Filters diagnostics by severity. */
 export function filterDiagnosticsBySeverity(
   diagnostics: Diagnostic[],
   severityFilter?: SeverityFilter,
@@ -93,6 +101,7 @@ export function filterDiagnosticsBySeverity(
   return diagnostics.filter((d) => d.severity === targetSeverity);
 }
 
+/** Formats prepare rename result. */
 export function formatPrepareRenameResult(
   result: PrepareRenameResult | PrepareRenameDefaultBehavior | Range | null,
 ): string {
@@ -124,6 +133,7 @@ export function formatPrepareRenameResult(
   return "Cannot rename at this position";
 }
 
+/** Formats apply result. */
 export function formatApplyResult(result: ApplyResult): string {
   const lines: string[] = [];
 

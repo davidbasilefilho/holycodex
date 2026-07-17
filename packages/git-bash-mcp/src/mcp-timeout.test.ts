@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { handleGitBashMcpRequest } from "./mcp";
 import type { RunGitBashCommand } from "./runner";
 
