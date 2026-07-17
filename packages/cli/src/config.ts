@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { AGENTS, ROOT_MODEL } from "./catalog.ts";
-import { rootTomlStringArray } from "./toml.ts";
+import { rootTomlStringArray, rootTomlStringArraySource } from "./toml.ts";
 
 const START = "# >>> holycodex managed >>>";
 const END = "# <<< holycodex managed <<<";
@@ -77,7 +77,7 @@ export function removeLegacyOmo(input: string): string {
 }
 
 function injectTableKey(input: string, table: string, key: string, value: string): string {
-  const header = new RegExp(`^\\s*\\[${table.replaceAll(".", "\\.")}]\\s*$`, "m");
+  const header = new RegExp(`^\\s*\\[${table.replaceAll(".", "\\.")}]\\s*(?:#.*)?$`, "m");
   const match = header.exec(input);
   const tail = match === null ? "" : input.slice(match.index + match[0].length);
   const tableEnd = nextTableBoundary(tail);
@@ -110,11 +110,7 @@ function nextTableBoundary(input: string): number {
 }
 
 function rootValue(input: string, key: string): string | undefined {
-  if (key === "status_line")
-    return (
-      /^\s*status_line\s*=\s*\[[\s\S]*?^\s*]\s*(?:#.*)?$/m.exec(input)?.[0] ??
-      /^\s*status_line\s*=.*$/m.exec(input)?.[0]
-    );
+  if (key === "status_line") return rootTomlStringArraySource(input, key);
   return new RegExp(`^\\s*${key}\\s*=.*$`, "m").exec(input)?.[0];
 }
 

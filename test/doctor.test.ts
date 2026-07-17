@@ -131,6 +131,21 @@ describe("HolyCodex doctor", () => {
     expect(codes(await doctor(obsolete.home, runtime()))).toContain("obsolete-context7-auth");
   });
 
+  it("rejects unsupported Context7 launch settings", async () => {
+    const { home, plugin } = await fixture();
+    const mcpPath = join(plugin, ".mcp.json");
+    const mcp = JSON.parse(await readFile(mcpPath, "utf8")) as {
+      mcpServers: { context7: Record<string, unknown> };
+    };
+    mcp.mcpServers.context7.cwd = "/missing";
+    await writeFile(mcpPath, JSON.stringify(mcp));
+
+    const result = await doctor(home, runtime());
+    expect(result.healthy).toBe(false);
+    expect(codes(result)).toContain("invalid-context7-config");
+    expect(codes(result)).not.toContain("context7-healthy");
+  });
+
   it("distinguishes package resolution from startup failure", async () => {
     const first = await fixture();
     const packageFailure = runtime({

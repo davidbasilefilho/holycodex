@@ -170,6 +170,15 @@ describe("Codex configuration", () => {
     expect(output).toContain('sandbox_mode = "workspace-write"');
   });
 
+  it("recognizes inline comments on managed table headers", () => {
+    const input = "[features] # local settings\nother = true\n";
+    const output = installConfig(input, "default");
+    expect(output.match(/^\[features](?:\s+#.*)?$/gm)).toHaveLength(1);
+    expect(output).toContain("[features] # local settings");
+    expect(output).toContain("other = true");
+    expect(removeManaged(output)).toBe(input.trim());
+  });
+
   it("restores explicit managed table values during cleanup", () => {
     const input =
       "[features]\ndefault_mode_request_user_input = false\nmulti_agent = false\n" +
@@ -214,6 +223,14 @@ describe("Codex configuration", () => {
     const input = 'status_line = [\n  "model",\n  "context-remaining",\n  "git-branch",\n]\n';
     const output = installConfig(input, "autonomous");
     expect(output.match(/context-remaining/g)).toHaveLength(1);
+    expect(removeManaged(output)).toBe(input.trim());
+  });
+
+  it("consumes multiline status lists whose closing bracket follows the last item", () => {
+    const input = 'status_line = [\n  "current-dir"]\n[custom]\nvalue = true\n';
+    const output = installConfig(input, "default");
+    expect(output).toContain('status_line = ["current-dir", "context-remaining"]');
+    expect(output).not.toMatch(/^\s*"current-dir"]$/m);
     expect(removeManaged(output)).toBe(input.trim());
   });
 

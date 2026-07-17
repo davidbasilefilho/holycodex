@@ -18,7 +18,17 @@ export function rootTomlString(input: string, key: string): string | undefined {
   }
 }
 
+type RootTomlStringArray = { readonly source: string; readonly items: string[] };
+
 export function rootTomlStringArray(input: string, key: string): string[] | undefined {
+  return parseRootTomlStringArray(input, key)?.items;
+}
+
+export function rootTomlStringArraySource(input: string, key: string): string | undefined {
+  return parseRootTomlStringArray(input, key)?.source;
+}
+
+function parseRootTomlStringArray(input: string, key: string): RootTomlStringArray | undefined {
   const table = TOML_TABLE.exec(input);
   const root = table === null ? input : input.slice(0, table.index);
   const assignment = new RegExp(String.raw`^[ \t]*${escapeRegExp(key)}[ \t]*=`, "m").exec(root);
@@ -45,9 +55,13 @@ export function rootTomlStringArray(input: string, key: string): string[] | unde
         raw += character;
         escaped = true;
       } else if (character === '"') {
-        const parsed: unknown = JSON.parse(`"${raw}"`);
-        if (typeof parsed !== "string") return undefined;
-        items.push(parsed);
+        try {
+          const parsed: unknown = JSON.parse(`"${raw}"`);
+          if (typeof parsed !== "string") return undefined;
+          items.push(parsed);
+        } catch {
+          return undefined;
+        }
         quote = undefined;
         raw = "";
       } else {
@@ -67,7 +81,13 @@ export function rootTomlStringArray(input: string, key: string): string[] | unde
     }
     if (character === "#") comment = true;
     else if (character === '"' || character === "'") quote = character;
-    else if (character === "]") return items;
+    else if (character === "]") {
+      const suffix = /^[ \t]*(?:#.*)?(?=\r?\n|$)/.exec(root.slice(index + 1))?.[0] ?? "";
+      return {
+        source: root.slice(assignment.index, index + 1 + suffix.length),
+        items,
+      };
+    }
   }
   return undefined;
 }

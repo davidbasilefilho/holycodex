@@ -255,6 +255,7 @@ export async function doctor(
   }
 
   const context7 = servers?.context7;
+  const expectedContext7 = effectiveMcpServers(runtime.platform).context7;
   const obsoleteAuth =
     context7 !== undefined &&
     ["headers", "env", "authorization", "apiKey"].some((key) => key in context7);
@@ -288,16 +289,13 @@ export async function doctor(
         "Remove auth settings and reinstall.",
       ),
     );
-  else if (
-    context7.command !== "bunx" ||
-    JSON.stringify(context7.args) !== JSON.stringify(["@upstash/context7-mcp"])
-  )
+  else if (!mcpConfigMatches(context7, expectedContext7))
     checks.push(
       check(
         "context7-config",
         "error",
-        "wrong-context7-package",
-        "Expected bunx @upstash/context7-mcp.",
+        "invalid-context7-config",
+        "Context7 launch configuration is stale or contains unsupported settings.",
         "Repair .mcp.json or reinstall.",
       ),
     );
