@@ -21,7 +21,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
       - run: npm install --global npm@11
-      - run: bunx vite-plus@0.2.4 install --frozen-lockfile
+      - run: bunx --package vite-plus@0.2.4 vp install --frozen-lockfile
       - run: bunx vp check
       - run: bunx vp run build
       - run: bunx vp test

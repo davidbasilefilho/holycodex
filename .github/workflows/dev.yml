@@ -24,7 +24,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
       - run: npm install --global npm@11
-      - run: bunx vite-plus@0.2.4 install --frozen-lockfile
+      - run: bunx --package vite-plus@0.2.4 vp install --frozen-lockfile
       - name: Derive unique dev version
         run: bun scripts/version.mjs dev "${{ github.run_number }}" "${{ github.run_attempt }}"
       - run: bunx vp check
