@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadRules, runRulesHook } from "../src/rules-hook.ts";
+import { loadRules, runRulesHook } from "../packages/cli/src/rules-hook.ts";
 
 async function fixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "holycodex-rules-test-"));
@@ -65,7 +65,7 @@ describe("scoped rules", () => {
     expect(await runRulesHook(input)).toContain("shared project context");
     expect(await runRulesHook(input)).toBe("");
     expect(await runRulesHook({ ...input, hook_event_name: "PostCompact" })).toContain(
-      'Start first user-facing update: \\"I detect ',
+      'Root is the default user-facing agent. Start the first user-facing update: \\"I detect ',
     );
     expect(await runRulesHook(input)).toContain("shared project context");
   });

@@ -1,0 +1,47 @@
+{
+  "name": "holycodex",
+  "version": "0.6.0",
+  "description": "Lean Codex-only agent toolkit installer and doctor",
+  "keywords": [
+    "agents",
+    "chatgpt",
+    "codex",
+    "mcp"
+  ],
+  "homepage": "https://github.com/davidbasilefilho/holycodex#readme",
+  "bugs": {
+    "url": "https://github.com/davidbasilefilho/holycodex/issues"
+  },
+  "license": "SUL-1.0",
+  "author": "David Basile Filho",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davidbasilefilho/holycodex.git",
+    "directory": "packages/cli"
+  },
+  "bin": {
+    "holycodex": "bin/holycodex.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE.md",
+    "THIRD-PARTY-NOTICES.md"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp build --config vite.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "prepack": "vp run --workspace-root build"
+  },
+  "dependencies": {
+    "@holycodex/plugin": "0.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

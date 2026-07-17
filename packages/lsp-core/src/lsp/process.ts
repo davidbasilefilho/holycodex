@@ -1,12 +1,12 @@
-import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
+import { killProcessTree } from "@holycodex/mcp-stdio-core/process";
 import {
   resolveGitBashForCurrentProcess,
   type GitBashResolution,
 } from "../../../git-bash-mcp/src/git-bash-resolver.js";
 
-import { reportBestEffortCleanupError } from "./cleanup-errors.js";
 import { LspInvalidPathError, LspProcessSpawnError } from "./errors.js";
 
 export interface SpawnedProcess {
@@ -29,17 +29,6 @@ export interface PreparedSpawnCommand {
   command: string;
   args: string[];
   shell: false;
-}
-
-function isMissingProcessError(error: unknown): boolean {
-  if (!(error instanceof Error) || !("code" in error)) return false;
-  return error.code === "ESRCH";
-}
-
-function reportKillError(context: string, error: unknown): void {
-  if (!isMissingProcessError(error)) {
-    reportBestEffortCleanupError(context, error);
-  }
 }
 
 export function validateCwd(cwd: string): { valid: boolean; error?: string } {
@@ -85,35 +74,9 @@ function wrap(proc: ChildProcess): SpawnedProcess {
     },
     exited: exitedPromise,
     kill(signal?: NodeJS.Signals) {
-      killProcessTree(proc, signal ?? "SIGTERM");
+      killProcessTree(proc, process.platform, signal ?? "SIGTERM");
     },
   };
-}
-
-function killProcessTree(proc: ChildProcess, signal: NodeJS.Signals): void {
-  if (process.platform === "win32" && proc.pid) {
-    const result = spawnSync("taskkill", ["/pid", String(proc.pid), "/f", "/t"], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    if (!result.error && result.status === 0) return;
-    if (result.error) reportKillError("windows process tree kill", result.error);
-  }
-
-  if (process.platform !== "win32" && proc.pid) {
-    try {
-      process.kill(-proc.pid, signal);
-      return;
-    } catch (error) {
-      reportKillError("process group kill", error);
-    }
-  }
-
-  try {
-    proc.kill(signal);
-  } catch (error) {
-    reportKillError("process kill", error);
-  }
 }
 
 function isWindowsShellShim(command: string): boolean {

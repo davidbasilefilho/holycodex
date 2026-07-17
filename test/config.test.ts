@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { installConfig, removeManaged } from "../src/config";
+import {
+  installConfig as installPlatformConfig,
+  removeManaged,
+  type AutonomyMode,
+} from "../packages/cli/src/config";
+
+const installConfig = (input: string, mode: AutonomyMode): string =>
+  installPlatformConfig(input, mode, "win32");
 
 describe("Codex configuration", () => {
   it("preserves unrelated settings when installing", () => {
@@ -7,8 +14,10 @@ describe("Codex configuration", () => {
     const output = installConfig(input, "default");
     expect(output).toContain('model = "user/model"');
     expect(output).toContain("[custom]\nvalue = true");
-    expect(output).toContain("max_concurrent_threads_per_session = 2");
-    expect(output).not.toContain('model = "gpt-5.6-terra"');
+    expect(output).toContain("[agents]");
+    expect(output).toContain("max_threads = 2");
+    expect(output).toContain("max_depth = 1");
+    expect(output).not.toContain('model = "gpt-5.6-sol"');
     expect(output).toContain('approval_policy = "on-request"');
     expect(output).toContain('sandbox_mode = "workspace-write"');
     expect(output).toContain(
@@ -40,12 +49,15 @@ describe("Codex configuration", () => {
     const output = installConfig(input, "default");
     expect(output.match(/\[agents\.explorer]/g)).toHaveLength(1);
     expect(output).toContain('model = "user/model"');
+    expect(output).toContain('config_file = "holycodex/agents/explorer.toml"');
+    expect(removeManaged(output)).toBe(input.trim());
   });
 
   it("maps each bundled subagent to its own instruction file", () => {
     const output = installConfig("", "default");
     for (const agent of ["explorer", "librarian", "worker"]) {
-      expect(output).toContain(`[agents.${agent}]\nconfig_file = "holycodex/agents/${agent}.toml"`);
+      expect(output).toContain(`[agents.${agent}]`);
+      expect(output).toContain(`config_file = "holycodex/agents/${agent}.toml"`);
     }
     expect(output).not.toContain("developer_instructions");
   });
@@ -68,16 +80,46 @@ describe("Codex configuration", () => {
     );
   });
 
-  it("does not add an effort to an explicit model", () => {
-    expect(installConfig('model = "gpt-5.6-luna"\n', "default")).not.toContain(
-      "model_reasoning_effort",
-    );
+  it("completes the default pair around an explicit model", () => {
+    const output = installConfig('model = "gpt-5.6-luna"\n', "default");
+    expect(output).toContain('model = "gpt-5.6-luna"');
+    expect(output).toContain('model_reasoning_effort = "medium"');
   });
 
   it("adds the default root model when only a named section chose a model", () => {
     expect(installConfig('[profiles.deep]\nmodel = "custom/model"\n', "default")).toContain(
-      'model = "gpt-5.6-terra"\nmodel_reasoning_effort = "medium"',
+      'model = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"',
     );
+  });
+
+  it("completes the default pair around an explicit effort without duplication", () => {
+    const output = installConfig('model_reasoning_effort = "high"\n', "default");
+    expect(output).toContain('model = "gpt-5.6-sol"');
+    expect(output.match(/^model_reasoning_effort\s*=/gm)).toHaveLength(1);
+    expect(output).toContain('model_reasoning_effort = "high"');
+  });
+
+  it("adds the complete Sol medium pair when both root values are absent", () => {
+    const output = installConfig("", "default");
+    expect(output.match(/^model\s*=/gm)).toHaveLength(1);
+    expect(output.match(/^model_reasoning_effort\s*=/gm)).toHaveLength(1);
+    expect(output).toContain('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"');
+  });
+
+  it("preserves both explicit root values exactly once", () => {
+    const output = installConfig(
+      'model = "user/model"\nmodel_reasoning_effort = "xhigh"\n',
+      "default",
+    );
+    expect(output.match(/^model\s*=/gm)).toHaveLength(1);
+    expect(output.match(/^model_reasoning_effort\s*=/gm)).toHaveLength(1);
+    expect(removeManaged(output)).toBe('model = "user/model"\nmodel_reasoning_effort = "xhigh"');
+  });
+
+  it("does not treat named-section effort as a root value", () => {
+    const output = installConfig('[agents.custom]\nmodel_reasoning_effort = "low"\n', "default");
+    expect(output).toContain('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"');
+    expect(output).toContain('[agents.custom]\nmodel_reasoning_effort = "low"');
   });
 
   it("merges managed feature and network keys without duplicate tables", () => {
@@ -88,9 +130,24 @@ describe("Codex configuration", () => {
     expect(output.match(/\[features]/g)).toHaveLength(1);
     expect(output.match(/\[sandbox_workspace_write]/g)).toHaveLength(1);
     expect(output).toContain("default_mode_request_user_input = true");
+    expect(output).toContain("multi_agent = true");
     expect(output).toContain("network_access = true");
     expect(output).toContain('approval_policy = "never"');
     expect(output).toContain('sandbox_mode = "workspace-write"');
+  });
+
+  it("restores explicit managed table values during cleanup", () => {
+    const input =
+      "[features]\ndefault_mode_request_user_input = false\nmulti_agent = false\n" +
+      "[agents]\nmax_threads = 9\nmax_depth = 3\n" +
+      "[sandbox_workspace_write]\nnetwork_access = false\n";
+    const installed = installConfig(input, "default");
+    expect(installed).toContain("default_mode_request_user_input = true");
+    expect(installed).toContain("multi_agent = true");
+    expect(installed).toContain("max_threads = 2");
+    expect(installed).toContain("max_depth = 1");
+    expect(installed).toContain("network_access = true");
+    expect(removeManaged(installed)).toBe(input.trim());
   });
 
   it("requires an explicit dangerous mode for full access", () => {

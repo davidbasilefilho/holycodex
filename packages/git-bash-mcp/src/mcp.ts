@@ -7,6 +7,7 @@ import {
   runJsonRpcStdioServer,
   successResponse,
 } from "@holycodex/mcp-stdio-core";
+import { VERSION } from "../../cli/src/catalog.ts";
 import type { JsonRpcResponse, McpLifecycleLog } from "@holycodex/mcp-stdio-core";
 import {
   resolveGitBash,
@@ -17,6 +18,8 @@ import { runGitBashCommand, type RunGitBashCommand } from "./runner";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 30 * 60_000;
+const SERVER_INSTRUCTIONS =
+  "On native Windows, use git_bash.run for every shell command; other shell execution is prohibited. Resolve this server before the first shell action. Use workdir instead of cd. Stop and report a blocker if run is unavailable.";
 const EXEC_COMMAND_TIMEOUT_ENV_KEYS = [
   "HOLYCODEX_GIT_BASH_TIMEOUT_MS",
   "HOLYCODEX_EXEC_COMMAND_TIMEOUT_MS",
@@ -54,7 +57,8 @@ export async function handleGitBashMcpRequest(
     const protocolVersion = protocolVersionFromInput(input) ?? "2024-11-05";
     return successResponse(id, {
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: "git_bash", version: "0.5.3" },
+      instructions: SERVER_INSTRUCTIONS,
+      serverInfo: { name: "git_bash", version: VERSION },
       protocolVersion,
     });
   }
@@ -166,7 +170,7 @@ function toolsForOptions(options: GitBashMcpOptions): ToolDefinition[] {
     {
       name: "run",
       description:
-        "Use to run Bash, Git, POSIX, or Unix commands on Windows; use exec_command only if unavailable or nonshell.",
+        "Use for every shell command on native Windows, including Git, Bash, POSIX, package, build, test, and script commands; other shell execution is prohibited.",
       inputSchema: {
         type: "object",
         properties: {

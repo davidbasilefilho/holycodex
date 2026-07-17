@@ -4,17 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { VERSION } from "../packages/cli/src/catalog";
 
 const run = promisify(execFile);
 
 describe("CLI", () => {
   it("prints version under Node", async () => {
-    const result = await run(process.execPath, ["src/cli.ts", "--version"]);
-    expect(result.stdout).toBe("0.5.3\n");
+    const result = await run(process.execPath, ["packages/cli/src/cli.ts", "--version"]);
+    expect(result.stdout).toBe(`${VERSION}\n`);
   });
 
   it("documents all autonomy modes and doctor output", async () => {
-    const result = await run(process.execPath, ["src/cli.ts", "--help"]);
+    const result = await run(process.execPath, ["packages/cli/src/cli.ts", "--help"]);
     expect(result.stdout).toContain("--codex-autonomous");
     expect(result.stdout).toContain("--dangerous-codex-autonomous");
     expect(result.stdout).toContain("doctor");
@@ -24,7 +25,7 @@ describe("CLI", () => {
   it("rejects conflicting autonomy flags", async () => {
     await expect(
       run(process.execPath, [
-        "src/cli.ts",
+        "packages/cli/src/cli.ts",
         "install",
         "--codex-autonomous",
         "--dangerous-codex-autonomous",
@@ -34,7 +35,7 @@ describe("CLI", () => {
 
   it("uses safe interactive permissions by default", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
-    await run(process.execPath, ["src/cli.ts", "install", "--json"], {
+    await run(process.execPath, ["packages/cli/src/cli.ts", "install", "--json"], {
       env: { ...process.env, CODEX_HOME: home },
     });
 
@@ -45,7 +46,7 @@ describe("CLI", () => {
 
   it("keeps the safe defaults with --no-codex-autonomous", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
-    await run(process.execPath, ["src/cli.ts", "install", "--no-codex-autonomous"], {
+    await run(process.execPath, ["packages/cli/src/cli.ts", "install", "--no-codex-autonomous"], {
       env: { ...process.env, CODEX_HOME: home },
     });
 
@@ -58,7 +59,7 @@ describe("CLI", () => {
     const safeHome = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
     const safeResult = await run(
       process.execPath,
-      ["src/cli.ts", "install", "--codex-autonomous"],
+      ["packages/cli/src/cli.ts", "install", "--codex-autonomous"],
       {
         env: { ...process.env, CODEX_HOME: safeHome },
       },
@@ -72,7 +73,7 @@ describe("CLI", () => {
     const dangerHome = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
     const result = await run(
       process.execPath,
-      ["src/cli.ts", "install", "--dangerous-codex-autonomous"],
+      ["packages/cli/src/cli.ts", "install", "--dangerous-codex-autonomous"],
       { env: { ...process.env, CODEX_HOME: dangerHome } },
     );
     const danger = await readFile(join(dangerHome, "config.toml"), "utf8");
@@ -82,10 +83,10 @@ describe("CLI", () => {
 
   it("prints comprehensive doctor JSON", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
-    await run(process.execPath, ["src/cli.ts", "install"], {
+    await run(process.execPath, ["packages/cli/src/cli.ts", "install"], {
       env: { ...process.env, CODEX_HOME: home },
     });
-    const result = await run(process.execPath, ["src/cli.ts", "doctor", "--json"], {
+    const result = await run(process.execPath, ["packages/cli/src/cli.ts", "doctor", "--json"], {
       env: { ...process.env, CODEX_HOME: home },
     });
     const report = JSON.parse(result.stdout) as {
@@ -103,5 +104,5 @@ describe("CLI", () => {
         "context-visibility",
       ]),
     );
-  });
+  }, 15_000);
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextZeroVersion } from "../scripts/version.mjs";
+import { nextDevVersion, nextZeroVersion, versionedJson } from "../scripts/version.mjs";
 
 describe("zerover versioning", () => {
   it("bumps fixes on the patch component", () => {
@@ -13,5 +13,24 @@ describe("zerover versioning", () => {
   it("accepts an explicit zerover version and rejects 1.x", () => {
     expect(nextZeroVersion("0.2.0", "0.4.3")).toBe("0.4.3");
     expect(() => nextZeroVersion("0.2.0", "1.0.0")).toThrow(/Usage/);
+  });
+
+  it("derives unique npm dev-channel prerelease versions", () => {
+    expect(nextDevVersion("0.6.0", "42", "3")).toBe("0.6.0-dev.42.3");
+    expect(() => nextDevVersion("0.6.0", "run", "1")).toThrow(/Usage/);
+    expect(() => nextDevVersion("0.6.0-dev.1.1", "2", "1")).toThrow(/Usage/);
+  });
+
+  it("keeps the CLI and plugin package versions exact", () => {
+    const source = {
+      name: "holycodex",
+      version: "0.6.0",
+      dependencies: { "@holycodex/plugin": "0.6.0", retained: "1.0.0" },
+    };
+    expect(versionedJson("packages/cli/package.json", source, "0.6.0-dev.4.2")).toEqual({
+      ...source,
+      version: "0.6.0-dev.4.2",
+      dependencies: { "@holycodex/plugin": "0.6.0-dev.4.2", retained: "1.0.0" },
+    });
   });
 });

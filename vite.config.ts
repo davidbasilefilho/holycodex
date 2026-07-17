@@ -1,21 +1,36 @@
+import { copyFile } from "node:fs/promises";
+import { join } from "node:path";
 import { defineConfig } from "vite-plus";
 
+const root = import.meta.dirname;
+
 export default defineConfig({
+  root,
+  plugins: [
+    {
+      name: "holycodex-lsp-license",
+      async closeBundle() {
+        await copyFile(
+          join(root, "packages", "lsp-daemon", "LICENSE"),
+          join(root, "packages", "plugin", "plugin", "runtime", "LICENSE-LSP-MIT.txt"),
+        );
+      },
+    },
+  ],
   staged: {
     "*": "vp check --fix",
   },
   build: {
     lib: {
       entry: {
-        bootstrap: "src/bootstrap-cli.ts",
-        cli: "src/cli.ts",
+        bootstrap: "packages/cli/src/bootstrap-cli.ts",
         "git-bash": "packages/git-bash-mcp/src/cli.ts",
         lsp: "packages/lsp-daemon/src/cli.ts",
-        rules: "src/rules-cli.ts",
+        rules: "packages/cli/src/rules-cli.ts",
       },
       formats: ["es"],
     },
-    outDir: "plugin/runtime",
+    outDir: "packages/plugin/plugin/runtime",
     target: "node20",
     minify: false,
     rollupOptions: {
@@ -25,7 +40,7 @@ export default defineConfig({
         chunkFileNames: "[name].js",
         manualChunks(id) {
           const path = id.replaceAll("\\", "/");
-          if (path.endsWith("/src/core-instructions.ts")) return "core-instructions";
+          if (path.endsWith("/packages/cli/src/core-instructions.ts")) return "core-instructions";
           if (path.includes("/packages/mcp-stdio-core/src/")) return "mcp-stdio-core";
           return undefined;
         },

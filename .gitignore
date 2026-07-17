@@ -1,6 +1,6 @@
 node_modules/
 dist/
-plugin/runtime/
+packages/plugin/plugin/runtime/
 *.tgz
 .vite/
 coverage/

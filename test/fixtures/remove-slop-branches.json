@@ -1,0 +1,8 @@
+[
+  { "case": "main", "expected": "verified local conventional branch" },
+  { "case": "master", "expected": "verified local conventional branch" },
+  { "case": "remote-only-default", "expected": "detected repository default branch" },
+  { "case": "tracking-branch", "expected": "current branch upstream" },
+  { "case": "explicit-scope", "expected": "authoritative" },
+  { "case": "unresolved-base", "expected": "stop and ask for explicit scope" }
+]

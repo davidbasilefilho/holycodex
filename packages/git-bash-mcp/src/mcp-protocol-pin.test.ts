@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PassThrough } from "node:stream";
+import { VERSION } from "../../cli/src/catalog.ts";
 import { handleGitBashMcpRequest, runMcpStdioServer } from "./mcp";
 
 describe("git_bash MCP protocol pins", () => {
@@ -23,7 +24,9 @@ describe("git_bash MCP protocol pins", () => {
       id: 1,
       result: {
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "git_bash", version: "0.5.3" },
+        instructions:
+          "On native Windows, use git_bash.run for every shell command; other shell execution is prohibited. Resolve this server before the first shell action. Use workdir instead of cd. Stop and report a blocker if run is unavailable.",
+        serverInfo: { name: "git_bash", version: VERSION },
         protocolVersion: "2024-11-05",
       },
     });

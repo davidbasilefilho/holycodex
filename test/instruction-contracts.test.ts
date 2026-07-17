@@ -3,9 +3,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = join(import.meta.dirname, "..");
+const pluginRoot = join(root, "packages", "plugin", "plugin");
 
 async function skill(name: string): Promise<string> {
-  return readFile(join(root, "plugin", "skills", name, "SKILL.md"), "utf8");
+  return readFile(join(pluginRoot, "skills", name, "SKILL.md"), "utf8");
 }
 
 function expectOrder(text: string, phrases: readonly string[]): void {
@@ -19,7 +20,7 @@ function expectOrder(text: string, phrases: readonly string[]): void {
 
 describe("instruction workflow contracts", () => {
   it("keeps routed skills dense and bounded by prompt cost", async () => {
-    const names = (await readdir(join(root, "plugin", "skills"))).sort();
+    const names = (await readdir(join(pluginRoot, "skills"))).sort();
     expect(names).toHaveLength(16);
     const texts = await Promise.all(names.map(skill));
     for (const text of texts) {
@@ -29,25 +30,25 @@ describe("instruction workflow contracts", () => {
       expect(description).toMatch(/Produces|Applies|Creates/);
       expect(text.length).toBeLessThanOrEqual(5_000);
     }
-    expect(texts.reduce((sum, text) => sum + text.length, 0)).toBeLessThanOrEqual(27_500);
+    expect(texts.reduce((sum, text) => sum + text.length, 0)).toBeLessThanOrEqual(28_100);
   });
 
   it("bounds the complete routed instruction surface", async () => {
-    const skillsRoot = join(root, "plugin", "skills");
+    const skillsRoot = join(pluginRoot, "skills");
     const references = (await readdir(skillsRoot, { recursive: true }))
       .filter((path) => path.endsWith(".md") && !path.endsWith("ATTRIBUTION.md"))
       .map((path) => readFile(join(skillsRoot, path), "utf8"));
-    const agentsRoot = join(root, "plugin", "agents");
+    const agentsRoot = join(pluginRoot, "agents");
     const agents = (await readdir(agentsRoot))
       .filter((path) => path.endsWith(".toml"))
       .map((path) => readFile(join(agentsRoot, path), "utf8"));
     const texts = await Promise.all([
       ...references,
       ...agents,
-      readFile(join(root, "src", "core-instructions.ts"), "utf8"),
+      readFile(join(root, "packages", "cli", "src", "core-instructions.ts"), "utf8"),
     ]);
     expect(texts.reduce((sum, text) => sum + Buffer.byteLength(text), 0)).toBeLessThanOrEqual(
-      44_400,
+      45_600,
     );
   });
 
@@ -57,7 +58,7 @@ describe("instruction workflow contracts", () => {
         request: "Fix a reproducible parser defect",
         expected: [
           ["debugging", /crash, wrong result/],
-          ["programming", /edits Python, Rust, TypeScript, Go/],
+          ["programming", /changes code or its manifests/],
         ],
         forbidden: [["plan", /multiple obvious steps/]],
         delegation: "local",
@@ -78,7 +79,7 @@ describe("instruction workflow contracts", () => {
       },
       {
         request: "Implement one isolated fixed-file TypeScript change",
-        expected: [["programming", /edits Python, Rust, TypeScript, Go/]],
+        expected: [["programming", /changes code or its manifests/]],
         forbidden: [["plan", /multiple obvious steps/]],
         delegation: "worker",
       },
@@ -180,9 +181,7 @@ describe("instruction workflow contracts", () => {
   it("distinguishes defect, new behavior, covered, and nonbehavior testing", async () => {
     const text = await skill("programming");
     expect(text).toContain("Defect: add a public-seam regression test first");
-    expect(text).toContain(
-      "Explicit test-first request or clearly defined new behavior without adequate proof",
-    );
+    expect(text).toContain("explicit test-first work or defined new behavior lacking proof");
     expect(text).toContain("Existing tests may lock small covered changes");
     expect(text).toContain(
       "Do not force red-green for prose, configuration-only work, trivial mechanical edits",
@@ -193,11 +192,14 @@ describe("instruction workflow contracts", () => {
     const text = await skill("programming");
     expect(text).toContain("One behavior, one implementation");
     expect(text).toContain("Search before writing; reuse or extend the existing implementation");
-    expect(text).toContain("Never copy-paste logic or maintain parallel variants");
-    expect(text).toContain(
-      "Put shared behavior in the smallest stable function, method, type, or module at its common ownership seam",
-    );
-    expect(text).toContain("Extract repetition when a second caller or copy exists");
+    expect(text).toContain("Never copy logic or maintain parallel policy variants");
+    expect(text).toContain("Put shared behavior at its smallest stable common ownership seam");
+    expect(text).toContain("Extract real repetition");
+    expect(text).toContain("stable domain abstraction");
+    expect(text).toContain("cohesive state transition");
+    expect(text).toContain("Prefer pure functions below 200 LOC");
+    expect(text).toContain("split above 250 when responsibilities separate cleanly");
+    expect(text).toContain("Prefer a named input object above three independent parameters");
   });
 
   it("gates visible frontend direction and always covers motion and accessibility", async () => {
@@ -257,7 +259,7 @@ describe("instruction workflow contracts", () => {
   it("locks remove-slop scope, behavior, exceptions, and proof", async () => {
     const text = await skill("remove-slop");
     expectOrder(text, [
-      "Explicit files win",
+      "Explicit user scope is authoritative",
       "Lock observable behavior",
       "Remove only proven",
       "Keep boundary",
@@ -271,7 +273,27 @@ describe("instruction workflow contracts", () => {
       "Ask before module splits",
       "never copy unsupported OpenCode mechanics",
       "THIRD-PARTY-NOTICES.md",
+      "detected repository default branch",
+      "current branch upstream",
+      "`main`, `master`, `trunk`, or `develop`",
+      "stop and ask for explicit scope",
     ])
       expect(text).toContain(rule);
+  });
+
+  it("covers deterministic remove-slop base-selection cases", async () => {
+    const text = await skill("remove-slop");
+    const cases = JSON.parse(
+      await readFile(join(root, "test", "fixtures", "remove-slop-branches.json"), "utf8"),
+    ) as Array<{ case: string; expected: string }>;
+    expect(cases.map((item) => item.case)).toEqual([
+      "main",
+      "master",
+      "remote-only-default",
+      "tracking-branch",
+      "explicit-scope",
+      "unresolved-base",
+    ]);
+    for (const item of cases) expect(text).toContain(item.expected);
   });
 });

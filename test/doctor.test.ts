@@ -2,15 +2,16 @@ import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { doctor, type DoctorRuntime } from "../src/doctor";
-import { installConfig, type AutonomyMode } from "../src/config";
+import { doctor, type DoctorRuntime } from "../packages/cli/src/doctor";
+import { installConfig, type AutonomyMode } from "../packages/cli/src/config";
+import { effectiveMcpServers, VERSION } from "../packages/cli/src/catalog";
 
 const root = join(import.meta.dirname, "..");
-const version = "0.5.3";
 const gitBashReady = { found: true, path: null, source: "not-required", checkedPaths: [] } as const;
 
 function runtime(overrides: Partial<DoctorRuntime> = {}): DoctorRuntime {
   return {
+    platform: "win32",
     command: async (name) => ({
       ok: true,
       output: name === "codex" ? "codex-cli 1.2.3" : "1.3.14",
@@ -23,10 +24,10 @@ function runtime(overrides: Partial<DoctorRuntime> = {}): DoctorRuntime {
 
 async function fixture(mode: AutonomyMode = "default"): Promise<{ home: string; plugin: string }> {
   const home = await mkdtemp(join(tmpdir(), "holycodex-doctor-"));
-  const plugin = join(home, "plugins", "cache", "holycodex", "holycodex", version);
+  const plugin = join(home, "plugins", "cache", "holycodex", "holycodex", VERSION);
   await mkdir(join(plugin, ".."), { recursive: true });
-  await cp(join(root, "plugin"), plugin, { recursive: true });
-  await writeFile(join(home, "config.toml"), installConfig("", mode));
+  await cp(join(root, "packages", "plugin", "plugin"), plugin, { recursive: true });
+  await writeFile(join(home, "config.toml"), installConfig("", mode, "win32"));
   return { home, plugin };
 }
 
@@ -132,5 +133,26 @@ describe("HolyCodex doctor", () => {
         "context-hidden",
       ]),
     );
+  });
+
+  it("treats Git Bash as not applicable off Windows", async () => {
+    const { home, plugin } = await fixture();
+    await rm(join(plugin, "runtime", "git-bash.js"));
+    await rm(join(plugin, "runtime", "git-bash-resolver.js"));
+    await writeFile(
+      join(plugin, ".mcp.json"),
+      JSON.stringify({ mcpServers: effectiveMcpServers("linux") }),
+    );
+    const result = await doctor(
+      home,
+      runtime({
+        platform: "linux",
+        gitBash: () => ({ found: false, checkedPaths: [], installHint: "irrelevant" }),
+      }),
+    );
+    expect(result.healthy).toBe(true);
+    expect(codes(result)).toContain("git-bash-not-applicable");
+    expect(codes(result)).not.toContain("missing-required-mcp");
+    expect(codes(result)).not.toContain("missing-git-bash");
   });
 });

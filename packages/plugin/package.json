@@ -1,0 +1,51 @@
+{
+  "name": "@holycodex/plugin",
+  "version": "0.6.0",
+  "description": "HolyCodex prompts, skills, agents, hooks, MCP metadata, and runtime assets",
+  "keywords": [
+    "agents",
+    "chatgpt",
+    "codex",
+    "mcp",
+    "prompts",
+    "skills"
+  ],
+  "homepage": "https://github.com/davidbasilefilho/holycodex#readme",
+  "bugs": {
+    "url": "https://github.com/davidbasilefilho/holycodex/issues"
+  },
+  "license": "SUL-1.0",
+  "author": "David Basile Filho",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davidbasilefilho/holycodex.git",
+    "directory": "packages/plugin"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "plugin",
+    "README.md",
+    "LICENSE.md",
+    "THIRD-PARTY-NOTICES.md"
+  ],
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepack": "vp run --workspace-root build"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

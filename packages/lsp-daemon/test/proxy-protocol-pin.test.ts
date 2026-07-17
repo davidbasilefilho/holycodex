@@ -1,5 +1,6 @@
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
+import { VERSION } from "../../cli/src/catalog.ts";
 
 import { type DaemonPaths, daemonPaths } from "../src/paths.js";
 import { runMcpStdioProxy } from "../src/proxy.js";
@@ -23,7 +24,7 @@ describe("lsp-daemon MCP proxy protocol pins", () => {
       id: 1,
       result: {
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "lsp", version: "0.5.3" },
+        serverInfo: { name: "lsp", version: VERSION },
         protocolVersion: "2024-11-05",
       },
     });

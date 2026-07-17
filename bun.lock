@@ -12,9 +12,19 @@
         "vitest": "^4.0.0",
       },
     },
+    "packages/cli": {
+      "name": "holycodex",
+      "version": "0.6.0",
+      "bin": {
+        "holycodex": "bin/holycodex.js",
+      },
+      "dependencies": {
+        "@holycodex/plugin": "0.6.0",
+      },
+    },
     "packages/git-bash-mcp": {
       "name": "@holycodex/git-bash-mcp",
-      "version": "0.4.5",
+      "version": "0.6.0",
       "bin": {
         "holycodex-git-bash": "dist/cli.js",
       },
@@ -27,14 +37,14 @@
     },
     "packages/lsp-core": {
       "name": "@holycodex/lsp-core",
-      "version": "0.4.5",
+      "version": "0.6.0",
       "dependencies": {
         "@holycodex/mcp-stdio-core": "workspace:*",
       },
     },
     "packages/lsp-daemon": {
       "name": "@holycodex/lsp-daemon",
-      "version": "0.4.5",
+      "version": "0.6.0",
       "bin": {
         "holycodex-lsp-daemon": "./dist/cli.js",
       },
@@ -49,10 +59,14 @@
     },
     "packages/mcp-stdio-core": {
       "name": "@holycodex/mcp-stdio-core",
-      "version": "0.4.5",
+      "version": "0.6.0",
       "devDependencies": {
         "bun-types": "1.3.12",
       },
+    },
+    "packages/plugin": {
+      "name": "@holycodex/plugin",
+      "version": "0.6.0",
     },
   },
   "packages": {
@@ -133,6 +147,8 @@
     "@holycodex/lsp-daemon": ["@holycodex/lsp-daemon@workspace:packages/lsp-daemon"],
 
     "@holycodex/mcp-stdio-core": ["@holycodex/mcp-stdio-core@workspace:packages/mcp-stdio-core"],
+
+    "@holycodex/plugin": ["@holycodex/plugin@workspace:packages/plugin"],
 
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
@@ -347,6 +363,8 @@
     "fdir": ["fdir@6.5.0", "", { "peerDependencies": { "picomatch": "^3 || ^4" }, "optionalPeers": ["picomatch"] }, "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg=="],
 
     "fsevents": ["fsevents@2.3.3", "", { "os": "darwin" }, "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw=="],
+
+    "holycodex": ["holycodex@workspace:packages/cli"],
 
     "lightningcss": ["lightningcss@1.32.0", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.32.0", "lightningcss-darwin-arm64": "1.32.0", "lightningcss-darwin-x64": "1.32.0", "lightningcss-freebsd-x64": "1.32.0", "lightningcss-linux-arm-gnueabihf": "1.32.0", "lightningcss-linux-arm64-gnu": "1.32.0", "lightningcss-linux-arm64-musl": "1.32.0", "lightningcss-linux-x64-gnu": "1.32.0", "lightningcss-linux-x64-musl": "1.32.0", "lightningcss-win32-arm64-msvc": "1.32.0", "lightningcss-win32-x64-msvc": "1.32.0" } }, "sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ=="],
 

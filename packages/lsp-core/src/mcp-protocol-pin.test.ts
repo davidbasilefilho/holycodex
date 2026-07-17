@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { VERSION } from "../../cli/src/catalog.ts";
 import { Readable, Writable } from "node:stream";
 import { handleLspMcpRequest, runMcpStdioServer } from "./mcp";
 
@@ -20,7 +21,7 @@ describe("lsp MCP protocol pins", () => {
       id: 1,
       result: {
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "lsp", version: "0.5.3" },
+        serverInfo: { name: "lsp", version: VERSION },
         protocolVersion: "2024-11-05",
       },
     });

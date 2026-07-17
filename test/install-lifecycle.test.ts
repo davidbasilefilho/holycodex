@@ -2,7 +2,12 @@ import { access, mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/pr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { assertGitBashReady, cleanup, install } from "../src/install";
+import {
+  assertGitBashReady,
+  cleanup,
+  install,
+  type InstallRuntime,
+} from "../packages/cli/src/install";
 
 const originalHome = process.env.CODEX_HOME;
 const packageVersion = (
@@ -10,6 +15,10 @@ const packageVersion = (
     version: string;
   }
 ).version;
+const windowsRuntime: InstallRuntime = {
+  platform: "win32",
+  gitBash: () => ({ found: true, path: "bash.exe", source: "env", checkedPaths: [] }),
+};
 
 afterEach(() => {
   if (originalHome === undefined) delete process.env.CODEX_HOME;
@@ -19,7 +28,11 @@ afterEach(() => {
 describe("install lifecycle", () => {
   it("blocks install before mutation when native Windows lacks Git Bash", () => {
     expect(() =>
-      assertGitBashReady({ found: false, checkedPaths: [], installHint: "Install Git Bash." }),
+      assertGitBashReady("win32", {
+        found: false,
+        checkedPaths: [],
+        installHint: "Install Git Bash.",
+      }),
     ).toThrow("Install Git Bash.");
   });
   it("preserves unrelated config, removes legacy OMO, and cleans only HolyCodex", async () => {
@@ -29,7 +42,7 @@ describe("install lifecycle", () => {
     await writeFile(join(home, "plugins", "cache", "sisyphuslabs", "omo", "old.txt"), "old");
     await writeFile(join(home, "config.toml"), "[custom]\nvalue = true\n");
 
-    const first = await install({ autonomy: "default", json: false });
+    const first = await install({ autonomy: "default", json: false }, windowsRuntime);
     const installed = await readFile(join(home, "config.toml"), "utf8");
     expect(installed).toContain("[custom]\nvalue = true");
     expect(first.changed).toContain(join(home, "plugins", "cache", "sisyphuslabs", "omo"));
@@ -41,7 +54,12 @@ describe("install lifecycle", () => {
     expect(manifest.mcpServers).toBe("./.mcp.json");
     expect(JSON.parse(await readFile(join(cache, ".mcp.json"), "utf8"))).toEqual({
       mcpServers: {
-        git_bash: { command: "node", args: ["runtime/git-bash.js", "mcp"], cwd: "." },
+        git_bash: {
+          command: "node",
+          args: ["runtime/git-bash.js", "mcp"],
+          cwd: ".",
+          enabled_tools: ["run"],
+        },
         lsp: { command: "node", args: ["runtime/lsp.js", "mcp"], cwd: "." },
         context7: { command: "bunx", args: ["@upstash/context7-mcp"] },
       },
@@ -63,7 +81,9 @@ describe("install lifecycle", () => {
     expect(await readdir(join(cache, "skills"))).not.toHaveLength(0);
     expect(installed).toContain("[marketplaces.holycodex]");
     expect(installed).toContain('[plugins."holycodex@holycodex"]\nenabled = true');
-    expect((await install({ autonomy: "default", json: false })).action).toBe("install");
+    expect((await install({ autonomy: "default", json: false }, windowsRuntime)).action).toBe(
+      "install",
+    );
 
     const staleCache = join(home, "plugins", "cache", "holycodex", "holycodex", "0.2.1");
     await mkdir(staleCache, { recursive: true });
@@ -80,10 +100,52 @@ describe("install lifecycle", () => {
   it("removes a config created solely by HolyCodex", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-test-"));
     process.env.CODEX_HOME = home;
-    await install({ autonomy: "default", json: false });
+    await install({ autonomy: "default", json: false }, windowsRuntime);
     await cleanup({ autonomy: "default", json: false });
     await expect(readFile(join(home, "config.toml"), "utf8")).rejects.toMatchObject({
       code: "ENOENT",
     });
+  });
+
+  it("omits effective Git Bash configuration and prompts off Windows", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-linux-test-"));
+    process.env.CODEX_HOME = home;
+    const linuxRuntime: InstallRuntime = {
+      platform: "linux",
+      gitBash: () => ({ found: false, checkedPaths: [], installHint: "irrelevant" }),
+    };
+    await install({ autonomy: "default", json: false }, linuxRuntime);
+    const cache = join(home, "plugins", "cache", "holycodex", "holycodex", packageVersion);
+    const mcp = JSON.parse(await readFile(join(cache, ".mcp.json"), "utf8")) as {
+      mcpServers: Record<string, unknown>;
+    };
+    expect(mcp.mcpServers.git_bash).toBeUndefined();
+    expect(mcp.mcpServers.lsp).toBeDefined();
+    for (const agent of await readdir(join(cache, "agents"))) {
+      const prompt = await readFile(join(cache, "agents", agent), "utf8");
+      expect(prompt).not.toContain("mcp__git_bash__run");
+    }
+  });
+
+  it("preserves explicit named-agent model preferences but migrates known defaults", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-agent-model-test-"));
+    process.env.CODEX_HOME = home;
+    const agents = join(home, "holycodex", "agents");
+    await mkdir(agents, { recursive: true });
+    await writeFile(
+      join(agents, "explorer.toml"),
+      'model = "user/explorer"\nmodel_reasoning_effort = "high"\n',
+    );
+    await writeFile(
+      join(agents, "worker.toml"),
+      'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "medium"\n',
+    );
+    await install({ autonomy: "default", json: false }, windowsRuntime);
+    const explorer = await readFile(join(agents, "explorer.toml"), "utf8");
+    const worker = await readFile(join(agents, "worker.toml"), "utf8");
+    expect(explorer).toContain('model = "user/explorer"');
+    expect(explorer).toContain('model_reasoning_effort = "high"');
+    expect(worker).toContain('model = "gpt-5.6-terra"');
+    expect(worker).toContain('model_reasoning_effort = "high"');
   });
 });

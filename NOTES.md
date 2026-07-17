@@ -1,5 +1,54 @@
 # HolyCodex redesign notes
 
+## npm package and dev-channel redesign (2026-07-16)
+
+- Approved public packages: `holycodex` owns CLI source/executable; `@holycodex/plugin` owns prompts, skills, agents, hooks, MCP metadata, notices, and generated plugin runtime. Root is private workspace orchestration.
+- Root `src/` moved to `packages/cli/src/`. Plugin payload moved to `packages/plugin/plugin/`. CLI resolves assets through the installed plugin package instead of filesystem adjacency.
+- Vite+ builds separate outputs: `packages/cli/dist/cli.js` and `packages/plugin/plugin/runtime/*`. Validation follows the supplied latest Vite+ `AGENTS.md`: `vp install`, `vp check`, `vp test`, and `vp run` tasks.
+- CLI presentation is dependency-free, TTY-aware, and honors `NO_COLOR`; JSON and redirected output remain noninteractive. OpenTUI would add native/runtime weight without value for one-shot commands.
+- Stable tags publish plugin before CLI through `publish.yml` OIDC. Pushes to `dev` derive `<base>-dev.<run_number>.<run_attempt>` and publish both with npm `dev` tags through `dev.yml`.
+- npm permits one trusted-publisher workflow per package, so `dev.yml` uses repository secret `NPM_TOKEN`; `publish.yml` retains stable OIDC. `@holycodex/plugin` returned npm `E404` before implementation and needs first-publication bootstrap through the token.
+- The user approved the reviewed plan and declined a durable goal.
+
+### Package redesign verification
+
+- `vp install`: workspace links and `bun.lock` refreshed successfully.
+- `vp check`: all 204 files formatted; no warnings or lint errors in 127 checked files.
+- `vp run build`: plugin runtime and CLI built independently; plugin runtime contains seven JavaScript chunks plus the generated LSP MIT license, while CLI emits one external-plugin-aware bundle.
+- `vp test`: 37 test files passed; 191 tests passed; one Windows-path-specific test skipped.
+- Root, CLI, Git Bash, LSP core, LSP daemon, and stdio-core strict TypeScript projects passed.
+- `vp run version:check`: root workspace, both public packages, internal packages, plugin manifest, catalogue, CLI dependency, and generated runtime match 0.6.0.
+- Plugin dry-run package: 92 files; 272,091-byte tarball; 913,566 bytes unpacked.
+- CLI dry-run package: six files; 13,954-byte tarball; 43,463 bytes unpacked.
+- Real prepack hooks built both outputs. A fresh temporary npm project installed both tarballs, ran `holycodex --version` and `--help`, completed JSON installation, and resolved an installed plugin skill through `@holycodex/plugin`.
+- Dev-version dry run maps 0.6.0 plus run 42 attempt 3 to `0.6.0-dev.42.3` without changing the worktree.
+- No npm publication or external state mutation occurred. `bunx holycodex@dev` remains unavailable until `NPM_TOKEN` is configured and the first `dev.yml` run publishes both packages.
+
+## 0.6.0 architecture update (2026-07-16)
+
+- Root is the default user-facing agent. Missing root fields default independently to GPT-5.6 Sol medium; explicit root values remain authoritative.
+- Specialist defaults are explorer Luna low, librarian Luna low, and worker Terra high. The installer migrates known HolyCodex-managed worker Luna-medium files but preserves unrecognized user choices.
+- Cost-aware decomposition precedes substantial work. Root retains decisions and integration; packets are lean and bounded; at most two specialists run in one wave by default; specialists cannot recurse, review one another, retry unchanged packets, or self-escalate.
+- Planning, plan review, and goal definition have exact mode headings. Goal creation remains user-controlled; the user declined a durable goal for this 0.6.0 implementation.
+- Git Bash is mandatory and allowlisted to `run` only on native Windows. Linux and macOS installations omit both its MCP entry and its prompt policy.
+- One shared subprocess lifecycle now owns timeout, capped head/tail output, spawn failure, early-success termination, process-tree cleanup, and single settlement for local MCP consumers.
+- The canonical catalogue in `packages/cli/src/catalog.ts` owns version 0.6.0, models, shipped names, managed migration history, runtime names, and platform-effective MCP definitions.
+- Official Codex configuration documents `features.multi_agent`, `agents.max_threads`, `agents.max_depth`, and per-agent `config_file`. Local Codex 0.144.4 reports `multi_agent` stable/enabled and `multi_agent_v2` under-development/disabled. No documented v2 config surface was found, so HolyCodex does not enable it.
+- Deterministic configuration and catalogue tests verify intended agent files and models. They do not establish provider-side live routing behavior across all future Codex builds.
+
+### 0.6.0 final verification
+
+- `bunx vp check`: all 188 files formatted; no warnings or lint errors in 121 checked files.
+- `bunx tsc --noEmit` plus all four package `tsconfig.json` projects: passed strict TypeScript.
+- `bun run test`: generated eight runtime chunks; 35 test files passed; 179 tests passed; one platform-specific test skipped.
+- `bun run version:check` and generated CLI `--version`: all package/runtime surfaces report 0.6.0.
+- `npm pack --dry-run --ignore-scripts --json`: 92 files; 281,994-byte tarball; 947,412 bytes unpacked; required agents, skills, notices, MCP configuration, and generated runtime present.
+- `git diff --check`: passed. Branch remains `dev`; no commit or push was requested.
+- Persistent prompt measurements: core 2,795 bytes; three agents 5,767 bytes; 16 skill bodies 28,088 bytes; complete routed core/agent/skill surface 36,650 bytes. Generated runtime totals 171,055 bytes.
+- Focused lifecycle coverage proves normal exit, spawn failure, timeout with process-tree termination, protocol-match early termination, and capped oversized output. Windows/non-Windows install, bootstrap, doctor, MCP, config restoration, explicit model preservation, and managed-default migration paths are covered.
+
+Sections below preserve the earlier 0.5.3 redesign record. Statements labeled as baseline, progress, or prior verification are historical and are superseded by the 0.6.0 sections above where they conflict.
+
 ## Baseline
 
 - Repository: `davidbasilefilho/holycodex`.
@@ -13,7 +62,7 @@
 - Deliver the approved redesign on `dev`.
 - Complete repaired `compress` and renamed, attributed `remove-slop` before broader redesign work.
 - Use `/caveman lite` for persistent project writing.
-- Define the goal automatically after plan approval. The user approved this plan and goal.
+- Prior 0.5.3 decision: define the goal after plan approval. For 0.6.0, the user explicitly declined a durable goal.
 
 ## Verification baseline
 
@@ -49,17 +98,17 @@
 
 ### Upstream agent decisions
 
-| Upstream role             | Decision and Codex mapping                                                                                                 | Model, permission, and use                                                    |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| orchestrator              | Merge into Codex root. Root owns intent, architecture, user decisions, task dependencies, reconciliation, and final proof. | User-selected root model; full task-authorized tools; every task.             |
-| explorer                  | Keep as bounded repository investigator.                                                                                   | GPT-5.6 Luna low; read-only assigned paths; exact local facts.                |
-| librarian                 | Keep as bounded external-source researcher.                                                                                | GPT-5.6 Luna low; read-only primary sources; current external facts.          |
-| fixer                     | Rename/adapt to `worker`; implementation only after architecture and scope are fixed.                                      | GPT-5.6 Luna medium; isolated assigned writes; occasional independent slices. |
-| designer                  | Merge into root plus `frontend` skill. Visual judgment needs user context and cross-cutting integration.                   | Root model; only frontend tasks.                                              |
-| observer                  | Reject. Status observation and verification belong to root and existing tools.                                             | Removes decorative monitoring lane.                                           |
-| oracle                    | Reject. Architecture/final judgment cannot be delegated under approved ownership.                                          | Removes expensive duplicate review.                                           |
-| councillor/council        | Reject. Codex has no supported equivalent requiring a permanent voting hierarchy.                                          | Avoids multi-model cost and reconciliation.                                   |
-| custom/domain/issue roles | Reject from core. Task-specific skills or explicit user configuration provide narrower specialization.                     | Avoids catalogue growth.                                                      |
+| Upstream role             | Decision and Codex mapping                                                                                                 | Model, permission, and use                                                      |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| orchestrator              | Merge into Codex root. Root owns intent, architecture, user decisions, task dependencies, reconciliation, and final proof. | User-selected root model; full task-authorized tools; every task.               |
+| explorer                  | Keep as bounded repository investigator.                                                                                   | GPT-5.6 Luna low; read-only assigned paths; exact local facts.                  |
+| librarian                 | Keep as bounded external-source researcher.                                                                                | GPT-5.6 Luna low; read-only primary sources; current external facts.            |
+| fixer                     | Rename/adapt to `worker`; implementation only after architecture and scope are fixed.                                      | Historical 0.5.3 default: GPT-5.6 Luna medium. Migrated to Terra high in 0.6.0. |
+| designer                  | Merge into root plus `frontend` skill. Visual judgment needs user context and cross-cutting integration.                   | Root model; only frontend tasks.                                                |
+| observer                  | Reject. Status observation and verification belong to root and existing tools.                                             | Removes decorative monitoring lane.                                             |
+| oracle                    | Reject. Architecture/final judgment cannot be delegated under approved ownership.                                          | Removes expensive duplicate review.                                             |
+| councillor/council        | Reject. Codex has no supported equivalent requiring a permanent voting hierarchy.                                          | Avoids multi-model cost and reconciliation.                                     |
+| custom/domain/issue roles | Reject from core. Task-specific skills or explicit user configuration provide narrower specialization.                     | Avoids catalogue growth.                                                        |
 
 ### Orchestration, hook, and tool decisions
 
@@ -105,14 +154,14 @@
 - Made agent-model catalogue checks tolerate both LF and CRLF without weakening model assertions.
 - Studied `oh-my-opencode-slim` at pinned commit `7bc7b56856ee693812d87d68615757d4d1c2e218`. Retained bounded specialist roles, explicit job packets, non-overlapping writes, task identity, session reuse, and verification planning. Rejected OpenCode-only ACP, council, companion, reflection, multiplexer, background-session, and hook machinery.
 - Kept three agents. Codex already owns orchestration and frontend/visual work; more agents would duplicate skills and raise prompt/integration cost.
-- Added safe default, sandboxed autonomous, and explicitly dangerous autonomy modes; preserved explicit root model/effort; defaulted absent values to Terra medium.
+- Historical 0.5.3 behavior defaulted absent root values to Terra medium. Version 0.6.0 defaults each missing value independently to Sol medium.
 - Added managed `status_line` context visibility, two-thread cap, request-user-input feature merge, and workspace network access without duplicate TOML tables.
 - Replaced remote Context7 with local unauthenticated `bunx @upstash/context7-mcp`.
 - Added readable/JSON `holycodex doctor` with distinct Bun, bunx, JSON, obsolete remote/auth, package, startup, and healthy states.
 - Enforced Git Bash on native Windows with no PowerShell/cmd fallback.
 - Expanded plan-review across constraints, change surfaces, risk, recovery, ordered proof, and stop conditions while retaining prompt budgets.
 
-## Current verification
+## Prior 0.5.3 verification
 
 - Focused installer suite: 18 tests passed.
 - Final `bunx vp build && bunx vp test && bun scripts/version.mjs check`: build passed; 31 files, 143 tests passed, 1 skipped; versions match 0.5.3.
@@ -157,7 +206,7 @@ All sizes are bytes unless stated. Baseline is `main` at `b402bcfc277561b87e38d2
 - No runtime dependency was added. No cache, generated runtime, migration, license, fixture, or behavior-lock test was deleted.
 - Refreshed index stat data for 123 zero-diff files after the LF formatter exposed Windows `core.autocrlf` status noise. No content or staged change resulted. Final status contains 25 logical tracked changes plus 10 intended new files.
 
-## Final verification run
+## Prior 0.5.3 final verification run
 
 - `bunx vp check`: all 183 files formatted; no warnings or lint errors in 118 checked files.
 - `bunx tsc --noEmit`: passed strict TypeScript.

@@ -3,6 +3,7 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "strict": true,
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
@@ -19,7 +20,7 @@
     "resolveJsonModule": true,
     "useDefineForClassFields": false,
     "lib": ["ESNext", "DOM"],
-    "types": ["bun-types"]
+    "types": ["node"]
   },
   "include": ["src/**/*"]
 }
