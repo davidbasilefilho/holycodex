@@ -1,5 +1,8 @@
-import { readFile, readdir } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { cp, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
@@ -7,6 +10,7 @@ import { VERSION } from "../packages/cli/src/catalog.ts";
 import { pluginRoot as resolvedPluginRoot } from "../packages/plugin/index.js";
 
 const root = join(import.meta.dirname, "..");
+const run = promisify(execFile);
 
 async function json(path: string): Promise<Record<string, unknown>> {
   return JSON.parse(await readFile(join(root, path), "utf8")) as Record<string, unknown>;
@@ -32,6 +36,25 @@ describe("public package layout", () => {
     expect(
       await readFile(join(resolvedPluginRoot, ".codex-plugin", "plugin.json"), "utf8"),
     ).toContain(`"version": "${VERSION}"`);
+  });
+
+  it("runs installed LSP detection without external package resolution", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "holycodex-installed-plugin-"));
+    const installedPlugin = join(fixture, "plugin");
+    const project = join(fixture, "project");
+    await cp(resolvedPluginRoot, installedPlugin, { recursive: true });
+    await mkdir(project);
+    await writeFile(join(project, "example.ts"), "export const example = true;\n");
+
+    const result = await run(
+      process.execPath,
+      [join(installedPlugin, "skills", "lsp-setup", "scripts", "detect-lsp.ts"), project, "--json"],
+      { cwd: project },
+    );
+    const output = JSON.parse(result.stdout) as {
+      results: Array<{ server: { language: string } }>;
+    };
+    expect(output.results.some((item) => item.server.language === "typescript")).toBe(true);
   });
 
   it("points the repository marketplace at the packaged plugin", async () => {

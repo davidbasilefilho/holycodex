@@ -6,7 +6,11 @@ import { describe, expect, it } from "vitest";
 
 import { runWithRequestContext } from "../request-context.js";
 import { getMergedServers } from "./config-loader.js";
-import { ReferencesResultSchema } from "./protocol-schemas.js";
+import {
+  DocumentSymbolsResultSchema,
+  ReferencesResultSchema,
+  WorkspaceSymbolsResultSchema,
+} from "./protocol-schemas.js";
 import { loadInstallDecisions } from "./server-install-state.js";
 
 describe("LSP persisted boundary validation", () => {
@@ -73,6 +77,11 @@ describe("LSP persisted boundary validation", () => {
 
   it("normalizes a null references response to no references", () => {
     expect(ReferencesResultSchema.parse(null)).toEqual([]);
+  });
+
+  it("normalizes null document and workspace symbol responses to no symbols", () => {
+    expect(DocumentSymbolsResultSchema.parse(null)).toEqual([]);
+    expect(WorkspaceSymbolsResultSchema.parse(null)).toEqual([]);
   });
 
   it("falls back without consuming malformed install decisions", () => {

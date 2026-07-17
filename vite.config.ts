@@ -39,6 +39,7 @@ export default defineConfig({
     lib: {
       entry: {
         bootstrap: "packages/cli/src/bootstrap-cli.ts",
+        "detect-lsp": "packages/plugin/src/detect-lsp.ts",
         "git-bash": "packages/git-bash-mcp/src/cli.ts",
         lsp: "packages/lsp-daemon/src/cli.ts",
         rules: "packages/cli/src/rules-cli.ts",

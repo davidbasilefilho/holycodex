@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const VERSION = "0.7.1";
+export const VERSION = "0.7.2";
 
 export const SKILLS = [
   "ast-grep",
@@ -121,6 +121,7 @@ export const MANAGED_AGENT_MODEL_HISTORY = {
 export const GENERATED_RUNTIMES = [
   "bootstrap.js",
   "core-instructions.js",
+  "detect-lsp.js",
   "git-bash.js",
   "git-bash-resolver.js",
   "LICENSE-LSP-MIT.txt",

@@ -115,14 +115,18 @@ export const DefinitionResultSchema = z
     z.array(z.union([LocationSchema, LocationLinkSchema])),
   ])
   .nullable();
-export const ReferencesResultSchema: z.ZodType<Location[]> = z
-  .array(LocationSchema)
-  .nullable()
-  .transform((value) => value ?? []);
-export const DocumentSymbolsResultSchema = z.array(
+function nullableArray<T>(item: z.ZodType<T>): z.ZodType<T[]> {
+  return z
+    .array(item)
+    .nullable()
+    .transform((value) => value ?? []);
+}
+
+export const ReferencesResultSchema = nullableArray(LocationSchema);
+export const DocumentSymbolsResultSchema = nullableArray(
   z.union([DocumentSymbolSchema, SymbolInfoSchema]),
 );
-export const WorkspaceSymbolsResultSchema = z.array(SymbolInfoSchema);
+export const WorkspaceSymbolsResultSchema = nullableArray(SymbolInfoSchema);
 export const DiagnosticReportSchema = z.looseObject({
   items: z.array(DiagnosticSchema).optional(),
 });
