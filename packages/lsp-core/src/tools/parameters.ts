@@ -1,9 +1,17 @@
-import { isPlainRecord } from "@holycodex/mcp-stdio-core/record";
+import { UnknownRecordSchema } from "@holycodex/mcp-stdio-core/schemas";
+import { z } from "zod";
 
 import type { WithLspClientOptions } from "../lsp/client-wrapper.js";
 import type { SeverityFilter } from "../lsp/types.js";
 
-export const isRecord = isPlainRecord;
+const NonEmptyStringSchema = z.string().min(1);
+const FiniteNumberSchema = z.number().finite();
+const SeverityFilterSchema = z.enum(["error", "warning", "information", "hint", "all"]);
+
+/** Checks whether a value is a JSON object. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return UnknownRecordSchema.safeParse(value).success;
+}
 
 export interface SourcePosition {
   readonly filePath: string;
@@ -22,53 +30,40 @@ export function sourcePosition(params: Record<string, unknown>): SourcePosition 
 
 /** Reads and validates string. */
 export function requireString(params: Record<string, unknown>, key: string): string {
-  const value = params[key];
-  if (typeof value !== "string" || value.length === 0) {
+  const parsed = NonEmptyStringSchema.safeParse(params[key]);
+  if (!parsed.success) {
     throw new Error(`Missing required string parameter '${key}'`);
   }
-  return value;
+  return parsed.data;
 }
 
 /** Reads optional string. */
 export function optionalString(params: Record<string, unknown>, key: string): string | undefined {
-  const value = params[key];
-  return typeof value === "string" ? value : undefined;
+  return z.string().safeParse(params[key]).data;
 }
 
 /** Reads and validates number. */
 export function requireNumber(params: Record<string, unknown>, key: string): number {
-  const value = params[key];
-  if (typeof value !== "number" || !Number.isFinite(value)) {
+  const parsed = FiniteNumberSchema.safeParse(params[key]);
+  if (!parsed.success) {
     throw new Error(`Missing required number parameter '${key}'`);
   }
-  return value;
+  return parsed.data;
 }
 
 /** Reads optional number. */
 export function optionalNumber(params: Record<string, unknown>, key: string): number | undefined {
-  const value = params[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return FiniteNumberSchema.safeParse(params[key]).data;
 }
 
 /** Reads optional boolean. */
 export function optionalBoolean(params: Record<string, unknown>, key: string): boolean | undefined {
-  const value = params[key];
-  return typeof value === "boolean" ? value : undefined;
+  return z.boolean().safeParse(params[key]).data;
 }
 
 /** Provides severity filter. */
 export function severityFilter(params: Record<string, unknown>): SeverityFilter {
-  const value = params["severity"];
-  if (
-    value === "error" ||
-    value === "warning" ||
-    value === "information" ||
-    value === "hint" ||
-    value === "all"
-  ) {
-    return value;
-  }
-  return "all";
+  return SeverityFilterSchema.safeParse(params["severity"]).data ?? "all";
 }
 
 /** Provides client options. */

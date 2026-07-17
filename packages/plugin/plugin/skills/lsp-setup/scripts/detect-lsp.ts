@@ -7,6 +7,8 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { delimiter, extname, join, sep } from "node:path";
 import process from "node:process";
 
+import { z } from "zod";
+
 import { LANGUAGES, type LanguageServer, PROJECT_CONFIG_FILES } from "./lsp-server-table";
 
 const SKIP_DIRECTORIES = new Set<string>([
@@ -117,20 +119,15 @@ function resolveExecutable(command: string): string | null {
   return null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+const LspConfigSchema = z.looseObject({ lsp: z.record(z.string(), z.unknown()).optional() });
 
 function parseConfiguredServerIds(path: string): readonly string[] {
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(path, "utf-8"));
+    const parsed = LspConfigSchema.safeParse(JSON.parse(readFileSync(path, "utf-8")));
+    return parsed.success ? Object.keys(parsed.data.lsp ?? {}) : [];
   } catch {
     return [];
   }
-  if (!isRecord(parsed)) return [];
-  const lsp = parsed["lsp"];
-  return isRecord(lsp) ? Object.keys(lsp) : [];
 }
 
 function readConfigState(root: string): readonly ConfigFileState[] {

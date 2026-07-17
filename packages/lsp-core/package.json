@@ -36,6 +36,7 @@
     "test": "bun test src/*.test.ts src/**/*.test.ts"
   },
   "dependencies": {
-    "@holycodex/mcp-stdio-core": "workspace:*"
+    "@holycodex/mcp-stdio-core": "workspace:*",
+    "zod": "^4.4.3"
   }
 }

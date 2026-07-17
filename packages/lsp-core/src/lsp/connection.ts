@@ -1,14 +1,18 @@
 import { pathToFileURL } from "node:url";
 
+import { z } from "zod";
+
 import { LspClientTransport } from "./transport.js";
 
 const INITIALIZE_SETTLE_MS = 300;
 
 export class LspClientConnection extends LspClientTransport {
+  /** Initializes the language server connection. */
   async initialize(): Promise<void> {
     const rootUri = pathToFileURL(this.root).href;
     await this.sendRequest(
       "initialize",
+      z.unknown(),
       {
         processId: process.pid,
         rootUri,

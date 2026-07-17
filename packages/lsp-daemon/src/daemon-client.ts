@@ -1,8 +1,9 @@
 import { connect } from "node:net";
 
 import type { ToolExecutionResult } from "@holycodex/lsp-core/tools";
-import { isPlainRecord } from "@holycodex/mcp-stdio-core/record";
 import { messageFromError } from "@holycodex/mcp-stdio-core/responses";
+import { McpToolResultSchema } from "@holycodex/mcp-stdio-core/schemas";
+import { z } from "zod";
 
 import { ensureDaemonRunning } from "./ensure-daemon.js";
 import { type DaemonPaths, daemonPaths } from "./paths.js";
@@ -11,6 +12,10 @@ import { createLineDecoder, encodeJsonLine } from "./socket-jsonrpc.js";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const REQUEST_ID = 1;
+const DaemonResponseSchema = z.looseObject({
+  id: z.literal(REQUEST_ID),
+  result: McpToolResultSchema.extend({ details: z.unknown().optional() }),
+});
 
 export class DaemonRequestError extends Error {
   readonly requestWritten: boolean;
@@ -152,12 +157,11 @@ function sendToolCall(
 }
 
 function toToolResult(message: unknown): ToolExecutionResult | null {
-  if (!isPlainRecord(message) || message["id"] !== REQUEST_ID) return null;
-  const result = message["result"];
-  if (!isPlainRecord(result) || !Array.isArray(result["content"])) return null;
+  const response = DaemonResponseSchema.safeParse(message);
+  if (!response.success) return null;
   return {
-    content: result["content"] as ToolExecutionResult["content"],
-    isError: result["isError"] === true,
-    details: result["details"],
+    content: response.data.result.content,
+    isError: response.data.result.isError === true,
+    details: response.data.result.details,
   };
 }

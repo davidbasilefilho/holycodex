@@ -3,10 +3,13 @@ import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { z } from "zod";
+
 const requireFromHere = createRequire(import.meta.url);
 
 const MAX_SOCKET_PATH_LENGTH = 100;
 const CODEX_LSP_DAEMON_VERSION_ENV = "CODEX_LSP_DAEMON_VERSION";
+const PackageVersionSchema = z.looseObject({ version: z.string().min(1) });
 
 export interface DaemonPaths {
   version: string;
@@ -21,8 +24,8 @@ export interface DaemonPaths {
 export function resolveDaemonVersion(requireFn: (id: string) => unknown = requireFromHere): string {
   for (const candidate of ["./package.json", "../package.json"]) {
     try {
-      const pkg = requireFn(candidate) as { version?: unknown };
-      if (typeof pkg.version === "string" && pkg.version.length > 0) return pkg.version;
+      const pkg = PackageVersionSchema.safeParse(requireFn(candidate));
+      if (pkg.success) return pkg.data.version;
     } catch {}
   }
   return "0";

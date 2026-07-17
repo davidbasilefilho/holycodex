@@ -9,6 +9,8 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { z } from "zod";
+
 const ENGINE_TOOLS = "packages/lsp-core/src/tools.ts";
 const ENGINE_CONTEXT = "packages/lsp-core/src/request-context.ts";
 const ENGINE_MANAGER = "packages/lsp-core/src/lsp/manager.ts";
@@ -26,6 +28,13 @@ interface DiagnosticsDetails {
   readonly error?: string;
   readonly errorKind?: "missing_dependency" | "no_files" | "invalid_path";
 }
+
+const DiagnosticsDetailsSchema = z.looseObject({
+  mode: z.enum(["file", "directory"]),
+  totalDiagnostics: z.number().int().nonnegative(),
+  error: z.string().optional(),
+  errorKind: z.enum(["missing_dependency", "no_files", "invalid_path"]).optional(),
+});
 
 interface ToolsModule {
   readonly executeLspDiagnostics: (
@@ -69,9 +78,7 @@ function buildEnv(): Record<string, string> {
 }
 
 function isDiagnosticsDetails(value: unknown): value is DiagnosticsDetails {
-  return (
-    typeof value === "object" && value !== null && "mode" in value && "totalDiagnostics" in value
-  );
+  return DiagnosticsDetailsSchema.safeParse(value).success;
 }
 
 async function loadModule<T>(relativeTarget: string): Promise<T> {

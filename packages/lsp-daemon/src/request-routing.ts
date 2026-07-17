@@ -1,8 +1,15 @@
 import { handleLspMcpRequest, type JsonRpcResponse } from "@holycodex/lsp-core/mcp";
 import { type RequestContext, runWithRequestContext } from "@holycodex/lsp-core/request-context";
-import { isPlainRecord } from "@holycodex/mcp-stdio-core/record";
+import { JsonRpcRequestSchema, McpToolCallParamsSchema } from "@holycodex/mcp-stdio-core/schemas";
+import { z } from "zod";
 
 export const CONTEXT_KEY = "_context";
+const RequestContextSchema = z
+  .strictObject({
+    cwd: z.string().optional(),
+    env: z.record(z.string(), z.string()).optional(),
+  })
+  .refine((value) => value.cwd !== undefined || value.env !== undefined);
 
 export interface RoutedRequest {
   input: unknown;
@@ -11,18 +18,21 @@ export interface RoutedRequest {
 
 /** Extracts request context. */
 export function extractRequestContext(raw: unknown): RoutedRequest {
-  if (!isPlainRecord(raw) || raw["method"] !== "tools/call")
+  const request = JsonRpcRequestSchema.safeParse(raw);
+  if (!request.success || request.data.method !== "tools/call")
     return { input: raw, context: undefined };
-  const params = raw["params"];
-  if (!isPlainRecord(params)) return { input: raw, context: undefined };
-  const args = params["arguments"];
-  if (!isPlainRecord(args)) return { input: raw, context: undefined };
+  const params = McpToolCallParamsSchema.safeParse(request.data.params);
+  if (!params.success) return { input: raw, context: undefined };
+  const args = params.data.arguments ?? {};
   const context = parseContext(args[CONTEXT_KEY]);
   if (!context) return { input: raw, context: undefined };
 
   const cleanedArgs: Record<string, unknown> = { ...args };
   delete cleanedArgs[CONTEXT_KEY];
-  const cleaned = { ...raw, params: { ...params, arguments: cleanedArgs } };
+  const cleaned = {
+    ...request.data,
+    params: { ...params.data, arguments: cleanedArgs },
+  };
   return { input: cleaned, context };
 }
 
@@ -34,15 +44,10 @@ export function handleDaemonMessage(raw: unknown): Promise<JsonRpcResponse | und
 }
 
 function parseContext(value: unknown): RequestContext | undefined {
-  if (!isPlainRecord(value)) return undefined;
-  const context: RequestContext = {};
-  const cwd = value["cwd"];
-  if (typeof cwd === "string") context.cwd = cwd;
-  const env = value["env"];
-  if (isStringRecord(env)) context.env = env;
-  return context.cwd === undefined && context.env === undefined ? undefined : context;
-}
-
-function isStringRecord(value: unknown): value is Record<string, string> {
-  return isPlainRecord(value) && Object.values(value).every((item) => typeof item === "string");
+  const parsed = RequestContextSchema.safeParse(value);
+  if (!parsed.success) return undefined;
+  return {
+    ...(parsed.data.cwd === undefined ? {} : { cwd: parsed.data.cwd }),
+    ...(parsed.data.env === undefined ? {} : { env: parsed.data.env }),
+  };
 }

@@ -2,13 +2,15 @@ import type { Readable, Writable } from "node:stream";
 
 import {
   errorResponse,
-  isPlainRecord,
+  JsonRpcRequestSchema,
+  McpToolCallParamsSchema,
   jsonRpcId,
   messageFromError,
   runJsonRpcStdioServer,
   successResponse,
 } from "@holycodex/mcp-stdio-core";
 import type { JsonRpcResponse, McpLifecycleLog } from "@holycodex/mcp-stdio-core";
+import { z } from "zod";
 
 import { VERSION } from "../../cli/src/catalog.ts";
 import {
@@ -28,6 +30,18 @@ const EXEC_COMMAND_TIMEOUT_ENV_KEYS = [
   "CODEX_EXEC_COMMAND_TIMEOUT_MS",
   "EXEC_COMMAND_TIMEOUT_MS",
 ] as const;
+const InitializeParamsSchema = z.looseObject({ protocolVersion: z.string() });
+const TimeoutSchema = z
+  .union([z.number(), z.string().trim().min(1).transform(Number)])
+  .pipe(z.number().int().min(1).max(MAX_TIMEOUT_MS));
+const RunArgumentsSchema = z.strictObject({
+  command: z.string().trim().min(1),
+  workdir: z.string().trim().min(1).optional(),
+  cwd: z.string().trim().min(1).optional(),
+  timeout: TimeoutSchema.optional(),
+  timeout_ms: TimeoutSchema.optional(),
+  description: z.string().optional(),
+});
 
 export interface GitBashMcpOptions {
   readonly lifecycleLog?: McpLifecycleLog;
@@ -52,12 +66,14 @@ export async function handleGitBashMcpRequest(
   input: unknown,
   options: GitBashMcpOptions = {},
 ): Promise<JsonRpcResponse | undefined> {
-  if (!isPlainRecord(input)) return errorResponse(null, -32600, "Invalid Request");
-  const id = jsonRpcId(input["id"]);
-  const method = typeof input["method"] === "string" ? input["method"] : null;
+  const request = JsonRpcRequestSchema.safeParse(input);
+  if (!request.success) return errorResponse(null, -32600, "Invalid Request");
+  const id = jsonRpcId(request.data.id);
+  const method = request.data.method;
 
   if (method === "initialize") {
-    const protocolVersion = protocolVersionFromInput(input) ?? "2024-11-05";
+    const protocolVersion =
+      InitializeParamsSchema.safeParse(request.data.params).data?.protocolVersion ?? "2024-11-05";
     return successResponse(id, {
       capabilities: { tools: { listChanged: false } },
       instructions: SERVER_INSTRUCTIONS,
@@ -69,10 +85,9 @@ export async function handleGitBashMcpRequest(
   if (method === "tools/list") return successResponse(id, { tools: toolsForOptions(options) });
 
   if (method === "tools/call") {
-    const params = isPlainRecord(input["params"]) ? input["params"] : {};
-    const name = typeof params["name"] === "string" ? params["name"] : "";
-    const args = isPlainRecord(params["arguments"]) ? params["arguments"] : {};
-    return await callTool(id, name, args, options);
+    const params = McpToolCallParamsSchema.safeParse(request.data.params);
+    if (!params.success) return toolResponse(id, "Invalid tools/call parameters.", true);
+    return await callTool(id, params.data.name, params.data.arguments ?? {}, options);
   }
 
   if (method === "notifications/initialized") return undefined;
@@ -121,21 +136,24 @@ async function runToolResponse(
   if (platform !== "win32")
     return toolResponse(id, "git_bash run is only available on native Windows.", true);
 
-  const command = typeof args.command === "string" ? args.command.trim() : "";
-  if (command.length === 0)
+  const parsedArgs = RunArgumentsSchema.safeParse(args);
+  if (!parsedArgs.success) {
+    const field = parsedArgs.error.issues[0]?.path[0];
+    if (field === "workdir" || field === "cwd")
+      return toolResponse(id, "run.workdir must be a non-empty string when provided.", true);
+    if (field === "timeout" || field === "timeout_ms")
+      return toolResponse(
+        id,
+        `run.timeout must be an integer between 1 and ${MAX_TIMEOUT_MS}.`,
+        true,
+      );
     return toolResponse(id, "run.command must be a non-empty string.", true);
+  }
 
-  const cwd = parseWorkdir(args);
-  if (cwd === null)
-    return toolResponse(id, "run.workdir must be a non-empty string when provided.", true);
-
-  const timeoutMs = parseTimeoutMs(args.timeout ?? args.timeout_ms, options);
-  if (timeoutMs === null)
-    return toolResponse(
-      id,
-      `run.timeout must be an integer between 1 and ${MAX_TIMEOUT_MS}.`,
-      true,
-    );
+  const command = parsedArgs.data.command;
+  const cwd = parsedArgs.data.workdir ?? parsedArgs.data.cwd;
+  const timeoutMs =
+    parsedArgs.data.timeout ?? parsedArgs.data.timeout_ms ?? defaultTimeoutMs(options);
 
   const resolution = resolve(options);
   if (!resolution.found || resolution.path === null)
@@ -249,17 +267,6 @@ function toolResponse(id: string | number | null, text: string, isError = false)
   return successResponse(id, { content: [{ type: "text", text }], isError });
 }
 
-function parseWorkdir(args: Record<string, unknown>): string | undefined | null {
-  const value = args.workdir ?? args.cwd;
-  if (value === undefined) return undefined;
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-function parseTimeoutMs(value: unknown, options: GitBashMcpOptions): number | null {
-  if (value === undefined) return defaultTimeoutMs(options);
-  return normalizeTimeoutMs(value);
-}
-
 function defaultTimeoutMs(options: GitBashMcpOptions): number {
   const configured = normalizeTimeoutMs(options.defaultTimeoutMs);
   if (configured !== null) return configured;
@@ -272,15 +279,5 @@ function defaultTimeoutMs(options: GitBashMcpOptions): number {
 }
 
 function normalizeTimeoutMs(value: unknown): number | null {
-  const parsed = typeof value === "string" && value.trim().length > 0 ? Number(value) : value;
-  if (!Number.isInteger(parsed)) return null;
-  const timeoutMs = Number(parsed);
-  if (timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) return null;
-  return timeoutMs;
-}
-
-function protocolVersionFromInput(input: Record<string, unknown>): string | null {
-  if (!isPlainRecord(input["params"])) return null;
-  const params = input["params"];
-  return typeof params["protocolVersion"] === "string" ? params["protocolVersion"] : null;
+  return TimeoutSchema.safeParse(value).data ?? null;
 }

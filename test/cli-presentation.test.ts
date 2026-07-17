@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   renderDoctor,
   renderHelp,
+  renderInstallHelp,
   renderNotice,
   renderRunResult,
   supportsColor,
@@ -15,6 +16,14 @@ describe("CLI presentation", () => {
     expect(output).toContain("COMMANDS");
     expect(output).toContain("--dangerous-codex-autonomous");
     expect(output).not.toContain("\u001B[");
+  });
+
+  it("renders install plan help and examples", () => {
+    const output = renderInstallHelp("0.7.1", false);
+    expect(output).toContain("holycodex install [options]");
+    expect(output).toContain("go, plus, pro-5x, or pro-20x");
+    expect(output).toContain("Default: plus");
+    expect(output).toContain("bunx holycodex install --plan pro-20x");
   });
 
   it("uses color only for a TTY without NO_COLOR", () => {

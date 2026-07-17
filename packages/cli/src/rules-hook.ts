@@ -3,16 +3,21 @@ import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
+import { z } from "zod";
+
+import { UnknownRecordSchema } from "../../mcp-stdio-core/src/schemas.ts";
 import { CORE_INSTRUCTIONS } from "./core-instructions.ts";
 
 export type Rule = { readonly path: string; readonly body: string };
-type HookInput = {
-  readonly hook_event_name?: unknown;
-  readonly session_id?: unknown;
-  readonly cwd?: unknown;
-  readonly transcript_path?: unknown;
-  readonly tool_input?: unknown;
-};
+const HookInputSchema = z.looseObject({
+  hook_event_name: z.string().optional(),
+  session_id: z.string(),
+  cwd: z.string(),
+  transcript_path: z.string().optional(),
+  tool_input: z.unknown().optional(),
+});
+const CachedRuleHashesSchema = z.array(z.string());
+const PositiveIntegerSchema = z.coerce.number().int().positive();
 
 const DEFAULT_RULE_LIMIT = 8_000;
 const DEFAULT_RESULT_LIMIT = 24_000;
@@ -55,27 +60,27 @@ export async function loadRules(cwd: string, targetPath?: string): Promise<reado
 }
 
 /** Runs rules hook. */
-export async function runRulesHook(input: HookInput): Promise<string> {
-  if (typeof input.cwd !== "string" || typeof input.session_id !== "string") return "";
-  const event = input.hook_event_name;
-  const cache = cachePath(input.session_id);
+export async function runRulesHook(input: unknown): Promise<string> {
+  const parsedInput = HookInputSchema.safeParse(input);
+  if (!parsedInput.success) return "";
+  const hook = parsedInput.data;
+  const event = hook.hook_event_name;
+  const cache = cachePath(hook.session_id);
   if (event === "PostCompact") {
     await rm(cache, { force: true });
     return `${JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: CORE_INSTRUCTIONS } })}\n`;
   }
-  const target = event === "PostToolUse" ? editPath(input.tool_input, input.cwd) : undefined;
+  const target = event === "PostToolUse" ? editPath(hook.tool_input, hook.cwd) : undefined;
   if (event === "PostToolUse" && target === undefined) return "";
   if (event !== "SessionStart" && event !== "UserPromptSubmit" && event !== "PostToolUse")
     return "";
-  const rules = await loadRules(input.cwd, target);
+  const rules = await loadRules(hook.cwd, target);
   const transcript =
-    typeof input.transcript_path === "string"
-      ? ((await readable(input.transcript_path)) ?? "")
-      : "";
+    hook.transcript_path === undefined ? "" : ((await readable(hook.transcript_path)) ?? "");
   const emitted = await filterCached(cache, rules, transcript);
   if (emitted.length === 0) return "";
   const context = emitted
-    .map((rule) => `Rule ${relative(input.cwd as string, rule.path)}:\n${rule.body}`)
+    .map((rule) => `Rule ${relative(hook.cwd, rule.path)}:\n${rule.body}`)
     .join("\n\n");
   return `${JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: context } })}\n`;
 }
@@ -168,19 +173,16 @@ async function readable(path: string): Promise<string | undefined> {
 }
 
 function editPath(value: unknown, cwd: string): string | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-  const input = new Map(Object.entries(value));
+  const record = UnknownRecordSchema.safeParse(value);
+  if (!record.success) return undefined;
+  const input = new Map(Object.entries(record.data));
   for (const key of ["filePath", "file_path", "path", "targetPath", "target_path"]) {
     const candidate = input.get(key);
-    if (typeof candidate === "string")
-      return isAbsolute(candidate) ? candidate : resolve(cwd, candidate);
+    const path = z.string().safeParse(candidate);
+    if (path.success) return isAbsolute(path.data) ? path.data : resolve(cwd, path.data);
   }
   const patch =
-    typeof input.get("patch") === "string"
-      ? input.get("patch")
-      : typeof input.get("input") === "string"
-        ? input.get("input")
-        : undefined;
+    z.string().safeParse(input.get("patch")).data ?? z.string().safeParse(input.get("input")).data;
   const path =
     patch === undefined
       ? undefined
@@ -193,7 +195,12 @@ async function filterCached(
   rules: readonly Rule[],
   transcript: string,
 ): Promise<readonly Rule[]> {
-  const previous = new Set(JSON.parse((await readable(path)) ?? "[]") as readonly string[]);
+  const source = (await readable(path)) ?? "[]";
+  let cached: unknown = [];
+  try {
+    cached = JSON.parse(source);
+  } catch {}
+  const previous = new Set(CachedRuleHashesSchema.safeParse(cached).data ?? []);
   const emitted = rules.filter(
     (rule) => !previous.has(hashRule(rule)) && !transcript.includes(rule.body),
   );
@@ -213,6 +220,5 @@ function cachePath(session: string): string {
 }
 
 function numberFromEnv(name: string, fallback: number): number {
-  const value = Number(process.env[name]);
-  return Number.isInteger(value) && value > 0 ? value : fallback;
+  return PositiveIntegerSchema.safeParse(process.env[name]).data ?? fallback;
 }

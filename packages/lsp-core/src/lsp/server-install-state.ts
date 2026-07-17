@@ -2,18 +2,21 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 
-import { isPlainRecord as isRecord } from "@holycodex/mcp-stdio-core/record";
+import { z } from "zod";
 
 import { contextEnv } from "../request-context.js";
 
-export type InstallDecision = "declined" | "allowed";
+const InstallDecisionSchema = z.enum(["declined", "allowed"]);
+export type InstallDecision = z.infer<typeof InstallDecisionSchema>;
 
-export interface InstallDecisionRecord {
-  readonly decision: InstallDecision;
-  readonly decidedAt: string;
-}
+const InstallDecisionRecordSchema = z.strictObject({
+  decision: InstallDecisionSchema,
+  decidedAt: z.string().min(1),
+});
+export type InstallDecisionRecord = z.infer<typeof InstallDecisionRecordSchema>;
 
-type InstallDecisions = Record<string, InstallDecisionRecord>;
+const InstallDecisionsSchema = z.record(z.string(), InstallDecisionRecordSchema);
+type InstallDecisions = z.infer<typeof InstallDecisionsSchema>;
 
 /** Gets install decisions path. */
 export function getInstallDecisionsPath(): string {
@@ -27,8 +30,7 @@ export function loadInstallDecisions(): InstallDecisions {
   const path = getInstallDecisionsPath();
   if (!existsSync(path)) return {};
   try {
-    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-    return isInstallDecisions(parsed) ? parsed : {};
+    return InstallDecisionsSchema.safeParse(JSON.parse(readFileSync(path, "utf8"))).data ?? {};
   } catch {
     return {};
   }
@@ -52,7 +54,7 @@ export function recordInstallDecision(
 
 /** Checks whether install decision. */
 export function isInstallDecision(value: unknown): value is InstallDecision {
-  return value === "declined" || value === "allowed";
+  return InstallDecisionSchema.safeParse(value).success;
 }
 
 function writeInstallDecisions(decisions: InstallDecisions): void {
@@ -61,13 +63,4 @@ function writeInstallDecisions(decisions: InstallDecisions): void {
   const tmpPath = `${path}.tmp`;
   writeFileSync(tmpPath, `${JSON.stringify(decisions, null, 2)}\n`, "utf8");
   renameSync(tmpPath, path);
-}
-
-function isInstallDecisions(value: unknown): value is InstallDecisions {
-  return isRecord(value) && Object.values(value).every(isInstallDecisionRecord);
-}
-
-function isInstallDecisionRecord(value: unknown): value is InstallDecisionRecord {
-  if (!isRecord(value)) return false;
-  return isInstallDecision(value["decision"]) && typeof value["decidedAt"] === "string";
 }

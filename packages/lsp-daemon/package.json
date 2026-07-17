@@ -24,6 +24,9 @@
     "lint:fix": "biome check --write .",
     "check": "tsc --noEmit && biome check . && bun run build"
   },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
   "devDependencies": {
     "@biomejs/biome": "2.4.16",
     "@holycodex/lsp-core": "workspace:*",

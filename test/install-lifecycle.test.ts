@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { AGENTS, MODEL_ROUTING_PLANS, PLAN_NAMES } from "../packages/cli/src/catalog";
 import {
   assertGitBashReady,
   cleanup,
@@ -149,5 +150,23 @@ describe("install lifecycle", () => {
     expect(explorer).toContain('model_reasoning_effort = "high"');
     expect(worker).toContain('model = "gpt-5.6-terra"');
     expect(worker).toContain('model_reasoning_effort = "high"');
+  });
+
+  it("renders every plan and updates managed specialist routing on reinstall", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-routing-plan-test-"));
+    process.env.CODEX_HOME = home;
+    await writeFile(join(home, "config.toml"), "[custom]\nvalue = true\n");
+    for (const plan of PLAN_NAMES) {
+      await install({ autonomy: "default", json: false, plan }, windowsRuntime);
+      const config = await readFile(join(home, "config.toml"), "utf8");
+      expect(config).toContain(`# holycodex plan: ${plan}`);
+      expect(config).toContain("[custom]\nvalue = true");
+      for (const agent of AGENTS) {
+        const source = await readFile(join(home, "holycodex", "agents", `${agent}.toml`), "utf8");
+        const route = MODEL_ROUTING_PLANS[plan].agents[agent];
+        expect(source).toContain(`model = "${route.model}"`);
+        expect(source).toContain(`model_reasoning_effort = "${route.reasoningEffort}"`);
+      }
+    }
   });
 });

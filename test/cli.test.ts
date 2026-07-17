@@ -35,6 +35,47 @@ describe("CLI", () => {
     expect(result.stdout).toContain("USAGE");
   });
 
+  it("documents every install plan and example", async () => {
+    const result = await run(process.execPath, ["packages/cli/src/cli.ts", "install", "--help"]);
+    expect(result.stdout).toContain("go, plus, pro-5x, or pro-20x");
+    expect(result.stdout).toContain("Default: plus");
+    expect(result.stdout).toContain("bunx holycodex install --plan go");
+    expect(result.stdout).toContain("bunx holycodex install --plan pro-20x");
+  });
+
+  it.each(["go", "plus", "pro-5x", "pro-20x"])(
+    "accepts plan %s with flags in either order",
+    async (plan) => {
+      const home = await mkdtemp(join(tmpdir(), "holycodex-cli-plan-"));
+      const result = await run(
+        process.execPath,
+        [
+          "packages/cli/src/cli.ts",
+          "--json",
+          "--plan",
+          plan,
+          "install",
+          "--no-tui",
+          "--no-codex-autonomous",
+        ],
+        { env: { ...process.env, CODEX_HOME: home } },
+      );
+      expect(JSON.parse(result.stdout)).toMatchObject({ action: "install", plan });
+    },
+  );
+
+  it("rejects missing and unknown plan values", async () => {
+    await expect(
+      run(process.execPath, ["packages/cli/src/cli.ts", "install", "--plan"]),
+    ).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("Missing --plan value") });
+    await expect(
+      run(process.execPath, ["packages/cli/src/cli.ts", "install", "--plan", "enterprise"]),
+    ).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining("Valid plans: go, plus, pro-5x, pro-20x"),
+    });
+  });
+
   it("prints a concise error for an unknown command", async () => {
     await expect(
       run(process.execPath, ["packages/cli/src/cli.ts", "definitely-not-a-command"]),
@@ -160,6 +201,7 @@ describe("CLI", () => {
         "bunx",
         "git-bash",
         "autonomy",
+        "routing-plan",
         "context-visibility",
       ]),
     );

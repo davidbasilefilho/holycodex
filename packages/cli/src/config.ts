@@ -1,17 +1,13 @@
 import { Buffer } from "node:buffer";
 
-import { AGENTS, ROOT_MODEL } from "./catalog.ts";
+import { AGENTS, DEFAULT_PLAN, MODEL_ROUTING_PLANS, PLAN_NAMES, type PlanName } from "./catalog.ts";
 import { rootTomlStringArray, rootTomlStringArraySource } from "./toml.ts";
 
 const START = "# >>> holycodex managed >>>";
 const END = "# <<< holycodex managed <<<";
 const ORIGINAL_ROOT = "# holycodex original root: ";
 const ORIGINAL_TABLE_KEY = "# holycodex original table key: ";
-const ROOT_PREFERENCES = [
-  ["model", `model = "${ROOT_MODEL.model}"`],
-  ["model_reasoning_effort", `model_reasoning_effort = "${ROOT_MODEL.reasoningEffort}"`],
-  ["model_verbosity", 'model_verbosity = "low"'],
-] as const;
+const PLAN_PREFIX = "# holycodex plan: ";
 
 export type AutonomyMode = "default" | "autonomous" | "dangerous";
 
@@ -121,14 +117,30 @@ function removeRootValue(input: string, value: string | undefined): string {
   return value === undefined ? input : input.replace(value, "");
 }
 
+function rootPreferences(plan: PlanName) {
+  const root = MODEL_ROUTING_PLANS[plan].root;
+  return [
+    ["model", `model = "${root.model}"`],
+    ["model_reasoning_effort", `model_reasoning_effort = "${root.reasoningEffort}"`],
+    ["model_verbosity", 'model_verbosity = "low"'],
+  ] as const;
+}
+
+/** Reads the explicitly recorded model routing plan from managed configuration. */
+export function readManagedPlan(input: string): PlanName | undefined {
+  const value = new RegExp(`^${PLAN_PREFIX}(.+)$`, "m").exec(input)?.[1]?.trim();
+  return PLAN_NAMES.find((plan) => plan === value);
+}
+
 function preserveManagedRootPreferences(input: string, base: string): string {
   const managedRoot = new RegExp(`^${START}\\r?\\n([\\s\\S]*?)^${END}\\r?$`, "m").exec(input)?.[1];
   if (managedRoot === undefined) return base;
+  const previousPlan = readManagedPlan(managedRoot) ?? DEFAULT_PLAN;
   const firstTable = base.search(/^\s*\[/m);
   const root = firstTable < 0 ? base : base.slice(0, firstTable);
   const tables = firstTable < 0 ? "" : base.slice(firstTable);
   let updatedRoot = root.trim();
-  for (const [key, fallback] of ROOT_PREFERENCES) {
+  for (const [key, fallback] of rootPreferences(previousPlan)) {
     const live = rootValue(managedRoot, key)?.trim();
     if (live === undefined || live === (rootValue(root, key)?.trim() ?? fallback)) continue;
     updatedRoot = removeRootValue(updatedRoot, rootValue(updatedRoot, key)).trim();
@@ -150,6 +162,7 @@ export function installConfig(
   input: string,
   mode: AutonomyMode,
   _platform: NodeJS.Platform,
+  plan: PlanName = DEFAULT_PLAN,
 ): string {
   const unmanaged = removeLegacyOmo(removeManaged(input));
   const base = preserveManagedRootPreferences(input, unmanaged);
@@ -167,8 +180,9 @@ export function installConfig(
   const hasModel = /^\s*model\s*=/m.test(preservedRoot);
   const hasEffort = /^\s*model_reasoning_effort\s*=/m.test(preservedRoot);
   const hasVerbosity = /^\s*model_verbosity\s*=/m.test(preservedRoot);
-  const model = hasModel ? "" : `model = "${ROOT_MODEL.model}"\n`;
-  const effort = hasEffort ? "" : `model_reasoning_effort = "${ROOT_MODEL.reasoningEffort}"\n`;
+  const rootRoute = MODEL_ROUTING_PLANS[plan].root;
+  const model = hasModel ? "" : `model = "${rootRoute.model}"\n`;
+  const effort = hasEffort ? "" : `model_reasoning_effort = "${rootRoute.reasoningEffort}"\n`;
   const verbosity = hasVerbosity ? "" : 'model_verbosity = "low"\n';
   const approval = mode === "default" ? "on-request" : "never";
   const sandbox = mode === "dangerous" ? "danger-full-access" : "workspace-write";
@@ -176,7 +190,7 @@ export function installConfig(
     ? `${ORIGINAL_ROOT}${Buffer.from(originalRoot).toString("base64")}\n`
     : "";
   const preserved = preservedRoot ? `${preservedRoot}\n` : "";
-  const rootBlock = `${START}\n${original}${model}${effort}${verbosity}${preserved}approval_policy = "${approval}"\nsandbox_mode = "${sandbox}"\nstatus_line = ${mergedStatusLine(controlled[3])}\n${END}`;
+  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${original}${model}${effort}${verbosity}${preserved}approval_policy = "${approval}"\nsandbox_mode = "${sandbox}"\nstatus_line = ${mergedStatusLine(controlled[3])}\n${END}`;
   let configured = `${rootBlock}${tables ? `\n\n${tables}` : ""}`;
   configured = injectTableKey(configured, "features", "default_mode_request_user_input", "true");
   configured = injectTableKey(configured, "features", "multi_agent", "true");

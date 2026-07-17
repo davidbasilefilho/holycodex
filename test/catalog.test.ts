@@ -8,6 +8,11 @@ import {
   AGENTS,
   effectiveMcpServers,
   GENERATED_RUNTIMES,
+  MODEL_ROUTING_PLANS,
+  ModelRoutingPlansSchema,
+  PLAN_NAMES,
+  PlanNameSchema,
+  ReasoningEffortSchema,
   requiredPackageRuntimes,
   ROOT_MODEL,
   SKILLS,
@@ -42,16 +47,50 @@ describe("HolyCodex catalog", () => {
     ) as { version: string };
     expect(packageJson.version).toBe(VERSION);
     expect(plugin.version).toBe(VERSION);
-    expect(ROOT_MODEL).toEqual({ model: "gpt-5.6-sol", reasoningEffort: "medium" });
-    expect(AGENT_MODELS.worker).toEqual({
-      model: "gpt-5.6-terra",
-      reasoningEffort: "high",
-    });
+    expect(ROOT_MODEL).toBe(MODEL_ROUTING_PLANS.plus.root);
+    expect(AGENT_MODELS).toBe(MODEL_ROUTING_PLANS.plus.agents);
   });
 
   it("retains the shared Git Bash resolver in non-Windows packages", () => {
     expect(requiredPackageRuntimes("linux")).toContain("git-bash-resolver.js");
     expect(requiredPackageRuntimes("linux")).not.toContain("git-bash.js");
+  });
+
+  it("defines every routing plan without max reasoning", () => {
+    expect(PLAN_NAMES).toEqual(["go", "plus", "pro-5x", "pro-20x"]);
+    expect(Object.keys(MODEL_ROUTING_PLANS)).toEqual(PLAN_NAMES);
+    expect(
+      Object.values(MODEL_ROUTING_PLANS).every((preset) =>
+        AGENTS.every((agent) => preset.agents[agent]),
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(MODEL_ROUTING_PLANS)).not.toContain('"max"');
+  });
+
+  it("rejects invalid plans, reasoning efforts, and incomplete routing presets", () => {
+    expect(PlanNameSchema.safeParse("enterprise").success).toBe(false);
+    expect(ReasoningEffortSchema.safeParse("max").success).toBe(false);
+    expect(
+      ModelRoutingPlansSchema.safeParse({
+        ...MODEL_ROUTING_PLANS,
+        plus: {
+          ...MODEL_ROUTING_PLANS.plus,
+          root: { ...MODEL_ROUTING_PLANS.plus.root, reasoningEffort: "max" },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      ModelRoutingPlansSchema.safeParse({
+        ...MODEL_ROUTING_PLANS,
+        plus: {
+          ...MODEL_ROUTING_PLANS.plus,
+          agents: {
+            explorer: MODEL_ROUTING_PLANS.plus.agents.explorer,
+            librarian: MODEL_ROUTING_PLANS.plus.agents.librarian,
+          },
+        },
+      }).success,
+    ).toBe(false);
   });
 
   it("uses the HolyCodex marketplace label", async () => {

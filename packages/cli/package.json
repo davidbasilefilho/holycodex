@@ -39,7 +39,8 @@
     "prepack": "vp run --workspace-root build"
   },
   "dependencies": {
-    "@holycodex/plugin": "0.7.1"
+    "@holycodex/plugin": "0.7.1",
+    "zod": "^4.4.3"
   },
   "engines": {
     "node": ">=20"

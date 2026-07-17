@@ -1,3 +1,4 @@
+import { JsonRpcIdSchema } from "./schemas.js";
 import type { JsonRpcId, JsonRpcResponse, JsonRpcResult } from "./types.js";
 
 /** Creates a successful JSON-RPC response. */
@@ -21,7 +22,7 @@ export function errorResponse(
 
 /** Parses a JSON-RPC request ID. */
 export function jsonRpcId(value: unknown): JsonRpcId {
-  return typeof value === "string" || typeof value === "number" || value === null ? value : null;
+  return JsonRpcIdSchema.safeParse(value).data ?? null;
 }
 
 /** Extracts a message from an unknown error. */

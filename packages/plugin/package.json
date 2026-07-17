@@ -45,6 +45,9 @@
   "scripts": {
     "prepack": "vp run --workspace-root build"
   },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
   "engines": {
     "node": ">=20"
   }

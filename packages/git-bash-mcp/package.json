@@ -18,7 +18,8 @@
     "test": "bun test src/*.test.ts"
   },
   "dependencies": {
-    "@holycodex/mcp-stdio-core": "workspace:*"
+    "@holycodex/mcp-stdio-core": "workspace:*",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "bun-types": "1.3.12"

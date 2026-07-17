@@ -10,8 +10,11 @@ import {
 } from "../../git-bash-mcp/src/git-bash-resolver.ts";
 import {
   AGENTS,
+  DEFAULT_PLAN,
   effectiveMcpServers,
   MANAGED_AGENT_MODEL_HISTORY,
+  MODEL_ROUTING_PLANS,
+  type PlanName,
   VERSION,
   WINDOWS_SHELL_POLICY,
 } from "./catalog.ts";
@@ -19,11 +22,16 @@ import { installConfig, removeManaged, type AutonomyMode } from "./config.ts";
 import { atomicWrite, backup, exists, readText } from "./files.ts";
 import { rootTomlString } from "./toml.ts";
 
-export type RunOptions = { readonly autonomy: AutonomyMode; readonly json: boolean };
+export type RunOptions = {
+  readonly autonomy: AutonomyMode;
+  readonly json: boolean;
+  readonly plan?: PlanName;
+};
 export type RunResult = {
   readonly action: "install" | "cleanup";
   readonly changed: readonly string[];
   readonly backups: readonly string[];
+  readonly plan?: PlanName;
 };
 export type InstallRuntime = {
   readonly platform: NodeJS.Platform;
@@ -69,6 +77,7 @@ export async function install(
   runtime: InstallRuntime = defaultRuntime,
 ): Promise<RunResult> {
   assertGitBashReady(runtime.platform, runtime.gitBash());
+  const plan = options.plan ?? DEFAULT_PLAN;
   const target = paths();
   const root = backupRoot();
   const backups = [
@@ -77,16 +86,21 @@ export async function install(
     await backup(target.agents, root),
     ...(await Promise.all(target.legacy.map((path) => backup(path, root)))),
   ].filter((path) => path !== undefined);
-  const config = installConfig(await readText(target.config), options.autonomy, runtime.platform);
+  const config = installConfig(
+    await readText(target.config),
+    options.autonomy,
+    runtime.platform,
+    plan,
+  );
   await atomicWrite(target.config, config);
   await rm(target.marketplaceCache, { recursive: true, force: true });
   await mkdir(dirname(target.cache), { recursive: true });
   await cp(pluginRoot, target.cache, { recursive: true });
-  await writePlatformPlugin(target.cache, runtime.platform);
+  await writePlatformPlugin(target.cache, runtime.platform, plan);
   const existingAgentPreferences = await readAgentPreferences(target.agents);
   await rm(target.agents, { recursive: true, force: true });
   await cp(join(pluginRoot, "agents"), target.agents, { recursive: true });
-  await writePlatformAgents(target.agents, runtime.platform);
+  await writeInstalledAgents(target.agents, runtime.platform, plan);
   await preserveAgentPreferences(target.agents, existingAgentPreferences);
   const removedLegacy: string[] = [];
   for (const path of target.legacy) {
@@ -98,6 +112,7 @@ export async function install(
     action: "install",
     changed: [target.config, target.cache, target.agents, ...removedLegacy],
     backups,
+    plan,
   };
 }
 
@@ -148,20 +163,34 @@ function replaceTomlString(input: string, key: string, value: string): string {
   return input.replace(new RegExp(`^${key}\\s*=.*$`, "m"), `${key} = ${JSON.stringify(value)}`);
 }
 
-async function writePlatformPlugin(root: string, platform: NodeJS.Platform): Promise<void> {
+async function writePlatformPlugin(
+  root: string,
+  platform: NodeJS.Platform,
+  plan: PlanName,
+): Promise<void> {
   await atomicWrite(
     join(root, ".mcp.json"),
     `${JSON.stringify({ mcpServers: effectiveMcpServers(platform) }, null, 2)}\n`,
   );
-  await writePlatformAgents(join(root, "agents"), platform);
+  await writeInstalledAgents(join(root, "agents"), platform, plan);
 }
 
-async function writePlatformAgents(root: string, platform: NodeJS.Platform): Promise<void> {
-  if (platform === "win32") return;
+async function writeInstalledAgents(
+  root: string,
+  platform: NodeJS.Platform,
+  plan: PlanName,
+): Promise<void> {
   await Promise.all(
     AGENTS.map(async (agent) => {
       const path = join(root, `${agent}.toml`);
-      const source = await readText(path);
+      const route = MODEL_ROUTING_PLANS[plan].agents[agent];
+      let source = await readText(path);
+      source = replaceTomlString(source, "model", route.model);
+      source = replaceTomlString(source, "model_reasoning_effort", route.reasoningEffort);
+      if (platform === "win32") {
+        await atomicWrite(path, source);
+        return;
+      }
       await atomicWrite(
         path,
         source

@@ -2,8 +2,9 @@ import type { Readable, Writable } from "node:stream";
 
 import {
   errorResponse,
-  isPlainRecord,
+  JsonRpcRequestSchema,
   jsonRpcId,
+  McpToolCallParamsSchema,
   messageFromError,
   runJsonRpcStdioServer,
   successResponse,
@@ -13,6 +14,7 @@ import {
   type JsonRpcResult,
   type McpToolDescriptor,
 } from "@holycodex/mcp-stdio-core";
+import { z } from "zod";
 
 import { VERSION } from "../../cli/src/catalog.ts";
 import { coerceToolArguments, executeLspTool, LSP_MCP_TOOLS } from "./tools.js";
@@ -21,19 +23,21 @@ export type { JsonRpcError, JsonRpcId, JsonRpcResponse, JsonRpcResult, McpToolDe
 
 const SERVER_NAME = "lsp";
 const SERVER_VERSION = VERSION;
+const InitializeParamsSchema = z.looseObject({ protocolVersion: z.string() });
 
 /** Handles lsp mcp request. */
 export async function handleLspMcpRequest(input: unknown): Promise<JsonRpcResponse | undefined> {
-  if (!isPlainRecord(input)) {
+  const request = JsonRpcRequestSchema.safeParse(input);
+  if (!request.success) {
     return errorResponse(null, -32600, "Invalid Request");
   }
 
-  const id = jsonRpcId(input["id"]);
-  const method = input["method"];
+  const id = jsonRpcId(request.data.id);
+  const method = request.data.method;
   if (method === "notifications/initialized") return undefined;
   if (method === "ping") return successResponse(id, {});
   if (method === "initialize") {
-    const protocolVersion = requestedProtocolVersion(input["params"]);
+    const protocolVersion = requestedProtocolVersion(request.data.params);
     return successResponse(id, {
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
@@ -46,7 +50,7 @@ export async function handleLspMcpRequest(input: unknown): Promise<JsonRpcRespon
   }
 
   if (method === "tools/call") {
-    return handleToolCall(id, input["params"]);
+    return handleToolCall(id, request.data.params);
   }
 
   return errorResponse(id, -32601, `Method not found: ${String(method)}`);
@@ -67,12 +71,16 @@ export async function runMcpStdioServer(
 }
 
 async function handleToolCall(id: JsonRpcId, params: unknown): Promise<JsonRpcResponse> {
-  if (!isPlainRecord(params) || typeof params["name"] !== "string") {
+  const toolCall = McpToolCallParamsSchema.safeParse(params);
+  if (!toolCall.success) {
     return errorResponse(id, -32602, "tools/call requires params.name");
   }
 
   try {
-    const result = await executeLspTool(params["name"], coerceToolArguments(params["arguments"]));
+    const result = await executeLspTool(
+      toolCall.data.name,
+      coerceToolArguments(toolCall.data.arguments),
+    );
     return successResponse(id, {
       content: result.content,
       isError: result.isError ?? false,
@@ -96,6 +104,5 @@ function describeTool(tool: (typeof LSP_MCP_TOOLS)[number]): McpToolDescriptor {
 }
 
 function requestedProtocolVersion(params: unknown): string {
-  if (!isPlainRecord(params) || typeof params["protocolVersion"] !== "string") return "2024-11-05";
-  return params["protocolVersion"];
+  return InitializeParamsSchema.safeParse(params).data?.protocolVersion ?? "2024-11-05";
 }

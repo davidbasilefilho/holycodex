@@ -2,10 +2,21 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { z } from "zod";
+
 import { contextCwd } from "../request-context.js";
 import { LspClientConnection } from "./connection.js";
 import { effectiveExtension } from "./effective-extension.js";
 import { getLanguageId } from "./language-mappings.js";
+import {
+  DefinitionResultSchema,
+  DiagnosticReportSchema,
+  DocumentSymbolsResultSchema,
+  PrepareRenameResultSchema,
+  ReferencesResultSchema,
+  WorkspaceEditSchema,
+  WorkspaceSymbolsResultSchema,
+} from "./protocol-schemas.js";
 import type {
   Diagnostic,
   DocumentSymbol,
@@ -20,6 +31,7 @@ import type {
 
 const POST_OPEN_DELAY_MS = 1000;
 const POST_DIAGNOSTICS_WAIT_MS = 500;
+const NumericErrorCodeSchema = z.looseObject({ code: z.number() });
 
 export class LspClient extends LspClientConnection {
   private readonly openedFiles = new Set<string>();
@@ -27,10 +39,12 @@ export class LspClient extends LspClientConnection {
   private readonly lastSyncedText = new Map<string, string>();
   private readonly diagnosticPullErrors: Error[] = [];
 
+  /** Returns diagnostic pull failures collected during fallback. */
   getDiagnosticPullErrors(): readonly Error[] {
     return this.diagnosticPullErrors;
   }
 
+  /** Opens or synchronizes a source file with the language server. */
   async openFile(filePath: string): Promise<void> {
     const absPath = resolve(contextCwd(), filePath);
     const uri = pathToFileURL(absPath).href;
@@ -77,21 +91,20 @@ export class LspClient extends LspClientConnection {
     });
   }
 
+  /** Requests and validates definition locations. */
   async definition(
     filePath: string,
     line: number,
     character: number,
   ): Promise<Location | LocationLink | Array<Location | LocationLink> | null> {
     const textDocument = await this.openTextDocument(filePath);
-    return this.sendRequest<Location | LocationLink | Array<Location | LocationLink> | null>(
-      "textDocument/definition",
-      {
-        textDocument,
-        position: { line: line - 1, character },
-      },
-    );
+    return this.sendRequest("textDocument/definition", DefinitionResultSchema, {
+      textDocument,
+      position: { line: line - 1, character },
+    });
   }
 
+  /** Requests and validates reference locations. */
   async references(
     filePath: string,
     line: number,
@@ -99,37 +112,40 @@ export class LspClient extends LspClientConnection {
     includeDeclaration = true,
   ): Promise<Location[]> {
     const textDocument = await this.openTextDocument(filePath);
-    return this.sendRequest<Location[]>("textDocument/references", {
+    return this.sendRequest("textDocument/references", ReferencesResultSchema, {
       textDocument,
       position: { line: line - 1, character },
       context: { includeDeclaration },
     });
   }
 
+  /** Requests and validates document symbols. */
   async documentSymbols(filePath: string): Promise<Array<DocumentSymbol | SymbolInfo>> {
     const textDocument = await this.openTextDocument(filePath);
-    return this.sendRequest<Array<DocumentSymbol | SymbolInfo>>("textDocument/documentSymbol", {
+    return this.sendRequest("textDocument/documentSymbol", DocumentSymbolsResultSchema, {
       textDocument,
     });
   }
 
+  /** Requests and validates workspace symbols. */
   async workspaceSymbols(query: string): Promise<SymbolInfo[]> {
-    return this.sendRequest<SymbolInfo[]>("workspace/symbol", { query });
+    return this.sendRequest("workspace/symbol", WorkspaceSymbolsResultSchema, { query });
   }
 
   private isUnsupportedDiagnosticPullError(error: unknown): boolean {
     if (!(error instanceof Error)) return false;
-    const code = "code" in error && typeof error.code === "number" ? error.code : undefined;
+    const code = NumericErrorCodeSchema.safeParse(error).data?.code;
     if (code === -32601) return true;
     return /unsupported|not supported|method not found|unknown request/i.test(error.message);
   }
 
+  /** Requests diagnostics and falls back to pushed diagnostics. */
   async diagnostics(filePath: string): Promise<{ items: Diagnostic[] }> {
     const { uri } = await this.openTextDocument(filePath);
     await new Promise((r) => setTimeout(r, POST_DIAGNOSTICS_WAIT_MS));
 
     try {
-      const result = await this.sendRequest<{ items?: Diagnostic[] }>("textDocument/diagnostic", {
+      const result = await this.sendRequest("textDocument/diagnostic", DiagnosticReportSchema, {
         textDocument: { uri },
       });
       if (result.items) {
@@ -144,21 +160,20 @@ export class LspClient extends LspClientConnection {
     return { items: this.getStoredDiagnostics(uri) };
   }
 
+  /** Requests and validates rename preparation data. */
   async prepareRename(
     filePath: string,
     line: number,
     character: number,
   ): Promise<PrepareRenameResult | PrepareRenameDefaultBehavior | Range | null> {
     const textDocument = await this.openTextDocument(filePath);
-    return this.sendRequest<PrepareRenameResult | PrepareRenameDefaultBehavior | Range | null>(
-      "textDocument/prepareRename",
-      {
-        textDocument,
-        position: { line: line - 1, character },
-      },
-    );
+    return this.sendRequest("textDocument/prepareRename", PrepareRenameResultSchema, {
+      textDocument,
+      position: { line: line - 1, character },
+    });
   }
 
+  /** Requests and validates a workspace rename edit. */
   async rename(
     filePath: string,
     line: number,
@@ -166,7 +181,7 @@ export class LspClient extends LspClientConnection {
     newName: string,
   ): Promise<WorkspaceEdit | null> {
     const textDocument = await this.openTextDocument(filePath);
-    return this.sendRequest<WorkspaceEdit | null>("textDocument/rename", {
+    return this.sendRequest("textDocument/rename", WorkspaceEditSchema.nullable(), {
       textDocument,
       position: { line: line - 1, character },
       newName,

@@ -1,4 +1,5 @@
-import { isPlainRecord } from "@holycodex/mcp-stdio-core/record";
+import { JsonRpcIdSchema } from "@holycodex/mcp-stdio-core/schemas";
+import { z } from "zod";
 
 type JsonRpcId = number | string | null;
 
@@ -15,6 +16,11 @@ const PARSE_ERROR = -32700;
 const INVALID_REQUEST = -32600;
 const METHOD_NOT_FOUND = -32601;
 const INTERNAL_ERROR = -32603;
+const JsonRpcObjectSchema = z.looseObject({ jsonrpc: z.literal("2.0") });
+const JsonRpcErrorSchema = z.looseObject({
+  message: z.string().optional(),
+  code: z.number().optional(),
+});
 
 export class JsonRpcConnection {
   private readonly pendingRequests = new Map<string, PendingRequest>();
@@ -58,7 +64,8 @@ export class JsonRpcConnection {
     this.errorHandlers.push(handler);
   }
 
-  async sendRequest<T>(method: string, params?: unknown): Promise<T> {
+  /** Sends a request and validates its external response. */
+  async sendRequest<T>(method: string, schema: z.ZodType<T>, params?: unknown): Promise<T> {
     if (this.disposed) throw new Error("JSON-RPC connection is disposed");
 
     const id = this.nextRequestId;
@@ -71,7 +78,7 @@ export class JsonRpcConnection {
     const responsePromise = new Promise<T>((resolve, reject) => {
       this.pendingRequests.set(String(id), {
         resolve(result) {
-          resolve(result as T);
+          resolve(schema.parse(result));
         },
         reject,
       });
@@ -162,32 +169,34 @@ export class JsonRpcConnection {
       return;
     }
 
-    if (!isJsonRpcObject(parsed)) {
+    const message = JsonRpcObjectSchema.safeParse(parsed);
+    if (!message.success) {
       void this.writeError(null, INVALID_REQUEST, "Invalid JSON-RPC message").catch((error) =>
         this.emitError(toError(error)),
       );
       return;
     }
 
-    if ("id" in parsed && ("result" in parsed || "error" in parsed)) {
-      this.handleResponse(parsed);
+    if ("id" in message.data && ("result" in message.data || "error" in message.data)) {
+      this.handleResponse(message.data);
       return;
     }
 
-    if (typeof parsed["method"] !== "string") {
-      const id = getMessageId(parsed) ?? null;
+    const method = z.string().safeParse(message.data["method"]);
+    if (!method.success) {
+      const id = getMessageId(message.data) ?? null;
       void this.writeError(id, INVALID_REQUEST, "Invalid JSON-RPC method").catch((error) =>
         this.emitError(toError(error)),
       );
       return;
     }
 
-    if ("id" in parsed) {
-      this.handleRequest(parsed);
+    if ("id" in message.data) {
+      this.handleRequest(message.data);
       return;
     }
 
-    this.handleNotification(parsed["method"], parsed["params"]);
+    this.handleNotification(method.data, message.data["params"]);
   }
 
   private handleResponse(message: Record<string, unknown>): void {
@@ -224,7 +233,7 @@ export class JsonRpcConnection {
       return;
     }
 
-    const method = typeof message["method"] === "string" ? message["method"] : "";
+    const method = z.string().safeParse(message["method"]).data ?? "";
     const handler = this.requestHandlers.get(method);
     if (!handler) {
       void this.writeError(id, METHOD_NOT_FOUND, `Method not found: ${method}`).catch((error) =>
@@ -279,23 +288,16 @@ function parseContentLength(headers: string): number | null {
   return null;
 }
 
-function isJsonRpcObject(value: unknown): value is Record<string, unknown> {
-  return isPlainRecord(value) && value["jsonrpc"] === "2.0";
-}
-
 function getMessageId(message: Record<string, unknown>): JsonRpcId | undefined {
-  const id = message["id"];
-  if (typeof id === "number" || typeof id === "string" || id === null) return id;
-  return undefined;
+  return JsonRpcIdSchema.safeParse(message["id"]).data;
 }
 
 function jsonRpcErrorToError(value: unknown): Error {
-  if (!isPlainRecord(value)) return new Error("JSON-RPC request failed");
-  const message =
-    typeof value["message"] === "string" ? value["message"] : "JSON-RPC request failed";
-  const error = new Error(message);
-  if (typeof value["code"] === "number") {
-    error.name = `JsonRpcError(${value["code"]})`;
+  const parsed = JsonRpcErrorSchema.safeParse(value);
+  if (!parsed.success) return new Error("JSON-RPC request failed");
+  const error = new Error(parsed.data.message ?? "JSON-RPC request failed");
+  if (parsed.data.code !== undefined) {
+    error.name = `JsonRpcError(${parsed.data.code})`;
   }
   return error;
 }
