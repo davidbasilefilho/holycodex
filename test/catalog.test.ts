@@ -3,26 +3,20 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LSP_MCP_TOOLS } from "../packages/lsp-core/src/tools";
 import { handleGitBashMcpRequest } from "../packages/git-bash-mcp/src/mcp";
+import {
+  AGENT_MODELS,
+  AGENTS,
+  effectiveMcpServers,
+  GENERATED_RUNTIMES,
+  requiredPackageRuntimes,
+  ROOT_MODEL,
+  SKILLS,
+  VERSION,
+} from "../packages/cli/src/catalog";
 
 const root = join(import.meta.dirname, "..");
-const skills = [
-  "ast-grep",
-  "caveman",
-  "compress",
-  "debugging",
-  "define-goal",
-  "frontend",
-  "handoff",
-  "lsp",
-  "lsp-setup",
-  "plan",
-  "plan-review",
-  "programming",
-  "refactor",
-  "remove-ai-slops",
-  "rules",
-  "security-research",
-] as const;
+const pluginRoot = join(root, "packages", "plugin", "plugin");
+const skills = SKILLS;
 const responseStyleContract = [
   "Default user-facing replies: grammatical sentences; no filler or hedging.",
   "Preserve technical terms, code, paths, error text, and commit keywords;",
@@ -30,6 +24,27 @@ const responseStyleContract = [
 ] as const;
 
 describe("HolyCodex catalog", () => {
+  it("keeps version and model defaults in the canonical catalogue", async () => {
+    const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as {
+      version: string;
+    };
+    const plugin = JSON.parse(
+      await readFile(join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8"),
+    ) as { version: string };
+    expect(packageJson.version).toBe(VERSION);
+    expect(plugin.version).toBe(VERSION);
+    expect(ROOT_MODEL).toEqual({ model: "gpt-5.6-sol", reasoningEffort: "medium" });
+    expect(AGENT_MODELS.worker).toEqual({
+      model: "gpt-5.6-terra",
+      reasoningEffort: "high",
+    });
+  });
+
+  it("retains the shared Git Bash resolver in non-Windows packages", () => {
+    expect(requiredPackageRuntimes("linux")).toContain("git-bash-resolver.js");
+    expect(requiredPackageRuntimes("linux")).not.toContain("git-bash.js");
+  });
+
   it("uses the HolyCodex marketplace label", async () => {
     const marketplace = JSON.parse(await readFile(join(root, "marketplace.json"), "utf8")) as {
       name: string;
@@ -40,62 +55,47 @@ describe("HolyCodex catalog", () => {
   });
 
   it("ships only routed skills and three described agents", async () => {
-    expect((await readdir(join(root, "plugin", "skills"))).sort()).toEqual([...skills].sort());
+    expect((await readdir(join(pluginRoot, "skills"))).sort()).toEqual([...skills].sort());
     for (const skill of skills) {
-      const text = await readFile(join(root, "plugin", "skills", skill, "SKILL.md"), "utf8");
+      const text = await readFile(join(pluginRoot, "skills", skill, "SKILL.md"), "utf8");
       expect(text).toMatch(/^description: Use when /m);
       const description = text.match(/^description:\s*(.*)$/m)?.[1] ?? "";
       expect(description).toMatch(/do not|only when|only after|before editing/i);
       expect(description).toMatch(/Produces|Applies|Creates|Returns/i);
     }
-    expect((await readdir(join(root, "plugin", "agents"))).sort()).toEqual([
+    expect((await readdir(join(pluginRoot, "agents"))).sort()).toEqual([
       "explorer.toml",
       "librarian.toml",
       "worker.toml",
     ]);
-    for (const agent of await readdir(join(root, "plugin", "agents"))) {
-      const prompt = await readFile(join(root, "plugin", "agents", agent), "utf8");
+    for (const agent of await readdir(join(pluginRoot, "agents"))) {
+      const prompt = await readFile(join(pluginRoot, "agents", agent), "utf8");
       expect(prompt).toMatch(/^description = ".*Use .*"$/m);
       expect(prompt).toContain('Start: "I detect ');
-      expect(prompt).toContain(
-        "Before any plan, skill routing, or task action, inspect the full callable tool registry, including deferred tools",
-      );
-      expect(prompt).toContain("treat only that registry as availability evidence");
-      expect(prompt).toContain("On native Windows, before any shell call");
-      expect(prompt).toContain("resolve `mcp__git_bash__run` from the full callable registry");
-      expect(prompt).toContain("including deferred tools");
-      expect(prompt).toContain("otherwise use native shell directly");
+      expect(prompt).toContain("before the first shell action");
+      expect(prompt).toContain("callable and deferred tools");
+      expect(prompt).toContain("Use it for every shell command");
+      expect(prompt).toContain("If unavailable, stop and report the blocker");
       for (const rule of responseStyleContract) expect(prompt).toContain(rule);
-      expect(prompt).not.toMatch(/delegat|subagent/i);
-      expect(prompt).toContain("Accept one task packet containing exact");
-      expect(prompt).toContain("repository root");
-      expect(prompt).toContain("allowed paths");
-      expect(prompt).toContain("forbidden paths");
-      expect(prompt).toContain("relevant architecture and existing behavior");
-      expect(prompt).toContain("required skills");
-      expect(prompt).toContain("exact inputs");
-      expect(prompt).toContain("output format");
-      expect(prompt).toContain("acceptance criteria");
-      expect(prompt).toContain("required commands or evidence");
+      expect(prompt).toMatch(/Accept one (?:bounded|coherent) packet containing exact/);
+      expect(prompt).toContain("allowed scope");
       expect(prompt).toContain("unchanged constraints");
-      expect(prompt).toContain("prohibited expansion");
-      expect(prompt).toContain("known uncertainty");
+      expect(prompt).toContain("forbidden expansion");
+      expect(prompt).toContain("acceptance evidence");
       expect(prompt).toContain("blocker behavior");
-      expect(prompt).toContain("stop condition");
-      expect(prompt).toContain("Return exactly requested format");
-      expect(prompt).toContain("no proposed extra work");
+      expect(prompt).toContain("exact stop condition");
+      expect(prompt).toContain("only when relevant");
+      expect(prompt).toContain("irrelevant optional field");
+      expect(prompt).toContain("propose no extra work");
+      expect(prompt).toContain("or delegate");
     }
-    expect(await readFile(join(root, "plugin", "agents", "explorer.toml"), "utf8")).toContain(
-      'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "low"',
-    );
-    expect(await readFile(join(root, "plugin", "agents", "librarian.toml"), "utf8")).toContain(
-      'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "low"',
-    );
-    expect(await readFile(join(root, "plugin", "agents", "worker.toml"), "utf8")).toContain(
-      'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "medium"',
-    );
-    expect(await readFile(join(root, "plugin", "agents", "worker.toml"), "utf8")).toContain(
-      "Prompt, skill, or instruction task: load caveman first; preserve constraints.",
+    for (const agent of AGENTS) {
+      const text = await readFile(join(pluginRoot, "agents", `${agent}.toml`), "utf8");
+      expect(text).toContain(`model = "${AGENT_MODELS[agent].model}"`);
+      expect(text).toContain(`model_reasoning_effort = "${AGENT_MODELS[agent].reasoningEffort}"`);
+    }
+    expect(await readFile(join(pluginRoot, "agents", "worker.toml"), "utf8")).toContain(
+      "For prompt or instruction work, load caveman first.",
     );
   });
 
@@ -103,52 +103,40 @@ describe("HolyCodex catalog", () => {
     const expected = new Map([
       ["define-goal", "**GOAL MODE ACTIVATED**"],
       ["plan", "**PLAN MODE ACTIVATED**"],
-      ["plan-review", "**PLAN REVIEW ACTIVATED**"],
+      ["plan-review", "**PLAN REVIEW MODE ACTIVATED**"],
     ]);
     for (const [skill, phrase] of expected) {
-      expect(await readFile(join(root, "plugin", "skills", skill, "SKILL.md"), "utf8")).toContain(
+      expect(await readFile(join(pluginRoot, "skills", skill, "SKILL.md"), "utf8")).toContain(
         phrase,
       );
     }
     const plugin = JSON.parse(
-      await readFile(join(root, "plugin", ".codex-plugin", "plugin.json"), "utf8"),
+      await readFile(join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8"),
     ) as { mcpServers?: unknown };
     expect(plugin.mcpServers).toBe("./.mcp.json");
 
-    const manifest = JSON.parse(await readFile(join(root, "plugin", ".mcp.json"), "utf8")) as {
-      mcpServers: Record<string, { command?: string; args?: string[]; cwd?: string; url?: string }>;
+    const manifest = JSON.parse(await readFile(join(pluginRoot, ".mcp.json"), "utf8")) as {
+      mcpServers: Record<string, unknown>;
     };
-    expect(manifest.mcpServers).toEqual({
-      git_bash: { command: "node", args: ["runtime/git-bash.js", "mcp"], cwd: "." },
-      lsp: { command: "node", args: ["runtime/lsp.js", "mcp"], cwd: "." },
-      context7: { url: "https://mcp.context7.com/mcp" },
-    });
+    expect(manifest.mcpServers).toEqual(effectiveMcpServers("win32"));
     await Promise.all(
-      ["git-bash.js", "lsp.js"].map((file) =>
-        readFile(join(root, "plugin", "runtime", file), "utf8"),
-      ),
+      ["git-bash.js", "lsp.js"].map((file) => readFile(join(pluginRoot, "runtime", file), "utf8")),
     );
-    expect((await readdir(join(root, "plugin", "runtime"))).sort()).toEqual(
-      [
-        "bootstrap.js",
-        "cli.js",
-        "core-instructions.js",
-        "git-bash.js",
-        "lsp.js",
-        "mcp-stdio-core.js",
-        "rules.js",
-      ].sort(),
+    expect((await readdir(join(pluginRoot, "runtime"))).sort()).toEqual(
+      [...GENERATED_RUNTIMES].sort(),
     );
   });
 
   it("keeps plugin routing ownership explicit", async () => {
     const manifest = JSON.parse(
-      await readFile(join(root, "plugin", ".codex-plugin", "plugin.json"), "utf8"),
+      await readFile(join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8"),
     ) as { interface?: { longDescription?: string } };
     const description = manifest.interface?.longDescription ?? "";
-    expect(description).toContain("Skills own their declared methods and gates");
-    expect(description).toContain("main agent owns decisions, integration, and verification");
-    expect(description).toContain("do not delegate trivial, coupled, ambiguous, architectural");
+    expect(description).toContain("Root remains the default user-facing agent");
+    expect(description).toContain("cost-aware decomposition");
+    expect(description).toContain("Luna low");
+    expect(description).toContain("Terra high");
+    expect(description).toContain("mandatory only on native Windows");
   });
 
   it("gives every local MCP tool invocation guidance", async () => {
@@ -164,9 +152,9 @@ describe("HolyCodex catalog", () => {
   });
 
   it("ships only supported command hooks", async () => {
-    const config = JSON.parse(
-      await readFile(join(root, "plugin", "hooks", "hooks.json"), "utf8"),
-    ) as { hooks: Record<string, Array<{ hooks: Array<{ type: string }> }>> };
+    const config = JSON.parse(await readFile(join(pluginRoot, "hooks", "hooks.json"), "utf8")) as {
+      hooks: Record<string, Array<{ hooks: Array<{ type: string }> }>>;
+    };
     const hookTypes = Object.values(config.hooks)
       .flat()
       .flatMap((group) => group.hooks.map((hook) => hook.type));

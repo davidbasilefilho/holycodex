@@ -1,64 +1,83 @@
 # HolyCodex
 
-HolyCodex is a modified, standalone Codex-only hard fork of [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent). It keeps the parts that make Codex better at software work, removes the OpenCode runtime and organizational agent machinery, and compresses persistent instructions for lower ChatGPT Plus usage.
+HolyCodex is a lean Codex-only hard fork of [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent). It keeps useful engineering workflows, removes OpenCode-specific machinery, and minimizes persistent prompt cost for ChatGPT Plus.
 
-## What
+## Architecture
 
-HolyCodex installs one focused Codex toolkit:
+Root is the default user-facing agent. It uses GPT-5.6 Sol at medium reasoning unless the user already configured either root value. Root owns intent, scope, architecture, user decisions, integration, final judgment, and final verification.
 
-- 16 on-demand skills for programming, debugging, frontend, LSP, AST search, security research, planning, handoffs, goal definition, compression, and related workflows.
-- Three optional subagents: `explorer` for internal inspection, `librarian` for external research, and `worker` for bounded implementation.
-- Three MCP defaults: `git_bash`, `lsp`, and `context7`.
-- Small command hooks for readiness and scoped rules.
-- A Node-compatible installer and prebuilt runtime usable through npm or Bun.
+Three specialists are available when delegation costs less than doing the work locally:
 
-The primary agent owns intent, scope, architecture, decisions, integration, and final verification. Subagents only reduce cost on narrow independent work; skills own their declared methods and gates.
+| Specialist  | Model              | Scope                                                           |
+| ----------- | ------------------ | --------------------------------------------------------------- |
+| `explorer`  | GPT-5.6 Luna low   | Bounded read-only repository facts                              |
+| `librarian` | GPT-5.6 Luna low   | Bounded current external research from primary sources          |
+| `worker`    | GPT-5.6 Terra high | Isolated implementation after root fixes architecture and proof |
 
-## Why
+Before substantial work, root separates root-owned decisions from independent slices. It uses at most two specialists in one wave by default. Packets carry an exact outcome, scope, unchanged constraints, forbidden expansion, acceptance evidence, blocker behavior, and stop condition. Root keeps work local when it is trivial, coupled, unresolved, unsafe to isolate, or cheaper than packet creation and integration. Specialists do not recursively delegate, review one another, retry unchanged work, or raise their model or effort automatically.
 
-Large always-on prompts, agent hierarchies, review loops, and duplicated context consume tokens before useful work begins. HolyCodex takes a smaller approach:
+HolyCodex also ships 16 on-demand skills, scoped rules, readiness hooks, LSP and Context7 MCPs, and a Windows-only Git Bash MCP. Planning, plan review, and goal definition print exact activation headings. A durable goal is created only after explicit user consent.
 
-- Skills load only when descriptions match the task and state activation, exclusions, outcome, and adjacent boundary.
-- Rules are path-scoped, size-limited, cached, and deduplicated; `AGENTS.md` is never reinjected.
-- Concurrent delegation is capped at two; every delegated slice has fixed scope, evidence, acceptance, and stop conditions under primary-agent control.
-- Explorer and librarian use GPT-5.6 Luna low; worker uses GPT-5.6 Luna medium.
-- Git Bash shell execution is required only on native Windows when its MCP run tool is available; other environments use their native shell directly.
-- OMO workflows and retained references are rewritten with caveman-style token efficiency.
-- The OMO frontend skill is merged with GPT Taste instead of shipping another overlapping skill.
+## Platform behavior
 
-The result aims to keep strong engineering behavior while spending fewer Plus tokens on ceremony and repeated instructions.
+| Platform        | MCP defaults                  | Shell policy                                                                                                |
+| --------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Native Windows  | `git_bash`, `lsp`, `context7` | Every shell action uses the allowlisted Git Bash `run` tool; installation stops if Git Bash is unavailable. |
+| Linux and macOS | `lsp`, `context7`             | Native shell tools; Git Bash configuration and prompt rules are omitted.                                    |
 
-## How
+The shared MCP process layer bounds runtime, caps captured output while preserving its head and tail, resolves exactly once, and terminates process trees on timeout or early protocol success.
 
-### Install
-
-Use either runtime:
+## Install
 
 ```sh
 npx holycodex install
+# or
 bunx holycodex install
 ```
 
-Installation is noninteractive. It:
-
-1. Backs up every affected existing file or managed cache under the OS temporary directory.
-2. Removes legacy OMO configuration and cache after backup.
-3. Preserves unrelated Codex settings and explicit model or agent preferences.
-4. Installs the HolyCodex marketplace, plugin, agents, skills, hooks, and MCP definitions.
-5. Sets `max_concurrent_threads_per_session = 2` and defaults the root model to GPT-5.6 Sol low only when no root preference exists.
-
-Codex may still ask you to review and trust the installed command hooks. This security review is the only manual installation step.
-
-Options:
+Development builds use npm's `dev` channel:
 
 ```sh
+bunx holycodex@dev install
+bunx holycodex@dev doctor
+```
+
+Each development workflow run publishes a unique prerelease and moves only the `dev` dist-tag. Stable `latest` remains unchanged.
+
+Installation is noninteractive. It backs up affected files, removes legacy OMO state after backup, preserves unrelated configuration and explicit model preferences, installs the plugin and effective platform MCPs, and configures:
+
+- `features.multi_agent = true` and request-user-input support;
+- `agents.max_threads = 2` and `agents.max_depth = 1`;
+- named-agent `config_file` entries;
+- a status line containing remaining context;
+- workspace network access in contained modes;
+- local unauthenticated Context7 through `bunx @upstash/context7-mcp`.
+
+Version 0.6.0 migrates the old managed worker default from Luna medium to Terra high. Values that do not match a known HolyCodex-managed default are treated as explicit user preferences and preserved. Cleanup restores values that existed before HolyCodex management.
+
+```sh
+holycodex install                              # on-request, workspace-write, network on
+holycodex install --codex-autonomous           # never ask, workspace-write, network on
+holycodex install --dangerous-codex-autonomous # never ask, unrestricted host access
+holycodex install --no-codex-autonomous        # same contained behavior as no flag
 holycodex install --json
-holycodex install
+holycodex doctor
+holycodex doctor --json
 holycodex --help
 holycodex --version
 ```
 
-### Cleanup
+Dangerous autonomy prints an explicit warning and is never inferred. `doctor` distinguishes missing Bun or `bunx`, malformed or stale Context7 configuration, package resolution and startup failures, model/config drift, platform-inapplicable Git Bash, and healthy operation.
+
+Human CLI output uses a compact TTY-aware presentation and honors `NO_COLOR`. JSON output and redirected text remain stable and noninteractive. OpenTUI is intentionally absent because HolyCodex does not run a persistent terminal interface.
+
+Codex may ask you to trust installed command hooks. This security review is the only expected manual installation step.
+
+## Multi-agent compatibility
+
+HolyCodex uses the documented Codex `features.multi_agent`, `agents.max_threads`, `agents.max_depth`, and per-agent `config_file` surfaces. Codex 0.144.4 locally reports `multi_agent` as stable and enabled, while `multi_agent_v2` is under development and disabled. HolyCodex therefore does not write an undocumented v2 flag. Configuration and deterministic tests prove the intended specialist model files and routing contracts; they do not prove live provider-side model selection for every Codex release.
+
+## Cleanup
 
 ```sh
 npx holycodex cleanup
@@ -66,30 +85,49 @@ npx holycodex cleanup
 bunx holycodex cleanup
 ```
 
-Cleanup backs up affected files, removes only HolyCodex-owned configuration and artifacts, and preserves unrelated settings. Install and cleanup are idempotent.
+Cleanup backs up affected state, removes only HolyCodex-owned configuration and artifacts, and restores managed values. Install and cleanup are idempotent.
 
-### Repository layout
+## Repository layout
 
-- `plugin/skills/` — shipped skill catalogue and on-demand references.
-- `plugin/agents/` — the three cost-focused subagent definitions.
-- `plugin/hooks/` — supported command hooks for readiness and scoped rules.
-- `plugin/.mcp.json` — local and remote MCP defaults.
-- `plugin/runtime/` — prebuilt Node-compatible CLI, rules, Git Bash, and LSP runtime.
-- `src/` — installer, cleanup, bootstrap, and scoped-rules source.
-- `packages/` — Git Bash and LSP MCP source.
-- `test/` — CLI, lifecycle, catalogue, rules, bootstrap, and MCP tests.
+- `packages/cli/` — public `holycodex` executable, source, metadata, and generated CLI bundle.
+- `packages/plugin/` — public `@holycodex/plugin` package containing prompts, skills, agents, hooks, MCP metadata, and generated plugin runtime.
+- `packages/git-bash-mcp/`, `packages/lsp-*`, and `packages/mcp-stdio-core/` — internal runtime packages.
+- `vite.config.ts` — Vite+ plugin-runtime build; `packages/cli/vite.config.ts` builds the CLI.
+- `test/` — lifecycle, configuration, instruction, catalogue, protocol, and platform tests.
 
-## Thanks
+The root package is private and orchestrates the Vite+ workspace. The CLI depends on the exact same version of `@holycodex/plugin`, resolves its installed asset root, and copies only that payload into Codex state.
 
-HolyCodex exists because of the work of:
+## npm publishing
 
-- [YeonGyu Kim and the oh-my-openagent contributors](https://github.com/code-yeongyu/oh-my-openagent), whose project, history, workflows, and Codex integrations form the foundation of this hard fork.
-- [Julius Brussee and caveman contributors](https://github.com/JuliusBrussee/caveman), for the token-efficient communication approach adapted here.
-- The authors credited in [`plugin/skills/frontend/ATTRIBUTION.md`](plugin/skills/frontend/ATTRIBUTION.md), whose frontend design, performance, and UI/UX resources remain attributed under their original terms.
-- Every upstream library and tool author whose work is preserved in the Git history and third-party notices.
+`.github/workflows/publish.yml` is the only npm publishing workflow. It uses npm trusted publishing for pushes to both `main` and `dev`, publishes `@holycodex/plugin` before `holycodex`, and never uses a long-lived npm credential.
 
-## Licenses
+- `main` publishes the intentional repository version with the explicit `latest` tag. Each package is skipped when that exact version already exists, so non-version changes do not fail or republish.
+- `dev` removes any prerelease suffix from the repository version, derives `<base>-dev.<GITHUB_RUN_ID>.<GITHUB_RUN_ATTEMPT>`, applies it only inside the runner, builds with that embedded version, and publishes with the explicit `dev` tag.
 
-HolyCodex uses the same [Sustainable Use License 1.0](LICENSE.md) as oh-my-openagent. This is not the MIT License: use and distribution are subject to the limitations in `LICENSE.md`.
+Configure npm trusted publishing separately for `holycodex` and `@holycodex/plugin` with:
 
-Third-party components retain their original licenses. Relevant notices and bundled license files are preserved in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and alongside the applicable skills or components.
+```text
+Trusted publisher provider: GitHub Actions
+GitHub owner: davidbasilefilho
+Repository: holycodex
+Workflow filename: publish.yml
+Allowed action: npm publish
+```
+
+Both `main` and `dev` must be protected because either branch contains an npm-authorized workflow. No GitHub environment is currently used. If one is added, its workflow `environment` name must exactly match the optional environment configured in npm trusted publishing.
+
+Resulting npm resolution:
+
+```text
+npm install holycodex         -> stable version tagged latest, published from main
+npm install holycodex@latest  -> same stable version
+npm install holycodex@dev     -> newest unique prerelease published from dev
+```
+
+Release validation follows [Vite+ guidance](https://cdn.jsdelivr.net/npm/vite-plus@latest/AGENTS.md): `vp install`, `vp check --fix`, `vp test`, and `vp run` for configured build/version tasks.
+
+## Attribution and license
+
+HolyCodex exists because of YeonGyu Kim and the oh-my-openagent contributors, Julius Brussee and caveman contributors, the authors credited in `packages/plugin/plugin/skills/frontend/ATTRIBUTION.md`, and the upstream projects listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+HolyCodex uses the [Sustainable Use License 1.0](LICENSE.md), not MIT. Third-party components retain their original licenses and notices.

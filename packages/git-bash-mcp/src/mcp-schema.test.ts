@@ -21,7 +21,8 @@ describe("git_bash MCP run schema", () => {
 
     // then
     expect(typeof runTool?.description).toBe("string");
-    expect(String(runTool?.description)).toContain("exec_command");
+    expect(String(runTool?.description)).toContain("every shell command on native Windows");
+    expect(String(runTool?.description)).toContain("other shell execution is prohibited");
     expect(Object.keys(properties ?? {})).toEqual(["command", "timeout", "workdir", "description"]);
     expect(objectField(properties, "timeout")).toMatchObject({ type: "integer", minimum: 1 });
     expect(objectField(properties, "workdir")?.description).toContain("Use this instead of");

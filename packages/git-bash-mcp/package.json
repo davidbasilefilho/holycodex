@@ -1,6 +1,6 @@
 {
   "name": "@holycodex/git-bash-mcp",
-  "version": "0.5.3",
+  "version": "0.7.0",
   "private": true,
   "bin": {
     "holycodex-git-bash": "dist/cli.js"

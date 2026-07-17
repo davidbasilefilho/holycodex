@@ -1,7 +1,4 @@
-import { spawn } from "node:child_process";
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { runManagedProcess } from "@holycodex/mcp-stdio-core/process";
 
 export interface GitBashRunInput {
   readonly bashPath: string;
@@ -21,62 +18,26 @@ export interface GitBashRunResult {
 export type RunGitBashCommand = (input: GitBashRunInput) => Promise<GitBashRunResult>;
 
 export async function runGitBashCommand(input: GitBashRunInput): Promise<GitBashRunResult> {
-  return await new Promise<GitBashRunResult>((resolve, reject) => {
-    const outputDirectory = mkdtempSync(join(tmpdir(), "holycodex-git-bash-run-"));
-    const stdoutPath = join(outputDirectory, "stdout");
-    const stderrPath = join(outputDirectory, "stderr");
-    const stdoutFd = openSync(stdoutPath, "w+");
-    const stderrFd = openSync(stderrPath, "w+");
-    let outputClosed = false;
-
-    function closeOutputFiles(): void {
-      if (outputClosed) {
-        return;
-      }
-
-      closeSync(stdoutFd);
-      closeSync(stderrFd);
-      outputClosed = true;
-    }
-
-    function readAndRemoveOutput(): Pick<GitBashRunResult, "stdout" | "stderr"> {
-      closeOutputFiles();
-      const stdout = readFileSync(stdoutPath, "utf8");
-      const stderr = readFileSync(stderrPath, "utf8");
-      rmSync(outputDirectory, { recursive: true, force: true });
-      return { stdout, stderr };
-    }
-
-    const env =
-      input.env === undefined
-        ? undefined
-        : Object.fromEntries(
-            Object.entries(input.env).filter(([key]) => key.toLowerCase() !== "original_path"),
-          );
-    const child = spawn(input.bashPath, ["-lc", input.command], {
-      cwd: input.cwd,
-      env,
-      windowsHide: true,
-      stdio: ["ignore", stdoutFd, stderrFd],
-    });
-
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      child.kill();
-    }, input.timeoutMs);
-    timeout.unref();
-
-    child.on("error", (error) => {
-      clearTimeout(timeout);
-      closeOutputFiles();
-      rmSync(outputDirectory, { recursive: true, force: true });
-      reject(error);
-    });
-    child.on("close", (exitCode) => {
-      clearTimeout(timeout);
-      const output = readAndRemoveOutput();
-      resolve({ exitCode, ...output, timedOut });
-    });
+  const env =
+    input.env === undefined
+      ? undefined
+      : Object.fromEntries(
+          Object.entries(input.env).filter(([key]) => key.toLowerCase() !== "original_path"),
+        );
+  const result = await runManagedProcess({
+    command: input.bashPath,
+    args: ["-lc", input.command],
+    platform: "win32",
+    timeoutMs: input.timeoutMs,
+    maxOutputChars: 256 * 1024,
+    ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+    ...(env === undefined ? {} : { env }),
   });
+  if (result.error !== undefined) throw new Error(result.error);
+  return {
+    exitCode: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    timedOut: result.timedOut,
+  };
 }

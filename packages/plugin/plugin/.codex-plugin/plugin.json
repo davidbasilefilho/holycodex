@@ -1,0 +1,23 @@
+{
+  "name": "holycodex",
+  "version": "0.7.0",
+  "description": "Cost-aware Codex workflows with routed skills, bounded specialists, scoped rules, Git Bash on Windows, and LSP.",
+  "author": {
+    "name": "David Basile Filho",
+    "url": "https://github.com/davidbasilefilho"
+  },
+  "homepage": "https://github.com/davidbasilefilho/holycodex",
+  "repository": "https://github.com/davidbasilefilho/holycodex",
+  "license": "SUL-1.0",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "HolyCodex",
+    "shortDescription": "Codex agents, routed skills, scoped rules, Git Bash, LSP, code search, and docs lookup.",
+    "longDescription": "Root remains the default user-facing agent and owns architecture, decisions, integration, and final verification. HolyCodex uses cost-aware decomposition: Luna low handles bounded repository or primary-source research, while Terra high handles isolated implementation. Skills govern method without replacing delegation analysis. Git Bash is mandatory only on native Windows; LSP and Context7 remain cross-platform.",
+    "defaultPrompt": "Use HolyCodex to implement and verify this task.",
+    "developerName": "David Basile Filho",
+    "category": "Developer Tools",
+    "capabilities": ["Hooks", "MCP Tools", "Code Intelligence"]
+  }
+}

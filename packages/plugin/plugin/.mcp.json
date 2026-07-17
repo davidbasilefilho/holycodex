@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "git_bash": {
+      "command": "node",
+      "args": ["runtime/git-bash.js", "mcp"],
+      "cwd": ".",
+      "enabled_tools": ["run"]
+    },
+    "lsp": { "command": "node", "args": ["runtime/lsp.js", "mcp"], "cwd": "." },
+    "context7": { "command": "bunx", "args": ["@upstash/context7-mcp"] }
+  }
+}

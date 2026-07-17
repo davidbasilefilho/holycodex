@@ -1,6 +1,6 @@
 {
   "name": "@holycodex/mcp-stdio-core",
-  "version": "0.5.3",
+  "version": "0.7.0",
   "private": true,
   "description": "HolyCodex JSON-RPC stdio framing and dispatch primitives.",
   "type": "module",
@@ -17,6 +17,10 @@
     "./record": {
       "types": "./src/record.ts",
       "import": "./src/record.ts"
+    },
+    "./process": {
+      "types": "./src/process.ts",
+      "import": "./src/process.ts"
     },
     "./server": {
       "types": "./src/server.ts",

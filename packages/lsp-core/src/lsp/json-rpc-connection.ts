@@ -279,6 +279,10 @@ function parseContentLength(headers: string): number | null {
   return null;
 }
 
+function isJsonRpcObject(value: unknown): value is Record<string, unknown> {
+  return isPlainRecord(value) && value["jsonrpc"] === "2.0";
+}
+
 function getMessageId(message: Record<string, unknown>): JsonRpcId | undefined {
   const id = message["id"];
   if (typeof id === "number" || typeof id === "string" || id === null) return id;
