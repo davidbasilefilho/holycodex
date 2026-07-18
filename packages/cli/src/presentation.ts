@@ -4,6 +4,8 @@ import { DEFAULT_PLAN, PLAN_NAMES } from "./catalog.ts";
 import type { DoctorResult } from "./doctor.ts";
 import type { RunResult } from "./install.ts";
 
+const PLAN_HELP = `${PLAN_NAMES.slice(0, -1).join(", ")}, or ${PLAN_NAMES.at(-1)}`;
+
 const RESET = "\u001B[0m";
 const BOLD = "\u001B[1m";
 const CYAN = "\u001B[36m";
@@ -34,14 +36,14 @@ export function renderHelp(version: string, color: boolean): string {
   const title = paint(color, `${BOLD}${CYAN}`, `HOLYCODEX ${version}`);
   const section = (text: string): string => paint(color, BOLD, text);
   const muted = (text: string): string => paint(color, DIM, text);
-  return `${title}\n${muted("Lean Codex toolkit installer and doctor")}\n\n${section("USAGE")}\n  holycodex <command> [options]\n\n${section("COMMANDS")}\n  install                         Install or update HolyCodex\n  cleanup                         Remove HolyCodex-owned state\n  doctor                          Diagnose installation and runtime\n\n${section("OPTIONS")}\n  --plan <plan>                   Model routing plan for install: ${PLAN_NAMES.join(", ")}\n                                   Default: ${DEFAULT_PLAN}\n  -h, --help                      Show help\n  -v, --version                   Show version\n  --no-tui                        Accepted; commands remain noninteractive\n  --codex-autonomous              Never ask; keep workspace sandbox\n  --no-codex-autonomous           Safe interactive defaults\n  --dangerous-codex-autonomous    Never ask; disable filesystem sandbox\n  --json                          Print machine-readable output\n`;
+  return `${title}\n${muted("Lean Codex toolkit installer and doctor")}\n\n${section("USAGE")}\n  holycodex <command> [options]\n\n${section("COMMANDS")}\n  install                         Install or update HolyCodex\n  cleanup                         Remove HolyCodex-owned state\n  doctor                          Diagnose installation and runtime\n\n${section("OPTIONS")}\n  --plan <plan>                   Model routing plan for install: ${PLAN_HELP}\n                                   Default: ${DEFAULT_PLAN}\n  -h, --help                      Show help\n  -v, --version                   Show version\n  --no-tui                        Accepted; commands remain noninteractive\n  --codex-autonomous              Never ask; keep workspace sandbox\n  --no-codex-autonomous           Safe interactive defaults\n  --dangerous-codex-autonomous    Never ask; disable filesystem sandbox\n  --json                          Print machine-readable output\n`;
 }
 
 /** Renders install-specific model plan and option help. */
 export function renderInstallHelp(version: string, color: boolean): string {
   const title = paint(color, `${BOLD}${CYAN}`, `HOLYCODEX ${version}`);
   const section = (text: string): string => paint(color, BOLD, text);
-  return `${title}\n\n${section("Usage:")}\n  holycodex install [options]\n\n${section("Options:")}\n  --plan <plan>                   Model routing plan: go, plus, pro-5x, or pro-20x\n                                   Default: plus\n  --json                          Print machine-readable output\n  --no-tui                        Accepted; install remains noninteractive\n  --codex-autonomous              Never ask; keep workspace sandbox\n  --no-codex-autonomous           Safe interactive defaults\n  --dangerous-codex-autonomous    Never ask; disable filesystem sandbox\n  -h, --help                      Show help\n\nPlans optimize model routing for the corresponding ChatGPT subscription allowance.\n\n${section("Examples:")}\n  bunx holycodex install\n  bunx holycodex install --plan go\n  bunx holycodex install --plan pro-5x\n  bunx holycodex install --plan pro-20x\n`;
+  return `${title}\n\n${section("Usage:")}\n  holycodex install [options]\n\n${section("Options:")}\n  --plan <plan>                   Model routing plan: ${PLAN_HELP}\n                                   Default: ${DEFAULT_PLAN}\n  --json                          Print machine-readable output\n  --no-tui                        Accepted; install remains noninteractive\n  --codex-autonomous              Never ask; keep workspace sandbox\n  --no-codex-autonomous           Safe interactive defaults\n  --dangerous-codex-autonomous    Never ask; disable filesystem sandbox\n  -h, --help                      Show help\n\nPlans provide increasing expected model usage and capability.\n\n${section("Examples:")}\n  bunx holycodex install\n  bunx holycodex install --plan go\n  bunx holycodex install --plan plus-low\n  bunx holycodex install --plan plus-high\n  bunx holycodex install --plan pro-5x\n  bunx holycodex install --plan pro-20x\n`;
 }
 
 /** Renders error. */

@@ -1,51 +1,43 @@
 ---
 name: frontend
-description: Use when work involves frontend, UI, UX, visual design, responsive layout, animation, accessibility, SEO, performance, visual QA, mockups, React, redesign, styling, taste, or polish; do not use for backend-only, prose, CLI, or nonvisual work. Produces approved accessible responsive interfaces or evidence-backed findings with anti-slop craft.
+description: Use when work involves frontend, UI, UX, design, layout, animation, accessibility, performance, React, redesign, or styling; do not use for backend-only, prose, CLI, or nonvisual work. Produces approved accessible interfaces or evidence-backed findings.
 ---
 
 # Frontend
 
-Preserve explicit direction and product contracts. Ask before an ambiguous override. Priority: user; product; accessibility, visible content, correctness, performance; then workflow.
+Priority: user; product; accessibility, visible content, correctness, performance; then workflow.
 
-Before visual work, read `references/anti-slop.md` completely and confirm compactly. Re-read before handoff; fix failures.
+Read `references/anti-slop.md` completely before visual work; re-read before handoff and fix failures.
 
 ## Route
 
-- Audit: load `references/perfection/README.md`; add `react-perf-tooling.md` for React. Scale to risk.
-- Palette, type, style, chart, landing, UX, or stack lookup: load only relevant `references/ui-ux-db` data through its `README.md`.
-- Visual reference: match its design language and behavior; preserve original content and identity unless exact reproduction is explicit.
-- Greenfield: offer concepts only when useful.
-- Browser QA: use browser control and evidence.
-- Nonvisual logic: use `programming` alone.
+- New apps, dashboards, games, creative/visually driven sites, hero sections, redesign/restyle/modernization: read `references/openai-app-builder.md` completely. It has highest priority over anti-slop, UI/UX, and frontend refs on conflict; explicit user/product/accessibility/correctness rules remain hard unless it controls the conflict.
+- Audit: load perfection/React tooling as applicable; lookup only needed UI/UX data. Preserve reference identity/content unless reproduction is explicit. Nonvisual logic uses `programming` alone.
+- read-only frontend audits proceed without `<design_plan>`, concept generation, design approval, goal choice, or implementation unless separately authorized; report findings/evidence only.
 
-Never require `DESIGN.md`. Follow one when present; otherwise derive the smallest contract from nearby code and approved decisions.
+Never require `DESIGN.md`; follow it when present, otherwise derive the smallest approved contract.
 
-## Approval sequence
+## Approval
 
-1. First inspect the request, product shell, target, nearby patterns, tokens, responsiveness, references, content, and states.
+1. First inspect the request, product shell, target, patterns, tokens, responsiveness, references, content, and states.
 2. Select only visible direction, type, layout/density, color/surfaces, assets, responsiveness, states, plus a motion system and accessibility treatment for every task.
-3. Present a compact `<design_plan>` and ask for approval before implementation. Cover direction, type, layout, assets, states, motion, GSAP, reduced motion, keyboard operation, focus visibility, semantic treatment, contrast, labels, applicable loading, error, and empty states, reference boundary, and QA.
+3. Present a compact `<design_plan>` and ask for approval before implementation. Cover direction/type/layout/assets/states/motion/GSAP/reduced motion/keyboard operation/focus visibility/semantic treatment/contrast/labels/applicable loading, error, and empty states/reference boundary/QA. Routed work needs complete Image Gen concept and design approval before implementation detail; accepted concept rules control.
 4. After approval, ask whether the user wants to define a goal. Load `define-goal` only after explicit agreement; otherwise implement.
 
-Visible direction and material interaction require approval; reversible implementation details need no approval. Ask before installing dependencies or adding remote assets.
+Direction/interaction need approval; implementation details need no approval; ask before dependencies or remote assets.
 
 ## Fixed decisions
 
-- Use reasoned variety, never mock RNG or fixed counts. Treat AIDA, bento, hero geometry, component counts, named motion, and spacing as options only when they fit product, task, and stack.
-- Use authentic assets; ask before remote ones. Picsum requires explicit placeholder approval. Never invent research, content, proof, controls, or capabilities.
-- For new type, ban every font named by the comparison sources; choose viewed, authentic, distinctive, licensed, self-hosted, project-owned, or system type. Preserve existing type unless redesign is requested.
-- For new icons, prefer Tabler Icons, another library, Lucide, then bare SVGs. Preserve an existing icon system; use authorized brand marks; ban emoji icons and default icon containers.
-- Use AIDA only when fitting. Use wide two- or three-line landing headings, three to five dense gapless bento cards, and strong spacing only when fitting.
-- Define motion for every implementation. Use GSAP when installed or installation is permitted; otherwise use the existing stack or no-new-dependency motion. Keep essential content visible, preserve meaning under `prefers-reduced-motion`, favor `transform`, `opacity`, and `filter`, and use effects only for real state, continuity, navigation, or explanation.
-- Provide keyboard operation, focus visibility, semantics, contrast, labels, and applicable states. Record material debt and unresolved risks.
+- Use reasoned variety; AIDA, bento, hero geometry, counts, motion, and spacing are options only when they fit product, task, and stack.
+- Use authentic supplied assets; ask before remote assets. Never invent research, content, proof, controls, or capabilities.
+- Preserve project typography unless redesign. Apply the source-conditional font policy below, not a universal ban: reject Fraunces + Work Sans only where it is an overused pairing; Space Grotesk + Inter only as default tech pairing; Cormorant Garamond, Bodoni Moda, Didot, Playfair only as luxury autopilot; Sora only as AI/deep-tech default; JetBrains Mono only as fake-code/house voice; Syne only as edgy default; Archivo only as sport/streetwear default; Inter only as identity/everywhere (allowed neutral body); identity-bearing trendy/free sans/grotesques Inter, Space Grotesk, Sora, Syne, Archivo, Onest, Darker Grotesk, Geologica, Hanken Grotesk, Spline Sans, Schibsted Grotesk, Gabarito, Figtree, Quicksand; novelty display Bagel Fat One, Baloo, Fredoka, Chewy, Lobster; identity-bearing serifs Fraunces, Cormorant, Bodoni, Petrona, Hedvig Letters Serif, Brygada 1918, Young Serif; house-voice monos JetBrains Mono, IBM Plex Mono, Spline Sans Mono, Fragment Mono (allow real data/code/timestamps/prices/tables); reputation-only swaps Big Shoulders, Newsreader, IBM Plex Mono, Instrument Serif, Bricolage; startup-signature defaults Clash Display, General Sans. Choose viewed, authentic, licensed, self-hosted, project-owned, system, or distinctive type when the source condition applies.
+- New icons: prefer Tabler Icons, another library, Lucide, then bare SVG. Preserve existing icon system and accepted-design fidelity; authorized brands only; no emoji icons or default icon containers.
+- Define purposeful motion. Use GSAP when installed or installation is permitted; otherwise existing stack or no-new-dependency motion. Ask before installation. Keep content visible, preserve meaning under `prefers-reduced-motion`, favor `transform`, `opacity`, `filter`, and use effects only for state, continuity, navigation, or explanation.
+- Provide keyboard, focus, semantics, contrast, labels, and applicable states; record material debt/risk.
 
-## Implementation
+## Implementation and evidence
 
-1. Inspect target, patterns, assets, dependencies, and states; lock approved design roles.
-2. Implement a coherent slice with reusable existing or approved components.
-3. Test viewports, containment, interaction, keyboard, states, and reduced motion.
-4. Check rendering and interaction performance; never weaken UX solely for a score.
-5. Run proportional fresh browser QA. For significant work inspect 375, 768, and 1280 pixels. For performance acceptance audit production repeatedly on mobile and desktop, use medians, and fix architectural causes.
-6. Re-read `references/anti-slop.md`, fix failures, and report only measured evidence.
-
-Run `vp check --fix` after repository edits.
+1. Inspect target/patterns/assets/states; lock roles; implement reusable slices.
+2. Test containment, interaction, keyboard, states, reduced motion, and 375/768/1280 for significant work.
+3. Check performance; never weaken UX for a score. Re-read anti-slop, repair, report measured evidence.
+4. Run the target repository's formatter, linter, type checker, and tests, plus project-specific browser and fidelity checks.

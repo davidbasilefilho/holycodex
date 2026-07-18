@@ -157,17 +157,34 @@ describe("install lifecycle", () => {
     process.env.CODEX_HOME = home;
     await install({ autonomy: "default", json: false, plan: "plus" }, windowsRuntime);
     const explorerPath = join(home, "holycodex", "agents", "explorer.toml");
-    const goRoute = MODEL_ROUTING_PLANS.go.agents.explorer;
+    const proRoute = MODEL_ROUTING_PLANS["pro-5x"].agents.explorer;
     await writeFile(
       explorerPath,
-      `model = "${goRoute.model}"\nmodel_reasoning_effort = "${goRoute.reasoningEffort}"\n`,
+      `model = "${proRoute.model}"\nmodel_reasoning_effort = "${proRoute.reasoningEffort}"\n`,
     );
 
     await install({ autonomy: "default", json: false, plan: "plus" }, windowsRuntime);
 
     const explorer = await readFile(explorerPath, "utf8");
-    expect(explorer).toContain(`model = "${goRoute.model}"`);
-    expect(explorer).toContain(`model_reasoning_effort = "${goRoute.reasoningEffort}"`);
+    expect(explorer).toContain(`model = "${proRoute.model}"`);
+    expect(explorer).toContain(`model_reasoning_effort = "${proRoute.reasoningEffort}"`);
+  });
+
+  it("migrates old managed pro-20x specialist routes", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-old-pro-20x-route-test-"));
+    process.env.CODEX_HOME = home;
+    await install({ autonomy: "default", json: false, plan: "pro-20x" }, windowsRuntime);
+    await writeFile(
+      join(home, "holycodex", "agents", "explorer.toml"),
+      'model = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"\n',
+    );
+
+    await install({ autonomy: "default", json: false, plan: "plus" }, windowsRuntime);
+
+    const explorer = await readFile(join(home, "holycodex", "agents", "explorer.toml"), "utf8");
+    const route = MODEL_ROUTING_PLANS.plus.agents.explorer;
+    expect(explorer).toContain(`model = "${route.model}"`);
+    expect(explorer).toContain(`model_reasoning_effort = "${route.reasoningEffort}"`);
   });
 
   it("renders every plan and updates managed specialist routing on reinstall", async () => {
@@ -179,6 +196,8 @@ describe("install lifecycle", () => {
       const config = await readFile(join(home, "config.toml"), "utf8");
       expect(config).toContain(`# holycodex plan: ${plan}`);
       expect(config).toContain("[custom]\nvalue = true");
+      expect(config).toContain(`max_threads = ${MODEL_ROUTING_PLANS[plan].usage.maxThreads}`);
+      expect(config).toContain(`max_depth = ${MODEL_ROUTING_PLANS[plan].usage.maxDepth}`);
       for (const agent of AGENTS) {
         const source = await readFile(join(home, "holycodex", "agents", `${agent}.toml`), "utf8");
         const route = MODEL_ROUTING_PLANS[plan].agents[agent];

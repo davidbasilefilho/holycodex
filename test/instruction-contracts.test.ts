@@ -31,7 +31,8 @@ describe("instruction workflow contracts", () => {
       expect(description).toMatch(/Produces|Applies|Creates/);
       expect(text.length).toBeLessThanOrEqual(5_000);
     }
-    expect(texts.reduce((sum, text) => sum + text.length, 0)).toBeLessThanOrEqual(28_100);
+    // Allows the small routed-skill additions while every entry remains capped at 5 KB.
+    expect(texts.reduce((sum, text) => sum + text.length, 0)).toBeLessThanOrEqual(30_000);
   });
 
   it("bounds the complete routed instruction surface", async () => {
@@ -48,8 +49,9 @@ describe("instruction workflow contracts", () => {
       ...agents,
       readFile(join(root, "packages", "cli", "src", "core-instructions.ts"), "utf8"),
     ]);
+    // Allows the conditional, complete-surface OpenAI reference with measured headroom.
     expect(texts.reduce((sum, text) => sum + Buffer.byteLength(text), 0)).toBeLessThanOrEqual(
-      62_800,
+      80_000,
     );
   });
 
@@ -298,6 +300,57 @@ describe("instruction workflow contracts", () => {
     ])
       expect(text).toContain(contract);
     expect(text).toContain("implementation details need no approval");
+  });
+
+  it("routes full-surface OpenAI frontend work through approved concepts", async () => {
+    const frontend = await skill("frontend");
+    const openai = await readFile(
+      join(pluginRoot, "skills", "frontend", "references", "openai-app-builder.md"),
+      "utf8",
+    );
+    expect(frontend).toContain("openai-app-builder.md");
+    expect(frontend).toContain("highest priority over anti-slop");
+    expect(frontend).toContain("read-only frontend audits proceed without `<design_plan>`");
+    expect(frontend).toContain("target repository's formatter, linter, type checker, and tests");
+    expect(frontend).not.toContain("Run `vp check --fix`");
+    expect(frontend).toContain("Tabler Icons, another library, Lucide, then bare SVG");
+    expect(frontend).toContain("GSAP when installed or installation is permitted");
+    expect(openai).toContain("Image Gen");
+    expect(openai).toContain("accepted concept");
+    expect(openai).toContain("React + Vite");
+    expect(openai).toContain("Browser/IAB first");
+    expect(openai).toContain("view_image");
+    expect(openai).toContain("fidelity ledger");
+    expect(openai).toContain("above-the-fold copy diff");
+    expect(openai).toContain("Hard stops");
+    expect(openai).toContain("Surface gates");
+    expect(openai).not.toContain("Plan mode");
+  });
+
+  it("keeps source-conditional font policy and OpenAI planning gates", async () => {
+    const antiSlop = await readFile(
+      join(pluginRoot, "skills", "frontend", "references", "anti-slop.md"),
+      "utf8",
+    );
+    expect(antiSlop).toContain("source-conditional font policy in `../SKILL.md`");
+    expect(antiSlop).toContain("Fraunces + Work Sans");
+    expect(antiSlop).toContain("Inter is allowed as a neutral body face");
+    expect(antiSlop).not.toContain("source-derived ban");
+
+    const plan = await skill("plan");
+    expectOrder(plan, [
+      "inspect task and repo",
+      "complete Image Gen concept",
+      "design approval",
+      "draft implementation details",
+      "Write the complete initial plan",
+    ]);
+    expect(plan).toContain("Read-only frontend audits bypass this gate");
+
+    const review = await skill("plan-review");
+    expect(review).toContain("complete concept and design approval");
+    expect(review).toContain("return it to `plan`");
+    expect(review).toContain("Read-only frontend audits are exempt");
   });
 
   it("keeps adjacent skill boundaries explicit", async () => {

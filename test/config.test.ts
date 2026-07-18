@@ -44,7 +44,7 @@ describe("Codex configuration", () => {
       expect(output).toContain(`# holycodex plan: ${plan}`);
       expect(output).toContain(`model = "${route.model}"`);
       expect(output).toContain(`model_reasoning_effort = "${route.reasoningEffort}"`);
-      expect(output).toContain("max_threads = 2");
+      expect(output).toContain(`max_threads = ${MODEL_ROUTING_PLANS[plan].usage.maxThreads}`);
       expect(output).toContain("max_depth = 1");
     }
   });
@@ -58,6 +58,16 @@ describe("Codex configuration", () => {
     expect(pro).toContain(`model = "${route.model}"`);
     expect(pro).toContain(`model_reasoning_effort = "${route.reasoningEffort}"`);
     expect(removeManaged(pro)).toBe(original.trim());
+  });
+
+  it("migrates the former pro-20x Sol xhigh root route", () => {
+    const oldPro = installPlanConfig("", "pro-20x").replace(
+      'model_reasoning_effort = "high"',
+      'model_reasoning_effort = "xhigh"',
+    );
+    const upgraded = installPlanConfig(oldPro, "pro-20x");
+    expect(upgraded).toContain('model_reasoning_effort = "high"');
+    expect(upgraded).not.toContain('model_reasoning_effort = "xhigh"');
   });
 
   it("removes only its managed block during cleanup", () => {

@@ -14,7 +14,7 @@ Require request, initial plan, repo facts. If no initial plan exists, stop; retu
 
 One pass:
 
-1. Compare plan against request, repo, constraints, evidence, decisions. Map every material requirement to a step or exclusion; expose contradictions, unsupported assumptions, unresolved product choices.
+1. Compare plan against request, repo, constraints, evidence, decisions. Map every material requirement to a step or exclusion; expose contradictions, unsupported assumptions, unresolved product choices. For a qualifying routed OpenAI frontend implementation, require complete concept and design approval before implementation details; if absent, block and return it to `plan`. Read-only frontend audits are exempt.
 2. Trace entry points, API, data, generated files, docs, package, migration, cleanup, rollback; find wrong scope/order, circular dependencies, overlapping writes, unsafe parallelism, wrong routing, needless surfaces/splitting, unverifiable tasks.
 3. Challenge compatibility, data-loss/security/sandbox/permission risk, mandatory Windows Git Bash behavior, context recovery, attribution/license needs, frontend accessibility/motion, user work.
 4. Audit routing. Require Explorer before a second separable repository read/search or any multi-file or symbol fact pass; Librarian before a second external source or multi-source, version, or date research; Worker for fixed isolated implementation beyond one file, one substantive edit, or one proof cycle. Check ownership, reuse, gates, reconciliation, context-heavy delegation, `fork_context=false`, two lanes, local work. Never estimate exact monetary or token cost; specialists never delegate. Block architecture or user decisions; label lesser repairs suggestions. Rank findings by impact before revising.

@@ -37,13 +37,15 @@ describe("CLI", () => {
 
   it("documents every install plan and example", async () => {
     const result = await run(process.execPath, ["packages/cli/src/cli.ts", "install", "--help"]);
-    expect(result.stdout).toContain("go, plus, pro-5x, or pro-20x");
+    expect(result.stdout).toContain("go, plus-low, plus, plus-high, pro-5x, or pro-20x");
     expect(result.stdout).toContain("Default: plus");
     expect(result.stdout).toContain("bunx holycodex install --plan go");
+    expect(result.stdout).toContain("bunx holycodex install --plan plus-low");
+    expect(result.stdout).toContain("bunx holycodex install --plan plus-high");
     expect(result.stdout).toContain("bunx holycodex install --plan pro-20x");
   });
 
-  it.each(["go", "plus", "pro-5x", "pro-20x"])(
+  it.each(["go", "plus-low", "plus", "plus-high", "pro-5x", "pro-20x"])(
     "accepts plan %s with flags in either order",
     async (plan) => {
       const home = await mkdtemp(join(tmpdir(), "holycodex-cli-plan-"));
@@ -72,7 +74,9 @@ describe("CLI", () => {
       run(process.execPath, ["packages/cli/src/cli.ts", "install", "--plan", "enterprise"]),
     ).rejects.toMatchObject({
       code: 1,
-      stderr: expect.stringContaining("Valid plans: go, plus, pro-5x, pro-20x"),
+      stderr: expect.stringContaining(
+        "Valid plans: go, plus-low, plus, plus-high, pro-5x, pro-20x",
+      ),
     });
   });
 

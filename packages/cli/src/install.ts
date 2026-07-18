@@ -13,6 +13,7 @@ import {
   DEFAULT_PLAN,
   effectiveMcpServers,
   MANAGED_AGENT_MODEL_HISTORY,
+  MANAGED_AGENT_MODEL_HISTORY_BY_PLAN,
   MODEL_ROUTING_PLANS,
   type PlanName,
   VERSION,
@@ -130,7 +131,7 @@ async function readAgentPreferences(
       const managedRoutes =
         previousPlan === undefined
           ? MANAGED_AGENT_MODEL_HISTORY[agent]
-          : [MODEL_ROUTING_PLANS[previousPlan].agents[agent]];
+          : MANAGED_AGENT_MODEL_HISTORY_BY_PLAN[previousPlan][agent];
       const managed = managedRoutes.some(
         (item) => item.model === model && item.reasoningEffort === reasoningEffort,
       );

@@ -98,7 +98,7 @@ Reject canned or unearned use of every pattern below. Allow a crafted exception 
 
 ### Typography
 
-- Do not introduce any font named in the frontend skill's source-derived ban. Preserve established product typography outside a requested redesign.
+- Follow the source-conditional font policy in `../SKILL.md`; it is not a universal font ban. Preserve established product typography outside a requested redesign. Fraunces + Work Sans is an overused-pairing concern; Space Grotesk + Inter is a default-tech concern; Inter is allowed as a neutral body face, not an identity everywhere. Apply the listed display, serif, mono, reputation-swap, and startup-signature cautions only under their named source conditions.
 - Avoid a free or trendy font carrying the entire identity merely because it appears distinctive.
 - Avoid mono as the house voice. Reserve it for genuine data, code, timestamps, or technical values.
 - Avoid a letterspaced serif wordmark as an instant-luxury shortcut.

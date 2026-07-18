@@ -143,6 +143,16 @@ function tableBoolean(config: string, table: string, key: string): boolean | und
   return value === undefined ? undefined : value === "true";
 }
 
+function tableInteger(config: string, table: string, key: string): number | undefined {
+  const body = new RegExp(
+    `^\\s*\\[${table.replaceAll(".", "\\.")}]\\s*$([\\s\\S]*?)(?=^\\s*\\[|(?![\\s\\S]))`,
+    "m",
+  ).exec(config)?.[1];
+  const value =
+    body === undefined ? undefined : new RegExp(`^\\s*${key}\\s*=\\s*(\\d+)`, "m").exec(body)?.[1];
+  return value === undefined ? undefined : Number(value);
+}
+
 function autonomy(config: string): DoctorResult["autonomy"] {
   const approval = rootTomlString(config, "approval_policy");
   const sandbox = rootTomlString(config, "sandbox_mode");
@@ -422,6 +432,43 @@ export async function doctor(
           "Rerun holycodex install.",
         )
       : check("routing-plan", "ok", "routing-plan-ready", `Model routing plan ${plan} is active.`),
+  );
+  const preset = plan === undefined ? undefined : MODEL_ROUTING_PLANS[plan];
+  checks.push(
+    preset === undefined ||
+      rootTomlString(config, "model") !== preset.root.model ||
+      rootTomlString(config, "model_reasoning_effort") !== preset.root.reasoningEffort
+      ? check(
+          "root-model",
+          "error",
+          "root-model-stale",
+          "Root model configuration does not match the selected routing plan.",
+          "Reinstall HolyCodex.",
+        )
+      : check(
+          "root-model",
+          "ok",
+          "root-model-ready",
+          "Root model matches the selected routing plan.",
+        ),
+  );
+  checks.push(
+    preset === undefined ||
+      tableInteger(config, "agents", "max_threads") !== preset.usage.maxThreads ||
+      tableInteger(config, "agents", "max_depth") !== preset.usage.maxDepth
+      ? check(
+          "agent-usage",
+          "error",
+          "agent-usage-stale",
+          "Agent concurrency configuration does not match the selected routing plan.",
+          "Reinstall HolyCodex.",
+        )
+      : check(
+          "agent-usage",
+          "ok",
+          "agent-usage-ready",
+          "Agent concurrency matches the selected routing plan.",
+        ),
   );
   checks.push(
     mode === "unknown"

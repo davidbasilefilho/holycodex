@@ -14,12 +14,16 @@ The goal is a small, predictable Codex toolkit: strong defaults, explicit danger
 
 Root is the default user-facing decision, clarification, integration, and verification layer. It owns user interaction, intent, scope, architecture, product decisions, ambiguity resolution, final judgment, and final verification. The selected routing plan configures Root and each specialist; explicit user model preferences are preserved.
 
-| Plan      | Root                 | Explorer           | Librarian          | Worker               |
-| --------- | -------------------- | ------------------ | ------------------ | -------------------- |
-| `go`      | GPT-5.6 Terra medium | GPT-5.6 Terra low  | GPT-5.6 Terra low  | GPT-5.6 Terra medium |
-| `plus`    | GPT-5.6 Sol medium   | GPT-5.6 Luna low   | GPT-5.6 Luna low   | GPT-5.6 Terra high   |
-| `pro-5x`  | GPT-5.6 Sol high     | GPT-5.6 Terra high | GPT-5.6 Terra high | GPT-5.6 Sol medium   |
-| `pro-20x` | GPT-5.6 Sol xhigh    | GPT-5.6 Sol medium | GPT-5.6 Sol medium | GPT-5.6 Sol high     |
+| Plan        | Root               | Explorer             | Librarian            | Worker               | Usage              |
+| ----------- | ------------------ | -------------------- | -------------------- | -------------------- | ------------------ |
+| `go`        | GPT-5.6 Sol low    | GPT-5.6 Luna low     | GPT-5.6 Luna low     | GPT-5.6 Terra low    | 1 thread, depth 1  |
+| `plus-low`  | GPT-5.6 Sol low    | GPT-5.6 Luna low     | GPT-5.6 Luna medium  | GPT-5.6 Terra medium | 1 thread, depth 1  |
+| `plus`      | GPT-5.6 Sol medium | GPT-5.6 Luna medium  | GPT-5.6 Terra low    | GPT-5.6 Terra high   | 2 threads, depth 1 |
+| `plus-high` | GPT-5.6 Sol medium | GPT-5.6 Terra medium | GPT-5.6 Terra medium | GPT-5.6 Sol medium   | 2 threads, depth 1 |
+| `pro-5x`    | GPT-5.6 Sol high   | GPT-5.6 Terra medium | GPT-5.6 Terra high   | GPT-5.6 Sol medium   | 2 threads, depth 1 |
+| `pro-20x`   | GPT-5.6 Sol high   | GPT-5.6 Luna high    | GPT-5.6 Terra high   | GPT-5.6 Sol high     | 2 threads, depth 1 |
+
+Plans increase expected model usage and capability in this order: `go < plus-low < plus < plus-high < pro-5x < pro-20x`.
 
 Bounded independent work is presumed delegable to highly capable smaller specialists. Delegate long, context-heavy, separable, or easier work they can perform:
 
@@ -66,7 +70,7 @@ Each development workflow run publishes a unique prerelease and moves only the `
 Installation is noninteractive. It backs up affected files, removes legacy OMO state after backup, preserves unrelated configuration and explicit model preferences, installs the plugin and effective platform MCPs, and configures:
 
 - `features.multi_agent = true` and request-user-input support;
-- `agents.max_threads = 2` and `agents.max_depth = 1`;
+- plan-selected `agents.max_threads` (1 or 2) and `agents.max_depth = 1`;
 - named-agent `config_file` entries;
 - a status line containing remaining context;
 - workspace network access in contained modes;
@@ -76,10 +80,12 @@ Version 0.6.0 migrates the old managed worker default from Luna medium to Terra 
 
 ```sh
 holycodex install                              # on-request, workspace-write, network on
-holycodex install --plan go                    # lower-cost routing plan
-holycodex install --plan plus                  # default routing plan
-holycodex install --plan pro-5x                # higher-capability routing plan
-holycodex install --plan pro-20x               # highest-capability routing plan
+holycodex install --plan go                    # lowest-usage routing plan
+holycodex install --plan plus-low              # low-usage Plus routing plan
+holycodex install --plan plus                  # default Plus routing plan
+holycodex install --plan plus-high             # high-usage Plus routing plan
+holycodex install --plan pro-5x                # higher-usage Pro routing plan
+holycodex install --plan pro-20x               # highest-usage Pro routing plan
 holycodex install --codex-autonomous           # never ask, workspace-write, network on
 holycodex install --dangerous-codex-autonomous # never ask, unrestricted host access
 holycodex install --no-codex-autonomous        # same contained behavior as no flag

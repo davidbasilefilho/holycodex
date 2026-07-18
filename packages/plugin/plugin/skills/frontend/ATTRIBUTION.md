@@ -223,3 +223,9 @@ public guidance at `https://pols.dev/slop.md`, the MIT-licensed Leonxlnx taste-s
 already attributed above, and the public Oh My OpenAgent frontend router at
 `code-yeongyu/oh-my-openagent`. It records merged operating rules and project-specific
 conflict resolutions rather than redistributing any source file.
+
+---
+
+## 6. OpenAI frontend-app-builder adaptation
+
+`frontend/references/openai-app-builder.md` is a project-original, non-verbatim adaptation of user-supplied OpenAI `frontend-app-builder` instructions. No source code or assets were copied. The supplied attachment included no license metadata; this notice does not claim an OpenAI license.

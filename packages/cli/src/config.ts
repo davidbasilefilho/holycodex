@@ -142,7 +142,16 @@ function preserveManagedRootPreferences(input: string, base: string): string {
   let updatedRoot = root.trim();
   for (const [key, fallback] of rootPreferences(previousPlan)) {
     const live = rootValue(managedRoot, key)?.trim();
-    if (live === undefined || live === (rootValue(root, key)?.trim() ?? fallback)) continue;
+    const legacy =
+      previousPlan === "pro-20x" && key === "model_reasoning_effort"
+        ? ['model_reasoning_effort = "xhigh"']
+        : [];
+    if (
+      live === undefined ||
+      live === (rootValue(root, key)?.trim() ?? fallback) ||
+      legacy.includes(live)
+    )
+      continue;
     updatedRoot = removeRootValue(updatedRoot, rootValue(updatedRoot, key)).trim();
     updatedRoot = `${updatedRoot}${updatedRoot ? "\n" : ""}${live}`;
   }
@@ -194,8 +203,9 @@ export function installConfig(
   let configured = `${rootBlock}${tables ? `\n\n${tables}` : ""}`;
   configured = injectTableKey(configured, "features", "default_mode_request_user_input", "true");
   configured = injectTableKey(configured, "features", "multi_agent", "true");
-  configured = injectTableKey(configured, "agents", "max_threads", "2");
-  configured = injectTableKey(configured, "agents", "max_depth", "1");
+  const usage = MODEL_ROUTING_PLANS[plan].usage;
+  configured = injectTableKey(configured, "agents", "max_threads", String(usage.maxThreads));
+  configured = injectTableKey(configured, "agents", "max_depth", String(usage.maxDepth));
   if (mode !== "dangerous")
     configured = injectTableKey(configured, "sandbox_workspace_write", "network_access", "true");
   for (const agent of AGENTS)
