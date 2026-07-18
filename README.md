@@ -17,7 +17,7 @@ Root is the default user-facing decision, clarification, integration, and verifi
 | Plan        | Root               | Explorer             | Librarian            | Worker               | Usage              |
 | ----------- | ------------------ | -------------------- | -------------------- | -------------------- | ------------------ |
 | `go`        | GPT-5.6 Sol low    | GPT-5.6 Luna low     | GPT-5.6 Luna low     | GPT-5.6 Terra low    | 1 thread, depth 1  |
-| `plus-low`  | GPT-5.6 Sol low    | GPT-5.6 Luna low     | GPT-5.6 Luna medium  | GPT-5.6 Terra medium | 1 thread, depth 1  |
+| `plus-low`  | GPT-5.6 Sol medium | GPT-5.6 Luna low     | GPT-5.6 Luna medium  | GPT-5.6 Terra medium | 1 thread, depth 1  |
 | `plus`      | GPT-5.6 Sol medium | GPT-5.6 Luna medium  | GPT-5.6 Terra low    | GPT-5.6 Terra high   | 2 threads, depth 1 |
 | `plus-high` | GPT-5.6 Sol medium | GPT-5.6 Terra medium | GPT-5.6 Terra medium | GPT-5.6 Sol medium   | 2 threads, depth 1 |
 | `pro-5x`    | GPT-5.6 Sol high   | GPT-5.6 Terra medium | GPT-5.6 Terra high   | GPT-5.6 Sol medium   | 2 threads, depth 1 |

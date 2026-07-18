@@ -84,7 +84,7 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
     usage: { maxThreads: 1, maxDepth: 1 },
   },
   "plus-low": {
-    root: { model: "gpt-5.6-sol", reasoningEffort: "low" },
+    root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
     agents: {
       explorer: { model: "gpt-5.6-luna", reasoningEffort: "low" },
       librarian: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
