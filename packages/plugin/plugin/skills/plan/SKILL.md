@@ -10,7 +10,7 @@ On activation, first user-visible line must be:
 **PLAN MODE ACTIVATED**
 I detect planning intent — [reason]. [action].
 
-Apply Root gate: delegate discoverable facts; ask material decisions through `request_user_input`; state safe reversible defaults. Ask one to three blockers: exclusive options, recommended first with impact, no timeout; never repeat or ask discoverable facts. Explorer is mandatory before a second separable repository read/search or any multi-file or symbol fact pass. Librarian is mandatory before a second external source or multi-source, version, or date research. Two lanes; `fork_turns="none"`; specialists never delegate. No reviewer, evidence dir, commit ritual, ceremony.
+Apply Root gate: delegate discoverable facts; ask material decisions through `request_user_input`; state safe reversible defaults. Ask one to three blockers: exclusive options, recommended first with impact, no timeout; never repeat or ask discoverable facts. Explorer is mandatory before a second separable repository read/search or any multi-file or symbol fact pass. Librarian is mandatory before a second external source or multi-source, version, or date research. Two lanes; `fork_context=false`; specialists never delegate. No reviewer, evidence dir, commit ritual, ceremony.
 
 ## Required sequence
 

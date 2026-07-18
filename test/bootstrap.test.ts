@@ -39,7 +39,7 @@ describe("bootstrap readiness", () => {
     expect(context).toContain("do not require user-visible orchestration commentary");
     expect(context).toContain("Skills govern method, not routing");
     expect(context).toContain("Run at most two lanes per wave");
-    expect(context).toContain('fork_turns="none"');
+    expect(context).toContain("fork_context=false");
     expect(context).not.toMatch(/(?:Explorer|Librarian|Worker) (?:uses|runs) GPT 5\.6/);
     expect(context).toContain("Packets have five concepts");
     expect(context).toContain("Do not duplicate specialist work");
