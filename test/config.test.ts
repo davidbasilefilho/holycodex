@@ -44,7 +44,7 @@ describe("Codex configuration", () => {
       expect(output).toContain(`# holycodex plan: ${plan}`);
       expect(output).toContain(`model = "${route.model}"`);
       expect(output).toContain(`model_reasoning_effort = "${route.reasoningEffort}"`);
-      expect(output).toContain("max_threads = 2");
+      expect(output).toContain(`max_threads = ${MODEL_ROUTING_PLANS[plan].usage.maxThreads}`);
       expect(output).toContain("max_depth = 1");
     }
   });
@@ -58,6 +58,36 @@ describe("Codex configuration", () => {
     expect(pro).toContain(`model = "${route.model}"`);
     expect(pro).toContain(`model_reasoning_effort = "${route.reasoningEffort}"`);
     expect(removeManaged(pro)).toBe(original.trim());
+  });
+
+  it("migrates the former pro-20x Sol xhigh root route", () => {
+    const oldPro = installPlanConfig("", "pro-20x").replace(
+      'model_reasoning_effort = "high"',
+      'model_reasoning_effort = "xhigh"',
+    );
+    const upgraded = installPlanConfig(oldPro, "pro-20x");
+    expect(upgraded).toContain('model_reasoning_effort = "high"');
+    expect(upgraded).not.toContain('model_reasoning_effort = "xhigh"');
+  });
+
+  it("migrates the former go Terra medium root route", () => {
+    const oldGo = installPlanConfig("", "go")
+      .replace('model = "gpt-5.6-sol"', 'model = "gpt-5.6-terra"')
+      .replace('model_reasoning_effort = "low"', 'model_reasoning_effort = "medium"');
+    const upgraded = installPlanConfig(oldGo, "go");
+    expect(upgraded).toContain('model = "gpt-5.6-sol"');
+    expect(upgraded).toContain('model_reasoning_effort = "low"');
+    expect(upgraded).not.toContain('model = "gpt-5.6-terra"');
+  });
+
+  it("preserves an unrelated explicit root route across reinstall", () => {
+    const installed = installPlanConfig(
+      'model = "user/root"\nmodel_reasoning_effort = "xhigh"\n',
+      "plus",
+    );
+    const reinstalled = installPlanConfig(installed, "plus");
+    expect(reinstalled).toContain('model = "user/root"');
+    expect(reinstalled).toContain('model_reasoning_effort = "xhigh"');
   });
 
   it("removes only its managed block during cleanup", () => {

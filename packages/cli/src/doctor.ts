@@ -18,7 +18,7 @@ import {
   SKILLS,
   VERSION,
 } from "./catalog.ts";
-import { readManagedPlan } from "./config.ts";
+import { readManagedPlan, readPreservedRootOverrides } from "./config.ts";
 import { rootTomlString, rootTomlStringArray } from "./toml.ts";
 
 const McpManifestSchema = z.looseObject({
@@ -141,6 +141,16 @@ function tableBoolean(config: string, table: string, key: string): boolean | und
       ? undefined
       : new RegExp(`^\\s*${key}\\s*=\\s*(true|false)`, "m").exec(body)?.[1];
   return value === undefined ? undefined : value === "true";
+}
+
+function tableInteger(config: string, table: string, key: string): number | undefined {
+  const body = new RegExp(
+    `^\\s*\\[${table.replaceAll(".", "\\.")}]\\s*$([\\s\\S]*?)(?=^\\s*\\[|(?![\\s\\S]))`,
+    "m",
+  ).exec(config)?.[1];
+  const value =
+    body === undefined ? undefined : new RegExp(`^\\s*${key}\\s*=\\s*(\\d+)`, "m").exec(body)?.[1];
+  return value === undefined ? undefined : Number(value);
 }
 
 function autonomy(config: string): DoctorResult["autonomy"] {
@@ -422,6 +432,51 @@ export async function doctor(
           "Rerun holycodex install.",
         )
       : check("routing-plan", "ok", "routing-plan-ready", `Model routing plan ${plan} is active.`),
+  );
+  const preset = plan === undefined ? undefined : MODEL_ROUTING_PLANS[plan];
+  const rootOverrides = readPreservedRootOverrides(config);
+  checks.push(
+    preset !== undefined &&
+      rootTomlString(config, "model") === preset.root.model &&
+      rootTomlString(config, "model_reasoning_effort") === preset.root.reasoningEffort
+      ? check(
+          "root-model",
+          "ok",
+          "root-model-ready",
+          "Root model matches the selected routing plan.",
+        )
+      : rootOverrides.model || rootOverrides.reasoningEffort
+        ? check(
+            "root-model",
+            "ok",
+            "root-model-override",
+            "Root model uses an intentionally preserved explicit override.",
+          )
+        : check(
+            "root-model",
+            "error",
+            "root-model-stale",
+            "Root model configuration does not match the selected routing plan.",
+            "Reinstall HolyCodex.",
+          ),
+  );
+  checks.push(
+    preset === undefined ||
+      tableInteger(config, "agents", "max_threads") !== preset.usage.maxThreads ||
+      tableInteger(config, "agents", "max_depth") !== preset.usage.maxDepth
+      ? check(
+          "agent-usage",
+          "error",
+          "agent-usage-stale",
+          "Agent concurrency configuration does not match the selected routing plan.",
+          "Reinstall HolyCodex.",
+        )
+      : check(
+          "agent-usage",
+          "ok",
+          "agent-usage-ready",
+          "Agent concurrency matches the selected routing plan.",
+        ),
   );
   checks.push(
     mode === "unknown"

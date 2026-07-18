@@ -31,7 +31,8 @@ describe("instruction workflow contracts", () => {
       expect(description).toMatch(/Produces|Applies|Creates/);
       expect(text.length).toBeLessThanOrEqual(5_000);
     }
-    expect(texts.reduce((sum, text) => sum + text.length, 0)).toBeLessThanOrEqual(28_100);
+    // Allows the small routed-skill additions while every entry remains capped at 5 KB.
+    expect(texts.reduce((sum, text) => sum + text.length, 0)).toBeLessThanOrEqual(30_000);
   });
 
   it("bounds the complete routed instruction surface", async () => {
@@ -48,8 +49,9 @@ describe("instruction workflow contracts", () => {
       ...agents,
       readFile(join(root, "packages", "cli", "src", "core-instructions.ts"), "utf8"),
     ]);
+    // Allows the conditional, complete-surface OpenAI reference with measured headroom.
     expect(texts.reduce((sum, text) => sum + Buffer.byteLength(text), 0)).toBeLessThanOrEqual(
-      45_600,
+      80_000,
     );
   });
 
@@ -93,6 +95,80 @@ describe("instruction workflow contracts", () => {
     }
   });
 
+  it("pins capability-routing fixtures as prompt contracts", async () => {
+    const fixtures = JSON.parse(
+      await readFile(join(root, "test", "fixtures", "routing-policy.json"), "utf8"),
+    ) as Array<{ id: string; route: string; before?: string; then?: string }>;
+    const core = await readFile(
+      join(root, "packages", "cli", "src", "core-instructions.ts"),
+      "utf8",
+    );
+    const expectedRoutes = new Map([
+      ["three-source-comparison", "librarian"],
+      ["multi-file-facts", "explorer"],
+      ["version-research", "librarian"],
+      ["isolated-multi-file-write", "worker"],
+      ["atomic-one-file-local-work", "local"],
+      ["coupled-architecture-local-work", "local"],
+    ]);
+    expect(fixtures.map((fixture) => fixture.id)).toEqual([...expectedRoutes.keys()]);
+    for (const fixture of fixtures)
+      expect(fixture.route, fixture.id).toBe(expectedRoutes.get(fixture.id));
+    const threeSourceComparison = fixtures.find(
+      (fixture) => fixture.id === "three-source-comparison",
+    );
+    expect(threeSourceComparison?.before).toBe("root-source-ingestion");
+    expect(threeSourceComparison?.then).toBe("worker-after-decisions");
+    expect(core).toContain("Delegate long, context-heavy, separable, or easier work");
+    expect(core).toContain(
+      "Explorer is mandatory before a second separable repository read/search",
+    );
+    expect(core).toContain("any multi-file or symbol fact pass");
+    expect(core).toContain(
+      "Librarian is mandatory before a second external source or multi-source, version, or date research",
+    );
+    expect(core).toContain("Worker is mandatory for fixed isolated implementation beyond one file");
+    expect(core).toContain("Keep work local only when atomic, coupled, architecturally unresolved");
+    expect(core).toContain("Never use a reviewer agent, allow overlapping write ownership");
+    expect(core).toContain("estimate exact monetary or token cost");
+  });
+
+  it("pins clarification fixtures and specialist blocker returns as prompt contracts", async () => {
+    const fixtures = JSON.parse(
+      await readFile(join(root, "test", "fixtures", "clarification-policy.json"), "utf8"),
+    ) as Array<{ id: string; classification: string; action: string }>;
+    const core = await readFile(
+      join(root, "packages", "cli", "src", "core-instructions.ts"),
+      "utf8",
+    );
+    expect(fixtures.map((fixture) => fixture.id)).toEqual([
+      "missing-product-behavior",
+      "destructive-action",
+      "safe-default",
+      "discoverable-fact",
+      "specialist-blocker",
+    ]);
+    expect(fixtures.map((fixture) => fixture.action)).toEqual([
+      "ask",
+      "ask",
+      "state-and-proceed",
+      "delegate",
+      "return-question-ready-blocker",
+    ]);
+    expect(core).toContain("delegate discoverable facts; ask the user for a material decision");
+    expect(core).toContain("state and proceed with a safe reversible default");
+    expect(core).toContain("target, scope, behavior, architecture, proof, visible direction");
+    expect(core).toContain(
+      "compatibility, privacy, security, authority, or an external or destructive effect",
+    );
+    expect(core).toContain("For a material blocker, use `request_user_input` when available");
+    expect(core).toContain("Do not repeat a question or ask for discoverable facts");
+    for (const name of ["explorer", "librarian", "worker"])
+      expect(await readFile(join(pluginRoot, "agents", `${name}.toml`), "utf8")).toContain(
+        "return a question-ready blocker",
+      );
+  });
+
   it("orders planning, one review, approval, optional goal, and stop", async () => {
     const text = await skill("plan");
     expect(text).toContain("do not use for multiple obvious steps");
@@ -106,7 +182,7 @@ describe("instruction workflow contracts", () => {
       "Only after explicit agreement, load `define-goal`",
     ]);
     expect(text).toContain("Do not implement before approval.");
-    expect(text).toContain("Stop planning after approval and the optional goal choice");
+    expect(text).toContain("Stop after approval and goal choice; no repeated review.");
 
     const review = await skill("plan-review");
     expect(review).toContain("If no initial plan exists, stop");
@@ -134,7 +210,7 @@ describe("instruction workflow contracts", () => {
       "frontend-accessibility": /frontend accessibility\/motion/,
       "weak-proof": /vague criteria, unverifiable outcomes/,
       "missing-package": /generated\/package/,
-      "token-waste": /token-heavy delegation/,
+      "token-waste": /context-heavy delegation/,
       "behavior-changing-cleanup": /behavior-changing cleanup/,
       "missing-attribution": /attribution\/license/,
       "continues-past-goal": /continuing beyond real goal/,
@@ -224,6 +300,57 @@ describe("instruction workflow contracts", () => {
     ])
       expect(text).toContain(contract);
     expect(text).toContain("implementation details need no approval");
+  });
+
+  it("routes full-surface OpenAI frontend work through approved concepts", async () => {
+    const frontend = await skill("frontend");
+    const openai = await readFile(
+      join(pluginRoot, "skills", "frontend", "references", "openai-app-builder.md"),
+      "utf8",
+    );
+    expect(frontend).toContain("openai-app-builder.md");
+    expect(frontend).toContain("highest priority over anti-slop");
+    expect(frontend).toContain("read-only frontend audits proceed without `<design_plan>`");
+    expect(frontend).toContain("target repository's formatter, linter, type checker, and tests");
+    expect(frontend).not.toContain("Run `vp check --fix`");
+    expect(frontend).toContain("Tabler Icons, another library, Lucide, then bare SVG");
+    expect(frontend).toContain("GSAP when installed or installation is permitted");
+    expect(openai).toContain("Image Gen");
+    expect(openai).toContain("accepted concept");
+    expect(openai).toContain("React + Vite");
+    expect(openai).toContain("Browser/IAB first");
+    expect(openai).toContain("view_image");
+    expect(openai).toContain("fidelity ledger");
+    expect(openai).toContain("above-the-fold copy diff");
+    expect(openai).toContain("Hard stops");
+    expect(openai).toContain("Surface gates");
+    expect(openai).not.toContain("Plan mode");
+  });
+
+  it("keeps source-conditional font policy and OpenAI planning gates", async () => {
+    const antiSlop = await readFile(
+      join(pluginRoot, "skills", "frontend", "references", "anti-slop.md"),
+      "utf8",
+    );
+    expect(antiSlop).toContain("source-conditional font policy in `../SKILL.md`");
+    expect(antiSlop).toContain("Fraunces + Work Sans");
+    expect(antiSlop).toContain("Inter is allowed as a neutral body face");
+    expect(antiSlop).not.toContain("source-derived ban");
+
+    const plan = await skill("plan");
+    expectOrder(plan, [
+      "inspect task and repo",
+      "complete Image Gen concept",
+      "design approval",
+      "draft implementation details",
+      "Write the complete initial plan",
+    ]);
+    expect(plan).toContain("Read-only frontend audits bypass this gate");
+
+    const review = await skill("plan-review");
+    expect(review).toContain("complete concept and design approval");
+    expect(review).toContain("return it to `plan`");
+    expect(review).toContain("Read-only frontend audits are exempt");
   });
 
   it("keeps adjacent skill boundaries explicit", async () => {

@@ -12,16 +12,20 @@ The goal is a small, predictable Codex toolkit: strong defaults, explicit danger
 
 ## How it works
 
-Root is the default user-facing agent. It owns user interaction, intent, scope, architecture, product decisions, ambiguity resolution, integration, final judgment, and final verification. The selected routing plan configures Root and each specialist; explicit user model preferences are preserved.
+Root is the default user-facing decision, clarification, integration, and verification layer. It owns user interaction, intent, scope, architecture, product decisions, ambiguity resolution, final judgment, and final verification. The selected routing plan configures Root and each specialist; explicit user model preferences are preserved.
 
-| Plan      | Root                 | Explorer           | Librarian          | Worker               |
-| --------- | -------------------- | ------------------ | ------------------ | -------------------- |
-| `go`      | GPT-5.6 Terra medium | GPT-5.6 Terra low  | GPT-5.6 Terra low  | GPT-5.6 Terra medium |
-| `plus`    | GPT-5.6 Sol medium   | GPT-5.6 Luna low   | GPT-5.6 Luna low   | GPT-5.6 Terra high   |
-| `pro-5x`  | GPT-5.6 Sol high     | GPT-5.6 Terra high | GPT-5.6 Terra high | GPT-5.6 Sol medium   |
-| `pro-20x` | GPT-5.6 Sol xhigh    | GPT-5.6 Sol medium | GPT-5.6 Sol medium | GPT-5.6 Sol high     |
+| Plan        | Root               | Explorer             | Librarian            | Worker               | Usage              |
+| ----------- | ------------------ | -------------------- | -------------------- | -------------------- | ------------------ |
+| `go`        | GPT-5.6 Sol low    | GPT-5.6 Luna low     | GPT-5.6 Luna low     | GPT-5.6 Terra low    | 1 thread, depth 1  |
+| `plus-low`  | GPT-5.6 Sol medium | GPT-5.6 Luna low     | GPT-5.6 Luna medium  | GPT-5.6 Terra medium | 1 thread, depth 1  |
+| `plus`      | GPT-5.6 Sol medium | GPT-5.6 Luna medium  | GPT-5.6 Terra low    | GPT-5.6 Terra high   | 2 threads, depth 1 |
+| `plus-high` | GPT-5.6 Sol medium | GPT-5.6 Terra medium | GPT-5.6 Terra medium | GPT-5.6 Sol medium   | 2 threads, depth 1 |
+| `pro-5x`    | GPT-5.6 Sol high   | GPT-5.6 Terra medium | GPT-5.6 Terra high   | GPT-5.6 Sol medium   | 2 threads, depth 1 |
+| `pro-20x`   | GPT-5.6 Sol high   | GPT-5.6 Luna high    | GPT-5.6 Terra high   | GPT-5.6 Sol high     | 2 threads, depth 1 |
 
-Bounded independent work is presumed delegable to the cheapest capable specialist:
+Plans increase expected model usage and capability in this order: `go < plus-low < plus < plus-high < pro-5x < pro-20x`.
+
+Bounded independent work is presumed delegable to highly capable smaller specialists. Delegate long, context-heavy, separable, or easier work they can perform:
 
 | Specialist  | Scope                                                           |
 | ----------- | --------------------------------------------------------------- |
@@ -29,9 +33,11 @@ Bounded independent work is presumed delegable to the cheapest capable specialis
 | `librarian` | Bounded current external research from primary sources          |
 | `worker`    | Isolated implementation after Root fixes architecture and proof |
 
-Root delegates repository inspection when it likely needs more than two root tool calls, spans multiple files or symbols, asks a separable factual question, or can run while root handles decisions. It delegates current external research when multiple primary sources, version or date verification, or a bounded factual answer is needed. It delegates implementation after architecture, behavior, scope, constraints, write ownership, proof, and stop conditions are fixed. Root retains user interaction, intent, architecture, product decisions, ambiguity resolution, integration, final judgment, and final verification.
+Prompt contracts guide this routing; deterministic tests cover those contracts, not provider-side enforcement. Root never estimates exact monetary or token cost. Explorer is mandatory before a second separable repository read or search, or any multi-file or symbol fact pass. Librarian is mandatory before a second external source or multi-source, version, or date research. Worker is mandatory for fixed isolated implementation beyond one file, one substantive edit, or one proof cycle, after Root fixes architecture, behavior, scope, constraints, write ownership, acceptance evidence, and stop conditions. Root retains user interaction, intent, architecture, product decisions, ambiguity resolution, integration, final judgment, and final verification.
 
-Root uses at most two specialists in one wave by default. Packets carry five concepts: exact outcome or question, allowed scope, constraints and fixed decisions, required evidence or proof, and stop and blocker conditions. Optional context stays optional. Local work is reserved for atomic or tightly coupled work, unresolved architecture, unsafe isolation, or cases where dispatch plus review is concretely more expensive. Specialists do not delegate, overlap write ownership, review one another, retry unchanged packets, or raise their model or effort automatically. Root reviews actual returns before spot-checking only load-bearing claims, avoids duplicate reassurance work, integrates results, and performs final verification.
+Before work, Root delegates discoverable facts, asks the user for material decisions, and states then proceeds with safe reversible defaults. Material decisions affect target, scope, behavior, architecture, proof, visible direction, compatibility, privacy, security, authority, or an external or destructive effect. For material blockers, Root uses `request_user_input` when available with one to three mutually exclusive options, a recommended option and impact, and no timeout. Root does not repeat questions or ask discoverable facts.
+
+Root uses at most two specialists in one wave by default. Packets carry five concepts: exact outcome or question, allowed scope, constraints and fixed decisions, required evidence or proof, and stop and blocker conditions. Optional context stays optional. Local work is reserved for atomic, coupled, unresolved, unsafe to isolate, or coordination-heavy work. Specialists do not delegate, overlap write ownership, review one another, retry unchanged packets, or raise their model or effort automatically. Root reviews actual returns before spot-checking only load-bearing claims, avoids duplicate reassurance work, integrates results, and performs final verification.
 
 HolyCodex also ships 16 on-demand skills, scoped rules, readiness hooks, LSP and Context7 MCPs, and a Windows-only Git Bash MCP. Planning, plan review, and goal definition print exact activation headings. A durable goal is created only after explicit user consent. Zod schemas validate CLI input, configuration, manifests, persisted state, MCP and JSON-RPC envelopes, LSP responses, daemon messages, environment values, and metadata scripts at their runtime boundaries.
 
@@ -64,7 +70,7 @@ Each development workflow run publishes a unique prerelease and moves only the `
 Installation is noninteractive. It backs up affected files, removes legacy OMO state after backup, preserves unrelated configuration and explicit model preferences, installs the plugin and effective platform MCPs, and configures:
 
 - `features.multi_agent = true` and request-user-input support;
-- `agents.max_threads = 2` and `agents.max_depth = 1`;
+- plan-selected `agents.max_threads` (1 or 2) and `agents.max_depth = 1`;
 - named-agent `config_file` entries;
 - a status line containing remaining context;
 - workspace network access in contained modes;
@@ -74,10 +80,12 @@ Version 0.6.0 migrates the old managed worker default from Luna medium to Terra 
 
 ```sh
 holycodex install                              # on-request, workspace-write, network on
-holycodex install --plan go                    # lower-cost routing plan
-holycodex install --plan plus                  # default routing plan
-holycodex install --plan pro-5x                # higher-capability routing plan
-holycodex install --plan pro-20x               # highest-capability routing plan
+holycodex install --plan go                    # lowest-usage routing plan
+holycodex install --plan plus-low              # low-usage Plus routing plan
+holycodex install --plan plus                  # default Plus routing plan
+holycodex install --plan plus-high             # high-usage Plus routing plan
+holycodex install --plan pro-5x                # higher-usage Pro routing plan
+holycodex install --plan pro-20x               # highest-usage Pro routing plan
 holycodex install --codex-autonomous           # never ask, workspace-write, network on
 holycodex install --dangerous-codex-autonomous # never ask, unrestricted host access
 holycodex install --no-codex-autonomous        # same contained behavior as no flag

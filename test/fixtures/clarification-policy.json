@@ -1,0 +1,32 @@
+[
+  {
+    "id": "missing-product-behavior",
+    "unknown": "Required product behavior is unspecified.",
+    "classification": "material-decision",
+    "action": "ask"
+  },
+  {
+    "id": "destructive-action",
+    "unknown": "Requested cleanup would delete user data.",
+    "classification": "material-decision",
+    "action": "ask"
+  },
+  {
+    "id": "safe-default",
+    "unknown": "A reversible presentation default is unspecified.",
+    "classification": "safe-reversible",
+    "action": "state-and-proceed"
+  },
+  {
+    "id": "discoverable-fact",
+    "unknown": "The repository already identifies the package owner.",
+    "classification": "discoverable",
+    "action": "delegate"
+  },
+  {
+    "id": "specialist-blocker",
+    "unknown": "A specialist lacks a material decision or authority.",
+    "classification": "specialist-blocker",
+    "action": "return-question-ready-blocker"
+  }
+]

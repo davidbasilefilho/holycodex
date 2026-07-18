@@ -4,7 +4,12 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { effectiveMcpServers, VERSION } from "../packages/cli/src/catalog";
+import {
+  AGENTS,
+  MODEL_ROUTING_PLANS,
+  effectiveMcpServers,
+  VERSION,
+} from "../packages/cli/src/catalog";
 import { installConfig, type AutonomyMode } from "../packages/cli/src/config";
 import { doctor, type DoctorRuntime } from "../packages/cli/src/doctor";
 
@@ -31,6 +36,15 @@ async function fixture(mode: AutonomyMode = "default"): Promise<{ home: string; 
   await cp(join(root, "packages", "plugin", "plugin"), plugin, { recursive: true });
   await cp(join(plugin, "agents"), join(home, "holycodex", "agents"), { recursive: true });
   await writeFile(join(home, "config.toml"), installConfig("", mode, "win32"));
+  await Promise.all(
+    AGENTS.map((agent) => {
+      const route = MODEL_ROUTING_PLANS.plus.agents[agent];
+      return writeFile(
+        join(home, "holycodex", "agents", `${agent}.toml`),
+        `model = "${route.model}"\nmodel_reasoning_effort = "${route.reasoningEffort}"\n`,
+      );
+    }),
+  );
   return { home, plugin };
 }
 
@@ -70,6 +84,53 @@ describe("HolyCodex doctor", () => {
     const result = await doctor(home, runtime());
     expect(result.healthy).toBe(false);
     expect(codes(result)).toContain("agent-models-stale");
+  });
+
+  it("accepts original and managed-block root overrides", async () => {
+    const original = await fixture();
+    await writeFile(
+      join(original.home, "config.toml"),
+      installConfig('model = "user/root"\nmodel_reasoning_effort = "high"\n', "default", "win32"),
+    );
+    const originalResult = await doctor(original.home, runtime());
+    expect(originalResult.healthy).toBe(true);
+    expect(codes(originalResult)).toContain("root-model-override");
+
+    const edited = await fixture();
+    const configPath = join(edited.home, "config.toml");
+    await writeFile(
+      configPath,
+      (await readFile(configPath, "utf8")).replace('model = "gpt-5.6-sol"', 'model = "user/root"'),
+    );
+    const editedResult = await doctor(edited.home, runtime());
+    expect(editedResult.healthy).toBe(true);
+    expect(codes(editedResult)).toContain("root-model-override");
+  });
+
+  it("reports missing or corrupt managed root routing and stale plan usage controls", async () => {
+    const { home } = await fixture();
+    const configPath = join(home, "config.toml");
+    const config = await readFile(configPath, "utf8");
+    await writeFile(
+      configPath,
+      config
+        .replace('model = "gpt-5.6-sol"', "model = [")
+        .replace("max_threads = 2", "max_threads = 7")
+        .replace("max_depth = 1", "max_depth = 3"),
+    );
+    const result = await doctor(home, runtime());
+    expect(result.healthy).toBe(false);
+    expect(codes(result)).toEqual(
+      expect.arrayContaining(["root-model-stale", "agent-usage-stale"]),
+    );
+
+    const missing = await fixture();
+    const missingPath = join(missing.home, "config.toml");
+    await writeFile(
+      missingPath,
+      (await readFile(missingPath, "utf8")).replace(/^model_reasoning_effort = .*\n/m, ""),
+    );
+    expect(codes(await doctor(missing.home, runtime()))).toContain("root-model-stale");
   });
 
   it("ignores commented defaults when checking active agent models", async () => {

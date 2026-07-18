@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_MODELS,
   AGENTS,
+  DEFAULT_PLAN,
   effectiveMcpServers,
   GENERATED_RUNTIMES,
   MODEL_ROUTING_PLANS,
@@ -18,6 +19,7 @@ import {
   SKILLS,
   VERSION,
 } from "../packages/cli/src/catalog";
+import { rootTomlString } from "../packages/cli/src/toml";
 import { handleGitBashMcpRequest } from "../packages/git-bash-mcp/src/mcp";
 import { LSP_MCP_TOOLS } from "../packages/lsp-core/src/tools";
 
@@ -56,8 +58,8 @@ describe("HolyCodex catalog", () => {
     expect(requiredPackageRuntimes("linux")).not.toContain("git-bash.js");
   });
 
-  it("defines every routing plan without max reasoning", () => {
-    expect(PLAN_NAMES).toEqual(["go", "plus", "pro-5x", "pro-20x"]);
+  it("defines the ordered six-tier routing plan without unsupported reasoning", () => {
+    expect(PLAN_NAMES).toEqual(["go", "plus-low", "plus", "plus-high", "pro-5x", "pro-20x"]);
     expect(Object.keys(MODEL_ROUTING_PLANS)).toEqual(PLAN_NAMES);
     expect(
       Object.values(MODEL_ROUTING_PLANS).every((preset) =>
@@ -65,6 +67,40 @@ describe("HolyCodex catalog", () => {
       ),
     ).toBe(true);
     expect(JSON.stringify(MODEL_ROUTING_PLANS)).not.toContain('"max"');
+    expect(
+      Object.values(MODEL_ROUTING_PLANS).every((preset) => preset.root.model === "gpt-5.6-sol"),
+    ).toBe(true);
+    expect(Object.values(MODEL_ROUTING_PLANS).every((preset) => preset.usage.maxDepth === 1)).toBe(
+      true,
+    );
+    expect(MODEL_ROUTING_PLANS.go.usage.maxThreads).toBe(1);
+    expect(MODEL_ROUTING_PLANS["plus-low"].root.reasoningEffort).toBe("medium");
+    expect(MODEL_ROUTING_PLANS["plus-low"].usage.maxThreads).toBe(1);
+    expect(MODEL_ROUTING_PLANS.plus.usage.maxThreads).toBe(2);
+    expect(MODEL_ROUTING_PLANS["plus-high"].usage.maxThreads).toBe(2);
+    expect(MODEL_ROUTING_PLANS["pro-5x"].usage.maxThreads).toBe(2);
+    expect(MODEL_ROUTING_PLANS["pro-20x"].usage.maxThreads).toBe(2);
+    expect(
+      Object.values(MODEL_ROUTING_PLANS).every((preset) =>
+        [preset.root, ...Object.values(preset.agents)].every((route) =>
+          ["low", "medium", "high"].includes(route.reasoningEffort),
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      new Set(Object.values(MODEL_ROUTING_PLANS["pro-20x"].agents).map((route) => route.model)),
+    ).toEqual(new Set(["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]));
+  });
+
+  it("documents the ordered routing ladder without quota claims", async () => {
+    const readme = await readFile(join(root, "README.md"), "utf8");
+    expect(readme.indexOf("`go`")).toBeLessThan(readme.indexOf("`plus-low`"));
+    expect(readme.indexOf("`plus-low`")).toBeLessThan(readme.indexOf("`plus`"));
+    expect(readme.indexOf("`plus`")).toBeLessThan(readme.indexOf("`plus-high`"));
+    expect(readme.indexOf("`plus-high`")).toBeLessThan(readme.indexOf("`pro-5x`"));
+    expect(readme.indexOf("`pro-5x`")).toBeLessThan(readme.indexOf("`pro-20x`"));
+    expect(readme).toContain("plan-selected `agents.max_threads` (1 or 2)");
+    expect(readme).not.toContain("subscription allowance");
   });
 
   it("rejects invalid plans, reasoning efforts, and incomplete routing presets", () => {
@@ -136,14 +172,18 @@ describe("HolyCodex catalog", () => {
       expect(prompt).toContain("escalate automatically");
       expect(prompt).toContain("or delegate");
     }
-    for (const agent of AGENTS) {
-      const text = await readFile(join(pluginRoot, "agents", `${agent}.toml`), "utf8");
-      expect(text).toContain(`model = "${AGENT_MODELS[agent].model}"`);
-      expect(text).toContain(`model_reasoning_effort = "${AGENT_MODELS[agent].reasoningEffort}"`);
-    }
     expect(await readFile(join(pluginRoot, "agents", "worker.toml"), "utf8")).toContain(
       "For prompt or instruction work, load caveman first.",
     );
+  });
+
+  it("keeps bundled agent routes aligned with the default routing plan", async () => {
+    for (const agent of AGENTS) {
+      const source = await readFile(join(pluginRoot, "agents", `${agent}.toml`), "utf8");
+      const route = MODEL_ROUTING_PLANS[DEFAULT_PLAN].agents[agent];
+      expect(rootTomlString(source, "model")).toBe(route.model);
+      expect(rootTomlString(source, "model_reasoning_effort")).toBe(route.reasoningEffort);
+    }
   });
 
   it("pins activation phrases and enables every MCP default", async () => {
@@ -190,10 +230,13 @@ describe("HolyCodex catalog", () => {
     ) as { interface?: { longDescription?: string } };
     const description = manifest.interface?.longDescription ?? "";
     expect(description).toContain("Root remains the default user-facing agent");
-    expect(description).toContain("cost-aware decomposition");
+    expect(description).toContain("capability-based routing");
     expect(description).toContain("Luna low");
     expect(description).toContain("Terra high");
     expect(description).toContain("mandatory only on native Windows");
+    expect(description).toContain("decision, clarification, integration, and verification layer");
+    expect(description).toContain("Prompt contracts guide routing");
+    expect(description).toContain("not provider-side enforcement");
   });
 
   it("gives every local MCP tool invocation guidance", async () => {
