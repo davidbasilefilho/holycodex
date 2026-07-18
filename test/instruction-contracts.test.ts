@@ -49,7 +49,7 @@ describe("instruction workflow contracts", () => {
       readFile(join(root, "packages", "cli", "src", "core-instructions.ts"), "utf8"),
     ]);
     expect(texts.reduce((sum, text) => sum + Buffer.byteLength(text), 0)).toBeLessThanOrEqual(
-      45_600,
+      62_800,
     );
   });
 
@@ -93,6 +93,80 @@ describe("instruction workflow contracts", () => {
     }
   });
 
+  it("pins capability-routing fixtures as prompt contracts", async () => {
+    const fixtures = JSON.parse(
+      await readFile(join(root, "test", "fixtures", "routing-policy.json"), "utf8"),
+    ) as Array<{ id: string; route: string; before?: string; then?: string }>;
+    const core = await readFile(
+      join(root, "packages", "cli", "src", "core-instructions.ts"),
+      "utf8",
+    );
+    const expectedRoutes = new Map([
+      ["three-source-comparison", "librarian"],
+      ["multi-file-facts", "explorer"],
+      ["version-research", "librarian"],
+      ["isolated-multi-file-write", "worker"],
+      ["atomic-one-file-local-work", "local"],
+      ["coupled-architecture-local-work", "local"],
+    ]);
+    expect(fixtures.map((fixture) => fixture.id)).toEqual([...expectedRoutes.keys()]);
+    for (const fixture of fixtures)
+      expect(fixture.route, fixture.id).toBe(expectedRoutes.get(fixture.id));
+    const threeSourceComparison = fixtures.find(
+      (fixture) => fixture.id === "three-source-comparison",
+    );
+    expect(threeSourceComparison?.before).toBe("root-source-ingestion");
+    expect(threeSourceComparison?.then).toBe("worker-after-decisions");
+    expect(core).toContain("Delegate long, context-heavy, separable, or easier work");
+    expect(core).toContain(
+      "Explorer is mandatory before a second separable repository read/search",
+    );
+    expect(core).toContain("any multi-file or symbol fact pass");
+    expect(core).toContain(
+      "Librarian is mandatory before a second external source or multi-source, version, or date research",
+    );
+    expect(core).toContain("Worker is mandatory for fixed isolated implementation beyond one file");
+    expect(core).toContain("Keep work local only when atomic, coupled, architecturally unresolved");
+    expect(core).toContain("Never use a reviewer agent, allow overlapping write ownership");
+    expect(core).toContain("estimate exact monetary or token cost");
+  });
+
+  it("pins clarification fixtures and specialist blocker returns as prompt contracts", async () => {
+    const fixtures = JSON.parse(
+      await readFile(join(root, "test", "fixtures", "clarification-policy.json"), "utf8"),
+    ) as Array<{ id: string; classification: string; action: string }>;
+    const core = await readFile(
+      join(root, "packages", "cli", "src", "core-instructions.ts"),
+      "utf8",
+    );
+    expect(fixtures.map((fixture) => fixture.id)).toEqual([
+      "missing-product-behavior",
+      "destructive-action",
+      "safe-default",
+      "discoverable-fact",
+      "specialist-blocker",
+    ]);
+    expect(fixtures.map((fixture) => fixture.action)).toEqual([
+      "ask",
+      "ask",
+      "state-and-proceed",
+      "delegate",
+      "return-question-ready-blocker",
+    ]);
+    expect(core).toContain("delegate discoverable facts; ask the user for a material decision");
+    expect(core).toContain("state and proceed with a safe reversible default");
+    expect(core).toContain("target, scope, behavior, architecture, proof, visible direction");
+    expect(core).toContain(
+      "compatibility, privacy, security, authority, or an external or destructive effect",
+    );
+    expect(core).toContain("For a material blocker, use `request_user_input` when available");
+    expect(core).toContain("Do not repeat a question or ask for discoverable facts");
+    for (const name of ["explorer", "librarian", "worker"])
+      expect(await readFile(join(pluginRoot, "agents", `${name}.toml`), "utf8")).toContain(
+        "return a question-ready blocker",
+      );
+  });
+
   it("orders planning, one review, approval, optional goal, and stop", async () => {
     const text = await skill("plan");
     expect(text).toContain("do not use for multiple obvious steps");
@@ -106,7 +180,7 @@ describe("instruction workflow contracts", () => {
       "Only after explicit agreement, load `define-goal`",
     ]);
     expect(text).toContain("Do not implement before approval.");
-    expect(text).toContain("Stop planning after approval and the optional goal choice");
+    expect(text).toContain("Stop after approval and goal choice; no repeated review.");
 
     const review = await skill("plan-review");
     expect(review).toContain("If no initial plan exists, stop");
@@ -134,7 +208,7 @@ describe("instruction workflow contracts", () => {
       "frontend-accessibility": /frontend accessibility\/motion/,
       "weak-proof": /vague criteria, unverifiable outcomes/,
       "missing-package": /generated\/package/,
-      "token-waste": /token-heavy delegation/,
+      "token-waste": /context-heavy delegation/,
       "behavior-changing-cleanup": /behavior-changing cleanup/,
       "missing-attribution": /attribution\/license/,
       "continues-past-goal": /continuing beyond real goal/,

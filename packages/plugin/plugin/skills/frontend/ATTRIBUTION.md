@@ -190,7 +190,8 @@ SOFTWARE.
 
 ## 5. Project-original files
 
-`frontend/SKILL.md`, `frontend/references/design/README.md`, `_INDEX.md`, `aside.md`,
+`frontend/SKILL.md`, `frontend/references/anti-slop.md`,
+`frontend/references/design/README.md`, `_INDEX.md`, `aside.md`,
 `design-system-architecture.md`, `react-dev-tooling-skill.md`,
 `frontend/references/perfection/README.md`, `react-perf-tooling.md`, and
 `frontend/scripts/perfection/lighthouse-audit.py` are original to this project and require
@@ -216,3 +217,9 @@ MIT-licensed `JCodesMore/ai-website-cloner-template` clone-website workflow that
 cites; no source from that template is copied. It carries no third-party attribution beyond
 that lineage note, and it grants no license to copy any target site's trademarks, brand
 assets, or proprietary copy.
+
+`frontend/references/anti-slop.md` is a project-original, non-verbatim synthesis of the
+public guidance at `https://pols.dev/slop.md`, the MIT-licensed Leonxlnx taste-skill
+already attributed above, and the public Oh My OpenAgent frontend router at
+`code-yeongyu/oh-my-openagent`. It records merged operating rules and project-specific
+conflict resolutions rather than redistributing any source file.

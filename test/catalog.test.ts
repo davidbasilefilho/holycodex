@@ -190,10 +190,13 @@ describe("HolyCodex catalog", () => {
     ) as { interface?: { longDescription?: string } };
     const description = manifest.interface?.longDescription ?? "";
     expect(description).toContain("Root remains the default user-facing agent");
-    expect(description).toContain("cost-aware decomposition");
+    expect(description).toContain("capability-based routing");
     expect(description).toContain("Luna low");
     expect(description).toContain("Terra high");
     expect(description).toContain("mandatory only on native Windows");
+    expect(description).toContain("decision, clarification, integration, and verification layer");
+    expect(description).toContain("Prompt contracts guide routing");
+    expect(description).toContain("not provider-side enforcement");
   });
 
   it("gives every local MCP tool invocation guidance", async () => {

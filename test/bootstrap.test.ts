@@ -31,26 +31,37 @@ describe("bootstrap readiness", () => {
     expect(context).toContain(
       "Root owns user interaction, intent, scope, architecture, product decisions, ambiguity resolution, integration, final judgment, and final verification.",
     );
-    expect(context).toContain("Presume bounded independent work delegable");
-    expect(context).not.toContain("Before substantial");
-    expect(context).toContain("more than two root tool calls");
-    expect(context).toContain("multiple sources or version/date verification");
-    expect(context).toContain("dispatch plus review is concretely more expensive");
+    expect(context).toContain("Delegate long, context-heavy, separable, or easier work");
+    expect(context).toContain(
+      "Keep work local only when atomic, coupled, architecturally unresolved",
+    );
     expect(context).toContain("record one concise concrete reason internally");
     expect(context).toContain("do not require user-visible orchestration commentary");
     expect(context).toContain("Skills govern method, not routing");
-    expect(context).toContain("at most two concurrently per wave");
-    expect(context).toContain("Explorer handles bounded read-only repository facts");
-    expect(context).toContain("Librarian handles current external facts from primary sources");
-    expect(context).toContain("Worker handles isolated implementation");
+    expect(context).toContain("Run at most two lanes per wave");
+    expect(context).toContain('fork_turns="none"');
     expect(context).not.toMatch(/(?:Explorer|Librarian|Worker) (?:uses|runs) GPT 5\.6/);
     expect(context).toContain("Packets have five concepts");
     expect(context).toContain("Do not duplicate specialist work");
     expect(context).toContain("spot-check only load-bearing claims");
     expect(context).toContain("Never repeat Explorer/Librarian searches for reassurance");
-    expect(context).toContain("Never recurse, let specialists delegate");
+    expect(context).toContain("Never recurse; specialists never delegate");
     expect(context).toContain("overlapping write ownership");
     expect(context).toContain("Specialists stop when their bounded task is complete");
+    expect(context).toContain("delegate discoverable facts");
+    expect(context).toContain("ask the user for a material decision");
+    expect(context).toContain("state and proceed with a safe reversible default");
+    expect(context).toContain("exact monetary or token cost");
+    expect(context).toContain(
+      "Explorer is mandatory before a second separable repository read/search",
+    );
+    expect(context).toContain("Librarian is mandatory before a second external source");
+    expect(context).toContain(
+      "Worker is mandatory for fixed isolated implementation beyond one file",
+    );
+    expect(context).toContain("request_user_input");
+    expect(context).toContain("one to three current blockers");
+    expect(context).toContain("no timeout");
   });
 
   it("emits SessionStart context in the Codex command-hook envelope", async () => {

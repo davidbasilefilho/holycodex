@@ -1,50 +1,51 @@
 ---
 name: frontend
-description: Use when a task needs frontend, web UI, UX, visual design, interaction, responsive layout, accessibility, or browser-performance work; do not use for backend-only work, static prose, or non-web artifacts. Produces context-aware approved design decisions followed by accessible responsive implementation or findings; premium React/Tailwind creation adds the GPT Taste route.
+description: Use when work involves frontend, UI, UX, visual design, responsive layout, animation, accessibility, SEO, performance, visual QA, mockups, React, redesign, styling, taste, or polish; do not use for backend-only, prose, CLI, or nonvisual work. Produces approved accessible responsive interfaces or evidence-backed findings with anti-slop craft.
 ---
 
 # Frontend
 
-Preserve stack, behavior, tokens, patterns, visual contract, and identity. Keep scope small; avoid generic AI styling. Do not force `DESIGN.md`, research, dependencies, GSAP, or heavy QA.
+Preserve explicit direction and product contracts. Ask before an ambiguous override. Priority: user; product; accessibility, visible content, correctness, performance; then workflow.
 
-## Approval sequence
-
-1. Load `frontend`; inspect the request, product shell, target surface, design tokens, nearest pattern, responsive contract, supplied references, and relevant states.
-2. Select only material decisions: direction, type, layout/density, color/surfaces, assets, responsiveness, applicable states, plus a motion system and accessibility treatment for every task. Give motion a proportional hierarchy, state, interaction, continuity, or navigation purpose. Define `prefers-reduced-motion`, keyboard operation, focus visibility, semantics, contrast, and labels. Preserve established decisions unless change is requested.
-3. Present the compact decision set with existing constraints and ask for approval before implementation. For a fix, audit, accessibility, or performance task, include only decisions that alter user-visible design; diagnosis and technical implementation details need no approval.
-4. After approval, ask whether the user wants to define a goal. Only after explicit agreement load `define-goal`; otherwise implement.
-
-Approval owns visible direction and material interaction. Component APIs, code structure, exact CSS, breakpoint mechanics, route-required libraries, and other reversible implementation details remain implementation decisions.
+Before visual work, read `references/anti-slop.md` completely and confirm compactly. Re-read before handoff; fix failures.
 
 ## Route
 
-- Build/redesign: inspect shell, tokens, component, responsive contract.
-- Visual reference: use first; measure layout, type, color, spacing, surface, motion.
-- Performance: load `references/perfection/README.md` only for real audit or regression.
-- Palette/type/style: load only relevant `references/ui-ux-db` data.
-- Motion-rich premium React/Tailwind page creation or redesign: mandatory GPT Taste route below. Ordinary fixes, debugging, accessibility, and performance work stay on normal route.
+- Audit: load `references/perfection/README.md`; add `react-perf-tooling.md` for React. Scale to risk.
+- Palette, type, style, chart, landing, UX, or stack lookup: load only relevant `references/ui-ux-db` data through its `README.md`.
+- Visual reference: match its design language and behavior; preserve original content and identity unless exact reproduction is explicit.
+- Greenfield: offer concepts only when useful.
+- Browser QA: use browser control and evidence.
+- Nonvisual logic: use `programming` alone.
 
-## GPT Taste route
+Never require `DESIGN.md`. Follow one when present; otherwise derive the smallest contract from nearby code and approved decisions.
 
-- During approval, emit `<design_plan>` with prompt-derived direction, type, layout, motion, responsive, accessibility, and state choices. Established contracts win.
-- Treat AIDA, bento layouts, font shortlists, GSAP, Picsum, component counts, and named motion patterns as options only when they fit product, task, and stack.
-- State each chosen pattern's user-facing purpose and containment. Add no dependency or remote asset unless approved and required.
-- Motion is required but may be subtle. Avoid gratuitous, blocking, performance-heavy, or reduced-motion-unsafe effects.
-- Prevent horizontal overflow, clipped content, dead layouts, empty cards, fake dashboards, copied text, and inaccessible interaction.
+## Approval sequence
 
-Ban emojis; cheap/generic meta-labels (`SECTION 01`, `QUESTION 05`, `ABOUT US`); invisible button text; empty bento cells/cards; narrow multi-line/centered heroes; repeated left/right or flat sections/backgrounds; stock-feeling imagery; fake dashboards; meaningless gradients; copied reference text.
+1. First inspect the request, product shell, target, nearby patterns, tokens, responsiveness, references, content, and states.
+2. Select only visible direction, type, layout/density, color/surfaces, assets, responsiveness, states, plus a motion system and accessibility treatment for every task.
+3. Present a compact `<design_plan>` and ask for approval before implementation. Cover direction, type, layout, assets, states, motion, GSAP, reduced motion, keyboard operation, focus visibility, semantic treatment, contrast, labels, applicable loading, error, and empty states, reference boundary, and QA.
+4. After approval, ask whether the user wants to define a goal. Load `define-goal` only after explicit agreement; otherwise implement.
 
-Required `<design_plan>`: visible direction; layout/responsive contract; asset role; motion purpose/reduced-motion fallback; accessibility treatment; applicable loading, error, and empty states. Include only chosen patterns, never a fixed architecture count.
+Visible direction and material interaction require approval; reversible implementation details need no approval. Ask before installing dependencies or adding remote assets.
 
-Only after approval and optional goal choice may implementation begin.
+## Fixed decisions
+
+- Use reasoned variety, never mock RNG or fixed counts. Treat AIDA, bento, hero geometry, component counts, named motion, and spacing as options only when they fit product, task, and stack.
+- Use authentic assets; ask before remote ones. Picsum requires explicit placeholder approval. Never invent research, content, proof, controls, or capabilities.
+- For new type, ban every font named by the comparison sources; choose viewed, authentic, distinctive, licensed, self-hosted, project-owned, or system type. Preserve existing type unless redesign is requested.
+- For new icons, prefer Tabler Icons, another library, Lucide, then bare SVGs. Preserve an existing icon system; use authorized brand marks; ban emoji icons and default icon containers.
+- Use AIDA only when fitting. Use wide two- or three-line landing headings, three to five dense gapless bento cards, and strong spacing only when fitting.
+- Define motion for every implementation. Use GSAP when installed or installation is permitted; otherwise use the existing stack or no-new-dependency motion. Keep essential content visible, preserve meaning under `prefers-reduced-motion`, favor `transform`, `opacity`, and `filter`, and use effects only for real state, continuity, navigation, or explanation.
+- Provide keyboard operation, focus visibility, semantics, contrast, labels, and applicable states. Record material debt and unresolved risks.
 
 ## Implementation
 
-1. Inspect target and nearest pattern.
-2. Lock type, spacing, surfaces, color, asset role, and motion role.
-3. Implement smallest coherent slice with purposeful motion, reduced motion, keyboard operation, visible focus, semantics, contrast, and labels.
-4. Test narrow/mobile/wide containment: no horizontal leak, clipped text, overlap, or unreadable measure.
-5. Check loading, error, and empty states when applicable.
-6. Check proportional interaction/performance. Avoid layout shift, oversized media, needless client work.
+1. Inspect target, patterns, assets, dependencies, and states; lock approved design roles.
+2. Implement a coherent slice with reusable existing or approved components.
+3. Test viewports, containment, interaction, keyboard, states, and reduced motion.
+4. Check rendering and interaction performance; never weaken UX solely for a score.
+5. Run proportional fresh browser QA. For significant work inspect 375, 768, and 1280 pixels. For performance acceptance audit production repeatedly on mobile and desktop, use medians, and fix architectural causes.
+6. Re-read `references/anti-slop.md`, fix failures, and report only measured evidence.
 
-Use real assets when supplied. Never invent research or claim screenshot parity without visual comparison.
+Run `vp check --fix` after repository edits.

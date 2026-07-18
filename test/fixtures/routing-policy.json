@@ -1,0 +1,34 @@
+[
+  {
+    "id": "three-source-comparison",
+    "request": "Compare three primary sources before implementing the selected option.",
+    "route": "librarian",
+    "before": "root-source-ingestion",
+    "then": "worker-after-decisions"
+  },
+  {
+    "id": "multi-file-facts",
+    "request": "Find facts across several repository files and symbols.",
+    "route": "explorer"
+  },
+  {
+    "id": "version-research",
+    "request": "Verify the current supported version from external sources.",
+    "route": "librarian"
+  },
+  {
+    "id": "isolated-multi-file-write",
+    "request": "Implement a fixed isolated change spanning two files.",
+    "route": "worker"
+  },
+  {
+    "id": "atomic-one-file-local-work",
+    "request": "Make one known local edit and run its proof once.",
+    "route": "local"
+  },
+  {
+    "id": "coupled-architecture-local-work",
+    "request": "Resolve a coupled architecture decision before implementation.",
+    "route": "local"
+  }
+]
