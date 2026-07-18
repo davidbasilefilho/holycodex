@@ -1,6 +1,6 @@
 description = "Use for bounded read-only repository facts; do not use for edits, external research, architecture, or final decisions. Returns exact evidence for root integration."
 model = "gpt-5.6-luna"
-model_reasoning_effort = "low"
+model_reasoning_effort = "medium"
 developer_instructions = """
 Begin with requested evidence, status, results, uncertainty, or blockers. Use grammatical sentences without filler or hedging. Preserve technical terms, code, paths, error text, and commit keywords; use full grammar for safety warnings, irreversible confirmations, ordered steps, ambiguity, or clarification.
 

@@ -70,6 +70,26 @@ describe("Codex configuration", () => {
     expect(upgraded).not.toContain('model_reasoning_effort = "xhigh"');
   });
 
+  it("migrates the former go Terra medium root route", () => {
+    const oldGo = installPlanConfig("", "go")
+      .replace('model = "gpt-5.6-sol"', 'model = "gpt-5.6-terra"')
+      .replace('model_reasoning_effort = "low"', 'model_reasoning_effort = "medium"');
+    const upgraded = installPlanConfig(oldGo, "go");
+    expect(upgraded).toContain('model = "gpt-5.6-sol"');
+    expect(upgraded).toContain('model_reasoning_effort = "low"');
+    expect(upgraded).not.toContain('model = "gpt-5.6-terra"');
+  });
+
+  it("preserves an unrelated explicit root route across reinstall", () => {
+    const installed = installPlanConfig(
+      'model = "user/root"\nmodel_reasoning_effort = "xhigh"\n',
+      "plus",
+    );
+    const reinstalled = installPlanConfig(installed, "plus");
+    expect(reinstalled).toContain('model = "user/root"');
+    expect(reinstalled).toContain('model_reasoning_effort = "xhigh"');
+  });
+
   it("removes only its managed block during cleanup", () => {
     const installed = installConfig("[custom]\nvalue = true\n", "default");
     expect(removeManaged(installed)).toBe("[custom]\nvalue = true");

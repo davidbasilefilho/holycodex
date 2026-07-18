@@ -1,7 +1,14 @@
 import { Buffer } from "node:buffer";
 
-import { AGENTS, DEFAULT_PLAN, MODEL_ROUTING_PLANS, PLAN_NAMES, type PlanName } from "./catalog.ts";
-import { rootTomlStringArray, rootTomlStringArraySource } from "./toml.ts";
+import {
+  AGENTS,
+  DEFAULT_PLAN,
+  MANAGED_ROOT_MODEL_HISTORY_BY_PLAN,
+  MODEL_ROUTING_PLANS,
+  PLAN_NAMES,
+  type PlanName,
+} from "./catalog.ts";
+import { rootTomlString, rootTomlStringArray, rootTomlStringArraySource } from "./toml.ts";
 
 const START = "# >>> holycodex managed >>>";
 const END = "# <<< holycodex managed <<<";
@@ -117,43 +124,62 @@ function removeRootValue(input: string, value: string | undefined): string {
   return value === undefined ? input : input.replace(value, "");
 }
 
-function rootPreferences(plan: PlanName) {
-  const root = MODEL_ROUTING_PLANS[plan].root;
-  return [
-    ["model", `model = "${root.model}"`],
-    ["model_reasoning_effort", `model_reasoning_effort = "${root.reasoningEffort}"`],
-    ["model_verbosity", 'model_verbosity = "low"'],
-  ] as const;
-}
-
 /** Reads the explicitly recorded model routing plan from managed configuration. */
 export function readManagedPlan(input: string): PlanName | undefined {
   const value = new RegExp(`^${PLAN_PREFIX}(.+)$`, "m").exec(input)?.[1]?.trim();
   return PLAN_NAMES.find((plan) => plan === value);
 }
 
+type RootModelOverrides = {
+  readonly model: boolean;
+  readonly reasoningEffort: boolean;
+};
+
+/** Identifies explicit Root route overrides preserved from active managed configuration. */
+export function readPreservedRootOverrides(input: string): RootModelOverrides {
+  const managedRoot = new RegExp(`^${START}\\r?\\n([\\s\\S]*?)^${END}\\r?$`, "m").exec(input)?.[1];
+  if (managedRoot === undefined) return { model: false, reasoningEffort: false };
+  const plan = readManagedPlan(managedRoot);
+  const model = rootTomlString(managedRoot, "model");
+  const reasoningEffort = rootTomlString(managedRoot, "model_reasoning_effort");
+  if (plan === undefined || model === undefined || reasoningEffort === undefined)
+    return { model: false, reasoningEffort: false };
+  const managed = MANAGED_ROOT_MODEL_HISTORY_BY_PLAN[plan].some(
+    (route) => route.model === model && route.reasoningEffort === reasoningEffort,
+  );
+  if (managed) return { model: false, reasoningEffort: false };
+  const preset = MODEL_ROUTING_PLANS[plan].root;
+  return {
+    model: model !== preset.model,
+    reasoningEffort: reasoningEffort !== preset.reasoningEffort,
+  };
+}
+
 function preserveManagedRootPreferences(input: string, base: string): string {
   const managedRoot = new RegExp(`^${START}\\r?\\n([\\s\\S]*?)^${END}\\r?$`, "m").exec(input)?.[1];
   if (managedRoot === undefined) return base;
-  const previousPlan = readManagedPlan(managedRoot) ?? DEFAULT_PLAN;
   const firstTable = base.search(/^\s*\[/m);
   const root = firstTable < 0 ? base : base.slice(0, firstTable);
   const tables = firstTable < 0 ? "" : base.slice(firstTable);
   let updatedRoot = root.trim();
-  for (const [key, fallback] of rootPreferences(previousPlan)) {
+  const overrides = readPreservedRootOverrides(input);
+  for (const [key, preserve] of [
+    ["model", overrides.model],
+    ["model_reasoning_effort", overrides.reasoningEffort],
+  ] as const) {
     const live = rootValue(managedRoot, key)?.trim();
-    const legacy =
-      previousPlan === "pro-20x" && key === "model_reasoning_effort"
-        ? ['model_reasoning_effort = "xhigh"']
-        : [];
-    if (
-      live === undefined ||
-      live === (rootValue(root, key)?.trim() ?? fallback) ||
-      legacy.includes(live)
-    )
-      continue;
+    if (!preserve || live === undefined) continue;
+    if (rootValue(root, key)?.trim() === live) continue;
     updatedRoot = removeRootValue(updatedRoot, rootValue(updatedRoot, key)).trim();
     updatedRoot = `${updatedRoot}${updatedRoot ? "\n" : ""}${live}`;
+  }
+  const verbosity = rootValue(managedRoot, "model_verbosity")?.trim();
+  if (
+    verbosity !== undefined &&
+    verbosity !== (rootValue(root, "model_verbosity")?.trim() ?? 'model_verbosity = "low"')
+  ) {
+    updatedRoot = removeRootValue(updatedRoot, rootValue(updatedRoot, "model_verbosity")).trim();
+    updatedRoot = `${updatedRoot}${updatedRoot ? "\n" : ""}${verbosity}`;
   }
   if (updatedRoot === root.trim()) return base;
   return `${updatedRoot}${tables ? `\n${tables.trimStart()}` : ""}`;

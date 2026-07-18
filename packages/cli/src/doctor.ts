@@ -18,7 +18,7 @@ import {
   SKILLS,
   VERSION,
 } from "./catalog.ts";
-import { readManagedPlan } from "./config.ts";
+import { readManagedPlan, readPreservedRootOverrides } from "./config.ts";
 import { rootTomlString, rootTomlStringArray } from "./toml.ts";
 
 const McpManifestSchema = z.looseObject({
@@ -434,23 +434,31 @@ export async function doctor(
       : check("routing-plan", "ok", "routing-plan-ready", `Model routing plan ${plan} is active.`),
   );
   const preset = plan === undefined ? undefined : MODEL_ROUTING_PLANS[plan];
+  const rootOverrides = readPreservedRootOverrides(config);
   checks.push(
-    preset === undefined ||
-      rootTomlString(config, "model") !== preset.root.model ||
-      rootTomlString(config, "model_reasoning_effort") !== preset.root.reasoningEffort
+    preset !== undefined &&
+      rootTomlString(config, "model") === preset.root.model &&
+      rootTomlString(config, "model_reasoning_effort") === preset.root.reasoningEffort
       ? check(
-          "root-model",
-          "error",
-          "root-model-stale",
-          "Root model configuration does not match the selected routing plan.",
-          "Reinstall HolyCodex.",
-        )
-      : check(
           "root-model",
           "ok",
           "root-model-ready",
           "Root model matches the selected routing plan.",
-        ),
+        )
+      : rootOverrides.model || rootOverrides.reasoningEffort
+        ? check(
+            "root-model",
+            "ok",
+            "root-model-override",
+            "Root model uses an intentionally preserved explicit override.",
+          )
+        : check(
+            "root-model",
+            "error",
+            "root-model-stale",
+            "Root model configuration does not match the selected routing plan.",
+            "Reinstall HolyCodex.",
+          ),
   );
   checks.push(
     preset === undefined ||

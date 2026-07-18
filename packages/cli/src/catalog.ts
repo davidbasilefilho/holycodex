@@ -197,6 +197,28 @@ export const MANAGED_AGENT_MODEL_HISTORY = {
   worker: managedAgentModels("worker"),
 } satisfies Record<AgentName, readonly ModelRoute[]>;
 
+const LEGACY_MANAGED_ROOT_MODEL_HISTORY = {
+  go: [{ model: "gpt-5.6-terra", reasoningEffort: "medium" }],
+  "plus-low": [],
+  plus: [{ model: "gpt-5.6-sol", reasoningEffort: "medium" }],
+  "plus-high": [],
+  "pro-5x": [{ model: "gpt-5.6-sol", reasoningEffort: "high" }],
+  "pro-20x": [{ model: "gpt-5.6-sol", reasoningEffort: "xhigh" }],
+} satisfies Record<PlanName, readonly ModelRoute[]>;
+
+function managedPlanRootModels(plan: PlanName): readonly ModelRoute[] {
+  return [MODEL_ROUTING_PLANS[plan].root, ...LEGACY_MANAGED_ROOT_MODEL_HISTORY[plan]];
+}
+
+export const MANAGED_ROOT_MODEL_HISTORY_BY_PLAN = {
+  go: managedPlanRootModels("go"),
+  "plus-low": managedPlanRootModels("plus-low"),
+  plus: managedPlanRootModels("plus"),
+  "plus-high": managedPlanRootModels("plus-high"),
+  "pro-5x": managedPlanRootModels("pro-5x"),
+  "pro-20x": managedPlanRootModels("pro-20x"),
+} satisfies Record<PlanName, readonly ModelRoute[]>;
+
 export const GENERATED_RUNTIMES = [
   "bootstrap.js",
   "core-instructions.js",

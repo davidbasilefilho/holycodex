@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_MODELS,
   AGENTS,
+  DEFAULT_PLAN,
   effectiveMcpServers,
   GENERATED_RUNTIMES,
   MODEL_ROUTING_PLANS,
@@ -18,6 +19,7 @@ import {
   SKILLS,
   VERSION,
 } from "../packages/cli/src/catalog";
+import { rootTomlString } from "../packages/cli/src/toml";
 import { handleGitBashMcpRequest } from "../packages/git-bash-mcp/src/mcp";
 import { LSP_MCP_TOOLS } from "../packages/lsp-core/src/tools";
 
@@ -172,6 +174,15 @@ describe("HolyCodex catalog", () => {
     expect(await readFile(join(pluginRoot, "agents", "worker.toml"), "utf8")).toContain(
       "For prompt or instruction work, load caveman first.",
     );
+  });
+
+  it("keeps bundled agent routes aligned with the default routing plan", async () => {
+    for (const agent of AGENTS) {
+      const source = await readFile(join(pluginRoot, "agents", `${agent}.toml`), "utf8");
+      const route = MODEL_ROUTING_PLANS[DEFAULT_PLAN].agents[agent];
+      expect(rootTomlString(source, "model")).toBe(route.model);
+      expect(rootTomlString(source, "model_reasoning_effort")).toBe(route.reasoningEffort);
+    }
   });
 
   it("pins activation phrases and enables every MCP default", async () => {
