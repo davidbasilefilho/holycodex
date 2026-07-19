@@ -36,7 +36,7 @@ jobs:
           DEV_VERSION="${BASE_VERSION}-dev.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
           npm version "$DEV_VERSION" --no-git-tag-version --package-lock=false
           bun scripts/version.mjs dev "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
-          npm --prefix packages/codexslimedit version "$DEV_VERSION" --no-git-tag-version --package-lock=false
+          node scripts/codexslimedit-version.mjs "$DEV_VERSION"
           test "$(node -p "require('./packages/cli/package.json').version")" = "$DEV_VERSION"
           test "$(node -p "require('./packages/codexslimedit/package.json').version")" = "$DEV_VERSION"
       - run: bunx vp run build

@@ -146,9 +146,8 @@ describe("npm release workflows", () => {
       'DEV_VERSION="${BASE_VERSION}-dev.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"',
     );
     expect(workflow).toContain('npm version "$DEV_VERSION" --no-git-tag-version');
-    expect(workflow).toContain(
-      'npm --prefix packages/codexslimedit version "$DEV_VERSION" --no-git-tag-version',
-    );
+    expect(workflow).toContain('node scripts/codexslimedit-version.mjs "$DEV_VERSION"');
+    expect(workflow).not.toContain("npm --prefix packages/codexslimedit version");
     expect(workflow.indexOf("bunx vp check --fix")).toBeLessThan(
       workflow.indexOf("Derive unique dev version"),
     );

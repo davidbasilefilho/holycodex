@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { replaceCodexSlimEditVersion } from "../scripts/codexslimedit-version.mjs";
 import { nextDevVersion, nextZeroVersion, versionedJson } from "../scripts/version.mjs";
 
 describe("zerover versioning", () => {
@@ -33,5 +34,30 @@ describe("zerover versioning", () => {
       version: "0.6.0-dev.4.2",
       dependencies: { "@holycodex/plugin": "0.6.0-dev.4.2", retained: "1.0.0" },
     });
+  });
+});
+
+describe("codexslimedit versioning", () => {
+  const source =
+    '/** Current package version. */\nexport const CODEX_SLIM_EDIT_VERSION = "0.1.0";\n';
+
+  it("updates the bundled source version alongside manifest-only mutation", () => {
+    const manifest = { name: "codexslimedit", version: "0.1.0" };
+    const devManifest = { ...manifest, version: "0.7.4-dev.42.3" };
+
+    expect(source).not.toContain(`CODEX_SLIM_EDIT_VERSION = "${devManifest.version}"`);
+    expect(replaceCodexSlimEditVersion(source, devManifest.version)).toContain(
+      `CODEX_SLIM_EDIT_VERSION = "${devManifest.version}"`,
+    );
+  });
+
+  it("rejects malformed versions and source declarations", () => {
+    expect(() => replaceCodexSlimEditVersion(source, "dev")).toThrow("Invalid version");
+    expect(() =>
+      replaceCodexSlimEditVersion('export const OTHER_VERSION = "0.1.0";\n', "0.2.0"),
+    ).toThrow("exactly one CODEX_SLIM_EDIT_VERSION declaration");
+    expect(() => replaceCodexSlimEditVersion(`${source}${source}`, "0.2.0")).toThrow(
+      "exactly one CODEX_SLIM_EDIT_VERSION declaration",
+    );
   });
 });
