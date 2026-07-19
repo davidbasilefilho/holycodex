@@ -8,8 +8,10 @@ export declare function isVersionRequest(args: readonly string[]): boolean;
 
 /** Identifies a workspace file operation failure. */
 export type WorkspaceFileErrorCode =
+  | "ALREADY_EXISTS"
   | "EXACT_MATCH_NOT_FOUND"
   | "DUPLICATE_MATCH"
+  | "INVALID_PATCH"
   | "INVALID_RANGE"
   | "NOT_A_FILE"
   | "NOT_FOUND"
@@ -49,6 +51,26 @@ export interface WorkspaceFileResult {
   readonly content: string;
 }
 
+/** Input for writing complete UTF-8 content to a workspace file. */
+export interface WriteWorkspaceFileInput extends WorkspaceFileInput {
+  /** Complete replacement content. */
+  readonly content: string;
+}
+
+/** Input for a Codex-compatible workspace patch envelope. */
+export interface ApplyWorkspacePatchInput {
+  /** Workspace root used to constrain file access. */
+  readonly root: string;
+  /** Codex `*** Begin Patch` envelope. */
+  readonly patch: string;
+}
+
+/** Paths changed by a workspace patch. */
+export interface WorkspacePatchResult {
+  /** Canonical root-relative paths in patch order. */
+  readonly paths: readonly string[];
+}
+
 /** Options for the CodexSlimEdit MCP server. */
 export interface CodexSlimEditMcpOptions {
   /** Workspace root; defaults to the server process current directory. */
@@ -62,6 +84,26 @@ export declare function readWorkspaceFile(input: WorkspaceFileInput): Promise<Wo
 export declare function editWorkspaceFile(
   input: EditWorkspaceFileInput,
 ): Promise<WorkspaceFileResult>;
+
+/** Replaces an existing workspace file with complete UTF-8 content. */
+export declare function writeWorkspaceFile(
+  input: WriteWorkspaceFileInput,
+): Promise<WorkspaceFileResult>;
+
+/** Creates a new workspace file in an existing directory. */
+export declare function createWorkspaceFile(
+  input: WriteWorkspaceFileInput,
+): Promise<WorkspaceFileResult>;
+
+/** Deletes one existing regular workspace file. */
+export declare function deleteWorkspaceFile(
+  input: WorkspaceFileInput,
+): Promise<WorkspaceFileResult>;
+
+/** Applies Codex add, update, and delete patch operations inside a workspace. */
+export declare function applyWorkspacePatch(
+  input: ApplyWorkspacePatchInput,
+): Promise<WorkspacePatchResult>;
 
 /** Handles one CodexSlimEdit MCP JSON-RPC request. */
 export declare function handleCodexSlimEditMcpRequest(

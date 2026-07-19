@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 describe("codexslimedit MCP", () => {
-  it("lists concise read and edit schemas", async () => {
+  it("lists mandatory read_file and apply_patch contracts", async () => {
     const response = await handleCodexSlimEditMcpRequest({
       jsonrpc: "2.0",
       id: 1,
@@ -29,8 +29,34 @@ describe("codexslimedit MCP", () => {
     expect(response).toMatchObject({
       result: {
         tools: [
-          { name: "read", inputSchema: { required: ["filePath"] } },
-          { name: "edit", inputSchema: { required: ["filePath", "oldString", "newString"] } },
+          {
+            name: "read_file",
+            description: expect.stringContaining("Required tool for reading one complete UTF-8"),
+            inputSchema: {
+              properties: {
+                filePath: { description: expect.stringContaining("workspace-relative") },
+              },
+              required: ["filePath"],
+            },
+            annotations: { readOnlyHint: true, destructiveHint: false },
+          },
+          {
+            name: "apply_patch",
+            description: expect.stringContaining("Required workspace write tool"),
+            inputSchema: {
+              properties: {
+                patch: { description: expect.stringContaining("Native Codex patch envelope") },
+                filePath: { description: expect.stringContaining("workspace-relative") },
+                oldString: { description: expect.stringContaining("unique exact text") },
+                newString: { description: expect.stringContaining("Replacement text") },
+              },
+              oneOf: [
+                { required: ["patch"] },
+                { required: ["filePath", "oldString", "newString"] },
+              ],
+            },
+            annotations: { readOnlyHint: false, destructiveHint: true },
+          },
         ],
       },
     });
@@ -48,7 +74,7 @@ describe("codexslimedit MCP", () => {
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
-        params: { name: "edit", arguments: {} },
+        params: { name: "apply_patch", arguments: {} },
       }),
     ).resolves.toMatchObject({
       result: { isError: true },
@@ -65,7 +91,7 @@ describe("codexslimedit MCP", () => {
           jsonrpc: "2.0",
           id: 1,
           method: "tools/call",
-          params: { name: "read", arguments: { filePath: "note.txt" } },
+          params: { name: "read_file", arguments: { filePath: "note.txt" } },
         },
         { root },
       ),
@@ -79,7 +105,7 @@ describe("codexslimedit MCP", () => {
           id: 2,
           method: "tools/call",
           params: {
-            name: "edit",
+            name: "apply_patch",
             arguments: { filePath: "note.txt", oldString: "hello", newString: "next" },
           },
         },
@@ -95,7 +121,7 @@ describe("codexslimedit MCP", () => {
           id: 3,
           method: "tools/call",
           params: {
-            name: "edit",
+            name: "apply_patch",
             arguments: { filePath: "note.txt", oldString: "missing", newString: "next" },
           },
         },
@@ -108,7 +134,43 @@ describe("codexslimedit MCP", () => {
       },
     });
   });
+
+  it("applies native patch envelopes that add, update, and delete files", async () => {
+    const root = await createWorkspace();
+
+    await expect(
+      callApplyPatch(root, "*** Begin Patch\n*** Add File: note.txt\n+hello\n*** End Patch"),
+    ).resolves.toMatchObject({ result: { isError: false } });
+    await expect(readFile(join(root, "note.txt"), "utf8")).resolves.toBe("hello\n");
+
+    await expect(
+      callApplyPatch(
+        root,
+        "*** Begin Patch\n*** Update File: note.txt\n@@\n-hello\n+updated\n*** End Patch",
+      ),
+    ).resolves.toMatchObject({ result: { isError: false } });
+    await expect(readFile(join(root, "note.txt"), "utf8")).resolves.toBe("updated\n");
+
+    await expect(
+      callApplyPatch(root, "*** Begin Patch\n*** Delete File: note.txt\n*** End Patch"),
+    ).resolves.toMatchObject({ result: { isError: false } });
+    await expect(readFile(join(root, "note.txt"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
 });
+
+async function callApplyPatch(root: string, patch: string) {
+  return await handleCodexSlimEditMcpRequest(
+    {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "apply_patch", arguments: { patch } },
+    },
+    { root },
+  );
+}
 
 async function createWorkspace(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "codexslimedit-mcp-"));

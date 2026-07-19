@@ -34,4 +34,21 @@ describe("agent capacity context", () => {
       "active collaboration tool instructions as the authoritative agent-capacity limit",
     );
   });
+
+  it("routes supported file operations through codexslimedit", () => {
+    const instructions = coreInstructions("linux");
+
+    expect(instructions).toContain("inspect callable and deferred tools until the required");
+    expect(instructions).toContain(
+      "Use `mcp__codexslimedit__read_file` for every complete UTF-8 workspace file read",
+    );
+    expect(instructions).toContain(
+      "Use `mcp__codexslimedit__apply_patch` for every workspace file creation, update, or deletion",
+    );
+    expect(instructions).toContain(
+      "If the required tool is unavailable, stop and report the blocker",
+    );
+    expect(instructions).toContain("Pass a native `*** Begin Patch` envelope");
+    expect(instructions).toContain("Never fall back to shell tools or native `apply_patch`");
+  });
 });

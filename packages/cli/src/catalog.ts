@@ -271,7 +271,10 @@ export function effectiveMcpServers(
         }
       : {}),
     lsp: { command: "node", args: ["runtime/lsp.js", "mcp"], cwd: "." },
-    codexslimedit: { ...codexSlimEdit },
+    codexslimedit: {
+      ...codexSlimEdit,
+      enabled_tools: ["read_file", "apply_patch"],
+    },
     context7: { command: "bunx", args: ["@upstash/context7-mcp"] },
   };
 }

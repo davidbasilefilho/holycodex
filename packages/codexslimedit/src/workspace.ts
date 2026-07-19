@@ -1,4 +1,4 @@
-import { chmod, open, readFile, realpath, rename, rm, stat } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readFile, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import { WorkspaceFileError } from "./errors.js";
@@ -30,6 +30,12 @@ export interface WorkspaceFileResult {
   readonly content: string;
 }
 
+/** Input for writing complete UTF-8 content to a workspace file. */
+export interface WriteWorkspaceFileInput extends WorkspaceFileInput {
+  /** Complete replacement content. */
+  readonly content: string;
+}
+
 interface ResolvedWorkspaceFile {
   readonly absolutePath: string;
   readonly relativePath: string;
@@ -50,6 +56,51 @@ export async function editWorkspaceFile(
   const nextContent = replaceContent(content, input.oldString, input.newString);
   await atomicWrite(target.absolutePath, nextContent);
   return { path: target.relativePath, content: nextContent };
+}
+
+/** Replaces an existing workspace file with complete UTF-8 content. */
+export async function writeWorkspaceFile(
+  input: WriteWorkspaceFileInput,
+): Promise<WorkspaceFileResult> {
+  const target = await resolveWorkspaceFile(input);
+  validateText(input.content);
+  await atomicWrite(target.absolutePath, input.content);
+  return { path: target.relativePath, content: input.content };
+}
+
+/** Creates a new workspace file in an existing directory. */
+export async function createWorkspaceFile(
+  input: WriteWorkspaceFileInput,
+): Promise<WorkspaceFileResult> {
+  const target = await resolveNewWorkspaceFile(input);
+  validateText(input.content);
+  let file: Awaited<ReturnType<typeof open>> | undefined;
+  let created = false;
+  try {
+    file = await open(target.absolutePath, "wx", 0o644);
+    created = true;
+    await file.writeFile(input.content, "utf8");
+    await file.sync();
+    await file.close();
+    file = undefined;
+  } catch (error) {
+    await file?.close();
+    if (created) await rm(target.absolutePath, { force: true });
+    throw new WorkspaceFileError("WRITE_FAILED", `Could not create filePath: ${message(error)}`);
+  }
+  return { path: target.relativePath, content: input.content };
+}
+
+/** Deletes one existing regular workspace file. */
+export async function deleteWorkspaceFile(input: WorkspaceFileInput): Promise<WorkspaceFileResult> {
+  const target = await resolveWorkspaceFile(input);
+  const content = await readUtf8Text(target.absolutePath);
+  try {
+    await rm(target.absolutePath);
+  } catch (error) {
+    throw new WorkspaceFileError("WRITE_FAILED", `Could not delete filePath: ${message(error)}`);
+  }
+  return { path: target.relativePath, content };
 }
 
 async function resolveWorkspaceFile(input: WorkspaceFileInput): Promise<ResolvedWorkspaceFile> {
@@ -73,6 +124,55 @@ async function resolveWorkspaceFile(input: WorkspaceFileInput): Promise<Resolved
     absolutePath: resolvedCandidate,
     relativePath: relative(rootPath, resolvedCandidate).split(sep).join("/"),
   };
+}
+
+async function resolveNewWorkspaceFile(input: WorkspaceFileInput): Promise<ResolvedWorkspaceFile> {
+  const rootPath = await existingDirectory(input.root);
+  const candidate = resolve(rootPath, normalizeSeparators(input.filePath));
+  if (!isInside(rootPath, candidate)) {
+    throw new WorkspaceFileError(
+      "PATH_OUTSIDE_ROOT",
+      "filePath must remain inside the workspace root.",
+    );
+  }
+  try {
+    await lstat(candidate);
+    throw new WorkspaceFileError("ALREADY_EXISTS", "filePath already exists.");
+  } catch (error) {
+    if (error instanceof WorkspaceFileError) throw error;
+  }
+  const parentPath = await createSafeParent(rootPath, dirname(candidate));
+  const absolutePath = resolve(parentPath, basename(candidate));
+  return {
+    absolutePath,
+    relativePath: relative(rootPath, absolutePath).split(sep).join("/"),
+  };
+}
+
+async function createSafeParent(rootPath: string, requestedParent: string): Promise<string> {
+  const missingDirectories: string[] = [];
+  let existingParent = requestedParent;
+  while (true) {
+    try {
+      existingParent = await realpath(existingParent);
+      break;
+    } catch {
+      if (existingParent === rootPath) {
+        throw new WorkspaceFileError("NOT_FOUND", "Workspace root does not exist.");
+      }
+      missingDirectories.push(basename(existingParent));
+      existingParent = dirname(existingParent);
+    }
+  }
+  if (existingParent !== rootPath && !isInside(rootPath, existingParent)) {
+    throw new WorkspaceFileError(
+      "PATH_OUTSIDE_ROOT",
+      "filePath parent resolves outside the workspace root through a symlink.",
+    );
+  }
+  const parentPath = resolve(existingParent, ...missingDirectories.reverse());
+  await mkdir(parentPath, { recursive: true });
+  return parentPath;
 }
 
 async function existingDirectory(root: string): Promise<string> {
@@ -124,13 +224,19 @@ async function readUtf8Text(path: string): Promise<string> {
   }
   try {
     const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    if (content.includes("\0")) throw new TypeError("NUL byte");
+    validateText(content);
     return content;
   } catch {
     throw new WorkspaceFileError(
       "UNSUPPORTED_TEXT",
       "filePath must contain UTF-8 text without NUL bytes.",
     );
+  }
+}
+
+function validateText(content: string): void {
+  if (content.includes("\0")) {
+    throw new WorkspaceFileError("UNSUPPORTED_TEXT", "Text must not contain NUL bytes.");
   }
 }
 

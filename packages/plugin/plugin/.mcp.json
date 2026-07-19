@@ -7,7 +7,11 @@
       "enabled_tools": ["run"]
     },
     "lsp": { "command": "node", "args": ["runtime/lsp.js", "mcp"], "cwd": "." },
-    "codexslimedit": { "command": "bunx", "args": ["codexslimedit@latest"] },
+    "codexslimedit": {
+      "command": "bunx",
+      "args": ["codexslimedit@latest"],
+      "enabled_tools": ["read_file", "apply_patch"]
+    },
     "context7": { "command": "bunx", "args": ["@upstash/context7-mcp"] }
   }
 }

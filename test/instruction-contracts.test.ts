@@ -49,9 +49,9 @@ describe("instruction workflow contracts", () => {
       ...agents,
       readFile(join(root, "packages", "cli", "src", "core-instructions.ts"), "utf8"),
     ]);
-    // Allows the conditional, complete-surface OpenAI reference with measured headroom.
+    // Allows explicit mandatory tool-routing contracts with measured headroom.
     expect(texts.reduce((sum, text) => sum + Buffer.byteLength(text), 0)).toBeLessThanOrEqual(
-      80_000,
+      82_000,
     );
   });
 

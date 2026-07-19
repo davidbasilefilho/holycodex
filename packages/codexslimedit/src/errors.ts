@@ -1,7 +1,9 @@
 /** Identifies a workspace file operation failure. */
 export type WorkspaceFileErrorCode =
+  | "ALREADY_EXISTS"
   | "EXACT_MATCH_NOT_FOUND"
   | "DUPLICATE_MATCH"
+  | "INVALID_PATCH"
   | "INVALID_RANGE"
   | "NOT_A_FILE"
   | "NOT_FOUND"

@@ -13,16 +13,21 @@ import type { JsonRpcResponse } from "@holycodex/mcp-stdio-core";
 import { z } from "zod";
 
 import { WorkspaceFileError } from "./errors.js";
+import { applyWorkspacePatch } from "./patch.js";
 import { CODEX_SLIM_EDIT_VERSION } from "./version.js";
 import { editWorkspaceFile, readWorkspaceFile } from "./workspace.js";
 
 const InitializeParamsSchema = z.looseObject({ protocolVersion: z.string() });
 const ReadArgumentsSchema = z.strictObject({ filePath: z.string().min(1) });
-const EditArgumentsSchema = z.strictObject({
+const ExactEditArgumentsSchema = z.strictObject({
   filePath: z.string().min(1),
   oldString: z.string().min(1),
   newString: z.string(),
 });
+const PatchEnvelopeArgumentsSchema = z.strictObject({ patch: z.string().min(1) });
+const ApplyPatchArgumentsSchema = z.union([PatchEnvelopeArgumentsSchema, ExactEditArgumentsSchema]);
+const READ_FILE_TOOL_NAME = "read_file";
+const APPLY_PATCH_TOOL_NAME = "apply_patch";
 
 /** Options for the CodexSlimEdit MCP server. */
 export interface CodexSlimEditMcpOptions {
@@ -34,6 +39,12 @@ interface ToolDefinition {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
+  readonly annotations: {
+    readonly readOnlyHint: boolean;
+    readonly destructiveHint: boolean;
+    readonly idempotentHint: boolean;
+    readonly openWorldHint: boolean;
+  };
 }
 
 /** Handles one CodexSlimEdit MCP JSON-RPC request. */
@@ -80,27 +91,58 @@ export async function runCodexSlimEditMcpStdioServer(
 
 const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
-    name: "read",
-    description: "Read one UTF-8 workspace file concisely.",
-    inputSchema: {
-      type: "object",
-      properties: { filePath: { type: "string" } },
-      required: ["filePath"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "edit",
-    description: "Atomically replace unique content or an inclusive line range.",
+    name: READ_FILE_TOOL_NAME,
+    description:
+      "Required tool for reading one complete UTF-8 workspace file. Returns the workspace-relative path and exact content without metadata or footer boilerplate.",
     inputSchema: {
       type: "object",
       properties: {
-        filePath: { type: "string" },
-        oldString: { type: "string" },
-        newString: { type: "string" },
+        filePath: {
+          type: "string",
+          description: "The workspace-relative path of the file to read.",
+        },
       },
-      required: ["filePath", "oldString", "newString"],
+      required: ["filePath"],
       additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: APPLY_PATCH_TOOL_NAME,
+    description:
+      "Required workspace write tool. Use a native `*** Begin Patch` envelope to add, update, or delete files; for a smaller single replacement, pass filePath, oldString, and newString.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        patch: {
+          type: "string",
+          description:
+            "Native Codex patch envelope with Add File, Update File, or Delete File operations.",
+        },
+        filePath: {
+          type: "string",
+          description: "The workspace-relative path for a compact single-file replacement.",
+        },
+        oldString: {
+          type: "string",
+          description:
+            "The unique exact text, or inclusive 1-based line number or N-M range to replace.",
+        },
+        newString: { type: "string", description: "Replacement text; may be empty." },
+      },
+      oneOf: [{ required: ["patch"] }, { required: ["filePath", "oldString", "newString"] }],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false,
     },
   },
 ];
@@ -112,36 +154,46 @@ async function callTool(
   options: CodexSlimEditMcpOptions,
 ): Promise<JsonRpcResponse> {
   const root = options.root ?? process.cwd();
-  if (name === "read") {
+  if (name === READ_FILE_TOOL_NAME) {
     const parsed = ReadArgumentsSchema.safeParse(arguments_);
-    if (!parsed.success) return toolResponse(id, "read.filePath must be a non-empty string.", true);
-    return fileOperationResponse(
+    if (!parsed.success)
+      return toolResponse(id, `${READ_FILE_TOOL_NAME}.filePath must be a non-empty string.`, true);
+    return operationResponse(
       id,
       () => readWorkspaceFile({ root, ...parsed.data }),
       (result) => `${result.path}\n${result.content}`,
     );
   }
-  if (name === "edit") {
-    const parsed = EditArgumentsSchema.safeParse(arguments_);
+  if (name === APPLY_PATCH_TOOL_NAME) {
+    const parsed = ApplyPatchArgumentsSchema.safeParse(arguments_);
     if (!parsed.success)
       return toolResponse(
         id,
-        "edit requires non-empty filePath and oldString plus string newString.",
+        `${APPLY_PATCH_TOOL_NAME} requires a non-empty patch envelope or non-empty filePath and oldString plus string newString.`,
         true,
       );
-    return fileOperationResponse(
+    const parsedArguments = parsed.data;
+    if ("patch" in parsedArguments) {
+      const patch = parsedArguments.patch;
+      return operationResponse(
+        id,
+        () => applyWorkspacePatch({ root, patch }),
+        () => "Done!",
+      );
+    }
+    return operationResponse(
       id,
-      () => editWorkspaceFile({ root, ...parsed.data }),
+      () => editWorkspaceFile({ root, ...parsedArguments }),
       (result) => `OK ${result.path}`,
     );
   }
   return toolResponse(id, `Unknown codexslimedit tool: ${name}`, true);
 }
 
-async function fileOperationResponse(
+async function operationResponse<Result>(
   id: string | number | null,
-  operation: () => Promise<{ readonly path: string; readonly content: string }>,
-  successText: (result: { readonly path: string; readonly content: string }) => string,
+  operation: () => Promise<Result>,
+  successText: (result: Result) => string,
 ): Promise<JsonRpcResponse> {
   try {
     const result = await operation();
