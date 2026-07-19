@@ -46,7 +46,8 @@ const defaultRuntime: InstallRuntime = {
   platform: process.platform,
   gitBash: resolveGitBashForCurrentProcess,
   packageRunner: detectPackageRunner(),
-  installCodexSlimEdit: async (runner) => installCodexSlimEdit(runner),
+  installCodexSlimEdit: async (packageRunner) =>
+    installCodexSlimEdit({ packageRunner, packageVersion: VERSION, platform: process.platform }),
 };
 
 function paths(home = process.env.CODEX_HOME ?? join(homedir(), ".codex")) {

@@ -103,7 +103,7 @@ describe("install lifecycle", () => {
         },
         lsp: { command: "node", args: ["runtime/lsp.js", "mcp"], cwd: "." },
         codexslimedit: {
-          command: "npx",
+          command: "npx.cmd",
           args: ["--yes", "codexslimedit@latest"],
         },
         context7: { command: "bunx", args: ["@upstash/context7-mcp"] },

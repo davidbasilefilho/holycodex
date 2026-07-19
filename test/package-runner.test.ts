@@ -17,26 +17,59 @@ describe("package runner selection", () => {
   });
 
   it("uses runner-specific preinstall and MCP invocations", () => {
-    expect(codexSlimEditInvocation("bun", true)).toEqual({
+    expect(
+      codexSlimEditInvocation({
+        packageRunner: "bun",
+        platform: "linux",
+        packageVersion: "0.7.4",
+        includeVersion: true,
+      }),
+    ).toEqual({
       command: "bunx",
       args: ["codexslimedit@latest", "--version"],
     });
-    expect(codexSlimEditInvocation("npm", true)).toEqual({
+    expect(
+      codexSlimEditInvocation({
+        packageRunner: "npm",
+        platform: "linux",
+        packageVersion: "0.7.4",
+        includeVersion: true,
+      }),
+    ).toEqual({
       command: "npx",
       args: ["--yes", "codexslimedit@latest", "--version"],
     });
-    expect(codexSlimEditInvocation("npm", false)).toEqual({
+    expect(
+      codexSlimEditInvocation({
+        packageRunner: "npm",
+        platform: "win32",
+        packageVersion: "0.7.4-dev.1",
+      }),
+    ).toEqual({
+      command: "npx.cmd",
+      args: ["--yes", "codexslimedit@dev"],
+    });
+    expect(
+      codexSlimEditInvocation({
+        packageRunner: "npm",
+        platform: "linux",
+        packageVersion: "0.7.4-dev.1",
+      }),
+    ).toEqual({
       command: "npx",
-      args: ["--yes", "codexslimedit@latest"],
+      args: ["--yes", "codexslimedit@dev"],
     });
   });
 
   it("allows subprocess CLI tests to skip external package resolution", async () => {
     await expect(
-      installCodexSlimEdit("npm", "linux", {
-        NODE_ENV: "test",
-        HOLYCODEX_TEST_SKIP_PACKAGE_RESOLUTION: "1",
-      }),
+      installCodexSlimEdit(
+        { packageRunner: "npm", packageVersion: "0.7.4", platform: "linux" },
+        {
+          NODE_ENV: "test",
+          HOLYCODEX_TEST_SKIP_PACKAGE_RESOLUTION: "1",
+        },
+      ),
     ).resolves.toBeUndefined();
   });
 });

@@ -135,6 +135,9 @@ async function readUtf8Text(path: string): Promise<string> {
 }
 
 function replaceContent(content: string, oldString: string, newString: string): string {
+  const range = parseRange(oldString, lineCount(content));
+  if (range !== null) return replaceLineRange(content, range.start, range.end, newString);
+
   const matches = exactMatchOffsets(content, oldString);
   if (matches.length === 1) {
     const [start] = matches;
@@ -147,14 +150,10 @@ function replaceContent(content: string, oldString: string, newString: string): 
     );
   }
 
-  const range = parseRange(oldString, lineCount(content));
-  if (range === null) {
-    throw new WorkspaceFileError(
-      "EXACT_MATCH_NOT_FOUND",
-      "oldString was not found exactly and is not a valid line range.",
-    );
-  }
-  return replaceLineRange(content, range.start, range.end, newString);
+  throw new WorkspaceFileError(
+    "EXACT_MATCH_NOT_FOUND",
+    "oldString was not found exactly and is not a valid line range.",
+  );
 }
 
 function exactMatchOffsets(content: string, needle: string): number[] {
@@ -204,8 +203,7 @@ function replaceLineRange(content: string, start: number, end: number, newString
   const lines = content.split(/\r\n|\n|\r/);
   const hasFinalNewline = endsWithLineBreak(content);
   const editableLines = hasFinalNewline ? lines.slice(0, -1) : lines;
-  const replacement =
-    newString === "" ? [] : normalizeLineEndings(newString, lineEnding).split(/\r\n|\n|\r/);
+  const replacement = replacementLines(newString, lineEnding);
   const nextLines = [
     ...editableLines.slice(0, start - 1),
     ...replacement,
@@ -213,6 +211,13 @@ function replaceLineRange(content: string, start: number, end: number, newString
   ];
   if (nextLines.length === 0) return "";
   return `${nextLines.join(lineEnding)}${hasFinalNewline ? lineEnding : ""}`;
+}
+
+function replacementLines(newString: string, lineEnding: string): string[] {
+  if (newString === "") return [];
+  const normalized = normalizeLineEndings(newString, lineEnding);
+  const lines = normalized.split(lineEnding);
+  return endsWithLineBreak(normalized) ? lines.slice(0, -1) : lines;
 }
 
 function endsWithLineBreak(content: string): boolean {

@@ -36,7 +36,9 @@ jobs:
           DEV_VERSION="${BASE_VERSION}-dev.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
           npm version "$DEV_VERSION" --no-git-tag-version --package-lock=false
           bun scripts/version.mjs dev "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          npm --prefix packages/codexslimedit version "$DEV_VERSION" --no-git-tag-version --package-lock=false
           test "$(node -p "require('./packages/cli/package.json').version")" = "$DEV_VERSION"
+          test "$(node -p "require('./packages/codexslimedit/package.json').version")" = "$DEV_VERSION"
       - run: bunx vp run build
       - name: Verify CodexSlimEdit on Node.js and Bun
         shell: bash
@@ -93,6 +95,9 @@ jobs:
       - name: Publish dev plugin
         if: github.ref_name == 'dev'
         run: npm publish ./packages/plugin --access public --tag dev
+      - name: Publish dev CodexSlimEdit
+        if: github.ref_name == 'dev'
+        run: npm publish ./packages/codexslimedit --access public --tag dev
       - name: Publish dev CLI
         if: github.ref_name == 'dev'
         run: npm publish ./packages/cli --tag dev

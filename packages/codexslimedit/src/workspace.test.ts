@@ -99,6 +99,29 @@ describe("workspace file primitives", () => {
     });
   });
 
+  it("treats range-shaped oldString values as ranges before exact content", async () => {
+    const root = await createWorkspace();
+    const filePath = join(root, "note.txt");
+    await writeFile(filePath, "first 2\nsecond\nthird\n", "utf8");
+
+    await expect(
+      editWorkspaceFile({ root, filePath: "note.txt", oldString: "2", newString: "replacement" }),
+    ).resolves.toMatchObject({ content: "first 2\nreplacement\nthird\n" });
+  });
+
+  it("does not add blank lines when range replacements end in target line endings", async () => {
+    const root = await createWorkspace();
+    await writeFile(join(root, "lf.txt"), "one\ntwo\nthree\n", "utf8");
+    await writeFile(join(root, "crlf.txt"), "one\r\ntwo\r\nthree\r\n", "utf8");
+
+    await expect(
+      editWorkspaceFile({ root, filePath: "lf.txt", oldString: "2", newString: "two\n" }),
+    ).resolves.toMatchObject({ content: "one\ntwo\nthree\n" });
+    await expect(
+      editWorkspaceFile({ root, filePath: "crlf.txt", oldString: "2", newString: "two\r\n" }),
+    ).resolves.toMatchObject({ content: "one\r\ntwo\r\nthree\r\n" });
+  });
+
   it("rejects overlapping matches and deletes selected lines without blank lines", async () => {
     const root = await createWorkspace();
     const filePath = join(root, "note.txt");

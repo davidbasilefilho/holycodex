@@ -254,7 +254,11 @@ export function effectiveMcpServers(
   platform: NodeJS.Platform,
   packageRunner: PackageRunner = "bun",
 ): Record<string, McpServerConfig> {
-  const codexSlimEdit = codexSlimEditInvocation(packageRunner, false);
+  const codexSlimEdit = codexSlimEditInvocation({
+    packageRunner,
+    platform,
+    packageVersion: VERSION,
+  });
   return {
     ...(platform === "win32"
       ? {
