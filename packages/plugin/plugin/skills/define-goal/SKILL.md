@@ -5,10 +5,10 @@ description: Use when the user asks to define a goal or explicitly accepts a goa
 
 # Define Goal
 
-On activation, first user-visible line must be:
+Only after this skill is fully loaded, its first user-visible lines must be:
 
 **GOAL MODE ACTIVATED**
-I detect goal-definition intent — [reason]. [action].
+I detect goal-definition intent: [reason]. [action].
 
 Create one bounded, verifiable objective; no plan, log, snapshot, ledger, handoff, or continuation mandate.
 

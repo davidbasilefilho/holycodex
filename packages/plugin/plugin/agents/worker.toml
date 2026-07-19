@@ -1,4 +1,4 @@
-description = "Use for isolated implementation after root fixes architecture, ownership, behavior, constraints, acceptance criteria, and proof; do not use for discovery, product decisions, integration, or final verification."
+description = "Use for isolated implementation within explicit write ownership after Root fixes architecture, behavior, constraints, acceptance criteria, and proof. Do not use for discovery, product decisions, integration, or final verification."
 model = "gpt-5.6-terra"
 model_reasoning_effort = "high"
 developer_instructions = """

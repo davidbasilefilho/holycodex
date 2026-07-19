@@ -4,7 +4,12 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AGENTS, MODEL_ROUTING_PLANS, PLAN_NAMES } from "../packages/cli/src/catalog";
+import {
+  AGENTS,
+  effectiveMcpServers,
+  MODEL_ROUTING_PLANS,
+  PLAN_NAMES,
+} from "../packages/cli/src/catalog";
 import {
   assertGitBashReady,
   cleanup,
@@ -21,6 +26,8 @@ const packageVersion = (
 const windowsRuntime: InstallRuntime = {
   platform: "win32",
   gitBash: () => ({ found: true, path: "bash.exe", source: "env", checkedPaths: [] }),
+  packageRunner: "npm",
+  installCodexSlimEdit: async () => undefined,
 };
 
 afterEach(() => {
@@ -37,6 +44,42 @@ describe("install lifecycle", () => {
         installHint: "Install Git Bash.",
       }),
     ).toThrow("Install Git Bash.");
+  });
+  it("preinstalls codexslimedit with the invoking package runner before mutation", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-runner-test-"));
+    process.env.CODEX_HOME = home;
+    const runners: string[] = [];
+    await install(
+      { autonomy: "default", json: false },
+      {
+        ...windowsRuntime,
+        packageRunner: "bun",
+        installCodexSlimEdit: async (runner) => {
+          runners.push(runner);
+        },
+      },
+    );
+    expect(runners).toEqual(["bun"]);
+    const mcp = await readFile(
+      join(home, "plugins", "cache", "holycodex", "holycodex", packageVersion, ".mcp.json"),
+      "utf8",
+    );
+    expect(mcp).toContain('"command": "bunx"');
+
+    const blocked = await mkdtemp(join(tmpdir(), "holycodex-runner-failure-test-"));
+    process.env.CODEX_HOME = blocked;
+    await expect(
+      install(
+        { autonomy: "default", json: false },
+        {
+          ...windowsRuntime,
+          installCodexSlimEdit: async () => {
+            throw new Error("codexslimedit install failed");
+          },
+        },
+      ),
+    ).rejects.toThrow("codexslimedit install failed");
+    await expect(access(join(blocked, "config.toml"))).rejects.toThrow();
   });
   it("preserves unrelated config, removes legacy OMO, and cleans only HolyCodex", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-test-"));
@@ -56,16 +99,7 @@ describe("install lifecycle", () => {
     ) as { mcpServers?: unknown };
     expect(manifest.mcpServers).toBe("./.mcp.json");
     expect(JSON.parse(await readFile(join(cache, ".mcp.json"), "utf8"))).toEqual({
-      mcpServers: {
-        git_bash: {
-          command: "node",
-          args: ["runtime/git-bash.js", "mcp"],
-          cwd: ".",
-          enabled_tools: ["run"],
-        },
-        lsp: { command: "node", args: ["runtime/lsp.js", "mcp"], cwd: "." },
-        context7: { command: "bunx", args: ["@upstash/context7-mcp"] },
-      },
+      mcpServers: effectiveMcpServers("win32", "npm"),
     });
     await Promise.all(
       ["git-bash.js", "lsp.js", "rules.js", "bootstrap.js"].map((file) =>
@@ -116,6 +150,8 @@ describe("install lifecycle", () => {
     const linuxRuntime: InstallRuntime = {
       platform: "linux",
       gitBash: () => ({ found: false, checkedPaths: [], installHint: "irrelevant" }),
+      packageRunner: "npm",
+      installCodexSlimEdit: async () => undefined,
     };
     await install({ autonomy: "default", json: false }, linuxRuntime);
     const cache = join(home, "plugins", "cache", "holycodex", "holycodex", packageVersion);
@@ -217,6 +253,8 @@ describe("install lifecycle", () => {
       const config = await readFile(join(home, "config.toml"), "utf8");
       expect(config).toContain(`# holycodex plan: ${plan}`);
       expect(config).toContain("[custom]\nvalue = true");
+      expect(config).toContain("multi_agent = true");
+      expect(config).toContain("multi_agent_v2 = true");
       expect(config).toContain(`max_threads = ${MODEL_ROUTING_PLANS[plan].usage.maxThreads}`);
       expect(config).toContain(`max_depth = ${MODEL_ROUTING_PLANS[plan].usage.maxDepth}`);
       for (const agent of AGENTS) {

@@ -75,7 +75,7 @@ describe("HolyCodex catalog", () => {
     );
     expect(MODEL_ROUTING_PLANS.go.usage.maxThreads).toBe(1);
     expect(MODEL_ROUTING_PLANS["plus-low"].root.reasoningEffort).toBe("medium");
-    expect(MODEL_ROUTING_PLANS["plus-low"].usage.maxThreads).toBe(1);
+    expect(MODEL_ROUTING_PLANS["plus-low"].usage.maxThreads).toBe(2);
     expect(MODEL_ROUTING_PLANS.plus.usage.maxThreads).toBe(2);
     expect(MODEL_ROUTING_PLANS["plus-high"].usage.maxThreads).toBe(2);
     expect(MODEL_ROUTING_PLANS["pro-5x"].usage.maxThreads).toBe(2);
@@ -193,9 +193,10 @@ describe("HolyCodex catalog", () => {
       ["plan-review", "**PLAN REVIEW MODE ACTIVATED**"],
     ]);
     for (const [skill, phrase] of expected) {
-      expect(await readFile(join(pluginRoot, "skills", skill, "SKILL.md"), "utf8")).toContain(
-        phrase,
-      );
+      const text = await readFile(join(pluginRoot, "skills", skill, "SKILL.md"), "utf8");
+      expect(text).toContain(phrase);
+      expect(text.split(phrase)).toHaveLength(2);
+      expect(text).toContain("Only after this skill is fully loaded");
     }
     const headings = new Map<string, string>();
     for (const name of skills) {

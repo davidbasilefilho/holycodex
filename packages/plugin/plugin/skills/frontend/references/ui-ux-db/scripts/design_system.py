@@ -403,7 +403,7 @@ def format_ascii_box(design_system: dict) -> str:
     # Pre-Delivery Checklist section
     lines.append(section_header("PRE-DELIVERY CHECKLIST", BOX_WIDTH + 1))
     checklist_items = [
-        "[ ] No emojis as icons (use SVG: Heroicons/Lucide)",
+        "[ ] No emojis as icons (use SVG: Tabler Icons or custom SVG)",
         "[ ] cursor-pointer on all clickable elements",
         "[ ] Hover states with smooth transitions (150-300ms)",
         "[ ] Light mode: text contrast 4.5:1 minimum",
@@ -516,7 +516,7 @@ def format_markdown(design_system: dict) -> str:
 
     # Pre-Delivery Checklist section
     lines.append("### Pre-Delivery Checklist")
-    lines.append("- [ ] No emojis as icons (use SVG: Heroicons/Lucide)")
+    lines.append("- [ ] No emojis as icons (use SVG: Tabler Icons or custom SVG)")
     lines.append("- [ ] cursor-pointer on all clickable elements")
     lines.append("- [ ] Hover states with smooth transitions (150-300ms)")
     lines.append("- [ ] Light mode: text contrast 4.5:1 minimum")
@@ -853,7 +853,7 @@ def format_master_md(design_system: dict) -> str:
     lines.append("")
     lines.append("### Additional Forbidden Patterns")
     lines.append("")
-    lines.append("- ❌ **Emojis as icons** — Use SVG icons (Heroicons, Lucide, Simple Icons)")
+    lines.append("- ❌ **Emojis as icons** — Use Tabler Icons, authorized brand marks, or custom SVG")
     lines.append("- ❌ **Missing cursor:pointer** — All clickable elements must have cursor:pointer")
     lines.append("- ❌ **Layout-shifting hovers** — Avoid scale transforms that shift layout")
     lines.append("- ❌ **Low contrast text** — Maintain 4.5:1 minimum contrast ratio")
@@ -869,7 +869,7 @@ def format_master_md(design_system: dict) -> str:
     lines.append("Before delivering any UI code, verify:")
     lines.append("")
     lines.append("- [ ] No emojis used as icons (use SVG instead)")
-    lines.append("- [ ] All icons from consistent icon set (Heroicons/Lucide)")
+    lines.append("- [ ] All icons follow the Tabler or custom SVG system")
     lines.append("- [ ] `cursor-pointer` on all clickable elements")
     lines.append("- [ ] Hover states with smooth transitions (150-300ms)")
     lines.append("- [ ] Light mode: text contrast 4.5:1 minimum")

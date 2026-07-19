@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// detect-lsp.ts <targetDir> [--json] — scan a directory for source languages and
+// detect-lsp.ts <targetDir> [--json]: scan a directory for source languages and
 // report, per detected language: the builtin LSP server, whether its executable
 // is on PATH, an install hint, and whether a project LSP config references it.
 

@@ -19,10 +19,16 @@ describe("bootstrap readiness", () => {
     );
     const context = await readinessContext(root, "win32", ready);
     expect(context).toContain(
-      'Root is the default user-facing agent. Start the first user-facing update: "I detect ',
+      "Before any user-facing update, classify intent and load every required skill.",
     );
-    expect(context).toContain("Only plan, plan-review, and define-goal print");
-    expect(context).toContain("no other skill or style mode prints an activation heading");
+    expect(context).toContain("Never emit a provisional activation heading or intent update");
+    expect(
+      context.match(/I detect \[fix\/implementation\/investigation\/question\] intent/g),
+    ).toHaveLength(1);
+    expect(context).toContain(
+      "For plan, plan-review, and define-goal, the selected skill owns its required exact activation heading",
+    );
+    expect(context).toContain("No other skill or style mode prints an activation heading");
     expect(context).toContain("before the first shell action, inspect callable and deferred tools");
     expect(context).toContain("Use it for every shell command");
     expect(context).toContain("Never fall back to PowerShell or cmd");
@@ -39,6 +45,7 @@ describe("bootstrap readiness", () => {
     expect(context).toContain("do not require user-visible orchestration commentary");
     expect(context).toContain("Skills govern method, not routing");
     expect(context).toContain("Run at most two lanes per wave");
+    expect(context).toContain('fork_turns="none"');
     expect(context).toContain("fork_context=false");
     expect(context).not.toMatch(/(?:Explorer|Librarian|Worker) (?:uses|runs) GPT 5\.6/);
     expect(context).toContain("Packets have five concepts");

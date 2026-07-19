@@ -225,6 +225,7 @@ describe("Codex configuration", () => {
     expect(output.match(/\[sandbox_workspace_write]/g)).toHaveLength(1);
     expect(output).toContain("default_mode_request_user_input = true");
     expect(output).toContain("multi_agent = true");
+    expect(output).toContain("multi_agent_v2 = true");
     expect(output).toContain("network_access = true");
     expect(output).toContain('approval_policy = "never"');
     expect(output).toContain('sandbox_mode = "workspace-write"');
@@ -241,12 +242,13 @@ describe("Codex configuration", () => {
 
   it("restores explicit managed table values during cleanup", () => {
     const input =
-      "[features]\ndefault_mode_request_user_input = false\nmulti_agent = false\n" +
+      "[features]\ndefault_mode_request_user_input = false\nmulti_agent = false\nmulti_agent_v2 = false\n" +
       "[agents]\nmax_threads = 9\nmax_depth = 3\n" +
       "[sandbox_workspace_write]\nnetwork_access = false\n";
     const installed = installConfig(input, "default");
     expect(installed).toContain("default_mode_request_user_input = true");
     expect(installed).toContain("multi_agent = true");
+    expect(installed).toContain("multi_agent_v2 = true");
     expect(installed).toContain("max_threads = 2");
     expect(installed).toContain("max_depth = 1");
     expect(installed).toContain("network_access = true");

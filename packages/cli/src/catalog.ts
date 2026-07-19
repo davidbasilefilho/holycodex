@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { codexSlimEditInvocation, type PackageRunner } from "./package-runner.ts";
+
 export const VERSION = "0.7.4";
 
 export const SKILLS = [
@@ -90,7 +92,7 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
       librarian: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
       worker: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
     },
-    usage: { maxThreads: 1, maxDepth: 1 },
+    usage: { maxThreads: 2, maxDepth: 1 },
   },
   plus: {
     root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
@@ -220,12 +222,14 @@ export const MANAGED_ROOT_MODEL_HISTORY_BY_PLAN = {
 } satisfies Record<PlanName, readonly ModelRoute[]>;
 
 export const GENERATED_RUNTIMES = [
+  "agent-capacity.js",
   "bootstrap.js",
   "core-instructions.js",
   "detect-lsp.js",
   "git-bash.js",
   "git-bash-resolver.js",
   "LICENSE-LSP-MIT.txt",
+  "LICENSE-OPENSLIMEDIT-MIT.txt",
   "lsp.js",
   "mcp-stdio-core.js",
   "rules.js",
@@ -246,7 +250,15 @@ export type McpServerConfig = {
 };
 
 /** Provides effective mcp servers. */
-export function effectiveMcpServers(platform: NodeJS.Platform): Record<string, McpServerConfig> {
+export function effectiveMcpServers(
+  platform: NodeJS.Platform,
+  packageRunner: PackageRunner = "bun",
+): Record<string, McpServerConfig> {
+  const codexSlimEdit = codexSlimEditInvocation({
+    packageRunner,
+    platform,
+    packageVersion: VERSION,
+  });
   return {
     ...(platform === "win32"
       ? {
@@ -259,6 +271,10 @@ export function effectiveMcpServers(platform: NodeJS.Platform): Record<string, M
         }
       : {}),
     lsp: { command: "node", args: ["runtime/lsp.js", "mcp"], cwd: "." },
+    codexslimedit: {
+      ...codexSlimEdit,
+      enabled_tools: ["read_file", "apply_patch"],
+    },
     context7: { command: "bunx", args: ["@upstash/context7-mcp"] },
   };
 }

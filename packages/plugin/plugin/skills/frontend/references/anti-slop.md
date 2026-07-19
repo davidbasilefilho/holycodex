@@ -2,25 +2,12 @@
 
 Use this reference for every interface design, build, styling, redesign, mockup, or visual decision. It is a project-original synthesis of the [pols.dev anti-slop design law](https://pols.dev/slop.md), the [Oh My OpenAgent frontend skill](https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/refs/heads/dev/packages/omo-opencode/src/features/builtin-skills/frontend/SKILL.md), and the [GPT Taste skill](https://raw.githubusercontent.com/Leonxlnx/taste-skill/refs/heads/main/skills/gpt-tasteskill/SKILL.md). It does not reproduce those sources verbatim.
 
-## Contents
-
-- Enforcement and precedence
-- Default slop patterns
-- Layout and composition failures
-- Typography, color, surface, and icon failures
-- Motion, clipping, and interaction failures
-- Premium craft
-- Signature and cohesion
-- Preflight and final audit
-
 ## Enforcement and precedence
 
-- Read this file before visual work and re-read it before handoff.
-- Confirm the load compactly. At handoff, report applicable checks and fixes instead of making a ceremonial promise.
-- Treat these rules as defaults. Explicit user direction wins. An established product contract wins unless a redesign is requested. Ask when either is ambiguous.
-- Do not evade the catalog by removing all character. Avoidance alone is not design. Replace canned choices with authored, product-specific choices.
-- Judge combinations, not isolated atoms. Several acceptable defaults stacked together create stronger slop.
-- Protect function, content visibility, accessibility, and performance while improving craft.
+- Read before visual work and handoff. Confirm briefly; at handoff report checks/fixes, not promises.
+- These are defaults. Explicit user direction wins; established product contract wins unless redesign. Ask on ambiguity.
+- Keep code, comments, plans, and output professional: no emoji and no em dash. Preserve exact technical strings where changing them would be incorrect.
+- Avoidance is not design: replace canned choices with authored product-specific ones. Judge combinations because acceptable defaults can compound into slop. Protect function, content visibility, accessibility, and performance.
 
 ## Default slop patterns
 
@@ -28,59 +15,27 @@ Reject canned or unearned use of every pattern below. Allow a crafted exception 
 
 ### Small decorations and controls
 
-- Pill or eyebrow badges used as automatic hero decoration.
-- Gradient pills combining icon, label, glow, and rounded container.
-- Glowy pill buttons and the default filled-primary plus outlined-secondary CTA pair.
-- A little rule or tick beside an eyebrow label.
-- One tracked uppercase or monospace label treatment repeated across every role.
-- Tinted metadata chips everywhere.
-- Inner-glow badges, active-nav dots, canned underline fills, and hover boops.
-- Arrows added by reflex. When an arrow earns its place, tune its shape, spacing, alignment, and motion.
-- Default sun-and-moon toggles and redrawn library icons.
-- Dead controls, fake links, decorative search boxes, and nonfunctional interactivity.
+- Reject automatic hero eyebrow/pill badges; gradient icon-label-glow pills; glowy pill buttons; default filled-primary plus outlined-secondary CTAs; eyebrow ticks/rules; one tracked uppercase/mono label across roles; ubiquitous tinted metadata chips; inner-glow badges; active-nav dots; canned underline fills/hover boops; default sun-moon toggles; and redrawn library icons.
+- Add arrows only when earned, then tune shape, spacing, alignment, and motion. Never ship dead controls, fake links, decorative search, or nonfunctional interactivity.
 
 ### Icons, marks, and social proof
 
-- Oversized icons inside colored tiles, boxed logos, and gradient icon-tile wordmarks.
-- Fake logos, gradient initials avatars, invented customer marks, and fake logo walls.
-- Lucide as the automatic answer for every project. For new icons, follow the frontend skill's Tabler-first priority.
-- No-icons-at-all minimalism when icons would improve recognition.
-- Fake macOS windows, traffic-light chrome, generic code windows, and empty product mockups.
-- Crude CSS or SVG stand-ins for real imagery, product UI, charts, or illustration.
-- Countdown timers and urgency widgets without a real deadline.
+- Reject oversized icons in colored tiles, boxed logos, gradient icon-tile wordmarks, fake logos/initial avatars/customer marks/logo walls, fake macOS or code windows, traffic-light chrome, empty mockups, crude CSS/SVG media stand-ins, and false countdowns/urgency.
+- Reject any Lucide use. For new icons preserve a matching non-Lucide repository system, else use faithful Tabler Icons, then custom SVG. Do use icons where they materially improve recognition.
 
 ### Cards and repeated content
 
-- Kitchen-sink cards combining icon tile, badge, tags, divider, price, glow, and CTA.
-- Floating cards that bob without functional meaning.
-- Accent-bar cards and identical hairline-bordered boxes used as automatic structure.
-- Default all-around shadows, hover lifts, glowing borders, and a second offset box pretending to be a shadow.
-- Three-tier pricing presets with a glowing middle card and `MOST POPULAR` pill.
-- Testimonial cards with decorative quote marks, fake avatars, job titles, or invented metrics.
-- Image cards with automatic overlay captions.
-- Empty cards, bento holes, filler statistics, and placeholder dashboards.
+- Reject kitchen-sink cards (icon tile, badge, tags, divider, price, glow, CTA); meaningless bobbing cards; automatic accent bars or identical hairline boxes; default all-around shadows, hover lifts, glowing borders, or offset-box fake shadows; three-tier pricing with glowing middle/`MOST POPULAR`; testimonial decoration or invented people/metrics; automatic image overlays; empty cards, bento holes, filler stats, and placeholder dashboards.
 
 ### Hero and page templates
 
-- The default hero stack: eyebrow, oversized headline, subcopy, paired CTAs, trust line, then a framed panel.
-- The habitual split hero, including a text column plus framed visual, floating tag, or stat row.
-- The hero stack with a panel on the right and the same skeleton recolored for every brief.
-- Narrow multi-line headlines, dangling accent words, cramped display type, and heroes that fail to own the first screen.
-- Arbitrary stamp icons, tag pills, and raw stats in heroes.
-- Pre-footer gradient CTA slabs and standard multi-column footers used without product need.
-- Oversized footer wordmarks without clipping discipline, spacing, purpose, or responsive proof.
-- Whole SaaS product-page templates assembled from hero, logo strip, bento, process, testimonials, pricing, CTA, and footer by default.
+- Reject default eyebrow/headline/subcopy/paired-CTA/trust-line/framed-panel heroes; habitual text-plus-framed-visual split heroes with floating tags/stats; recolored right-panel skeletons; narrow multiline or cramped display type, dangling accents, arbitrary stamps/pills/raw stats, and heroes that do not own the first screen.
+- Compose the first viewport. A user- or concept-specified next-section preview is valid; otherwise prevent an accidental unbalanced half-section in the fold.
+- Reject unneeded pre-footer gradient CTAs or standard multicolumn footers; oversized footer marks without disciplined clipping, spacing, purpose, and responsive proof; and default SaaS chains of hero, logo strip, bento, process, testimonials, pricing, CTA, footer.
 
 ### Section and form templates
 
-- Kicker plus serif heading repeated for every section.
-- A generic big-serif statement block standing in for content.
-- Small-label-over-big-heading section heads repeated mechanically.
-- Numbered steps arranged beside a vertical line by default.
-- Inset enquiry islands, email-pill forms, and filled-plus-outlined button pairs used as presets.
-- A flat alternate fill placed under every section after the hero.
-- Repeated left-right section alternation and content flung to opposite edges as default asymmetry.
-- Recycled house layouts, palettes, type pairings, or signature tricks across unrelated products.
+- Reject repeated kicker-plus-serif or small-label-over-big-heading sections; generic big-serif statements replacing content; default numbered vertical-line steps; preset enquiry islands, email pills, or fill-plus-outline buttons; flat alternate fill after every section; mechanical left-right alternation or edge-flung asymmetry; and recycled layouts, palettes, type pairings, or signature tricks across unrelated products.
 
 ## Layout and composition failures
 
@@ -89,6 +44,7 @@ Reject canned or unearned use of every pattern below. Allow a crafted exception 
 - Center intentionally. Verify optical and geometric centering for text, icons, controls, and compositions instead of assuming flex alignment is enough.
 - Clear every cut. When using `clip-path`, notches, fixed heights, overlap, or `overflow: hidden`, pad content beyond the removed region and inspect the exact edge at high zoom.
 - Prevent clipped content where sections overlap and avoid hard seams between images, gradients, and backgrounds.
+- For an approved full-bleed image that must dissolve into one continuous page color, mask the image pixels rather than overlaying color. Use a long, finely eased mask with 10+ stops, about 30% fade at each edge, a sufficiently tall image region such as `116vh`, an opaque middle such as `#000 31%` through `#000 65%`, and a text scrim that returns to transparent before both edges. Treat these values as the source recipe, not a universal layout mandate.
 - Avoid hard color seams between adjacent sections unless the boundary is deliberate and composed.
 - Do not stack multiple slop layouts. Composition-level repetition compounds faster than isolated styling tells.
 - Do not merely recolor the same skeleton or swap in a supposedly tasteful font.
@@ -98,32 +54,16 @@ Reject canned or unearned use of every pattern below. Allow a crafted exception 
 
 ### Typography
 
-- Follow the source-conditional font policy in `../SKILL.md`; it is not a universal font ban. Preserve established product typography outside a requested redesign. Fraunces + Work Sans is an overused-pairing concern; Space Grotesk + Inter is a default-tech concern; Inter is allowed as a neutral body face, not an identity everywhere. Apply the listed display, serif, mono, reputation-swap, and startup-signature cautions only under their named source conditions.
-- Avoid a free or trendy font carrying the entire identity merely because it appears distinctive.
-- Avoid mono as the house voice. Reserve it for genuine data, code, timestamps, or technical values.
-- Avoid a letterspaced serif wordmark as an instant-luxury shortcut.
-- Avoid the same serif-display plus clean-sans pairing across unrelated briefs.
-- Choose type after viewing it with real content. Prefer authentic, licensed, self-hosted, project-owned, or genuinely distinctive type, with a quiet neutral body face when useful.
-- Give display type enough width, line height, tracking, and surrounding space. Keep landing heroes wide and normally within two or three lines only when that structure fits.
+- Follow the source-conditional font policy in `../SKILL.md`, not a universal ban; preserve product type unless redesign. Fraunces + Work Sans concerns overuse, Space Grotesk + Inter default tech, and Inter is allowed as a neutral body face but not identity everywhere. Apply other display/serif/mono/reputation/startup cautions only under named conditions. Do not let trendy/free type carry identity by novelty; use mono only for real data/code/timestamps/technical values; reject instant-luxury letterspaced serif marks and recycled serif-display/sans pairings.
+- View real content before choosing authentic, licensed, self-hosted, project-owned, or distinctive type, with quiet neutral body when useful. Do not default or randomly select Satoshi, Cabinet Grotesk, Outfit, or Geist. Fontshare offers self-hosted WOFF2 Pally, Gambarino, Sentient, Tanker; Velvetyne is another characterful source. General Sans, Clash Display, Cabinet Grotesk, and Satoshi remain generic as automatic startup signatures. Use `next/font/local` when apt. Give display type adequate width, line height, tracking, and space; keep landing heroes wide and usually within two or three lines only when fitting.
 
 ### Color and atmosphere
 
-- Reject default purple, blue-purple, pastel-candy, and adjacent-hue gradients.
-- Reject gradient-filled headline text, automatic radial glows, drifting soft-blend blobs, cool blue-charcoal dark palettes, cream editorial palettes, and default UI-kit gray surfaces.
-- Reject a saturated accent pasted onto every control and section.
-- Avoid hard color collisions and seams. Make transitions deliberate through shared tones, overlap, material, or spacing.
-- Do not use a blurred copy of an element as its bloom. Shape light independently and contain it.
-- Avoid generic grid or graph-paper backgrounds. A sparing, authored technical texture may earn its place when it represents the product.
-- Avoid fixed backgrounds that merely follow scrolling without narrative or spatial purpose.
+- Reject default purple/blue-purple/pastel-candy/adjacent-hue gradients; gradient headlines; automatic radial glows or soft-blend blobs; cool blue-charcoal dark, cream editorial, or UI-kit gray palettes; and saturated accent on every control/section. Resolve hard collisions/seams through shared tone, overlap, material, or space. Shape and contain light independently, never by blurring a copy. Reject generic grid/graph paper except sparse product-representative texture, and fixed backgrounds without narrative/spatial purpose.
 
 ### Surfaces, glass, borders, shadows, and grain
 
-- Reject cut-off glows, blurred halos, banded glass, leaking shadows, blur pops, and hard-edged shadow boxes.
-- Reject faint borders on every box, unrounded decorative hairlines, and lines added only to fill space.
-- Reject grain laid over content. Place texture behind content and protect text clarity.
-- Reject hard image seams. Match crop, lighting, color, mask, and surrounding material so media belongs to the composition.
-- Reject botched glass. If blur bands, leaks, pops, or has nothing real to refract, remove it.
-- Use tonal elevation, self-colored borders, real translucency, controlled specular light, and material-specific shadows when they earn their place.
+- Reject cut-off glows, halos, banded/botched glass, leaking shadows, blur pops, hard shadow boxes, faint borders everywhere, decorative hairlines, filler lines, and grain over content. Put texture behind clear text. Integrate media by matching crop, light, color, mask, and material. Remove glass that bands/leaks/pops or refracts nothing. When earned, use tonal elevation, self-colored borders, real translucency, controlled specular light, and material-specific shadow.
 
 ## Motion, clipping, and interaction failures
 
@@ -139,71 +79,43 @@ Reject canned or unearned use of every pattern below. Allow a crafted exception 
 
 ## Premium craft
 
-Premium means authored execution, not more glow or animation.
+Premium means authored execution, not extra glow or motion. Build translucency from meaningful layers, controlled blur/saturation/edge light, and a background worth refracting. Prefer self-colored borders, tonal elevation, bespoke geometry/silhouette/crop/spacing/material over gray borders, all-around shadows, and default rounded rectangles. Use bare/project-coherent icons without automatic containers; craft SVG/iconography when approved libraries cannot supply a needed signature. Remove labels, badges, helper copy, and decoration that do not aid comprehension. Author micro-interactions with clear states, timing, easing, continuity, and reduced motion. Give light an identifiable source and bounded falloff without clipped bloom. Keep subtle noise/grain behind content; test banding/contrast. Use glass buttons only in supporting material; verify edge, gloss, contrast, hover, active, focus, disabled, and reduced motion.
 
-- Build real translucency from meaningful layers, controlled blur, saturation, edge light, and a background worth refracting.
-- Use self-colored borders and tonal elevation instead of default gray borders and all-around shadows.
-- Prefer bespoke geometry, silhouette, cropping, spacing, and material over default rounded rectangles.
-- Use bare or project-coherent icons where the selected library priority does not fit. Never add a container automatically.
-- Say less. Remove labels, badges, helper copy, and decoration that do not improve comprehension.
-- Create custom iconography or crafted SVG renders when the product needs a signature and approved libraries cannot supply it.
-- Author micro-interactions with clear states, timing, easing, continuity, and reduced-motion behavior.
-- Use considered light with an identifiable source, bounded falloff, and no clipped bloom.
-- Put premium noise and grain behind content, keep it subtle, and test banding and contrast.
-- Use glass buttons only when the surrounding material supports them. Verify edge, gloss, contrast, hover, active, focus, disabled, and reduced-motion states.
-- Prefer full-page composition and large-scale relationships over a pile of isolated cards.
-- Use real, authorized logo walls only when social proof exists.
-- Use blueprint or canvas detail only when sparse, specific, and product-relevant.
-- Use inset island sections only when transition, material, and content role justify the island.
-- Keep professional work alive through proportionate motion, character, specificity, and responsive composition.
-- Use a fine textured micro-grid or grainy gradient only when crafted, non-banded, subordinate, and specific. Never fall back to generic graph paper or candy aurora.
-- Use scroll-authored motion only when it advances narrative, spatial continuity, comparison, or product understanding.
-- Place oversized footer type only when its cropping, baseline, scale, and small-screen transformation are deliberate.
+- When reproducing the source glass-button recipe, retain its exact contract: `#2575FF` fill, thick variant at 50% fill opacity, `#FFFFFF` label/icon, Geist Medium 20, 8 icon gap, 20 horizontal/14 vertical padding, two 20%-opacity strokes (`#22BBFD` and `#FFFFFF`), `#FFFFFF` 20% inner shadow at Y 1/blur 32, and `#2575FF` 6% drop shadow at Y 3/blur 3. Thin material: light `-45deg`/80%, refraction 80, depth 2, dispersion 40, frost 6, splay 0. Thick: light `-50deg`/60%, refraction 64, depth 44, dispersion 67, frost 2, splay 20. Approximate unsupported refraction/dispersion with `backdrop-filter`, saturation/contrast, inset highlight, layered strokes, tight color-matched shadow, and a 1px edge offset or thin conic edge gradient; use `feDisplacementMap` only when its cost is justified.
+- Prefer full-page relationships over card piles. Use authorized logo walls only with real proof; blueprint/canvas detail only when sparse, specific, relevant; inset islands only when transition, material, and role justify them. Keep work alive through proportionate motion, character, specificity, and responsive composition. Fine micro-grid/grain gradients must be crafted, non-banded, subordinate, and specific, never generic graph paper or candy aurora. Scroll motion must advance narrative, spatial continuity, comparison, or understanding. Oversized footer type needs deliberate crop, baseline, scale, and small-screen transformation.
 
 ## Signature and cohesion
 
-- Choose one product-specific signature artifact instead of many competing tricks.
-- Create atmosphere from purposeful color, light, texture, material, and depth instead of a flat fill or default glow.
-- Compose the z-axis with foreground, content plane, and background relationships. Keep text legible and interactions reachable.
-- Show the product as a real, populated, functional artifact only when the product has such an interface. Otherwise show what the product actually is.
-- Give display type character without relying on a source-named font, generic italic serif, or trendy free face.
-- Create one bespoke silhouette, crop, edge, or spatial gesture that belongs to the product.
-- Treat navigation as part of the design. Avoid the default logo-left, links-center, pill-right arrangement unless the product contract calls for it.
-- Use real names, copy, data, imagery, controls, and domain details. Specificity is stronger than decoration.
-- Combine signature artifact, atmosphere, depth, real product, characterful type, bespoke silhouette, treated navigation, and specific content into one coherent language. Do not force every ingredient when it does not fit.
+Choose one product-specific signature, not competing tricks. Build atmosphere with purposeful color, light, texture, material, and depth; compose foreground/content/background while preserving legibility and reach. Show a populated functional product only when one exists, otherwise show its true form. Give type character without a source-named font, generic italic serif, or trendy free face. Create one belonging silhouette/crop/edge/spatial gesture. Treat navigation as design, avoiding logo-left/links-center/pill-right unless contracted. Use real names, copy, data, imagery, controls, and domain detail. Unify fitting signature, atmosphere, depth, product, type, silhouette, navigation, and content without forcing every ingredient. References supply design language only, never product, copy, claims, data, or artifact.
+
+## Libraries and assets
+
+- Reuse accessible, functioning repository primitives before hand-rolling generic controls. When installation is approved and the stack fits, consider Motion (`motion`, imported from `motion/react`), shadcn/ui, Tailark, motion-primitives, or Kokonut UI. Motion works without Tailwind; the others are Tailwind-oriented. Adapt their structure into a non-Tailwind project instead of adding global Tailwind for one block.
+- Treat every prebuilt block as behavior and structure, not finished art direction. Remove default blue-purple gradients, glowy pills, paired fill/outline CTAs, sun-moon toggles, tracked caps, generic hero stacks, and any other catalog failure.
+- Use real authorized logos, recognizable marks, content, and data only when truthful. Pull marks from official assets or reputable packages. Never fabricate customers, proof, metrics, testimonials, urgency, or capabilities.
+- Priority builder asset rules override GPT Taste's prescribed `https://picsum.photos/seed/{keyword}/1920/1080`, stock filters (`grayscale`, `mix-blend-luminosity`, `opacity-90`, `contrast-125`), and automatic radial blur, mesh-gradient, or dark-overlay treatment. Use supplied/authentic assets and Image Gen concepts/assets under the priority workflow.
 
 ## Conditional GPT Taste constraints
 
 - Use AIDA only when it matches a marketing narrative.
 - Use a premium navigation treatment only when navigation is present and the direction calls for it.
-- Keep a landing H1 wide and normally within two or three lines when an editorial hero fits.
-- Use three to five intentional bento cards, dense flow, and complete span math only when a bento grid fits the content.
+- Keep a landing H1 wide and normally within two or three lines when an editorial hero fits. Source candidates are `max-w-5xl`, `max-w-6xl`, `w-full`, and `clamp(3rem, 5vw, 5.5rem)`; treat them as adaptable measures, not mandatory classes.
+- Use three to five intentional bento cards only when a bento grid fits the content. Apply `grid-flow-dense`/`grid-auto-flow: dense` and prove column/row spans leave no unintended holes.
 - Give major sections strong rhythm without imposing fixed `py-32 md:py-48` spacing.
 - Use reasoned variety. Do not simulate Python, use prompt-length seeds, select fixed counts, or obey random output.
 - Use authentic assets first. Do not prescribe Picsum, filters, background blurs, mesh gradients, or dark overlays.
-- Use GSAP under the frontend skill's permission rule. Choose only meaningful motion patterns.
+- Use GSAP under the frontend skill's permission rule. `@gsap/react` and `ScrollTrigger` pinning, left-title/right-gallery splits, horizontal scroll, card stacking, scrubbed word reveals, marquees, parallax, and image scale/fade are candidates only when accepted and meaningful. Taste's source values (`scale: 0.8` to `1`, outgoing `opacity: 0.2`, `group-hover:scale-105 transition-transform duration-700 ease-out`) are optional tuned starting points, never universal requirements; essential content stays visible and reduced motion stays complete.
+- Treat inline heading images, horizontal hover accordions, infinite authentic-logo/type marquees, and portrait testimonial carousels as optional architectures, never a required randomized set. Do not add them unless requested, concept-approved, truthful, and functional.
+- Never force exactly two hero CTAs, a full-bleed dark radial wash, a split hero, AIDA, pricing/footer action, bento, GSAP, or any fixed component count. The priority builder's supplied IA, accepted concept, product fit, repository stack, accessibility, and fidelity rules decide.
+- Prevent horizontal overflow by correcting animated geometry and containment. Do not conceal a broken page with the Taste source's universal `<main className="overflow-x-hidden w-full max-w-full">` wrapper.
 - Include applicable hero measure, grid density, labels, button contrast, motion, states, responsiveness, accessibility, assets, and QA in `<design_plan>`.
 
 ## Preflight and final audit
 
 Before implementation:
 
-1. Confirm the anti-slop reference is loaded.
-2. Inspect the product contract, real content, nearest patterns, dependencies, viewports, and states.
-3. Identify the product-specific signature and every material visible decision.
-4. Confirm font and icon choices follow the frontend skill's new-choice policies.
-5. Confirm assets are supplied, authentic, approved, or explicitly accepted placeholders.
-6. Confirm motion purpose, GSAP availability, content-visible fallback, and reduced-motion behavior.
-7. Confirm conditional AIDA, hero, bento, card-count, and spacing rules are used only when they fit.
-8. Obtain approval for visible direction and material interaction.
+Confirm this reference is loaded; inspect product contract, real content, nearest patterns, dependencies, viewports, and states; identify the product signature and all material visible decisions; enforce frontend font/icon policy; verify assets are supplied, authentic, approved, or accepted placeholders; verify motion purpose, GSAP availability, visible fallback, and reduced motion; condition AIDA, hero, bento, card count, and spacing on fit; obtain approval for visible direction and material interaction.
 
 Before handoff:
 
-1. Re-read this file and check every applicable catalog item.
-2. Inspect default, hover, active, focus, disabled, loading, empty, error, keyboard, and reduced-motion states.
-3. Inspect 375, 768, and 1280 pixel widths for significant work; scale evidence proportionally for small fixes.
-4. Check alignment, text edges, cuts, seams, centering, contrast, assets, controls, icons, type, and horizontal containment.
-5. Exercise motion and verify essential content remains visible when animation does not run.
-6. Compare supplied visual references with fresh browser evidence while preserving original content and identity.
-7. Run requested performance audits on production output, use repeated mobile and desktop measurements, and diagnose architectural causes.
-8. Fix every observed failure. Report only measured parity, scores, and checks.
+Re-read this file and check each applicable item. Inspect default, hover, active, focus, disabled, loading, empty, error, keyboard, and reduced-motion states. For significant work inspect 375, 768, and 1280 pixels; scale proof for small fixes. Check alignment, text edges, cuts, seams, centering, contrast, assets, controls, icons, type, and horizontal containment. Exercise motion and prove essential content without animation. Compare references with fresh browser evidence while preserving content/identity. Run requested production performance audits with repeated mobile/desktop measurements and diagnose architectural causes. Fix every failure; report only measured parity, scores, and checks.

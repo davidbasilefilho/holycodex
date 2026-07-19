@@ -6,7 +6,8 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
 
 import { UnknownRecordSchema } from "../../mcp-stdio-core/src/schemas.ts";
-import { CORE_INSTRUCTIONS } from "./core-instructions.ts";
+import { readAgentCapacity } from "./agent-capacity.ts";
+import { coreInstructions } from "./core-instructions.ts";
 
 export type Rule = { readonly path: string; readonly body: string };
 const HookInputSchema = z.looseObject({
@@ -68,7 +69,12 @@ export async function runRulesHook(input: unknown): Promise<string> {
   const cache = cachePath(hook.session_id);
   if (event === "PostCompact") {
     await rm(cache, { force: true });
-    return `${JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: CORE_INSTRUCTIONS } })}\n`;
+    return `${JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: event,
+        additionalContext: coreInstructions(process.platform, await readAgentCapacity()),
+      },
+    })}\n`;
   }
   const target = event === "PostToolUse" ? editPath(hook.tool_input, hook.cwd) : undefined;
   if (event === "PostToolUse" && target === undefined) return "";

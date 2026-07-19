@@ -17,7 +17,7 @@ Root is the default user-facing decision, clarification, integration, and verifi
 | Plan        | Root               | Explorer             | Librarian            | Worker               | Usage              |
 | ----------- | ------------------ | -------------------- | -------------------- | -------------------- | ------------------ |
 | `go`        | GPT-5.6 Sol low    | GPT-5.6 Luna low     | GPT-5.6 Luna low     | GPT-5.6 Terra low    | 1 thread, depth 1  |
-| `plus-low`  | GPT-5.6 Sol medium | GPT-5.6 Luna low     | GPT-5.6 Luna medium  | GPT-5.6 Terra medium | 1 thread, depth 1  |
+| `plus-low`  | GPT-5.6 Sol medium | GPT-5.6 Luna low     | GPT-5.6 Luna medium  | GPT-5.6 Terra medium | 2 threads, depth 1 |
 | `plus`      | GPT-5.6 Sol medium | GPT-5.6 Luna medium  | GPT-5.6 Terra low    | GPT-5.6 Terra high   | 2 threads, depth 1 |
 | `plus-high` | GPT-5.6 Sol medium | GPT-5.6 Terra medium | GPT-5.6 Terra medium | GPT-5.6 Sol medium   | 2 threads, depth 1 |
 | `pro-5x`    | GPT-5.6 Sol high   | GPT-5.6 Terra medium | GPT-5.6 Terra high   | GPT-5.6 Sol medium   | 2 threads, depth 1 |
@@ -39,7 +39,7 @@ Before work, Root delegates discoverable facts, asks the user for material decis
 
 Root uses at most two specialists in one wave by default. Packets carry five concepts: exact outcome or question, allowed scope, constraints and fixed decisions, required evidence or proof, and stop and blocker conditions. Optional context stays optional. Local work is reserved for atomic, coupled, unresolved, unsafe to isolate, or coordination-heavy work. Specialists do not delegate, overlap write ownership, review one another, retry unchanged packets, or raise their model or effort automatically. Root reviews actual returns before spot-checking only load-bearing claims, avoids duplicate reassurance work, integrates results, and performs final verification.
 
-HolyCodex also ships 16 on-demand skills, scoped rules, readiness hooks, LSP and Context7 MCPs, and a Windows-only Git Bash MCP. Planning, plan review, and goal definition print exact activation headings. A durable goal is created only after explicit user consent. Zod schemas validate CLI input, configuration, manifests, persisted state, MCP and JSON-RPC envelopes, LSP responses, daemon messages, environment values, and metadata scripts at their runtime boundaries.
+HolyCodex also ships 16 on-demand skills, scoped rules, readiness hooks, LSP and Context7 MCPs, a Windows-only Git Bash MCP, and the independently versioned `codexslimedit` MCP package. Planning, plan review, and goal definition print exact activation headings only after their skill loads. A durable goal is created only after explicit user consent. Zod schemas validate CLI input, configuration, manifests, persisted state, MCP and JSON-RPC envelopes, LSP responses, daemon messages, environment values, and metadata scripts at their runtime boundaries.
 
 ## Platform behavior
 
@@ -69,9 +69,10 @@ Each development workflow run publishes a unique prerelease and moves only the `
 
 Installation is noninteractive. It backs up affected files, removes legacy OMO state after backup, preserves unrelated configuration and explicit model preferences, installs the plugin and effective platform MCPs, and configures:
 
-- `features.multi_agent = true` and request-user-input support;
+- stable `features.multi_agent = true`, experimental `features.multi_agent_v2 = true`, and request-user-input support;
 - plan-selected `agents.max_threads` (1 or 2) and `agents.max_depth = 1`;
 - named-agent `config_file` entries;
+- `codexslimedit@latest`, pre-resolved with npm for `npx holycodex` or Bun for `bunx holycodex` and launched through the same runner;
 - a status line containing remaining context;
 - workspace network access in contained modes;
 - local unauthenticated Context7 through `bunx @upstash/context7-mcp`.
@@ -100,11 +101,11 @@ Dangerous autonomy prints an explicit warning and is never inferred. `doctor` di
 
 Human CLI output uses a compact TTY-aware presentation and honors `NO_COLOR`. JSON output and redirected text remain stable and noninteractive. OpenTUI is intentionally absent because HolyCodex does not run a persistent terminal interface.
 
-Codex may ask you to trust installed command hooks. This security review is the only expected manual installation step.
+Restart Codex and open a fresh task after installation so agent profiles, hooks, and Multi Agents V2 reload. Codex may ask you to trust installed command hooks. This security review is the only expected manual installation step.
 
 ## Multi-agent compatibility
 
-HolyCodex uses the documented Codex `features.multi_agent`, `agents.max_threads`, `agents.max_depth`, and per-agent `config_file` surfaces. Codex 0.144.4 locally reports `multi_agent` as stable and enabled, while `multi_agent_v2` is under development and disabled. HolyCodex therefore does not write an undocumented v2 flag. Configuration and deterministic tests prove the intended specialist model files and routing contracts; they do not prove live provider-side model selection for every Codex release.
+HolyCodex enables documented stable `features.multi_agent` plus the installed Codex binary's accepted boolean `features.multi_agent_v2` opt-in. The binary reports V2 as under development, so stable multi-agent configuration remains as fallback. `agents.max_threads` includes Root; SessionStart and PostCompact context report current direct-child capacity and `agents.max_depth`. Configuration and deterministic tests prove intended specialist model files and routing contracts; a fresh-task rollout is still required to verify provider-side role, model, and reasoning selection for each Codex release.
 
 ## Cleanup
 
@@ -118,13 +119,14 @@ Cleanup backs up affected state, removes only HolyCodex-owned configuration and 
 
 ## Repository layout
 
-- `packages/cli/` — public `holycodex` executable, source, metadata, and generated CLI bundle.
-- `packages/plugin/` — public `@holycodex/plugin` package containing prompts, skills, agents, hooks, MCP metadata, and generated plugin runtime.
-- `packages/git-bash-mcp/`, `packages/lsp-*`, and `packages/mcp-stdio-core/` — internal runtime packages.
-- `vite.config.ts` — Vite+ plugin-runtime build; `packages/cli/vite.config.ts` builds the CLI.
-- `test/` — lifecycle, configuration, instruction, catalogue, protocol, and platform tests.
+- `packages/cli/`: public `holycodex` executable, source, metadata, and generated CLI bundle.
+- `packages/plugin/`: public `@holycodex/plugin` package containing prompts, skills, agents, hooks, MCP metadata, and generated plugin runtime.
+- `packages/codexslimedit/`: independently versioned public Node.js/Bun MCP package for compact reads and validated exact or line-range edits.
+- `packages/git-bash-mcp/`, `packages/lsp-*`, and `packages/mcp-stdio-core/`: internal runtime packages.
+- `vite.config.ts`: Vite+ plugin-runtime build; `packages/cli/vite.config.ts` builds the CLI.
+- `test/`: lifecycle, configuration, instruction, catalogue, protocol, and platform tests.
 
-The root package is private and orchestrates the Vite+ workspace. The CLI depends on the exact same version of `@holycodex/plugin`, resolves its installed asset root, and copies only that payload into Codex state.
+The root package is private and orchestrates the Vite+ workspace. Source and published runtimes support Node.js and Bun. The CLI depends on the exact same version of `@holycodex/plugin`, resolves its installed asset root, and copies only that payload into Codex state. `codexslimedit` releases independently and is installed through the package runner that invoked HolyCodex.
 
 ## npm publishing
 
