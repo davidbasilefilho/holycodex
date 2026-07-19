@@ -75,7 +75,7 @@ describe("HolyCodex catalog", () => {
     );
     expect(MODEL_ROUTING_PLANS.go.usage.maxThreads).toBe(1);
     expect(MODEL_ROUTING_PLANS["plus-low"].root.reasoningEffort).toBe("medium");
-    expect(MODEL_ROUTING_PLANS["plus-low"].usage.maxThreads).toBe(1);
+    expect(MODEL_ROUTING_PLANS["plus-low"].usage.maxThreads).toBe(2);
     expect(MODEL_ROUTING_PLANS.plus.usage.maxThreads).toBe(2);
     expect(MODEL_ROUTING_PLANS["plus-high"].usage.maxThreads).toBe(2);
     expect(MODEL_ROUTING_PLANS["pro-5x"].usage.maxThreads).toBe(2);

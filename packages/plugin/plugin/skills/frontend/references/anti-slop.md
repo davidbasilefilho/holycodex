@@ -18,6 +18,7 @@ Use this reference for every interface design, build, styling, redesign, mockup,
 - Read this file before visual work and re-read it before handoff.
 - Confirm the load compactly. At handoff, report applicable checks and fixes instead of making a ceremonial promise.
 - Treat these rules as defaults. Explicit user direction wins. An established product contract wins unless a redesign is requested. Ask when either is ambiguous.
+- Keep code, comments, plans, and output professional: no emoji and no em dash. Preserve exact technical strings where changing them would be incorrect.
 - Do not evade the catalog by removing all character. Avoidance alone is not design. Replace canned choices with authored, product-specific choices.
 - Judge combinations, not isolated atoms. Several acceptable defaults stacked together create stronger slop.
 - Protect function, content visibility, accessibility, and performance while improving craft.
@@ -43,7 +44,7 @@ Reject canned or unearned use of every pattern below. Allow a crafted exception 
 
 - Oversized icons inside colored tiles, boxed logos, and gradient icon-tile wordmarks.
 - Fake logos, gradient initials avatars, invented customer marks, and fake logo walls.
-- Lucide as the automatic answer for every project. For new icons, follow the frontend skill's Tabler-first priority.
+- Any Lucide use. For new icons, preserve a matching non-Lucide repository system, otherwise use Tabler Icons when faithful, then custom SVG.
 - No-icons-at-all minimalism when icons would improve recognition.
 - Fake macOS windows, traffic-light chrome, generic code windows, and empty product mockups.
 - Crude CSS or SVG stand-ins for real imagery, product UI, charts, or illustration.
@@ -66,6 +67,7 @@ Reject canned or unearned use of every pattern below. Allow a crafted exception 
 - The habitual split hero, including a text column plus framed visual, floating tag, or stat row.
 - The hero stack with a panel on the right and the same skeleton recolored for every brief.
 - Narrow multi-line headlines, dangling accent words, cramped display type, and heroes that fail to own the first screen.
+- Compose the first viewport deliberately. A next-section preview is valid when the user or accepted concept specifies it; otherwise prevent an accidental, unbalanced half-section from leaking into the fold.
 - Arbitrary stamp icons, tag pills, and raw stats in heroes.
 - Pre-footer gradient CTA slabs and standard multi-column footers used without product need.
 - Oversized footer wordmarks without clipping discipline, spacing, purpose, or responsive proof.
@@ -89,6 +91,7 @@ Reject canned or unearned use of every pattern below. Allow a crafted exception 
 - Center intentionally. Verify optical and geometric centering for text, icons, controls, and compositions instead of assuming flex alignment is enough.
 - Clear every cut. When using `clip-path`, notches, fixed heights, overlap, or `overflow: hidden`, pad content beyond the removed region and inspect the exact edge at high zoom.
 - Prevent clipped content where sections overlap and avoid hard seams between images, gradients, and backgrounds.
+- For an approved full-bleed image that must dissolve into one continuous page color, mask the image pixels rather than overlaying color. Use a long, finely eased mask with 10+ stops, about 30% fade at each edge, a sufficiently tall image region such as `116vh`, an opaque middle such as `#000 31%` through `#000 65%`, and a text scrim that returns to transparent before both edges. Treat these values as the source recipe, not a universal layout mandate.
 - Avoid hard color seams between adjacent sections unless the boundary is deliberate and composed.
 - Do not stack multiple slop layouts. Composition-level repetition compounds faster than isolated styling tells.
 - Do not merely recolor the same skeleton or swap in a supposedly tasteful font.
@@ -104,6 +107,7 @@ Reject canned or unearned use of every pattern below. Allow a crafted exception 
 - Avoid a letterspaced serif wordmark as an instant-luxury shortcut.
 - Avoid the same serif-display plus clean-sans pairing across unrelated briefs.
 - Choose type after viewing it with real content. Prefer authentic, licensed, self-hosted, project-owned, or genuinely distinctive type, with a quiet neutral body face when useful.
+- Do not constrain every design to Satoshi, Cabinet Grotesk, Outfit, or Geist and never choose among them by prompt-length randomness. Fontshare can supply self-hosted WOFF2 files, including Pally, Gambarino, Sentient, and Tanker; Velvetyne is another characterful source. General Sans, Clash Display, Cabinet Grotesk, and Satoshi can still read generic when used as automatic startup signatures. With Next.js, use `next/font/local` when appropriate.
 - Give display type enough width, line height, tracking, and surrounding space. Keep landing heroes wide and normally within two or three lines only when that structure fits.
 
 ### Color and atmosphere
@@ -151,6 +155,7 @@ Premium means authored execution, not more glow or animation.
 - Use considered light with an identifiable source, bounded falloff, and no clipped bloom.
 - Put premium noise and grain behind content, keep it subtle, and test banding and contrast.
 - Use glass buttons only when the surrounding material supports them. Verify edge, gloss, contrast, hover, active, focus, disabled, and reduced-motion states.
+- When reproducing the source glass-button recipe, retain its exact contract: `#2575FF` fill, thick variant at 50% fill opacity, `#FFFFFF` label/icon, Geist Medium 20, 8 icon gap, 20 horizontal/14 vertical padding, two 20%-opacity strokes (`#22BBFD` and `#FFFFFF`), `#FFFFFF` 20% inner shadow at Y 1/blur 32, and `#2575FF` 6% drop shadow at Y 3/blur 3. Thin material: light `-45deg`/80%, refraction 80, depth 2, dispersion 40, frost 6, splay 0. Thick: light `-50deg`/60%, refraction 64, depth 44, dispersion 67, frost 2, splay 20. Approximate unsupported refraction/dispersion with `backdrop-filter`, saturation/contrast, inset highlight, layered strokes, tight color-matched shadow, and a 1px edge offset or thin conic edge gradient; use `feDisplacementMap` only when its cost is justified.
 - Prefer full-page composition and large-scale relationships over a pile of isolated cards.
 - Use real, authorized logo walls only when social proof exists.
 - Use blueprint or canvas detail only when sparse, specific, and product-relevant.
@@ -171,17 +176,28 @@ Premium means authored execution, not more glow or animation.
 - Treat navigation as part of the design. Avoid the default logo-left, links-center, pill-right arrangement unless the product contract calls for it.
 - Use real names, copy, data, imagery, controls, and domain details. Specificity is stronger than decoration.
 - Combine signature artifact, atmosphere, depth, real product, characterful type, bespoke silhouette, treated navigation, and specific content into one coherent language. Do not force every ingredient when it does not fit.
+- Use references for design language only. Never copy their product, copy, claims, data, or artifact.
+
+## Libraries and assets
+
+- Reuse accessible, functioning repository primitives before hand-rolling generic controls. When installation is approved and the stack fits, consider Motion (`motion`, imported from `motion/react`), shadcn/ui, Tailark, motion-primitives, or Kokonut UI. Motion works without Tailwind; the others are Tailwind-oriented. Adapt their structure into a non-Tailwind project instead of adding global Tailwind for one block.
+- Treat every prebuilt block as behavior and structure, not finished art direction. Remove default blue-purple gradients, glowy pills, paired fill/outline CTAs, sun-moon toggles, tracked caps, generic hero stacks, and any other catalog failure.
+- Use real authorized logos, recognizable marks, content, and data only when truthful. Pull marks from official assets or reputable packages. Never fabricate customers, proof, metrics, testimonials, urgency, or capabilities.
+- Priority builder asset rules override GPT Taste's prescribed `https://picsum.photos/seed/{keyword}/1920/1080`, stock filters (`grayscale`, `mix-blend-luminosity`, `opacity-90`, `contrast-125`), and automatic radial blur, mesh-gradient, or dark-overlay treatment. Use supplied/authentic assets and Image Gen concepts/assets under the priority workflow.
 
 ## Conditional GPT Taste constraints
 
 - Use AIDA only when it matches a marketing narrative.
 - Use a premium navigation treatment only when navigation is present and the direction calls for it.
-- Keep a landing H1 wide and normally within two or three lines when an editorial hero fits.
-- Use three to five intentional bento cards, dense flow, and complete span math only when a bento grid fits the content.
+- Keep a landing H1 wide and normally within two or three lines when an editorial hero fits. Source candidates are `max-w-5xl`, `max-w-6xl`, `w-full`, and `clamp(3rem, 5vw, 5.5rem)`; treat them as adaptable measures, not mandatory classes.
+- Use three to five intentional bento cards only when a bento grid fits the content. Apply `grid-flow-dense`/`grid-auto-flow: dense` and prove column/row spans leave no unintended holes.
 - Give major sections strong rhythm without imposing fixed `py-32 md:py-48` spacing.
 - Use reasoned variety. Do not simulate Python, use prompt-length seeds, select fixed counts, or obey random output.
 - Use authentic assets first. Do not prescribe Picsum, filters, background blurs, mesh gradients, or dark overlays.
-- Use GSAP under the frontend skill's permission rule. Choose only meaningful motion patterns.
+- Use GSAP under the frontend skill's permission rule. `@gsap/react` and `ScrollTrigger` pinning, left-title/right-gallery splits, horizontal scroll, card stacking, scrubbed word reveals, marquees, parallax, and image scale/fade are candidates only when accepted and meaningful. Taste's source values (`scale: 0.8` to `1`, outgoing `opacity: 0.2`, `group-hover:scale-105 transition-transform duration-700 ease-out`) are optional tuned starting points, never universal requirements; essential content stays visible and reduced motion stays complete.
+- Treat inline heading images, horizontal hover accordions, infinite authentic-logo/type marquees, and portrait testimonial carousels as optional architectures, never a required randomized set. Do not add them unless requested, concept-approved, truthful, and functional.
+- Never force exactly two hero CTAs, a full-bleed dark radial wash, a split hero, AIDA, pricing/footer action, bento, GSAP, or any fixed component count. The priority builder's supplied IA, accepted concept, product fit, repository stack, accessibility, and fidelity rules decide.
+- Prevent horizontal overflow by correcting animated geometry and containment. Do not conceal a broken page with the Taste source's universal `<main className="overflow-x-hidden w-full max-w-full">` wrapper.
 - Include applicable hero measure, grid density, labels, button contrast, motion, states, responsiveness, accessibility, assets, and QA in `<design_plan>`.
 
 ## Preflight and final audit
