@@ -193,9 +193,10 @@ describe("HolyCodex catalog", () => {
       ["plan-review", "**PLAN REVIEW MODE ACTIVATED**"],
     ]);
     for (const [skill, phrase] of expected) {
-      expect(await readFile(join(pluginRoot, "skills", skill, "SKILL.md"), "utf8")).toContain(
-        phrase,
-      );
+      const text = await readFile(join(pluginRoot, "skills", skill, "SKILL.md"), "utf8");
+      expect(text).toContain(phrase);
+      expect(text.split(phrase)).toHaveLength(2);
+      expect(text).toContain("Only after this skill is fully loaded");
     }
     const headings = new Map<string, string>();
     for (const name of skills) {

@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { VERSION } from "../packages/cli/src/catalog";
 
 const run = promisify(execFile);
+process.env.HOLYCODEX_TEST_SKIP_PACKAGE_RESOLUTION = "1";
 
 describe("CLI", () => {
   it("prints version under Node", async () => {

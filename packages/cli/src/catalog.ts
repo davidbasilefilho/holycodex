@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { codexSlimEditInvocation, type PackageRunner } from "./package-runner.ts";
+
 export const VERSION = "0.7.4";
 
 export const SKILLS = [
@@ -226,6 +228,7 @@ export const GENERATED_RUNTIMES = [
   "git-bash.js",
   "git-bash-resolver.js",
   "LICENSE-LSP-MIT.txt",
+  "LICENSE-OPENSLIMEDIT-MIT.txt",
   "lsp.js",
   "mcp-stdio-core.js",
   "rules.js",
@@ -246,7 +249,11 @@ export type McpServerConfig = {
 };
 
 /** Provides effective mcp servers. */
-export function effectiveMcpServers(platform: NodeJS.Platform): Record<string, McpServerConfig> {
+export function effectiveMcpServers(
+  platform: NodeJS.Platform,
+  packageRunner: PackageRunner = "bun",
+): Record<string, McpServerConfig> {
+  const codexSlimEdit = codexSlimEditInvocation(packageRunner, false);
   return {
     ...(platform === "win32"
       ? {
@@ -259,6 +266,7 @@ export function effectiveMcpServers(platform: NodeJS.Platform): Record<string, M
         }
       : {}),
     lsp: { command: "node", args: ["runtime/lsp.js", "mcp"], cwd: "." },
+    codexslimedit: { ...codexSlimEdit },
     context7: { command: "bunx", args: ["@upstash/context7-mcp"] },
   };
 }

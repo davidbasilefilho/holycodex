@@ -229,6 +229,7 @@ export function installConfig(
   let configured = `${rootBlock}${tables ? `\n\n${tables}` : ""}`;
   configured = injectTableKey(configured, "features", "default_mode_request_user_input", "true");
   configured = injectTableKey(configured, "features", "multi_agent", "true");
+  configured = injectTableKey(configured, "features", "multi_agent_v2", "true");
   const usage = MODEL_ROUTING_PLANS[plan].usage;
   configured = injectTableKey(configured, "agents", "max_threads", String(usage.maxThreads));
   configured = injectTableKey(configured, "agents", "max_depth", String(usage.maxDepth));

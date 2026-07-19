@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// verify-lsp.ts <file> [--timeout=ms] — perform a real LSP diagnostics roundtrip
+// verify-lsp.ts <file> [--timeout=ms]: perform a real LSP diagnostics roundtrip
 // for <file> through the lsp-tools-mcp engine and report ok/fail with error text.
 // The engine source is located by walking up from this script and the cwd, so
 // run it inside the HolyCodex repository (where packages/lsp-core/src exists).

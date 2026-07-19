@@ -62,6 +62,7 @@ describe("HolyCodex doctor", () => {
       expect.arrayContaining([
         "package-ready",
         "required-mcp-ready",
+        "codexslimedit-ready",
         "local-context7-config",
         "bun-ready",
         "bunx-ready",
@@ -265,6 +266,28 @@ describe("HolyCodex doctor", () => {
     expect(result.healthy).toBe(false);
     expect(result.checks.find((check) => check.id === "mcp-lsp")?.code).toBe(
       "invalid-required-mcp-config",
+    );
+  });
+
+  it("accepts npm CodexSlimEdit configuration and rejects stale launch settings", async () => {
+    const npmFixture = await fixture();
+    const npmMcpPath = join(npmFixture.plugin, ".mcp.json");
+    const npmMcp = JSON.parse(await readFile(npmMcpPath, "utf8")) as {
+      mcpServers: Record<string, Record<string, unknown>>;
+    };
+    npmMcp.mcpServers.codexslimedit = effectiveMcpServers("win32", "npm").codexslimedit ?? {};
+    await writeFile(npmMcpPath, JSON.stringify(npmMcp));
+    expect(codes(await doctor(npmFixture.home, runtime()))).toContain("codexslimedit-ready");
+
+    const staleFixture = await fixture();
+    const staleMcpPath = join(staleFixture.plugin, ".mcp.json");
+    const staleMcp = JSON.parse(await readFile(staleMcpPath, "utf8")) as {
+      mcpServers: Record<string, Record<string, unknown>>;
+    };
+    staleMcp.mcpServers.codexslimedit = { command: "npx", args: ["codexslimedit"] };
+    await writeFile(staleMcpPath, JSON.stringify(staleMcp));
+    expect(codes(await doctor(staleFixture.home, runtime()))).toContain(
+      "invalid-codexslimedit-config",
     );
   });
 

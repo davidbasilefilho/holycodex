@@ -248,6 +248,39 @@ export async function doctor(
           : check(`mcp-${name}`, "ok", "required-mcp-ready", `${name} is configured locally.`),
     );
   }
+  const codexSlimEdit = servers?.codexslimedit;
+  const codexSlimEditReady = (["bun", "npm"] as const).some((runner) => {
+    const expected = effectiveMcpServers(runtime.platform, runner).codexslimedit;
+    return (
+      expected !== undefined &&
+      codexSlimEdit !== undefined &&
+      mcpConfigMatches(codexSlimEdit, expected)
+    );
+  });
+  checks.push(
+    codexSlimEdit === undefined
+      ? check(
+          "mcp-codexslimedit",
+          "error",
+          "missing-codexslimedit",
+          "codexslimedit is not configured.",
+          "Reinstall HolyCodex.",
+        )
+      : codexSlimEditReady
+        ? check(
+            "mcp-codexslimedit",
+            "ok",
+            "codexslimedit-ready",
+            "codexslimedit is configured through npm or Bun.",
+          )
+        : check(
+            "mcp-codexslimedit",
+            "error",
+            "invalid-codexslimedit-config",
+            "codexslimedit configuration is stale or uses an unsupported runner.",
+            "Reinstall HolyCodex.",
+          ),
+  );
   const gitBashConfig = servers?.git_bash;
   if (runtime.platform === "win32" && gitBashConfig !== undefined) {
     const expected = effectiveMcpServers("win32").git_bash;

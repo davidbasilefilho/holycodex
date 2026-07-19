@@ -1,0 +1,275 @@
+import { chmod, open, readFile, realpath, rename, rm, stat } from "node:fs/promises";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+
+import { WorkspaceFileError } from "./errors.js";
+
+const RANGE_PATTERN = /^\s*(?<start>[1-9]\d*)\s*(?:-\s*(?<end>[1-9]\d*)\s*)?$/;
+const TEMPORARY_FILE_PREFIX = ".codexslimedit-";
+
+/** Input shared by workspace file operations. */
+export interface WorkspaceFileInput {
+  /** Workspace root used to constrain file access. */
+  readonly root: string;
+  /** Relative path to the target file. */
+  readonly filePath: string;
+}
+
+/** Input for an exact-content or inclusive-line-range edit. */
+export interface EditWorkspaceFileInput extends WorkspaceFileInput {
+  /** Exact text to replace, or an inclusive 1-based `N` or `N-M` line range. */
+  readonly oldString: string;
+  /** Replacement text. */
+  readonly newString: string;
+}
+
+/** Content returned by a workspace file operation. */
+export interface WorkspaceFileResult {
+  /** Canonical root-relative path. */
+  readonly path: string;
+  /** UTF-8 file content after the operation. */
+  readonly content: string;
+}
+
+interface ResolvedWorkspaceFile {
+  readonly absolutePath: string;
+  readonly relativePath: string;
+}
+
+/** Reads a regular UTF-8 text file inside the workspace root. */
+export async function readWorkspaceFile(input: WorkspaceFileInput): Promise<WorkspaceFileResult> {
+  const target = await resolveWorkspaceFile(input);
+  return { path: target.relativePath, content: await readUtf8Text(target.absolutePath) };
+}
+
+/** Applies one validated exact-content or inclusive-line-range edit atomically. */
+export async function editWorkspaceFile(
+  input: EditWorkspaceFileInput,
+): Promise<WorkspaceFileResult> {
+  const target = await resolveWorkspaceFile(input);
+  const content = await readUtf8Text(target.absolutePath);
+  const nextContent = replaceContent(content, input.oldString, input.newString);
+  await atomicWrite(target.absolutePath, nextContent);
+  return { path: target.relativePath, content: nextContent };
+}
+
+async function resolveWorkspaceFile(input: WorkspaceFileInput): Promise<ResolvedWorkspaceFile> {
+  const rootPath = await existingDirectory(input.root);
+  const candidate = resolve(rootPath, normalizeSeparators(input.filePath));
+  if (!isInside(rootPath, candidate)) {
+    throw new WorkspaceFileError(
+      "PATH_OUTSIDE_ROOT",
+      "filePath must remain inside the workspace root.",
+    );
+  }
+
+  const resolvedCandidate = await realFilePath(candidate);
+  if (!isInside(rootPath, resolvedCandidate)) {
+    throw new WorkspaceFileError(
+      "PATH_OUTSIDE_ROOT",
+      "filePath resolves outside the workspace root through a symlink.",
+    );
+  }
+  return {
+    absolutePath: resolvedCandidate,
+    relativePath: relative(rootPath, resolvedCandidate).split(sep).join("/"),
+  };
+}
+
+async function existingDirectory(root: string): Promise<string> {
+  try {
+    const resolvedRoot = await realpath(resolve(root));
+    if (!(await stat(resolvedRoot)).isDirectory()) {
+      throw new WorkspaceFileError("NOT_A_FILE", "Workspace root must be a directory.");
+    }
+    return resolvedRoot;
+  } catch (error) {
+    if (error instanceof WorkspaceFileError) throw error;
+    throw new WorkspaceFileError("NOT_FOUND", "Workspace root does not exist.");
+  }
+}
+
+async function realFilePath(candidate: string): Promise<string> {
+  try {
+    const resolvedCandidate = await realpath(candidate);
+    if (!(await stat(resolvedCandidate)).isFile()) {
+      throw new WorkspaceFileError("NOT_A_FILE", "filePath must identify a regular file.");
+    }
+    return resolvedCandidate;
+  } catch (error) {
+    if (error instanceof WorkspaceFileError) throw error;
+    throw new WorkspaceFileError("NOT_FOUND", "filePath does not exist.");
+  }
+}
+
+function normalizeSeparators(filePath: string): string {
+  return filePath.replace(/[\\/]/g, sep);
+}
+
+function isInside(root: string, candidate: string): boolean {
+  const pathRelative = relative(root, candidate);
+  return (
+    pathRelative !== "" &&
+    pathRelative !== ".." &&
+    !pathRelative.startsWith(`..${sep}`) &&
+    !isAbsolute(pathRelative)
+  );
+}
+
+async function readUtf8Text(path: string): Promise<string> {
+  let bytes: Uint8Array;
+  try {
+    bytes = await readFile(path);
+  } catch {
+    throw new WorkspaceFileError("UNREADABLE_FILE", "filePath could not be read.");
+  }
+  try {
+    const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    if (content.includes("\0")) throw new TypeError("NUL byte");
+    return content;
+  } catch {
+    throw new WorkspaceFileError(
+      "UNSUPPORTED_TEXT",
+      "filePath must contain UTF-8 text without NUL bytes.",
+    );
+  }
+}
+
+function replaceContent(content: string, oldString: string, newString: string): string {
+  const matches = exactMatchOffsets(content, oldString);
+  if (matches.length === 1) {
+    const [start] = matches;
+    return `${content.slice(0, start)}${newString}${content.slice(start + oldString.length)}`;
+  }
+  if (matches.length > 1) {
+    throw new WorkspaceFileError(
+      "DUPLICATE_MATCH",
+      "oldString matches more than once; provide unique exact content or a line range.",
+    );
+  }
+
+  const range = parseRange(oldString, lineCount(content));
+  if (range === null) {
+    throw new WorkspaceFileError(
+      "EXACT_MATCH_NOT_FOUND",
+      "oldString was not found exactly and is not a valid line range.",
+    );
+  }
+  return replaceLineRange(content, range.start, range.end, newString);
+}
+
+function exactMatchOffsets(content: string, needle: string): number[] {
+  if (needle.length === 0) return [];
+  const offsets: number[] = [];
+  let offset = content.indexOf(needle);
+  while (offset !== -1) {
+    offsets.push(offset);
+    offset = content.indexOf(needle, offset + 1);
+  }
+  return offsets;
+}
+
+function parseRange(
+  value: string,
+  maximum: number,
+): { readonly start: number; readonly end: number } | null {
+  const match = RANGE_PATTERN.exec(value);
+  if (match?.groups === undefined) {
+    if (/^\s*\d+(?:\s*-\s*\d+)?\s*$/.test(value)) {
+      throw new WorkspaceFileError(
+        "INVALID_RANGE",
+        `Line range ${value} must use positive 1-based line numbers.`,
+      );
+    }
+    return null;
+  }
+  const start = Number(match.groups.start);
+  const end = Number(match.groups.end ?? match.groups.start);
+  if (start > end || end > maximum) {
+    throw new WorkspaceFileError(
+      "INVALID_RANGE",
+      `Line range ${value} is outside the file's 1-${maximum} bounds.`,
+    );
+  }
+  return { start, end };
+}
+
+function lineCount(content: string): number {
+  return content === ""
+    ? 0
+    : content.split(/\r\n|\n|\r/).length - Number(endsWithLineBreak(content));
+}
+
+function replaceLineRange(content: string, start: number, end: number, newString: string): string {
+  const lineEnding = content.includes("\r\n") ? "\r\n" : "\n";
+  const lines = content.split(/\r\n|\n|\r/);
+  const hasFinalNewline = endsWithLineBreak(content);
+  const editableLines = hasFinalNewline ? lines.slice(0, -1) : lines;
+  const replacement =
+    newString === "" ? [] : normalizeLineEndings(newString, lineEnding).split(/\r\n|\n|\r/);
+  const nextLines = [
+    ...editableLines.slice(0, start - 1),
+    ...replacement,
+    ...editableLines.slice(end),
+  ];
+  if (nextLines.length === 0) return "";
+  return `${nextLines.join(lineEnding)}${hasFinalNewline ? lineEnding : ""}`;
+}
+
+function endsWithLineBreak(content: string): boolean {
+  return /(?:\r\n|\n|\r)$/.test(content);
+}
+
+function normalizeLineEndings(content: string, lineEnding: string): string {
+  return content.replace(/\r\n|\n|\r/g, lineEnding);
+}
+
+async function atomicWrite(path: string, content: string): Promise<void> {
+  const temporaryPath = resolve(
+    dirname(path),
+    `${TEMPORARY_FILE_PREFIX}${basename(path)}-${crypto.randomUUID()}`,
+  );
+  let file: Awaited<ReturnType<typeof open>> | undefined;
+  let writeError: unknown;
+  try {
+    const originalMode = (await stat(path)).mode & 0o7777;
+    file = await open(temporaryPath, "wx", 0o600);
+    await file.writeFile(content, "utf8");
+    await file.sync();
+    await file.close();
+    file = undefined;
+    await chmod(temporaryPath, originalMode);
+    await rename(temporaryPath, path);
+  } catch (error) {
+    writeError = error;
+  }
+  const cleanupError = await cleanupTemporaryFile(file, temporaryPath);
+  if (writeError !== undefined) {
+    throw new WorkspaceFileError(
+      "WRITE_FAILED",
+      `Could not atomically write filePath: ${message(writeError)}`,
+    );
+  }
+  if (cleanupError !== undefined) {
+    throw new WorkspaceFileError(
+      "WRITE_FAILED",
+      `Could not clean up temporary file: ${message(cleanupError)}`,
+    );
+  }
+}
+
+async function cleanupTemporaryFile(
+  file: Awaited<ReturnType<typeof open>> | undefined,
+  temporaryPath: string,
+): Promise<unknown> {
+  try {
+    await file?.close();
+    await rm(temporaryPath, { force: true });
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

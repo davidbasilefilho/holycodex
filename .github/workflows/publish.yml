@@ -38,6 +38,12 @@ jobs:
           bun scripts/version.mjs dev "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
           test "$(node -p "require('./packages/cli/package.json').version")" = "$DEV_VERSION"
       - run: bunx vp run build
+      - name: Verify CodexSlimEdit on Node.js and Bun
+        shell: bash
+        run: |
+          EXPECTED="$(node -p "require('./packages/codexslimedit/package.json').version")"
+          test "$(node packages/codexslimedit/dist/cli.js --version)" = "$EXPECTED"
+          test "$(bun packages/codexslimedit/dist/cli.js --version)" = "$EXPECTED"
       - run: bunx vp test
       - run: bunx vp run version:check
       - name: Check existing stable package versions
@@ -61,8 +67,13 @@ jobs:
 
           PLUGIN_SPEC="$(node -p "const p=require('./packages/plugin/package.json'); p.name+'@'+p.version")"
           CLI_SPEC="$(node -p "const p=require('./packages/cli/package.json'); p.name+'@'+p.version")"
+          SLIM_EDIT_SPEC="$(node -p "const p=require('./packages/codexslimedit/package.json'); p.name+'@'+p.version")"
+          check_package slim_edit "$SLIM_EDIT_SPEC"
           check_package plugin "$PLUGIN_SPEC"
           check_package cli "$CLI_SPEC"
+      - name: Publish stable CodexSlimEdit
+        if: github.ref_name == 'main' && steps.stable.outputs.slim_edit_exists == 'false'
+        run: npm publish ./packages/codexslimedit --access public --tag latest
       - name: Publish stable plugin
         if: github.ref_name == 'main' && steps.stable.outputs.plugin_exists == 'false'
         run: npm publish ./packages/plugin --access public --tag latest

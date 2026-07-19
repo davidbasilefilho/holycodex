@@ -93,7 +93,7 @@ function formatNotInstalled(
   const decision = loadInstallDecision(server.id)?.decision;
 
   if (decision === "declined") {
-    return `LSP server '${server.id}' (${extensions}) is NOT INSTALLED; user previously declined installation — proceed without LSP.`;
+    return `LSP server '${server.id}' (${extensions}) is NOT INSTALLED; user previously declined installation. Proceed without LSP.`;
   }
 
   const header = [
@@ -116,7 +116,7 @@ function formatNotInstalled(
     "To install, run:",
     `  ${installHint}`,
     "",
-    "ACTION REQUIRED — ASK THE USER whether to install this LSP server.",
+    "ACTION REQUIRED: ASK THE USER whether to install this LSP server.",
     "- If the user agrees: run the install command above, then retry this tool.",
     "- If the user declines, OR has NOT explicitly asked for LSP installation:",
     `    call lsp_install_decision { server_id: "${server.id}", decision: "declined" },`,

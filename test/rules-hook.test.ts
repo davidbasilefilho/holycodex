@@ -67,7 +67,7 @@ describe("scoped rules", () => {
     expect(await runRulesHook(input)).toContain("shared project context");
     expect(await runRulesHook(input)).toBe("");
     expect(await runRulesHook({ ...input, hook_event_name: "PostCompact" })).toContain(
-      'Root is the default user-facing agent. Start the first user-facing update: \\"I detect ',
+      "Before any user-facing update, classify intent and load every required skill.",
     );
     expect(await runRulesHook(input)).toContain("shared project context");
   });
