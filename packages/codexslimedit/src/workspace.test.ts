@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { WorkspaceFileError } from "./errors";
-import { editWorkspaceFile, readWorkspaceFile } from "./workspace";
+import { deleteWorkspaceFile, editWorkspaceFile, readWorkspaceFile } from "./workspace";
 
 const temporaryDirectories: string[] = [];
 
@@ -54,6 +54,34 @@ describe("workspace file primitives", () => {
         code: "PATH_OUTSIDE_ROOT",
       },
     );
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "rejects symlink deletion without deleting its target",
+    async () => {
+      const root = await createWorkspace();
+      const target = join(root, "target.txt");
+      await writeFile(target, "keep", "utf8");
+      await symlink(target, join(root, "link.txt"), "file");
+
+      await expect(deleteWorkspaceFile({ root, filePath: "link.txt" })).rejects.toMatchObject({
+        code: "NOT_A_FILE",
+      });
+      await expect(readFile(target, "utf8")).resolves.toBe("keep");
+      await expect(stat(join(root, "link.txt"))).resolves.toBeDefined();
+    },
+  );
+
+  it("preserves UTF-8 BOMs while reading and editing", async () => {
+    const root = await createWorkspace();
+    const filePath = join(root, "bom.txt");
+    await writeFile(filePath, "\uFEFFbefore\n", "utf8");
+
+    await expect(readWorkspaceFile({ root, filePath: "bom.txt" })).resolves.toMatchObject({
+      content: "\uFEFFbefore\n",
+    });
+    await editWorkspaceFile({ root, filePath: "bom.txt", oldString: "before", newString: "after" });
+    await expect(readFile(filePath, "utf8")).resolves.toBe("\uFEFFafter\n");
   });
 
   it("edits one exact match and rejects duplicate or absent content without writing", async () => {

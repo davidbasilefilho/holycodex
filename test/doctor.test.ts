@@ -295,6 +295,21 @@ describe("HolyCodex doctor", () => {
     );
   });
 
+  it("rejects a configured CodexSlimEdit runner that cannot start", async () => {
+    const { home } = await fixture();
+    const result = await doctor(
+      home,
+      runtime({
+        command: async (name) => ({
+          ok: name !== "bunx",
+          output: name === "bunx" ? "package not found" : "ready",
+        }),
+      }),
+    );
+    expect(codes(result)).toContain("codexslimedit-unavailable");
+    expect(codes(result)).not.toContain("codexslimedit-ready");
+  });
+
   it("accepts reordered Git Bash configuration keys", async () => {
     const { home, plugin } = await fixture();
     const mcpPath = join(plugin, ".mcp.json");

@@ -104,6 +104,13 @@ export async function prepareWorkspaceFileCreation(
 /** Deletes one existing regular workspace file. */
 export async function deleteWorkspaceFile(input: WorkspaceFileInput): Promise<WorkspaceFileResult> {
   const target = await resolveWorkspaceFile(input);
+  const requestedPath = resolve(
+    await existingDirectory(input.root),
+    normalizeSeparators(input.filePath),
+  );
+  if ((await lstat(requestedPath)).isSymbolicLink()) {
+    throw new WorkspaceFileError("NOT_A_FILE", "Deleting symbolic links is not supported.");
+  }
   const content = await readUtf8Text(target.absolutePath);
   try {
     await rm(target.absolutePath);
@@ -240,7 +247,7 @@ async function readUtf8Text(path: string): Promise<string> {
     throw new WorkspaceFileError("UNREADABLE_FILE", "filePath could not be read.");
   }
   try {
-    const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    const content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
     validateText(content);
     return content;
   } catch {

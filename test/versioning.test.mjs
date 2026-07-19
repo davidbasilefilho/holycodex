@@ -54,6 +54,14 @@ describe("codexslimedit versioning", () => {
     );
   });
 
+  it("updates the bundled declaration version", () => {
+    const declaration =
+      '/** Current package version. */\nexport declare const CODEX_SLIM_EDIT_VERSION = "0.1.0";\n';
+    expect(replaceCodexSlimEditVersion(declaration, "0.7.4-dev.42.3")).toContain(
+      'CODEX_SLIM_EDIT_VERSION = "0.7.4-dev.42.3"',
+    );
+  });
+
   it("rejects malformed versions and source declarations", () => {
     expect(() => replaceCodexSlimEditVersion(source, "dev")).toThrow("Invalid version");
     expect(() => replaceCodexSlimEditVersion(source, "0.2.0-rc.1")).toThrow("Invalid version");
