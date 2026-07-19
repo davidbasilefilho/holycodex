@@ -222,6 +222,7 @@ export const MANAGED_ROOT_MODEL_HISTORY_BY_PLAN = {
 } satisfies Record<PlanName, readonly ModelRoute[]>;
 
 export const GENERATED_RUNTIMES = [
+  "agent-capacity.js",
   "bootstrap.js",
   "core-instructions.js",
   "detect-lsp.js",
