@@ -82,6 +82,17 @@ describe("workspace file primitives", () => {
     expect(await readFile(filePath, "utf8")).toBe("repeat repeat");
   });
 
+  it("rejects NUL replacements without modifying the file", async () => {
+    const root = await createWorkspace();
+    const filePath = join(root, "note.txt");
+    await writeFile(filePath, "before\n", "utf8");
+
+    await expect(
+      editWorkspaceFile({ root, filePath: "note.txt", oldString: "before", newString: "after\0" }),
+    ).rejects.toMatchObject({ code: "UNSUPPORTED_TEXT" });
+    await expect(readFile(filePath, "utf8")).resolves.toBe("before\n");
+  });
+
   it("edits 1-based inclusive ranges and preserves LF, CRLF, and final newlines", async () => {
     const root = await createWorkspace();
     await writeFile(join(root, "lf.txt"), "one\ntwo\nthree\n", "utf8");

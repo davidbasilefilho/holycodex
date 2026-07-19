@@ -60,6 +60,34 @@ describe("workspace patch envelopes", () => {
     }
     await expect(readFile(join(root, "note.txt"), "utf8")).resolves.toBe("repeat\nrepeat\n");
   });
+
+  it("accepts native end-of-file markers in update envelopes", async () => {
+    const root = await createWorkspace();
+    await writeFile(join(root, "note.txt"), "before\n", "utf8");
+
+    await applyWorkspacePatch({
+      root,
+      patch:
+        "*** Begin Patch\n*** Update File: note.txt\n@@\n-before\n+after\n*** End of File\n*** End Patch",
+    });
+
+    await expect(readFile(join(root, "note.txt"), "utf8")).resolves.toBe("after\n");
+  });
+
+  it("validates every operation before modifying the workspace", async () => {
+    const root = await createWorkspace();
+    await writeFile(join(root, "note.txt"), "before\n", "utf8");
+
+    await expect(
+      applyWorkspacePatch({
+        root,
+        patch:
+          "*** Begin Patch\n*** Add File: created.txt\n+created\n*** Update File: note.txt\n@@\n-missing\n+after\n*** End Patch",
+      }),
+    ).rejects.toMatchObject({ code: "EXACT_MATCH_NOT_FOUND" });
+    await expect(readFile(join(root, "created.txt"), "utf8")).rejects.toThrow();
+    await expect(readFile(join(root, "note.txt"), "utf8")).resolves.toBe("before\n");
+  });
 });
 
 async function createWorkspace(): Promise<string> {

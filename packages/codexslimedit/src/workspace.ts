@@ -54,6 +54,7 @@ export async function editWorkspaceFile(
   const target = await resolveWorkspaceFile(input);
   const content = await readUtf8Text(target.absolutePath);
   const nextContent = replaceContent(content, input.oldString, input.newString);
+  validateText(nextContent);
   await atomicWrite(target.absolutePath, nextContent);
   return { path: target.relativePath, content: nextContent };
 }
@@ -88,6 +89,15 @@ export async function createWorkspaceFile(
     if (created) await rm(target.absolutePath, { force: true });
     throw new WorkspaceFileError("WRITE_FAILED", `Could not create filePath: ${message(error)}`);
   }
+  return { path: target.relativePath, content: input.content };
+}
+
+/** Validates a new workspace file without modifying the workspace. */
+export async function prepareWorkspaceFileCreation(
+  input: WriteWorkspaceFileInput,
+): Promise<WorkspaceFileResult> {
+  const target = await resolveNewWorkspaceFile(input, false);
+  validateText(input.content);
   return { path: target.relativePath, content: input.content };
 }
 
@@ -126,7 +136,10 @@ async function resolveWorkspaceFile(input: WorkspaceFileInput): Promise<Resolved
   };
 }
 
-async function resolveNewWorkspaceFile(input: WorkspaceFileInput): Promise<ResolvedWorkspaceFile> {
+async function resolveNewWorkspaceFile(
+  input: WorkspaceFileInput,
+  createParent = true,
+): Promise<ResolvedWorkspaceFile> {
   const rootPath = await existingDirectory(input.root);
   const candidate = resolve(rootPath, normalizeSeparators(input.filePath));
   if (!isInside(rootPath, candidate)) {
@@ -141,7 +154,7 @@ async function resolveNewWorkspaceFile(input: WorkspaceFileInput): Promise<Resol
   } catch (error) {
     if (error instanceof WorkspaceFileError) throw error;
   }
-  const parentPath = await createSafeParent(rootPath, dirname(candidate));
+  const parentPath = await safeParent(rootPath, dirname(candidate), createParent);
   const absolutePath = resolve(parentPath, basename(candidate));
   return {
     absolutePath,
@@ -149,7 +162,11 @@ async function resolveNewWorkspaceFile(input: WorkspaceFileInput): Promise<Resol
   };
 }
 
-async function createSafeParent(rootPath: string, requestedParent: string): Promise<string> {
+async function safeParent(
+  rootPath: string,
+  requestedParent: string,
+  createParent: boolean,
+): Promise<string> {
   const missingDirectories: string[] = [];
   let existingParent = requestedParent;
   while (true) {
@@ -171,7 +188,7 @@ async function createSafeParent(rootPath: string, requestedParent: string): Prom
     );
   }
   const parentPath = resolve(existingParent, ...missingDirectories.reverse());
-  await mkdir(parentPath, { recursive: true });
+  if (createParent) await mkdir(parentPath, { recursive: true });
   return parentPath;
 }
 

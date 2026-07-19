@@ -13,6 +13,9 @@ describe("package runner selection", () => {
     expect(detectPackageRunner({ npm_execpath: "/usr/lib/node_modules/npm/bin/npx-cli.js" })).toBe(
       "npm",
     );
+    expect(
+      detectPackageRunner({ npm_execpath: "/home/ubuntu/.nvm/versions/node/npm-cli.js" }),
+    ).toBe("npm");
     expect(detectPackageRunner({})).toBe("npm");
   });
 

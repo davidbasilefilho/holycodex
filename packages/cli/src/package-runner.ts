@@ -26,8 +26,13 @@ export type CodexSlimEditInvocationInput = {
 
 /** Detects whether Bun or npm invoked HolyCodex. */
 export function detectPackageRunner(env: NodeJS.ProcessEnv = process.env): PackageRunner {
-  const evidence = `${env.npm_execpath ?? ""} ${env.npm_config_user_agent ?? ""}`.toLowerCase();
-  return evidence.includes("bun") ? "bun" : "npm";
+  const executable = (env.npm_execpath ?? "")
+    .split(/[\\/]/)
+    .at(-1)
+    ?.toLowerCase()
+    .replace(/\.exe$/, "");
+  const userAgent = env.npm_config_user_agent?.trim().split(/[\s/]/, 1)[0]?.toLowerCase();
+  return executable === "bun" || userAgent === "bun" ? "bun" : "npm";
 }
 
 /** Builds the runner-specific codexslimedit invocation. */

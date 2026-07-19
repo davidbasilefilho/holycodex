@@ -2,6 +2,7 @@ import { WorkspaceFileError } from "./errors.js";
 import {
   createWorkspaceFile,
   deleteWorkspaceFile,
+  prepareWorkspaceFileCreation,
   readWorkspaceFile,
   writeWorkspaceFile,
 } from "./workspace.js";
@@ -44,36 +45,78 @@ interface UpdateHunk {
 
 type PatchOperation = AddOperation | DeleteOperation | UpdateOperation;
 
+interface PlannedOperation {
+  readonly operation: PatchOperation;
+  readonly path: string;
+  readonly content?: string;
+}
+
 /** Applies Codex add, update, and delete patch operations inside a workspace. */
 export async function applyWorkspacePatch(
   input: ApplyWorkspacePatchInput,
 ): Promise<WorkspacePatchResult> {
   const operations = parsePatch(input.patch);
+  const planned = await planOperations(input.root, operations);
   const paths: string[] = [];
-  for (const operation of operations) {
+  for (const { operation, path, content } of planned) {
     if (operation.kind === "add") {
-      const result = await createWorkspaceFile({
+      await createWorkspaceFile({
         root: input.root,
         filePath: operation.filePath,
         content: operation.content,
       });
-      paths.push(result.path);
+      paths.push(path);
       continue;
     }
     if (operation.kind === "delete") {
-      const result = await deleteWorkspaceFile({ root: input.root, filePath: operation.filePath });
-      paths.push(result.path);
+      await deleteWorkspaceFile({ root: input.root, filePath: operation.filePath });
+      paths.push(path);
       continue;
     }
-    const current = await readWorkspaceFile({ root: input.root, filePath: operation.filePath });
-    const result = await writeWorkspaceFile({
+    await writeWorkspaceFile({
       root: input.root,
       filePath: operation.filePath,
-      content: applyUpdateHunks(current.content, operation.hunks),
+      content: content ?? "",
     });
-    paths.push(result.path);
+    paths.push(path);
   }
   return { paths };
+}
+
+async function planOperations(
+  root: string,
+  operations: readonly PatchOperation[],
+): Promise<readonly PlannedOperation[]> {
+  const planned: PlannedOperation[] = [];
+  const paths = new Set<string>();
+  for (const operation of operations) {
+    if (operation.kind === "add") {
+      const result = await prepareWorkspaceFileCreation({
+        root,
+        filePath: operation.filePath,
+        content: operation.content,
+      });
+      assertUniquePath(paths, result.path);
+      planned.push({ operation, path: result.path });
+      continue;
+    }
+    const current = await readWorkspaceFile({ root, filePath: operation.filePath });
+    assertUniquePath(paths, current.path);
+    planned.push({
+      operation,
+      path: current.path,
+      content:
+        operation.kind === "update"
+          ? applyUpdateHunks(current.content, operation.hunks)
+          : undefined,
+    });
+  }
+  return planned;
+}
+
+function assertUniquePath(paths: Set<string>, path: string): void {
+  if (paths.has(path)) invalidPatch(`Patch contains multiple operations for ${path}.`);
+  paths.add(path);
 }
 
 function parsePatch(patch: string): readonly PatchOperation[] {
@@ -92,8 +135,12 @@ function parsePatch(patch: string): readonly PatchOperation[] {
     index += 1;
     if (addPath !== undefined) {
       const contentLines: string[] = [];
-      while (index < lines.length - 1 && !lines[index]?.startsWith("*** ")) {
+      while (index < lines.length - 1 && !isOperationHeader(lines[index])) {
         const line = lines[index];
+        if (line === "*** End of File") {
+          index += 1;
+          break;
+        }
         if (!line?.startsWith("+")) invalidPatch("Add File lines must start with `+`.");
         contentLines.push(line.slice(1));
         index += 1;
@@ -113,8 +160,12 @@ function parsePatch(patch: string): readonly PatchOperation[] {
       const hunks: UpdateHunk[] = [];
       let oldLines: string[] | undefined;
       let newLines: string[] | undefined;
-      while (index < lines.length - 1 && !lines[index]?.startsWith("*** ")) {
+      while (index < lines.length - 1 && !isOperationHeader(lines[index])) {
         const line = lines[index];
+        if (line === "*** End of File") {
+          index += 1;
+          break;
+        }
         if (line?.startsWith("@@")) {
           if (oldLines !== undefined && newLines !== undefined) {
             hunks.push(validHunk(oldLines, newLines));
@@ -147,6 +198,10 @@ function parsePatch(patch: string): readonly PatchOperation[] {
   }
   if (operations.length === 0) invalidPatch("Patch must contain at least one file operation.");
   return operations;
+}
+
+function isOperationHeader(line: string | undefined): boolean {
+  return /^\*\*\* (?:Add|Update|Delete) File: /.test(line ?? "");
 }
 
 function validHunk(oldLines: string[], newLines: string[]): UpdateHunk {

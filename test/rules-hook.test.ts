@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -20,6 +20,18 @@ async function fixture(): Promise<string> {
 }
 
 describe("scoped rules", () => {
+  it("runs after native and CodexSlimEdit patch tools", async () => {
+    const hooks = JSON.parse(
+      await readFile(
+        join(import.meta.dirname, "..", "packages", "plugin", "plugin", "hooks", "hooks.json"),
+        "utf8",
+      ),
+    ) as { hooks: { PostToolUse: readonly [{ matcher: string }] } };
+    const matcher = new RegExp(hooks.hooks.PostToolUse[0].matcher);
+    expect(matcher.test("apply_patch")).toBe(true);
+    expect(matcher.test("mcp__codexslimedit__apply_patch")).toBe(true);
+  });
+
   it("loads static sources without AGENTS.md", async () => {
     const root = await fixture();
     const rules = await loadRules(root);

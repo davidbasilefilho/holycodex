@@ -313,7 +313,8 @@ describe("instruction workflow contracts", () => {
     expect(frontend).toContain("read-only frontend audits proceed without `<design_plan>`");
     expect(frontend).toContain("target repository's formatter, linter, type checker, and tests");
     expect(frontend).not.toContain("Run `vp check --fix`");
-    expect(frontend).toContain("Tabler Icons, another library, Lucide, then bare SVG");
+    expect(frontend).toContain("never introduce Lucide");
+    expect(frontend).toContain("Tabler Icons");
     expect(frontend).toContain("GSAP when installed or installation is permitted");
     expect(openai).toContain("Image Gen");
     expect(openai).toContain("accepted concept");

@@ -34,7 +34,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "^apply_patch$",
+        "matcher": "^(?:apply_patch|mcp__codexslimedit__apply_patch)$",
         "hooks": [
           {
             "type": "command",
