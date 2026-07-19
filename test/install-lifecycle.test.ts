@@ -4,7 +4,12 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AGENTS, MODEL_ROUTING_PLANS, PLAN_NAMES } from "../packages/cli/src/catalog";
+import {
+  AGENTS,
+  effectiveMcpServers,
+  MODEL_ROUTING_PLANS,
+  PLAN_NAMES,
+} from "../packages/cli/src/catalog";
 import {
   assertGitBashReady,
   cleanup,
@@ -94,20 +99,7 @@ describe("install lifecycle", () => {
     ) as { mcpServers?: unknown };
     expect(manifest.mcpServers).toBe("./.mcp.json");
     expect(JSON.parse(await readFile(join(cache, ".mcp.json"), "utf8"))).toEqual({
-      mcpServers: {
-        git_bash: {
-          command: "node",
-          args: ["runtime/git-bash.js", "mcp"],
-          cwd: ".",
-          enabled_tools: ["run"],
-        },
-        lsp: { command: "node", args: ["runtime/lsp.js", "mcp"], cwd: "." },
-        codexslimedit: {
-          command: "npx.cmd",
-          args: ["--yes", "codexslimedit@latest"],
-        },
-        context7: { command: "bunx", args: ["@upstash/context7-mcp"] },
-      },
+      mcpServers: effectiveMcpServers("win32", "npm"),
     });
     await Promise.all(
       ["git-bash.js", "lsp.js", "rules.js", "bootstrap.js"].map((file) =>

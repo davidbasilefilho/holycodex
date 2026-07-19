@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { replaceCodexSlimEditVersion } from "../scripts/codexslimedit-version.mjs";
+import {
+  replaceCodexSlimEditMcpSpec,
+  replaceCodexSlimEditVersion,
+} from "../scripts/codexslimedit-version.mjs";
 import { nextDevVersion, nextZeroVersion, versionedJson } from "../scripts/version.mjs";
 
 describe("zerover versioning", () => {
@@ -53,11 +56,53 @@ describe("codexslimedit versioning", () => {
 
   it("rejects malformed versions and source declarations", () => {
     expect(() => replaceCodexSlimEditVersion(source, "dev")).toThrow("Invalid version");
+    expect(() => replaceCodexSlimEditVersion(source, "0.2.0-rc.1")).toThrow("Invalid version");
     expect(() =>
       replaceCodexSlimEditVersion('export const OTHER_VERSION = "0.1.0";\n', "0.2.0"),
     ).toThrow("exactly one CODEX_SLIM_EDIT_VERSION declaration");
     expect(() => replaceCodexSlimEditVersion(`${source}${source}`, "0.2.0")).toThrow(
       "exactly one CODEX_SLIM_EDIT_VERSION declaration",
     );
+  });
+
+  it("selects the CodexSlimEdit MCP channel and preserves other configuration", () => {
+    const mcpSource = JSON.stringify({
+      retained: true,
+      mcpServers: {
+        lsp: { command: "node", args: ["runtime/lsp.js", "mcp"] },
+        codexslimedit: {
+          command: "bunx",
+          args: ["codexslimedit@latest"],
+          retained: "value",
+        },
+      },
+    });
+    const devConfig = JSON.parse(replaceCodexSlimEditMcpSpec(mcpSource, "0.7.4-dev.42.3"));
+    expect(devConfig).toEqual({
+      retained: true,
+      mcpServers: {
+        lsp: { command: "node", args: ["runtime/lsp.js", "mcp"] },
+        codexslimedit: {
+          command: "bunx",
+          args: ["codexslimedit@dev"],
+          retained: "value",
+        },
+      },
+    });
+    expect(replaceCodexSlimEditMcpSpec(JSON.stringify(devConfig), "0.2.0")).toContain(
+      '"codexslimedit@latest"',
+    );
+  });
+
+  it("rejects malformed CodexSlimEdit MCP configuration", () => {
+    expect(() => replaceCodexSlimEditMcpSpec("{}", "0.2.0")).toThrow("CodexSlimEdit MCP server");
+    expect(() =>
+      replaceCodexSlimEditMcpSpec(
+        JSON.stringify({
+          mcpServers: { codexslimedit: { command: "bunx", args: ["codexslimedit"] } },
+        }),
+        "0.2.0",
+      ),
+    ).toThrow("CodexSlimEdit MCP server");
   });
 });

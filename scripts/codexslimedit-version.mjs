@@ -3,11 +3,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const VERSION_PATTERN =
-  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-dev\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))?$/;
 const VERSION_IDENTIFIER = "CODEX_SLIM_EDIT_VERSION";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifestPath = join(root, "packages", "codexslimedit", "package.json");
 const sourcePath = join(root, "packages", "codexslimedit", "src", "version.ts");
+const mcpConfigPath = join(root, "packages", "plugin", "plugin", ".mcp.json");
 
 /** Replaces the single CodexSlimEdit source version declaration. */
 export function replaceCodexSlimEditVersion(source, version) {
@@ -23,6 +24,46 @@ export function replaceCodexSlimEditVersion(source, version) {
   return source.replace(declarations[0][0], `export const ${VERSION_IDENTIFIER} = "${version}";`);
 }
 
+/** Selects the CodexSlimEdit MCP distribution channel for a package version. */
+export function replaceCodexSlimEditMcpSpec(source, version) {
+  assertVersion(version);
+  let config;
+  try {
+    config = JSON.parse(source);
+  } catch {
+    throw new Error("CodexSlimEdit MCP config must contain valid JSON.");
+  }
+  const servers = isRecord(config) ? config.mcpServers : undefined;
+  const server = isRecord(servers) ? servers.codexslimedit : undefined;
+  if (
+    !isRecord(server) ||
+    server.command !== "bunx" ||
+    !Array.isArray(server.args) ||
+    server.args.length !== 1 ||
+    !["codexslimedit@latest", "codexslimedit@dev"].includes(server.args[0])
+  ) {
+    throw new Error(
+      "CodexSlimEdit MCP server must use bunx with exactly one @latest or @dev package spec.",
+    );
+  }
+  const packageSpec = version.includes("-dev.") ? "codexslimedit@dev" : "codexslimedit@latest";
+  return `${JSON.stringify(
+    {
+      ...config,
+      mcpServers: {
+        ...servers,
+        codexslimedit: { ...server, args: [packageSpec] },
+      },
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function assertVersion(version) {
   if (typeof version !== "string" || !VERSION_PATTERN.test(version)) {
     throw new Error(`Invalid version ${JSON.stringify(version)}; expected a semantic version.`);
@@ -36,9 +77,10 @@ async function main() {
   }
   const version = args[0];
   assertVersion(version);
-  const [manifestSource, versionSource] = await Promise.all([
+  const [manifestSource, versionSource, mcpConfigSource] = await Promise.all([
     readFile(manifestPath, "utf8"),
     readFile(sourcePath, "utf8"),
+    readFile(mcpConfigPath, "utf8"),
   ]);
   const manifest = JSON.parse(manifestSource);
   if (
@@ -51,8 +93,10 @@ async function main() {
   }
   assertVersion(manifest.version);
   const nextVersionSource = replaceCodexSlimEditVersion(versionSource, version);
+  const nextMcpConfigSource = replaceCodexSlimEditMcpSpec(mcpConfigSource, version);
   await writeFile(manifestPath, `${JSON.stringify({ ...manifest, version }, null, 2)}\n`, "utf8");
   await writeFile(sourcePath, nextVersionSource, "utf8");
+  await writeFile(mcpConfigPath, nextMcpConfigSource, "utf8");
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await main();

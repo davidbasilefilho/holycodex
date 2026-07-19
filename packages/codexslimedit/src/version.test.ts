@@ -6,7 +6,7 @@ import { CODEX_SLIM_EDIT_VERSION, isVersionRequest } from "./version.js";
 
 describe("codexslimedit version", () => {
   it("keeps an independent zerover version", () => {
-    expect(CODEX_SLIM_EDIT_VERSION).toMatch(/^0\.\d+\.\d+$/);
+    expect(CODEX_SLIM_EDIT_VERSION).toMatch(/^0\.\d+\.\d+(?:-dev\.\d+\.\d+)?$/);
   });
 
   it("matches the published package manifest", async () => {

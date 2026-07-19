@@ -42,7 +42,8 @@ describe("public package layout", () => {
       engines: { node: ">=20" },
     });
     expect("private" in slimEdit).toBe(false);
-    expect(CODEX_SLIM_EDIT_VERSION).not.toBe(VERSION);
+    if (VERSION.includes("-dev.")) expect(CODEX_SLIM_EDIT_VERSION).toBe(VERSION);
+    else expect(CODEX_SLIM_EDIT_VERSION).not.toBe(VERSION);
   });
 
   it("resolves the plugin payload through its public package entry", async () => {

@@ -34,6 +34,10 @@ async function fixture(mode: AutonomyMode = "default"): Promise<{ home: string; 
   const plugin = join(home, "plugins", "cache", "holycodex", "holycodex", VERSION);
   await mkdir(join(plugin, ".."), { recursive: true });
   await cp(join(root, "packages", "plugin", "plugin"), plugin, { recursive: true });
+  await writeFile(
+    join(plugin, ".mcp.json"),
+    `${JSON.stringify({ mcpServers: effectiveMcpServers("win32") }, null, 2)}\n`,
+  );
   await cp(join(plugin, "agents"), join(home, "holycodex", "agents"), { recursive: true });
   await writeFile(join(home, "config.toml"), installConfig("", mode, "win32"));
   await Promise.all(
