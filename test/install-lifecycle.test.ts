@@ -26,8 +26,6 @@ const packageVersion = (
 const windowsRuntime: InstallRuntime = {
   platform: "win32",
   gitBash: () => ({ found: true, path: "bash.exe", source: "env", checkedPaths: [] }),
-  packageRunner: "npm",
-  installCodexSlimEdit: async () => undefined,
 };
 
 afterEach(() => {
@@ -44,42 +42,6 @@ describe("install lifecycle", () => {
         installHint: "Install Git Bash.",
       }),
     ).toThrow("Install Git Bash.");
-  });
-  it("preinstalls codexslimedit with the invoking package runner before mutation", async () => {
-    const home = await mkdtemp(join(tmpdir(), "holycodex-runner-test-"));
-    process.env.CODEX_HOME = home;
-    const runners: string[] = [];
-    await install(
-      { autonomy: "default", json: false },
-      {
-        ...windowsRuntime,
-        packageRunner: "bun",
-        installCodexSlimEdit: async (runner) => {
-          runners.push(runner);
-        },
-      },
-    );
-    expect(runners).toEqual(["bun"]);
-    const mcp = await readFile(
-      join(home, "plugins", "cache", "holycodex", "holycodex", packageVersion, ".mcp.json"),
-      "utf8",
-    );
-    expect(mcp).toContain('"command": "bunx"');
-
-    const blocked = await mkdtemp(join(tmpdir(), "holycodex-runner-failure-test-"));
-    process.env.CODEX_HOME = blocked;
-    await expect(
-      install(
-        { autonomy: "default", json: false },
-        {
-          ...windowsRuntime,
-          installCodexSlimEdit: async () => {
-            throw new Error("codexslimedit install failed");
-          },
-        },
-      ),
-    ).rejects.toThrow("codexslimedit install failed");
-    await expect(access(join(blocked, "config.toml"))).rejects.toThrow();
   });
   it("preserves unrelated config, removes legacy OMO, and cleans only HolyCodex", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-test-"));
@@ -99,7 +61,7 @@ describe("install lifecycle", () => {
     ) as { mcpServers?: unknown };
     expect(manifest.mcpServers).toBe("./.mcp.json");
     expect(JSON.parse(await readFile(join(cache, ".mcp.json"), "utf8"))).toEqual({
-      mcpServers: effectiveMcpServers("win32", "npm"),
+      mcpServers: effectiveMcpServers("win32"),
     });
     await Promise.all(
       ["git-bash.js", "lsp.js", "rules.js", "bootstrap.js"].map((file) =>
@@ -150,8 +112,6 @@ describe("install lifecycle", () => {
     const linuxRuntime: InstallRuntime = {
       platform: "linux",
       gitBash: () => ({ found: false, checkedPaths: [], installHint: "irrelevant" }),
-      packageRunner: "npm",
-      installCodexSlimEdit: async () => undefined,
     };
     await install({ autonomy: "default", json: false }, linuxRuntime);
     const cache = join(home, "plugins", "cache", "holycodex", "holycodex", packageVersion);

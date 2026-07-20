@@ -217,6 +217,7 @@ describe("HolyCodex catalog", () => {
       mcpServers: Record<string, unknown>;
     };
     expect(manifest.mcpServers).toEqual(effectiveMcpServers("win32"));
+    expect(Object.keys(manifest.mcpServers).sort()).toEqual(["context7", "git_bash", "lsp"]);
     await Promise.all(
       ["git-bash.js", "lsp.js"].map((file) => readFile(join(pluginRoot, "runtime", file), "utf8")),
     );

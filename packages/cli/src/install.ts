@@ -21,7 +21,6 @@ import {
 } from "./catalog.ts";
 import { installConfig, readManagedPlan, removeManaged, type AutonomyMode } from "./config.ts";
 import { atomicWrite, backup, exists, readText } from "./files.ts";
-import { detectPackageRunner, installCodexSlimEdit, type PackageRunner } from "./package-runner.ts";
 import { rootTomlString } from "./toml.ts";
 
 export type RunOptions = {
@@ -40,16 +39,11 @@ export type RunResult = {
 export type InstallRuntime = {
   readonly platform: NodeJS.Platform;
   readonly gitBash: () => GitBashResolution;
-  readonly packageRunner: PackageRunner;
-  readonly installCodexSlimEdit: (runner: PackageRunner) => Promise<void>;
 };
 
 const defaultRuntime: InstallRuntime = {
   platform: process.platform,
   gitBash: resolveGitBashForCurrentProcess,
-  packageRunner: detectPackageRunner(),
-  installCodexSlimEdit: async (packageRunner) =>
-    installCodexSlimEdit({ packageRunner, packageVersion: VERSION, platform: process.platform }),
 };
 
 function paths(home = process.env.CODEX_HOME ?? join(homedir(), ".codex")) {
@@ -86,7 +80,6 @@ export async function install(
   runtime: InstallRuntime = defaultRuntime,
 ): Promise<RunResult> {
   assertGitBashReady(runtime.platform, runtime.gitBash());
-  await runtime.installCodexSlimEdit(runtime.packageRunner);
   const plan = options.plan ?? DEFAULT_PLAN;
   const target = paths();
   const root = backupRoot();
@@ -110,7 +103,7 @@ export async function install(
   await rm(target.marketplaceCache, { recursive: true, force: true });
   await mkdir(dirname(target.cache), { recursive: true });
   await cp(pluginRoot, target.cache, { recursive: true });
-  await writePlatformPlugin(target.cache, runtime.platform, plan, runtime.packageRunner);
+  await writePlatformPlugin(target.cache, runtime.platform, plan);
   const existingAgentPreferences = await readAgentPreferences(target.agents, previousPlan);
   await rm(target.agents, { recursive: true, force: true });
   await cp(join(pluginRoot, "agents"), target.agents, { recursive: true });
@@ -189,13 +182,12 @@ async function writePlatformPlugin(
   root: string,
   platform: NodeJS.Platform,
   plan: PlanName,
-  packageRunner: PackageRunner,
 ): Promise<void> {
   await atomicWrite(
     join(root, ".mcp.json"),
     `${JSON.stringify(
       {
-        mcpServers: effectiveMcpServers(platform, packageRunner),
+        mcpServers: effectiveMcpServers(platform),
       },
       null,
       2,

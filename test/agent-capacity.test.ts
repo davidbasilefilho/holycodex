@@ -35,20 +35,13 @@ describe("agent capacity context", () => {
     );
   });
 
-  it("routes supported file operations through codexslimedit", () => {
+  it("uses native Codex workspace I/O", () => {
     const instructions = coreInstructions("linux");
 
-    expect(instructions).toContain("inspect callable and deferred tools until the required");
+    expect(instructions).toContain("Use Codex native `apply_patch`");
+    expect(instructions).toContain("Use available native read or shell tools");
     expect(instructions).toContain(
-      "Use `mcp__codexslimedit__read_file` for every complete UTF-8 workspace file read",
+      "Do not re-read files only to verify a successful `apply_patch` call",
     );
-    expect(instructions).toContain(
-      "Use `mcp__codexslimedit__apply_patch` for every workspace file creation, update, or deletion",
-    );
-    expect(instructions).toContain(
-      "If the required tool is unavailable, stop and report the blocker",
-    );
-    expect(instructions).toContain("Pass a native `*** Begin Patch` envelope");
-    expect(instructions).toContain("Never fall back to shell tools or native `apply_patch`");
   });
 });
