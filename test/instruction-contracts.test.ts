@@ -282,62 +282,39 @@ describe("instruction workflow contracts", () => {
   it("gates visible frontend direction and always covers motion and accessibility", async () => {
     const text = await skill("frontend");
     expectOrder(text, [
-      "inspect the request, product shell",
-      "plus a motion system and accessibility treatment for every task",
-      "ask for approval before implementation",
-      "After approval, ask whether the user wants to define a goal",
-      "otherwise implement",
+      "Before proposing a direction, inspect",
+      "Choose one coherent system",
+      "Present the concept and a compact `<design_plan>`",
+      "Obtain design approval before implementation",
     ]);
     for (const contract of [
       "prefers-reduced-motion",
       "keyboard operation",
-      "focus visibility",
-      "semantic",
+      "focus",
+      "semantics",
       "contrast",
       "labels",
-      "loading, error, and empty states",
-      "options only when they fit product, task, and stack",
+      "loading, empty, error, success",
+      "options, not defaults",
     ])
       expect(text).toContain(contract);
-    expect(text).toContain("implementation details need no approval");
   });
 
-  it("routes full-surface OpenAI frontend work through approved concepts", async () => {
+  it("keeps frontend guidance consolidated and routes full surfaces through concepts", async () => {
     const frontend = await skill("frontend");
-    const openai = await readFile(
-      join(pluginRoot, "skills", "frontend", "references", "openai-app-builder.md"),
-      "utf8",
+    const files = await readdir(join(pluginRoot, "skills", "frontend"));
+    expect(files.sort()).toEqual(["ATTRIBUTION.md", "SKILL.md"]);
+    expect(frontend).toContain("Use Image Gen for a complete visual concept");
+    expect(frontend).toContain(
+      "Accepted concept rules become the visual and visible-copy contract",
     );
-    expect(frontend).toContain("openai-app-builder.md");
-    expect(frontend).toContain("highest priority over anti-slop");
-    expect(frontend).toContain("read-only frontend audits proceed without `<design_plan>`");
-    expect(frontend).toContain("target repository's formatter, linter, type checker, and tests");
-    expect(frontend).not.toContain("Run `vp check --fix`");
-    expect(frontend).toContain("never introduce Lucide");
-    expect(frontend).toContain("Tabler Icons");
-    expect(frontend).toContain("GSAP when installed or installation is permitted");
-    expect(openai).toContain("Image Gen");
-    expect(openai).toContain("accepted concept");
-    expect(openai).toContain("React + Vite");
-    expect(openai).toContain("Browser/IAB first");
-    expect(openai).toContain("view_image");
-    expect(openai).toContain("fidelity ledger");
-    expect(openai).toContain("above-the-fold copy diff");
-    expect(openai).toContain("Hard stops");
-    expect(openai).toContain("Surface gates");
-    expect(openai).not.toContain("Plan mode");
+    expect(frontend).toContain("fidelity ledger");
+    expect(frontend).toContain("available browser tooling first");
+    expect(frontend).toContain("concept-first and fidelity workflow");
+    expect(frontend).toContain("Do not mechanically randomize");
   });
 
-  it("keeps source-conditional font policy and OpenAI planning gates", async () => {
-    const antiSlop = await readFile(
-      join(pluginRoot, "skills", "frontend", "references", "anti-slop.md"),
-      "utf8",
-    );
-    expect(antiSlop).toContain("source-conditional font policy in `../SKILL.md`");
-    expect(antiSlop).toContain("Fraunces + Work Sans");
-    expect(antiSlop).toContain("Inter is allowed as a neutral body face");
-    expect(antiSlop).not.toContain("source-derived ban");
-
+  it("keeps frontend planning gates", async () => {
     const plan = await skill("plan");
     expectOrder(plan, [
       "inspect task and repo",

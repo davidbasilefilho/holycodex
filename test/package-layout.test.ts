@@ -7,7 +7,6 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
 import { VERSION } from "../packages/cli/src/catalog.ts";
-import { CODEX_SLIM_EDIT_VERSION } from "../packages/codexslimedit/src/version.ts";
 import { pluginRoot as resolvedPluginRoot } from "../packages/plugin/index.js";
 
 const root = join(import.meta.dirname, "..");
@@ -30,20 +29,6 @@ describe("public package layout", () => {
     expect(cli).toMatchObject({ name: "holycodex", version: VERSION });
     expect(plugin).toMatchObject({ name: "@holycodex/plugin", version: VERSION });
     expect((cli["dependencies"] as Record<string, string>)["@holycodex/plugin"]).toBe(VERSION);
-  });
-
-  it("keeps codexslimedit independently versioned and publishable", async () => {
-    const slimEdit = await json("packages/codexslimedit/package.json");
-    expect(slimEdit).toMatchObject({
-      name: "codexslimedit",
-      version: CODEX_SLIM_EDIT_VERSION,
-      bin: { codexslimedit: "dist/cli.js" },
-      publishConfig: { access: "public" },
-      engines: { node: ">=20" },
-    });
-    expect("private" in slimEdit).toBe(false);
-    if (VERSION.includes("-dev.")) expect(CODEX_SLIM_EDIT_VERSION).toBe(VERSION);
-    else expect(CODEX_SLIM_EDIT_VERSION).not.toBe(VERSION);
   });
 
   it("resolves the plugin payload through its public package entry", async () => {
@@ -117,8 +102,6 @@ describe("npm release workflows", () => {
     const workflow = await readFile(join(root, ".github", "workflows", "publish.yml"), "utf8");
     expect(workflow).toContain("bunx vp check --fix");
     expect(workflow).toContain("bunx vp test");
-    expect(workflow).toContain("node packages/codexslimedit/dist/cli.js --version");
-    expect(workflow).toContain("bun packages/codexslimedit/dist/cli.js --version");
     expect(workflow.indexOf("bunx vp run build")).toBeLessThan(workflow.indexOf("bunx vp test"));
     expect(workflow.indexOf("bunx vp test")).toBeLessThan(
       workflow.indexOf("npm publish ./packages/plugin"),
@@ -129,10 +112,7 @@ describe("npm release workflows", () => {
     const workflow = await readFile(join(root, ".github", "workflows", "publish.yml"), "utf8");
     expect(workflow).toContain("github.ref_name == 'main'");
     expect(workflow).toContain("npm view");
-    expect(workflow.match(/--tag latest/g)).toHaveLength(3);
-    expect(
-      workflow.indexOf("npm publish ./packages/codexslimedit --access public --tag latest"),
-    ).toBeLessThan(workflow.indexOf("npm publish ./packages/plugin --access public --tag latest"));
+    expect(workflow.match(/--tag latest/g)).toHaveLength(2);
     expect(
       workflow.indexOf("npm publish ./packages/plugin --access public --tag latest"),
     ).toBeLessThan(workflow.indexOf("npm publish ./packages/cli --tag latest"));
@@ -147,8 +127,6 @@ describe("npm release workflows", () => {
       'DEV_VERSION="${BASE_VERSION}-dev.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"',
     );
     expect(workflow).toContain('npm version "$DEV_VERSION" --no-git-tag-version');
-    expect(workflow).toContain('node scripts/codexslimedit-version.mjs "$DEV_VERSION"');
-    expect(workflow).not.toContain("npm --prefix packages/codexslimedit version");
     expect(workflow.indexOf("bunx vp check --fix")).toBeLessThan(
       workflow.indexOf("Derive unique dev version"),
     );
@@ -158,9 +136,6 @@ describe("npm release workflows", () => {
     expect(
       workflow.indexOf("npm publish ./packages/plugin --access public --tag dev"),
     ).toBeLessThan(workflow.indexOf("npm publish ./packages/cli --tag dev"));
-    expect(
-      workflow.indexOf("npm publish ./packages/codexslimedit --access public --tag dev"),
-    ).toBeLessThan(workflow.indexOf("npm publish ./packages/cli --tag dev"));
-    expect(workflow.match(/--tag dev/g)).toHaveLength(3);
+    expect(workflow.match(/--tag dev/g)).toHaveLength(2);
   });
 });

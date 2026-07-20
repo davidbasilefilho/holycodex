@@ -91,12 +91,7 @@ async function startContext7(platform: NodeJS.Platform): Promise<Context7Result>
 
 const defaultRuntime: DoctorRuntime = {
   platform: process.platform,
-  command: (name, args) =>
-    process.env.NODE_ENV === "test" &&
-    process.env.HOLYCODEX_TEST_SKIP_PACKAGE_RESOLUTION === "1" &&
-    args.some((argument) => argument.startsWith("codexslimedit@"))
-      ? Promise.resolve({ ok: true, output: "package resolution skipped in tests" })
-      : runCommand(name, args, process.platform),
+  command: (name, args) => runCommand(name, args, process.platform),
   context7: () => startContext7(process.platform),
   gitBash: resolveGitBashForCurrentProcess,
 };
@@ -260,55 +255,6 @@ export async function doctor(
           : check(`mcp-${name}`, "ok", "required-mcp-ready", `${name} is configured locally.`),
     );
   }
-  const codexSlimEdit = servers?.codexslimedit;
-  const codexSlimEditConfig = (["bun", "npm"] as const)
-    .map((runner) => effectiveMcpServers(runtime.platform, runner).codexslimedit)
-    .find((expected) => {
-      return (
-        expected !== undefined &&
-        codexSlimEdit !== undefined &&
-        mcpConfigMatches(codexSlimEdit, expected)
-      );
-    });
-  const codexSlimEditStarted =
-    codexSlimEditConfig === undefined
-      ? undefined
-      : await runtime.command(codexSlimEditConfig.command, [
-          ...codexSlimEditConfig.args,
-          "--version",
-        ]);
-  checks.push(
-    codexSlimEdit === undefined
-      ? check(
-          "mcp-codexslimedit",
-          "error",
-          "missing-codexslimedit",
-          "codexslimedit is not configured.",
-          "Reinstall HolyCodex.",
-        )
-      : codexSlimEditStarted?.ok === true
-        ? check(
-            "mcp-codexslimedit",
-            "ok",
-            "codexslimedit-ready",
-            "codexslimedit is configured through npm or Bun.",
-          )
-        : codexSlimEditConfig === undefined
-          ? check(
-              "mcp-codexslimedit",
-              "error",
-              "invalid-codexslimedit-config",
-              "codexslimedit configuration is stale or uses an unsupported runner.",
-              "Reinstall HolyCodex.",
-            )
-          : check(
-              "mcp-codexslimedit",
-              "error",
-              "codexslimedit-unavailable",
-              `codexslimedit could not start: ${codexSlimEditStarted?.output || "unknown runner error"}`,
-              "Check the configured package runner and network access, then reinstall HolyCodex.",
-            ),
-  );
   const gitBashConfig = servers?.git_bash;
   if (runtime.platform === "win32" && gitBashConfig !== undefined) {
     const expected = effectiveMcpServers("win32").git_bash;

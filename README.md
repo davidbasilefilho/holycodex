@@ -1,54 +1,6 @@
 # HolyCodex
 
-## What
-
-HolyCodex is a lean Codex-only hard fork of [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent). It packages a Codex-native multi-agent workflow, focused engineering skills, scoped rules, readiness hooks, LSP and Context7 integrations, and a safe Git Bash bridge for native Windows.
-
-## Why
-
-HolyCodex keeps the useful engineering discipline of its upstream project while removing OpenCode-specific machinery and minimizing persistent prompt cost. It gives Root clear ownership, delegates bounded work to purpose-built specialists, validates external data at runtime, and preserves user configuration across install, upgrade, and cleanup.
-
-The goal is a small, predictable Codex toolkit: strong defaults, explicit dangerous actions, reproducible checks, and no permanent terminal UI or hidden autonomy.
-
-## How it works
-
-Root is the default user-facing decision, clarification, integration, and verification layer. It owns user interaction, intent, scope, architecture, product decisions, ambiguity resolution, final judgment, and final verification. The selected routing plan configures Root and each specialist; explicit user model preferences are preserved.
-
-| Plan        | Root               | Explorer             | Librarian            | Worker               | Usage                |
-| ----------- | ------------------ | -------------------- | -------------------- | -------------------- | -------------------- |
-| `go`        | GPT-5.6 Sol low    | GPT-5.6 Luna low     | GPT-5.6 Luna low     | GPT-5.6 Terra low    | 0 subagents, depth 1 |
-| `plus-low`  | GPT-5.6 Sol medium | GPT-5.6 Luna low     | GPT-5.6 Luna medium  | GPT-5.6 Terra medium | 1 subagent, depth 1  |
-| `plus`      | GPT-5.6 Sol low    | GPT-5.6 Luna medium  | GPT-5.6 Terra low    | GPT-5.6 Terra high   | 2 subagents, depth 1 |
-| `plus-high` | GPT-5.6 Sol medium | GPT-5.6 Terra medium | GPT-5.6 Terra medium | GPT-5.6 Sol medium   | 2 subagents, depth 1 |
-| `pro-5x`    | GPT-5.6 Sol high   | GPT-5.6 Terra medium | GPT-5.6 Terra high   | GPT-5.6 Sol medium   | 2 subagents, depth 1 |
-| `pro-20x`   | GPT-5.6 Sol high   | GPT-5.6 Luna high    | GPT-5.6 Terra high   | GPT-5.6 Sol high     | 2 subagents, depth 1 |
-
-Plans increase expected model usage and capability in this order: `go < plus-low < plus < plus-high < pro-5x < pro-20x`.
-
-Bounded independent work is presumed delegable to highly capable smaller specialists. Delegate long, context-heavy, separable, or easier work they can perform:
-
-| Specialist  | Scope                                                           |
-| ----------- | --------------------------------------------------------------- |
-| `explorer`  | Bounded read-only repository facts                              |
-| `librarian` | Bounded current external research from primary sources          |
-| `worker`    | Isolated implementation after Root fixes architecture and proof |
-
-Prompt contracts guide this routing; deterministic tests cover those contracts, not provider-side enforcement. Root never estimates exact monetary or token cost. Explorer is mandatory before a second separable repository read or search, or any multi-file or symbol fact pass. Librarian is mandatory before a second external source or multi-source, version, or date research. Worker is mandatory for fixed isolated implementation beyond one file, one substantive edit, or one proof cycle, after Root fixes architecture, behavior, scope, constraints, write ownership, acceptance evidence, and stop conditions. Root retains user interaction, intent, architecture, product decisions, ambiguity resolution, integration, final judgment, and final verification.
-
-Before work, Root delegates discoverable facts, asks the user for material decisions, and states then proceeds with safe reversible defaults. Material decisions affect target, scope, behavior, architecture, proof, visible direction, compatibility, privacy, security, authority, or an external or destructive effect. For material blockers, Root uses `request_user_input` when available with one to three mutually exclusive options, a recommended option and impact, and no timeout. Root does not repeat questions or ask discoverable facts.
-
-Root uses at most two specialists in one wave by default. Packets carry five concepts: exact outcome or question, allowed scope, constraints and fixed decisions, required evidence or proof, and stop and blocker conditions. Optional context stays optional. Local work is reserved for atomic, coupled, unresolved, unsafe to isolate, or coordination-heavy work. Specialists do not delegate, overlap write ownership, review one another, retry unchanged packets, or raise their model or effort automatically. Root reviews actual returns before spot-checking only load-bearing claims, avoids duplicate reassurance work, integrates results, and performs final verification.
-
-HolyCodex also ships 16 on-demand skills, scoped rules, readiness hooks, LSP and Context7 MCPs, a Windows-only Git Bash MCP, and the independently versioned `codexslimedit` MCP package. Planning, plan review, and goal definition print exact activation headings only after their skill loads. A durable goal is created only after explicit user consent. Zod schemas validate CLI input, configuration, manifests, persisted state, MCP and JSON-RPC envelopes, LSP responses, daemon messages, environment values, and metadata scripts at their runtime boundaries.
-
-## Platform behavior
-
-| Platform        | MCP defaults                  | Shell policy                                                                                                |
-| --------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Native Windows  | `git_bash`, `lsp`, `context7` | Every shell action uses the allowlisted Git Bash `run` tool; installation stops if Git Bash is unavailable. |
-| Linux and macOS | `lsp`, `context7`             | Native shell tools; Git Bash configuration and prompt rules are omitted.                                    |
-
-The shared MCP process layer bounds runtime, caps captured output while preserving its head and tail, resolves exactly once, and terminates process trees on timeout or early protocol success.
+HolyCodex is a lean Codex toolkit derived from [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent). It installs a Codex-native multi-agent workflow, focused engineering skills, scoped rules, readiness hooks, LSP and Context7 integrations, and a safe Git Bash bridge on native Windows.
 
 ## Install
 
@@ -58,57 +10,65 @@ npx holycodex install
 bunx holycodex install
 ```
 
-Development builds use npm's `dev` channel:
+Restart Codex and open a new task after installation. Codex may ask you to trust the installed command hooks.
+
+Use `doctor` to inspect installation health:
 
 ```sh
-bunx holycodex@dev install
-bunx holycodex@dev doctor
+npx holycodex doctor
 ```
 
-Each development workflow run publishes a unique prerelease and moves only the `dev` dist-tag. Stable `latest` remains unchanged.
+## Plans and agents
 
-Installation is noninteractive. It backs up affected files, removes legacy OMO state after backup, preserves unrelated configuration and explicit model preferences, installs the plugin and effective platform MCPs, and configures:
+Root owns user interaction, scope, architecture, integration, and final verification. Explorer handles bounded repository discovery, Librarian handles current primary-source research, and Worker handles isolated implementation after Root fixes the contract.
 
-- stable `features.multi_agent = true`, experimental `features.multi_agent_v2 = true`, and request-user-input support;
-- a plan-selected direct subagent limit, emitted as root-inclusive `agents.max_threads`, and `agents.max_depth = 1`;
-- named-agent `config_file` entries;
-- `codexslimedit@latest`, pre-resolved with npm for `npx holycodex` or Bun for `bunx holycodex` and launched through the same runner;
-- a status line containing remaining context;
-- workspace network access in contained modes;
-- local unauthenticated Context7 through `bunx @upstash/context7-mcp`.
+Current routing values are:
 
-Version 0.6.0 migrates the old managed worker default from Luna medium to Terra high. Values that do not match a known HolyCodex-managed default are treated as explicit user preferences and preserved. Cleanup restores values that existed before HolyCodex management.
+| Plan        | Root               | Explorer             | Librarian            | Worker               | Direct subagents |
+| ----------- | ------------------ | -------------------- | -------------------- | -------------------- | ---------------- |
+| `go`        | GPT-5.6 Sol low    | GPT-5.6 Luna low     | GPT-5.6 Luna low     | GPT-5.6 Terra low    | 0                |
+| `plus-low`  | GPT-5.6 Sol medium | GPT-5.6 Luna low     | GPT-5.6 Luna medium  | GPT-5.6 Terra medium | 1                |
+| `plus`      | GPT-5.6 Sol low    | GPT-5.6 Luna medium  | GPT-5.6 Terra low    | GPT-5.6 Terra high   | 2                |
+| `plus-high` | GPT-5.6 Sol medium | GPT-5.6 Terra medium | GPT-5.6 Terra medium | GPT-5.6 Sol medium   | 2                |
+| `pro-5x`    | GPT-5.6 Sol high   | GPT-5.6 Terra medium | GPT-5.6 Terra high   | GPT-5.6 Sol medium   | 2                |
+| `pro-20x`   | GPT-5.6 Sol high   | GPT-5.6 Luna high    | GPT-5.6 Terra high   | GPT-5.6 Sol high     | 2                |
+
+`plus` is the default plan.
+
+All plans use subagent depth 1. The plan-selected direct subagent limit is emitted as `agents.max_threads`, which includes Root, so HolyCodex writes one more thread than the displayed value. Override it with `--max-subagents 0..3`.
+
+```sh
+holycodex install --plan plus-high
+holycodex install --max-subagents 3
+```
+
+Explicit user model preferences are preserved during upgrades and cleanup.
+
+## Platform behavior
+
+| Platform        | MCP defaults                  | Shell behavior                                                                                      |
+| --------------- | ----------------------------- | --------------------------------------------------------------------------------------------------- |
+| Native Windows  | `git_bash`, `lsp`, `context7` | Shell actions use the allowlisted Git Bash bridge. Installation stops when Git Bash is unavailable. |
+| Linux and macOS | `lsp`, `context7`             | Codex native shell tools remain active.                                                             |
+
+HolyCodex restores native Codex workspace I/O. It does not install an editing MCP. Skills use native `apply_patch` and available native read or shell tools.
+
+## Options
 
 ```sh
 holycodex install                              # on-request, workspace-write, network on
-holycodex install --plan go                    # lowest-usage routing plan
-holycodex install --plan plus-low              # low-usage Plus routing plan
-holycodex install --plan plus                  # default Plus routing plan
-holycodex install --plan plus-high             # high-usage Plus routing plan
-holycodex install --plan pro-5x                # higher-usage Pro routing plan
-holycodex install --plan pro-20x               # highest-usage Pro routing plan
-holycodex install --max-subagents 3             # opt into up to three direct subagents
+holycodex install --plan <plan>
+holycodex install --max-subagents <0..3>
 holycodex install --codex-autonomous           # never ask, workspace-write, network on
 holycodex install --dangerous-codex-autonomous # never ask, unrestricted host access
-holycodex install --no-codex-autonomous        # same contained behavior as no flag
+holycodex install --no-codex-autonomous        # contained default behavior
 holycodex install --json
-holycodex doctor
-holycodex doctor --json
+holycodex doctor [--json]
 holycodex --help
 holycodex --version
 ```
 
-Dangerous autonomy prints an explicit warning and is never inferred. `doctor` distinguishes missing Bun or `bunx`, malformed or stale Context7 configuration, package resolution and startup failures, model/config drift, platform-inapplicable Git Bash, and healthy operation.
-
-CodexSlimEdit reads `sandbox_mode` from the active Codex home's `config.toml` at runtime and never writes that file. It permits workspace edits only in `workspace-write` or `danger-full-access`, permits reads outside the workspace only in `danger-full-access`, and falls back to read-only when configuration is missing, malformed, or unsupported. Writes always remain confined to the workspace.
-
-Human CLI output uses a compact TTY-aware presentation and honors `NO_COLOR`. JSON output and redirected text remain stable and noninteractive. OpenTUI is intentionally absent because HolyCodex does not run a persistent terminal interface.
-
-Restart Codex and open a fresh task after installation so agent profiles, hooks, and Multi Agents V2 reload. Codex may ask you to trust installed command hooks. This security review is the only expected manual installation step.
-
-## Multi-agent compatibility
-
-HolyCodex enables documented stable `features.multi_agent` plus the installed Codex binary's accepted boolean `features.multi_agent_v2` opt-in. The binary reports V2 as under development, so stable multi-agent configuration remains as fallback. `agents.max_threads` includes Root; SessionStart and PostCompact context report current direct-child capacity and `agents.max_depth`. Configuration and deterministic tests prove intended specialist model files and routing contracts; a fresh-task rollout is still required to verify provider-side role, model, and reasoning selection for each Codex release.
+Dangerous autonomy is explicit and never inferred. Installation is noninteractive, backs up affected files, preserves unrelated configuration, and configures multi-agent support, selected agent capacity, specialist profiles, status context, and platform MCPs.
 
 ## Cleanup
 
@@ -118,54 +78,38 @@ npx holycodex cleanup
 bunx holycodex cleanup
 ```
 
-Cleanup backs up affected state, removes only HolyCodex-owned configuration and artifacts, and restores managed values. Install and cleanup are idempotent.
+Cleanup backs up affected state, removes HolyCodex-owned configuration and artifacts, and restores managed values. Install and cleanup are idempotent.
 
-## Repository layout
+## Development channel
 
-- `packages/cli/`: public `holycodex` executable, source, metadata, and generated CLI bundle.
-- `packages/plugin/`: public `@holycodex/plugin` package containing prompts, skills, agents, hooks, MCP metadata, and generated plugin runtime.
-- `packages/codexslimedit/`: independently versioned public Node.js/Bun MCP package for compact reads and validated exact or line-range edits.
-- `packages/git-bash-mcp/`, `packages/lsp-*`, and `packages/mcp-stdio-core/`: internal runtime packages.
-- `vite.config.ts`: Vite+ plugin-runtime build; `packages/cli/vite.config.ts` builds the CLI.
-- `test/`: lifecycle, configuration, instruction, catalogue, protocol, and platform tests.
-
-The root package is private and orchestrates the Vite+ workspace. Source and published runtimes support Node.js and Bun. The CLI depends on the exact same version of `@holycodex/plugin`, resolves its installed asset root, and copies only that payload into Codex state. `codexslimedit` releases independently and is installed through the package runner that invoked HolyCodex.
-
-## npm publishing
-
-`.github/workflows/publish.yml` is the only npm publishing workflow. It uses npm trusted publishing for pushes to both `main` and `dev`, publishes `@holycodex/plugin` before `holycodex`, and never uses a long-lived npm credential.
-
-- `main` publishes the intentional repository version with the explicit `latest` tag. Each package is skipped when that exact version already exists, so non-version changes do not fail or republish.
-- `dev` removes any prerelease suffix from the repository version, derives `<base>-dev.<GITHUB_RUN_ID>.<GITHUB_RUN_ATTEMPT>`, applies it only inside the runner, builds with that embedded version, and publishes with the explicit `dev` tag.
-
-Configure npm trusted publishing separately for `holycodex` and `@holycodex/plugin` with:
-
-```text
-Trusted publisher provider: GitHub Actions
-GitHub owner: davidbasilefilho
-Repository: holycodex
-Workflow filename: publish.yml
-Allowed action: npm publish
+```sh
+bunx holycodex@dev install
+bunx holycodex@dev doctor
 ```
 
-Both `main` and `dev` must be protected because either branch contains an npm-authorized workflow. No GitHub environment is currently used. If one is added, its workflow `environment` name must exactly match the optional environment configured in npm trusted publishing.
+The `dev` tag tracks prereleases. Stable releases use `latest`.
 
-Resulting npm resolution:
+## Contributing
 
-```text
-npm install holycodex         -> stable version tagged latest, published from main
-npm install holycodex@latest  -> same stable version
-npm install holycodex@dev     -> newest unique prerelease published from dev
+Repository layout:
+
+- `packages/cli/`: public `holycodex` CLI.
+- `packages/plugin/`: public `@holycodex/plugin` prompts, skills, agents, hooks, MCP metadata, and generated runtime.
+- `packages/git-bash-mcp/`, `packages/lsp-*`, and `packages/mcp-stdio-core/`: internal portable runtimes.
+- `test/`: lifecycle, configuration, instruction, protocol, and platform tests.
+
+Source and published runtimes support Node.js and Bun. Use Vite+ for repository checks:
+
+```sh
+vp install
+vp check --fix
+vp test
 ```
 
-Release validation follows [Vite+ guidance](https://cdn.jsdelivr.net/npm/vite-plus@latest/AGENTS.md): `vp install`, `vp check --fix`, `vp test`, and `vp run` for configured build/version tasks.
+`.github/workflows/publish.yml` publishes `dev` prereleases from `dev` and stable `latest` releases from `main` using npm trusted publishing. Protect both branches.
 
-## Thanks
+## Credits and license
 
-HolyCodex exists because of YeonGyu Kim and the oh-my-openagent contributors, Julius Brussee and caveman contributors, the authors credited in `packages/plugin/plugin/skills/frontend/ATTRIBUTION.md`, and the upstream projects listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+HolyCodex builds on work by YeonGyu Kim and the oh-my-openagent contributors, Julius Brussee and caveman contributors, the frontend sources in [ATTRIBUTION.md](packages/plugin/plugin/skills/frontend/ATTRIBUTION.md), and projects listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
-Thank you to everyone who built, reviewed, documented, tested, or maintained the projects that HolyCodex depends on.
-
-## Licenses
-
-HolyCodex uses the [Sustainable Use License 1.0](LICENSE.md), not MIT. Third-party components retain their original licenses and notices.
+HolyCodex uses the [Sustainable Use License 1.0](LICENSE.md). Third-party components retain their original licenses and notices.

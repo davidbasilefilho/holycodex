@@ -12,16 +12,10 @@ export default defineConfig({
       name: "holycodex-runtime-licenses",
       async closeBundle() {
         const runtimeRoot = join(root, "packages", "plugin", "plugin", "runtime");
-        await Promise.all([
-          copyFile(
-            join(root, "packages", "lsp-daemon", "LICENSE"),
-            join(runtimeRoot, "LICENSE-LSP-MIT.txt"),
-          ),
-          copyFile(
-            join(root, "packages", "codexslimedit", "LICENSE-OPENSLIMEDIT-MIT.txt"),
-            join(runtimeRoot, "LICENSE-OPENSLIMEDIT-MIT.txt"),
-          ),
-        ]);
+        await copyFile(
+          join(root, "packages", "lsp-daemon", "LICENSE"),
+          join(runtimeRoot, "LICENSE-LSP-MIT.txt"),
+        );
       },
     },
   ],

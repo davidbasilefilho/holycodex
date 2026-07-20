@@ -20,7 +20,7 @@ async function fixture(): Promise<string> {
 }
 
 describe("scoped rules", () => {
-  it("runs after native and CodexSlimEdit patch tools", async () => {
+  it("runs after native apply_patch", async () => {
     const hooks = JSON.parse(
       await readFile(
         join(import.meta.dirname, "..", "packages", "plugin", "plugin", "hooks", "hooks.json"),
@@ -29,7 +29,6 @@ describe("scoped rules", () => {
     ) as { hooks: { PostToolUse: readonly [{ matcher: string }] } };
     const matcher = new RegExp(hooks.hooks.PostToolUse[0].matcher);
     expect(matcher.test("apply_patch")).toBe(true);
-    expect(matcher.test("mcp__codexslimedit__apply_patch")).toBe(true);
   });
 
   it("loads static sources without AGENTS.md", async () => {
