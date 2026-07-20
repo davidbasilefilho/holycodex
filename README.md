@@ -100,6 +100,8 @@ holycodex --version
 
 Dangerous autonomy prints an explicit warning and is never inferred. `doctor` distinguishes missing Bun or `bunx`, malformed or stale Context7 configuration, package resolution and startup failures, model/config drift, platform-inapplicable Git Bash, and healthy operation.
 
+CodexSlimEdit reads `sandbox_mode` from the active Codex home's `config.toml` at runtime and never writes that file. It permits workspace edits only in `workspace-write` or `danger-full-access`, permits reads outside the workspace only in `danger-full-access`, and falls back to read-only when configuration is missing, malformed, or unsupported. Writes always remain confined to the workspace.
+
 Human CLI output uses a compact TTY-aware presentation and honors `NO_COLOR`. JSON output and redirected text remain stable and noninteractive. OpenTUI is intentionally absent because HolyCodex does not run a persistent terminal interface.
 
 Restart Codex and open a fresh task after installation so agent profiles, hooks, and Multi Agents V2 reload. Codex may ask you to trust installed command hooks. This security review is the only expected manual installation step.

@@ -11,6 +11,7 @@ import { handleCodexSlimEditMcpRequest } from "./mcp";
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(
     temporaryDirectories
       .splice(0)
@@ -83,6 +84,7 @@ describe("codexslimedit MCP", () => {
 
   it("returns concise read and edit success plus typed edit failures", async () => {
     const root = await createWorkspace();
+    await enableWorkspaceWrites();
     await writeFile(join(root, "note.txt"), "hello\n", "utf8");
 
     await expect(
@@ -109,7 +111,7 @@ describe("codexslimedit MCP", () => {
             arguments: { filePath: "note.txt", oldString: "hello", newString: "next" },
           },
         },
-        { root, accessMode: "workspace-write" },
+        { root },
       ),
     ).resolves.toMatchObject({
       result: { content: [{ text: "OK note.txt" }], isError: false },
@@ -125,7 +127,7 @@ describe("codexslimedit MCP", () => {
             arguments: { filePath: "note.txt", oldString: "missing", newString: "next" },
           },
         },
-        { root, accessMode: "workspace-write" },
+        { root },
       ),
     ).resolves.toMatchObject({
       result: {
@@ -137,6 +139,7 @@ describe("codexslimedit MCP", () => {
 
   it("applies native patch envelopes that add, update, and delete files", async () => {
     const root = await createWorkspace();
+    await enableWorkspaceWrites();
 
     await expect(
       callApplyPatch(root, "*** Begin Patch\n*** Add File: note.txt\n+hello\n*** End Patch"),
@@ -159,49 +162,114 @@ describe("codexslimedit MCP", () => {
     });
   });
 
-  it("enforces explicit read and write capabilities", async () => {
+  it("derives workspace write access from the current Codex config", async () => {
     const root = await createWorkspace();
+    const codexHome = await createWorkspace();
     const outside = await createWorkspace();
     const outsidePath = join(outside, "outside.txt");
     await writeFile(join(root, "note.txt"), "inside\n", "utf8");
     await writeFile(outsidePath, "outside\n", "utf8");
+    vi.stubEnv("CODEX_HOME", codexHome);
 
-    const deniedWrite = await handleCodexSlimEditMcpRequest(
-      {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: {
-          name: "apply_patch",
-          arguments: { filePath: "note.txt", oldString: "inside", newString: "changed" },
-        },
+    await expect(
+      callApplyPatch(
+        root,
+        "*** Begin Patch\n*** Update File: note.txt\n@@\n-inside\n+changed\n*** End Patch",
+      ),
+    ).resolves.toMatchObject({
+      result: {
+        isError: true,
+        content: [{ text: expect.stringContaining("WRITE_ACCESS_DENIED") }],
       },
-      { root },
-    );
-    expect(deniedWrite).toMatchObject({
+    });
+
+    await writeFile(join(codexHome, "config.toml"), 'sandbox_mode = "workspace-write"\n', "utf8");
+    const configuredAccess = await readFile(join(codexHome, "config.toml"), "utf8");
+    await expect(
+      callApplyPatch(
+        root,
+        "*** Begin Patch\n*** Update File: note.txt\n@@\n-inside\n+changed\n*** End Patch",
+      ),
+    ).resolves.toMatchObject({
+      result: { isError: false },
+    });
+    await expect(readFile(join(root, "note.txt"), "utf8")).resolves.toBe("changed\n");
+    await expect(readFile(join(codexHome, "config.toml"), "utf8")).resolves.toBe(configuredAccess);
+
+    await writeFile(join(codexHome, "config.toml"), 'sandbox_mode = "read-only"\n', "utf8");
+    await expect(
+      handleCodexSlimEditMcpRequest(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "apply_patch",
+            arguments: { filePath: "note.txt", oldString: "changed", newString: "again" },
+          },
+        },
+        { root },
+      ),
+    ).resolves.toMatchObject({
       result: {
         content: [{ text: expect.stringContaining("WRITE_ACCESS_DENIED") }],
         isError: true,
       },
     });
+  });
 
-    await expect(callReadFile(root, outsidePath, "workspace-write")).resolves.toMatchObject({
-      result: {
-        content: [{ text: expect.stringContaining("full-access permission is required") }],
-        isError: true,
-      },
-    });
-    await expect(callReadFile(root, outsidePath, "full-access")).resolves.toMatchObject({
+  it("allows outside reads only for danger-full-access and confines writes", async () => {
+    const root = await createWorkspace();
+    const codexHome = await createWorkspace();
+    const outside = await createWorkspace();
+    const outsidePath = join(outside, "outside.txt");
+    await writeFile(join(root, "note.txt"), "inside\n", "utf8");
+    await writeFile(outsidePath, "outside\n", "utf8");
+    vi.stubEnv("CODEX_HOME", codexHome);
+    await writeFile(
+      join(codexHome, "config.toml"),
+      'sandbox_mode = "danger-full-access"\n',
+      "utf8",
+    );
+
+    await expect(callReadFile(root, outsidePath)).resolves.toMatchObject({
       result: { content: [{ text: expect.stringContaining("outside\n") }], isError: false },
     });
+    await expect(
+      callApplyPatch(
+        root,
+        `*** Begin Patch\n*** Update File: ${outsidePath}\n@@\n-outside\n+changed\n*** End Patch`,
+      ),
+    ).resolves.toMatchObject({
+      result: { content: [{ text: expect.stringContaining("PATH_OUTSIDE_ROOT") }], isError: true },
+    });
   });
+
+  it.each(["sandbox_mode = ", 'sandbox_mode = "unsupported"'])(
+    "treats malformed or unsupported config as read-only: %s",
+    async (config) => {
+      const root = await createWorkspace();
+      const codexHome = await createWorkspace();
+      await writeFile(join(root, "note.txt"), "inside\n", "utf8");
+      await writeFile(join(codexHome, "config.toml"), `${config}\n`, "utf8");
+      vi.stubEnv("CODEX_HOME", codexHome);
+
+      await expect(
+        callApplyPatch(
+          root,
+          "*** Begin Patch\n*** Update File: note.txt\n@@\n-inside\n+changed\n*** End Patch",
+        ),
+      ).resolves.toMatchObject({
+        result: {
+          content: [{ text: expect.stringContaining("WRITE_ACCESS_DENIED") }],
+          isError: true,
+        },
+      });
+    },
+  );
 });
 
-async function callReadFile(
-  root: string,
-  filePath: string,
-  accessMode: "workspace-write" | "full-access",
-) {
+async function callReadFile(root: string, filePath: string) {
   return await handleCodexSlimEditMcpRequest(
     {
       jsonrpc: "2.0",
@@ -209,7 +277,7 @@ async function callReadFile(
       method: "tools/call",
       params: { name: "read_file", arguments: { filePath } },
     },
-    { root, accessMode },
+    { root },
   );
 }
 
@@ -221,7 +289,7 @@ async function callApplyPatch(root: string, patch: string) {
       method: "tools/call",
       params: { name: "apply_patch", arguments: { patch } },
     },
-    { root, accessMode: "workspace-write" },
+    { root },
   );
 }
 
@@ -229,4 +297,10 @@ async function createWorkspace(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "codexslimedit-mcp-"));
   temporaryDirectories.push(directory);
   return directory;
+}
+
+async function enableWorkspaceWrites(): Promise<void> {
+  const codexHome = await createWorkspace();
+  await writeFile(join(codexHome, "config.toml"), 'sandbox_mode = "workspace-write"\n', "utf8");
+  vi.stubEnv("CODEX_HOME", codexHome);
 }

@@ -38,11 +38,7 @@ async function fixture(mode: AutonomyMode = "default"): Promise<{ home: string; 
     join(plugin, ".mcp.json"),
     `${JSON.stringify(
       {
-        mcpServers: effectiveMcpServers(
-          "win32",
-          "bun",
-          mode === "dangerous" ? "full-access" : "workspace-write",
-        ),
+        mcpServers: effectiveMcpServers("win32", "bun"),
       },
       null,
       2,

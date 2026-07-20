@@ -261,11 +261,8 @@ export async function doctor(
     );
   }
   const codexSlimEdit = servers?.codexslimedit;
-  const codexSlimEditAccess = autonomy(config) === "dangerous" ? "full-access" : "workspace-write";
   const codexSlimEditConfig = (["bun", "npm"] as const)
-    .map(
-      (runner) => effectiveMcpServers(runtime.platform, runner, codexSlimEditAccess).codexslimedit,
-    )
+    .map((runner) => effectiveMcpServers(runtime.platform, runner).codexslimedit)
     .find((expected) => {
       return (
         expected !== undefined &&

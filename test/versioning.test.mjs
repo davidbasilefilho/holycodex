@@ -80,7 +80,7 @@ describe("codexslimedit versioning", () => {
         lsp: { command: "node", args: ["runtime/lsp.js", "mcp"] },
         codexslimedit: {
           command: "bunx",
-          args: ["codexslimedit@latest", "--workspace-write"],
+          args: ["codexslimedit@latest"],
           retained: "value",
         },
       },
@@ -92,7 +92,7 @@ describe("codexslimedit versioning", () => {
         lsp: { command: "node", args: ["runtime/lsp.js", "mcp"] },
         codexslimedit: {
           command: "bunx",
-          args: ["codexslimedit@dev", "--workspace-write"],
+          args: ["codexslimedit@dev"],
           retained: "value",
         },
       },

@@ -61,7 +61,7 @@ async function resolveReadableFile(input: ReadWorkspaceFileInput): Promise<Resol
   if (!input.allowOutsideRoot && !isInside(rootPath, candidate)) {
     throw new WorkspaceFileError(
       "PATH_OUTSIDE_ROOT",
-      "filePath is outside the workspace root; full-access permission is required.",
+      'filePath is outside the workspace root. Outside-workspace reads require sandbox_mode = "danger-full-access" in the active Codex config.',
     );
   }
 
@@ -69,7 +69,7 @@ async function resolveReadableFile(input: ReadWorkspaceFileInput): Promise<Resol
   if (!input.allowOutsideRoot && !isInside(rootPath, resolvedCandidate)) {
     throw new WorkspaceFileError(
       "PATH_OUTSIDE_ROOT",
-      "filePath resolves outside the workspace root through a symlink; full-access permission is required.",
+      'filePath resolves outside the workspace root through a symlink. Outside-workspace reads require sandbox_mode = "danger-full-access" in the active Codex config.',
     );
   }
   return {

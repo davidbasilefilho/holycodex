@@ -19,12 +19,7 @@ async function main(): Promise<void> {
     process.stdout.write(`${CLI_HELP}\n`);
     return;
   }
-  const accessMode = arguments_.includes("--full-access")
-    ? "full-access"
-    : arguments_.includes("--workspace-write")
-      ? "workspace-write"
-      : "read-only";
-  await runCodexSlimEditMcpStdioServer(process.stdin, process.stdout, { accessMode });
+  await runCodexSlimEditMcpStdioServer(process.stdin, process.stdout);
 }
 
 main().catch((error: unknown) => {
