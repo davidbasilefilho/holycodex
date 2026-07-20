@@ -9,7 +9,7 @@
     "lsp": { "command": "node", "args": ["runtime/lsp.js", "mcp"], "cwd": "." },
     "codexslimedit": {
       "command": "bunx",
-      "args": ["codexslimedit@latest"],
+      "args": ["codexslimedit@latest", "--workspace-write"],
       "enabled_tools": ["read_file", "apply_patch"]
     },
     "context7": { "command": "bunx", "args": ["@upstash/context7-mcp"] }

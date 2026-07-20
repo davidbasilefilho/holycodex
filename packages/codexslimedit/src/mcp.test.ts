@@ -109,7 +109,7 @@ describe("codexslimedit MCP", () => {
             arguments: { filePath: "note.txt", oldString: "hello", newString: "next" },
           },
         },
-        { root },
+        { root, accessMode: "workspace-write" },
       ),
     ).resolves.toMatchObject({
       result: { content: [{ text: "OK note.txt" }], isError: false },
@@ -125,7 +125,7 @@ describe("codexslimedit MCP", () => {
             arguments: { filePath: "note.txt", oldString: "missing", newString: "next" },
           },
         },
-        { root },
+        { root, accessMode: "workspace-write" },
       ),
     ).resolves.toMatchObject({
       result: {
@@ -158,7 +158,60 @@ describe("codexslimedit MCP", () => {
       code: "ENOENT",
     });
   });
+
+  it("enforces explicit read and write capabilities", async () => {
+    const root = await createWorkspace();
+    const outside = await createWorkspace();
+    const outsidePath = join(outside, "outside.txt");
+    await writeFile(join(root, "note.txt"), "inside\n", "utf8");
+    await writeFile(outsidePath, "outside\n", "utf8");
+
+    const deniedWrite = await handleCodexSlimEditMcpRequest(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "apply_patch",
+          arguments: { filePath: "note.txt", oldString: "inside", newString: "changed" },
+        },
+      },
+      { root },
+    );
+    expect(deniedWrite).toMatchObject({
+      result: {
+        content: [{ text: expect.stringContaining("WRITE_ACCESS_DENIED") }],
+        isError: true,
+      },
+    });
+
+    await expect(callReadFile(root, outsidePath, "workspace-write")).resolves.toMatchObject({
+      result: {
+        content: [{ text: expect.stringContaining("full-access permission is required") }],
+        isError: true,
+      },
+    });
+    await expect(callReadFile(root, outsidePath, "full-access")).resolves.toMatchObject({
+      result: { content: [{ text: expect.stringContaining("outside\n") }], isError: false },
+    });
+  });
 });
+
+async function callReadFile(
+  root: string,
+  filePath: string,
+  accessMode: "workspace-write" | "full-access",
+) {
+  return await handleCodexSlimEditMcpRequest(
+    {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "read_file", arguments: { filePath } },
+    },
+    { root, accessMode },
+  );
+}
 
 async function callApplyPatch(root: string, patch: string) {
   return await handleCodexSlimEditMcpRequest(
@@ -168,7 +221,7 @@ async function callApplyPatch(root: string, patch: string) {
       method: "tools/call",
       params: { name: "apply_patch", arguments: { patch } },
     },
-    { root },
+    { root, accessMode: "workspace-write" },
   );
 }
 

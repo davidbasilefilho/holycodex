@@ -14,6 +14,7 @@ export type { CodexSlimEditMcpOptions } from "./mcp.js";
 export type { ApplyWorkspacePatchInput, WorkspacePatchResult } from "./patch.js";
 export type {
   EditWorkspaceFileInput,
+  ReadWorkspaceFileInput,
   WorkspaceFileInput,
   WorkspaceFileResult,
   WriteWorkspaceFileInput,

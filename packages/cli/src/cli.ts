@@ -18,7 +18,10 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const stdoutColor = supportsColor(process.stdout.isTTY, process.env.NO_COLOR);
   const stderrColor = supportsColor(process.stderr.isTTY, process.env.NO_COLOR);
-  const command = args.find((arg, index) => !arg.startsWith("-") && args[index - 1] !== "--plan");
+  const command = args.find(
+    (arg, index) =>
+      !arg.startsWith("-") && args[index - 1] !== "--plan" && args[index - 1] !== "--max-subagents",
+  );
   if (args.includes("--help") || args.includes("-h") || args.length === 0) {
     process.stdout.write(
       command === "install"
@@ -41,6 +44,20 @@ async function main(): Promise<void> {
   if (!parsedPlan.success)
     throw new Error(`Unknown plan: ${planValue}. Valid plans: ${PLAN_NAMES.join(", ")}.`);
   const plan = parsedPlan.data;
+  const maxSubagentFlags = args.flatMap((arg, index) => (arg === "--max-subagents" ? [index] : []));
+  if (maxSubagentFlags.length > 1) throw new Error("--max-subagents may be specified only once.");
+  const maxSubagentsIndex = args.indexOf("--max-subagents");
+  const maxSubagentsValue = maxSubagentsIndex < 0 ? undefined : args[maxSubagentsIndex + 1];
+  if (
+    maxSubagentsIndex >= 0 &&
+    (maxSubagentsValue === undefined ||
+      maxSubagentsValue.startsWith("-") ||
+      maxSubagentsValue === command)
+  )
+    throw new Error("Missing --max-subagents value. Valid range: 0-3.");
+  if (maxSubagentsValue !== undefined && !/^[0-3]$/.test(maxSubagentsValue))
+    throw new Error(`Invalid --max-subagents value: ${maxSubagentsValue}. Valid range: 0-3.`);
+  const maxSubagents = maxSubagentsValue === undefined ? undefined : Number(maxSubagentsValue);
   const autonomyFlags = args.filter((arg) =>
     ["--codex-autonomous", "--no-codex-autonomous", "--dangerous-codex-autonomous"].includes(arg),
   );
@@ -59,6 +76,7 @@ async function main(): Promise<void> {
         : "default",
     json: args.includes("--json"),
     plan,
+    ...(maxSubagents === undefined ? {} : { maxSubagents }),
   };
   if (command === "doctor") {
     const result = await doctor();

@@ -15,8 +15,12 @@ const END = "# <<< holycodex managed <<<";
 const ORIGINAL_ROOT = "# holycodex original root: ";
 const ORIGINAL_TABLE_KEY = "# holycodex original table key: ";
 const PLAN_PREFIX = "# holycodex plan: ";
+const MAX_SUBAGENTS_PREFIX = "# holycodex max-subagents: ";
 
 export type AutonomyMode = "default" | "autonomous" | "dangerous";
+export type ManagedMaxSubagents =
+  | { readonly configured: false }
+  | { readonly configured: true; readonly value?: number };
 
 const OLD_NAMESPACES = [
   "marketplaces.sisyphuslabs",
@@ -130,6 +134,14 @@ export function readManagedPlan(input: string): PlanName | undefined {
   return PLAN_NAMES.find((plan) => plan === value);
 }
 
+/** Reads an explicit managed direct-subagent override. */
+export function readManagedMaxSubagents(input: string): ManagedMaxSubagents {
+  const raw = new RegExp(`^${MAX_SUBAGENTS_PREFIX}(.*)$`, "m").exec(input)?.[1]?.trim();
+  if (raw === undefined) return { configured: false };
+  if (!/^[0-3]$/.test(raw)) return { configured: true };
+  return { configured: true, value: Number(raw) };
+}
+
 type RootModelOverrides = {
   readonly model: boolean;
   readonly reasoningEffort: boolean;
@@ -198,6 +210,7 @@ export function installConfig(
   mode: AutonomyMode,
   _platform: NodeJS.Platform,
   plan: PlanName = DEFAULT_PLAN,
+  maxSubagents?: number,
 ): string {
   const unmanaged = removeLegacyOmo(removeManaged(input));
   const base = preserveManagedRootPreferences(input, unmanaged);
@@ -216,6 +229,7 @@ export function installConfig(
   const hasEffort = /^\s*model_reasoning_effort\s*=/m.test(preservedRoot);
   const hasVerbosity = /^\s*model_verbosity\s*=/m.test(preservedRoot);
   const rootRoute = MODEL_ROUTING_PLANS[plan].root;
+  const effectiveMaxSubagents = maxSubagents ?? MODEL_ROUTING_PLANS[plan].usage.maxSubagents;
   const model = hasModel ? "" : `model = "${rootRoute.model}"\n`;
   const effort = hasEffort ? "" : `model_reasoning_effort = "${rootRoute.reasoningEffort}"\n`;
   const verbosity = hasVerbosity ? "" : 'model_verbosity = "low"\n';
@@ -225,13 +239,20 @@ export function installConfig(
     ? `${ORIGINAL_ROOT}${Buffer.from(originalRoot).toString("base64")}\n`
     : "";
   const preserved = preservedRoot ? `${preservedRoot}\n` : "";
-  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${original}${model}${effort}${verbosity}${preserved}approval_policy = "${approval}"\nsandbox_mode = "${sandbox}"\nstatus_line = ${mergedStatusLine(controlled[3])}\n${END}`;
+  const maxSubagentsMetadata =
+    maxSubagents === undefined ? "" : `${MAX_SUBAGENTS_PREFIX}${maxSubagents}\n`;
+  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${maxSubagentsMetadata}${original}${model}${effort}${verbosity}${preserved}approval_policy = "${approval}"\nsandbox_mode = "${sandbox}"\nstatus_line = ${mergedStatusLine(controlled[3])}\n${END}`;
   let configured = `${rootBlock}${tables ? `\n\n${tables}` : ""}`;
   configured = injectTableKey(configured, "features", "default_mode_request_user_input", "true");
   configured = injectTableKey(configured, "features", "multi_agent", "true");
   configured = injectTableKey(configured, "features", "multi_agent_v2", "true");
   const usage = MODEL_ROUTING_PLANS[plan].usage;
-  configured = injectTableKey(configured, "agents", "max_threads", String(usage.maxThreads));
+  configured = injectTableKey(
+    configured,
+    "agents",
+    "max_threads",
+    String(effectiveMaxSubagents + 1),
+  );
   configured = injectTableKey(configured, "agents", "max_depth", String(usage.maxDepth));
   if (mode !== "dangerous")
     configured = injectTableKey(configured, "sandbox_workspace_write", "network_access", "true");

@@ -28,12 +28,14 @@ export type RunOptions = {
   readonly autonomy: AutonomyMode;
   readonly json: boolean;
   readonly plan?: PlanName;
+  readonly maxSubagents?: number;
 };
 export type RunResult = {
   readonly action: "install" | "cleanup";
   readonly changed: readonly string[];
   readonly backups: readonly string[];
   readonly plan?: PlanName;
+  readonly maxSubagents?: number;
 };
 export type InstallRuntime = {
   readonly platform: NodeJS.Platform;
@@ -96,12 +98,25 @@ export async function install(
   ].filter((path) => path !== undefined);
   const existingConfig = await readText(target.config);
   const previousPlan = readManagedPlan(existingConfig);
-  const config = installConfig(existingConfig, options.autonomy, runtime.platform, plan);
+  const maxSubagents = options.maxSubagents ?? MODEL_ROUTING_PLANS[plan].usage.maxSubagents;
+  const config = installConfig(
+    existingConfig,
+    options.autonomy,
+    runtime.platform,
+    plan,
+    options.maxSubagents,
+  );
   await atomicWrite(target.config, config);
   await rm(target.marketplaceCache, { recursive: true, force: true });
   await mkdir(dirname(target.cache), { recursive: true });
   await cp(pluginRoot, target.cache, { recursive: true });
-  await writePlatformPlugin(target.cache, runtime.platform, plan, runtime.packageRunner);
+  await writePlatformPlugin(
+    target.cache,
+    runtime.platform,
+    plan,
+    runtime.packageRunner,
+    options.autonomy,
+  );
   const existingAgentPreferences = await readAgentPreferences(target.agents, previousPlan);
   await rm(target.agents, { recursive: true, force: true });
   await cp(join(pluginRoot, "agents"), target.agents, { recursive: true });
@@ -118,6 +133,7 @@ export async function install(
     changed: [target.config, target.cache, target.agents, ...removedLegacy],
     backups,
     plan,
+    maxSubagents,
   };
 }
 
@@ -180,10 +196,21 @@ async function writePlatformPlugin(
   platform: NodeJS.Platform,
   plan: PlanName,
   packageRunner: PackageRunner,
+  autonomy: AutonomyMode,
 ): Promise<void> {
   await atomicWrite(
     join(root, ".mcp.json"),
-    `${JSON.stringify({ mcpServers: effectiveMcpServers(platform, packageRunner) }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        mcpServers: effectiveMcpServers(
+          platform,
+          packageRunner,
+          autonomy === "dangerous" ? "full-access" : "workspace-write",
+        ),
+      },
+      null,
+      2,
+    )}\n`,
   );
   await writeInstalledAgents(join(root, "agents"), platform, plan);
 }

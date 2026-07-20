@@ -18,7 +18,7 @@ import {
   SKILLS,
   VERSION,
 } from "./catalog.ts";
-import { readManagedPlan, readPreservedRootOverrides } from "./config.ts";
+import { readManagedMaxSubagents, readManagedPlan, readPreservedRootOverrides } from "./config.ts";
 import { rootTomlString, rootTomlStringArray } from "./toml.ts";
 
 const McpManifestSchema = z.looseObject({
@@ -179,6 +179,13 @@ export async function doctor(
   const pluginRoot = join(home, "plugins", "cache", "holycodex", "holycodex", VERSION);
   const agentRoot = join(home, "holycodex", "agents");
   const configPath = join(home, "config.toml");
+  let config = "";
+  let configAvailable = true;
+  try {
+    config = await readFile(configPath, "utf8");
+  } catch {
+    configAvailable = false;
+  }
   const required = [
     ".codex-plugin/plugin.json",
     ".mcp.json",
@@ -254,8 +261,11 @@ export async function doctor(
     );
   }
   const codexSlimEdit = servers?.codexslimedit;
+  const codexSlimEditAccess = autonomy(config) === "dangerous" ? "full-access" : "workspace-write";
   const codexSlimEditConfig = (["bun", "npm"] as const)
-    .map((runner) => effectiveMcpServers(runtime.platform, runner).codexslimedit)
+    .map(
+      (runner) => effectiveMcpServers(runtime.platform, runner, codexSlimEditAccess).codexslimedit,
+    )
     .find((expected) => {
       return (
         expected !== undefined &&
@@ -460,10 +470,7 @@ export async function doctor(
     );
   }
 
-  let config = "";
-  try {
-    config = await readFile(configPath, "utf8");
-  } catch {
+  if (!configAvailable) {
     checks.push(
       check(
         "codex-config",
@@ -488,6 +495,10 @@ export async function doctor(
       : check("routing-plan", "ok", "routing-plan-ready", `Model routing plan ${plan} is active.`),
   );
   const preset = plan === undefined ? undefined : MODEL_ROUTING_PLANS[plan];
+  const managedMaxSubagents = readManagedMaxSubagents(config);
+  const expectedMaxSubagents = managedMaxSubagents.configured
+    ? managedMaxSubagents.value
+    : preset?.usage.maxSubagents;
   const rootOverrides = readPreservedRootOverrides(config);
   checks.push(
     preset !== undefined &&
@@ -516,20 +527,21 @@ export async function doctor(
   );
   checks.push(
     preset === undefined ||
-      tableInteger(config, "agents", "max_threads") !== preset.usage.maxThreads ||
+      expectedMaxSubagents === undefined ||
+      tableInteger(config, "agents", "max_threads") !== expectedMaxSubagents + 1 ||
       tableInteger(config, "agents", "max_depth") !== preset.usage.maxDepth
       ? check(
           "agent-usage",
           "error",
           "agent-usage-stale",
-          "Agent concurrency configuration does not match the selected routing plan.",
+          "Agent concurrency configuration does not match the selected routing plan or explicit override.",
           "Reinstall HolyCodex.",
         )
       : check(
           "agent-usage",
           "ok",
           "agent-usage-ready",
-          "Agent concurrency matches the selected routing plan.",
+          `Agent concurrency allows ${expectedMaxSubagents} direct subagent${expectedMaxSubagents === 1 ? "" : "s"}.`,
         ),
   );
   checks.push(
