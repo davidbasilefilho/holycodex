@@ -1,6 +1,6 @@
 {
   "name": "@holycodex/lsp-daemon",
-  "version": "0.7.5",
+  "version": "0.8.1",
   "description": "Shared per-user Language Server Protocol daemon over a unix socket, with a stdio MCP proxy and a tool client.",
   "license": "MIT",
   "bin": {
@@ -28,12 +28,12 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.16",
+    "@biomejs/biome": "2.5.4",
     "@holycodex/lsp-core": "workspace:*",
     "@holycodex/mcp-stdio-core": "workspace:*",
-    "@types/node": "^25.9.2",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=20.0.0"
