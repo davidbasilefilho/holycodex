@@ -58,7 +58,7 @@ const RoutingPresetSchema = z.strictObject({
     worker: ModelRouteSchema,
   }),
   usage: z.strictObject({
-    maxThreads: z.union([z.literal(1), z.literal(2)]),
+    maxSubagents: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
     maxDepth: z.literal(1),
   }),
 });
@@ -83,7 +83,7 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
       librarian: { model: "gpt-5.6-luna", reasoningEffort: "low" },
       worker: { model: "gpt-5.6-terra", reasoningEffort: "low" },
     },
-    usage: { maxThreads: 1, maxDepth: 1 },
+    usage: { maxSubagents: 0, maxDepth: 1 },
   },
   "plus-low": {
     root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
@@ -92,16 +92,16 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
       librarian: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
       worker: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
     },
-    usage: { maxThreads: 2, maxDepth: 1 },
+    usage: { maxSubagents: 1, maxDepth: 1 },
   },
   plus: {
-    root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+    root: { model: "gpt-5.6-sol", reasoningEffort: "low" },
     agents: {
       explorer: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
       librarian: { model: "gpt-5.6-terra", reasoningEffort: "low" },
       worker: { model: "gpt-5.6-terra", reasoningEffort: "high" },
     },
-    usage: { maxThreads: 2, maxDepth: 1 },
+    usage: { maxSubagents: 2, maxDepth: 1 },
   },
   "plus-high": {
     root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
@@ -110,7 +110,7 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
       librarian: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
       worker: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
     },
-    usage: { maxThreads: 2, maxDepth: 1 },
+    usage: { maxSubagents: 2, maxDepth: 1 },
   },
   "pro-5x": {
     root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
@@ -119,7 +119,7 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
       librarian: { model: "gpt-5.6-terra", reasoningEffort: "high" },
       worker: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
     },
-    usage: { maxThreads: 2, maxDepth: 1 },
+    usage: { maxSubagents: 2, maxDepth: 1 },
   },
   "pro-20x": {
     root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
@@ -128,7 +128,7 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
       librarian: { model: "gpt-5.6-terra", reasoningEffort: "high" },
       worker: { model: "gpt-5.6-sol", reasoningEffort: "high" },
     },
-    usage: { maxThreads: 2, maxDepth: 1 },
+    usage: { maxSubagents: 2, maxDepth: 1 },
   },
 });
 
@@ -253,11 +253,13 @@ export type McpServerConfig = {
 export function effectiveMcpServers(
   platform: NodeJS.Platform,
   packageRunner: PackageRunner = "bun",
+  accessMode: "workspace-write" | "full-access" = "workspace-write",
 ): Record<string, McpServerConfig> {
   const codexSlimEdit = codexSlimEditInvocation({
     packageRunner,
     platform,
     packageVersion: VERSION,
+    accessMode,
   });
   return {
     ...(platform === "win32"

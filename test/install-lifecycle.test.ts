@@ -255,7 +255,7 @@ describe("install lifecycle", () => {
       expect(config).toContain("[custom]\nvalue = true");
       expect(config).toContain("multi_agent = true");
       expect(config).toContain("multi_agent_v2 = true");
-      expect(config).toContain(`max_threads = ${MODEL_ROUTING_PLANS[plan].usage.maxThreads}`);
+      expect(config).toContain(`max_threads = ${MODEL_ROUTING_PLANS[plan].usage.maxSubagents + 1}`);
       expect(config).toContain(`max_depth = ${MODEL_ROUTING_PLANS[plan].usage.maxDepth}`);
       for (const agent of AGENTS) {
         const source = await readFile(join(home, "holycodex", "agents", `${agent}.toml`), "utf8");

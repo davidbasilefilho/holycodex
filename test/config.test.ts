@@ -19,7 +19,7 @@ describe("Codex configuration", () => {
     expect(output).toContain('model = "user/model"');
     expect(output).toContain("[custom]\nvalue = true");
     expect(output).toContain("[agents]");
-    expect(output).toContain("max_threads = 2");
+    expect(output).toContain("max_threads = 3");
     expect(output).toContain("max_depth = 1");
     expect(output).not.toContain('model = "gpt-5.6-sol"');
     expect(output).toContain('approval_policy = "on-request"');
@@ -44,7 +44,7 @@ describe("Codex configuration", () => {
       expect(output).toContain(`# holycodex plan: ${plan}`);
       expect(output).toContain(`model = "${route.model}"`);
       expect(output).toContain(`model_reasoning_effort = "${route.reasoningEffort}"`);
-      expect(output).toContain(`max_threads = ${MODEL_ROUTING_PLANS[plan].usage.maxThreads}`);
+      expect(output).toContain(`max_threads = ${MODEL_ROUTING_PLANS[plan].usage.maxSubagents + 1}`);
       expect(output).toContain("max_depth = 1");
     }
   });
@@ -58,6 +58,17 @@ describe("Codex configuration", () => {
     expect(pro).toContain(`model = "${route.model}"`);
     expect(pro).toContain(`model_reasoning_effort = "${route.reasoningEffort}"`);
     expect(removeManaged(pro)).toBe(original.trim());
+  });
+
+  it("maps explicit direct-subagent overrides to root-inclusive threads", () => {
+    const overridden = installPlatformConfig("", "default", "win32", "plus", 3);
+    expect(overridden).toContain("# holycodex max-subagents: 3");
+    expect(overridden).toContain("max_threads = 4");
+
+    const reset = installPlatformConfig(overridden, "default", "win32", "plus");
+    expect(reset).not.toContain("# holycodex max-subagents:");
+    expect(reset).toContain("max_threads = 3");
+    expect(removeManaged(reset)).toBe("");
   });
 
   it("migrates the former pro-20x Sol xhigh root route", () => {
@@ -143,12 +154,12 @@ describe("Codex configuration", () => {
   it("completes the default pair around an explicit model", () => {
     const output = installConfig('model = "gpt-5.6-luna"\n', "default");
     expect(output).toContain('model = "gpt-5.6-luna"');
-    expect(output).toContain('model_reasoning_effort = "medium"');
+    expect(output).toContain('model_reasoning_effort = "low"');
   });
 
   it("adds the default root model when only a named section chose a model", () => {
     expect(installConfig('[profiles.deep]\nmodel = "custom/model"\n', "default")).toContain(
-      'model = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"',
+      'model = "gpt-5.6-sol"\nmodel_reasoning_effort = "low"',
     );
   });
 
@@ -159,11 +170,11 @@ describe("Codex configuration", () => {
     expect(output).toContain('model_reasoning_effort = "high"');
   });
 
-  it("adds the complete Sol medium pair when both root values are absent", () => {
+  it("adds the complete Sol low pair when both root values are absent", () => {
     const output = installConfig("", "default");
     expect(output.match(/^model\s*=/gm)).toHaveLength(1);
     expect(output.match(/^model_reasoning_effort\s*=/gm)).toHaveLength(1);
-    expect(output).toContain('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"');
+    expect(output).toContain('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "low"');
   });
 
   it("adds low model verbosity at the root before named sections", () => {
@@ -185,7 +196,7 @@ describe("Codex configuration", () => {
   it("preserves root preference edits across reinstalls and cleanup", () => {
     const installed = installConfig("", "default")
       .replace('model = "gpt-5.6-sol"', 'model = "user/model"')
-      .replace('model_reasoning_effort = "medium"', 'model_reasoning_effort = "high"')
+      .replace('model_reasoning_effort = "low"', 'model_reasoning_effort = "high"')
       .replace('model_verbosity = "low"', 'model_verbosity = "high"');
     const reinstalled = installConfig(installed, "default");
     expect(reinstalled.match(/^model\s*=/gm)).toHaveLength(1);
@@ -212,7 +223,7 @@ describe("Codex configuration", () => {
 
   it("does not treat named-section effort as a root value", () => {
     const output = installConfig('[agents.custom]\nmodel_reasoning_effort = "low"\n', "default");
-    expect(output).toContain('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"');
+    expect(output).toContain('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "low"');
     expect(output).toContain('[agents.custom]\nmodel_reasoning_effort = "low"');
   });
 
@@ -249,7 +260,7 @@ describe("Codex configuration", () => {
     expect(installed).toContain("default_mode_request_user_input = true");
     expect(installed).toContain("multi_agent = true");
     expect(installed).toContain("multi_agent_v2 = true");
-    expect(installed).toContain("max_threads = 2");
+    expect(installed).toContain("max_threads = 3");
     expect(installed).toContain("max_depth = 1");
     expect(installed).toContain("network_access = true");
     expect(removeManaged(installed)).toBe(input.trim());

@@ -9,7 +9,8 @@ import { CODEX_SLIM_EDIT_VERSION } from "./version.js";
 
 /** Starts the CodexSlimEdit MCP stdio entrypoint. */
 async function main(): Promise<void> {
-  const action = getCliAction(process.argv.slice(2));
+  const arguments_ = process.argv.slice(2);
+  const action = getCliAction(arguments_);
   if (action === "version") {
     process.stdout.write(`${CODEX_SLIM_EDIT_VERSION}\n`);
     return;
@@ -18,7 +19,12 @@ async function main(): Promise<void> {
     process.stdout.write(`${CLI_HELP}\n`);
     return;
   }
-  await runCodexSlimEditMcpStdioServer(process.stdin, process.stdout);
+  const accessMode = arguments_.includes("--full-access")
+    ? "full-access"
+    : arguments_.includes("--workspace-write")
+      ? "workspace-write"
+      : "read-only";
+  await runCodexSlimEditMcpStdioServer(process.stdin, process.stdout, { accessMode });
 }
 
 main().catch((error: unknown) => {

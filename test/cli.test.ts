@@ -81,6 +81,41 @@ describe("CLI", () => {
     });
   });
 
+  it("maps --max-subagents to root-inclusive max_threads", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-cli-subagents-"));
+    const result = await run(
+      process.execPath,
+      [
+        "packages/cli/src/cli.ts",
+        "--max-subagents",
+        "3",
+        "install",
+        "--json",
+        "--plan",
+        "plus-low",
+      ],
+      { env: { ...process.env, CODEX_HOME: home } },
+    );
+    expect(JSON.parse(result.stdout)).toMatchObject({ plan: "plus-low", maxSubagents: 3 });
+    const config = await readFile(join(home, "config.toml"), "utf8");
+    expect(config).toContain("# holycodex max-subagents: 3");
+    expect(config).toContain("max_threads = 4");
+  });
+
+  it.each([
+    [["install", "--max-subagents"], "Missing --max-subagents value"],
+    [["install", "--max-subagents", "4"], "Invalid --max-subagents value: 4"],
+    [["install", "--max-subagents", "1.5"], "Invalid --max-subagents value: 1.5"],
+    [
+      ["install", "--max-subagents", "1", "--max-subagents", "2"],
+      "--max-subagents may be specified only once",
+    ],
+  ])("rejects invalid max-subagents arguments %#", async (arguments_, message) => {
+    await expect(
+      run(process.execPath, ["packages/cli/src/cli.ts", ...arguments_]),
+    ).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining(message) });
+  });
+
   it("prints a concise error for an unknown command", async () => {
     await expect(
       run(process.execPath, ["packages/cli/src/cli.ts", "definitely-not-a-command"]),

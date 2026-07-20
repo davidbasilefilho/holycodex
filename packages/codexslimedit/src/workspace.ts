@@ -14,6 +14,12 @@ export interface WorkspaceFileInput {
   readonly filePath: string;
 }
 
+/** Input for a read that may use an explicit full-access capability. */
+export interface ReadWorkspaceFileInput extends WorkspaceFileInput {
+  /** Allows regular files outside the workspace root. */
+  readonly allowOutsideRoot?: boolean;
+}
+
 /** Input for an exact-content or inclusive-line-range edit. */
 export interface EditWorkspaceFileInput extends WorkspaceFileInput {
   /** Exact text to replace, or an inclusive 1-based `N` or `N-M` line range. */
@@ -42,9 +48,36 @@ interface ResolvedWorkspaceFile {
 }
 
 /** Reads a regular UTF-8 text file inside the workspace root. */
-export async function readWorkspaceFile(input: WorkspaceFileInput): Promise<WorkspaceFileResult> {
-  const target = await resolveWorkspaceFile(input);
+export async function readWorkspaceFile(
+  input: ReadWorkspaceFileInput,
+): Promise<WorkspaceFileResult> {
+  const target = await resolveReadableFile(input);
   return { path: target.relativePath, content: await readUtf8Text(target.absolutePath) };
+}
+
+async function resolveReadableFile(input: ReadWorkspaceFileInput): Promise<ResolvedWorkspaceFile> {
+  const rootPath = await existingDirectory(input.root);
+  const candidate = resolve(rootPath, normalizeSeparators(input.filePath));
+  if (!input.allowOutsideRoot && !isInside(rootPath, candidate)) {
+    throw new WorkspaceFileError(
+      "PATH_OUTSIDE_ROOT",
+      "filePath is outside the workspace root; full-access permission is required.",
+    );
+  }
+
+  const resolvedCandidate = await realFilePath(candidate);
+  if (!input.allowOutsideRoot && !isInside(rootPath, resolvedCandidate)) {
+    throw new WorkspaceFileError(
+      "PATH_OUTSIDE_ROOT",
+      "filePath resolves outside the workspace root through a symlink; full-access permission is required.",
+    );
+  }
+  return {
+    absolutePath: resolvedCandidate,
+    relativePath: isInside(rootPath, resolvedCandidate)
+      ? relative(rootPath, resolvedCandidate).split(sep).join("/")
+      : resolvedCandidate,
+  };
 }
 
 /** Applies one validated exact-content or inclusive-line-range edit atomically. */

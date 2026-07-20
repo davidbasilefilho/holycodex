@@ -14,14 +14,14 @@ The goal is a small, predictable Codex toolkit: strong defaults, explicit danger
 
 Root is the default user-facing decision, clarification, integration, and verification layer. It owns user interaction, intent, scope, architecture, product decisions, ambiguity resolution, final judgment, and final verification. The selected routing plan configures Root and each specialist; explicit user model preferences are preserved.
 
-| Plan        | Root               | Explorer             | Librarian            | Worker               | Usage              |
-| ----------- | ------------------ | -------------------- | -------------------- | -------------------- | ------------------ |
-| `go`        | GPT-5.6 Sol low    | GPT-5.6 Luna low     | GPT-5.6 Luna low     | GPT-5.6 Terra low    | 1 thread, depth 1  |
-| `plus-low`  | GPT-5.6 Sol medium | GPT-5.6 Luna low     | GPT-5.6 Luna medium  | GPT-5.6 Terra medium | 2 threads, depth 1 |
-| `plus`      | GPT-5.6 Sol medium | GPT-5.6 Luna medium  | GPT-5.6 Terra low    | GPT-5.6 Terra high   | 2 threads, depth 1 |
-| `plus-high` | GPT-5.6 Sol medium | GPT-5.6 Terra medium | GPT-5.6 Terra medium | GPT-5.6 Sol medium   | 2 threads, depth 1 |
-| `pro-5x`    | GPT-5.6 Sol high   | GPT-5.6 Terra medium | GPT-5.6 Terra high   | GPT-5.6 Sol medium   | 2 threads, depth 1 |
-| `pro-20x`   | GPT-5.6 Sol high   | GPT-5.6 Luna high    | GPT-5.6 Terra high   | GPT-5.6 Sol high     | 2 threads, depth 1 |
+| Plan        | Root               | Explorer             | Librarian            | Worker               | Usage                |
+| ----------- | ------------------ | -------------------- | -------------------- | -------------------- | -------------------- |
+| `go`        | GPT-5.6 Sol low    | GPT-5.6 Luna low     | GPT-5.6 Luna low     | GPT-5.6 Terra low    | 0 subagents, depth 1 |
+| `plus-low`  | GPT-5.6 Sol medium | GPT-5.6 Luna low     | GPT-5.6 Luna medium  | GPT-5.6 Terra medium | 1 subagent, depth 1  |
+| `plus`      | GPT-5.6 Sol low    | GPT-5.6 Luna medium  | GPT-5.6 Terra low    | GPT-5.6 Terra high   | 2 subagents, depth 1 |
+| `plus-high` | GPT-5.6 Sol medium | GPT-5.6 Terra medium | GPT-5.6 Terra medium | GPT-5.6 Sol medium   | 2 subagents, depth 1 |
+| `pro-5x`    | GPT-5.6 Sol high   | GPT-5.6 Terra medium | GPT-5.6 Terra high   | GPT-5.6 Sol medium   | 2 subagents, depth 1 |
+| `pro-20x`   | GPT-5.6 Sol high   | GPT-5.6 Luna high    | GPT-5.6 Terra high   | GPT-5.6 Sol high     | 2 subagents, depth 1 |
 
 Plans increase expected model usage and capability in this order: `go < plus-low < plus < plus-high < pro-5x < pro-20x`.
 
@@ -70,7 +70,7 @@ Each development workflow run publishes a unique prerelease and moves only the `
 Installation is noninteractive. It backs up affected files, removes legacy OMO state after backup, preserves unrelated configuration and explicit model preferences, installs the plugin and effective platform MCPs, and configures:
 
 - stable `features.multi_agent = true`, experimental `features.multi_agent_v2 = true`, and request-user-input support;
-- plan-selected `agents.max_threads` (1 or 2) and `agents.max_depth = 1`;
+- a plan-selected direct subagent limit, emitted as root-inclusive `agents.max_threads`, and `agents.max_depth = 1`;
 - named-agent `config_file` entries;
 - `codexslimedit@latest`, pre-resolved with npm for `npx holycodex` or Bun for `bunx holycodex` and launched through the same runner;
 - a status line containing remaining context;
@@ -87,6 +87,7 @@ holycodex install --plan plus                  # default Plus routing plan
 holycodex install --plan plus-high             # high-usage Plus routing plan
 holycodex install --plan pro-5x                # higher-usage Pro routing plan
 holycodex install --plan pro-20x               # highest-usage Pro routing plan
+holycodex install --max-subagents 3             # opt into up to three direct subagents
 holycodex install --codex-autonomous           # never ask, workspace-write, network on
 holycodex install --dangerous-codex-autonomous # never ask, unrestricted host access
 holycodex install --no-codex-autonomous        # same contained behavior as no flag

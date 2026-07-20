@@ -33,6 +33,8 @@ const APPLY_PATCH_TOOL_NAME = "apply_patch";
 export interface CodexSlimEditMcpOptions {
   /** Workspace root; defaults to the server process current directory. */
   readonly root?: string;
+  /** Explicit filesystem capability; defaults to read-only workspace access. */
+  readonly accessMode?: "read-only" | "workspace-write" | "full-access";
 }
 
 interface ToolDefinition {
@@ -154,17 +156,29 @@ async function callTool(
   options: CodexSlimEditMcpOptions,
 ): Promise<JsonRpcResponse> {
   const root = options.root ?? process.cwd();
+  const accessMode = options.accessMode ?? "read-only";
   if (name === READ_FILE_TOOL_NAME) {
     const parsed = ReadArgumentsSchema.safeParse(arguments_);
     if (!parsed.success)
       return toolResponse(id, `${READ_FILE_TOOL_NAME}.filePath must be a non-empty string.`, true);
     return operationResponse(
       id,
-      () => readWorkspaceFile({ root, ...parsed.data }),
+      () =>
+        readWorkspaceFile({
+          root,
+          ...parsed.data,
+          allowOutsideRoot: accessMode === "full-access",
+        }),
       (result) => `${result.path}\n${result.content}`,
     );
   }
   if (name === APPLY_PATCH_TOOL_NAME) {
+    if (accessMode === "read-only")
+      return toolResponse(
+        id,
+        "WRITE_ACCESS_DENIED: apply_patch requires workspace-write or full-access permission.",
+        true,
+      );
     const parsed = ApplyPatchArgumentsSchema.safeParse(arguments_);
     if (!parsed.success)
       return toolResponse(

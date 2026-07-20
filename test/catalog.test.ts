@@ -73,13 +73,13 @@ describe("HolyCodex catalog", () => {
     expect(Object.values(MODEL_ROUTING_PLANS).every((preset) => preset.usage.maxDepth === 1)).toBe(
       true,
     );
-    expect(MODEL_ROUTING_PLANS.go.usage.maxThreads).toBe(1);
+    expect(MODEL_ROUTING_PLANS.go.usage.maxSubagents).toBe(0);
     expect(MODEL_ROUTING_PLANS["plus-low"].root.reasoningEffort).toBe("medium");
-    expect(MODEL_ROUTING_PLANS["plus-low"].usage.maxThreads).toBe(2);
-    expect(MODEL_ROUTING_PLANS.plus.usage.maxThreads).toBe(2);
-    expect(MODEL_ROUTING_PLANS["plus-high"].usage.maxThreads).toBe(2);
-    expect(MODEL_ROUTING_PLANS["pro-5x"].usage.maxThreads).toBe(2);
-    expect(MODEL_ROUTING_PLANS["pro-20x"].usage.maxThreads).toBe(2);
+    expect(MODEL_ROUTING_PLANS["plus-low"].usage.maxSubagents).toBe(1);
+    expect(MODEL_ROUTING_PLANS.plus.usage.maxSubagents).toBe(2);
+    expect(MODEL_ROUTING_PLANS["plus-high"].usage.maxSubagents).toBe(2);
+    expect(MODEL_ROUTING_PLANS["pro-5x"].usage.maxSubagents).toBe(2);
+    expect(MODEL_ROUTING_PLANS["pro-20x"].usage.maxSubagents).toBe(2);
     expect(
       Object.values(MODEL_ROUTING_PLANS).every((preset) =>
         [preset.root, ...Object.values(preset.agents)].every((route) =>
@@ -99,7 +99,7 @@ describe("HolyCodex catalog", () => {
     expect(readme.indexOf("`plus`")).toBeLessThan(readme.indexOf("`plus-high`"));
     expect(readme.indexOf("`plus-high`")).toBeLessThan(readme.indexOf("`pro-5x`"));
     expect(readme.indexOf("`pro-5x`")).toBeLessThan(readme.indexOf("`pro-20x`"));
-    expect(readme).toContain("plan-selected `agents.max_threads` (1 or 2)");
+    expect(readme).toContain("plan-selected direct subagent limit");
     expect(readme).not.toContain("subscription allowance");
   });
 

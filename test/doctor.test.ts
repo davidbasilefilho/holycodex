@@ -36,7 +36,17 @@ async function fixture(mode: AutonomyMode = "default"): Promise<{ home: string; 
   await cp(join(root, "packages", "plugin", "plugin"), plugin, { recursive: true });
   await writeFile(
     join(plugin, ".mcp.json"),
-    `${JSON.stringify({ mcpServers: effectiveMcpServers("win32") }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        mcpServers: effectiveMcpServers(
+          "win32",
+          "bun",
+          mode === "dangerous" ? "full-access" : "workspace-write",
+        ),
+      },
+      null,
+      2,
+    )}\n`,
   );
   await cp(join(plugin, "agents"), join(home, "holycodex", "agents"), { recursive: true });
   await writeFile(join(home, "config.toml"), installConfig("", mode, "win32"));
@@ -120,7 +130,7 @@ describe("HolyCodex doctor", () => {
       configPath,
       config
         .replace('model = "gpt-5.6-sol"', "model = [")
-        .replace("max_threads = 2", "max_threads = 7")
+        .replace("max_threads = 3", "max_threads = 7")
         .replace("max_depth = 1", "max_depth = 3"),
     );
     const result = await doctor(home, runtime());
@@ -136,6 +146,29 @@ describe("HolyCodex doctor", () => {
       (await readFile(missingPath, "utf8")).replace(/^model_reasoning_effort = .*\n/m, ""),
     );
     expect(codes(await doctor(missing.home, runtime()))).toContain("root-model-stale");
+  });
+
+  it("accepts valid direct-subagent overrides and rejects malformed metadata", async () => {
+    const valid = await fixture();
+    await writeFile(
+      join(valid.home, "config.toml"),
+      installConfig("", "default", "win32", "plus", 3),
+    );
+    const validResult = await doctor(valid.home, runtime());
+    expect(codes(validResult)).toContain("agent-usage-ready");
+    expect(validResult.checks.find((item) => item.id === "agent-usage")?.detail).toContain(
+      "3 direct subagents",
+    );
+
+    const malformedPath = join(valid.home, "config.toml");
+    await writeFile(
+      malformedPath,
+      (await readFile(malformedPath, "utf8")).replace(
+        "# holycodex max-subagents: 3",
+        "# holycodex max-subagents: 9",
+      ),
+    );
+    expect(codes(await doctor(valid.home, runtime()))).toContain("agent-usage-stale");
   });
 
   it("ignores commented defaults when checking active agent models", async () => {
