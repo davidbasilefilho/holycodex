@@ -38,24 +38,36 @@ export function replaceCodexSlimEditMcpSpec(source, version) {
   }
   const servers = isRecord(config) ? config.mcpServers : undefined;
   const server = isRecord(servers) ? servers.codexslimedit : undefined;
+  const packageSpecIndexes =
+    isRecord(server) && Array.isArray(server.args)
+      ? server.args.flatMap((argument, index) =>
+          ["codexslimedit@latest", "codexslimedit@dev"].includes(argument) ? [index] : [],
+        )
+      : [];
   if (
     !isRecord(server) ||
     server.command !== "bunx" ||
     !Array.isArray(server.args) ||
-    server.args.length !== 1 ||
-    !["codexslimedit@latest", "codexslimedit@dev"].includes(server.args[0])
+    !server.args.every((argument) => typeof argument === "string") ||
+    packageSpecIndexes.length !== 1
   ) {
     throw new Error(
       "CodexSlimEdit MCP server must use bunx with exactly one @latest or @dev package spec.",
     );
   }
   const packageSpec = version.includes("-dev.") ? "codexslimedit@dev" : "codexslimedit@latest";
+  const packageSpecIndex = packageSpecIndexes[0];
   return `${JSON.stringify(
     {
       ...config,
       mcpServers: {
         ...servers,
-        codexslimedit: { ...server, args: [packageSpec] },
+        codexslimedit: {
+          ...server,
+          args: server.args.map((argument, index) =>
+            index === packageSpecIndex ? packageSpec : argument,
+          ),
+        },
       },
     },
     null,
