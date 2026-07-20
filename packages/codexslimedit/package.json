@@ -1,6 +1,6 @@
 {
   "name": "codexslimedit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Concise, workspace-safe MCP file reading and editing.",
   "license": "SUL-1.0",
   "repository": {

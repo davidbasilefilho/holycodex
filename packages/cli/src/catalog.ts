@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { codexSlimEditInvocation, type PackageRunner } from "./package-runner.ts";
 
-export const VERSION = "0.7.4";
+export const VERSION = "0.7.5";
 
 export const SKILLS = [
   "ast-grep",

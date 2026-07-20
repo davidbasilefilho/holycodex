@@ -1,7 +1,7 @@
 import type { Readable, Writable } from "node:stream";
 
 /** Current independent codexslimedit package version. */
-export declare const CODEX_SLIM_EDIT_VERSION = "0.1.0";
+export declare const CODEX_SLIM_EDIT_VERSION = "0.1.1";
 
 /** Returns whether command-line arguments request the package version. */
 export declare function isVersionRequest(args: readonly string[]): boolean;
