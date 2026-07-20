@@ -253,13 +253,11 @@ export type McpServerConfig = {
 export function effectiveMcpServers(
   platform: NodeJS.Platform,
   packageRunner: PackageRunner = "bun",
-  accessMode: "workspace-write" | "full-access" = "workspace-write",
 ): Record<string, McpServerConfig> {
   const codexSlimEdit = codexSlimEditInvocation({
     packageRunner,
     platform,
     packageVersion: VERSION,
-    accessMode,
   });
   return {
     ...(platform === "win32"

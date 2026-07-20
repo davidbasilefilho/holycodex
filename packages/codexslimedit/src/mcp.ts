@@ -14,6 +14,7 @@ import { z } from "zod";
 
 import { WorkspaceFileError } from "./errors.js";
 import { applyWorkspacePatch } from "./patch.js";
+import { resolveCodexAccessMode } from "./permissions.js";
 import { CODEX_SLIM_EDIT_VERSION } from "./version.js";
 import { editWorkspaceFile, readWorkspaceFile } from "./workspace.js";
 
@@ -33,8 +34,6 @@ const APPLY_PATCH_TOOL_NAME = "apply_patch";
 export interface CodexSlimEditMcpOptions {
   /** Workspace root; defaults to the server process current directory. */
   readonly root?: string;
-  /** Explicit filesystem capability; defaults to read-only workspace access. */
-  readonly accessMode?: "read-only" | "workspace-write" | "full-access";
 }
 
 interface ToolDefinition {
@@ -156,7 +155,7 @@ async function callTool(
   options: CodexSlimEditMcpOptions,
 ): Promise<JsonRpcResponse> {
   const root = options.root ?? process.cwd();
-  const accessMode = options.accessMode ?? "read-only";
+  const accessMode = await resolveCodexAccessMode();
   if (name === READ_FILE_TOOL_NAME) {
     const parsed = ReadArgumentsSchema.safeParse(arguments_);
     if (!parsed.success)
@@ -176,7 +175,7 @@ async function callTool(
     if (accessMode === "read-only")
       return toolResponse(
         id,
-        "WRITE_ACCESS_DENIED: apply_patch requires workspace-write or full-access permission.",
+        'WRITE_ACCESS_DENIED: apply_patch requires sandbox_mode = "workspace-write" or "danger-full-access" in the active Codex config.',
         true,
       );
     const parsed = ApplyPatchArgumentsSchema.safeParse(arguments_);

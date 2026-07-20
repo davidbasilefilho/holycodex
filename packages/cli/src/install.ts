@@ -110,13 +110,7 @@ export async function install(
   await rm(target.marketplaceCache, { recursive: true, force: true });
   await mkdir(dirname(target.cache), { recursive: true });
   await cp(pluginRoot, target.cache, { recursive: true });
-  await writePlatformPlugin(
-    target.cache,
-    runtime.platform,
-    plan,
-    runtime.packageRunner,
-    options.autonomy,
-  );
+  await writePlatformPlugin(target.cache, runtime.platform, plan, runtime.packageRunner);
   const existingAgentPreferences = await readAgentPreferences(target.agents, previousPlan);
   await rm(target.agents, { recursive: true, force: true });
   await cp(join(pluginRoot, "agents"), target.agents, { recursive: true });
@@ -196,17 +190,12 @@ async function writePlatformPlugin(
   platform: NodeJS.Platform,
   plan: PlanName,
   packageRunner: PackageRunner,
-  autonomy: AutonomyMode,
 ): Promise<void> {
   await atomicWrite(
     join(root, ".mcp.json"),
     `${JSON.stringify(
       {
-        mcpServers: effectiveMcpServers(
-          platform,
-          packageRunner,
-          autonomy === "dangerous" ? "full-access" : "workspace-write",
-        ),
+        mcpServers: effectiveMcpServers(platform, packageRunner),
       },
       null,
       2,

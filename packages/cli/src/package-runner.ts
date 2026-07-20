@@ -22,8 +22,6 @@ export type CodexSlimEditInvocationInput = {
   readonly packageVersion: string;
   /** Whether to append CodexSlimEdit's version flag. */
   readonly includeVersion?: boolean;
-  /** Filesystem capability explicitly granted to CodexSlimEdit. */
-  readonly accessMode?: "workspace-write" | "full-access";
 };
 
 /** Detects whether Bun or npm invoked HolyCodex. */
@@ -42,11 +40,7 @@ export function codexSlimEditInvocation(input: CodexSlimEditInvocationInput): Pa
   const packageSpec = input.packageVersion.includes("-dev.")
     ? "codexslimedit@dev"
     : "codexslimedit@latest";
-  const args = [
-    packageSpec,
-    ...(input.includeVersion ? ["--version"] : []),
-    ...(input.accessMode === undefined ? [] : [`--${input.accessMode}`]),
-  ];
+  const args = [packageSpec, ...(input.includeVersion ? ["--version"] : [])];
   return input.packageRunner === "bun"
     ? { command: "bunx", args }
     : { command: input.platform === "win32" ? "npx.cmd" : "npx", args: ["--yes", ...args] };
