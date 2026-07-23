@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const VERSION = "0.8.2";
+export const VERSION = "0.9.0";
 
 export const SKILLS = [
   "ast-grep",
@@ -8,7 +8,6 @@ export const SKILLS = [
   "compress",
   "debugging",
   "define-goal",
-  "frontend",
   "handoff",
   "lsp",
   "lsp-setup",
@@ -56,7 +55,7 @@ const RoutingPresetSchema = z.strictObject({
     worker: ModelRouteSchema,
   }),
   usage: z.strictObject({
-    maxSubagents: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
+    maxSubagents: z.number().int().nonnegative(),
     maxDepth: z.literal(1),
   }),
 });
@@ -84,7 +83,7 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
     usage: { maxSubagents: 0, maxDepth: 1 },
   },
   "plus-low": {
-    root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+    root: { model: "gpt-5.6-sol", reasoningEffort: "low" },
     agents: {
       explorer: { model: "gpt-5.6-luna", reasoningEffort: "low" },
       librarian: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
@@ -93,7 +92,7 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
     usage: { maxSubagents: 1, maxDepth: 1 },
   },
   plus: {
-    root: { model: "gpt-5.6-sol", reasoningEffort: "low" },
+    root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
     agents: {
       explorer: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
       librarian: { model: "gpt-5.6-terra", reasoningEffort: "low" },
@@ -227,6 +226,7 @@ export const GENERATED_RUNTIMES = [
   "git-bash.js",
   "git-bash-resolver.js",
   "LICENSE-LSP-MIT.txt",
+  "LICENSE-OPENSLIMEDIT-MIT.txt",
   "lsp.js",
   "mcp-stdio-core.js",
   "rules.js",

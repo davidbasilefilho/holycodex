@@ -70,6 +70,8 @@ holycodex --version
 
 Dangerous autonomy is explicit and never inferred. Installation is noninteractive, backs up affected files, preserves unrelated configuration, and configures multi-agent support, selected agent capacity, specialist profiles, status context, and platform MCPs.
 
+Installation also ensures the official `openai-curated` marketplace and installs `build-web-apps@openai-curated`. HolyCodex routes UI and frontend work to Frontend App Builder. In the project author's testing, Build Web Apps and Frontend App Builder produce the best results for visual taste. This is the author's assessment, not an OpenAI claim.
+
 ## Cleanup
 
 ```sh
@@ -110,6 +112,6 @@ vp test
 
 ## Credits and license
 
-HolyCodex builds on work by YeonGyu Kim and the oh-my-openagent contributors, Julius Brussee and caveman contributors, the frontend sources in [ATTRIBUTION.md](packages/plugin/plugin/skills/frontend/ATTRIBUTION.md), and projects listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+HolyCodex builds on work by YeonGyu Kim and the oh-my-openagent contributors, Julius Brussee and caveman contributors, and projects listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 HolyCodex uses the [Sustainable Use License 1.0](LICENSE.md). Third-party components retain their original licenses and notices.

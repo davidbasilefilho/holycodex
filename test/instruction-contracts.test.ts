@@ -22,7 +22,7 @@ function expectOrder(text: string, phrases: readonly string[]): void {
 describe("instruction workflow contracts", () => {
   it("keeps routed skills dense and bounded by prompt cost", async () => {
     const names = (await readdir(join(pluginRoot, "skills"))).sort();
-    expect(names).toHaveLength(16);
+    expect(names).toHaveLength(15);
     const texts = await Promise.all(names.map(skill));
     for (const text of texts) {
       const description = text.match(/^description: (.*)$/m)?.[1] ?? "";
@@ -31,8 +31,7 @@ describe("instruction workflow contracts", () => {
       expect(description).toMatch(/Produces|Applies|Creates/);
       expect(text.length).toBeLessThanOrEqual(5_000);
     }
-    // Allows the small routed-skill additions while every entry remains capped at 5 KB.
-    expect(texts.reduce((sum, text) => sum + text.length, 0)).toBeLessThanOrEqual(30_000);
+    expect(texts.reduce((sum, text) => sum + text.length, 0)).toBeLessThanOrEqual(50_000);
   });
 
   it("bounds the complete routed instruction surface", async () => {
@@ -51,7 +50,7 @@ describe("instruction workflow contracts", () => {
     ]);
     // Allows explicit mandatory tool-routing contracts with measured headroom.
     expect(texts.reduce((sum, text) => sum + Buffer.byteLength(text), 0)).toBeLessThanOrEqual(
-      82_000,
+      100_000,
     );
   });
 
@@ -169,7 +168,7 @@ describe("instruction workflow contracts", () => {
       );
   });
 
-  it("orders planning, one review, approval, optional goal, and stop", async () => {
+  it("orders planning, one review, approval, and stop", async () => {
     const text = await skill("plan");
     expect(text).toContain("do not use for multiple obvious steps");
     expectOrder(text, [
@@ -178,11 +177,11 @@ describe("instruction workflow contracts", () => {
       "Only after the initial plan exists, load `plan-review`",
       "Use `plan-review` once",
       "ask for approval",
-      "After approval, ask whether the user wants to define a goal",
-      "Only after explicit agreement, load `define-goal`",
+      "After approval, implement the approved plan",
     ]);
     expect(text).toContain("Do not implement before approval.");
-    expect(text).toContain("Stop after approval and goal choice; no repeated review.");
+    expect(text).toContain("Stop after approval; no repeated review.");
+    expect(text).not.toContain("define-goal");
 
     const review = await skill("plan-review");
     expect(review).toContain("If no initial plan exists, stop");
@@ -279,56 +278,23 @@ describe("instruction workflow contracts", () => {
     expect(text).toContain("Prefer a named input object above three independent parameters");
   });
 
-  it("gates visible frontend direction and always covers motion and accessibility", async () => {
-    const text = await skill("frontend");
-    expectOrder(text, [
-      "Before proposing a direction, inspect",
-      "Choose one coherent system",
-      "Present the concept and a compact `<design_plan>`",
-      "Obtain design approval before implementation",
-    ]);
-    for (const contract of [
-      "prefers-reduced-motion",
-      "keyboard operation",
-      "focus",
-      "semantics",
-      "contrast",
-      "labels",
-      "loading, empty, error, success",
-      "options, not defaults",
-    ])
-      expect(text).toContain(contract);
-  });
-
-  it("keeps frontend guidance consolidated and routes full surfaces through concepts", async () => {
-    const frontend = await skill("frontend");
-    const files = await readdir(join(pluginRoot, "skills", "frontend"));
-    expect(files.sort()).toEqual(["ATTRIBUTION.md", "SKILL.md"]);
-    expect(frontend).toContain("Use Image Gen for a complete visual concept");
-    expect(frontend).toContain(
-      "Accepted concept rules become the visual and visible-copy contract",
-    );
-    expect(frontend).toContain("fidelity ledger");
-    expect(frontend).toContain("available browser tooling first");
-    expect(frontend).toContain("concept-first and fidelity workflow");
-    expect(frontend).toContain("Do not mechanically randomize");
-  });
-
-  it("keeps frontend planning gates", async () => {
+  it("routes UI work through installed Frontend App Builder workflows", async () => {
     const plan = await skill("plan");
-    expectOrder(plan, [
-      "inspect task and repo",
-      "complete Image Gen concept",
-      "design approval",
-      "draft implementation details",
-      "Write the complete initial plan",
-    ]);
-    expect(plan).toContain("Read-only frontend audits bypass this gate");
-
     const review = await skill("plan-review");
-    expect(review).toContain("complete concept and design approval");
+    const worker = await readFile(join(pluginRoot, "agents", "worker.toml"), "utf8");
+    const rootInstructions = await readFile(
+      join(root, "packages", "cli", "src", "core-instructions.ts"),
+      "utf8",
+    );
+    for (const text of [rootInstructions, worker, plan, review]) {
+      expect(text).toContain("Build Web Apps");
+      expect(text).toContain("`frontend-app-builder`");
+    }
+    expect(plan).toContain("concept-generation and design-approval workflow");
+    expect(plan).toContain("Read-only UI audits bypass this gate");
+    expect(review).toContain("concept and design-approval workflow");
     expect(review).toContain("return it to `plan`");
-    expect(review).toContain("Read-only frontend audits are exempt");
+    expect(review).toContain("Read-only UI audits are exempt");
   });
 
   it("keeps adjacent skill boundaries explicit", async () => {

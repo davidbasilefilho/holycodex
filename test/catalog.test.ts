@@ -74,7 +74,8 @@ describe("HolyCodex catalog", () => {
       true,
     );
     expect(MODEL_ROUTING_PLANS.go.usage.maxSubagents).toBe(0);
-    expect(MODEL_ROUTING_PLANS["plus-low"].root.reasoningEffort).toBe("medium");
+    expect(MODEL_ROUTING_PLANS["plus-low"].root.reasoningEffort).toBe("low");
+    expect(MODEL_ROUTING_PLANS.plus.root.reasoningEffort).toBe("medium");
     expect(MODEL_ROUTING_PLANS["plus-low"].usage.maxSubagents).toBe(1);
     expect(MODEL_ROUTING_PLANS.plus.usage.maxSubagents).toBe(2);
     expect(MODEL_ROUTING_PLANS["plus-high"].usage.maxSubagents).toBe(2);
@@ -127,6 +128,21 @@ describe("HolyCodex catalog", () => {
         },
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts any nonnegative subagent limit and rejects invalid limits", () => {
+    const withMaxSubagents = (maxSubagents: number) => ({
+      ...MODEL_ROUTING_PLANS,
+      plus: {
+        ...MODEL_ROUTING_PLANS.plus,
+        usage: { ...MODEL_ROUTING_PLANS.plus.usage, maxSubagents },
+      },
+    });
+
+    expect(ModelRoutingPlansSchema.safeParse(withMaxSubagents(0)).success).toBe(true);
+    expect(ModelRoutingPlansSchema.safeParse(withMaxSubagents(3)).success).toBe(true);
+    expect(ModelRoutingPlansSchema.safeParse(withMaxSubagents(-1)).success).toBe(false);
+    expect(ModelRoutingPlansSchema.safeParse(withMaxSubagents(1.5)).success).toBe(false);
   });
 
   it("uses the HolyCodex marketplace label", async () => {
@@ -217,7 +233,6 @@ describe("HolyCodex catalog", () => {
       mcpServers: Record<string, unknown>;
     };
     expect(manifest.mcpServers).toEqual(effectiveMcpServers("win32"));
-    expect(Object.keys(manifest.mcpServers).sort()).toEqual(["context7", "git_bash", "lsp"]);
     await Promise.all(
       ["git-bash.js", "lsp.js"].map((file) => readFile(join(pluginRoot, "runtime", file), "utf8")),
     );

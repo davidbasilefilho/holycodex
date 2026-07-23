@@ -1,6 +1,6 @@
 {
   "name": "@holycodex/lsp-core",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "private": true,
   "description": "HolyCodex Language Server Protocol engine and tool definitions.",
   "type": "module",

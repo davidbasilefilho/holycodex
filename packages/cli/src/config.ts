@@ -263,6 +263,6 @@ export function installConfig(
       "config_file",
       `"holycodex/agents/${agent}.toml"`,
     );
-  const plugin = `${START}\n[marketplaces.holycodex]\nsource = "https://github.com/davidbasilefilho/holycodex.git"\n\n[plugins."holycodex@holycodex"]\nenabled = true\n${END}`;
+  const plugin = `${START}\n[plugins."holycodex@holycodex"]\nenabled = true\n${END}`;
   return `${configured.trim()}\n\n${plugin}\n`;
 }

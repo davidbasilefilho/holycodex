@@ -8,6 +8,7 @@ import {
   resolveGitBashForCurrentProcess,
   type GitBashResolution,
 } from "../../git-bash-mcp/src/git-bash-resolver.ts";
+import { runManagedProcess } from "../../mcp-stdio-core/src/process.ts";
 import {
   AGENTS,
   DEFAULT_PLAN,
@@ -27,23 +28,50 @@ export type RunOptions = {
   readonly autonomy: AutonomyMode;
   readonly json: boolean;
   readonly plan?: PlanName;
-  readonly maxSubagents?: number;
 };
 export type RunResult = {
   readonly action: "install" | "cleanup";
   readonly changed: readonly string[];
   readonly backups: readonly string[];
   readonly plan?: PlanName;
-  readonly maxSubagents?: number;
 };
 export type InstallRuntime = {
   readonly platform: NodeJS.Platform;
   readonly gitBash: () => GitBashResolution;
+  readonly command: (command: string, args: readonly string[]) => Promise<InstallCommandResult>;
 };
+
+export type InstallCommandResult = { readonly ok: boolean; readonly output: string };
+
+const MARKETPLACE_ARGS = [
+  "plugin",
+  "marketplace",
+  "add",
+  "https://github.com/openai/plugins.git",
+  "--ref",
+  "main",
+  "--sparse",
+  ".agents/plugins",
+  "--json",
+] as const;
+const PLUGIN_ARGS = ["plugin", "add", "build-web-apps@openai-curated", "--json"] as const;
 
 const defaultRuntime: InstallRuntime = {
   platform: process.platform,
   gitBash: resolveGitBashForCurrentProcess,
+  command: async (command, args) => {
+    const result = await runManagedProcess({
+      command,
+      args,
+      platform: process.platform,
+      timeoutMs: 120_000,
+      maxOutputChars: 64 * 1024,
+    });
+    return {
+      ok: result.exitCode === 0 && !result.timedOut && result.error === undefined,
+      output: `${result.stdout}\n${result.stderr}`.trim() || result.error || "unknown error",
+    };
+  },
 };
 
 function paths(home = process.env.CODEX_HOME ?? join(homedir(), ".codex")) {
@@ -74,12 +102,24 @@ export function assertGitBashReady(platform: NodeJS.Platform, resolution: GitBas
   if (!resolution.found) throw new Error(resolution.installHint);
 }
 
+/** Ensures the official Build Web Apps plugin is installed. */
+export async function installBuildWebApps(runtime: InstallRuntime): Promise<void> {
+  for (const args of [MARKETPLACE_ARGS, PLUGIN_ARGS]) {
+    const result = await runtime.command("codex", args);
+    if (result.ok) continue;
+    throw new Error(
+      `Could not install Build Web Apps with \`codex ${args.join(" ")}\`: ${result.output}. Verify Codex is installed and can access https://github.com/openai/plugins.git, then retry HolyCodex installation.`,
+    );
+  }
+}
+
 /** Provides install. */
 export async function install(
   options: RunOptions,
   runtime: InstallRuntime = defaultRuntime,
 ): Promise<RunResult> {
   assertGitBashReady(runtime.platform, runtime.gitBash());
+  await installBuildWebApps(runtime);
   const plan = options.plan ?? DEFAULT_PLAN;
   const target = paths();
   const root = backupRoot();
@@ -91,14 +131,7 @@ export async function install(
   ].filter((path) => path !== undefined);
   const existingConfig = await readText(target.config);
   const previousPlan = readManagedPlan(existingConfig);
-  const maxSubagents = options.maxSubagents ?? MODEL_ROUTING_PLANS[plan].usage.maxSubagents;
-  const config = installConfig(
-    existingConfig,
-    options.autonomy,
-    runtime.platform,
-    plan,
-    options.maxSubagents,
-  );
+  const config = installConfig(existingConfig, options.autonomy, runtime.platform, plan);
   await atomicWrite(target.config, config);
   await rm(target.marketplaceCache, { recursive: true, force: true });
   await mkdir(dirname(target.cache), { recursive: true });
@@ -120,7 +153,6 @@ export async function install(
     changed: [target.config, target.cache, target.agents, ...removedLegacy],
     backups,
     plan,
-    maxSubagents,
   };
 }
 
@@ -185,13 +217,7 @@ async function writePlatformPlugin(
 ): Promise<void> {
   await atomicWrite(
     join(root, ".mcp.json"),
-    `${JSON.stringify(
-      {
-        mcpServers: effectiveMcpServers(platform),
-      },
-      null,
-      2,
-    )}\n`,
+    `${JSON.stringify({ mcpServers: effectiveMcpServers(platform) }, null, 2)}\n`,
   );
   await writeInstalledAgents(join(root, "agents"), platform, plan);
 }
