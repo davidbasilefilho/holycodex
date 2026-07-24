@@ -209,8 +209,7 @@ describe("CLI", () => {
     const safe = await readFile(join(safeHome, "config.toml"), "utf8");
     expect(safe).toContain('approval_policy = "never"');
     expect(safe).toContain('sandbox_mode = "workspace-write"');
-    expect(safeResult.stderr).toContain("is now workspace-contained");
-    expect(safeResult.stderr).toContain("--dangerous-codex-autonomous");
+    expect(safeResult.stderr).toBe("");
 
     const dangerHome = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
     const result = await run(

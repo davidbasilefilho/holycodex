@@ -72,7 +72,17 @@ export function renderDoctor(result: DoctorResult, color: boolean): string {
 /** Renders run result. */
 export function renderRunResult(result: RunResult, color: boolean): string {
   const title = paint(color, GREEN, `✓ HolyCodex ${result.action} complete`);
-  return `${title}\n  Changed: ${result.changed.length}\n  Backups: ${result.backups.length}\n`;
+  const action = result.action === "install" ? "Updated" : "Removed";
+  const empty = result.action === "install" ? "changes" : "removal";
+  const backup =
+    result.backups.length === 0
+      ? ""
+      : `\n  Existing HolyCodex files were backed up before ${result.action === "install" ? "replacement" : "cleanup"}.`;
+  const detail =
+    result.changed.length === 0
+      ? `No HolyCodex-managed files needed ${empty}.`
+      : `${action} HolyCodex configuration, plugin files, and agent profiles.`;
+  return `${title}\n  ${detail}${backup}\n`;
 }
 
 /** Renders notice. */

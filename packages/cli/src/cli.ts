@@ -96,14 +96,6 @@ async function main(): Promise<void> {
         stderrColor,
       ),
     );
-  else if (options.autonomy === "autonomous")
-    process.stderr.write(
-      renderNotice(
-        "notice",
-        "--codex-autonomous is now workspace-contained. Use --dangerous-codex-autonomous only for unrestricted behavior.",
-        stderrColor,
-      ),
-    );
   const result =
     command === "install"
       ? await install(options)

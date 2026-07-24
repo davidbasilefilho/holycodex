@@ -45,17 +45,6 @@ export type InstallRuntime = {
 
 export type InstallCommandResult = { readonly ok: boolean; readonly output: string };
 
-const MARKETPLACE_ARGS = [
-  "plugin",
-  "marketplace",
-  "add",
-  "https://github.com/openai/plugins.git",
-  "--ref",
-  "main",
-  "--sparse",
-  ".agents/plugins",
-  "--json",
-] as const;
 const PLUGIN_ARGS = ["plugin", "add", "build-web-apps@openai-curated", "--json"] as const;
 
 const defaultRuntime: InstallRuntime = {
@@ -107,13 +96,11 @@ export function assertGitBashReady(platform: NodeJS.Platform, resolution: GitBas
 /** Ensures the official Build Web Apps plugin is installed. */
 export async function installBuildWebApps(runtime: InstallRuntime): Promise<void> {
   if (process.env.HOLYCODEX_TEST_SKIP_PACKAGE_RESOLUTION === "1") return;
-  for (const args of [MARKETPLACE_ARGS, PLUGIN_ARGS]) {
-    const result = await runtime.command("codex", args);
-    if (result.ok) continue;
-    throw new Error(
-      `Could not install Build Web Apps with \`codex ${args.join(" ")}\`: ${result.output}. Verify Codex is installed and can access https://github.com/openai/plugins.git, then retry HolyCodex installation.`,
-    );
-  }
+  const result = await runtime.command("codex", PLUGIN_ARGS);
+  if (result.ok) return;
+  throw new Error(
+    `Could not install Build Web Apps with \`codex ${PLUGIN_ARGS.join(" ")}\`: ${result.output}. Verify Codex is installed and signed in, then retry HolyCodex installation.`,
+  );
 }
 
 /** Provides install. */

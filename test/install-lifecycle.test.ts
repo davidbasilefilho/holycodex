@@ -59,20 +59,6 @@ describe("install lifecycle", () => {
       },
     );
     expect(calls).toEqual([
-      {
-        command: "codex",
-        args: [
-          "plugin",
-          "marketplace",
-          "add",
-          "https://github.com/openai/plugins.git",
-          "--ref",
-          "main",
-          "--sparse",
-          ".agents/plugins",
-          "--json",
-        ],
-      },
       { command: "codex", args: ["plugin", "add", "build-web-apps@openai-curated", "--json"] },
     ]);
 

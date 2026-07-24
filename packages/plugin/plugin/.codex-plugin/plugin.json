@@ -1,6 +1,6 @@
 {
   "name": "holycodex",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Cost-aware Codex workflows with routed skills, bounded specialists, scoped rules, Git Bash on Windows, and LSP.",
   "author": {
     "name": "David Basile Filho",

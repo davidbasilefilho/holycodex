@@ -65,13 +65,27 @@ describe("CLI presentation", () => {
     expect(output).toContain("Fix: Install Bun.");
   });
 
-  it("summarizes install results without leaking paths", () => {
-    const output = renderRunResult(
+  it("renders action-specific results without counts or paths", () => {
+    const install = renderRunResult(
       { action: "install", changed: ["secret/path"], backups: ["backup/path"] },
       false,
     );
-    expect(output).toContain("Changed: 1");
-    expect(output).toContain("Backups: 1");
-    expect(output).not.toContain("secret/path");
+    const cleanup = renderRunResult(
+      { action: "cleanup", changed: ["secret/path"], backups: [] },
+      false,
+    );
+    const unchangedInstall = renderRunResult(
+      { action: "install", changed: [], backups: [] },
+      false,
+    );
+    const unchanged = renderRunResult({ action: "cleanup", changed: [], backups: [] }, false);
+    expect(install).toContain("Updated HolyCodex configuration, plugin files, and agent profiles.");
+    expect(install).toContain("Existing HolyCodex files were backed up before replacement.");
+    expect(cleanup).toContain("Removed HolyCodex configuration, plugin files, and agent profiles.");
+    expect(unchangedInstall).toContain("No HolyCodex-managed files needed changes.");
+    expect(unchanged).toContain("No HolyCodex-managed files needed removal.");
+    expect(`${install}${cleanup}${unchangedInstall}${unchanged}`).not.toMatch(
+      /(?:Changed|Backups):|secret\/path/,
+    );
   });
 });
