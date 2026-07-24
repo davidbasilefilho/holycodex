@@ -51,12 +51,14 @@ async function main(): Promise<void> {
   if (
     maxSubagentsIndex >= 0 &&
     (maxSubagentsValue === undefined ||
-      maxSubagentsValue.startsWith("-") ||
+      maxSubagentsValue.startsWith("--") ||
       maxSubagentsValue === command)
   )
-    throw new Error("Missing --max-subagents value. Valid range: 0-3.");
-  if (maxSubagentsValue !== undefined && !/^[0-3]$/.test(maxSubagentsValue))
-    throw new Error(`Invalid --max-subagents value: ${maxSubagentsValue}. Valid range: 0-3.`);
+    throw new Error("Missing --max-subagents value. Expected a nonnegative integer.");
+  if (maxSubagentsValue !== undefined && !/^\d+$/.test(maxSubagentsValue))
+    throw new Error(
+      `Invalid --max-subagents value: ${maxSubagentsValue}. Expected a nonnegative integer.`,
+    );
   const maxSubagents = maxSubagentsValue === undefined ? undefined : Number(maxSubagentsValue);
   const autonomyFlags = args.filter((arg) =>
     ["--codex-autonomous", "--no-codex-autonomous", "--dangerous-codex-autonomous"].includes(arg),

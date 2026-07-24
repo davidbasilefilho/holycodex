@@ -15,7 +15,7 @@ describe("CLI presentation", () => {
     expect(output).toContain("HOLYCODEX 0.6.0");
     expect(output).toContain("COMMANDS");
     expect(output).toContain("--dangerous-codex-autonomous");
-    expect(output).toContain("--max-subagents <0-3>");
+    expect(output).toContain("--max-subagents <count>");
     expect(output).not.toContain("\u001B[");
   });
 

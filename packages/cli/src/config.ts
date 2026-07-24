@@ -138,7 +138,7 @@ export function readManagedPlan(input: string): PlanName | undefined {
 export function readManagedMaxSubagents(input: string): ManagedMaxSubagents {
   const raw = new RegExp(`^${MAX_SUBAGENTS_PREFIX}(.*)$`, "m").exec(input)?.[1]?.trim();
   if (raw === undefined) return { configured: false };
-  if (!/^[0-3]$/.test(raw)) return { configured: true };
+  if (!/^\d+$/.test(raw)) return { configured: true };
   return { configured: true, value: Number(raw) };
 }
 

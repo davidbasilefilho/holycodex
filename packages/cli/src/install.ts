@@ -28,12 +28,14 @@ export type RunOptions = {
   readonly autonomy: AutonomyMode;
   readonly json: boolean;
   readonly plan?: PlanName;
+  readonly maxSubagents?: number;
 };
 export type RunResult = {
   readonly action: "install" | "cleanup";
   readonly changed: readonly string[];
   readonly backups: readonly string[];
   readonly plan?: PlanName;
+  readonly maxSubagents?: number;
 };
 export type InstallRuntime = {
   readonly platform: NodeJS.Platform;
@@ -104,6 +106,7 @@ export function assertGitBashReady(platform: NodeJS.Platform, resolution: GitBas
 
 /** Ensures the official Build Web Apps plugin is installed. */
 export async function installBuildWebApps(runtime: InstallRuntime): Promise<void> {
+  if (process.env.HOLYCODEX_TEST_SKIP_PACKAGE_RESOLUTION === "1") return;
   for (const args of [MARKETPLACE_ARGS, PLUGIN_ARGS]) {
     const result = await runtime.command("codex", args);
     if (result.ok) continue;
@@ -131,7 +134,13 @@ export async function install(
   ].filter((path) => path !== undefined);
   const existingConfig = await readText(target.config);
   const previousPlan = readManagedPlan(existingConfig);
-  const config = installConfig(existingConfig, options.autonomy, runtime.platform, plan);
+  const config = installConfig(
+    existingConfig,
+    options.autonomy,
+    runtime.platform,
+    plan,
+    options.maxSubagents,
+  );
   await atomicWrite(target.config, config);
   await rm(target.marketplaceCache, { recursive: true, force: true });
   await mkdir(dirname(target.cache), { recursive: true });
@@ -153,6 +162,7 @@ export async function install(
     changed: [target.config, target.cache, target.agents, ...removedLegacy],
     backups,
     plan,
+    ...(options.maxSubagents === undefined ? {} : { maxSubagents: options.maxSubagents }),
   };
 }
 

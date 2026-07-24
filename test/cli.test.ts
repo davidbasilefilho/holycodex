@@ -104,7 +104,7 @@ describe("CLI", () => {
 
   it.each([
     [["install", "--max-subagents"], "Missing --max-subagents value"],
-    [["install", "--max-subagents", "4"], "Invalid --max-subagents value: 4"],
+    [["install", "--max-subagents", "-1"], "Invalid --max-subagents value: -1"],
     [["install", "--max-subagents", "1.5"], "Invalid --max-subagents value: 1.5"],
     [
       ["install", "--max-subagents", "1", "--max-subagents", "2"],

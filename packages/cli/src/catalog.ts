@@ -226,7 +226,6 @@ export const GENERATED_RUNTIMES = [
   "git-bash.js",
   "git-bash-resolver.js",
   "LICENSE-LSP-MIT.txt",
-  "LICENSE-OPENSLIMEDIT-MIT.txt",
   "lsp.js",
   "mcp-stdio-core.js",
   "rules.js",
