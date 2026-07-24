@@ -99,7 +99,7 @@ export async function install(
     options.maxSubagents,
   );
   await atomicWrite(target.config, config);
-  await rm(target.marketplaceCache, { recursive: true, force: true });
+  await rm(target.cache, { recursive: true, force: true });
   await mkdir(dirname(target.cache), { recursive: true });
   await cp(pluginRoot, target.cache, { recursive: true });
   await writePlatformPlugin(target.cache, runtime.platform, plan);

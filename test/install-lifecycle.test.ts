@@ -49,6 +49,25 @@ describe("install lifecycle", () => {
     await install({ autonomy: "default", json: false }, windowsRuntime);
     await expect(access(join(home, "config.toml"))).resolves.toBeUndefined();
   });
+  it("preserves older caches while replacing current managed files", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-cache-replacement-"));
+    process.env.CODEX_HOME = home;
+    const cacheRoot = join(home, "plugins", "cache", "holycodex", "holycodex");
+    const olderCache = join(cacheRoot, "0.2.1");
+    const currentCache = join(cacheRoot, packageVersion);
+    await mkdir(olderCache, { recursive: true });
+    await mkdir(currentCache, { recursive: true });
+    await writeFile(join(olderCache, "held.txt"), "held");
+    await writeFile(join(currentCache, "stale.txt"), "stale");
+
+    await install({ autonomy: "default", json: false }, windowsRuntime);
+
+    await expect(readFile(join(olderCache, "held.txt"), "utf8")).resolves.toBe("held");
+    await expect(access(join(currentCache, "stale.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      access(join(currentCache, ".codex-plugin", "plugin.json")),
+    ).resolves.toBeUndefined();
+  });
   it("preserves unrelated config, removes legacy OMO, and cleans only HolyCodex", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-test-"));
     process.env.CODEX_HOME = home;
