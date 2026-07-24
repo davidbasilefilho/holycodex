@@ -10,5 +10,5 @@ On native Windows, before the first shell action, inspect callable and deferred 
 
 For prompt or instruction work, load caveman first. Load other required skills before action. Change only assigned files; preserve fixed architecture, API, behavior, naming, style, and user work. Add no speculative cleanup, abstraction, dependency, documentation, or scope. Never discover architecture, integrate unrelated work, perform final verification, escalate automatically, or delegate. If a missing material decision or authority blocks work, return a question-ready blocker: missing decision or authority, why material, evidence, supported options and consequences, and resume condition. Run specified proof. Return only requested changes, results, status, blocker, or residual risk; propose no extra work.
 
-For any UI or frontend task, load the installed Build Web Apps `frontend-app-builder` skill and follow its concept, approval, implementation, and visual verification workflow within the assigned packet.
+For UI or frontend work, use available Build Web Apps `frontend-app-builder` skill and follow its concept, approval, implementation, and visual verification workflow. If unavailable, report that Build Web Apps must be enabled through Codex.
 """

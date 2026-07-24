@@ -8,7 +8,6 @@ import {
   resolveGitBashForCurrentProcess,
   type GitBashResolution,
 } from "../../git-bash-mcp/src/git-bash-resolver.ts";
-import { runManagedProcess } from "../../mcp-stdio-core/src/process.ts";
 import {
   AGENTS,
   DEFAULT_PLAN,
@@ -40,29 +39,11 @@ export type RunResult = {
 export type InstallRuntime = {
   readonly platform: NodeJS.Platform;
   readonly gitBash: () => GitBashResolution;
-  readonly command: (command: string, args: readonly string[]) => Promise<InstallCommandResult>;
 };
-
-export type InstallCommandResult = { readonly ok: boolean; readonly output: string };
-
-const PLUGIN_ARGS = ["plugin", "add", "build-web-apps@openai-curated", "--json"] as const;
 
 const defaultRuntime: InstallRuntime = {
   platform: process.platform,
   gitBash: resolveGitBashForCurrentProcess,
-  command: async (command, args) => {
-    const result = await runManagedProcess({
-      command,
-      args,
-      platform: process.platform,
-      timeoutMs: 120_000,
-      maxOutputChars: 64 * 1024,
-    });
-    return {
-      ok: result.exitCode === 0 && !result.timedOut && result.error === undefined,
-      output: `${result.stdout}\n${result.stderr}`.trim() || result.error || "unknown error",
-    };
-  },
 };
 
 function paths(home = process.env.CODEX_HOME ?? join(homedir(), ".codex")) {
@@ -93,23 +74,12 @@ export function assertGitBashReady(platform: NodeJS.Platform, resolution: GitBas
   if (!resolution.found) throw new Error(resolution.installHint);
 }
 
-/** Ensures the official Build Web Apps plugin is installed. */
-export async function installBuildWebApps(runtime: InstallRuntime): Promise<void> {
-  if (process.env.HOLYCODEX_TEST_SKIP_PACKAGE_RESOLUTION === "1") return;
-  const result = await runtime.command("codex", PLUGIN_ARGS);
-  if (result.ok) return;
-  throw new Error(
-    `Could not install Build Web Apps with \`codex ${PLUGIN_ARGS.join(" ")}\`: ${result.output}. Verify Codex is installed and signed in, then retry HolyCodex installation.`,
-  );
-}
-
 /** Provides install. */
 export async function install(
   options: RunOptions,
   runtime: InstallRuntime = defaultRuntime,
 ): Promise<RunResult> {
   assertGitBashReady(runtime.platform, runtime.gitBash());
-  await installBuildWebApps(runtime);
   const plan = options.plan ?? DEFAULT_PLAN;
   const target = paths();
   const root = backupRoot();

@@ -26,7 +26,6 @@ const packageVersion = (
 const windowsRuntime: InstallRuntime = {
   platform: "win32",
   gitBash: () => ({ found: true, path: "bash.exe", source: "env", checkedPaths: [] }),
-  command: async () => ({ ok: true, output: "" }),
 };
 
 afterEach(() => {
@@ -44,36 +43,11 @@ describe("install lifecycle", () => {
       }),
     ).toThrow("Install Git Bash.");
   });
-  it("installs Build Web Apps with fixed Codex commands before mutation", async () => {
+  it("installs without Build Web Apps CLI state", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-build-web-apps-"));
     process.env.CODEX_HOME = home;
-    const calls: Array<{ command: string; args: readonly string[] }> = [];
-    await install(
-      { autonomy: "default", json: false },
-      {
-        ...windowsRuntime,
-        command: async (command, args) => {
-          calls.push({ command, args });
-          return { ok: true, output: "" };
-        },
-      },
-    );
-    expect(calls).toEqual([
-      { command: "codex", args: ["plugin", "add", "build-web-apps@openai-curated", "--json"] },
-    ]);
-
-    const failedHome = await mkdtemp(join(tmpdir(), "holycodex-build-web-apps-failure-"));
-    process.env.CODEX_HOME = failedHome;
-    await expect(
-      install(
-        { autonomy: "default", json: false },
-        {
-          ...windowsRuntime,
-          command: async () => ({ ok: false, output: "network unavailable" }),
-        },
-      ),
-    ).rejects.toThrow("Could not install Build Web Apps");
-    await expect(access(join(failedHome, "config.toml"))).rejects.toThrow();
+    await install({ autonomy: "default", json: false }, windowsRuntime);
+    await expect(access(join(home, "config.toml"))).resolves.toBeUndefined();
   });
   it("preserves unrelated config, removes legacy OMO, and cleans only HolyCodex", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-test-"));
@@ -144,7 +118,6 @@ describe("install lifecycle", () => {
     const linuxRuntime: InstallRuntime = {
       platform: "linux",
       gitBash: () => ({ found: false, checkedPaths: [], installHint: "irrelevant" }),
-      command: async () => ({ ok: true, output: "" }),
     };
     await install({ autonomy: "default", json: false }, linuxRuntime);
     const cache = join(home, "plugins", "cache", "holycodex", "holycodex", packageVersion);

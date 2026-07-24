@@ -278,7 +278,7 @@ describe("instruction workflow contracts", () => {
     expect(text).toContain("Prefer a named input object above three independent parameters");
   });
 
-  it("routes UI work through installed Frontend App Builder workflows", async () => {
+  it("routes available UI work through Frontend App Builder workflows", async () => {
     const plan = await skill("plan");
     const review = await skill("plan-review");
     const worker = await readFile(join(pluginRoot, "agents", "worker.toml"), "utf8");
@@ -291,9 +291,12 @@ describe("instruction workflow contracts", () => {
       expect(text).toContain("`frontend-app-builder`");
     }
     expect(plan).toContain("concept-generation and design-approval workflow");
+    expect(plan).toContain("enable Build Web Apps through Codex");
+    expect(plan).toContain("do not block planning solely on absence");
     expect(plan).toContain("Read-only UI audits bypass this gate");
     expect(review).toContain("concept and design-approval workflow");
-    expect(review).toContain("return it to `plan`");
+    expect(review).toContain("enable Build Web Apps through Codex");
+    expect(review).toContain("do not block review solely on absence");
     expect(review).toContain("Read-only UI audits are exempt");
   });
 
