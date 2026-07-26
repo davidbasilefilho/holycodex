@@ -22,7 +22,7 @@ function expectOrder(text: string, phrases: readonly string[]): void {
 describe("instruction workflow contracts", () => {
   it("keeps routed skills dense and bounded by prompt cost", async () => {
     const names = (await readdir(join(pluginRoot, "skills"))).sort();
-    expect(names).toHaveLength(15);
+    expect(names).toHaveLength(14);
     const texts = await Promise.all(names.map(skill));
     for (const text of texts) {
       const description = text.match(/^description: (.*)$/m)?.[1] ?? "";
