@@ -1,13 +1,12 @@
 import { z } from "zod";
 
-export const VERSION = "0.9.1";
+export const VERSION = "0.9.2";
 
 export const SKILLS = [
   "ast-grep",
   "caveman",
   "compress",
   "debugging",
-  "define-goal",
   "handoff",
   "lsp",
   "lsp-setup",
@@ -105,7 +104,7 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
     agents: {
       explorer: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
       librarian: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
-      worker: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+      worker: { model: "gpt-5.6-terra", reasoningEffort: "high" },
     },
     usage: { maxSubagents: 2, maxDepth: 1 },
   },
@@ -114,7 +113,7 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
     agents: {
       explorer: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
       librarian: { model: "gpt-5.6-terra", reasoningEffort: "high" },
-      worker: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+      worker: { model: "gpt-5.6-terra", reasoningEffort: "high" },
     },
     usage: { maxSubagents: 2, maxDepth: 1 },
   },
@@ -123,7 +122,7 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
     agents: {
       explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
       librarian: { model: "gpt-5.6-terra", reasoningEffort: "high" },
-      worker: { model: "gpt-5.6-sol", reasoningEffort: "high" },
+      worker: { model: "gpt-5.6-terra", reasoningEffort: "high" },
     },
     usage: { maxSubagents: 2, maxDepth: 1 },
   },

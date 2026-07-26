@@ -26,7 +26,7 @@ describe("bootstrap readiness", () => {
       context.match(/I detect \[fix\/implementation\/investigation\/question\] intent/g),
     ).toHaveLength(1);
     expect(context).toContain(
-      "For plan, plan-review, and define-goal, the selected skill owns its required exact activation heading",
+      "For plan and plan-review, the selected skill owns its required exact activation heading",
     );
     expect(context).toContain("No other skill or style mode prints an activation heading");
     expect(context).toContain("before the first shell action, inspect callable and deferred tools");

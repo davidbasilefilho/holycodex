@@ -90,7 +90,13 @@ describe("HolyCodex catalog", () => {
     ).toBe(true);
     expect(
       new Set(Object.values(MODEL_ROUTING_PLANS["pro-20x"].agents).map((route) => route.model)),
-    ).toEqual(new Set(["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]));
+    ).toEqual(new Set(["gpt-5.6-luna", "gpt-5.6-terra"]));
+    for (const plan of PLAN_NAMES) {
+      expect(MODEL_ROUTING_PLANS[plan].agents.worker).toEqual({
+        model: "gpt-5.6-terra",
+        reasoningEffort: plan === "go" ? "low" : plan === "plus-low" ? "medium" : "high",
+      });
+    }
   });
 
   it("documents the ordered routing ladder without quota claims", async () => {
@@ -204,7 +210,6 @@ describe("HolyCodex catalog", () => {
 
   it("pins activation phrases and enables every MCP default", async () => {
     const expected = new Map([
-      ["define-goal", "**GOAL MODE ACTIVATED**"],
       ["plan", "**PLAN MODE ACTIVATED**"],
       ["plan-review", "**PLAN REVIEW MODE ACTIVATED**"],
     ]);
