@@ -68,7 +68,15 @@ describe("HolyCodex catalog", () => {
     ).toBe(true);
     expect(JSON.stringify(MODEL_ROUTING_PLANS)).not.toContain('"max"');
     expect(
-      Object.values(MODEL_ROUTING_PLANS).every((preset) => preset.root.model === "gpt-5.6-sol"),
+      new Set([
+        MODEL_ROUTING_PLANS.go.root.model,
+        ...Object.values(MODEL_ROUTING_PLANS.go.agents).map((route) => route.model),
+      ]),
+    ).toEqual(new Set(["gpt-5.6-terra"]));
+    expect(
+      PLAN_NAMES.filter((plan) => plan !== "go").every(
+        (plan) => MODEL_ROUTING_PLANS[plan].root.model === "gpt-5.6-sol",
+      ),
     ).toBe(true);
     expect(Object.values(MODEL_ROUTING_PLANS).every((preset) => preset.usage.maxDepth === 1)).toBe(
       true,
@@ -84,19 +92,38 @@ describe("HolyCodex catalog", () => {
     expect(
       Object.values(MODEL_ROUTING_PLANS).every((preset) =>
         [preset.root, ...Object.values(preset.agents)].every((route) =>
-          ["low", "medium", "high"].includes(route.reasoningEffort),
+          ["low", "medium", "high", "xhigh"].includes(route.reasoningEffort),
         ),
       ),
     ).toBe(true);
+    expect(MODEL_ROUTING_PLANS["plus-high"].agents.librarian.reasoningEffort).toBe("xhigh");
     expect(
       new Set(Object.values(MODEL_ROUTING_PLANS["pro-20x"].agents).map((route) => route.model)),
-    ).toEqual(new Set(["gpt-5.6-luna", "gpt-5.6-terra"]));
-    for (const plan of PLAN_NAMES) {
-      expect(MODEL_ROUTING_PLANS[plan].agents.worker).toEqual({
-        model: "gpt-5.6-terra",
-        reasoningEffort: plan === "go" ? "low" : plan === "plus-low" ? "medium" : "high",
-      });
-    }
+    ).toEqual(new Set(["gpt-5.6-luna", "gpt-5.6-sol"]));
+    expect(MODEL_ROUTING_PLANS.go.agents.worker).toEqual({
+      model: "gpt-5.6-terra",
+      reasoningEffort: "medium",
+    });
+    expect(MODEL_ROUTING_PLANS["plus-low"].agents.worker).toEqual({
+      model: "gpt-5.6-terra",
+      reasoningEffort: "medium",
+    });
+    expect(MODEL_ROUTING_PLANS.plus.agents.worker).toEqual({
+      model: "gpt-5.6-terra",
+      reasoningEffort: "high",
+    });
+    expect(MODEL_ROUTING_PLANS["plus-high"].agents.worker).toEqual({
+      model: "gpt-5.6-sol",
+      reasoningEffort: "low",
+    });
+    expect(MODEL_ROUTING_PLANS["pro-5x"].agents.worker).toEqual({
+      model: "gpt-5.6-sol",
+      reasoningEffort: "medium",
+    });
+    expect(MODEL_ROUTING_PLANS["pro-20x"].agents.worker).toEqual({
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+    });
   });
 
   it("documents the ordered routing ladder without quota claims", async () => {
