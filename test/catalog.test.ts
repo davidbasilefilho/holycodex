@@ -96,7 +96,7 @@ describe("HolyCodex catalog", () => {
         ),
       ),
     ).toBe(true);
-    expect(MODEL_ROUTING_PLANS["plus-high"].agents.librarian.reasoningEffort).toBe("xhigh");
+    expect(MODEL_ROUTING_PLANS["plus-high"].agents.librarian.reasoningEffort).toBe("high");
     expect(
       new Set(Object.values(MODEL_ROUTING_PLANS["pro-20x"].agents).map((route) => route.model)),
     ).toEqual(new Set(["gpt-5.6-luna", "gpt-5.6-sol"]));
