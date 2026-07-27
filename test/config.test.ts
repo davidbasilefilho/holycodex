@@ -83,14 +83,14 @@ describe("Codex configuration", () => {
     expect(upgraded).not.toContain('model_reasoning_effort = "xhigh"');
   });
 
-  it("migrates the former go Terra medium root route", () => {
+  it("migrates the former go Sol low root route", () => {
     const oldGo = installPlanConfig("", "go")
-      .replace('model = "gpt-5.6-sol"', 'model = "gpt-5.6-terra"')
-      .replace('model_reasoning_effort = "low"', 'model_reasoning_effort = "medium"');
+      .replace('model = "gpt-5.6-terra"', 'model = "gpt-5.6-sol"')
+      .replace('model_reasoning_effort = "medium"', 'model_reasoning_effort = "low"');
     const upgraded = installPlanConfig(oldGo, "go");
-    expect(upgraded).toContain('model = "gpt-5.6-sol"');
-    expect(upgraded).toContain('model_reasoning_effort = "low"');
-    expect(upgraded).not.toContain('model = "gpt-5.6-terra"');
+    expect(upgraded).toContain('model = "gpt-5.6-terra"');
+    expect(upgraded).toContain('model_reasoning_effort = "medium"');
+    expect(upgraded).not.toContain('model = "gpt-5.6-sol"');
   });
 
   it("preserves an unrelated explicit root route across reinstall", () => {
