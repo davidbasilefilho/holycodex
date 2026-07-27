@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
       - uses: jdx/mise-action@v4
       - uses: actions/setup-node@v6
         with:
@@ -34,7 +36,21 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
       - run: npm install --global npm@11.5.1
-      - run: bunx --package vite-plus@0.2.4 vp install --frozen-lockfile
+      - run: bunx --package vite-plus@0.2.4 vp install
+      - name: Commit regenerated lockfile
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        shell: bash
+        run: |
+          if git diff --quiet -- bun.lock; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bun.lock
+          git commit -m "chore: sync bun lockfile"
+          git push origin "HEAD:${HEAD_REF}"
       - run: bunx vp check --fix
       - name: Derive unique dev version
         if: github.ref_name == 'dev'
