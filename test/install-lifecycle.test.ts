@@ -216,17 +216,17 @@ describe("install lifecycle", () => {
     await writeFile(
       configPath,
       (await readFile(configPath, "utf8"))
-        .replace('model = "gpt-5.6-sol"', 'model = "gpt-5.6-terra"')
-        .replace('model_reasoning_effort = "low"', 'model_reasoning_effort = "medium"'),
+        .replace('model = "gpt-5.6-terra"', 'model = "gpt-5.6-sol"')
+        .replace('model_reasoning_effort = "medium"', 'model_reasoning_effort = "low"'),
     );
 
     await install({ autonomy: "default", json: false, plan: "go" }, windowsRuntime);
 
     const config = await readFile(configPath, "utf8");
     expect(config).toContain("# holycodex plan: go");
-    expect(config).toContain('model = "gpt-5.6-sol"');
-    expect(config).toContain('model_reasoning_effort = "low"');
-    expect(config).not.toContain('model = "gpt-5.6-terra"');
+    expect(config).toContain('model = "gpt-5.6-terra"');
+    expect(config).toContain('model_reasoning_effort = "medium"');
+    expect(config).not.toContain('model = "gpt-5.6-sol"');
   });
 
   it("renders every plan and updates managed specialist routing on reinstall", async () => {
