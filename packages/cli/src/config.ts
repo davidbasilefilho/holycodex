@@ -16,6 +16,7 @@ const ORIGINAL_ROOT = "# holycodex original root: ";
 const ORIGINAL_TABLE_KEY = "# holycodex original table key: ";
 const PLAN_PREFIX = "# holycodex plan: ";
 const MAX_SUBAGENTS_PREFIX = "# holycodex max-subagents: ";
+const MANAGED_PERMISSION_PROFILE = "holycodex-config";
 
 export type AutonomyMode = "default" | "autonomous" | "dangerous";
 export type ManagedMaxSubagents =
@@ -228,6 +229,7 @@ export function installConfig(
   const controlled = [
     "approval_policy",
     "sandbox_mode",
+    "default_permissions",
     "max_concurrent_threads_per_session",
     "status_line",
     "model_verbosity",
@@ -236,6 +238,7 @@ export function installConfig(
   const preservedRoot = [
     "approval_policy",
     "sandbox_mode",
+    "default_permissions",
     "max_concurrent_threads_per_session",
     "status_line",
     "model_verbosity",
@@ -260,8 +263,15 @@ export function installConfig(
     : "";
   const maxSubagentsMetadata =
     maxSubagents === undefined ? "" : `${MAX_SUBAGENTS_PREFIX}${maxSubagents}\n`;
-  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${maxSubagentsMetadata}${original}${model}${effort}model_verbosity = "low"\nservice_tier = "${fast ? "fast" : "default"}"\napproval_policy = "${approval}"\nsandbox_mode = "${sandbox}"\nstatus_line = ${mergedStatusLine(controlled[3])}\n${END}`;
+  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${maxSubagentsMetadata}${original}${model}${effort}model_verbosity = "low"\nservice_tier = "${fast ? "fast" : "default"}"\napproval_policy = "${approval}"\nsandbox_mode = "${sandbox}"\ndefault_permissions = "${MANAGED_PERMISSION_PROFILE}"\nstatus_line = ${mergedStatusLine(rootValue(root, "status_line"))}\n${END}`;
   let configured = `${preservedRoot ? `${preservedRoot}\n` : ""}${rootBlock}${tables ? `\n\n${tables}` : ""}`;
+  configured = injectTableKeys(configured, `permissions.${MANAGED_PERMISSION_PROFILE}`, [
+    ["description", '"HolyCodex config.toml permissions."'],
+    ["extends", '":workspace"'],
+  ]);
+  configured = injectTableKeys(configured, `permissions.${MANAGED_PERMISSION_PROFILE}.network`, [
+    ["enabled", "true"],
+  ]);
   configured = injectTableKeys(configured, "features", [
     ["default_mode_request_user_input", "true"],
     ["multi_agent", "true"],

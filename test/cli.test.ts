@@ -240,6 +240,23 @@ describe("CLI", () => {
     expect(config).toContain('sandbox_mode = "workspace-write"');
   });
 
+  it.each([
+    ["default", []],
+    ["autonomous", ["--codex-autonomous"]],
+    ["non-autonomous", ["--no-codex-autonomous"]],
+    ["dangerous", ["--dangerous-codex-autonomous"]],
+  ])("selects config.toml permissions for %s installation", async (_mode, flags) => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-cli-permissions-"));
+    await run(process.execPath, ["packages/cli/src/cli.ts", "install", ...flags], {
+      env: { ...process.env, CODEX_HOME: home },
+    });
+
+    const config = await readFile(join(home, "config.toml"), "utf8");
+    expect(config).toContain('default_permissions = "holycodex-config"');
+    expect(config).toContain("[permissions.holycodex-config]");
+    expect(config).not.toContain('default_permissions = ":danger-full-access"');
+  });
+
   it("supports sandboxed and explicitly dangerous autonomy", async () => {
     const safeHome = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
     const safeResult = await run(
