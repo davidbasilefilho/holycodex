@@ -196,6 +196,11 @@ describe("HolyCodex catalog", () => {
     };
     expect(marketplace.name).toBe("HolyCodex");
     expect(marketplace.interface?.displayName).toBe("HolyCodex");
+    const plugin = JSON.parse(
+      await readFile(join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8"),
+    ) as { name: string; interface?: { displayName?: string } };
+    expect(plugin.name).toBe("holycodex");
+    expect(plugin.interface?.displayName).toBe("HolyCodex");
   });
 
   it("ships only routed skills and three described agents", async () => {

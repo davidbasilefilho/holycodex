@@ -143,6 +143,22 @@ function tableBoolean(config: string, table: string, key: string): boolean | und
   return value === undefined ? undefined : value === "true";
 }
 
+function tableString(config: string, table: string, key: string): string | undefined {
+  const body = new RegExp(
+    `^\\s*\\[${table.replaceAll(".", "\\.")}]\\s*$([\\s\\S]*?)(?=^\\s*\\[|(?![\\s\\S]))`,
+    "m",
+  ).exec(config)?.[1];
+  return body === undefined ? undefined : rootTomlString(body, key);
+}
+
+function tableStringArray(config: string, table: string, key: string): string[] | undefined {
+  const body = new RegExp(
+    `^\\s*\\[${table.replaceAll(".", "\\.")}]\\s*$([\\s\\S]*?)(?=^\\s*\\[|(?![\\s\\S]))`,
+    "m",
+  ).exec(config)?.[1];
+  return body === undefined ? undefined : rootTomlStringArray(body, key);
+}
+
 function tableInteger(config: string, table: string, key: string): number | undefined {
   const body = new RegExp(
     `^\\s*\\[${table.replaceAll(".", "\\.")}]\\s*$([\\s\\S]*?)(?=^\\s*\\[|(?![\\s\\S]))`,
@@ -469,6 +485,38 @@ export async function doctor(
           ),
   );
   checks.push(
+    ["default", "fast"].includes(rootTomlString(config, "service_tier") ?? "")
+      ? check(
+          "service-tier",
+          "ok",
+          "service-tier-ready",
+          "Codex service tier is explicitly managed.",
+        )
+      : check(
+          "service-tier",
+          "error",
+          "service-tier-stale",
+          "service_tier must be either default or fast.",
+          "Reinstall HolyCodex with --fast or --no-fast.",
+        ),
+  );
+  checks.push(
+    rootTomlString(config, "model_verbosity") === "low"
+      ? check(
+          "root-verbosity",
+          "ok",
+          "root-verbosity-ready",
+          "Root model verbosity is forced to low.",
+        )
+      : check(
+          "root-verbosity",
+          "error",
+          "root-verbosity-stale",
+          "Root model verbosity must be low.",
+          "Reinstall HolyCodex.",
+        ),
+  );
+  checks.push(
     preset === undefined ||
       expectedMaxSubagents === undefined ||
       tableInteger(config, "agents", "max_threads") !== expectedMaxSubagents + 1 ||
@@ -524,6 +572,39 @@ export async function doctor(
         ),
   );
   checks.push(
+    tableStringArray(config, "desktop", "enabled-reasoning-efforts")?.join(",") ===
+      "low,medium,high"
+      ? check(
+          "desktop-reasoning",
+          "ok",
+          "desktop-reasoning-ready",
+          "Desktop exposes low, medium, and high reasoning efforts.",
+        )
+      : check(
+          "desktop-reasoning",
+          "error",
+          "desktop-reasoning-stale",
+          "Desktop reasoning choices must be low, medium, and high.",
+          "Reinstall HolyCodex.",
+        ),
+  );
+  checks.push(
+    tableBoolean(config, "desktop", "show-context-window-usage") === true
+      ? check(
+          "desktop-context-usage",
+          "ok",
+          "desktop-context-usage-ready",
+          "Desktop context-window usage is visible.",
+        )
+      : check(
+          "desktop-context-usage",
+          "error",
+          "desktop-context-usage-hidden",
+          "Desktop context-window usage is not enabled.",
+          "Reinstall HolyCodex.",
+        ),
+  );
+  checks.push(
     rootTomlStringArray(config, "status_line")?.includes("context-remaining") === true
       ? check(
           "context-visibility",
@@ -550,6 +631,24 @@ export async function doctor(
           "Codex version could not be read; status-line compatibility cannot be independently confirmed.",
         ),
   );
+  if (runtime.platform === "win32") {
+    checks.push(
+      tableString(config, "windows", "sandbox") === "unelevated"
+        ? check(
+            "windows-sandbox",
+            "ok",
+            "windows-sandbox-ready",
+            "Windows sandbox runs unelevated.",
+          )
+        : check(
+            "windows-sandbox",
+            "error",
+            "windows-sandbox-stale",
+            "Windows sandbox must run unelevated.",
+            "Reinstall HolyCodex on Windows.",
+          ),
+    );
+  }
 
   const agentModelFailures: string[] = [];
   for (const agent of AGENTS) {

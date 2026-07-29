@@ -12,10 +12,12 @@ import {
 describe("CLI presentation", () => {
   it("renders structured plain help without terminal escapes", () => {
     const output = renderHelp("0.6.0", false);
-    expect(output).toContain("HOLYCODEX 0.6.0");
+    expect(output).toContain("HolyCodex 0.6.0");
     expect(output).toContain("COMMANDS");
     expect(output).toContain("--dangerous-codex-autonomous");
     expect(output).toContain("--max-subagents <count>");
+    expect(output).toContain("--fast");
+    expect(output).toContain("--no-fast");
     expect(output).not.toContain("\u001B[");
   });
 
@@ -33,6 +35,8 @@ describe("CLI presentation", () => {
     expect(output).toContain("--codex-autonomous");
     expect(output).toContain("--no-codex-autonomous");
     expect(output).toContain("--dangerous-codex-autonomous");
+    expect(output).toContain("--fast");
+    expect(output).toContain("--no-fast");
   });
 
   it("uses color only for a TTY without NO_COLOR", () => {

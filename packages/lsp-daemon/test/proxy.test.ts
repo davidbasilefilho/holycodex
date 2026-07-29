@@ -114,7 +114,7 @@ describe("mcp stdio proxy", () => {
         ensure: noSpawn,
       });
 
-      await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + 1);
+      vi.advanceTimersByTime(10 * 60 * 1000 + 1);
       input.end(`${JSON.stringify({ jsonrpc: "2.0", id: 6, method: "initialize", params: {} })}\n`);
       await server;
 

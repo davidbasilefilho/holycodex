@@ -59,6 +59,8 @@ HolyCodex restores native Codex workspace I/O. It does not install an editing MC
 holycodex install                              # on-request, workspace-write, network on
 holycodex install --plan <plan>
 holycodex install --max-subagents <0..3>
+holycodex install --fast                     # fast Codex service tier
+holycodex install --no-fast                  # default Codex service tier
 holycodex install --codex-autonomous           # never ask, workspace-write, network on
 holycodex install --dangerous-codex-autonomous # never ask, unrestricted host access
 holycodex install --no-codex-autonomous        # contained default behavior
@@ -68,7 +70,7 @@ holycodex --help
 holycodex --version
 ```
 
-Dangerous autonomy is explicit and never inferred. Installation is noninteractive, backs up affected files, preserves unrelated configuration, and configures multi-agent support, selected agent capacity, specialist profiles, status context, and platform MCPs.
+`--fast` and `--no-fast` are mutually exclusive. Omit both, or use `--no-fast`, for Codex's default service tier. Dangerous autonomy is explicit and never inferred. Installation is noninteractive, backs up affected files, preserves unrelated configuration, and configures multi-agent support, selected agent capacity, specialist profiles, status context, and platform MCPs.
 
 Codex manages curated Build Web Apps separately. Enable it through Codex before UI or frontend work. When available, HolyCodex routes that work to Frontend App Builder. In the project author's testing, Build Web Apps and Frontend App Builder produce the best results for visual taste. This is the author's assessment, not an OpenAI claim.
 

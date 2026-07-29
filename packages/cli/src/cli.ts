@@ -70,6 +70,14 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  const fastFlags = args.filter((arg) => ["--fast", "--no-fast"].includes(arg));
+  if (fastFlags.length > 1) {
+    process.stderr.write(
+      renderError(`Conflicting fast flags: ${fastFlags.join(", ")}`, stderrColor),
+    );
+    process.exitCode = 1;
+    return;
+  }
   const options: RunOptions = {
     autonomy: args.includes("--dangerous-codex-autonomous")
       ? "dangerous"
@@ -77,6 +85,7 @@ async function main(): Promise<void> {
         ? "autonomous"
         : "default",
     json: args.includes("--json"),
+    fast: args.includes("--fast"),
     plan,
     ...(maxSubagents === undefined ? {} : { maxSubagents }),
   };

@@ -52,10 +52,12 @@ export function removeManaged(input: string): string {
       (_match, body: string) => {
         const encoded = body.match(/^# holycodex original root: ([A-Za-z0-9+/=]+)$/m)?.[1];
         if (encoded !== undefined) return `${Buffer.from(encoded, "base64").toString("utf8")}\n`;
-        const tableKey = body.match(/^# holycodex original table key: ([A-Za-z0-9+/=]+)$/m)?.[1];
-        return tableKey === undefined
+        const tableKeys = [
+          ...body.matchAll(/^# holycodex original table key: ([A-Za-z0-9+/=]+)$/gm),
+        ].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
+        return tableKeys.length === 0
           ? ""
-          : `${Buffer.from(tableKey, "base64").toString("utf8")}\n`;
+          : `${tableKeys.map((key) => Buffer.from(key, "base64").toString("utf8")).join("\n")}\n`;
       },
     )
     .trim();
@@ -86,26 +88,30 @@ export function removeLegacyOmo(input: string): string {
     .trimEnd();
 }
 
-function injectTableKey(input: string, table: string, key: string, value: string): string {
+type TableEntry = readonly [key: string, value: string];
+
+function injectTableKeys(input: string, table: string, entries: readonly TableEntry[]): string {
   const header = new RegExp(`^\\s*\\[${table.replaceAll(".", "\\.")}]\\s*(?:#.*)?$`, "m");
   const match = header.exec(input);
   const tail = match === null ? "" : input.slice(match.index + match[0].length);
   const tableEnd = nextTableBoundary(tail);
   const tableBody = tableEnd < 0 ? tail : tail.slice(0, tableEnd);
-  const originalKey = new RegExp(`^[ \\t]*${key}[ \\t]*=.*$`, "m").exec(tableBody)?.[0];
-  const original =
-    originalKey === undefined
-      ? ""
-      : `${ORIGINAL_TABLE_KEY}${Buffer.from(originalKey).toString("base64")}\n`;
-  const managed = `${START}\n${original}${key} = ${value}\n${END}`;
+  const original = entries
+    .map(([key]) => new RegExp(`^[ \\t]*${key}[ \\t]*=.*$`, "m").exec(tableBody)?.[0])
+    .filter((value): value is string => value !== undefined)
+    .map((value) => `${ORIGINAL_TABLE_KEY}${Buffer.from(value).toString("base64")}\n`)
+    .join("");
+  const managed = `${START}\n${original}${entries.map(([key, value]) => `${key} = ${value}`).join("\n")}\n${END}`;
   if (match === null)
-    return `${input.trimEnd()}\n\n${START}\n[${table}]\n${key} = ${value}\n${END}`.trim();
+    return `${input.trimEnd()}\n\n${START}\n[${table}]\n${entries.map(([key, value]) => `${key} = ${value}`).join("\n")}\n${END}`.trim();
   const bodyStart = match.index + match[0].length;
   const next = nextTableBoundary(input.slice(bodyStart));
   const bodyEnd = next < 0 ? input.length : bodyStart + next;
-  const cleanedBody = input
-    .slice(bodyStart, bodyEnd)
-    .replace(new RegExp(`^\\s*${key}\\s*=.*\\r?\\n?`, "gm"), "")
+  const cleanedBody = entries
+    .reduce(
+      (body, [key]) => body.replace(new RegExp(`^\\s*${key}\\s*=.*\\r?\\n?`, "gm"), ""),
+      input.slice(bodyStart, bodyEnd),
+    )
     .trim();
   const suffix = input.slice(bodyEnd).trimStart();
   return `${input.slice(0, bodyStart)}\n${cleanedBody ? `${cleanedBody}\n` : ""}${managed}${suffix ? `\n${suffix}` : ""}`.trim();
@@ -126,6 +132,15 @@ function rootValue(input: string, key: string): string | undefined {
 
 function removeRootValue(input: string, value: string | undefined): string {
   return value === undefined ? input : input.replace(value, "");
+}
+
+function removeRootKey(input: string, key: string): string {
+  let updated = input;
+  for (;;) {
+    const value = rootValue(updated, key);
+    if (value === undefined) return updated;
+    updated = removeRootValue(updated, value);
+  }
 }
 
 /** Reads the explicitly recorded model routing plan from managed configuration. */
@@ -152,8 +167,8 @@ export function readPreservedRootOverrides(input: string): RootModelOverrides {
   const managedRoot = new RegExp(`^${START}\\r?\\n([\\s\\S]*?)^${END}\\r?$`, "m").exec(input)?.[1];
   if (managedRoot === undefined) return { model: false, reasoningEffort: false };
   const plan = readManagedPlan(managedRoot);
-  const model = rootTomlString(managedRoot, "model");
-  const reasoningEffort = rootTomlString(managedRoot, "model_reasoning_effort");
+  const model = rootTomlString(input, "model");
+  const reasoningEffort = rootTomlString(input, "model_reasoning_effort");
   if (plan === undefined || model === undefined || reasoningEffort === undefined)
     return { model: false, reasoningEffort: false };
   const managed = MANAGED_ROOT_MODEL_HISTORY_BY_PLAN[plan].some(
@@ -185,14 +200,6 @@ function preserveManagedRootPreferences(input: string, base: string): string {
     updatedRoot = removeRootValue(updatedRoot, rootValue(updatedRoot, key)).trim();
     updatedRoot = `${updatedRoot}${updatedRoot ? "\n" : ""}${live}`;
   }
-  const verbosity = rootValue(managedRoot, "model_verbosity")?.trim();
-  if (
-    verbosity !== undefined &&
-    verbosity !== (rootValue(root, "model_verbosity")?.trim() ?? 'model_verbosity = "low"')
-  ) {
-    updatedRoot = removeRootValue(updatedRoot, rootValue(updatedRoot, "model_verbosity")).trim();
-    updatedRoot = `${updatedRoot}${updatedRoot ? "\n" : ""}${verbosity}`;
-  }
   if (updatedRoot === root.trim()) return base;
   return `${updatedRoot}${tables ? `\n${tables.trimStart()}` : ""}`;
 }
@@ -211,6 +218,7 @@ export function installConfig(
   _platform: NodeJS.Platform,
   plan: PlanName = DEFAULT_PLAN,
   maxSubagents?: number,
+  fast = false,
 ): string {
   const unmanaged = removeLegacyOmo(removeManaged(input));
   const base = preserveManagedRootPreferences(input, unmanaged);
@@ -222,47 +230,62 @@ export function installConfig(
     "sandbox_mode",
     "max_concurrent_threads_per_session",
     "status_line",
+    "model_verbosity",
+    "service_tier",
   ].map((key) => rootValue(root, key));
-  const originalRoot = root.trim();
-  const preservedRoot = controlled.reduce(removeRootValue, root).trim();
+  const preservedRoot = [
+    "approval_policy",
+    "sandbox_mode",
+    "max_concurrent_threads_per_session",
+    "status_line",
+    "model_verbosity",
+    "service_tier",
+  ]
+    .reduce(removeRootKey, root)
+    .trim();
+  const originalControlled = controlled
+    .filter((value): value is string => value !== undefined)
+    .sort((left, right) => root.indexOf(left) - root.indexOf(right))
+    .join("\n");
   const hasModel = /^\s*model\s*=/m.test(preservedRoot);
   const hasEffort = /^\s*model_reasoning_effort\s*=/m.test(preservedRoot);
-  const hasVerbosity = /^\s*model_verbosity\s*=/m.test(preservedRoot);
   const rootRoute = MODEL_ROUTING_PLANS[plan].root;
   const effectiveMaxSubagents = maxSubagents ?? MODEL_ROUTING_PLANS[plan].usage.maxSubagents;
   const model = hasModel ? "" : `model = "${rootRoute.model}"\n`;
   const effort = hasEffort ? "" : `model_reasoning_effort = "${rootRoute.reasoningEffort}"\n`;
-  const verbosity = hasVerbosity ? "" : 'model_verbosity = "low"\n';
   const approval = mode === "default" ? "on-request" : "never";
   const sandbox = mode === "dangerous" ? "danger-full-access" : "workspace-write";
-  const original = originalRoot
-    ? `${ORIGINAL_ROOT}${Buffer.from(originalRoot).toString("base64")}\n`
+  const original = originalControlled
+    ? `${ORIGINAL_ROOT}${Buffer.from(originalControlled).toString("base64")}\n`
     : "";
-  const preserved = preservedRoot ? `${preservedRoot}\n` : "";
   const maxSubagentsMetadata =
     maxSubagents === undefined ? "" : `${MAX_SUBAGENTS_PREFIX}${maxSubagents}\n`;
-  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${maxSubagentsMetadata}${original}${model}${effort}${verbosity}${preserved}approval_policy = "${approval}"\nsandbox_mode = "${sandbox}"\nstatus_line = ${mergedStatusLine(controlled[3])}\n${END}`;
-  let configured = `${rootBlock}${tables ? `\n\n${tables}` : ""}`;
-  configured = injectTableKey(configured, "features", "default_mode_request_user_input", "true");
-  configured = injectTableKey(configured, "features", "multi_agent", "true");
-  configured = injectTableKey(configured, "features", "multi_agent_v2", "true");
+  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${maxSubagentsMetadata}${original}${model}${effort}model_verbosity = "low"\nservice_tier = "${fast ? "fast" : "default"}"\napproval_policy = "${approval}"\nsandbox_mode = "${sandbox}"\nstatus_line = ${mergedStatusLine(controlled[3])}\n${END}`;
+  let configured = `${preservedRoot ? `${preservedRoot}\n` : ""}${rootBlock}${tables ? `\n\n${tables}` : ""}`;
+  configured = injectTableKeys(configured, "features", [
+    ["default_mode_request_user_input", "true"],
+    ["multi_agent", "true"],
+    ["multi_agent_v2", "true"],
+  ]);
   const usage = MODEL_ROUTING_PLANS[plan].usage;
-  configured = injectTableKey(
-    configured,
-    "agents",
-    "max_threads",
-    String(effectiveMaxSubagents + 1),
-  );
-  configured = injectTableKey(configured, "agents", "max_depth", String(usage.maxDepth));
+  configured = injectTableKeys(configured, "agents", [
+    ["max_threads", String(effectiveMaxSubagents + 1)],
+    ["max_depth", String(usage.maxDepth)],
+  ]);
   if (mode !== "dangerous")
-    configured = injectTableKey(configured, "sandbox_workspace_write", "network_access", "true");
+    configured = injectTableKeys(configured, "sandbox_workspace_write", [
+      ["network_access", "true"],
+    ]);
+  configured = injectTableKeys(configured, "desktop", [
+    ["enabled-reasoning-efforts", '["low", "medium", "high"]'],
+    ["show-context-window-usage", "true"],
+  ]);
+  if (_platform === "win32")
+    configured = injectTableKeys(configured, "windows", [["sandbox", '"unelevated"']]);
   for (const agent of AGENTS)
-    configured = injectTableKey(
-      configured,
-      `agents.${agent}`,
-      "config_file",
-      `"holycodex/agents/${agent}.toml"`,
-    );
+    configured = injectTableKeys(configured, `agents.${agent}`, [
+      ["config_file", `"holycodex/agents/${agent}.toml"`],
+    ]);
   const plugin = `${START}\n[plugins."holycodex@holycodex"]\nenabled = true\n${END}`;
   return `${configured.trim()}\n\n${plugin}\n`;
 }

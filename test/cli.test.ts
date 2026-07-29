@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { VERSION } from "../packages/cli/src/catalog";
 
 const run = promisify(execFile);
+const itWindows = process.platform === "win32" ? it : it.skip;
 process.env.HOLYCODEX_TEST_SKIP_PACKAGE_RESOLUTION = "1";
 
 describe("CLI", () => {
@@ -24,15 +25,19 @@ describe("CLI", () => {
 
   it("documents all autonomy modes and doctor output", async () => {
     const result = await run(process.execPath, ["packages/cli/src/cli.ts", "--help"]);
+    expect(result.stdout).toContain(`HolyCodex ${VERSION}`);
+    expect(result.stdout).not.toContain(`HOLYCODEX ${VERSION}`);
     expect(result.stdout).toContain("--codex-autonomous");
     expect(result.stdout).toContain("--dangerous-codex-autonomous");
+    expect(result.stdout).toContain("--fast");
+    expect(result.stdout).toContain("--no-fast");
     expect(result.stdout).toContain("doctor");
     expect(result.stdout).toContain("--json");
   });
 
   it("supports the short help alias", async () => {
     const result = await run(process.execPath, ["packages/cli/src/cli.ts", "-h"]);
-    expect(result.stdout).toContain(`HOLYCODEX ${VERSION}`);
+    expect(result.stdout).toContain(`HolyCodex ${VERSION}`);
     expect(result.stdout).toContain("USAGE");
   });
 
@@ -157,23 +162,61 @@ describe("CLI", () => {
     });
   });
 
-  it.runIf(process.platform === "win32")(
-    "renders Git Bash preflight failures without a stack trace",
-    async () => {
-      await expect(
-        run(process.execPath, ["packages/cli/src/cli.ts", "install"], {
-          env: {
-            ...process.env,
-            HOLYCODEX_GIT_BASH_PATH: "C:\\missing\\bash.exe",
-          },
-        }),
-      ).rejects.toMatchObject({
-        code: 1,
-        stdout: "",
-        stderr: expect.not.stringContaining("at "),
-      });
-    },
-  );
+  it("rejects conflicting fast-mode flags", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-cli-fast-"));
+    await expect(
+      run(process.execPath, ["packages/cli/src/cli.ts", "install", "--fast", "--no-fast"], {
+        env: { ...process.env, CODEX_HOME: home },
+      }),
+    ).rejects.toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: expect.stringMatching(
+        /^✗ ERROR  Conflicting fast flags: --fast, --no-fast\r?\n  Run holycodex --help for usage\.\r?\n$/,
+      ),
+    });
+  });
+
+  it("maps fast mode and its default to Codex service tiers", async () => {
+    const fastHome = await mkdtemp(join(tmpdir(), "holycodex-cli-fast-"));
+    await run(process.execPath, ["packages/cli/src/cli.ts", "install", "--fast"], {
+      env: { ...process.env, CODEX_HOME: fastHome },
+    });
+    expect(await readFile(join(fastHome, "config.toml"), "utf8")).toContain(
+      'service_tier = "fast"',
+    );
+
+    const defaultHome = await mkdtemp(join(tmpdir(), "holycodex-cli-default-tier-"));
+    await run(process.execPath, ["packages/cli/src/cli.ts", "install", "--no-fast"], {
+      env: { ...process.env, CODEX_HOME: defaultHome },
+    });
+    expect(await readFile(join(defaultHome, "config.toml"), "utf8")).toContain(
+      'service_tier = "default"',
+    );
+
+    const omittedHome = await mkdtemp(join(tmpdir(), "holycodex-cli-omitted-tier-"));
+    await run(process.execPath, ["packages/cli/src/cli.ts", "install"], {
+      env: { ...process.env, CODEX_HOME: omittedHome },
+    });
+    expect(await readFile(join(omittedHome, "config.toml"), "utf8")).toContain(
+      'service_tier = "default"',
+    );
+  });
+
+  itWindows("renders Git Bash preflight failures without a stack trace", async () => {
+    await expect(
+      run(process.execPath, ["packages/cli/src/cli.ts", "install"], {
+        env: {
+          ...process.env,
+          HOLYCODEX_GIT_BASH_PATH: "C:\\missing\\bash.exe",
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: expect.not.stringContaining("at "),
+    });
+  });
 
   it("uses safe interactive permissions by default", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-cli-"));

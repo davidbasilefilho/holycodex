@@ -78,9 +78,14 @@ describe("HolyCodex doctor", () => {
         "context7-healthy",
         "git-bash-ready",
         "safe-workspace-ready",
+        "service-tier-ready",
+        "root-verbosity-ready",
         "user-input-ready",
+        "desktop-reasoning-ready",
+        "desktop-context-usage-ready",
         "context-visible-support-unverified",
         "codex-version",
+        "windows-sandbox-ready",
       ]),
     );
   });
@@ -195,6 +200,34 @@ describe("HolyCodex doctor", () => {
     expect(result.healthy).toBe(true);
     expect(result.autonomy).toBe("dangerous");
     expect(codes(result)).toContain("dangerous-autonomy");
+  });
+
+  it("validates service tier, forced root verbosity, and desktop settings", async () => {
+    const { home } = await fixture();
+    const configPath = join(home, "config.toml");
+    await writeFile(
+      configPath,
+      (await readFile(configPath, "utf8"))
+        .replace('service_tier = "default"', 'service_tier = "priority"')
+        .replace('model_verbosity = "low"', 'model_verbosity = "high"')
+        .replace(
+          'enabled-reasoning-efforts = ["low", "medium", "high"]',
+          'enabled-reasoning-efforts = ["low"]',
+        )
+        .replace("show-context-window-usage = true", "show-context-window-usage = false")
+        .replace('sandbox = "unelevated"', 'sandbox = "elevated"'),
+    );
+    const result = await doctor(home, runtime());
+    expect(result.healthy).toBe(false);
+    expect(codes(result)).toEqual(
+      expect.arrayContaining([
+        "service-tier-stale",
+        "root-verbosity-stale",
+        "desktop-reasoning-stale",
+        "desktop-context-usage-hidden",
+        "windows-sandbox-stale",
+      ]),
+    );
   });
 
   it("distinguishes missing Bun and bunx", async () => {

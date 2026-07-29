@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { nextDevVersion, nextZeroVersion, versionedJson } from "../scripts/version.mjs";
+import {
+  lockfileWorkspaceVersions,
+  nextDevVersion,
+  nextZeroVersion,
+  versionedLockfile,
+  versionedJson,
+} from "../scripts/version.mjs";
 
 describe("zerover versioning", () => {
   it("bumps fixes on the patch component", () => {
@@ -33,5 +39,34 @@ describe("zerover versioning", () => {
       version: "0.6.0-dev.4.2",
       dependencies: { "@holycodex/plugin": "0.6.0-dev.4.2", retained: "1.0.0" },
     });
+  });
+
+  it("reads workspace versions from the Bun lockfile", () => {
+    const source = `{
+  "workspaces": {
+    "": { "name": "holycodex" },
+    "packages/cli": {
+      "name": "holycodex",
+      "version": "0.9.5",
+      "dependencies": { "@holycodex/plugin": "0.9.5" },
+    },
+    "packages/plugin": {
+      "name": "@holycodex/plugin",
+      "version": "0.9.5",
+    },
+  },
+  "packages": {},
+}`;
+
+    expect(lockfileWorkspaceVersions(source)).toEqual({
+      "packages/cli": "0.9.5",
+      "packages/plugin": "0.9.5",
+    });
+    const bumped = versionedLockfile(source, "0.9.6");
+    expect(lockfileWorkspaceVersions(bumped)).toEqual({
+      "packages/cli": "0.9.6",
+      "packages/plugin": "0.9.6",
+    });
+    expect(bumped).toContain('"@holycodex/plugin": "0.9.6"');
   });
 });

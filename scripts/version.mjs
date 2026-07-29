@@ -17,6 +17,10 @@ const jsonFiles = [
 ];
 const packageFile = "packages/cli/package.json";
 const catalogFile = "packages/cli/src/catalog.ts";
+const lockfile = "bun.lock";
+const workspacePackageFiles = jsonFiles.filter(
+  (file) => file.startsWith("packages/") && file.endsWith("/package.json"),
+);
 const generatedVersionFiles = ["packages/plugin/plugin/runtime/core-instructions.js"];
 const JsonObjectSchema = z.record(z.string(), z.unknown());
 const PackageManifestSchema = z.looseObject({
@@ -73,6 +77,7 @@ async function main() {
   }
   await Promise.all(jsonFiles.map((file) => updateJson(file, next)));
   await replaceVersion(catalogFile, current, next);
+  await updateLockfile(next);
   process.stdout.write(
     `Bumped ${current} -> ${next}. Run vp install, vp check --fix, vp test, and vp build.\n`,
   );
@@ -97,6 +102,36 @@ export function versionedJson(file, value, version) {
   return { ...next, dependencies: { ...dependencies, "@holycodex/plugin": version } };
 }
 
+/** Reads package versions from the workspaces section of a Bun text lockfile. */
+export function lockfileWorkspaceVersions(source) {
+  const packagesStart = source.indexOf('\n  "packages": {');
+  const workspaces = packagesStart === -1 ? source : source.slice(0, packagesStart);
+  const versions = {};
+  const entries = /\n    "([^"]+)": \{([\s\S]*?)(?=\n    "[^"]+": \{|\n  \},)/g;
+  for (const match of workspaces.matchAll(entries)) {
+    const version = /\n      "version": "([^"]+)"/.exec(match[2])?.[1];
+    if (version !== undefined) versions[match[1]] = version;
+  }
+  return versions;
+}
+
+/** Updates only workspace package metadata in a Bun text lockfile. */
+export function versionedLockfile(source, version) {
+  const packagesStart = source.indexOf('\n  "packages": {');
+  const boundary = packagesStart === -1 ? source.length : packagesStart;
+  const workspaces = source
+    .slice(0, boundary)
+    .replace(/(\n      "version": ")[^"]+("[,]?)/g, `$1${version}$2`)
+    .replace(/("@holycodex\/plugin": ")[^"]+("[,]?)/g, `$1${version}$2`);
+  return `${workspaces}${source.slice(boundary)}`;
+}
+
+async function updateLockfile(version) {
+  const path = join(root, lockfile);
+  const source = await readFile(path, "utf8");
+  await writeFile(path, versionedLockfile(source, version), "utf8");
+}
+
 async function replaceVersion(file, current, next) {
   const path = join(root, file);
   const source = await readFile(path, "utf8");
@@ -114,6 +149,18 @@ async function checkVersions(expected) {
     throw new Error(`${packageFile}: @holycodex/plugin must match ${expected}`);
   if (!(await readFile(join(root, catalogFile), "utf8")).includes(`VERSION = "${expected}"`))
     throw new Error(`${catalogFile}: missing ${expected}`);
+  const lockSource = await readFile(join(root, lockfile), "utf8");
+  const lockVersions = lockfileWorkspaceVersions(lockSource);
+  for (const file of workspacePackageFiles) {
+    const workspace = dirname(file).replaceAll("\\", "/");
+    const version = lockVersions[workspace];
+    if (version !== expected)
+      throw new Error(
+        `${lockfile}: ${workspace} expected ${expected}, found ${version ?? "missing"}`,
+      );
+  }
+  if (!lockSource.includes(`"@holycodex/plugin": "${expected}"`))
+    throw new Error(`${lockfile}: @holycodex/plugin must match ${expected}`);
   for (const file of generatedVersionFiles)
     if (!(await readFile(join(root, file), "utf8")).includes(expected))
       throw new Error(`${file}: missing ${expected}; rebuild generated runtime`);

@@ -1,3 +1,6 @@
+import { Buffer } from "node:buffer";
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import { MODEL_ROUTING_PLANS, PLAN_NAMES, type PlanName } from "../packages/cli/src/catalog";
@@ -7,8 +10,8 @@ import {
   type AutonomyMode,
 } from "../packages/cli/src/config";
 
-const installConfig = (input: string, mode: AutonomyMode): string =>
-  installPlatformConfig(input, mode, "win32");
+const installConfig = (input: string, mode: AutonomyMode, fast = false): string =>
+  installPlatformConfig(input, mode, "win32", undefined, undefined, fast);
 const installPlanConfig = (input: string, plan: PlanName): string =>
   installPlatformConfig(input, "default", "win32", plan);
 
@@ -135,6 +138,13 @@ describe("Codex configuration", () => {
     expect(output).not.toContain("developer_instructions");
   });
 
+  it("ships supported agent configs with low verbosity", () => {
+    for (const agent of ["explorer", "librarian", "worker"]) {
+      const source = readFileSync(`packages/plugin/plugin/agents/${agent}.toml`, "utf8");
+      expect(source).toContain('model_verbosity = "low"');
+    }
+  });
+
   it("preserves an explicit model and reasoning effort", () => {
     const input = 'model = "gpt-5.6-sol"\nmodel_reasoning_effort = "high"\n';
     expect(installConfig(input, "default")).toContain('model_reasoning_effort = "high"');
@@ -188,14 +198,14 @@ describe("Codex configuration", () => {
     );
   });
 
-  it("preserves an explicit root model verbosity without duplication", () => {
+  it("enforces low root model verbosity and restores the original value during cleanup", () => {
     const output = installConfig('model_verbosity = "high"\n', "default");
     expect(output.match(/^model_verbosity\s*=/gm)).toHaveLength(1);
-    expect(output).toContain('model_verbosity = "high"');
+    expect(output).toContain('model_verbosity = "low"');
     expect(removeManaged(output)).toBe('model_verbosity = "high"');
   });
 
-  it("preserves root preference edits across reinstalls and cleanup", () => {
+  it("reinstalls low root model verbosity after a managed edit and preserves the original cleanup value", () => {
     const installed = installConfig("", "default")
       .replace('model = "gpt-5.6-sol"', 'model = "user/model"')
       .replace('model_reasoning_effort = "medium"', 'model_reasoning_effort = "high"')
@@ -206,9 +216,9 @@ describe("Codex configuration", () => {
     expect(reinstalled.match(/^model_verbosity\s*=/gm)).toHaveLength(1);
     expect(reinstalled).toContain('model = "user/model"');
     expect(reinstalled).toContain('model_reasoning_effort = "high"');
-    expect(reinstalled).toContain('model_verbosity = "high"');
+    expect(reinstalled).toContain('model_verbosity = "low"');
     expect(removeManaged(reinstalled)).toBe(
-      'model = "user/model"\nmodel_reasoning_effort = "high"\nmodel_verbosity = "high"',
+      'model = "user/model"\nmodel_reasoning_effort = "high"',
     );
     expect(installConfig(reinstalled, "default")).toBe(reinstalled);
   });
@@ -272,6 +282,56 @@ describe("Codex configuration", () => {
     const output = installConfig("", "dangerous");
     expect(output).toContain('approval_policy = "never"');
     expect(output).toContain('sandbox_mode = "danger-full-access"');
+  });
+
+  it("owns the requested service tier and restores the pre-install value", () => {
+    const input = 'service_tier = "default"\n';
+    const fast = installConfig(input, "default", true);
+    expect(fast).toContain('service_tier = "fast"');
+    expect(fast.match(/^service_tier\s*=/gm)).toHaveLength(1);
+    expect(removeManaged(fast)).toBe(input.trim());
+
+    const standard = installConfig(fast, "default");
+    expect(standard).toContain('service_tier = "default"');
+    expect(standard.match(/^service_tier\s*=/gm)).toHaveLength(1);
+    expect(removeManaged(standard)).toBe(input.trim());
+  });
+
+  it("installs desktop and Windows settings in merged managed tables", () => {
+    const input = '[desktop]\nshow-context-window-usage = false\n[windows]\nsandbox = "elevated"\n';
+    const output = installConfig(input, "default");
+    expect(output.match(/^\[desktop]/gm)).toHaveLength(1);
+    expect(output).toContain('enabled-reasoning-efforts = ["low", "medium", "high"]');
+    expect(output).toContain("show-context-window-usage = true");
+    expect(output.match(/^\[windows]/gm)).toHaveLength(1);
+    expect(output).toContain('sandbox = "unelevated"');
+    expect(removeManaged(output)).toBe(input.trim());
+    expect(installConfig(output, "default")).toBe(output);
+  });
+
+  it("does not add sandbox workspace networking for dangerous autonomy", () => {
+    const output = installConfig("", "dangerous");
+    expect(output).not.toContain("[sandbox_workspace_write]");
+  });
+
+  it("migrates duplicate legacy managed root values without retaining them", () => {
+    const legacy =
+      '# >>> holycodex managed >>>\nnotify = ["old"]\nnotify = ["old"]\n# <<< holycodex managed <<<\n' +
+      '[mcp_servers.user]\ncommand = "user-runtime"\n';
+    const output = installConfig(legacy, "default");
+    expect(output.match(/^notify\s*=/gm) ?? []).toHaveLength(0);
+    expect(output).toContain('[mcp_servers.user]\ncommand = "user-runtime"');
+    expect(removeManaged(output)).toBe('[mcp_servers.user]\ncommand = "user-runtime"');
+  });
+
+  it("keeps unrelated root settings outside original-root metadata", () => {
+    const input = 'notify = ["chatgpt-runtime"]\nservice_tier = "priority"\n';
+    const output = installConfig(input, "default");
+    const encoded = /^# holycodex original root: ([A-Za-z0-9+/=]+)$/m.exec(output)?.[1];
+    expect(encoded).toBeDefined();
+    expect(Buffer.from(encoded ?? "", "base64").toString("utf8")).toBe('service_tier = "priority"');
+    expect(output.match(/^notify\s*=/gm)).toHaveLength(1);
+    expect(removeManaged(output)).toBe(input.trim());
   });
 
   it("migrates former autonomous full access to containment and restores prior config", () => {

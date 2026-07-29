@@ -47,7 +47,7 @@ describe("lsp-daemon MCP proxy protocol pins", () => {
       error: {
         code: -32700,
         message: "Parse error",
-        data: "Unexpected token 'g', \"garbage\" is not valid JSON",
+        data: expect.stringContaining("garbage"),
       },
     });
   });

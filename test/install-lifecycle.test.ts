@@ -47,7 +47,7 @@ describe("install lifecycle", () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-build-web-apps-"));
     process.env.CODEX_HOME = home;
     await install({ autonomy: "default", json: false }, windowsRuntime);
-    await expect(access(join(home, "config.toml"))).resolves.toBeUndefined();
+    await access(join(home, "config.toml"));
   });
   it("preserves older caches while replacing current managed files", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-cache-replacement-"));
@@ -64,9 +64,7 @@ describe("install lifecycle", () => {
 
     await expect(readFile(join(olderCache, "held.txt"), "utf8")).resolves.toBe("held");
     await expect(access(join(currentCache, "stale.txt"))).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(
-      access(join(currentCache, ".codex-plugin", "plugin.json")),
-    ).resolves.toBeUndefined();
+    await access(join(currentCache, ".codex-plugin", "plugin.json"));
   });
   it("preserves unrelated config, removes legacy OMO, and cleans only HolyCodex", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-test-"));

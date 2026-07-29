@@ -25,6 +25,7 @@ import { rootTomlString } from "./toml.ts";
 
 export type RunOptions = {
   readonly autonomy: AutonomyMode;
+  readonly fast?: boolean;
   readonly json: boolean;
   readonly plan?: PlanName;
   readonly maxSubagents?: number;
@@ -97,6 +98,7 @@ export async function install(
     runtime.platform,
     plan,
     options.maxSubagents,
+    options.fast ?? false,
   );
   await atomicWrite(target.config, config);
   await rm(target.cache, { recursive: true, force: true });
@@ -201,6 +203,7 @@ async function writeInstalledAgents(
       let source = await readText(path);
       source = replaceTomlString(source, "model", route.model);
       source = replaceTomlString(source, "model_reasoning_effort", route.reasoningEffort);
+      source = replaceTomlString(source, "model_verbosity", "low");
       if (platform === "win32") {
         await atomicWrite(path, source);
         return;
