@@ -96,7 +96,10 @@ describe("HolyCodex catalog", () => {
         ),
       ),
     ).toBe(true);
-    expect(MODEL_ROUTING_PLANS["plus-high"].agents.librarian.reasoningEffort).toBe("high");
+    expect(MODEL_ROUTING_PLANS.plus.agents.librarian).toEqual({
+      model: "gpt-5.6-terra",
+      reasoningEffort: "medium",
+    });
     expect(
       new Set(Object.values(MODEL_ROUTING_PLANS["pro-20x"].agents).map((route) => route.model)),
     ).toEqual(new Set(["gpt-5.6-luna", "gpt-5.6-sol"]));
@@ -113,8 +116,12 @@ describe("HolyCodex catalog", () => {
       reasoningEffort: "high",
     });
     expect(MODEL_ROUTING_PLANS["plus-high"].agents.worker).toEqual({
-      model: "gpt-5.6-sol",
-      reasoningEffort: "low",
+      model: "gpt-5.6-terra",
+      reasoningEffort: "high",
+    });
+    expect(MODEL_ROUTING_PLANS["pro-5x"].agents.librarian).toEqual({
+      model: "gpt-5.6-terra",
+      reasoningEffort: "high",
     });
     expect(MODEL_ROUTING_PLANS["pro-5x"].agents.worker).toEqual({
       model: "gpt-5.6-sol",
@@ -123,6 +130,10 @@ describe("HolyCodex catalog", () => {
     expect(MODEL_ROUTING_PLANS["pro-20x"].agents.worker).toEqual({
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
+    });
+    expect(MODEL_ROUTING_PLANS["pro-20x"].agents.librarian).toEqual({
+      model: "gpt-5.6-sol",
+      reasoningEffort: "medium",
     });
   });
 

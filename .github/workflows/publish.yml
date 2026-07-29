@@ -12,7 +12,6 @@ on:
   push:
     branches:
       - main
-      - dev
 
 permissions:
   contents: write
@@ -36,21 +35,12 @@ jobs:
       - run: npm install --global npm@11.5.1
       - run: bunx --package vite-plus@0.2.4 vp install --frozen-lockfile
       - run: bunx vp check --fix
-      - name: Derive unique dev version
-        if: github.ref_name == 'dev'
-        shell: bash
-        run: |
-          BASE_VERSION="$(node -p "require('./packages/cli/package.json').version.replace(/[-+].*$/, '')")"
-          DEV_VERSION="${BASE_VERSION}-dev.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
-          npm version "$DEV_VERSION" --no-git-tag-version --package-lock=false
-          bun scripts/version.mjs dev "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
-          test "$(node -p "require('./packages/cli/package.json').version")" = "$DEV_VERSION"
       - run: bunx vp run build
       - run: bunx vp test
       - run: bunx vp run version:check
       - name: Check existing stable package versions
         id: stable
-        if: github.ref_name == 'main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           check_package() {
@@ -72,13 +62,13 @@ jobs:
           check_package plugin "$PLUGIN_SPEC"
           check_package cli "$CLI_SPEC"
       - name: Publish stable plugin
-        if: github.ref_name == 'main' && steps.stable.outputs.plugin_exists == 'false'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.stable.outputs.plugin_exists == 'false'
         run: npm publish ./packages/plugin --access public --tag latest
       - name: Publish stable CLI
-        if: github.ref_name == 'main' && steps.stable.outputs.cli_exists == 'false'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.stable.outputs.cli_exists == 'false'
         run: npm publish ./packages/cli --tag latest
       - name: Create GitHub release
-        if: github.ref_name == 'main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -87,9 +77,3 @@ jobs:
           if ! gh release view "v${VERSION}" > /dev/null 2>&1; then
             gh release create "v${VERSION}" --generate-notes --target "$GITHUB_SHA" --title "v${VERSION}"
           fi
-      - name: Publish dev plugin
-        if: github.ref_name == 'dev'
-        run: npm publish ./packages/plugin --access public --tag dev
-      - name: Publish dev CLI
-        if: github.ref_name == 'dev'
-        run: npm publish ./packages/cli --tag dev

@@ -73,7 +73,7 @@ describe("public package layout", () => {
 });
 
 describe("npm release workflows", () => {
-  it("uses one trusted workflow for stable and dev publication", async () => {
+  it("uses one trusted workflow for main-only stable publication", async () => {
     const workflowDirectory = join(root, ".github", "workflows");
     const publishingWorkflows: string[] = [];
     for (const file of await readdir(workflowDirectory)) {
@@ -84,7 +84,10 @@ describe("npm release workflows", () => {
 
     const workflow = await readFile(join(root, ".github", "workflows", "publish.yml"), "utf8");
     expect(workflow).toContain("- main");
-    expect(workflow).toContain("- dev");
+    expect(workflow).not.toContain("- dev");
+    expect(workflow).not.toMatch(
+      /github\.ref_name == 'dev'|--tag dev|Derive unique dev version|GITHUB_RUN_ID|GITHUB_RUN_ATTEMPT/,
+    );
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("id-token: write");
     expect(workflow).toContain('node-version: "24"');
@@ -110,32 +113,11 @@ describe("npm release workflows", () => {
 
   it("publishes stable versions under latest and skips versions already present", async () => {
     const workflow = await readFile(join(root, ".github", "workflows", "publish.yml"), "utf8");
-    expect(workflow).toContain("github.ref_name == 'main'");
+    expect(workflow).toContain("github.event_name == 'push' && github.ref == 'refs/heads/main'");
     expect(workflow).toContain("npm view");
     expect(workflow.match(/--tag latest/g)).toHaveLength(2);
     expect(
       workflow.indexOf("npm publish ./packages/plugin --access public --tag latest"),
     ).toBeLessThan(workflow.indexOf("npm publish ./packages/cli --tag latest"));
-  });
-
-  it("publishes unique dev versions under only the dev dist-tag", async () => {
-    const workflow = await readFile(join(root, ".github", "workflows", "publish.yml"), "utf8");
-    expect(workflow).toContain("github.ref_name == 'dev'");
-    expect(workflow).toContain("GITHUB_RUN_ID");
-    expect(workflow).toContain("GITHUB_RUN_ATTEMPT");
-    expect(workflow).toContain(
-      'DEV_VERSION="${BASE_VERSION}-dev.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"',
-    );
-    expect(workflow).toContain('npm version "$DEV_VERSION" --no-git-tag-version');
-    expect(workflow.indexOf("bunx vp check --fix")).toBeLessThan(
-      workflow.indexOf("Derive unique dev version"),
-    );
-    expect(workflow.indexOf("Derive unique dev version")).toBeLessThan(
-      workflow.indexOf("bunx vp run build"),
-    );
-    expect(
-      workflow.indexOf("npm publish ./packages/plugin --access public --tag dev"),
-    ).toBeLessThan(workflow.indexOf("npm publish ./packages/cli --tag dev"));
-    expect(workflow.match(/--tag dev/g)).toHaveLength(2);
   });
 });

@@ -24,14 +24,14 @@ Root owns user interaction, scope, architecture, integration, and final verifica
 
 Current routing values are:
 
-| Plan        | Root                 | Explorer             | Librarian            | Worker                | Direct subagents |
-| ----------- | -------------------- | -------------------- | -------------------- | --------------------- | ---------------- |
-| `go`        | GPT-5.6 Terra medium | GPT-5.6 Terra low    | GPT-5.6 Terra low    | GPT-5.6 Terra medium  | 0                |
-| `plus-low`  | GPT-5.6 Sol low      | GPT-5.6 Luna low     | GPT-5.6 Luna medium  | GPT-5.6 Terra medium  | 1                |
-| `plus`      | GPT-5.6 Sol medium   | GPT-5.6 Luna medium  | GPT-5.6 Terra low    | GPT-5.6 Terra high    | 2                |
-| `plus-high` | GPT-5.6 Sol medium   | GPT-5.6 Luna high    | GPT-5.6 Luna high    | GPT-5.6 Sol low       | 2                |
-| `pro-5x`    | GPT-5.6 Sol medium   | GPT-5.6 Luna high    | GPT-5.6 Luna xhigh   | GPT-5.6 Sol medium    | 2                |
-| `pro-20x`   | GPT-5.6 Sol high     | GPT-5.6 Luna xhigh   | GPT-5.6 Luna xhigh   | GPT-5.6 Sol high      | 2                |
+| Plan        | Root                 | Explorer            | Librarian            | Worker               | Direct subagents |
+| ----------- | -------------------- | ------------------- | -------------------- | -------------------- | ---------------- |
+| `go`        | GPT-5.6 Terra medium | GPT-5.6 Terra low   | GPT-5.6 Terra low    | GPT-5.6 Terra medium | 0                |
+| `plus-low`  | GPT-5.6 Sol low      | GPT-5.6 Luna low    | GPT-5.6 Luna medium  | GPT-5.6 Terra medium | 1                |
+| `plus`      | GPT-5.6 Sol medium   | GPT-5.6 Luna medium | GPT-5.6 Terra medium | GPT-5.6 Terra high   | 2                |
+| `plus-high` | GPT-5.6 Sol medium   | GPT-5.6 Luna high   | GPT-5.6 Luna high    | GPT-5.6 Terra high   | 2                |
+| `pro-5x`    | GPT-5.6 Sol medium   | GPT-5.6 Luna high   | GPT-5.6 Terra high   | GPT-5.6 Sol medium   | 2                |
+| `pro-20x`   | GPT-5.6 Sol high     | GPT-5.6 Luna xhigh  | GPT-5.6 Sol medium   | GPT-5.6 Sol high     | 2                |
 
 `plus` is the default plan.
 
@@ -82,14 +82,9 @@ bunx holycodex cleanup
 
 Cleanup backs up affected state, removes HolyCodex-owned configuration and artifacts, and restores managed values. Install and cleanup are idempotent.
 
-## Development channel
+## Publishing
 
-```sh
-bunx holycodex@dev install
-bunx holycodex@dev doctor
-```
-
-The `dev` tag tracks prereleases. Stable releases use `latest`.
+Pull requests to `main` run release validation. Pushes to `main` publish stable `latest` releases with npm trusted publishing. Protect `main`.
 
 ## Contributing
 
@@ -108,7 +103,7 @@ vp check --fix
 vp test
 ```
 
-`.github/workflows/publish.yml` publishes `dev` prereleases from `dev` and stable `latest` releases from `main` using npm trusted publishing. Protect both branches.
+`.github/workflows/publish.yml` publishes stable `latest` releases from `main` using npm trusted publishing.
 
 ## Credits and license
 
