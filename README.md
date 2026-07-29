@@ -56,14 +56,14 @@ HolyCodex restores native Codex workspace I/O. It does not install an editing MC
 ## Options
 
 ```sh
-holycodex install                              # on-request, workspace-write, network on
+holycodex install                              # custom config.toml; on-request, workspace-write, network on
 holycodex install --plan <plan>
 holycodex install --max-subagents <0..3>
 holycodex install --fast                     # fast Codex service tier
 holycodex install --no-fast                  # default Codex service tier
-holycodex install --codex-autonomous           # never ask, workspace-write, network on
-holycodex install --dangerous-codex-autonomous # never ask, unrestricted host access
-holycodex install --no-codex-autonomous        # contained default behavior
+holycodex install --codex-autonomous           # custom config.toml; never ask, workspace-write, network on
+holycodex install --dangerous-codex-autonomous # custom config.toml; never ask, unrestricted host access
+holycodex install --no-codex-autonomous        # custom config.toml; contained default behavior
 holycodex install --json
 holycodex doctor [--json]
 holycodex --help

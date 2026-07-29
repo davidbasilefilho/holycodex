@@ -284,6 +284,27 @@ describe("Codex configuration", () => {
     expect(output).toContain('sandbox_mode = "danger-full-access"');
   });
 
+  it.each(["default", "autonomous", "dangerous"] as const)(
+    "selects config.toml permissions in %s mode",
+    (mode) => {
+      const output = installConfig("", mode);
+      expect(output).toContain('default_permissions = "holycodex-config"');
+      expect(output).toContain("[permissions.holycodex-config]");
+      expect(output).toContain('extends = ":workspace"');
+      expect(output).toContain("[permissions.holycodex-config.network]");
+      expect(output).toContain("enabled = true");
+    },
+  );
+
+  it("restores the original permission profile during cleanup", () => {
+    const input =
+      'default_permissions = "user-profile"\n' +
+      '[permissions.user-profile]\nextends = ":read-only"\n';
+    const output = installConfig(input, "autonomous");
+    expect(output).toContain('default_permissions = "holycodex-config"');
+    expect(removeManaged(output)).toBe(input.trim());
+  });
+
   it("owns the requested service tier and restores the pre-install value", () => {
     const input = 'service_tier = "default"\n';
     const fast = installConfig(input, "default", true);

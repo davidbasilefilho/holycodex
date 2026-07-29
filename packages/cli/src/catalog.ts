@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const VERSION = "0.9.5";
+export const VERSION = "0.10.0";
 
 export const SKILLS = [
   "ast-grep",
