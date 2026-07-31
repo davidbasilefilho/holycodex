@@ -33,6 +33,11 @@ const runtime: InstallRuntime = {
   }),
 };
 
+function rootTomlAssignmentCount(input: string, key: string): number {
+  const root = input.split(/^\s*\[/m, 1)[0] ?? "";
+  return root.match(new RegExp(`^${key}\\s*=`, "gm"))?.length ?? 0;
+}
+
 afterEach(() => {
   if (originalHome === undefined) delete process.env.CODEX_HOME;
   else process.env.CODEX_HOME = originalHome;
@@ -120,6 +125,7 @@ describe("routing and Fast mode seams", () => {
     for (const agent of AGENTS) {
       const source = await readFile(join(home, "holycodex", "agents", `${agent}.toml`), "utf8");
       expect(rootTomlString(source, "service_tier")).toBe(agentTier);
+      expect(rootTomlAssignmentCount(source, "service_tier")).toBe(1);
     }
   });
 
@@ -136,6 +142,10 @@ describe("routing and Fast mode seams", () => {
     expect(rootTomlString(await readFile(join(home, "config.toml"), "utf8"), "service_tier")).toBe(
       "default",
     );
+    for (const agent of AGENTS) {
+      const source = await readFile(join(home, "holycodex", "agents", `${agent}.toml`), "utf8");
+      expect(rootTomlAssignmentCount(source, "service_tier")).toBe(1);
+    }
     const explorer = await readFile(explorerPath, "utf8");
     expect(rootTomlString(explorer, "service_tier")).toBe("default");
     expect(explorer).toContain("temperature = 0.2");

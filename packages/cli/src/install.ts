@@ -226,10 +226,11 @@ function replaceTomlString(input: string, key: string, value: string): string {
 }
 
 function replaceOrAppendTomlString(input: string, key: string, value: string): string {
+  const hasRootAssignment = rootTomlString(input, key) !== undefined;
   const replaced = replaceTomlString(input, key, value);
-  return replaced === input
-    ? `${input.trimEnd()}${input.trimEnd() === "" ? "" : "\n"}${key} = ${JSON.stringify(value)}\n`
-    : replaced;
+  return hasRootAssignment
+    ? replaced
+    : `${input.trimEnd()}${input.trimEnd() === "" ? "" : "\n"}${key} = ${JSON.stringify(value)}\n`;
 }
 
 function extractCustomAgentSettings(input: string): AgentCustomSettings | undefined {
