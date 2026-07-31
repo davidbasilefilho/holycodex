@@ -10,6 +10,23 @@ import {
   PLAN_NAMES,
   type PlanName,
 } from "./catalog.ts";
+import {
+  AUTONOMY_METADATA_PREFIX,
+  inferAutonomyMode,
+  normalizeRequestedAutonomy,
+  originalPermissionMetadata,
+  permissionSelectionForMode,
+  permissionSelectionMatchesMode,
+  permissionSelectionsEqual,
+  readAutonomyMetadata,
+  readOriginalPermissionMetadata,
+  readPermissionLines,
+  readRawPermissionSelection,
+  removePermissionLines,
+  selectPermissionSelection,
+  type AutonomyMode,
+  type RequestedAutonomy,
+} from "./permission-selection.ts";
 import { rootTomlString, rootTomlStringArray, rootTomlStringArraySource } from "./toml.ts";
 
 const START = "# >>> holycodex managed >>>";
@@ -19,9 +36,8 @@ const ORIGINAL_TABLE_KEY = "# holycodex original table key: ";
 const PLAN_PREFIX = "# holycodex plan: ";
 const FAST_MODE_PREFIX = "# holycodex fast: ";
 const MAX_SUBAGENTS_PREFIX = "# holycodex max-subagents: ";
-const MANAGED_PERMISSION_PROFILE = "holycodex-config";
 
-export type AutonomyMode = "default" | "autonomous" | "dangerous";
+export type { AutonomyMode, RequestedAutonomy } from "./permission-selection.ts";
 export type ManagedMaxSubagents =
   | { readonly configured: false }
   | { readonly configured: true; readonly value?: number };
@@ -46,16 +62,64 @@ const OLD_NAMESPACES = [
   'hooks.state."omo@code-yeongyu-codex-plugins',
 ] as const;
 
-/** Removes managed. */
-export function removeManaged(input: string): string {
+function readOriginalRootMetadata(input: string): string | undefined {
+  const encoded = input.match(/^# holycodex original root: ([A-Za-z0-9+/=]+)$/m)?.[1];
+  return encoded === undefined ? undefined : Buffer.from(encoded, "base64").toString("utf8");
+}
+
+function readLegacyGeneratedRoot(input: string): string | undefined {
+  const body = input.match(
+    /^# >>> holycodex managed >>>\r?\n([\s\S]*?)^# <<< holycodex managed <<</m,
+  )?.[1];
+  if (body === undefined || readPermissionLines(body).length === 0) return undefined;
+  return inferAutonomyMode(readRawPermissionSelection(body)) === "custom" ? undefined : body;
+}
+
+/** Removes managed configuration and restores durable original values. */
+export function removeManaged(input: string, preserveGeneratedPermissions = false): string {
   const escapedStart = START.replaceAll(">", "\\>");
   const escapedEnd = END.replaceAll("<", "\\<");
   return input
     .replace(
       new RegExp(`${escapedStart}([\\s\\S]*?)${escapedEnd}(?:\\r?\\n){0,2}`, "g"),
       (_match, body: string) => {
-        const encoded = body.match(/^# holycodex original root: ([A-Za-z0-9+/=]+)$/m)?.[1];
-        if (encoded !== undefined) return `${Buffer.from(encoded, "base64").toString("utf8")}\n`;
+        const original = readOriginalRootMetadata(body);
+        const originalPermissions = readOriginalPermissionMetadata(body);
+        const currentPermissions = readPermissionLines(body);
+        const currentSelection = readRawPermissionSelection(body);
+        const metadata = readAutonomyMetadata(body);
+        const expected =
+          metadata === undefined || metadata === "custom"
+            ? originalPermissions === undefined
+              ? undefined
+              : readRawPermissionSelection(originalPermissions.join("\n"))
+            : permissionSelectionForMode(metadata);
+        const generated =
+          metadata !== undefined && metadata !== "custom"
+            ? permissionSelectionMatchesMode(currentSelection, metadata)
+            : expected !== undefined
+              ? permissionSelectionsEqual(currentSelection, expected)
+              : metadata === undefined &&
+                ["default", "autonomous", "dangerous"].some((mode) =>
+                  permissionSelectionMatchesMode(currentSelection, mode as AutonomyMode),
+                );
+        const preserveCurrent = preserveGeneratedPermissions || !generated;
+        if (original !== undefined) {
+          const restored = preserveCurrent
+            ? `${removePermissionLines(original)}${
+                currentPermissions.length === 0 ? "" : `\n${currentPermissions.join("\n")}`
+              }`.trim()
+            : `${removePermissionLines(original)}${
+                (originalPermissions ?? readPermissionLines(original)).length === 0
+                  ? ""
+                  : `\n${(originalPermissions ?? readPermissionLines(original)).join("\n")}`
+              }`.trim();
+          return `${restored}\n`;
+        }
+        if (!preserveCurrent && originalPermissions !== undefined)
+          return `${originalPermissions.join("\n")}\n`;
+        if (preserveCurrent && currentPermissions.length > 0)
+          return `${currentPermissions.join("\n")}\n`;
         const tableKeys = [
           ...body.matchAll(/^# holycodex original table key: ([A-Za-z0-9+/=]+)$/gm),
         ].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
@@ -224,17 +288,49 @@ function mergedStatusLine(original: string | undefined): string {
 /** Installs config. */
 export function installConfig(
   input: string,
-  mode: AutonomyMode,
+  mode: AutonomyMode | RequestedAutonomy | undefined,
   _platform: NodeJS.Platform,
   plan: PlanName = DEFAULT_PLAN,
   maxSubagents?: number,
   fastMode: FastMode = "standard",
 ): string {
-  const unmanaged = removeLegacyOmo(removeManaged(input));
+  const request = normalizeRequestedAutonomy(mode);
+  const priorAutonomy = readAutonomyMetadata(input);
+  const previousOriginalRoot = readOriginalRootMetadata(input);
+  const legacyGeneratedRoot = readLegacyGeneratedRoot(input);
+  const originalPermissionLines = readOriginalPermissionMetadata(input);
+  const unmanaged = removeLegacyOmo(removeManaged(input, !request.requested));
   const base = preserveManagedRootPreferences(input, unmanaged);
   const firstTable = base.search(/^\s*\[/m);
   const root = firstTable < 0 ? base : base.slice(0, firstTable);
   const tables = firstTable < 0 ? "" : base.slice(firstTable);
+  const livePermissions = readRawPermissionSelection(root);
+  const permissions = selectPermissionSelection(livePermissions, request);
+  const effectiveAutonomy = request.requested
+    ? inferAutonomyMode(permissions)
+    : (priorAutonomy ?? inferAutonomyMode(permissions));
+  const rootPermissionLines = [
+    permissions.approvalPolicy === undefined
+      ? undefined
+      : `approval_policy = ${JSON.stringify(permissions.approvalPolicy)}`,
+    permissions.approvalsReviewer === undefined
+      ? undefined
+      : `approvals_reviewer = ${JSON.stringify(permissions.approvalsReviewer)}`,
+    permissions.sandboxMode === undefined
+      ? undefined
+      : `sandbox_mode = ${JSON.stringify(permissions.sandboxMode)}`,
+  ].filter((line): line is string => line !== undefined);
+  const hadManagedAutonomy = readAutonomyMetadata(input) !== undefined;
+  const hadOriginalRoot = /^# holycodex original root:/m.test(input);
+  const permissionLines =
+    originalPermissionLines ??
+    (legacyGeneratedRoot !== undefined && previousOriginalRoot === undefined
+      ? []
+      : previousOriginalRoot === undefined
+        ? hadManagedAutonomy && !hadOriginalRoot
+          ? []
+          : readPermissionLines(root)
+        : readPermissionLines(previousOriginalRoot));
   const controlled = [
     "approval_policy",
     "approvals_reviewer",
@@ -243,8 +339,9 @@ export function installConfig(
     "status_line",
     "model_verbosity",
     "service_tier",
+    ...(request.requested ? ["default_permissions"] : []),
   ].map((key) => rootValue(root, key));
-  const preservedRoot = [
+  const controlledKeys = [
     "approval_policy",
     "approvals_reviewer",
     "sandbox_mode",
@@ -252,9 +349,9 @@ export function installConfig(
     "status_line",
     "model_verbosity",
     "service_tier",
-  ]
-    .reduce(removeRootKey, root)
-    .trim();
+    ...(request.requested ? ["default_permissions"] : []),
+  ];
+  const preservedRoot = controlledKeys.reduce(removeRootKey, root).trim();
   const originalControlled = controlled
     .filter((value): value is string => value !== undefined)
     .sort((left, right) => root.indexOf(left) - root.indexOf(right))
@@ -265,24 +362,20 @@ export function installConfig(
   const effectiveMaxSubagents = maxSubagents ?? MODEL_ROUTING_PLANS[plan].usage.maxSubagents;
   const model = hasModel ? "" : `model = "${rootRoute.model}"\n`;
   const effort = hasEffort ? "" : `model_reasoning_effort = "${rootRoute.reasoningEffort}"\n`;
-  const approval = mode === "default" ? "on-request" : "never";
-  const approvalsReviewer = mode === "default" ? 'approvals_reviewer = "auto_review"\n' : "";
-  const sandbox = mode === "dangerous" ? "danger-full-access" : "workspace-write";
-  const original = originalControlled
-    ? `${ORIGINAL_ROOT}${Buffer.from(originalControlled).toString("base64")}\n`
+  const originalSource =
+    previousOriginalRoot === undefined
+      ? priorAutonomy === undefined && legacyGeneratedRoot === undefined
+        ? originalControlled
+        : ""
+      : removePermissionLines(previousOriginalRoot);
+  const original = originalSource
+    ? `${ORIGINAL_ROOT}${Buffer.from(originalSource).toString("base64")}\n`
     : "";
   const maxSubagentsMetadata =
     maxSubagents === undefined ? "" : `${MAX_SUBAGENTS_PREFIX}${maxSubagents}\n`;
   const rootServiceTier = fastMode === "fast-all" ? "fast" : "default";
-  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${FAST_MODE_PREFIX}${fastMode}\n${maxSubagentsMetadata}${original}${model}${effort}model_verbosity = "low"\nservice_tier = "${rootServiceTier}"\napproval_policy = "${approval}"\n${approvalsReviewer}sandbox_mode = "${sandbox}"\nstatus_line = ${mergedStatusLine(rootValue(root, "status_line"))}\n${END}`;
+  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${FAST_MODE_PREFIX}${fastMode}\n${AUTONOMY_METADATA_PREFIX}${effectiveAutonomy}\n${maxSubagentsMetadata}${original}${originalPermissionMetadata(permissionLines)}${model}${effort}model_verbosity = "low"\nservice_tier = "${rootServiceTier}"\n${rootPermissionLines.join("\n")}\nstatus_line = ${mergedStatusLine(rootValue(root, "status_line"))}\n${END}`;
   let configured = `${preservedRoot ? `${preservedRoot}\n` : ""}${rootBlock}${tables ? `\n\n${tables}` : ""}`;
-  configured = injectTableKeys(configured, `permissions.${MANAGED_PERMISSION_PROFILE}`, [
-    ["description", '"HolyCodex config.toml permissions."'],
-    ["extends", '":workspace"'],
-  ]);
-  configured = injectTableKeys(configured, `permissions.${MANAGED_PERMISSION_PROFILE}.network`, [
-    ["enabled", "true"],
-  ]);
   configured = injectTableKeys(configured, "features", [
     ["default_mode_request_user_input", "true"],
     ["multi_agent", "true"],
@@ -293,7 +386,7 @@ export function installConfig(
     ["max_threads", String(effectiveMaxSubagents + 1)],
     ["max_depth", String(usage.maxDepth)],
   ]);
-  if (mode !== "dangerous")
+  if (effectiveAutonomy !== "dangerous")
     configured = injectTableKeys(configured, "sandbox_workspace_write", [
       ["network_access", "true"],
     ]);

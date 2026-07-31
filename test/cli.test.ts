@@ -228,8 +228,7 @@ describe("CLI", () => {
     expect(config).toContain('approvals_reviewer = "auto_review"');
     expect(config).toContain('sandbox_mode = "workspace-write"');
     expect(config).not.toContain("default_permissions");
-    expect(config).toContain("[permissions.holycodex-config]");
-    expect(config).toContain("[permissions.holycodex-config.network]");
+    expect(config).toContain("# holycodex autonomy: default");
   });
 
   it("keeps the safe defaults with --no-codex-autonomous", async () => {
@@ -242,6 +241,21 @@ describe("CLI", () => {
     expect(config).toContain('approval_policy = "on-request"');
     expect(config).toContain('approvals_reviewer = "auto_review"');
     expect(config).toContain('sandbox_mode = "workspace-write"');
+  });
+
+  it("preserves a live permission tuple when autonomy is omitted on reinstall", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-cli-omitted-autonomy-"));
+    await run(process.execPath, ["packages/cli/src/cli.ts", "install", "--codex-autonomous"], {
+      env: { ...process.env, CODEX_HOME: home },
+    });
+    await run(process.execPath, ["packages/cli/src/cli.ts", "install"], {
+      env: { ...process.env, CODEX_HOME: home },
+    });
+    const config = await readFile(join(home, "config.toml"), "utf8");
+    expect(config).toContain('approval_policy = "never"');
+    expect(config).toContain('sandbox_mode = "workspace-write"');
+    expect(config).not.toContain('approvals_reviewer = "auto_review"');
+    expect(config).toContain("# holycodex autonomy: autonomous");
   });
 
   it("supports sandboxed and explicitly dangerous autonomy", async () => {

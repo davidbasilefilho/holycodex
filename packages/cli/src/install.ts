@@ -26,12 +26,18 @@ import {
   type CodexProcessRunner,
   type CodexSecurityInstallResult,
 } from "./codex-security.ts";
-import { installConfig, readManagedPlan, removeManaged, type AutonomyMode } from "./config.ts";
+import {
+  installConfig,
+  readManagedPlan,
+  removeManaged,
+  type AutonomyMode,
+  type RequestedAutonomy,
+} from "./config.ts";
 import { atomicWrite, backup, exists, readText } from "./files.ts";
 import { rootTomlString } from "./toml.ts";
 
 export type RunOptions = {
-  readonly autonomy: AutonomyMode;
+  readonly autonomy?: AutonomyMode | RequestedAutonomy;
   readonly fast?: FastMode;
   readonly json: boolean;
   readonly plan?: PlanName;

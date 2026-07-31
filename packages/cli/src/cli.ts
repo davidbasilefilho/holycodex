@@ -1,6 +1,7 @@
 import process from "node:process";
 
 import { DEFAULT_PLAN, PLAN_NAMES, PlanNameSchema, VERSION } from "./catalog.ts";
+import type { RequestedAutonomy } from "./config.ts";
 import { doctor } from "./doctor.ts";
 import { cleanup, install, type RunOptions } from "./install.ts";
 import {
@@ -78,12 +79,15 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  const autonomy: RequestedAutonomy = args.includes("--dangerous-codex-autonomous")
+    ? { requested: true, mode: "dangerous" }
+    : args.includes("--codex-autonomous")
+      ? { requested: true, mode: "autonomous" }
+      : args.includes("--no-codex-autonomous")
+        ? { requested: true, mode: "default" }
+        : { requested: false };
   const options: RunOptions = {
-    autonomy: args.includes("--dangerous-codex-autonomous")
-      ? "dangerous"
-      : args.includes("--codex-autonomous")
-        ? "autonomous"
-        : "default",
+    autonomy,
     json: args.includes("--json"),
     fast: args.includes("--fast-all") ? "fast-all" : args.includes("--fast") ? "fast" : "standard",
     plan,
@@ -97,7 +101,7 @@ async function main(): Promise<void> {
     if (!result.healthy) process.exitCode = 1;
     return;
   }
-  if (options.autonomy === "dangerous")
+  if (autonomy.requested && autonomy.mode === "dangerous")
     process.stderr.write(
       renderNotice(
         "warning",

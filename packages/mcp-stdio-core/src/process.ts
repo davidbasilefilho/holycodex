@@ -28,6 +28,7 @@ export type ManagedProcessResult = {
   readonly matched: boolean;
   readonly outputTruncated: boolean;
   readonly error?: string;
+  readonly errorCode?: string;
 };
 
 type OutputState = { head: string; tail: string; truncated: boolean };
@@ -53,6 +54,7 @@ export async function runManagedProcess(
         detached: input.platform !== "win32",
       });
     } catch (error) {
+      const code = errorCode(error);
       resolve({
         exitCode: null,
         stdout: "",
@@ -61,6 +63,7 @@ export async function runManagedProcess(
         matched: false,
         outputTruncated: false,
         error: error instanceof Error ? error.message : String(error),
+        ...(code === undefined ? {} : { errorCode: code }),
       });
       return;
     }
@@ -86,7 +89,7 @@ export async function runManagedProcess(
     let settled = false;
     let forceKillTimeout: NodeJS.Timeout | undefined;
 
-    const finish = (exitCode: number | null, error?: string): void => {
+    const finish = (exitCode: number | null, error?: string, errorCode?: string): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
@@ -101,6 +104,7 @@ export async function runManagedProcess(
         matched,
         outputTruncated: stdout.truncated || stderr.truncated,
         ...(error === undefined ? {} : { error }),
+        ...(errorCode === undefined ? {} : { errorCode }),
       });
     };
 
@@ -129,7 +133,7 @@ export async function runManagedProcess(
       stderr = appendOutput(stderr, chunk.toString(), input.maxOutputChars);
       inspectMatch();
     });
-    child.once("error", (error) => finish(null, error.message));
+    child.once("error", (error) => finish(null, error.message, errorCode(error)));
     child.once("close", (code) => finish(code));
 
     const timeout = setTimeout(() => {
@@ -188,4 +192,10 @@ function appendOutput(state: OutputState, chunk: string, limit: number): OutputS
 
 function outputText(state: OutputState): string {
   return state.truncated ? `${state.head}${TRUNCATED_MARKER}${state.tail}` : state.head;
+}
+
+function errorCode(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || !("code" in value)) return undefined;
+  const code = value.code;
+  return typeof code === "string" ? code : undefined;
 }

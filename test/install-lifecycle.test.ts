@@ -188,10 +188,10 @@ describe("install lifecycle", () => {
     };
 
     await expect(install({ autonomy: "default", json: true }, runtime)).resolves.toMatchObject({
-      codexSecurity: { status: "installed" },
+      codexSecurity: { status: "installed", launcherSource: "path" },
     });
     await expect(install({ autonomy: "default", json: true }, runtime)).resolves.toMatchObject({
-      codexSecurity: { status: "already-installed" },
+      codexSecurity: { status: "already-installed", launcherSource: "path" },
     });
     const callsBeforeCleanup = calls;
     await cleanup({ autonomy: "default", json: true });
@@ -218,6 +218,7 @@ describe("install lifecycle", () => {
     expect(result.codexSecurity).toEqual({
       status: "skipped",
       reason: "codex-unavailable",
+      attemptedLaunchers: ["path"],
     });
     await access(join(home, "config.toml"));
   });
