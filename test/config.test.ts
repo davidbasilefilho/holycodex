@@ -3,14 +3,19 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { MODEL_ROUTING_PLANS, PLAN_NAMES, type PlanName } from "../packages/cli/src/catalog";
+import {
+  MODEL_ROUTING_PLANS,
+  PLAN_NAMES,
+  type FastMode,
+  type PlanName,
+} from "../packages/cli/src/catalog";
 import {
   installConfig as installPlatformConfig,
   removeManaged,
   type AutonomyMode,
 } from "../packages/cli/src/config";
 
-const installConfig = (input: string, mode: AutonomyMode, fast = false): string =>
+const installConfig = (input: string, mode: AutonomyMode, fast: FastMode = "standard"): string =>
   installPlatformConfig(input, mode, "win32", undefined, undefined, fast);
 const installPlanConfig = (input: string, plan: PlanName): string =>
   installPlatformConfig(input, "default", "win32", plan);
@@ -318,12 +323,19 @@ describe("Codex configuration", () => {
 
   it("owns the requested service tier and restores the pre-install value", () => {
     const input = 'service_tier = "default"\n';
-    const fast = installConfig(input, "default", true);
-    expect(fast).toContain('service_tier = "fast"');
-    expect(fast.match(/^service_tier\s*=/gm)).toHaveLength(1);
-    expect(removeManaged(fast)).toBe(input.trim());
+    const fastAll = installConfig(input, "default", "fast-all");
+    expect(fastAll).toContain("# holycodex fast: fast-all");
+    expect(fastAll).toContain('service_tier = "fast"');
+    expect(fastAll.match(/^service_tier\s*=/gm)).toHaveLength(1);
+    expect(removeManaged(fastAll)).toBe(input.trim());
 
-    const standard = installConfig(fast, "default");
+    const agentsFast = installConfig(fastAll, "default", "fast");
+    expect(agentsFast).toContain("# holycodex fast: fast");
+    expect(agentsFast).toContain('service_tier = "default"');
+    expect(removeManaged(agentsFast)).toBe(input.trim());
+
+    const standard = installConfig(agentsFast, "default");
+    expect(standard).toContain("# holycodex fast: standard");
     expect(standard).toContain('service_tier = "default"');
     expect(standard.match(/^service_tier\s*=/gm)).toHaveLength(1);
     expect(removeManaged(standard)).toBe(input.trim());

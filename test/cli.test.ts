@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
-import { VERSION } from "../packages/cli/src/catalog";
+import { AGENTS, VERSION } from "../packages/cli/src/catalog";
 
 const run = promisify(execFile);
 const itWindows = process.platform === "win32" ? it : it.skip;
@@ -30,6 +30,7 @@ describe("CLI", () => {
     expect(result.stdout).toContain("--codex-autonomous");
     expect(result.stdout).toContain("--dangerous-codex-autonomous");
     expect(result.stdout).toContain("--fast");
+    expect(result.stdout).toContain("--fast-all");
     expect(result.stdout).toContain("--no-fast");
     expect(result.stdout).toContain("doctor");
     expect(result.stdout).toContain("--json");
@@ -162,46 +163,44 @@ describe("CLI", () => {
     });
   });
 
-  it("rejects conflicting fast-mode flags", async () => {
-    const home = await mkdtemp(join(tmpdir(), "holycodex-cli-fast-"));
+  it.each([
+    ["--fast", "--fast-all"],
+    ["--fast", "--no-fast"],
+    ["--fast-all", "--no-fast"],
+    ["--fast", "--fast-all", "--no-fast"],
+  ])("rejects conflicting fast-mode flags %#", async (...flags) => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-cli-fast-conflict-"));
     await expect(
-      run(process.execPath, ["packages/cli/src/cli.ts", "install", "--fast", "--no-fast"], {
+      run(process.execPath, ["packages/cli/src/cli.ts", "install", ...flags], {
         env: { ...process.env, CODEX_HOME: home },
       }),
     ).rejects.toMatchObject({
       code: 1,
       stdout: "",
-      stderr: expect.stringMatching(
-        /^✗ ERROR  Conflicting fast flags: --fast, --no-fast\r?\n  Run holycodex --help for usage\.\r?\n$/,
-      ),
+      stderr: expect.stringContaining(`Conflicting fast flags: ${flags.join(", ")}`),
     });
   });
 
-  it("maps fast mode and its default to Codex service tiers", async () => {
-    const fastHome = await mkdtemp(join(tmpdir(), "holycodex-cli-fast-"));
-    await run(process.execPath, ["packages/cli/src/cli.ts", "install", "--fast"], {
-      env: { ...process.env, CODEX_HOME: fastHome },
-    });
-    expect(await readFile(join(fastHome, "config.toml"), "utf8")).toContain(
-      'service_tier = "fast"',
-    );
-
-    const defaultHome = await mkdtemp(join(tmpdir(), "holycodex-cli-default-tier-"));
-    await run(process.execPath, ["packages/cli/src/cli.ts", "install", "--no-fast"], {
-      env: { ...process.env, CODEX_HOME: defaultHome },
-    });
-    expect(await readFile(join(defaultHome, "config.toml"), "utf8")).toContain(
-      'service_tier = "default"',
-    );
-
-    const omittedHome = await mkdtemp(join(tmpdir(), "holycodex-cli-omitted-tier-"));
-    await run(process.execPath, ["packages/cli/src/cli.ts", "install"], {
-      env: { ...process.env, CODEX_HOME: omittedHome },
-    });
-    expect(await readFile(join(omittedHome, "config.toml"), "utf8")).toContain(
-      'service_tier = "default"',
-    );
-  });
+  it.each([
+    ["omitted", [], "default", "default"],
+    ["no-fast", ["--no-fast"], "default", "default"],
+    ["fast", ["--fast"], "default", "fast"],
+    ["fast-all", ["--fast-all"], "fast", "fast"],
+  ] as const)(
+    "maps %s mode to deterministic Root and specialist tiers",
+    async (_name, flags, rootTier, agentTier) => {
+      const home = await mkdtemp(join(tmpdir(), "holycodex-cli-tier-"));
+      await run(process.execPath, ["packages/cli/src/cli.ts", "install", ...flags], {
+        env: { ...process.env, CODEX_HOME: home },
+      });
+      const config = await readFile(join(home, "config.toml"), "utf8");
+      expect(config).toContain(`service_tier = "${rootTier}"`);
+      for (const agent of AGENTS) {
+        const source = await readFile(join(home, "holycodex", "agents", `${agent}.toml`), "utf8");
+        expect(source).toContain(`service_tier = "${agentTier}"`);
+      }
+    },
+  );
 
   itWindows("renders Git Bash preflight failures without a stack trace", async () => {
     await expect(

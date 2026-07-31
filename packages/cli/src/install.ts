@@ -15,6 +15,7 @@ import {
   MANAGED_AGENT_MODEL_HISTORY,
   MANAGED_AGENT_MODEL_HISTORY_BY_PLAN,
   MODEL_ROUTING_PLANS,
+  type FastMode,
   type PlanName,
   VERSION,
   WINDOWS_SHELL_POLICY,
@@ -25,7 +26,7 @@ import { rootTomlString } from "./toml.ts";
 
 export type RunOptions = {
   readonly autonomy: AutonomyMode;
-  readonly fast?: boolean;
+  readonly fast?: FastMode;
   readonly json: boolean;
   readonly plan?: PlanName;
   readonly maxSubagents?: number;
@@ -92,24 +93,25 @@ export async function install(
   ].filter((path) => path !== undefined);
   const existingConfig = await readText(target.config);
   const previousPlan = readManagedPlan(existingConfig);
+  const fastMode = options.fast ?? "standard";
   const config = installConfig(
     existingConfig,
     options.autonomy,
     runtime.platform,
     plan,
     options.maxSubagents,
-    options.fast ?? false,
+    fastMode,
   );
   await atomicWrite(target.config, config);
   await rm(target.cache, { recursive: true, force: true });
   await mkdir(dirname(target.cache), { recursive: true });
   await cp(pluginRoot, target.cache, { recursive: true });
-  await writePlatformPlugin(target.cache, runtime.platform, plan);
+  await writePlatformPlugin(target.cache, runtime.platform, plan, fastMode);
   const existingAgentPreferences = await readAgentPreferences(target.agents, previousPlan);
   await rm(target.agents, { recursive: true, force: true });
   await cp(join(pluginRoot, "agents"), target.agents, { recursive: true });
-  await writeInstalledAgents(target.agents, runtime.platform, plan);
-  await preserveAgentPreferences(target.agents, existingAgentPreferences);
+  await writeInstalledAgents(target.agents, runtime.platform, plan, fastMode);
+  await preserveAgentPreferences(target.agents, existingAgentPreferences, plan, fastMode);
   const removedLegacy: string[] = [];
   for (const path of target.legacy) {
     if (!(await exists(path))) continue;
@@ -126,7 +128,21 @@ export async function install(
 }
 
 type AgentPreferences = Partial<Record<(typeof AGENTS)[number], AgentModelPreference>>;
-type AgentModelPreference = { readonly model?: string; readonly reasoningEffort?: string };
+type AgentModelPreference = {
+  readonly model?: string;
+  readonly reasoningEffort?: string;
+  readonly custom?: AgentCustomSettings;
+};
+
+type AgentCustomSettings = { readonly root?: string; readonly tables?: string };
+
+const AGENT_MANAGED_KEYS = new Set([
+  "model",
+  "model_reasoning_effort",
+  "model_verbosity",
+  "service_tier",
+]);
+const AGENT_BUNDLED_KEYS = new Set(["description", "developer_instructions"]);
 
 async function readAgentPreferences(
   root: string,
@@ -138,7 +154,7 @@ async function readAgentPreferences(
       const source = await readText(join(root, `${agent}.toml`));
       const model = rootTomlString(source, "model");
       const reasoningEffort = rootTomlString(source, "model_reasoning_effort");
-      if (model === undefined && reasoningEffort === undefined) return;
+      if (source.trim() === "") return;
       const managedRoutes =
         previousPlan === undefined
           ? MANAGED_AGENT_MODEL_HISTORY[agent]
@@ -146,10 +162,12 @@ async function readAgentPreferences(
       const managed = managedRoutes.some(
         (item) => item.model === model && item.reasoningEffort === reasoningEffort,
       );
-      if (!managed)
+      const custom = extractCustomAgentSettings(source);
+      if (!managed || custom !== undefined)
         preferences[agent] = {
           ...(model === undefined ? {} : { model }),
           ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+          ...(custom === undefined ? {} : { custom }),
         };
     }),
   );
@@ -159,17 +177,30 @@ async function readAgentPreferences(
 async function preserveAgentPreferences(
   root: string,
   preferences: AgentPreferences,
+  plan: PlanName,
+  fastMode: FastMode,
 ): Promise<void> {
   await Promise.all(
     AGENTS.map(async (agent) => {
       const preference = preferences[agent];
       if (preference === undefined) return;
       const path = join(root, `${agent}.toml`);
+      const route = MODEL_ROUTING_PLANS[plan].agents[agent];
       let source = await readText(path);
-      if (preference.model !== undefined)
-        source = replaceTomlString(source, "model", preference.model);
-      if (preference.reasoningEffort !== undefined)
-        source = replaceTomlString(source, "model_reasoning_effort", preference.reasoningEffort);
+      if (preference.custom !== undefined)
+        source = mergeCustomAgentSettings(source, preference.custom);
+      source = replaceOrAppendTomlString(source, "model", preference.model ?? route.model);
+      source = replaceOrAppendTomlString(
+        source,
+        "model_reasoning_effort",
+        preference.reasoningEffort ?? route.reasoningEffort,
+      );
+      source = replaceOrAppendTomlString(source, "model_verbosity", "low");
+      source = replaceOrAppendTomlString(
+        source,
+        "service_tier",
+        fastMode === "standard" ? "default" : "fast",
+      );
       await atomicWrite(path, source);
     }),
   );
@@ -179,22 +210,62 @@ function replaceTomlString(input: string, key: string, value: string): string {
   return input.replace(new RegExp(`^${key}\\s*=.*$`, "m"), `${key} = ${JSON.stringify(value)}`);
 }
 
+function replaceOrAppendTomlString(input: string, key: string, value: string): string {
+  const replaced = replaceTomlString(input, key, value);
+  return replaced === input
+    ? `${input.trimEnd()}${input.trimEnd() === "" ? "" : "\n"}${key} = ${JSON.stringify(value)}\n`
+    : replaced;
+}
+
+function extractCustomAgentSettings(input: string): AgentCustomSettings | undefined {
+  const root = input.split(/^\s*\[/m, 1)[0] ?? "";
+  const customRoot = root
+    .split(/\r?\n/)
+    .filter((line) => {
+      const key = /^\s*([A-Za-z0-9_-]+)\s*=/.exec(line)?.[1];
+      return key !== undefined && !AGENT_MANAGED_KEYS.has(key) && !AGENT_BUNDLED_KEYS.has(key);
+    })
+    .join("\n");
+  const firstTable = input.search(/^\s*\[/m);
+  const customTables = firstTable < 0 ? "" : input.slice(firstTable).trim();
+  if (customRoot === "" && customTables === "") return undefined;
+  return {
+    ...(customRoot === "" ? {} : { root: customRoot }),
+    ...(customTables === "" ? {} : { tables: customTables }),
+  };
+}
+
+function mergeCustomAgentSettings(input: string, custom: AgentCustomSettings): string {
+  let output = input.trimEnd();
+  if (custom.root !== undefined) {
+    const firstTable = output.search(/^\s*\[/m);
+    const root = firstTable < 0 ? output : output.slice(0, firstTable).trimEnd();
+    const tables = firstTable < 0 ? "" : output.slice(firstTable).trimStart();
+    output = `${root}\n${custom.root}${tables === "" ? "" : `\n${tables}`}`;
+  }
+  if (custom.tables !== undefined && !output.includes(custom.tables))
+    output = `${output.trimEnd()}\n\n${custom.tables}`;
+  return `${output.trimEnd()}\n`;
+}
+
 async function writePlatformPlugin(
   root: string,
   platform: NodeJS.Platform,
   plan: PlanName,
+  fastMode: FastMode,
 ): Promise<void> {
   await atomicWrite(
     join(root, ".mcp.json"),
     `${JSON.stringify({ mcpServers: effectiveMcpServers(platform) }, null, 2)}\n`,
   );
-  await writeInstalledAgents(join(root, "agents"), platform, plan);
+  await writeInstalledAgents(join(root, "agents"), platform, plan, fastMode);
 }
 
 async function writeInstalledAgents(
   root: string,
   platform: NodeJS.Platform,
   plan: PlanName,
+  fastMode: FastMode,
 ): Promise<void> {
   await Promise.all(
     AGENTS.map(async (agent) => {
@@ -204,6 +275,11 @@ async function writeInstalledAgents(
       source = replaceTomlString(source, "model", route.model);
       source = replaceTomlString(source, "model_reasoning_effort", route.reasoningEffort);
       source = replaceTomlString(source, "model_verbosity", "low");
+      source = replaceOrAppendTomlString(
+        source,
+        "service_tier",
+        fastMode === "standard" ? "default" : "fast",
+      );
       if (platform === "win32") {
         await atomicWrite(path, source);
         return;

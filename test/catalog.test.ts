@@ -79,7 +79,7 @@ describe("HolyCodex catalog", () => {
         agents: {
           explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
           librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
         },
         usage: { maxSubagents: 1, maxDepth: 1 },
       },
@@ -87,7 +87,7 @@ describe("HolyCodex catalog", () => {
         root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
         agents: {
           explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
           worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
         },
         usage: { maxSubagents: 2, maxDepth: 1 },
@@ -115,7 +115,7 @@ describe("HolyCodex catalog", () => {
         agents: {
           explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
           librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-          worker: { model: "gpt-5.6-terra", reasoningEffort: "xhigh" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
         },
         usage: { maxSubagents: 2, maxDepth: 1 },
       },
@@ -134,11 +134,11 @@ describe("HolyCodex catalog", () => {
       "plus-low": {
         explorer: { model: "gpt-5.6-luna", reasoningEffort: "low" },
         librarian: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
-        worker: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+        worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
       },
       plus: {
         explorer: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
-        librarian: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+        librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
         worker: { model: "gpt-5.6-terra", reasoningEffort: "high" },
       },
       "plus-high": {
@@ -153,7 +153,7 @@ describe("HolyCodex catalog", () => {
       },
       "pro-20x": {
         librarian: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
-        worker: { model: "gpt-5.6-sol", reasoningEffort: "high" },
+        worker: { model: "gpt-5.6-terra", reasoningEffort: "xhigh" },
       },
     } as const;
 
@@ -183,6 +183,7 @@ describe("HolyCodex catalog", () => {
 
   it("documents the ordered routing ladder without quota claims", async () => {
     const readme = await readFile(join(root, "README.md"), "utf8");
+    const deepSwe = await readFile(join(root, "docs", "deepswe-v1.1.md"), "utf8");
     expect(readme.indexOf("`go`")).toBeLessThan(readme.indexOf("`plus-low`"));
     expect(readme.indexOf("`plus-low`")).toBeLessThan(readme.indexOf("`plus`"));
     expect(readme.indexOf("`plus`")).toBeLessThan(readme.indexOf("`plus-high`"));
@@ -190,6 +191,30 @@ describe("HolyCodex catalog", () => {
     expect(readme.indexOf("`pro-5x`")).toBeLessThan(readme.indexOf("`pro-20x`"));
     expect(readme).toContain("plan-selected direct subagent limit");
     expect(readme).not.toContain("subscription allowance");
+    const labels = {
+      "gpt-5.6-luna": "Luna",
+      "gpt-5.6-terra": "Terra",
+      "gpt-5.6-sol": "Sol",
+    } as const;
+    const normalizedReadme = readme.replace(/\s+/g, " ");
+    const normalizedDeepSwe = deepSwe.replace(/\s+/g, " ");
+    for (const plan of PLAN_NAMES) {
+      const preset = MODEL_ROUTING_PLANS[plan];
+      const route = (value: typeof preset.root): string =>
+        `${labels[value.model]} ${value.reasoningEffort}`;
+      const values = [
+        route(preset.root),
+        route(preset.agents.explorer),
+        route(preset.agents.librarian),
+        route(preset.agents.worker),
+      ];
+      expect(normalizedReadme).toContain(
+        `| \`${plan}\` ${values.map((value) => `| GPT-5.6 ${value} `).join("")}|`,
+      );
+      expect(normalizedDeepSwe).toContain(
+        `| \`${plan}\` ${values.map((value) => `| ${value} `).join("")}| ${preset.usage.maxSubagents} |`,
+      );
+    }
   });
 
   it("rejects invalid plans, reasoning efforts, and incomplete routing presets", () => {
@@ -292,6 +317,7 @@ describe("HolyCodex catalog", () => {
       const route = MODEL_ROUTING_PLANS[DEFAULT_PLAN].agents[agent];
       expect(rootTomlString(source, "model")).toBe(route.model);
       expect(rootTomlString(source, "model_reasoning_effort")).toBe(route.reasoningEffort);
+      expect(rootTomlString(source, "service_tier")).toBe("default");
     }
   });
 

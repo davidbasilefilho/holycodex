@@ -171,6 +171,48 @@ describe("install lifecycle", () => {
     expect(worker).toContain('model_reasoning_effort = "xhigh"');
   });
 
+  it("preserves unrelated agent settings while refreshing managed profile content", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-agent-settings-test-"));
+    process.env.CODEX_HOME = home;
+    const agents = join(home, "holycodex", "agents");
+    await mkdir(agents, { recursive: true });
+    await writeFile(
+      join(agents, "explorer.toml"),
+      'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "high"\ncustom_root = "keep"\n[custom]\nenabled = true\n',
+    );
+
+    await install({ autonomy: "default", fast: "fast", json: false }, windowsRuntime);
+
+    const explorer = await readFile(join(agents, "explorer.toml"), "utf8");
+    expect(explorer).toContain('custom_root = "keep"');
+    expect(explorer).toContain("[custom]\nenabled = true");
+    expect(explorer).toContain('service_tier = "fast"');
+    expect(explorer).toContain("Begin with requested evidence");
+  });
+
+  it("migrates former global Fast state to explicit Root and agent tiers idempotently", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-old-global-fast-test-"));
+    process.env.CODEX_HOME = home;
+    await install({ autonomy: "default", fast: "fast-all", json: false }, windowsRuntime);
+    const configPath = join(home, "config.toml");
+    await writeFile(
+      configPath,
+      (await readFile(configPath, "utf8")).replace("# holycodex fast: fast-all\n", ""),
+    );
+
+    await install({ autonomy: "default", fast: "fast", json: false }, windowsRuntime);
+    const once = await readFile(configPath, "utf8");
+    expect(once).toContain("# holycodex fast: fast");
+    expect(once).toContain('service_tier = "default"');
+    for (const agent of AGENTS)
+      expect(await readFile(join(home, "holycodex", "agents", `${agent}.toml`), "utf8")).toContain(
+        'service_tier = "fast"',
+      );
+
+    await install({ autonomy: "default", fast: "fast", json: false }, windowsRuntime);
+    expect(await readFile(configPath, "utf8")).toBe(once);
+  });
+
   it("preserves an override that matches a different routing plan", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-agent-plan-override-test-"));
     process.env.CODEX_HOME = home;

@@ -3,6 +3,8 @@ import { Buffer } from "node:buffer";
 import {
   AGENTS,
   DEFAULT_PLAN,
+  FastModeSchema,
+  type FastMode,
   MANAGED_ROOT_MODEL_HISTORY_BY_PLAN,
   MODEL_ROUTING_PLANS,
   PLAN_NAMES,
@@ -15,6 +17,7 @@ const END = "# <<< holycodex managed <<<";
 const ORIGINAL_ROOT = "# holycodex original root: ";
 const ORIGINAL_TABLE_KEY = "# holycodex original table key: ";
 const PLAN_PREFIX = "# holycodex plan: ";
+const FAST_MODE_PREFIX = "# holycodex fast: ";
 const MAX_SUBAGENTS_PREFIX = "# holycodex max-subagents: ";
 const MANAGED_PERMISSION_PROFILE = "holycodex-config";
 
@@ -150,6 +153,12 @@ export function readManagedPlan(input: string): PlanName | undefined {
   return PLAN_NAMES.find((plan) => plan === value);
 }
 
+/** Reads the explicitly recorded managed Fast mode. */
+export function readManagedFastMode(input: string): FastMode | undefined {
+  const value = new RegExp(`^${FAST_MODE_PREFIX}(.+)$`, "m").exec(input)?.[1]?.trim();
+  return FastModeSchema.safeParse(value).data;
+}
+
 /** Reads an explicit managed direct-subagent override. */
 export function readManagedMaxSubagents(input: string): ManagedMaxSubagents {
   const raw = new RegExp(`^${MAX_SUBAGENTS_PREFIX}(.*)$`, "m").exec(input)?.[1]?.trim();
@@ -219,7 +228,7 @@ export function installConfig(
   _platform: NodeJS.Platform,
   plan: PlanName = DEFAULT_PLAN,
   maxSubagents?: number,
-  fast = false,
+  fastMode: FastMode = "standard",
 ): string {
   const unmanaged = removeLegacyOmo(removeManaged(input));
   const base = preserveManagedRootPreferences(input, unmanaged);
@@ -263,7 +272,8 @@ export function installConfig(
     : "";
   const maxSubagentsMetadata =
     maxSubagents === undefined ? "" : `${MAX_SUBAGENTS_PREFIX}${maxSubagents}\n`;
-  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${maxSubagentsMetadata}${original}${model}${effort}model_verbosity = "low"\nservice_tier = "${fast ? "fast" : "default"}"\napproval_policy = "${approval}"\nsandbox_mode = "${sandbox}"\ndefault_permissions = "${MANAGED_PERMISSION_PROFILE}"\nstatus_line = ${mergedStatusLine(rootValue(root, "status_line"))}\n${END}`;
+  const rootServiceTier = fastMode === "fast-all" ? "fast" : "default";
+  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${FAST_MODE_PREFIX}${fastMode}\n${maxSubagentsMetadata}${original}${model}${effort}model_verbosity = "low"\nservice_tier = "${rootServiceTier}"\napproval_policy = "${approval}"\nsandbox_mode = "${sandbox}"\ndefault_permissions = "${MANAGED_PERMISSION_PROFILE}"\nstatus_line = ${mergedStatusLine(rootValue(root, "status_line"))}\n${END}`;
   let configured = `${preservedRoot ? `${preservedRoot}\n` : ""}${rootBlock}${tables ? `\n\n${tables}` : ""}`;
   configured = injectTableKeys(configured, `permissions.${MANAGED_PERMISSION_PROFILE}`, [
     ["description", '"HolyCodex config.toml permissions."'],

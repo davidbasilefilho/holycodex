@@ -51,7 +51,7 @@ async function fixture(mode: AutonomyMode = "default"): Promise<{ home: string; 
       const route = MODEL_ROUTING_PLANS.plus.agents[agent];
       return writeFile(
         join(home, "holycodex", "agents", `${agent}.toml`),
-        `model = "${route.model}"\nmodel_reasoning_effort = "${route.reasoningEffort}"\n`,
+        `model = "${route.model}"\nmodel_reasoning_effort = "${route.reasoningEffort}"\nservice_tier = "default"\n`,
       );
     }),
   );

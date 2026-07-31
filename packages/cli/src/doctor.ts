@@ -18,7 +18,12 @@ import {
   SKILLS,
   VERSION,
 } from "./catalog.ts";
-import { readManagedMaxSubagents, readManagedPlan, readPreservedRootOverrides } from "./config.ts";
+import {
+  readManagedFastMode,
+  readManagedMaxSubagents,
+  readManagedPlan,
+  readPreservedRootOverrides,
+} from "./config.ts";
 import { rootTomlString, rootTomlStringArray } from "./toml.ts";
 
 const McpManifestSchema = z.looseObject({
@@ -454,6 +459,7 @@ export async function doctor(
       : check("routing-plan", "ok", "routing-plan-ready", `Model routing plan ${plan} is active.`),
   );
   const preset = plan === undefined ? undefined : MODEL_ROUTING_PLANS[plan];
+  const managedFastMode = readManagedFastMode(config);
   const managedMaxSubagents = readManagedMaxSubagents(config);
   const expectedMaxSubagents = managedMaxSubagents.configured
     ? managedMaxSubagents.value
@@ -485,7 +491,10 @@ export async function doctor(
           ),
   );
   checks.push(
-    ["default", "fast"].includes(rootTomlString(config, "service_tier") ?? "")
+    ["default", "fast"].includes(rootTomlString(config, "service_tier") ?? "") &&
+      (managedFastMode === undefined ||
+        rootTomlString(config, "service_tier") ===
+          (managedFastMode === "fast-all" ? "fast" : "default"))
       ? check(
           "service-tier",
           "ok",
@@ -496,8 +505,8 @@ export async function doctor(
           "service-tier",
           "error",
           "service-tier-stale",
-          "service_tier must be either default or fast.",
-          "Reinstall HolyCodex with --fast or --no-fast.",
+          "service_tier does not match the managed Fast mode.",
+          "Reinstall HolyCodex with --fast, --fast-all, or --no-fast.",
         ),
   );
   checks.push(
@@ -651,6 +660,7 @@ export async function doctor(
   }
 
   const agentModelFailures: string[] = [];
+  const agentTierValues: Array<string | undefined> = [];
   for (const agent of AGENTS) {
     try {
       const text = await readFile(join(agentRoot, `${agent}.toml`), "utf8");
@@ -661,6 +671,7 @@ export async function doctor(
         rootTomlString(text, "model_reasoning_effort") !== expected.reasoningEffort
       )
         agentModelFailures.push(agent);
+      agentTierValues.push(rootTomlString(text, "service_tier"));
     } catch {
       agentModelFailures.push(agent);
     }
@@ -681,6 +692,24 @@ export async function doctor(
           "Reinstall HolyCodex.",
         ),
   );
+  const expectedAgentTier = managedFastMode === "standard" ? "default" : "fast";
+  if (agentTierValues.some((value) => value !== undefined))
+    checks.push(
+      agentTierValues.every((value) => value === expectedAgentTier)
+        ? check(
+            "agent-service-tiers",
+            "ok",
+            "agent-service-tiers-ready",
+            `Specialist service tiers use ${expectedAgentTier}.`,
+          )
+        : check(
+            "agent-service-tiers",
+            "error",
+            "agent-service-tiers-stale",
+            `Specialist service tiers must use ${expectedAgentTier}.`,
+            "Reinstall HolyCodex.",
+          ),
+    );
 
   return { healthy: !checks.some((item) => item.status === "error"), autonomy: mode, checks };
 }
