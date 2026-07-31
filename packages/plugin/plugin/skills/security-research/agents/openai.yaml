@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: Security Research"
+  short_description: "Validate repository attack paths and vulnerabilities."
+  default_prompt: "Use $security-research to validate this repository security concern and its impact."

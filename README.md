@@ -61,15 +61,15 @@ HolyCodex restores native Codex workspace I/O. It does not install an editing MC
 ## Options
 
 ```sh
-holycodex install                              # custom config.toml; on-request, workspace-write, network on
+holycodex install                              # Approve for me; workspace-write; network on
 holycodex install --plan <plan>
 holycodex install --max-subagents <0..3>
 holycodex install --fast                       # Fast for generated subagents; Root stays Standard
 holycodex install --fast-all                   # Fast for Root and all generated subagents
 holycodex install --no-fast                    # Standard for Root and all generated subagents
-holycodex install --codex-autonomous           # custom config.toml; never ask, workspace-write, network on
-holycodex install --dangerous-codex-autonomous # custom config.toml; never ask, unrestricted host access
-holycodex install --no-codex-autonomous        # custom config.toml; contained default behavior
+holycodex install --codex-autonomous           # never ask; workspace-write; network on
+holycodex install --dangerous-codex-autonomous # never ask; unrestricted host access
+holycodex install --no-codex-autonomous        # Approve for me; workspace-write; network on
 holycodex install --json
 holycodex doctor [--json]
 holycodex --help
@@ -97,6 +97,18 @@ Codex Fast consumes exactly `2.5×` as much subscription usage as Standard. It c
 
 Installation is noninteractive, backs up affected files, preserves unrelated configuration, and configures multi-agent support, selected agent capacity, specialist profiles, status context, and platform MCPs. Upgrading from the former global `--fast` behavior removes stale HolyCodex-managed global Fast state and writes deterministic Root and per-agent tiers for the selected mode. Dangerous autonomy remains explicit and is never inferred.
 
+HolyCodex installs `holycodex-config` as an optional named permission profile with workspace access and networking. It does not select that profile through `default_permissions`, so users can switch to Full access or another built-in profile without HolyCodex forcing the desktop selection back. Legacy `approval_policy`, `approvals_reviewer`, and `sandbox_mode` fields provide installer-mode defaults:
+
+| Installation mode                  | Approval policy | Reviewer      | Sandbox              |
+| ---------------------------------- | --------------- | ------------- | -------------------- |
+| Default or `--no-codex-autonomous` | `on-request`    | `auto_review` | `workspace-write`    |
+| `--codex-autonomous`               | `never`         | unset         | `workspace-write`    |
+| `--dangerous-codex-autonomous`     | `never`         | unset         | `danger-full-access` |
+
+Bundled skills include explicit UI metadata and use the `HolyCodex: <Skill Name>` display brand, including `HolyCodex: LSP`, `HolyCodex: AST Grep`, and `HolyCodex: LSP Setup`.
+
+During installation, HolyCodex checks structured Codex CLI plugin state and attempts to install or enable the official `codex-security@openai-curated` plugin. This step is idempotent. Authentication, catalog, marketplace, executable, timeout, and other external availability failures are reported as non-fatal skip results, so HolyCodex installation still completes.
+
 Codex manages curated Build Web Apps separately. Enable it through Codex before UI or frontend work. When available, HolyCodex routes that work to Frontend App Builder. In the project author's testing, Build Web Apps and Frontend App Builder produce the best results for visual taste. This is the author's assessment, not an OpenAI claim.
 
 ## Cleanup
@@ -107,7 +119,7 @@ npx holycodex cleanup
 bunx holycodex cleanup
 ```
 
-Cleanup backs up affected state, removes HolyCodex-owned configuration and artifacts, and restores values replaced by managed Root and per-agent service-tier settings. Unrelated user configuration is preserved. Install and cleanup are idempotent.
+Cleanup backs up affected state, removes HolyCodex-owned configuration and artifacts, and restores values replaced by managed Root and per-agent service-tier settings. Unrelated user configuration is preserved. Codex Security is an independent official plugin, so cleanup does not remove or disable it. Install and cleanup are idempotent.
 
 ## Publishing
 

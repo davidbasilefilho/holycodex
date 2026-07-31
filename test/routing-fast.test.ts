@@ -20,6 +20,17 @@ const originalHome = process.env.CODEX_HOME;
 const runtime: InstallRuntime = {
   platform: "linux",
   gitBash: () => ({ found: false, checkedPaths: [], installHint: "unused" }),
+  runProcess: async () => ({
+    exitCode: 0,
+    stdout: JSON.stringify({
+      installed: [{ pluginId: "codex-security@openai-curated", installed: true, enabled: true }],
+      available: [],
+    }),
+    stderr: "",
+    timedOut: false,
+    matched: false,
+    outputTruncated: false,
+  }),
 };
 
 afterEach(() => {

@@ -237,8 +237,8 @@ export function installConfig(
   const tables = firstTable < 0 ? "" : base.slice(firstTable);
   const controlled = [
     "approval_policy",
+    "approvals_reviewer",
     "sandbox_mode",
-    "default_permissions",
     "max_concurrent_threads_per_session",
     "status_line",
     "model_verbosity",
@@ -246,8 +246,8 @@ export function installConfig(
   ].map((key) => rootValue(root, key));
   const preservedRoot = [
     "approval_policy",
+    "approvals_reviewer",
     "sandbox_mode",
-    "default_permissions",
     "max_concurrent_threads_per_session",
     "status_line",
     "model_verbosity",
@@ -266,6 +266,7 @@ export function installConfig(
   const model = hasModel ? "" : `model = "${rootRoute.model}"\n`;
   const effort = hasEffort ? "" : `model_reasoning_effort = "${rootRoute.reasoningEffort}"\n`;
   const approval = mode === "default" ? "on-request" : "never";
+  const approvalsReviewer = mode === "default" ? 'approvals_reviewer = "auto_review"\n' : "";
   const sandbox = mode === "dangerous" ? "danger-full-access" : "workspace-write";
   const original = originalControlled
     ? `${ORIGINAL_ROOT}${Buffer.from(originalControlled).toString("base64")}\n`
@@ -273,7 +274,7 @@ export function installConfig(
   const maxSubagentsMetadata =
     maxSubagents === undefined ? "" : `${MAX_SUBAGENTS_PREFIX}${maxSubagents}\n`;
   const rootServiceTier = fastMode === "fast-all" ? "fast" : "default";
-  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${FAST_MODE_PREFIX}${fastMode}\n${maxSubagentsMetadata}${original}${model}${effort}model_verbosity = "low"\nservice_tier = "${rootServiceTier}"\napproval_policy = "${approval}"\nsandbox_mode = "${sandbox}"\ndefault_permissions = "${MANAGED_PERMISSION_PROFILE}"\nstatus_line = ${mergedStatusLine(rootValue(root, "status_line"))}\n${END}`;
+  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${FAST_MODE_PREFIX}${fastMode}\n${maxSubagentsMetadata}${original}${model}${effort}model_verbosity = "low"\nservice_tier = "${rootServiceTier}"\napproval_policy = "${approval}"\n${approvalsReviewer}sandbox_mode = "${sandbox}"\nstatus_line = ${mergedStatusLine(rootValue(root, "status_line"))}\n${END}`;
   let configured = `${preservedRoot ? `${preservedRoot}\n` : ""}${rootBlock}${tables ? `\n\n${tables}` : ""}`;
   configured = injectTableKeys(configured, `permissions.${MANAGED_PERMISSION_PROFILE}`, [
     ["description", '"HolyCodex config.toml permissions."'],

@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: Programming"
+  short_description: "Implement code changes with focused verification."
+  default_prompt: "Use $programming to implement this code change and verify it proportionally."

@@ -9,6 +9,7 @@ import {
   effectiveMcpServers,
   MODEL_ROUTING_PLANS,
   PLAN_NAMES,
+  SKILLS,
 } from "../packages/cli/src/catalog";
 import {
   assertGitBashReady,
@@ -26,6 +27,17 @@ const packageVersion = (
 const windowsRuntime: InstallRuntime = {
   platform: "win32",
   gitBash: () => ({ found: true, path: "bash.exe", source: "env", checkedPaths: [] }),
+  runProcess: async () => ({
+    exitCode: 0,
+    stdout: JSON.stringify({
+      installed: [{ pluginId: "codex-security@openai-curated", installed: true, enabled: true }],
+      available: [],
+    }),
+    stderr: "",
+    timedOut: false,
+    matched: false,
+    outputTruncated: false,
+  }),
 };
 
 afterEach(() => {
@@ -56,15 +68,19 @@ describe("install lifecycle", () => {
     const olderCache = join(cacheRoot, "0.2.1");
     const currentCache = join(cacheRoot, packageVersion);
     await mkdir(olderCache, { recursive: true });
-    await mkdir(currentCache, { recursive: true });
+    await mkdir(join(currentCache, "skills", "lsp", "agents"), { recursive: true });
     await writeFile(join(olderCache, "held.txt"), "held");
     await writeFile(join(currentCache, "stale.txt"), "stale");
+    await writeFile(join(currentCache, "skills", "lsp", "agents", "openai.yaml"), "stale");
 
     await install({ autonomy: "default", json: false }, windowsRuntime);
 
     await expect(readFile(join(olderCache, "held.txt"), "utf8")).resolves.toBe("held");
     await expect(access(join(currentCache, "stale.txt"))).rejects.toMatchObject({ code: "ENOENT" });
     await access(join(currentCache, ".codex-plugin", "plugin.json"));
+    await expect(
+      readFile(join(currentCache, "skills", "lsp", "agents", "openai.yaml"), "utf8"),
+    ).resolves.toContain('display_name: "HolyCodex: LSP"');
   });
   it("preserves unrelated config, removes legacy OMO, and cleans only HolyCodex", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-test-"));
@@ -101,6 +117,11 @@ describe("install lifecycle", () => {
     ).not.toContain("prompt");
     expect(await readdir(join(cache, "agents"))).not.toHaveLength(0);
     expect(await readdir(join(cache, "skills"))).not.toHaveLength(0);
+    await Promise.all(
+      SKILLS.map((skill) =>
+        readFile(join(cache, "skills", skill, "agents", "openai.yaml"), "utf8"),
+      ),
+    );
     expect(installed).not.toContain("[marketplaces.holycodex]");
     expect(installed).toContain('[plugins."holycodex@holycodex"]\nenabled = true');
     expect((await install({ autonomy: "default", json: false }, windowsRuntime)).action).toBe(
@@ -129,10 +150,83 @@ describe("install lifecycle", () => {
     });
   });
 
+  it("installs Codex Security idempotently and cleanup leaves it installed", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-codex-security-"));
+    process.env.CODEX_HOME = home;
+    let installed = false;
+    let calls = 0;
+    const runtime: InstallRuntime = {
+      ...windowsRuntime,
+      runProcess: async (input) => {
+        calls += 1;
+        const isAdd = input.args[1] === "add";
+        if (isAdd) installed = true;
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify(
+            isAdd
+              ? { pluginId: "codex-security@openai-curated" }
+              : {
+                  installed: installed
+                    ? [
+                        {
+                          pluginId: "codex-security@openai-curated",
+                          installed: true,
+                          enabled: true,
+                        },
+                      ]
+                    : [],
+                  available: installed ? [] : [{ pluginId: "codex-security@openai-curated" }],
+                },
+          ),
+          stderr: "",
+          timedOut: false,
+          matched: false,
+          outputTruncated: false,
+        };
+      },
+    };
+
+    await expect(install({ autonomy: "default", json: true }, runtime)).resolves.toMatchObject({
+      codexSecurity: { status: "installed" },
+    });
+    await expect(install({ autonomy: "default", json: true }, runtime)).resolves.toMatchObject({
+      codexSecurity: { status: "already-installed" },
+    });
+    const callsBeforeCleanup = calls;
+    await cleanup({ autonomy: "default", json: true });
+    expect(installed).toBe(true);
+    expect(calls).toBe(callsBeforeCleanup);
+  });
+
+  it("completes HolyCodex installation when Codex is unavailable", async () => {
+    const home = await mkdtemp(join(tmpdir(), "holycodex-codex-unavailable-"));
+    process.env.CODEX_HOME = home;
+    const runtime: InstallRuntime = {
+      ...windowsRuntime,
+      runProcess: async () => ({
+        exitCode: null,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+        matched: false,
+        outputTruncated: false,
+        error: "spawn codex ENOENT",
+      }),
+    };
+    const result = await install({ autonomy: "default", json: true }, runtime);
+    expect(result.codexSecurity).toEqual({
+      status: "skipped",
+      reason: "codex-unavailable",
+    });
+    await access(join(home, "config.toml"));
+  });
+
   it("omits effective Git Bash configuration and prompts off Windows", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-linux-test-"));
     process.env.CODEX_HOME = home;
     const linuxRuntime: InstallRuntime = {
+      ...windowsRuntime,
       platform: "linux",
       gitBash: () => ({ found: false, checkedPaths: [], installHint: "irrelevant" }),
     };

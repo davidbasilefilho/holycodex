@@ -194,12 +194,49 @@ describe("HolyCodex doctor", () => {
     expect(codes(result)).toContain("invalid-autonomy-config");
   });
 
+  it("requires the exact approvals reviewer for safe autonomy", async () => {
+    const { home } = await fixture();
+    const configPath = join(home, "config.toml");
+    await writeFile(
+      configPath,
+      (await readFile(configPath, "utf8")).replace('approvals_reviewer = "auto_review"\n', ""),
+    );
+    expect((await doctor(home, runtime())).autonomy).toBe("unknown");
+
+    await writeFile(
+      configPath,
+      (await readFile(configPath, "utf8"))
+        .replace('approval_policy = "on-request"', 'approval_policy = "never"')
+        .replace(
+          'sandbox_mode = "workspace-write"',
+          'approvals_reviewer = "auto_review"\nsandbox_mode = "workspace-write"',
+        ),
+    );
+    expect((await doctor(home, runtime())).autonomy).toBe("unknown");
+
+    await writeFile(
+      configPath,
+      (await readFile(configPath, "utf8")).replace('approvals_reviewer = "auto_review"\n', ""),
+    );
+    expect((await doctor(home, runtime())).autonomy).toBe("autonomous-workspace");
+  });
+
   it("warns without failing for explicitly dangerous autonomy", async () => {
     const { home } = await fixture("dangerous");
     const result = await doctor(home, runtime());
     expect(result.healthy).toBe(true);
     expect(result.autonomy).toBe("dangerous");
     expect(codes(result)).toContain("dangerous-autonomy");
+
+    const configPath = join(home, "config.toml");
+    await writeFile(
+      configPath,
+      (await readFile(configPath, "utf8")).replace(
+        'sandbox_mode = "danger-full-access"',
+        'approvals_reviewer = "auto_review"\nsandbox_mode = "danger-full-access"',
+      ),
+    );
+    expect((await doctor(home, runtime())).autonomy).toBe("unknown");
   });
 
   it("validates service tier, forced root verbosity, and desktop settings", async () => {

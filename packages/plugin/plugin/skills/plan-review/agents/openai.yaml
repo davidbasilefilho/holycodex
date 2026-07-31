@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: Plan Review"
+  short_description: "Review plans for feasibility, risk, scope, and proof."
+  default_prompt: "Use $plan-review to review and repair this implementation plan once."

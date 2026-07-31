@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: Handoff"
+  short_description: "Create compact, resumable handoffs for later work."
+  default_prompt: "Use $handoff to create a compact, redacted handoff for the next session."

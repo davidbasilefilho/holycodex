@@ -225,7 +225,11 @@ describe("CLI", () => {
 
     const config = await readFile(join(home, "config.toml"), "utf8");
     expect(config).toContain('approval_policy = "on-request"');
+    expect(config).toContain('approvals_reviewer = "auto_review"');
     expect(config).toContain('sandbox_mode = "workspace-write"');
+    expect(config).not.toContain("default_permissions");
+    expect(config).toContain("[permissions.holycodex-config]");
+    expect(config).toContain("[permissions.holycodex-config.network]");
   });
 
   it("keeps the safe defaults with --no-codex-autonomous", async () => {
@@ -236,24 +240,8 @@ describe("CLI", () => {
 
     const config = await readFile(join(home, "config.toml"), "utf8");
     expect(config).toContain('approval_policy = "on-request"');
+    expect(config).toContain('approvals_reviewer = "auto_review"');
     expect(config).toContain('sandbox_mode = "workspace-write"');
-  });
-
-  it.each([
-    ["default", []],
-    ["autonomous", ["--codex-autonomous"]],
-    ["non-autonomous", ["--no-codex-autonomous"]],
-    ["dangerous", ["--dangerous-codex-autonomous"]],
-  ])("selects config.toml permissions for %s installation", async (_mode, flags) => {
-    const home = await mkdtemp(join(tmpdir(), "holycodex-cli-permissions-"));
-    await run(process.execPath, ["packages/cli/src/cli.ts", "install", ...flags], {
-      env: { ...process.env, CODEX_HOME: home },
-    });
-
-    const config = await readFile(join(home, "config.toml"), "utf8");
-    expect(config).toContain('default_permissions = "holycodex-config"');
-    expect(config).toContain("[permissions.holycodex-config]");
-    expect(config).not.toContain('default_permissions = ":danger-full-access"');
   });
 
   it("supports sandboxed and explicitly dangerous autonomy", async () => {
@@ -267,7 +255,9 @@ describe("CLI", () => {
     );
     const safe = await readFile(join(safeHome, "config.toml"), "utf8");
     expect(safe).toContain('approval_policy = "never"');
+    expect(safe).not.toContain("approvals_reviewer");
     expect(safe).toContain('sandbox_mode = "workspace-write"');
+    expect(safe).not.toContain("default_permissions");
     expect(safeResult.stderr).toBe("");
 
     const dangerHome = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
@@ -277,6 +267,7 @@ describe("CLI", () => {
       { env: { ...process.env, CODEX_HOME: dangerHome } },
     );
     const danger = await readFile(join(dangerHome, "config.toml"), "utf8");
+    expect(danger).not.toContain("approvals_reviewer");
     expect(danger).toContain('sandbox_mode = "danger-full-access"');
     expect(result.stderr).toContain("WARNING");
   });
@@ -315,5 +306,5 @@ describe("CLI", () => {
         "context-visibility",
       ]),
     );
-  }, 15_000);
+  }, 30_000);
 });

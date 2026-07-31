@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: Compress"
+  short_description: "Compress text without changing its meaning."
+  default_prompt: "Use $compress to reduce this text without changing its meaning or constraints."

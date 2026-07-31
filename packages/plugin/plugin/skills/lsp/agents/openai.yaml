@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: LSP"
+  short_description: "Use language servers for safe semantic code work."
+  default_prompt: "Use $lsp to inspect this code semantically with the configured language server."

@@ -16,6 +16,7 @@ export type ManagedProcessInput = {
 
 export type ManagedProcessRuntime = {
   readonly terminationGraceMs: number;
+  readonly spawnChild?: typeof spawn;
   readonly kill: (child: ChildProcess, platform: NodeJS.Platform, signal: NodeJS.Signals) => void;
 };
 
@@ -42,13 +43,42 @@ export async function runManagedProcess(
   runtime: ManagedProcessRuntime = defaultManagedProcessRuntime,
 ): Promise<ManagedProcessResult> {
   return await new Promise<ManagedProcessResult>((resolve) => {
-    const child = spawn(input.command, [...input.args], {
-      ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-      ...(input.env === undefined ? {} : { env: input.env }),
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-      detached: input.platform !== "win32",
-    });
+    let child: ChildProcess;
+    try {
+      child = (runtime.spawnChild ?? spawn)(input.command, [...input.args], {
+        ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+        ...(input.env === undefined ? {} : { env: input.env }),
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+        detached: input.platform !== "win32",
+      });
+    } catch (error) {
+      resolve({
+        exitCode: null,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+        matched: false,
+        outputTruncated: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    const childStdin = child.stdin;
+    const childStdout = child.stdout;
+    const childStderr = child.stderr;
+    if (childStdin === null || childStdout === null || childStderr === null) {
+      resolve({
+        exitCode: null,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+        matched: false,
+        outputTruncated: false,
+        error: "Managed process did not expose piped standard streams.",
+      });
+      return;
+    }
     let stdout: OutputState = { head: "", tail: "", truncated: false };
     let stderr: OutputState = { head: "", tail: "", truncated: false };
     let timedOut = false;
@@ -91,11 +121,11 @@ export async function runManagedProcess(
       }
     };
 
-    child.stdout.on("data", (chunk: Buffer | string) => {
+    childStdout.on("data", (chunk: Buffer | string) => {
       stdout = appendOutput(stdout, chunk.toString(), input.maxOutputChars);
       inspectMatch();
     });
-    child.stderr.on("data", (chunk: Buffer | string) => {
+    childStderr.on("data", (chunk: Buffer | string) => {
       stderr = appendOutput(stderr, chunk.toString(), input.maxOutputChars);
       inspectMatch();
     });
@@ -108,8 +138,8 @@ export async function runManagedProcess(
     }, input.timeoutMs);
     timeout.unref();
 
-    if (input.stdin === undefined) child.stdin.end();
-    else child.stdin.end(input.stdin);
+    if (input.stdin === undefined) childStdin.end();
+    else childStdin.end(input.stdin);
   });
 }
 

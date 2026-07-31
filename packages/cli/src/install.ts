@@ -8,6 +8,7 @@ import {
   resolveGitBashForCurrentProcess,
   type GitBashResolution,
 } from "../../git-bash-mcp/src/git-bash-resolver.ts";
+import { runManagedProcess } from "../../mcp-stdio-core/src/process.ts";
 import {
   AGENTS,
   DEFAULT_PLAN,
@@ -20,6 +21,11 @@ import {
   VERSION,
   WINDOWS_SHELL_POLICY,
 } from "./catalog.ts";
+import {
+  installCodexSecurity,
+  type CodexProcessRunner,
+  type CodexSecurityInstallResult,
+} from "./codex-security.ts";
 import { installConfig, readManagedPlan, removeManaged, type AutonomyMode } from "./config.ts";
 import { atomicWrite, backup, exists, readText } from "./files.ts";
 import { rootTomlString } from "./toml.ts";
@@ -37,15 +43,18 @@ export type RunResult = {
   readonly backups: readonly string[];
   readonly plan?: PlanName;
   readonly maxSubagents?: number;
+  readonly codexSecurity?: CodexSecurityInstallResult;
 };
 export type InstallRuntime = {
   readonly platform: NodeJS.Platform;
   readonly gitBash: () => GitBashResolution;
+  readonly runProcess: CodexProcessRunner;
 };
 
 const defaultRuntime: InstallRuntime = {
   platform: process.platform,
   gitBash: resolveGitBashForCurrentProcess,
+  runProcess: runManagedProcess,
 };
 
 function paths(home = process.env.CODEX_HOME ?? join(homedir(), ".codex")) {
@@ -118,11 +127,17 @@ export async function install(
     await rm(path, { recursive: true });
     removedLegacy.push(path);
   }
+  const codexSecurity = await installCodexSecurity(
+    runtime.runProcess,
+    runtime.platform,
+    process.env,
+  );
   return {
     action: "install",
     changed: [target.config, target.cache, target.agents, ...removedLegacy],
     backups,
     plan,
+    codexSecurity,
     ...(options.maxSubagents === undefined ? {} : { maxSubagents: options.maxSubagents }),
   };
 }

@@ -37,6 +37,26 @@ describe("managed child process", () => {
     expect(result.timedOut).toBe(false);
   });
 
+  it("normalizes a synchronous spawn failure", async () => {
+    const result = await runManagedProcess(
+      {
+        command: "codex",
+        args: [],
+        platform,
+        timeoutMs: 5_000,
+        maxOutputChars: 1024,
+      },
+      {
+        terminationGraceMs: 0,
+        spawnChild: () => {
+          throw Object.assign(new Error("spawn EPERM"), { code: "EPERM" });
+        },
+        kill: () => undefined,
+      },
+    );
+    expect(result).toMatchObject({ exitCode: null, error: "spawn EPERM", timedOut: false });
+  });
+
   it("kills a timed-out process tree and preserves timeout state", async () => {
     const result = await runManagedProcess({
       command: executable,

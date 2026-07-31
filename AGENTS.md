@@ -26,9 +26,3 @@
 - Targeted tests that do not invoke a compile/build script are allowed.
 - Do not perform irreversible actions without explicit user confirmation.
 - Do not commit or push unless explicitly requested. When requested, split large changes into logical commits with clear messages.
-
-## Durable implementation notes
-
-- Append durable findings to `.agents/NOTES.md` when work ports another project, integrates external systems or protocols, adapts behavior across incompatible runtimes, or requires inspection of another repository or project.
-- Record source and revision, relevant constraints, chosen adaptation, rejected alternatives, compatibility or licensing obligations, and reusable verification findings.
-- Keep notes factual and durable. Do not use the file as a task log or duplicate information obvious from code.

@@ -176,13 +176,25 @@ function tableInteger(config: string, table: string, key: string): number | unde
 
 function autonomy(config: string): DoctorResult["autonomy"] {
   const approval = rootTomlString(config, "approval_policy");
+  const approvalsReviewer = rootTomlString(config, "approvals_reviewer");
   const sandbox = rootTomlString(config, "sandbox_mode");
   const network = tableBoolean(config, "sandbox_workspace_write", "network_access");
-  if (approval === "on-request" && sandbox === "workspace-write" && network === true)
+  if (
+    approval === "on-request" &&
+    approvalsReviewer === "auto_review" &&
+    sandbox === "workspace-write" &&
+    network === true
+  )
     return "safe-workspace";
-  if (approval === "never" && sandbox === "workspace-write" && network === true)
+  if (
+    approval === "never" &&
+    approvalsReviewer === undefined &&
+    sandbox === "workspace-write" &&
+    network === true
+  )
     return "autonomous-workspace";
-  if (approval === "never" && sandbox === "danger-full-access") return "dangerous";
+  if (approval === "never" && approvalsReviewer === undefined && sandbox === "danger-full-access")
+    return "dangerous";
   return "unknown";
 }
 
@@ -550,7 +562,7 @@ export async function doctor(
           "autonomy",
           "error",
           "invalid-autonomy-config",
-          "Approval, sandbox, and network settings do not match a supported mode.",
+          "Approval policy, approval reviewer, sandbox, and network settings do not match a supported mode.",
           "Rerun install with the intended autonomy flag.",
         )
       : mode === "dangerous"

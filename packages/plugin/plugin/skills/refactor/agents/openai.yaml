@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: Refactor"
+  short_description: "Restructure one code seam without changing behavior."
+  default_prompt: "Use $refactor to restructure this code seam without changing behavior."

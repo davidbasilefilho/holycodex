@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: Caveman"
+  short_description: "Render constraint-preserving terse responses."
+  default_prompt: "Use $caveman to render this response tersely without losing constraints."

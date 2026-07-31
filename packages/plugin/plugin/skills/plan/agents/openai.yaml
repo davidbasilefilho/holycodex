@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: Plan"
+  short_description: "Create reviewed, repo-grounded implementation plans."
+  default_prompt: "Use $plan to create a repo-grounded implementation plan for this request."

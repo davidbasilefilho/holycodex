@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: Rules"
+  short_description: "Trace HolyCodex rule discovery and injection."
+  default_prompt: "Use $rules to trace how HolyCodex discovers, matches, and injects these rules."

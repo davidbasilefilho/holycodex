@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: Debugging"
+  short_description: "Prove root causes and implement verified fixes."
+  default_prompt: "Use $debugging to reproduce this defect, prove its root cause, and verify the fix."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: AST Grep"
+  short_description: "Find and rewrite syntax-aware code patterns."
+  default_prompt: "Use $ast-grep to find and safely rewrite syntax-aware code patterns."

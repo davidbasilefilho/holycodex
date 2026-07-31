@@ -82,7 +82,19 @@ export function renderRunResult(result: RunResult, color: boolean): string {
     result.changed.length === 0
       ? `No HolyCodex-managed files needed ${empty}.`
       : `${action} HolyCodex configuration, plugin files, and agent profiles.`;
-  return `${title}\n  ${detail}${backup}\n`;
+  const codexSecurity = renderCodexSecurity(result);
+  return `${title}\n  ${detail}${backup}${codexSecurity}\n`;
+}
+
+function renderCodexSecurity(result: RunResult): string {
+  if (result.codexSecurity === undefined) return "";
+  if (result.codexSecurity.status === "installed")
+    return "\n  Installed official Codex Security plugin.";
+  if (result.codexSecurity.status === "enabled")
+    return "\n  Enabled existing official Codex Security plugin.";
+  if (result.codexSecurity.status === "already-installed")
+    return "\n  Official Codex Security plugin is already installed and enabled.";
+  return `\n  Skipped official Codex Security plugin: ${result.codexSecurity.reason}.`;
 }
 
 /** Renders notice. */

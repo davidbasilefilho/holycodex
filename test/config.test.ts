@@ -298,27 +298,86 @@ describe("Codex configuration", () => {
     const output = installConfig("", "dangerous");
     expect(output).toContain('approval_policy = "never"');
     expect(output).toContain('sandbox_mode = "danger-full-access"');
+    expect(output).not.toContain("approvals_reviewer");
+  });
+
+  it("uses automatic approval review only for the safe default mode", () => {
+    const safe = installConfig("", "default");
+    expect(safe).toContain('approval_policy = "on-request"');
+    expect(safe).toContain('approvals_reviewer = "auto_review"');
+    expect(safe).toContain('sandbox_mode = "workspace-write"');
+
+    const autonomous = installConfig("", "autonomous");
+    expect(autonomous).toContain('approval_policy = "never"');
+    expect(autonomous).not.toContain("approvals_reviewer");
+    expect(autonomous).toContain('sandbox_mode = "workspace-write"');
   });
 
   it.each(["default", "autonomous", "dangerous"] as const)(
-    "selects config.toml permissions in %s mode",
+    "installs an optional named permission profile without selecting it in %s mode",
     (mode) => {
       const output = installConfig("", mode);
-      expect(output).toContain('default_permissions = "holycodex-config"');
+      expect(output).not.toContain("default_permissions");
       expect(output).toContain("[permissions.holycodex-config]");
+      expect(output).toContain('description = "HolyCodex config.toml permissions."');
       expect(output).toContain('extends = ":workspace"');
       expect(output).toContain("[permissions.holycodex-config.network]");
       expect(output).toContain("enabled = true");
     },
   );
 
-  it("restores the original permission profile during cleanup", () => {
+  it("preserves an independently authored permission profile", () => {
     const input =
       'default_permissions = "user-profile"\n' +
       '[permissions.user-profile]\nextends = ":read-only"\n';
     const output = installConfig(input, "autonomous");
-    expect(output).toContain('default_permissions = "holycodex-config"');
+    expect(output).toContain('default_permissions = "user-profile"');
     expect(removeManaged(output)).toBe(input.trim());
+  });
+
+  it("migrates only managed legacy permission profiles", () => {
+    const independentlyAuthored =
+      'default_permissions = "holycodex-config"\n' +
+      '[permissions.holycodex-config]\ndescription = "HolyCodex config.toml permissions."\nextends = ":workspace"\n' +
+      "[permissions.holycodex-config.network]\nenabled = true\n";
+    const preserved = installConfig(independentlyAuthored, "default");
+    expect(preserved).toContain('default_permissions = "holycodex-config"');
+    expect(preserved).toContain("[permissions.holycodex-config]");
+    expect(removeManaged(preserved)).toBe(independentlyAuthored.trim());
+
+    const legacyManaged =
+      '# >>> holycodex managed >>>\ndefault_permissions = "holycodex-config"\n# <<< holycodex managed <<<\n\n' +
+      '# >>> holycodex managed >>>\n[permissions.holycodex-config]\ndescription = "HolyCodex config.toml permissions."\nextends = ":workspace"\n# <<< holycodex managed <<<\n\n' +
+      "# >>> holycodex managed >>>\n[permissions.holycodex-config.network]\nenabled = true\n# <<< holycodex managed <<<\n";
+    const migrated = installConfig(legacyManaged, "default");
+    expect(migrated).not.toContain("default_permissions");
+    expect(migrated).toContain("[permissions.holycodex-config]");
+    expect(migrated).toContain("[permissions.holycodex-config.network]");
+    expect(removeManaged(migrated)).toBe("");
+    expect(installConfig(migrated, "default")).toBe(migrated);
+  });
+
+  it("restores permission values recorded by legacy ownership metadata", () => {
+    const originalRoot = 'default_permissions = "user-profile"';
+    const legacyManaged =
+      `# >>> holycodex managed >>>\n# holycodex original root: ${Buffer.from(originalRoot).toString("base64")}\ndefault_permissions = "holycodex-config"\n# <<< holycodex managed <<<\n\n` +
+      '# >>> holycodex managed >>>\n[permissions.holycodex-config]\nextends = ":workspace"\n# <<< holycodex managed <<<\n\n' +
+      '[permissions.user-profile]\nextends = ":read-only"\n';
+    const migrated = installConfig(legacyManaged, "autonomous");
+
+    expect(migrated).toContain(originalRoot);
+    expect(migrated).toContain('[permissions.user-profile]\nextends = ":read-only"');
+    expect(migrated).toContain("[permissions.holycodex-config]");
+    expect(removeManaged(migrated)).toBe(
+      `${originalRoot}\n[permissions.user-profile]\nextends = ":read-only"`,
+    );
+  });
+
+  it("restores an explicit approvals reviewer exactly during cleanup", () => {
+    const input = 'approvals_reviewer = "user-reviewer"\n';
+    const installed = installConfig(input, "default");
+    expect(installed).toContain('approvals_reviewer = "auto_review"');
+    expect(removeManaged(installed)).toBe(input.trim());
   });
 
   it("owns the requested service tier and restores the pre-install value", () => {

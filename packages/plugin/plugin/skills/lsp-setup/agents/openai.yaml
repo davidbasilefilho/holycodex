@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: LSP Setup"
+  short_description: "Install and configure language servers safely."
+  default_prompt: "Use $lsp-setup to configure and verify the required language server."

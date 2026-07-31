@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: Remove Slop"
+  short_description: "Remove proven AI slop without changing behavior."
+  default_prompt: "Use $remove-slop to remove proven AI slop without changing behavior."

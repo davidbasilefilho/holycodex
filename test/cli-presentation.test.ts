@@ -92,4 +92,23 @@ describe("CLI presentation", () => {
       /(?:Changed|Backups):|secret\/path/,
     );
   });
+
+  it.each([
+    [{ status: "installed" }, "Installed official Codex Security plugin."],
+    [{ status: "enabled" }, "Enabled existing official Codex Security plugin."],
+    [
+      { status: "already-installed" },
+      "Official Codex Security plugin is already installed and enabled.",
+    ],
+    [
+      { status: "skipped", reason: "unauthenticated" },
+      "Skipped official Codex Security plugin: unauthenticated.",
+    ],
+  ] as const)("renders Codex Security result %j", (codexSecurity, message) => {
+    const output = renderRunResult(
+      { action: "install", changed: [], backups: [], codexSecurity },
+      false,
+    );
+    expect(output).toContain(message);
+  });
 });
