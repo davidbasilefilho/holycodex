@@ -1,6 +1,6 @@
 {
   "name": "holycodex",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Cost-aware Codex workflows with routed skills, bounded specialists, scoped rules, Git Bash on Windows, and LSP.",
   "author": {
     "name": "David Basile Filho",
@@ -14,7 +14,7 @@
   "interface": {
     "displayName": "HolyCodex",
     "shortDescription": "Codex agents, routed skills, scoped rules, Git Bash, LSP, code search, and docs lookup.",
-    "longDescription": "Root remains the default user-facing agent: the decision, clarification, integration, and verification layer. HolyCodex uses capability-based routing to reduce expensive Root usage without estimating exact cost: Luna low handles repository facts and current primary-source research, while Terra high handles isolated implementation after decisions and proof are fixed. Explorer is mandatory before a second separable repository read/search or multi-file/symbol fact pass; Librarian before a second external source or multi-source, version, or date research; Worker beyond one fixed isolated file, substantive edit, or proof cycle. Root classifies unknowns as discoverable facts to delegate, material decisions to ask, or safe reversible defaults to state and proceed; it never estimates exact monetary or token cost. Prompt contracts guide routing and deterministic tests pin those contracts, not provider-side enforcement. Git Bash is mandatory only on native Windows; LSP and Context7 remain cross-platform.",
+    "longDescription": "Root remains the default user-facing agent: the decision, clarification, integration, and verification layer. HolyCodex uses capability-based routing without estimating exact cost: Sol is reserved for Root on paid plans, while active specialists use Luna or Terra for bounded discovery, research, and implementation. Explorer is mandatory before a second separable repository read/search or multi-file/symbol fact pass; Librarian before a second external source or multi-source, version, or date research; Worker beyond one fixed isolated file, substantive edit, or proof cycle. Root classifies unknowns as discoverable facts to delegate, material decisions to ask, or safe reversible defaults to state and proceed; it never estimates exact monetary or token cost. Prompt contracts guide routing and deterministic tests pin those contracts, not provider-side enforcement. Git Bash is mandatory only on native Windows; LSP and Context7 remain cross-platform.",
     "defaultPrompt": "Use HolyCodex to implement and verify this task.",
     "developerName": "David Basile Filho",
     "category": "Developer Tools",

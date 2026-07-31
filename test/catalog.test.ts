@@ -9,6 +9,8 @@ import {
   DEFAULT_PLAN,
   effectiveMcpServers,
   GENERATED_RUNTIMES,
+  MANAGED_AGENT_MODEL_HISTORY_BY_PLAN,
+  MANAGED_ROOT_MODEL_HISTORY_BY_PLAN,
   MODEL_ROUTING_PLANS,
   ModelRoutingPlansSchema,
   PLAN_NAMES,
@@ -58,83 +60,125 @@ describe("HolyCodex catalog", () => {
     expect(requiredPackageRuntimes("linux")).not.toContain("git-bash.js");
   });
 
-  it("defines the ordered six-tier routing plan without unsupported reasoning", () => {
+  it("defines the exact ordered six-tier routing plan", () => {
     expect(PLAN_NAMES).toEqual(["go", "plus-low", "plus", "plus-high", "pro-5x", "pro-20x"]);
     expect(Object.keys(MODEL_ROUTING_PLANS)).toEqual(PLAN_NAMES);
-    expect(
-      Object.values(MODEL_ROUTING_PLANS).every((preset) =>
-        AGENTS.every((agent) => preset.agents[agent]),
-      ),
-    ).toBe(true);
+    expect(DEFAULT_PLAN).toBe("plus");
+    expect(MODEL_ROUTING_PLANS).toEqual({
+      go: {
+        root: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+        agents: {
+          explorer: { model: "gpt-5.6-terra", reasoningEffort: "low" },
+          librarian: { model: "gpt-5.6-terra", reasoningEffort: "low" },
+          worker: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+        },
+        usage: { maxSubagents: 0, maxDepth: 1 },
+      },
+      "plus-low": {
+        root: { model: "gpt-5.6-sol", reasoningEffort: "low" },
+        agents: {
+          explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+        },
+        usage: { maxSubagents: 1, maxDepth: 1 },
+      },
+      plus: {
+        root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+        agents: {
+          explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+        },
+        usage: { maxSubagents: 2, maxDepth: 1 },
+      },
+      "plus-high": {
+        root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+        agents: {
+          explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+        },
+        usage: { maxSubagents: 2, maxDepth: 1 },
+      },
+      "pro-5x": {
+        root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
+        agents: {
+          explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+        },
+        usage: { maxSubagents: 2, maxDepth: 1 },
+      },
+      "pro-20x": {
+        root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
+        agents: {
+          explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          worker: { model: "gpt-5.6-terra", reasoningEffort: "xhigh" },
+        },
+        usage: { maxSubagents: 2, maxDepth: 1 },
+      },
+    });
     expect(JSON.stringify(MODEL_ROUTING_PLANS)).not.toContain('"max"');
-    expect(
-      new Set([
-        MODEL_ROUTING_PLANS.go.root.model,
-        ...Object.values(MODEL_ROUTING_PLANS.go.agents).map((route) => route.model),
-      ]),
-    ).toEqual(new Set(["gpt-5.6-terra"]));
-    expect(
-      PLAN_NAMES.filter((plan) => plan !== "go").every(
-        (plan) => MODEL_ROUTING_PLANS[plan].root.model === "gpt-5.6-sol",
-      ),
-    ).toBe(true);
-    expect(Object.values(MODEL_ROUTING_PLANS).every((preset) => preset.usage.maxDepth === 1)).toBe(
-      true,
-    );
-    expect(MODEL_ROUTING_PLANS.go.usage.maxSubagents).toBe(0);
-    expect(MODEL_ROUTING_PLANS["plus-low"].root.reasoningEffort).toBe("low");
-    expect(MODEL_ROUTING_PLANS.plus.root.reasoningEffort).toBe("medium");
-    expect(MODEL_ROUTING_PLANS["plus-low"].usage.maxSubagents).toBe(1);
-    expect(MODEL_ROUTING_PLANS.plus.usage.maxSubagents).toBe(2);
-    expect(MODEL_ROUTING_PLANS["plus-high"].usage.maxSubagents).toBe(2);
-    expect(MODEL_ROUTING_PLANS["pro-5x"].usage.maxSubagents).toBe(2);
-    expect(MODEL_ROUTING_PLANS["pro-20x"].usage.maxSubagents).toBe(2);
-    expect(
-      Object.values(MODEL_ROUTING_PLANS).every((preset) =>
-        [preset.root, ...Object.values(preset.agents)].every((route) =>
-          ["low", "medium", "high", "xhigh"].includes(route.reasoningEffort),
-        ),
-      ),
-    ).toBe(true);
-    expect(MODEL_ROUTING_PLANS.plus.agents.librarian).toEqual({
-      model: "gpt-5.6-terra",
-      reasoningEffort: "medium",
-    });
-    expect(
-      new Set(Object.values(MODEL_ROUTING_PLANS["pro-20x"].agents).map((route) => route.model)),
-    ).toEqual(new Set(["gpt-5.6-luna", "gpt-5.6-sol"]));
-    expect(MODEL_ROUTING_PLANS.go.agents.worker).toEqual({
-      model: "gpt-5.6-terra",
-      reasoningEffort: "medium",
-    });
-    expect(MODEL_ROUTING_PLANS["plus-low"].agents.worker).toEqual({
-      model: "gpt-5.6-terra",
-      reasoningEffort: "medium",
-    });
-    expect(MODEL_ROUTING_PLANS.plus.agents.worker).toEqual({
-      model: "gpt-5.6-terra",
-      reasoningEffort: "high",
-    });
-    expect(MODEL_ROUTING_PLANS["plus-high"].agents.worker).toEqual({
-      model: "gpt-5.6-terra",
-      reasoningEffort: "high",
-    });
-    expect(MODEL_ROUTING_PLANS["pro-5x"].agents.librarian).toEqual({
-      model: "gpt-5.6-terra",
-      reasoningEffort: "high",
-    });
-    expect(MODEL_ROUTING_PLANS["pro-5x"].agents.worker).toEqual({
+  });
+
+  it("reserves Sol for active Root routes", () => {
+    for (const plan of PLAN_NAMES)
+      for (const agent of AGENTS)
+        expect(MODEL_ROUTING_PLANS[plan].agents[agent].model).not.toBe("gpt-5.6-sol");
+  });
+
+  it("recognizes every outgoing managed route without duplicate plan history", () => {
+    const outgoingAgents = {
+      "plus-low": {
+        explorer: { model: "gpt-5.6-luna", reasoningEffort: "low" },
+        librarian: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
+        worker: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+      },
+      plus: {
+        explorer: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
+        librarian: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+        worker: { model: "gpt-5.6-terra", reasoningEffort: "high" },
+      },
+      "plus-high": {
+        explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        worker: { model: "gpt-5.6-terra", reasoningEffort: "high" },
+      },
+      "pro-5x": {
+        explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        librarian: { model: "gpt-5.6-terra", reasoningEffort: "high" },
+        worker: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+      },
+      "pro-20x": {
+        librarian: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+        worker: { model: "gpt-5.6-sol", reasoningEffort: "high" },
+      },
+    } as const;
+
+    for (const [plan, agents] of Object.entries(outgoingAgents))
+      for (const [agent, route] of Object.entries(agents))
+        expect(
+          MANAGED_AGENT_MODEL_HISTORY_BY_PLAN[plan as keyof typeof outgoingAgents][
+            agent as keyof typeof agents
+          ],
+        ).toContainEqual(route);
+    expect(MANAGED_ROOT_MODEL_HISTORY_BY_PLAN["pro-5x"]).toContainEqual({
       model: "gpt-5.6-sol",
       reasoningEffort: "medium",
     });
-    expect(MODEL_ROUTING_PLANS["pro-20x"].agents.worker).toEqual({
-      model: "gpt-5.6-sol",
-      reasoningEffort: "high",
-    });
-    expect(MODEL_ROUTING_PLANS["pro-20x"].agents.librarian).toEqual({
-      model: "gpt-5.6-sol",
-      reasoningEffort: "medium",
-    });
+
+    for (const plan of PLAN_NAMES) {
+      expect(
+        new Set(MANAGED_ROOT_MODEL_HISTORY_BY_PLAN[plan].map((route) => JSON.stringify(route)))
+          .size,
+      ).toBe(MANAGED_ROOT_MODEL_HISTORY_BY_PLAN[plan].length);
+      for (const agent of AGENTS) {
+        const routes = MANAGED_AGENT_MODEL_HISTORY_BY_PLAN[plan][agent];
+        expect(new Set(routes.map((route) => JSON.stringify(route))).size).toBe(routes.length);
+      }
+    }
   });
 
   it("documents the ordered routing ladder without quota claims", async () => {
@@ -296,8 +340,8 @@ describe("HolyCodex catalog", () => {
     const description = manifest.interface?.longDescription ?? "";
     expect(description).toContain("Root remains the default user-facing agent");
     expect(description).toContain("capability-based routing");
-    expect(description).toContain("Luna low");
-    expect(description).toContain("Terra high");
+    expect(description).toContain("Sol is reserved for Root");
+    expect(description).toContain("active specialists use Luna or Terra");
     expect(description).toContain("mandatory only on native Windows");
     expect(description).toContain("decision, clarification, integration, and verification layer");
     expect(description).toContain("Prompt contracts guide routing");

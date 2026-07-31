@@ -24,16 +24,18 @@ Root owns user interaction, scope, architecture, integration, and final verifica
 
 Current routing values are:
 
-| Plan        | Root                 | Explorer            | Librarian            | Worker               | Direct subagents |
-| ----------- | -------------------- | ------------------- | -------------------- | -------------------- | ---------------- |
-| `go`        | GPT-5.6 Terra medium | GPT-5.6 Terra low   | GPT-5.6 Terra low    | GPT-5.6 Terra medium | 0                |
-| `plus-low`  | GPT-5.6 Sol low      | GPT-5.6 Luna low    | GPT-5.6 Luna medium  | GPT-5.6 Terra medium | 1                |
-| `plus`      | GPT-5.6 Sol medium   | GPT-5.6 Luna medium | GPT-5.6 Terra medium | GPT-5.6 Terra high   | 2                |
-| `plus-high` | GPT-5.6 Sol medium   | GPT-5.6 Luna high   | GPT-5.6 Luna high    | GPT-5.6 Terra high   | 2                |
-| `pro-5x`    | GPT-5.6 Sol medium   | GPT-5.6 Luna high   | GPT-5.6 Terra high   | GPT-5.6 Sol medium   | 2                |
-| `pro-20x`   | GPT-5.6 Sol high     | GPT-5.6 Luna xhigh  | GPT-5.6 Sol medium   | GPT-5.6 Sol high     | 2                |
+| Plan        | Root                 | Explorer           | Librarian          | Worker               | Direct subagents |
+| ----------- | -------------------- | ------------------ | ------------------ | -------------------- | ---------------- |
+| `go`        | GPT-5.6 Terra medium | GPT-5.6 Terra low  | GPT-5.6 Terra low  | GPT-5.6 Terra medium | 0                |
+| `plus-low`  | GPT-5.6 Sol low      | GPT-5.6 Luna high  | GPT-5.6 Luna high  | GPT-5.6 Luna xhigh   | 1                |
+| `plus`      | GPT-5.6 Sol medium   | GPT-5.6 Luna high  | GPT-5.6 Luna xhigh | GPT-5.6 Luna xhigh   | 2                |
+| `plus-high` | GPT-5.6 Sol medium   | GPT-5.6 Luna xhigh | GPT-5.6 Luna xhigh | GPT-5.6 Luna xhigh   | 2                |
+| `pro-5x`    | GPT-5.6 Sol high     | GPT-5.6 Luna xhigh | GPT-5.6 Luna xhigh | GPT-5.6 Luna xhigh   | 2                |
+| `pro-20x`   | GPT-5.6 Sol high     | GPT-5.6 Luna xhigh | GPT-5.6 Luna xhigh | GPT-5.6 Terra xhigh  | 2                |
 
 `plus` is the default plan.
+
+The routing is informed by the [DeepSWE v1.1 price-performance analysis](docs/deepswe-v1.1.md), recalculated for the July 30, 2026 GPT-5.6 price changes. Sol is reserved for Root; active subagents use Luna or Terra to optimize subscription quota consumption.
 
 All plans use subagent depth 1. The plan-selected direct subagent limit is emitted as `agents.max_threads`, which includes Root, so HolyCodex writes one more thread than the displayed value. Override it with `--max-subagents 0..3`.
 

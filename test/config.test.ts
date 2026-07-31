@@ -86,6 +86,17 @@ describe("Codex configuration", () => {
     expect(upgraded).not.toContain('model_reasoning_effort = "xhigh"');
   });
 
+  it("migrates the outgoing pro-5x Sol medium root route", () => {
+    const oldPro = installPlanConfig("", "pro-5x").replace(
+      'model_reasoning_effort = "high"',
+      'model_reasoning_effort = "medium"',
+    );
+    const upgraded = installPlanConfig(oldPro, "pro-5x");
+    expect(upgraded).toContain('model = "gpt-5.6-sol"');
+    expect(upgraded).toContain('model_reasoning_effort = "high"');
+    expect(upgraded).not.toContain('model_reasoning_effort = "medium"');
+  });
+
   it("migrates the former go Sol low root route", () => {
     const oldGo = installPlanConfig("", "go")
       .replace('model = "gpt-5.6-terra"', 'model = "gpt-5.6-sol"')

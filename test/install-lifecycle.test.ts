@@ -167,8 +167,8 @@ describe("install lifecycle", () => {
     const worker = await readFile(join(agents, "worker.toml"), "utf8");
     expect(explorer).toContain('model = "user/explorer"');
     expect(explorer).toContain('model_reasoning_effort = "high"');
-    expect(worker).toContain('model = "gpt-5.6-terra"');
-    expect(worker).toContain('model_reasoning_effort = "high"');
+    expect(worker).toContain('model = "gpt-5.6-luna"');
+    expect(worker).toContain('model_reasoning_effort = "xhigh"');
   });
 
   it("preserves an override that matches a different routing plan", async () => {
@@ -204,6 +204,73 @@ describe("install lifecycle", () => {
     const route = MODEL_ROUTING_PLANS.plus.agents.explorer;
     expect(explorer).toContain(`model = "${route.model}"`);
     expect(explorer).toContain(`model_reasoning_effort = "${route.reasoningEffort}"`);
+  });
+
+  it("migrates every outgoing specialist route to the recalculated plan", async () => {
+    const outgoingPlans = [
+      [
+        "plus-low",
+        [
+          ["explorer", "gpt-5.6-luna", "low"],
+          ["librarian", "gpt-5.6-luna", "medium"],
+          ["worker", "gpt-5.6-terra", "medium"],
+        ],
+      ],
+      [
+        "plus",
+        [
+          ["explorer", "gpt-5.6-luna", "medium"],
+          ["librarian", "gpt-5.6-terra", "medium"],
+          ["worker", "gpt-5.6-terra", "high"],
+        ],
+      ],
+      [
+        "plus-high",
+        [
+          ["explorer", "gpt-5.6-luna", "high"],
+          ["librarian", "gpt-5.6-luna", "high"],
+          ["worker", "gpt-5.6-terra", "high"],
+        ],
+      ],
+      [
+        "pro-5x",
+        [
+          ["explorer", "gpt-5.6-luna", "high"],
+          ["librarian", "gpt-5.6-terra", "high"],
+          ["worker", "gpt-5.6-sol", "medium"],
+        ],
+      ],
+      [
+        "pro-20x",
+        [
+          ["librarian", "gpt-5.6-sol", "medium"],
+          ["worker", "gpt-5.6-sol", "high"],
+        ],
+      ],
+    ] as const;
+
+    for (const [plan, routes] of outgoingPlans) {
+      const home = await mkdtemp(join(tmpdir(), `holycodex-old-${plan}-routes-test-`));
+      process.env.CODEX_HOME = home;
+      await install({ autonomy: "default", json: false, plan }, windowsRuntime);
+      await Promise.all(
+        routes.map(([agent, model, reasoningEffort]) =>
+          writeFile(
+            join(home, "holycodex", "agents", `${agent}.toml`),
+            `model = "${model}"\nmodel_reasoning_effort = "${reasoningEffort}"\n`,
+          ),
+        ),
+      );
+
+      await install({ autonomy: "default", json: false, plan }, windowsRuntime);
+
+      for (const [agent] of routes) {
+        const source = await readFile(join(home, "holycodex", "agents", `${agent}.toml`), "utf8");
+        const route = MODEL_ROUTING_PLANS[plan].agents[agent];
+        expect(source).toContain(`model = "${route.model}"`);
+        expect(source).toContain(`model_reasoning_effort = "${route.reasoningEffort}"`);
+      }
+    }
   });
 
   it("migrates an installed old go Root route", async () => {

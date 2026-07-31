@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const VERSION = "0.10.0";
+export const VERSION = "0.10.1";
 
 export const SKILLS = [
   "ast-grep",
@@ -84,36 +84,36 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
   "plus-low": {
     root: { model: "gpt-5.6-sol", reasoningEffort: "low" },
     agents: {
-      explorer: { model: "gpt-5.6-luna", reasoningEffort: "low" },
-      librarian: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
-      worker: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+      explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+      librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+      worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
     },
     usage: { maxSubagents: 1, maxDepth: 1 },
   },
   plus: {
     root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
     agents: {
-      explorer: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
-      librarian: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
-      worker: { model: "gpt-5.6-terra", reasoningEffort: "high" },
+      explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+      librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+      worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
     },
     usage: { maxSubagents: 2, maxDepth: 1 },
   },
   "plus-high": {
     root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
     agents: {
-      explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-      librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-      worker: { model: "gpt-5.6-terra", reasoningEffort: "high" },
+      explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+      librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+      worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
     },
     usage: { maxSubagents: 2, maxDepth: 1 },
   },
   "pro-5x": {
-    root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+    root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
     agents: {
-      explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-      librarian: { model: "gpt-5.6-terra", reasoningEffort: "high" },
-      worker: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+      explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+      librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+      worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
     },
     usage: { maxSubagents: 2, maxDepth: 1 },
   },
@@ -121,8 +121,8 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
     root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
     agents: {
       explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-      librarian: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
-      worker: { model: "gpt-5.6-sol", reasoningEffort: "high" },
+      librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+      worker: { model: "gpt-5.6-terra", reasoningEffort: "xhigh" },
     },
     usage: { maxSubagents: 2, maxDepth: 1 },
   },
@@ -137,18 +137,32 @@ const LEGACY_MANAGED_AGENT_MODEL_HISTORY = {
     librarian: [{ model: "gpt-5.6-luna", reasoningEffort: "low" }],
     worker: [{ model: "gpt-5.6-terra", reasoningEffort: "low" }],
   },
-  "plus-low": { explorer: [], librarian: [], worker: [] },
-  plus: {
+  "plus-low": {
     explorer: [{ model: "gpt-5.6-luna", reasoningEffort: "low" }],
+    librarian: [{ model: "gpt-5.6-luna", reasoningEffort: "medium" }],
+    worker: [{ model: "gpt-5.6-terra", reasoningEffort: "medium" }],
+  },
+  plus: {
+    explorer: [
+      { model: "gpt-5.6-luna", reasoningEffort: "low" },
+      { model: "gpt-5.6-luna", reasoningEffort: "medium" },
+    ],
     librarian: [
       { model: "gpt-5.6-luna", reasoningEffort: "low" },
       { model: "gpt-5.6-terra", reasoningEffort: "low" },
+      { model: "gpt-5.6-terra", reasoningEffort: "medium" },
     ],
     worker: [{ model: "gpt-5.6-terra", reasoningEffort: "high" }],
   },
   "plus-high": {
-    explorer: [{ model: "gpt-5.6-terra", reasoningEffort: "medium" }],
-    librarian: [{ model: "gpt-5.6-terra", reasoningEffort: "medium" }],
+    explorer: [
+      { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+      { model: "gpt-5.6-luna", reasoningEffort: "high" },
+    ],
+    librarian: [
+      { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+      { model: "gpt-5.6-luna", reasoningEffort: "high" },
+    ],
     worker: [
       { model: "gpt-5.6-terra", reasoningEffort: "high" },
       { model: "gpt-5.6-sol", reasoningEffort: "low" },
@@ -158,12 +172,13 @@ const LEGACY_MANAGED_AGENT_MODEL_HISTORY = {
     explorer: [
       { model: "gpt-5.6-terra", reasoningEffort: "medium" },
       { model: "gpt-5.6-terra", reasoningEffort: "high" },
+      { model: "gpt-5.6-luna", reasoningEffort: "high" },
     ],
-    librarian: [
+    librarian: [{ model: "gpt-5.6-terra", reasoningEffort: "high" }],
+    worker: [
       { model: "gpt-5.6-terra", reasoningEffort: "high" },
-      { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+      { model: "gpt-5.6-sol", reasoningEffort: "medium" },
     ],
-    worker: [{ model: "gpt-5.6-terra", reasoningEffort: "high" }],
   },
   "pro-20x": {
     explorer: [
@@ -173,11 +188,11 @@ const LEGACY_MANAGED_AGENT_MODEL_HISTORY = {
     librarian: [
       { model: "gpt-5.6-terra", reasoningEffort: "high" },
       { model: "gpt-5.6-sol", reasoningEffort: "medium" },
-      { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
     ],
     worker: [
       { model: "gpt-5.6-terra", reasoningEffort: "high" },
       { model: "gpt-5.6-luna", reasoningEffort: "medium" },
+      { model: "gpt-5.6-sol", reasoningEffort: "high" },
     ],
   },
 } satisfies Record<PlanName, Record<AgentName, readonly ModelRoute[]>>;
@@ -221,9 +236,9 @@ export const MANAGED_AGENT_MODEL_HISTORY = {
 const LEGACY_MANAGED_ROOT_MODEL_HISTORY = {
   go: [{ model: "gpt-5.6-sol", reasoningEffort: "low" }],
   "plus-low": [],
-  plus: [{ model: "gpt-5.6-sol", reasoningEffort: "medium" }],
+  plus: [],
   "plus-high": [],
-  "pro-5x": [{ model: "gpt-5.6-sol", reasoningEffort: "high" }],
+  "pro-5x": [{ model: "gpt-5.6-sol", reasoningEffort: "medium" }],
   "pro-20x": [{ model: "gpt-5.6-sol", reasoningEffort: "xhigh" }],
 } satisfies Record<PlanName, readonly ModelRoute[]>;
 
