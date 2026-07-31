@@ -20,7 +20,7 @@ npx holycodex doctor
 
 ## Plans and agents
 
-Root owns user interaction, scope, architecture, integration, and final verification. Explorer handles bounded repository discovery, Librarian handles current primary-source research, and Worker handles isolated implementation after Root fixes the contract.
+Root owns user interaction, scope, architecture, integration, and final verification. Root uses `plan-review` once before plan approval and `code-review` once after code or manifest implementation; neither review belongs to a reviewer agent. Explorer handles bounded repository discovery, Librarian handles current primary-source research, and Worker handles isolated implementation after Root fixes the contract without owning final verification.
 
 Current routing values are:
 

@@ -1,11 +1,13 @@
 ---
 name: programming
-description: Use when a task changes code or its manifests; do not use for prose-only edits. Applies general correctness, reuse, typing, testing, size, and verification rules plus available language references.
+description: Use when a task changes code or its manifests; do not use for prose-only edits. Applies implementation rules, then hands the final audit, repair, and verification to code-review.
 ---
 
 # Programming
 
 Before editing code, load `references/<language>/README.md` when present. Otherwise apply only these general rules; never claim unsupported language rules. Load `references/logging.md` only for logs and all `references/rust-ub/` for Rust unsafe or FFI.
+
+This skill owns implementation. After any code or manifest implementation, Root must load `code-review` exactly once before the final response. `code-review` owns the final scope audit, repairs, command selection, checks and affected reruns, final diff/status inspection, judgment, and user result. Do not delegate a reviewer or treat Worker verification as final. `plan-review` instead repairs a complete plan before approval. Prose-only and docs-only changes, status, explanation, initial planning, and plan review do not route to `code-review` unless the user explicitly requests review of code.
 
 ## Core
 
@@ -32,4 +34,4 @@ Prefer pure functions below 200 LOC; review 200–250 and split above 250 when r
 
 ## Finish
 
-Run formatter, linter, strict type checker, targeted tests, then proportional broader checks. Review responsibility, typed boundaries, exhaustive variants, reuse, regression proof, logging, and user-work preservation. Stop at requested scope.
+Finish implementation at the requested scope, preserve user work, and record implementation results and known constraints for Root. Then hand off once to `code-review`; do not perform or claim the final audit or verification here.

@@ -1,0 +1,82 @@
+[
+  {
+    "name": "changed callee regresses an affected caller",
+    "state": "Targeted tests pass, but one caller relies on the old return variant.",
+    "expected": ["affected-caller"]
+  },
+  {
+    "name": "review remembers only implementation files",
+    "state": "Working-tree and staged diffs contain additional edits.",
+    "expected": ["complete-git-scope"]
+  },
+  {
+    "name": "untracked file omitted",
+    "state": "A new fixture is present only in Git status.",
+    "expected": ["untracked-files"]
+  },
+  {
+    "name": "weak implementation-detail test",
+    "state": "Test asserts a private helper call but not public behavior.",
+    "expected": ["test-quality"]
+  },
+  {
+    "name": "public API breaks accidentally",
+    "state": "Exported type changed without caller or migration review.",
+    "expected": ["api-compatibility"]
+  },
+  {
+    "name": "formatter creates additional changes",
+    "state": "Formatting rewrites files after the initial inspection.",
+    "expected": ["formatter-diff", "final-git-scope"]
+  },
+  {
+    "name": "generated output is stale",
+    "state": "Source changed while the published runtime was not regenerated.",
+    "expected": ["generated-output"]
+  },
+  {
+    "name": "project checks fail",
+    "state": "Lint, type check, tests, build, or package validation fails.",
+    "expected": ["ordered-checks", "repair-failures"]
+  },
+  {
+    "name": "fix is not revalidated",
+    "state": "A finding was repaired without rerunning the affected check.",
+    "expected": ["rerun-checks"]
+  },
+  {
+    "name": "unrelated edits remain",
+    "state": "Final diff includes cleanup outside requested scope.",
+    "expected": ["scope-cleanliness"]
+  },
+  {
+    "name": "pre-existing failure blamed on implementation",
+    "state": "Baseline evidence proves the same external failure predates the task.",
+    "expected": ["failure-classification"]
+  },
+  {
+    "name": "new failure mislabeled pre-existing",
+    "state": "Failure appears only after the implementation change.",
+    "expected": ["failure-classification"]
+  },
+  {
+    "name": "tests pass but request is incomplete",
+    "state": "Implementation passes tests while one acceptance criterion is unmapped.",
+    "expected": ["requirement-comparison"]
+  },
+  {
+    "name": "explicit review of unchanged code",
+    "state": "No diff exists; user named one module for review.",
+    "expected": ["explicit-review-surface"]
+  },
+  {
+    "name": "native commands must be discovered",
+    "state": "Reviewer proposes a generic command absent from manifests, docs, workspace, and CI.",
+    "expected": ["native-command-discovery"]
+  },
+  {
+    "name": "review loops without progress",
+    "state": "Repeated review makes no material repair or new finding.",
+    "expected": ["bounded-progress"]
+  }
+]

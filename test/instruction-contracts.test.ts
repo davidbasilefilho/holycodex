@@ -22,7 +22,7 @@ function expectOrder(text: string, phrases: readonly string[]): void {
 describe("instruction workflow contracts", () => {
   it("keeps routed skills dense and bounded by prompt cost", async () => {
     const names = (await readdir(join(pluginRoot, "skills"))).sort();
-    expect(names).toHaveLength(14);
+    expect(names).toHaveLength(15);
     const texts = await Promise.all(names.map(skill));
     for (const text of texts) {
       const description = text.match(/^description: (.*)$/m)?.[1] ?? "";
@@ -184,49 +184,164 @@ describe("instruction workflow contracts", () => {
     expect(text).not.toContain("define-goal");
 
     const review = await skill("plan-review");
-    expect(review).toContain("If no initial plan exists, stop");
-    expect(review).toContain("One pass:");
+    expect(review).toContain("If no complete plan exists, stop");
     expect(review).toContain(
       "No reviewer agent, evidence folder, second review loop, or implementation.",
     );
   });
 
-  it("covers realistic adversarial plan-review failures", async () => {
+  it("covers executable adversarial plan-review failures", async () => {
     const review = await skill("plan-review");
     const fixtures = JSON.parse(
       await readFile(join(root, "test", "fixtures", "plan-review.json"), "utf8"),
-    ) as Array<{ expected: string[] }>;
+    ) as Array<{ name: string; plan: string; expected: string[] }>;
     const contracts: Record<string, RegExp> = {
-      "missing-requirement": /Map every material requirement/,
-      "unsupported-assumption": /unsupported assumptions/,
-      "wrong-scope": /wrong scope\/order/,
-      "dependency-cycle": /circular dependencies/,
+      "missing-requirement": /Requirement ledger[\s\S]*Map each to an exact plan step/,
+      "non-executable-plan":
+        /Every corrected step names target surface, intended outcome, prerequisites and owner/,
+      "fabricated-fact": /Invent no path, symbol, command, capability, or assumption/,
+      "unsupported-api": /APIs, commands, scripts, dependencies/,
+      "wrong-order": /Execution graph[\s\S]*prerequisites, order/,
+      "missing-rollback": /failure or rollback/,
+      "weak-proof": /exact check and expected result[\s\S]*Reject vague criteria/,
+      "stale-generated-output": /stale outputs/,
+      "missing-package-proof": /package result, publication result/,
+      "behavior-changing-cleanup": /behavior-changing refactors/,
+      "missing-failure-path": /which edge or failure is missing/,
       "write-overlap": /overlapping writes/,
       "unsafe-parallelism": /unsafe parallelism/,
-      "unresolved-decision": /unresolved product choices/,
-      "compatibility-risk": /compatibility/,
+      "compatibility-risk": /compatibility, data loss/,
       "windows-shell": /Windows Git Bash/,
-      "frontend-accessibility": /frontend accessibility\/motion/,
-      "weak-proof": /vague criteria, unverifiable outcomes/,
-      "missing-package": /generated\/package/,
-      "token-waste": /context-heavy delegation/,
-      "behavior-changing-cleanup": /behavior-changing cleanup/,
-      "missing-attribution": /attribution\/license/,
-      "continues-past-goal": /continuing beyond real goal/,
+      "missing-attribution": /attribution and licensing/,
+      "continues-past-goal": /post-goal tasks/,
+      "frontend-routing": /Build Web Apps `frontend-app-builder`/,
+      "frontend-accessibility": /frontend accessibility and motion/,
     };
+    expect(fixtures).toHaveLength(13);
     for (const fixture of fixtures) {
+      expect(fixture.plan, fixture.name).not.toHaveLength(0);
       for (const issue of fixture.expected) {
         const contract = contracts[issue];
         expect(contract, `unknown fixture issue: ${issue}`).toBeDefined();
         if (contract !== undefined)
-          expect(review, `uncovered fixture issue: ${issue}`).toMatch(contract);
+          expect(review, `uncovered fixture issue: ${fixture.name}: ${issue}`).toMatch(contract);
       }
     }
-    expect(review).toContain(
-      "Block architecture or user decisions; label lesser repairs suggestions.",
+    expectOrder(review, [
+      "Requirement ledger",
+      "Fact audit",
+      "Execution graph",
+      "Adversarial audit",
+      "Proof matrix",
+      "Scope audit",
+      "Result",
+    ]);
+    const result = review.slice(review.indexOf("7. **Result.**"));
+    expectOrder(result, [
+      "ranked findings",
+      "corrected executable plan",
+      "unresolved material decisions",
+      "residual risks",
+      "ready-for-approval status",
+    ]);
+  });
+
+  it("routes one Root-owned final code review after implementation", async () => {
+    const programming = await skill("programming");
+    const review = await skill("code-review");
+    const core = await readFile(
+      join(root, "packages", "cli", "src", "core-instructions.ts"),
+      "utf8",
     );
-    expect(review).toContain("Rank findings by impact before revising.");
-    expect(review).toContain("Revise once");
+    const worker = await readFile(join(pluginRoot, "agents", "worker.toml"), "utf8");
+
+    expect(programming.match(/load `code-review` exactly once/g)).toHaveLength(1);
+    expectOrder(programming, [
+      "This skill owns implementation.",
+      "load `code-review` exactly once before the final response",
+      "`code-review` owns the final scope audit",
+      "Then hand off once to `code-review`",
+    ]);
+    expect(core.match(/load `code-review` exactly once/g)).toHaveLength(1);
+    expect(review).toContain("Root owns scope comparison, integration, final judgment");
+    expect(review).toContain("Never create or delegate a reviewer.");
+    expect(worker).toContain(
+      "Do not use for discovery, product decisions, integration, or final verification",
+    );
+    expect(review).toContain("Worker verification is never final.");
+    expect(review).toContain("`plan-review` repairs a complete plan before approval");
+    expect(review).toContain("existing or supplied code");
+    expect(review).toContain("Prose-only or docs-only changes");
+    expect(review).not.toMatch(/^\*\*.* MODE ACTIVATED\*\*$/m);
+  });
+
+  it("orders complete code-review scope, repair, proof, and final inspection", async () => {
+    const review = await skill("code-review");
+    expectOrder(review, [
+      "Load the full task request, any approved plan",
+      "Git status, working-tree diff, staged diff, and untracked files",
+      "explicit review of unchanged or supplied code",
+      "Compare every requirement and approved plan item",
+      "Inspect changed code and affected callers",
+      "Fix every in-scope issue instead of merely reporting it",
+      "Discover native commands from manifests",
+      "Run relevant checks in order",
+      "rerun every affected check",
+      "inspect final Git diff and status",
+      "Continue only while making material progress",
+      "Report reviewed scope",
+    ]);
+    for (const contract of [
+      "public APIs, types, data and state flows, configuration, manifests, migrations",
+      "generated files, docs, tests, fixtures, packaging, and publication surfaces",
+      "formatter, linter, strict type checker, targeted tests, proportional broader tests, build",
+      "package or publication checks, and generated consistency",
+      "catch formatter effects, generated changes, staging differences, and scope drift",
+      "There is no arbitrary loop count.",
+      "Distinguish new failures from preexisting or external failures with evidence.",
+      "skipped checks with reasons",
+      "exact commands and checks with results",
+      "residual risks, and final status",
+    ])
+      expect(review).toContain(contract);
+  });
+
+  it("covers adversarial code-review failures as workflow contracts", async () => {
+    const review = await skill("code-review");
+    const fixtures = JSON.parse(
+      await readFile(join(root, "test", "fixtures", "code-review.json"), "utf8"),
+    ) as Array<{ name: string; state: string; expected: string[] }>;
+    const contracts: Record<string, RegExp> = {
+      "affected-caller": /affected callers, consumers/,
+      "complete-git-scope":
+        /complete changed scope with Git status, working-tree diff, staged diff/,
+      "untracked-files": /untracked files/,
+      "test-quality": /test quality/,
+      "api-compatibility": /public APIs[\s\S]*compatibility and migrations/,
+      "formatter-diff": /formatter effects/,
+      "final-git-scope": /inspect final Git diff and status/,
+      "generated-output": /generated consistency/,
+      "ordered-checks": /formatter, linter, strict type checker, targeted tests/,
+      "repair-failures": /Fix failures caused by the implementation/,
+      "rerun-checks": /rerun every affected check/,
+      "scope-cleanliness": /Remove accidents, debug artifacts, stale outputs, unrelated edits/,
+      "failure-classification": /Distinguish new failures from preexisting or external failures/,
+      "requirement-comparison": /Compare every requirement and approved plan item/,
+      "explicit-review-surface": /exact surface plus affected callers, consumers, and contracts/,
+      "native-command-discovery":
+        /Discover native commands from manifests, workspace configuration/,
+      "bounded-progress": /Continue only while making material progress/,
+    };
+    expect(fixtures).toHaveLength(16);
+    for (const fixture of fixtures) {
+      expect(fixture.state, fixture.name).not.toHaveLength(0);
+      for (const issue of fixture.expected) {
+        const contract = contracts[issue];
+        expect(contract, `unknown fixture issue: ${issue}`).toBeDefined();
+        if (contract !== undefined)
+          expect(review, `uncovered fixture issue: ${fixture.name}: ${issue}`).toMatch(contract);
+      }
+    }
   });
 
   it("validates semantic compression examples", async () => {

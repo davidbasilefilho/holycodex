@@ -1,10 +1,11 @@
 import { z } from "zod";
 
-export const VERSION = "0.10.3";
+export const VERSION = "0.10.4";
 
 export const SKILLS = [
   "ast-grep",
   "caveman",
+  "code-review",
   "compress",
   "debugging",
   "handoff",

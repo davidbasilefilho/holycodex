@@ -1,25 +1,74 @@
 [
   {
-    "name": "unsafe cross-platform release migration",
+    "name": "user requirement omitted from a generic plan",
+    "plan": "Update the implementation and run tests.",
+    "expected": ["missing-requirement", "non-executable-plan"]
+  },
+  {
+    "name": "fabricated repository path and command",
+    "plan": "Edit src/review.ts, then run npm review:all.",
+    "expected": ["fabricated-fact"]
+  },
+  {
+    "name": "unsupported API capability",
+    "plan": "Call the existing reviewPlan transaction API.",
+    "expected": ["unsupported-api"]
+  },
+  {
+    "name": "step scheduled before its prerequisite",
+    "plan": "Publish generated output, then generate it.",
+    "expected": ["wrong-order"]
+  },
+  {
+    "name": "migration lacks failure recovery",
+    "plan": "Migrate stored state and verify the new schema.",
+    "expected": ["missing-rollback"]
+  },
+  {
+    "name": "proof misses visible behavior",
+    "plan": "Change CLI output; proof is type checking only.",
+    "expected": ["weak-proof"]
+  },
+  {
+    "name": "generated artifact remains stale",
+    "plan": "Change generated runtime source without regeneration.",
+    "expected": ["stale-generated-output"]
+  },
+  {
+    "name": "published package surface is unverified",
+    "plan": "Add a skill and run its unit test only.",
+    "expected": ["missing-package-proof"]
+  },
+  {
+    "name": "cleanup changes unrelated behavior",
+    "plan": "Add the feature and simplify adjacent routing behavior.",
+    "expected": ["behavior-changing-cleanup"]
+  },
+  {
+    "name": "failure path omitted",
+    "plan": "Write configuration and validate only the success case.",
+    "expected": ["missing-failure-path"]
+  },
+  {
+    "name": "keyword-complete but non-executable plan",
+    "plan": "Compatibility, rollback, package, tests, and cleanup will be checked.",
+    "expected": ["non-executable-plan", "weak-proof"]
+  },
+  {
+    "name": "cross-platform release migration",
+    "plan": "Parallel workers edit one manifest, use PowerShell, omit license and stop conditions.",
     "expected": [
-      "missing-requirement",
-      "unsupported-assumption",
-      "wrong-scope",
-      "dependency-cycle",
       "write-overlap",
       "unsafe-parallelism",
-      "unresolved-decision",
       "compatibility-risk",
       "windows-shell",
-      "weak-proof",
-      "missing-package",
-      "token-waste",
       "missing-attribution",
       "continues-past-goal"
     ]
   },
   {
-    "name": "frontend cleanup presented as refactor",
-    "expected": ["frontend-accessibility", "behavior-changing-cleanup", "weak-proof"]
+    "name": "frontend plan skips routed design and access needs",
+    "plan": "Implement a visual redesign directly and inspect screenshots later.",
+    "expected": ["frontend-routing", "frontend-accessibility"]
   }
 ]

@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: Code Review"
+  short_description: "Audit, repair, and verify implemented code."
+  default_prompt: "Use $code-review to audit, repair, and verify this implementation exactly once."

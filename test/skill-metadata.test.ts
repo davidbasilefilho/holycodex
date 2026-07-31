@@ -14,6 +14,7 @@ const run = promisify(execFile);
 const manualTitles = {
   "ast-grep": "AST Grep",
   caveman: "Caveman",
+  "code-review": "Code Review",
   compress: "Compress",
   debugging: "Debugging",
   handoff: "Handoff",
