@@ -16,6 +16,7 @@ export type CodexLauncherInput = CodexLauncher | string;
 
 /** Process facts used to construct the default launcher candidates. */
 export type CodexLauncherRuntimeFacts = {
+  readonly allowPackageResolution?: boolean;
   readonly platform?: NodeJS.Platform;
   readonly execPath?: string;
   readonly runtime?: "bun" | "node";
@@ -39,10 +40,13 @@ export const CODEX_LATEST_PACKAGE = CODEX_PACKAGE_SPEC;
 /** Derives safe process facts for the default installation flow. */
 export function defaultCodexLauncherRuntimeFacts(
   platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
 ): CodexLauncherRuntimeFacts {
   const bun = typeof process.versions.bun === "string";
-  const npmExecPath = bun ? undefined : process.env.npm_execpath;
+  const allowPackageResolution = env.HOLYCODEX_TEST_SKIP_PACKAGE_RESOLUTION !== "1";
+  const npmExecPath = bun ? undefined : env.npm_execpath;
   return {
+    allowPackageResolution,
     platform,
     execPath: process.execPath,
     runtime: bun ? "bun" : "node",
@@ -67,6 +71,8 @@ export function createCodexLauncherCandidates(
 
   const pathLauncher = normalizeLauncher(facts.pathCodex ?? "codex", "path");
   if (pathLauncher !== undefined) candidates.push(pathLauncher);
+
+  if (facts.allowPackageResolution === false) return deduplicate(candidates);
 
   const runtime = facts.runtime ?? (typeof process.versions.bun === "string" ? "bun" : "node");
   if (runtime === "bun") {

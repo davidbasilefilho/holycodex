@@ -560,4 +560,13 @@ describe("Codex Security installation", () => {
     expect(candidates.map((candidate) => candidate.source)).toContain("npm-exec");
     expect(candidates.map((candidate) => candidate.source)).toContain("pnpm-exec");
   });
+
+  it("skips package resolution at the CLI integration-test boundary", () => {
+    const facts = defaultCodexLauncherRuntimeFacts("linux", {
+      HOLYCODEX_TEST_SKIP_PACKAGE_RESOLUTION: "1",
+      npm_execpath: "/private/npm-cli.js",
+    });
+    const candidates = createCodexLauncherCandidates({ runtimeFacts: facts });
+    expect(candidates).toEqual([{ command: "codex", argsPrefix: [], source: "path" }]);
+  });
 });
