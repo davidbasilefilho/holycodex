@@ -1,0 +1,15 @@
+{
+  "marketplaces": [
+    {
+      "id": "openai-curated",
+      "plugins": [
+        {
+          "id": "codex-security",
+          "installationState": "available",
+          "enabled": false,
+          "category": "security"
+        }
+      ]
+    }
+  ]
+}

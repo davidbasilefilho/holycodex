@@ -1,21 +1,17 @@
 ---
 name: refactor
-description: Use when a task needs behavior-preserving restructuring, extraction, simplification, modernization, or cleanup of one named seam; do not use for features, bug fixes, formatting sweeps, or broad AI-slop cleanup. Produces a behavior-locked structural change; unlike remove-slop it targets one seam or smell.
+description: Use for behavior-preserving restructuring, extraction, simplification, modernization, or cleanup of one seam; do not use for features, fixes, formatting sweeps, or broad slop cleanup. Produces a behavior-locked structural change.
 ---
 
 # Refactor
 
-Scope one smell or seam. No feature, formatting sweep, rename drift, or cleanup bundle.
+Scope one smell/seam; no feature, formatting sweep, rename drift, cleanup bundle.
 
-1. Map target responsibility, callers, references, tests, public contract.
-2. State invariant that must remain true.
-3. Add or run behavior-locking test before move.
-4. Use LSP references/rename for symbols. Use AST rewrite for repeated syntax shape.
-5. Move one responsibility at time. Keep compatibility only when contract requires it.
-6. Run smallest test after each semantic move.
-7. Delete obsolete path only after all callers move.
-8. Run strict diagnostics and proportional suite.
+1. Map responsibility, callers/references, tests, public contract; state invariant.
+2. Add/run behavior-lock test before moving.
+3. Use LSP references/rename for symbols; AST rewrite for repeated syntax.
+4. Move one responsibility at a time; keep compatibility only when contracted.
+5. Run smallest test after each semantic move.
+6. Delete obsolete path only after callers move; run strict diagnostics/proportional tests.
 
-Good split follows ownership, lifecycle, policy, or dependency boundary. Bad split creates pass-through files, one-call helpers, generic `utils`, or cycles.
-
-Stop and reassess if public API changes, tests cannot distinguish behavior, concurrent user edits overlap, or required migration exceeds request.
+Good splits follow ownership, lifecycle, policy, dependency. Bad splits create pass-through files, one-call helpers, generic `utils`, cycles. Stop if API changes, tests cannot distinguish behavior, user edits overlap, or migration exceeds scope.

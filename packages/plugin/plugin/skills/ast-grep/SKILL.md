@@ -1,20 +1,18 @@
 ---
 name: ast-grep
-description: Use when a task needs syntax-aware code search or a repeatable structural rewrite across AST-shaped matches; do not use for plain text search, one local edit, or symbol navigation. Produces reviewed deterministic matches or a codemod; unlike LSP it matches syntax, not symbol identity.
+description: Use for syntax-aware search or repeatable AST-shaped rewrites; do not use for text search, one local edit, or symbol navigation. Produces reviewed deterministic matches/codemod; unlike LSP it matches syntax, not identity.
 ---
 
 # ast-grep
 
-Use `sg` for syntax shapes; use `rg` for text.
+Use `sg` for syntax, `rg` for text.
 
-## Flow
-
-1. Name language and exact syntax shape.
-2. Start search-only. Use smallest pattern with metavariables.
+1. Name language/exact shape.
+2. Search first with smallest metavariable pattern.
 3. Inspect match classes; constrain only as needed.
-4. Test rewrite on narrow path. Review diff.
-5. Apply deterministic rewrite. Run formatter, diagnostics, targeted tests.
+4. Test rewrite narrowly; review diff.
+5. Apply deterministically; format, diagnose, test.
 
-Simple search: `sg run -p '<pattern>' -l <language> <path>`. Use YAML for constraints, relations, or reusable codemods. Review matches before writes. Never regex-replace syntax-bearing code.
+Search: `sg run -p '<pattern>' -l <language> <path>`. Use YAML for constraints, relations, reusable codemods. Review matches before writes; never regex-replace syntax code.
 
 Load only needed reference: `patterns.md`, `yaml-rules.md`, `recipes.md`, `pitfalls.md`, `sgconfig.md`, `cli.md`, or `install.md`.

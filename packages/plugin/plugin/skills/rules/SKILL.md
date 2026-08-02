@@ -1,16 +1,16 @@
 ---
 name: rules
-description: Use when a task asks how HolyCodex rules are discovered, matched, injected, deduplicated, limited, cached, or why rule loading is wrong; do not use merely because repository instructions exist or for skill routing. Produces an evidence-backed rule trace without exposing unrelated content; unlike general debugging it owns this pipeline.
+description: Use when asked how HolyCodex rules are discovered, matched, injected, deduped, limited, cached, or why loading fails; do not use merely because repo instructions exist or for skill routing. Produces an evidence-backed rule trace without unrelated content.
 ---
 
 # Rules
 
-Automatic when plugin enabled. Static rules load on session start and user prompt. File rules load after matching edit. Post-compact clears session cache.
+Automatic when enabled: static rules on session start/user prompt, matching file rules after edit, cache clear after compact.
 
-Sources: `CONTEXT.md`, `.holycodex/rules/**/*.md`, `.codex/rules/**/*.md`, `.github/instructions/**/*.md`, `.github/copilot-instructions.md`. Never load or reinject `AGENTS.md`.
+Sources: `CONTEXT.md`, `.holycodex/rules/**/*.md`, `.codex/rules/**/*.md`, `.github/instructions/**/*.md`, `.github/copilot-instructions.md`. Never load/reinject `AGENTS.md`.
 
-Frontmatter: `alwaysApply: true` for static rule; `globs` accepts quoted or unquoted scalar, inline array, or multiline array. Body after frontmatter is injected. Native and plugin rules dedupe by normalized content hash. Per-rule cap 8,000 chars; event cap 24,000 chars.
+Frontmatter: `alwaysApply: true` for static; `globs` accepts quoted/unquoted scalar, inline/multiline array. Inject body after frontmatter. Native/plugin rules dedupe by normalized-content hash. Caps: 8,000 chars/rule, 24,000/event.
 
-Environment: `HOLYCODEX_RULES_DISABLED=1`, `HOLYCODEX_RULES_MAX_RULE_CHARS`, `HOLYCODEX_RULES_MAX_RESULT_CHARS`.
+Env: `HOLYCODEX_RULES_DISABLED=1`, `HOLYCODEX_RULES_MAX_RULE_CHARS`, `HOLYCODEX_RULES_MAX_RESULT_CHARS`.
 
-When debugging rules, report discovered files, parsed metadata, target path, match result, dedupe/cache result. Do not expose unrelated rule content.
+Debug report: discovered files, metadata, target path, match, dedupe/cache; never expose unrelated rule content.

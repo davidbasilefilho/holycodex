@@ -1,3 +1,3 @@
 # YAML rules
 
-Minimum rule: `id`, `language`, `rule`. Compose with `all`, `any`, `not`; relate with `inside`, `has`, `precedes`, `follows`; constrain captures with `constraints`. Add `fix` only after search result is exact. Keep one semantic purpose per rule. Test positive and negative fixtures with `sg test`.
+Minimum: `id`, `language`, `rule`. Compose with `all`/`any`/`not`; relate with `inside`/`has`/`precedes`/`follows`; constrain captures via `constraints`. Add `fix` only after exact search. One purpose/rule; test positive/negative fixtures with `sg test`.

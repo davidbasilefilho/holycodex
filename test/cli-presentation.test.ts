@@ -100,9 +100,32 @@ describe("CLI presentation", () => {
       { status: "already-installed" },
       "Official Codex Security plugin is already installed and enabled.",
     ],
+    [{ status: "skipped", reason: "codex-unavailable" }, "no usable Codex launcher was found."],
+    [{ status: "skipped", reason: "unauthenticated" }, "Codex authentication is required."],
     [
-      { status: "skipped", reason: "unauthenticated" },
-      "Skipped official Codex Security plugin: unauthenticated.",
+      { status: "skipped", reason: "marketplace-unavailable" },
+      "the plugin marketplace could not be reached.",
+    ],
+    [
+      { status: "skipped", reason: "plugin-unavailable" },
+      "the plugin was unavailable from every usable Codex launcher.",
+    ],
+    [
+      { status: "skipped", reason: "installation-rejected" },
+      "the account or workspace policy rejected installation.",
+    ],
+    [{ status: "skipped", reason: "timeout" }, "all usable Codex launchers timed out."],
+    [
+      { status: "skipped", reason: "invalid-response" },
+      "Codex returned an unsupported or malformed response.",
+    ],
+    [
+      { status: "skipped", reason: "unsupported" },
+      "the available Codex launchers do not support plugin installation.",
+    ],
+    [
+      { status: "skipped", reason: "download-failed" },
+      "the latest Codex package could not be downloaded.",
     ],
   ] as const)("renders Codex Security result %j", (codexSecurity, message) => {
     const output = renderRunResult(
@@ -110,5 +133,6 @@ describe("CLI presentation", () => {
       false,
     );
     expect(output).toContain(message);
+    expect(JSON.parse(JSON.stringify({ codexSecurity }))).toEqual({ codexSecurity });
   });
 });

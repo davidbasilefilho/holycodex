@@ -105,14 +105,14 @@ describe("Codex configuration", () => {
     expect(upgraded).not.toContain('model_reasoning_effort = "medium"');
   });
 
-  it("migrates the former go Sol low root route", () => {
+  it("migrates the former go Terra medium root route", () => {
     const oldGo = installPlanConfig("", "go")
-      .replace('model = "gpt-5.6-terra"', 'model = "gpt-5.6-sol"')
-      .replace('model_reasoning_effort = "medium"', 'model_reasoning_effort = "low"');
+      .replace('model = "gpt-5.6-luna"', 'model = "gpt-5.6-terra"')
+      .replace('model_reasoning_effort = "xhigh"', 'model_reasoning_effort = "medium"');
     const upgraded = installPlanConfig(oldGo, "go");
-    expect(upgraded).toContain('model = "gpt-5.6-terra"');
-    expect(upgraded).toContain('model_reasoning_effort = "medium"');
-    expect(upgraded).not.toContain('model = "gpt-5.6-sol"');
+    expect(upgraded).toContain('model = "gpt-5.6-luna"');
+    expect(upgraded).toContain('model_reasoning_effort = "xhigh"');
+    expect(upgraded).not.toContain('model = "gpt-5.6-terra"');
   });
 
   it("preserves an unrelated explicit root route across reinstall", () => {
@@ -433,7 +433,9 @@ describe("Codex configuration", () => {
     const input = '[desktop]\nshow-context-window-usage = false\n[windows]\nsandbox = "elevated"\n';
     const output = installConfig(input, "default");
     expect(output.match(/^\[desktop]/gm)).toHaveLength(1);
-    expect(output).toContain('enabled-reasoning-efforts = ["low", "medium", "high"]');
+    expect(output).toContain(
+      'enabled-reasoning-efforts = ["low", "medium", "high", "xhigh", "max"]',
+    );
     expect(output).toContain("show-context-window-usage = true");
     expect(output.match(/^\[windows]/gm)).toHaveLength(1);
     expect(output).toContain('sandbox = "unelevated"');

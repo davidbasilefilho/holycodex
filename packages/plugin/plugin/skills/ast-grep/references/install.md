@@ -1,3 +1,3 @@
 # Install
 
-First run `sg --version`. If absent and user authorized install, use project/package-manager convention or official ast-grep package. Confirm executable and version. Never silently download or mutate global environment.
+Run `sg --version`. If absent and install is authorized, follow project/package-manager convention or official ast-grep package. Verify executable/version. Never silently download or mutate globals.

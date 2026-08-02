@@ -28,18 +28,6 @@ import { LSP_MCP_TOOLS } from "../packages/lsp-core/src/tools";
 const root = join(import.meta.dirname, "..");
 const pluginRoot = join(root, "packages", "plugin", "plugin");
 const skills = SKILLS;
-const responseStyleContract = [
-  "Use grammatical sentences without filler or hedging.",
-  "Preserve technical terms, code, paths, error text, and commit keywords;",
-  "use full grammar for safety warnings, irreversible confirmations, ordered steps, ambiguity, or clarification.",
-] as const;
-const specialistPacketConcepts = [
-  "exact outcome or question",
-  "allowed scope",
-  "constraints and fixed decisions",
-  "required evidence or proof",
-  "stop and blocker conditions",
-] as const;
 
 describe("HolyCodex catalog", () => {
   it("keeps version and model defaults in the canonical catalogue", async () => {
@@ -66,11 +54,11 @@ describe("HolyCodex catalog", () => {
     expect(DEFAULT_PLAN).toBe("plus");
     expect(MODEL_ROUTING_PLANS).toEqual({
       go: {
-        root: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+        root: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
         agents: {
-          explorer: { model: "gpt-5.6-terra", reasoningEffort: "low" },
-          librarian: { model: "gpt-5.6-terra", reasoningEffort: "low" },
-          worker: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+          explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
         },
         usage: { maxSubagents: 0, maxDepth: 1 },
       },
@@ -97,7 +85,7 @@ describe("HolyCodex catalog", () => {
         agents: {
           explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
           librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
         },
         usage: { maxSubagents: 2, maxDepth: 1 },
       },
@@ -106,31 +94,37 @@ describe("HolyCodex catalog", () => {
         agents: {
           explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
           librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
         },
         usage: { maxSubagents: 2, maxDepth: 1 },
       },
       "pro-20x": {
         root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
         agents: {
-          explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-          librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          explorer: { model: "gpt-5.6-luna", reasoningEffort: "max" },
+          librarian: { model: "gpt-5.6-luna", reasoningEffort: "max" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
         },
         usage: { maxSubagents: 2, maxDepth: 1 },
       },
     });
-    expect(JSON.stringify(MODEL_ROUTING_PLANS)).not.toContain('"max"');
+    expect(JSON.stringify(MODEL_ROUTING_PLANS)).toContain('"max"');
   });
 
-  it("reserves Sol for active Root routes", () => {
+  it("uses Luna for active agents and excludes Terra", () => {
     for (const plan of PLAN_NAMES)
       for (const agent of AGENTS)
         expect(MODEL_ROUTING_PLANS[plan].agents[agent].model).not.toBe("gpt-5.6-sol");
+    expect(JSON.stringify(MODEL_ROUTING_PLANS)).not.toContain("gpt-5.6-terra");
   });
 
   it("recognizes every outgoing managed route without duplicate plan history", () => {
     const outgoingAgents = {
+      go: {
+        explorer: { model: "gpt-5.6-terra", reasoningEffort: "low" },
+        librarian: { model: "gpt-5.6-terra", reasoningEffort: "low" },
+        worker: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+      },
       "plus-low": {
         explorer: { model: "gpt-5.6-luna", reasoningEffort: "low" },
         librarian: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
@@ -219,16 +213,7 @@ describe("HolyCodex catalog", () => {
 
   it("rejects invalid plans, reasoning efforts, and incomplete routing presets", () => {
     expect(PlanNameSchema.safeParse("enterprise").success).toBe(false);
-    expect(ReasoningEffortSchema.safeParse("max").success).toBe(false);
-    expect(
-      ModelRoutingPlansSchema.safeParse({
-        ...MODEL_ROUTING_PLANS,
-        plus: {
-          ...MODEL_ROUTING_PLANS.plus,
-          root: { ...MODEL_ROUTING_PLANS.plus.root, reasoningEffort: "max" },
-        },
-      }).success,
-    ).toBe(false);
+    expect(ReasoningEffortSchema.safeParse("max").success).toBe(true);
     expect(
       ModelRoutingPlansSchema.safeParse({
         ...MODEL_ROUTING_PLANS,
@@ -276,7 +261,7 @@ describe("HolyCodex catalog", () => {
     expect((await readdir(join(pluginRoot, "skills"))).sort()).toEqual([...skills].sort());
     for (const skill of skills) {
       const text = await readFile(join(pluginRoot, "skills", skill, "SKILL.md"), "utf8");
-      expect(text).toMatch(/^description: Use when /m);
+      expect(text).toMatch(/^description: Use (?:when|for) /m);
       const description = text.match(/^description:\s*(.*)$/m)?.[1] ?? "";
       expect(description).toMatch(/do not|only when|only after|before editing/i);
       expect(description).toMatch(/Produces|Applies|Creates|Returns/i);
@@ -288,26 +273,22 @@ describe("HolyCodex catalog", () => {
     ]);
     for (const agent of await readdir(join(pluginRoot, "agents"))) {
       const prompt = await readFile(join(pluginRoot, "agents", agent), "utf8");
-      expect(prompt).toMatch(/^description = ".*Use .*"$/m);
+      expect(prompt).toMatch(/^description = ".+"$/m);
       expect(prompt).not.toContain("I detect");
+      expect(prompt).toMatch(/Lead with requested .*result/);
+      expect(prompt).toContain("On native Windows");
+      expect(prompt).toContain("mcp__git_bash__run");
+      expect(prompt).toContain("all Git, Bash, POSIX, package, build, test, script commands");
+      expect(prompt).toContain("If absent, stop");
       expect(prompt).toContain(
-        "Begin with requested evidence, status, results, uncertainty, or blockers.",
+        "Packets contain outcome/question, scope, fixed decisions, proof, stops/blockers",
       );
-      expect(prompt).toContain("before the first shell action");
-      expect(prompt).toContain("callable and deferred tools");
-      expect(prompt).toContain("Use it for every shell command");
-      expect(prompt).toContain("If unavailable, stop and report the blocker");
-      for (const rule of responseStyleContract) expect(prompt).toContain(rule);
-      expect(prompt).toContain("Accept five packet concepts");
-      for (const concept of specialistPacketConcepts) expect(prompt).toContain(concept);
-      expect(prompt).toContain("Other context is optional and task-specific");
-      expect(prompt).toContain("without irrelevant optional fields");
-      expect(prompt).toContain("propose no extra work");
-      expect(prompt).toContain("escalate automatically");
-      expect(prompt).toContain("or delegate");
+      expect(prompt).toContain("other context is optional");
+      expect(prompt).toContain("auto-escalate");
+      expect(prompt).toContain("delegate");
     }
     expect(await readFile(join(pluginRoot, "agents", "worker.toml"), "utf8")).toContain(
-      "For prompt or instruction work, load caveman first.",
+      "Prompt/instruction work loads `caveman`",
     );
   });
 
@@ -330,7 +311,7 @@ describe("HolyCodex catalog", () => {
       const text = await readFile(join(pluginRoot, "skills", skill, "SKILL.md"), "utf8");
       expect(text).toContain(phrase);
       expect(text.split(phrase)).toHaveLength(2);
-      expect(text).toContain("Only after this skill is fully loaded");
+      expect(text).toMatch(/(?:Only )?after full load, first (?:user-)?visible lines/i);
     }
     const headings = new Map<string, string>();
     for (const name of skills) {
@@ -340,7 +321,7 @@ describe("HolyCodex catalog", () => {
     }
     expect(headings).toEqual(expected);
     expect(await readFile(join(pluginRoot, "skills", "caveman", "SKILL.md"), "utf8")).toContain(
-      "No activation heading or mode label.",
+      "No activation heading/label.",
     );
     const plugin = JSON.parse(
       await readFile(join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8"),
@@ -367,7 +348,8 @@ describe("HolyCodex catalog", () => {
     expect(description).toContain("Root remains the default user-facing agent");
     expect(description).toContain("capability-based routing");
     expect(description).toContain("Sol is reserved for Root");
-    expect(description).toContain("active specialists use Luna or Terra");
+    expect(description).toContain("active specialists use Luna");
+    expect(description).not.toContain("active specialists use Luna or Terra");
     expect(description).toContain("mandatory only on native Windows");
     expect(description).toContain("decision, clarification, integration, and verification layer");
     expect(description).toContain("Prompt contracts guide routing");
@@ -375,7 +357,7 @@ describe("HolyCodex catalog", () => {
   });
 
   it("gives every local MCP tool invocation guidance", async () => {
-    for (const tool of LSP_MCP_TOOLS) expect(tool.description).toMatch(/^Use /);
+    for (const tool of LSP_MCP_TOOLS) expect(tool.description).toMatch(/^[A-Z].+\.$/);
     const response = await handleGitBashMcpRequest(
       { jsonrpc: "2.0", id: 1, method: "tools/list" },
       { platform: "linux", env: {}, exists: () => false, where: () => [] },
@@ -383,7 +365,7 @@ describe("HolyCodex catalog", () => {
     if (response === undefined || "error" in response || response.result === undefined)
       throw new Error("tools/list failed");
     const tools = response.result.tools as Array<{ description: string }>;
-    for (const tool of tools) expect(tool.description).toMatch(/^Use /);
+    for (const tool of tools) expect(tool.description).toMatch(/^[A-Z].+\.$/);
   });
 
   it("ships only supported command hooks", async () => {

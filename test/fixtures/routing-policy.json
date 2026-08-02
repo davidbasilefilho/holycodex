@@ -30,5 +30,32 @@
     "id": "coupled-architecture-local-work",
     "request": "Resolve a coupled architecture decision before implementation.",
     "route": "local"
+  },
+  {
+    "id": "authenticated-project-setting",
+    "request": "Change a setting in an authenticated project dashboard.",
+    "route": "browser-control"
+  },
+  {
+    "id": "authenticated-deployment-inspection",
+    "request": "Inspect an authenticated deployment console.",
+    "route": "browser-control"
+  },
+  {
+    "id": "native-windows-application",
+    "request": "Interact with a native Windows desktop application.",
+    "route": "computer-use"
+  },
+  {
+    "id": "public-documentation-research",
+    "request": "Research ordinary public product documentation.",
+    "route": "librarian"
+  },
+  {
+    "id": "destructive-dashboard-action",
+    "request": "Delete a deployment from an authenticated dashboard.",
+    "route": "browser-control",
+    "before": "approval",
+    "after": "browser-control"
   }
 ]

@@ -164,6 +164,8 @@ const AGENT_MANAGED_KEYS = new Set([
   "service_tier",
 ]);
 const AGENT_BUNDLED_KEYS = new Set(["description", "developer_instructions"]);
+const COMPACT_WINDOWS_SHELL_POLICY =
+  /^On native Windows, resolve `mcp__git_bash__run` before shell use;[^\r\n]*never use PowerShell\/cmd\.\r?\n\r?\n/m;
 
 async function readAgentPreferences(
   root: string,
@@ -310,7 +312,8 @@ async function writeInstalledAgents(
         path,
         source
           .replace(`${WINDOWS_SHELL_POLICY}\r\n\r\n`, "")
-          .replace(`${WINDOWS_SHELL_POLICY}\n\n`, ""),
+          .replace(`${WINDOWS_SHELL_POLICY}\n\n`, "")
+          .replace(COMPACT_WINDOWS_SHELL_POLICY, ""),
       );
     }),
   );

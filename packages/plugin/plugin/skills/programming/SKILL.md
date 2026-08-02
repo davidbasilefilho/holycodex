@@ -1,37 +1,33 @@
 ---
 name: programming
-description: Use when a task changes code or its manifests; do not use for prose-only edits. Applies implementation rules, then hands the final audit, repair, and verification to code-review.
+description: Use when a task changes code or manifests; do not use for prose-only edits. Applies implementation rules, then hands final audit/repair/verification to code-review.
 ---
 
 # Programming
 
-Before editing code, load `references/<language>/README.md` when present. Otherwise apply only these general rules; never claim unsupported language rules. Load `references/logging.md` only for logs and all `references/rust-ub/` for Rust unsafe or FFI.
+Before edits, load present `references/<language>/README.md`; otherwise claim only general rules. Load `references/logging.md` only for logs and all `references/rust-ub/` for Rust unsafe/FFI.
 
-This skill owns implementation. After any code or manifest implementation, Root must load `code-review` exactly once before the final response. `code-review` owns the final scope audit, repairs, command selection, checks and affected reruns, final diff/status inspection, judgment, and user result. Do not delegate a reviewer or treat Worker verification as final. `plan-review` instead repairs a complete plan before approval. Prose-only and docs-only changes, status, explanation, initial planning, and plan review do not route to `code-review` unless the user explicitly requests review of code.
+This skill owns implementation. After code/manifest work, Root loads `code-review` exactly once before final response; it owns final audit, repairs, commands/checks/reruns, diff/status, judgment/result. Never delegate review or treat Worker proof as final. `plan-review` repairs pre-approval plans. Prose/docs-only work, status/explanation/planning skip `code-review` unless explicit.
 
 ## Core
 
-- Prefer no code, existing helper, standard API, native feature, installed dependency, one line, then new code.
-- Trace flow and callers; fix the shared root seam once.
-- Parse untrusted input at the boundary. Keep interiors typed, states valid, data immutable by default, and variants exhaustive.
-- Use typed errors. Catch only expected errors; unknown errors propagate.
-- Keep the project stack and logger. Add no untyped escape or ignored diagnostic.
+- Prefer: no code, existing helper, standard API, native feature, installed dependency, one line, new code.
+- Trace flow/callers; fix shared root seam once.
+- Parse untrusted boundaries; keep interiors typed, valid, immutable by default, exhaustive.
+- Use typed errors; catch expected, propagate unknown. Keep project stack/logger; no untyped escape or ignored diagnostic.
 
 ## Reuse
 
-- One behavior, one implementation. Search before writing; reuse or extend the existing implementation.
-- Never copy logic or maintain parallel policy variants. Put shared behavior at its smallest stable common ownership seam.
-- Extract real repetition; reject speculative abstraction.
-- A one-caller helper is justified by a stable domain abstraction, cohesive state transition, protocol boundary, framework requirement, or clearer code; otherwise keep mechanics local.
+One behavior, one implementation: search, reuse/extend, never copy logic/parallel policy. Share at smallest stable owner. Extract actual repetition, not speculative abstraction. One-caller helpers require stable domain abstraction, cohesive transition, protocol/framework boundary, or clearer code.
 
 ## Test
 
-Defect: add a public-seam regression test first and confirm the intended failure. For explicit test-first work or defined new behavior lacking proof, test the public seam, confirm failure, implement minimum green, then refactor. Existing tests may lock small covered changes. Do not force red-green for prose, configuration-only work, trivial mechanical edits, or covered behavior. Prefer real objects or fakes; use deterministic fixtures, never sleep. Run the smallest test in the loop.
+For defects/unproved behavior, add public-seam test, confirm intended failure, implement minimum green, refactor. Existing tests may lock covered changes. Do not force red-green for prose/config, trivial mechanics, or covered behavior. Prefer real objects/fakes, deterministic fixtures, no sleeps; run smallest loop test.
 
 ## Size
 
-Prefer pure functions below 200 LOC; review 200–250 and split above 250 when responsibilities separate cleanly. Keep cohesive state machines, protocol adapters, generated structures, performance-critical code, framework structure, and stable domain abstractions intact when splitting reduces clarity. Prefer a named input object above three independent parameters unless a stable API, protocol, performance constraint, or clearer call justifies separate values.
+Prefer pure functions under 200 LOC; review 200–250, split above 250 when responsibilities separate. Keep cohesive state machines, protocol adapters, generated/performance/framework structures, stable domain abstractions when splitting hurts clarity. Above three independent parameters prefer named input unless API/protocol/performance/clarity favors separate values.
 
 ## Finish
 
-Finish implementation at the requested scope, preserve user work, and record implementation results and known constraints for Root. Then hand off once to `code-review`; do not perform or claim the final audit or verification here.
+Finish scope, preserve user work, record results/constraints, hand off once to `code-review`; never claim final audit/verification here.

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const VERSION = "0.10.5";
+export const VERSION = "0.10.6";
 
 export const SKILLS = [
   "ast-grep",
@@ -28,7 +28,7 @@ export const PlanNameSchema = z.enum(["go", "plus-low", "plus", "plus-high", "pr
 export const PLAN_NAMES = PlanNameSchema.options;
 export type PlanName = z.infer<typeof PlanNameSchema>;
 
-export const ReasoningEffortSchema = z.enum(["low", "medium", "high", "xhigh"]);
+export const ReasoningEffortSchema = z.enum(["low", "medium", "high", "xhigh", "max"]);
 export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
 
 export const FastModeSchema = z.enum(["standard", "fast", "fast-all"]);
@@ -77,11 +77,11 @@ export const DEFAULT_PLAN = "plus" satisfies PlanName;
 
 export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
   go: {
-    root: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+    root: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
     agents: {
-      explorer: { model: "gpt-5.6-terra", reasoningEffort: "low" },
-      librarian: { model: "gpt-5.6-terra", reasoningEffort: "low" },
-      worker: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+      explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+      librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+      worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
     },
     usage: { maxSubagents: 0, maxDepth: 1 },
   },
@@ -108,7 +108,7 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
     agents: {
       explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
       librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-      worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+      worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
     },
     usage: { maxSubagents: 2, maxDepth: 1 },
   },
@@ -117,16 +117,16 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
     agents: {
       explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
       librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-      worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+      worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
     },
     usage: { maxSubagents: 2, maxDepth: 1 },
   },
   "pro-20x": {
     root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
     agents: {
-      explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-      librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-      worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+      explorer: { model: "gpt-5.6-luna", reasoningEffort: "max" },
+      librarian: { model: "gpt-5.6-luna", reasoningEffort: "max" },
+      worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
     },
     usage: { maxSubagents: 2, maxDepth: 1 },
   },
@@ -137,9 +137,18 @@ export const AGENT_MODELS = MODEL_ROUTING_PLANS[DEFAULT_PLAN].agents;
 
 const LEGACY_MANAGED_AGENT_MODEL_HISTORY = {
   go: {
-    explorer: [{ model: "gpt-5.6-luna", reasoningEffort: "low" }],
-    librarian: [{ model: "gpt-5.6-luna", reasoningEffort: "low" }],
-    worker: [{ model: "gpt-5.6-terra", reasoningEffort: "low" }],
+    explorer: [
+      { model: "gpt-5.6-luna", reasoningEffort: "low" },
+      { model: "gpt-5.6-terra", reasoningEffort: "low" },
+    ],
+    librarian: [
+      { model: "gpt-5.6-luna", reasoningEffort: "low" },
+      { model: "gpt-5.6-terra", reasoningEffort: "low" },
+    ],
+    worker: [
+      { model: "gpt-5.6-terra", reasoningEffort: "low" },
+      { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+    ],
   },
   "plus-low": {
     explorer: [{ model: "gpt-5.6-luna", reasoningEffort: "low" }],
@@ -243,7 +252,10 @@ export const MANAGED_AGENT_MODEL_HISTORY = {
 } satisfies Record<AgentName, readonly ModelRoute[]>;
 
 const LEGACY_MANAGED_ROOT_MODEL_HISTORY = {
-  go: [{ model: "gpt-5.6-sol", reasoningEffort: "low" }],
+  go: [
+    { model: "gpt-5.6-sol", reasoningEffort: "low" },
+    { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+  ],
   "plus-low": [],
   plus: [],
   "plus-high": [],

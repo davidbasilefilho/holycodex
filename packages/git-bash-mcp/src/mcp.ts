@@ -23,7 +23,7 @@ import { runGitBashCommand, type RunGitBashCommand } from "./runner";
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 30 * 60_000;
 const SERVER_INSTRUCTIONS =
-  "On native Windows, use git_bash.run for every shell command; other shell execution is prohibited. Resolve this server before the first shell action. Use workdir instead of cd. Stop and report a blocker if run is unavailable.";
+  "Native Windows: resolve git_bash.run before shell use, then use it for every shell command. Other shells are prohibited. Use workdir, not cd; if run is absent, stop with the blocker.";
 const EXEC_COMMAND_TIMEOUT_ENV_KEYS = [
   "HOLYCODEX_GIT_BASH_TIMEOUT_MS",
   "HOLYCODEX_EXEC_COMMAND_TIMEOUT_MS",
@@ -178,12 +178,12 @@ function toolsForOptions(options: GitBashMcpOptions): ToolDefinition[] {
   const sharedTools: ToolDefinition[] = [
     {
       name: "which_bash",
-      description: "Use to find Git Bash on Windows.",
+      description: "Find Git Bash on Windows.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
     },
     {
       name: "diagnose",
-      description: "Use to diagnose Git Bash readiness.",
+      description: "Diagnose Git Bash readiness.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
     },
   ];
@@ -192,25 +192,24 @@ function toolsForOptions(options: GitBashMcpOptions): ToolDefinition[] {
     {
       name: "run",
       description:
-        "Use for every shell command on native Windows, including Git, Bash, POSIX, package, build, test, and script commands; other shell execution is prohibited.",
+        "Run every native-Windows shell command, including Git, POSIX, package, build, test, and scripts. Other shells are prohibited.",
       inputSchema: {
         type: "object",
         properties: {
-          command: { type: "string", description: "Command to run." },
+          command: { type: "string", description: "Command." },
           timeout: {
             type: "integer",
             minimum: 1,
             maximum: MAX_TIMEOUT_MS,
-            description: `Timeout in milliseconds; defaults to inherited exec_command timeout or ${defaultTimeoutMs(options)}ms.`,
+            description: `Milliseconds; default inherited exec_command timeout or ${defaultTimeoutMs(options)}.`,
           },
           workdir: {
             type: "string",
-            description:
-              "Working directory. Use this instead of 'cd'. Defaults to current directory.",
+            description: "Working directory; use instead of cd. Default: current directory.",
           },
           description: {
             type: "string",
-            description: "Command purpose in 5-10 words.",
+            description: "Purpose in 5-10 words.",
           },
         },
         required: ["command"],

@@ -6,17 +6,17 @@ const expectedToolSurface = [
   {
     name: "status",
     title: "LSP Status",
-    description: "Use to list LSP servers without starting them.",
+    description: "List LSP servers without starting them.",
     inputSchema: { type: "object", properties: {}, required: [] },
   },
   {
     name: "diagnostics",
     title: "LSP Diagnostics",
-    description: "Use to get file or directory diagnostics.",
+    description: "Get file or directory diagnostics.",
     inputSchema: {
       type: "object",
       properties: {
-        filePath: { type: "string", description: "File or directory path to check." },
+        filePath: { type: "string", description: "File or directory." },
         severity: {
           type: "string",
           enum: ["error", "warning", "information", "hint", "all"],
@@ -29,12 +29,12 @@ const expectedToolSurface = [
   {
     name: "goto_definition",
     title: "LSP Goto Definition",
-    description: "Use to find a symbol's definition.",
+    description: "Find a symbol definition.",
     inputSchema: {
       type: "object",
       properties: {
-        filePath: { type: "string", description: "Source file containing the symbol." },
-        line: { type: "number", description: "1-based line number." },
+        filePath: { type: "string", description: "Source file." },
+        line: { type: "number", description: "1-based line." },
         character: { type: "number", description: "0-based column." },
       },
       required: ["filePath", "line", "character"],
@@ -43,12 +43,12 @@ const expectedToolSurface = [
   {
     name: "find_references",
     title: "LSP Find References",
-    description: "Use to find all workspace references to a symbol.",
+    description: "Find workspace symbol references.",
     inputSchema: {
       type: "object",
       properties: {
-        filePath: { type: "string", description: "Source file containing the symbol." },
-        line: { type: "number", description: "1-based line number." },
+        filePath: { type: "string", description: "Source file." },
+        line: { type: "number", description: "1-based line." },
         character: { type: "number", description: "0-based column." },
         includeDeclaration: {
           type: "boolean",
@@ -61,15 +61,15 @@ const expectedToolSurface = [
   {
     name: "symbols",
     title: "LSP Symbols",
-    description: "Use to outline a file or search workspace symbols.",
+    description: "Outline a file or search workspace symbols.",
     inputSchema: {
       type: "object",
       properties: {
-        filePath: { type: "string", description: "File path used as LSP context." },
+        filePath: { type: "string", description: "LSP context file." },
         scope: {
           type: "string",
           enum: ["document", "workspace"],
-          description: "document outlines a file; workspace searches the project.",
+          description: "document: outline; workspace: project search.",
         },
         query: { type: "string", description: "Workspace symbol query." },
         limit: { type: "number", description: "Maximum number of symbols to return." },
@@ -80,12 +80,12 @@ const expectedToolSurface = [
   {
     name: "prepare_rename",
     title: "LSP Prepare Rename",
-    description: "Use to check whether a symbol supports semantic rename.",
+    description: "Check semantic-rename support.",
     inputSchema: {
       type: "object",
       properties: {
-        filePath: { type: "string", description: "Source file path." },
-        line: { type: "number", description: "1-based line number." },
+        filePath: { type: "string", description: "Source file." },
+        line: { type: "number", description: "1-based line." },
         character: { type: "number", description: "0-based column." },
       },
       required: ["filePath", "line", "character"],
@@ -94,12 +94,12 @@ const expectedToolSurface = [
   {
     name: "rename",
     title: "LSP Rename",
-    description: "Use to rename a symbol workspace-wide after prepare_rename succeeds.",
+    description: "Rename workspace symbol after prepare_rename succeeds.",
     inputSchema: {
       type: "object",
       properties: {
-        filePath: { type: "string", description: "Source file path." },
-        line: { type: "number", description: "1-based line number." },
+        filePath: { type: "string", description: "Source file." },
+        line: { type: "number", description: "1-based line." },
         character: { type: "number", description: "0-based column." },
         newName: { type: "string", description: "New symbol name." },
       },
@@ -109,13 +109,13 @@ const expectedToolSurface = [
   {
     name: "install_decision",
     title: "LSP Install Decision",
-    description: "Use to record explicit LSP install permission or decline.",
+    description: "Record LSP install permission or decline.",
     inputSchema: {
       type: "object",
       properties: {
         server_id: {
           type: "string",
-          description: "Server id from the not-installed message, e.g. rust.",
+          description: "Server id from not-installed message, e.g. rust.",
         },
         decision: {
           type: "string",

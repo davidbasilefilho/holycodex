@@ -1,25 +1,23 @@
 ---
 name: plan-review
-description: Use when a complete initial plan needs feasibility, scope, order, risk, or proof repair; do not use before initial drafting, for approval or implementation, or repeatedly. Produces one corrected executable plan; unlike plan, it owns neither draft nor approval.
+description: Use when a complete plan needs feasibility, scope, order, risk, or proof repair; do not use before drafting, for approval/implementation, or twice. Produces one corrected plan; unlike plan, it owns neither draft nor approval.
 ---
 
 # Plan Review
 
-Only after this skill is fully loaded, its first user-visible lines must be:
+After full load, first visible lines:
 
 **PLAN REVIEW MODE ACTIVATED**
 I detect plan-review intent: [reason]. [action].
 
-Require the request, complete initial plan, decisions, criteria, and repository facts. If no complete plan exists, stop and return to `plan`. Review once, after completion: no preload, parallel review, reviewer agent, evidence folder, approval, implementation, or loop. `plan` owns drafting and approval.
+Require request, complete plan, decisions, criteria, repo facts. If incomplete, return to `plan`. Review once after drafting: no preload, parallel review, reviewer, evidence folder, approval, implementation, or loop. `plan` owns draft/approval.
 
-## Procedure and artifacts
+1. **Requirement ledger.** Map each material requirement, constraint, criterion, decision, exclusion, proof to a step, exclusion, or blocker. Reject gaps/conflicts; preserve architecture, scope, user choices.
+2. **Fact audit.** Verify files/symbols/entry points, APIs, commands/scripts, dependencies, generated/package behavior, conventions, external facts; invent nothing. Explorer is mandatory before a second separable repo search or multi-file/symbol pass; Librarian before a second external source or multi-source/version/date pass. At most two `fork_turns="none"` lanes; no specialist delegation.
+3. **Execution graph.** Trace prerequisites, order/owner/state, migrations, generated/docs/package/publication work, cleanup/rollback/stops. Find cycles, gaps, write overlap, unsafe parallelism, stale output, wrong routing/timing. Worker is mandatory for fixed isolated work beyond one file, substantive edit, or proof cycle; review never implements.
+4. **Adversarial audit.** Challenge assumptions, regressions, missing edges/failures, evidence. Cover compatibility/data loss, security/permissions/sandbox, concurrency/state/performance, migrations/user work, platforms/Windows Git Bash, context recovery, licensing/attribution, frontend accessibility/motion. Block material architecture/product choices. Qualifying UI/frontend work requires Build Web Apps `frontend-app-builder` concept/design approval; if absent require enabling it. Read-only UI audit is exempt.
+5. **Proof matrix.** Map behavior/regression/migration/failure, generated/package/publication results, cleanup to exact checks/results. Require targeted then proportional static/integration/build/package/generation, Git diff/status, relevant rollback proof. Reject vague, duplicate, unverifiable, post-goal checks.
+6. **Scope audit.** State changed/untouched surfaces; remove unrelated cleanup, speculation, premature abstraction, duplicate/unneeded work, behavior-changing refactors, unsupported detail, ceremony, fake precision, post-goal work. Never estimate exact monetary/token cost.
+7. **Result.** Return ranked findings, corrected plan, unresolved material decisions, residual risks, approval readiness. Each step names surface/outcome, prerequisites/owner, exact proof/result, failure/rollback, decision gate, stop. Ask only material choices; return to `plan`.
 
-1. **Requirement ledger.** Enumerate every material requirement, constraint, acceptance criterion, fixed decision, exclusion, and requested proof. Map each to an exact plan step, explicit exclusion, or blocker; reject anything unmapped or contradicted. Preserve architecture, scope, and user choices.
-2. **Fact audit.** Verify every material repository claim, including files, symbols, entry points, APIs, commands, scripts, dependencies, generated outputs, package behavior, conventions, and external facts. Invent no path, symbol, command, capability, or assumption. Explorer is mandatory before a second separable repository read/search or any multi-file or symbol fact pass; Librarian before a second external source or multi-source, version, or date research. Use at most two lanes with `fork_turns="none"`; delegate separable context-heavy work, and specialists never delegate.
-3. **Execution graph.** Trace prerequisites, order, ownership, state transitions, migrations, generated files, docs, package and publication work, cleanup, rollback, and stops. Detect cycles, missing prerequisites, overlapping writes, unsafe parallelism, stale outputs, wrong routing, and early or late steps. Worker is mandatory for fixed isolated implementation beyond one file, one substantive edit, or one proof cycle, but plan review never implements.
-4. **Adversarial audit.** For each material step ask what assumption may be false, what can regress, which edge or failure is missing, and what evidence would expose error. Cover compatibility, data loss, security, permissions, sandboxing, concurrency, state, performance, migrations, user work, platform behavior, mandatory Windows Git Bash use, context recovery, attribution and licensing, and frontend accessibility and motion. Block material architecture or product decisions; label lesser repairs as suggestions. For qualifying UI or frontend implementation, require routing to Build Web Apps `frontend-app-builder` and its concept and design-approval workflow before implementation details. If unavailable, tell the user to enable Build Web Apps through Codex; do not block review solely on absence. Read-only UI audits are exempt.
-5. **Proof matrix.** Map every visible behavior, regression, migration, failure, generated or package result, publication result, and cleanup outcome to an exact check and expected result. Require targeted then proportional broader proof, including static, integration, build, package, generated consistency, Git diff/status, and rollback checks when relevant. Reject vague criteria, duplicate proof, unverifiable outcomes, and checks that continue after the goal.
-6. **Scope audit.** State what changes and remains untouched. Remove unrelated cleanup, speculation, premature abstraction, unneeded files or surfaces, duplicate work, behavior-changing refactors, unsupported detail, ceremony, fake precision, and post-goal tasks. Never estimate exact monetary or token cost.
-7. **Result.** Return, in order: ranked findings, the corrected executable plan, unresolved material decisions, residual risks, and ready-for-approval status. Every corrected step names target surface, intended outcome, prerequisites and owner, exact proof and expected result, failure or rollback behavior, decision gate when applicable, and stop condition. Ask only material choices, then return the result to `plan` for approval.
-
-No reviewer agent, evidence folder, second review loop, or implementation. Stop after this single correction; return the corrected plan to `plan` for approval.
+No reviewer, evidence folder, second review, or implementation. Stop after correction.

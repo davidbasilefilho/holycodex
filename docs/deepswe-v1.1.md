@@ -92,20 +92,20 @@ Raw run cost alone does not determine routing. Luna high and xhigh require rough
 
 Root owns ambiguity resolution, architecture, integration, coordination, user interaction, and final verification. Sol's roughly 51 to 53 expected steps per success can justify its premium in that high-leverage role. Sol is not assigned to active subagents.
 
-Explorer, Librarian, and Worker receive bounded tasks. Luna high is the strict usage-to-performance choice for those roles, while Luna xhigh provides stronger delegated performance at low relative cost. `plus-low` therefore minimizes quota use without dropping to weak Luna low or medium routes. `plus` remains the balanced default, combining Sol medium for Root with Luna high or xhigh specialists. Higher plans increase Root reasoning, specialist reasoning, or both. `go` remains the Terra plan.
+Relative cost per successful task is the primary usage-efficiency metric. Absolute capability is secondary because failed delegated work creates Root rework. Steps, orchestration reliability, latency, and output speed are tertiary. Sol remains preferred for paid-plan Root routes because orchestration failures affect the entire workflow. Explorer, Librarian, and Worker receive bounded tasks and use Luna only. `plus-low` uses Luna high specialists, `plus` keeps its Luna xhigh Worker, `plus-high` raises Worker to Luna max, `pro-5x` uses Luna xhigh research specialists and a Luna max Worker, and `pro-20x` uses Luna max specialists. `go` uses Luna xhigh for Root and Worker with Luna high research specialists.
 
-No active route uses `max` reasoning. Every plan preserves subagent depth `1`.
+All plans preserve subagent depth `1`. No active route uses Terra.
 
 ## Final HolyCodex routing
 
-| plan        | Root         | Explorer   | Librarian  | Worker       | max direct subagents |
-| ----------- | ------------ | ---------- | ---------- | ------------ | -------------------: |
-| `go`        | Terra medium | Terra low  | Terra low  | Terra medium |                    0 |
-| `plus-low`  | Sol low      | Luna high  | Luna high  | Luna high    |                    1 |
-| `plus`      | Sol medium   | Luna high  | Luna high  | Luna xhigh   |                    2 |
-| `plus-high` | Sol medium   | Luna xhigh | Luna xhigh | Luna xhigh   |                    2 |
-| `pro-5x`    | Sol high     | Luna xhigh | Luna xhigh | Luna xhigh   |                    2 |
-| `pro-20x`   | Sol high     | Luna xhigh | Luna xhigh | Luna xhigh   |                    2 |
+| plan        | Root       | Explorer   | Librarian  | Worker     | max direct subagents |
+| ----------- | ---------- | ---------- | ---------- | ---------- | -------------------: |
+| `go`        | Luna xhigh | Luna high  | Luna high  | Luna xhigh |                    0 |
+| `plus-low`  | Sol low    | Luna high  | Luna high  | Luna high  |                    1 |
+| `plus`      | Sol medium | Luna high  | Luna high  | Luna xhigh |                    2 |
+| `plus-high` | Sol medium | Luna xhigh | Luna xhigh | Luna max   |                    2 |
+| `pro-5x`    | Sol high   | Luna xhigh | Luna xhigh | Luna max   |                    2 |
+| `pro-20x`   | Sol high   | Luna max   | Luna max   | Luna max   |                    2 |
 
 `plus` is the default plan. Parent and specialist configuration is deterministic for the selected plan. Historical managed routes remain recognized only where needed for migration and cleanup.
 
@@ -122,7 +122,7 @@ HolyCodex writes `service_tier` directly into Root and every generated agent-rol
 
 The three flags are mutually exclusive. Upgrades remove stale HolyCodex-managed global Fast state before writing the selected Root and per-agent tiers. Unrelated user-owned configuration remains outside HolyCodex ownership, and cleanup removes or restores HolyCodex-managed tier settings.
 
-Because Fast has a fixed `2.5×` usage multiplier without a benchmark quality or step-count change, Standard remains the quota-efficient default.
+Fast has a fixed `2.5×` usage multiplier and about `1.5×` output-token speed. It has no quality or step-count gain, so Standard remains the quota-efficient default.
 
 ## Limitations
 

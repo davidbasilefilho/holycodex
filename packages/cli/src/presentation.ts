@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { DEFAULT_PLAN, PLAN_NAMES } from "./catalog.ts";
+import type { CodexSecuritySkipReason } from "./codex-security.ts";
 import type { DoctorResult } from "./doctor.ts";
 import type { RunResult } from "./install.ts";
 
@@ -94,8 +95,20 @@ function renderCodexSecurity(result: RunResult): string {
     return "\n  Enabled existing official Codex Security plugin.";
   if (result.codexSecurity.status === "already-installed")
     return "\n  Official Codex Security plugin is already installed and enabled.";
-  return `\n  Skipped official Codex Security plugin: ${result.codexSecurity.reason}.`;
+  return `\n  Skipped official Codex Security plugin: ${CODEX_SECURITY_SKIP_MESSAGES[result.codexSecurity.reason]}`;
 }
+
+const CODEX_SECURITY_SKIP_MESSAGES: Record<CodexSecuritySkipReason, string> = {
+  "codex-unavailable": "no usable Codex launcher was found.",
+  unauthenticated: "Codex authentication is required.",
+  "marketplace-unavailable": "the plugin marketplace could not be reached.",
+  "plugin-unavailable": "the plugin was unavailable from every usable Codex launcher.",
+  "installation-rejected": "the account or workspace policy rejected installation.",
+  timeout: "all usable Codex launchers timed out.",
+  "invalid-response": "Codex returned an unsupported or malformed response.",
+  unsupported: "the available Codex launchers do not support plugin installation.",
+  "download-failed": "the latest Codex package could not be downloaded.",
+};
 
 /** Renders notice. */
 export function renderNotice(kind: "notice" | "warning", message: string, color: boolean): string {

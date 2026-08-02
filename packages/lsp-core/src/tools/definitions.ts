@@ -8,7 +8,7 @@ import { executeLspSymbols } from "./symbols.js";
 import type { JsonSchema, LspMcpTool } from "./types.js";
 
 const POSITION_PROPERTIES = {
-  line: { type: "number", description: "1-based line number." },
+  line: { type: "number", description: "1-based line." },
   character: { type: "number", description: "0-based column." },
 } satisfies Record<string, JsonSchema>;
 const POSITION_REQUIRED = ["filePath", "line", "character"];
@@ -18,7 +18,7 @@ export const LSP_MCP_TOOLS: LspMcpTool[] = [
     name: "status",
     aliases: ["lsp_status"],
     title: "LSP Status",
-    description: "Use to list LSP servers without starting them.",
+    description: "List LSP servers without starting them.",
     inputSchema: objectSchema({}),
     execute: executeLspStatus,
   },
@@ -26,10 +26,10 @@ export const LSP_MCP_TOOLS: LspMcpTool[] = [
     name: "diagnostics",
     aliases: ["lsp_diagnostics"],
     title: "LSP Diagnostics",
-    description: "Use to get file or directory diagnostics.",
+    description: "Get file or directory diagnostics.",
     inputSchema: objectSchema(
       {
-        filePath: { type: "string", description: "File or directory path to check." },
+        filePath: { type: "string", description: "File or directory." },
         severity: {
           type: "string",
           enum: ["error", "warning", "information", "hint", "all"],
@@ -44,10 +44,10 @@ export const LSP_MCP_TOOLS: LspMcpTool[] = [
     name: "goto_definition",
     aliases: ["lsp_goto_definition"],
     title: "LSP Goto Definition",
-    description: "Use to find a symbol's definition.",
+    description: "Find a symbol definition.",
     inputSchema: objectSchema(
       {
-        filePath: { type: "string", description: "Source file containing the symbol." },
+        filePath: { type: "string", description: "Source file." },
         ...POSITION_PROPERTIES,
       },
       POSITION_REQUIRED,
@@ -58,10 +58,10 @@ export const LSP_MCP_TOOLS: LspMcpTool[] = [
     name: "find_references",
     aliases: ["lsp_find_references"],
     title: "LSP Find References",
-    description: "Use to find all workspace references to a symbol.",
+    description: "Find workspace symbol references.",
     inputSchema: objectSchema(
       {
-        filePath: { type: "string", description: "Source file containing the symbol." },
+        filePath: { type: "string", description: "Source file." },
         ...POSITION_PROPERTIES,
         includeDeclaration: {
           type: "boolean",
@@ -76,14 +76,14 @@ export const LSP_MCP_TOOLS: LspMcpTool[] = [
     name: "symbols",
     aliases: ["lsp_symbols"],
     title: "LSP Symbols",
-    description: "Use to outline a file or search workspace symbols.",
+    description: "Outline a file or search workspace symbols.",
     inputSchema: objectSchema(
       {
-        filePath: { type: "string", description: "File path used as LSP context." },
+        filePath: { type: "string", description: "LSP context file." },
         scope: {
           type: "string",
           enum: ["document", "workspace"],
-          description: "document outlines a file; workspace searches the project.",
+          description: "document: outline; workspace: project search.",
         },
         query: { type: "string", description: "Workspace symbol query." },
         limit: { type: "number", description: "Maximum number of symbols to return." },
@@ -96,10 +96,10 @@ export const LSP_MCP_TOOLS: LspMcpTool[] = [
     name: "prepare_rename",
     aliases: ["lsp_prepare_rename"],
     title: "LSP Prepare Rename",
-    description: "Use to check whether a symbol supports semantic rename.",
+    description: "Check semantic-rename support.",
     inputSchema: objectSchema(
       {
-        filePath: { type: "string", description: "Source file path." },
+        filePath: { type: "string", description: "Source file." },
         ...POSITION_PROPERTIES,
       },
       POSITION_REQUIRED,
@@ -110,10 +110,10 @@ export const LSP_MCP_TOOLS: LspMcpTool[] = [
     name: "rename",
     aliases: ["lsp_rename"],
     title: "LSP Rename",
-    description: "Use to rename a symbol workspace-wide after prepare_rename succeeds.",
+    description: "Rename workspace symbol after prepare_rename succeeds.",
     inputSchema: objectSchema(
       {
-        filePath: { type: "string", description: "Source file path." },
+        filePath: { type: "string", description: "Source file." },
         ...POSITION_PROPERTIES,
         newName: { type: "string", description: "New symbol name." },
       },
@@ -125,12 +125,12 @@ export const LSP_MCP_TOOLS: LspMcpTool[] = [
     name: "install_decision",
     aliases: ["lsp_install_decision"],
     title: "LSP Install Decision",
-    description: "Use to record explicit LSP install permission or decline.",
+    description: "Record LSP install permission or decline.",
     inputSchema: objectSchema(
       {
         server_id: {
           type: "string",
-          description: "Server id from the not-installed message, e.g. rust.",
+          description: "Server id from not-installed message, e.g. rust.",
         },
         decision: {
           type: "string",

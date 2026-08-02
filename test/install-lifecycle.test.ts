@@ -282,7 +282,7 @@ describe("install lifecycle", () => {
     expect(explorer).toContain('custom_root = "keep"');
     expect(explorer).toContain("[custom]\nenabled = true");
     expect(explorer).toContain('service_tier = "fast"');
-    expect(explorer).toContain("Begin with requested evidence");
+    expect(explorer).toContain("Lead with requested evidence/result");
   });
 
   it("migrates former global Fast state to explicit Root and agent tiers idempotently", async () => {
@@ -345,6 +345,14 @@ describe("install lifecycle", () => {
 
   it("migrates every outgoing specialist route to the recalculated plan", async () => {
     const outgoingPlans = [
+      [
+        "go",
+        [
+          ["explorer", "gpt-5.6-terra", "low"],
+          ["librarian", "gpt-5.6-terra", "low"],
+          ["worker", "gpt-5.6-terra", "medium"],
+        ],
+      ],
       [
         "plus-low",
         [
@@ -410,7 +418,7 @@ describe("install lifecycle", () => {
     }
   });
 
-  it("migrates an installed old go Root route", async () => {
+  it("migrates an installed former go Terra Root route", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-old-go-root-route-test-"));
     process.env.CODEX_HOME = home;
     const configPath = join(home, "config.toml");
@@ -418,17 +426,17 @@ describe("install lifecycle", () => {
     await writeFile(
       configPath,
       (await readFile(configPath, "utf8"))
-        .replace('model = "gpt-5.6-terra"', 'model = "gpt-5.6-sol"')
-        .replace('model_reasoning_effort = "medium"', 'model_reasoning_effort = "low"'),
+        .replace('model = "gpt-5.6-luna"', 'model = "gpt-5.6-terra"')
+        .replace('model_reasoning_effort = "xhigh"', 'model_reasoning_effort = "medium"'),
     );
 
     await install({ autonomy: "default", json: false, plan: "go" }, windowsRuntime);
 
     const config = await readFile(configPath, "utf8");
     expect(config).toContain("# holycodex plan: go");
-    expect(config).toContain('model = "gpt-5.6-terra"');
-    expect(config).toContain('model_reasoning_effort = "medium"');
-    expect(config).not.toContain('model = "gpt-5.6-sol"');
+    expect(config).toContain('model = "gpt-5.6-luna"');
+    expect(config).toContain('model_reasoning_effort = "xhigh"');
+    expect(config).not.toContain('model = "gpt-5.6-terra"');
   });
 
   it("renders every plan and updates managed specialist routing on reinstall", async () => {

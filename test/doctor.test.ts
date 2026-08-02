@@ -248,7 +248,7 @@ describe("HolyCodex doctor", () => {
         .replace('service_tier = "default"', 'service_tier = "priority"')
         .replace('model_verbosity = "low"', 'model_verbosity = "high"')
         .replace(
-          'enabled-reasoning-efforts = ["low", "medium", "high"]',
+          'enabled-reasoning-efforts = ["low", "medium", "high", "xhigh", "max"]',
           'enabled-reasoning-efforts = ["low"]',
         )
         .replace("show-context-window-usage = true", "show-context-window-usage = false")

@@ -49,11 +49,11 @@ describe("routing and Fast mode seams", () => {
     expect(DEFAULT_PLAN).toBe("plus");
     expect(MODEL_ROUTING_PLANS).toEqual({
       go: {
-        root: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+        root: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
         agents: {
-          explorer: { model: "gpt-5.6-terra", reasoningEffort: "low" },
-          librarian: { model: "gpt-5.6-terra", reasoningEffort: "low" },
-          worker: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
+          explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
         },
         usage: { maxSubagents: 0, maxDepth: 1 },
       },
@@ -80,7 +80,7 @@ describe("routing and Fast mode seams", () => {
         agents: {
           explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
           librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
         },
         usage: { maxSubagents: 2, maxDepth: 1 },
       },
@@ -89,16 +89,16 @@ describe("routing and Fast mode seams", () => {
         agents: {
           explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
           librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
         },
         usage: { maxSubagents: 2, maxDepth: 1 },
       },
       "pro-20x": {
         root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
         agents: {
-          explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-          librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          explorer: { model: "gpt-5.6-luna", reasoningEffort: "max" },
+          librarian: { model: "gpt-5.6-luna", reasoningEffort: "max" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
         },
         usage: { maxSubagents: 2, maxDepth: 1 },
       },
@@ -108,7 +108,8 @@ describe("routing and Fast mode seams", () => {
       for (const agent of AGENTS)
         expect(MODEL_ROUTING_PLANS[plan].agents[agent].model).not.toBe("gpt-5.6-sol");
     }
-    expect(JSON.stringify(MODEL_ROUTING_PLANS)).not.toContain('"max"');
+    expect(JSON.stringify(MODEL_ROUTING_PLANS)).toContain('"max"');
+    expect(JSON.stringify(MODEL_ROUTING_PLANS)).not.toContain("gpt-5.6-terra");
   });
 
   it.each([
@@ -121,10 +122,18 @@ describe("routing and Fast mode seams", () => {
     await install({ autonomy: "default", json: false, fast: mode as FastMode }, runtime);
     const config = await readFile(join(home, "config.toml"), "utf8");
     expect(rootTomlString(config, "service_tier")).toBe(rootTier);
+    expect(rootTomlString(config, "model")).toBe(MODEL_ROUTING_PLANS.plus.root.model);
+    expect(rootTomlString(config, "model_reasoning_effort")).toBe(
+      MODEL_ROUTING_PLANS.plus.root.reasoningEffort,
+    );
     expect(readManagedFastMode(config)).toBe(mode);
     for (const agent of AGENTS) {
       const source = await readFile(join(home, "holycodex", "agents", `${agent}.toml`), "utf8");
       expect(rootTomlString(source, "service_tier")).toBe(agentTier);
+      expect(rootTomlString(source, "model")).toBe(MODEL_ROUTING_PLANS.plus.agents[agent].model);
+      expect(rootTomlString(source, "model_reasoning_effort")).toBe(
+        MODEL_ROUTING_PLANS.plus.agents[agent].reasoningEffort,
+      );
       expect(rootTomlAssignmentCount(source, "service_tier")).toBe(1);
     }
   });

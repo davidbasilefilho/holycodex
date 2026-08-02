@@ -594,18 +594,18 @@ export async function doctor(
   );
   checks.push(
     tableStringArray(config, "desktop", "enabled-reasoning-efforts")?.join(",") ===
-      "low,medium,high"
+      "low,medium,high,xhigh,max"
       ? check(
           "desktop-reasoning",
           "ok",
           "desktop-reasoning-ready",
-          "Desktop exposes low, medium, and high reasoning efforts.",
+          "Desktop exposes low through max reasoning efforts.",
         )
       : check(
           "desktop-reasoning",
           "error",
           "desktop-reasoning-stale",
-          "Desktop reasoning choices must be low, medium, and high.",
+          "Desktop reasoning choices must include low through max.",
           "Reinstall HolyCodex.",
         ),
   );

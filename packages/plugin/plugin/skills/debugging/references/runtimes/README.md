@@ -1,9 +1,9 @@
 # Runtime probes
 
-- Node/Bun: reproduce with exact runtime/version; enable source maps and warnings; inspect event ordering, handles, promises, memory snapshots, CPU profile. Distinguish module resolution, transpilation, runtime, and external process.
-- Python: use traceback with causes, `faulthandler`, debugger, allocation/profile tools. Check interpreter/env, import path, sync blocking in async loop, resource ownership.
-- Rust/native: debug symbols; backtrace, debugger, sanitizer, Miri, profiler as symptom requires. Check UB, ownership, ABI, signal/thread ordering.
-- Go: race detector, pprof, trace, goroutine dump. Check cancellation, channel ownership, leaked goroutines, copied synchronization.
-- Bundled JS binary: reproduce source and bundle separately; verify target/runtime/externalization and source map. Inspect generated boundary, not minified noise first.
+- Node/Bun: exact runtime/version, source maps/warnings; inspect event order, handles, promises, memory, CPU. Separate resolution, transpilation, runtime, child process.
+- Python: traceback causes, `faulthandler`, debugger, allocation/profile tools; check interpreter/env, imports, sync blocking in async, resource ownership.
+- Rust/native: symbols, backtrace, debugger, sanitizer, Miri, profiler as needed; check UB, ownership, ABI, signal/thread order.
+- Go: race detector, pprof, trace, goroutine dump; check cancellation, channel ownership, leaks, copied synchronization.
+- Bundled JS: reproduce source and bundle; verify target/runtime/externalization/source map. Inspect generated boundary before minified noise.
 
-Capture smallest evidence that separates hypotheses. Remove probe after proof.
+Capture minimum hypothesis-separating evidence; remove probes after proof.

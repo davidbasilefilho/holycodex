@@ -1,0 +1,10 @@
+{
+  "installed": [],
+  "available": [
+    {
+      "pluginId": "codex-security@openai-curated",
+      "installed": false,
+      "enabled": false
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "marketplaceName": "openai-curated",
+  "plugins": [
+    {
+      "name": "codex-security",
+      "status": "disabled"
+    }
+  ]
+}

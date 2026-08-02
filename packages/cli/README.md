@@ -7,7 +7,7 @@ bunx holycodex@dev install
 bunx holycodex@dev doctor
 ```
 
-Use `holycodex --help` for commands, autonomy options, and service tiers. `--fast` selects the fast tier; `--no-fast` or omitting both tier flags selects the default. Stable releases use `bunx holycodex`; development releases use npm's `dev` dist-tag.
+Use `holycodex --help` for commands, autonomy options, routing plans, and service tiers. `--fast` selects Fast for generated agents, `--fast-all` selects Fast for Root and generated agents, and `--no-fast` or omitting Fast flags selects Standard. Fast uses `2.5×` subscription usage for about `1.5×` output-token speed without a quality gain. Stable releases use `bunx holycodex`; development releases use npm's `dev` dist-tag.
 
 On a fresh installation, omitting autonomy flags seeds Codex Approve for me semantics: `approval_policy = "on-request"`, `approvals_reviewer = "auto_review"`, and `sandbox_mode = "workspace-write"`. On an existing installation, omitting autonomy flags preserves the complete current permission selection. `--no-codex-autonomous`, `--codex-autonomous`, and `--dangerous-codex-autonomous` explicitly replace that selection with their documented modes. HolyCodex never generates `default_permissions` or selects a named permission profile.
 

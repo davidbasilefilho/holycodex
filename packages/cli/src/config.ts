@@ -391,7 +391,7 @@ export function installConfig(
       ["network_access", "true"],
     ]);
   configured = injectTableKeys(configured, "desktop", [
-    ["enabled-reasoning-efforts", '["low", "medium", "high"]'],
+    ["enabled-reasoning-efforts", '["low", "medium", "high", "xhigh", "max"]'],
     ["show-context-window-usage", "true"],
   ]);
   if (_platform === "win32")

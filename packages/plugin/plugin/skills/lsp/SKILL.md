@@ -1,25 +1,19 @@
 ---
 name: lsp
-description: Use when a coding task needs semantic diagnostics, definitions, references, symbols, or safe rename from a configured language server; do not use for text search, syntax-shape search, or server installation. Produces semantic locations, diagnostics, or workspace edits; unlike lsp-setup it assumes a usable server.
+description: Use when coding needs semantic diagnostics, definitions, references, symbols, or safe rename from a configured server; do not use for text/syntax search or server install. Produces semantic locations, diagnostics, or workspace edits.
 ---
 
 # LSP
 
-Call `lsp` MCP tools, never their names as shell commands.
-
-## Tools
+Call `lsp` MCP tools, never shell commands:
 
 - `lsp.status`: server state.
-- `lsp.diagnostics`: file or directory diagnostics; prefer `severity: "error"` after edits.
-- `lsp.goto_definition`: symbol definition.
-- `lsp.find_references`: workspace usages.
-- `lsp.symbols`: document outline or workspace symbol search.
-- `lsp.prepare_rename`: rename validity.
-- `lsp.rename`: workspace rename edit.
+- `lsp.diagnostics`: file/dir diagnostics; prefer `severity: "error"` after edits.
+- `lsp.goto_definition`, `lsp.find_references`: definition/usages.
+- `lsp.symbols`: document outline/workspace search.
+- `lsp.prepare_rename`, `lsp.rename`: validate/apply workspace rename.
 
-## Config
-
-Project config lives at `.codex/lsp-client.json`; user config lives at `~/.codex/lsp-client.json`.
+Project config: `.codex/lsp-client.json`; user config: `~/.codex/lsp-client.json`.
 
 ```json
 {
@@ -32,4 +26,4 @@ Project config lives at `.codex/lsp-client.json`; user config lives at `~/.codex
 }
 ```
 
-Use `lsp.status` first when diagnostics report a missing language server.
+If diagnostics report a missing server, call `lsp.status` first.

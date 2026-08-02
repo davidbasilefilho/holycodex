@@ -18,56 +18,40 @@ describe("bootstrap readiness", () => {
       ),
     );
     const context = await readinessContext(root, "win32", ready);
-    expect(context).toContain(
-      "Before any user-facing update, classify intent and load every required skill.",
-    );
-    expect(context).toContain("Never emit a provisional activation heading or intent update");
+    expect(context).toContain("Before updates, classify intent/load required skills");
+    expect(context).toContain("never print provisionally");
     expect(
       context.match(/I detect \[fix\/implementation\/investigation\/question\] intent/g),
     ).toHaveLength(1);
-    expect(context).toContain(
-      "For plan and plan-review, the selected skill owns its required exact activation heading",
-    );
-    expect(context).toContain("No other skill or style mode prints an activation heading");
+    expect(context).toContain("`plan`/`plan-review` instead own their exact heading/intent");
+    expect(context).toContain("no other mode prints a heading");
     expect(context).toContain("before the first shell action, inspect callable and deferred tools");
     expect(context).toContain("Use it for every shell command");
     expect(context).toContain("Never fall back to PowerShell or cmd");
-    expect(context).toContain("load caveman");
-    expect(context).toContain("Default user-facing replies:");
-    expect(context).toContain(
-      "Root owns user interaction, intent, scope, architecture, product decisions, ambiguity resolution, integration, final judgment, and final verification.",
-    );
+    expect(context).toContain("`caveman`");
+    expect(context).toMatch(/Root owns interaction, intent, scope, architecture/);
     expect(context).toContain("Delegate long, context-heavy, separable, or easier work");
-    expect(context).toContain(
-      "Keep work local only when atomic, coupled, architecturally unresolved",
-    );
-    expect(context).toContain("record one concise concrete reason internally");
-    expect(context).toContain("do not require user-visible orchestration commentary");
+    expect(context).toMatch(/Work locally only if atomic, coupled, architecturally unresolved/);
+    expect(context).toMatch(/record why an obvious specialist was skipped/);
     expect(context).toContain("Skills govern method, not routing");
-    expect(context).toContain("Run at most two lanes per wave");
+    expect(context).toContain("At most two lanes/wave");
     expect(context).toContain('fork_turns="none"');
     expect(context).toContain("fork_context=false");
     expect(context).not.toMatch(/(?:Explorer|Librarian|Worker) (?:uses|runs) GPT 5\.6/);
-    expect(context).toContain("Packets have five concepts");
-    expect(context).toContain("Do not duplicate specialist work");
-    expect(context).toContain("spot-check only load-bearing claims");
-    expect(context).toContain("Never repeat Explorer/Librarian searches for reassurance");
-    expect(context).toContain("Never recurse; specialists never delegate");
-    expect(context).toContain("overlapping write ownership");
-    expect(context).toContain("Specialists stop when their bounded task is complete");
-    expect(context).toContain("delegate discoverable facts");
-    expect(context).toContain("ask the user for a material decision");
-    expect(context).toContain("state and proceed with a safe reversible default");
-    expect(context).toContain("exact monetary or token cost");
-    expect(context).toContain(
-      "Explorer is mandatory before a second separable repository read/search",
+    expect(context).toMatch(/Packets: outcome\/question, scope, fixed constraints\/decisions/);
+    expect(context).toContain("spot-check load-bearing claims");
+    expect(context).toContain("Specialists never delegate/broaden");
+    expect(context).toContain("overlap writes");
+    expect(context).toContain("specialists stop at packet completion");
+    expect(context).toMatch(
+      /delegate facts, ask material decisions, state\/use safe reversible defaults/,
     );
-    expect(context).toContain("Librarian is mandatory before a second external source");
-    expect(context).toContain(
-      "Worker is mandatory for fixed isolated implementation beyond one file",
-    );
+    expect(context).toContain("exact monetary/token cost");
+    expect(context).toContain("Explorer is mandatory before a second separable repo search");
+    expect(context).toContain("Librarian before a second external source");
+    expect(context).toContain("Worker for fixed isolated work beyond one file");
     expect(context).toContain("request_user_input");
-    expect(context).toContain("one to three current blockers");
+    expect(context).toContain("one to three exclusive choices");
     expect(context).toContain("no timeout");
   });
 

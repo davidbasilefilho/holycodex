@@ -1,0 +1,11 @@
+{
+  "name": "openai-curated",
+  "plugins": [
+    {
+      "name": "codex-security",
+      "installed": true,
+      "enabled": true,
+      "version": "fixture-version"
+    }
+  ]
+}

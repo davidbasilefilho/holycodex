@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 import {
   runManagedProcess,
   type ManagedProcessInput,
@@ -40,17 +38,6 @@ const FATAL_POLICY_CODES = new Set([
   "PERMISSION_DENIED",
   "POLICY_REJECTED",
 ]);
-
-const PluginEntrySchema = z.looseObject({
-  pluginId: z.string().min(1),
-  installed: z.boolean().optional(),
-  enabled: z.boolean().optional(),
-});
-const PluginListSchema = z.looseObject({
-  installed: z.array(PluginEntrySchema),
-  available: z.array(PluginEntrySchema),
-});
-const PluginAddSchema = z.looseObject({ pluginId: z.string() });
 
 export type CodexSecuritySkipReason =
   | "codex-unavailable"
@@ -124,39 +111,67 @@ export async function installCodexSecurity(
     }
     if (listOutcome.kind === "fatal") return skipped(listOutcome.reason, attemptedLaunchers);
 
-    const installed = listOutcome.catalog.installed.find(
-      (plugin) => plugin.pluginId === CODEX_SECURITY_PLUGIN,
-    );
-    const available = listOutcome.catalog.available.find(
-      (plugin) => plugin.pluginId === CODEX_SECURITY_PLUGIN,
-    );
-    if (installed?.installed === true && installed.enabled === true)
+    const plugin = listOutcome.catalog.plugins.find(({ id }) => id === CODEX_SECURITY_PLUGIN);
+    if (plugin?.installed === true && plugin.enabled === true)
       return { status: "already-installed", launcherSource: launcher.source };
-    const wasDisabled = installed?.installed === true;
-    const selectedPluginId = installed?.pluginId ?? available?.pluginId;
-    if (!wasDisabled && selectedPluginId === undefined)
-      return skipped("plugin-unavailable", attemptedLaunchers);
-    if (selectedPluginId === undefined) return skipped("invalid-response", attemptedLaunchers);
+    const wasDisabled = plugin?.installed === true;
 
     const added = await runCodexPlugin(
       runProcess,
       launcher,
-      ["plugin", "add", selectedPluginId, "--json"],
+      ["plugin", "add", CODEX_SECURITY_PLUGIN, "--json"],
       platform,
       env,
       "add",
     );
-    return inspectAddResult(added, launcher, selectedPluginId, wasDisabled, attemptedLaunchers);
+    const addOutcome = inspectAddResult(added, launcher);
+    if (addOutcome.kind === "fallback") {
+      fallbackReasons.push(addOutcome.reason);
+      continue;
+    }
+    if (addOutcome.kind === "fatal") return skipped(addOutcome.reason, attemptedLaunchers);
+
+    const verified = await runCodexPlugin(
+      runProcess,
+      launcher,
+      ["plugin", "list", "--available", "--json"],
+      platform,
+      env,
+      "list",
+    );
+    const verification = inspectListResult(verified, launcher);
+    if (verification.kind === "fallback") {
+      fallbackReasons.push(verification.reason);
+      continue;
+    }
+    if (verification.kind === "fatal") return skipped(verification.reason, attemptedLaunchers);
+    const verifiedPlugin = verification.catalog.plugins.find(
+      ({ id }) => id === CODEX_SECURITY_PLUGIN,
+    );
+    if (verifiedPlugin?.installed !== true || verifiedPlugin.enabled !== true) {
+      fallbackReasons.push("plugin-unavailable");
+      continue;
+    }
+    return {
+      status: wasDisabled ? "enabled" : "installed",
+      launcherSource: launcher.source,
+    };
   }
 
   return skipped(finalFallbackReason(fallbackReasons), attemptedLaunchers);
 }
 
-type PluginCatalog = z.output<typeof PluginListSchema>;
+type PluginState = {
+  readonly id: string;
+  readonly installed: boolean;
+  readonly enabled: boolean;
+};
+type PluginCatalog = { readonly plugins: readonly PluginState[] };
 type ProbeOutcome =
   | { readonly kind: "selected"; readonly catalog: PluginCatalog }
   | { readonly kind: "fallback"; readonly reason: CodexSecuritySkipReason }
   | { readonly kind: "fatal"; readonly reason: CodexSecuritySkipReason };
+type AddOutcome = Exclude<ProbeOutcome, { readonly kind: "selected" }> | { readonly kind: "added" };
 
 async function runCodexPlugin(
   runProcess: CodexProcessRunner,
@@ -196,49 +211,32 @@ async function runCodexPlugin(
 }
 
 function inspectListResult(result: ManagedProcessResult, launcher: CodexLauncher): ProbeOutcome {
-  if (result.timedOut)
-    return launcher.source === "path"
-      ? { kind: "fatal", reason: "timeout" }
-      : { kind: "fallback", reason: "timeout" };
-  const failure = classifyFailure(result, launcher, "list");
+  if (result.timedOut) return { kind: "fallback", reason: "timeout" };
+  const failure = classifyFailure(result, launcher);
   if (failure !== undefined) return failure;
-  const catalog = parseJson(result.stdout, PluginListSchema);
-  if (catalog === undefined) return { kind: "fatal", reason: "invalid-response" };
+  const catalog = parsePluginCatalog(result.stdout);
+  if (catalog === undefined) return { kind: "fallback", reason: "invalid-response" };
   return { kind: "selected", catalog };
 }
 
-function inspectAddResult(
-  result: ManagedProcessResult,
-  launcher: CodexLauncher,
-  selectedPluginId: string,
-  wasDisabled: boolean,
-  attemptedLaunchers: readonly CodexLauncherSource[],
-): CodexSecurityInstallResult {
-  if (result.timedOut) return skipped("timeout", attemptedLaunchers);
-  const failure = classifyFailure(result, launcher, "add");
-  if (failure !== undefined) return skipped(failure.reason, attemptedLaunchers);
-  const parsedAdd = parseJson(result.stdout, PluginAddSchema);
-  if (parsedAdd?.pluginId !== selectedPluginId)
-    return skipped("invalid-response", attemptedLaunchers);
-  return {
-    status: wasDisabled ? "enabled" : "installed",
-    launcherSource: launcher.source,
-  };
+function inspectAddResult(result: ManagedProcessResult, launcher: CodexLauncher): AddOutcome {
+  if (result.timedOut) return { kind: "fallback", reason: "timeout" };
+  const failure = classifyFailure(result, launcher);
+  if (failure !== undefined) return failure;
+  if (!isRecord(parseUnknownJson(result.stdout)))
+    return { kind: "fallback", reason: "invalid-response" };
+  return { kind: "added" };
 }
 
 function classifyFailure(
   result: ManagedProcessResult,
   launcher: CodexLauncher,
-  operation: "list" | "add",
 ): Exclude<ProbeOutcome, { readonly kind: "selected" }> | undefined {
   if (result.error !== undefined) {
     if (isUnavailableProcessError(result)) return { kind: "fallback", reason: "codex-unavailable" };
     return {
-      kind: operation === "list" && isPackageLauncher(launcher) ? "fallback" : "fatal",
-      reason:
-        operation === "list" && isPackageLauncher(launcher)
-          ? "download-failed"
-          : "invalid-response",
+      kind: "fallback",
+      reason: isPackageLauncher(launcher) ? "download-failed" : "invalid-response",
     };
   }
   if (result.exitCode === 0) return undefined;
@@ -246,17 +244,9 @@ function classifyFailure(
   const code = structuredErrorCode(diagnosticValue);
   const text = sanitizeDiagnostic(result.stderr);
   const failureReason = classifyFailureReason(code, text);
-  if (failureReason === "unsupported" || failureReason === "download-failed") {
-    if (failureReason === "download-failed" && launcher.source === "path")
-      return { kind: "fatal", reason: "marketplace-unavailable" };
-    return operation === "list" && isPackageLauncher(launcher)
-      ? { kind: "fallback", reason: failureReason }
-      : failureReason === "unsupported"
-        ? { kind: "fallback", reason: "unsupported" }
-        : { kind: "fatal", reason: "invalid-response" };
-  }
-  if (failureReason === "codex-unavailable") return { kind: "fallback", reason: failureReason };
-  return { kind: "fatal", reason: failureReason };
+  if (failureReason === "unauthenticated" || failureReason === "installation-rejected")
+    return { kind: "fatal", reason: failureReason };
+  return { kind: "fallback", reason: failureReason };
 }
 
 function classifyFailureReason(
@@ -285,8 +275,6 @@ function classifyFailureReason(
     )
   )
     return "unsupported";
-  if (/eai_again|enetwork|network|timed out|timeout|download|fetch|resolve package/.test(lower))
-    return "download-failed";
   if (
     /unauthenticated|authentication required|not logged in|account (?:required|not found)/.test(
       lower,
@@ -296,6 +284,8 @@ function classifyFailureReason(
   if (/account (?:restricted|unavailable|suspended|disabled)/.test(lower))
     return "installation-rejected";
   if (/marketplace|catalog/.test(lower)) return "marketplace-unavailable";
+  if (/eai_again|enetwork|network|timed out|timeout|download|fetch|resolve package/.test(lower))
+    return "download-failed";
   if (/plugin (?:not found|unavailable|missing)/.test(lower)) return "plugin-unavailable";
   if (/permission denied|policy|rejected|forbidden/.test(lower)) return "installation-rejected";
   return "invalid-response";
@@ -305,6 +295,9 @@ function finalFallbackReason(reasons: readonly CodexSecuritySkipReason[]): Codex
   if (reasons.includes("timeout")) return "timeout";
   if (reasons.includes("unsupported")) return "unsupported";
   if (reasons.includes("download-failed")) return "download-failed";
+  if (reasons.includes("marketplace-unavailable")) return "marketplace-unavailable";
+  if (reasons.includes("plugin-unavailable")) return "plugin-unavailable";
+  if (reasons.includes("invalid-response")) return "invalid-response";
   return "codex-unavailable";
 }
 
@@ -320,14 +313,124 @@ function isPackageLauncher(launcher: CodexLauncher): boolean {
   );
 }
 
-function parseJson<TSchema extends z.ZodType>(
-  input: string,
-  schema: TSchema,
-): z.output<TSchema> | undefined {
+/** Normalizes supported flat and marketplace-oriented Codex catalogs. */
+function parsePluginCatalog(input: string): PluginCatalog | undefined {
   const value = parseUnknownJson(input);
   if (value === undefined) return undefined;
-  const parsed = schema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+  const plugins = parseCatalogValue(value);
+  return plugins === undefined ? undefined : { plugins };
+}
+
+function parseCatalogValue(value: unknown): readonly PluginState[] | undefined {
+  if (Array.isArray(value)) return parseMarketplaceEntries(value);
+  if (!isRecord(value)) return undefined;
+  if ("installed" in value || "available" in value) {
+    if (!Array.isArray(value.installed) || !Array.isArray(value.available)) return undefined;
+    const installed = parsePluginEntries(value.installed, undefined, true);
+    const available = parsePluginEntries(value.available, undefined, false);
+    return installed === undefined || available === undefined
+      ? undefined
+      : [...installed, ...available];
+  }
+  if ("marketplaces" in value) {
+    return Array.isArray(value.marketplaces)
+      ? parseMarketplaceEntries(value.marketplaces)
+      : undefined;
+  }
+  if ("plugins" in value) return parseMarketplaceEntry(value);
+  return undefined;
+}
+
+function parseMarketplaceEntries(entries: readonly unknown[]): readonly PluginState[] | undefined {
+  const plugins: PluginState[] = [];
+  for (const entry of entries) {
+    const parsed = parseMarketplaceEntry(entry);
+    if (parsed === undefined) return undefined;
+    plugins.push(...parsed);
+  }
+  return plugins;
+}
+
+function parseMarketplaceEntry(value: unknown): readonly PluginState[] | undefined {
+  if (!isRecord(value) || !Array.isArray(value.plugins)) return undefined;
+  const marketplace = stringField(value, [
+    "marketplace",
+    "marketplaceId",
+    "marketplaceName",
+    "id",
+    "name",
+  ]);
+  if (marketplace === undefined) return undefined;
+  return parsePluginEntries(value.plugins, marketplace);
+}
+
+function parsePluginEntries(
+  entries: readonly unknown[],
+  parentMarketplace?: string,
+  defaultInstalled?: boolean,
+): readonly PluginState[] | undefined {
+  const plugins: PluginState[] = [];
+  for (const value of entries) {
+    const plugin = parsePluginEntry(value, parentMarketplace, defaultInstalled);
+    if (plugin === undefined) return undefined;
+    plugins.push(plugin);
+  }
+  return plugins;
+}
+
+function parsePluginEntry(
+  value: unknown,
+  parentMarketplace?: string,
+  defaultInstalled = false,
+): PluginState | undefined {
+  if (!isRecord(value)) return undefined;
+  const rawId = stringField(value, ["pluginId", "id", "name"]);
+  if (rawId === undefined) return undefined;
+  const marketplace =
+    stringField(value, ["marketplace", "marketplaceId", "marketplaceName"]) ?? parentMarketplace;
+  const id = rawId.includes("@")
+    ? rawId
+    : marketplace === undefined
+      ? rawId
+      : `${rawId}@${marketplace}`;
+  const state = stringField(value, ["installationState", "installState", "status", "state"]);
+  const policy = isRecord(value.policy) ? stringField(value.policy, ["installation"]) : undefined;
+  const installed =
+    booleanField(value.installed) ?? installedFromState(state ?? policy) ?? defaultInstalled;
+  const enabled = booleanField(value.enabled) ?? enabledFromState(state) ?? false;
+  return { id, installed, enabled };
+}
+
+function stringField(value: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate.trim() !== "") return candidate.trim();
+  }
+  return undefined;
+}
+
+function booleanField(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return undefined;
+  if (value.toLowerCase() === "true") return true;
+  if (value.toLowerCase() === "false") return false;
+  return undefined;
+}
+
+function installedFromState(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const state = value.toLowerCase().replaceAll("-", "_");
+  if (["installed", "enabled", "disabled", "installed_by_default"].includes(state)) return true;
+  if (["available", "not_installed", "uninstalled", "not_available"].includes(state)) return false;
+  return undefined;
+}
+
+function enabledFromState(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const state = value.toLowerCase();
+  if (state === "enabled") return true;
+  if (state === "disabled") return false;
+  return undefined;
 }
 
 function parseUnknownJson(input: string): unknown {

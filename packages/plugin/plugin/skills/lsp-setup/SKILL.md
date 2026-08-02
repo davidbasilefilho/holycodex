@@ -1,18 +1,18 @@
 ---
 name: lsp-setup
-description: Use when a task needs language-server installation or configuration because the user requests setup or the required LSP is missing; do not use when an existing server works or for general dependency setup. Produces one minimal verified server configuration; unlike lsp it establishes capability rather than using it.
+description: Use when user requests language-server setup or required LSP is missing; do not use when a server works or for general dependencies. Produces one minimum verified server config; unlike lsp it establishes capability.
 ---
 
 # LSP Setup
 
-Use when user asks setup/install/configure, or required server is missing. Do not install silently.
+Never install silently.
 
-1. Detect language, project root, package manager, existing server, and current `.codex/lsp-client.json` or project setting.
-2. Run `scripts/detect-lsp.ts` or inspect `scripts/lsp-server-table.ts` for matching server, command, extensions, and install hint.
-3. Prefer project-local maintained server. Preserve existing config.
-4. If install changes machine or network state, ask unless user already authorized setup.
-5. Add smallest config entry: command, args, extensions, root markers only when needed.
-6. Verify executable, start server, run diagnostics on one representative file.
-7. Report server, version, config path, verification result.
+1. Detect language, root, package manager, existing server/config.
+2. Run `scripts/detect-lsp.ts` or inspect `scripts/lsp-server-table.ts` for server, command, extensions, install hint.
+3. Prefer maintained project-local server; preserve config.
+4. Ask before machine/network change unless setup was authorized.
+5. Add minimum command/args/extensions; root markers only when needed.
+6. Verify executable/version, start server, diagnose one representative file.
+7. Report server, version, config path, result.
 
-No duplicate server for same extension without explicit priority. No global install when project-local works. No broad editor configuration changes.
+No duplicate server per extension without explicit priority, global install when local works, or broad editor changes.

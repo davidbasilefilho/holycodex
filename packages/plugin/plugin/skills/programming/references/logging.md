@@ -1,3 +1,3 @@
 # Logging
 
-Use existing structured logger. Log once at ownership boundary, not every layer. Include stable event name and useful IDs; exclude secrets, tokens, raw personal data, huge payloads. Error logs retain typed cause and operation. Debug logs must not be required for correctness. Avoid string interpolation when logger supports fields.
+Use existing structured logger once at ownership boundary. Include stable event/useful IDs; exclude secrets, tokens, raw personal data, huge payloads. Error logs retain typed cause/operation. Debug logs cannot be required for correctness. Prefer fields over string interpolation.
