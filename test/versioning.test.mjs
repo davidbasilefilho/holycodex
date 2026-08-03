@@ -10,6 +10,7 @@ import {
   lockfileWorkspaceVersions,
   nextDevVersion,
   nextZeroVersion,
+  replaceVersionIfPresent,
   versionedSource,
   versionedLockfile,
   versionedJson,
@@ -90,6 +91,12 @@ describe("zerover versioning", () => {
       cwd: root,
     });
     expect(await readFile(runtime, "utf8")).toBe(before);
+  });
+
+  it("allows a clean checkout to derive a version before ignored runtime output exists", async () => {
+    await expect(
+      replaceVersionIfPresent("packages/plugin/plugin/runtime/missing.js", "0.10.6", "0.10.7"),
+    ).resolves.toBe(false);
   });
 });
 

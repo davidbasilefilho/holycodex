@@ -77,7 +77,9 @@ async function main() {
   }
   await Promise.all(jsonFiles.map((file) => updateJson(file, next)));
   await replaceVersion(catalogFile, current, next);
-  await Promise.all(generatedVersionFiles.map((file) => replaceVersion(file, current, next)));
+  await Promise.all(
+    generatedVersionFiles.map((file) => replaceVersionIfPresent(file, current, next)),
+  );
   await updateLockfile(next);
   process.stdout.write(
     `Bumped ${current} -> ${next}. Run vp install, vp check --fix, vp test, and vp build.\n`,
@@ -137,6 +139,18 @@ async function replaceVersion(file, current, next) {
   const path = join(root, file);
   const source = await readFile(path, "utf8");
   await writeFile(path, versionedSource(file, source, current, next), "utf8");
+}
+
+/** Updates a generated version when an ignored build output already exists. */
+export async function replaceVersionIfPresent(file, current, next) {
+  try {
+    await replaceVersion(file, current, next);
+    return true;
+  } catch (error) {
+    if (error !== null && typeof error === "object" && "code" in error && error.code === "ENOENT")
+      return false;
+    throw error;
+  }
 }
 
 /** Returns source content with every synchronized version occurrence replaced. */
