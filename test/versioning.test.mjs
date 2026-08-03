@@ -87,9 +87,11 @@ describe("zerover versioning", () => {
     );
     const runtime = join(root, "packages", "plugin", "plugin", "runtime", "core-instructions.js");
     const before = await readFile(runtime, "utf8");
-    await run(process.execPath, [join(root, "scripts", "version.mjs"), "patch", "--dry-run"], {
-      cwd: root,
-    });
+    await run(
+      process.execPath,
+      [join(root, "scripts", "version.mjs"), "dev", "42", "1", "--dry-run"],
+      { cwd: root },
+    );
     expect(await readFile(runtime, "utf8")).toBe(before);
   });
 

@@ -3,7 +3,7 @@ import { access, readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const forbiddenNotesPath = [".agents", "NOTES.md"].join("/");
-const ignoredDirectories = new Set([".git", "node_modules"]);
+const ignoredDirectories = new Set([".git", "node_modules", ".tmp"]);
 
 async function repositoryFiles(root: string): Promise<readonly string[]> {
   const entries = await readdir(root, { withFileTypes: true });
@@ -23,10 +23,8 @@ describe("repository cleanliness", () => {
   it("does not retain the forbidden notes file or direct references", async () => {
     await expect(access(forbiddenNotesPath)).rejects.toThrow();
     const files = await repositoryFiles(".");
-    await Promise.all(
-      files.map(async (path) => {
-        await expect(readFile(path, "utf8")).resolves.not.toContain(forbiddenNotesPath);
-      }),
-    );
+    for (const path of files) {
+      await expect(readFile(path, "utf8")).resolves.not.toContain(forbiddenNotesPath);
+    }
   });
 });
