@@ -23,6 +23,7 @@ import {
   WINDOWS_SHELL_POLICY,
 } from "./catalog.ts";
 import {
+  installComputerUse,
   installCodexSecurity,
   type CodexProcessRunner,
   type CodexSecurityInstallResult,
@@ -43,6 +44,14 @@ export type RunOptions = {
   readonly json: boolean;
   readonly plan?: PlanName;
   readonly maxSubagents?: number;
+  readonly verbose?: boolean;
+  readonly onProgress?: (event: InstallProgressEvent) => void;
+};
+export type InstallProgressEvent = {
+  readonly step: string;
+  readonly label: string;
+  readonly status: "running" | "complete";
+  readonly detail?: string;
 };
 export type RunResult = {
   readonly action: "install" | "cleanup";
@@ -51,6 +60,7 @@ export type RunResult = {
   readonly plan?: PlanName;
   readonly maxSubagents?: number;
   readonly codexSecurity?: CodexSecurityInstallResult;
+  readonly computerUse?: CodexSecurityInstallResult;
 };
 export type InstallRuntime = {
   readonly platform: NodeJS.Platform;
@@ -98,10 +108,13 @@ export async function install(
   options: RunOptions,
   runtime: InstallRuntime = defaultRuntime,
 ): Promise<RunResult> {
+  notify(options, "prerequisites", "Checking prerequisites", "running");
   assertGitBashReady(runtime.platform, runtime.gitBash());
+  notify(options, "prerequisites", "Checking prerequisites", "complete");
   const plan = options.plan ?? DEFAULT_PLAN;
   const target = paths();
   const root = backupRoot();
+  notify(options, "backup", "Backing up existing installation", "running");
   const configBackup = await backup(target.config, root);
   const cacheBackup = await backup(target.marketplaceCache, root);
   const agentsBackup = await backup(target.agents, root);
@@ -111,6 +124,14 @@ export async function install(
     agentsBackup,
     ...(await Promise.all(target.legacy.map((path) => backup(path, root)))),
   ].filter((path) => path !== undefined);
+  notify(
+    options,
+    "backup",
+    "Backing up existing installation",
+    "complete",
+    `${backups.length} saved`,
+  );
+  notify(options, "configuration", "Preparing configuration", "running");
   const existingConfig = await readText(target.config);
   const previousPlan = readManagedPlan(existingConfig);
   const fastMode = options.fast ?? "standard";
@@ -122,6 +143,8 @@ export async function install(
     options.maxSubagents,
     fastMode,
   );
+  notify(options, "configuration", "Preparing configuration", "complete", plan);
+  notify(options, "staging", "Staging plugin and agent files", "running");
   const existingAgentPreferences = await readAgentPreferences(target.agents, previousPlan);
   const staging = await mkdtemp(join(tmpdir(), "holycodex-stage-"));
   const stagedCache = join(staging, "cache");
@@ -131,10 +154,15 @@ export async function install(
   await cp(join(pluginRoot, "agents"), stagedAgents, { recursive: true });
   await writeInstalledAgents(stagedAgents, runtime.platform, plan, fastMode);
   await preserveAgentPreferences(stagedAgents, existingAgentPreferences, plan, fastMode);
+  notify(options, "staging", "Staging plugin and agent files", "complete");
+  notify(options, "validation", "Validating staged installation", "running");
   await validateStaging(stagedCache, stagedAgents);
+  notify(options, "validation", "Validating staged installation", "complete");
   const removedLegacy: string[] = [];
   let codexSecurity: CodexSecurityInstallResult | undefined;
+  let computerUse: CodexSecurityInstallResult | undefined;
   try {
+    notify(options, "managed-files", "Installing managed files", "running");
     await atomicWrite(target.config, config);
     await rm(target.cache, { recursive: true, force: true });
     await mkdir(dirname(target.cache), { recursive: true });
@@ -146,8 +174,28 @@ export async function install(
       await rm(path, { recursive: true });
       removedLegacy.push(path);
     }
+    notify(options, "managed-files", "Installing managed files", "complete");
+    notify(options, "codex-security", "Installing Codex Security", "running");
     codexSecurity = await installCodexSecurity(runtime.runProcess, runtime.platform, process.env);
+    notify(
+      options,
+      "codex-security",
+      "Installing Codex Security",
+      "complete",
+      pluginProgressDetail(codexSecurity),
+    );
+    notify(options, "computer-use", "Installing Computer Use", "running");
+    computerUse = await installComputerUse(runtime.runProcess, runtime.platform, process.env);
+    notify(
+      options,
+      "computer-use",
+      "Installing Computer Use",
+      "complete",
+      pluginProgressDetail(computerUse),
+    );
+    notify(options, "cleanup", "Removing obsolete caches", "running");
     await removeObsoleteVersionCaches(target.cacheRoot);
+    notify(options, "cleanup", "Removing obsolete caches", "complete");
   } catch (error) {
     await restoreTarget(target.config, configBackup);
     await restoreTarget(target.marketplaceCache, cacheBackup);
@@ -163,8 +211,26 @@ export async function install(
     backups,
     plan,
     codexSecurity,
+    computerUse,
     ...(options.maxSubagents === undefined ? {} : { maxSubagents: options.maxSubagents }),
   };
+}
+
+function notify(
+  options: RunOptions,
+  step: string,
+  label: string,
+  status: InstallProgressEvent["status"],
+  detail?: string,
+): void {
+  options.onProgress?.({ step, label, status, ...(detail === undefined ? {} : { detail }) });
+}
+
+function pluginProgressDetail(result: CodexSecurityInstallResult): string {
+  if (result.status === "skipped") return `skipped: ${result.reason}`;
+  return result.launcherSource === undefined
+    ? result.status
+    : `${result.status} via ${result.launcherSource}`;
 }
 
 async function validateStaging(cache: string, agents: string): Promise<void> {

@@ -4,6 +4,7 @@ import {
   renderDoctor,
   renderHelp,
   renderInstallHelp,
+  renderInstallProgress,
   renderNotice,
   renderRunResult,
   supportsColor,
@@ -18,7 +19,35 @@ describe("CLI presentation", () => {
     expect(output).toContain("--max-subagents <count>");
     expect(output).toContain("--fast");
     expect(output).toContain("--no-fast");
+    expect(output).toContain("install --verbose");
     expect(output).not.toContain("\u001B[");
+  });
+
+  it("renders reactive concise progress and verbose details", () => {
+    const event = {
+      step: "computer-use",
+      label: "Installing Computer Use",
+      status: "complete",
+      detail: "already-installed",
+    } as const;
+    expect(renderInstallProgress(event, false, false, false)).toBe("  ✓ Installing Computer Use\n");
+    expect(renderInstallProgress(event, false, false, true)).toContain("already-installed");
+    expect(renderInstallProgress({ ...event, status: "running" }, false, true, false)).toBe(
+      "\r● Installing Computer Use",
+    );
+  });
+
+  it("renders Computer Use installation status", () => {
+    const output = renderRunResult(
+      {
+        action: "install",
+        changed: [],
+        backups: [],
+        computerUse: { status: "installed" },
+      },
+      false,
+    );
+    expect(output).toContain("Installed official Computer Use plugin.");
   });
 
   it("renders install plan help and examples", () => {
@@ -37,6 +66,7 @@ describe("CLI presentation", () => {
     expect(output).toContain("--dangerous-codex-autonomous");
     expect(output).toContain("--fast");
     expect(output).toContain("--no-fast");
+    expect(output).toContain("-v, --verbose");
   });
 
   it("uses color only for a TTY without NO_COLOR", () => {

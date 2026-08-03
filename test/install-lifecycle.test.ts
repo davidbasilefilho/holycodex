@@ -50,6 +50,32 @@ describe.sequential("install lifecycle", () => {
     });
   });
 
+  it("reports every concise installation phase in order", async () => {
+    await home("holycodex-progress-");
+    const events: string[] = [];
+
+    await install(
+      {
+        autonomy: "default",
+        json: false,
+        onProgress: ({ step, status }) => events.push(`${step}:${status}`),
+      },
+      runtime,
+    );
+
+    expect(events.filter((event) => event.endsWith(":complete"))).toEqual([
+      "prerequisites:complete",
+      "backup:complete",
+      "configuration:complete",
+      "staging:complete",
+      "validation:complete",
+      "managed-files:complete",
+      "codex-security:complete",
+      "computer-use:complete",
+      "cleanup:complete",
+    ]);
+  });
+
   it("restores the previous usable state after a post-commit failure", async () => {
     const root = await home("holycodex-rollback-");
     const config = "[custom]\nvalue = true\n";

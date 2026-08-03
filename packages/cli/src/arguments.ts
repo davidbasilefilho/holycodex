@@ -17,6 +17,7 @@ export type CliArguments = {
   readonly maxSubagents?: number;
   readonly autonomy: RequestedAutonomy;
   readonly fast: FastMode;
+  readonly verbose: boolean;
 };
 
 const INSTALL_FLAGS = new Set([
@@ -29,6 +30,7 @@ const INSTALL_FLAGS = new Set([
   "--fast-all",
   "--no-fast",
   "--json",
+  "--verbose",
 ]);
 const SHARED_FLAGS = new Set(["--json"]);
 
@@ -50,6 +52,12 @@ export function parseCliArguments(args: readonly string[]): CliArguments {
   const values = new Map<string, string | true>();
   for (let index = 1; index < args.length; index += 1) {
     const token = args[index];
+    if (token === "-v") {
+      if (!allowed.has("--verbose")) throw new Error(`Option -v is not valid for ${command}.`);
+      if (values.has("--verbose")) throw new Error("Repeated option: --verbose");
+      values.set("--verbose", true);
+      continue;
+    }
     if (token === undefined || !token.startsWith("--"))
       throw new Error(`Unexpected positional argument: ${token ?? ""}`);
     const separator = token.indexOf("=");
@@ -105,6 +113,7 @@ export function parseCliArguments(args: readonly string[]): CliArguments {
     ...(maxValue === undefined ? {} : { maxSubagents: Number(maxValue) }),
     autonomy,
     fast,
+    verbose: values.has("--verbose"),
   };
 }
 
@@ -115,5 +124,6 @@ function base(action: "help" | "version"): CliArguments {
     plan: DEFAULT_PLAN,
     autonomy: { requested: false },
     fast: "standard",
+    verbose: false,
   };
 }

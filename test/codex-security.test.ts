@@ -7,6 +7,7 @@ import {
   defaultCodexLauncherRuntimeFacts,
 } from "../packages/cli/src/codex-launcher.ts";
 import {
+  installComputerUse,
   installCodexSecurity,
   type CodexProcessRunner,
 } from "../packages/cli/src/codex-security.ts";
@@ -66,7 +67,32 @@ const oversizedAvailable = JSON.stringify({
   ],
 });
 
-describe("Codex Security installation", () => {
+describe("official plugin installation", () => {
+  it("installs and verifies the official Computer Use plugin", async () => {
+    const fake = runner([
+      result(JSON.stringify({ installed: [], available: [] })),
+      result(
+        JSON.stringify({
+          installed: [],
+          available: [
+            { pluginId: "computer-use@openai-bundled", installed: false, enabled: false },
+          ],
+        }),
+      ),
+      result("{}"),
+      result(
+        JSON.stringify({
+          installed: [{ pluginId: "computer-use@openai-bundled", installed: true, enabled: true }],
+          available: [],
+        }),
+      ),
+    ]);
+
+    await expect(installComputerUse(fake.run, "linux", {})).resolves.toMatchObject({
+      status: "installed",
+    });
+    expect(fake.calls.some(({ args }) => args.includes("computer-use@openai-bundled"))).toBe(true);
+  });
   it("parses diagnostic-prefixed and JSONL catalog output", async () => {
     const fake = runner([
       result(`notice: using current profile\n${installedOnly}`),

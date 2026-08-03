@@ -1,6 +1,6 @@
 ---
 name: programming
-description: Use when implementing, fixing, or changing code, tests, or manifests; do not use for prose-only edits. Applies implementation rules, then hands final verification to code-review.
+description: Use when implementing, fixing, or changing code, tests, or manifests; do not use for prose-only edits. Applies implementation rules, then hands mandatory final verification to code-review.
 ---
 
 # Programming

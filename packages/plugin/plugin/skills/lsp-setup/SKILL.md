@@ -1,6 +1,6 @@
 ---
 name: lsp-setup
-description: Use when an LSP needs setup/configuration or is missing, unavailable, or broken; do not use when it works or for general dependencies. Produces one minimum verified server config.
+description: Use only when an LSP needs setup or configuration, or is missing, unavailable, or broken; do not use when it works or for general dependencies. Produces one minimum verified server configuration.
 ---
 
 # LSP Setup

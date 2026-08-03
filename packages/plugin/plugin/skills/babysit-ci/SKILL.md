@@ -1,6 +1,6 @@
 ---
 name: babysit-ci
-description: Use when a push, tag, dispatch/rerun, release, or deployment triggers CI/CD, or CI/CD needs babysitting; do not use for local tests or status alone. Produces green CI/CD or a precise blocker.
+description: Use when a push, tag, dispatch or rerun, release, or deployment triggers CI/CD, or an active CI/CD run needs monitoring; do not use for local tests or status alone. Produces green CI/CD or a precise blocker.
 ---
 
 # Babysit CI

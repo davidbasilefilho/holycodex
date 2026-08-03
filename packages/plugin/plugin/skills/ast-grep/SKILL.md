@@ -1,6 +1,6 @@
 ---
 name: ast-grep
-description: Use for syntax-aware search or repeatable AST-shaped rewrites; do not use for text search, one local edit, or symbol navigation. Produces reviewed deterministic matches/codemod; unlike LSP it matches syntax, not identity.
+description: Use only for syntax-aware search or repeatable AST-shaped codemods; do not use for text search, one local edit, or symbol navigation. Produces deterministic syntax matches or rewrites, not identity-aware LSP results.
 ---
 
 # ast-grep

@@ -1,6 +1,6 @@
 ---
 name: context7-cli
-description: Use for current library, framework, SDK, or API documentation within assigned scope. Runs Context7 directly through the bundled runner policy, never through MCP or a global install.
+description: Use first for current library, framework, SDK, or API documentation within assigned scope; use web search only for releases, dates, broader research, missing coverage, or corroboration. Runs Context7 through the bundled runner, never MCP or a global install.
 ---
 
 # Context7 CLI

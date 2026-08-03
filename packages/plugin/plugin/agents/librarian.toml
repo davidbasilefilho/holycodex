@@ -1,4 +1,4 @@
-description = "Current primary-source research: docs, versions, releases, dates. No repo inspection, implementation, architecture, final decisions."
+description = "Use for bounded, current primary-source facts: documentation, versions, releases, or dates. Do not use for repository inspection, implementation, architecture, or final decisions."
 model = "gpt-5.6-luna"
 model_reasoning_effort = "high"
 service_tier = "default"

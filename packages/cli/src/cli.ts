@@ -10,6 +10,7 @@ import {
   renderError,
   renderHelp,
   renderInstallHelp,
+  renderInstallProgress,
   renderNotice,
   renderRunResult,
   supportsColor,
@@ -36,6 +37,20 @@ async function main(): Promise<void> {
     fast: parsed.fast,
     json: parsed.json,
     plan: parsed.plan,
+    verbose: parsed.verbose,
+    ...(parsed.command === "install" && !parsed.json
+      ? {
+          onProgress: (event) =>
+            process.stdout.write(
+              renderInstallProgress(
+                event,
+                stdoutColor,
+                process.stdout.isTTY === true,
+                parsed.verbose,
+              ),
+            ),
+        }
+      : {}),
     ...(parsed.maxSubagents === undefined ? {} : { maxSubagents: parsed.maxSubagents }),
   };
   if (parsed.command === "doctor") {

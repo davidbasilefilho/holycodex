@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Use for a requested plan/design/approach/roadmap or unresolved architecture, coordination, risk, irreversible choice, or material ambiguity; do not use for simple work, status, or explanation. Produces one repo-grounded reviewed plan with approval.
+description: Use for a requested plan, design, approach, or roadmap, or an unresolved architecture, coordination, risk, irreversible choice, or material ambiguity; do not use for simple work, status, or explanation. Produces one repo-grounded plan ready for review and approval.
 ---
 
 # Plan

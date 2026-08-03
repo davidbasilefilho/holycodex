@@ -12,8 +12,15 @@ import {
   type CodexLauncherSource,
 } from "./codex-launcher.ts";
 
-const CODEX_SECURITY_PLUGIN = "codex-security@openai-curated";
-const CODEX_SECURITY_MARKETPLACE = "openai-curated";
+export type OfficialPlugin = { readonly id: string; readonly marketplace: string };
+export const CODEX_SECURITY_PLUGIN: OfficialPlugin = {
+  id: "codex-security@openai-curated",
+  marketplace: "openai-curated",
+};
+export const COMPUTER_USE_PLUGIN: OfficialPlugin = {
+  id: "computer-use@openai-bundled",
+  marketplace: "openai-bundled",
+};
 const CODEX_PLUGIN_OPERATIONAL_TIMEOUT_MS = 15_000;
 const CODEX_PACKAGE_BOOTSTRAP_TIMEOUT_MS = 120_000;
 const MAX_CODEX_CATALOG_DIAGNOSTIC_CHARS = 256 * 1024;
@@ -75,6 +82,7 @@ export type CodexSecurityInstallResult =
     };
 
 export type CodexProcessRunner = (input: ManagedProcessInput) => Promise<ManagedProcessResult>;
+export type OfficialPluginInstallResult = CodexSecurityInstallResult;
 
 /** Runtime facts and deterministic launchers for Codex Security installation. */
 export type CodexSecurityInstallOptions = CodexLauncherCandidatesInput;
@@ -89,6 +97,27 @@ export async function installCodexSecurity(
   env: NodeJS.ProcessEnv = process.env,
   options: CodexSecurityInstallOptions = {},
 ): Promise<CodexSecurityInstallResult> {
+  return installOfficialPlugin(CODEX_SECURITY_PLUGIN, runProcess, platform, env, options);
+}
+
+/** Installs or enables the official Computer Use plugin without failing HolyCodex installation. */
+export async function installComputerUse(
+  runProcess: CodexProcessRunner = runManagedProcess,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  options: CodexSecurityInstallOptions = {},
+): Promise<OfficialPluginInstallResult> {
+  return installOfficialPlugin(COMPUTER_USE_PLUGIN, runProcess, platform, env, options);
+}
+
+/** Installs or enables one official Codex plugin through a verified catalog entry. */
+export async function installOfficialPlugin(
+  plugin: OfficialPlugin,
+  runProcess: CodexProcessRunner = runManagedProcess,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  options: CodexSecurityInstallOptions = {},
+): Promise<OfficialPluginInstallResult> {
   const runtimeFacts =
     options.runtimeFacts ??
     (runProcess === runManagedProcess ? defaultCodexLauncherRuntimeFacts(platform) : undefined);
@@ -117,7 +146,7 @@ export async function installCodexSecurity(
     if (installedOutcome.kind === "fatal")
       return skipped(installedOutcome.reason, attemptedLaunchers);
 
-    const installedPlugin = findPlugin(installedOutcome.catalog);
+    const installedPlugin = findPlugin(installedOutcome.catalog, plugin.id);
     if (installedPlugin?.installed === true && installedPlugin.enabled === true)
       return { status: "already-installed", launcherSource: launcher.source };
     const wasDisabled = installedPlugin?.installed === true;
@@ -138,7 +167,7 @@ export async function installCodexSecurity(
       }
       if (catalogOutcome.kind === "fatal")
         return skipped(catalogOutcome.reason, attemptedLaunchers);
-      if (findPlugin(catalogOutcome.catalog) === undefined) {
+      if (findPlugin(catalogOutcome.catalog, plugin.id) === undefined) {
         const marketplaceResult = await runCodexPlugin(
           runProcess,
           launcher,
@@ -155,7 +184,7 @@ export async function installCodexSecurity(
         if (marketplaceOutcome.kind === "fatal")
           return skipped(marketplaceOutcome.reason, attemptedLaunchers);
         fallbackReasons.push(
-          marketplaceOutcome.marketplaces.includes(CODEX_SECURITY_MARKETPLACE)
+          marketplaceOutcome.marketplaces.includes(plugin.marketplace)
             ? "plugin-not-offered"
             : "marketplace-unavailable",
         );
@@ -166,7 +195,7 @@ export async function installCodexSecurity(
     const added = await runCodexPlugin(
       runProcess,
       launcher,
-      ["plugin", "add", CODEX_SECURITY_PLUGIN, "--json"],
+      ["plugin", "add", plugin.id, "--json"],
       platform,
       env,
       "add",
@@ -192,7 +221,7 @@ export async function installCodexSecurity(
       continue;
     }
     if (verification.kind === "fatal") return skipped(verification.reason, attemptedLaunchers);
-    const verifiedPlugin = findPlugin(verification.catalog);
+    const verifiedPlugin = findPlugin(verification.catalog, plugin.id);
     if (verifiedPlugin?.installed !== true || verifiedPlugin.enabled !== true) {
       fallbackReasons.push("verification-failed");
       continue;
@@ -289,8 +318,8 @@ function inspectMarketplaceResult(
     : { kind: "selected", marketplaces };
 }
 
-function findPlugin(catalog: PluginCatalog): PluginState | undefined {
-  return catalog.plugins.find(({ id }) => id === CODEX_SECURITY_PLUGIN);
+function findPlugin(catalog: PluginCatalog, pluginId: string): PluginState | undefined {
+  return catalog.plugins.find(({ id }) => id === pluginId);
 }
 
 function classifyFailure(

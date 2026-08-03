@@ -3,7 +3,7 @@ import { z } from "zod";
 import { DEFAULT_PLAN, PLAN_NAMES } from "./catalog.ts";
 import type { CodexSecuritySkipReason } from "./codex-security.ts";
 import type { DoctorResult } from "./doctor.ts";
-import type { RunResult } from "./install.ts";
+import type { InstallProgressEvent, RunResult } from "./install.ts";
 
 const PLAN_HELP = `${PLAN_NAMES.slice(0, -1).join(", ")}, or ${PLAN_NAMES.at(-1)}`;
 
@@ -37,21 +37,24 @@ export function renderHelp(version: string, color: boolean): string {
   const title = paint(color, `${BOLD}${CYAN}`, `HolyCodex ${version}`);
   const section = (text: string): string => paint(color, BOLD, text);
   const muted = (text: string): string => paint(color, DIM, text);
-  return `${title}\n${muted("Lean Codex toolkit installer and doctor")}\n\n${section("USAGE")}\n  holycodex <command> [options]\n\n${section("COMMANDS")}\n  install                         Install or update HolyCodex\n  cleanup                         Remove HolyCodex-owned state\n  doctor                          Diagnose installation and runtime\n\n${section("OPTIONS")}\n  --plan <plan>                   Model routing plan for install: ${PLAN_HELP}\n                                   Default: ${DEFAULT_PLAN}\n  --max-subagents <count>          Override concurrent direct subagents for install\n  --fast                          Use Fast for generated subagents only\n  --fast-all                      Use Fast for Root and generated subagents\n  --no-fast                       Use Standard for Root and generated subagents\n  -h, --help                      Show help\n  -v, --version                   Show version\n  --no-tui                        Accepted; commands remain noninteractive\n  --codex-autonomous              Never ask; keep workspace sandbox\n  --no-codex-autonomous           Safe interactive defaults\n  --dangerous-codex-autonomous    Never ask; disable filesystem sandbox\n  --json                          Print machine-readable output\n`;
+  return `${title}\n${muted("Lean Codex toolkit installer and doctor")}\n\n${section("USAGE")}\n  holycodex <command> [options]\n\n${section("COMMANDS")}\n  install                         Install or update HolyCodex\n  cleanup                         Remove HolyCodex-owned state\n  doctor                          Diagnose installation and runtime\n\n${section("OPTIONS")}\n  --plan <plan>                   Model routing plan for install: ${PLAN_HELP}\n                                   Default: ${DEFAULT_PLAN}\n  --max-subagents <count>          Override concurrent direct subagents for install\n  --fast                          Use Fast for generated subagents only\n  --fast-all                      Use Fast for Root and generated subagents\n  --no-fast                       Use Standard for Root and generated subagents\n  -h, --help                      Show help\n  -v, --version                   Show version\n  --no-tui                        Accepted; commands remain noninteractive\n  --codex-autonomous              Never ask; keep workspace sandbox\n  --no-codex-autonomous           Safe interactive defaults\n  --dangerous-codex-autonomous    Never ask; disable filesystem sandbox\n  install --verbose              Show detailed install steps
+  --json                          Print machine-readable output\n`;
 }
 
 /** Renders install-specific model plan and option help. */
 export function renderInstallHelp(version: string, color: boolean): string {
   const title = paint(color, `${BOLD}${CYAN}`, `HolyCodex ${version}`);
   const section = (text: string): string => paint(color, BOLD, text);
-  return `${title}\n\n${section("Usage:")}\n  holycodex install [options]\n\n${section("Options:")}\n  --plan <plan>                   Model routing plan: ${PLAN_HELP}\n                                   Default: ${DEFAULT_PLAN}\n  --max-subagents <count>          Override concurrent direct subagents\n  --fast                          Use Fast for generated subagents only\n  --fast-all                      Use Fast for Root and generated subagents\n  --no-fast                       Use Standard for Root and generated subagents\n  --json                          Print machine-readable output\n  --no-tui                        Accepted; install remains noninteractive\n  --codex-autonomous              Never ask; keep workspace sandbox\n  --no-codex-autonomous           Safe interactive defaults\n  --dangerous-codex-autonomous    Never ask; disable filesystem sandbox\n  -h, --help                      Show help\n\nPlans provide increasing expected model usage and capability. Fast flags are mutually exclusive.\n\n${section("Examples:")}\n  bunx holycodex install\n  bunx holycodex install --plan go\n  bunx holycodex install --plan plus-low --fast\n  bunx holycodex install --plan plus-high\n  bunx holycodex install --plan pro-5x --fast-all\n  bunx holycodex install --plan pro-20x --no-fast\n`;
+  return `${title}\n\n${section("Usage:")}\n  holycodex install [options]\n\n${section("Options:")}\n  --plan <plan>                   Model routing plan: ${PLAN_HELP}\n                                   Default: ${DEFAULT_PLAN}\n  --max-subagents <count>          Override concurrent direct subagents\n  --fast                          Use Fast for generated subagents only\n  --fast-all                      Use Fast for Root and generated subagents\n  --no-fast                       Use Standard for Root and generated subagents\n  -v, --verbose                   Show detailed install steps
+  --json                          Print machine-readable output\n  --no-tui                        Accepted; install remains noninteractive\n  --codex-autonomous              Never ask; keep workspace sandbox\n  --no-codex-autonomous           Safe interactive defaults\n  --dangerous-codex-autonomous    Never ask; disable filesystem sandbox\n  -h, --help                      Show help\n\nPlans provide increasing expected model usage and capability. Fast flags are mutually exclusive.\n\n${section("Examples:")}\n  bunx holycodex install\n  bunx holycodex install --plan go\n  bunx holycodex install --plan plus-low --fast\n  bunx holycodex install --plan plus-high\n  bunx holycodex install --plan pro-5x --fast-all\n  bunx holycodex install --plan pro-20x --no-fast\n`;
 }
 
 /** Renders error. */
 export function renderError(message: string, color: boolean): string {
   const label = paint(color, `${BOLD}${RED}`, "✗ ERROR");
   const hint = paint(color, DIM, "Run holycodex --help for usage.");
-  return `${label}  ${message}\n  ${hint}\n`;
+  const clearProgress = color ? "\r\u001B[2K" : "";
+  return `${clearProgress}${label}  ${message}\n  ${hint}\n`;
 }
 
 /** Renders doctor. */
@@ -83,19 +86,24 @@ export function renderRunResult(result: RunResult, color: boolean): string {
     result.changed.length === 0
       ? `No HolyCodex-managed files needed ${empty}.`
       : `${action} HolyCodex configuration, plugin files, and agent profiles.`;
-  const codexSecurity = renderCodexSecurity(result);
-  return `${title}\n  ${detail}${backup}${codexSecurity}\n`;
+  const officialPlugins = renderOfficialPlugins(result);
+  return `${title}\n  ${detail}${backup}${officialPlugins}\n`;
 }
 
-function renderCodexSecurity(result: RunResult): string {
-  if (result.codexSecurity === undefined) return "";
-  if (result.codexSecurity.status === "installed")
-    return "\n  Installed official Codex Security plugin.";
-  if (result.codexSecurity.status === "enabled")
-    return "\n  Enabled existing official Codex Security plugin.";
-  if (result.codexSecurity.status === "already-installed")
-    return "\n  Official Codex Security plugin is already installed and enabled.";
-  return `\n  Skipped official Codex Security plugin: ${CODEX_SECURITY_SKIP_MESSAGES[result.codexSecurity.reason]}`;
+function renderOfficialPlugins(result: RunResult): string {
+  return [
+    renderOfficialPlugin("Codex Security", result.codexSecurity),
+    renderOfficialPlugin("Computer Use", result.computerUse),
+  ].join("");
+}
+
+function renderOfficialPlugin(name: string, plugin: RunResult["codexSecurity"]): string {
+  if (plugin === undefined) return "";
+  if (plugin.status === "installed") return `\n  Installed official ${name} plugin.`;
+  if (plugin.status === "enabled") return `\n  Enabled existing official ${name} plugin.`;
+  if (plugin.status === "already-installed")
+    return `\n  Official ${name} plugin is already installed and enabled.`;
+  return `\n  Skipped official ${name} plugin: ${CODEX_SECURITY_SKIP_MESSAGES[plugin.reason]}`;
 }
 
 const CODEX_SECURITY_SKIP_MESSAGES: Record<CodexSecuritySkipReason, string> = {
@@ -112,6 +120,20 @@ const CODEX_SECURITY_SKIP_MESSAGES: Record<CodexSecuritySkipReason, string> = {
   unsupported: "the available Codex launchers do not support plugin installation.",
   "download-failed": "the latest Codex package could not be downloaded.",
 };
+
+/** Renders one concise installation progress transition. */
+export function renderInstallProgress(
+  event: InstallProgressEvent,
+  color: boolean,
+  isTTY: boolean,
+  verbose: boolean,
+): string {
+  const detail =
+    verbose && event.detail !== undefined ? `  ${paint(color, DIM, event.detail)}` : "";
+  if (event.status === "running") return isTTY ? `\r${paint(color, CYAN, "●")} ${event.label}` : "";
+  const line = `${paint(color, GREEN, "✓")} ${event.label}${detail}`;
+  return isTTY ? `\r\u001B[2K${line}\n` : `  ${line}\n`;
+}
 
 /** Renders notice. */
 export function renderNotice(kind: "notice" | "warning", message: string, color: boolean): string {

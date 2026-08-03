@@ -51,6 +51,19 @@ describe("bootstrap readiness", () => {
     expect(context).toContain("Root controls browser and native desktop UI itself");
     expect(context).toContain("Never delegate browser or computer control");
     expect(context).toContain(
+      "For native desktop tasks, use the available Computer Use capability",
+    );
+    expect(context).toContain(
+      "For frontend creation, redesign, or visual verification, use installed Build Web Apps",
+    );
+    expect(context).toContain(
+      "For authorized security reviews, audits, scans, threat models, vulnerabilities, or attack paths",
+    );
+    expect(context).toContain(
+      "After any code or manifest implementation, Root loads `code-review` exactly once",
+    );
+    expect(context).toContain("user-requested snippet, file, directory, diff, patch, or PR review");
+    expect(context).toContain(
       "Use these capabilities instead of manual-click instructions, shell-as-GUI",
     );
   });

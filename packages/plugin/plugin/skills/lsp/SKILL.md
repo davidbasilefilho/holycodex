@@ -1,6 +1,6 @@
 ---
 name: lsp
-description: Use when coding needs type-aware definitions/declarations/usages, diagnostics, symbols, or safe rename; do not use for text/syntax search or server setup. Produces semantic locations, diagnostics, or workspace edits.
+description: Use when coding needs type-aware definitions, declarations, usages, diagnostics, symbols, or safe renames; do not use for text or syntax search or LSP setup. Produces semantic locations, diagnostics, or workspace edits.
 ---
 
 # LSP

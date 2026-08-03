@@ -1,6 +1,6 @@
 ---
 name: compress
-description: Use when text must be shortened/condensed without meaning loss; do not use for lossy summary, code refactor, or voice change. Produces a constraint-equivalent draft.
+description: Use when text must be shortened without meaning loss; do not use for lossy summaries, code refactors, or voice changes. Produces a constraint-equivalent draft.
 ---
 
 # Compress

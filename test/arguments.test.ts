@@ -15,6 +15,14 @@ describe("command-specific CLI parsing", () => {
     );
   });
 
+  it("accepts verbose only for install while preserving top-level -v", () => {
+    expect(parseCliArguments(["install", "-v"])).toMatchObject({ verbose: true });
+    expect(parseCliArguments(["install", "--verbose"])).toMatchObject({ verbose: true });
+    expect(parseCliArguments(["-v"])).toMatchObject({ action: "version", verbose: false });
+    expect(() => parseCliArguments(["doctor", "-v"])).toThrow("not valid for doctor");
+    expect(() => parseCliArguments(["install", "-v", "--verbose"])).toThrow("Repeated");
+  });
+
   it.each(["-1", "4", "1.5", "x"])("rejects max-subagents=%s", (value) => {
     expect(() => parseCliArguments(["install", `--max-subagents=${value}`])).toThrow(
       "Expected an integer from 0 through 3",

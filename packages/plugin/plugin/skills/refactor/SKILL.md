@@ -1,6 +1,6 @@
 ---
 name: refactor
-description: Use for behavior-preserving restructuring, extraction, simplification, modernization, or cleanup of one seam; do not use for features, fixes, formatting sweeps, or broad slop cleanup. Produces a behavior-locked structural change.
+description: Use for behavior-preserving restructuring, extraction, simplification, modernization, or cleanup of one seam; do not use for features, fixes, formatting sweeps, or broad slop cleanup. Produces one behavior-locked structural change.
 ---
 
 # Refactor

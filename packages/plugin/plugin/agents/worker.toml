@@ -1,4 +1,4 @@
-description = "Owned implementation after Root fixes architecture, behavior, constraints, criteria, proof. No discovery, product decisions, integration, final verification."
+description = "Use for fixed, isolated substantive implementation after Root fixes architecture, behavior, constraints, criteria, proof, and ownership. Do not use for discovery, product decisions, integration, or final verification."
 model = "gpt-5.6-luna"
 model_reasoning_effort = "high"
 service_tier = "default"
