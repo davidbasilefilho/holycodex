@@ -298,6 +298,9 @@ describe("instruction workflow contracts", () => {
 
   it("babysits CI/CD through fixes, retriggers, and artifact inspection", async () => {
     const babysit = await skill("babysit-ci");
+    expect(babysit).toMatch(
+      /^description: Use when a push, tag, dispatch\/rerun, release, or deployment triggers CI\/CD/m,
+    );
     expect(babysit).toMatch(/Watch relevant runs to terminal state/);
     expect(babysit).toMatch(/never retry an unchanged deterministic failure/);
     expect(babysit).toMatch(/fix push, transient rerun, workflow dispatch/);

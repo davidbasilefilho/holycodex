@@ -1,6 +1,6 @@
 ---
 name: rules
-description: Use when asked how HolyCodex rules are discovered, matched, injected, deduped, limited, cached, or why loading fails; do not use merely because repo instructions exist or for skill routing. Produces an evidence-backed rule trace without unrelated content.
+description: Use when tracing how HolyCodex rules are discovered, matched, injected, deduped, limited, cached, applied, or fail to load; do not use merely because instructions exist or for skill routing. Produces an evidence-backed rule trace.
 ---
 
 # Rules

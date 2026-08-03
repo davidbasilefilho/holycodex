@@ -1,6 +1,6 @@
 ---
 name: debugging
-description: Use for a crash, wrong result, hang, race, leak, slowdown, or reproducible defect needing root-cause proof; do not use for features, behavior-preserving refactors, or speculative cleanup. Produces reproduction, evidence, regression proof, and authorized minimum fix.
+description: Use for crashes, wrong results, failing tests, regressions, hangs, races, leaks, slowdowns, or reproducible defects; do not use for features, refactors, or speculative cleanup. Produces root-cause and regression proof plus authorized minimum fix.
 ---
 
 # Debugging

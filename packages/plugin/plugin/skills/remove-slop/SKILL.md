@@ -1,6 +1,6 @@
 ---
 name: remove-slop
-description: Use when cleaning AI slop in explicit files or a safely resolved changed-file scope; do not use for features, fixes, refactors, or repo-wide cleanup. Produces behavior-locked cleanup with deterministic scope/proof.
+description: Use when cleaning AI slop/boilerplate/cruft/bloat in explicit files or resolved changed files; do not use for features, fixes, refactors, or repo-wide cleanup. Produces behavior-locked cleanup with deterministic proof.
 ---
 
 # Remove slop

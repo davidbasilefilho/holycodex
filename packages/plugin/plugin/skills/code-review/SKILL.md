@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Use when Root must audit implemented code/manifests or explicitly review code; do not use for implementation, plan review, or prose/docs/status/explanation without explicit review. Produces repaired, verified code and Root judgment.
+description: Use when Root audits implemented code/manifests or reviews a PR/diff/patch; do not use for implementation, plan review, or non-code review. Produces repaired, verified code and Root judgment.
 ---
 
 # Code Review

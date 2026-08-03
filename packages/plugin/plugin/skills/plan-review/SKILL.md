@@ -1,6 +1,6 @@
 ---
 name: plan-review
-description: Use when a complete plan needs feasibility, scope, order, risk, or proof repair; do not use before drafting, for approval/implementation, or twice. Produces one corrected plan; unlike plan, it owns neither draft nor approval.
+description: Use when a complete plan needs review/critique for feasibility, scope, order, risk, or proof; do not use before drafting, for approval/implementation, or twice. Produces one corrected plan.
 ---
 
 # Plan Review

@@ -1,6 +1,6 @@
 ---
 name: security-research
-description: Use when authorized work needs repository security review, threat analysis, vulnerability validation, or attack-path/exploitability proof; do not use for generic review, ordinary debugging, unsupported hardening, or real-system attacks. Produces evidence-calibrated findings and minimum fixes.
+description: Use for authorized repository security review/audit/scan, threat analysis, vulnerability validation, or exploitability proof; do not use for generic review, ordinary debugging, unsupported hardening, or real-system attacks. Produces evidence-calibrated findings and minimum fixes.
 ---
 
 # Security Research

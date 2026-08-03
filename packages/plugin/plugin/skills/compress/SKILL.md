@@ -1,6 +1,6 @@
 ---
 name: compress
-description: Use when text needs semantic compression; do not use for lossy summary, code refactor, or voice change. Produces a constraint-equivalent draft; unlike caveman it owns meaning.
+description: Use when text must be shortened/condensed without meaning loss; do not use for lossy summary, code refactor, or voice change. Produces a constraint-equivalent draft.
 ---
 
 # Compress

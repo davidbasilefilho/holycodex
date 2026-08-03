@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Use when compact resumable context must transfer to another agent/session; do not use for routine summaries, delegation packets, or completed work. Produces one redacted temporary handoff referencing durable artifacts.
+description: Use when resumable context must transfer to another agent/session or pause for later; do not use for routine summaries, delegation, or completed work. Produces one redacted temporary handoff.
 ---
 
 # Handoff

@@ -1,6 +1,6 @@
 ---
 name: babysit-ci
-description: Use when asked to babysit CI/CD through failure-fix-retrigger cycles; do not use for one-time local tests or status. Produces observed green CI/CD or a precise blocker.
+description: Use when a push, tag, dispatch/rerun, release, or deployment triggers CI/CD, or CI/CD needs babysitting; do not use for local tests or status alone. Produces green CI/CD or a precise blocker.
 ---
 
 # Babysit CI

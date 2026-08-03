@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Use when the user asks for a plan or implementation has unresolved architecture, cross-cutting coordination, irreversible decisions, high risk, or material ambiguity; do not use for obvious steps, simple work, status, or explanation. Produces one repo-grounded reviewed plan with approval.
+description: Use for a requested plan/design/approach/roadmap or unresolved architecture, coordination, risk, irreversible choice, or material ambiguity; do not use for simple work, status, or explanation. Produces one repo-grounded reviewed plan with approval.
 ---
 
 # Plan
