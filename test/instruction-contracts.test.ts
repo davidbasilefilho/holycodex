@@ -33,7 +33,7 @@ async function byteLength(paths: readonly string[]): Promise<number> {
 describe("instruction workflow contracts", () => {
   it("keeps routed skill metadata precise and bounded", async () => {
     const names = (await readdir(skillsRoot)).sort();
-    expect(names).toHaveLength(16);
+    expect(names).toHaveLength(15);
     const texts = await Promise.all(names.map(skill));
     for (const text of texts) {
       const description = text.match(/^description: (.*)$/m)?.[1] ?? "";
@@ -78,7 +78,7 @@ describe("instruction workflow contracts", () => {
     const lsp = Buffer.byteLength(JSON.stringify(lspTools));
 
     expect(skills).toBeLessThanOrEqual(30_000);
-    expect(coreAndAgents).toBeLessThanOrEqual(10_000);
+    expect(coreAndAgents).toBeLessThanOrEqual(10_250);
     expect(gitBash).toBeLessThanOrEqual(1_400);
     expect(lsp).toBeLessThanOrEqual(3_300);
     expect(skills + coreAndAgents + gitBash + lsp).toBeLessThanOrEqual(44_500);
@@ -121,6 +121,7 @@ describe("instruction workflow contracts", () => {
     expect(core).toMatch(/manual-click instructions, shell-as-GUI/);
     expect(core).toMatch(/Inspect tools before declaring capability unavailable/);
     expect(core).toMatch(/Observe results before claiming authenticated success/);
+    expect(core).toMatch(/Codex Security plugin skills[\s\S]*security reviews\/audits\/scans/);
     expect(core).toMatch(/ask when policy requires before material, destructive, irreversible/);
     expect(core).toMatch(/Explorer is repo-read-only, Librarian research-only/);
     expect(core).toMatch(/Worker cannot alter dashboards\/accounts\/permissions\/external state/);

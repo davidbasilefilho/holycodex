@@ -18,7 +18,6 @@ export const SKILLS = [
   "refactor",
   "remove-slop",
   "rules",
-  "security-research",
 ] as const;
 
 export const AgentNameSchema = z.enum(["explorer", "librarian", "worker"]);
