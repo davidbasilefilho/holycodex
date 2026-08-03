@@ -78,7 +78,7 @@ describe("scoped rules", () => {
     expect(await runRulesHook(input)).toContain("shared project context");
     expect(await runRulesHook(input)).toBe("");
     expect(await runRulesHook({ ...input, hook_event_name: "PostCompact" })).toContain(
-      "Before updates, classify intent/load required skills.",
+      "Before updates, classify intent and load required skills.",
     );
     expect(await runRulesHook(input)).toContain("shared project context");
   });

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { connect } from "node:net";
+import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { execPath } from "node:process";
 import { fileURLToPath } from "node:url";
@@ -106,6 +107,7 @@ export function spawnDaemonProcess(paths: DaemonPaths): void {
   try {
     const cliPath = resolveDaemonCliPath();
     const child = spawn(execPath, [cliPath, "daemon"], {
+      cwd: tmpdir(),
       detached: true,
       stdio: ["ignore", logFd, logFd],
     });

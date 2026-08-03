@@ -1,4 +1,4 @@
-import { JsonRpcIdSchema } from "@holycodex/mcp-stdio-core/schemas";
+import { JsonRpcIdSchema } from "@holycodex/runtime-core/records";
 import { z } from "zod";
 
 type JsonRpcId = number | string | null;

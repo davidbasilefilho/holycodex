@@ -2,12 +2,12 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
-import { killProcessTree } from "@holycodex/mcp-stdio-core/process";
+import { killProcessTree } from "@holycodex/runtime-core/process";
 
 import {
   resolveGitBashForCurrentProcess,
   type GitBashResolution,
-} from "../../../git-bash-mcp/src/git-bash-resolver.js";
+} from "../../../git-bash/src/git-bash-resolver.js";
 import { LspInvalidPathError, LspProcessSpawnError } from "./errors.js";
 
 export interface SpawnedProcess {

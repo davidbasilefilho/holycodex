@@ -10,10 +10,10 @@ const jsonFiles = [
   "packages/cli/package.json",
   "packages/plugin/package.json",
   "packages/plugin/plugin/.codex-plugin/plugin.json",
-  "packages/git-bash-mcp/package.json",
+  "packages/git-bash/package.json",
   "packages/lsp-core/package.json",
   "packages/lsp-daemon/package.json",
-  "packages/mcp-stdio-core/package.json",
+  "packages/runtime-core/package.json",
 ];
 const packageFile = "packages/cli/package.json";
 const catalogFile = "packages/cli/src/catalog.ts";
@@ -21,7 +21,6 @@ const lockfile = "bun.lock";
 const workspacePackageFiles = jsonFiles.filter(
   (file) => file.startsWith("packages/") && file.endsWith("/package.json"),
 );
-const generatedVersionFiles = ["packages/plugin/plugin/runtime/core-instructions.js"];
 const JsonObjectSchema = z.record(z.string(), z.unknown());
 const PackageManifestSchema = z.looseObject({
   version: z.string().min(1),
@@ -77,9 +76,6 @@ async function main() {
   }
   await Promise.all(jsonFiles.map((file) => updateJson(file, next)));
   await replaceVersion(catalogFile, current, next);
-  await Promise.all(
-    generatedVersionFiles.map((file) => replaceVersionIfPresent(file, current, next)),
-  );
   await updateLockfile(next);
   process.stdout.write(
     `Bumped ${current} -> ${next}. Run vp install, vp check --fix, vp test, and vp build.\n`,
@@ -181,9 +177,6 @@ async function checkVersions(expected) {
   }
   if (!lockSource.includes(`"@holycodex/plugin": "${expected}"`))
     throw new Error(`${lockfile}: @holycodex/plugin must match ${expected}`);
-  for (const file of generatedVersionFiles)
-    if (!(await readFile(join(root, file), "utf8")).includes(expected))
-      throw new Error(`${file}: missing ${expected}; rebuild generated runtime`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await main();

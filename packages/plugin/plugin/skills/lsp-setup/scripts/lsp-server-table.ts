@@ -1,4 +1,4 @@
-// SOURCE OF TRUTH: packages/lsp-tools-mcp/src/lsp/server-definitions.ts
+// SOURCE OF TRUTH: packages/lsp-core/src/lsp/server-definitions.ts
 // (BUILTIN_SERVERS + LSP_INSTALL_HINTS). This is a hand-maintained snapshot of
 // the primary builtin server per reference language, embedded so detect-lsp.ts
 // runs standalone in any user project. Mirror command/extensions when that file

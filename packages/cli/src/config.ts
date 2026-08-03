@@ -193,6 +193,16 @@ function nextTableBoundary(input: string): number {
   return Math.min(header, managedHeader);
 }
 
+function tableSource(input: string, table: string): string | undefined {
+  const match = new RegExp(`^\\s*\\[${table.replaceAll(".", "\\.")}]\\s*(?:#.*)?$`, "m").exec(
+    input,
+  );
+  if (match === null) return undefined;
+  const tail = input.slice(match.index + match[0].length);
+  const end = nextTableBoundary(tail);
+  return end < 0 ? tail : tail.slice(0, end);
+}
+
 function rootValue(input: string, key: string): string | undefined {
   if (key === "status_line") return rootTomlStringArraySource(input, key);
   return new RegExp(`^\\s*${key}\\s*=.*$`, "m").exec(input)?.[0];
@@ -234,25 +244,32 @@ export function readManagedMaxSubagents(input: string): ManagedMaxSubagents {
 type RootModelOverrides = {
   readonly model: boolean;
   readonly reasoningEffort: boolean;
+  readonly webSearch: boolean;
 };
 
 /** Identifies explicit Root route overrides preserved from active managed configuration. */
 export function readPreservedRootOverrides(input: string): RootModelOverrides {
   const managedRoot = new RegExp(`^${START}\\r?\\n([\\s\\S]*?)^${END}\\r?$`, "m").exec(input)?.[1];
-  if (managedRoot === undefined) return { model: false, reasoningEffort: false };
+  if (managedRoot === undefined) return { model: false, reasoningEffort: false, webSearch: false };
   const plan = readManagedPlan(managedRoot);
   const model = rootTomlString(input, "model");
   const reasoningEffort = rootTomlString(input, "model_reasoning_effort");
   if (plan === undefined || model === undefined || reasoningEffort === undefined)
-    return { model: false, reasoningEffort: false };
+    return { model: false, reasoningEffort: false, webSearch: false };
   const managed = MANAGED_ROOT_MODEL_HISTORY_BY_PLAN[plan].some(
     (route) => route.model === model && route.reasoningEffort === reasoningEffort,
   );
-  if (managed) return { model: false, reasoningEffort: false };
+  if (managed)
+    return {
+      model: false,
+      reasoningEffort: false,
+      webSearch: rootTomlString(managedRoot, "web_search") !== "live",
+    };
   const preset = MODEL_ROUTING_PLANS[plan].root;
   return {
     model: model !== preset.model,
     reasoningEffort: reasoningEffort !== preset.reasoningEffort,
+    webSearch: rootTomlString(managedRoot, "web_search") !== "live",
   };
 }
 
@@ -267,6 +284,7 @@ function preserveManagedRootPreferences(input: string, base: string): string {
   for (const [key, preserve] of [
     ["model", overrides.model],
     ["model_reasoning_effort", overrides.reasoningEffort],
+    ["web_search", overrides.webSearch],
   ] as const) {
     const live = rootValue(managedRoot, key)?.trim();
     if (!preserve || live === undefined) continue;
@@ -332,6 +350,7 @@ export function installConfig(
           : readPermissionLines(root)
         : readPermissionLines(previousOriginalRoot));
   const controlled = [
+    "web_search",
     "approval_policy",
     "approvals_reviewer",
     "sandbox_mode",
@@ -342,6 +361,7 @@ export function installConfig(
     ...(request.requested ? ["default_permissions"] : []),
   ].map((key) => rootValue(root, key));
   const controlledKeys = [
+    "web_search",
     "approval_policy",
     "approvals_reviewer",
     "sandbox_mode",
@@ -374,26 +394,35 @@ export function installConfig(
   const maxSubagentsMetadata =
     maxSubagents === undefined ? "" : `${MAX_SUBAGENTS_PREFIX}${maxSubagents}\n`;
   const rootServiceTier = fastMode === "fast-all" ? "fast" : "default";
-  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${FAST_MODE_PREFIX}${fastMode}\n${AUTONOMY_METADATA_PREFIX}${effectiveAutonomy}\n${maxSubagentsMetadata}${original}${originalPermissionMetadata(permissionLines)}${model}${effort}model_verbosity = "low"\nservice_tier = "${rootServiceTier}"\n${rootPermissionLines.join("\n")}\nstatus_line = ${mergedStatusLine(rootValue(root, "status_line"))}\n${END}`;
+  const priorManagedRoot = new RegExp(`^${START}\\r?\\n([\\s\\S]*?)^${END}\\r?$`, "m").exec(
+    input,
+  )?.[1];
+  const webSearch = readPreservedRootOverrides(input).webSearch
+    ? (rootTomlString(priorManagedRoot ?? "", "web_search") ?? "live")
+    : "live";
+  const statusLine = mergedStatusLine(
+    rootValue(root, "status_line") ??
+      rootTomlStringArraySource(tableSource(base, "tui") ?? "", "status_line"),
+  );
+  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${FAST_MODE_PREFIX}${fastMode}\n${AUTONOMY_METADATA_PREFIX}${effectiveAutonomy}\n${maxSubagentsMetadata}${original}${originalPermissionMetadata(permissionLines)}${model}${effort}web_search = ${JSON.stringify(webSearch)}\nmodel_verbosity = "low"\nservice_tier = "${rootServiceTier}"\n${rootPermissionLines.join("\n")}\n${END}`;
   let configured = `${preservedRoot ? `${preservedRoot}\n` : ""}${rootBlock}${tables ? `\n\n${tables}` : ""}`;
+  const legacyMultiAgentV2 = /\bmulti_agent_v2\s*=\s*(true|false)/.exec(configured)?.[1];
   configured = injectTableKeys(configured, "features", [
     ["default_mode_request_user_input", "true"],
     ["multi_agent", "true"],
-    ["multi_agent_v2", "true"],
+    ...(legacyMultiAgentV2 === undefined ? [] : [["multi_agent_v2", legacyMultiAgentV2] as const]),
   ]);
   const usage = MODEL_ROUTING_PLANS[plan].usage;
   configured = injectTableKeys(configured, "agents", [
-    ["max_threads", String(effectiveMaxSubagents + 1)],
+    ["max_concurrent_threads_per_session", String(effectiveMaxSubagents + 1)],
     ["max_depth", String(usage.maxDepth)],
   ]);
+  configured = injectTableKeys(configured, "tui", [["status_line", statusLine]]);
   if (effectiveAutonomy !== "dangerous")
     configured = injectTableKeys(configured, "sandbox_workspace_write", [
       ["network_access", "true"],
     ]);
-  configured = injectTableKeys(configured, "desktop", [
-    ["enabled-reasoning-efforts", '["low", "medium", "high", "xhigh", "max"]'],
-    ["show-context-window-usage", "true"],
-  ]);
+  configured = injectTableKeys(configured, "desktop", [["show-context-window-usage", "true"]]);
   if (_platform === "win32")
     configured = injectTableKeys(configured, "windows", [["sandbox", '"unelevated"']]);
   for (const agent of AGENTS)

@@ -1,4 +1,4 @@
-import { messageFromError } from "@holycodex/mcp-stdio-core/responses";
+import { messageFromError } from "@holycodex/runtime-core/errors";
 
 import { LspProcessExitedError } from "./errors.js";
 

@@ -1,4 +1,4 @@
-import { LSP_MCP_TOOLS } from "./definitions.js";
+import { LSP_COMMANDS } from "./definitions.js";
 import { isRecord } from "./parameters.js";
 import type { ToolExecutionResult } from "./types.js";
 
@@ -8,7 +8,7 @@ export async function executeLspTool(
   params: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
-  const tool = LSP_MCP_TOOLS.find(
+  const tool = LSP_COMMANDS.find(
     (candidate) => candidate.name === name || (candidate.aliases?.includes(name) ?? false),
   );
   if (!tool) throw new Error(`Unknown LSP tool: ${name}`);

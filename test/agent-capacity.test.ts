@@ -11,7 +11,7 @@ describe("agent capacity context", () => {
   it("parses only complete positive limits from the root agents table", () => {
     expect(
       parseAgentCapacity(
-        "[agents]\nmax_threads = 2 # root included\nmax_depth = 1\n[agents.worker]\nmax_threads = 99",
+        "[agents]\nmax_concurrent_threads_per_session = 2 # root included\nmax_depth = 1\n[agents.worker]\nmax_threads = 99",
       ),
     ).toEqual({ maxThreads: 2, maxDepth: 1 });
     expect(parseAgentCapacity("[agents]\nmax_threads = 0\nmax_depth = 1")).toBeUndefined();
@@ -22,7 +22,10 @@ describe("agent capacity context", () => {
     const codexHome = await mkdtemp(join(tmpdir(), "holycodex-capacity-"));
     expect(await readAgentCapacity(codexHome)).toBeUndefined();
     await mkdir(codexHome, { recursive: true });
-    await writeFile(join(codexHome, "config.toml"), "[agents]\nmax_threads=2\nmax_depth=1\n");
+    await writeFile(
+      join(codexHome, "config.toml"),
+      "[agents]\nmax_concurrent_threads_per_session=2\nmax_depth=1\n",
+    );
     expect(await readAgentCapacity(codexHome)).toEqual({ maxThreads: 2, maxDepth: 1 });
   });
 

@@ -5,13 +5,13 @@ description: Use when coding needs type-aware definitions/declarations/usages, d
 
 # LSP
 
-Call `lsp` MCP tools, never shell commands:
+Call the bundled CLI through normal shell execution, never MCP:
 
-- `lsp.status`: server state.
-- `lsp.diagnostics`: file/dir diagnostics; prefer `severity: "error"` after edits.
-- `lsp.goto_definition`, `lsp.find_references`: definition/usages.
-- `lsp.symbols`: document outline/workspace search.
-- `lsp.prepare_rename`, `lsp.rename`: validate/apply workspace rename.
+`node runtime/lsp.js <command> [options] [--json]`
+
+Commands are `status`, `diagnostics`, `definition`, `declaration`, `references`, `document-symbols`, `workspace-symbols`, `prepare-rename`, and `rename`. Source positions use `--file`, 1-based `--line`, and 0-based `--character`. Rename also requires `--new-name`; workspace symbols require `--query`. Use `--option value` or `--option=value`.
+
+The CLI starts or reuses the bundled daemon automatically, returns structured machine-readable output with `--json`, exits nonzero on errors, applies bounded request timeouts, and reports daemon logs and socket diagnostics when unavailable.
 
 Project config: `.codex/lsp-client.json`; user config: `~/.codex/lsp-client.json`.
 
@@ -26,4 +26,4 @@ Project config: `.codex/lsp-client.json`; user config: `~/.codex/lsp-client.json
 }
 ```
 
-If diagnostics report a missing server, call `lsp.status` first.
+If diagnostics report a missing server, run `status` first.

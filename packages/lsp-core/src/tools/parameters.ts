@@ -1,4 +1,4 @@
-import { UnknownRecordSchema } from "@holycodex/mcp-stdio-core/schemas";
+import { UnknownRecordSchema } from "@holycodex/runtime-core/records";
 import { z } from "zod";
 
 import type { WithLspClientOptions } from "../lsp/client-wrapper.js";

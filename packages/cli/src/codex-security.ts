@@ -2,7 +2,7 @@ import {
   runManagedProcess,
   type ManagedProcessInput,
   type ManagedProcessResult,
-} from "../../mcp-stdio-core/src/process.ts";
+} from "../../runtime-core/src/process.ts";
 import {
   codexLauncherArgs,
   createCodexLauncherCandidates,

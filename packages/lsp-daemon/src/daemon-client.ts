@@ -1,20 +1,23 @@
 import { connect } from "node:net";
 
 import type { ToolExecutionResult } from "@holycodex/lsp-core/tools";
-import { messageFromError } from "@holycodex/mcp-stdio-core/responses";
-import { McpToolResultSchema } from "@holycodex/mcp-stdio-core/schemas";
+import { messageFromError } from "@holycodex/runtime-core/errors";
 import { z } from "zod";
 
 import { ensureDaemonRunning } from "./ensure-daemon.js";
 import { type DaemonPaths, daemonPaths } from "./paths.js";
 import { CONTEXT_KEY } from "./request-routing.js";
-import { createLineDecoder, encodeJsonLine } from "./socket-jsonrpc.js";
+import { createLineDecoder, encodeJsonLine } from "./socket-json.js";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const REQUEST_ID = 1;
 const DaemonResponseSchema = z.looseObject({
   id: z.literal(REQUEST_ID),
-  result: McpToolResultSchema.extend({ details: z.unknown().optional() }),
+  result: z.object({
+    content: z.array(z.object({ type: z.literal("text"), text: z.string() })),
+    isError: z.boolean().optional(),
+    details: z.unknown().optional(),
+  }),
 });
 
 export class DaemonRequestError extends Error {
@@ -72,9 +75,9 @@ export function callDiagnosticsViaDaemon(
 }
 
 const FORWARDED_ENV_KEYS = [
-  "LSP_TOOLS_MCP_PROJECT_CONFIG",
-  "LSP_TOOLS_MCP_USER_CONFIG",
-  "LSP_TOOLS_MCP_INSTALL_DECISIONS",
+  "HOLYCODEX_LSP_PROJECT_CONFIG",
+  "HOLYCODEX_LSP_USER_CONFIG",
+  "HOLYCODEX_LSP_INSTALL_DECISIONS",
 ] as const;
 
 /** Provides current request context. */
@@ -99,7 +102,7 @@ function daemonUnreachableResult(paths: DaemonPaths, error: unknown): ToolExecut
   const errorMessage = messageFromError(error);
   const text = [
     `LSP daemon unreachable: ${errorMessage}.`,
-    "The MCP server is a thin proxy and never runs language servers in-process.",
+    "The CLI client never runs language servers in-process.",
     `Socket: ${paths.socket}`,
     `Logs: ${paths.log}`,
     "The daemon is auto-started on demand and will be retried on the next request.",
@@ -139,10 +142,9 @@ function sendToolCall(
       requestWritten = true;
       socket.write(
         encodeJsonLine({
-          jsonrpc: "2.0",
           id: REQUEST_ID,
-          method: "tools/call",
-          params: { name, arguments: args },
+          method: "lsp/call",
+          params: { command: name, arguments: args },
         }),
       );
     });

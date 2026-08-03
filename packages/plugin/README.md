@@ -1,6 +1,6 @@
 # @holycodex/plugin
 
-Static HolyCodex Codex plugin payload: prompts, skills, agents, hooks, MCP metadata, notices, and generated runtime assets.
+Static HolyCodex Codex plugin payload: prompts, skills, agents, hooks, notices, and generated runtime assets. See the repository [architecture documentation](../../docs/ARCHITECTURE.md).
 
 Every bundled skill ships explicit `agents/openai.yaml` metadata using the `HolyCodex: <Skill Name>` display brand while preserving lowercase machine identifiers.
 

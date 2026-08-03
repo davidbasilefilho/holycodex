@@ -34,7 +34,7 @@ const SKIP_DIRECTORIES = new Set<string>([
 
 const MAX_FILES = 50_000;
 
-// Mirrors effectiveExtension() in packages/lsp-tools-mcp/src/lsp/effective-extension.ts:
+// Mirrors effectiveExtension() in packages/lsp-core/src/lsp/effective-extension.ts:
 // extensionless Dockerfile/Containerfile resolve to .dockerfile (exact-case basenames).
 const BASENAME_EXTENSIONS: Record<string, string> = {
   Dockerfile: ".dockerfile",

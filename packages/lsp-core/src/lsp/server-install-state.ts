@@ -20,7 +20,7 @@ type InstallDecisions = z.infer<typeof InstallDecisionsSchema>;
 
 /** Gets install decisions path. */
 export function getInstallDecisionsPath(): string {
-  const override = contextEnv("LSP_TOOLS_MCP_INSTALL_DECISIONS");
+  const override = contextEnv("HOLYCODEX_LSP_INSTALL_DECISIONS");
   if (!override) return join(homedir(), ".codex", "lsp-install-decisions.json");
   return isAbsolute(override) ? override : join(homedir(), override);
 }

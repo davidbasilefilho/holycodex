@@ -11,4 +11,4 @@ Preserve exact names/strings, code/commands/paths/APIs/errors/numbers/links, leg
 
 For prompts/instructions/skills preserve frontmatter, triggers, exclusions, routing, permissions, validation, stops. Code/config: prose only.
 
-`compress` owns meaning; `caveman` owns voice. Together, compress then render requested caveman level.
+Preserve the surrounding voice unless the user explicitly requests a different one.

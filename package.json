@@ -1,13 +1,13 @@
 {
   "name": "holycodex-workspace",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "private": true,
   "description": "Lean Codex-only agent toolkit for ChatGPT Plus",
   "keywords": [
     "agents",
     "chatgpt",
     "codex",
-    "mcp"
+    "developer-tools"
   ],
   "homepage": "https://github.com/davidbasilefilho/holycodex#readme",
   "bugs": {
@@ -24,7 +24,8 @@
   ],
   "type": "module",
   "scripts": {
-    "check": "vp check --fix",
+    "check": "vp check",
+    "check:fix": "vp check --fix",
     "test": "vp run build && vp test",
     "build": "vp build --config vite.config.ts && vp build --config packages/cli/vite.config.ts",
     "version:check": "bun scripts/version.mjs check",
@@ -36,16 +37,16 @@
     "release:stable:dry-run": "bun scripts/publish.mjs stable --dry-run"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "bun-types": "1.3.12",
-    "typescript": "^6.0.0",
-    "vite": "^7.0.0",
-    "vite-plus": "^0.2.5",
+    "@types/node": "^26.1.2",
+    "bun-types": "1.3.14",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0",
+    "vite-plus": "0.2.7",
     "vitest": "^4.0.0",
     "zod": "^4.4.3"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=26 <27"
   },
   "packageManager": "bun@1.3.14"
 }

@@ -1,4 +1,4 @@
-import { messageFromError } from "@holycodex/mcp-stdio-core/responses";
+import { messageFromError } from "@holycodex/runtime-core/errors";
 
 /** Reports best effort cleanup error. */
 export function reportBestEffortCleanupError(operation: string, error: unknown): void {

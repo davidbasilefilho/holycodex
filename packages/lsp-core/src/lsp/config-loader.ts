@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 
-import { UnknownRecordSchema } from "@holycodex/mcp-stdio-core/schemas";
+import { UnknownRecordSchema } from "@holycodex/runtime-core/records";
 import { z } from "zod";
 
 import { contextCwd, contextEnv } from "../request-context.js";
@@ -43,7 +43,7 @@ function resolveProjectConfigPath(path: string): string {
 }
 
 function getProjectConfigPaths(): string[] {
-  const projectOverride = contextEnv("LSP_TOOLS_MCP_PROJECT_CONFIG");
+  const projectOverride = contextEnv("HOLYCODEX_LSP_PROJECT_CONFIG");
   if (projectOverride) {
     return projectOverride.split(delimiter).filter(Boolean).map(resolveProjectConfigPath);
   }
@@ -51,7 +51,7 @@ function getProjectConfigPaths(): string[] {
 }
 
 function getUserConfigPath(): string {
-  const userOverride = contextEnv("LSP_TOOLS_MCP_USER_CONFIG");
+  const userOverride = contextEnv("HOLYCODEX_LSP_USER_CONFIG");
   if (!userOverride) return join(homedir(), ".codex", "lsp-client.json");
   return isAbsolute(userOverride) ? userOverride : join(homedir(), userOverride);
 }

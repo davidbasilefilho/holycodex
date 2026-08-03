@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { stdin, stdout } from "node:process";
 
-import { UnknownRecordSchema } from "../../mcp-stdio-core/src/schemas.ts";
+import { UnknownRecordSchema } from "../../runtime-core/src/records.ts";
 import { runRulesHook } from "./rules-hook.ts";
 
 let raw = "";

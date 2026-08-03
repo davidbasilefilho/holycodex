@@ -7,7 +7,7 @@ import { disposeDefaultLspManager, getLspManager } from "@holycodex/lsp-core/lsp
 import { unlinkQuietly } from "./lock.js";
 import type { DaemonPaths } from "./paths.js";
 import { handleDaemonMessage } from "./request-routing.js";
-import { createLineDecoder, encodeJsonLine } from "./socket-jsonrpc.js";
+import { createLineDecoder, encodeJsonLine } from "./socket-json.js";
 
 const DEFAULT_IDLE_SHUTDOWN_MS = 30 * 60_000;
 const DEFAULT_IDLE_CHECK_INTERVAL_MS = 60_000;
@@ -28,8 +28,14 @@ export async function startDaemonServer(
   paths: DaemonPaths,
   options: DaemonServerOptions = {},
 ): Promise<DaemonServerHandle> {
-  const idleShutdownMs = options.idleShutdownMs ?? DEFAULT_IDLE_SHUTDOWN_MS;
-  const idleCheckIntervalMs = options.idleCheckIntervalMs ?? DEFAULT_IDLE_CHECK_INTERVAL_MS;
+  const idleShutdownMs =
+    options.idleShutdownMs ??
+    environmentMilliseconds("HOLYCODEX_LSP_IDLE_SHUTDOWN_MS") ??
+    DEFAULT_IDLE_SHUTDOWN_MS;
+  const idleCheckIntervalMs =
+    options.idleCheckIntervalMs ??
+    environmentMilliseconds("HOLYCODEX_LSP_IDLE_CHECK_INTERVAL_MS") ??
+    DEFAULT_IDLE_CHECK_INTERVAL_MS;
 
   mkdirSync(paths.dir, { recursive: true });
   unlinkQuietly(paths.socket);
@@ -92,6 +98,12 @@ export async function startDaemonServer(
 
   installSignalHandlers(close);
   return { server, close };
+}
+
+function environmentMilliseconds(name: string): number | undefined {
+  const value = process.env[name];
+  if (value === undefined || !/^\d+$/.test(value)) return undefined;
+  return Number(value);
 }
 
 async function respond(socket: Socket, message: unknown): Promise<void> {

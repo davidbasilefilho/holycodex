@@ -1,13 +1,13 @@
 import { z } from "zod";
 
-export const VERSION = "0.11.0";
+export const VERSION = "0.11.1";
 
 export const SKILLS = [
   "ast-grep",
   "babysit-ci",
-  "caveman",
   "code-review",
   "compress",
+  "context7-cli",
   "debugging",
   "handoff",
   "lsp",
@@ -296,7 +296,6 @@ export const GENERATED_RUNTIMES = [
   "git-bash-resolver.js",
   "LICENSE-LSP-MIT.txt",
   "lsp.js",
-  "mcp-stdio-core.js",
   "rules.js",
 ] as const;
 
@@ -305,32 +304,13 @@ export const BASE_REQUIRED_RUNTIMES = ["lsp.js", "rules.js"] as const;
 export const WINDOWS_REQUIRED_RUNTIMES = ["git-bash.js"] as const;
 
 export const WINDOWS_SHELL_POLICY =
-  "On native Windows, before the first shell action, inspect callable and deferred tools until `mcp__git_bash__run` is resolved. Use it for every shell command, including Git, Bash, POSIX, package, build, test, and script commands. If unavailable, stop and report the blocker. Never fall back to PowerShell or cmd.";
+  "On native Windows, run every shell command through the bundled Git Bash launcher, including Git, package, build, test, script and POSIX commands. Never execute task commands through PowerShell or cmd. If Git Bash cannot be resolved, stop and report the blocker. On non-Windows, use the native shell normally.";
 
-export type McpServerConfig = {
-  readonly command: string;
-  readonly args: readonly string[];
-  readonly cwd?: string;
-  readonly enabled_tools?: readonly string[];
-};
+export const LITE_WRITING_POLICY =
+  "Communicate grammatically and concisely. Omit filler, hedging, repetition, decoration, self-reference, style announcements and tool narration. Preserve exact technical terms, APIs, commands, paths, errors and commit keywords. Use fuller grammar for safety, ambiguity, clarification and ordered instructions. Apply this policy only to agent communication, never to literal authored or transformed content, UI or accessibility labels, help text, errors, logs, tests, fixtures, documentation, comments, commit or PR text, authored prompts, translations, quotations, generated content, public APIs, or existing repository and product voice.";
 
-/** Provides effective mcp servers. */
-export function effectiveMcpServers(platform: NodeJS.Platform): Record<string, McpServerConfig> {
-  return {
-    ...(platform === "win32"
-      ? {
-          git_bash: {
-            command: "node",
-            args: ["runtime/git-bash.js", "mcp"],
-            cwd: ".",
-            enabled_tools: ["run"],
-          },
-        }
-      : {}),
-    lsp: { command: "node", args: ["runtime/lsp.js", "mcp"], cwd: "." },
-    context7: { command: "bunx", args: ["@upstash/context7-mcp"] },
-  };
-}
+export const CONTEXT7_POLICY =
+  "Within assigned scope, use the Context7 CLI skill first for current library, framework, SDK and API documentation. Use live web search for releases, dates, broader research, missing Context7 coverage and corroboration. Context7 does not authorize scope expansion.";
 
 /** Returns runtime files required on a platform. */
 export function requiredRuntimes(platform: NodeJS.Platform): readonly string[] {

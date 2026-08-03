@@ -1,7 +1,11 @@
 export { executeLspDiagnostics } from "./diagnostics.js";
-export { LSP_MCP_TOOLS } from "./definitions.js";
+export { LSP_COMMANDS } from "./definitions.js";
 export { executeLspInstallDecision } from "./install-decision.js";
-export { executeLspFindReferences, executeLspGotoDefinition } from "./navigation.js";
+export {
+  executeLspFindReferences,
+  executeLspGotoDeclaration,
+  executeLspGotoDefinition,
+} from "./navigation.js";
 export { isRecord } from "./parameters.js";
 export { executeLspPrepareRename, executeLspRename } from "./rename.js";
 export { executeLspStatus } from "./status.js";

@@ -2,7 +2,7 @@ import { existsSync, readFileSync, realpathSync, unlinkSync, writeFileSync } fro
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { messageFromError as errorMessage } from "@holycodex/mcp-stdio-core/responses";
+import { messageFromError as errorMessage } from "@holycodex/runtime-core/errors";
 
 import { contextCwd } from "../request-context.js";
 import type { TextEdit, WorkspaceEdit } from "./types.js";

@@ -91,7 +91,7 @@ describe("daemon roundtrip", () => {
       {
         paths,
         ensure: noSpawn,
-        context: { cwd: projectDir, env: { LSP_TOOLS_MCP_PROJECT_CONFIG: configPath } },
+        context: { cwd: projectDir, env: { HOLYCODEX_LSP_PROJECT_CONFIG: configPath } },
       },
     );
 

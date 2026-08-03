@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: Context7 CLI"
+  short_description: "Query current library documentation without MCP."
+  default_prompt: "Use $context7-cli to query current documentation within the assigned scope."

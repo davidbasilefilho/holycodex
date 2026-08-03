@@ -1,12 +1,11 @@
 {
   "name": "@holycodex/plugin",
-  "version": "0.11.0",
-  "description": "HolyCodex prompts, skills, agents, hooks, MCP metadata, and runtime assets",
+  "version": "0.11.1",
+  "description": "HolyCodex prompts, skills, agents, hooks, and runtime assets",
   "keywords": [
     "agents",
     "chatgpt",
     "codex",
-    "mcp",
     "prompts",
     "skills"
   ],
@@ -49,6 +48,6 @@
     "zod": "^4.4.3"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=26 <27"
   }
 }

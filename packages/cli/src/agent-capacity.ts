@@ -17,10 +17,14 @@ export function parseAgentCapacity(config: string): AgentCapacity | undefined {
   let maxDepth: number | undefined;
   for (const line of lines.slice(table + 1)) {
     if (NEXT_TABLE.test(line)) break;
-    const match = /^\s*(max_threads|max_depth)\s*=\s*([^#\s]+)\s*(?:#.*)?$/.exec(line);
+    const match =
+      /^\s*(max_concurrent_threads_per_session|max_threads|max_depth)\s*=\s*([^#\s]+)\s*(?:#.*)?$/.exec(
+        line,
+      );
     if (match === null || !POSITIVE_INTEGER.test(match[2] ?? "")) continue;
     const value = Number(match[2]);
-    if (match[1] === "max_threads") maxThreads = value;
+    if (match[1] === "max_concurrent_threads_per_session" || match[1] === "max_threads")
+      maxThreads = value;
     else maxDepth = value;
   }
   return maxThreads === undefined || maxDepth === undefined ? undefined : { maxThreads, maxDepth };

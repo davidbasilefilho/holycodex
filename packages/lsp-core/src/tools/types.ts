@@ -32,7 +32,7 @@ export interface JsonSchema {
   enum?: string[];
 }
 
-export interface LspMcpTool {
+export interface LspCommand {
   name: string;
   aliases?: string[];
   title: string;

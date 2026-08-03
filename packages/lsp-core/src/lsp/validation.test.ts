@@ -32,8 +32,8 @@ describe("LSP persisted boundary validation", () => {
       {
         cwd: root,
         env: {
-          LSP_TOOLS_MCP_PROJECT_CONFIG: missingProjectConfig,
-          LSP_TOOLS_MCP_USER_CONFIG: projectConfig,
+          HOLYCODEX_LSP_PROJECT_CONFIG: missingProjectConfig,
+          HOLYCODEX_LSP_USER_CONFIG: projectConfig,
         },
       },
       getMergedServers,
@@ -65,8 +65,8 @@ describe("LSP persisted boundary validation", () => {
       {
         cwd: root,
         env: {
-          LSP_TOOLS_MCP_PROJECT_CONFIG: missingProjectConfig,
-          LSP_TOOLS_MCP_USER_CONFIG: projectConfig,
+          HOLYCODEX_LSP_PROJECT_CONFIG: missingProjectConfig,
+          HOLYCODEX_LSP_USER_CONFIG: projectConfig,
         },
       },
       getMergedServers,
@@ -90,7 +90,7 @@ describe("LSP persisted boundary validation", () => {
     writeFileSync(path, JSON.stringify({ rust: { decision: "maybe", decidedAt: 42 } }));
 
     const decisions = runWithRequestContext(
-      { env: { LSP_TOOLS_MCP_INSTALL_DECISIONS: path } },
+      { env: { HOLYCODEX_LSP_INSTALL_DECISIONS: path } },
       loadInstallDecisions,
     );
 

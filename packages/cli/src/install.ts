@@ -1,4 +1,4 @@
-import { cp, mkdir, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -7,14 +7,15 @@ import { pluginRoot } from "@holycodex/plugin";
 import {
   resolveGitBashForCurrentProcess,
   type GitBashResolution,
-} from "../../git-bash-mcp/src/git-bash-resolver.ts";
-import { runManagedProcess } from "../../mcp-stdio-core/src/process.ts";
+} from "../../git-bash/src/git-bash-resolver.ts";
+import { runManagedProcess } from "../../runtime-core/src/process.ts";
 import {
   AGENTS,
+  CONTEXT7_POLICY,
   DEFAULT_PLAN,
-  effectiveMcpServers,
   MANAGED_AGENT_MODEL_HISTORY,
   MANAGED_AGENT_MODEL_HISTORY_BY_PLAN,
+  LITE_WRITING_POLICY,
   MODEL_ROUTING_PLANS,
   type FastMode,
   type PlanName,
@@ -62,6 +63,7 @@ const defaultRuntime: InstallRuntime = {
   gitBash: resolveGitBashForCurrentProcess,
   runProcess: runManagedProcess,
 };
+const BACKUP_RETENTION = 5;
 
 function paths(home = process.env.CODEX_HOME ?? join(homedir(), ".codex")) {
   const marketplaceCache = join(home, "plugins", "cache", "holycodex");
@@ -100,10 +102,13 @@ export async function install(
   const plan = options.plan ?? DEFAULT_PLAN;
   const target = paths();
   const root = backupRoot();
+  const configBackup = await backup(target.config, root);
+  const cacheBackup = await backup(target.marketplaceCache, root);
+  const agentsBackup = await backup(target.agents, root);
   const backups = [
-    await backup(target.config, root),
-    await backup(target.marketplaceCache, root),
-    await backup(target.agents, root),
+    configBackup,
+    cacheBackup,
+    agentsBackup,
     ...(await Promise.all(target.legacy.map((path) => backup(path, root)))),
   ].filter((path) => path !== undefined);
   const existingConfig = await readText(target.config);
@@ -117,27 +122,41 @@ export async function install(
     options.maxSubagents,
     fastMode,
   );
-  await atomicWrite(target.config, config);
-  await rm(target.cache, { recursive: true, force: true });
-  await mkdir(dirname(target.cache), { recursive: true });
-  await cp(pluginRoot, target.cache, { recursive: true });
-  await writePlatformPlugin(target.cache, runtime.platform, plan, fastMode);
   const existingAgentPreferences = await readAgentPreferences(target.agents, previousPlan);
-  await rm(target.agents, { recursive: true, force: true });
-  await cp(join(pluginRoot, "agents"), target.agents, { recursive: true });
-  await writeInstalledAgents(target.agents, runtime.platform, plan, fastMode);
-  await preserveAgentPreferences(target.agents, existingAgentPreferences, plan, fastMode);
+  const staging = await mkdtemp(join(tmpdir(), "holycodex-stage-"));
+  const stagedCache = join(staging, "cache");
+  const stagedAgents = join(staging, "agents");
+  await cp(pluginRoot, stagedCache, { recursive: true });
+  await writeInstalledAgents(join(stagedCache, "agents"), runtime.platform, plan, fastMode);
+  await cp(join(pluginRoot, "agents"), stagedAgents, { recursive: true });
+  await writeInstalledAgents(stagedAgents, runtime.platform, plan, fastMode);
+  await preserveAgentPreferences(stagedAgents, existingAgentPreferences, plan, fastMode);
+  await validateStaging(stagedCache, stagedAgents);
   const removedLegacy: string[] = [];
-  for (const path of target.legacy) {
-    if (!(await exists(path))) continue;
-    await rm(path, { recursive: true });
-    removedLegacy.push(path);
+  let codexSecurity: CodexSecurityInstallResult | undefined;
+  try {
+    await atomicWrite(target.config, config);
+    await rm(target.cache, { recursive: true, force: true });
+    await mkdir(dirname(target.cache), { recursive: true });
+    await cp(stagedCache, target.cache, { recursive: true });
+    await rm(target.agents, { recursive: true, force: true });
+    await cp(stagedAgents, target.agents, { recursive: true });
+    for (const path of target.legacy) {
+      if (!(await exists(path))) continue;
+      await rm(path, { recursive: true });
+      removedLegacy.push(path);
+    }
+    codexSecurity = await installCodexSecurity(runtime.runProcess, runtime.platform, process.env);
+    await removeObsoleteVersionCaches(target.cacheRoot);
+  } catch (error) {
+    await restoreTarget(target.config, configBackup);
+    await restoreTarget(target.marketplaceCache, cacheBackup);
+    await restoreTarget(target.agents, agentsBackup);
+    throw error;
+  } finally {
+    await rm(staging, { recursive: true, force: true });
   }
-  const codexSecurity = await installCodexSecurity(
-    runtime.runProcess,
-    runtime.platform,
-    process.env,
-  );
+  await pruneBackupHistory();
   return {
     action: "install",
     changed: [target.config, target.cache, target.agents, ...removedLegacy],
@@ -146,6 +165,41 @@ export async function install(
     codexSecurity,
     ...(options.maxSubagents === undefined ? {} : { maxSubagents: options.maxSubagents }),
   };
+}
+
+async function validateStaging(cache: string, agents: string): Promise<void> {
+  const required = [
+    join(cache, ".codex-plugin", "plugin.json"),
+    join(cache, "skills", "context7-cli", "SKILL.md"),
+    join(cache, "runtime", "lsp.js"),
+    ...AGENTS.map((agent) => join(agents, `${agent}.toml`)),
+  ];
+  const missing = [];
+  for (const path of required) if (!(await exists(path))) missing.push(path);
+  if (missing.length > 0)
+    throw new Error(`Staged HolyCodex installation is incomplete: ${missing.join(", ")}`);
+}
+
+async function restoreTarget(target: string, source: string | undefined): Promise<void> {
+  await rm(target, { recursive: true, force: true });
+  if (source !== undefined) await cp(source, target, { recursive: true });
+}
+
+async function removeObsoleteVersionCaches(cacheRoot: string): Promise<void> {
+  if (!(await exists(cacheRoot))) return;
+  for (const entry of await readdir(cacheRoot))
+    if (entry !== VERSION) await rm(join(cacheRoot, entry), { recursive: true, force: true });
+}
+
+async function pruneBackupHistory(): Promise<void> {
+  const root = join(tmpdir(), "holycodex-backups");
+  if (!(await exists(root))) return;
+  const entries = (await readdir(root)).sort().reverse();
+  await Promise.allSettled(
+    entries
+      .slice(BACKUP_RETENTION, BACKUP_RETENTION + 1)
+      .map((entry) => rm(join(root, entry), { recursive: true, force: true })),
+  );
 }
 
 type AgentPreferences = Partial<Record<(typeof AGENTS)[number], AgentModelPreference>>;
@@ -164,8 +218,6 @@ const AGENT_MANAGED_KEYS = new Set([
   "service_tier",
 ]);
 const AGENT_BUNDLED_KEYS = new Set(["description", "developer_instructions"]);
-const COMPACT_WINDOWS_SHELL_POLICY =
-  /^On native Windows, resolve `mcp__git_bash__run` before shell use;[^\r\n]*never use PowerShell\/cmd\.\r?\n\r?\n/m;
 
 async function readAgentPreferences(
   root: string,
@@ -272,19 +324,6 @@ function mergeCustomAgentSettings(input: string, custom: AgentCustomSettings): s
   return `${output.trimEnd()}\n`;
 }
 
-async function writePlatformPlugin(
-  root: string,
-  platform: NodeJS.Platform,
-  plan: PlanName,
-  fastMode: FastMode,
-): Promise<void> {
-  await atomicWrite(
-    join(root, ".mcp.json"),
-    `${JSON.stringify({ mcpServers: effectiveMcpServers(platform) }, null, 2)}\n`,
-  );
-  await writeInstalledAgents(join(root, "agents"), platform, plan, fastMode);
-}
-
 async function writeInstalledAgents(
   root: string,
   platform: NodeJS.Platform,
@@ -296,6 +335,7 @@ async function writeInstalledAgents(
       const path = join(root, `${agent}.toml`);
       const route = MODEL_ROUTING_PLANS[plan].agents[agent];
       let source = await readText(path);
+      source = composeAgentPolicies(source, platform);
       source = replaceTomlString(source, "model", route.model);
       source = replaceTomlString(source, "model_reasoning_effort", route.reasoningEffort);
       source = replaceTomlString(source, "model_verbosity", "low");
@@ -304,19 +344,18 @@ async function writeInstalledAgents(
         "service_tier",
         fastMode === "standard" ? "default" : "fast",
       );
-      if (platform === "win32") {
-        await atomicWrite(path, source);
-        return;
-      }
-      await atomicWrite(
-        path,
-        source
-          .replace(`${WINDOWS_SHELL_POLICY}\r\n\r\n`, "")
-          .replace(`${WINDOWS_SHELL_POLICY}\n\n`, "")
-          .replace(COMPACT_WINDOWS_SHELL_POLICY, ""),
-      );
+      await atomicWrite(path, source);
     }),
   );
+}
+
+function composeAgentPolicies(input: string, platform: NodeJS.Platform): string {
+  const policy = [
+    LITE_WRITING_POLICY,
+    CONTEXT7_POLICY,
+    ...(platform === "win32" ? [WINDOWS_SHELL_POLICY] : []),
+  ].join("\n\n");
+  return input.replace(/(developer_instructions\s*=\s*"""\r?\n)/, `$1${policy}\n\n`);
 }
 
 /** Provides cleanup. */

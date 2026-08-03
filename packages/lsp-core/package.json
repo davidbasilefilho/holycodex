@@ -1,6 +1,6 @@
 {
   "name": "@holycodex/lsp-core",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "private": true,
   "description": "HolyCodex Language Server Protocol engine and tool definitions.",
   "type": "module",
@@ -22,10 +22,6 @@
       "types": "./src/missing-dependency-result.ts",
       "import": "./src/missing-dependency-result.ts"
     },
-    "./mcp": {
-      "types": "./src/mcp.ts",
-      "import": "./src/mcp.ts"
-    },
     "./lsp/*": {
       "types": "./src/lsp/*.ts",
       "import": "./src/lsp/*.ts"
@@ -36,7 +32,10 @@
     "test": "bun test src/*.test.ts src/**/*.test.ts"
   },
   "dependencies": {
-    "@holycodex/mcp-stdio-core": "workspace:*",
+    "@holycodex/runtime-core": "workspace:*",
     "zod": "^4.4.3"
+  },
+  "engines": {
+    "node": ">=26 <27"
   }
 }

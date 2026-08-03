@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { callToolViaDaemon } from "../src/daemon-client.js";
 import { type DaemonPaths, daemonPaths } from "../src/paths.js";
-import { createLineDecoder, encodeJsonLine } from "../src/socket-jsonrpc.js";
+import { createLineDecoder, encodeJsonLine } from "../src/socket-json.js";
 
 const tempDirectories: string[] = [];
 const servers: ReturnType<typeof createServer>[] = [];

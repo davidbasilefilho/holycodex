@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { z } from "zod";
 
-import { UnknownRecordSchema } from "../../mcp-stdio-core/src/schemas.ts";
+import { UnknownRecordSchema } from "../../runtime-core/src/records.ts";
 import { readAgentCapacity } from "./agent-capacity.ts";
 import { coreInstructions } from "./core-instructions.ts";
 

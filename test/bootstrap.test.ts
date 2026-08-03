@@ -18,48 +18,37 @@ describe("bootstrap readiness", () => {
       ),
     );
     const context = await readinessContext(root, "win32", ready);
-    expect(context).toContain("Before updates, classify intent/load required skills");
+    expect(context).toContain("Before updates, classify intent and load required skills");
     expect(context).toContain(
-      "Do not narrate required skill loading, tool selection, instruction compliance, or routine policy checks; perform them silently.",
+      "Omit filler, hedging, repetition, decoration, self-reference, style announcements and tool narration.",
     );
     expect(context).toContain("never print provisionally");
     expect(
       context.match(/I detect \[fix\/implementation\/investigation\/question\] intent/g),
     ).toHaveLength(1);
-    expect(context).toContain("`plan`/`plan-review` instead own their exact heading/intent");
+    expect(context).toContain(
+      "`plan` and `plan-review` instead own their exact heading and intent",
+    );
     expect(context).toContain("no other mode prints a heading");
-    expect(context).toContain("before the first shell action, inspect callable and deferred tools");
-    expect(context).toContain("Use it for every shell command");
-    expect(context).toContain("Never fall back to PowerShell or cmd");
-    expect(context).toContain("`caveman`");
+    expect(context).not.toContain("mcp__git_bash__run");
+    expect(context).toContain("run every shell command through the bundled Git Bash launcher");
+    expect(context).toContain("Never execute task commands through PowerShell or cmd");
+    expect(context).not.toContain("`caveman`");
     expect(context).toMatch(/Root owns interaction, intent, scope, architecture/);
-    expect(context).toContain("Default to delegation: delegate the first clear unit");
-    expect(context).toContain("No delegation quota");
-    expect(context).toContain("never assign overlapping writes");
-    expect(context).toMatch(/Work locally only if atomic, coupled, architecturally unresolved/);
-    expect(context).toContain("keep the reason internal unless it materially affects the result");
+    expect(context).toContain("Delegate only useful bounded work");
+    expect(context).toContain("never overlap writes");
     expect(context).toContain("Skills govern method, not routing");
     expect(context).toContain("Use at most two lanes per wave");
-    expect(context).toContain('fork_turns="none"');
-    expect(context).toContain("fork_context=false");
     expect(context).not.toMatch(/(?:Explorer|Librarian|Worker) (?:uses|runs) GPT 5\.6/);
-    expect(context).toMatch(/Packets: outcome\/question, scope, fixed constraints\/decisions/);
-    expect(context).toContain("spot-check load-bearing claims");
-    expect(context).toContain("Specialists never delegate/broaden");
-    expect(context).toContain("overlap writes");
-    expect(context).toContain("specialists stop at packet completion");
-    expect(context).toMatch(
-      /delegate facts, ask material decisions, state\/use safe reversible defaults/,
+    expect(context).toContain(
+      "Specialists never delegate, broaden, review, or make final judgments",
     );
-    expect(context).toContain("exact monetary/token cost");
-    expect(context).toContain("Explorer is mandatory before a second separable repo search");
+    expect(context).toContain("delegate facts, ask material decisions");
+    expect(context).toContain("Explorer is mandatory before a second separable repository search");
     expect(context).toContain("Librarian before a second external source");
-    expect(context).toContain("Worker for fixed isolated work beyond one file");
+    expect(context).toContain("Worker for fixed isolated substantive implementation");
     expect(context).toContain("request_user_input");
-    expect(context).toContain("one to three exclusive choices");
-    expect(context).toContain("no timeout");
-    expect(context).toContain("Root itself defaults to browser control for browser UI");
-    expect(context).toContain("and to computer use for non-browser desktop/native Windows UI");
+    expect(context).toContain("Root controls browser and native desktop UI itself");
     expect(context).toContain("Never delegate browser or computer control");
     expect(context).toContain(
       "Use these capabilities instead of manual-click instructions, shell-as-GUI",
@@ -81,7 +70,7 @@ describe("bootstrap readiness", () => {
 
     expect(output.hookSpecificOutput?.hookEventName).toBe("SessionStart");
     expect(output.hookSpecificOutput?.additionalContext).toContain(
-      "Never fall back to PowerShell or cmd",
+      "Never execute task commands through PowerShell or cmd",
     );
   });
 

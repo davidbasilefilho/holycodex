@@ -104,6 +104,19 @@ export class LspClient extends LspClientConnection {
     });
   }
 
+  /** Requests and validates declaration locations. */
+  async declaration(
+    filePath: string,
+    line: number,
+    character: number,
+  ): Promise<Location | LocationLink | Array<Location | LocationLink> | null> {
+    const textDocument = await this.openTextDocument(filePath);
+    return this.sendRequest("textDocument/declaration", DefinitionResultSchema, {
+      textDocument,
+      position: { line: line - 1, character },
+    });
+  }
+
   /** Requests and validates reference locations. */
   async references(
     filePath: string,

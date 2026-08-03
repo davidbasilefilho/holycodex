@@ -38,6 +38,35 @@ export async function executeLspGotoDefinition(
   }
 }
 
+/** Executes LSP go-to-declaration. */
+export async function executeLspGotoDeclaration(
+  params: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  const { filePath, line, character } = sourcePosition(params);
+  try {
+    const result = await withLspClient(
+      filePath,
+      async (client) => client.declaration(filePath, line, character),
+      "declaration",
+      clientOptions(signal),
+    );
+    const locations = !result ? [] : Array.isArray(result) ? result : [result];
+    const details: LspGotoDefinitionDetails = { filePath, line, character, locations };
+    return text(
+      locations.length === 0 ? "No declaration found" : locations.map(formatLocation).join("\n"),
+      details,
+    );
+  } catch (error) {
+    return missingDependencyResultOrThrow(error, {
+      filePath,
+      line,
+      character,
+      locations: [],
+    } satisfies Omit<LspGotoDefinitionDetails, "error" | "errorKind">);
+  }
+}
+
 /** Executes lsp find references. */
 export async function executeLspFindReferences(
   params: Record<string, unknown>,

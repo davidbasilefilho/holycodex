@@ -4,7 +4,7 @@ import { join } from "node:path";
 import {
   resolveGitBashForCurrentProcess,
   type GitBashResolution,
-} from "../../git-bash-mcp/src/git-bash-resolver.ts";
+} from "../../git-bash/src/git-bash-resolver.ts";
 import { readAgentCapacity } from "./agent-capacity.ts";
 import { requiredRuntimes } from "./catalog.ts";
 import { type AgentCapacity, coreInstructions } from "./core-instructions.ts";
@@ -28,7 +28,7 @@ export async function readinessContext(
   const failures: string[] = [];
   if (missing.length > 0)
     failures.push(
-      `missing runtime/${missing.join(", runtime/")}. Reinstall HolyCodex before using its local MCPs or hooks`,
+      `missing runtime/${missing.join(", runtime/")}. Reinstall HolyCodex before using its local CLIs or hooks`,
     );
   if (platform === "win32" && !gitBash.found) failures.push(gitBash.installHint);
   const instructions = coreInstructions(platform, capacity);

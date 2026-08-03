@@ -44,14 +44,14 @@ export default defineConfig({
       entry: {
         bootstrap: "packages/cli/src/bootstrap-cli.ts",
         "detect-lsp": "packages/plugin/src/detect-lsp.ts",
-        "git-bash": "packages/git-bash-mcp/src/cli.ts",
+        "git-bash": "packages/git-bash/src/cli.ts",
         lsp: "packages/lsp-daemon/src/cli.ts",
         rules: "packages/cli/src/rules-cli.ts",
       },
       formats: ["es"],
     },
     outDir: "packages/plugin/plugin/runtime",
-    target: "node20",
+    target: "node26",
     minify: false,
     rollupOptions: {
       external: [/^node:/],
@@ -61,7 +61,6 @@ export default defineConfig({
         manualChunks(id) {
           const path = id.replaceAll("\\", "/");
           if (path.endsWith("/packages/cli/src/core-instructions.ts")) return "core-instructions";
-          if (path.includes("/packages/mcp-stdio-core/src/")) return "mcp-stdio-core";
           return undefined;
         },
       },

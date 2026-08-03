@@ -8,7 +8,7 @@ export default defineConfig({
       formats: ["es"],
     },
     outDir: "dist",
-    target: "node20",
+    target: "node26",
     minify: false,
     rollupOptions: {
       external: [/^node:/, "@holycodex/plugin"],

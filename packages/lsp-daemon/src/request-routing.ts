@@ -1,6 +1,5 @@
-import { handleLspMcpRequest, type JsonRpcResponse } from "@holycodex/lsp-core/mcp";
 import { type RequestContext, runWithRequestContext } from "@holycodex/lsp-core/request-context";
-import { JsonRpcRequestSchema, McpToolCallParamsSchema } from "@holycodex/mcp-stdio-core/schemas";
+import { executeLspTool, type ToolExecutionResult } from "@holycodex/lsp-core/tools";
 import { z } from "zod";
 
 export const CONTEXT_KEY = "_context";
@@ -10,6 +9,15 @@ const RequestContextSchema = z
     env: z.record(z.string(), z.string()).optional(),
   })
   .refine((value) => value.cwd !== undefined || value.env !== undefined);
+const DaemonRequestSchema = z.object({
+  id: z.union([z.string(), z.number()]),
+  method: z.literal("lsp/call"),
+  params: z.object({
+    command: z.string(),
+    arguments: z.record(z.string(), z.unknown()).optional(),
+  }),
+});
+export type DaemonResponse = { readonly id: string | number; readonly result: ToolExecutionResult };
 
 export interface RoutedRequest {
   input: unknown;
@@ -18,12 +26,9 @@ export interface RoutedRequest {
 
 /** Extracts request context. */
 export function extractRequestContext(raw: unknown): RoutedRequest {
-  const request = JsonRpcRequestSchema.safeParse(raw);
-  if (!request.success || request.data.method !== "tools/call")
-    return { input: raw, context: undefined };
-  const params = McpToolCallParamsSchema.safeParse(request.data.params);
-  if (!params.success) return { input: raw, context: undefined };
-  const args = params.data.arguments ?? {};
+  const request = DaemonRequestSchema.safeParse(raw);
+  if (!request.success) return { input: raw, context: undefined };
+  const args = request.data.params.arguments ?? {};
   const context = parseContext(args[CONTEXT_KEY]);
   if (!context) return { input: raw, context: undefined };
 
@@ -31,16 +36,20 @@ export function extractRequestContext(raw: unknown): RoutedRequest {
   delete cleanedArgs[CONTEXT_KEY];
   const cleaned = {
     ...request.data,
-    params: { ...params.data, arguments: cleanedArgs },
+    params: { ...request.data.params, arguments: cleanedArgs },
   };
   return { input: cleaned, context };
 }
 
 /** Handles daemon message. */
-export function handleDaemonMessage(raw: unknown): Promise<JsonRpcResponse | undefined> {
+export async function handleDaemonMessage(raw: unknown): Promise<DaemonResponse | undefined> {
   const { input, context } = extractRequestContext(raw);
-  if (context) return runWithRequestContext(context, () => handleLspMcpRequest(input));
-  return handleLspMcpRequest(input);
+  const request = DaemonRequestSchema.safeParse(input);
+  if (!request.success) return undefined;
+  const execute = () =>
+    executeLspTool(request.data.params.command, request.data.params.arguments ?? {});
+  const result = context ? await runWithRequestContext(context, execute) : await execute();
+  return { id: request.data.id, result };
 }
 
 function parseContext(value: unknown): RequestContext | undefined {

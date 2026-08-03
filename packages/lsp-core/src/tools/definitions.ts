@@ -1,11 +1,15 @@
 import { executeLspDiagnostics } from "./diagnostics.js";
 import { executeLspInstallDecision } from "./install-decision.js";
-import { executeLspFindReferences, executeLspGotoDefinition } from "./navigation.js";
+import {
+  executeLspFindReferences,
+  executeLspGotoDeclaration,
+  executeLspGotoDefinition,
+} from "./navigation.js";
 import { executeLspPrepareRename, executeLspRename } from "./rename.js";
 import { objectSchema } from "./schema.js";
 import { executeLspStatus } from "./status.js";
 import { executeLspSymbols } from "./symbols.js";
-import type { JsonSchema, LspMcpTool } from "./types.js";
+import type { JsonSchema, LspCommand } from "./types.js";
 
 const POSITION_PROPERTIES = {
   line: { type: "number", description: "1-based line." },
@@ -13,7 +17,7 @@ const POSITION_PROPERTIES = {
 } satisfies Record<string, JsonSchema>;
 const POSITION_REQUIRED = ["filePath", "line", "character"];
 
-export const LSP_MCP_TOOLS: LspMcpTool[] = [
+export const LSP_COMMANDS: LspCommand[] = [
   {
     name: "status",
     aliases: ["lsp_status"],
@@ -53,6 +57,16 @@ export const LSP_MCP_TOOLS: LspMcpTool[] = [
       POSITION_REQUIRED,
     ),
     execute: executeLspGotoDefinition,
+  },
+  {
+    name: "goto_declaration",
+    title: "LSP Goto Declaration",
+    description: "Find a symbol declaration.",
+    inputSchema: objectSchema(
+      { filePath: { type: "string" }, ...POSITION_PROPERTIES },
+      POSITION_REQUIRED,
+    ),
+    execute: executeLspGotoDeclaration,
   },
   {
     name: "find_references",
