@@ -1,6 +1,6 @@
 description = "Owned implementation after Root fixes architecture, behavior, constraints, criteria, proof. No discovery, product decisions, integration, final verification."
 model = "gpt-5.6-luna"
-model_reasoning_effort = "xhigh"
+model_reasoning_effort = "high"
 service_tier = "default"
 model_verbosity = "low"
 developer_instructions = """

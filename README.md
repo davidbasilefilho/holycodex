@@ -24,20 +24,20 @@ Root owns user interaction, scope, architecture, integration, and final verifica
 
 Current routing values are:
 
-| Plan        | Root               | Explorer           | Librarian          | Worker             | Direct subagents |
-| ----------- | ------------------ | ------------------ | ------------------ | ------------------ | ---------------: |
-| `go`        | GPT-5.6 Luna xhigh | GPT-5.6 Luna high  | GPT-5.6 Luna high  | GPT-5.6 Luna xhigh |                0 |
-| `plus-low`  | GPT-5.6 Sol low    | GPT-5.6 Luna high  | GPT-5.6 Luna high  | GPT-5.6 Luna high  |                1 |
-| `plus`      | GPT-5.6 Sol medium | GPT-5.6 Luna high  | GPT-5.6 Luna high  | GPT-5.6 Luna xhigh |                2 |
-| `plus-high` | GPT-5.6 Sol medium | GPT-5.6 Luna xhigh | GPT-5.6 Luna xhigh | GPT-5.6 Luna max   |                2 |
-| `pro-5x`    | GPT-5.6 Sol high   | GPT-5.6 Luna xhigh | GPT-5.6 Luna xhigh | GPT-5.6 Luna max   |                2 |
-| `pro-20x`   | GPT-5.6 Sol high   | GPT-5.6 Luna max   | GPT-5.6 Luna max   | GPT-5.6 Luna max   |                2 |
+| Plan        | Root               | Explorer          | Librarian         | Worker             | Direct subagents |
+| ----------- | ------------------ | ----------------- | ----------------- | ------------------ | ---------------: |
+| `go`        | GPT-5.6 Luna high  | GPT-5.6 Luna high | GPT-5.6 Luna high | GPT-5.6 Luna high  |                0 |
+| `plus-low`  | GPT-5.6 Sol low    | GPT-5.6 Luna high | GPT-5.6 Luna high | GPT-5.6 Luna high  |                2 |
+| `plus`      | GPT-5.6 Sol medium | GPT-5.6 Luna high | GPT-5.6 Luna high | GPT-5.6 Luna high  |                2 |
+| `plus-high` | GPT-5.6 Sol medium | GPT-5.6 Luna high | GPT-5.6 Luna high | GPT-5.6 Luna xhigh |                2 |
+| `pro-5x`    | GPT-5.6 Sol high   | GPT-5.6 Luna high | GPT-5.6 Luna high | GPT-5.6 Luna xhigh |                2 |
+| `pro-20x`   | GPT-5.6 Sol high   | GPT-5.6 Luna high | GPT-5.6 Luna high | GPT-5.6 Luna max   |                2 |
 
-`plus` is the balanced default. It gives Root Sol medium for high-leverage decisions, Explorer and Librarian Luna high, and Worker Luna xhigh. `plus-low` uses Sol low and Luna high specialists. `plus-high`, `pro-5x`, and `pro-20x` increase specialist reasoning. `go` uses Luna xhigh for Root and Worker with Luna high research specialists.
+`plus` is the balanced default. It gives Root Sol medium and all specialists Luna high. `plus-high` and `pro-5x` raise Worker to Luna xhigh; `pro-20x` raises Worker to Luna max. `go` uses Luna high for every role.
 
-The [DeepSWE v1.1 cost-performance analysis](docs/deepswe-v1.1.md) uses supplied costs that are already repriced for the July 30, 2026 GPT-5.6 changes. Luna high has the best measured cost per success among efforts allowed in active routing. Luna xhigh is the stronger delegated-work option while remaining inexpensive. Luna high beats Terra medium by 9.1 percentage points while costing about 67% less, and Luna xhigh costs about 82% less than Terra xhigh for only 3.3 percentage points less score. Terra is therefore mostly outside the current measured cost-performance frontier.
+The [model routing policy](docs/ROUTING.md) documents the exact routes, capability floors, 80/20 weighted criterion, Standard benchmark data, and projected Fast data.
 
-Relative cost per successful task is the primary usage-efficiency metric. Absolute capability is secondary because failed delegated work creates Root rework. Steps, orchestration reliability, latency, and output speed are tertiary. Sol remains preferred for paid-plan Root routes because orchestration failures affect the entire workflow; its roughly 51 to 53 expected steps per success can justify the premium over Luna high and xhigh at roughly 111 to 125. Active subagents use Luna only. `plus-high` and `pro-5x` use Luna max for Worker, while `pro-20x` uses Luna max for all specialists.
+Routing applies practical capability floors, then weights relative cost per success at 80% and relative cost per task at 20%. Paid-plan Root uses Sol because orchestration, architecture, integration, and final judgment affect the entire workflow. Active subagents use Luna.
 
 All plans use subagent depth 1. The plan-selected direct subagent limit is emitted as `agents.max_threads`, which includes Root, so HolyCodex writes one more thread than the displayed value. Override it with `--max-subagents 0..3`.
 
@@ -93,7 +93,7 @@ The Fast flags are mutually exclusive. Any pair or the three-flag combination is
 | `--fast`     | Standard | Fast     | Fast      | Fast     |
 | `--fast-all` | Fast     | Fast     | Fast      | Fast     |
 
-Codex Fast consumes exactly `2.5×` as much subscription usage as Standard and produces output tokens about `1.5×` faster. It does not improve model quality or expected agent-step count. Fast is therefore a latency option, not the usage-efficiency default. HolyCodex changes only `service_tier` for Fast modes, directly in Root and every generated agent-role configuration.
+Codex Fast consumes `2×` the API-equivalent usage of Standard. Published throughput exceeds 100 output tokens/s for Luna, 70 for Terra, and 80 for Sol; Sol may be up to `2.5×` faster than Standard. Fast is a latency option independent of routing. HolyCodex changes only `service_tier`, never model routing or reasoning effort.
 
 Installation is noninteractive, backs up affected files, preserves unrelated configuration, and configures multi-agent support, selected agent capacity, specialist profiles, status context, and platform MCPs. Upgrading from the former global `--fast` behavior removes stale HolyCodex-managed global Fast state and writes deterministic Root and per-agent tiers for the selected mode. Dangerous autonomy remains explicit and is never inferred.
 

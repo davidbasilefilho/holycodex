@@ -263,7 +263,7 @@ describe("install lifecycle", () => {
     expect(explorer).toContain('model = "user/explorer"');
     expect(explorer).toContain('model_reasoning_effort = "high"');
     expect(worker).toContain('model = "gpt-5.6-luna"');
-    expect(worker).toContain('model_reasoning_effort = "xhigh"');
+    expect(worker).toContain('model_reasoning_effort = "high"');
   });
 
   it("preserves unrelated agent settings while refreshing managed profile content", async () => {
@@ -308,22 +308,18 @@ describe("install lifecycle", () => {
     expect(await readFile(configPath, "utf8")).toBe(once);
   });
 
-  it("preserves an override that matches a different routing plan", async () => {
+  it("preserves a user-owned specialist route override", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-agent-plan-override-test-"));
     process.env.CODEX_HOME = home;
     await install({ autonomy: "default", json: false, plan: "plus" }, windowsRuntime);
     const explorerPath = join(home, "holycodex", "agents", "explorer.toml");
-    const proRoute = MODEL_ROUTING_PLANS["pro-5x"].agents.explorer;
-    await writeFile(
-      explorerPath,
-      `model = "${proRoute.model}"\nmodel_reasoning_effort = "${proRoute.reasoningEffort}"\n`,
-    );
+    await writeFile(explorerPath, 'model = "user/explorer"\nmodel_reasoning_effort = "xhigh"\n');
 
     await install({ autonomy: "default", json: false, plan: "plus" }, windowsRuntime);
 
     const explorer = await readFile(explorerPath, "utf8");
-    expect(explorer).toContain(`model = "${proRoute.model}"`);
-    expect(explorer).toContain(`model_reasoning_effort = "${proRoute.reasoningEffort}"`);
+    expect(explorer).toContain('model = "user/explorer"');
+    expect(explorer).toContain('model_reasoning_effort = "xhigh"');
   });
 
   it("migrates old managed pro-20x specialist routes", async () => {
@@ -345,51 +341,29 @@ describe("install lifecycle", () => {
 
   it("migrates every outgoing specialist route to the recalculated plan", async () => {
     const outgoingPlans = [
-      [
-        "go",
-        [
-          ["explorer", "gpt-5.6-terra", "low"],
-          ["librarian", "gpt-5.6-terra", "low"],
-          ["worker", "gpt-5.6-terra", "medium"],
-        ],
-      ],
-      [
-        "plus-low",
-        [
-          ["explorer", "gpt-5.6-luna", "low"],
-          ["librarian", "gpt-5.6-luna", "medium"],
-          ["worker", "gpt-5.6-terra", "medium"],
-        ],
-      ],
-      [
-        "plus",
-        [
-          ["explorer", "gpt-5.6-luna", "medium"],
-          ["librarian", "gpt-5.6-terra", "medium"],
-          ["worker", "gpt-5.6-terra", "high"],
-        ],
-      ],
+      ["go", [["worker", "gpt-5.6-luna", "xhigh"]]],
+      ["plus", [["worker", "gpt-5.6-luna", "xhigh"]]],
       [
         "plus-high",
         [
-          ["explorer", "gpt-5.6-luna", "high"],
-          ["librarian", "gpt-5.6-luna", "high"],
-          ["worker", "gpt-5.6-terra", "high"],
+          ["explorer", "gpt-5.6-luna", "xhigh"],
+          ["librarian", "gpt-5.6-luna", "xhigh"],
+          ["worker", "gpt-5.6-luna", "max"],
         ],
       ],
       [
         "pro-5x",
         [
-          ["explorer", "gpt-5.6-luna", "high"],
-          ["librarian", "gpt-5.6-terra", "high"],
-          ["worker", "gpt-5.6-sol", "medium"],
+          ["explorer", "gpt-5.6-luna", "xhigh"],
+          ["librarian", "gpt-5.6-luna", "xhigh"],
+          ["worker", "gpt-5.6-luna", "max"],
         ],
       ],
       [
         "pro-20x",
         [
-          ["librarian", "gpt-5.6-sol", "medium"],
-          ["worker", "gpt-5.6-sol", "high"],
+          ["explorer", "gpt-5.6-luna", "max"],
+          ["librarian", "gpt-5.6-luna", "max"],
         ],
       ],
     ] as const;
@@ -418,16 +392,17 @@ describe("install lifecycle", () => {
     }
   });
 
-  it("migrates an installed former go Terra Root route", async () => {
+  it("migrates an installed outgoing go Luna xhigh Root route", async () => {
     const home = await mkdtemp(join(tmpdir(), "holycodex-old-go-root-route-test-"));
     process.env.CODEX_HOME = home;
     const configPath = join(home, "config.toml");
     await install({ autonomy: "default", json: false, plan: "go" }, windowsRuntime);
     await writeFile(
       configPath,
-      (await readFile(configPath, "utf8"))
-        .replace('model = "gpt-5.6-luna"', 'model = "gpt-5.6-terra"')
-        .replace('model_reasoning_effort = "xhigh"', 'model_reasoning_effort = "medium"'),
+      (await readFile(configPath, "utf8")).replace(
+        'model_reasoning_effort = "high"',
+        'model_reasoning_effort = "xhigh"',
+      ),
     );
 
     await install({ autonomy: "default", json: false, plan: "go" }, windowsRuntime);
@@ -435,8 +410,8 @@ describe("install lifecycle", () => {
     const config = await readFile(configPath, "utf8");
     expect(config).toContain("# holycodex plan: go");
     expect(config).toContain('model = "gpt-5.6-luna"');
-    expect(config).toContain('model_reasoning_effort = "xhigh"');
-    expect(config).not.toContain('model = "gpt-5.6-terra"');
+    expect(config).toContain('model_reasoning_effort = "high"');
+    expect(config).not.toContain('model_reasoning_effort = "xhigh"');
   });
 
   it("renders every plan and updates managed specialist routing on reinstall", async () => {

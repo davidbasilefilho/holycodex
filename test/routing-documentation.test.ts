@@ -21,8 +21,8 @@ function deriveMetrics(input: { passPercent: number; totalCost: number; steps: n
   };
 }
 
-describe("DeepSWE v1.1 calculations", () => {
-  it("converts percentages and derives cost and steps per success", () => {
+describe("routing documentation calculations", () => {
+  it("uses displayed score and cost/task values for cost and steps per success", () => {
     const lunaHigh = deriveMetrics({ passPercent: 44.2, totalCost: 0.156, steps: 49 });
     expect(lunaHigh.passFraction).toBe(0.442);
     expect(lunaHigh.costPerSuccess).toBeCloseTo(0.35294, 5);
@@ -40,21 +40,27 @@ describe("DeepSWE v1.1 calculations", () => {
   });
 
   it("applies the fixed Fast multiplier without changing quality or steps", () => {
-    const standard = { passPercent: 44.2, totalCost: 0.1556, steps: 49 };
-    const fast = { ...standard, totalCost: standard.totalCost * 2.5 };
-    expect(fast.totalCost).toBeCloseTo(0.389, 3);
+    const standard = { passPercent: 44.2, totalCost: 0.156, steps: 49 };
+    const fast = { ...standard, totalCost: standard.totalCost * 2 };
+    expect(fast.totalCost).toBeCloseTo(0.312, 3);
     expect(fast.passPercent).toBe(standard.passPercent);
     expect(fast.steps).toBe(standard.steps);
   });
 
-  it("uses supplied total cost directly and documents both double-counting guards", async () => {
+  it("documents displayed-value calculations and the Fast service-tier policy", async () => {
     const input = { passPercent: 44.2, totalCost: 0.156, steps: 49 };
     expect(deriveMetrics(input).totalCost).toBe(input.totalCost);
     expect(deriveMetrics(input).totalCost).not.toBe(input.totalCost * input.steps);
 
-    const document = await readFile(join(root, "docs", "deepswe-v1.1.md"), "utf8");
-    expect(document).toContain("must not be repriced again");
-    expect(document).toContain("would double-count usage");
+    const documentPath = join(root, "docs", "ROUTING.md");
+    const oldDocumentPath = join(root, "docs", "deepswe-v1.1.md");
+    const document = await readFile(documentPath, "utf8");
+    expect(document).toContain("displayed one-decimal score and three-decimal cost/task values");
+    expect(document).toContain(
+      "Fast is a serving-tier latency option independent of model routing",
+    );
+    expect(document).toContain("`2×` Standard");
     expect(document).not.toContain("repriced_cost = original_deepswe_cost");
+    await expect(readFile(oldDocumentPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

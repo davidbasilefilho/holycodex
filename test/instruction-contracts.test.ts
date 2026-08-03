@@ -33,7 +33,7 @@ async function byteLength(paths: readonly string[]): Promise<number> {
 describe("instruction workflow contracts", () => {
   it("keeps routed skill metadata precise and bounded", async () => {
     const names = (await readdir(skillsRoot)).sort();
-    expect(names).toHaveLength(15);
+    expect(names).toHaveLength(16);
     const texts = await Promise.all(names.map(skill));
     for (const text of texts) {
       const description = text.match(/^description: (.*)$/m)?.[1] ?? "";
@@ -81,7 +81,7 @@ describe("instruction workflow contracts", () => {
     expect(coreAndAgents).toBeLessThanOrEqual(10_000);
     expect(gitBash).toBeLessThanOrEqual(1_400);
     expect(lsp).toBeLessThanOrEqual(3_300);
-    expect(skills + coreAndAgents + gitBash + lsp).toBeLessThanOrEqual(43_000);
+    expect(skills + coreAndAgents + gitBash + lsp).toBeLessThanOrEqual(44_500);
   });
 
   it("pins delegation and browser/computer routing fixtures", async () => {
@@ -114,9 +114,11 @@ describe("instruction workflow contracts", () => {
       "utf8",
     );
     expect(core).toMatch(/default browser[\s\S]*authenticated/);
-    expect(core).toMatch(/public research cannot replace authenticated control/);
-    expect(core).toMatch(/computer use for non-browser desktop\/native Windows UI/);
-    expect(core).toMatch(/never shell as GUI/);
+    expect(core).toMatch(/public research as a substitute for authenticated control/);
+    expect(core).toMatch(/Root itself defaults to browser control for browser UI/);
+    expect(core).toMatch(/and to computer use for non-browser desktop\/native Windows UI/);
+    expect(core).toMatch(/Never delegate browser or computer control/);
+    expect(core).toMatch(/manual-click instructions, shell-as-GUI/);
     expect(core).toMatch(/Inspect tools before declaring capability unavailable/);
     expect(core).toMatch(/Observe results before claiming authenticated success/);
     expect(core).toMatch(/ask when policy requires before material, destructive, irreversible/);
@@ -137,6 +139,9 @@ describe("instruction workflow contracts", () => {
     expect(core).toMatch(/Explorer is mandatory before a second separable repo search/);
     expect(core).toMatch(/Librarian before a second external source/);
     expect(core).toMatch(/Worker for fixed isolated work beyond one file/);
+    expect(core).toMatch(/Default to delegation: delegate the first clear unit/);
+    expect(core).toMatch(/No delegation quota:[\s\S]*never manufacture work to fill capacity/);
+    expect(core).toMatch(/never assign overlapping writes/);
     expect(core).toMatch(/Never delegate review, overlap writes/);
     for (const name of ["explorer", "librarian", "worker"])
       expect(await readFile(join(pluginRoot, "agents", `${name}.toml`), "utf8")).toMatch(
@@ -289,5 +294,19 @@ describe("instruction workflow contracts", () => {
     );
     expect(windowsPolicy).toMatch(/mcp__git_bash__run[\s\S]*every shell command/);
     expect(windowsPolicy).toMatch(/Never fall back to PowerShell or cmd/);
+  });
+
+  it("babysits CI/CD through fixes, retriggers, and artifact inspection", async () => {
+    const babysit = await skill("babysit-ci");
+    expect(babysit).toMatch(/Watch relevant runs to terminal state/);
+    expect(babysit).toMatch(/never retry an unchanged deterministic failure/);
+    expect(babysit).toMatch(/fix push, transient rerun, workflow dispatch/);
+    expect(babysit).toMatch(
+      /Ask immediately before every push, publication\/deployment, or tag creation/,
+    );
+    expect(babysit).toMatch(/broad requests and prior approval do not waive/);
+    expect(babysit).toMatch(/For binary deliverables only[\s\S]*inspect integrity/);
+    expect(babysit).toMatch(/Never manually inspect registry outputs/);
+    expect(babysit).toMatch(/terminal-green required CI\/CD/);
   });
 });

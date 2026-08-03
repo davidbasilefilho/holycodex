@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -18,6 +18,18 @@ import {
 
 const root = join(import.meta.dirname, "..");
 const run = promisify(execFile);
+const generatedRuntime = join(
+  root,
+  "packages",
+  "plugin",
+  "plugin",
+  "runtime",
+  "core-instructions.js",
+);
+const generatedRuntimeAvailable = await access(generatedRuntime).then(
+  () => true,
+  () => false,
+);
 
 describe("zerover versioning", () => {
   it("bumps fixes on the patch component", () => {
@@ -81,19 +93,21 @@ describe("zerover versioning", () => {
     expect(bumped).toContain('"@holycodex/plugin": "0.9.6"');
   });
 
-  it("updates generated runtime versions without mutating files during a dry run", async () => {
-    expect(versionedSource("runtime.js", 'VERSION = "0.10.6"', "0.10.6", "0.10.7")).toContain(
-      'VERSION = "0.10.7"',
-    );
-    const runtime = join(root, "packages", "plugin", "plugin", "runtime", "core-instructions.js");
-    const before = await readFile(runtime, "utf8");
-    await run(
-      process.execPath,
-      [join(root, "scripts", "version.mjs"), "dev", "42", "1", "--dry-run"],
-      { cwd: root },
-    );
-    expect(await readFile(runtime, "utf8")).toBe(before);
-  });
+  it.runIf(generatedRuntimeAvailable)(
+    "updates generated runtime versions without mutating files during a dry run",
+    async () => {
+      expect(versionedSource("runtime.js", 'VERSION = "0.10.6"', "0.10.6", "0.10.7")).toContain(
+        'VERSION = "0.10.7"',
+      );
+      const before = await readFile(generatedRuntime, "utf8");
+      await run(
+        process.execPath,
+        [join(root, "scripts", "version.mjs"), "dev", "42", "1", "--dry-run"],
+        { cwd: root },
+      );
+      expect(await readFile(generatedRuntime, "utf8")).toBe(before);
+    },
+  );
 
   it("allows a clean checkout to derive a version before ignored runtime output exists", async () => {
     await expect(

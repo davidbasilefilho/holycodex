@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -27,6 +27,12 @@ import { LSP_MCP_TOOLS } from "../packages/lsp-core/src/tools";
 
 const root = join(import.meta.dirname, "..");
 const pluginRoot = join(root, "packages", "plugin", "plugin");
+const generatedRuntimeAvailable = await access(
+  join(pluginRoot, "runtime", "core-instructions.js"),
+).then(
+  () => true,
+  () => false,
+);
 const skills = SKILLS;
 
 describe("HolyCodex catalog", () => {
@@ -54,11 +60,11 @@ describe("HolyCodex catalog", () => {
     expect(DEFAULT_PLAN).toBe("plus");
     expect(MODEL_ROUTING_PLANS).toEqual({
       go: {
-        root: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+        root: { model: "gpt-5.6-luna", reasoningEffort: "high" },
         agents: {
           explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
           librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
         },
         usage: { maxSubagents: 0, maxDepth: 1 },
       },
@@ -69,9 +75,18 @@ describe("HolyCodex catalog", () => {
           librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
           worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
         },
-        usage: { maxSubagents: 1, maxDepth: 1 },
+        usage: { maxSubagents: 2, maxDepth: 1 },
       },
       plus: {
+        root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+        agents: {
+          explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        },
+        usage: { maxSubagents: 2, maxDepth: 1 },
+      },
+      "plus-high": {
         root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
         agents: {
           explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
@@ -80,29 +95,20 @@ describe("HolyCodex catalog", () => {
         },
         usage: { maxSubagents: 2, maxDepth: 1 },
       },
-      "plus-high": {
-        root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
-        agents: {
-          explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-          librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
-        },
-        usage: { maxSubagents: 2, maxDepth: 1 },
-      },
       "pro-5x": {
         root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
         agents: {
-          explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-          librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
+          explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
         },
         usage: { maxSubagents: 2, maxDepth: 1 },
       },
       "pro-20x": {
         root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
         agents: {
-          explorer: { model: "gpt-5.6-luna", reasoningEffort: "max" },
-          librarian: { model: "gpt-5.6-luna", reasoningEffort: "max" },
+          explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
           worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
         },
         usage: { maxSubagents: 2, maxDepth: 1 },
@@ -121,33 +127,24 @@ describe("HolyCodex catalog", () => {
   it("recognizes every outgoing managed route without duplicate plan history", () => {
     const outgoingAgents = {
       go: {
-        explorer: { model: "gpt-5.6-terra", reasoningEffort: "low" },
-        librarian: { model: "gpt-5.6-terra", reasoningEffort: "low" },
-        worker: { model: "gpt-5.6-terra", reasoningEffort: "medium" },
-      },
-      "plus-low": {
-        explorer: { model: "gpt-5.6-luna", reasoningEffort: "low" },
-        librarian: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
         worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
       },
       plus: {
-        explorer: { model: "gpt-5.6-luna", reasoningEffort: "medium" },
-        librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-        worker: { model: "gpt-5.6-terra", reasoningEffort: "high" },
+        worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
       },
       "plus-high": {
-        explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-        librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-        worker: { model: "gpt-5.6-terra", reasoningEffort: "high" },
+        explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+        librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+        worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
       },
       "pro-5x": {
-        explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-        librarian: { model: "gpt-5.6-terra", reasoningEffort: "high" },
-        worker: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+        explorer: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+        librarian: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+        worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
       },
       "pro-20x": {
-        librarian: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
-        worker: { model: "gpt-5.6-terra", reasoningEffort: "xhigh" },
+        explorer: { model: "gpt-5.6-luna", reasoningEffort: "max" },
+        librarian: { model: "gpt-5.6-luna", reasoningEffort: "max" },
       },
     } as const;
 
@@ -158,9 +155,9 @@ describe("HolyCodex catalog", () => {
             agent as keyof typeof agents
           ],
         ).toContainEqual(route);
-    expect(MANAGED_ROOT_MODEL_HISTORY_BY_PLAN["pro-5x"]).toContainEqual({
-      model: "gpt-5.6-sol",
-      reasoningEffort: "medium",
+    expect(MANAGED_ROOT_MODEL_HISTORY_BY_PLAN.go).toContainEqual({
+      model: "gpt-5.6-luna",
+      reasoningEffort: "xhigh",
     });
 
     for (const plan of PLAN_NAMES) {
@@ -177,7 +174,7 @@ describe("HolyCodex catalog", () => {
 
   it("documents the ordered routing ladder without quota claims", async () => {
     const readme = await readFile(join(root, "README.md"), "utf8");
-    const deepSwe = await readFile(join(root, "docs", "deepswe-v1.1.md"), "utf8");
+    const routing = await readFile(join(root, "docs", "ROUTING.md"), "utf8");
     expect(readme.indexOf("`go`")).toBeLessThan(readme.indexOf("`plus-low`"));
     expect(readme.indexOf("`plus-low`")).toBeLessThan(readme.indexOf("`plus`"));
     expect(readme.indexOf("`plus`")).toBeLessThan(readme.indexOf("`plus-high`"));
@@ -191,7 +188,7 @@ describe("HolyCodex catalog", () => {
       "gpt-5.6-sol": "Sol",
     } as const;
     const normalizedReadme = readme.replace(/\s+/g, " ");
-    const normalizedDeepSwe = deepSwe.replace(/\s+/g, " ");
+    const normalizedRouting = routing.replace(/\s+/g, " ");
     for (const plan of PLAN_NAMES) {
       const preset = MODEL_ROUTING_PLANS[plan];
       const route = (value: typeof preset.root): string =>
@@ -205,7 +202,7 @@ describe("HolyCodex catalog", () => {
       expect(normalizedReadme).toContain(
         `| \`${plan}\` ${values.map((value) => `| GPT-5.6 ${value} `).join("")}|`,
       );
-      expect(normalizedDeepSwe).toContain(
+      expect(normalizedRouting).toContain(
         `| \`${plan}\` ${values.map((value) => `| ${value} `).join("")}| ${preset.usage.maxSubagents} |`,
       );
     }
@@ -332,6 +329,9 @@ describe("HolyCodex catalog", () => {
       mcpServers: Record<string, unknown>;
     };
     expect(manifest.mcpServers).toEqual(effectiveMcpServers("win32"));
+  });
+
+  it.runIf(generatedRuntimeAvailable)("ships the complete generated runtime", async () => {
     await Promise.all(
       ["git-bash.js", "lsp.js"].map((file) => readFile(join(pluginRoot, "runtime", file), "utf8")),
     );

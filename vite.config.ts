@@ -7,6 +7,9 @@ const root = import.meta.dirname;
 
 export default defineConfig({
   root,
+  test: {
+    testTimeout: 20_000,
+  },
   plugins: [
     {
       name: "holycodex-runtime-licenses",

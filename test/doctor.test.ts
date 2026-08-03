@@ -8,6 +8,7 @@ import {
   AGENTS,
   MODEL_ROUTING_PLANS,
   effectiveMcpServers,
+  requiredPackageRuntimes,
   VERSION,
 } from "../packages/cli/src/catalog";
 import { installConfig, type AutonomyMode } from "../packages/cli/src/config";
@@ -34,6 +35,10 @@ async function fixture(mode: AutonomyMode = "default"): Promise<{ home: string; 
   const plugin = join(home, "plugins", "cache", "holycodex", "holycodex", VERSION);
   await mkdir(join(plugin, ".."), { recursive: true });
   await cp(join(root, "packages", "plugin", "plugin"), plugin, { recursive: true });
+  await mkdir(join(plugin, "runtime"), { recursive: true });
+  await Promise.all(
+    requiredPackageRuntimes("win32").map((file) => writeFile(join(plugin, "runtime", file), "")),
+  );
   await writeFile(
     join(plugin, ".mcp.json"),
     `${JSON.stringify(

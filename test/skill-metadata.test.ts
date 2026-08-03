@@ -13,6 +13,7 @@ const skillsRoot = join(root, "packages", "plugin", "plugin", "skills");
 const run = promisify(execFile);
 const manualTitles = {
   "ast-grep": "AST Grep",
+  "babysit-ci": "Babysit CI",
   caveman: "Caveman",
   "code-review": "Code Review",
   compress: "Compress",

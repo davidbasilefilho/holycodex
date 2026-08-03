@@ -19,6 +19,9 @@ describe("bootstrap readiness", () => {
     );
     const context = await readinessContext(root, "win32", ready);
     expect(context).toContain("Before updates, classify intent/load required skills");
+    expect(context).toContain(
+      "Do not narrate required skill loading, tool selection, instruction compliance, or routine policy checks; perform them silently.",
+    );
     expect(context).toContain("never print provisionally");
     expect(
       context.match(/I detect \[fix\/implementation\/investigation\/question\] intent/g),
@@ -30,11 +33,13 @@ describe("bootstrap readiness", () => {
     expect(context).toContain("Never fall back to PowerShell or cmd");
     expect(context).toContain("`caveman`");
     expect(context).toMatch(/Root owns interaction, intent, scope, architecture/);
-    expect(context).toContain("Delegate long, context-heavy, separable, or easier work");
+    expect(context).toContain("Default to delegation: delegate the first clear unit");
+    expect(context).toContain("No delegation quota");
+    expect(context).toContain("never assign overlapping writes");
     expect(context).toMatch(/Work locally only if atomic, coupled, architecturally unresolved/);
-    expect(context).toMatch(/record why an obvious specialist was skipped/);
+    expect(context).toContain("keep the reason internal unless it materially affects the result");
     expect(context).toContain("Skills govern method, not routing");
-    expect(context).toContain("At most two lanes/wave");
+    expect(context).toContain("Use at most two lanes per wave");
     expect(context).toContain('fork_turns="none"');
     expect(context).toContain("fork_context=false");
     expect(context).not.toMatch(/(?:Explorer|Librarian|Worker) (?:uses|runs) GPT 5\.6/);
@@ -53,6 +58,12 @@ describe("bootstrap readiness", () => {
     expect(context).toContain("request_user_input");
     expect(context).toContain("one to three exclusive choices");
     expect(context).toContain("no timeout");
+    expect(context).toContain("Root itself defaults to browser control for browser UI");
+    expect(context).toContain("and to computer use for non-browser desktop/native Windows UI");
+    expect(context).toContain("Never delegate browser or computer control");
+    expect(context).toContain(
+      "Use these capabilities instead of manual-click instructions, shell-as-GUI",
+    );
   });
 
   it("emits SessionStart context in the Codex command-hook envelope", async () => {

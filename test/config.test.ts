@@ -108,10 +108,10 @@ describe("Codex configuration", () => {
   it("migrates the former go Terra medium root route", () => {
     const oldGo = installPlanConfig("", "go")
       .replace('model = "gpt-5.6-luna"', 'model = "gpt-5.6-terra"')
-      .replace('model_reasoning_effort = "xhigh"', 'model_reasoning_effort = "medium"');
+      .replace('model_reasoning_effort = "high"', 'model_reasoning_effort = "medium"');
     const upgraded = installPlanConfig(oldGo, "go");
     expect(upgraded).toContain('model = "gpt-5.6-luna"');
-    expect(upgraded).toContain('model_reasoning_effort = "xhigh"');
+    expect(upgraded).toContain('model_reasoning_effort = "high"');
     expect(upgraded).not.toContain('model = "gpt-5.6-terra"');
   });
 
