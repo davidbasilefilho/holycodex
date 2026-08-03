@@ -34,8 +34,8 @@ jobs:
           package-manager-cache: false
       - run: bunx --package vite-plus@0.2.7 vp install --frozen-lockfile
       - run: bunx --package vite-plus@0.2.7 vp check
-      - run: bunx --package vite-plus@0.2.7 vp test
       - run: bunx --package vite-plus@0.2.7 vp run build
+      - run: bunx --package vite-plus@0.2.7 vp test
       - run: bun scripts/version.mjs check
       - run: git diff --exit-code
 
@@ -50,6 +50,7 @@ jobs:
           node-version: "26"
           package-manager-cache: false
       - run: bunx --package vite-plus@0.2.7 vp install --frozen-lockfile
+      - run: bunx --package vite-plus@0.2.7 vp run build
       - run: bunx --package vite-plus@0.2.7 vp test
 
   packed-package:
