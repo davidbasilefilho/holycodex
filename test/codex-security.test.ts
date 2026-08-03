@@ -54,6 +54,17 @@ const marketplaceAvailable = fixture("catalog-marketplace-available.json");
 const marketplaceEnabled = fixture("catalog-marketplace-enabled.json");
 const marketplaceDisabled = fixture("catalog-marketplace-disabled.json");
 const marketplaceAbsent = fixture("marketplaces-openai-bundled.json");
+const oversizedAvailable = JSON.stringify({
+  installed: [],
+  available: [
+    { pluginId: "codex-security@openai-curated", installed: false, enabled: false },
+    ...Array.from({ length: 2_000 }, (_, index) => ({
+      pluginId: `example-plugin-${index}@openai-curated`,
+      installed: false,
+      enabled: false,
+    })),
+  ],
+});
 
 describe("Codex Security installation", () => {
   it("parses diagnostic-prefixed and JSONL catalog output", async () => {
@@ -171,6 +182,32 @@ describe("Codex Security installation", () => {
       },
       { command: "codex", args: ["plugin", "list", "--json"] },
     ]);
+  });
+
+  it("captures oversized available catalogs before installing and verifying", async () => {
+    const requestedLimits: number[] = [];
+    const oversizedResponses: Record<string, string> = {
+      "plugin list --json": installedOnly,
+      "plugin list --available --json": oversizedAvailable,
+      "plugin add codex-security@openai-curated --json": "",
+    };
+    const run: CodexProcessRunner = async (input) => {
+      requestedLimits.push(input.maxOutputChars);
+      const key = input.args.join(" ");
+      if (key === "plugin list --json" && requestedLimits.length > 1) return result(enabled);
+      const stdout = oversizedResponses[key];
+      if (stdout === undefined) throw new Error(`Unexpected process call: ${key}`);
+      if (input.maxOutputChars <= 64 * 1024)
+        return result(stdout.slice(0, input.maxOutputChars), { outputTruncated: true });
+      return result(stdout);
+    };
+
+    expect(oversizedAvailable.length).toBeGreaterThan(64 * 1024);
+    await expect(installCodexSecurity(run, "linux", {})).resolves.toEqual({
+      status: "installed",
+      launcherSource: "path",
+    });
+    expect(requestedLimits).toEqual([256 * 1024, 256 * 1024, 256 * 1024, 256 * 1024]);
   });
 
   it("passes the active environment without exposing failed-command diagnostics", async () => {

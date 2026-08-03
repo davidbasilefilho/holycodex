@@ -16,7 +16,7 @@ const CODEX_SECURITY_PLUGIN = "codex-security@openai-curated";
 const CODEX_SECURITY_MARKETPLACE = "openai-curated";
 const CODEX_PLUGIN_OPERATIONAL_TIMEOUT_MS = 15_000;
 const CODEX_PACKAGE_BOOTSTRAP_TIMEOUT_MS = 120_000;
-const MAX_CODEX_OUTPUT_CHARS = 64 * 1024;
+const MAX_CODEX_CATALOG_DIAGNOSTIC_CHARS = 256 * 1024;
 const MAX_JSON_DOCUMENTS = 16;
 const SPAWN_UNAVAILABLE_CODES = new Set(["EACCES", "ENOENT", "EPERM"]);
 const FATAL_AUTH_CODES = new Set(["401", "UNAUTHENTICATED", "AUTHENTICATION_REQUIRED"]);
@@ -235,7 +235,7 @@ async function runCodexPlugin(
       args: codexLauncherArgs(launcher, args),
       platform,
       timeoutMs: timeoutFor(launcher, operation),
-      maxOutputChars: MAX_CODEX_OUTPUT_CHARS,
+      maxOutputChars: MAX_CODEX_CATALOG_DIAGNOSTIC_CHARS,
       env,
     });
   } catch (error) {
@@ -260,6 +260,7 @@ async function runCodexPlugin(
 
 function inspectListResult(result: ManagedProcessResult, launcher: CodexLauncher): ProbeOutcome {
   if (result.timedOut) return { kind: "fallback", reason: "timeout" };
+  if (result.outputTruncated) return { kind: "fallback", reason: "invalid-response" };
   const failure = classifyFailure(result, launcher);
   if (failure !== undefined) return failure;
   const catalog = parsePluginCatalog(result.stdout);
@@ -279,6 +280,7 @@ function inspectMarketplaceResult(
   launcher: CodexLauncher,
 ): MarketplaceOutcome {
   if (result.timedOut) return { kind: "fallback", reason: "timeout" };
+  if (result.outputTruncated) return { kind: "fallback", reason: "invalid-response" };
   const failure = classifyFailure(result, launcher);
   if (failure !== undefined) return failure;
   const marketplaces = parseMarketplaceNames(result.stdout);
