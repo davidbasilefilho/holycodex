@@ -47,27 +47,129 @@ function fixture(name: string): string {
 }
 
 const available = fixture("catalog-available.json");
+const installedOnly = JSON.stringify({ installed: [], available: [] });
 const added = JSON.stringify({ pluginId: "codex-security@openai-curated" });
 const enabled = fixture("catalog-enabled.json");
 const marketplaceAvailable = fixture("catalog-marketplace-available.json");
 const marketplaceEnabled = fixture("catalog-marketplace-enabled.json");
 const marketplaceDisabled = fixture("catalog-marketplace-disabled.json");
+const marketplaceAbsent = fixture("marketplaces-openai-bundled.json");
 
 describe("Codex Security installation", () => {
+  it("parses diagnostic-prefixed and JSONL catalog output", async () => {
+    const fake = runner([
+      result(`notice: using current profile\n${installedOnly}`),
+      result(
+        `${JSON.stringify({ event: "catalog" })}\n${JSON.stringify({
+          installed: [],
+          available: [
+            { pluginId: "codex-security@openai-curated", installed: false, enabled: false },
+          ],
+        })}`,
+      ),
+      result(""),
+      result(enabled),
+    ]);
+    await expect(installCodexSecurity(fake.run, "linux", {})).resolves.toEqual({
+      status: "installed",
+      launcherSource: "path",
+    });
+  });
+
+  it("rejects trailing non-JSON output after a catalog document", async () => {
+    const fake = runner([
+      result(`${installedOnly}\nnot-json`),
+      result(installedOnly),
+      result(available),
+      result(""),
+      result(enabled),
+    ]);
+    await expect(
+      installCodexSecurity(
+        fake.run,
+        "linux",
+        {},
+        {
+          runtimeFacts: { runtime: "bun", execPath: "bun", availableRunners: [] },
+        },
+      ),
+    ).resolves.toEqual({ status: "installed", launcherSource: "bunx" });
+  });
+
+  it("reports a failed authoritative post-add verification", async () => {
+    const fake = runner([
+      result(installedOnly),
+      result(available),
+      result(""),
+      result(JSON.stringify({ installed: [], available: [] })),
+    ]);
+    await expect(installCodexSecurity(fake.run, "linux", {})).resolves.toEqual({
+      status: "skipped",
+      reason: "verification-failed",
+      attemptedLaunchers: ["path"],
+    });
+  });
+
+  it("distinguishes an absent official marketplace from a marketplace that lacks the plugin", async () => {
+    const marketplacePresent = JSON.stringify({
+      marketplaces: [{ name: "openai-curated", root: "/safe/openai-curated" }],
+    });
+    const absent = runner([
+      result(installedOnly),
+      result(installedOnly),
+      result(marketplaceAbsent),
+    ]);
+    await expect(installCodexSecurity(absent.run, "linux", {})).resolves.toEqual({
+      status: "skipped",
+      reason: "marketplace-unavailable",
+      attemptedLaunchers: ["path"],
+    });
+    expect(absent.calls[2]?.args).toEqual(["plugin", "marketplace", "list", "--json"]);
+
+    const notOffered = runner([
+      result(installedOnly),
+      result(installedOnly),
+      result(marketplacePresent),
+    ]);
+    await expect(installCodexSecurity(notOffered.run, "linux", {})).resolves.toEqual({
+      status: "skipped",
+      reason: "all-launchers-lacked-plugin",
+      attemptedLaunchers: ["path"],
+    });
+  });
+
+  it("queries installed state separately, accepts an empty add response, and verifies installed enabled state", async () => {
+    const fake = runner([result(installedOnly), result(available), result(""), result(enabled)]);
+    await expect(installCodexSecurity(fake.run, "linux", {})).resolves.toEqual({
+      status: "installed",
+      launcherSource: "path",
+    });
+    expect(fake.calls).toEqual([
+      { command: "codex", args: ["plugin", "list", "--json"] },
+      { command: "codex", args: ["plugin", "list", "--available", "--json"] },
+      {
+        command: "codex",
+        args: ["plugin", "add", "codex-security@openai-curated", "--json"],
+      },
+      { command: "codex", args: ["plugin", "list", "--json"] },
+    ]);
+  });
+
   it("installs the available official plugin with fixed argv", async () => {
-    const fake = runner([result(available), result(added), result(enabled)]);
+    const fake = runner([result(installedOnly), result(available), result(added), result(enabled)]);
     const env = { CODEX_HOME: "/tmp/codex-home", PATH: "/bin" };
     await expect(installCodexSecurity(fake.run, "linux", env)).resolves.toEqual({
       status: "installed",
       launcherSource: "path",
     });
     expect(fake.calls).toEqual([
+      { command: "codex", args: ["plugin", "list", "--json"] },
       { command: "codex", args: ["plugin", "list", "--available", "--json"] },
       {
         command: "codex",
         args: ["plugin", "add", "codex-security@openai-curated", "--json"],
       },
-      { command: "codex", args: ["plugin", "list", "--available", "--json"] },
+      { command: "codex", args: ["plugin", "list", "--json"] },
     ]);
   });
 
@@ -129,7 +231,12 @@ describe("Codex Security installation", () => {
   });
 
   it("normalizes current marketplace-oriented output and installs the plugin", async () => {
-    const fake = runner([result(marketplaceAvailable), result(added), result(marketplaceEnabled)]);
+    const fake = runner([
+      result(installedOnly),
+      result(marketplaceAvailable),
+      result(added),
+      result(marketplaceEnabled),
+    ]);
     await expect(installCodexSecurity(fake.run, "linux", {})).resolves.toEqual({
       status: "installed",
       launcherSource: "path",
@@ -316,10 +423,12 @@ describe("Codex Security installation", () => {
       if (inputs.length === 1)
         return result("", { exitCode: null, error: "spawn ENOENT", errorCode: "ENOENT" });
       return inputs.length === 2
-        ? result(available)
+        ? result(installedOnly)
         : inputs.length === 3
-          ? result(added)
-          : result(enabled);
+          ? result(available)
+          : inputs.length === 4
+            ? result(added)
+            : result(enabled);
     };
     await expect(
       installCodexSecurity(
@@ -332,7 +441,8 @@ describe("Codex Security installation", () => {
       ),
     ).resolves.toEqual({ status: "installed", launcherSource: "bunx" });
     expect(inputs.map((input) => [input.command, input.args])).toEqual([
-      ["codex", ["plugin", "list", "--available", "--json"]],
+      ["codex", ["plugin", "list", "--json"]],
+      ["C:\\bun\\bun.exe", ["x", "@openai/codex@latest", "plugin", "list", "--json"]],
       [
         "C:\\bun\\bun.exe",
         ["x", "@openai/codex@latest", "plugin", "list", "--available", "--json"],
@@ -341,10 +451,7 @@ describe("Codex Security installation", () => {
         "C:\\bun\\bun.exe",
         ["x", "@openai/codex@latest", "plugin", "add", "codex-security@openai-curated", "--json"],
       ],
-      [
-        "C:\\bun\\bun.exe",
-        ["x", "@openai/codex@latest", "plugin", "list", "--available", "--json"],
-      ],
+      ["C:\\bun\\bun.exe", ["x", "@openai/codex@latest", "plugin", "list", "--json"]],
     ]);
     expect(inputs[1]?.env).toEqual({ CODEX_HOME: "C:\\safe\\codex", SECRET: "hidden" });
   });
@@ -355,10 +462,12 @@ describe("Codex Security installation", () => {
       inputs.push(input);
       if (inputs.length === 1) return result("", { exitCode: 1, stderr: "unknown command plugin" });
       return inputs.length === 2
-        ? result(available)
+        ? result(installedOnly)
         : inputs.length === 3
-          ? result(added)
-          : result(enabled);
+          ? result(available)
+          : inputs.length === 4
+            ? result(added)
+            : result(enabled);
     };
     await expect(
       installCodexSecurity(
@@ -370,7 +479,7 @@ describe("Codex Security installation", () => {
         },
       ),
     ).resolves.toEqual({ status: "installed", launcherSource: "bunx" });
-    expect(inputs.map((input) => input.command)).toEqual(["codex", "bun", "bun", "bun"]);
+    expect(inputs.map((input) => input.command)).toEqual(["codex", "bun", "bun", "bun", "bun"]);
   });
 
   it("reports every unavailable launcher source without leaking paths", async () => {
@@ -455,11 +564,10 @@ describe("Codex Security installation", () => {
 
   it("falls through a valid catalog omission to the next launcher", async () => {
     const fake = runner([
+      result(installedOnly),
       result(JSON.stringify({ installed: [], available: [] })),
-      result("", {
-        exitCode: 1,
-        stderr: JSON.stringify({ error: { code: "PLUGIN_NOT_FOUND" } }),
-      }),
+      result(marketplaceAbsent),
+      result(installedOnly),
       result(available),
       result(added),
       result(enabled),
@@ -474,12 +582,21 @@ describe("Codex Security installation", () => {
         },
       ),
     ).resolves.toEqual({ status: "installed", launcherSource: "bunx" });
-    expect(fake.calls.map((call) => call.command)).toEqual(["codex", "codex", "bun", "bun", "bun"]);
+    expect(fake.calls.map((call) => call.command)).toEqual([
+      "codex",
+      "codex",
+      "codex",
+      "bun",
+      "bun",
+      "bun",
+      "bun",
+    ]);
   });
 
   it("falls through a plugin-not-found response to the next launcher", async () => {
     const fake = runner([
       result("", { exitCode: 1, stderr: JSON.stringify({ error: { code: "PLUGIN_NOT_FOUND" } }) }),
+      result(installedOnly),
       result(available),
       result(added),
       result(enabled),
@@ -499,6 +616,7 @@ describe("Codex Security installation", () => {
   it("rejects malformed required catalog fields and continues deterministically", async () => {
     const fake = runner([
       result(JSON.stringify({ installed: "invalid", available: [] })),
+      result(installedOnly),
       result(available),
       result(added),
       result(enabled),
@@ -517,6 +635,7 @@ describe("Codex Security installation", () => {
 
   it("normalizes catalog identifiers while requiring the exact official add identifier", async () => {
     const fake = runner([
+      result(installedOnly),
       result(
         JSON.stringify({
           installed: [],
@@ -533,7 +652,7 @@ describe("Codex Security installation", () => {
       status: "installed",
       launcherSource: "path",
     });
-    expect(fake.calls[1]?.args).toEqual([
+    expect(fake.calls[2]?.args).toEqual([
       "plugin",
       "add",
       "codex-security@openai-curated",
@@ -543,13 +662,14 @@ describe("Codex Security installation", () => {
 
   it("does not report installation until a fresh catalog verifies enabled state", async () => {
     const fake = runner([
+      result(installedOnly),
       result(available),
       result(added),
       result(JSON.stringify({ installed: [], available: [] })),
     ]);
     await expect(installCodexSecurity(fake.run, "linux", {})).resolves.toEqual({
       status: "skipped",
-      reason: "plugin-unavailable",
+      reason: "verification-failed",
       attemptedLaunchers: ["path"],
     });
   });

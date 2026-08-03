@@ -13,9 +13,11 @@ import {
 } from "./codex-launcher.ts";
 
 const CODEX_SECURITY_PLUGIN = "codex-security@openai-curated";
+const CODEX_SECURITY_MARKETPLACE = "openai-curated";
 const CODEX_PLUGIN_OPERATIONAL_TIMEOUT_MS = 15_000;
 const CODEX_PACKAGE_BOOTSTRAP_TIMEOUT_MS = 120_000;
 const MAX_CODEX_OUTPUT_CHARS = 64 * 1024;
+const MAX_JSON_DOCUMENTS = 16;
 const SPAWN_UNAVAILABLE_CODES = new Set(["EACCES", "ENOENT", "EPERM"]);
 const FATAL_AUTH_CODES = new Set(["401", "UNAUTHENTICATED", "AUTHENTICATION_REQUIRED"]);
 const FATAL_ACCOUNT_CODES = new Set(["ACCOUNT_REQUIRED", "ACCOUNT_NOT_FOUND"]);
@@ -43,7 +45,10 @@ export type CodexSecuritySkipReason =
   | "codex-unavailable"
   | "unauthenticated"
   | "marketplace-unavailable"
+  | "plugin-not-offered"
+  | "all-launchers-lacked-plugin"
   | "plugin-unavailable"
+  | "verification-failed"
   | "installation-rejected"
   | "timeout"
   | "invalid-response"
@@ -96,25 +101,67 @@ export async function installCodexSecurity(
 
   for (const launcher of candidates) {
     attemptedLaunchers.push(launcher.source);
-    const listed = await runCodexPlugin(
+    const installedResult = await runCodexPlugin(
       runProcess,
       launcher,
-      ["plugin", "list", "--available", "--json"],
+      ["plugin", "list", "--json"],
       platform,
       env,
       "list",
     );
-    const listOutcome = inspectListResult(listed, launcher);
-    if (listOutcome.kind === "fallback") {
-      fallbackReasons.push(listOutcome.reason);
+    const installedOutcome = inspectListResult(installedResult, launcher);
+    if (installedOutcome.kind === "fallback") {
+      fallbackReasons.push(installedOutcome.reason);
       continue;
     }
-    if (listOutcome.kind === "fatal") return skipped(listOutcome.reason, attemptedLaunchers);
+    if (installedOutcome.kind === "fatal")
+      return skipped(installedOutcome.reason, attemptedLaunchers);
 
-    const plugin = listOutcome.catalog.plugins.find(({ id }) => id === CODEX_SECURITY_PLUGIN);
-    if (plugin?.installed === true && plugin.enabled === true)
+    const installedPlugin = findPlugin(installedOutcome.catalog);
+    if (installedPlugin?.installed === true && installedPlugin.enabled === true)
       return { status: "already-installed", launcherSource: launcher.source };
-    const wasDisabled = plugin?.installed === true;
+    const wasDisabled = installedPlugin?.installed === true;
+
+    if (!wasDisabled) {
+      const catalogResult = await runCodexPlugin(
+        runProcess,
+        launcher,
+        ["plugin", "list", "--available", "--json"],
+        platform,
+        env,
+        "list",
+      );
+      const catalogOutcome = inspectListResult(catalogResult, launcher);
+      if (catalogOutcome.kind === "fallback") {
+        fallbackReasons.push(catalogOutcome.reason);
+        continue;
+      }
+      if (catalogOutcome.kind === "fatal")
+        return skipped(catalogOutcome.reason, attemptedLaunchers);
+      if (findPlugin(catalogOutcome.catalog) === undefined) {
+        const marketplaceResult = await runCodexPlugin(
+          runProcess,
+          launcher,
+          ["plugin", "marketplace", "list", "--json"],
+          platform,
+          env,
+          "list",
+        );
+        const marketplaceOutcome = inspectMarketplaceResult(marketplaceResult, launcher);
+        if (marketplaceOutcome.kind === "fallback") {
+          fallbackReasons.push(marketplaceOutcome.reason);
+          continue;
+        }
+        if (marketplaceOutcome.kind === "fatal")
+          return skipped(marketplaceOutcome.reason, attemptedLaunchers);
+        fallbackReasons.push(
+          marketplaceOutcome.marketplaces.includes(CODEX_SECURITY_MARKETPLACE)
+            ? "plugin-not-offered"
+            : "marketplace-unavailable",
+        );
+        continue;
+      }
+    }
 
     const added = await runCodexPlugin(
       runProcess,
@@ -134,7 +181,7 @@ export async function installCodexSecurity(
     const verified = await runCodexPlugin(
       runProcess,
       launcher,
-      ["plugin", "list", "--available", "--json"],
+      ["plugin", "list", "--json"],
       platform,
       env,
       "list",
@@ -145,11 +192,9 @@ export async function installCodexSecurity(
       continue;
     }
     if (verification.kind === "fatal") return skipped(verification.reason, attemptedLaunchers);
-    const verifiedPlugin = verification.catalog.plugins.find(
-      ({ id }) => id === CODEX_SECURITY_PLUGIN,
-    );
+    const verifiedPlugin = findPlugin(verification.catalog);
     if (verifiedPlugin?.installed !== true || verifiedPlugin.enabled !== true) {
-      fallbackReasons.push("plugin-unavailable");
+      fallbackReasons.push("verification-failed");
       continue;
     }
     return {
@@ -172,6 +217,9 @@ type ProbeOutcome =
   | { readonly kind: "fallback"; readonly reason: CodexSecuritySkipReason }
   | { readonly kind: "fatal"; readonly reason: CodexSecuritySkipReason };
 type AddOutcome = Exclude<ProbeOutcome, { readonly kind: "selected" }> | { readonly kind: "added" };
+type MarketplaceOutcome =
+  | { readonly kind: "selected"; readonly marketplaces: readonly string[] }
+  | Exclude<ProbeOutcome, { readonly kind: "selected" }>;
 
 async function runCodexPlugin(
   runProcess: CodexProcessRunner,
@@ -223,9 +271,24 @@ function inspectAddResult(result: ManagedProcessResult, launcher: CodexLauncher)
   if (result.timedOut) return { kind: "fallback", reason: "timeout" };
   const failure = classifyFailure(result, launcher);
   if (failure !== undefined) return failure;
-  if (!isRecord(parseUnknownJson(result.stdout)))
-    return { kind: "fallback", reason: "invalid-response" };
   return { kind: "added" };
+}
+
+function inspectMarketplaceResult(
+  result: ManagedProcessResult,
+  launcher: CodexLauncher,
+): MarketplaceOutcome {
+  if (result.timedOut) return { kind: "fallback", reason: "timeout" };
+  const failure = classifyFailure(result, launcher);
+  if (failure !== undefined) return failure;
+  const marketplaces = parseMarketplaceNames(result.stdout);
+  return marketplaces === undefined
+    ? { kind: "fallback", reason: "invalid-response" }
+    : { kind: "selected", marketplaces };
+}
+
+function findPlugin(catalog: PluginCatalog): PluginState | undefined {
+  return catalog.plugins.find(({ id }) => id === CODEX_SECURITY_PLUGIN);
 }
 
 function classifyFailure(
@@ -240,8 +303,8 @@ function classifyFailure(
     };
   }
   if (result.exitCode === 0) return undefined;
-  const diagnosticValue = parseUnknownJson(result.stderr) ?? parseUnknownJson(result.stdout);
-  const code = structuredErrorCode(diagnosticValue);
+  const code =
+    structuredErrorCodeFromOutput(result.stderr) ?? structuredErrorCodeFromOutput(result.stdout);
   const text = sanitizeDiagnostic(result.stderr);
   const failureReason = classifyFailureReason(code, text);
   if (failureReason === "unauthenticated" || failureReason === "installation-rejected")
@@ -292,6 +355,10 @@ function classifyFailureReason(
 }
 
 function finalFallbackReason(reasons: readonly CodexSecuritySkipReason[]): CodexSecuritySkipReason {
+  if (reasons.length > 0 && reasons.every((reason) => reason === "plugin-not-offered"))
+    return "all-launchers-lacked-plugin";
+  if (reasons.includes("verification-failed")) return "verification-failed";
+  if (reasons.includes("plugin-not-offered")) return "plugin-not-offered";
   if (reasons.includes("timeout")) return "timeout";
   if (reasons.includes("unsupported")) return "unsupported";
   if (reasons.includes("download-failed")) return "download-failed";
@@ -315,10 +382,32 @@ function isPackageLauncher(launcher: CodexLauncher): boolean {
 
 /** Normalizes supported flat and marketplace-oriented Codex catalogs. */
 function parsePluginCatalog(input: string): PluginCatalog | undefined {
-  const value = parseUnknownJson(input);
-  if (value === undefined) return undefined;
-  const plugins = parseCatalogValue(value);
-  return plugins === undefined ? undefined : { plugins };
+  for (const value of parseJsonDocuments(input) ?? []) {
+    const plugins = parseCatalogValue(value);
+    if (plugins !== undefined) return { plugins };
+  }
+  return undefined;
+}
+
+function parseMarketplaceNames(input: string): readonly string[] | undefined {
+  for (const value of parseJsonDocuments(input) ?? []) {
+    if (!isRecord(value) || !Array.isArray(value.marketplaces)) continue;
+    const names: string[] = [];
+    for (const marketplace of value.marketplaces) {
+      if (!isRecord(marketplace)) {
+        names.length = 0;
+        break;
+      }
+      const name = stringField(marketplace, ["name"]);
+      if (name === undefined) {
+        names.length = 0;
+        break;
+      }
+      names.push(name);
+    }
+    if (names.length > 0 || value.marketplaces.length === 0) return names;
+  }
+  return undefined;
 }
 
 function parseCatalogValue(value: unknown): readonly PluginState[] | undefined {
@@ -433,12 +522,47 @@ function enabledFromState(value: string | undefined): boolean | undefined {
   return undefined;
 }
 
-function parseUnknownJson(input: string): unknown {
+function parseJsonDocuments(input: string): readonly unknown[] | undefined {
+  const wholeDocument = tryParseJson(input);
+  if (wholeDocument !== undefined) return [wholeDocument];
+  const lines = input
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return undefined;
+  for (let index = 1; index < lines.length; index += 1) {
+    const document = tryParseJson(lines.slice(index).join("\n"));
+    if (document !== undefined) return [document];
+  }
+  const documents: unknown[] = [];
+  let parsedDocument = false;
+  for (const line of lines) {
+    const document = tryParseJson(line);
+    if (document === undefined) {
+      if (parsedDocument) return undefined;
+      continue;
+    }
+    documents.push(document);
+    if (documents.length > MAX_JSON_DOCUMENTS) return undefined;
+    parsedDocument = true;
+  }
+  return documents.length === 0 ? undefined : documents;
+}
+
+function tryParseJson(input: string): unknown {
   try {
     return JSON.parse(input) as unknown;
   } catch {
     return undefined;
   }
+}
+
+function structuredErrorCodeFromOutput(input: string): string | undefined {
+  for (const value of parseJsonDocuments(input) ?? []) {
+    const code = structuredErrorCode(value);
+    if (code !== undefined) return code;
+  }
+  return undefined;
 }
 
 function structuredErrorCode(value: unknown): string | undefined {

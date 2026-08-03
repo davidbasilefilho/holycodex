@@ -1,6 +1,6 @@
 {
   "name": "holycodex-workspace",
-  "version": "0.10.6",
+  "version": "0.10.7",
   "private": true,
   "description": "Lean Codex-only agent toolkit for ChatGPT Plus",
   "keywords": [
@@ -30,7 +30,10 @@
     "version:check": "bun scripts/version.mjs check",
     "version:patch": "bun scripts/version.mjs patch",
     "version:minor": "bun scripts/version.mjs minor",
-    "version:set": "bun scripts/version.mjs"
+    "version:set": "bun scripts/version.mjs",
+    "release:dev": "bun scripts/publish.mjs dev",
+    "release:stable": "bun scripts/publish.mjs stable",
+    "release:stable:dry-run": "bun scripts/publish.mjs stable --dry-run"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -123,7 +123,28 @@ Cleanup backs up affected state, removes HolyCodex-owned configuration and artif
 
 ## Publishing
 
-Pull requests to `main` run release validation. Pushes to `main` publish stable `latest` releases with npm trusted publishing. Protect `main`.
+Pull requests validate release artifacts. Every push to `main` publishes a unique `dev` prerelease. Only an exact annotated `v<version>` tag publishes a stable `latest` release. The plugin always publishes before the CLI, and npm trusted publishing uses GitHub OIDC with provenance. The workflow never uses an npm token, overwrites a version, or unpublishes a package.
+
+Prepare a stable release from a clean tree. The version command synchronizes every tracked version surface, but it does not publish anything by itself. A nonempty first command is a stop condition. The dry run makes no changes.
+
+```sh
+git status --short
+bun scripts/version.mjs patch --dry-run
+bun scripts/version.mjs patch # or: minor, or an explicit 0.x.y
+bunx vp install --frozen-lockfile
+bunx vp check --fix
+bunx vp test
+bunx vp run build
+bun scripts/version.mjs check
+git diff --check
+git status --short
+git diff --stat # Confirm the synchronized release changes before committing.
+git commit -am "release: v<version>"
+git tag -a v<version> -m "v<version>"
+git push origin main --follow-tags
+```
+
+Observe the `Publish to npm` workflow. Verify both exact versions and their tags with `npm view @holycodex/plugin@<version> version dist-tags --json` and `npm view holycodex@<version> version dist-tags --json`, then verify the GitHub release. If a tagged stable run needs recovery, use `workflow_dispatch` with `ref=refs/tags/v<version>`, `stable=true`, and the default `dry_run=true`; change `dry_run` to `false` only after that validation succeeds. The recovery path shares the stable implementation and only skips an existing version when its local and registry integrities match.
 
 ## Contributing
 
@@ -142,7 +163,7 @@ vp check --fix
 vp test
 ```
 
-`.github/workflows/publish.yml` publishes stable `latest` releases from `main` using npm trusted publishing.
+`.github/workflows/publish.yml` validates pull requests, publishes `dev` prereleases from `main`, and publishes stable `latest` releases only from exact version tags using npm trusted publishing.
 
 ## Credits and license
 

@@ -78,7 +78,7 @@ describe("npm release workflows", () => {
     const publishingWorkflows: string[] = [];
     for (const file of await readdir(workflowDirectory)) {
       const source = await readFile(join(workflowDirectory, file), "utf8");
-      if (source.includes("npm publish")) publishingWorkflows.push(file);
+      if (source.includes("scripts/publish.mjs")) publishingWorkflows.push(file);
     }
     expect(publishingWorkflows).toEqual(["publish.yml"]);
 
@@ -88,14 +88,21 @@ describe("npm release workflows", () => {
     expect(workflow).toContain('- "v*"');
     expect(workflow).toContain("GITHUB_RUN_ID");
     expect(workflow).toContain("GITHUB_RUN_ATTEMPT");
-    expect(workflow.match(/--tag dev/g)).toHaveLength(2);
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("description: Exact stable tag ref");
+    expect(workflow).toContain("stable:");
+    expect(workflow).toContain("default: true");
+    expect(workflow).toContain("Validate manual release authorization");
+    expect(workflow).toContain("stable=true is required when dry_run=false");
+    expect(workflow).toContain("inputs.ref || github.ref");
+    expect(workflow).not.toContain("inputs.ref || github.sha");
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("id-token: write");
     expect(workflow).toContain('node-version: "24"');
     expect(workflow).toContain("npm@11.5.1");
     expect(workflow).toContain('registry-url: "https://registry.npmjs.org"');
     expect(workflow).toContain("package-manager-cache: false");
-    expect(workflow).toContain("group: npm-publish-${{ github.ref_name }}");
+    expect(workflow).toContain("github.run_id");
     expect(workflow).toContain("cancel-in-progress: false");
     expect(workflow).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN|npm whoami/);
     expect(workflow).toContain("gh release create");
@@ -105,21 +112,41 @@ describe("npm release workflows", () => {
   it("keeps validation ahead of branch-specific publication", async () => {
     const workflow = await readFile(join(root, ".github", "workflows", "publish.yml"), "utf8");
     expect(workflow).toContain("bunx vp check --fix");
+    expect(workflow).toContain("git diff --exit-code");
+    expect(workflow.indexOf("bunx vp check --fix")).toBeLessThan(
+      workflow.indexOf("git diff --exit-code"),
+    );
+    expect(workflow).toContain("expected-release.diff");
+    expect(workflow).toContain("actual-release.diff");
+    expect(workflow.indexOf("bun scripts/version.mjs dev")).toBeLessThan(
+      workflow.indexOf("expected-release.diff"),
+    );
+    expect(workflow.indexOf("expected-release.diff")).toBeLessThan(
+      workflow.indexOf("bunx vp run build"),
+    );
+    expect(workflow.match(/bunx vp run build/g)).toHaveLength(1);
     expect(workflow).toContain("bunx vp test");
     expect(workflow.indexOf("bunx vp run build")).toBeLessThan(workflow.indexOf("bunx vp test"));
     expect(workflow.indexOf("bunx vp test")).toBeLessThan(
-      workflow.indexOf("npm publish ./packages/plugin"),
+      workflow.indexOf("bun scripts/publish.mjs stable"),
     );
   });
 
-  it("publishes stable versions under latest and skips versions already present", async () => {
+  it("publishes stable versions from exact tags through the shared guarded implementation", async () => {
     const workflow = await readFile(join(root, ".github", "workflows", "publish.yml"), "utf8");
-    expect(workflow).toContain("startsWith(github.ref, 'refs/tags/v')");
-    expect(workflow).toContain("npm view");
-    expect(workflow.match(/--tag latest/g)).toHaveLength(2);
-    expect(
-      workflow.indexOf("npm publish ./packages/plugin --access public --tag latest"),
-    ).toBeLessThan(workflow.indexOf("npm publish ./packages/cli --tag latest"));
+    expect(workflow).toContain("startsWith(env.RELEASE_REF, 'refs/tags/v')");
+    expect(workflow).toContain("git rev-parse HEAD");
+    expect(workflow).toContain('git rev-parse "${RELEASE_REF}^{}"');
+    expect(workflow).not.toContain('git rev-parse \\"$RELEASE_REF^{}\\"');
+    expect(workflow).toContain('test "$RELEASE_REF" = "refs/tags/v${VERSION}"');
+    expect(workflow).toContain("bun scripts/publish.mjs stable");
+    expect(workflow).toContain("gh release create");
+    expect(workflow).toContain("title=GitHub release");
+    expect(workflow).toContain('--target "$(git rev-parse HEAD)"');
+    expect(workflow).toContain("GITHUB_STEP_SUMMARY");
+    expect(workflow.indexOf("bun scripts/publish.mjs stable")).toBeLessThan(
+      workflow.indexOf("gh release create"),
+    );
   });
 
   it("publishes every main push under a unique dev version", async () => {
@@ -128,9 +155,21 @@ describe("npm release workflows", () => {
     expect(workflow).toContain(
       'bun scripts/version.mjs dev "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"',
     );
-    expect(workflow.match(/--tag dev/g)).toHaveLength(2);
-    expect(
-      workflow.indexOf("npm publish ./packages/plugin --access public --tag dev"),
-    ).toBeLessThan(workflow.indexOf("npm publish ./packages/cli --tag dev"));
+    expect(workflow).toContain("bun scripts/publish.mjs dev");
+  });
+
+  it("waits for package visibility and verifies exact versions and dist-tags", async () => {
+    const publisher = await readFile(join(root, "scripts", "publish.mjs"), "utf8");
+    expect(publisher).toContain("visibilityAttempts = 12");
+    expect(publisher).toContain("waitForRegistryIntegrity");
+    expect(publisher).toContain("waitForPublicationVerification");
+    expect(publisher.indexOf("waitForRegistryIntegrity")).toBeLessThan(
+      publisher.indexOf("verifyPublication"),
+    );
+    expect(publisher).toContain("dist-tags.${channel}");
+    expect(publisher).toContain('publicationSummary(item, channel, "verified")');
+    expect(publisher).toContain("result=${result} tag=${channel}");
+    expect(publisher).toContain("GITHUB_STEP_SUMMARY");
+    expect(publisher).not.toContain("item.name === plugin.name && !dryRun");
   });
 });

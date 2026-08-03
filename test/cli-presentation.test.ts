@@ -104,11 +104,23 @@ describe("CLI presentation", () => {
     [{ status: "skipped", reason: "unauthenticated" }, "Codex authentication is required."],
     [
       { status: "skipped", reason: "marketplace-unavailable" },
-      "the plugin marketplace could not be reached.",
+      "the official plugin marketplace was unavailable.",
+    ],
+    [
+      { status: "skipped", reason: "plugin-not-offered" },
+      "the configured marketplace does not offer the official plugin.",
+    ],
+    [
+      { status: "skipped", reason: "all-launchers-lacked-plugin" },
+      "no usable Codex launcher offered the official plugin.",
     ],
     [
       { status: "skipped", reason: "plugin-unavailable" },
       "the plugin was unavailable from every usable Codex launcher.",
+    ],
+    [
+      { status: "skipped", reason: "verification-failed" },
+      "Codex did not confirm the plugin was installed and enabled.",
     ],
     [
       { status: "skipped", reason: "installation-rejected" },

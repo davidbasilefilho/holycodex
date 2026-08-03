@@ -14,20 +14,45 @@ on:
       - main
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Exact stable tag ref, for example refs/tags/v0.10.7
+        required: true
+        type: string
+      stable:
+        description: Authorize stable publication recovery
+        required: true
+        default: false
+        type: boolean
+      dry_run:
+        description: Validate package publication without publishing
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: write
   id-token: write
 
 concurrency:
-  group: npm-publish-${{ github.ref_name }}
+  group: >-
+    npm-publish-${{ github.event_name == 'workflow_dispatch' && inputs.ref ||
+    (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.ref_name) ||
+    (github.event_name == 'push' && github.run_id) || github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+      RELEASE_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+      RELEASE_STABLE: ${{ github.event_name == 'workflow_dispatch' && inputs.stable || false }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
       - uses: jdx/mise-action@v4
       - uses: actions/setup-node@v6
         with:
@@ -35,61 +60,61 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
       - run: npm install --global npm@11.5.1
+      - name: Validate manual release authorization
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          case "$RELEASE_REF" in refs/tags/v*) ;; *) echo "ref must be an exact v<version> tag ref" >&2; exit 1 ;; esac
+          if [ "$RELEASE_DRY_RUN" != "true" ] && [ "$RELEASE_STABLE" != "true" ]; then
+            echo "stable=true is required when dry_run=false" >&2
+            exit 1
+          fi
       - run: bunx --package vite-plus@0.2.4 vp install --frozen-lockfile
       - run: bunx vp check --fix
+      - name: Reject formatter mutations
+        run: git diff --exit-code
       - name: Derive unique development version
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: bun scripts/version.mjs dev "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
-      - name: Check release tag version
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+      - name: Snapshot expected release diff
+        shell: bash
+        run: git diff --binary > "$RUNNER_TEMP/expected-release.diff"
+      - name: Check stable release authorization and tag version
+        if: startsWith(env.RELEASE_REF, 'refs/tags/v')
         shell: bash
         run: |
           VERSION="$(node -p "require('./packages/cli/package.json').version")"
-          test "$GITHUB_REF_NAME" = "v${VERSION}"
+          test "$RELEASE_REF" = "refs/tags/v${VERSION}"
+          TAG_COMMIT="$(git rev-parse "${RELEASE_REF}^{}")"
+          test "$(git rev-parse HEAD)" = "$TAG_COMMIT"
       - run: bunx vp run build
-      - run: bunx vp test
-      - run: bunx vp run version:check
-      - name: Check existing stable package versions
-        id: stable
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+      - name: Verify generated output matches the expected release diff
         shell: bash
         run: |
-          check_package() {
-            local key="$1"
-            local spec="$2"
-            local error_log="${RUNNER_TEMP}/npm-view-${key}.log"
-            if npm view "$spec" version > /dev/null 2> "$error_log"; then
-              echo "${key}_exists=true" >> "$GITHUB_OUTPUT"
-            elif grep -q "E404" "$error_log"; then
-              echo "${key}_exists=false" >> "$GITHUB_OUTPUT"
-            else
-              cat "$error_log" >&2
-              return 1
-            fi
-          }
-
-          PLUGIN_SPEC="$(node -p "const p=require('./packages/plugin/package.json'); p.name+'@'+p.version")"
-          CLI_SPEC="$(node -p "const p=require('./packages/cli/package.json'); p.name+'@'+p.version")"
-          check_package plugin "$PLUGIN_SPEC"
-          check_package cli "$CLI_SPEC"
-      - name: Publish stable plugin
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && steps.stable.outputs.plugin_exists == 'false'
-        run: npm publish ./packages/plugin --access public --tag latest
-      - name: Publish stable CLI
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && steps.stable.outputs.cli_exists == 'false'
-        run: npm publish ./packages/cli --tag latest
+          git diff --binary > "$RUNNER_TEMP/actual-release.diff"
+          cmp "$RUNNER_TEMP/expected-release.diff" "$RUNNER_TEMP/actual-release.diff"
+      - run: bunx vp test
+      - run: bunx vp run version:check
+      - name: Publish stable packages
+        if: startsWith(env.RELEASE_REF, 'refs/tags/v')
+        run: >-
+          bun scripts/publish.mjs stable
+          ${{ env.RELEASE_DRY_RUN == 'true' && '--dry-run' || '' }}
       - name: Create GitHub release
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(env.RELEASE_REF, 'refs/tags/v') && env.RELEASE_DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --generate-notes --target "$GITHUB_SHA" --title "$GITHUB_REF_NAME"
+          TAG="${RELEASE_REF#refs/tags/}"
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --generate-notes --target "$(git rev-parse HEAD)" --title "$TAG"
+            RESULT=created
+          else
+            RESULT=existing
           fi
+          echo "::notice title=GitHub release::tag=$TAG result=$RESULT"
+          echo "GitHub release: tag=$TAG result=$RESULT" >> "$GITHUB_STEP_SUMMARY"
       - name: Publish development plugin
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: npm publish ./packages/plugin --access public --tag dev
-      - name: Publish development CLI
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: npm publish ./packages/cli --tag dev
+        run: bun scripts/publish.mjs dev

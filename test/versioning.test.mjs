@@ -1,12 +1,22 @@
+import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
 import { describe, expect, it } from "vitest";
 
+import { publicationPlan, publicationSummary } from "../scripts/publish.mjs";
 import {
   lockfileWorkspaceVersions,
   nextDevVersion,
   nextZeroVersion,
+  versionedSource,
   versionedLockfile,
   versionedJson,
 } from "../scripts/version.mjs";
+
+const root = join(import.meta.dirname, "..");
+const run = promisify(execFile);
 
 describe("zerover versioning", () => {
   it("bumps fixes on the patch component", () => {
@@ -68,5 +78,40 @@ describe("zerover versioning", () => {
       "packages/plugin": "0.9.6",
     });
     expect(bumped).toContain('"@holycodex/plugin": "0.9.6"');
+  });
+
+  it("updates generated runtime versions without mutating files during a dry run", async () => {
+    expect(versionedSource("runtime.js", 'VERSION = "0.10.6"', "0.10.6", "0.10.7")).toContain(
+      'VERSION = "0.10.7"',
+    );
+    const runtime = join(root, "packages", "plugin", "plugin", "runtime", "core-instructions.js");
+    const before = await readFile(runtime, "utf8");
+    await run(process.execPath, [join(root, "scripts", "version.mjs"), "patch", "--dry-run"], {
+      cwd: root,
+    });
+    expect(await readFile(runtime, "utf8")).toBe(before);
+  });
+});
+
+describe("npm publication", () => {
+  it("publishes missing packages and skips only integrity-matched registry versions", () => {
+    const local = [
+      { name: "@holycodex/plugin", version: "0.10.7", integrity: "sha512-plugin" },
+      { name: "holycodex", version: "0.10.7", integrity: "sha512-cli" },
+    ];
+    expect(
+      publicationPlan(local, new Map([["@holycodex/plugin@0.10.7", "sha512-plugin"]])),
+    ).toEqual([
+      { ...local[0], action: "skip" },
+      { ...local[1], action: "publish" },
+    ]);
+    expect(() =>
+      publicationPlan(local, new Map([["@holycodex/plugin@0.10.7", "sha512-different"]])),
+    ).toThrow(/integrity/);
+    expect(local[0].name).toBe("@holycodex/plugin");
+    expect(local[1].name).toBe("holycodex");
+    expect(publicationSummary({ ...local[0], action: "skip" }, "latest", "existing")).toContain(
+      "package=@holycodex/plugin version=0.10.7 result=existing tag=latest",
+    );
   });
 });

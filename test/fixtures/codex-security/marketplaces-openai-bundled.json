@@ -1,0 +1,8 @@
+{
+  "marketplaces": [
+    {
+      "name": "openai-bundled",
+      "root": "/safe/openai-bundled"
+    }
+  ]
+}

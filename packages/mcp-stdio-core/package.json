@@ -1,6 +1,6 @@
 {
   "name": "@holycodex/mcp-stdio-core",
-  "version": "0.10.6",
+  "version": "0.10.7",
   "private": true,
   "description": "HolyCodex JSON-RPC stdio framing and dispatch primitives.",
   "type": "module",

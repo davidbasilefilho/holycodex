@@ -101,8 +101,11 @@ function renderCodexSecurity(result: RunResult): string {
 const CODEX_SECURITY_SKIP_MESSAGES: Record<CodexSecuritySkipReason, string> = {
   "codex-unavailable": "no usable Codex launcher was found.",
   unauthenticated: "Codex authentication is required.",
-  "marketplace-unavailable": "the plugin marketplace could not be reached.",
+  "marketplace-unavailable": "the official plugin marketplace was unavailable.",
+  "plugin-not-offered": "the configured marketplace does not offer the official plugin.",
+  "all-launchers-lacked-plugin": "no usable Codex launcher offered the official plugin.",
   "plugin-unavailable": "the plugin was unavailable from every usable Codex launcher.",
+  "verification-failed": "Codex did not confirm the plugin was installed and enabled.",
   "installation-rejected": "the account or workspace policy rejected installation.",
   timeout: "all usable Codex launchers timed out.",
   "invalid-response": "Codex returned an unsupported or malformed response.",

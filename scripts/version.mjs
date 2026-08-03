@@ -77,6 +77,7 @@ async function main() {
   }
   await Promise.all(jsonFiles.map((file) => updateJson(file, next)));
   await replaceVersion(catalogFile, current, next);
+  await Promise.all(generatedVersionFiles.map((file) => replaceVersion(file, current, next)));
   await updateLockfile(next);
   process.stdout.write(
     `Bumped ${current} -> ${next}. Run vp install, vp check --fix, vp test, and vp build.\n`,
@@ -135,8 +136,13 @@ async function updateLockfile(version) {
 async function replaceVersion(file, current, next) {
   const path = join(root, file);
   const source = await readFile(path, "utf8");
+  await writeFile(path, versionedSource(file, source, current, next), "utf8");
+}
+
+/** Returns source content with every synchronized version occurrence replaced. */
+export function versionedSource(file, source, current, next) {
   if (!source.includes(current)) throw new Error(`${file} does not contain ${current}`);
-  await writeFile(path, source.replaceAll(current, next), "utf8");
+  return source.replaceAll(current, next);
 }
 
 async function checkVersions(expected) {
