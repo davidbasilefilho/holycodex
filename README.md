@@ -1,6 +1,6 @@
 # HolyCodex
 
-HolyCodex installs a focused Codex workflow with routed specialist agents, scoped engineering skills, live web search, Context7 documentation lookup, LSP code intelligence, and safe Git Bash execution on native Windows. HolyCodex installs and manages zero MCP servers.
+HolyCodex installs plan-aware dynamic workflows for Codex with isolated agents, scoped engineering skills, live web search, Context7 documentation lookup, LSP code intelligence, and safe Git Bash execution on native Windows. HolyCodex installs and manages zero MCP servers.
 
 ## Install
 
@@ -18,9 +18,17 @@ Installation is transactional. Assets are generated and validated in staging bef
 
 ## Plans
 
-Plans are ordered by available usage: `go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and `pro-20x`. `plus` is the default recommendation. Use `--plan <name>` and optionally `--max-subagents 0..3`.
+Plans are ordered by available usage: `go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and `pro-20x`. `plus` is the default recommendation. Use `--plan <name>`. The legacy `--max-subagents` flag remains accepted during migration but dynamic workflow quotas are plan-authoritative.
 
 Fast modes are explicit: `--fast` applies Fast to specialists, `--fast-all` includes Root, and `--no-fast` selects standard service tiers. Preserved Root and specialist model, reasoning, service-tier, and custom settings are healthy overrides rather than installation errors.
+
+## Dynamic workflows
+
+For substantive requests, Root writes task-specific JavaScript with `agent()`, `pipeline()`, structured `args`, and ordinary control flow. The script can discover work dynamically, branch, retry, fan out, loop until checks pass or progress stalls, run adversarial verification, and synthesize a coordinated result. Multiple workflows may be used for discovery, implementation, and verification.
+
+Workflow JavaScript runs in a capability-denied runtime with no direct filesystem, shell, process, environment, network, import, configuration, or credential access. Agents perform authorized work through Codex and inherit its sandbox, approvals, tools, skills, plugins, trust rules, and project boundaries. Plan-specific hard limits bound concurrency, calls, depth, retries, loops, fan-out, projected usage, and runtime.
+
+Normal conversation receives concise progress and the final result. Explicit inspection can show scripts and operational state, but never hidden reasoning, system prompts, credentials, or unrestricted child transcripts.
 
 Essential installation flags include `--codex-autonomous`, `--no-codex-autonomous`, `--dangerous-codex-autonomous`, `--json`, and the plan and Fast flags above. `doctor` and `cleanup` accept only `--json`.
 

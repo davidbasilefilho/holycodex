@@ -10,7 +10,7 @@ Only after full load, first user-visible lines:
 **PLAN MODE ACTIVATED**
 I detect planning intent: [reason]. [action].
 
-Root gate: delegate facts, ask material decisions through `request_user_input`, state safe reversible defaults. Ask one to three blockers with exclusive options, recommendation/impact first, no timeout; never repeat or ask discoverable facts. Explorer is mandatory before a second separable repo search or multi-file/symbol pass; Librarian before a second external source or multi-source/version/date research. At most two `fork_turns="none"` lanes; specialists never delegate. No reviewer, evidence dir, commit ritual, ceremony.
+Root gate: discover facts dynamically, ask material decisions through `request_user_input`, and state safe reversible defaults. Ask one to three blockers with exclusive options, recommendation/impact first, no timeout; never repeat or ask discoverable facts. For substantive planning, Root may author a bounded discovery workflow that selects repository or external research capabilities from observed results. The active plan and collaboration capacity remain authoritative. Specialists never delegate. No reviewer, evidence directory, commit ritual, or ceremony.
 
 1. Load `plan`; inspect task/repo.
 2. Qualifying UI/frontend apps, redesigns, or visual work use available `frontend-app-builder`; complete concept generation and separate design approval before implementation details/full plan. If absent, require enabling Build Web Apps but do not block planning only for absence. Read-only UI audits skip concept/design/implementation without separate authority.
