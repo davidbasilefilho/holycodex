@@ -16,6 +16,8 @@ describe("package and release layout", () => {
         "packages/lsp-core/package.json",
         "packages/git-bash/package.json",
         "packages/runtime-core/package.json",
+        "packages/workflow-host/package.json",
+        "packages/workflow-runtime/package.json",
       ].map(
         async (path) => JSON.parse(await readFile(join(root, path), "utf8")) as { version: string },
       ),

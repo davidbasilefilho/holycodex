@@ -36,17 +36,17 @@ describe("bootstrap readiness", () => {
     expect(context).not.toContain("`caveman`");
     expect(context).toMatch(/Root owns interaction, intent, scope, architecture/);
     expect(context).toContain("Delegate only useful bounded work");
-    expect(context).toContain("never overlap writes");
-    expect(context).toContain("Skills govern method, not routing");
-    expect(context).toContain("Use at most two lanes per wave");
+    expect(context).toContain("Root owns workflow integration and final proof");
+    expect(context).toContain("Skills govern method only");
+    expect(context).toContain("Root authors JavaScript workflows");
+    expect(context).toContain("dynamic branching, loops, retries, and verification");
+    expect(context).toContain("selected plan is authoritative");
     expect(context).not.toMatch(/(?:Explorer|Librarian|Worker) (?:uses|runs) GPT 5\.6/);
     expect(context).toContain(
       "Specialists never delegate, broaden, review, or make final judgments",
     );
     expect(context).toContain("delegate facts, ask material decisions");
-    expect(context).toContain("Explorer is mandatory before a second separable repository search");
-    expect(context).toContain("Librarian before a second external source");
-    expect(context).toContain("Worker for fixed isolated substantive implementation");
+    expect(context).not.toMatch(/\b(?:lane|wave|mandatory)\b/i);
     expect(context).toContain("request_user_input");
     expect(context).toContain("Root controls browser and native desktop UI itself");
     expect(context).toContain("Never delegate browser or computer control");

@@ -22,6 +22,9 @@ async function fixture(): Promise<string> {
   await cp(join(import.meta.dirname, "..", "packages", "plugin", "plugin"), plugin, {
     recursive: true,
   });
+  await writeFile(join(plugin, "runtime", "workflow.js"), "export {};\n");
+  await writeFile(join(plugin, "runtime", "workflow-evaluator.js"), "export {};\n");
+  await writeFile(join(plugin, "runtime", "LICENSE-QUICKJS-EMSCRIPTEN-MIT.txt"), "MIT\n");
   const agents = join(home, "holycodex", "agents");
   await mkdir(agents, { recursive: true });
   await Promise.all(
@@ -61,6 +64,9 @@ describe("doctor", () => {
         "context7-cli-ready",
         "lsp-cli-ready",
         "git-bash-launcher-ready",
+        "workflow-settings-ready",
+        "workflow-runtime-ready",
+        "mcp-free",
       ]),
     );
     expect(commands).toEqual([process.execPath]);

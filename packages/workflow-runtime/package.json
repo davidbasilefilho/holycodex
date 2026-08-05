@@ -1,0 +1,23 @@
+{
+  "name": "@holycodex/workflow-runtime",
+  "version": "0.12.0",
+  "private": true,
+  "description": "Isolated QuickJS workflow runtime for model-authored orchestration.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./subprocess": "./src/subprocess.ts"
+  },
+  "scripts": {
+    "test": "vitest --run src/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@holycodex/runtime-core": "workspace:*",
+    "quickjs-emscripten": "^0.32.0",
+    "zod": "^4.4.3"
+  },
+  "engines": {
+    "node": ">=26 <27"
+  }
+}

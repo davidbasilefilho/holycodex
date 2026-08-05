@@ -14,6 +14,8 @@ const jsonFiles = [
   "packages/lsp-core/package.json",
   "packages/lsp-daemon/package.json",
   "packages/runtime-core/package.json",
+  "packages/workflow-host/package.json",
+  "packages/workflow-runtime/package.json",
 ];
 const packageFile = "packages/cli/package.json";
 const catalogFile = "packages/cli/src/catalog.ts";

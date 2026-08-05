@@ -30,8 +30,8 @@ describe("Codex configuration", () => {
     expect(output).toContain('model = "user/model"');
     expect(output).toContain("[custom]\nvalue = true");
     expect(output).toContain("[agents]");
-    expect(output).toContain("max_concurrent_threads_per_session = 3");
-    expect(output).toContain("max_depth = 1");
+    expect(output).toContain("max_concurrent_threads_per_session = 4");
+    expect(output).not.toContain("max_depth = 1");
     expect(output).not.toContain('model = "gpt-5.6-sol"');
     expect(output).toContain('approval_policy = "on-request"');
     expect(output).toContain('sandbox_mode = "workspace-write"');
@@ -58,9 +58,9 @@ describe("Codex configuration", () => {
       expect(output).toContain(`model = "${route.model}"`);
       expect(output).toContain(`model_reasoning_effort = "${route.reasoningEffort}"`);
       expect(output).toContain(
-        `max_concurrent_threads_per_session = ${MODEL_ROUTING_PLANS[plan].usage.maxSubagents + 1}`,
+        `max_concurrent_threads_per_session = ${MODEL_ROUTING_PLANS[plan].workflow.limits.concurrency + 1}`,
       );
-      expect(output).toContain("max_depth = 1");
+      expect(output).toContain("workflow-policy");
     }
   });
 
@@ -76,13 +76,15 @@ describe("Codex configuration", () => {
   });
 
   it("maps explicit direct-subagent overrides to root-inclusive threads", () => {
-    const overridden = installPlatformConfig("", "default", "win32", "plus", 3);
-    expect(overridden).toContain("# holycodex max-subagents: 3");
-    expect(overridden).toContain("max_concurrent_threads_per_session = 4");
+    const overridden = installPlatformConfig("", "default", "win32", "plus", 1);
+    expect(overridden).not.toContain("# holycodex max-subagents:");
+    expect(overridden).toContain("max_concurrent_threads_per_session = 2");
 
     const reset = installPlatformConfig(overridden, "default", "win32", "plus");
     expect(reset).not.toContain("# holycodex max-subagents:");
-    expect(reset).toContain("max_concurrent_threads_per_session = 3");
+    expect(reset).toContain(
+      `max_concurrent_threads_per_session = ${MODEL_ROUTING_PLANS.plus.workflow.limits.concurrency + 1}`,
+    );
     expect(removeManaged(reset)).toBe("");
   });
 
@@ -293,8 +295,8 @@ describe("Codex configuration", () => {
     expect(installed).toContain("default_mode_request_user_input = true");
     expect(installed).toContain("multi_agent = true");
     expect(installed).toContain("multi_agent_v2 = false");
-    expect(installed).toContain("max_concurrent_threads_per_session = 3");
-    expect(installed).toContain("max_depth = 1");
+    expect(installed).toContain("max_concurrent_threads_per_session = 4");
+    expect(installed).not.toContain("max_depth = 1");
     expect(installed).toContain("network_access = true");
     expect(removeManaged(installed)).toBe(input.trim());
   });

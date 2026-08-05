@@ -23,8 +23,10 @@ describe("authoritative catalog", () => {
     expect(DEFAULT_PLAN).toBe("plus");
     expect(Object.keys(MODEL_ROUTING_PLANS)).toEqual(PLAN_NAMES);
     for (const plan of PLAN_NAMES) {
-      expect(MODEL_ROUTING_PLANS[plan].usage.maxDepth).toBe(1);
-      expect(MODEL_ROUTING_PLANS[plan].usage.maxSubagents).toBeLessThanOrEqual(3);
+      expect(MODEL_ROUTING_PLANS[plan].workflow.limits.workflowDepth).toBeGreaterThan(1);
+      expect(MODEL_ROUTING_PLANS[plan].workflow.limits.totalCalls).toBeGreaterThan(0);
+      expect(MODEL_ROUTING_PLANS[plan].workflow.verbosity).toBe("low");
+      expect(MODEL_ROUTING_PLANS[plan].workflow.serviceTiers).toEqual(["default", "fast"]);
       expect(Object.keys(MODEL_ROUTING_PLANS[plan].agents)).toEqual(AGENTS);
     }
     expect(SKILLS).toContain("context7-cli");

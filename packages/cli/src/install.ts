@@ -58,7 +58,6 @@ export type RunResult = {
   readonly changed: readonly string[];
   readonly backups: readonly string[];
   readonly plan?: PlanName;
-  readonly maxSubagents?: number;
   readonly codexSecurity?: CodexSecurityInstallResult;
   readonly computerUse?: CodexSecurityInstallResult;
 };
@@ -212,7 +211,6 @@ export async function install(
     plan,
     codexSecurity,
     computerUse,
-    ...(options.maxSubagents === undefined ? {} : { maxSubagents: options.maxSubagents }),
   };
 }
 

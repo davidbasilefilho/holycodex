@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const VERSION = "0.11.3";
+export const VERSION = "0.12.0";
 
 export const SKILLS = [
   "ast-grep",
@@ -18,6 +18,7 @@ export const SKILLS = [
   "refactor",
   "remove-slop",
   "rules",
+  "workflows",
 ] as const;
 
 export const AgentNameSchema = z.enum(["explorer", "librarian", "worker"]);
@@ -50,6 +51,44 @@ const ModelRouteSchema = z.discriminatedUnion("model", [
 ]);
 export type ModelRoute = z.infer<typeof ModelRouteSchema>;
 
+export const WORKFLOW_STAGES = ["analysis", "research", "implementation", "verification"] as const;
+export const WorkflowStageSchema = z.enum(WORKFLOW_STAGES);
+export type WorkflowStage = z.infer<typeof WorkflowStageSchema>;
+
+const WorkflowLimitsSchema = z.strictObject({
+  concurrency: z.number().int().positive(),
+  totalCalls: z.number().int().positive(),
+  workflowDepth: z.number().int().positive(),
+  retries: z.number().int().nonnegative(),
+  loopIterations: z.number().int().positive(),
+  fanOut: z.number().int().positive(),
+  maxConcurrency: z.number().int().positive(),
+  maxCalls: z.number().int().positive(),
+  maxRetries: z.number().int().nonnegative(),
+});
+export type WorkflowLimits = z.infer<typeof WorkflowLimitsSchema>;
+
+const WorkflowPolicySchema = z.strictObject({
+  permittedRoutes: z.strictObject({
+    explorer: z.record(WorkflowStageSchema, z.array(ModelRouteSchema).min(1)),
+    librarian: z.record(WorkflowStageSchema, z.array(ModelRouteSchema).min(1)),
+    worker: z.record(WorkflowStageSchema, z.array(ModelRouteSchema).min(1)),
+  }),
+  verbosity: z.literal("low"),
+  serviceTiers: z.tuple([z.literal("default"), z.literal("fast")]),
+  limits: WorkflowLimitsSchema,
+  projectedUsage: z.strictObject({ standard: z.number().positive(), fast: z.number().positive() }),
+  runtime: z.strictObject({
+    maxSeconds: z.number().int().positive(),
+    maxRuntimeMs: z.number().int().positive(),
+  }),
+  softSizeGuidance: z.strictObject({
+    maxInputTokens: z.number().int().positive(),
+    maxScriptBytes: z.number().int().positive(),
+  }),
+});
+export type WorkflowPolicy = z.infer<typeof WorkflowPolicySchema>;
+
 const RoutingPresetSchema = z.strictObject({
   root: ModelRouteSchema,
   agents: z.strictObject({
@@ -57,10 +96,7 @@ const RoutingPresetSchema = z.strictObject({
     librarian: ModelRouteSchema,
     worker: ModelRouteSchema,
   }),
-  usage: z.strictObject({
-    maxSubagents: z.number().int().nonnegative(),
-    maxDepth: z.literal(1),
-  }),
+  workflow: WorkflowPolicySchema,
 });
 export type RoutingPreset = z.infer<typeof RoutingPresetSchema>;
 
@@ -73,6 +109,38 @@ export const ModelRoutingPlansSchema = z.strictObject({
   "pro-20x": RoutingPresetSchema,
 });
 
+function workflowFor(
+  agents: Record<AgentName, ModelRoute>,
+  limits: Pick<
+    WorkflowLimits,
+    "concurrency" | "totalCalls" | "workflowDepth" | "retries" | "loopIterations" | "fanOut"
+  >,
+  projectedUsage: number,
+  maxSeconds: number,
+  maxInputTokens: number,
+): WorkflowPolicy {
+  const permittedRoutes = Object.fromEntries(
+    AGENTS.map((agent) => [
+      agent,
+      Object.fromEntries(WORKFLOW_STAGES.map((stage) => [stage, [agents[agent]]])),
+    ]),
+  ) as WorkflowPolicy["permittedRoutes"];
+  return {
+    permittedRoutes,
+    verbosity: "low",
+    serviceTiers: ["default", "fast"],
+    limits: {
+      ...limits,
+      maxConcurrency: limits.concurrency,
+      maxCalls: limits.totalCalls,
+      maxRetries: limits.retries,
+    },
+    projectedUsage: { standard: projectedUsage, fast: projectedUsage * 2 },
+    runtime: { maxSeconds, maxRuntimeMs: maxSeconds * 1_000 },
+    softSizeGuidance: { maxInputTokens, maxScriptBytes: Math.min(maxInputTokens, 4 * 1024 * 1024) },
+  };
+}
+
 export const DEFAULT_PLAN = "plus" satisfies PlanName;
 
 export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
@@ -83,7 +151,17 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
       librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
       worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
     },
-    usage: { maxSubagents: 0, maxDepth: 1 },
+    workflow: workflowFor(
+      {
+        explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+      },
+      { concurrency: 1, totalCalls: 4, workflowDepth: 2, retries: 0, loopIterations: 1, fanOut: 1 },
+      4,
+      120,
+      20_000,
+    ),
   },
   "plus-low": {
     root: { model: "gpt-5.6-sol", reasoningEffort: "low" },
@@ -92,7 +170,17 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
       librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
       worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
     },
-    usage: { maxSubagents: 2, maxDepth: 1 },
+    workflow: workflowFor(
+      {
+        explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+      },
+      { concurrency: 2, totalCalls: 8, workflowDepth: 3, retries: 1, loopIterations: 2, fanOut: 2 },
+      8,
+      300,
+      30_000,
+    ),
   },
   plus: {
     root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
@@ -101,7 +189,24 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
       librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
       worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
     },
-    usage: { maxSubagents: 2, maxDepth: 1 },
+    workflow: workflowFor(
+      {
+        explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+      },
+      {
+        concurrency: 3,
+        totalCalls: 16,
+        workflowDepth: 4,
+        retries: 2,
+        loopIterations: 3,
+        fanOut: 3,
+      },
+      16,
+      600,
+      50_000,
+    ),
   },
   "plus-high": {
     root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
@@ -110,7 +215,24 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
       librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
       worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
     },
-    usage: { maxSubagents: 2, maxDepth: 1 },
+    workflow: workflowFor(
+      {
+        explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+      },
+      {
+        concurrency: 4,
+        totalCalls: 24,
+        workflowDepth: 5,
+        retries: 3,
+        loopIterations: 4,
+        fanOut: 4,
+      },
+      24,
+      900,
+      70_000,
+    ),
   },
   "pro-5x": {
     root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
@@ -119,7 +241,24 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
       librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
       worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
     },
-    usage: { maxSubagents: 2, maxDepth: 1 },
+    workflow: workflowFor(
+      {
+        explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+      },
+      {
+        concurrency: 6,
+        totalCalls: 40,
+        workflowDepth: 6,
+        retries: 3,
+        loopIterations: 5,
+        fanOut: 5,
+      },
+      40,
+      1_200,
+      100_000,
+    ),
   },
   "pro-20x": {
     root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
@@ -128,9 +267,36 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
       librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
       worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
     },
-    usage: { maxSubagents: 2, maxDepth: 1 },
+    workflow: workflowFor(
+      {
+        explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
+      },
+      {
+        concurrency: 8,
+        totalCalls: 80,
+        workflowDepth: 8,
+        retries: 4,
+        loopIterations: 8,
+        fanOut: 8,
+      },
+      80,
+      2_400,
+      150_000,
+    ),
   },
 });
+
+/** Plan-authoritative workflow policies. */
+export const WORKFLOW_POLICIES = Object.fromEntries(
+  PLAN_NAMES.map((plan) => [plan, MODEL_ROUTING_PLANS[plan].workflow]),
+) as Record<PlanName, WorkflowPolicy>;
+
+/** Per-plan workflow quotas used by configuration and doctor. */
+export const WORKFLOW_LIMITS_BY_PLAN = Object.fromEntries(
+  PLAN_NAMES.map((plan) => [plan, MODEL_ROUTING_PLANS[plan].workflow.limits]),
+) as Record<PlanName, WorkflowLimits>;
 
 export const ROOT_MODEL = MODEL_ROUTING_PLANS[DEFAULT_PLAN].root;
 export const AGENT_MODELS = MODEL_ROUTING_PLANS[DEFAULT_PLAN].agents;
@@ -295,11 +461,19 @@ export const GENERATED_RUNTIMES = [
   "git-bash.js",
   "git-bash-resolver.js",
   "LICENSE-LSP-MIT.txt",
+  "LICENSE-QUICKJS-EMSCRIPTEN-MIT.txt",
   "lsp.js",
   "rules.js",
+  "workflow.js",
+  "workflow-evaluator.js",
 ] as const;
 
-export const BASE_REQUIRED_RUNTIMES = ["lsp.js", "rules.js"] as const;
+export const BASE_REQUIRED_RUNTIMES = [
+  "lsp.js",
+  "rules.js",
+  "workflow.js",
+  "workflow-evaluator.js",
+] as const;
 
 export const WINDOWS_REQUIRED_RUNTIMES = ["git-bash.js"] as const;
 

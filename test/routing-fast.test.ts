@@ -44,72 +44,32 @@ afterEach(() => {
 });
 
 describe("routing and Fast mode seams", () => {
-  it("defines the six fixed routes with depth one and no active Sol agents", () => {
+  it("defines plan-authoritative dynamic workflow policies", () => {
     expect(PLAN_NAMES).toEqual(["go", "plus-low", "plus", "plus-high", "pro-5x", "pro-20x"]);
     expect(DEFAULT_PLAN).toBe("plus");
-    expect(MODEL_ROUTING_PLANS).toEqual({
-      go: {
-        root: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-        agents: {
-          explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-        },
-        usage: { maxSubagents: 0, maxDepth: 1 },
-      },
-      "plus-low": {
-        root: { model: "gpt-5.6-sol", reasoningEffort: "low" },
-        agents: {
-          explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-        },
-        usage: { maxSubagents: 2, maxDepth: 1 },
-      },
-      plus: {
-        root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
-        agents: {
-          explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-        },
-        usage: { maxSubagents: 2, maxDepth: 1 },
-      },
-      "plus-high": {
-        root: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
-        agents: {
-          explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-        },
-        usage: { maxSubagents: 2, maxDepth: 1 },
-      },
-      "pro-5x": {
-        root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
-        agents: {
-          explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
-        },
-        usage: { maxSubagents: 2, maxDepth: 1 },
-      },
-      "pro-20x": {
-        root: { model: "gpt-5.6-sol", reasoningEffort: "high" },
-        agents: {
-          explorer: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
-          worker: { model: "gpt-5.6-luna", reasoningEffort: "max" },
-        },
-        usage: { maxSubagents: 2, maxDepth: 1 },
-      },
-    });
     for (const plan of PLAN_NAMES) {
-      expect(MODEL_ROUTING_PLANS[plan].usage.maxDepth).toBe(1);
-      for (const agent of AGENTS)
-        expect(MODEL_ROUTING_PLANS[plan].agents[agent].model).not.toBe("gpt-5.6-sol");
+      const workflow = MODEL_ROUTING_PLANS[plan].workflow;
+      expect(workflow.limits.totalCalls).toBeGreaterThan(0);
+      expect(workflow.limits.workflowDepth).toBeGreaterThan(1);
+      expect(workflow.limits.retries).toBeGreaterThanOrEqual(0);
+      expect(workflow.limits.loopIterations).toBeGreaterThan(0);
+      expect(workflow.limits.fanOut).toBeGreaterThan(0);
+      expect(workflow.projectedUsage.fast).toBe(workflow.projectedUsage.standard * 2);
+      expect(workflow.runtime.maxSeconds).toBeGreaterThan(0);
+      expect(workflow.softSizeGuidance.maxInputTokens).toBeGreaterThan(0);
+      for (const agent of AGENTS) {
+        expect(Object.keys(workflow.permittedRoutes[agent])).toEqual([
+          "analysis",
+          "research",
+          "implementation",
+          "verification",
+        ]);
+        for (const routes of Object.values(workflow.permittedRoutes[agent]))
+          for (const route of routes) expect(route.reasoningEffort).toBeDefined();
+      }
     }
-    expect(JSON.stringify(MODEL_ROUTING_PLANS)).toContain('"max"');
-    expect(JSON.stringify(MODEL_ROUTING_PLANS)).not.toContain("gpt-5.6-terra");
+    expect(JSON.stringify(MODEL_ROUTING_PLANS)).not.toContain("maxDepth");
+    expect(JSON.stringify(MODEL_ROUTING_PLANS)).not.toContain("maxSubagents");
   });
 
   it.each([
