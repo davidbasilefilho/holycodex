@@ -548,7 +548,9 @@ function isAborted(signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true;
 }
 function publicError(value: unknown): string {
-  return typeof value === "string" ? value : "Codex App Server request failed.";
+  if (typeof value === "string") return value;
+  const message = asRecord(value)?.message;
+  return typeof message === "string" ? message : "Codex App Server request failed.";
 }
 
 function agentPrompt(prompt: string, options: AgentOptions): string {

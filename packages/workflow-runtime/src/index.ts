@@ -478,8 +478,13 @@ async function runBounded<T>(
 }
 
 function moduleSource(script: string): string {
-  if (/\bexport\s+default\b/.test(maskJavaScriptLiterals(script))) return script;
-  const body = script.replace(/\bexport\s+const\s+meta\s*=/, "__workflowMeta.value =");
+  const masked = maskJavaScriptLiterals(script);
+  if (/\bexport\s+default\b/.test(masked)) return script;
+  const meta = /\bexport\s+const\s+meta\s*=/.exec(masked);
+  const body =
+    meta?.index === undefined
+      ? script
+      : `${script.slice(0, meta.index)}__workflowMeta.value =${script.slice(meta.index + meta[0].length)}`;
   return `
 const __workflowMeta = { value: null };
 const __workflowResult = await (async () => {

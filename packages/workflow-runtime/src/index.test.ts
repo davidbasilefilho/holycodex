@@ -33,12 +33,13 @@ describe("workflow runtime", () => {
   });
 
   it("ignores export syntax inside return-style comments and prompts", async () => {
+    const prompt = `Review this code:\nexport default function example() {}\nexport const meta = { name: "literal" };`;
     const result = await runWorkflow({
       script: `// review an export default declaration
-        return agent(\`Review this code:\nexport default function example() {}\`);`,
+        return agent(${JSON.stringify(prompt)});`,
       executor: async (prompt) => prompt,
     });
-    expect(result.result).toContain("export default function example");
+    expect(result.result).toBe(prompt);
   });
 
   it("provides args and preserves pipeline order while bounding calls", async () => {

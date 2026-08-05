@@ -93,7 +93,7 @@ describe("Codex App Server client", () => {
         for (const listener of listeners)
           listener(
             request.method === "turn/start"
-              ? { id: request.id, error: "turn start rejected" }
+              ? { id: request.id, error: { code: -32_000, message: "turn start rejected" } }
               : { id: request.id, result },
           );
       },
