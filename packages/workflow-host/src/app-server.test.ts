@@ -22,7 +22,7 @@ describe("Codex App Server client", () => {
               ? { turn: { id: "turn-1" } }
               : method === "thread/read"
                 ? {
-                    items: [{ type: "agent_message", text: '{"ok":true}' }],
+                    items: [{ type: "agentMessage", text: '{"ok":true}' }],
                     usage: { inputTokens: 2, outputTokens: 3 },
                   }
                 : {};

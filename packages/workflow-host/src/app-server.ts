@@ -435,7 +435,12 @@ function extractExecution(
     if (record === undefined) continue;
     if (record.usage !== undefined) usage = extractUsage(record.usage);
     const type = stringValue(record.type);
-    if (type === "agent_message" || type === "assistant_message" || type === "message")
+    if (
+      type === "agentMessage" ||
+      type === "agent_message" ||
+      type === "assistant_message" ||
+      type === "message"
+    )
       final = record.text ?? record.content;
   }
   usage = { ...usage, ...extractUsage(value.usage) };

@@ -76,9 +76,9 @@ describe("Codex configuration", () => {
   });
 
   it("maps explicit direct-subagent overrides to root-inclusive threads", () => {
-    const overridden = installPlatformConfig("", "default", "win32", "plus", 3);
+    const overridden = installPlatformConfig("", "default", "win32", "plus", 1);
     expect(overridden).not.toContain("# holycodex max-subagents:");
-    expect(overridden).toContain("max_concurrent_threads_per_session = 4");
+    expect(overridden).toContain("max_concurrent_threads_per_session = 2");
 
     const reset = installPlatformConfig(overridden, "default", "win32", "plus");
     expect(reset).not.toContain("# holycodex max-subagents:");

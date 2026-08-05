@@ -359,7 +359,7 @@ export function installConfig(
   mode: AutonomyMode | RequestedAutonomy | undefined,
   _platform: NodeJS.Platform,
   plan: PlanName = DEFAULT_PLAN,
-  _legacyMaxSubagents?: number,
+  maxSubagents?: number,
   fastMode: FastMode = "standard",
 ): string {
   const request = normalizeRequestedAutonomy(mode);
@@ -468,7 +468,10 @@ export function installConfig(
     ...(legacyMultiAgentV2 === undefined ? [] : [["multi_agent_v2", legacyMultiAgentV2] as const]),
   ]);
   configured = injectTableKeys(configured, "agents", [
-    ["max_concurrent_threads_per_session", String(workflow.limits.concurrency + 1)],
+    [
+      "max_concurrent_threads_per_session",
+      String((maxSubagents ?? workflow.limits.concurrency) + 1),
+    ],
   ]);
   configured = injectTableKeys(configured, "tui", [["status_line", statusLine]]);
   if (effectiveAutonomy !== "dangerous")
