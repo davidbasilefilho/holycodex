@@ -155,7 +155,7 @@ export class WorkflowManager {
       trusted,
       plan: this.options.plan ?? "unknown",
       planLimits: limits,
-      ...(request.args === undefined ? {} : { args: sanitize(request.args) }),
+      ...(request.args === undefined ? {} : { args: request.args }),
       ...(request.route === undefined ? {} : { route: request.route }),
       ...(request.routes === undefined ? {} : { routes: request.routes }),
       ...(request.permittedRoutes === undefined

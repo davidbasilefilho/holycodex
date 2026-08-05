@@ -85,6 +85,7 @@ export class CodexAppServerClient {
   private readonly notifications = new Set<(message: Record<string, unknown>) => void>();
   private started = false;
   private initialized = false;
+  private initialization: Promise<unknown> | undefined;
 
   public constructor(options: CodexAppServerOptions) {
     this.options = { ...options, args: options.args ?? [] };
@@ -131,17 +132,24 @@ export class CodexAppServerClient {
   /** Initializes the app-server protocol session. */
   public async initialize(): Promise<unknown> {
     if (this.initialized) return {};
-    await this.start();
-    const result = await this.request("initialize", {
-      clientInfo: {
-        name: this.options.clientInfo?.name ?? "holycodex-workflow-host",
-        title: this.options.clientInfo?.title ?? "HolyCodex Workflow Host",
-        version: this.options.clientInfo?.version ?? "0.11.3",
-      },
-    });
-    this.initialized = true;
-    await this.notify("initialized", {});
-    return result;
+    this.initialization ??= (async () => {
+      await this.start();
+      const result = await this.request("initialize", {
+        clientInfo: {
+          name: this.options.clientInfo?.name ?? "holycodex-workflow-host",
+          title: this.options.clientInfo?.title ?? "HolyCodex Workflow Host",
+          version: this.options.clientInfo?.version ?? "0.11.3",
+        },
+      });
+      await this.notify("initialized", {});
+      this.initialized = true;
+      return result;
+    })();
+    try {
+      return await this.initialization;
+    } finally {
+      if (!this.initialized) this.initialization = undefined;
+    }
   }
 
   /** Creates a Codex thread with the exact route and policy values. */
@@ -282,6 +290,7 @@ export class CodexAppServerClient {
     this.child = undefined;
     this.started = false;
     this.initialized = false;
+    this.initialization = undefined;
     this.rejectPending(new Error("Codex App Server client closed."));
   }
 

@@ -82,6 +82,29 @@ describe("workflow manager", () => {
     }
   });
 
+  it("preserves exact invocation args when resuming", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
+    try {
+      const seen: unknown[] = [];
+      const manager = new WorkflowManager({
+        storageDir: directory,
+        client: fakeClient([]),
+        runner: async (input) => {
+          seen.push(input.args);
+          return { result: input.args ?? null, meta: null, events: [], errors: [] };
+        },
+      });
+      const args = { prompt: "literal", tokenCount: 7, credentialType: "named" };
+      const first = await manager.run({ script: "export default args", args });
+      await manager.pause(first.id);
+      const resumed = await manager.resume(first.id);
+      expect(resumed.args).toEqual(args);
+      expect(seen).toEqual([args, args]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("does not replay results across host policy changes", async () => {
     const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
     try {

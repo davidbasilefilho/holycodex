@@ -615,7 +615,9 @@ function assertSchema(value: JsonValue, schema: JsonSchema, path = "$"): void {
   if (expected !== undefined) {
     const types = Array.isArray(expected) ? expected : [expected];
     const actual = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
-    if (!types.includes(actual))
+    const matchesInteger =
+      types.includes("integer") && typeof value === "number" && Number.isInteger(value);
+    if (!types.includes(actual) && !matchesInteger)
       throw new TypeError(`Agent result does not match schema at ${path}.`);
   }
   if (

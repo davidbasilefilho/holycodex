@@ -141,6 +141,20 @@ describe("workflow runtime", () => {
     expect(result.errors.length).toBe(1);
   });
 
+  it("validates JSON Schema integer values", async () => {
+    const valid = await runWorkflow({
+      script: `export default agent("integer", { schema: { type: "integer" } });`,
+      executor: async () => 4,
+    });
+    expect(valid.result).toBe(4);
+
+    const invalid = await runWorkflow({
+      script: `export default agent("integer", { schema: { type: "integer" }, retries: 0 });`,
+      executor: async () => 4.5,
+    });
+    expect(invalid.result).toBeNull();
+  });
+
   it("enforces pipeline fan-out and execution bounds", async () => {
     await expect(
       runWorkflow({

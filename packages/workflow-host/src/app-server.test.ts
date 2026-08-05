@@ -3,6 +3,34 @@ import { describe, expect, it } from "vitest";
 import { CodexAppServerClient, type AppServerTransport } from "./app-server";
 
 describe("Codex App Server client", () => {
+  it("serializes concurrent initialization", async () => {
+    const listeners = new Set<(message: unknown) => void>();
+    const methods: unknown[] = [];
+    const transport: AppServerTransport = {
+      onMessage(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      send(line) {
+        const request = JSON.parse(line) as Record<string, unknown>;
+        methods.push(request.method);
+        if (request.id !== undefined)
+          queueMicrotask(() => {
+            for (const listener of listeners)
+              listener({
+                id: request.id,
+                result: request.method === "thread/start" ? { thread: { id: "thread-1" } } : {},
+              });
+          });
+      },
+    };
+    const client = new CodexAppServerClient({ executable: "codex", transport });
+    await Promise.all([client.threadStart(), client.threadStart()]);
+    expect(methods.filter((method) => method === "initialize")).toHaveLength(1);
+    expect(methods.filter((method) => method === "initialized")).toHaveLength(1);
+    await client.close();
+  });
+
   it("speaks JSONL lifecycle and injects route policy", async () => {
     const listeners = new Set<(message: unknown) => void>();
     const requests: Record<string, unknown>[] = [];
