@@ -22,7 +22,6 @@ describe("Codex App Server client", () => {
               ? { turn: { id: "turn-1" } }
               : method === "thread/read"
                 ? {
-                    items: [{ type: "agentMessage", text: '{"ok":true}' }],
                     usage: { inputTokens: 2, outputTokens: 3 },
                   }
                 : {};
@@ -32,7 +31,11 @@ describe("Codex App Server client", () => {
             for (const listener of listeners)
               listener({
                 method: "turn/completed",
-                params: { threadId: "thread-1", usage: { inputTokens: 2, outputTokens: 3 } },
+                params: {
+                  threadId: "thread-1",
+                  usage: { inputTokens: 2, outputTokens: 3 },
+                  turn: { items: [{ type: "agentMessage", text: '{"ok":true}' }] },
+                },
               });
           });
       },
@@ -130,6 +133,50 @@ describe("Codex App Server client", () => {
       /cancel/i,
     );
     expect(methods).not.toContain("turn/start");
+    await client.close();
+  });
+
+  it("declines server-initiated approval requests", async () => {
+    const listeners = new Set<(message: unknown) => void>();
+    const messages: Record<string, unknown>[] = [];
+    const transport: AppServerTransport = {
+      onMessage(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      send(line) {
+        const request = JSON.parse(line) as Record<string, unknown>;
+        messages.push(request);
+        if (request.method === undefined) return;
+        const result =
+          request.method === "thread/start"
+            ? { thread: { id: "thread-1" } }
+            : request.method === "turn/start"
+              ? { turn: { id: "turn-1" } }
+              : {};
+        for (const listener of listeners) listener({ id: request.id, result });
+        if (request.method === "turn/start")
+          queueMicrotask(() => {
+            for (const listener of listeners) {
+              listener({
+                id: 99,
+                method: "item/fileChange/requestApproval",
+                params: { threadId: "thread-1", turnId: "turn-1" },
+              });
+              listener({
+                method: "turn/completed",
+                params: {
+                  threadId: "thread-1",
+                  turn: { items: [{ type: "agentMessage", text: "done" }] },
+                },
+              });
+            }
+          });
+      },
+    };
+    const client = new CodexAppServerClient({ executable: "codex", transport });
+    await expect(client.execute("ignored")).resolves.toMatchObject({ result: "done" });
+    expect(messages).toContainEqual({ id: 99, result: { decision: "decline" } });
     await client.close();
   });
 });

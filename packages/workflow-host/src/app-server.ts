@@ -399,7 +399,35 @@ export class CodexAppServerClient {
       else pending.resolve(message.result);
       return;
     }
+    const method = stringValue(message.method);
+    if (id !== undefined && method !== undefined) {
+      this.respondToServerRequest(id, method);
+      return;
+    }
     for (const listener of this.notifications) listener(message);
+  }
+
+  private respondToServerRequest(id: string | number, method: string): void {
+    let result: Record<string, unknown> | undefined;
+    if (
+      method === "item/commandExecution/requestApproval" ||
+      method === "item/fileChange/requestApproval"
+    )
+      result = { decision: "decline" };
+    else if (method === "item/permissions/requestApproval") result = { permissions: {} };
+    else if (method === "mcpServer/elicitation/request")
+      result = { action: "decline", content: null };
+    const message =
+      result === undefined
+        ? { id, error: { code: -32_601, message: "Unsupported server request." } }
+        : { id, result };
+    const line = `${JSON.stringify(message)}\n`;
+    const send = this.options.transport?.send ?? this.options.transport?.write;
+    if (send !== undefined) {
+      void Promise.resolve(send(line)).catch(() => undefined);
+      return;
+    }
+    this.input?.write(line);
   }
 
   private rejectPending(error: Error): void {
@@ -461,6 +489,9 @@ function collectItems(value: Record<string, unknown>): unknown[] {
   };
   add(value.items);
   add(value.turns);
+  const turn = asRecord(value.turn);
+  add(turn?.items);
+  add(turn?.turns);
   const thread = asRecord(value.thread);
   add(thread?.items);
   add(thread?.turns);
