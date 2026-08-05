@@ -402,7 +402,7 @@ export class WorkflowManager {
       ...(scope === "project" && this.options.projectPath !== undefined
         ? { projectPath: this.options.projectPath }
         : {}),
-      trusted: scope === "project" ? (this.options.trusted ?? false) : true,
+      trusted: this.options.trusted ?? false,
       ...execution,
     });
   }
@@ -601,6 +601,8 @@ function resolveRoute(
   agentName: string | undefined,
   stage: string | undefined,
 ): AgentRoute | undefined {
+  if (agentName === undefined && request.routes !== undefined && request.route === undefined)
+    throw new Error("A default plan route is required for unnamed agent calls.");
   if (agentName !== undefined && request.routes !== undefined) {
     const route =
       request.routes[stage === undefined ? agentName : `${agentName}:${stage}`] ??

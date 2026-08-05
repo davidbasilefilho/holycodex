@@ -118,6 +118,7 @@ async function main(): Promise<void> {
     command,
     args,
     manager,
+    { ...preset.agents.worker, serviceTier },
     routes,
     permittedRoutes,
     trusted,
@@ -130,6 +131,7 @@ async function execute(
   command: WorkflowCommand,
   args: readonly string[],
   manager: WorkflowManager,
+  defaultRoute: { model: string; reasoningEffort: string; serviceTier: string },
   routes: Readonly<Record<string, { model: string; reasoningEffort: string; serviceTier: string }>>,
   permittedRoutes: Readonly<Record<string, readonly { model: string; reasoningEffort: string }[]>>,
   trusted: boolean,
@@ -158,6 +160,7 @@ async function execute(
     const scope = parseScope(required(args, 0));
     enforceProjectTrust(scope, trusted);
     return await manager.invokeSaved(required(args, 1), await optionalJson(args[2]), scope, {
+      route: defaultRoute,
       routes,
       permittedRoutes,
       policy: { cwd: projectPath, lowVerbosity: true },
@@ -171,6 +174,7 @@ async function execute(
     meta: { source: basename(scriptPath) },
     projectPath,
     trusted,
+    route: defaultRoute,
     routes,
     permittedRoutes,
     policy: { cwd: projectPath, lowVerbosity: true },

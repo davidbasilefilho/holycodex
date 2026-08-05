@@ -110,6 +110,40 @@ describe("workflow manager", () => {
     }
   });
 
+  it("requires a plan route for unnamed agent calls", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
+    try {
+      const manager = new WorkflowManager({ storageDir: directory, client: fakeClient([]) });
+      const result = await manager.run({
+        script: 'export default await agent("unnamed")',
+        routes: { worker: { model: "gpt-5.6-sol", reasoningEffort: "xhigh" } },
+      });
+      expect(result.journal.status).toBe("failed");
+      expect(result.result.errors).toContain(
+        "A default plan route is required for unnamed agent calls.",
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves project trust checks for user-scoped saved workflows", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
+    try {
+      const manager = new WorkflowManager({
+        storageDir: join(directory, "runs"),
+        userSavedDir: join(directory, "saved"),
+        projectPath: directory,
+        trusted: false,
+        client: fakeClient([]),
+      });
+      await manager.save("user-workflow", "export default null");
+      await expect(manager.invokeSaved("user-workflow")).rejects.toThrow(/trust/i);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("rejects traversal and symlink escapes from saved workflow roots", async () => {
     const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
     const outside = await mkdtemp(join(tmpdir(), "holycodex-workflow-outside-"));
