@@ -1,6 +1,6 @@
 {
   "name": "@holycodex/workflow-runtime",
-  "version": "0.11.3",
+  "version": "0.12.0",
   "private": true,
   "description": "Isolated QuickJS workflow runtime for model-authored orchestration.",
   "type": "module",
