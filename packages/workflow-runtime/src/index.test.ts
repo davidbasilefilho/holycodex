@@ -47,6 +47,27 @@ describe("workflow runtime", () => {
     expect(prompts).toEqual(["1", "2", "3"]);
   });
 
+  it("applies pipeline metadata while preserving child overrides", async () => {
+    const options: { readonly label?: string; readonly phase?: string }[] = [];
+    const result = await runWorkflow({
+      script: `export default pipeline(["first", "second"], item =>
+        agent(item, item === "second" ? { label: "child" } : {}),
+        { label: "batch", phase: "verification" });`,
+      executor: async (_prompt, agentOptions) => {
+        options.push(agentOptions);
+        return null;
+      },
+    });
+    expect(options).toEqual([
+      { label: "batch", phase: "verification" },
+      { label: "child", phase: "verification" },
+    ]);
+    expect(result.events.filter((event) => event.type === "call-start")).toEqual([
+      { type: "call-start", callId: 1, label: "batch", phase: "verification" },
+      { type: "call-start", callId: 2, label: "child", phase: "verification" },
+    ]);
+  });
+
   it("records retries and partial null failures", async () => {
     let calls = 0;
     const result = await runWorkflow({
@@ -60,6 +81,24 @@ describe("workflow runtime", () => {
     expect(result.result).toEqual([null, null]);
     expect(calls).toBe(3);
     expect(result.errors).toEqual(["rejected"]);
+  });
+
+  it("does not retry stopped agent calls", async () => {
+    let calls = 0;
+    const result = await runWorkflow({
+      script: `export default agent("stop", { retries: 2 });`,
+      executor: async () => {
+        calls += 1;
+        throw new Error("Agent call cancelled.");
+      },
+    });
+    expect(result.result).toBeNull();
+    expect(calls).toBe(1);
+    expect(result.events).toContainEqual({
+      type: "call-failed",
+      callId: 1,
+      attempts: 1,
+    });
   });
 
   it("rejects non-isolated imports and validates structured output", async () => {

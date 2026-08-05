@@ -281,7 +281,9 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowResult>
       });
       const attempts = Math.min(safeOptions.retries ?? limits.maxRetries, limits.maxRetries) + 1;
       let lastError = "Agent executor failed.";
+      let attemptsMade = 0;
       for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        attemptsMade = attempt;
         if (isCancelled()) throw new Error("Workflow cancelled or timed out.");
         try {
           const value = await withCancellation(
@@ -310,6 +312,8 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowResult>
             ...(safeOptions.phase === undefined ? {} : { phase: safeOptions.phase }),
             error: lastError,
           });
+          if (isCancelled()) throw new Error("Workflow cancelled or timed out.");
+          if (isCancellationError(error)) break;
           if (attempt < attempts) continue;
         }
       }
@@ -317,7 +321,7 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowResult>
       emit({
         type: "call-failed",
         callId,
-        attempts,
+        attempts: attemptsMade,
         ...(safeOptions.label === undefined ? {} : { label: safeOptions.label }),
         ...(safeOptions.phase === undefined ? {} : { phase: safeOptions.phase }),
       });
@@ -335,7 +339,15 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowResult>
         throw new Error("Workflow pipeline fan-out quota exceeded.");
       const concurrency = Math.min(request.options.concurrency ?? 1, limits.maxConcurrency);
       const values = await runBounded(request.descriptors, concurrency, async (descriptor) =>
-        executeAgent(descriptor.prompt, descriptor.options),
+        executeAgent(descriptor.prompt, {
+          ...descriptor.options,
+          ...(descriptor.options.label === undefined && request.options.label !== undefined
+            ? { label: request.options.label }
+            : {}),
+          ...(descriptor.options.phase === undefined && request.options.phase !== undefined
+            ? { phase: request.options.phase }
+            : {}),
+        }),
       );
       return context.newString(JSON.stringify(values));
     });
@@ -366,6 +378,10 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowResult>
 
 /** Alias for runWorkflow for callers that prefer an execute verb. */
 export const executeWorkflow = runWorkflow;
+
+function isCancellationError(error: unknown): boolean {
+  return error instanceof Error && /cancel|interrupt|stopp?ed/i.test(error.message);
+}
 
 function installValue(context: QuickJSAsyncContext, name: string, value: JsonValue): void {
   const parsed = context.unwrapResult(
