@@ -160,16 +160,17 @@ async function execute(
   if (command === "invoke") {
     const scope = parseScope(required(args, 0));
     enforceProjectTrust(scope, trusted);
-    return await manager.invokeSaved(required(args, 1), await optionalJson(args[2]), scope, {
+    const run = await manager.invokeSaved(required(args, 1), await optionalJson(args[2]), scope, {
       route: defaultRoute,
       routes,
       permittedRoutes,
       policy: { cwd: projectPath, lowVerbosity: true },
     });
+    return runProjection(run);
   }
   const scriptPath = resolve(required(args, 0));
   const invocationArgs = await optionalJson(args[1]);
-  return await manager.run({
+  const run = await manager.run({
     script: await readFile(scriptPath, "utf8"),
     ...(invocationArgs === undefined ? {} : { args: invocationArgs }),
     meta: { source: basename(scriptPath) },
@@ -180,6 +181,17 @@ async function execute(
     permittedRoutes,
     policy: { cwd: projectPath, lowVerbosity: true },
   });
+  return runProjection(run);
+}
+
+function runProjection(run: Awaited<ReturnType<WorkflowManager["run"]>>): unknown {
+  return {
+    id: run.id,
+    status: run.journal.status,
+    result: run.result.result,
+    errors: run.journal.errors,
+    usage: run.journal.usage,
+  };
 }
 
 function parseCommand(value: string | undefined): WorkflowCommand {

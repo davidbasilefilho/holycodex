@@ -620,12 +620,9 @@ function assertSchema(value: JsonValue, schema: JsonSchema, path = "$"): void {
     if (!types.includes(actual) && !matchesInteger)
       throw new TypeError(`Agent result does not match schema at ${path}.`);
   }
-  if (
-    schema.enum !== undefined &&
-    !schema.enum.some((entry) => JSON.stringify(entry) === JSON.stringify(value))
-  )
+  if (schema.enum !== undefined && !schema.enum.some((entry) => jsonEqual(entry, value)))
     throw new TypeError(`Agent result does not match schema at ${path}.`);
-  if (schema.const !== undefined && JSON.stringify(schema.const) !== JSON.stringify(value))
+  if (schema.const !== undefined && !jsonEqual(schema.const, value))
     throw new TypeError(`Agent result does not match schema at ${path}.`);
   const itemSchema = schema.items;
   if (Array.isArray(value) && itemSchema !== undefined)
@@ -639,9 +636,27 @@ function assertSchema(value: JsonValue, schema: JsonSchema, path = "$"): void {
       if (key in value && childValue !== undefined)
         assertSchema(childValue, child, `${path}.${key}`);
     }
-    if (schema.additionalProperties === false && schema.properties !== undefined)
+    if (schema.additionalProperties === false)
       for (const key of Object.keys(value))
-        if (!(key in schema.properties))
+        if (!(key in (schema.properties ?? {})))
           throw new TypeError(`Agent result does not match schema at ${path}.${key}.`);
   }
+}
+
+function jsonEqual(left: JsonValue, right: JsonValue): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) && Array.isArray(right))
+    return (
+      left.length === right.length && left.every((value, index) => jsonEqual(value, right[index]))
+    );
+  if (!isRecord(left) || !isRecord(right)) return false;
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key, index) =>
+        key === rightKeys[index] && jsonEqual(left[key] as JsonValue, right[key] as JsonValue),
+    )
+  );
 }

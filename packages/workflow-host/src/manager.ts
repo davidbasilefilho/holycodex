@@ -671,8 +671,10 @@ function sanitize(value: unknown): JsonValue {
   return null;
 }
 function sanitizeError(error: unknown): string {
-  if (error instanceof Error && /cancel|timeout|quota|trust|plan|script/i.test(error.message))
-    return error.message.slice(0, 200);
+  if (error instanceof Error)
+    return error.message
+      .replace(/(credential|password|secret|token)\s*[:=]\s*\S+/gi, "$1=[redacted]")
+      .slice(0, 200);
   return "Workflow failed.";
 }
 function addUsage(a: AgentExecution["usage"], b: AgentExecution["usage"]): AgentExecution["usage"] {
