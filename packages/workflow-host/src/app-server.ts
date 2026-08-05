@@ -215,12 +215,24 @@ export class CodexAppServerClient {
     };
     options.signal?.addEventListener("abort", abort, { once: true });
     try {
-      const completion = this.waitForTurnCompletion(threadId, options.signal);
-      const turnResponse = (await this.turnStart(
-        threadId,
-        agentPrompt(prompt, options),
-        policy,
-      )) as Record<string, unknown>;
+      const completionController = new AbortController();
+      const cancelCompletion = (): void => completionController.abort();
+      options.signal?.addEventListener("abort", cancelCompletion, { once: true });
+      const completion = this.waitForTurnCompletion(threadId, completionController.signal);
+      let turnResponse: Record<string, unknown>;
+      try {
+        turnResponse = (await this.turnStart(
+          threadId,
+          agentPrompt(prompt, options),
+          policy,
+        )) as Record<string, unknown>;
+      } catch (error) {
+        completionController.abort();
+        await completion.catch(() => undefined);
+        throw error;
+      } finally {
+        options.signal?.removeEventListener("abort", cancelCompletion);
+      }
       const turn = asRecord(turnResponse.turn) ?? turnResponse;
       turnId = stringValue(turn.id ?? turn.turnId);
       if (options.signal?.aborted === true) throw new Error("Agent call cancelled.");

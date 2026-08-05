@@ -243,7 +243,7 @@ export class WorkflowManager {
           }
           journalState.completed[replayKey] = {
             replayKey,
-            result: sanitize(execution.result),
+            result: execution.result,
             usage: execution.usage,
             ...(agentOptions.agent === undefined ? {} : { agent: agentOptions.agent }),
             ...(agentOptions.label === undefined ? {} : { label: agentOptions.label }),

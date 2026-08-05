@@ -28,6 +28,7 @@ export async function runWorkflowInSubprocess(
   input: WorkflowInput,
   options: IsolatedWorkflowOptions,
 ): Promise<WorkflowResult> {
+  if (input.signal?.aborted === true) throw new Error("Workflow cancelled.");
   return await new Promise<WorkflowResult>((resolve, reject) => {
     let child: ChildProcessWithoutNullStreams;
     try {
@@ -93,6 +94,10 @@ export async function runWorkflowInSubprocess(
       if (!settled) fail(new Error(`Workflow evaluator exited with code ${code ?? "unknown"}.`));
     });
     input.signal?.addEventListener("abort", abort, { once: true });
+    if (input.signal?.aborted === true) {
+      abort();
+      return;
+    }
     send(child, {
       type: "start",
       script: input.script,

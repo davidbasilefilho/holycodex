@@ -76,4 +76,32 @@ describe("Codex App Server client", () => {
     expect(requests.map((request) => request.method)).toContain("turn/interrupt");
     expect(requests.map((request) => request.method)).toContain("thread/resume");
   });
+
+  it("disposes the completion wait when turn start fails", async () => {
+    const listeners = new Set<(message: unknown) => void>();
+    const transport: AppServerTransport = {
+      onMessage(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      send(line) {
+        const request = JSON.parse(line) as Record<string, unknown>;
+        const result = request.method === "thread/start" ? { thread: { id: "thread-1" } } : {};
+        for (const listener of listeners)
+          listener(
+            request.method === "turn/start"
+              ? { id: request.id, error: "turn start rejected" }
+              : { id: request.id, result },
+          );
+      },
+    };
+    const client = new CodexAppServerClient({
+      executable: "codex",
+      transport,
+      requestTimeoutMs: 10,
+    });
+    await expect(client.execute("ignored")).rejects.toThrow("turn start rejected");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await client.close();
+  });
 });

@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { CodexAppServerClient, type AppServerTransport } from "./app-server";
 import { safeChildPath, WorkflowManager } from "./manager";
 
-function fakeClient(calls: string[]): CodexAppServerClient {
+function fakeClient(calls: string[], responseText = '{"ok":true}'): CodexAppServerClient {
   const listeners = new Set<(message: unknown) => void>();
   const transport: AppServerTransport = {
     onMessage(listener) {
@@ -24,7 +24,7 @@ function fakeClient(calls: string[]): CodexAppServerClient {
           : method === "turn/start"
             ? { turn: { id: "turn-1" } }
             : method === "thread/read"
-              ? { items: [{ type: "agent_message", text: '{"ok":true}' }] }
+              ? { items: [{ type: "agent_message", text: responseText }] }
               : {};
       for (const listener of listeners) listener({ id: request.id, result });
       if (method === "turn/start")
@@ -54,6 +54,29 @@ describe("workflow manager", () => {
       );
       expect(journal).not.toContain("transcript");
       expect(journal).not.toContain("system prompt");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves exact structured agent results when replaying", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
+    try {
+      const calls: string[] = [];
+      const manager = new WorkflowManager({
+        storageDir: directory,
+        client: fakeClient(calls, '{"next_token":"cursor","tokenCount":7,"ok":true}'),
+      });
+      const script = 'export default await agent("continue")';
+      const first = await manager.run({ script });
+      const replayed = await manager.run({ script });
+      expect(replayed.result.result).toEqual(first.result.result);
+      expect(replayed.result.result).toEqual({
+        next_token: "cursor",
+        tokenCount: 7,
+        ok: true,
+      });
+      expect(calls.filter((method) => method === "turn/start")).toHaveLength(1);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

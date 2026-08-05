@@ -57,4 +57,24 @@ lines.on("line", line => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it("does not start a workflow with a pre-aborted signal", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let executed = false;
+    await expect(
+      runWorkflowInSubprocess(
+        {
+          script: "return null",
+          executor: async () => {
+            executed = true;
+            return null;
+          },
+          signal: controller.signal,
+        },
+        { executable: process.execPath, workerPath: "unused-worker.mjs" },
+      ),
+    ).rejects.toThrow(/cancel/i);
+    expect(executed).toBe(false);
+  });
 });
