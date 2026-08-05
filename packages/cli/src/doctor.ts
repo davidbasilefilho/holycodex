@@ -23,6 +23,8 @@ import {
 import { context7Command, executableOnPath } from "./context7.ts";
 import { rootTomlString, rootTomlStringArray } from "./toml.ts";
 
+const DOCTOR_LSP_IDLE_SHUTDOWN_MS = 1_000;
+
 export type CheckStatus = "ok" | "warning" | "error";
 export type DoctorCheck = {
   readonly id: string;
@@ -258,7 +260,7 @@ export async function doctor(
     [join(pluginRoot, "runtime", "lsp.js"), "status", "--json"],
     {
       ...process.env,
-      HOLYCODEX_LSP_IDLE_SHUTDOWN_MS: "0",
+      HOLYCODEX_LSP_IDLE_SHUTDOWN_MS: String(DOCTOR_LSP_IDLE_SHUTDOWN_MS),
       HOLYCODEX_LSP_IDLE_CHECK_INTERVAL_MS: "50",
     },
   );
