@@ -104,4 +104,32 @@ describe("Codex App Server client", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     await client.close();
   });
+
+  it("does not start a turn when cancelled during thread start", async () => {
+    const listeners = new Set<(message: unknown) => void>();
+    const methods: unknown[] = [];
+    const controller = new AbortController();
+    const transport: AppServerTransport = {
+      onMessage(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      send(line) {
+        const request = JSON.parse(line) as Record<string, unknown>;
+        methods.push(request.method);
+        if (request.method === "thread/start") controller.abort();
+        for (const listener of listeners)
+          listener({
+            id: request.id,
+            result: request.method === "thread/start" ? { thread: { id: "thread-1" } } : {},
+          });
+      },
+    };
+    const client = new CodexAppServerClient({ executable: "codex", transport });
+    await expect(client.execute("ignored", { signal: controller.signal })).rejects.toThrow(
+      /cancel/i,
+    );
+    expect(methods).not.toContain("turn/start");
+    await client.close();
+  });
 });

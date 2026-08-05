@@ -209,12 +209,17 @@ export class CodexAppServerClient {
     const thread = asRecord(started.thread) ?? started;
     const threadId = stringValue(thread.id ?? thread.threadId);
     if (threadId === undefined) throw new Error("Codex App Server did not return a thread id.");
+    if (isAborted(options.signal)) throw new Error("Agent call cancelled.");
     let turnId: string | undefined;
     const abort = (): void => {
       void this.turnInterrupt(threadId, turnId).catch(() => undefined);
     };
     options.signal?.addEventListener("abort", abort, { once: true });
     try {
+      if (isAborted(options.signal)) {
+        abort();
+        throw new Error("Agent call cancelled.");
+      }
       const completionController = new AbortController();
       const cancelCompletion = (): void => completionController.abort();
       options.signal?.addEventListener("abort", cancelCompletion, { once: true });
@@ -235,7 +240,7 @@ export class CodexAppServerClient {
       }
       const turn = asRecord(turnResponse.turn) ?? turnResponse;
       turnId = stringValue(turn.id ?? turn.turnId);
-      if (options.signal?.aborted === true) throw new Error("Agent call cancelled.");
+      if (isAborted(options.signal)) throw new Error("Agent call cancelled.");
       const completed = await completion;
       const read = (await this.threadRead(threadId)) as Record<string, unknown>;
       return extractExecution({ ...read, ...completed }, threadId, turnId);
@@ -502,6 +507,9 @@ function stringValue(value: unknown): string | undefined {
 }
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
 }
 function publicError(value: unknown): string {
   return typeof value === "string" ? value : "Codex App Server request failed.";
