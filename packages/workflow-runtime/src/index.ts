@@ -8,6 +8,7 @@ export type JsonValue =
   | { readonly [key: string]: JsonValue };
 
 export type AgentOptions = {
+  readonly callId?: number;
   readonly agent?: string;
   readonly stage?: string;
   readonly label?: string;
@@ -287,7 +288,7 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowResult>
         if (isCancelled()) throw new Error("Workflow cancelled or timed out.");
         try {
           const value = await withCancellation(
-            Promise.resolve(input.executor(prompt, safeOptions)),
+            Promise.resolve(input.executor(prompt, { ...safeOptions, callId })),
             deadline,
             input.signal,
           );
@@ -477,7 +478,7 @@ async function runBounded<T>(
 }
 
 function moduleSource(script: string): string {
-  if (/\bexport\s+default\b/.test(script)) return script;
+  if (/\bexport\s+default\b/.test(maskJavaScriptLiterals(script))) return script;
   const body = script.replace(/\bexport\s+const\s+meta\s*=/, "__workflowMeta.value =");
   return `
 const __workflowMeta = { value: null };
@@ -487,6 +488,58 @@ ${body}
 export const meta = __workflowMeta.value;
 export default __workflowResult;
 `;
+}
+
+function maskJavaScriptLiterals(source: string): string {
+  let result = "";
+  let state: "code" | "single" | "double" | "template" | "line" | "block" = "code";
+  for (let index = 0; index < source.length; index += 1) {
+    const current = source[index] ?? "";
+    const next = source[index + 1] ?? "";
+    if (state === "code") {
+      if (current === "/" && next === "/") {
+        state = "line";
+        result += "  ";
+        index += 1;
+      } else if (current === "/" && next === "*") {
+        state = "block";
+        result += "  ";
+        index += 1;
+      } else if (current === "'") {
+        state = "single";
+        result += " ";
+      } else if (current === '"') {
+        state = "double";
+        result += " ";
+      } else if (current === "`") {
+        state = "template";
+        result += " ";
+      } else result += current;
+      continue;
+    }
+    if (current === "\n" && (state === "line" || state === "single" || state === "double")) {
+      if (state === "line") state = "code";
+      result += "\n";
+      continue;
+    }
+    if (state === "block" && current === "*" && next === "/") {
+      state = "code";
+      result += "  ";
+      index += 1;
+      continue;
+    }
+    if (
+      (state === "single" && current === "'") ||
+      (state === "double" && current === '"') ||
+      (state === "template" && current === "`")
+    )
+      state = "code";
+    if (current === "\\" && state !== "line" && state !== "block") {
+      result += "  ";
+      index += 1;
+    } else result += current === "\n" ? "\n" : " ";
+  }
+  return result;
 }
 
 function drainPendingJobs(

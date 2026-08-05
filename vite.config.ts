@@ -1,9 +1,11 @@
 import { copyFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 
 import { defineConfig } from "vite-plus";
 
 const root = import.meta.dirname;
+const workflowRequire = createRequire(join(root, "packages", "workflow-runtime", "package.json"));
 
 export default defineConfig({
   root,
@@ -20,14 +22,7 @@ export default defineConfig({
           join(runtimeRoot, "LICENSE-LSP-MIT.txt"),
         );
         await copyFile(
-          join(
-            root,
-            "packages",
-            "workflow-runtime",
-            "node_modules",
-            "quickjs-emscripten",
-            "LICENSE",
-          ),
+          join(dirname(workflowRequire.resolve("quickjs-emscripten/package.json")), "LICENSE"),
           join(runtimeRoot, "LICENSE-QUICKJS-EMSCRIPTEN-MIT.txt"),
         );
       },

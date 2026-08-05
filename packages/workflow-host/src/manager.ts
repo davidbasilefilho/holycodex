@@ -201,7 +201,7 @@ export class WorkflowManager {
         limits,
         onEvent: recordEvent,
         executor: async (prompt, agentOptions) => {
-          const callId = String(++callIndex);
+          const callId = String(agentOptions.callId ?? ++callIndex);
           const agentName =
             typeof (agentOptions as AgentOptions & { readonly agent?: unknown }).agent === "string"
               ? (agentOptions as AgentOptions & { readonly agent: string }).agent

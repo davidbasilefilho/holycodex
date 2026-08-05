@@ -32,6 +32,15 @@ describe("workflow runtime", () => {
     expect(result.meta).toEqual({ name: "return-style" });
   });
 
+  it("ignores export syntax inside return-style comments and prompts", async () => {
+    const result = await runWorkflow({
+      script: `// review an export default declaration
+        return agent(\`Review this code:\nexport default function example() {}\`);`,
+      executor: async (prompt) => prompt,
+    });
+    expect(result.result).toContain("export default function example");
+  });
+
   it("provides args and preserves pipeline order while bounding calls", async () => {
     const prompts: string[] = [];
     const result = await runWorkflow({
@@ -59,8 +68,8 @@ describe("workflow runtime", () => {
       },
     });
     expect(options).toEqual([
-      { label: "batch", phase: "verification" },
-      { label: "child", phase: "verification" },
+      { callId: 1, label: "batch", phase: "verification" },
+      { callId: 2, label: "child", phase: "verification" },
     ]);
     expect(result.events.filter((event) => event.type === "call-start")).toEqual([
       { type: "call-start", callId: 1, label: "batch", phase: "verification" },
@@ -81,6 +90,20 @@ describe("workflow runtime", () => {
     expect(result.result).toEqual([null, null]);
     expect(calls).toBe(3);
     expect(result.errors).toEqual(["rejected"]);
+  });
+
+  it("keeps call ids stable across retries", async () => {
+    const callIds: (number | undefined)[] = [];
+    const result = await runWorkflow({
+      script: `export default agent("retry", { retries: 2 });`,
+      executor: async (_prompt, options) => {
+        callIds.push(options.callId);
+        if (callIds.length < 3) throw new Error("retry");
+        return "done";
+      },
+    });
+    expect(result.result).toBe("done");
+    expect(callIds).toEqual([1, 1, 1]);
   });
 
   it("does not retry stopped agent calls", async () => {
