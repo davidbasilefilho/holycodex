@@ -40,6 +40,8 @@
   },
   "dependencies": {
     "@holycodex/plugin": "0.11.3",
+    "@holycodex/workflow-host": "workspace:*",
+    "@holycodex/workflow-runtime": "workspace:*",
     "zod": "^4.4.3"
   },
   "engines": {

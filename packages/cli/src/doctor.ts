@@ -16,8 +16,8 @@ import {
 } from "./catalog.ts";
 import {
   readManagedFastMode,
-  readManagedMaxSubagents,
   readManagedPlan,
+  readManagedWorkflowPolicy,
   readPreservedRootOverrides,
 } from "./config.ts";
 import { context7Command, executableOnPath } from "./context7.ts";
@@ -296,7 +296,7 @@ export async function doctor(
   const plan = readManagedPlan(config);
   const overrides = readPreservedRootOverrides(config);
   const fast = readManagedFastMode(config);
-  const max = readManagedMaxSubagents(config);
+  const workflow = readManagedWorkflowPolicy(config);
   checks.push(
     plan === undefined
       ? check(
@@ -310,7 +310,70 @@ export async function doctor(
           "routes",
           "ok",
           "routes-ready",
-          `${plan} routes are active${max.configured ? ` with max-subagents=${max.value ?? "invalid"}` : ""}.`,
+          `${plan} workflow policy is active with permitted stage routes.`,
+        ),
+  );
+  checks.push(
+    plan === undefined || workflow === undefined
+      ? check(
+          "workflow",
+          "error",
+          "workflow-settings-missing",
+          "Managed workflow settings are missing or invalid.",
+          "Reinstall HolyCodex.",
+        )
+      : JSON.stringify(workflow) ===
+          JSON.stringify({
+            plan,
+            limits: MODEL_ROUTING_PLANS[plan].workflow.limits,
+            projectedUsage: MODEL_ROUTING_PLANS[plan].workflow.projectedUsage,
+            runtime: MODEL_ROUTING_PLANS[plan].workflow.runtime,
+            softSizeGuidance: MODEL_ROUTING_PLANS[plan].workflow.softSizeGuidance,
+          })
+        ? check(
+            "workflow",
+            "ok",
+            "workflow-settings-ready",
+            `${plan} workflow limits, projected usage, runtime, and size guidance match the catalog.`,
+          )
+        : check(
+            "workflow",
+            "error",
+            "workflow-settings-drift",
+            `${plan} workflow settings do not match the authoritative catalog.`,
+            "Reinstall HolyCodex.",
+          ),
+  );
+  checks.push(
+    missing.includes("runtime/workflow.js")
+      ? check(
+          "workflow-runtime",
+          "error",
+          "workflow-runtime-missing",
+          "The isolated workflow runtime is missing.",
+          "Reinstall HolyCodex.",
+        )
+      : check(
+          "workflow-runtime",
+          "ok",
+          "workflow-runtime-ready",
+          "The isolated workflow runtime is present.",
+        ),
+  );
+  const manifestPath = join(pluginRoot, ".codex-plugin", "plugin.json");
+  const manifest = await readFile(manifestPath, "utf8").catch(() => "");
+  const mcpManifest = await access(join(pluginRoot, ".mcp.json"))
+    .then(() => true)
+    .catch(() => false);
+  checks.push(
+    !mcpManifest && !manifest.includes("mcpServers") && !manifest.includes("MCP Tools")
+      ? check("mcp", "ok", "mcp-free", "The installation does not declare MCP servers or tools.")
+      : check(
+          "mcp",
+          "error",
+          "mcp-declared",
+          "The installation declares MCP servers or tools.",
+          "Reinstall HolyCodex from a MCP-free package.",
         ),
   );
   checks.push(

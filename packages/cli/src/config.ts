@@ -9,6 +9,7 @@ import {
   MODEL_ROUTING_PLANS,
   PLAN_NAMES,
   type PlanName,
+  type WorkflowLimits,
 } from "./catalog.ts";
 import {
   AUTONOMY_METADATA_PREFIX,
@@ -36,6 +37,7 @@ const ORIGINAL_TABLE_KEY = "# holycodex original table key: ";
 const PLAN_PREFIX = "# holycodex plan: ";
 const FAST_MODE_PREFIX = "# holycodex fast: ";
 const MAX_SUBAGENTS_PREFIX = "# holycodex max-subagents: ";
+const WORKFLOW_POLICY_PREFIX = "# holycodex workflow-policy: ";
 
 export type { AutonomyMode, RequestedAutonomy } from "./permission-selection.ts";
 export type ManagedMaxSubagents =
@@ -241,6 +243,54 @@ export function readManagedMaxSubagents(input: string): ManagedMaxSubagents {
   return { configured: true, value: Number(raw) };
 }
 
+export type ManagedWorkflowPolicy = {
+  readonly plan: PlanName;
+  readonly limits: WorkflowLimits;
+  readonly projectedUsage: { readonly standard: number; readonly fast: number };
+  readonly runtime: { readonly maxSeconds: number };
+  readonly softSizeGuidance: { readonly maxInputTokens: number };
+};
+
+/** Reads the plan-authoritative workflow policy metadata from managed configuration. */
+export function readManagedWorkflowPolicy(input: string): ManagedWorkflowPolicy | undefined {
+  const raw = new RegExp(
+    `^${WORKFLOW_POLICY_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(.+)$`,
+    "m",
+  ).exec(input)?.[1];
+  if (raw === undefined) return undefined;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== "object" || value === null) return undefined;
+    const record = value as Record<string, unknown>;
+    const plan = PLAN_NAMES.find((name) => name === record.plan);
+    const limits = record.limits;
+    const usage = record.projectedUsage;
+    const runtime = record.runtime;
+    const size = record.softSizeGuidance;
+    if (
+      plan === undefined ||
+      typeof limits !== "object" ||
+      limits === null ||
+      typeof usage !== "object" ||
+      usage === null ||
+      typeof runtime !== "object" ||
+      runtime === null ||
+      typeof size !== "object" ||
+      size === null
+    )
+      return undefined;
+    return {
+      plan,
+      limits: limits as WorkflowLimits,
+      projectedUsage: usage as ManagedWorkflowPolicy["projectedUsage"],
+      runtime: runtime as ManagedWorkflowPolicy["runtime"],
+      softSizeGuidance: size as ManagedWorkflowPolicy["softSizeGuidance"],
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 type RootModelOverrides = {
   readonly model: boolean;
   readonly reasoningEffort: boolean;
@@ -309,7 +359,7 @@ export function installConfig(
   mode: AutonomyMode | RequestedAutonomy | undefined,
   _platform: NodeJS.Platform,
   plan: PlanName = DEFAULT_PLAN,
-  maxSubagents?: number,
+  _legacyMaxSubagents?: number,
   fastMode: FastMode = "standard",
 ): string {
   const request = normalizeRequestedAutonomy(mode);
@@ -379,7 +429,6 @@ export function installConfig(
   const hasModel = /^\s*model\s*=/m.test(preservedRoot);
   const hasEffort = /^\s*model_reasoning_effort\s*=/m.test(preservedRoot);
   const rootRoute = MODEL_ROUTING_PLANS[plan].root;
-  const effectiveMaxSubagents = maxSubagents ?? MODEL_ROUTING_PLANS[plan].usage.maxSubagents;
   const model = hasModel ? "" : `model = "${rootRoute.model}"\n`;
   const effort = hasEffort ? "" : `model_reasoning_effort = "${rootRoute.reasoningEffort}"\n`;
   const originalSource =
@@ -391,8 +440,6 @@ export function installConfig(
   const original = originalSource
     ? `${ORIGINAL_ROOT}${Buffer.from(originalSource).toString("base64")}\n`
     : "";
-  const maxSubagentsMetadata =
-    maxSubagents === undefined ? "" : `${MAX_SUBAGENTS_PREFIX}${maxSubagents}\n`;
   const rootServiceTier = fastMode === "fast-all" ? "fast" : "default";
   const priorManagedRoot = new RegExp(`^${START}\\r?\\n([\\s\\S]*?)^${END}\\r?$`, "m").exec(
     input,
@@ -404,7 +451,15 @@ export function installConfig(
     rootValue(root, "status_line") ??
       rootTomlStringArraySource(tableSource(base, "tui") ?? "", "status_line"),
   );
-  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${FAST_MODE_PREFIX}${fastMode}\n${AUTONOMY_METADATA_PREFIX}${effectiveAutonomy}\n${maxSubagentsMetadata}${original}${originalPermissionMetadata(permissionLines)}${model}${effort}web_search = ${JSON.stringify(webSearch)}\nmodel_verbosity = "low"\nservice_tier = "${rootServiceTier}"\n${rootPermissionLines.join("\n")}\n${END}`;
+  const workflow = MODEL_ROUTING_PLANS[plan].workflow;
+  const workflowMetadata = JSON.stringify({
+    plan,
+    limits: workflow.limits,
+    projectedUsage: workflow.projectedUsage,
+    runtime: workflow.runtime,
+    softSizeGuidance: workflow.softSizeGuidance,
+  });
+  const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${FAST_MODE_PREFIX}${fastMode}\n${WORKFLOW_POLICY_PREFIX}${workflowMetadata}\n${AUTONOMY_METADATA_PREFIX}${effectiveAutonomy}\n${original}${originalPermissionMetadata(permissionLines)}${model}${effort}web_search = ${JSON.stringify(webSearch)}\nmodel_verbosity = "low"\nservice_tier = "${rootServiceTier}"\n${rootPermissionLines.join("\n")}\n${END}`;
   let configured = `${preservedRoot ? `${preservedRoot}\n` : ""}${rootBlock}${tables ? `\n\n${tables}` : ""}`;
   const legacyMultiAgentV2 = /\bmulti_agent_v2\s*=\s*(true|false)/.exec(configured)?.[1];
   configured = injectTableKeys(configured, "features", [
@@ -412,10 +467,8 @@ export function installConfig(
     ["multi_agent", "true"],
     ...(legacyMultiAgentV2 === undefined ? [] : [["multi_agent_v2", legacyMultiAgentV2] as const]),
   ]);
-  const usage = MODEL_ROUTING_PLANS[plan].usage;
   configured = injectTableKeys(configured, "agents", [
-    ["max_concurrent_threads_per_session", String(effectiveMaxSubagents + 1)],
-    ["max_depth", String(usage.maxDepth)],
+    ["max_concurrent_threads_per_session", String(workflow.limits.concurrency + 1)],
   ]);
   configured = injectTableKeys(configured, "tui", [["status_line", statusLine]]);
   if (effectiveAutonomy !== "dangerous")

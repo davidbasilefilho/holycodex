@@ -1,0 +1,4 @@
+interface:
+  display_name: "HolyCodex: Workflows"
+  short_description: "Run and manage isolated dynamic Codex workflows."
+  default_prompt: "Use $workflows to author and execute a plan-aware dynamic workflow for this task."

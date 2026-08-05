@@ -27,6 +27,7 @@ const manualTitles = {
   refactor: "Refactor",
   "remove-slop": "Remove Slop",
   rules: "Rules",
+  workflows: "Workflows",
 } satisfies Record<(typeof SKILLS)[number], string>;
 const metadataSchema = z.strictObject({
   interface: z.strictObject({
