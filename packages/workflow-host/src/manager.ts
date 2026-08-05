@@ -216,6 +216,7 @@ export class WorkflowManager {
             route,
             limits,
             this.options.plan ?? "unknown",
+            request.policy,
           );
           const cached = journalState.completed[replayKey];
           if (cached !== undefined) return cached.result;
@@ -309,7 +310,10 @@ export class WorkflowManager {
   public async list(): Promise<readonly WorkflowJournal[]> {
     await mkdir(this.options.storageDir, { recursive: true });
     const names = (await readdir(this.options.storageDir))
-      .filter((name) => name.startsWith("run-") && name.endsWith(".json"))
+      .filter(
+        (name) =>
+          name.startsWith("run-") && name.endsWith(".json") && !name.endsWith(".control.json"),
+      )
       .sort();
     const result: WorkflowJournal[] = [];
     for (const name of names) {
@@ -496,7 +500,8 @@ export class WorkflowManager {
   private async loadReplayCache(current: MutableJournal): Promise<Record<string, CompletedAgent>> {
     try {
       const names = (await readdir(this.options.storageDir)).filter(
-        (name) => name.startsWith("run-") && name.endsWith(".json"),
+        (name) =>
+          name.startsWith("run-") && name.endsWith(".json") && !name.endsWith(".control.json"),
       );
       const cache: Record<string, CompletedAgent> = {};
       for (const name of names) {
@@ -508,6 +513,7 @@ export class WorkflowManager {
             previous.scriptDigest !== current.scriptDigest ||
             previous.projectPath !== current.projectPath ||
             previous.trusted !== current.trusted ||
+            stableStringify(previous.policy) !== stableStringify(current.policy) ||
             stableStringify(previous.planLimits) !== stableStringify(current.planLimits)
           )
             continue;
@@ -581,6 +587,7 @@ export function computeReplayKey(
   route: AgentRoute | undefined,
   limits: PlanLimits,
   plan: string,
+  policy?: AppServerPolicy,
 ): string {
   return digest(
     stableStringify({
@@ -592,6 +599,7 @@ export function computeReplayKey(
       route,
       limits,
       plan,
+      policy,
     }),
   );
 }

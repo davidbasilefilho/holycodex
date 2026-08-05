@@ -59,6 +59,32 @@ describe("workflow manager", () => {
     }
   });
 
+  it("does not replay results across host policy changes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
+    try {
+      const calls: string[] = [];
+      const manager = new WorkflowManager({ storageDir: directory, client: fakeClient(calls) });
+      const script = 'export default await agent("policy-sensitive")';
+      await manager.run({ script, policy: { approvalPolicy: "on-request" } });
+      await manager.run({ script, policy: { approvalPolicy: "never" } });
+      expect(calls.filter((method) => method === "turn/start")).toHaveLength(2);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("excludes lifecycle control files from run listings", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
+    try {
+      const manager = new WorkflowManager({ storageDir: directory, client: fakeClient([]) });
+      const run = await manager.run({ script: "export default null" });
+      await manager.stopRun(run.id);
+      expect(await manager.list()).toHaveLength(1);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("fails closed for untrusted project execution", async () => {
     const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
     try {

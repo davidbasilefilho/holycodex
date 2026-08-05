@@ -85,6 +85,7 @@ async function main(): Promise<void> {
         executable: codexExecutable,
         args: ["app-server"],
         cwd: projectPath,
+        requestTimeoutMs: preset.workflow.runtime.maxRuntimeMs,
       }),
     policy: { cwd: projectPath, lowVerbosity: true },
     runner: async (input) =>
