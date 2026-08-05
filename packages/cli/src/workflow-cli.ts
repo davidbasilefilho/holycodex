@@ -62,10 +62,11 @@ async function main(): Promise<void> {
   const preset = MODEL_ROUTING_PLANS[plan];
   const serviceTier = fast === "standard" ? "default" : "fast";
   const projectPath = process.cwd();
+  const codexHome = process.env.CODEX_HOME?.trim() || join(homedir(), ".codex");
   const codexExecutable = process.env.HOLYCODEX_CODEX_COMMAND ?? "codex";
   const manager = new WorkflowManager({
-    storageDir: join(homedir(), ".codex", "holycodex", "workflow-runs"),
-    userSavedDir: join(homedir(), ".codex", "workflows"),
+    storageDir: join(codexHome, "holycodex", "workflow-runs"),
+    userSavedDir: join(codexHome, "workflows"),
     projectSavedDir: join(projectPath, ".codex", "workflows"),
     projectPath,
     trusted,
@@ -217,7 +218,8 @@ async function optionalJson(path: string | undefined): Promise<JsonValue | undef
 
 async function installedConfiguration(): Promise<string> {
   try {
-    return await readFile(join(homedir(), ".codex", "config.toml"), "utf8");
+    const codexHome = process.env.CODEX_HOME?.trim() || join(homedir(), ".codex");
+    return await readFile(join(codexHome, "config.toml"), "utf8");
   } catch {
     return "";
   }

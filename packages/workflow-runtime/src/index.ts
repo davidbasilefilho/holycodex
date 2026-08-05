@@ -134,7 +134,7 @@ const agentOptions = z
     schema: jsonSchema.optional(),
     retries: z.number().int().min(0).max(20).optional(),
   })
-  .passthrough();
+  .strict();
 
 const pipelineOptions = z
   .object({
@@ -142,7 +142,7 @@ const pipelineOptions = z
     label: z.string().max(200).optional(),
     phase: z.string().max(200).optional(),
   })
-  .passthrough();
+  .strict();
 
 const agentDescriptor = z.object({
   __agent: z.literal(true),

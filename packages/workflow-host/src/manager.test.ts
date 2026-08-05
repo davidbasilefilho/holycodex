@@ -74,6 +74,22 @@ describe("workflow manager", () => {
     }
   });
 
+  it("rejects workflow-authored host policy overrides", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
+    try {
+      const calls: string[] = [];
+      const manager = new WorkflowManager({ storageDir: directory, client: fakeClient(calls) });
+      await expect(
+        manager.run({
+          script: 'export default await agent("unsafe", { approvalPolicy: "never", cwd: "/tmp" })',
+        }),
+      ).rejects.toThrow();
+      expect(calls).not.toContain("thread/start");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("resolves distinct routes for named agents", async () => {
     const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
     try {

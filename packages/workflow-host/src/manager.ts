@@ -228,7 +228,8 @@ export class WorkflowManager {
           try {
             execution = await client.execute(prompt, {
               ...request.policy,
-              ...agentOptions,
+              ...(agentOptions.context === undefined ? {} : { context: agentOptions.context }),
+              ...(agentOptions.schema === undefined ? {} : { schema: agentOptions.schema }),
               route,
               signal: callController.signal,
               ...(canonicalProject === undefined && request.policy?.cwd === undefined
