@@ -341,9 +341,9 @@ export class WorkflowManager {
   /** Cancels one active agent/run and terminates its process tree. */
   public async stopAgent(id: string, callId?: string | number): Promise<WorkflowJournal> {
     const active = this.active.get(id);
-    if (active !== undefined && callId !== undefined) {
+    if (callId !== undefined) {
       const normalizedCallId = String(callId);
-      active.calls.get(normalizedCallId)?.abort("agent stopped");
+      active?.calls.get(normalizedCallId)?.abort("agent stopped");
       await this.writeControl(id, { action: "stop-call", callId: normalizedCallId });
       return await this.readJournal(id);
     }
@@ -709,8 +709,7 @@ function updateOperationalState(journal: MutableJournal, event: WorkflowEvent): 
     journal.metrics.retries += Math.max(0, event.attempt - 1);
   } else if (event.type === "call-failed") {
     journal.metrics.active = Math.max(0, journal.metrics.active - 1);
-  } else if (event.type === "call-error" && event.attempt > 1) {
-    journal.metrics.retries += 1;
+    journal.metrics.retries += Math.max(0, event.attempts - 1);
   }
   if (!("phase" in event) || event.phase === undefined) return;
   const phase = journal.phases[event.phase] ?? { started: 0, completed: 0, errors: 0 };

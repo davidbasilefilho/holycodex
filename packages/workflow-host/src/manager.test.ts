@@ -108,6 +108,44 @@ describe("workflow manager", () => {
     }
   });
 
+  it("writes a stop-call control from a separate manager", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
+    try {
+      const manager = new WorkflowManager({ storageDir: directory, client: fakeClient([]) });
+      const run = await manager.run({ script: "export default null" });
+      const external = new WorkflowManager({ storageDir: directory, client: fakeClient([]) });
+      const journal = await external.stopAgent(run.id, "7");
+      const control = JSON.parse(
+        await readFile(join(directory, `run-${run.id}.control.json`), "utf8"),
+      ) as unknown;
+      expect(control).toEqual({ action: "stop-call", callId: "7" });
+      expect(journal.status).toBe("completed");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("counts each retry once per logical call", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
+    try {
+      const manager = new WorkflowManager({
+        storageDir: directory,
+        client: fakeClient([]),
+        runner: async (input) => {
+          input.onEvent?.({ type: "call-start", callId: 1 });
+          input.onEvent?.({ type: "call-error", callId: 1, attempt: 1, error: "retry" });
+          input.onEvent?.({ type: "call-error", callId: 1, attempt: 2, error: "retry" });
+          input.onEvent?.({ type: "call-complete", callId: 1, attempt: 3 });
+          return { result: null, meta: null, events: [], errors: [] };
+        },
+      });
+      const run = await manager.run({ script: "export default null" });
+      expect(run.journal.metrics.retries).toBe(2);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("fails closed for untrusted project execution", async () => {
     const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
     try {
