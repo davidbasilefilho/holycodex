@@ -259,6 +259,7 @@ export class WorkflowManager {
       });
       journalState.result = sanitize(workflow.result);
       await journalWrites;
+      await this.readControl(id, activeState);
       journalState.errors = workflow.errors.map((error) => sanitizeError(error));
       journalState.status = this.paused.has(id)
         ? "paused"

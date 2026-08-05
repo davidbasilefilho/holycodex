@@ -83,6 +83,7 @@ export class CodexAppServerClient {
   private nextId = 1;
   private readonly pending = new Map<string | number, Pending>();
   private readonly notifications = new Set<(message: Record<string, unknown>) => void>();
+  private started = false;
   private initialized = false;
 
   public constructor(options: CodexAppServerOptions) {
@@ -91,7 +92,8 @@ export class CodexAppServerClient {
 
   /** Starts the caller-selected executable transport when needed. */
   public async start(): Promise<void> {
-    if (this.input !== undefined) return;
+    if (this.started) return;
+    this.started = true;
     if (this.options.transport !== undefined) {
       const transport = this.options.transport;
       if (transport.onMessage !== undefined) {
@@ -106,13 +108,18 @@ export class CodexAppServerClient {
       }
       return;
     }
-    this.child = spawn(this.options.executable, [...(this.options.args ?? [])], {
-      cwd: this.options.cwd,
-      env: this.options.env,
-      stdio: "pipe",
-      windowsHide: true,
-      detached: process.platform !== "win32",
-    });
+    try {
+      this.child = spawn(this.options.executable, [...(this.options.args ?? [])], {
+        cwd: this.options.cwd,
+        env: this.options.env,
+        stdio: "pipe",
+        windowsHide: true,
+        detached: process.platform !== "win32",
+      });
+    } catch (error) {
+      this.started = false;
+      throw error;
+    }
     this.input = this.child.stdin;
     this.readline = createInterface({ input: this.child.stdout });
     this.readline.on("line", (line) => this.receiveLine(line));
@@ -273,6 +280,7 @@ export class CodexAppServerClient {
     await this.options.transport?.close?.();
     this.input = undefined;
     this.child = undefined;
+    this.started = false;
     this.initialized = false;
     this.rejectPending(new Error("Codex App Server client closed."));
   }

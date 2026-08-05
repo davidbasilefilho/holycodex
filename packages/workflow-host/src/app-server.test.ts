@@ -78,6 +78,9 @@ describe("Codex App Server client", () => {
     await client.threadReopen("thread-1");
     expect(requests.map((request) => request.method)).toContain("turn/interrupt");
     expect(requests.map((request) => request.method)).toContain("thread/resume");
+    expect(listeners.size).toBe(1);
+    await client.close();
+    expect(listeners.size).toBe(0);
   });
 
   it("disposes the completion wait when turn start fails", async () => {

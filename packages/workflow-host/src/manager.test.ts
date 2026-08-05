@@ -146,6 +146,28 @@ describe("workflow manager", () => {
     }
   });
 
+  it("honors a final external stop control before completion", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
+    try {
+      const external = new WorkflowManager({ storageDir: directory, client: fakeClient([]) });
+      const manager = new WorkflowManager({
+        storageDir: directory,
+        client: fakeClient([]),
+        runner: async () => {
+          const active = (await external.list())[0];
+          if (active === undefined) throw new Error("Missing active workflow journal.");
+          await external.stopRun(active.id);
+          return { result: null, meta: null, events: [], errors: [] };
+        },
+      });
+      const run = await manager.run({ script: "export default null" });
+      expect(run.journal.status).toBe("cancelled");
+      expect(run.journal.cancellation.requested).toBe(true);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("fails closed for untrusted project execution", async () => {
     const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
     try {
