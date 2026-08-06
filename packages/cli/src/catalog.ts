@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const VERSION = "0.12.1";
+export const VERSION = "0.12.2";
 
 export const SKILLS = [
   "ast-grep",
@@ -78,10 +78,6 @@ const WorkflowPolicySchema = z.strictObject({
   serviceTiers: z.tuple([z.literal("default"), z.literal("fast")]),
   limits: WorkflowLimitsSchema,
   projectedUsage: z.strictObject({ standard: z.number().positive(), fast: z.number().positive() }),
-  runtime: z.strictObject({
-    maxSeconds: z.number().int().positive(),
-    maxRuntimeMs: z.number().int().positive(),
-  }),
   softSizeGuidance: z.strictObject({
     maxInputTokens: z.number().int().positive(),
     maxScriptBytes: z.number().int().positive(),
@@ -116,7 +112,6 @@ function workflowFor(
     "concurrency" | "totalCalls" | "workflowDepth" | "retries" | "loopIterations" | "fanOut"
   >,
   projectedUsage: number,
-  maxSeconds: number,
   maxInputTokens: number,
 ): WorkflowPolicy {
   const permittedRoutes = Object.fromEntries(
@@ -136,7 +131,6 @@ function workflowFor(
       maxRetries: limits.retries,
     },
     projectedUsage: { standard: projectedUsage, fast: projectedUsage * 2 },
-    runtime: { maxSeconds, maxRuntimeMs: maxSeconds * 1_000 },
     softSizeGuidance: { maxInputTokens, maxScriptBytes: Math.min(maxInputTokens, 4 * 1024 * 1024) },
   };
 }
@@ -159,7 +153,6 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
       },
       { concurrency: 1, totalCalls: 4, workflowDepth: 2, retries: 0, loopIterations: 1, fanOut: 1 },
       4,
-      120,
       20_000,
     ),
   },
@@ -185,7 +178,6 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
         fanOut: 3,
       },
       12,
-      300,
       30_000,
     ),
   },
@@ -211,7 +203,6 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
         fanOut: 3,
       },
       16,
-      600,
       50_000,
     ),
   },
@@ -237,7 +228,6 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
         fanOut: 4,
       },
       24,
-      900,
       70_000,
     ),
   },
@@ -263,7 +253,6 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
         fanOut: 5,
       },
       40,
-      1_200,
       100_000,
     ),
   },
@@ -289,7 +278,6 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
         fanOut: 8,
       },
       80,
-      2_400,
       150_000,
     ),
   },

@@ -247,7 +247,6 @@ export type ManagedWorkflowPolicy = {
   readonly plan: PlanName;
   readonly limits: WorkflowLimits;
   readonly projectedUsage: { readonly standard: number; readonly fast: number };
-  readonly runtime: { readonly maxSeconds: number };
   readonly softSizeGuidance: { readonly maxInputTokens: number };
 };
 
@@ -265,7 +264,6 @@ export function readManagedWorkflowPolicy(input: string): ManagedWorkflowPolicy 
     const plan = PLAN_NAMES.find((name) => name === record.plan);
     const limits = record.limits;
     const usage = record.projectedUsage;
-    const runtime = record.runtime;
     const size = record.softSizeGuidance;
     if (
       plan === undefined ||
@@ -273,8 +271,6 @@ export function readManagedWorkflowPolicy(input: string): ManagedWorkflowPolicy 
       limits === null ||
       typeof usage !== "object" ||
       usage === null ||
-      typeof runtime !== "object" ||
-      runtime === null ||
       typeof size !== "object" ||
       size === null
     )
@@ -283,7 +279,6 @@ export function readManagedWorkflowPolicy(input: string): ManagedWorkflowPolicy 
       plan,
       limits: limits as WorkflowLimits,
       projectedUsage: usage as ManagedWorkflowPolicy["projectedUsage"],
-      runtime: runtime as ManagedWorkflowPolicy["runtime"],
       softSizeGuidance: size as ManagedWorkflowPolicy["softSizeGuidance"],
     };
   } catch {
@@ -456,7 +451,6 @@ export function installConfig(
     plan,
     limits: workflow.limits,
     projectedUsage: workflow.projectedUsage,
-    runtime: workflow.runtime,
     softSizeGuidance: workflow.softSizeGuidance,
   });
   const rootBlock = `${START}\n${PLAN_PREFIX}${plan}\n${FAST_MODE_PREFIX}${fastMode}\n${WORKFLOW_POLICY_PREFIX}${workflowMetadata}\n${AUTONOMY_METADATA_PREFIX}${effectiveAutonomy}\n${original}${originalPermissionMetadata(permissionLines)}${model}${effort}web_search = ${JSON.stringify(webSearch)}\nmodel_verbosity = "low"\nservice_tier = "${rootServiceTier}"\n${rootPermissionLines.join("\n")}\n${END}`;

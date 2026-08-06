@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { assertWorkflowAvailable } from "../packages/cli/src/workflow-policy.ts";
 
 describe("workflow plan policy", () => {
-  it("rejects workflows on go without disabling regular subagents", () => {
+  it("rejects workflows on go and requires direct Root work", () => {
     expect(() => assertWorkflowAvailable("go")).toThrow(
-      "Dynamic workflows are unavailable on the go plan. Regular Codex subagents remain available.",
+      "Dynamic workflows are unavailable on the go plan. Root must work directly without specialist subagents.",
     );
   });
 

@@ -68,7 +68,7 @@ export type AgentExecution = {
 type Pending = {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
-  readonly timer: ReturnType<typeof setTimeout>;
+  readonly timer?: ReturnType<typeof setTimeout>;
 };
 
 const LOW_VERBOSITY_CONFIG = "model_verbosity";
@@ -138,7 +138,7 @@ export class CodexAppServerClient {
         clientInfo: {
           name: this.options.clientInfo?.name ?? "holycodex-workflow-host",
           title: this.options.clientInfo?.title ?? "HolyCodex Workflow Host",
-          version: this.options.clientInfo?.version ?? "0.11.3",
+          version: this.options.clientInfo?.version ?? "0.12.2",
         },
       });
       await this.notify("initialized", {});
@@ -220,7 +220,10 @@ export class CodexAppServerClient {
             serviceTier: route.serviceTier,
           }),
     };
-    const started = (await this.threadStart(policy)) as Record<string, unknown>;
+    const started = (await withAbort(this.threadStart(policy), options.signal)) as Record<
+      string,
+      unknown
+    >;
     const thread = asRecord(started.thread) ?? started;
     const threadId = stringValue(thread.id ?? thread.threadId);
     if (threadId === undefined) throw new Error("Codex App Server did not return a thread id.");
@@ -241,10 +244,9 @@ export class CodexAppServerClient {
       const completion = this.waitForTurnCompletion(threadId, completionController.signal);
       let turnResponse: Record<string, unknown>;
       try {
-        turnResponse = (await this.turnStart(
-          threadId,
-          agentPrompt(prompt, options),
-          policy,
+        turnResponse = (await withAbort(
+          this.turnStart(threadId, agentPrompt(prompt, options), policy),
+          options.signal,
         )) as Record<string, unknown>;
       } catch (error) {
         completionController.abort();
@@ -257,7 +259,10 @@ export class CodexAppServerClient {
       turnId = stringValue(turn.id ?? turn.turnId);
       if (isAborted(options.signal)) throw new Error("Agent call cancelled.");
       const completed = await completion;
-      const read = (await this.threadRead(threadId)) as Record<string, unknown>;
+      const read = (await withAbort(this.threadRead(threadId), options.signal)) as Record<
+        string,
+        unknown
+      >;
       return extractExecution({ ...read, ...completed }, threadId, turnId);
     } finally {
       options.signal?.removeEventListener("abort", abort);
@@ -320,22 +325,20 @@ export class CodexAppServerClient {
       const send = this.options.transport.send ?? this.options.transport.write;
       if (send === undefined) throw new Error("App-server transport does not provide send/write.");
       const result = await new Promise<unknown>((resolve, reject) => {
-        const timer = setTimeout(() => {
+        const timer = this.requestTimer(id, method, reject);
+        this.pending.set(id, { resolve, reject, ...(timer === undefined ? {} : { timer }) });
+        Promise.resolve(send(payload)).catch((error: unknown) => {
           this.pending.delete(id);
-          reject(new Error(`Codex App Server request timed out: ${method}`));
-        }, this.options.requestTimeoutMs ?? 120_000);
-        this.pending.set(id, { resolve, reject, timer });
-        Promise.resolve(send(payload)).catch(reject);
+          if (timer !== undefined) clearTimeout(timer);
+          reject(error);
+        });
       });
       return result;
     }
     if (this.input === undefined) throw new Error("Codex App Server transport is not available.");
     return await new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`Codex App Server request timed out: ${method}`));
-      }, this.options.requestTimeoutMs ?? 120_000);
-      this.pending.set(id, { resolve, reject, timer });
+      const timer = this.requestTimer(id, method, reject);
+      this.pending.set(id, { resolve, reject, ...(timer === undefined ? {} : { timer }) });
       this.input?.write(payload);
     });
   }
@@ -386,11 +389,24 @@ export class CodexAppServerClient {
       };
       this.notifications.add(listener);
       signal?.addEventListener("abort", abort, { once: true });
-      timer = setTimeout(() => {
-        cleanup();
-        reject(new Error("Codex turn timed out."));
-      }, this.options.requestTimeoutMs ?? 120_000);
+      if (this.options.requestTimeoutMs !== undefined)
+        timer = setTimeout(() => {
+          cleanup();
+          reject(new Error("Codex turn timed out."));
+        }, this.options.requestTimeoutMs);
     });
+  }
+
+  private requestTimer(
+    id: number,
+    method: string,
+    reject: (error: Error) => void,
+  ): ReturnType<typeof setTimeout> | undefined {
+    if (this.options.requestTimeoutMs === undefined) return undefined;
+    return setTimeout(() => {
+      this.pending.delete(id);
+      reject(new Error(`Codex App Server request timed out: ${method}`));
+    }, this.options.requestTimeoutMs);
   }
 
   private receiveLine(line: string): void {
@@ -411,7 +427,7 @@ export class CodexAppServerClient {
       const pending = this.pending.get(id);
       this.pending.delete(id);
       if (pending === undefined) return;
-      clearTimeout(pending.timer);
+      if (pending.timer !== undefined) clearTimeout(pending.timer);
       if (message.error !== undefined) pending.reject(new Error(publicError(message.error)));
       else pending.resolve(message.result);
       return;
@@ -449,7 +465,7 @@ export class CodexAppServerClient {
 
   private rejectPending(error: Error): void {
     for (const [id, pending] of this.pending) {
-      clearTimeout(pending.timer);
+      if (pending.timer !== undefined) clearTimeout(pending.timer);
       pending.reject(error);
       this.pending.delete(id);
     }
@@ -563,6 +579,21 @@ function numberValue(value: unknown): number | undefined {
 }
 function isAborted(signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true;
+}
+
+async function withAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (signal === undefined) return await promise;
+  if (signal.aborted) throw new Error("Agent call cancelled.");
+  let abort: (() => void) | undefined;
+  const cancellation = new Promise<never>((_, reject) => {
+    abort = (): void => reject(new Error("Agent call cancelled."));
+    signal.addEventListener("abort", abort, { once: true });
+  });
+  try {
+    return await Promise.race([promise, cancellation]);
+  } finally {
+    if (abort !== undefined) signal.removeEventListener("abort", abort);
+  }
 }
 function publicError(value: unknown): string {
   if (typeof value === "string") return value;

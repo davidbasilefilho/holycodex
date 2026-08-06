@@ -36,17 +36,18 @@ describe("bootstrap readiness", () => {
     expect(context).toMatch(/Root owns interaction, intent, scope, architecture/);
     expect(context).toContain("Root is not another implementation branch");
     expect(context).toContain("integrate only accepted work");
-    expect(context).toContain("Prefer regular Codex collaboration subagents");
+    expect(context).toContain("use specialist agents only through CLI workflows");
+    expect(context).toContain("never invoke regular Codex collaboration subagents");
     expect(context).toContain("Do not conceal orchestration");
     expect(context).toContain("Explorer maps X");
     expect(context).toContain("Do not disclose Root orchestration mechanics");
-    expect(context).toContain("isolated App Server threads not shown as native subagents");
+    expect(context).toContain("Go does not support workflows");
     expect(context).toContain(
       "Skip delegation when one direct local operation is cheaper and sufficient",
     );
     expect(context).toContain("Root owns workflow integration and final proof");
     expect(context).toContain("Skills govern method only");
-    expect(context).toContain("use a CLI workflow only when dynamic branching");
+    expect(context).not.toContain("Prefer regular Codex collaboration subagents");
     expect(context).toContain("selected plan is authoritative");
     expect(context).not.toMatch(/(?:Explorer|Librarian|Worker) (?:uses|runs) GPT 5\.6/);
     expect(context).toContain(
@@ -55,6 +56,7 @@ describe("bootstrap readiness", () => {
     expect(context).toContain("delegate facts, ask material decisions");
     expect(context).not.toMatch(/\b(?:lane|wave|mandatory)\b/i);
     expect(context).toContain("request_user_input");
+    expect(context).toContain("must never stop or reply with a plain-text question");
     expect(context).toContain("Root controls browser and native desktop UI itself");
     expect(context).toContain("Never delegate browser or computer control");
     expect(context).toContain(

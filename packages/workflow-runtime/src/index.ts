@@ -33,7 +33,6 @@ export type WorkflowLimits = {
   readonly maxCalls?: number;
   readonly maxRetries?: number;
   readonly maxConcurrency?: number;
-  readonly maxRuntimeMs?: number;
   readonly maxMemoryBytes?: number;
   readonly maxStackBytes?: number;
   readonly maxScriptBytes?: number;
@@ -103,7 +102,6 @@ const DEFAULT_LIMITS: Required<WorkflowLimits> = {
   maxCalls: 100,
   maxRetries: 2,
   maxConcurrency: 8,
-  maxRuntimeMs: 10_000,
   maxMemoryBytes: 16 * 1024 * 1024,
   maxStackBytes: 1024 * 1024,
   maxScriptBytes: 64 * 1024,
@@ -156,7 +154,6 @@ const workflowLimits = z
     maxCalls: z.number().int().min(1).max(10_000).optional(),
     maxRetries: z.number().int().min(0).max(20).optional(),
     maxConcurrency: z.number().int().min(1).max(100).optional(),
-    maxRuntimeMs: z.number().int().min(1).max(86_400_000).optional(),
     maxMemoryBytes: z
       .number()
       .int()
@@ -230,7 +227,6 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowResult>
     maxCalls: parsedLimits.data.maxCalls ?? DEFAULT_LIMITS.maxCalls,
     maxRetries: parsedLimits.data.maxRetries ?? DEFAULT_LIMITS.maxRetries,
     maxConcurrency: parsedLimits.data.maxConcurrency ?? DEFAULT_LIMITS.maxConcurrency,
-    maxRuntimeMs: parsedLimits.data.maxRuntimeMs ?? DEFAULT_LIMITS.maxRuntimeMs,
     maxMemoryBytes: parsedLimits.data.maxMemoryBytes ?? DEFAULT_LIMITS.maxMemoryBytes,
     maxStackBytes: parsedLimits.data.maxStackBytes ?? DEFAULT_LIMITS.maxStackBytes,
     maxScriptBytes: parsedLimits.data.maxScriptBytes ?? DEFAULT_LIMITS.maxScriptBytes,
@@ -249,7 +245,6 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowResult>
   };
   emit({ type: "workflow-start", scriptBytes });
 
-  const deadline = Date.now() + limits.maxRuntimeMs;
   const context = await newAsyncContext({
     intrinsics: { Eval: false },
   });
@@ -264,14 +259,14 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowResult>
     }
   };
   let executionChecks = 0;
-  const isCancelled = (): boolean => input.signal?.aborted === true || Date.now() >= deadline;
+  const isCancelled = (): boolean => input.signal?.aborted === true;
   context.runtime.setInterruptHandler(
     () => isCancelled() || ++executionChecks > limits.maxLoopIterations * 10_000,
   );
 
   try {
     const executeAgent = async (prompt: string, safeOptions: AgentOptions): Promise<JsonValue> => {
-      if (isCancelled()) throw new Error("Workflow cancelled or timed out.");
+      if (isCancelled()) throw new Error("Workflow cancelled.");
       const callId = ++calls;
       if (calls > limits.maxCalls) throw new Error("Workflow call quota exceeded.");
       emit({
@@ -285,11 +280,10 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowResult>
       let attemptsMade = 0;
       for (let attempt = 1; attempt <= attempts; attempt += 1) {
         attemptsMade = attempt;
-        if (isCancelled()) throw new Error("Workflow cancelled or timed out.");
+        if (isCancelled()) throw new Error("Workflow cancelled.");
         try {
           const value = await withCancellation(
             Promise.resolve(input.executor(prompt, { ...safeOptions, callId })),
-            deadline,
             input.signal,
           );
           if (!isJsonValue(value))
@@ -313,7 +307,7 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowResult>
             ...(safeOptions.phase === undefined ? {} : { phase: safeOptions.phase }),
             error: lastError,
           });
-          if (isCancelled()) throw new Error("Workflow cancelled or timed out.");
+          if (isCancelled()) throw new Error("Workflow cancelled.");
           if (isCancellationError(error)) break;
           if (attempt < attempts) continue;
         }
@@ -356,10 +350,9 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowResult>
     const source = `${PRELUDE}\n${moduleSource(input.script)}`;
     const evaluated = await withCancellation(
       context.evalCodeAsync(source, "workflow.js", { type: "module", strict: true }),
-      deadline,
       input.signal,
     );
-    drainPendingJobs(context, deadline, input.signal);
+    drainPendingJobs(context, input.signal);
     const namespace = context.unwrapResult(evaluated);
     const exported = dumpModuleResult(context, namespace);
     namespace.dispose();
@@ -547,14 +540,9 @@ function maskJavaScriptLiterals(source: string): string {
   return result;
 }
 
-function drainPendingJobs(
-  context: QuickJSAsyncContext,
-  deadline: number,
-  signal?: AbortSignal,
-): void {
+function drainPendingJobs(context: QuickJSAsyncContext, signal?: AbortSignal): void {
   while (true) {
-    if (signal?.aborted === true || Date.now() >= deadline)
-      throw new Error("Workflow cancelled or timed out.");
+    if (signal?.aborted === true) throw new Error("Workflow cancelled.");
     const jobs = context.runtime.executePendingJobs();
     const count = "value" in jobs ? jobs.value : 0;
     jobs.dispose();
@@ -569,26 +557,19 @@ function dumpModuleResult(context: QuickJSAsyncContext, handle: QuickJSHandle): 
   return context.dump(handle);
 }
 
-async function withCancellation<T>(
-  promise: Promise<T>,
-  deadline: number,
-  signal?: AbortSignal,
-): Promise<T> {
-  if (signal?.aborted === true) throw new Error("Workflow cancelled or timed out.");
-  const remaining = Math.max(0, deadline - Date.now());
-  let timer: ReturnType<typeof setTimeout> | undefined;
+async function withCancellation<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (signal === undefined) return await promise;
+  if (signal?.aborted === true) throw new Error("Workflow cancelled.");
   let abort: (() => void) | undefined;
   const cancellation = new Promise<never>((_, reject) => {
-    const cancel = (): void => reject(new Error("Workflow cancelled or timed out."));
+    const cancel = (): void => reject(new Error("Workflow cancelled."));
     abort = cancel;
-    timer = setTimeout(cancel, remaining);
-    signal?.addEventListener("abort", cancel, { once: true });
+    signal.addEventListener("abort", cancel, { once: true });
   });
   try {
     return await Promise.race([promise, cancellation]);
   } finally {
-    if (timer !== undefined) clearTimeout(timer);
-    if (signal !== undefined && abort !== undefined) signal.removeEventListener("abort", abort);
+    if (abort !== undefined) signal.removeEventListener("abort", abort);
   }
 }
 

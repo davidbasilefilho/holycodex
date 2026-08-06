@@ -55,7 +55,7 @@ describe("routing and Fast mode seams", () => {
       expect(workflow.limits.loopIterations).toBeGreaterThan(0);
       expect(workflow.limits.fanOut).toBeGreaterThan(0);
       expect(workflow.projectedUsage.fast).toBe(workflow.projectedUsage.standard * 2);
-      expect(workflow.runtime.maxSeconds).toBeGreaterThan(0);
+      expect(workflow).not.toHaveProperty("runtime");
       expect(workflow.softSizeGuidance.maxInputTokens).toBeGreaterThan(0);
       for (const agent of AGENTS) {
         expect(Object.keys(workflow.permittedRoutes[agent])).toEqual([

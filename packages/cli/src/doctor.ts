@@ -329,14 +329,13 @@ export async function doctor(
             plan,
             limits: MODEL_ROUTING_PLANS[plan].workflow.limits,
             projectedUsage: MODEL_ROUTING_PLANS[plan].workflow.projectedUsage,
-            runtime: MODEL_ROUTING_PLANS[plan].workflow.runtime,
             softSizeGuidance: MODEL_ROUTING_PLANS[plan].workflow.softSizeGuidance,
           })
         ? check(
             "workflow",
             "ok",
             "workflow-settings-ready",
-            `${plan} workflow limits, projected usage, runtime, and size guidance match the catalog.`,
+            `${plan} workflow limits, projected usage, and size guidance match the catalog.`,
           )
         : check(
             "workflow",

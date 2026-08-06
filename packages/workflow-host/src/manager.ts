@@ -18,10 +18,7 @@ import {
   type AppServerPolicy,
 } from "./app-server.js";
 
-export type PlanLimits = WorkflowLimits & {
-  readonly maxRuntimeMs?: number;
-  readonly maxScriptBytes?: number;
-};
+export type PlanLimits = WorkflowLimits & { readonly maxScriptBytes?: number };
 
 export type WorkflowRunRequest = {
   readonly script: string;
@@ -103,7 +100,6 @@ const DEFAULT_LIMITS: PlanLimits = {
   maxCalls: 16,
   maxConcurrency: 3,
   maxRetries: 2,
-  maxRuntimeMs: 120_000,
   maxScriptBytes: 50_000,
 };
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "HolyCodex: Babysit CI"
-  short_description: "Monitor CI/CD, fix failures, and verify artifacts."
-  default_prompt: "Use $babysit-ci to monitor this CI/CD run, fix failures, retrigger it, and verify its artifacts until clean."
+  short_description: "Babysit CI/CD, fix failures, and verify artifacts."
+  default_prompt: "Use $babysit-ci to babysit this CI/CD run, fix failures, retrigger it, and verify its artifacts until clean."

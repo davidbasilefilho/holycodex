@@ -16,14 +16,15 @@ describe("dynamic workflow documentation", () => {
     expect(document).toContain("`pipeline()`");
     expect(document).toContain("name each specialist type and what it will do");
     expect(document).toContain("creates independent threads");
-    expect(document).toContain("does not expose the parent linkage");
+    expect(document).toContain("every specialist agent runs through a workflow");
+    expect(document).not.toContain("regular visible Codex subagents");
     expect(document).toContain("do not imply a fixed Explorer to Librarian to Worker sequence");
     expect(document).not.toContain("two lanes per wave");
   });
 
-  it("documents hard plan quotas and Fast as a service-tier-only choice", async () => {
+  it("documents plan quotas, unbounded runtime, and Fast as a service-tier-only choice", async () => {
     const document = await readFile(join(root, "docs", "ROUTING.md"), "utf8");
-    expect(document).toContain("Hard runtime limits cannot be changed or bypassed");
+    expect(document).toContain("Workflows have no wall-clock deadline");
     expect(document).toContain("Fast is only a service-tier choice");
     expect(document).toContain("Neither flag changes model selection or reasoning effort");
   });

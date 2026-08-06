@@ -79,7 +79,6 @@ async function main(): Promise<void> {
       maxRetries: preset.workflow.limits.retries,
       maxFanOut: preset.workflow.limits.fanOut,
       maxLoopIterations: preset.workflow.limits.loopIterations,
-      maxRuntimeMs: preset.workflow.runtime.maxRuntimeMs,
       maxScriptBytes: preset.workflow.softSizeGuidance.maxScriptBytes,
     },
     clientFactory: () =>
@@ -87,7 +86,6 @@ async function main(): Promise<void> {
         executable: codexExecutable,
         args: ["app-server"],
         cwd: projectPath,
-        requestTimeoutMs: preset.workflow.runtime.maxRuntimeMs,
       }),
     policy: { cwd: projectPath, lowVerbosity: true },
     runner: async (input) =>

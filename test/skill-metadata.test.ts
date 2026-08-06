@@ -75,4 +75,15 @@ describe("bundled skill UI metadata", () => {
       );
     }
   });
+
+  it("uses babysitting terminology for the CI skill", async () => {
+    const skill = await readFile(join(skillsRoot, "babysit-ci", "SKILL.md"), "utf8");
+    const metadata = await readFile(
+      join(skillsRoot, "babysit-ci", "agents", "openai.yaml"),
+      "utf8",
+    );
+    expect(`${skill}\n${metadata}`).not.toMatch(
+      /\b(?:monitor(?:ing)?|watch(?:ing)?|track(?:ing)?)\b/i,
+    );
+  });
 });

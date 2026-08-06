@@ -19,6 +19,8 @@ const jsonFiles = [
 ];
 const packageFile = "packages/cli/package.json";
 const catalogFile = "packages/cli/src/catalog.ts";
+const appServerFile = "packages/workflow-host/src/app-server.ts";
+const sourceFiles = [catalogFile, appServerFile];
 const lockfile = "bun.lock";
 const workspacePackageFiles = jsonFiles.filter(
   (file) => file.startsWith("packages/") && file.endsWith("/package.json"),
@@ -77,7 +79,7 @@ async function main() {
     return;
   }
   await Promise.all(jsonFiles.map((file) => updateJson(file, next)));
-  await replaceVersion(catalogFile, current, next);
+  await Promise.all(sourceFiles.map(async (file) => await replaceVersion(file, current, next)));
   await updateLockfile(next);
   process.stdout.write(
     `Bumped ${current} -> ${next}. Run vp install, vp check --fix, vp test, and vp build.\n`,
@@ -165,8 +167,9 @@ async function checkVersions(expected) {
   const cli = await readPackageManifest(join(root, packageFile));
   if (cli.dependencies?.["@holycodex/plugin"] !== expected)
     throw new Error(`${packageFile}: @holycodex/plugin must match ${expected}`);
-  if (!(await readFile(join(root, catalogFile), "utf8")).includes(`VERSION = "${expected}"`))
-    throw new Error(`${catalogFile}: missing ${expected}`);
+  for (const file of sourceFiles)
+    if (!(await readFile(join(root, file), "utf8")).includes(expected))
+      throw new Error(`${file}: missing ${expected}`);
   const lockSource = await readFile(join(root, lockfile), "utf8");
   const lockVersions = lockfileWorkspaceVersions(lockSource);
   for (const file of workspacePackageFiles) {
