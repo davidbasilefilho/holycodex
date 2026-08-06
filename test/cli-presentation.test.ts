@@ -67,7 +67,7 @@ describe("CLI presentation", () => {
     const output = renderInstallHelp("0.7.1", false);
     expect(output).toContain("holycodex install [options]");
     expect(output).toContain("go, plus-low, plus, plus-high, pro-5x, or pro-20x");
-    expect(output).toContain("Default: plus");
+    expect(output).toContain("Default: plus-low");
     expect(output).toContain("increasing expected model usage and capability");
     expect(output).toContain("bunx holycodex install --plan pro-20x");
     expect(output).toContain("bunx holycodex install --plan plus-low");

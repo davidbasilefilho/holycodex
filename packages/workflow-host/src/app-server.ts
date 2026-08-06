@@ -44,6 +44,7 @@ export type CodexAppServerOptions = {
     readonly version?: string;
   };
   readonly requestTimeoutMs?: number;
+  readonly turnInactivityTimeoutMs?: number;
 };
 
 export type AppServerResponse = {
@@ -138,7 +139,7 @@ export class CodexAppServerClient {
         clientInfo: {
           name: this.options.clientInfo?.name ?? "holycodex-workflow-host",
           title: this.options.clientInfo?.title ?? "HolyCodex Workflow Host",
-          version: this.options.clientInfo?.version ?? "0.12.2",
+          version: this.options.clientInfo?.version ?? "0.12.3",
         },
       });
       await this.notify("initialized", {});
@@ -358,16 +359,26 @@ export class CodexAppServerClient {
     signal?: AbortSignal,
   ): Promise<Record<string, unknown>> {
     return await new Promise<Record<string, unknown>>((resolve, reject) => {
-      let timer: ReturnType<typeof setTimeout> | undefined;
+      let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
+      const resetInactivityTimer = (): void => {
+        if (inactivityTimer !== undefined) clearTimeout(inactivityTimer);
+        if (this.options.turnInactivityTimeoutMs === undefined) return;
+        inactivityTimer = setTimeout(() => {
+          cleanup();
+          reject(new Error("Codex turn became inactive."));
+        }, this.options.turnInactivityTimeoutMs);
+      };
       const listener = (message: Record<string, unknown>): void => {
+        const params = asRecord(message.params);
+        const turn = asRecord(params?.turn);
+        if (params !== undefined && stringValue(params.threadId ?? turn?.threadId) === threadId)
+          resetInactivityTimer();
         if (
           message.method !== "turn/completed" &&
           message.method !== "turn/failed" &&
           message.method !== "turn/interrupted"
         )
           return;
-        const params = asRecord(message.params);
-        const turn = asRecord(params?.turn);
         if (params === undefined || stringValue(params.threadId ?? turn?.threadId) !== threadId)
           return;
         cleanup();
@@ -384,16 +395,12 @@ export class CodexAppServerClient {
       };
       const cleanup = (): void => {
         this.notifications.delete(listener);
-        if (timer !== undefined) clearTimeout(timer);
+        if (inactivityTimer !== undefined) clearTimeout(inactivityTimer);
         signal?.removeEventListener("abort", abort);
       };
       this.notifications.add(listener);
       signal?.addEventListener("abort", abort, { once: true });
-      if (this.options.requestTimeoutMs !== undefined)
-        timer = setTimeout(() => {
-          cleanup();
-          reject(new Error("Codex turn timed out."));
-        }, this.options.requestTimeoutMs);
+      resetInactivityTimer();
     });
   }
 

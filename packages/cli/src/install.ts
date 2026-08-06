@@ -317,8 +317,8 @@ async function readAgentPreferences(
       const custom = extractCustomAgentSettings(source);
       if (!managed || custom !== undefined)
         preferences[agent] = {
-          ...(model === undefined ? {} : { model }),
-          ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+          ...(managed || model === undefined ? {} : { model }),
+          ...(managed || reasoningEffort === undefined ? {} : { reasoningEffort }),
           ...(custom === undefined ? {} : { custom }),
         };
     }),

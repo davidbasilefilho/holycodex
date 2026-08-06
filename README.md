@@ -18,15 +18,15 @@ Installation is transactional. Assets are generated and validated in staging bef
 
 ## Plans
 
-Plans are ordered by available usage: `go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and `pro-20x`. `plus` is the default recommendation. Use `--plan <name>`. The legacy `--max-subagents` flag remains accepted during migration but dynamic workflow quotas are plan-authoritative.
+Plans are ordered by available usage: `go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and `pro-20x`. `plus-low` is the daily default and best overall usage-to-performance route. Higher plans add stronger Root judgment, Luna specialist effort, independent attempts, verification, breadth, and recovery only when the task warrants them. Use `--plan <name>`. The legacy `--max-subagents` flag remains accepted during migration, but dynamic workflow quotas are plan-authoritative.
 
-Fast modes are explicit: `--fast` applies Fast to specialists, `--fast-all` includes Root, and `--no-fast` selects standard service tiers. Preserved Root and specialist model, reasoning, service-tier, and custom settings are healthy overrides rather than installation errors.
+Standard is the default service tier. Fast modes are latency-oriented opt-ins: `--fast` applies Fast to specialists, `--fast-all` includes Root, and `--no-fast` selects Standard. Fast doubles projected usage without changing models or reasoning effort, and tools, tests, builds, sequential dependencies, and coordination may limit end-to-end latency gains. Preserved Root and specialist model, reasoning, service-tier, and custom settings are healthy overrides rather than installation errors.
 
 ## Dynamic workflows
 
 For substantive requests, Root writes task-specific JavaScript with `agent()`, `pipeline()`, structured `args`, and ordinary control flow. The script can discover work dynamically, branch, retry, fan out, loop until checks pass or progress stalls, run adversarial verification, and synthesize a coordinated result. Multiple workflows may be used for discovery, implementation, and verification.
 
-Workflow JavaScript runs in a capability-denied runtime with no direct filesystem, shell, process, environment, network, import, configuration, or credential access. Agents perform authorized work through Codex and inherit its sandbox, approvals, tools, skills, plugins, trust rules, and project boundaries. Plan-specific hard limits bound concurrency, calls, depth, retries, loops, fan-out, projected usage, and runtime.
+Workflow JavaScript runs in a capability-denied runtime with no direct filesystem, shell, process, environment, network, import, configuration, or credential access. Agents perform authorized work through Codex and inherit its sandbox, approvals, tools, skills, plugins, trust rules, and project boundaries. Soft target calls guide typical usage, while separate hard limits bound concurrency, maximum calls, depth, retries, loops, and fan-out. Workflows have no fixed total-duration deadline.
 
 Normal conversation receives concise progress and the final result. Explicit inspection can show scripts and operational state, but never hidden reasoning, system prompts, credentials, or unrestricted child transcripts.
 

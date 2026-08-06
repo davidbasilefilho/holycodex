@@ -47,9 +47,9 @@ describe("Codex configuration", () => {
     expect(installConfig(once, "default")).toBe(once);
   });
 
-  it("defaults to plus and applies every root plan", () => {
+  it("defaults to plus-low and applies every root plan", () => {
     expect(installPlatformConfig("", "default", "win32")).toBe(
-      installPlatformConfig("", "default", "win32", "plus"),
+      installPlatformConfig("", "default", "win32", "plus-low"),
     );
     for (const plan of PLAN_NAMES) {
       const output = installPlanConfig("", plan);
@@ -105,6 +105,16 @@ describe("Codex configuration", () => {
     );
     const upgraded = installPlanConfig(oldPro, "pro-5x");
     expect(upgraded).toContain('model = "gpt-5.6-sol"');
+    expect(upgraded).toContain('model_reasoning_effort = "high"');
+    expect(upgraded).not.toContain('model_reasoning_effort = "medium"');
+  });
+
+  it("migrates the outgoing plus-high Sol medium root route", () => {
+    const oldPlusHigh = installPlanConfig("", "plus-high").replace(
+      'model_reasoning_effort = "high"',
+      'model_reasoning_effort = "medium"',
+    );
+    const upgraded = installPlanConfig(oldPlusHigh, "plus-high");
     expect(upgraded).toContain('model_reasoning_effort = "high"');
     expect(upgraded).not.toContain('model_reasoning_effort = "medium"');
   });
@@ -201,12 +211,12 @@ describe("Codex configuration", () => {
   it("completes the default pair around an explicit model", () => {
     const output = installConfig('model = "gpt-5.6-luna"\n', "default");
     expect(output).toContain('model = "gpt-5.6-luna"');
-    expect(output).toContain('model_reasoning_effort = "medium"');
+    expect(output).toContain('model_reasoning_effort = "low"');
   });
 
   it("adds the default root model when only a named section chose a model", () => {
     expect(installConfig('[profiles.deep]\nmodel = "custom/model"\n', "default")).toContain(
-      'model = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"',
+      'model = "gpt-5.6-sol"\nmodel_reasoning_effort = "low"',
     );
   });
 
@@ -217,11 +227,11 @@ describe("Codex configuration", () => {
     expect(output).toContain('model_reasoning_effort = "high"');
   });
 
-  it("adds the complete Sol medium pair when both root values are absent", () => {
+  it("adds the complete Sol low pair when both root values are absent", () => {
     const output = installConfig("", "default");
     expect(output.match(/^model\s*=/gm)).toHaveLength(1);
     expect(output.match(/^model_reasoning_effort\s*=/gm)).toHaveLength(1);
-    expect(output).toContain('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"');
+    expect(output).toContain('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "low"');
   });
 
   it("adds low model verbosity at the root before named sections", () => {
@@ -243,7 +253,7 @@ describe("Codex configuration", () => {
   it("reinstalls low root model verbosity after a managed edit and preserves the original cleanup value", () => {
     const installed = installConfig("", "default")
       .replace('model = "gpt-5.6-sol"', 'model = "user/model"')
-      .replace('model_reasoning_effort = "medium"', 'model_reasoning_effort = "high"')
+      .replace('model_reasoning_effort = "low"', 'model_reasoning_effort = "high"')
       .replace('model_verbosity = "low"', 'model_verbosity = "high"');
     const reinstalled = installConfig(installed, "default");
     expect(reinstalled.match(/^model\s*=/gm)).toHaveLength(1);
@@ -270,7 +280,7 @@ describe("Codex configuration", () => {
 
   it("does not treat named-section effort as a root value", () => {
     const output = installConfig('[agents.custom]\nmodel_reasoning_effort = "low"\n', "default");
-    expect(output).toContain('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"');
+    expect(output).toContain('model = "gpt-5.6-sol"\nmodel_reasoning_effort = "low"');
     expect(output).toContain('[agents.custom]\nmodel_reasoning_effort = "low"');
   });
 

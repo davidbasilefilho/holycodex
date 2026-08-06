@@ -1,6 +1,6 @@
 {
   "name": "@holycodex/workflow-host",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "private": true,
   "description": "Persistent workflow host and Codex App Server bridge.",
   "type": "module",

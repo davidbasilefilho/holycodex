@@ -35,6 +35,8 @@ Output is JSON. Project execution and project-saved workflows require --trusted,
 which may be supplied only after Codex establishes project trust.
 `;
 
+const WORKFLOW_AGENT_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1_000;
+
 type WorkflowCommand =
   | "run"
   | "list"
@@ -74,7 +76,7 @@ async function main(): Promise<void> {
     trusted,
     plan,
     planLimits: {
-      maxCalls: preset.workflow.limits.totalCalls,
+      maxCalls: preset.workflow.limits.maxCalls,
       maxConcurrency: preset.workflow.limits.concurrency,
       maxRetries: preset.workflow.limits.retries,
       maxFanOut: preset.workflow.limits.fanOut,
@@ -86,6 +88,7 @@ async function main(): Promise<void> {
         executable: codexExecutable,
         args: ["app-server"],
         cwd: projectPath,
+        turnInactivityTimeoutMs: WORKFLOW_AGENT_INACTIVITY_TIMEOUT_MS,
       }),
     policy: { cwd: projectPath, lowVerbosity: true },
     runner: async (input) =>
@@ -97,10 +100,12 @@ async function main(): Promise<void> {
   const routes = Object.fromEntries([
     ...Object.entries(preset.agents).map(([agent, route]) => [agent, { ...route, serviceTier }]),
     ...Object.entries(preset.workflow.permittedRoutes).flatMap(([agent, stages]) =>
-      Object.entries(stages).map(([stage, [route]]) => [
-        `${agent}:${stage}`,
-        { ...route, serviceTier },
-      ]),
+      Object.entries(stages).flatMap(([stage, stageRoutes]) =>
+        stageRoutes.flatMap((route, index) => [
+          [`${agent}:${stage}:${index}`, { ...route, serviceTier }],
+          ...(index === 0 ? [[`${agent}:${stage}`, { ...route, serviceTier }] as const] : []),
+        ]),
+      ),
     ),
   ]);
   const permittedRoutes = Object.fromEntries(

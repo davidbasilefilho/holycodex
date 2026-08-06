@@ -22,7 +22,7 @@
 ## Safety and verification
 
 - Use Vite+ for formatting, linting, and type checking. Before finishing every task, run `vp check --fix` and fix every reported error. Do not use Prettier directly.
-- Do not run dev servers or compile/build commands. Do not invoke package scripts that compile or build as a side effect.
+- Do not run dev servers or local build, compile, pack, or package commands. CI is favored for build and package validation. Do not invoke package scripts that perform those actions as a side effect.
 - Targeted tests that do not invoke a compile/build script are allowed.
 - Do not perform irreversible actions without explicit user confirmation.
 - Do not commit or push unless explicitly requested. When requested, split large changes into logical commits with clear messages.

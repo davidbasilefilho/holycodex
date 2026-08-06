@@ -56,6 +56,8 @@ describe("bootstrap readiness", () => {
     expect(context).toContain("delegate facts, ask material decisions");
     expect(context).not.toMatch(/\b(?:lane|wave|mandatory)\b/i);
     expect(context).toContain("request_user_input");
+    expect(context).toContain("immediately before committing, pushing, creating or moving tags");
+    expect(context).toContain("building or compiling");
     expect(context).toContain("must never stop or reply with a plain-text question");
     expect(context).toContain("Root controls browser and native desktop UI itself");
     expect(context).toContain("Never delegate browser or computer control");

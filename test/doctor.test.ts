@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AGENTS, MODEL_ROUTING_PLANS, VERSION } from "../packages/cli/src/catalog";
+import { AGENTS, DEFAULT_PLAN, MODEL_ROUTING_PLANS, VERSION } from "../packages/cli/src/catalog";
 import { installConfig } from "../packages/cli/src/config";
 import { doctor, type DoctorRuntime } from "../packages/cli/src/doctor";
 
@@ -29,7 +29,7 @@ async function fixture(): Promise<string> {
   await mkdir(agents, { recursive: true });
   await Promise.all(
     AGENTS.map((agent) => {
-      const route = MODEL_ROUTING_PLANS.plus.agents[agent];
+      const route = MODEL_ROUTING_PLANS[DEFAULT_PLAN].agents[agent];
       return writeFile(
         join(agents, `${agent}.toml`),
         `model = "${route.model}"\nmodel_reasoning_effort = "${route.reasoningEffort}"\n`,

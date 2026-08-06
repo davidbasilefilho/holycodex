@@ -9,6 +9,7 @@ import {
   MODEL_ROUTING_PLANS,
   PLAN_NAMES,
   type PlanName,
+  type ProjectedUsageRange,
   type WorkflowLimits,
 } from "./catalog.ts";
 import {
@@ -246,7 +247,10 @@ export function readManagedMaxSubagents(input: string): ManagedMaxSubagents {
 export type ManagedWorkflowPolicy = {
   readonly plan: PlanName;
   readonly limits: WorkflowLimits;
-  readonly projectedUsage: { readonly standard: number; readonly fast: number };
+  readonly projectedUsage: {
+    readonly standard: ProjectedUsageRange;
+    readonly fast: ProjectedUsageRange;
+  };
   readonly softSizeGuidance: { readonly maxInputTokens: number };
 };
 

@@ -139,6 +139,33 @@ describe("Codex App Server client", () => {
     await client.close();
   });
 
+  it("stops an agent turn after sustained inactivity", async () => {
+    const listeners = new Set<(message: unknown) => void>();
+    const transport: AppServerTransport = {
+      onMessage(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      send(line) {
+        const request = JSON.parse(line) as Record<string, unknown>;
+        const result =
+          request.method === "thread/start"
+            ? { thread: { id: "thread-1" } }
+            : request.method === "turn/start"
+              ? { turn: { id: "turn-1" } }
+              : {};
+        for (const listener of listeners) listener({ id: request.id, result });
+      },
+    };
+    const client = new CodexAppServerClient({
+      executable: "codex",
+      transport,
+      turnInactivityTimeoutMs: 10,
+    });
+    await expect(client.execute("ignored")).rejects.toThrow("Codex turn became inactive.");
+    await client.close();
+  });
+
   it("does not start a turn when cancelled during thread start", async () => {
     const listeners = new Set<(message: unknown) => void>();
     const methods: unknown[] = [];

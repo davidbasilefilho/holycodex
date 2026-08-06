@@ -20,11 +20,14 @@ const plugin = join(root, "packages", "plugin", "plugin");
 
 describe("authoritative catalog", () => {
   it("keeps version, plans, routes, limits, skills, and runtimes typed in one source", () => {
-    expect(DEFAULT_PLAN).toBe("plus");
+    expect(DEFAULT_PLAN).toBe("plus-low");
     expect(Object.keys(MODEL_ROUTING_PLANS)).toEqual(PLAN_NAMES);
     for (const plan of PLAN_NAMES) {
       expect(MODEL_ROUTING_PLANS[plan].workflow.limits.workflowDepth).toBeGreaterThan(1);
-      expect(MODEL_ROUTING_PLANS[plan].workflow.limits.totalCalls).toBeGreaterThan(0);
+      expect(MODEL_ROUTING_PLANS[plan].workflow.limits.targetCalls).toBeGreaterThan(0);
+      expect(MODEL_ROUTING_PLANS[plan].workflow.limits.maxCalls).toBeGreaterThan(
+        MODEL_ROUTING_PLANS[plan].workflow.limits.targetCalls,
+      );
       expect(MODEL_ROUTING_PLANS[plan].workflow.verbosity).toBe("low");
       expect(MODEL_ROUTING_PLANS[plan].workflow.serviceTiers).toEqual(["default", "fast"]);
       expect(Object.keys(MODEL_ROUTING_PLANS[plan].agents)).toEqual(AGENTS);

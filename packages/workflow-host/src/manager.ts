@@ -202,7 +202,12 @@ export class WorkflowManager {
             typeof (agentOptions as AgentOptions & { readonly agent?: unknown }).agent === "string"
               ? (agentOptions as AgentOptions & { readonly agent: string }).agent
               : undefined;
-          const route = resolveRoute(request, agentName, agentOptions.stage);
+          const route = resolveRoute(
+            request,
+            agentName,
+            agentOptions.stage,
+            agentOptions.routeIndex,
+          );
           const replayKey = computeReplayKey(
             request.script,
             prompt,
@@ -605,13 +610,17 @@ function resolveRoute(
   request: WorkflowRunRequest,
   agentName: string | undefined,
   stage: string | undefined,
+  routeIndex: number | undefined,
 ): AgentRoute | undefined {
   if (agentName === undefined && request.routes !== undefined && request.route === undefined)
     throw new Error("A default plan route is required for unnamed agent calls.");
   if (agentName !== undefined && request.routes !== undefined) {
-    const route =
-      request.routes[stage === undefined ? agentName : `${agentName}:${stage}`] ??
-      request.routes[agentName];
+    const stageRoute = stage === undefined ? agentName : `${agentName}:${stage}`;
+    const indexedRoute =
+      routeIndex === undefined ? undefined : request.routes[`${stageRoute}:${routeIndex}`];
+    if (routeIndex !== undefined && indexedRoute === undefined)
+      throw new Error(`No permitted route index ${routeIndex} for agent stage: ${stageRoute}`);
+    const route = indexedRoute ?? request.routes[stageRoute] ?? request.routes[agentName];
     if (route === undefined) throw new Error(`No route configured for agent: ${agentName}`);
     const permitted = request.permittedRoutes?.[agentName];
     if (permitted !== undefined && !permitted.some((candidate) => routeMatches(candidate, route)))

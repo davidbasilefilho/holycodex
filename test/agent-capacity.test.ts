@@ -32,7 +32,8 @@ describe("agent capacity context", () => {
   it("explains root-inclusive capacity and fallback authority", () => {
     const context = coreInstructions("linux", { maxThreads: 2, maxDepth: 1 });
     expect(context).toContain("agents.max_concurrent_threads_per_session=2 includes Root");
-    expect(context).toContain("specialist agents run only through CLI workflows");
+    expect(context).toContain("specialist agents run through CLI workflows unless");
+    expect(context).toContain("targetCalls is soft planning guidance");
     expect(coreInstructions("linux")).toContain(
       "active collaboration tool instructions as the authoritative agent-capacity limit",
     );

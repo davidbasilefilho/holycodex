@@ -242,6 +242,50 @@ describe("workflow manager", () => {
     }
   });
 
+  it("selects an explicitly permitted stage escalation by route index", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
+    try {
+      const calls: string[] = [];
+      const manager = new WorkflowManager({ storageDir: directory, client: fakeClient(calls) });
+      const result = await manager.run({
+        script:
+          'export default await agent("verify", { agent: "worker", stage: "verification", routeIndex: 1 })',
+        routes: {
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          "worker:verification": { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          "worker:verification:1": { model: "gpt-5.6-luna", reasoningEffort: "max" },
+        },
+        permittedRoutes: {
+          worker: [{ model: "gpt-5.6-luna", reasoningEffort: "max" }],
+        },
+      });
+      expect(result.result.result).toEqual({ ok: true });
+      expect(calls).toContain("turn/start");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an unavailable stage route index", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
+    try {
+      const manager = new WorkflowManager({ storageDir: directory, client: fakeClient([]) });
+      const result = await manager.run({
+        script:
+          'export default await agent("verify", { agent: "worker", stage: "verification", routeIndex: 1 })',
+        routes: {
+          worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
+          "worker:verification": { model: "gpt-5.6-luna", reasoningEffort: "high" },
+        },
+      });
+      expect(result.result.errors).toContain(
+        "No permitted route index 1 for agent stage: worker:verification",
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("requires a plan route for unnamed agent calls", async () => {
     const directory = await mkdtemp(join(tmpdir(), "holycodex-workflow-"));
     try {

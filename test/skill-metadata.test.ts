@@ -86,4 +86,13 @@ describe("bundled skill UI metadata", () => {
       /\b(?:monitor(?:ing)?|watch(?:ing)?|track(?:ing)?)\b/i,
     );
   });
+
+  it("requires ask-tool approval for plans and sensitive verification actions", async () => {
+    const plan = await readFile(join(skillsRoot, "plan", "SKILL.md"), "utf8");
+    const review = await readFile(join(skillsRoot, "plan-review", "SKILL.md"), "utf8");
+    const codeReview = await readFile(join(skillsRoot, "code-review", "SKILL.md"), "utf8");
+    expect(plan).toContain("use `request_user_input` to ask explicit approval");
+    expect(review).toContain("must use `request_user_input` to ask explicit plan approval");
+    expect(codeReview).toContain("immediately before any build, compile, package, publish");
+  });
 });

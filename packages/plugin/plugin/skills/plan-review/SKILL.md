@@ -10,7 +10,7 @@ After full load, first visible lines:
 **PLAN REVIEW MODE ACTIVATED**
 I detect plan-review intent: [reason]. [action].
 
-Require request, complete plan, decisions, criteria, repo facts. If incomplete, return to `plan`. Review once after drafting: no preload, parallel review, reviewer, evidence folder, approval, implementation, or loop. `plan` owns draft/approval.
+Require request, complete plan, decisions, criteria, repo facts. If incomplete, return to `plan`. Review once after drafting: no preload, parallel review, reviewer, evidence folder, implementation, or loop. The completed review must use `request_user_input` to ask explicit plan approval when the tool is available; never infer approval from the surrounding request.
 
 1. **Requirement ledger.** Map each material requirement, constraint, criterion, decision, exclusion, proof to a step, exclusion, or blocker. Reject gaps/conflicts; preserve architecture, scope, user choices.
 2. **Fact audit.** Verify files/symbols/entry points, APIs, commands/scripts, dependencies, generated/package behavior, conventions, and external facts; invent nothing. Root may use a bounded dynamic discovery workflow when the audit needs isolated repository or primary-source contexts. The workflow selects capabilities from observed results and obeys the active plan. Specialists never delegate.
@@ -18,6 +18,6 @@ Require request, complete plan, decisions, criteria, repo facts. If incomplete, 
 4. **Adversarial audit.** Challenge assumptions, regressions, missing edges/failures, evidence. Cover compatibility/data loss, security/permissions/sandbox, concurrency/state/performance, migrations/user work, platforms/Windows Git Bash, context recovery, licensing/attribution, frontend accessibility/motion. Block material architecture/product choices. Qualifying UI/frontend work requires Build Web Apps `frontend-app-builder` concept/design approval; if absent require enabling it. Read-only UI audit is exempt.
 5. **Proof matrix.** Map behavior/regression/migration/failure, generated/package/publication results, cleanup to exact checks/results. Require targeted then proportional static/integration/build/package/generation, Git diff/status, relevant rollback proof. Reject vague, duplicate, unverifiable, post-goal checks.
 6. **Scope audit.** State changed/untouched surfaces; remove unrelated cleanup, speculation, premature abstraction, duplicate/unneeded work, behavior-changing refactors, unsupported detail, ceremony, fake precision, post-goal work. Never estimate exact monetary/token cost.
-7. **Result.** Return ranked findings, corrected plan, unresolved material decisions, residual risks, approval readiness. Each step names surface/outcome, prerequisites/owner, exact proof/result, failure/rollback, decision gate, stop. Ask only material choices; return to `plan`.
+7. **Result.** Return ranked findings, corrected plan, unresolved material decisions, residual risks, approval readiness. Each step names surface/outcome, prerequisites/owner, exact proof/result, failure/rollback, decision gate, stop. Use `request_user_input` to ask approval for the corrected plan before implementation. Ask only material choices.
 
 No reviewer, evidence folder, second review, or implementation. Stop after correction.

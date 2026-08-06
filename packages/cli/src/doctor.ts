@@ -335,7 +335,7 @@ export async function doctor(
             "workflow",
             "ok",
             "workflow-settings-ready",
-            `${plan} workflow limits, projected usage, and size guidance match the catalog.`,
+            `${plan} workflow target and maximum limits, projected usage, and size guidance match the catalog.`,
           )
         : check(
             "workflow",

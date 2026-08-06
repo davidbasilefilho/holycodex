@@ -11,6 +11,7 @@ export type AgentOptions = {
   readonly callId?: number;
   readonly agent?: string;
   readonly stage?: string;
+  readonly routeIndex?: number;
   readonly label?: string;
   readonly phase?: string;
   readonly context?: JsonValue;
@@ -127,6 +128,7 @@ const agentOptions = z
   .object({
     agent: z.string().min(1).max(100).optional(),
     stage: z.string().min(1).max(100).optional(),
+    routeIndex: z.number().int().min(0).max(20).optional(),
     label: z.string().max(200).optional(),
     phase: z.string().max(200).optional(),
     context: z.unknown().optional(),

@@ -17,7 +17,7 @@ Root gate: discover facts dynamically, ask material decisions through `request_u
 3. After applicable design approval, draft complete initial plan; every step names surface, change, outcome, proof, material risks/decisions.
 4. Only then load `plan-review`; never preload, parallelize, delegate, or imply review.
 5. Use `plan-review` once; keep phases distinct.
-6. Present reviewed executable plan and ask approval; never implement before it.
+6. Present the reviewed executable plan and use `request_user_input` to ask explicit approval; never infer approval from a request to plan and implement, and never implement before the user approves through the ask tool when it is available.
 7. After approval, implement.
 
 Preserve architecture/scope. Stop after approval; no repeated review.
