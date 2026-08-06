@@ -23,9 +23,8 @@ describe("bootstrap readiness", () => {
       "Omit filler, hedging, repetition, decoration, self-reference, style announcements and tool narration.",
     );
     expect(context).toContain("never print provisionally");
-    expect(
-      context.match(/I detect \[fix\/implementation\/investigation\/question\] intent/g),
-    ).toHaveLength(1);
+    expect(context.match(/I detect \[intent\] intent/g)).toHaveLength(1);
+    expect(context).toContain("no fixed intent taxonomy applies");
     expect(context).toContain(
       "`plan` and `plan-review` instead own their exact heading and intent",
     );
@@ -35,11 +34,19 @@ describe("bootstrap readiness", () => {
     expect(context).toContain("Never execute task commands through PowerShell or cmd");
     expect(context).not.toContain("`caveman`");
     expect(context).toMatch(/Root owns interaction, intent, scope, architecture/);
-    expect(context).toContain("Delegate only useful bounded work");
+    expect(context).toContain("Root is not another implementation branch");
+    expect(context).toContain("integrate only accepted work");
+    expect(context).toContain("Prefer regular Codex collaboration subagents");
+    expect(context).toContain("Do not conceal orchestration");
+    expect(context).toContain("Explorer maps X");
+    expect(context).toContain("Do not disclose Root orchestration mechanics");
+    expect(context).toContain("isolated App Server threads not shown as native subagents");
+    expect(context).toContain(
+      "Skip delegation when one direct local operation is cheaper and sufficient",
+    );
     expect(context).toContain("Root owns workflow integration and final proof");
     expect(context).toContain("Skills govern method only");
-    expect(context).toContain("Root authors JavaScript workflows");
-    expect(context).toContain("dynamic branching, loops, retries, and verification");
+    expect(context).toContain("use a CLI workflow only when dynamic branching");
     expect(context).toContain("selected plan is authoritative");
     expect(context).not.toMatch(/(?:Explorer|Librarian|Worker) (?:uses|runs) GPT 5\.6/);
     expect(context).toContain(
@@ -62,10 +69,15 @@ describe("bootstrap readiness", () => {
     expect(context).toContain(
       "After any code or manifest implementation, Root loads `code-review` exactly once",
     );
+    expect(context).toContain(
+      "After loading `code-review`, its first visible line is **CODE REVIEW MODE ACTIVATED**",
+    );
     expect(context).toContain("user-requested snippet, file, directory, diff, patch, or PR review");
     expect(context).toContain(
       "Use these capabilities instead of manual-click instructions, shell-as-GUI",
     );
+    expect(context).not.toContain("Prefer `rg` or `rg --files`");
+    expect(context).not.toContain("fall back to `grep` and `find`");
   });
 
   it("emits SessionStart context in the Codex command-hook envelope", async () => {

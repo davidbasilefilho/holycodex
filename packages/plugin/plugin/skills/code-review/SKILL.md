@@ -1,11 +1,15 @@
 ---
 name: code-review
-description: Mandatory after any code or manifest implementation, and for a user-requested snippet, file, directory, diff, patch, or PR review; do not use for implementation, plan review, or non-code review. Produces repaired code, proportional proof, and Root judgment.
+description: Use exactly once after every code or manifest implementation, and for a user-requested snippet, file, directory, diff, patch, or PR review. Runs the final Root-owned audit, repairs weak work, proves it proportionally, and decides readiness; do not use for implementation, plan review, or non-code review.
 ---
 
 # Code Review
 
-Root owns scope, integration, commands, final judgment/verification/result. Never delegate review. Explorer may find facts; Worker may fix isolated code but never integrates/verifies finally. Invoke this skill once after implementation or an explicit review request, then converge within that invocation: repair, proportionally rerun affected proof, and reinspect until clean or materially blocked.
+Only after full load, first user-visible line:
+
+**CODE REVIEW MODE ACTIVATED**
+
+Root owns scope, integration, commands, final judgment/verification/result and is not another implementation branch. Evaluate all specialist output against scope, fixed architecture, user decisions, repository conventions, and proof. Reject or repair weak output and integrate only accepted work. Never delegate review. Explorer may find facts; Worker may fix isolated code but never integrates/verifies finally. Invoke this skill exactly once after implementation or an explicit review request, then converge within that invocation: repair, proportionally rerun affected proof, and reinspect until clean or materially blocked.
 
 1. Load request, approved plan, criteria, decisions, exclusions, results, repo rules/state.
 2. Capture Git status, working/staged diffs, untracked files; preserve user work. Unchanged/supplied code review includes affected callers, consumers, contracts.

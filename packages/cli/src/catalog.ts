@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const VERSION = "0.12.0";
+export const VERSION = "0.12.1";
 
 export const SKILLS = [
   "ast-grep",
@@ -176,8 +176,15 @@ export const MODEL_ROUTING_PLANS = ModelRoutingPlansSchema.parse({
         librarian: { model: "gpt-5.6-luna", reasoningEffort: "high" },
         worker: { model: "gpt-5.6-luna", reasoningEffort: "high" },
       },
-      { concurrency: 2, totalCalls: 8, workflowDepth: 3, retries: 1, loopIterations: 2, fanOut: 2 },
-      8,
+      {
+        concurrency: 3,
+        totalCalls: 12,
+        workflowDepth: 3,
+        retries: 1,
+        loopIterations: 2,
+        fanOut: 3,
+      },
+      12,
       300,
       30_000,
     ),

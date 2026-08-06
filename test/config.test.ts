@@ -168,6 +168,18 @@ describe("Codex configuration", () => {
     }
   });
 
+  it("keeps capability-specific guidance in each specialist profile", () => {
+    const explorer = readFileSync("packages/plugin/plugin/agents/explorer.toml", "utf8");
+    const librarian = readFileSync("packages/plugin/plugin/agents/librarian.toml", "utf8");
+    const worker = readFileSync("packages/plugin/plugin/agents/worker.toml", "utf8");
+    expect(explorer).toContain("Prefer `rg` and `rg --files`");
+    expect(explorer).toContain("fall back to `grep` and `find`");
+    expect(librarian).toContain("smallest sufficient set of current authoritative primary sources");
+    expect(librarian).toContain("Attach each source to a decision-relevant claim");
+    expect(worker).toContain("repository-native, merge-ready work");
+    expect(worker).toContain("Node.js and Bun portability");
+  });
+
   it("preserves an explicit model and reasoning effort", () => {
     const input = 'model = "gpt-5.6-sol"\nmodel_reasoning_effort = "high"\n';
     expect(installConfig(input, "default")).toContain('model_reasoning_effort = "high"');

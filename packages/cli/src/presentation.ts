@@ -94,6 +94,7 @@ function renderOfficialPlugins(result: RunResult): string {
   return [
     renderOfficialPlugin("Codex Security", result.codexSecurity),
     renderOfficialPlugin("Computer Use", result.computerUse),
+    renderOfficialPlugin("Build Web Apps", result.buildWebApps),
   ].join("");
 }
 

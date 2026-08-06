@@ -50,6 +50,19 @@ describe("CLI presentation", () => {
     expect(output).toContain("Installed official Computer Use plugin.");
   });
 
+  it("renders Build Web Apps installation status", () => {
+    const output = renderRunResult(
+      {
+        action: "install",
+        changed: [],
+        backups: [],
+        buildWebApps: { status: "installed" },
+      },
+      false,
+    );
+    expect(output).toContain("Installed official Build Web Apps plugin.");
+  });
+
   it("renders install plan help and examples", () => {
     const output = renderInstallHelp("0.7.1", false);
     expect(output).toContain("holycodex install [options]");

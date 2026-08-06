@@ -7,6 +7,7 @@ import {
   defaultCodexLauncherRuntimeFacts,
 } from "../packages/cli/src/codex-launcher.ts";
 import {
+  installBuildWebApps,
   installComputerUse,
   installCodexSecurity,
   type CodexProcessRunner,
@@ -68,6 +69,31 @@ const oversizedAvailable = JSON.stringify({
 });
 
 describe("official plugin installation", () => {
+  it("installs and verifies the official Build Web Apps plugin", async () => {
+    const pluginId = "build-web-apps@openai-curated-remote";
+    const fake = runner([
+      result(installedOnly),
+      result(
+        JSON.stringify({
+          installed: [],
+          available: [{ pluginId, installed: false, enabled: false }],
+        }),
+      ),
+      result("{}"),
+      result(
+        JSON.stringify({
+          installed: [{ pluginId, installed: true, enabled: true }],
+          available: [],
+        }),
+      ),
+    ]);
+
+    await expect(installBuildWebApps(fake.run, "linux", {})).resolves.toMatchObject({
+      status: "installed",
+    });
+    expect(fake.calls.some(({ args }) => args.includes(pluginId))).toBe(true);
+  });
+
   it("installs and verifies the official Computer Use plugin", async () => {
     const fake = runner([
       result(JSON.stringify({ installed: [], available: [] })),

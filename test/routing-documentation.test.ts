@@ -14,6 +14,9 @@ describe("dynamic workflow documentation", () => {
     expect(document).toContain("top-level `await`");
     expect(document).toContain("`agent()`");
     expect(document).toContain("`pipeline()`");
+    expect(document).toContain("name each specialist type and what it will do");
+    expect(document).toContain("creates independent threads");
+    expect(document).toContain("does not expose the parent linkage");
     expect(document).toContain("do not imply a fixed Explorer to Librarian to Worker sequence");
     expect(document).not.toContain("two lanes per wave");
   });

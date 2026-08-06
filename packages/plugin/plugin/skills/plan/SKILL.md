@@ -8,7 +8,7 @@ description: Use for a requested plan, design, approach, or roadmap, or an unres
 Only after full load, first user-visible lines:
 
 **PLAN MODE ACTIVATED**
-I detect planning intent: [reason]. [action].
+I detect planning intent — [action].
 
 Root gate: discover facts dynamically, ask material decisions through `request_user_input`, and state safe reversible defaults. Ask one to three blockers with exclusive options, recommendation/impact first, no timeout; never repeat or ask discoverable facts. For substantive planning, Root may author a bounded discovery workflow that selects repository or external research capabilities from observed results. The active plan and collaboration capacity remain authoritative. Specialists never delegate. No reviewer, evidence directory, commit ritual, or ceremony.
 

@@ -23,6 +23,7 @@ import {
   WINDOWS_SHELL_POLICY,
 } from "./catalog.ts";
 import {
+  installBuildWebApps,
   installComputerUse,
   installCodexSecurity,
   type CodexProcessRunner,
@@ -60,6 +61,7 @@ export type RunResult = {
   readonly plan?: PlanName;
   readonly codexSecurity?: CodexSecurityInstallResult;
   readonly computerUse?: CodexSecurityInstallResult;
+  readonly buildWebApps?: CodexSecurityInstallResult;
 };
 export type InstallRuntime = {
   readonly platform: NodeJS.Platform;
@@ -160,6 +162,7 @@ export async function install(
   const removedLegacy: string[] = [];
   let codexSecurity: CodexSecurityInstallResult | undefined;
   let computerUse: CodexSecurityInstallResult | undefined;
+  let buildWebApps: CodexSecurityInstallResult | undefined;
   try {
     notify(options, "managed-files", "Installing managed files", "running");
     await atomicWrite(target.config, config);
@@ -192,6 +195,15 @@ export async function install(
       "complete",
       pluginProgressDetail(computerUse),
     );
+    notify(options, "build-web-apps", "Installing Build Web Apps", "running");
+    buildWebApps = await installBuildWebApps(runtime.runProcess, runtime.platform, process.env);
+    notify(
+      options,
+      "build-web-apps",
+      "Installing Build Web Apps",
+      "complete",
+      pluginProgressDetail(buildWebApps),
+    );
     notify(options, "cleanup", "Removing obsolete caches", "running");
     await removeObsoleteVersionCaches(target.cacheRoot);
     notify(options, "cleanup", "Removing obsolete caches", "complete");
@@ -211,6 +223,7 @@ export async function install(
     plan,
     codexSecurity,
     computerUse,
+    buildWebApps,
   };
 }
 

@@ -14,6 +14,7 @@ import {
   PlanNameSchema,
   type PlanName,
 } from "./catalog.ts";
+import { assertWorkflowAvailable } from "./workflow-policy.ts";
 
 const HELP = `HolyCodex dynamic workflows
 
@@ -58,6 +59,7 @@ async function main(): Promise<void> {
   const command = parseCommand(args.shift());
   const config = await installedConfiguration();
   const plan = readPlan(config);
+  assertWorkflowAvailable(plan);
   const fast = readFast(config);
   const preset = MODEL_ROUTING_PLANS[plan];
   const serviceTier = fast === "standard" ? "default" : "fast";

@@ -72,6 +72,7 @@ describe.sequential("install lifecycle", () => {
       "managed-files:complete",
       "codex-security:complete",
       "computer-use:complete",
+      "build-web-apps:complete",
       "cleanup:complete",
     ]);
   });

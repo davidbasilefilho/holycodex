@@ -21,6 +21,10 @@ export const COMPUTER_USE_PLUGIN: OfficialPlugin = {
   id: "computer-use@openai-bundled",
   marketplace: "openai-bundled",
 };
+export const BUILD_WEB_APPS_PLUGIN: OfficialPlugin = {
+  id: "build-web-apps@openai-curated-remote",
+  marketplace: "openai-curated-remote",
+};
 const CODEX_PLUGIN_OPERATIONAL_TIMEOUT_MS = 15_000;
 const CODEX_PACKAGE_BOOTSTRAP_TIMEOUT_MS = 120_000;
 const MAX_CODEX_CATALOG_DIAGNOSTIC_CHARS = 256 * 1024;
@@ -108,6 +112,16 @@ export async function installComputerUse(
   options: CodexSecurityInstallOptions = {},
 ): Promise<OfficialPluginInstallResult> {
   return installOfficialPlugin(COMPUTER_USE_PLUGIN, runProcess, platform, env, options);
+}
+
+/** Installs or enables the official Build Web Apps plugin without failing HolyCodex installation. */
+export async function installBuildWebApps(
+  runProcess: CodexProcessRunner = runManagedProcess,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  options: CodexSecurityInstallOptions = {},
+): Promise<OfficialPluginInstallResult> {
+  return installOfficialPlugin(BUILD_WEB_APPS_PLUGIN, runProcess, platform, env, options);
 }
 
 /** Installs or enables one official Codex plugin through a verified catalog entry. */
