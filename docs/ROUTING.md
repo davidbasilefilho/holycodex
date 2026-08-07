@@ -1,6 +1,6 @@
 # Dynamic workflow policy
 
-HolyCodex uses model-authored dynamic workflows instead of strict role routing, mandatory delegation thresholds, fixed lanes, or fixed waves as its primary orchestrator on paid plans. Root authors plain JavaScript for the current task and the script decides which agents run next from intermediate results. Concise updates name each specialist type and what it will do without explaining delegation rationale unless the user asks. On paid plans, specialist agents run through workflows unless the workflow runtime is unavailable or cannot perform the operation. Go disables workflows, so Root works directly without specialist agents.
+HolyCodex uses model-authored dynamic workflows instead of strict role routing, fixed lanes, or fixed waves as its primary orchestrator on paid plans. Root authors plain JavaScript for the current task and the script decides which agents run next from intermediate results. Concise updates name each specialist type and what it will do without explaining delegation rationale unless the user asks. On every plan other than Go, Root always delegates at least one bounded task through a workflow. If the workflow runtime is unavailable or cannot perform the required operation, Root reports the blocker instead of bypassing delegation. Go disables workflows, so Root works directly without specialist agents.
 
 Workflows can use sequential phases, parallel fan-out, dynamic discovery, conditions, bounded loops, retries, iterative fix-and-check cycles, independent attempts, adversarial verification, deduplication, ranking, and synthesis. Several workflows may run in sequence for one request. Important findings require independent verification before they are presented as confirmed, and implementation workflows must verify their work before completion.
 
@@ -46,7 +46,7 @@ return agent("Deduplicate, rank, and independently verify these findings.", {
 
 Scripts may use normal variables, objects, arrays, functions, conditions, loops, and error handling. `agent()` returns structured output when a schema is supplied and `null` for an allowed partial failure. The `stage` option selects the stage baseline; `routeIndex` selects a stronger permitted route only when complexity, uncertainty, risk, failed checks, or an earlier insufficient result justifies escalation. `pipeline()` preserves input order and partial failures while respecting active concurrency and fan-out limits. Structured invocation data is available through `args`.
 
-The current CLI host dispatches `agent()` through Codex App Server, which creates independent threads that are not displayed as children of the active task. That UI limitation is not a reason to prefer native subagents. Paid plans use workflows for substantive specialist work; native subagents are fallback-only when the workflow runtime is unavailable or cannot perform the operation.
+The current CLI host dispatches `agent()` through Codex App Server, which creates independent threads that are not displayed as children of the active task. That UI limitation is not a reason to avoid workflows. Paid plans always use workflows and never fall back to native subagents.
 
 ## Plans and quotas
 

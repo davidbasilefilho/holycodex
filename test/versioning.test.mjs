@@ -5,7 +5,12 @@ import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
-import { publicationPlan, publicationSummary } from "../scripts/publish.mjs";
+import {
+  isPreviouslyPublishedError,
+  publishPlannedItem,
+  publicationPlan,
+  publicationSummary,
+} from "../scripts/publish.mjs";
 import {
   lockfileWorkspaceVersions,
   nextDevVersion,
@@ -117,6 +122,36 @@ describe("zerover versioning", () => {
 });
 
 describe("npm publication", () => {
+  it("recognizes only npm replay conflicts as previously published", () => {
+    expect(
+      isPreviouslyPublishedError({
+        stderr:
+          "npm error 403 Forbidden - You cannot publish over the previously published versions: 0.12.6.",
+      }),
+    ).toBe(true);
+    expect(isPreviouslyPublishedError({ stderr: "npm error 403 Forbidden" })).toBe(false);
+    expect(isPreviouslyPublishedError(new Error("publish failed"))).toBe(false);
+  });
+
+  it("reconciles a previously accepted publish against its expected integrity", async () => {
+    const calls = [];
+    const item = {
+      directory: "./packages/cli",
+      name: "holycodex",
+      version: "0.12.6",
+      integrity: "sha512-cli",
+    };
+    const execute = async () => {
+      throw { stderr: "You cannot publish over the previously published versions: 0.12.6." };
+    };
+    const waitForIntegrity = async (...arguments_) => calls.push(arguments_);
+
+    await expect(
+      publishPlannedItem({ item, channel: "latest", dryRun: false }, { execute, waitForIntegrity }),
+    ).resolves.toBe("existing");
+    expect(calls).toEqual([["holycodex@0.12.6", "sha512-cli"]]);
+  });
+
   it("publishes missing packages and skips only integrity-matched registry versions", () => {
     const local = [
       { name: "@holycodex/plugin", version: "0.10.7", integrity: "sha512-plugin" },

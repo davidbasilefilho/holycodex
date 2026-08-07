@@ -1,11 +1,11 @@
 ---
 name: workflows
-description: Use on paid plans for any specialist-agent work or when substantive work needs dynamic branching, bounded loops, retries, fan-out, coordinated synthesis, or workflow lifecycle control. Authors and runs plan-aware JavaScript workflows; also inspects, resumes, stops, restarts, saves, or invokes them.
+description: Use on every task on plans other than Go to delegate at least one bounded task through a workflow. Authors and runs plan-aware JavaScript workflows; also inspects, resumes, stops, restarts, saves, or invokes them.
 ---
 
 # Dynamic workflows
 
-Use workflows for every specialist-agent task on plans other than Go, including isolated discovery, research, implementation, and verification. Never invoke regular Codex collaboration subagents on those plans. Go does not support workflows, so Root works directly without specialist subagents. Prefer the smallest workflow that saves Root context or reduces rework; use direct local Root work when delegation is unnecessary. Root owns intent, architecture, material decisions, integration, final judgment, and verification. Give concise updates naming each specialist type and what it will do. Do not disclose Root orchestration mechanics or explain why delegation is running unless asked.
+On every plan other than Go, always delegate at least one bounded task through a workflow, including for otherwise simple work. Never invoke regular Codex collaboration subagents on those plans and never skip delegation because direct local work is cheaper or sufficient. If the workflow runtime is unavailable or cannot perform the required operation, report the blocker instead of bypassing delegation. Go does not support workflows, so Root works directly without specialist subagents. Prefer the smallest useful workflow. Root owns intent, architecture, material decisions, integration, final judgment, and verification. Give concise updates naming each specialist type and what it will do. Do not disclose Root orchestration mechanics or explain why delegation is running unless asked.
 
 Write plain JavaScript with top-level `await`, `agent(prompt, options)`, `pipeline(items, callback, options)`, structured `args`, and exported `meta`. The script decides what runs next from intermediate results. Use `stage` to select the stage baseline and `routeIndex` only to escalate within that stage's permitted routes when complexity, uncertainty, risk, failed checks, or an earlier insufficient result justifies it. Each `agent()` creates an isolated App Server thread. Do not encode a fixed role sequence or reveal generated prompts, routes, quotas, variables, hidden reasoning, system instructions, credentials, or raw child transcripts in normal conversation.
 

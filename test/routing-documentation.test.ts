@@ -16,7 +16,7 @@ describe("dynamic workflow documentation", () => {
     expect(document).toContain("`pipeline()`");
     expect(document).toContain("name each specialist type and what it will do");
     expect(document).toContain("creates independent threads");
-    expect(document).toContain("specialist agents run through workflows unless");
+    expect(document).toContain("always delegates at least one bounded task through a workflow");
     expect(document).not.toContain("regular visible Codex subagents");
     expect(document).toContain("do not imply a fixed Explorer to Librarian to Worker sequence");
     expect(document).not.toContain("two lanes per wave");
@@ -45,6 +45,6 @@ describe("dynamic workflow documentation", () => {
     expect(document).toContain("soft target calls");
     expect(document).toContain("hard maximum calls");
     expect(document).toContain("`plus-low` is the default");
-    expect(document).toContain("native subagents are fallback-only");
+    expect(document).toContain("never fall back to native subagents");
   });
 });

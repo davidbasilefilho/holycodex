@@ -16,12 +16,12 @@
     },
     "packages/cli": {
       "name": "holycodex",
-      "version": "0.12.6",
+      "version": "0.12.7",
       "bin": {
         "holycodex": "bin/holycodex.js",
       },
       "dependencies": {
-        "@holycodex/plugin": "0.12.6",
+        "@holycodex/plugin": "0.12.7",
         "zod": "^4.4.3",
       },
       "devDependencies": {
@@ -31,7 +31,7 @@
     },
     "packages/git-bash": {
       "name": "@holycodex/git-bash",
-      "version": "0.12.6",
+      "version": "0.12.7",
       "bin": {
         "holycodex-git-bash": "dist/cli.js",
       },
@@ -44,7 +44,7 @@
     },
     "packages/lsp-core": {
       "name": "@holycodex/lsp-core",
-      "version": "0.12.6",
+      "version": "0.12.7",
       "dependencies": {
         "@holycodex/runtime-core": "workspace:*",
         "zod": "^4.4.3",
@@ -52,7 +52,7 @@
     },
     "packages/lsp-daemon": {
       "name": "@holycodex/lsp-daemon",
-      "version": "0.12.6",
+      "version": "0.12.7",
       "bin": {
         "holycodex-lsp-daemon": "./dist/cli.js",
       },
@@ -70,21 +70,21 @@
     },
     "packages/plugin": {
       "name": "@holycodex/plugin",
-      "version": "0.12.6",
+      "version": "0.12.7",
       "dependencies": {
         "zod": "^4.4.3",
       },
     },
     "packages/runtime-core": {
       "name": "@holycodex/runtime-core",
-      "version": "0.12.6",
+      "version": "0.12.7",
       "dependencies": {
         "zod": "^4.4.3",
       },
     },
     "packages/workflow-host": {
       "name": "@holycodex/workflow-host",
-      "version": "0.12.6",
+      "version": "0.12.7",
       "dependencies": {
         "@holycodex/runtime-core": "workspace:*",
         "@holycodex/workflow-runtime": "workspace:*",
@@ -93,7 +93,7 @@
     },
     "packages/workflow-runtime": {
       "name": "@holycodex/workflow-runtime",
-      "version": "0.12.6",
+      "version": "0.12.7",
       "dependencies": {
         "@holycodex/runtime-core": "workspace:*",
         "quickjs-emscripten": "^0.32.0",

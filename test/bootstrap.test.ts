@@ -36,15 +36,14 @@ describe("bootstrap readiness", () => {
     expect(context).toMatch(/Root owns interaction, intent, scope, architecture/);
     expect(context).toContain("Root is not another implementation branch");
     expect(context).toContain("integrate only accepted work");
-    expect(context).toContain("use specialist agents only through CLI workflows");
+    expect(context).toContain("always delegate at least one bounded task through a CLI workflow");
     expect(context).toContain("never invoke regular Codex collaboration subagents");
     expect(context).toContain("Do not conceal orchestration");
     expect(context).toContain("Explorer maps X");
     expect(context).toContain("Do not disclose Root orchestration mechanics");
     expect(context).toContain("Go does not support workflows");
-    expect(context).toContain(
-      "Skip delegation when one direct local operation is cheaper and sufficient",
-    );
+    expect(context).toContain("Never skip delegation because direct local work is cheaper");
+    expect(context).toContain("report the blocker instead of bypassing delegation");
     expect(context).toContain("Root owns workflow integration and final proof");
     expect(context).toContain("Skills govern method only");
     expect(context).not.toContain("Prefer regular Codex collaboration subagents");
@@ -54,7 +53,7 @@ describe("bootstrap readiness", () => {
       "Specialists never delegate, broaden, review, or make final judgments",
     );
     expect(context).toContain("delegate facts, ask material decisions");
-    expect(context).not.toMatch(/\b(?:lane|wave|mandatory)\b/i);
+    expect(context).not.toMatch(/\b(?:lane|wave)\b/i);
     expect(context).toContain("request_user_input");
     expect(context).toContain("immediately before committing, pushing, creating or moving tags");
     expect(context).toContain("building or compiling");

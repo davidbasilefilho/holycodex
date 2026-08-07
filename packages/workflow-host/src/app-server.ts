@@ -139,7 +139,7 @@ export class CodexAppServerClient {
         clientInfo: {
           name: this.options.clientInfo?.name ?? "holycodex-workflow-host",
           title: this.options.clientInfo?.title ?? "HolyCodex Workflow Host",
-          version: this.options.clientInfo?.version ?? "0.12.6",
+          version: this.options.clientInfo?.version ?? "0.12.7",
         },
       });
       await this.notify("initialized", {});

@@ -127,6 +127,38 @@ export function publicationSummary(item, channel, result) {
   return `::notice title=npm publication::package=${item.name} version=${item.version} result=${result} tag=${channel}`;
 }
 
+/** Returns whether npm rejected a replay because the exact version was already accepted. */
+export function isPreviouslyPublishedError(error) {
+  if (error === null || typeof error !== "object" || !("stderr" in error)) return false;
+  return /cannot publish over the previously published versions/i.test(String(error.stderr));
+}
+
+/** Publishes one planned package and safely reconciles an accepted-but-not-yet-visible replay. */
+export async function publishPlannedItem(
+  { item, channel, dryRun },
+  { execute = execFile, waitForIntegrity = waitForRegistryIntegrity } = {},
+) {
+  const arguments_ = [
+    "publish",
+    item.directory,
+    "--access",
+    "public",
+    "--tag",
+    channel,
+    "--provenance",
+  ];
+  if (dryRun) arguments_.push("--dry-run");
+  try {
+    await execute("npm", arguments_, { cwd: root });
+  } catch (error) {
+    if (dryRun || !isPreviouslyPublishedError(error)) throw error;
+    await waitForIntegrity(packageSpec(item), item.integrity);
+    return "existing";
+  }
+  if (!dryRun) await waitForIntegrity(packageSpec(item), item.integrity);
+  return dryRun ? "planned" : "published";
+}
+
 /** Writes a concise publication status to Actions output and its optional step summary. */
 async function writeStatus(status) {
   process.stdout.write(`${status}\n`);
@@ -158,19 +190,8 @@ export async function publish(channel, dryRun) {
       await writeStatus(publicationSummary(item, channel, "existing"));
       continue;
     }
-    const arguments_ = [
-      "publish",
-      item.directory,
-      "--access",
-      "public",
-      "--tag",
-      channel,
-      "--provenance",
-    ];
-    if (dryRun) arguments_.push("--dry-run");
-    await execFile("npm", arguments_, { cwd: root });
-    await writeStatus(publicationSummary(item, channel, dryRun ? "planned" : "published"));
-    if (!dryRun) await waitForRegistryIntegrity(packageSpec(item), item.integrity);
+    const result = await publishPlannedItem({ item, channel, dryRun });
+    await writeStatus(publicationSummary(item, channel, result));
   }
   if (dryRun) return;
   for (const item of plan) {
