@@ -424,8 +424,8 @@ function finalFallbackReason(reasons: readonly CodexSecuritySkipReason[]): Codex
   if (reasons.includes("plugin-not-offered")) return "plugin-not-offered";
   if (reasons.includes("timeout")) return "timeout";
   if (reasons.includes("unsupported")) return "unsupported";
-  if (reasons.includes("download-failed")) return "download-failed";
   if (reasons.includes("marketplace-unavailable")) return "marketplace-unavailable";
+  if (reasons.includes("download-failed")) return "download-failed";
   if (reasons.includes("plugin-unavailable")) return "plugin-unavailable";
   if (reasons.includes("invalid-response")) return "invalid-response";
   return "codex-unavailable";

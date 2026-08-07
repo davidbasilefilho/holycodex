@@ -44,7 +44,7 @@ afterEach(() => {
 });
 
 describe("routing and Fast mode seams", () => {
-  it("implements the 0.12.4 Root and stage-aware route catalog", () => {
+  it("implements the 0.12.5 Root and stage-aware route catalog", () => {
     const route = (model: "luna" | "sol", reasoningEffort: string) => ({
       model: `gpt-5.6-${model}`,
       reasoningEffort,

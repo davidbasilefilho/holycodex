@@ -1,6 +1,6 @@
 {
   "name": "holycodex",
-  "version": "0.12.4",
+  "version": "0.12.5",
   "description": "Plan-aware dynamic Codex workflows with isolated orchestration, scoped rules, Git Bash on Windows, and LSP.",
   "author": {
     "name": "David Basile Filho",

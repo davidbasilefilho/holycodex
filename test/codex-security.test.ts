@@ -657,6 +657,30 @@ describe("official plugin installation", () => {
     });
   });
 
+  it("preserves an authoritative marketplace failure over package download failures", async () => {
+    const fake = runner([
+      result(installedOnly),
+      result(installedOnly),
+      result(JSON.stringify({ marketplaces: [{ name: "openai-curated" }] })),
+      result("", { exitCode: 1, stderr: "network fetch failed" }),
+    ]);
+
+    await expect(
+      installComputerUse(
+        fake.run,
+        "linux",
+        {},
+        {
+          runtimeFacts: { runtime: "bun", execPath: "bun", availableRunners: [] },
+        },
+      ),
+    ).resolves.toEqual({
+      status: "skipped",
+      reason: "marketplace-unavailable",
+      attemptedLaunchers: ["path", "bunx"],
+    });
+  });
+
   it("falls through marketplace failures before returning a nonfatal result", async () => {
     const fake = runner([
       result("", {
