@@ -687,6 +687,7 @@ describe("official plugin installation", () => {
       result(installedOnly),
       result(installedOnly),
       result(JSON.stringify({ marketplaces: [{ name: "openai-curated" }] })),
+      result(installedOnly),
       result("", { exitCode: 1, stderr: "network fetch failed" }),
     ]);
 
