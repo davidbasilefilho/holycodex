@@ -199,7 +199,8 @@ export async function installOfficialPlugin(
       }
       if (catalogOutcome.kind === "fatal")
         return skipped(catalogOutcome.reason, attemptedLaunchers);
-      if (findPlugin(catalogOutcome.catalog, plugin.id) === undefined) {
+      let pluginAvailable = findPlugin(catalogOutcome.catalog, plugin.id) !== undefined;
+      if (!pluginAvailable) {
         const marketplaceResult = await runCodexPlugin(
           runProcess,
           launcher,
@@ -215,12 +216,33 @@ export async function installOfficialPlugin(
         }
         if (marketplaceOutcome.kind === "fatal")
           return skipped(marketplaceOutcome.reason, attemptedLaunchers);
-        fallbackReasons.push(
-          marketplaceOutcome.marketplaces.includes(plugin.marketplace)
-            ? "plugin-not-offered"
-            : "marketplace-unavailable",
-        );
-        continue;
+        if (
+          plugin.id === COMPUTER_USE_PLUGIN.id &&
+          !marketplaceOutcome.marketplaces.includes(plugin.marketplace)
+        ) {
+          const refreshedCatalog = inspectListResult(
+            await runCodexPlugin(
+              runProcess,
+              launcher,
+              ["plugin", "list", "--available", "--json"],
+              platform,
+              env,
+              "list",
+            ),
+            launcher,
+          );
+          if (refreshedCatalog.kind === "selected")
+            pluginAvailable = findPlugin(refreshedCatalog.catalog, plugin.id) !== undefined;
+          else fallbackReasons.push(refreshedCatalog.reason);
+        }
+        if (!pluginAvailable) {
+          fallbackReasons.push(
+            marketplaceOutcome.marketplaces.includes(plugin.marketplace)
+              ? "plugin-not-offered"
+              : "marketplace-unavailable",
+          );
+          continue;
+        }
       }
     }
 

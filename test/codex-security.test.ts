@@ -235,6 +235,31 @@ describe("official plugin installation", () => {
     });
   });
 
+  it("retries plugin discovery after a stale marketplace snapshot", async () => {
+    const computerUseAvailable = JSON.stringify({
+      installed: [],
+      available: [{ pluginId: "computer-use@openai-bundled", installed: false, enabled: false }],
+    });
+    const computerUseEnabled = JSON.stringify({
+      installed: [{ pluginId: "computer-use@openai-bundled", installed: true, enabled: true }],
+      available: [],
+    });
+    const fake = runner([
+      result(installedOnly),
+      result(installedOnly),
+      result(JSON.stringify({ marketplaces: [{ name: "openai-curated" }] })),
+      result(computerUseAvailable),
+      result(added),
+      result(computerUseEnabled),
+    ]);
+
+    await expect(installComputerUse(fake.run, "linux", {})).resolves.toEqual({
+      status: "installed",
+      launcherSource: "path",
+    });
+    expect(fake.calls[3]?.args).toEqual(["plugin", "list", "--available", "--json"]);
+  });
+
   it("queries installed state separately, accepts an empty add response, and verifies installed enabled state", async () => {
     const fake = runner([result(installedOnly), result(available), result(""), result(enabled)]);
     await expect(installCodexSecurity(fake.run, "linux", {})).resolves.toEqual({
