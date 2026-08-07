@@ -22,8 +22,8 @@ export const COMPUTER_USE_PLUGIN: OfficialPlugin = {
   marketplace: "openai-bundled",
 };
 export const BUILD_WEB_APPS_PLUGIN: OfficialPlugin = {
-  id: "build-web-apps@openai-curated-remote",
-  marketplace: "openai-curated-remote",
+  id: "build-web-apps@openai-curated",
+  marketplace: "openai-curated",
 };
 const CODEX_PLUGIN_OPERATIONAL_TIMEOUT_MS = 15_000;
 const CODEX_PACKAGE_BOOTSTRAP_TIMEOUT_MS = 120_000;
@@ -144,15 +144,33 @@ export async function installOfficialPlugin(
 
   for (const launcher of candidates) {
     attemptedLaunchers.push(launcher.source);
-    const installedResult = await runCodexPlugin(
-      runProcess,
+    let installedOutcome = inspectListResult(
+      await runCodexPlugin(
+        runProcess,
+        launcher,
+        ["plugin", "list", "--json"],
+        platform,
+        env,
+        "list",
+      ),
       launcher,
-      ["plugin", "list", "--json"],
-      platform,
-      env,
-      "list",
     );
-    const installedOutcome = inspectListResult(installedResult, launcher);
+    if (
+      launcher.source === "path" &&
+      installedOutcome.kind === "fallback" &&
+      installedOutcome.reason === "download-failed"
+    )
+      installedOutcome = inspectListResult(
+        await runCodexPlugin(
+          runProcess,
+          launcher,
+          ["plugin", "list", "--json"],
+          platform,
+          env,
+          "list",
+        ),
+        launcher,
+      );
     if (installedOutcome.kind === "fallback") {
       fallbackReasons.push(installedOutcome.reason);
       continue;

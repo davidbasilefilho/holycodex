@@ -1,6 +1,6 @@
 {
   "name": "@holycodex/git-bash",
-  "version": "0.12.3",
+  "version": "0.12.4",
   "private": true,
   "bin": {
     "holycodex-git-bash": "dist/cli.js"

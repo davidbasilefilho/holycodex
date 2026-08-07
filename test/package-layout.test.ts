@@ -43,5 +43,10 @@ describe("package and release layout", () => {
     expect(workflow).toContain("Validate packed install, doctor, and cleanup");
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("id-token: write");
+    expect(workflow).toContain("Create GitHub prerelease");
+    expect(workflow).toContain("--prerelease");
+    expect(workflow).toContain("Create GitHub release");
+    expect(workflow).toContain("--verify-tag");
+    expect(workflow).toContain("!contains(github.ref_name, '-')");
   });
 });

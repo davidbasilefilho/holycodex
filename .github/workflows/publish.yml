@@ -110,7 +110,7 @@ jobs:
     needs: [validate, macos, packed-package]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v6
@@ -125,9 +125,21 @@ jobs:
         run: bun scripts/version.mjs dev "${{ github.run_number }}" "${{ github.run_attempt }}"
       - run: bunx --package vite-plus@0.2.7 vp run build
       - run: bun scripts/publish.mjs dev
+      - name: Create GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          tag="v$version"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --generate-notes \
+            --title "HolyCodex $version"
 
   publish-stable:
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    if: (startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')) || (github.event_name == 'workflow_dispatch' && inputs.publish)
     needs: [validate, macos, packed-package]
     runs-on: ubuntu-latest
     permissions:
@@ -144,3 +156,14 @@ jobs:
       - run: bunx --package vite-plus@0.2.7 vp install --frozen-lockfile
       - run: bunx --package vite-plus@0.2.7 vp run build
       - run: bun scripts/publish.mjs stable
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          tag="v$version"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
+            --verify-tag \
+            --generate-notes \
+            --title "HolyCodex $version"

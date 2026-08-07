@@ -70,7 +70,7 @@ const oversizedAvailable = JSON.stringify({
 
 describe("official plugin installation", () => {
   it("installs and verifies the official Build Web Apps plugin", async () => {
-    const pluginId = "build-web-apps@openai-curated-remote";
+    const pluginId = "build-web-apps@openai-curated";
     const fake = runner([
       result(installedOnly),
       result(
@@ -92,6 +92,40 @@ describe("official plugin installation", () => {
       status: "installed",
     });
     expect(fake.calls.some(({ args }) => args.includes(pluginId))).toBe(true);
+  });
+
+  it("retries a transient PATH catalog failure before downloading Codex", async () => {
+    const fake = runner([
+      result("", { exitCode: 1, stderr: "temporary network failure" }),
+      result(
+        JSON.stringify({
+          installed: [
+            {
+              pluginId: "computer-use@openai-bundled",
+              installed: true,
+              enabled: true,
+            },
+          ],
+          available: [],
+        }),
+      ),
+    ]);
+
+    await expect(
+      installComputerUse(
+        fake.run,
+        "win32",
+        {},
+        {
+          runtimeFacts: {
+            platform: "win32",
+            runtime: "node",
+            availableRunners: ["npm", "pnpm"],
+          },
+        },
+      ),
+    ).resolves.toEqual({ status: "already-installed", launcherSource: "path" });
+    expect(fake.calls.map(({ command }) => command)).toEqual(["codex", "codex"]);
   });
 
   it("installs and verifies the official Computer Use plugin", async () => {
