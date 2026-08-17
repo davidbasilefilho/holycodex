@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: Apache-2.0
+
+import type { JsonObject } from "@holycodex/core";
+
+export type WorkflowHostErrorCode =
+  | "invalid_input"
+  | "invalid_plan"
+  | "go_rejected"
+  | "invalid_route"
+  | "admission_denied"
+  | "cost_limit"
+  | "call_limit"
+  | "concurrency_limit"
+  | "retry_limit"
+  | "fan_out_limit"
+  | "run_missing"
+  | "run_state_invalid"
+  | "resume_input_required"
+  | "identity_mismatch"
+  | "operation_input_mismatch"
+  | "new_context_required"
+  | "specialist_invalid"
+  | "state_corrupt"
+  | "integrity_uncertain"
+  | "path_rejected"
+  | "continuation_denied"
+  | "claim_conflict"
+  | "refinement_disabled"
+  | "refinement_scope"
+  | "persistence_failed"
+  | "external_failed";
+
+export class WorkflowHostError extends Error {
+  readonly code: WorkflowHostErrorCode;
+  readonly details: JsonObject;
+  readonly retryable: boolean;
+
+  constructor(
+    code: WorkflowHostErrorCode,
+    message: string,
+    details: JsonObject = {},
+    options: Readonly<{ cause?: unknown; retryable?: boolean }> = {},
+  ) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
+    this.name = "WorkflowHostError";
+    this.code = code;
+    this.details = Object.freeze({ ...details });
+    this.retryable = options.retryable ?? false;
+    Object.freeze(this);
+  }
+}

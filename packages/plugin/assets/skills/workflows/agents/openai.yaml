@@ -1,0 +1,6 @@
+interface:
+  display_name: "Workflows"
+  short_description: "Orchestrate substantive non-Go work under the active plan."
+  default_prompt: "Run the bounded multi-step workflow with explicit routes, evidence, approvals, and terminal outcomes."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,22 @@
+{
+  "name": "holycodex",
+  "description": "Root-directed capabilities and deterministic installed assets for HolyCodex.",
+  "license": "Apache-2.0",
+  "skills": [
+    "plan",
+    "workflows",
+    "programming",
+    "code-review",
+    "debugging",
+    "context7-cli",
+    "writing-for-agents",
+    "babysit-ci"
+  ],
+  "assets": [
+    "agents/root.md",
+    "agents/explorer.md",
+    "agents/librarian.md",
+    "agents/worker.md",
+    "agents/reviewer.md"
+  ]
+}

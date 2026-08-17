@@ -1,0 +1,14 @@
+{
+  "name": "@holycodex/workflow-runtime",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@holycodex/core": "workspace:*",
+    "arktype": "^2.2.3",
+    "quickjs-emscripten": "0.32.0",
+    "typescript": "^7.0.0"
+  }
+}

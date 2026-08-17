@@ -1,0 +1,12 @@
+HolyCodex
+
+This project is an independently authored, clean-room reimplementation.
+Its behavioral and architectural documents are authored from the task
+specification and the official current-source facts expressly admitted by
+that specification.
+
+This NOTICE is informational. It does not make a representation about
+compatibility, security, fitness, performance, provenance beyond the stated
+sources, or any other legal or technical guarantee. See LICENSE for the
+applicable license terms. Runtime and development dependency attributions are
+listed in THIRD-PARTY-NOTICES.md.

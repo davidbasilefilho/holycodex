@@ -1,0 +1,3 @@
+# Bun is the only runtime required by this workspace.
+[tools]
+bun = "1.3.14"

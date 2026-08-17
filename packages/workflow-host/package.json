@@ -1,0 +1,14 @@
+{
+  "name": "@holycodex/workflow-host",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@holycodex/codex": "workspace:*",
+    "@holycodex/core": "workspace:*",
+    "@holycodex/workflow-runtime": "workspace:*",
+    "arktype": "^2.2.3"
+  }
+}

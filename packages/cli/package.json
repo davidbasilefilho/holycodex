@@ -1,0 +1,34 @@
+{
+  "name": "holycodex",
+  "version": "0.15.0",
+  "private": false,
+  "bin": {
+    "holycodex": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "dependencies": {
+    "@jitl/quickjs-ffi-types": "0.32.0",
+    "@jitl/quickjs-wasmfile-debug-asyncify": "0.32.0",
+    "@jitl/quickjs-wasmfile-debug-sync": "0.32.0",
+    "@jitl/quickjs-wasmfile-release-asyncify": "0.32.0",
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
+    "arktype": "^2.2.3",
+    "quickjs-emscripten": "0.32.0",
+    "quickjs-emscripten-core": "0.32.0",
+    "typescript": "^7.0.0"
+  },
+  "devDependencies": {
+    "@holycodex/codex": "workspace:*",
+    "@holycodex/core": "workspace:*",
+    "@holycodex/plugin": "workspace:*",
+    "@holycodex/workflow-host": "workspace:*",
+    "@holycodex/workflow-runtime": "workspace:*"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@holycodex/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "arktype": "^2.2.3"
+  }
+}

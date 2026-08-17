@@ -1,0 +1,6 @@
+interface:
+  display_name: "Plan"
+  short_description: "Resolve material scope and architecture choices before work."
+  default_prompt: "Create an implementation-ready plan for the unresolved architecture, scope, risk, and proof decisions."
+policy:
+  allow_implicit_invocation: true
