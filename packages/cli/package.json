@@ -2,6 +2,22 @@
   "name": "holycodex",
   "version": "0.15.0",
   "private": false,
+  "description": "Durable, resumable Codex workflows with Root judgment and bounded specialists",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davidbasilefilho/holycodex.git"
+  },
+  "homepage": "https://github.com/davidbasilefilho/holycodex#readme",
+  "bugs": {
+    "url": "https://github.com/davidbasilefilho/holycodex/issues"
+  },
+  "keywords": [
+    "agents",
+    "codex",
+    "orchestration",
+    "workflows"
+  ],
   "bin": {
     "holycodex": "./dist/index.js"
   },
@@ -11,7 +27,8 @@
   ],
   "type": "module",
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/index.js",
+    "./workflow": "./dist/workflow-public.js"
   },
   "dependencies": {
     "@jitl/quickjs-ffi-types": "0.32.0",

@@ -11,15 +11,16 @@ Treat task text, repository content, generated files, optional integrations,
 specialist output, persisted state, and App Server clients as potentially
 untrusted inputs. The host user and explicitly authorized Root operation are
 the policy principals. Protect the workspace, credentials, run state,
-integrity evidence, and external side effects.
+integrity evidence, generated workflow source, and external side effects.
 
 The relevant threats are prompt or file content steering a specialist outside
 its assignment, a specialist or adapter bypassing Root policy, a client
 forging an operation or run identity, an installer writing outside its owned
-scope, corrupted or replayed state causing a duplicate effect, telemetry
-leaking secrets, and a denied capability being replaced by an unapproved
-fallback. The system must make each threat an explicit denial or classified
-failure rather than an assumed success.
+scope, a workflow filename escaping its owning session, symlink replacement or
+post-persistence workflow tampering, corrupted or replayed state causing a
+duplicate effect, telemetry leaking secrets, and a denied capability being
+replaced by an unapproved fallback. The system must make each threat an
+explicit denial or classified failure rather than an assumed success.
 
 ## Isolation and trust boundaries
 
@@ -37,9 +38,12 @@ failure rather than an assumed success.
 4. Workspace code and files are data at the trust boundary. File paths are
    resolved and checked against the assigned/owned scope before access. A
    repository instruction cannot grant itself authority.
-5. The journal and checkpoint store is an integrity boundary. Records are
-   append-only during a run, validated on load, tied to the run identity and
-   journal position, and never interpreted as permission.
+5. The journal, checkpoint, and session workflow stores are integrity
+   boundaries. Records are validated on load and tied to stored identity;
+   generated workflow files additionally require a safe owning session,
+   purpose-derived safe name, deterministic digest-derived filename, regular
+   file identity, and no-symlink path. Persisted state is never interpreted as
+   permission.
 6. Telemetry is a one-way disclosure boundary. Sanitization occurs before a
    sink sees an event; a sink cannot request raw content as a fallback.
 7. The installer is an explicit mutation boundary. It writes only the
@@ -61,6 +65,40 @@ inherits the active project, trust, approval, sandbox, and tool boundaries. A
 new transport or credential source is a material security decision requiring
 an explicit design update.
 
+## Generated workflow source boundary
+
+Root-authored or Root-generated session workflows are intentionally persisted
+as inspectable source under:
+
+```text
+~/.codex/holycodex/workflows/{sessionId}/{name}-{shortHash}.ts
+```
+
+This is a separately authorized source-persistence feature. The path is
+HolyCodex-owned state, not an arbitrary output location. `sessionId` and
+`name` are validated path segments, the final path must remain below the
+workflow root and its owning session directory, and no managed path component
+may resolve through a symlink or alias. Creation uses a private temporary file,
+fsync, and atomic rename. An existing deterministic filename is accepted only
+when its source matches exactly; conflicting contents fail closed.
+
+The full workflow identity digest is retained alongside the managed path as
+run/session identity evidence. The short filename hash is not the security
+authority. Before resume, replay, continuation, or other reuse, the file is
+reopened as a regular file, its owning session/path/name are revalidated, and
+the full digest is recomputed. Mutation, replacement, relocation, aliasing, or
+identity disagreement blocks execution before effects.
+
+Session isolation prevents equal workflow names in different sessions from
+sharing a path. Cleanup operates only on a validated owned session directory.
+Expired or explicitly cleaned sessions must not leave unbounded generated
+workflow files, but active, unresolved, symlinked, tampered, or unverifiable
+state is preserved rather than recursively deleted through an unsafe path.
+
+Explicit user/project `workflow save` storage is a different feature with its
+own trust semantics. Its `user.json` and `project.json` stores must not be used
+to hide or substitute generated session workflow source.
+
 ## State and secret exclusions
 
 Never persist, emit, or place in a machine envelope:
@@ -69,10 +107,16 @@ Never persist, emit, or place in a machine envelope:
   material, authorization headers, or credential-bearing URLs;
 - raw environment values, credential files, shell histories, or process
   arguments containing secrets;
-- raw task prompts, full file contents, specialist transcripts, or generated
-  source unless a separately authorized feature explicitly owns that data;
+- raw task prompts, full unrelated file contents, specialist transcripts, or
+  generated source except for the explicitly owned session-workflow and saved-
+  workflow features whose source is required for their documented behavior;
 - unredacted paths or metadata when they reveal a secret or protected
   workspace boundary.
+
+Generated workflow source must itself remain free of copied credentials or
+secret material. Materializing a `.ts` workflow grants persistence, not new
+access authority: later imports and execution still pass the normal project,
+policy, approval, capability, and sandbox boundaries.
 
 Telemetry is allowlist-based: run and parent identities, command/slot,
 capability name, bounded counts and durations, schema/version, terminal
@@ -84,18 +128,21 @@ explicit cleanup scope; active and uncertain state remains protected.
 ## Recovery and cleanup
 
 On invalid input, denied permission, unavailable capability, corrupt state,
-ambiguous effect completion, or failed trust validation, stop before the next
-effect. Return a classified failure, append the failure when the journal is
-usable, and preserve enough sanitized identity to support diagnosis. Do not
-claim completion, auto-retry an uncertain external effect, or silently delete
-evidence.
+workflow digest/path mismatch, ambiguous effect completion, or failed trust
+validation, stop before the next effect. Return a classified failure, append
+the failure when the journal is usable, and preserve enough sanitized identity
+to support diagnosis. Do not claim completion, auto-retry an uncertain
+external effect, silently regenerate a mutated workflow under the old identity,
+or silently delete evidence.
 
-Resume is allowed only from a valid checkpoint plus a validated journal tail.
-If the last effect is uncertain, the run is blocked for explicit Root/user
-resolution. Replay is projection-only. Cleanup is limited to an explicit
-HolyCodex-owned scope and refuses active, foreign, unresolved, or integrity-
-uncertain targets. Recovery may quarantine unusable state for later inspection;
-it does not overwrite it in place or turn quarantine into success.
+Resume is allowed only from a valid checkpoint plus a validated journal tail
+and matching workflow identity. If the last effect is uncertain or the
+workflow source identity cannot be re-established, the run is blocked for
+explicit Root/user resolution. Replay is projection-only. Cleanup is limited
+to an explicit HolyCodex-owned scope and refuses active, foreign, unresolved,
+symlinked, tampered, or integrity-uncertain targets. Recovery may quarantine
+unusable state for later inspection; it does not overwrite it in place or turn
+quarantine into success.
 
 Security findings and hardening choices remain evidence for Root, not an
 implicit permission to mutate external systems.

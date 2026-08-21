@@ -12,11 +12,20 @@ directories:
 
 ```text
 <state-root>/
+├── workflows/<session-id>/<name>-<short-hash>.ts
+├── workflows/user.json
+├── workflows/project.json
 ├── runs/<run-id>/snapshot.json
 │             journal.ndjson
 ├── claims/<parent-revision-checkpoint-digest>.json
 └── quarantine/<record>.json
 ```
+
+`workflows/<session-id>/` is the canonical representation for Root-authored or
+Root-generated session workflows. Those files are ordinary inspectable
+TypeScript modules. `workflows/user.json` and `workflows/project.json` remain a
+separate explicit `workflow save` feature and are not used as the primary
+representation for generated session workflows.
 
 Every persisted record carries an epoch validated at the receiving boundary.
 The current host epoch catalog is:
@@ -37,6 +46,43 @@ Epochs are identity components, not display labels. A record with an unknown
 epoch, invalid schema, invalid sequence, or mismatched run identity is not
 silently interpreted as a newer or older record.
 
+## Session workflow files
+
+A generated workflow is materialized at:
+
+```text
+~/.codex/holycodex/workflows/{sessionId}/{name}-{shortHash}.ts
+```
+
+`sessionId` is a safe owning-session identifier. `name` is a concise lowercase
+filesystem-safe slug selected from the workflow purpose. `shortHash` is the
+first 12 hexadecimal characters of a domain-separated SHA-256 identity digest
+covering session ID, workflow name, and source. Identical identity/content
+therefore resolves to the same filename where practical, while revisions and
+same-name workflows in different sessions remain distinct.
+
+The workflow root and every session directory are HolyCodex-owned paths. File
+creation rejects traversal, aliases and symlinks, writes through an fsynced
+temporary file followed by atomic rename, and verifies that an already-present
+deterministic path contains exactly the expected source. A different payload at
+the same deterministic path is a collision and fails closed.
+
+A stored session workflow identity consists of its session ID, name, absolute
+managed path, full digest and short hash. Before resume, replay, continuation,
+or another reuse path, HolyCodex reopens the ordinary `.ts` file, revalidates
+its path/filename identity, recomputes its digest, and fails closed if the file
+was moved, replaced, aliased, or modified unexpectedly. Run state keeps the
+workflow digest as an identity component rather than duplicating source text;
+when a session workflow path is available it is the authoritative source
+location used to recover and verify that identity.
+
+Session ownership also defines retention. Explicit session cleanup removes only
+that session's verified owned workflow directory. Expired cleanup must remove
+eligible expired session directories under the same retention policy as other
+owned state, while active, unresolved, symlinked, unverifiable, or otherwise
+unsafe paths remain preserved. Cleanup may never recursively cross the owned
+workflow root.
+
 ## Canonical identities
 
 The run identity includes project and trust identities, workflow source and
@@ -45,8 +91,8 @@ tool, security, approval, sandbox, Codex capability, and schema epochs. The
 host canonicalizes JSON before hashing and uses domain-separated SHA-256 for
 identity inputs. Durable state stores these validated identities and
 checkpoints, never raw workflow source, arguments, prompts, credentials, or
-transcripts. Resume callers must resupply source and arguments and pass both
-canonical digest checks before execution effects.
+transcripts. Resume callers must resupply or recover the owned workflow source
+and arguments and pass both canonical digest checks before execution effects.
 
 An operation identity includes its safe operation identifier, input digest,
 route, role, task, attempt, retry limit, and fan-out. Replaying an operation
@@ -97,10 +143,11 @@ policy, and sandbox policy all match. A retained context can be `available`,
 A continuation atomically claims an eligible parent checkpoint and creates a
 new run ID tied to the same objective lineage with the parent ID recorded.
 The derived run inherits the exact plan, route, service-tier, and policy
-identities. The caller resupplies source and arguments; both digests are
-verified against the parent before the derived run is created. The claim is
-keyed by parent revision and checkpoint digest, so stale, ambiguous, mismatched,
-or already-claimed input fails closed before effects or a derived run.
+identities. The caller resupplies or recovers the owned workflow source and
+arguments; both digests are verified against the parent before the derived run
+is created. The claim is keyed by parent revision and checkpoint digest, so
+stale, ambiguous, mismatched, or already-claimed input fails closed before
+effects or a derived run.
 
 A refinement that changes objective, constraints, or acceptance has a new run
 ID and refinement identity, preserves parent and lineage, and verifies
@@ -121,9 +168,9 @@ selects it. Active, integrity-uncertain, uncertain, unresolved, corrupt,
 non-expired, symlinked, or unverifiable state is protected. Expired cleanup
 defaults to 30 days and accepts only finite positive retention overrides or
 test clocks. Cleanup deletes only owned, terminal, integrity-valid, resolved
-runs and verified inactive payloads. It never deletes foreign files or turns
-quarantine evidence into success. Installation-owned retention is described
-in [INSTALLATION.md](INSTALLATION.md).
+runs, eligible session workflow directories, and verified inactive payloads.
+It never deletes foreign files or turns quarantine evidence into success.
+Installation-owned retention is described in [INSTALLATION.md](INSTALLATION.md).
 
 ## Migrations
 

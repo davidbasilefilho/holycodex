@@ -41,6 +41,15 @@ export {
   WorkflowCommandError,
 } from "./workflow.ts";
 export {
+  materializeSessionWorkflow,
+  verifySessionWorkflow,
+  cleanupSessionWorkflows,
+  workflowRoot,
+  sessionWorkflowDirectory,
+  SessionWorkflowStoreError,
+} from "./session-workflow-store.ts";
+export type { SessionWorkflowIdentity } from "./session-workflow-store.ts";
+export {
   LEGACY_SCHEMA_EPOCH,
   MIGRATED_STATE_NAME,
   MIGRATION_RECORD_NAME,
