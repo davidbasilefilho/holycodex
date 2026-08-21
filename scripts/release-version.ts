@@ -31,11 +31,12 @@ export function stableVersionFromTag(tag: string, canonicalVersion: string): str
 export function devReleaseIdentity(
   canonicalVersion: string,
   runNumber: string,
+  runAttempt: string,
   commitSha: string,
 ): DevReleaseIdentity {
   const version = assertStableVersion(canonicalVersion);
-  if (!/^[1-9][0-9]*$/u.test(runNumber)) {
-    throw new Error("The GitHub Actions run number is invalid.");
+  if (!/^[1-9][0-9]*$/u.test(runNumber) || !/^[1-9][0-9]*$/u.test(runAttempt)) {
+    throw new Error("The GitHub Actions run identity is invalid.");
   }
   const sha = commitSha.toLowerCase();
   if (!SHA.test(sha)) {
@@ -43,23 +44,28 @@ export function devReleaseIdentity(
   }
   const shortSha = sha.slice(0, 12);
   return {
-    version: `${version}-dev.${runNumber}.${shortSha}`,
-    tag: `dev-${version}.${runNumber}.${shortSha}`,
+    version: `${version}-dev.${runNumber}.${runAttempt}.${shortSha}`,
+    tag: `dev-${version}.${runNumber}.${runAttempt}.${shortSha}`,
   };
 }
 
 async function main(): Promise<void> {
-  const [mode, canonicalVersion, identity, sha] = Bun.argv.slice(2);
+  const [mode, canonicalVersion, identity, attemptOrSha, maybeSha] = Bun.argv.slice(2);
   if (mode === "stable") {
     if (canonicalVersion === undefined || identity === undefined) throw new Error("Missing release arguments.");
     console.log(JSON.stringify({ version: stableVersionFromTag(identity, canonicalVersion), tag: identity }));
     return;
   }
   if (mode === "dev") {
-    if (canonicalVersion === undefined || identity === undefined || sha === undefined) {
+    if (
+      canonicalVersion === undefined ||
+      identity === undefined ||
+      attemptOrSha === undefined ||
+      maybeSha === undefined
+    ) {
       throw new Error("Missing release arguments.");
     }
-    console.log(JSON.stringify(devReleaseIdentity(canonicalVersion, identity, sha)));
+    console.log(JSON.stringify(devReleaseIdentity(canonicalVersion, identity, attemptOrSha, maybeSha)));
     return;
   }
   throw new Error("Release mode must be dev or stable.");
