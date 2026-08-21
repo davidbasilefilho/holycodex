@@ -21,11 +21,11 @@ import {
   ProjectTrustRefSchema,
   SchemaEpochsSchema,
   WORKFLOW_HOST_SCHEMA_EPOCH,
+  decodeHostSchema,
   type IdentityComponents,
   type ProjectTrustRef,
   type SchemaEpochs,
 } from "./schemas.ts";
-import { type } from "arktype";
 import { WorkflowHostError } from "./errors.ts";
 import type { HostContext, ProjectTrustInput } from "./types.ts";
 
@@ -35,10 +35,6 @@ export const DEFAULT_ROUTE: RouteKey = "Worker:implementation";
 export const MAX_PENDING_TEXT = 4096;
 export const MAX_CHECKPOINT_ITEMS = 64;
 export const MAX_BOUNDED_JSON_BYTES = 256 * 1024;
-
-export function isArkErrors(value: unknown): value is InstanceType<typeof type.errors> {
-  return value instanceof type.errors;
-}
 
 export function now(): string {
   return new Date().toISOString();
@@ -91,8 +87,8 @@ export function randomId(prefix: string): string {
 }
 
 export function asJsonValue(value: unknown, field: string): JsonValue {
-  const parsed = JsonValueSchema(value);
-  if (isArkErrors(parsed)) {
+  const parsed = decodeHostSchema(JsonValueSchema, value);
+  if (parsed === undefined) {
     throw new WorkflowHostError("invalid_input", `The ${field} must be bounded JSON.`);
   }
   if (new TextEncoder().encode(canonicalJson(parsed)).byteLength > MAX_BOUNDED_JSON_BYTES) {
@@ -114,20 +110,20 @@ export function normalizeProjectTrust(input: ProjectTrustInput): ProjectTrustRef
           project_digest: input.projectDigest,
           trust_digest: input.trustDigest,
         };
-  const parsed = ProjectTrustRefSchema(candidate);
-  if (isArkErrors(parsed)) {
+  const parsed = decodeHostSchema(ProjectTrustRefSchema, candidate);
+  if (parsed === undefined) {
     throw new WorkflowHostError("invalid_input", "The project/trust identity is invalid.");
   }
   return parsed;
 }
 
 export function normalizeEpochs(): SchemaEpochs {
-  const parsed = SchemaEpochsSchema({
+  const parsed = decodeHostSchema(SchemaEpochsSchema, {
     core: STATE_SCHEMA_EPOCH,
     runtime: "runtime-1.0",
     host: WORKFLOW_HOST_SCHEMA_EPOCH,
   });
-  if (isArkErrors(parsed)) {
+  if (parsed === undefined) {
     throw new WorkflowHostError("invalid_input", "The host schema epochs are invalid.");
   }
   return parsed;
@@ -139,8 +135,8 @@ export function operationRoute(options: JsonObject, role: string, task: string):
     throw new WorkflowHostError("invalid_route", "The workflow operation route is invalid.");
   }
   const route = suppliedRoute ?? `${role}:${task}`;
-  const parsed = RouteKeySchema(route);
-  if (isArkErrors(parsed)) {
+  const parsed = decodeHostSchema(RouteKeySchema, route);
+  if (parsed === undefined) {
     throw new WorkflowHostError("invalid_route", "The workflow operation route is invalid.");
   }
   return parsed;
@@ -189,8 +185,8 @@ export function sanitizeOutcome(value: SpecialistOutcome): SpecialistOutcome {
 
 export function jsonObject(value: unknown, field: string): JsonObject {
   const bounded = asJsonValue(value, field);
-  const parsed = JsonObjectSchema(bounded);
-  if (isArkErrors(parsed)) {
+  const parsed = decodeHostSchema(JsonObjectSchema, bounded);
+  if (parsed === undefined) {
     throw new WorkflowHostError("invalid_input", `The ${field} must be a JSON object.`);
   }
   return parsed;
@@ -258,8 +254,8 @@ export async function buildIdentity(
     codex_capability_digest: input.context.codexCapabilityDigest,
     schema_epochs: normalizeEpochs(),
   };
-  const parsed = IdentityComponentsSchema(identity);
-  if (isArkErrors(parsed)) {
+  const parsed = decodeHostSchema(IdentityComponentsSchema, identity);
+  if (parsed === undefined) {
     throw new WorkflowHostError("invalid_input", "The run identity could not be formed.");
   }
   return parsed;

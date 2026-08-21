@@ -1,0 +1,6 @@
+interface:
+  display_name: "Compress"
+  short_description: "Shorten text while preserving meaning, constraints, and voice."
+  default_prompt: "Produce a constraint-equivalent compact draft and identify any preserved terms."
+policy:
+  allow_implicit_invocation: true

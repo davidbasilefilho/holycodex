@@ -7,11 +7,26 @@ import type {
   ServiceTier,
   SpecialistOutcome,
 } from "@holycodex/core";
-import type { ProjectTrustIdentity } from "@holycodex/codex";
 import type {
+  AgentExecution,
+  AssignmentExecutionService,
+  CodexError,
+  ProjectTrustIdentity,
+} from "@holycodex/codex";
+import type * as Effect from "effect/Effect";
+import type * as Layer from "effect/Layer";
+import type {
+  CompileOptions,
+  ExecutionPlan,
   EvaluateWorkflowInput,
+  WorkflowApprovalRequest,
+  WorkflowCheckpoint,
+  WorkflowFailure,
+  WorkflowHostServices as RuntimeWorkflowHostServices,
+  WorkflowVerificationRequest,
   WorkflowLimitsInput,
   WorkflowResult,
+  Wait,
 } from "@holycodex/workflow-runtime";
 import type {
   Checkpoint,
@@ -60,6 +75,20 @@ export type SpecialistAssignment = Readonly<{
 
 export type SpecialistExecutor = (assignment: SpecialistAssignment) => unknown | Promise<unknown>;
 
+export type WorkflowDefinition = Wait<unknown, unknown>;
+export type WorkflowExecutionMode = "native" | "compatibility";
+export type WorkflowHostServices = RuntimeWorkflowHostServices;
+export type HostApprovalDecision = "approved" | "denied";
+export type HostApprovalHandler = (
+  request: WorkflowApprovalRequest,
+) => Effect.Effect<HostApprovalDecision, WorkflowFailure>;
+export type HostVerificationHandler = (
+  request: WorkflowVerificationRequest,
+) => Effect.Effect<void, WorkflowFailure>;
+export type HostCheckpointHandler = (
+  checkpoint: WorkflowCheckpoint,
+) => Effect.Effect<void, WorkflowFailure>;
+
 export type RuntimeEvaluator = (input: EvaluateWorkflowInput) => Promise<WorkflowResult>;
 
 export type TelemetrySink = (event: Telemetry) => void | Promise<void>;
@@ -78,8 +107,23 @@ export type WorkflowHostOptions = Readonly<{
   readonly cwd: string;
   readonly evaluate?: RuntimeEvaluator;
   readonly runtimeEvaluator?: RuntimeEvaluator;
+  /** Explicitly named compatibility evaluator for the isolated string route. */
+  readonly compatibilityEvaluator?: RuntimeEvaluator;
+  /** Compatibility adapter for the isolated string evaluator. */
   readonly executeSpecialist?: SpecialistExecutor;
+  /** Compatibility alias for executeSpecialist. */
   readonly specialistExecutor?: SpecialistExecutor;
+  /** Effect-native workflow services supplied by the host composition root. */
+  readonly services?: WorkflowHostServices;
+  /** Codex AgentExecution service used by the production assignment bridge. */
+  readonly codex?: AssignmentExecutionService;
+  /** Compatibility alias for the Codex AgentExecution service. */
+  readonly agentExecution?: AssignmentExecutionService;
+  readonly codexLayer?: Layer.Layer<AgentExecution, CodexError>;
+  readonly compileOptions?: CompileOptions;
+  readonly approval?: HostApprovalHandler;
+  readonly verification?: HostVerificationHandler;
+  readonly checkpoint?: HostCheckpointHandler;
   readonly capacity?: HostCapacity;
   readonly runtimeLimits?: WorkflowLimitsInput;
   readonly policyDigest?: string;
@@ -108,13 +152,20 @@ export type CreateRunInput = Readonly<{
   readonly expectedConcurrency?: number;
   readonly expectedRetries?: number;
   readonly expectedFanOut?: number;
+  /** Effect-native immutable workflow terminal. Source remains the CLI compatibility input. */
+  readonly workflow?: WorkflowDefinition;
+  readonly compileOptions?: CompileOptions;
+  readonly executionMode?: WorkflowExecutionMode;
 }>;
 
 export type RunInput = Readonly<{
   readonly runId: string;
-  readonly source: string;
-  readonly args: unknown;
+  readonly source?: string;
+  readonly args?: unknown;
   readonly signal?: AbortSignal;
+  readonly workflow?: WorkflowDefinition;
+  readonly compileOptions?: CompileOptions;
+  readonly executionMode?: WorkflowExecutionMode;
 }>;
 
 export type RunExecution = Readonly<{
@@ -182,6 +233,9 @@ export type RefinementOperation = Readonly<{
 export type PendingRun = Readonly<{
   readonly objective: string;
   readonly constraints: readonly string[];
+  readonly workflow?: WorkflowDefinition;
+  readonly compileOptions?: CompileOptions;
+  readonly compiledPlan?: ExecutionPlan<unknown>;
 }>;
 
 export type ActiveRun = {
@@ -190,6 +244,9 @@ export type ActiveRun = {
   calls: number;
   maxCalls: number;
   maxConcurrency: number;
+  maxCost: number;
+  inFlight: number;
+  costUnits: number;
 };
 
 export type HostContext = {
@@ -197,7 +254,17 @@ export type HostContext = {
   readonly project: ProjectTrustRef;
   readonly cwd: string;
   readonly evaluator: RuntimeEvaluator;
+  readonly compatibilityEvaluator: RuntimeEvaluator | undefined;
+  readonly compatibilityEnabled: boolean;
   readonly executor: SpecialistExecutor;
+  readonly services: WorkflowHostServices;
+  readonly codex: AssignmentExecutionService | undefined;
+  readonly codexLayer: Layer.Layer<AgentExecution, CodexError> | undefined;
+  readonly compileOptions: CompileOptions;
+  readonly approval: HostApprovalHandler | undefined;
+  readonly verification: HostVerificationHandler | undefined;
+  readonly checkpoint: HostCheckpointHandler | undefined;
+  readonly sharedCapacity: import("@holycodex/workflow-runtime").CapacityService;
   readonly capacity: HostCapacity;
   readonly runtimeLimits: WorkflowLimitsInput;
   readonly policyDigest: string;
@@ -211,9 +278,11 @@ export type HostContext = {
   readonly refinementsEnabled: boolean;
   readonly pending: Map<string, PendingRun>;
   readonly active: Map<string, ActiveRun>;
+  readonly executionLocks: Map<string, Promise<void>>;
   readonly journalSequences: Map<string, number>;
-  readonly reservations: Map<string, number>;
-  reservedCost: number;
+  readonly reservations: Map<string, import("@holycodex/workflow-runtime").CapacityRunReservation>;
+  readonly approvalLocks: Map<string, Promise<void>>;
+  readonly lifecycleLocks: Map<string, Promise<void>>;
 };
 
 export type JournalInput =

@@ -1,32 +1,44 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { PlanDefinition } from "@holycodex/core";
-import { type } from "arktype";
-import type { WorkflowLimitsInput } from "@holycodex/workflow-runtime";
+import * as Schema from "effect/Schema";
+import * as Effect from "effect/Effect";
+import type {
+  CapacityLease,
+  CapacityRunReservation,
+  CompileOptions,
+  WorkflowLimitsInput,
+} from "@holycodex/workflow-runtime";
 import { WorkflowHostError } from "./errors.ts";
-import type { HostCapacity, HostContext } from "./types.ts";
+import { decodeHostSchema } from "./schemas.ts";
+import type { ActiveRun, HostCapacity, HostContext } from "./types.ts";
 
-const FiniteNonNegativeNumberSchema = type("number").narrow(
-  (value): value is number => Number.isFinite(value) && value >= 0,
+const FiniteNonNegativeNumberSchema = Schema.Number.pipe(
+  Schema.filter((value) => Number.isFinite(value) && value >= 0),
 );
-const HostCapacitySchema = type({
-  "+": "reject",
-  "maxCalls?": "number.integer >= 0",
-  "maxConcurrency?": "number.integer >= 0",
-  "maxRetries?": "number.integer >= 0",
-  "maxFanOut?": "number.integer >= 0",
-  "costMax?": FiniteNonNegativeNumberSchema,
+const HostCapacitySchema = Schema.Struct({
+  maxCalls: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
+  maxConcurrency: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
+  maxRetries: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
+  maxFanOut: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
+  costMax: Schema.optional(FiniteNonNegativeNumberSchema),
 });
 
 export function normalizeHostCapacity(input: unknown): HostCapacity {
-  const parsed = HostCapacitySchema(input);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeHostSchema(HostCapacitySchema, input);
+  if (parsed === undefined) {
     throw new WorkflowHostError("invalid_input", "The workflow host capacity is invalid.");
   }
-  return parsed;
+  return {
+    ...(parsed.maxCalls === undefined ? {} : { maxCalls: parsed.maxCalls }),
+    ...(parsed.maxConcurrency === undefined ? {} : { maxConcurrency: parsed.maxConcurrency }),
+    ...(parsed.maxRetries === undefined ? {} : { maxRetries: parsed.maxRetries }),
+    ...(parsed.maxFanOut === undefined ? {} : { maxFanOut: parsed.maxFanOut }),
+    ...(parsed.costMax === undefined ? {} : { costMax: parsed.costMax }),
+  };
 }
 
-export function admit(
+export async function admit(
   context: HostContext,
   plan: PlanDefinition,
   cost: number,
@@ -34,7 +46,8 @@ export function admit(
   concurrency: number,
   retries: number,
   fanOut: number,
-): void {
+  runId: string,
+): Promise<CapacityRunReservation> {
   const budget = plan.budget;
   if (!budget || !Number.isFinite(cost) || cost < 0 || cost > budget.costMax) {
     throw new WorkflowHostError(
@@ -43,9 +56,6 @@ export function admit(
     );
   }
   const maxCost = Math.min(budget.costMax, context.capacity.costMax ?? Number.POSITIVE_INFINITY);
-  if (context.reservedCost + cost > maxCost) {
-    throw new WorkflowHostError("cost_limit", "Live cost capacity is exhausted.");
-  }
   const maxCalls = Math.min(budget.maxCalls, context.capacity.maxCalls ?? budget.maxCalls);
   const maxConcurrency = Math.min(
     budget.maxConcurrency,
@@ -70,15 +80,68 @@ export function admit(
   ) {
     throw new WorkflowHostError("fan_out_limit", "The run exceeds its fan-out capacity.");
   }
+  try {
+    return await Effect.runPromise(
+      context.sharedCapacity.reserveRun({
+        runId,
+        calls,
+        costUnits: cost,
+        maxCalls,
+        maxCost,
+      }),
+    );
+  } catch (error) {
+    throw capacityError(error);
+  }
 }
 
-export function releaseReservation(context: HostContext, runId: string): void {
+export async function releaseReservation(context: HostContext, runId: string): Promise<void> {
   const reservation = context.reservations.get(runId);
-  if (reservation === undefined) {
-    return;
-  }
   context.reservations.delete(runId);
-  context.reservedCost = Math.max(0, context.reservedCost - reservation);
+  if (reservation !== undefined) {
+    await Effect.runPromise(reservation.release);
+  } else {
+    await Effect.runPromise(context.sharedCapacity.releaseRun(runId));
+  }
+}
+
+export async function acquireDispatch(
+  context: HostContext,
+  active: ActiveRun,
+  runId: string,
+): Promise<CapacityLease> {
+  try {
+    const lease = await Effect.runPromise(
+      context.sharedCapacity.acquire({
+        runId,
+        maxCalls: active.maxCalls,
+        maxConcurrency: active.maxConcurrency,
+        maxCost: active.maxCost,
+        costUnits: 1,
+      }),
+    );
+    active.calls += 1;
+    active.inFlight += 1;
+    active.costUnits += 1;
+    return lease;
+  } catch (error) {
+    throw capacityError(error);
+  }
+}
+
+export function releaseDispatch(active: ActiveRun): void {
+  active.inFlight = Math.max(0, active.inFlight - 1);
+}
+
+function capacityError(error: unknown): WorkflowHostError {
+  const message = error instanceof Error ? error.message : "The workflow capacity was exhausted.";
+  if (message.includes("call")) {
+    return new WorkflowHostError("call_limit", message);
+  }
+  if (message.includes("concurr")) {
+    return new WorkflowHostError("concurrency_limit", message);
+  }
+  return new WorkflowHostError("cost_limit", message);
 }
 
 export function effectiveRuntimeLimits(
@@ -103,5 +166,55 @@ export function effectiveRuntimeLimits(
     ...context.runtimeLimits,
     maxOperationCount,
     maxConcurrentOperations,
+  };
+}
+
+export function effectiveCompileOptions(
+  context: HostContext,
+  plan: PlanDefinition,
+  requested: CompileOptions,
+): CompileOptions {
+  const budget = plan.budget;
+  if (!budget) {
+    throw new WorkflowHostError("go_rejected", "Go workflows cannot use the workflow host.");
+  }
+  const maxConcurrency = Math.min(
+    budget.maxConcurrency,
+    context.capacity.maxConcurrency ?? budget.maxConcurrency,
+  );
+  const maxRetries = Math.min(
+    context.capacity.maxRetries ?? 0,
+    requested.capacity?.maxRetries ?? 0,
+  );
+  const maxCalls = Math.min(
+    budget.maxCalls,
+    context.capacity.maxCalls ?? budget.maxCalls,
+    requested.capacity?.maxCalls ?? budget.maxCalls,
+  );
+  const costMax = Math.min(
+    budget.costMax,
+    context.capacity.costMax ?? budget.costMax,
+    requested.capacity?.costMax ?? budget.costMax,
+  );
+  return {
+    ...requested,
+    capacity: {
+      ...requested.capacity,
+      planConcurrency: Math.min(
+        requested.capacity?.planConcurrency ?? maxConcurrency,
+        maxConcurrency,
+      ),
+      sessionConcurrency: Math.min(
+        requested.capacity?.sessionConcurrency ?? maxConcurrency,
+        maxConcurrency,
+      ),
+      codexConcurrency: Math.min(
+        requested.capacity?.codexConcurrency ?? maxConcurrency,
+        maxConcurrency,
+      ),
+      maxRetries,
+      maxCalls,
+      costMax,
+    },
   };
 }

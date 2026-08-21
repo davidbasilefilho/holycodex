@@ -11,17 +11,18 @@
     "fmt": "vp fmt",
     "lint": "vp lint",
     "lint:fix": "vp lint --fix",
-    "build": "vp pack",
+    "build": "bun scripts/package-build.ts",
     "test": "vp test",
+    "validate": "bun scripts/validate.ts",
     "version:patch": "bun scripts/version.ts patch",
     "version:minor": "bun scripts/version.ts minor",
     "version:set": "bun scripts/version.ts"
   },
   "devDependencies": {
-    "@types/bun": "^1.3.0",
-    "arktype": "^2.2.3",
-    "typescript": "^7.0.0",
+    "@types/bun": "1.4.0",
+    "effect": "3.22.1",
+    "typescript": "7.0.2",
     "vite-plus": "0.2.9"
   },
-  "packageManager": "bun@1.3.14"
+  "packageManager": "bun@1.4.0"
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
+import * as Either from "effect/Either";
 import { describe, expect, test } from "vite-plus/test";
 import {
   CliFailureEnvelopeSchema,
@@ -29,6 +29,7 @@ import {
   parseSchemaEpochId,
   parseSpecialistOutcome,
 } from "./index";
+import { decodeUnknown } from "./schema";
 
 const planNames = ["Go", "plus-low", "plus", "plus-high", "pro-5x", "pro-20x"] as const;
 
@@ -132,44 +133,56 @@ describe("core route and boundary schemas", () => {
       expect(disabledRoute.error.code).toBe("route_unavailable");
     }
 
-    expect(RoleTaskSchema({ role: "Worker", task: "implementation" })).not.toBeInstanceOf(
-      type.errors,
+    expect(
+      Either.isRight(decodeUnknown(RoleTaskSchema, { role: "Worker", task: "implementation" })),
+    ).toBe(true);
+    expect(Either.isLeft(decodeUnknown(RoleTaskSchema, { role: "Worker", task: "research" }))).toBe(
+      true,
     );
-    expect(RoleTaskSchema({ role: "Worker", task: "research" })).toBeInstanceOf(type.errors);
-    expect(RouteKeySchema("Reviewer:artifact")).not.toBeInstanceOf(type.errors);
-    expect(RouteKeySchema("Reviewer:research")).toBeInstanceOf(type.errors);
+    expect(Either.isRight(decodeUnknown(RouteKeySchema, "Reviewer:artifact"))).toBe(true);
+    expect(Either.isLeft(decodeUnknown(RouteKeySchema, "Reviewer:research"))).toBe(true);
   });
 
   test("accepts and rejects external plan selections and identities", () => {
-    expect(PlanNameSchema("pro-20x")).not.toBeInstanceOf(type.errors);
-    expect(PlanNameSchema("pro")).toBeInstanceOf(type.errors);
-    expect(EffortSchema("xhigh")).not.toBeInstanceOf(type.errors);
-    expect(EffortSchema("max")).not.toBeInstanceOf(type.errors);
-    expect(PlanSelectionSchema({ plan: "plus", service_tier: "Fast" })).not.toBeInstanceOf(
-      type.errors,
-    );
-    expect(PlanSelectionSchema({ plan: "plus", service_tier: "Turbo" })).toBeInstanceOf(
-      type.errors,
-    );
+    expect(Either.isRight(decodeUnknown(PlanNameSchema, "pro-20x"))).toBe(true);
+    expect(Either.isLeft(decodeUnknown(PlanNameSchema, "pro"))).toBe(true);
+    expect(Either.isRight(decodeUnknown(EffortSchema, "xhigh"))).toBe(true);
+    expect(Either.isRight(decodeUnknown(EffortSchema, "max"))).toBe(true);
+    expect(
+      Either.isRight(decodeUnknown(PlanSelectionSchema, { plan: "plus", service_tier: "Fast" })),
+    ).toBe(true);
+    expect(
+      Either.isLeft(decodeUnknown(PlanSelectionSchema, { plan: "plus", service_tier: "Turbo" })),
+    ).toBe(true);
 
     const digest = "a".repeat(64);
     expect(
-      RunIdentityInputSchema({
-        run_id: "run-1",
-        objective_lineage: "lineage-1",
-        parent_run_id: null,
-      }),
-    ).not.toBeInstanceOf(type.errors);
+      Either.isRight(
+        decodeUnknown(RunIdentityInputSchema, {
+          run_id: "run-1",
+          objective_lineage: "lineage-1",
+          parent_run_id: null,
+        }),
+      ),
+    ).toBe(true);
     expect(
-      TrustIdentityInputSchema({
-        project_id: "project-1",
-        trust_id: "trust-1",
-        trust_digest: digest,
-      }),
-    ).not.toBeInstanceOf(type.errors);
+      Either.isRight(
+        decodeUnknown(TrustIdentityInputSchema, {
+          project_id: "project-1",
+          trust_id: "trust-1",
+          trust_digest: digest,
+        }),
+      ),
+    ).toBe(true);
     expect(
-      RunIdentityInputSchema({ run_id: "run-1", objective_lineage: "lineage-1", token: "secret" }),
-    ).toBeInstanceOf(type.errors);
+      Either.isLeft(
+        decodeUnknown(RunIdentityInputSchema, {
+          run_id: "run-1",
+          objective_lineage: "lineage-1",
+          token: "secret",
+        }),
+      ),
+    ).toBe(true);
     expect(parseIdentityInput({ run_id: "run-1", objective_lineage: "lineage-1" }).ok).toBe(true);
   });
 
@@ -200,7 +213,7 @@ describe("core route and boundary schemas", () => {
       verification: ["vp test"],
       verification_passed: true,
     };
-    expect(SpecialistOutcomeSchema(outcome)).not.toBeInstanceOf(type.errors);
+    expect(Either.isRight(decodeUnknown(SpecialistOutcomeSchema, outcome))).toBe(true);
     expect(parseSpecialistOutcome({ ...outcome, status: "unknown" }).ok).toBe(false);
   });
 });
@@ -221,8 +234,8 @@ describe("core CLI envelopes", () => {
       error: { code: "permission_denied", message: "Permission denied.", details: {} },
       warnings: ["read-only"],
     };
-    expect(CliSuccessEnvelopeSchema(successEnvelope)).not.toBeInstanceOf(type.errors);
-    expect(CliFailureEnvelopeSchema(failureEnvelope)).not.toBeInstanceOf(type.errors);
+    expect(Either.isRight(decodeUnknown(CliSuccessEnvelopeSchema, successEnvelope))).toBe(true);
+    expect(Either.isRight(decodeUnknown(CliFailureEnvelopeSchema, failureEnvelope))).toBe(true);
     expect(parseCliEnvelope(successEnvelope).ok).toBe(true);
     expect(parseCliEnvelope({ ...successEnvelope, ok: false }).ok).toBe(false);
     expect(parseCliEnvelope({ ...failureEnvelope, schema_version: "0.14" }).ok).toBe(false);

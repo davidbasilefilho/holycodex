@@ -9,6 +9,8 @@ import {
 } from "@holycodex/codex";
 import type { OfficialPluginManager } from "./types.ts";
 
+const OFFICIAL_COMMAND_TIMEOUT_MS = 30_000;
+
 export interface OfficialPluginCommandRunner {
   readonly run: (
     args: readonly string[],
@@ -30,6 +32,10 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
   }
 
   async list(): Promise<readonly OfficialPluginManifest[]> {
+    return (await this.readList()).map((entry) => entry.manifest);
+  }
+
+  private async readList(): Promise<readonly PluginListEntry[]> {
     const result = await this.runner.run(["plugin", "list", "--json"]);
     if (result.exitCode !== 0) {
       throw new OfficialPluginManagerError("list_failed", "Codex could not list official plugins.");
@@ -61,7 +67,7 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
         "Codex returned an invalid official plugin list.",
       );
     }
-    const manifests: OfficialPluginManifest[] = [];
+    const manifests: PluginListEntry[] = [];
     for (const value of values) {
       const verification = parseOfficialPluginManifest(value);
       if (!verification.ok) {
@@ -70,7 +76,7 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
           "Codex returned an invalid official plugin manifest.",
         );
       }
-      manifests.push(verification.value);
+      manifests.push({ manifest: verification.value, state: listingState(value) });
     }
     return manifests;
   }
@@ -88,11 +94,32 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
   async status(
     selected: readonly string[],
   ): Promise<Readonly<Record<string, "installed" | "available" | "missing" | "unknown">>> {
-    const available = new Set((await this.list()).map((manifest) => manifest.name));
-    return Object.fromEntries(
-      selected.map((id) => [id, available.has(id) ? "available" : "missing"]),
-    );
+    const entries = await this.readList();
+    const byName = new Map(entries.map((entry) => [entry.manifest.name, entry.state]));
+    return Object.fromEntries(selected.map((id) => [id, byName.get(id) ?? "missing"]));
   }
+}
+
+type PluginListState = "installed" | "available" | "unknown";
+type PluginListEntry = Readonly<{
+  readonly manifest: OfficialPluginManifest;
+  readonly state: PluginListState;
+}>;
+
+function listingState(value: unknown): PluginListState {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return "installed";
+  }
+  if ("installed" in value && value.installed === true) {
+    return "installed";
+  }
+  if ("available" in value && value.available === true) {
+    return "available";
+  }
+  if ("status" in value && (value.status === "installed" || value.status === "available")) {
+    return value.status;
+  }
+  return "installed";
 }
 
 async function runCodexCommand(
@@ -111,12 +138,56 @@ async function runCodexCommand(
       "Codex plugin command output is unavailable.",
     );
   }
-  const [stdout, stderr, exitCode] = await Promise.all([
-    readBounded(child.stdout, 128 * 1024),
-    readBounded(child.stderr, 16 * 1024),
-    child.exited,
-  ]);
-  return { exitCode, stdout, stderr };
+  try {
+    const [stdout, stderr, exitCode] = await waitForChild(
+      Promise.all([
+        readBounded(child.stdout, 128 * 1024),
+        readBounded(child.stderr, 16 * 1024),
+        child.exited,
+      ]),
+      () => child.kill(),
+    );
+    return { exitCode, stdout, stderr };
+  } catch (error: unknown) {
+    try {
+      child.kill();
+    } catch {
+      // The subprocess may already have exited.
+    }
+    if (error instanceof OfficialPluginManagerError) {
+      throw error;
+    }
+    throw new OfficialPluginManagerError(
+      "command_failed",
+      "The Codex plugin command failed.",
+      error,
+    );
+  }
+}
+
+async function waitForChild<T>(operation: Promise<T>, kill: () => void): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          try {
+            kill();
+          } catch {
+            // The subprocess may already have exited.
+          }
+          reject(
+            new OfficialPluginManagerError("command_failed", "The Codex plugin command timed out."),
+          );
+        }, OFFICIAL_COMMAND_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 async function readBounded(stream: ReadableStream<Uint8Array>, limit: number): Promise<string> {

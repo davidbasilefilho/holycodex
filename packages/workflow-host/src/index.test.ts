@@ -4,13 +4,27 @@ import { mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/prom
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vite-plus/test";
+import * as Effect from "effect/Effect";
+import {
+  CodexError,
+  SemanticAssignmentPacketSchema,
+  type AssignmentExecutionService,
+  type SemanticAssignmentPacket,
+  type SemanticExecutionOutcome,
+} from "@holycodex/codex";
 import {
   FileRunStore,
   WorkflowHost,
   WorkflowHostError,
+  decodeHostSchema,
   type WorkflowHostOptions,
 } from "./index.ts";
-import type { EvaluateWorkflowInput, WorkflowResult } from "@holycodex/workflow-runtime";
+import {
+  createCodec,
+  workflow,
+  type EvaluateWorkflowInput,
+  type WorkflowResult,
+} from "@holycodex/workflow-runtime";
 
 const digest = "a".repeat(64);
 const projectTrust = {
@@ -76,6 +90,145 @@ function hostOptions(
 }
 
 describe("workflow-host", () => {
+  test("initializes concurrent run-store owners without directory races", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-workflow-host-init-"));
+    try {
+      const stores = Array.from({ length: 4 }, () => new FileRunStore(root));
+      await Promise.all(stores.flatMap((store) => [store.init(), store.init()]));
+      expect((await readdir(root)).sort()).toEqual(["claims", "quarantine", "runs"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("runs an immutable Effect workflow through the real Codex assignment seam", async () => {
+    const { root } = await tempStore();
+    try {
+      const packets: SemanticAssignmentPacket[] = [];
+      const json = createCodec("json", (value: unknown): unknown => value);
+      const terminal = workflow.wait(
+        workflow.step({
+          id: "codex-dispatch",
+          assignment: {
+            payload: { objective: "dispatch through Codex" },
+            input: json,
+            output: json,
+            route: "Worker:integration",
+          },
+        }),
+      );
+      const codex: AssignmentExecutionService = {
+        execute: (input: unknown) => {
+          const packet = decodeHostSchema(SemanticAssignmentPacketSchema, input);
+          if (packet === undefined) {
+            return Effect.fail(
+              new CodexError("invalid_external_data", "The fake Codex packet was invalid."),
+            );
+          }
+          packets.push(packet);
+          const result: SemanticExecutionOutcome = {
+            assignment_id: packet.assignment.id,
+            route_key: packet.route.key,
+            thread_id: "thread-test",
+            turn_id: "turn-test",
+            backend: "app-server-v1-fallback",
+            outcome,
+          };
+          return Effect.succeed(result);
+        },
+      };
+      const host = new WorkflowHost(
+        hostOptions(root, undefined, {
+          codex,
+          approvalPolicy: "never",
+        }),
+      );
+      const definition = await host.create({
+        source,
+        args,
+        objective: "effect-native host",
+        workflow: terminal,
+      });
+      const execution = await host.run({ runId: definition.run_id, source, args });
+      expect(execution.status).toBe("completed");
+      expect(packets).toHaveLength(1);
+      expect(packets[0]?.route.key).toBe("Worker:integration");
+      expect(packets[0]?.tools.specialist_spawn).toBe(false);
+      expect(packets[0]?.security.workflow).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("persists approval transitions and deterministic Reviewer verification", async () => {
+    const { root } = await tempStore();
+    try {
+      let verified = false;
+      const json = createCodec("json", (value: unknown): unknown => value);
+      const terminal = workflow.wait(
+        workflow.step({
+          id: "review-dispatch",
+          assignment: {
+            payload: { objective: "review through Codex" },
+            input: json,
+            output: json,
+            route: "Reviewer:code",
+          },
+        }),
+      );
+      const codex: AssignmentExecutionService = {
+        execute: (input: unknown) => {
+          const packet = decodeHostSchema(SemanticAssignmentPacketSchema, input);
+          if (packet === undefined) {
+            return Effect.fail(
+              new CodexError("invalid_external_data", "The fake Codex packet was invalid."),
+            );
+          }
+          return Effect.succeed({
+            assignment_id: packet.assignment.id,
+            route_key: packet.route.key,
+            thread_id: "thread-review",
+            turn_id: "turn-review",
+            backend: "app-server-v1-fallback" as const,
+            outcome,
+          });
+        },
+      };
+      const host = new WorkflowHost(
+        hostOptions(root, undefined, {
+          codex,
+          approvalPolicy: "root",
+          approval: () => {
+            const decision = "approved" as const;
+            return Effect.succeed(decision);
+          },
+          verification: () =>
+            Effect.sync(() => {
+              verified = true;
+            }),
+        }),
+      );
+      const definition = await host.create({
+        source,
+        args,
+        objective: "review lifecycle",
+        route: "Reviewer:code",
+        workflow: terminal,
+      });
+      const execution = await host.run({ runId: definition.run_id, source, args });
+      const journal = await readFile(
+        join(root, "runs", definition.run_id, "journal.ndjson"),
+        "utf8",
+      );
+      expect(execution.status).toBe("completed");
+      expect(verified).toBe(true);
+      expect(journal).toContain("waiting_for_approval");
+      expect(journal).toContain("approved");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("admits catalog routes, integrates runtime operations, and sanitizes persisted state", async () => {
     const { root } = await tempStore();
     try {
@@ -403,6 +556,152 @@ describe("workflow-host", () => {
       );
       expect(deactivated.status).toBe("disabled");
       expect(deactivated.reversible).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("denies compatibility dispatch before the specialist effect", async () => {
+    const { root } = await tempStore();
+    try {
+      let dispatched = 0;
+      const host = new WorkflowHost(
+        hostOptions(root, fakeEvaluator(), {
+          approvalPolicy: "root",
+          approval: () => Effect.succeed("denied" as const),
+          executeSpecialist: async () => {
+            dispatched += 1;
+            return outcome;
+          },
+        }),
+      );
+      const definition = await host.create({ source, args, objective: "deny before effect" });
+      const execution = await host.runCompatibility({ runId: definition.run_id });
+      expect(execution.status).toBe("denied");
+      expect(dispatched).toBe(0);
+      const journal = await readFile(
+        join(root, "runs", definition.run_id, "journal.ndjson"),
+        "utf8",
+      );
+      expect(journal).toContain("waiting_for_approval");
+      expect(journal).toContain("denied");
+      expect(journal).not.toContain('"state":"completed"');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("allocates concurrent journal sequences inside the store lock", async () => {
+    const { root } = await tempStore();
+    try {
+      const host = new WorkflowHost(hostOptions(root));
+      const definition = await host.create({ source, args, objective: "journal lock" });
+      const appended = await Promise.all(
+        Array.from({ length: 24 }, (_, index) =>
+          host.store.appendJournalNext(definition.run_id, (sequence) => ({
+            schema_epoch: "host-journal-1.0" as const,
+            event: "state-changed" as const,
+            run_id: definition.run_id,
+            sequence,
+            at: new Date().toISOString(),
+            from: "running" as const,
+            to: "paused" as const,
+            reason: `sibling-${index}`,
+          })),
+        ),
+      );
+      const sequences = appended.map((event) => event.sequence).sort((left, right) => left - right);
+      expect(sequences).toEqual(Array.from({ length: 24 }, (_, index) => index + 2));
+      const loaded = await host.store.load(definition.run_id);
+      expect(loaded.journal.map((event) => event.sequence)).toEqual(
+        Array.from({ length: 25 }, (_, index) => index + 1),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("resumes and replays from the persisted descriptor in a new host", async () => {
+    const { root } = await tempStore();
+    try {
+      const firstHost = new WorkflowHost(hostOptions(root));
+      const definition = await firstHost.create({
+        source,
+        args,
+        objective: "restart descriptor",
+        executionMode: "compatibility",
+      });
+      const restarted = new WorkflowHost(hostOptions(root));
+      const execution = await restarted.run({ runId: definition.run_id });
+      expect(execution.status).toBe("completed");
+      const replay = await restarted.replay(definition.run_id, {
+        identity: definition.identity,
+        operationInput: {
+          prompt: "private workflow prompt",
+          options: { role: "Worker", task: "implementation", channel: "test" },
+          route: "Worker:implementation",
+        },
+      });
+      expect(replay.kind).toBe("replayed");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("requires an explicit compatibility adapter when no native terminal is supplied", async () => {
+    const { root } = await tempStore();
+    try {
+      const json = createCodec("json", (value: unknown): unknown => value);
+      const terminal = workflow.wait(
+        workflow.step({
+          id: "native-default",
+          assignment: { payload: {}, input: json, output: json, route: "Worker:integration" },
+        }),
+      );
+      const native = new WorkflowHost(
+        hostOptions(root, undefined, {
+          codex: {
+            execute: () =>
+              Effect.succeed({
+                assignment_id: "native-default",
+                route_key: "Worker:integration",
+                thread_id: "thread",
+                turn_id: "turn",
+                backend: "app-server-v1-fallback" as const,
+                outcome,
+              }),
+          },
+          approvalPolicy: "never",
+        }),
+      );
+      const definition = await native.create({
+        source,
+        args,
+        objective: "native default",
+        workflow: terminal,
+      });
+      await expect(native.runNative({ runId: definition.run_id })).resolves.toMatchObject({
+        status: "completed",
+      });
+      const compatibilityOnly = new WorkflowHost({
+        store: new FileRunStore(root),
+        projectTrust,
+        cwd: process.cwd(),
+        codex: {
+          execute: () =>
+            Effect.succeed({
+              assignment_id: "native-default",
+              route_key: "Worker:integration",
+              thread_id: "thread",
+              turn_id: "turn",
+              backend: "app-server-v1-fallback" as const,
+              outcome,
+            }),
+        },
+      });
+      await expect(
+        compatibilityOnly.create({ source, args, objective: "must be native" }),
+      ).rejects.toMatchObject({ code: "invalid_input" });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

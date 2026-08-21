@@ -3,21 +3,27 @@
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
+  fmt: {
+    ignorePatterns: ["packages/codex/generated/**"],
+  },
   lint: {
     plugins: ["typescript"],
+    options: {
+      typeAware: true,
+      typeCheck: true,
+    },
   },
   pack: {
     entry: ["packages/cli/src/index.ts"],
     outDir: "packages/cli/dist",
     format: ["esm"],
+    outExtensions: () => ({ js: ".js" }),
     dts: false,
     clean: true,
     bundle: true,
     platform: "node",
-    copy: [{ from: "packages/plugin/assets", to: "packages/cli/dist/assets", flatten: false }],
     noExternal: [/^@holycodex\//u],
     external: [
-      "arktype",
       "quickjs-emscripten",
       "quickjs-emscripten-core",
       "@jitl/quickjs-ffi-types",

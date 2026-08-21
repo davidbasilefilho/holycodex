@@ -4,18 +4,12 @@ import { canonicalJsonUtf8, domainSeparatedSha256 } from "@holycodex/core";
 import {
   ContinuationPacketSchema,
   WORKFLOW_HOST_SCHEMA_EPOCHS,
+  decodeHostSchema,
   type ContinuationClaim,
   type ContinuationPacket,
 } from "./schemas.ts";
 import { WorkflowHostError } from "./errors.ts";
-import {
-  asJsonValue,
-  assertIdentifier,
-  assertInputIdentity,
-  isArkErrors,
-  now,
-  randomId,
-} from "./identity.ts";
+import { asJsonValue, assertIdentifier, assertInputIdentity, now, randomId } from "./identity.ts";
 import { emitTelemetry, loadRun } from "./lifecycle.ts";
 import { buildDerivedDefinition } from "./creation.ts";
 import type { ContinuationDecision, HostContext } from "./types.ts";
@@ -107,8 +101,8 @@ export async function createContinuation(
     canonicalJsonUtf8(packetWithoutDigest),
   ]);
   const packet: ContinuationPacket = { ...packetWithoutDigest, packet_digest: packetDigest };
-  const parsedPacket = ContinuationPacketSchema(packet);
-  if (isArkErrors(parsedPacket)) {
+  const parsedPacket = decodeHostSchema(ContinuationPacketSchema, packet);
+  if (parsedPacket === undefined) {
     return {
       kind: "denied",
       code: "continuation_denied",

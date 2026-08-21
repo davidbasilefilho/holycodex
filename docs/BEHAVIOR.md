@@ -69,11 +69,19 @@ treated as success.
 Coding is the default for repository implementation, fixes, tests, manifests,
 and diagnostics. Code runs on Bun, is authored in current TypeScript 7, uses
 Vite+ tooling, and uses Bun-native APIs where the platform provides them.
-ArkType validates CLI, App Server, persisted, external, and specialist
-envelopes before business logic sees them. A workflow has an explicit input,
-validated state transition, bounded effect, journal/checkpoint decision,
-verification result, and terminal outcome. Unvalidated JSON, `any`, and
-unjustified casts do not cross a boundary.
+Effect Schema from `effect/Schema` validates every external, persisted, CLI, App
+Server, and specialist boundary before business logic sees it. A workflow has
+an explicit input, validated state transition, bounded effect,
+journal/checkpoint decision, verification result, and terminal outcome.
+Unvalidated JSON, `any`, and unjustified casts do not cross a boundary.
+
+Native workflow-module execution is the production path. The CLI accepts a
+trusted TypeScript file whose default export is a `workflow.wait(...)` value;
+the runtime owns deterministic four-primitive mechanics, while Root performs
+the pre-effect approval and final judgment. QuickJS is an explicit
+compatibility-only evaluator selected by `--compat-quickjs`; stdin requires
+that flag and an explicit task objective. The compatibility path does not
+change native workflow policy.
 
 Optional Context7, LSP, Git Bash, Computer Use, Work, Web, and Security
 capabilities are independently deniable. Context7 is the first route for
@@ -90,9 +98,13 @@ MCP server or plugin is installed as a fallback or as a side effect.
 Codex App Server is the supported programmatic bridge to managed Codex
 threads. HolyCodex performs its initialization handshake, validates the
 capabilities and response schemas exposed by the exact discovered Codex
-binary, and uses only the required thread and turn methods. It cannot bypass
-Root routing, inherited approval/sandbox policy, journals, checkpoints,
-telemetry, or fail-closed rules.
+binary, and uses only the required thread and turn methods. The local
+0.148.0 generated artifact records stable multi-agent support, locally
+disabled `multi_agent_v2`, and an unverified distinct V2 lifecycle. An
+advertised V2 capability therefore fails closed; the stable App Server
+fallback is the executable path. App Server cannot bypass Root routing,
+inherited approval/sandbox policy, journals, checkpoints, telemetry, or
+fail-closed rules.
 
 Each execution has a stable `run_id` and an append-only journal. A checkpoint
 is a validated, resumable projection tied to a journal position. Resume loads
@@ -165,13 +177,13 @@ This foundation is accepted when all of the following hold:
 
 The provenance ledger for this contract is:
 
-| ID     | Evidence                                                                           | Permitted use                                                                                                                                                |
-| ------ | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `P-01` | This task specification                                                            | Project name/version, clean-room boundary, requested deliverables, role model, values, required capabilities, and completion checks explicitly stated there. |
-| `P-02` | Permitted legacy documentation, metadata, black-box output, and tests-as-contracts | Externally observable behavior only, with an exact source locator.                                                                                           |
-| `P-03` | Primary official current documentation                                             | Current Codex, toolchain, dependency, and license facts, with locator and access date.                                                                       |
-| `D-01` | Independent contract decisions in this document                                    | New observable choices required to make the requested foundation coherent; they are not presented as historical or compatibility facts.                      |
+| ID     | Evidence                                                                | Permitted use                                                                                                                                                |
+| ------ | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `P-01` | This task specification                                                 | Project name/version, clean-room boundary, requested deliverables, role model, values, required capabilities, and completion checks explicitly stated there. |
+| `P-02` | Supplied official current-source dossier                                | Current Codex, toolchain, dependency, and license facts stated in the dossier; no live-provider claim.                                                       |
+| `P-03` | Local implementation, generated provenance, and repository-native proof | Implemented behavior and local validation evidence; not external availability, publication, or post-push CI.                                                 |
+| `D-01` | Independent contract decisions in this document                         | New observable choices required to make the requested foundation coherent; they are not presented as historical or compatibility facts.                      |
 
-The exact whitelist, denylist, and limitations are authoritative in
-[PROVENANCE.md](PROVENANCE.md). No legacy implementation input or copied
-legacy prose is part of this contract.
+The exact whitelist, boundary, and limitations are authoritative in
+[PROVENANCE.md](PROVENANCE.md). No historical implementation input or copied
+historical prose is part of this contract.

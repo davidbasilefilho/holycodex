@@ -6,6 +6,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "arktype": "^2.2.3"
+    "effect": "3.22.1"
   }
 }

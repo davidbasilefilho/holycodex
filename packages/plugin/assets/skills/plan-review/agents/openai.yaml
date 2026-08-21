@@ -1,0 +1,6 @@
+interface:
+  display_name: "Plan review"
+  short_description: "Review one complete plan for feasibility, order, risk, and proof."
+  default_prompt: "Inspect the complete plan, repair bounded defects, and return structured proof."
+policy:
+  allow_implicit_invocation: true

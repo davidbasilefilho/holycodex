@@ -2,20 +2,22 @@
 
 import { lstat, mkdir, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
+import * as Schema from "effect/Schema";
 import {
   canonicalJsonUtf8,
   createSha256Digest,
   domainSeparatedSha256,
   type Sha256Digest,
 } from "@holycodex/core";
-import { type } from "arktype";
-import { CodexError, invalidData, sanitizeText } from "./common";
+import { CODEX_PROTOCOL_EPOCH, checked, CodexError, sanitizeText } from "./common";
 import {
   allowlistedEnvironment,
   decodeUtf8,
   readBoundedStream,
   sanitizeDiagnostic,
 } from "./transport";
+
+const EXTERNAL_COMMAND_TIMEOUT_MS = 30_000;
 
 export interface CodexExecutableIdentity {
   readonly path: string;
@@ -88,11 +90,15 @@ async function runVersionCommand(
     );
   }
   try {
-    const [stdout, stderr, exitCode] = await Promise.all([
-      readBoundedStream(child.stdout, 16 * 1024),
-      readBoundedStream(child.stderr, 16 * 1024),
-      child.exited,
-    ]);
+    const [stdout, stderr, exitCode] = await waitForChild(
+      Promise.all([
+        readBoundedStream(child.stdout, 16 * 1024),
+        readBoundedStream(child.stderr, 16 * 1024),
+        child.exited,
+      ]),
+      () => child.kill(),
+      "The Codex version command timed out.",
+    );
     const output = sanitizeText(decodeUtf8(stdout, "Codex version output"));
     if (exitCode !== 0 || output.length === 0) {
       const diagnostics = sanitizeDiagnostic(decodeUtf8(stderr, "Codex version diagnostics"));
@@ -153,11 +159,10 @@ export interface CommandResult {
   readonly stderr: string;
 }
 
-const CommandResultSchema = type({
-  "+": "reject",
-  exitCode: "number.integer",
-  stdout: type("string").narrow((value): value is string => value.length <= 1024 * 1024),
-  stderr: type("string").narrow((value): value is string => value.length <= 1024 * 1024),
+const CommandResultSchema = Schema.Struct({
+  exitCode: Schema.Number.pipe(Schema.filter((value) => Number.isSafeInteger(value))),
+  stdout: Schema.String.pipe(Schema.maxLength(1024 * 1024)),
+  stderr: Schema.String.pipe(Schema.maxLength(1024 * 1024)),
 });
 
 export interface SchemaOutputProvenance {
@@ -186,16 +191,59 @@ async function runCommand(
   if (!(child.stdout instanceof ReadableStream) || !(child.stderr instanceof ReadableStream)) {
     throw new CodexError("transport_failure", "The Codex command did not expose output pipes.");
   }
-  const [stdout, stderr, exitCode] = await Promise.all([
-    readBoundedStream(child.stdout, 1024 * 1024),
-    readBoundedStream(child.stderr, 1024 * 1024),
-    child.exited,
-  ]);
-  return {
-    exitCode,
-    stdout: sanitizeText(decodeUtf8(stdout, "Codex command output"), 4096),
-    stderr: sanitizeDiagnostic(decodeUtf8(stderr, "Codex command diagnostics")),
-  };
+  try {
+    const [stdout, stderr, exitCode] = await waitForChild(
+      Promise.all([
+        readBoundedStream(child.stdout, 1024 * 1024),
+        readBoundedStream(child.stderr, 1024 * 1024),
+        child.exited,
+      ]),
+      () => child.kill(),
+      "The Codex command timed out.",
+    );
+    return {
+      exitCode,
+      stdout: sanitizeText(decodeUtf8(stdout, "Codex command output"), 4096),
+      stderr: sanitizeDiagnostic(decodeUtf8(stderr, "Codex command diagnostics")),
+    };
+  } catch (error: unknown) {
+    try {
+      child.kill();
+    } catch {
+      // The subprocess may already have exited.
+    }
+    if (error instanceof CodexError) {
+      throw error;
+    }
+    throw new CodexError("transport_failure", "The Codex command failed.", {}, { cause: error });
+  }
+}
+
+async function waitForChild<T>(
+  operation: Promise<T>,
+  kill: () => void,
+  timeoutMessage: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          try {
+            kill();
+          } catch {
+            // The subprocess may already have exited.
+          }
+          reject(new CodexError("timeout", timeoutMessage));
+        }, EXTERNAL_COMMAND_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 export interface SchemaGenerationOptions {
@@ -207,6 +255,7 @@ export interface SchemaGenerationOptions {
 
 export interface SchemaGenerationProvenance {
   readonly executable: CodexExecutableIdentity;
+  readonly protocol_epoch: typeof CODEX_PROTOCOL_EPOCH;
   readonly outputDirectory: string;
   readonly commands: readonly (readonly string[])[];
   readonly output_digest: Sha256Digest;
@@ -244,10 +293,7 @@ export async function generateCodexSchemas(
   for (const args of commands) {
     await assertExecutableStable(options.executable);
     const result = await runner(options.executable.path, args, environment);
-    const parsedResult = CommandResultSchema(result);
-    if (parsedResult instanceof type.errors) {
-      throw invalidData("Codex schema generation result", result, parsedResult.summary);
-    }
+    const parsedResult = checked(CommandResultSchema, result, "Codex schema generation result");
     if (parsedResult.exitCode !== 0) {
       throw new CodexError("transport_failure", `Codex schema generation failed for ${args[1]}.`, {
         exitCode: parsedResult.exitCode,
@@ -265,6 +311,7 @@ export async function generateCodexSchemas(
   ]);
   return {
     executable: options.executable,
+    protocol_epoch: CODEX_PROTOCOL_EPOCH,
     outputDirectory,
     commands,
     output_digest: outputDigest,

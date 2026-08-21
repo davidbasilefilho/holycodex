@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type Sha256Digest, canonicalJson, sha256DomainDigest } from "@holycodex/core";
-import { type } from "arktype";
 import {
-  DIGEST_PATTERN,
+  createSha256Digest,
+  type Sha256Digest,
+  canonicalJson,
+  sha256DomainDigest,
+} from "@holycodex/core";
+import {
   MAX_FILE_SIZE,
   MAX_TOTAL_SIZE,
   PAYLOAD_MANIFEST_PATH,
@@ -12,6 +15,7 @@ import {
 import { pluginError } from "./errors.ts";
 import {
   PayloadIdentitySchema,
+  decodeSchema,
   parsePayloadLocation,
   readGeneratedManifest,
   readPayloadManifest,
@@ -24,9 +28,7 @@ import {
   resolveStagingRoot,
   walkPayload,
 } from "./source.ts";
-import type { PayloadIdentity, SourceFile, VerifiedPayload } from "./types.ts";
-
-const DigestSchema = type(DIGEST_PATTERN);
+import type { PayloadIdentity, VerifiedPayload } from "./types.ts";
 
 export async function verifyPayload(input: unknown): Promise<VerifiedPayload> {
   const stagingDirectory = parsePayloadLocation(input);
@@ -135,10 +137,10 @@ export function createIdentity(
   digest: Sha256Digest,
   epoch: string,
 ): PayloadIdentity {
-  const parsed = PayloadIdentitySchema({ version, digest, epoch });
-  if (parsed instanceof type.errors) {
+  const parsed = decodeSchema(PayloadIdentitySchema, { version, digest, epoch });
+  if (parsed === undefined) {
     throw pluginError("payload_invalid", "The payload identity is invalid.", {
-      summary: parsed.summary,
+      summary: "Effect Schema rejected the payload identity.",
     });
   }
   return parsed;
@@ -147,7 +149,7 @@ export function createIdentity(
 export async function digestPayload(
   version: string,
   epoch: string,
-  files: readonly SourceFile[],
+  files: readonly DigestFile[],
   readBytes: (path: string) => Promise<Uint8Array>,
 ): Promise<Sha256Digest> {
   const parts: Uint8Array[] = [new TextEncoder().encode(version), new TextEncoder().encode(epoch)];
@@ -173,15 +175,27 @@ export async function sha256(bytes: Uint8Array): Promise<Sha256Digest> {
   if (!subtle) {
     throw pluginError("crypto_unavailable", "The standards-based crypto API is unavailable.");
   }
-  const digest = await subtle.digest("SHA-256", bytes);
+  const digest = await subtle.digest("SHA-256", toCryptoBuffer(bytes));
   const hex = [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
-  const parsed = DigestSchema(hex);
-  if (parsed instanceof type.errors) {
+  const parsed = createSha256Digest(hex);
+  if (!parsed.ok) {
     throw pluginError("digest_invalid", "The crypto API returned an invalid digest.");
   }
-  return parsed;
+  return parsed.value;
+}
+
+type DigestFile = Readonly<{
+  readonly path: string;
+  readonly size: number;
+  readonly sha256: string;
+}>;
+
+function toCryptoBuffer(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy;
 }
 
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {

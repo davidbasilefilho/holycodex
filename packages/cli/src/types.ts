@@ -8,10 +8,20 @@ import type {
   Refinement,
   RunDefinition,
   RunExecution,
+  WorkflowDefinition,
   WorkflowHostError,
 } from "@holycodex/workflow-host";
 
 export type OptionalSelectionName = "computer_use" | "work" | "web" | "security" | "coding";
+export type Autonomy = "manual" | "assisted" | "autonomous";
+export type WorkflowCapabilityName =
+  | "work"
+  | "web"
+  | "security"
+  | "computer_use"
+  | "lsp"
+  | "lsp_setup"
+  | "git_bash";
 
 export type OptionalSelections = Readonly<{
   readonly computer_use: boolean;
@@ -23,10 +33,10 @@ export type OptionalSelections = Readonly<{
 
 export type ExplicitOptionalSelections = Readonly<
   Partial<{
-    readonly computer_use: boolean;
-    readonly work: boolean;
-    readonly web: boolean;
-    readonly security: boolean;
+    readonly computer_use: boolean | undefined;
+    readonly work: boolean | undefined;
+    readonly web: boolean | undefined;
+    readonly security: boolean | undefined;
   }>
 >;
 
@@ -58,7 +68,9 @@ export interface InstallRecord {
   readonly tier: ServiceTier;
   readonly optional_selections: OptionalSelections;
   readonly explicit_optional_selections: ExplicitOptionalSelections;
-  readonly official_plugins?: readonly string[];
+  readonly official_plugins?: readonly string[] | undefined;
+  readonly autonomy?: Autonomy | undefined;
+  readonly max_subagents?: number | undefined;
   readonly installed_at: string;
 }
 
@@ -113,17 +125,30 @@ export interface WorkflowService {
     readonly objective: string;
     readonly plan?: PlanName;
     readonly serviceTier?: ServiceTier;
+    readonly autonomy?: Autonomy;
+    readonly maxSubagents?: number;
+    readonly workflow?: WorkflowDefinition;
   }) => Promise<RunDefinition>;
   readonly run?: (input: {
     readonly runId: string;
     readonly source: string;
     readonly args: JsonValue;
+    readonly workflow?: WorkflowDefinition;
+    readonly compatibility?: boolean;
   }) => Promise<RunExecution>;
   readonly resume?: (input: {
     readonly runId: string;
     readonly source: string;
     readonly args: JsonValue;
+    readonly workflow?: WorkflowDefinition;
+    readonly compatibility?: boolean;
   }) => Promise<RunExecution>;
+  readonly continuation?: (input: {
+    readonly runId: string;
+    readonly source: string;
+    readonly args: JsonValue;
+    readonly compatibility?: boolean;
+  }) => Promise<JsonValue>;
   readonly list?: () => Promise<readonly InspectionProjection[]>;
   readonly show?: (runId: string) => Promise<InspectionProjection>;
   readonly inspect?: (runId: string, follow: boolean) => Promise<InspectionProjection>;
@@ -138,6 +163,7 @@ export interface WorkflowService {
     scope: "user" | "project",
     name: string,
     args: JsonValue,
+    compatibility?: boolean,
   ) => Promise<JsonValue>;
   readonly refinements?: {
     readonly list?: () => Promise<readonly Refinement[]>;
@@ -146,6 +172,15 @@ export interface WorkflowService {
     readonly disable?: (id: string) => Promise<Refinement>;
   };
 }
+
+export interface WorkflowCapabilityPort {
+  readonly invoke: (input: JsonObject) => Promise<unknown>;
+  readonly available?: () => Promise<boolean>;
+}
+
+export type WorkflowCapabilities = Readonly<
+  Partial<Record<WorkflowCapabilityName, WorkflowCapabilityPort>>
+>;
 
 export interface CliIo {
   readonly stdin?: AsyncIterable<string>;
@@ -162,6 +197,8 @@ export interface CliContext {
   readonly io?: CliIo;
   readonly installer?: InstallerOptions;
   readonly workflowService?: WorkflowService;
+  readonly capabilities?: WorkflowCapabilities;
+  readonly rootAuthority?: boolean;
   readonly trustGate?: (path: string) => Promise<boolean>;
   readonly readStdin?: () => Promise<string>;
   readonly now?: () => Date;

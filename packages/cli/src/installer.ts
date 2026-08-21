@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
 import { assemblePayload, pluginSourceRoot, verifyPayload } from "@holycodex/plugin";
 import { OfficialPluginSelectionSchema, selectOfficialPlugins } from "@holycodex/codex";
 import {
   lookupPlan,
-  type JsonObject,
   type PlanName,
   type ServiceTier,
   STATE_SCHEMA_EPOCH,
@@ -41,78 +39,35 @@ import {
 } from "./storage.ts";
 import { asJsonValue } from "./json.ts";
 import { CodexOfficialPluginManager } from "./official-manager.ts";
+import { migrateLegacyState, readMigratedInstallerSelections } from "./migration.ts";
+import {
+  ArtifactIdSchema,
+  decodeSchema,
+  InstallJournalRecordSchema,
+  InstallRecordSchema,
+} from "./schema.ts";
 import type {
+  Autonomy,
   ExplicitOptionalSelections,
   InstallRecord,
   InstallResult,
   InstallerOptions,
   OptionalSelections,
 } from "./types.ts";
+import type { JsonObject } from "@holycodex/core";
 
-const VersionSchema = type(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u);
-const EpochSchema = type(/^[a-z][a-z0-9._:-]{0,63}$/u);
-const ArtifactIdSchema = type(/^artifact-[0-9a-f]{64}-[a-z][a-z0-9._:-]{0,63}$/u);
-const OptionalSelectionsSchema = type({
-  "+": "reject",
-  computer_use: "boolean",
-  work: "boolean",
-  web: "boolean",
-  security: "boolean",
-  coding: "true",
-});
-const ExplicitOptionalSelectionsSchema = type({
-  "+": "reject",
-  "computer_use?": "boolean",
-  "work?": "boolean",
-  "web?": "boolean",
-  "security?": "boolean",
-});
-export const InstallRecordSchema = type({
-  "+": "reject",
-  schema_epoch: `'${STATE_SCHEMA_EPOCH}'`,
-  version: VersionSchema,
-  digest: type(/^[0-9a-f]{64}$/u),
-  epoch: EpochSchema,
-  artifact_id: ArtifactIdSchema,
-  relative_path: type(/^\.\/plugins\/holycodex\/artifact-[0-9a-f]{64}-[a-z][a-z0-9._:-]{0,63}$/u),
-  plan: type("'Go' | 'plus-low' | 'plus' | 'plus-high' | 'pro-5x' | 'pro-20x'"),
-  tier: type("'Standard' | 'Fast'"),
-  optional_selections: OptionalSelectionsSchema,
-  explicit_optional_selections: ExplicitOptionalSelectionsSchema,
-  "official_plugins?": "string[]",
-  installed_at: type("string").narrow((value): value is string => !Number.isNaN(Date.parse(value))),
-});
+export { InstallJournalRecordSchema, InstallRecordSchema } from "./schema.ts";
 
 export interface InstallRequest {
   readonly plan?: PlanName | undefined;
   readonly tier?: ServiceTier | undefined;
   readonly optional?: ExplicitOptionalSelections | undefined;
   readonly officialPlugins?: readonly string[] | undefined;
+  readonly autonomy?: Autonomy | undefined;
+  readonly maxSubagents?: number | undefined;
 }
 
-const JournalPhaseSchema = type(
-  "'lock-recovery' | 'artifact-ready' | 'active-written' | 'marketplace-written' | 'activation-verified' | 'official-plugins-applied' | 'official-plugins-uncertain' | 'rollback' | 'pruned'",
-);
-const JournalDetailsSchema = type("object").narrow(
-  (value): value is JsonObject =>
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.values(value).every(
-      (item) =>
-        (typeof item === "string" && item.length <= 512) ||
-        (typeof item === "number" && Number.isFinite(item)),
-    ),
-);
-export const InstallJournalRecordSchema = type({
-  "+": "reject",
-  phase: JournalPhaseSchema,
-  at: type("string").narrow((value): value is string => !Number.isNaN(Date.parse(value))),
-  run_id: type(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u),
-  sequence: "number.integer > 0",
-  details: JournalDetailsSchema,
-});
-type JournalRecord = typeof InstallJournalRecordSchema.infer;
+type JournalRecord = typeof InstallJournalRecordSchema.Type;
 
 export async function installHolyCodex(
   request: InstallRequest = {},
@@ -136,11 +91,29 @@ export async function installHolyCodex(
       },
       async (details) => appendJournal(paths, runId, "lock-recovery", details, now),
     );
+    const migration = await migrateLegacyState(paths, now);
+    if (migration.status === "quarantined") {
+      throw new InstallerError(
+        "state_corrupt",
+        "Legacy state was retained as incompatible historical data.",
+      );
+    }
     const previous = await readPreviousRecord(paths);
+    const migrated = await readMigratedInstallerSelections(paths);
     const manifestVersion = await readCanonicalVersion();
-    const plan = choosePlan(request.plan, previous?.plan);
-    const tier = chooseTier(request.tier, previous?.tier);
-    const optional = chooseOptional(request.optional, previous?.optional_selections);
+    const plan = choosePlan(request.plan, previous?.plan ?? migrated?.plan);
+    const tier = chooseTier(request.tier, previous?.tier ?? migrated?.tier);
+    const optional = chooseOptional(
+      request.optional,
+      previous?.optional_selections ??
+        (migrated ? { ...migrated.optional, coding: true } : undefined),
+    );
+    const autonomy = chooseAutonomy(request.autonomy, previous?.autonomy ?? migrated?.autonomy);
+    const maxSubagents = chooseMaxSubagents(
+      request.maxSubagents,
+      previous?.max_subagents ?? migrated?.max_subagents,
+      plan,
+    );
     const explicitOptional = request.optional ?? previous?.explicit_optional_selections ?? {};
     const bundledAssets = join(dirname(fileURLToPath(import.meta.url)), "assets");
     const sourceRoot =
@@ -168,10 +141,12 @@ export async function installHolyCodex(
       optional_selections: optional,
       explicit_optional_selections: explicitOptional,
       official_plugins: request.officialPlugins ?? previous?.official_plugins ?? [],
+      autonomy,
+      max_subagents: maxSubagents,
       installed_at: now().toISOString(),
     };
-    const parsedRecord = InstallRecordSchema(record);
-    if (parsedRecord instanceof type.errors) {
+    const parsedRecord = decodeSchema(InstallRecordSchema, record);
+    if (parsedRecord === undefined) {
       throw new InstallerError("install_failed", "The active install record is invalid.");
     }
     await appendJournal(
@@ -333,6 +308,27 @@ function chooseOptional(
   };
 }
 
+function chooseAutonomy(requested: Autonomy | undefined, previous: Autonomy | undefined): Autonomy {
+  return requested ?? previous ?? "assisted";
+}
+
+function chooseMaxSubagents(
+  requested: number | undefined,
+  previous: number | undefined,
+  plan: PlanName,
+): number {
+  const planResult = lookupPlan(plan);
+  if (!planResult.ok) {
+    throw new InstallerError("install_failed", "The install plan is unavailable.");
+  }
+  const maximum = planResult.value.budget?.maxConcurrency ?? 1;
+  const value = requested ?? previous ?? maximum;
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
+    throw new InstallerError("install_failed", "The maximum specialist count is not admitted.");
+  }
+  return value;
+}
+
 async function stagePayload(
   paths: ResolvedInstallerPaths,
   sourceRoot: string,
@@ -407,8 +403,8 @@ async function installSelectedOfficialPlugins(
     throw new InstallerError("capability_denied", "Official plugin selection is unavailable.");
   }
   const selections = ids.map((id) => {
-    const parsed = OfficialPluginSelectionSchema({ id, selected: true });
-    if (parsed instanceof type.errors) {
+    const parsed = decodeSchema(OfficialPluginSelectionSchema, { id, selected: true });
+    if (parsed === undefined) {
       throw new InstallerError("install_failed", "An official plugin selection is invalid.");
     }
     return parsed;
@@ -434,7 +430,7 @@ async function pruneInactiveArtifacts(
   }
   const removed: string[] = [];
   for (const entry of [...entries].sort()) {
-    if (entry === activeArtifactId || ArtifactIdSchema(entry) instanceof type.errors) {
+    if (entry === activeArtifactId || decodeSchema(ArtifactIdSchema, entry) === undefined) {
       continue;
     }
     const candidate = join(paths.payloadRoot, entry);
@@ -453,7 +449,7 @@ async function pruneInactiveArtifacts(
   return removed;
 }
 
-async function appendJournal(
+export async function appendJournal(
   paths: ResolvedInstallerPaths,
   runId: string,
   phase:
@@ -476,8 +472,8 @@ async function appendJournal(
     for (const line of existing.split("\n")) {
       if (line.trim().length === 0) continue;
       const parsed: unknown = JSON.parse(line);
-      const record = InstallJournalRecordSchema(parsed);
-      if (record instanceof type.errors || record.sequence !== sequence) {
+      const record = decodeSchema(InstallJournalRecordSchema, parsed);
+      if (record === undefined || record.sequence !== sequence) {
         throw new InstallerError("state_corrupt", "The installer journal sequence is invalid.");
       }
       sequence += 1;
@@ -494,8 +490,8 @@ async function appendJournal(
     sequence,
     details: { ...details },
   };
-  const parsed = InstallJournalRecordSchema(record);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeSchema(InstallJournalRecordSchema, record);
+  if (parsed === undefined) {
     throw new InstallerError("state_corrupt", "The installer journal record is invalid.");
   }
   await writeFile(paths.journal, `${canonicalJson(parsed)}\n`, { flag: "a", mode: 0o600 });
@@ -539,15 +535,18 @@ function safeMessage(error: unknown): string {
 export class InstallerError extends Error {
   readonly code: "install_failed" | "capability_denied" | "permission_denied" | "state_corrupt";
   readonly causeValue: unknown;
+  readonly details: JsonObject;
 
   constructor(
     code: "install_failed" | "capability_denied" | "permission_denied" | "state_corrupt",
     message: string,
     causeValue?: unknown,
+    details: JsonObject = {},
   ) {
     super(message);
     this.name = "InstallerError";
     this.code = code;
     this.causeValue = causeValue;
+    this.details = details;
   }
 }

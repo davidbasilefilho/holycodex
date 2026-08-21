@@ -4,6 +4,8 @@ export const packageName = "holycodex" as const;
 
 export { runCli, executeCommand, renderHuman } from "./commands.ts";
 export { runBinary } from "./binary.ts";
+export type { BinaryIo } from "./binary.ts";
+export { helpText, helpRequested, helpTopic } from "./help.ts";
 export { parseArgv, ArgumentError } from "./args.ts";
 export {
   installHolyCodex,
@@ -14,7 +16,13 @@ export {
 } from "./installer.ts";
 export { doctorHolyCodex, cleanupHolyCodex, CleanupError } from "./maintenance.ts";
 export { readCanonicalVersion, updateCanonicalVersion, publicManifestPath } from "./manifest.ts";
-export { resolveInstallerPaths, assertRootText, PathBoundaryError, STATE_SCHEMA } from "./paths.ts";
+export {
+  resolveInstallerPaths,
+  assertRootText,
+  pathWithin,
+  PathBoundaryError,
+  STATE_SCHEMA,
+} from "./paths.ts";
 export {
   managedMarketplaceEntry,
   managedEntryMatches,
@@ -27,10 +35,21 @@ export { CodexOfficialPluginManager, OfficialPluginManagerError } from "./offici
 export type { OfficialPluginCommandRunner } from "./official-manager.ts";
 export {
   executeWorkflowCommand,
+  invokeWorkflowCapability,
   readWorkflowSource,
   optionalArgs,
   WorkflowCommandError,
 } from "./workflow.ts";
+export {
+  LEGACY_SCHEMA_EPOCH,
+  MIGRATED_STATE_NAME,
+  MIGRATION_RECORD_NAME,
+  inspectLegacyState,
+  migrateLegacyState,
+  readMigratedInstallerSelections,
+} from "./migration.ts";
+export { WorkflowStoreError } from "./workflow-store.ts";
+export { RefinementStoreError } from "./refinement-store.ts";
 export type {
   CliContext,
   CliIo,
@@ -48,6 +67,9 @@ export type {
   OptionalSelections,
   ParsedCommand,
   WorkflowService,
+  WorkflowCapabilities,
+  WorkflowCapabilityPort,
+  Autonomy,
 } from "./types.ts";
 export type { InstallRequest } from "./installer.ts";
 

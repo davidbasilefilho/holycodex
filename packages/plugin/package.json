@@ -7,6 +7,6 @@
   },
   "dependencies": {
     "@holycodex/core": "workspace:*",
-    "arktype": "^2.2.3"
+    "effect": "3.22.1"
   }
 }

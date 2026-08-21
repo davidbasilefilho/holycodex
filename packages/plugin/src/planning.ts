@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
 import { resolve } from "node:path";
 import { canonicalJsonBytes, createIdentity, digestPayload, sha256 } from "./verification.ts";
 import {
@@ -13,6 +12,7 @@ import {
 import { pluginError } from "./errors.ts";
 import {
   GeneratedManifestSchema,
+  decodeSchema,
   parseAssemblyRequest,
   parseDirectoryText,
   readSourceManifest,
@@ -115,19 +115,28 @@ export function createGeneratedManifest(
     version,
     description: source.description,
   };
-  if (source.license !== undefined) {
-    manifest.license = source.license;
+  if (source["license"] !== undefined) {
+    manifest["license"] = source["license"];
   }
-  if (source.skills !== undefined) {
-    manifest.skills = [...source.skills];
+  if (source["skills"] !== undefined) {
+    manifest["skills"] = [...source["skills"]];
   }
-  if (source.assets !== undefined) {
-    manifest.assets = [...source.assets];
+  if (source["assets"] !== undefined) {
+    manifest["assets"] = [...source["assets"]];
   }
-  const parsed = GeneratedManifestSchema(manifest);
-  if (parsed instanceof type.errors) {
+  if (source["hooks"] !== undefined) {
+    manifest["hooks"] = [...source["hooks"]];
+  }
+  if (source["rules"] !== undefined) {
+    manifest["rules"] = [...source["rules"]];
+  }
+  if (source["compaction"] !== undefined) {
+    manifest["compaction"] = [...source["compaction"]];
+  }
+  const parsed = decodeSchema(GeneratedManifestSchema, manifest);
+  if (parsed === undefined) {
     throw pluginError("manifest_invalid", "Generated plugin metadata is invalid.", {
-      summary: parsed.summary,
+      summary: "Effect Schema rejected the generated plugin metadata.",
     });
   }
   return parsed;

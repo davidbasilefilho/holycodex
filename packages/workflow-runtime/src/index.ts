@@ -22,6 +22,47 @@ import {
 
 export const packageName = "@holycodex/workflow-runtime" as const;
 
+export { workflow, Workflow, Step, Queue, Run, Wait } from "./dsl.ts";
+export type {
+  Assignment,
+  AssignmentMetadata,
+  NamedWaitResult,
+  StepDefinition,
+  WorkflowDsl,
+  WorkflowStage,
+} from "./dsl.ts";
+export { createCodec } from "./schema.ts";
+export type { ValueCodec } from "./schema.ts";
+export {
+  CompileOptionsSchema,
+  ExecutionPlan,
+  compileWorkflow,
+  compileWorkflowUnsafe,
+} from "./compiler.ts";
+export type {
+  CompileOptions,
+  CompiledNode,
+  CompiledNodeMetadata,
+  PlanCapacity,
+  PlanTerminal,
+} from "./compiler.ts";
+export { makeCapacityService, runExecutionPlan, runExecutionPlanPromise } from "./runtime.ts";
+export type {
+  CapacityDispatchRequest,
+  CapacityLease,
+  CapacityRunReservation,
+  CapacityRunReservationRequest,
+  CapacityService,
+  WorkflowApprovalRequest,
+  WorkflowCheckpoint,
+  WorkflowHostServices,
+  WorkflowJournalEvent,
+  WorkflowRuntimeOptions,
+  WorkflowVerificationRequest,
+} from "./runtime.ts";
+export { workflowFailure, isWorkflowFailure } from "./errors.ts";
+export type { WorkflowFailure, WorkflowFailureCode } from "./errors.ts";
+
 export {
   DEFAULT_WORKFLOW_LIMITS,
   MAX_WORKFLOW_LIMITS,
@@ -155,6 +196,13 @@ export async function evaluateWorkflow(input: EvaluateWorkflowInput): Promise<Wo
   }
 
   return await monitorChild(processHandle, input, limits);
+}
+
+/** Explicit compatibility name for the isolated QuickJS/string evaluator. */
+export function evaluateWorkflowCompatibility(
+  input: EvaluateWorkflowInput,
+): Promise<WorkflowResult> {
+  return evaluateWorkflow(input);
 }
 
 function validateInput(

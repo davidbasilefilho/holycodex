@@ -1,0 +1,55 @@
+{
+  "schema_epoch": "validation-effect-promise-adapters-1",
+  "entries": [
+    {
+      "path": "packages/codex/src/assignment.ts",
+      "markers": ["Effect.tryPromise"],
+      "reason": "Codex assignment execution adapts the typed transport promise at the App Server edge."
+    },
+    {
+      "path": "packages/codex/src/effect-services.ts",
+      "markers": ["PROMISE_ADAPTER_EXCEPTIONS", "Effect.tryPromise"],
+      "reason": "Codex Effect Layers own the subprocess and App Server Promise adapters."
+    },
+    {
+      "path": "packages/cli/src/workflow.ts",
+      "markers": ["Effect.runPromise"],
+      "reason": "The CLI boundary turns a validated host Effect into its user-facing Promise result."
+    },
+    {
+      "path": "packages/workflow-host/src/admission.ts",
+      "markers": ["Effect.runPromise"],
+      "reason": "Host admission owns the Promise edge for capacity reservations."
+    },
+    {
+      "path": "packages/workflow-host/src/approval.ts",
+      "markers": ["Effect.runPromise"],
+      "reason": "Host approval owns the Promise edge for the Root approval handler."
+    },
+    {
+      "path": "packages/workflow-host/src/creation.ts",
+      "markers": ["Effect.runPromise"],
+      "reason": "Host creation owns compilation and reservation release at its async boundary."
+    },
+    {
+      "path": "packages/workflow-host/src/effect-runtime.ts",
+      "markers": ["Effect.tryPromise"],
+      "reason": "Host Effect services adapt filesystem, subprocess, and external ports."
+    },
+    {
+      "path": "packages/workflow-host/src/execution.ts",
+      "markers": ["Effect.runPromise"],
+      "reason": "Host execution joins compiled Effects at the lifecycle boundary."
+    },
+    {
+      "path": "packages/workflow-host/src/operation.ts",
+      "markers": ["Effect.runPromise"],
+      "reason": "Host operations cross the typed specialist and lease Promise boundary."
+    },
+    {
+      "path": "packages/workflow-runtime/src/runtime.ts",
+      "markers": ["runExecutionPlanPromise", "Effect.runPromise"],
+      "reason": "Workflow runtime exposes one documented Promise adapter for host callers."
+    }
+  ]
+}

@@ -14,6 +14,7 @@ import {
   validateSource,
   verifyPayload,
 } from "./index";
+import { normalizeRelativePath } from "./source.ts";
 
 const tempRoot = "/tmp";
 
@@ -47,7 +48,7 @@ describe("plugin source assets", () => {
   test("keeps skill frontmatter, metadata, invocation, and server declarations in policy", async () => {
     const source = await validateSource(pluginSourceRoot);
     const skills = source.manifest.skills ?? [];
-    expect(skills).toHaveLength(8);
+    expect(skills).toHaveLength(18);
     for (const skill of skills) {
       const body = await readFile(join(pluginSourceRoot, "skills", skill, "SKILL.md"), "utf8");
       const metadata = await readFile(
@@ -69,6 +70,15 @@ describe("plugin source assets", () => {
       "utf8",
     );
     expect(babysitMetadata).toContain("allow_implicit_invocation: false");
+    expect(source.manifest.hooks).toEqual(["hooks/manifest.json"]);
+    expect(source.manifest.rules).toEqual(["rules/manifest.json", "rules/holycodex.md"]);
+    expect(source.manifest.compaction).toEqual([
+      "compaction/manifest.json",
+      "compaction/holycodex.md",
+    ]);
+    expect(source.files.map((file) => file.path)).toContain("hooks/manifest.json");
+    expect(source.files.map((file) => file.path)).toContain("rules/holycodex.md");
+    expect(source.files.map((file) => file.path)).toContain("compaction/holycodex.md");
   });
 });
 
@@ -104,8 +114,8 @@ describe("deterministic payload assembly", () => {
       const stagedManifest = JSON.parse(
         await readFile(join(stagingA, sourceManifestPath), "utf8"),
       ) as Record<string, unknown>;
-      expect(sourceManifest.version).toBeUndefined();
-      expect(stagedManifest.version).toBe("0.1.0");
+      expect(sourceManifest["version"]).toBeUndefined();
+      expect(stagedManifest["version"]).toBe("0.1.0");
       const verified = await verifyPayload(stagingA);
       expect(verified.identity).toEqual(first.identity);
       expect(verified.manifest).toEqual(first.manifest);
@@ -202,6 +212,17 @@ describe("deterministic payload assembly", () => {
     } finally {
       await removeTemporary(sourceRoot, staging, occupied);
     }
+  });
+
+  test("keeps Windows and Git Bash executable-style paths outside relative assets", () => {
+    expect(normalizeRelativePath("agents\\worker.md")).toBe("agents/worker.md");
+    expect(() => normalizeRelativePath("C:\\Users\\codex\\worker.md")).toThrow(
+      /inside their source root|relative/u,
+    );
+    expect(() => normalizeRelativePath("/c/Users/codex/worker.md")).toThrow(
+      /inside their source root|relative/u,
+    );
+    expect(() => normalizeRelativePath("skills\\..\\worker.md")).toThrow(/traverse/u);
   });
 });
 

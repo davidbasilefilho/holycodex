@@ -6,7 +6,6 @@ import {
   domainSeparatedSha256,
   type JsonObject,
 } from "@holycodex/core";
-import { type } from "arktype";
 import {
   link,
   lstat,
@@ -25,6 +24,7 @@ import {
   ContinuationClaimSchema,
   JournalEventSchema,
   RunSnapshotSchema,
+  decodeHostSchema,
   type ContinuationClaim,
   type JournalEvent,
   type RunDefinition,
@@ -38,7 +38,7 @@ export type StoredRun = Readonly<{
   readonly journal: readonly JournalEvent[];
 }>;
 
-type AppendLock = Promise<void>;
+type AppendLock = Promise<unknown>;
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const IGNORED_FSYNC_CODES = new Set(["EINVAL", "ENOTSUP", "EISDIR", "EBADF", "ENOSYS"]);
@@ -143,6 +143,7 @@ async function acquireAppendLock(path: string): Promise<AppendLease> {
 export class FileRunStore {
   readonly root: string;
   private initialized = false;
+  private initialization: Promise<void> | undefined;
   private readonly appendLocks = new Map<string, AppendLock>();
 
   constructor(root: string) {
@@ -156,40 +157,53 @@ export class FileRunStore {
     if (this.initialized) {
       return;
     }
-    try {
-      await mkdir(this.root, { recursive: true });
-      const rootStat = await lstat(this.root);
-      if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    if (this.initialization !== undefined) {
+      return await this.initialization;
+    }
+    const initialization = (async (): Promise<void> => {
+      try {
+        await mkdir(this.root, { recursive: true });
+        const rootStat = await lstat(this.root);
+        if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+          throw new WorkflowHostError(
+            "path_rejected",
+            "The run store root must be a real directory owned by HolyCodex.",
+          );
+        }
+        for (const directory of ["runs", "claims", "quarantine"]) {
+          await this.ensureDirectory(join(this.root, directory));
+        }
+        this.initialized = true;
+      } catch (error) {
+        if (error instanceof WorkflowHostError) {
+          throw error;
+        }
         throw new WorkflowHostError(
-          "path_rejected",
-          "The run store root must be a real directory owned by HolyCodex.",
+          "persistence_failed",
+          "The run store could not be initialized.",
+          {},
+          { cause: error },
         );
       }
-      for (const directory of ["runs", "claims", "quarantine"]) {
-        await this.ensureDirectory(join(this.root, directory));
+    })();
+    this.initialization = initialization;
+    try {
+      await initialization;
+    } finally {
+      if (this.initialization === initialization) {
+        this.initialization = undefined;
       }
-      this.initialized = true;
-    } catch (error) {
-      if (error instanceof WorkflowHostError) {
-        throw error;
-      }
-      throw new WorkflowHostError(
-        "persistence_failed",
-        "The run store could not be initialized.",
-        {},
-        { cause: error },
-      );
     }
   }
 
   async createRun(snapshot: RunSnapshot, event: JournalEvent): Promise<void> {
     await this.init();
-    const parsedSnapshot = RunSnapshotSchema(snapshot);
-    const parsedEvent = JournalEventSchema(event);
-    if (parsedSnapshot instanceof type.errors) {
+    const parsedSnapshot = decodeHostSchema(RunSnapshotSchema, snapshot);
+    const parsedEvent = decodeHostSchema(JournalEventSchema, event);
+    if (parsedSnapshot === undefined) {
       throw new WorkflowHostError("invalid_input", "The run snapshot is invalid.");
     }
-    if (parsedEvent instanceof type.errors) {
+    if (parsedEvent === undefined) {
       throw new WorkflowHostError("invalid_input", "The run journal event is invalid.");
     }
     assertValidRunId(snapshot.definition.run_id);
@@ -247,8 +261,8 @@ export class FileRunStore {
       }
       const raw = await readFile(snapshotPath, "utf8");
       const parsedJson: unknown = JSON.parse(raw);
-      const parsed = RunSnapshotSchema(parsedJson);
-      if (parsed instanceof type.errors || parsed.definition.run_id !== runId) {
+      const parsed = decodeHostSchema(RunSnapshotSchema, parsedJson);
+      if (parsed === undefined || parsed.definition.run_id !== runId) {
         await this.quarantine(runId, "snapshot", "schema validation failed");
         throw new WorkflowHostError("state_corrupt", "The run snapshot is corrupt.");
       }
@@ -298,8 +312,8 @@ export class FileRunStore {
       }
       try {
         const parsedJson: unknown = JSON.parse(line);
-        const parsed = JournalEventSchema(parsedJson);
-        if (parsed instanceof type.errors) {
+        const parsed = decodeHostSchema(JournalEventSchema, parsedJson);
+        if (parsed === undefined) {
           throw new Error("schema validation failed");
         }
         if (parsed.run_id !== runId || parsed.sequence !== expectedSequence) {
@@ -320,8 +334,8 @@ export class FileRunStore {
 
   async saveSnapshot(snapshot: RunSnapshot): Promise<void> {
     await this.init();
-    const parsed = RunSnapshotSchema(snapshot);
-    if (parsed instanceof type.errors) {
+    const parsed = decodeHostSchema(RunSnapshotSchema, snapshot);
+    if (parsed === undefined) {
       throw new WorkflowHostError("invalid_input", "The run snapshot is invalid.");
     }
     const directory = await this.ensureRunDirectory(snapshot.definition.run_id);
@@ -331,10 +345,29 @@ export class FileRunStore {
   async appendJournal(runId: string, event: JournalEvent): Promise<void> {
     await this.init();
     assertValidRunId(runId);
-    const parsed = JournalEventSchema(event);
-    if (parsed instanceof type.errors || parsed.run_id !== runId) {
+    const parsed = decodeHostSchema(JournalEventSchema, event);
+    if (parsed === undefined || parsed.run_id !== runId) {
       throw new WorkflowHostError("invalid_input", "The journal event does not match the run.");
     }
+    await this.appendJournalWithFactory(runId, () => parsed);
+  }
+
+  async appendJournalNext(
+    runId: string,
+    factory: (sequence: number) => JournalEvent,
+  ): Promise<JournalEvent> {
+    await this.init();
+    assertValidRunId(runId);
+    if (typeof factory !== "function") {
+      throw new WorkflowHostError("invalid_input", "The journal event factory is invalid.");
+    }
+    return await this.appendJournalWithFactory(runId, factory);
+  }
+
+  private async appendJournalWithFactory(
+    runId: string,
+    factory: (sequence: number) => JournalEvent,
+  ): Promise<JournalEvent> {
     const previous = this.appendLocks.get(runId) ?? Promise.resolve();
     const next = previous.then(async () => {
       const directory = await this.ensureRunDirectory(runId);
@@ -374,9 +407,9 @@ export class FileRunStore {
                 { cause: error },
               );
             }
-            const existing = JournalEventSchema(existingJson);
+            const existing = decodeHostSchema(JournalEventSchema, existingJson);
             if (
-              existing instanceof type.errors ||
+              existing === undefined ||
               existing.run_id !== runId ||
               existing.sequence !== nextSequence
             ) {
@@ -399,6 +432,21 @@ export class FileRunStore {
               { cause: error },
             );
           }
+        }
+        let candidate: JournalEvent;
+        try {
+          candidate = factory(nextSequence);
+        } catch (error) {
+          throw new WorkflowHostError(
+            "invalid_input",
+            "The journal event could not be formed.",
+            {},
+            { cause: error },
+          );
+        }
+        const parsed = decodeHostSchema(JournalEventSchema, candidate);
+        if (parsed === undefined || parsed.run_id !== runId) {
+          throw new WorkflowHostError("invalid_input", "The journal event does not match the run.");
         }
         if (parsed.sequence !== nextSequence) {
           throw new WorkflowHostError(
@@ -425,13 +473,14 @@ export class FileRunStore {
         } finally {
           await handle.close();
         }
+        return parsed;
       } finally {
         await lock.release();
       }
     });
     this.appendLocks.set(runId, next);
     try {
-      await next;
+      return await next;
     } finally {
       if (this.appendLocks.get(runId) === next) {
         this.appendLocks.delete(runId);
@@ -441,8 +490,8 @@ export class FileRunStore {
 
   async claimContinuation(claim: ContinuationClaim): Promise<void> {
     await this.init();
-    const parsed = ContinuationClaimSchema(claim);
-    if (parsed instanceof type.errors) {
+    const parsed = decodeHostSchema(ContinuationClaimSchema, claim);
+    if (parsed === undefined) {
       throw new WorkflowHostError("invalid_input", "The continuation claim is invalid.");
     }
     const target = this.safePath("claims", `${claim.packet_id}.json`);
@@ -481,7 +530,7 @@ export class FileRunStore {
     }>,
   ): Promise<void> {
     await this.init();
-    const parsedClaim = ContinuationClaimSchema(input.claim);
+    const parsedClaim = decodeHostSchema(ContinuationClaimSchema, input.claim);
     const derivedSnapshot: RunSnapshot = {
       schema_epoch: "host-run-1.0",
       definition: input.derivedDefinition,
@@ -499,12 +548,12 @@ export class FileRunStore {
       at: now(),
       definition: input.derivedDefinition,
     };
-    const parsedSnapshot = RunSnapshotSchema(derivedSnapshot);
-    const parsedEvent = JournalEventSchema(derivedEvent);
+    const parsedSnapshot = decodeHostSchema(RunSnapshotSchema, derivedSnapshot);
+    const parsedEvent = decodeHostSchema(JournalEventSchema, derivedEvent);
     if (
-      parsedClaim instanceof type.errors ||
-      parsedSnapshot instanceof type.errors ||
-      parsedEvent instanceof type.errors ||
+      parsedClaim === undefined ||
+      parsedSnapshot === undefined ||
+      parsedEvent === undefined ||
       parsedEvent.event !== "run-created" ||
       parsedEvent.run_id !== parsedSnapshot.definition.run_id ||
       parsedSnapshot.definition.parent_run_id !== parsedClaim.parent_run_id
@@ -572,15 +621,14 @@ export class FileRunStore {
       packetLinked = true;
       await this.createRun(parsedSnapshot, parsedEvent);
       created = true;
-      const parentEvent: JournalEvent = {
+      await this.appendJournalNext(parsedClaim.parent_run_id, (sequence) => ({
         schema_epoch: "host-journal-1.0",
-        event: "continuation-claimed",
+        event: "continuation-claimed" as const,
         run_id: parsedClaim.parent_run_id,
-        sequence: (parent.journal.at(-1)?.sequence ?? 0) + 1,
+        sequence,
         at: now(),
         claim: parsedClaim,
-      };
-      await this.appendJournal(parsedClaim.parent_run_id, parentEvent);
+      }));
     } catch (error: unknown) {
       if (created) {
         await rm(this.safePath("runs", parsedSnapshot.definition.run_id), {
@@ -669,7 +717,17 @@ export class FileRunStore {
       if (!isErrorCode(error, "ENOENT")) {
         throw error;
       }
-      await mkdir(safe, { recursive: false, mode: 0o700 });
+      try {
+        await mkdir(safe, { recursive: false, mode: 0o700 });
+      } catch (mkdirError) {
+        if (!isErrorCode(mkdirError, "EEXIST")) {
+          throw mkdirError;
+        }
+        const concurrent = await lstat(safe);
+        if (!concurrent.isDirectory() || concurrent.isSymbolicLink()) {
+          throw new WorkflowHostError("path_rejected", "A run-store directory is not safe.");
+        }
+      }
     }
   }
 

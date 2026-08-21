@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
+import * as Schema from "effect/Schema";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
-import { type JsonObject } from "@holycodex/core";
+import type { JsonObject } from "@holycodex/core";
 import { writeAtomicJson } from "./storage.ts";
+import { decodeSchema, isJsonObject, VersionSchema } from "./schema.ts";
 
-const VersionSchema = type(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u);
-const PublicManifestSchema = type({
-  "+": "ignore",
-  name: "'holycodex'",
-  version: VersionSchema,
-});
-type PublicManifest = typeof PublicManifestSchema.infer;
+const PublicManifestSchema = Schema.declare(
+  (
+    value: unknown,
+  ): value is JsonObject & { readonly name: "holycodex"; readonly version: string } =>
+    isJsonObject(value) &&
+    value["name"] === "holycodex" &&
+    decodeSchema(VersionSchema, value["version"]) !== undefined,
+);
+type PublicManifest = typeof PublicManifestSchema.Type;
 
 export const publicManifestPath = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -24,15 +27,15 @@ export async function readPublicManifest(
   path = publicManifestPath,
 ): Promise<PublicManifest & JsonObject> {
   const parsedJson: unknown = JSON.parse(await readFile(path, "utf8"));
-  const parsed = PublicManifestSchema(parsedJson);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeSchema(PublicManifestSchema, parsedJson);
+  if (parsed === undefined) {
     throw new ManifestError("manifest_invalid", "The public package manifest is invalid.");
   }
   return parsed;
 }
 
 export async function readCanonicalVersion(path = publicManifestPath): Promise<string> {
-  return (await readPublicManifest(path)).version;
+  return (await readPublicManifest(path))["version"];
 }
 
 export async function updateCanonicalVersion(
@@ -50,7 +53,7 @@ export async function updateCanonicalVersion(
 
 export function resolveVersion(target: string, current: string): string {
   if (target !== "patch" && target !== "minor") {
-    if (VersionSchema(target) instanceof type.errors) {
+    if (decodeSchema(VersionSchema, target) === undefined) {
       throw new ManifestError("version_invalid", "The version target is invalid.");
     }
     return target;

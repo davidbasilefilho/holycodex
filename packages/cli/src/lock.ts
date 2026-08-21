@@ -1,19 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
 import { mkdir, lstat, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ensureOwnedDirectory, isFsCode, type ResolvedInstallerPaths } from "./paths.ts";
 import { optionalJsonFile, writeAtomicJson } from "./storage.ts";
+import { LockMetadataSchema } from "./schema.ts";
 
-const LockMetadataSchema = type({
-  "+": "reject",
-  owner_pid: "number.integer > 0",
-  run_id: type(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u),
-  started_at: type("string").narrow((value): value is string => !Number.isNaN(Date.parse(value))),
-  expires_at: "number > 0",
-});
-type LockMetadata = typeof LockMetadataSchema.infer;
+type LockMetadata = typeof LockMetadataSchema.Type;
 
 export interface LockOptions {
   readonly ttlMs: number;

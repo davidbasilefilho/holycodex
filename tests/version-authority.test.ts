@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,11 +10,11 @@ import { describe, expect, test } from "vite-plus/test";
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const canonicalManifestPath = "packages/cli/package.json";
 const VersionText = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
-const CliManifest = type({
-  name: "'holycodex'",
-  version: VersionText,
+const CliManifest = Schema.Struct({
+  name: Schema.Literal("holycodex"),
+  version: Schema.String.pipe(Schema.pattern(VersionText)),
 });
-type CliManifest = typeof CliManifest.infer;
+type CliManifest = typeof CliManifest.Type;
 
 describe("release version authority", () => {
   test("has exactly one canonical release-version literal in authored text", async () => {
@@ -88,13 +89,14 @@ function isGeneratedOrPackageManagerPath(relativePath: string): boolean {
 }
 
 async function readCanonicalManifest(): Promise<CliManifest> {
-  const parsed = CliManifest(
-    JSON.parse(await readFile(`${workspaceRoot}/${canonicalManifestPath}`, "utf8")),
+  const raw: unknown = JSON.parse(
+    await readFile(`${workspaceRoot}/${canonicalManifestPath}`, "utf8"),
   );
-  if (parsed instanceof type.errors) {
-    throw new Error(parsed.summary);
+  const parsed = Schema.decodeUnknownEither(CliManifest)(raw);
+  if (Either.isLeft(parsed)) {
+    throw new Error(String(parsed.left));
   }
-  return parsed;
+  return parsed.right;
 }
 
 function countLiteral(content: string, literal: string): number {

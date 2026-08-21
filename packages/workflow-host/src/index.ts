@@ -20,6 +20,13 @@ export type {
   RunExecution,
   RunInput,
   RuntimeEvaluator,
+  WorkflowDefinition,
+  WorkflowExecutionMode,
+  WorkflowHostServices,
+  HostApprovalDecision,
+  HostApprovalHandler,
+  HostVerificationHandler,
+  HostCheckpointHandler,
   SpecialistAssignment,
   SpecialistExecutor,
   TelemetrySink,
@@ -46,8 +53,11 @@ export {
   RunStatusSchema,
   SchemaEpochsSchema,
   TelemetrySchema,
+  WorkflowDescriptorSchema,
+  WorkflowExecutionModeSchema,
   WORKFLOW_HOST_SCHEMA_EPOCH,
   WORKFLOW_HOST_SCHEMA_EPOCHS,
+  decodeHostSchema,
 } from "./schemas.ts";
 export type {
   Checkpoint,
@@ -70,4 +80,5 @@ export type {
   RunStatus,
   SchemaEpochs,
   Telemetry,
+  WorkflowDescriptor,
 } from "./schemas.ts";

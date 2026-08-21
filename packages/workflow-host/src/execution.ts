@@ -1,16 +1,75 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { resolvePlanSelection } from "@holycodex/core";
-import { WorkflowRuntimeError, type WorkflowResult } from "@holycodex/workflow-runtime";
+import * as Effect from "effect/Effect";
+import {
+  CompileOptionsSchema,
+  WorkflowRuntimeError,
+  type CompileOptions,
+  type WorkflowResult,
+} from "@holycodex/workflow-runtime";
 import { WorkflowHostError } from "./errors.ts";
-import { effectiveRuntimeLimits, releaseReservation } from "./admission.ts";
+import {
+  effectiveCompileOptions,
+  effectiveRuntimeLimits,
+  releaseReservation,
+} from "./admission.ts";
 import { asJsonValue, assertInputIdentity } from "./identity.ts";
+import { runCompiledWorkflow } from "./effect-runtime.ts";
 import { changeState, inspect, loadRun, writeCheckpoint, emitTelemetry } from "./lifecycle.ts";
 import { handleOperation } from "./operation.ts";
-import { WORKFLOW_HOST_SCHEMA_EPOCH } from "./schemas.ts";
+import { decodeHostSchema, WORKFLOW_HOST_SCHEMA_EPOCH } from "./schemas.ts";
 import type { HostContext, RunExecution, RunInput } from "./types.ts";
 
+function decodePersistedCompileOptions(input: unknown): CompileOptions | undefined {
+  const parsed = decodeHostSchema(CompileOptionsSchema, input);
+  if (parsed === undefined) {
+    return undefined;
+  }
+  const capacity = parsed.capacity;
+  return {
+    ...(parsed.capabilities === undefined ? {} : { capabilities: parsed.capabilities }),
+    ...(parsed.dependencies === undefined ? {} : { dependencies: parsed.dependencies }),
+    ...(parsed.maxNodes === undefined ? {} : { maxNodes: parsed.maxNodes }),
+    ...(capacity === undefined
+      ? {}
+      : {
+          capacity: {
+            ...(capacity.planConcurrency === undefined
+              ? {}
+              : { planConcurrency: capacity.planConcurrency }),
+            ...(capacity.sessionConcurrency === undefined
+              ? {}
+              : { sessionConcurrency: capacity.sessionConcurrency }),
+            ...(capacity.codexConcurrency === undefined
+              ? {}
+              : { codexConcurrency: capacity.codexConcurrency }),
+            ...(capacity.maxRetries === undefined ? {} : { maxRetries: capacity.maxRetries }),
+            ...(capacity.maxCalls === undefined ? {} : { maxCalls: capacity.maxCalls }),
+            ...(capacity.costMax === undefined ? {} : { costMax: capacity.costMax }),
+          },
+        }),
+  };
+}
+
 export async function runWorkflow(context: HostContext, input: RunInput): Promise<RunExecution> {
+  const previous = context.executionLocks.get(input.runId) ?? Promise.resolve();
+  const result = previous.catch(() => undefined).then(() => runWorkflowExclusive(context, input));
+  const next: Promise<void> = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  context.executionLocks.set(input.runId, next);
+  try {
+    return await result;
+  } finally {
+    if (context.executionLocks.get(input.runId) === next) {
+      context.executionLocks.delete(input.runId);
+    }
+  }
+}
+
+async function runWorkflowExclusive(context: HostContext, input: RunInput): Promise<RunExecution> {
   const loaded = await loadRun(context, input.runId);
   if (loaded.snapshot.integrity !== "valid") {
     throw new WorkflowHostError(
@@ -25,15 +84,36 @@ export async function runWorkflow(context: HostContext, input: RunInput): Promis
     );
   }
   const pending = context.pending.get(input.runId);
-  const source = input.source;
-  const args = input.args === undefined ? undefined : asJsonValue(input.args, "resupplied args");
-  if (source === undefined || args === undefined) {
+  const descriptor = loaded.snapshot.workflow;
+  const source = input.source ?? descriptor?.source;
+  const args =
+    input.args === undefined ? descriptor?.args : asJsonValue(input.args, "resupplied args");
+  const executionMode =
+    input.executionMode ??
+    descriptor?.execution_mode ??
+    (input.workflow ? "native" : context.compatibilityEnabled ? "compatibility" : undefined);
+  const objective = pending?.objective ?? descriptor?.objective ?? "workflow";
+  const constraints = pending?.constraints ?? descriptor?.constraints ?? [];
+  const persistedCompileOptions: CompileOptions | undefined =
+    descriptor?.compile_options === undefined
+      ? undefined
+      : decodePersistedCompileOptions(descriptor.compile_options);
+  if (source === undefined || args === undefined || executionMode === undefined) {
     throw new WorkflowHostError(
       "resume_input_required",
-      "The workflow source and args must be resupplied to resume this run.",
+      "The persisted workflow descriptor is incomplete; source and args are required to resume.",
     );
   }
   await assertInputIdentity(loaded.snapshot.definition, source, args);
+  const definition = loaded.snapshot.definition;
+  const planResult = resolvePlanSelection({
+    plan: definition.identity.plan,
+    service_tier: definition.identity.service_tier,
+  });
+  if (!planResult.ok) {
+    throw new WorkflowHostError("invalid_plan", "The persisted plan is no longer recognized.");
+  }
+  const effectiveLimits = effectiveRuntimeLimits(context, planResult.value.plan);
   const controller = new AbortController();
   if (input.signal) {
     if (input.signal.aborted) {
@@ -46,43 +126,94 @@ export async function runWorkflow(context: HostContext, input: RunInput): Promis
     controller,
     operationControllers: new Map<string, AbortController>(),
     calls: 0,
-    maxCalls: 0,
-    maxConcurrency: 0,
+    maxCalls: effectiveLimits.maxOperationCount ?? planResult.value.plan.budget?.maxCalls ?? 0,
+    maxConcurrency:
+      effectiveLimits.maxConcurrentOperations ?? planResult.value.plan.budget?.maxConcurrency ?? 0,
+    maxCost: Math.min(
+      planResult.value.plan.budget?.costMax ?? 0,
+      context.capacity.costMax ?? planResult.value.plan.budget?.costMax ?? 0,
+    ),
+    inFlight: 0,
+    costUnits: 0,
   };
   context.active.set(input.runId, active);
-  await changeState(context, loaded.snapshot, "running", "execution started");
-  const definition = loaded.snapshot.definition;
-  const planResult = resolvePlanSelection({
-    plan: definition.identity.plan,
-    service_tier: definition.identity.service_tier,
-  });
-  if (!planResult.ok) {
+  try {
+    await changeState(context, loaded.snapshot, "running", "execution started");
+  } catch (error) {
     context.active.delete(input.runId);
-    throw new WorkflowHostError("invalid_plan", "The persisted plan is no longer recognized.");
+    throw error;
   }
-  const effectiveLimits = effectiveRuntimeLimits(context, planResult.value.plan);
-  active.maxCalls =
-    effectiveLimits.maxOperationCount ?? planResult.value.plan.budget?.maxCalls ?? 0;
-  active.maxConcurrency =
-    effectiveLimits.maxConcurrentOperations ?? planResult.value.plan.budget?.maxConcurrency ?? 0;
   const startedAt = Date.now();
   let result: WorkflowResult;
   try {
-    result = await context.evaluator({
-      source,
-      args,
-      cwd: context.cwd,
-      runtime: {
-        schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCH,
-        run_id: input.runId,
-        plan: definition.identity.plan,
-        route: definition.identity.route,
-      },
-      limits: effectiveLimits,
-      signal: controller.signal,
-      operationHandler: (operation) =>
-        handleOperation(context, definition, planResult.value.plan, active, operation),
-    });
+    const workflow = input.workflow ?? pending?.workflow;
+    if (executionMode === "native") {
+      if (workflow === undefined) {
+        throw new WorkflowHostError(
+          "resume_input_required",
+          "The native workflow terminal must be supplied when resuming in a new host process.",
+        );
+      }
+      const runtimePending =
+        input.workflow === undefined
+          ? (pending ?? { objective, constraints })
+          : {
+              objective,
+              constraints,
+              workflow,
+              ...(input.compileOptions === undefined
+                ? pending?.compileOptions === undefined
+                  ? {}
+                  : { compileOptions: pending.compileOptions }
+                : { compileOptions: input.compileOptions }),
+            };
+      const compiled = await Effect.runPromise(
+        runCompiledWorkflow(
+          context,
+          definition,
+          runtimePending,
+          active,
+          args,
+          effectiveCompileOptions(
+            context,
+            planResult.value.plan,
+            input.compileOptions ??
+              pending?.compileOptions ??
+              persistedCompileOptions ??
+              context.compileOptions,
+          ),
+        ),
+      );
+      result = {
+        ok: true,
+        value: asJsonValue(compiled.value, "workflow result"),
+      };
+    } else if (executionMode === "compatibility") {
+      const evaluator = context.compatibilityEvaluator;
+      if (evaluator === undefined) {
+        throw new WorkflowHostError(
+          "capability_denied",
+          "The explicitly requested compatibility evaluator is unavailable.",
+        );
+      }
+      result = await evaluator({
+        source,
+        args,
+        cwd: context.cwd,
+        runtime: {
+          schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCH,
+          run_id: input.runId,
+          plan: definition.identity.plan,
+          route: definition.identity.route,
+        },
+        limits: effectiveLimits,
+        signal: controller.signal,
+        operationHandler: (operation) =>
+          handleOperation(context, definition, planResult.value.plan, active, operation),
+      });
+    } else {
+      throw new WorkflowHostError("invalid_input", "The workflow execution mode is invalid.");
+    }
   } catch {
     result = {
       ok: false,
@@ -101,7 +232,7 @@ export async function runWorkflow(context: HostContext, input: RunInput): Promis
       "blocked",
       "an external operation has uncertain effect",
     );
-    releaseReservation(context, input.runId);
+    await releaseReservation(context, input.runId);
     await emitTelemetry(context, {
       event: "run",
       run_id: definition.run_id,
@@ -119,9 +250,18 @@ export async function runWorkflow(context: HostContext, input: RunInput): Promis
       inspection: await inspect(context, definition.run_id),
     };
   }
+  if (latest.snapshot.status === "denied") {
+    await releaseReservation(context, input.runId);
+    return {
+      runId: definition.run_id,
+      status: latest.snapshot.status,
+      result,
+      inspection: await inspect(context, definition.run_id),
+    };
+  }
   if (latest.snapshot.status === "paused" || latest.snapshot.status === "stopped") {
     if (latest.snapshot.status === "stopped") {
-      releaseReservation(context, input.runId);
+      await releaseReservation(context, input.runId);
     }
     return {
       runId: definition.run_id,
@@ -131,32 +271,26 @@ export async function runWorkflow(context: HostContext, input: RunInput): Promis
     };
   }
   if (result.ok) {
-    await writeCheckpoint(
-      context,
-      latest.snapshot,
-      pending?.objective ?? "[redacted objective unavailable]",
-      pending?.constraints ?? [],
-      {
-        verifiedEvidence: ["workflow evaluation completed"],
-        decisions: [],
-        phases: ["evaluation"],
-        activeWork: [],
-        unresolvedWork: [],
-        blockers: [],
-        verification: ["runtime returned a validated result"],
-        retainedSummaries: [],
-        nextActions: [],
-        usageCompleteness: "complete",
-        recoverableErrors: [],
-      },
-    );
+    await writeCheckpoint(context, latest.snapshot, objective, constraints, {
+      verifiedEvidence: ["workflow evaluation completed"],
+      decisions: [],
+      phases: ["evaluation"],
+      activeWork: [],
+      unresolvedWork: [],
+      blockers: [],
+      verification: ["runtime returned a validated result"],
+      retainedSummaries: [],
+      nextActions: [],
+      usageCompleteness: "complete",
+      recoverableErrors: [],
+    });
     const completed = await changeState(
       context,
       (await loadRun(context, input.runId)).snapshot,
       "completed",
       "execution completed",
     );
-    releaseReservation(context, input.runId);
+    await releaseReservation(context, input.runId);
     await emitTelemetry(context, {
       event: "run",
       run_id: definition.run_id,
@@ -180,7 +314,7 @@ export async function runWorkflow(context: HostContext, input: RunInput): Promis
     "failed",
     "workflow evaluation failed",
   );
-  releaseReservation(context, input.runId);
+  await releaseReservation(context, input.runId);
   await emitTelemetry(context, {
     event: "run",
     run_id: definition.run_id,

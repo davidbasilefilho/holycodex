@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
 
 const VersionText = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
 const VersionTargetText = /^(?:patch|minor|0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/;
-const VersionArguments = type({
-  target: VersionTargetText,
-  dryRun: "boolean",
+const strictParseOptions = { onExcessProperty: "error" } as const;
+const manifestParseOptions = { onExcessProperty: "preserve" } as const;
+const VersionArgumentsSchema = Schema.Struct({
+  target: Schema.String.pipe(Schema.pattern(VersionTargetText)),
+  dryRun: Schema.Boolean,
 });
-const CliManifest = type({
-  name: "'holycodex'",
-  version: VersionText,
+const CliManifestSchema = Schema.Struct({
+  name: Schema.Literal("holycodex"),
+  version: Schema.String.pipe(Schema.pattern(VersionText)),
 });
 
-type VersionArguments = typeof VersionArguments.infer;
-type CliManifest = typeof CliManifest.infer;
+type VersionArguments = typeof VersionArgumentsSchema.Type;
+type CliManifest = typeof CliManifestSchema.Type;
 
 const rawArguments = Bun.argv.slice(2);
 const dryRun = rawArguments.includes("--dry-run");
@@ -25,36 +28,46 @@ if (positionalArguments.length !== 1) {
 }
 
 const targetArgument = positionalArguments[0];
-const parsedArguments = VersionArguments({
+if (targetArgument === undefined) {
+  throw new Error("Usage: bun scripts/version.ts <0.x.y|patch|minor> [--dry-run]");
+}
+const parsedArguments = Schema.decodeUnknownEither(
+  VersionArgumentsSchema,
+  strictParseOptions,
+)({
   target: targetArgument,
   dryRun,
 });
 
-if (parsedArguments instanceof type.errors) {
+if (Either.isLeft(parsedArguments)) {
   throw new Error(
-    `${parsedArguments.summary}\nUsage: bun scripts/version.ts <0.x.y|patch|minor> [--dry-run]`,
+    `${parsedArguments.left.message}\nUsage: bun scripts/version.ts <0.x.y|patch|minor> [--dry-run]`,
   );
 }
 
 const cliManifestPath = `${import.meta.dir}/../packages/cli/package.json`;
-const currentManifest = CliManifest(await Bun.file(cliManifestPath).json());
+const rawManifest: unknown = await Bun.file(cliManifestPath).json();
+const currentManifest = Schema.decodeUnknownEither(
+  CliManifestSchema,
+  manifestParseOptions,
+)(rawManifest);
 
-if (currentManifest instanceof type.errors) {
-  throw new Error(currentManifest.summary);
+if (Either.isLeft(currentManifest)) {
+  throw new Error(currentManifest.left.message);
 }
 
-const currentVersion = currentManifest.version;
-const nextVersion = resolveVersion(parsedArguments, currentVersion);
+const currentVersion = currentManifest.right.version;
+const nextVersion = resolveVersion(parsedArguments.right, currentVersion);
 
-if (!parsedArguments.dryRun) {
+if (!parsedArguments.right.dryRun) {
   await Bun.write(
     cliManifestPath,
-    `${JSON.stringify({ ...currentManifest, version: nextVersion }, null, 2)}\n`,
+    `${JSON.stringify({ ...currentManifest.right, version: nextVersion }, null, 2)}\n`,
   );
 }
 
 console.log(
-  `${parsedArguments.dryRun ? "would set" : "set"} holycodex from ${currentVersion} to ${nextVersion}`,
+  `${parsedArguments.right.dryRun ? "would set" : "set"} holycodex from ${currentVersion} to ${nextVersion}`,
 );
 
 function resolveVersion(

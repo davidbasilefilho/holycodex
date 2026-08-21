@@ -42,6 +42,8 @@ logs/
 *.log.*
 generated/
 **/generated/
+!packages/codex/generated/
+!packages/codex/generated/**
 payloads/
 **/payloads/
 *.payload

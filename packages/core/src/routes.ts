@@ -1,34 +1,42 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
+import * as Schema from "effect/Schema";
 
-export const PlanNameSchema = type(
-  "'Go' | 'plus-low' | 'plus' | 'plus-high' | 'pro-5x' | 'pro-20x'",
+export const PlanNameSchema = Schema.Literal(
+  "Go",
+  "plus-low",
+  "plus",
+  "plus-high",
+  "pro-5x",
+  "pro-20x",
 );
-export type PlanName = typeof PlanNameSchema.infer;
+export type PlanName = typeof PlanNameSchema.Type;
 
-export const ServiceTierSchema = type("'Standard' | 'Fast'");
-export type ServiceTier = typeof ServiceTierSchema.infer;
+export const ServiceTierSchema = Schema.Literal("Standard", "Fast");
+export type ServiceTier = typeof ServiceTierSchema.Type;
 
-export const EffortSchema = type("'low' | 'medium' | 'high' | 'xhigh' | 'max'");
-export type Effort = typeof EffortSchema.infer;
+export const EffortSchema = Schema.Literal("low", "medium", "high", "xhigh", "max");
+export type Effort = typeof EffortSchema.Type;
 
-export const RoleSchema = type("'Explorer' | 'Librarian' | 'Worker' | 'Reviewer'");
-export type Role = typeof RoleSchema.infer;
+export const RoleSchema = Schema.Literal("Explorer", "Librarian", "Worker", "Reviewer");
+export type Role = typeof RoleSchema.Type;
 
-export const ExplorerTaskSchema = type("'lookup' | 'trace'");
-export type ExplorerTask = typeof ExplorerTaskSchema.infer;
+export const ExplorerTaskSchema = Schema.Literal("lookup", "trace");
+export type ExplorerTask = typeof ExplorerTaskSchema.Type;
 
-export const LibrarianTaskSchema = type("'lookup' | 'research'");
-export type LibrarianTask = typeof LibrarianTaskSchema.infer;
+export const LibrarianTaskSchema = Schema.Literal("lookup", "research");
+export type LibrarianTask = typeof LibrarianTaskSchema.Type;
 
-export const WorkerTaskSchema = type(
-  "'mechanical' | 'implementation' | 'integration' | 'operations'",
+export const WorkerTaskSchema = Schema.Literal(
+  "mechanical",
+  "implementation",
+  "integration",
+  "operations",
 );
-export type WorkerTask = typeof WorkerTaskSchema.infer;
+export type WorkerTask = typeof WorkerTaskSchema.Type;
 
-export const ReviewerTaskSchema = type("'plan' | 'code' | 'artifact'");
-export type ReviewerTask = typeof ReviewerTaskSchema.infer;
+export const ReviewerTaskSchema = Schema.Literal("plan", "code", "artifact");
+export type ReviewerTask = typeof ReviewerTaskSchema.Type;
 
 export type TaskSlot = ExplorerTask | LibrarianTask | WorkerTask | ReviewerTask;
 export type TaskForRole<R extends Role> = R extends "Explorer"
@@ -39,35 +47,29 @@ export type TaskForRole<R extends Role> = R extends "Explorer"
       ? WorkerTask
       : ReviewerTask;
 
-export type RoleTask =
-  | { readonly role: "Explorer"; readonly task: ExplorerTask }
-  | { readonly role: "Librarian"; readonly task: LibrarianTask }
-  | { readonly role: "Worker"; readonly task: WorkerTask }
-  | { readonly role: "Reviewer"; readonly task: ReviewerTask };
-
-const ExplorerRoleTaskSchema = type({
-  "+": "reject",
-  role: "'Explorer'",
+const ExplorerRoleTaskSchema = Schema.Struct({
+  role: Schema.Literal("Explorer"),
   task: ExplorerTaskSchema,
 });
-const LibrarianRoleTaskSchema = type({
-  "+": "reject",
-  role: "'Librarian'",
+const LibrarianRoleTaskSchema = Schema.Struct({
+  role: Schema.Literal("Librarian"),
   task: LibrarianTaskSchema,
 });
-const WorkerRoleTaskSchema = type({
-  "+": "reject",
-  role: "'Worker'",
+const WorkerRoleTaskSchema = Schema.Struct({
+  role: Schema.Literal("Worker"),
   task: WorkerTaskSchema,
 });
-const ReviewerRoleTaskSchema = type({
-  "+": "reject",
-  role: "'Reviewer'",
+const ReviewerRoleTaskSchema = Schema.Struct({
+  role: Schema.Literal("Reviewer"),
   task: ReviewerTaskSchema,
 });
-export const RoleTaskSchema = ExplorerRoleTaskSchema.or(LibrarianRoleTaskSchema)
-  .or(WorkerRoleTaskSchema)
-  .or(ReviewerRoleTaskSchema);
+export const RoleTaskSchema = Schema.Union(
+  ExplorerRoleTaskSchema,
+  LibrarianRoleTaskSchema,
+  WorkerRoleTaskSchema,
+  ReviewerRoleTaskSchema,
+);
+export type RoleTask = typeof RoleTaskSchema.Type;
 
 export const ROUTE_KEYS = Object.freeze([
   "Explorer:lookup",
@@ -84,8 +86,18 @@ export const ROUTE_KEYS = Object.freeze([
 ] as const);
 export type RouteKey = (typeof ROUTE_KEYS)[number];
 
-export const RouteKeySchema = type(
-  "'Explorer:lookup' | 'Explorer:trace' | 'Librarian:lookup' | 'Librarian:research' | 'Worker:mechanical' | 'Worker:implementation' | 'Worker:integration' | 'Worker:operations' | 'Reviewer:plan' | 'Reviewer:code' | 'Reviewer:artifact'",
+export const RouteKeySchema = Schema.Literal(
+  "Explorer:lookup",
+  "Explorer:trace",
+  "Librarian:lookup",
+  "Librarian:research",
+  "Worker:mechanical",
+  "Worker:implementation",
+  "Worker:integration",
+  "Worker:operations",
+  "Reviewer:plan",
+  "Reviewer:code",
+  "Reviewer:artifact",
 );
 
 export interface PlanBudget {
@@ -116,9 +128,8 @@ export interface PlanDefinition {
   readonly routes: readonly RouteDefinition[];
 }
 
-export const PlanSelectionSchema = type({
-  "+": "reject",
+export const PlanSelectionSchema = Schema.Struct({
   plan: PlanNameSchema,
-  "service_tier?": ServiceTierSchema,
+  service_tier: Schema.optional(ServiceTierSchema),
 });
-export type PlanSelection = typeof PlanSelectionSchema.infer;
+export type PlanSelection = typeof PlanSelectionSchema.Type;

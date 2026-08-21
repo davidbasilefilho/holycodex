@@ -1,22 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vite-plus/test";
 
-const PackageManifest = type({
-  name: "string",
-  private: "boolean",
-  "version?": "string",
-  "dependencies?": "object",
-  "devDependencies?": "object",
-  "bin?": type({ "holycodex?": "string" }),
-  "exports?": type({ ".?": "string" }),
-  "files?": "string[]",
+const PackageScriptName = Schema.String.pipe(Schema.maxLength(256));
+const PackageScriptCommand = Schema.String.pipe(Schema.maxLength(4096));
+const PackageManifest = Schema.Struct({
+  name: Schema.String,
+  private: Schema.Boolean,
+  type: Schema.optional(Schema.String),
+  version: Schema.optional(Schema.String),
+  dependencies: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  devDependencies: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  bin: Schema.optional(Schema.Struct({ holycodex: Schema.optional(Schema.String) })),
+  exports: Schema.optional(Schema.Struct({ ".": Schema.optional(Schema.String) })),
+  files: Schema.optional(Schema.Array(Schema.String)),
+  scripts: Schema.optional(Schema.Record({ key: PackageScriptName, value: PackageScriptCommand })),
 });
-type PackageManifest = typeof PackageManifest.infer;
+type PackageManifest = typeof PackageManifest.Type;
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packagePaths = {
   "@holycodex/core": "packages/core/package.json",
@@ -102,15 +107,16 @@ async function readManifests(): Promise<Map<string, PackageManifest>> {
   const manifests = new Map<string, PackageManifest>();
 
   for (const [packageName, relativePath] of Object.entries(packagePaths)) {
-    const parsed = PackageManifest(
-      JSON.parse(await readFile(`${workspaceRoot}/${relativePath}`, "utf8")),
-    );
+    const raw: unknown = JSON.parse(await readFile(`${workspaceRoot}/${relativePath}`, "utf8"));
+    const parsed = Schema.decodeUnknownEither(PackageManifest, {
+      onExcessProperty: "error",
+    })(raw);
 
-    if (parsed instanceof type.errors) {
-      throw new Error(`${relativePath}: ${parsed.summary}`);
+    if (Either.isLeft(parsed)) {
+      throw new Error(`${relativePath}: ${String(parsed.left)}`);
     }
 
-    manifests.set(packageName, parsed);
+    manifests.set(packageName, parsed.right);
   }
 
   return manifests;

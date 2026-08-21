@@ -127,9 +127,18 @@ in [INSTALLATION.md](INSTALLATION.md).
 
 ## Migrations
 
-There is no automatic migration engine in the current implementation. Epoch
-changes therefore fail closed until an explicit migration is designed and
-validated. A future migration must name the source and destination epochs,
-validate every input and output with ArkType, preserve canonical identity and
-provenance, write atomically, and retain a recovery record. It must never
-reinterpret an unknown epoch in place or discard an uncertain journal tail.
+The CLI has one explicit legacy-state migration for the recorded
+`legacy-state-1` input shape. Install validates the source with Effect Schema,
+writes a content-digested `migrated-state.json`, projects compatible selections,
+saved workflows, runs, continuations, and refinements, verifies the target, and
+records a completed migration journal. A repeated identical migration is
+reused; an interrupted migration resumes from its journal; malformed or
+conflicting input is quarantined and retained. Doctor inspects this migration
+state without mutating it. See [INSTALLATION.md](INSTALLATION.md) for the
+install transaction.
+
+This explicit migration does not reinterpret unknown schema epochs. Any other
+epoch change fails closed until a migration names its source and destination,
+validates every input and output with Effect Schema, preserves canonical
+identity and provenance, writes atomically, and retains a recovery record. An
+uncertain journal tail is never discarded.

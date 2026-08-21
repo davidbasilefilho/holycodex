@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import {
@@ -10,7 +9,7 @@ import {
   SOURCE_MANIFEST_PATH,
 } from "./constants.ts";
 import { pluginError } from "./errors.ts";
-import { PayloadManifestSchema, parseAssemblyRequest } from "./schemas.ts";
+import { decodeSchema, PayloadManifestSchema, parseAssemblyRequest } from "./schemas.ts";
 import { planAssembly } from "./planning.ts";
 import { comparePathText, readSourceFile, resolveStagingRoot } from "./source.ts";
 import { canonicalJsonBytes, sha256, verifyPayload } from "./verification.ts";
@@ -78,10 +77,10 @@ async function createPayloadManifest(
     payload_digest: plan.payloadDigest,
     identity: plan.identity,
   };
-  const parsed = PayloadManifestSchema(manifest);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeSchema(PayloadManifestSchema, manifest);
+  if (parsed === undefined) {
     throw pluginError("payload_invalid", "The generated payload manifest is invalid.", {
-      summary: parsed.summary,
+      summary: "Effect Schema rejected the generated payload manifest.",
       staged_files: stagedBytes.size,
     });
   }

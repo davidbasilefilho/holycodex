@@ -182,9 +182,15 @@ export async function domainSeparatedSha256(
   if (!subtle) {
     throw new CoreError("crypto_unavailable", "The standards-based crypto API is unavailable.");
   }
-  const digest = await subtle.digest("SHA-256", composeDigestInput(domain, parts));
+  const digest = await subtle.digest("SHA-256", toCryptoBuffer(composeDigestInput(domain, parts)));
   // SHA-256 always returns 32 bytes; the hex encoding is therefore a digest.
   return bytesToHex(new Uint8Array(digest)) as Sha256Digest;
+}
+
+function toCryptoBuffer(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy;
 }
 
 export const sha256DomainDigest = domainSeparatedSha256;

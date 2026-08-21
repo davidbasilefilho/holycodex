@@ -7,7 +7,7 @@
   },
   "dependencies": {
     "@holycodex/core": "workspace:*",
-    "arktype": "^2.2.3",
+    "effect": "3.22.1",
     "quickjs-emscripten": "0.32.0",
     "typescript": "^7.0.0"
   }

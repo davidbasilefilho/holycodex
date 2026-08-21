@@ -1,13 +1,33 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export {
+  CODEX_CLIENT_VERSION,
+  CODEX_PROTOCOL_EPOCH,
   CODEX_PROTOCOL_VERSION,
   DEFAULT_MAX_DIAGNOSTIC_BYTES,
   DEFAULT_MAX_LINE_BYTES,
   packageName,
 } from "./common";
 export { CodexError } from "./common";
-export type { CodexErrorCode, CodexResult } from "./common";
+export type { CodexErrorCode, CodexFailureKind, CodexResult } from "./common";
+export type {
+  GeneratedClientNotification,
+  GeneratedClientRequest,
+  GeneratedServerNotification,
+  GeneratedServerRequest,
+} from "./generated-wire";
+export {
+  GENERATED_APPROVAL_REQUEST_METHODS,
+  GENERATED_DYNAMIC_TOOL_REQUEST_METHODS,
+  GENERATED_ELICITATION_REQUEST_METHODS,
+  GENERATED_INITIALIZED_NOTIFICATION,
+  GENERATED_MULTI_AGENT_V2_LIFECYCLE_STATUS,
+  generatedMultiAgentV2LifecycleStatus,
+  GENERATED_PERMISSION_REQUEST_METHODS,
+  GENERATED_SERVER_REQUEST_METHODS,
+  GENERATED_SUPPORTED_CLIENT_METHODS,
+  GENERATED_TURN_COMPLETED_NOTIFICATION_METHOD,
+} from "./generated-wire";
 
 export {
   InitializedNotificationSchema,
@@ -18,8 +38,19 @@ export {
   JsonRpcNotificationSchema,
   JsonRpcRequestSchema,
   JsonRpcResponseSchema,
+  RequestIdSchema,
+  ModelListParamsSchema,
+  ModelListResultSchema,
+  ModelProviderCapabilitiesParamsSchema,
+  ModelProviderCapabilitiesResultSchema,
+  PermissionProfileListParamsSchema,
+  PermissionProfileListResultSchema,
+  ServerRequestSchema,
+  ServerResponseSchema,
   SupportedUsageSchema,
   ThreadForkResultSchema,
+  ThreadUnsubscribeParamsSchema,
+  ThreadUnsubscribeResultSchema,
   ThreadIdentitySchema,
   ThreadListResultSchema,
   ThreadReadResultSchema,
@@ -35,15 +66,32 @@ export {
   TurnInterruptResultSchema,
   TurnStartParamsSchema,
   TurnStartResultSchema,
+  TurnSteerParamsSchema,
+  TurnSteerResultSchema,
   UsageCompletenessSchema,
 } from "./protocol";
 export type {
   InitializeParams,
   InitializeResult,
+  ApprovalRequest,
+  DynamicToolRequest,
+  ElicitationRequest,
   JsonRpcError,
   JsonRpcErrorResponse,
   JsonRpcNotification,
   JsonRpcResponse,
+  RequestId,
+  ModelCapability,
+  ModelListParams,
+  ModelListResult,
+  ModelProviderCapabilitiesParams,
+  ModelProviderCapabilitiesResult,
+  PermissionProfileListParams,
+  PermissionProfileListResult,
+  PermissionRequest,
+  ServerRequest,
+  ServerRequestCategory,
+  ServerResponse,
   SupportedUsage,
   ThreadForkParams,
   ThreadForkResult,
@@ -56,18 +104,22 @@ export type {
   ThreadResumeResult,
   ThreadStartParams,
   ThreadStartResult,
+  ThreadUnsubscribeParams,
+  ThreadUnsubscribeResult,
   TurnCompletedNotification,
   TurnIdentity,
   TurnInterruptParams,
   TurnInterruptResult,
   TurnStartParams,
   TurnStartResult,
+  TurnSteerParams,
+  TurnSteerResult,
   UsageCompleteness,
   CodexNotification,
 } from "./protocol";
 
 export { AppServerClient } from "./client";
-export type { AppServerClientOptions } from "./client";
+export type { AppServerClientOptions, ServerRequestHandler } from "./client";
 
 export { BunStdioTransport, createAllowlistedEnvironment, sanitizeDiagnostics } from "./transport";
 export type { AsyncLineTransport, BunStdioTransportOptions } from "./transport";
@@ -81,6 +133,60 @@ export type {
   SchemaGenerationOptions,
   SchemaGenerationProvenance,
 } from "./executable";
+
+export { verifyGeneratedArtifact } from "./generated-artifact";
+export type {
+  GeneratedArtifactFile,
+  GeneratedArtifactInventory,
+  GeneratedArtifactVerification,
+  GeneratedArtifactVerificationOptions,
+} from "./generated-artifact";
+
+export {
+  AppServer,
+  AppServerLive,
+  ExecutableDiscovery,
+  ExecutableDiscoveryLive,
+  PROMISE_ADAPTER_EXCEPTIONS,
+  Subprocess,
+  SubprocessLive,
+} from "./effect-services";
+export type {
+  AppServerLiveOptions,
+  AppServerService,
+  ExecutableDiscoveryService,
+  SubprocessService,
+} from "./effect-services";
+
+export {
+  AssignmentExecution,
+  AssignmentExecutionLive,
+  AgentExecution,
+  AgentExecutionLive,
+  AssignmentExecutionOptionsSchema,
+  CapabilityMatrixSchemaForHost,
+  detectCapabilityMatrix,
+  executeAssignment,
+  ExecutionBackendSchema,
+  SemanticAssignmentPacketSchema,
+  SemanticExecutionOutcomeSchema,
+  selectExecutionBackend,
+} from "./assignment";
+export type {
+  Assignment,
+  CapabilityMatrixForHost,
+  AssignmentExecutionOptions,
+  AssignmentExecutionService,
+  AssignmentPacketParts,
+  AssignmentPlanInputs,
+  CompatibilityPacket,
+  ExecutionBackend,
+  RoutePacket,
+  SecurityPolicy,
+  SemanticAssignmentPacket,
+  SemanticExecutionOutcome,
+  ToolPolicy,
+} from "./assignment";
 
 export { createProjectTrustIdentity, ProjectTrustInputSchema } from "./project";
 export type { ProjectTrustIdentity, ProjectTrustInput } from "./project";

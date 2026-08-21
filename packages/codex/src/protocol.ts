@@ -1,350 +1,513 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
-import type { JsonObject } from "@holycodex/core";
+import * as Schema from "effect/Schema";
+import type { JsonObject, JsonValue } from "@holycodex/core";
 import {
-  IdentifierSchema,
+  isJsonValue,
   isPlainObject,
   JsonObjectSchema,
   JsonValueSchema,
   NonNegativeNumberSchema,
   TextSchema,
 } from "./common";
+import {
+  GENERATED_APPROVAL_REQUEST_METHODS,
+  GENERATED_DYNAMIC_TOOL_REQUEST_METHODS,
+  GENERATED_ELICITATION_REQUEST_METHODS,
+  GENERATED_PERMISSION_REQUEST_METHODS,
+} from "./generated-wire";
+import type { v2 as GeneratedV2 } from "../generated/codex-cli-0.148.0/typescript";
 
-const ProtocolMethodSchema = type(/^[A-Za-z][A-Za-z0-9_./:-]{0,127}$/u);
-const RequestIdSchema = type("number").narrow(
-  (value): value is number => Number.isSafeInteger(value) && value >= 0,
+const ProtocolMethodSchema = Schema.String.pipe(
+  Schema.pattern(/^[A-Za-z][A-Za-z0-9_./:-]{0,127}$/u),
 );
-const ResponseIdSchema = RequestIdSchema.or("null");
+export const RequestIdSchema = Schema.Union(
+  Schema.String.pipe(Schema.minLength(1)),
+  Schema.Number.pipe(Schema.filter((value) => Number.isSafeInteger(value))),
+);
+export type RequestId = typeof RequestIdSchema.Type;
 
-const JsonRpcErrorObjectSchema = type({
-  "+": "delete",
-  code: type("number").narrow((value): value is number => Number.isSafeInteger(value)),
-  message: TextSchema,
-  "data?": JsonValueSchema,
+const JsonRpcErrorObjectSchema = Schema.Struct({
+  code: Schema.Number.pipe(Schema.filter((value) => Number.isSafeInteger(value))),
+  message: Schema.String,
+  data: Schema.optional(JsonValueSchema),
 });
 
-export const JsonRpcResponseSchema = type({
-  "+": "delete",
-  jsonrpc: "'2.0'",
-  id: ResponseIdSchema,
-  result: JsonValueSchema,
-  "error?": "never",
-}).or(
-  type({
-    "+": "delete",
-    jsonrpc: "'2.0'",
-    id: ResponseIdSchema,
+export const JsonRpcResponseSchema = Schema.Union(
+  Schema.Struct({
+    id: RequestIdSchema,
+    result: JsonValueSchema,
+  }),
+  Schema.Struct({
+    id: RequestIdSchema,
     error: JsonRpcErrorObjectSchema,
-    "result?": "never",
   }),
 );
-export type JsonRpcResponse = typeof JsonRpcResponseSchema.infer;
+export type JsonRpcResponse = typeof JsonRpcResponseSchema.Type;
 
-export const JsonRpcErrorResponseSchema = type({
-  "+": "delete",
-  jsonrpc: "'2.0'",
-  id: ResponseIdSchema,
+export const JsonRpcErrorResponseSchema = Schema.Struct({
+  id: RequestIdSchema,
   error: JsonRpcErrorObjectSchema,
-  "result?": "never",
 });
-export type JsonRpcErrorResponse = typeof JsonRpcErrorResponseSchema.infer;
+export type JsonRpcErrorResponse = typeof JsonRpcErrorResponseSchema.Type;
 
 export const JsonRpcErrorSchema = JsonRpcErrorObjectSchema;
-export type JsonRpcError = typeof JsonRpcErrorSchema.infer;
+export type JsonRpcError = typeof JsonRpcErrorSchema.Type;
 
-export const JsonRpcNotificationSchema = type({
-  "+": "delete",
-  jsonrpc: "'2.0'",
+export const JsonRpcNotificationSchema = Schema.Struct({
   method: ProtocolMethodSchema,
-  "params?": JsonValueSchema,
-  "id?": "never",
+  params: Schema.optional(JsonValueSchema),
 });
-export type JsonRpcNotification = typeof JsonRpcNotificationSchema.infer;
+export type JsonRpcNotification = typeof JsonRpcNotificationSchema.Type;
 
-export const JsonRpcRequestSchema = type({
-  "+": "delete",
-  jsonrpc: "'2.0'",
+export const JsonRpcRequestSchema = Schema.Struct({
   id: RequestIdSchema,
   method: ProtocolMethodSchema,
-  "params?": JsonValueSchema,
+  params: Schema.optional(JsonValueSchema),
+  trace: Schema.optional(JsonValueSchema),
 });
+export type JsonRpcRequest = typeof JsonRpcRequestSchema.Type;
 
-const UsageCamelSchema = type({
-  "+": "delete",
-  inputTokens: NonNegativeNumberSchema,
-  cachedInputTokens: NonNegativeNumberSchema,
-  outputTokens: NonNegativeNumberSchema,
-  reasoningOutputTokens: NonNegativeNumberSchema,
-  "totalTokens?": NonNegativeNumberSchema,
-  "input_tokens?": "never",
-  "cached_input_tokens?": "never",
-  "output_tokens?": "never",
-  "reasoning_output_tokens?": "never",
-  "total_tokens?": "never",
-});
-const UsageSnakeSchema = type({
-  "+": "delete",
-  input_tokens: NonNegativeNumberSchema,
-  cached_input_tokens: NonNegativeNumberSchema,
-  output_tokens: NonNegativeNumberSchema,
-  reasoning_output_tokens: NonNegativeNumberSchema,
-  "total_tokens?": NonNegativeNumberSchema,
-  "inputTokens?": "never",
-  "cachedInputTokens?": "never",
-  "outputTokens?": "never",
-  "reasoningOutputTokens?": "never",
-  "totalTokens?": "never",
-});
+export interface SupportedUsage {
+  readonly inputTokens?: number;
+  readonly cachedInputTokens?: number;
+  readonly outputTokens?: number;
+  readonly reasoningOutputTokens?: number;
+  readonly totalTokens?: number;
+  readonly input_tokens?: number;
+  readonly cached_input_tokens?: number;
+  readonly output_tokens?: number;
+  readonly reasoning_output_tokens?: number;
+  readonly total_tokens?: number;
+}
 
-export const SupportedUsageSchema = UsageCamelSchema.or(UsageSnakeSchema);
-export type SupportedUsage = typeof SupportedUsageSchema.infer;
+function isNonNegativeFinite(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function isCompleteUsageVariant(
+  value: Record<string, unknown>,
+  requiredKeys: readonly string[],
+  totalKey: string,
+): boolean {
+  const allowedKeys = new Set([...requiredKeys, totalKey]);
+  if (Object.keys(value).some((key) => !allowedKeys.has(key))) {
+    return false;
+  }
+  return (
+    requiredKeys.every((key) => isNonNegativeFinite(value[key])) &&
+    (value[totalKey] === undefined || isNonNegativeFinite(value[totalKey]))
+  );
+}
+
+function isSupportedUsage(value: unknown): value is SupportedUsage {
+  if (!isPlainObject(value) || !isJsonValue(value)) {
+    return false;
+  }
+  return (
+    isCompleteUsageVariant(
+      value,
+      ["inputTokens", "cachedInputTokens", "outputTokens", "reasoningOutputTokens"],
+      "totalTokens",
+    ) ||
+    isCompleteUsageVariant(
+      value,
+      ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"],
+      "total_tokens",
+    )
+  );
+}
+
+export const SupportedUsageSchema = Schema.declare(isSupportedUsage);
 export const UsageCompletenessSchema = SupportedUsageSchema;
 export type UsageCompleteness = SupportedUsage;
 
-const ClientInfoSchema = type({
-  "+": "delete",
-  name: IdentifierSchema,
-  version: TextSchema,
-  "title?": TextSchema,
+export const InitializeParamsSchema = Schema.Struct({
+  clientInfo: Schema.Struct({
+    name: TextSchema,
+    version: TextSchema,
+    title: Schema.Union(TextSchema, Schema.Null),
+  }),
+  capabilities: Schema.Union(
+    Schema.Struct({
+      experimentalApi: Schema.Boolean,
+      requestAttestation: Schema.Boolean,
+      mcpServerOpenaiFormElicitation: Schema.optional(Schema.Boolean),
+      optOutNotificationMethods: Schema.optional(
+        Schema.Union(Schema.Array(Schema.String), Schema.Null),
+      ),
+      extensions: Schema.optional(JsonObjectSchema),
+    }),
+    Schema.Null,
+  ),
+});
+export type InitializeParams = typeof InitializeParamsSchema.Type;
+
+export interface InitializeResult {
+  readonly userAgent: string;
+  readonly codexHome: string;
+  readonly platformFamily: string;
+  readonly platformOs: string;
+  readonly serverInfo?: JsonObject;
+  readonly capabilities?: JsonObject;
+  readonly protocolVersion?: string;
+}
+
+export const InitializeResultSchema = Schema.declare(
+  (value: unknown): value is InitializeResult =>
+    isPlainObject(value) &&
+    isJsonValue(value) &&
+    typeof value["userAgent"] === "string" &&
+    typeof value["codexHome"] === "string" &&
+    typeof value["platformFamily"] === "string" &&
+    typeof value["platformOs"] === "string",
+);
+
+export const InitializedNotificationSchema = Schema.Struct({
+  method: Schema.Literal("initialized"),
 });
 
-export const InitializeParamsSchema = type({
-  "+": "delete",
-  clientInfo: ClientInfoSchema,
-  "capabilities?": JsonObjectSchema,
-});
-export type InitializeParams = typeof InitializeParamsSchema.infer;
+export interface ThreadIdentity {
+  readonly id: string;
+  readonly name?: string;
+  readonly preview?: string;
+  readonly cwd?: string;
+  readonly status?: JsonValue;
+  readonly createdAt?: number;
+  readonly updatedAt?: number;
+  readonly metadata?: JsonObject;
+}
 
-const ServerInfoSchema = type({
-  "+": "delete",
-  "name?": TextSchema,
-  "version?": TextSchema,
-});
+function isThreadIdentity(value: unknown): value is ThreadIdentity {
+  return (
+    isPlainObject(value) &&
+    isJsonValue(value) &&
+    typeof value["id"] === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(value["id"])
+  );
+}
 
-export const InitializeResultSchema = type({
-  "+": "delete",
-  "serverInfo?": ServerInfoSchema,
-  "capabilities?": JsonObjectSchema,
-  "protocolVersion?": TextSchema,
-});
-export type InitializeResult = typeof InitializeResultSchema.infer;
+export const ThreadIdentitySchema = Schema.declare(isThreadIdentity);
 
-export const InitializedNotificationSchema = type({
-  "+": "reject",
-  jsonrpc: "'2.0'",
-  method: "'initialized'",
-});
+function isObjectWithThread(
+  value: unknown,
+): value is JsonObject & { readonly thread: ThreadIdentity } {
+  return isPlainObject(value) && isJsonValue(value) && isThreadIdentity(value["thread"]);
+}
 
-const ThreadIdSchema = IdentifierSchema;
-const ThreadIdentitySchema = type({
-  "+": "delete",
-  id: ThreadIdSchema,
-  "name?": TextSchema,
-  "preview?": type("string"),
-  "cwd?": TextSchema,
-  "status?": JsonValueSchema,
-  "createdAt?": NonNegativeNumberSchema,
-  "updatedAt?": NonNegativeNumberSchema,
-  "metadata?": JsonObjectSchema,
-});
-export { ThreadIdentitySchema };
-export type ThreadIdentity = typeof ThreadIdentitySchema.infer;
+function isObjectWithId(value: unknown): value is JsonObject & { readonly id: string } {
+  return isPlainObject(value) && isJsonValue(value) && typeof value["id"] === "string";
+}
 
-const ThreadEnvelopeSchema = type({
-  "+": "delete",
-  thread: ThreadIdentitySchema,
-  "id?": "never",
-});
-const DirectThreadResultSchema = type({
-  "+": "delete",
-  id: ThreadIdSchema,
-  "thread?": "never",
-  "name?": TextSchema,
-  "preview?": type("string"),
-  "cwd?": TextSchema,
-  "status?": JsonValueSchema,
-  "createdAt?": NonNegativeNumberSchema,
-  "updatedAt?": NonNegativeNumberSchema,
-  "metadata?": JsonObjectSchema,
-});
-
-export const ThreadStartResultSchema = ThreadEnvelopeSchema.or(DirectThreadResultSchema);
+export const ThreadStartResultSchema = Schema.declare(
+  (
+    value: unknown,
+  ): value is JsonObject & { readonly thread?: ThreadIdentity; readonly id?: string } =>
+    isObjectWithThread(value) || isObjectWithId(value),
+);
 export const ThreadResumeResultSchema = ThreadStartResultSchema;
 export const ThreadForkResultSchema = ThreadStartResultSchema;
-export type ThreadStartResult = typeof ThreadStartResultSchema.infer;
-export type ThreadResumeResult = typeof ThreadResumeResultSchema.infer;
-export type ThreadForkResult = typeof ThreadForkResultSchema.infer;
+export type ThreadStartResult = typeof ThreadStartResultSchema.Type;
+export type ThreadResumeResult = typeof ThreadResumeResultSchema.Type;
+export type ThreadForkResult = typeof ThreadForkResultSchema.Type;
 
-export const ThreadReadResultSchema = type({
-  "+": "delete",
-  thread: ThreadIdentitySchema,
-  "turns?": JsonValueSchema,
-  "items?": JsonValueSchema,
-  "messages?": JsonValueSchema,
-});
-export type ThreadReadResult = typeof ThreadReadResultSchema.infer;
+export const ThreadUnsubscribeParamsSchema = Schema.declare(hasThreadId);
+export type ThreadUnsubscribeParams = typeof ThreadUnsubscribeParamsSchema.Type;
 
-const ThreadListFields = {
-  "+": "delete",
-  "nextCursor?": type("string | null"),
-} as const;
-export const ThreadListResultSchema = type({
-  ...ThreadListFields,
-  data: ThreadIdentitySchema.array(),
-  "threads?": "never",
-}).or(
-  type({
-    ...ThreadListFields,
-    threads: ThreadIdentitySchema.array(),
-    "data?": "never",
-  }),
+export const ThreadUnsubscribeResultSchema = Schema.declare(
+  (
+    value: unknown,
+  ): value is JsonObject & {
+    readonly status: "notLoaded" | "notSubscribed" | "unsubscribed";
+  } =>
+    isPlainObject(value) &&
+    isJsonValue(value) &&
+    (value["status"] === "notLoaded" ||
+      value["status"] === "notSubscribed" ||
+      value["status"] === "unsubscribed"),
 );
-export type ThreadListResult = typeof ThreadListResultSchema.infer;
+export type ThreadUnsubscribeResult = typeof ThreadUnsubscribeResultSchema.Type;
 
-export const ThreadStartParamsSchema = type({
-  "+": "delete",
-  "cwd?": TextSchema,
-  "approvalPolicy?": JsonValueSchema,
-  "sandboxPolicy?": JsonValueSchema,
-  "model?": TextSchema,
-  "ephemeral?": "boolean",
-  "config?": JsonObjectSchema,
-});
-export type ThreadStartParams = typeof ThreadStartParamsSchema.infer;
-
-export const ThreadResumeParamsSchema = type({
-  "+": "delete",
-  threadId: ThreadIdSchema,
-  "cwd?": TextSchema,
-  "approvalPolicy?": JsonValueSchema,
-  "sandboxPolicy?": JsonValueSchema,
-  "config?": JsonObjectSchema,
-});
-export type ThreadResumeParams = typeof ThreadResumeParamsSchema.infer;
-
-export const ThreadReadParamsSchema = type({
-  "+": "delete",
-  threadId: ThreadIdSchema,
-});
-export type ThreadReadParams = typeof ThreadReadParamsSchema.infer;
-
-export const ThreadListParamsSchema = type({
-  "+": "delete",
-  "cursor?": type("string | null"),
-  "limit?": NonNegativeNumberSchema,
-});
-export type ThreadListParams = typeof ThreadListParamsSchema.infer;
-
-export const ThreadForkParamsSchema = type({
-  "+": "delete",
-  threadId: ThreadIdSchema,
-  "cwd?": TextSchema,
-  "approvalPolicy?": JsonValueSchema,
-  "sandboxPolicy?": JsonValueSchema,
-});
-export type ThreadForkParams = typeof ThreadForkParamsSchema.infer;
-
-const TurnStatusSchema = TextSchema;
-const TurnIdentitySchema = type({
-  "+": "delete",
-  id: IdentifierSchema,
-  "status?": TurnStatusSchema,
-  "usage?": SupportedUsageSchema,
-  "error?": JsonValueSchema,
-});
-export type TurnIdentity = typeof TurnIdentitySchema.infer;
-
-const TurnStartParamsBaseSchema = type({
-  "+": "delete",
-  threadId: ThreadIdSchema,
-  "input?": JsonValueSchema,
-  "prompt?": TextSchema,
-  "approvalPolicy?": JsonValueSchema,
-  "sandboxPolicy?": JsonValueSchema,
-  "model?": TextSchema,
-  "effort?": TextSchema,
-  "reasoningEffort?": TextSchema,
-  "serviceTier?": TextSchema,
-  "cwd?": TextSchema,
-});
-export const TurnStartParamsSchema = TurnStartParamsBaseSchema.narrow(
-  (value): value is typeof TurnStartParamsBaseSchema.infer =>
-    isPlainObject(value) && ("input" in value || "prompt" in value),
+export const ThreadReadResultSchema = Schema.declare(
+  (value: unknown): value is JsonObject & { readonly thread: ThreadIdentity } =>
+    isObjectWithThread(value),
 );
-export type TurnStartParams = typeof TurnStartParamsSchema.infer;
+export type ThreadReadResult = typeof ThreadReadResultSchema.Type;
 
-export const TurnStartResultSchema = type({
-  "+": "delete",
-  turn: TurnIdentitySchema,
-  "turnId?": "never",
-  "id?": "never",
-})
-  .or(
-    type({
-      "+": "delete",
-      turnId: IdentifierSchema,
-      "turn?": "never",
-      "id?": "never",
-    }),
-  )
-  .or(
-    type({
-      "+": "delete",
-      id: IdentifierSchema,
-      "turn?": "never",
-      "turnId?": "never",
-      "status?": TurnStatusSchema,
-      "usage?": SupportedUsageSchema,
-      "error?": JsonValueSchema,
-    }),
-  );
-export type TurnStartResult = typeof TurnStartResultSchema.infer;
-
-export const TurnInterruptParamsSchema = type({
-  "+": "reject",
-  threadId: ThreadIdSchema,
-  turnId: IdentifierSchema,
-});
-export type TurnInterruptParams = typeof TurnInterruptParamsSchema.infer;
-
-export const TurnInterruptResultSchema = type({
-  "+": "delete",
-  "ok?": "boolean",
-  "turnId?": IdentifierSchema,
-});
-export type TurnInterruptResult = typeof TurnInterruptResultSchema.infer;
-
-const TurnCompletedDirectSchema = type({
-  "+": "delete",
-  threadId: ThreadIdSchema,
-  turnId: IdentifierSchema,
-  "turn?": "never",
-  "status?": TurnStatusSchema,
-  "usage?": SupportedUsageSchema,
-  "error?": JsonValueSchema,
-});
-const TurnCompletedEnvelopeSchema = type({
-  "+": "delete",
-  threadId: ThreadIdSchema,
-  turn: TurnIdentitySchema,
-  "turnId?": "never",
-  "usage?": SupportedUsageSchema,
-  "error?": JsonValueSchema,
-});
-export const TurnCompletedNotificationSchema = TurnCompletedDirectSchema.or(
-  TurnCompletedEnvelopeSchema,
-);
-export type TurnCompletedNotification = typeof TurnCompletedNotificationSchema.infer;
-
-export type CodexNotification =
-  | {
-      readonly kind: "turn_completed";
-      readonly method: "turn/completed";
-      readonly params: TurnCompletedNotification;
+export const ThreadListResultSchema = Schema.declare(
+  (
+    value: unknown,
+  ): value is
+    | (JsonObject & { readonly data: readonly ThreadIdentity[] })
+    | (JsonObject & { readonly threads: readonly ThreadIdentity[] }) => {
+    if (!isPlainObject(value) || !isJsonValue(value)) {
+      return false;
     }
-  | {
-      readonly kind: "unknown";
-      readonly method: string;
-      readonly metadata: JsonObject;
-    };
+    const hasData =
+      Array.isArray(value["data"]) && value["data"].every((thread) => isThreadIdentity(thread));
+    const hasThreads =
+      Array.isArray(value["threads"]) &&
+      value["threads"].every((thread) => isThreadIdentity(thread));
+    return (
+      (hasData && value["threads"] === undefined) || (hasThreads && value["data"] === undefined)
+    );
+  },
+);
+export type ThreadListResult =
+  | (JsonObject & { readonly data: readonly ThreadIdentity[] })
+  | (JsonObject & { readonly threads: readonly ThreadIdentity[] });
+
+export const ThreadStartParamsSchema = Schema.declare(
+  (value: unknown): value is JsonObject => isPlainObject(value) && isJsonValue(value),
+);
+export type ThreadStartParams = typeof ThreadStartParamsSchema.Type;
+
+function hasThreadId(value: unknown): value is JsonObject & { readonly threadId: string } {
+  return (
+    isPlainObject(value) &&
+    isJsonValue(value) &&
+    typeof value["threadId"] === "string" &&
+    value["threadId"].length > 0
+  );
+}
+
+export const ThreadResumeParamsSchema = Schema.declare(hasThreadId);
+export type ThreadResumeParams = typeof ThreadResumeParamsSchema.Type;
+export const ThreadReadParamsSchema = Schema.declare(hasThreadId);
+export type ThreadReadParams = typeof ThreadReadParamsSchema.Type;
+export const ThreadForkParamsSchema = Schema.declare(hasThreadId);
+export type ThreadForkParams = typeof ThreadForkParamsSchema.Type;
+
+export const ThreadListParamsSchema = Schema.declare(
+  (value: unknown): value is JsonObject => isPlainObject(value) && isJsonValue(value),
+);
+export type ThreadListParams = typeof ThreadListParamsSchema.Type;
+
+export interface TurnIdentity {
+  readonly id: string;
+  readonly status?: string;
+  readonly usage?: SupportedUsage;
+  readonly error?: JsonValue;
+}
+
+function isTurnIdentity(value: unknown): value is TurnIdentity {
+  return (
+    isPlainObject(value) &&
+    isJsonValue(value) &&
+    typeof value["id"] === "string" &&
+    value["id"].length > 0
+  );
+}
+
+export const TurnStartParamsSchema = Schema.declare(
+  (
+    value: unknown,
+  ): value is JsonObject & {
+    readonly threadId: string;
+    readonly input?: JsonValue;
+    readonly prompt?: string;
+  } =>
+    hasThreadId(value) &&
+    ((Array.isArray(value["input"]) && value["input"].every((item) => isJsonValue(item))) ||
+      (typeof value["prompt"] === "string" && value["prompt"].length > 0)),
+);
+export type TurnStartParams = typeof TurnStartParamsSchema.Type;
+
+export const TurnSteerParamsSchema = Schema.declare(
+  (
+    value: unknown,
+  ): value is JsonObject & { readonly threadId: string; readonly expectedTurnId: string } =>
+    hasThreadId(value) &&
+    typeof value["expectedTurnId"] === "string" &&
+    Array.isArray(value["input"]) &&
+    value["input"].every((item) => isJsonValue(item)),
+);
+export type TurnSteerParams = typeof TurnSteerParamsSchema.Type;
+
+export const TurnStartResultSchema = Schema.declare(
+  (
+    value: unknown,
+  ): value is JsonObject & { readonly turn?: TurnIdentity; readonly turnId?: string } =>
+    isPlainObject(value) &&
+    isJsonValue(value) &&
+    ((value["turn"] !== undefined && isTurnIdentity(value["turn"])) ||
+      (typeof value["turnId"] === "string" && value["turnId"].length > 0) ||
+      (typeof value["id"] === "string" && value["id"].length > 0)),
+);
+export type TurnStartResult = typeof TurnStartResultSchema.Type;
+
+export const TurnSteerResultSchema = Schema.declare(
+  (value: unknown): value is JsonObject & { readonly turnId: string } =>
+    isPlainObject(value) &&
+    isJsonValue(value) &&
+    typeof value["turnId"] === "string" &&
+    value["turnId"].length > 0,
+);
+export type TurnSteerResult = typeof TurnSteerResultSchema.Type;
+
+export const TurnInterruptParamsSchema = Schema.declare(
+  (value: unknown): value is JsonObject & { readonly threadId: string; readonly turnId: string } =>
+    hasThreadId(value) && typeof value["turnId"] === "string" && value["turnId"].length > 0,
+);
+export type TurnInterruptParams = typeof TurnInterruptParamsSchema.Type;
+
+export const TurnInterruptResultSchema = Schema.declare(
+  (value: unknown): value is JsonObject => isPlainObject(value) && isJsonValue(value),
+);
+export type TurnInterruptResult = typeof TurnInterruptResultSchema.Type;
+
+export const TurnCompletedNotificationSchema = Schema.declare(
+  (
+    value: unknown,
+  ): value is JsonObject & {
+    readonly threadId: string;
+    readonly turn?: TurnIdentity;
+    readonly turnId?: string;
+  } =>
+    hasThreadId(value) &&
+    ((value["turn"] !== undefined && isTurnIdentity(value["turn"])) ||
+      (typeof value["turnId"] === "string" && value["turnId"].length > 0)),
+);
+export type TurnCompletedNotification = typeof TurnCompletedNotificationSchema.Type;
+
+export const ModelListParamsSchema = Schema.declare(
+  (value: unknown): value is JsonObject => isPlainObject(value) && isJsonValue(value),
+);
+export type ModelListParams = typeof ModelListParamsSchema.Type;
+
+export interface ModelCapability {
+  readonly id: string;
+  readonly model: string;
+  readonly supportedReasoningEfforts?: readonly JsonObject[];
+  readonly serviceTiers?: readonly JsonObject[];
+  readonly multiAgentVersion?: GeneratedV2.MultiAgentVersion | null;
+}
+
+function isModelCapability(value: unknown): value is ModelCapability {
+  return (
+    isPlainObject(value) &&
+    isJsonValue(value) &&
+    typeof value["id"] === "string" &&
+    typeof value["model"] === "string" &&
+    (value["supportedReasoningEfforts"] === undefined ||
+      (Array.isArray(value["supportedReasoningEfforts"]) &&
+        value["supportedReasoningEfforts"].every(
+          (entry) => isPlainObject(entry) && typeof entry["reasoningEffort"] === "string",
+        ))) &&
+    (value["serviceTiers"] === undefined ||
+      (Array.isArray(value["serviceTiers"]) &&
+        value["serviceTiers"].every(
+          (entry) => isPlainObject(entry) && typeof entry["id"] === "string",
+        ))) &&
+    (value["multiAgentVersion"] === undefined ||
+      value["multiAgentVersion"] === null ||
+      value["multiAgentVersion"] === "disabled" ||
+      value["multiAgentVersion"] === "v1" ||
+      value["multiAgentVersion"] === "v2")
+  );
+}
+
+export const ModelListResultSchema = Schema.declare(
+  (value: unknown): value is JsonObject & { readonly data: readonly ModelCapability[] } =>
+    isPlainObject(value) &&
+    isJsonValue(value) &&
+    Array.isArray(value["data"]) &&
+    value["data"].every((model) => isModelCapability(model)),
+);
+export type ModelListResult = typeof ModelListResultSchema.Type;
+
+export const ModelProviderCapabilitiesParamsSchema = JsonObjectSchema;
+export type ModelProviderCapabilitiesParams = typeof ModelProviderCapabilitiesParamsSchema.Type;
+export const ModelProviderCapabilitiesResultSchema = JsonObjectSchema;
+export type ModelProviderCapabilitiesResult = typeof ModelProviderCapabilitiesResultSchema.Type;
+
+export const ConfigReadParamsSchema = JsonObjectSchema;
+export type ConfigReadParams = typeof ConfigReadParamsSchema.Type;
+export const ConfigReadResultSchema = JsonObjectSchema;
+export type ConfigReadResult = typeof ConfigReadResultSchema.Type;
+
+export const PermissionProfileListParamsSchema = JsonObjectSchema;
+export type PermissionProfileListParams = typeof PermissionProfileListParamsSchema.Type;
+export const PermissionProfileListResultSchema = JsonObjectSchema;
+export type PermissionProfileListResult = typeof PermissionProfileListResultSchema.Type;
+
+export type ServerRequestCategory =
+  | "approval"
+  | "dynamic_tool"
+  | "elicitation"
+  | "other"
+  | "permissions";
+
+export interface ServerRequest {
+  readonly id: RequestId;
+  readonly method: string;
+  readonly params: JsonObject;
+  readonly category: ServerRequestCategory;
+}
+
+export type ApprovalRequest = ServerRequest & { readonly category: "approval" };
+export type PermissionRequest = ServerRequest & { readonly category: "permissions" };
+export type ElicitationRequest = ServerRequest & { readonly category: "elicitation" };
+export type DynamicToolRequest = ServerRequest & { readonly category: "dynamic_tool" };
+
+export const ServerRequestSchema = Schema.declare(
+  (value: unknown): value is ServerRequest =>
+    isPlainObject(value) &&
+    isJsonValue(value) &&
+    (typeof value["id"] === "string" ||
+      (typeof value["id"] === "number" && Number.isSafeInteger(value["id"]))) &&
+    typeof value["method"] === "string" &&
+    isPlainObject(value["params"]) &&
+    (value["category"] === "approval" ||
+      value["category"] === "dynamic_tool" ||
+      value["category"] === "elicitation" ||
+      value["category"] === "other" ||
+      value["category"] === "permissions"),
+);
+
+export const ServerResponseSchema = JsonValueSchema;
+export type ServerResponse = typeof ServerResponseSchema.Type;
+
+export interface CodexNotification {
+  readonly kind: "multi_agent" | "turn_completed" | "server_request" | "unknown";
+  readonly method: string;
+  readonly params?: JsonValue;
+  readonly metadata?: JsonObject;
+}
+
+export const CodexNotificationSchema = Schema.declare(
+  (value: unknown): value is CodexNotification =>
+    isPlainObject(value) &&
+    isJsonValue(value) &&
+    typeof value["kind"] === "string" &&
+    typeof value["method"] === "string",
+);
+
+export function classifyServerRequest(method: string): ServerRequestCategory {
+  if (GENERATED_PERMISSION_REQUEST_METHODS.some((candidate) => candidate === method)) {
+    return "permissions";
+  }
+  if (GENERATED_APPROVAL_REQUEST_METHODS.some((candidate) => candidate === method)) {
+    return "approval";
+  }
+  if (GENERATED_ELICITATION_REQUEST_METHODS.some((candidate) => candidate === method)) {
+    return "elicitation";
+  }
+  if (GENERATED_DYNAMIC_TOOL_REQUEST_METHODS.some((candidate) => candidate === method)) {
+    return "dynamic_tool";
+  }
+  return "other";
+}
+
+export const CapabilityValueSchema = Schema.Union(
+  Schema.Literal("stable", "experimental", "disabled"),
+  Schema.Boolean,
+);
+export const CapabilityMatrixSchema = Schema.Record({
+  key: Schema.String,
+  value: CapabilityValueSchema,
+});
+export type CapabilityMatrix = typeof CapabilityMatrixSchema.Type;
+
+// Retained for callers that use the protocol schemas as a type-only namespace.
+export { JsonObjectSchema, JsonValueSchema, NonNegativeNumberSchema };

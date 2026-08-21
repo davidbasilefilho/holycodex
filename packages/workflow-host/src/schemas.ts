@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
 import {
   PlanNameSchema,
   RoleSchema,
@@ -15,7 +17,6 @@ import {
   type ServiceTier,
   type SpecialistOutcome,
 } from "@holycodex/core";
-import { type } from "arktype";
 
 export const WORKFLOW_HOST_SCHEMA_EPOCH = "host-state-1.0" as const;
 export const WORKFLOW_HOST_SCHEMA_EPOCHS = Object.freeze({
@@ -27,22 +28,26 @@ export const WORKFLOW_HOST_SCHEMA_EPOCHS = Object.freeze({
   telemetry: "host-telemetry-1.0",
 });
 
-const IdentifierSchema = type(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u);
-const DigestSchema = type(/^[0-9a-f]{64}$/u);
-const DateTimeSchema = type(/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^\s]{1,64}Z$/u);
-const BoundedTextSchema = type("string").narrow(
-  (value): value is string =>
-    value.length <= 4096 &&
-    [...value].every((character) => {
-      const code = character.codePointAt(0) ?? 0;
-      return !(code <= 31 || code === 127);
-    }),
+const IdentifierSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u));
+const DigestSchema = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u));
+const DateTimeSchema = Schema.String.pipe(
+  Schema.pattern(/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^\s]{1,64}Z$/u),
 );
-const ShortTextSchema = type("string").narrow(
-  (value): value is string => value.length > 0 && value.length <= 512,
+const BoundedTextSchema = Schema.String.pipe(
+  Schema.filter(
+    (value) =>
+      value.length <= 4096 &&
+      [...value].every((character) => {
+        const code = character.codePointAt(0) ?? 0;
+        return !(code <= 31 || code === 127);
+      }),
+  ),
 );
-const NonNegativeIntegerSchema = type("number.integer >= 0");
-const PositiveIntegerSchema = type("number.integer > 0");
+const ShortTextSchema = Schema.String.pipe(
+  Schema.filter((value) => value.length > 0 && value.length <= 512),
+);
+const NonNegativeIntegerSchema = Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0));
+const PositiveIntegerSchema = Schema.Number.pipe(Schema.int(), Schema.greaterThan(0));
 
 function isJsonValue(value: unknown, seen = new Set<object>()): value is JsonValue {
   if (value === null || typeof value === "string" || typeof value === "boolean") {
@@ -62,48 +67,46 @@ function isJsonValue(value: unknown, seen = new Set<object>()): value is JsonVal
     if (Array.isArray(value)) {
       return value.every((item) => isJsonValue(item, seen));
     }
-  } finally {
-    if (Array.isArray(value)) {
-      seen.delete(value);
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      return false;
     }
-  }
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
+    return Object.values(value).every((item) => isJsonValue(item, seen));
+  } finally {
     seen.delete(value);
-    return false;
   }
-  const valid = Object.values(value).every((item) => isJsonValue(item, seen));
-  seen.delete(value);
-  return valid;
 }
 
-export const JsonValueSchema = type("unknown").narrow((value): value is JsonValue =>
+export const JsonValueSchema = Schema.declare((value: unknown): value is JsonValue =>
   isJsonValue(value),
 );
-export const JsonObjectSchema = type("object").narrow(
-  (value): value is JsonObject =>
+export const JsonObjectSchema = Schema.declare(
+  (value: unknown): value is JsonObject =>
     typeof value === "object" && value !== null && !Array.isArray(value) && isJsonValue(value),
 );
 
-export const ProjectTrustRefSchema = type({
-  "+": "reject",
+/** The one strict decoding helper for all host boundary schemas. */
+export function decodeHostSchema<T>(schema: Schema.Schema<T>, input: unknown): T | undefined {
+  const parsed = Schema.decodeUnknownEither(schema, { onExcessProperty: "error" })(input);
+  return Either.isRight(parsed) ? parsed.right : undefined;
+}
+
+export const ProjectTrustRefSchema = Schema.Struct({
   project_id: IdentifierSchema,
   trust_id: IdentifierSchema,
   project_digest: DigestSchema,
   trust_digest: DigestSchema,
 });
-export type ProjectTrustRef = typeof ProjectTrustRefSchema.infer;
+export type ProjectTrustRef = typeof ProjectTrustRefSchema.Type;
 
-export const SchemaEpochsSchema = type({
-  "+": "reject",
+export const SchemaEpochsSchema = Schema.Struct({
   core: IdentifierSchema,
   runtime: IdentifierSchema,
   host: IdentifierSchema,
 });
-export type SchemaEpochs = typeof SchemaEpochsSchema.infer;
+export type SchemaEpochs = typeof SchemaEpochsSchema.Type;
 
-export const IdentityComponentsSchema = type({
-  "+": "reject",
+export const IdentityComponentsSchema = Schema.Struct({
   project: ProjectTrustRefSchema,
   workflow_source_digest: DigestSchema,
   resupplied_args_digest: DigestSchema,
@@ -121,31 +124,47 @@ export const IdentityComponentsSchema = type({
   codex_capability_digest: DigestSchema,
   schema_epochs: SchemaEpochsSchema,
 });
-export type IdentityComponents = typeof IdentityComponentsSchema.infer;
+export type IdentityComponents = typeof IdentityComponentsSchema.Type;
 
-export const RunDefinitionSchema = type({
-  "+": "reject",
-  schema_epoch: "'host-run-1.0'",
+export const RunDefinitionSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-run-1.0"),
   run_id: IdentifierSchema,
   objective_lineage: IdentifierSchema,
-  parent_run_id: IdentifierSchema.or("null"),
+  parent_run_id: Schema.Union(IdentifierSchema, Schema.Null),
   created_at: DateTimeSchema,
   identity: IdentityComponentsSchema,
 });
-export type RunDefinition = typeof RunDefinitionSchema.infer;
+export type RunDefinition = typeof RunDefinitionSchema.Type;
 
-export const RunStatusSchema = type(
-  "'created' | 'running' | 'paused' | 'stopped' | 'completed' | 'failed' | 'blocked' | 'reopened'",
+export const RunStatusSchema = Schema.Literal(
+  "created",
+  "running",
+  "waiting_for_approval",
+  "approved",
+  "denied",
+  "paused",
+  "stopped",
+  "completed",
+  "failed",
+  "blocked",
+  "reopened",
 );
-export type RunStatus = typeof RunStatusSchema.infer;
+export type RunStatus = typeof RunStatusSchema.Type;
 
-export const OperationStateSchema = type(
-  "'reserved' | 'requested' | 'completed' | 'failed' | 'uncertain' | 'stopped'",
+export const OperationStateSchema = Schema.Literal(
+  "reserved",
+  "requested",
+  "waiting_for_approval",
+  "approved",
+  "denied",
+  "completed",
+  "failed",
+  "uncertain",
+  "stopped",
 );
-export type OperationState = typeof OperationStateSchema.infer;
+export type OperationState = typeof OperationStateSchema.Type;
 
-export const OperationInputSchema = type({
-  "+": "reject",
+export const OperationInputSchema = Schema.Struct({
   operation_id: IdentifierSchema,
   input_digest: DigestSchema,
   route: RouteKeySchema,
@@ -155,26 +174,24 @@ export const OperationInputSchema = type({
   retry_limit: NonNegativeIntegerSchema,
   fan_out: PositiveIntegerSchema,
 });
-export type OperationInput = typeof OperationInputSchema.infer;
+export type OperationInput = typeof OperationInputSchema.Type;
 
-export const OperationLifecycleSchema = type({
-  "+": "reject",
-  schema_epoch: "'host-journal-1.0'",
+export const OperationLifecycleSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-journal-1.0"),
   operation: OperationInputSchema,
   state: OperationStateSchema,
   cost_units: NonNegativeIntegerSchema,
   at: DateTimeSchema,
-  error_code: IdentifierSchema.or("null"),
+  error_code: Schema.Union(IdentifierSchema, Schema.Null),
 });
-export type OperationLifecycle = typeof OperationLifecycleSchema.infer;
+export type OperationLifecycle = typeof OperationLifecycleSchema.Type;
 
-const SafeStringArraySchema = type("string[]").narrow(
-  (value): value is string[] => value.length <= 64 && value.every((item) => item.length <= 512),
+const SafeStringArraySchema = Schema.Array(Schema.String).pipe(
+  Schema.filter((value) => value.length <= 64 && value.every((item) => item.length <= 512)),
 );
 
-export const CheckpointSchema = type({
-  "+": "reject",
-  schema_epoch: "'host-checkpoint-1.0'",
+export const CheckpointSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-checkpoint-1.0"),
   run_id: IdentifierSchema,
   revision: PositiveIntegerSchema,
   journal_sequence: NonNegativeIntegerSchema,
@@ -190,20 +207,22 @@ export const CheckpointSchema = type({
   resources: JsonObjectSchema,
   retained_summaries: SafeStringArraySchema,
   next_actions: SafeStringArraySchema,
-  usage_completeness: "'complete' | 'partial' | 'unknown'",
+  usage_completeness: Schema.Literal("complete", "partial", "unknown"),
   recoverable_errors: SafeStringArraySchema,
   captured_at: DateTimeSchema,
 });
-export type Checkpoint = typeof CheckpointSchema.infer;
+export type Checkpoint = typeof CheckpointSchema.Type;
 
-export const RetainedContextStatusSchema = type(
-  "'available' | 'consumed' | 'invalidated' | 'blocked'",
+export const RetainedContextStatusSchema = Schema.Literal(
+  "available",
+  "consumed",
+  "invalidated",
+  "blocked",
 );
-export type RetainedContextStatus = typeof RetainedContextStatusSchema.infer;
+export type RetainedContextStatus = typeof RetainedContextStatusSchema.Type;
 
-export const RetainedContextIdentitySchema = type({
-  "+": "reject",
-  schema_epoch: "'host-journal-1.0'",
+export const RetainedContextIdentitySchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-journal-1.0"),
   context_id: IdentifierSchema,
   run_id: IdentifierSchema,
   project: ProjectTrustRefSchema,
@@ -219,11 +238,10 @@ export const RetainedContextIdentitySchema = type({
   summary: SafeStringArraySchema,
   created_at: DateTimeSchema,
 });
-export type RetainedContextIdentity = typeof RetainedContextIdentitySchema.infer;
+export type RetainedContextIdentity = typeof RetainedContextIdentitySchema.Type;
 
-export const ContinuationPacketSchema = type({
-  "+": "reject",
-  schema_epoch: "'host-continuation-1.0'",
+export const ContinuationPacketSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-continuation-1.0"),
   packet_id: IdentifierSchema,
   session_id: IdentifierSchema,
   parent_run_id: IdentifierSchema,
@@ -238,11 +256,10 @@ export const ContinuationPacketSchema = type({
   packet_digest: DigestSchema,
   created_at: DateTimeSchema,
 });
-export type ContinuationPacket = typeof ContinuationPacketSchema.infer;
+export type ContinuationPacket = typeof ContinuationPacketSchema.Type;
 
-export const ContinuationClaimSchema = type({
-  "+": "reject",
-  schema_epoch: "'host-continuation-1.0'",
+export const ContinuationClaimSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-continuation-1.0"),
   claim_id: IdentifierSchema,
   packet_id: IdentifierSchema,
   session_id: IdentifierSchema,
@@ -254,59 +271,69 @@ export const ContinuationClaimSchema = type({
   packet_digest: DigestSchema,
   claimed_at: DateTimeSchema,
 });
-export type ContinuationClaim = typeof ContinuationClaimSchema.infer;
+export type ContinuationClaim = typeof ContinuationClaimSchema.Type;
 
-export const RefinementProposalSchema = type({
-  "+": "reject",
-  kind: "'clarification' | 'constraint' | 'evidence' | 'workflow-note'",
+export const RefinementProposalSchema = Schema.Struct({
+  kind: Schema.Literal("clarification", "constraint", "evidence", "workflow-note"),
   summary: ShortTextSchema,
   rationale: ShortTextSchema,
 });
-export type RefinementProposal = typeof RefinementProposalSchema.infer;
+export type RefinementProposal = typeof RefinementProposalSchema.Type;
 
-export const RefinementSchema = type({
-  "+": "reject",
-  schema_epoch: "'host-refinement-1.0'",
+export const RefinementSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-refinement-1.0"),
   refinement_id: IdentifierSchema,
   project: ProjectTrustRefSchema,
   run_id: IdentifierSchema,
   proposal: RefinementProposalSchema,
-  status: "'enabled' | 'disabled'",
-  reversible: "true",
+  status: Schema.Literal("enabled", "disabled"),
+  reversible: Schema.Literal(true),
   attributable_to: IdentifierSchema,
   created_at: DateTimeSchema,
   updated_at: DateTimeSchema,
 });
-export type Refinement = typeof RefinementSchema.infer;
+export type Refinement = typeof RefinementSchema.Type;
 
-export const TelemetrySchema = type({
-  "+": "reject",
-  schema_epoch: "'host-telemetry-1.0'",
-  event: "'run' | 'operation' | 'checkpoint' | 'replay' | 'continuation' | 'refinement'",
-  run_id: IdentifierSchema.or("null"),
-  route: RouteKeySchema.or("null"),
+export const TelemetrySchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-telemetry-1.0"),
+  event: Schema.Literal("run", "operation", "checkpoint", "replay", "continuation", "refinement"),
+  run_id: Schema.Union(IdentifierSchema, Schema.Null),
+  route: Schema.Union(RouteKeySchema, Schema.Null),
   status: IdentifierSchema,
   duration_ms: NonNegativeIntegerSchema,
   count: NonNegativeIntegerSchema,
-  error_code: IdentifierSchema.or("null"),
+  error_code: Schema.Union(IdentifierSchema, Schema.Null),
   schema_epochs: SchemaEpochsSchema,
-  replayed: "boolean",
+  replayed: Schema.Boolean,
 });
-export type Telemetry = typeof TelemetrySchema.infer;
+export type Telemetry = typeof TelemetrySchema.Type;
 
-const RunCreatedEventSchema = type({
-  "+": "reject",
-  schema_epoch: "'host-journal-1.0'",
-  event: "'run-created'",
+const WorkflowSourceSchema = Schema.String.pipe(
+  Schema.filter((value) => new TextEncoder().encode(value).byteLength <= 1024 * 1024),
+);
+export const WorkflowExecutionModeSchema = Schema.Literal("native", "compatibility");
+export const WorkflowDescriptorSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-workflow-1.0"),
+  execution_mode: WorkflowExecutionModeSchema,
+  source: WorkflowSourceSchema,
+  args: JsonValueSchema,
+  objective: BoundedTextSchema,
+  constraints: SafeStringArraySchema,
+  compile_options: Schema.optional(JsonObjectSchema),
+});
+export type WorkflowDescriptor = typeof WorkflowDescriptorSchema.Type;
+
+const RunCreatedEventSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-journal-1.0"),
+  event: Schema.Literal("run-created"),
   run_id: IdentifierSchema,
   sequence: PositiveIntegerSchema,
   at: DateTimeSchema,
   definition: RunDefinitionSchema,
 });
-const StateEventSchema = type({
-  "+": "reject",
-  schema_epoch: "'host-journal-1.0'",
-  event: "'state-changed'",
+const StateEventSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-journal-1.0"),
+  event: Schema.Literal("state-changed"),
   run_id: IdentifierSchema,
   sequence: PositiveIntegerSchema,
   at: DateTimeSchema,
@@ -314,76 +341,74 @@ const StateEventSchema = type({
   to: RunStatusSchema,
   reason: ShortTextSchema,
 });
-const OperationEventSchema = type({
-  "+": "reject",
-  schema_epoch: "'host-journal-1.0'",
-  event: "'operation'",
+const OperationEventSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-journal-1.0"),
+  event: Schema.Literal("operation"),
   run_id: IdentifierSchema,
   sequence: PositiveIntegerSchema,
   at: DateTimeSchema,
   lifecycle: OperationLifecycleSchema,
-  "outcome?": SpecialistOutcomeSchema,
+  outcome: Schema.optional(SpecialistOutcomeSchema),
 });
-const CheckpointEventSchema = type({
-  "+": "reject",
-  schema_epoch: "'host-journal-1.0'",
-  event: "'checkpoint'",
+const CheckpointEventSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-journal-1.0"),
+  event: Schema.Literal("checkpoint"),
   run_id: IdentifierSchema,
   sequence: PositiveIntegerSchema,
   at: DateTimeSchema,
   checkpoint: CheckpointSchema,
 });
-const ContinuationEventSchema = type({
-  "+": "reject",
-  schema_epoch: "'host-journal-1.0'",
-  event: "'continuation-claimed'",
+const ContinuationEventSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-journal-1.0"),
+  event: Schema.Literal("continuation-claimed"),
   run_id: IdentifierSchema,
   sequence: PositiveIntegerSchema,
   at: DateTimeSchema,
   claim: ContinuationClaimSchema,
 });
-const RefinementEventSchema = type({
-  "+": "reject",
-  schema_epoch: "'host-journal-1.0'",
-  event: "'refinement'",
+const RefinementEventSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-journal-1.0"),
+  event: Schema.Literal("refinement"),
   run_id: IdentifierSchema,
   sequence: PositiveIntegerSchema,
   at: DateTimeSchema,
   refinement: RefinementSchema,
 });
 
-export const JournalEventSchema = RunCreatedEventSchema.or(StateEventSchema)
-  .or(OperationEventSchema)
-  .or(CheckpointEventSchema)
-  .or(ContinuationEventSchema)
-  .or(RefinementEventSchema);
-export type JournalEvent = typeof JournalEventSchema.infer;
+export const JournalEventSchema = Schema.Union(
+  RunCreatedEventSchema,
+  StateEventSchema,
+  OperationEventSchema,
+  CheckpointEventSchema,
+  ContinuationEventSchema,
+  RefinementEventSchema,
+);
+export type JournalEvent = typeof JournalEventSchema.Type;
 
-export const RunSnapshotSchema = type({
-  "+": "reject",
-  schema_epoch: "'host-run-1.0'",
+export const RunSnapshotSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-run-1.0"),
   definition: RunDefinitionSchema,
   status: RunStatusSchema,
   revision: NonNegativeIntegerSchema,
-  checkpoint: CheckpointSchema.or("null"),
-  integrity: "'valid' | 'uncertain'",
+  checkpoint: Schema.Union(CheckpointSchema, Schema.Null),
+  integrity: Schema.Literal("valid", "uncertain"),
   updated_at: DateTimeSchema,
+  workflow: Schema.optional(WorkflowDescriptorSchema),
 });
-export type RunSnapshot = typeof RunSnapshotSchema.infer;
+export type RunSnapshot = typeof RunSnapshotSchema.Type;
 
-export const InspectionProjectionSchema = type({
-  "+": "reject",
-  schema_epoch: "'host-run-1.0'",
+export const InspectionProjectionSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-run-1.0"),
   definition: RunDefinitionSchema,
   status: RunStatusSchema,
   revision: NonNegativeIntegerSchema,
-  checkpoint: CheckpointSchema.or("null"),
-  operations: OperationLifecycleSchema.array(),
-  retained_contexts: RetainedContextIdentitySchema.array(),
-  integrity: "'valid' | 'uncertain'",
-  replayed: "boolean",
+  checkpoint: Schema.Union(CheckpointSchema, Schema.Null),
+  operations: Schema.Array(OperationLifecycleSchema),
+  retained_contexts: Schema.Array(RetainedContextIdentitySchema),
+  integrity: Schema.Literal("valid", "uncertain"),
+  replayed: Schema.Boolean,
 });
-export type InspectionProjection = typeof InspectionProjectionSchema.infer;
+export type InspectionProjection = typeof InspectionProjectionSchema.Type;
 
 export type HostRoleTask = RoleTask;
 export type HostPlanName = PlanName;

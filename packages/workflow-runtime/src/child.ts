@@ -30,31 +30,6 @@ type ChildOutboundMessage =
   | TerminalFailureMessage
   | TerminalSuccessMessage;
 
-const QUICKJS_PIPELINE_SOURCE = `
-(agent, maxConcurrency) => async (items, options = null) => {
-  if (!Array.isArray(items)) throw new TypeError("pipeline items must be an array");
-  const concurrency = options === null || options === undefined ? 1 : options.concurrency ?? 1;
-  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > maxConcurrency) {
-    throw new RangeError("pipeline concurrency is outside the configured limit");
-  }
-  const agentOptions = options === null || options === undefined ? null : options.agentOptions ?? null;
-  const output = new Array(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (true) {
-      const index = next++;
-      if (index >= items.length) return;
-      const item = items[index];
-      if (typeof item !== "string") throw new TypeError("pipeline items must be strings");
-      output[index] = await agent(item, agentOptions);
-    }
-  };
-  const workers = Math.min(concurrency, items.length);
-  await Promise.all(Array.from({ length: workers }, worker));
-  return output;
-}
-`;
-
 class ChildSession {
   private readonly quickjsModule: Awaited<ReturnType<typeof newQuickJSWASMModule>>;
   private readonly limits: WorkflowLimits;
@@ -157,33 +132,6 @@ class ChildSession {
       this.deepFreeze(argsHandle);
       this.deepFreeze(runtimeHandle);
 
-      const pipelineFactoryResult = context.evalCode(QUICKJS_PIPELINE_SOURCE);
-      if (pipelineFactoryResult.error) {
-        pipelineFactoryResult.error.dispose();
-        throw new WorkflowRuntimeError(
-          "evaluation_failed",
-          "The workflow pipeline could not be prepared.",
-        );
-      }
-      const pipelineFactory = pipelineFactoryResult.value;
-      const maxConcurrencyHandle = context.newNumber(this.limits.maxConcurrentOperations);
-      const pipelineResult = context.callFunction(
-        pipelineFactory,
-        context.undefined,
-        operationFunction,
-        maxConcurrencyHandle,
-      );
-      pipelineFactory.dispose();
-      maxConcurrencyHandle.dispose();
-      if (pipelineResult.error) {
-        pipelineResult.error.dispose();
-        throw new WorkflowRuntimeError(
-          "evaluation_failed",
-          "The workflow pipeline could not be prepared.",
-        );
-      }
-      const pipelineFunction = pipelineResult.value;
-
       const workflowResult = context.evalCode(transformed);
       if (workflowResult.error) {
         workflowResult.error.dispose();
@@ -205,11 +153,9 @@ class ChildSession {
         argsHandle,
         runtimeHandle,
         operationFunction,
-        pipelineFunction,
       );
       workflowFunction.dispose();
       operationFunction.dispose();
-      pipelineFunction.dispose();
       argsHandle.dispose();
       runtimeHandle.dispose();
       if (result.error) {
@@ -365,12 +311,13 @@ class ChildSession {
     this.pendingOperations.delete(message.request_id);
     const context = this.requireContext();
     if (message.ok) {
-      if (!("result" in message)) {
+      const result = message.result;
+      if (result === undefined) {
         throw new WorkflowRuntimeError("protocol_breach", "The operation result is incomplete.");
       }
       let value: QuickJSHandle;
       try {
-        value = this.jsonHandle(message.result);
+        value = this.jsonHandle(result);
       } catch {
         throw new WorkflowRuntimeError("protocol_breach", "The operation result is invalid.");
       }

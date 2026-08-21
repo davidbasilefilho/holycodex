@@ -1,23 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
 import { dirname } from "node:path";
 import { canonicalJson, type JsonObject, type JsonValue } from "@holycodex/core";
 import { assertNoSymlink, ensureOwnedDirectory, isFsCode } from "./paths.ts";
 import { readJsonObject, writeAtomicJson } from "./storage.ts";
+import { decodeSchema, JsonObjectSchema } from "./schema.ts";
 import type { InstallRecord } from "./types.ts";
 
-const MarketplaceSchema = type("object").narrow(
-  (input): input is JsonObject =>
-    typeof input === "object" &&
-    input !== null &&
-    !Array.isArray(input) &&
-    Object.values(input).every((value) => isJsonValue(value)),
-);
-const MarketplaceEntrySchema = type("object").narrow(
-  (input): input is JsonObject =>
-    typeof input === "object" && input !== null && !Array.isArray(input),
-);
+const MarketplaceSchema = JsonObjectSchema;
+const MarketplaceEntrySchema = JsonObjectSchema;
 
 export interface MarketplaceDocument extends JsonObject {
   readonly plugins: readonly JsonObject[];
@@ -43,21 +34,21 @@ export async function readMarketplace(path: string): Promise<MarketplaceDocument
     }
     return { plugins: [] };
   }
-  const parsed = MarketplaceSchema(document);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeSchema(MarketplaceSchema, document);
+  if (parsed === undefined) {
     throw new MarketplaceError("marketplace_invalid", "The marketplace file is not a JSON object.");
   }
   const rawPlugins = parsed["plugins"];
   if (
     rawPlugins !== undefined &&
     (!Array.isArray(rawPlugins) ||
-      rawPlugins.some((item) => MarketplaceEntrySchema(item) instanceof type.errors))
+      rawPlugins.some((item) => decodeSchema(MarketplaceEntrySchema, item) === undefined))
   ) {
     throw new MarketplaceError("marketplace_invalid", "The marketplace plugins list is invalid.");
   }
   const plugins = Array.isArray(rawPlugins)
     ? rawPlugins.filter(
-        (item): item is JsonObject => MarketplaceEntrySchema(item) instanceof type.errors === false,
+        (item): item is JsonObject => decodeSchema(MarketplaceEntrySchema, item) !== undefined,
       )
     : [];
   return { ...parsed, plugins };
@@ -157,25 +148,6 @@ export function pickManagedFields(entry: JsonObject): JsonObject {
 
 function isJsonObject(value: JsonValue | undefined): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null || typeof value === "string" || typeof value === "boolean") {
-    return true;
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value);
-  }
-  if (Array.isArray(value)) {
-    return value.every((item) => isJsonValue(item));
-  }
-  if (typeof value !== "object") {
-    return false;
-  }
-  return (
-    Object.getPrototypeOf(value) === Object.prototype &&
-    Object.values(value).every((item) => isJsonValue(item))
-  );
 }
 
 export class MarketplaceError extends Error {

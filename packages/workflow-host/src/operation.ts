@@ -7,19 +7,22 @@ import {
   type JsonValue,
   type PlanDefinition,
 } from "@holycodex/core";
-import type { WorkflowOperation } from "@holycodex/workflow-runtime";
-import type { RunDefinition } from "./schemas.ts";
+import * as Effect from "effect/Effect";
+import type { CapacityLease, WorkflowOperation } from "@holycodex/workflow-runtime";
+import { executeCodexOperation } from "./effect-runtime.ts";
+import { acquireDispatch, releaseDispatch } from "./admission.ts";
+import { approveBeforeDispatch } from "./approval.ts";
+import { decodeHostSchema, type RunDefinition } from "./schemas.ts";
 import { WorkflowHostError } from "./errors.ts";
 import {
   inputDigest,
-  isArkErrors,
   jsonObject,
   operationRoute,
   optionInteger,
   randomId,
   sanitizeOutcome,
 } from "./identity.ts";
-import { appendEvent, emitTelemetry, operationLifecycle } from "./lifecycle.ts";
+import { appendEvent, emitTelemetry, loadRun, operationLifecycle } from "./lifecycle.ts";
 import type { ActiveRun, HostContext } from "./types.ts";
 
 export async function handleOperation(
@@ -41,16 +44,6 @@ export async function handleOperation(
   ) {
     throw new WorkflowHostError("invalid_input", "The workflow operation prompt is invalid.");
   }
-  if (active.calls >= active.maxCalls) {
-    throw new WorkflowHostError("call_limit", "The live workflow call limit was exceeded.");
-  }
-  if (active.operationControllers.size >= active.maxConcurrency) {
-    throw new WorkflowHostError(
-      "concurrency_limit",
-      "The live workflow concurrency limit was exceeded.",
-    );
-  }
-  active.calls += 1;
   const options = jsonObject(operation.options, "workflow operation options");
   const role = options["role"];
   const task = options["task"];
@@ -60,8 +53,8 @@ export async function handleOperation(
       "Workflow operations must carry a role/task assignment.",
     );
   }
-  const parsedRoleTask = RoleTaskSchema({ role, task });
-  if (isArkErrors(parsedRoleTask)) {
+  const parsedRoleTask = decodeHostSchema(RoleTaskSchema, { role, task });
+  if (parsedRoleTask === undefined) {
     throw new WorkflowHostError("invalid_route", "The role/task assignment is malformed.");
   }
   const route = operationRoute(options, parsedRoleTask.role, parsedRoleTask.task);
@@ -73,6 +66,12 @@ export async function handleOperation(
     );
   }
   const retryLimit = optionInteger(options, "retries", 0);
+  if (retryLimit > 0) {
+    throw new WorkflowHostError(
+      "retry_limit",
+      "Compatibility workflow retries are unsupported; use native workflow retries.",
+    );
+  }
   const fanOut = Math.max(1, optionInteger(options, "fan_out", 1));
   if (retryLimit > (context.capacity.maxRetries ?? 0)) {
     throw new WorkflowHostError(
@@ -87,6 +86,16 @@ export async function handleOperation(
     );
   }
   const digest = await inputDigest({ prompt: operation.prompt, options, route });
+  const existing = (await loadRun(context, definition.run_id)).journal.find(
+    (event) =>
+      event.event === "operation" &&
+      event.lifecycle.state === "completed" &&
+      event.lifecycle.operation.input_digest === digest &&
+      event.outcome !== undefined,
+  );
+  if (existing?.event === "operation" && existing.outcome !== undefined) {
+    return existing.outcome;
+  }
   const operationId = randomId("operation");
   const operationController = new AbortController();
   const abortOperation = (): void => operationController.abort();
@@ -98,9 +107,11 @@ export async function handleOperation(
     route,
     role: routeResult.value.role,
     task: routeResult.value.task,
+    attempt: 1,
     retryLimit,
     fanOut,
   } as const;
+  const runtimeAgent = context.services.agent;
   try {
     const attempt = 1;
     await appendEvent(context, definition.run_id, {
@@ -108,28 +119,97 @@ export async function handleOperation(
       lifecycle: operationLifecycle({
         ...operationInput,
         attempt,
-        state: "requested",
+        state: "waiting_for_approval",
         errorCode: null,
       }),
     });
     try {
-      const rawOutcome = await context.executor({
+      await approveBeforeDispatch(context, {
         runId: definition.run_id,
-        project: definition.identity.project,
-        plan,
-        serviceTier: definition.identity.service_tier,
-        route,
-        role: routeResult.value.role,
-        task: routeResult.value.task,
-        prompt: operation.prompt,
-        options,
-        promptProfile: definition.identity.prompt_profile,
-        toolProfile: definition.identity.tool_profile,
-        securityProfile: definition.identity.security_profile,
-        approvalPolicy: definition.identity.approval_policy,
-        sandboxPolicy: definition.identity.sandbox_policy,
-        signal: operationController.signal,
+        nodeId: operationId,
+        name: operationId,
       });
+    } catch (error) {
+      await appendEvent(context, definition.run_id, {
+        event: "operation",
+        lifecycle: operationLifecycle({
+          ...operationInput,
+          attempt,
+          state: "denied",
+          errorCode: error instanceof WorkflowHostError ? error.code : "approval_denied",
+        }),
+      });
+      throw error;
+    }
+    await appendEvent(context, definition.run_id, {
+      event: "operation",
+      lifecycle: operationLifecycle({
+        ...operationInput,
+        attempt,
+        state: "approved",
+        errorCode: null,
+      }),
+    });
+    let lease: CapacityLease | undefined;
+    let dispatched = false;
+    try {
+      lease = await acquireDispatch(context, active, definition.run_id);
+      dispatched = true;
+      let rawOutcome: unknown;
+      if (context.codex === undefined && runtimeAgent === undefined) {
+        rawOutcome = await context.executor({
+          runId: definition.run_id,
+          project: definition.identity.project,
+          plan,
+          serviceTier: definition.identity.service_tier,
+          route,
+          role: routeResult.value.role,
+          task: routeResult.value.task,
+          prompt: operation.prompt,
+          options,
+          promptProfile: definition.identity.prompt_profile,
+          toolProfile: definition.identity.tool_profile,
+          securityProfile: definition.identity.security_profile,
+          approvalPolicy: definition.identity.approval_policy,
+          sandboxPolicy: definition.identity.sandbox_policy,
+          signal: operationController.signal,
+        });
+      } else if (context.codex !== undefined) {
+        rawOutcome = await Effect.runPromise(
+          executeCodexOperation(
+            context,
+            definition,
+            context.pending.get(definition.run_id) ?? {
+              objective: operation.prompt,
+              constraints: [],
+            },
+            active,
+            {
+              operationId,
+              prompt: operation.prompt,
+              options,
+              route,
+            },
+          ),
+        );
+      } else {
+        const agent = runtimeAgent;
+        if (agent === undefined) {
+          throw new WorkflowHostError(
+            "capability_denied",
+            "No runtime workflow agent service is configured.",
+          );
+        }
+        rawOutcome = await Effect.runPromise(
+          agent.execute({
+            payload: { objective: operation.prompt, options },
+            input: { name: "json", decode: (value: unknown): unknown => value },
+            output: { name: "json", decode: (value: unknown): unknown => value },
+            metadata: { id: operationId },
+            route,
+          }),
+        );
+      }
       if (operationController.signal.aborted) {
         throw new WorkflowHostError(
           "external_failed",
@@ -172,16 +252,24 @@ export async function handleOperation(
         lifecycle: operationLifecycle({
           ...operationInput,
           attempt,
-          state: "uncertain",
+          state: dispatched ? "uncertain" : "failed",
           errorCode,
         }),
       });
+      if (!dispatched) {
+        throw error;
+      }
       throw new WorkflowHostError(
         "external_failed",
         "The specialist operation has an uncertain effect and cannot be retried.",
         { uncertain: true },
         { cause: error },
       );
+    } finally {
+      if (lease !== undefined) {
+        await Effect.runPromise(lease.release);
+        releaseDispatch(active);
+      }
     }
   } finally {
     active.controller.signal.removeEventListener("abort", abortOperation);

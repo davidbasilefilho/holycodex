@@ -1,26 +1,44 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
 import type { JsonValue } from "@holycodex/core";
+import * as Schema from "effect/Schema";
 import {
   CODEX_CLIENT_VERSION,
   DEFAULT_MAX_LINE_BYTES,
   checked,
   CodexError,
   invalidData,
+  JsonValueSchema,
   safeDetails,
   sanitizeMetadata,
   sanitizeText,
-  JsonValueSchema,
 } from "./common";
 import type { AsyncLineTransport } from "./transport";
 import {
+  GENERATED_APPROVAL_REQUEST_METHODS,
+  GENERATED_INITIALIZED_NOTIFICATION,
+  GENERATED_PERMISSION_REQUEST_METHODS,
+  GENERATED_SUPPORTED_CLIENT_METHODS,
+  GENERATED_TURN_COMPLETED_NOTIFICATION_METHOD,
+} from "./generated-wire";
+import {
+  classifyServerRequest,
+  ConfigReadParamsSchema,
+  ConfigReadResultSchema,
   InitializedNotificationSchema,
   InitializeParamsSchema,
   InitializeResultSchema,
   JsonRpcNotificationSchema,
   JsonRpcRequestSchema,
   JsonRpcResponseSchema,
+  ModelListParamsSchema,
+  ModelListResultSchema,
+  ModelProviderCapabilitiesParamsSchema,
+  ModelProviderCapabilitiesResultSchema,
+  PermissionProfileListParamsSchema,
+  PermissionProfileListResultSchema,
+  ServerRequestSchema,
+  ServerResponseSchema,
   ThreadForkParamsSchema,
   ThreadForkResultSchema,
   ThreadListParamsSchema,
@@ -31,18 +49,32 @@ import {
   ThreadResumeResultSchema,
   ThreadStartParamsSchema,
   ThreadStartResultSchema,
+  ThreadUnsubscribeParamsSchema,
+  ThreadUnsubscribeResultSchema,
   TurnCompletedNotificationSchema,
   TurnInterruptParamsSchema,
   TurnInterruptResultSchema,
   TurnStartParamsSchema,
   TurnStartResultSchema,
+  TurnSteerParamsSchema,
+  TurnSteerResultSchema,
 } from "./protocol";
 import type {
   CodexNotification,
+  ConfigReadParams,
+  ConfigReadResult,
   InitializeParams,
   InitializeResult,
-  JsonRpcNotification,
+  ModelListParams,
+  ModelListResult,
+  ModelProviderCapabilitiesParams,
+  ModelProviderCapabilitiesResult,
+  PermissionProfileListParams,
+  PermissionProfileListResult,
+  JsonRpcRequest,
   JsonRpcResponse,
+  RequestId,
+  ServerRequest,
   ThreadForkParams,
   ThreadForkResult,
   ThreadListParams,
@@ -53,46 +85,60 @@ import type {
   ThreadResumeResult,
   ThreadStartParams,
   ThreadStartResult,
+  ThreadUnsubscribeParams,
+  ThreadUnsubscribeResult,
   TurnInterruptParams,
   TurnInterruptResult,
   TurnStartParams,
   TurnStartResult,
+  TurnSteerParams,
+  TurnSteerResult,
 } from "./protocol";
 
-const SUPPORTED_METHODS = new Set([
-  "initialize",
-  "thread/start",
-  "thread/resume",
-  "thread/read",
-  "thread/list",
-  "thread/fork",
-  "turn/start",
-  "turn/interrupt",
-]);
+export type ServerRequestHandler = (request: ServerRequest) => JsonValue | Promise<JsonValue>;
 
 interface PendingRequest {
   readonly method: string;
   readonly resolve: (value: JsonValue) => void;
   readonly reject: (error: CodexError) => void;
+  readonly timer?: ReturnType<typeof setTimeout>;
+  readonly removeAbortListener?: () => void;
+}
+
+interface ServerRequestWork {
+  active: boolean;
 }
 
 export interface AppServerClientOptions {
   readonly maxLineBytes?: number;
+  readonly requestTimeoutMs?: number;
+  readonly signal?: AbortSignal;
   readonly onNotification?: (notification: CodexNotification) => void;
+  readonly onServerRequest?: ServerRequestHandler;
 }
 
 const DEFAULT_CLIENT_INFO: InitializeParams = {
-  clientInfo: { name: "holycodex", version: CODEX_CLIENT_VERSION },
+  clientInfo: { name: "holycodex", title: null, version: CODEX_CLIENT_VERSION },
+  capabilities: null,
 };
+const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+
+const SUPPORTED_METHODS = new Set<string>(GENERATED_SUPPORTED_CLIENT_METHODS);
 
 export class AppServerClient {
   private readonly transport: AsyncLineTransport;
   private readonly maxLineBytes: number;
+  private readonly requestTimeoutMs: number | undefined;
+  private readonly signal: AbortSignal | undefined;
   private readonly notificationListeners = new Set<(notification: CodexNotification) => void>();
-  private readonly pending = new Map<number, PendingRequest>();
+  private readonly serverRequestHandlers = new Set<ServerRequestHandler>();
+  private readonly pending = new Map<RequestId, PendingRequest>();
+  private readonly serverRequestWork = new Set<ServerRequestWork>();
+  private readonly serverRequestTasks = new Set<Promise<void>>();
   private nextRequestId = 1;
   private readerPromise: Promise<void> | undefined;
   private initializePromise: Promise<InitializeResult> | undefined;
+  private transportClosePromise: Promise<void> | undefined;
   private initializeAttempted = false;
   private initialized = false;
   private closed = false;
@@ -100,11 +146,24 @@ export class AppServerClient {
   constructor(transport: AsyncLineTransport, options: AppServerClientOptions = {}) {
     this.transport = transport;
     this.maxLineBytes = options.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.signal = options.signal;
     if (!Number.isSafeInteger(this.maxLineBytes) || this.maxLineBytes < 1) {
       throw new CodexError("invalid_external_data", "The maximum line size is invalid.");
     }
+    if (!Number.isSafeInteger(this.requestTimeoutMs) || this.requestTimeoutMs < 1) {
+      throw new CodexError("invalid_external_data", "The request timeout is invalid.");
+    }
     if (options.onNotification) {
       this.notificationListeners.add(options.onNotification);
+    }
+    if (options.onServerRequest) {
+      this.serverRequestHandlers.add(options.onServerRequest);
+    }
+    if (this.signal?.aborted) {
+      void this.close();
+    } else if (this.signal) {
+      this.signal.addEventListener("abort", () => void this.close(), { once: true });
     }
   }
 
@@ -115,6 +174,11 @@ export class AppServerClient {
   onNotification(listener: (notification: CodexNotification) => void): () => void {
     this.notificationListeners.add(listener);
     return () => this.notificationListeners.delete(listener);
+  }
+
+  onServerRequest(handler: ServerRequestHandler): () => void {
+    this.serverRequestHandlers.add(handler);
+    return () => this.serverRequestHandlers.delete(handler);
   }
 
   async initialize(params: InitializeParams = DEFAULT_CLIENT_INFO): Promise<InitializeResult> {
@@ -157,8 +221,24 @@ export class AppServerClient {
     return this.action("thread/fork", ThreadForkParamsSchema, input, ThreadForkResultSchema);
   }
 
+  async unsubscribeThread(
+    params: ThreadUnsubscribeParams | string,
+  ): Promise<ThreadUnsubscribeResult> {
+    const input = typeof params === "string" ? { threadId: params } : params;
+    return this.action(
+      "thread/unsubscribe",
+      ThreadUnsubscribeParamsSchema,
+      input,
+      ThreadUnsubscribeResultSchema,
+    );
+  }
+
   async startTurn(params: TurnStartParams): Promise<TurnStartResult> {
     return this.action("turn/start", TurnStartParamsSchema, params, TurnStartResultSchema);
+  }
+
+  async steerTurn(params: TurnSteerParams): Promise<TurnSteerResult> {
+    return this.action("turn/steer", TurnSteerParamsSchema, params, TurnSteerResultSchema);
   }
 
   async interruptTurn(
@@ -174,94 +254,73 @@ export class AppServerClient {
     );
   }
 
+  async listModels(params: ModelListParams = {}): Promise<ModelListResult> {
+    return this.action("model/list", ModelListParamsSchema, params, ModelListResultSchema);
+  }
+
+  async readModelProviderCapabilities(
+    params: ModelProviderCapabilitiesParams = {},
+  ): Promise<ModelProviderCapabilitiesResult> {
+    return this.action(
+      "modelProvider/capabilities/read",
+      ModelProviderCapabilitiesParamsSchema,
+      params,
+      ModelProviderCapabilitiesResultSchema,
+    );
+  }
+
+  async readConfig(params: ConfigReadParams = {}): Promise<ConfigReadResult> {
+    return this.action("config/read", ConfigReadParamsSchema, params, ConfigReadResultSchema);
+  }
+
+  async listPermissionProfiles(
+    params: PermissionProfileListParams = {},
+  ): Promise<PermissionProfileListResult> {
+    return this.action(
+      "permissionProfile/list",
+      PermissionProfileListParamsSchema,
+      params,
+      PermissionProfileListResultSchema,
+    );
+  }
+
   async call(method: string, params: JsonValue = {}): Promise<JsonValue> {
-    switch (method) {
-      case "initialize":
-        return await this.initialize(
-          checked(InitializeParamsSchema, params, "initialize parameters"),
-        );
-      case "thread/start":
-        return await this.action(
-          "thread/start",
-          ThreadStartParamsSchema,
-          params,
-          ThreadStartResultSchema,
-        );
-      case "thread/resume":
-        return await this.action(
-          "thread/resume",
-          ThreadResumeParamsSchema,
-          params,
-          ThreadResumeResultSchema,
-        );
-      case "thread/read":
-        return await this.action(
-          "thread/read",
-          ThreadReadParamsSchema,
-          params,
-          ThreadReadResultSchema,
-        );
-      case "thread/list":
-        return await this.action(
-          "thread/list",
-          ThreadListParamsSchema,
-          params,
-          ThreadListResultSchema,
-        );
-      case "thread/fork":
-        return await this.action(
-          "thread/fork",
-          ThreadForkParamsSchema,
-          params,
-          ThreadForkResultSchema,
-        );
-      case "turn/start":
-        return await this.action(
-          "turn/start",
-          TurnStartParamsSchema,
-          params,
-          TurnStartResultSchema,
-        );
-      case "turn/interrupt":
-        return await this.action(
-          "turn/interrupt",
-          TurnInterruptParamsSchema,
-          params,
-          TurnInterruptResultSchema,
-        );
-      default:
-        throw new CodexError("method_unsupported", `Unsupported App Server method: ${method}.`, {
-          method,
-        });
+    if (method === "initialize") {
+      const result = await this.initialize(
+        checked(InitializeParamsSchema, params, "initialize parameters"),
+      );
+      return checked(JsonValueSchema, result, "initialize result");
     }
+    const request = checked(JsonRpcRequestSchema, { id: 1, method, params }, "App Server method");
+    if (!SUPPORTED_METHODS.has(request.method)) {
+      throw new CodexError("method_unsupported", `Unsupported App Server method: ${method}.`, {
+        method,
+      });
+    }
+    return this.request(request.method, request.params === undefined ? {} : request.params);
   }
 
   async close(): Promise<void> {
-    if (this.closed) {
-      return;
-    }
-    this.closed = true;
-    const error = new CodexError("closed", "The App Server client is closed.");
-    this.rejectPending(error);
-    await this.transport.close();
+    await this.closeWithError(new CodexError("closed", "The App Server client is closed."));
   }
 
   private async performInitialize(params: InitializeParams): Promise<InitializeResult> {
     try {
-      const result = await this.request("initialize", params);
+      const result = await this.request(
+        "initialize",
+        checked(JsonValueSchema, params, "initialize parameters"),
+      );
       const initializeResult = checked(InitializeResultSchema, result, "initialize result");
-      const initializedNotification = { jsonrpc: "2.0", method: "initialized" } as const;
-      const validatedNotification = checked(
+      const initializedNotification = checked(
         InitializedNotificationSchema,
-        initializedNotification,
+        GENERATED_INITIALIZED_NOTIFICATION,
         "initialized notification",
       );
-      await this.transport.writeLine(JSON.stringify(validatedNotification));
+      await this.transport.writeLine(JSON.stringify(initializedNotification));
       this.initialized = true;
       return initializeResult;
     } catch (error: unknown) {
-      this.closed = true;
-      this.rejectPending(
+      const failureError =
         error instanceof CodexError
           ? error
           : new CodexError(
@@ -269,23 +328,19 @@ export class AppServerClient {
               "The initialize handshake failed.",
               {},
               { cause: error },
-            ),
-      );
-      await this.transport.close().catch(() => undefined);
-      throw error;
+            );
+      await this.closeWithError(failureError);
+      throw failureError;
     }
   }
 
-  private async action<T>(
+  private async action<P, T>(
     method: string,
-    paramsSchema: (input: unknown) => unknown,
-    params: unknown,
-    resultSchema: (input: unknown) => T | InstanceType<typeof type.errors>,
+    paramsSchema: Schema.Schema<P>,
+    params: P,
+    resultSchema: Schema.Schema<T>,
   ): Promise<T> {
-    const validatedParams = paramsSchema(params);
-    if (validatedParams instanceof type.errors) {
-      throw invalidData(`${method} parameters`, params, validatedParams.summary);
-    }
+    const validatedParams = checked(paramsSchema, params, `${method} parameters`);
     const jsonParams = checked(JsonValueSchema, validatedParams, `${method} parameters`);
     const result = await this.request(method, jsonParams);
     return checked(resultSchema, result, `${method} result`);
@@ -299,34 +354,69 @@ export class AppServerClient {
         `The ${method} action requires an initialized App Server client.`,
       );
     }
-    if (!SUPPORTED_METHODS.has(method)) {
-      throw new CodexError("method_unsupported", `Unsupported App Server method: ${method}.`, {
-        method,
-      });
-    }
     this.startReader();
     const id = this.nextRequestId;
     this.nextRequestId += 1;
-    const request = { jsonrpc: "2.0", id, method, params };
-    const line = JSON.stringify(request);
+    const request = checked(JsonRpcRequestSchema, { id, method, params }, `${method} request`);
     return new Promise<JsonValue>((resolveRequest, rejectRequest) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let removeAbortListener: (() => void) | undefined;
+      const rejectOnce = (error: CodexError): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        this.pending.delete(id);
+        if (timer !== undefined) {
+          clearTimeout(timer);
+        }
+        removeAbortListener?.();
+        rejectRequest(error);
+      };
+      if (this.requestTimeoutMs !== undefined) {
+        timer = setTimeout(
+          () =>
+            rejectOnce(new CodexError("timeout", `The ${method} request timed out.`, { method })),
+          this.requestTimeoutMs,
+        );
+      }
+      if (this.signal) {
+        const abort = (): void =>
+          rejectOnce(
+            new CodexError("cancellation", `The ${method} request was cancelled.`, { method }),
+          );
+        this.signal.addEventListener("abort", abort, { once: true });
+        removeAbortListener = () => this.signal?.removeEventListener("abort", abort);
+      }
       const pending: PendingRequest = {
         method,
-        resolve: resolveRequest,
-        reject: rejectRequest,
+        resolve: (value) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          if (timer !== undefined) {
+            clearTimeout(timer);
+          }
+          removeAbortListener?.();
+          resolveRequest(value);
+        },
+        reject: rejectOnce,
+        ...(timer === undefined ? {} : { timer }),
+        ...(removeAbortListener === undefined ? {} : { removeAbortListener }),
       };
       this.pending.set(id, pending);
-      void this.transport.writeLine(line).catch((error: unknown) => {
-        this.pending.delete(id);
-        rejectRequest(
-          new CodexError(
-            "transport_failure",
-            "The App Server request could not be written.",
-            {},
-            {
-              cause: error,
-            },
-          ),
+      void this.transport.writeLine(JSON.stringify(request)).catch((error: unknown) => {
+        rejectOnce(
+          error instanceof CodexError
+            ? error
+            : new CodexError(
+                "transport_failure",
+                "The App Server request could not be written.",
+                {},
+                { cause: error },
+              ),
         );
       });
     });
@@ -334,105 +424,96 @@ export class AppServerClient {
 
   private startReader(): void {
     if (!this.readerPromise) {
-      this.readerPromise = this.readLoop();
+      this.readerPromise = this.readLoop()
+        .catch((error: unknown) => this.handleReaderFailure(error))
+        .catch(() => undefined);
     }
   }
 
   private async readLoop(): Promise<void> {
-    try {
-      while (!this.closed) {
-        const line = await this.transport.readLine();
-        if (line === null) {
-          if (!this.closed) {
-            throw new CodexError("transport_closed", "The App Server transport closed.");
-          }
-          return;
+    while (!this.closed) {
+      const line = await this.transport.readLine();
+      if (line === null) {
+        if (!this.closed) {
+          throw new CodexError("transport_closed", "The App Server transport closed.");
         }
-        if (new TextEncoder().encode(line).byteLength > this.maxLineBytes) {
-          throw new CodexError("invalid_transport_line", "An App Server line exceeded the limit.");
-        }
-        this.handleLine(line);
+        return;
       }
-    } catch (error: unknown) {
-      const failureError =
-        error instanceof CodexError
-          ? error
-          : new CodexError(
-              "transport_failure",
-              "The App Server transport failed.",
-              {},
-              {
-                cause: error,
-              },
-            );
-      this.rejectPending(failureError);
-      if (!this.closed) {
-        this.closed = true;
-        await this.transport.close().catch(() => undefined);
+      if (new TextEncoder().encode(line).byteLength > this.maxLineBytes) {
+        throw new CodexError("invalid_transport_line", "An App Server line exceeded the limit.");
       }
+      this.handleLine(line);
     }
+  }
+
+  private async handleReaderFailure(error: unknown): Promise<void> {
+    const failureError =
+      error instanceof CodexError
+        ? error
+        : new CodexError(
+            "transport_failure",
+            "The App Server transport failed.",
+            {},
+            { cause: error },
+          );
+    await this.closeWithError(failureError);
   }
 
   private handleLine(line: string): void {
     let parsed: unknown;
     try {
-      // JSON.parse is the receiving boundary; the value is immediately ArkType-validated.
       parsed = JSON.parse(line) as unknown;
     } catch (error: unknown) {
       throw new CodexError(
         "invalid_transport_line",
         "The App Server emitted invalid JSON.",
         {},
-        {
-          cause: error,
-        },
+        { cause: error },
       );
     }
 
-    const response = JsonRpcResponseSchema(parsed);
-    if (!(response instanceof type.errors)) {
+    const response = this.tryDecode(JsonRpcResponseSchema, parsed);
+    if (response !== undefined) {
       this.handleResponse(response);
       return;
     }
-    const notification = JsonRpcNotificationSchema(parsed);
-    if (!(notification instanceof type.errors)) {
+    const request = this.tryDecode(JsonRpcRequestSchema, parsed);
+    if (request !== undefined) {
+      this.handleServerRequest(request);
+      return;
+    }
+    const notification = this.tryDecode(JsonRpcNotificationSchema, parsed);
+    if (notification !== undefined) {
       this.handleNotification(notification);
       return;
     }
-    const request = JsonRpcRequestSchema(parsed);
-    if (!(request instanceof type.errors)) {
-      throw new CodexError(
-        "server_request_unsupported",
-        `The App Server sent an unsupported request: ${request.method}.`,
-        { method: request.method },
-      );
+    throw invalidData("JSON-RPC message", parsed);
+  }
+
+  private tryDecode<T>(schema: Schema.Schema<T>, input: unknown): T | undefined {
+    try {
+      return checked(schema, input, "JSON-RPC message");
+    } catch {
+      return undefined;
     }
-    throw invalidData("JSON-RPC message", parsed, response.summary);
   }
 
   private handleResponse(response: JsonRpcResponse): void {
-    if (response.id === null) {
-      throw new CodexError(
-        "unexpected_response",
-        "The App Server returned an uncorrelatable response id.",
-      );
-    }
     const pending = this.pending.get(response.id);
     if (!pending) {
       throw new CodexError(
         "unexpected_response",
         "The App Server returned an unknown request id.",
-        {
-          id: response.id,
-        },
+        { id: response.id },
       );
     }
     this.pending.delete(response.id);
     if ("error" in response) {
       const retryable = response.error.code === -32001;
+      const errorCode = serverErrorCode(pending.method);
       pending.reject(
         new CodexError(
-          "server_error",
+          errorCode,
           `The App Server rejected ${pending.method}: ${sanitizeText(response.error.message)}.`,
           {
             method: pending.method,
@@ -450,27 +531,136 @@ export class AppServerClient {
     pending.resolve(response.result);
   }
 
-  private handleNotification(notification: JsonRpcNotification): void {
-    if (notification.method === "turn/completed") {
-      const params = checked(
-        TurnCompletedNotificationSchema,
-        notification.params,
-        "turn/completed notification",
+  private handleServerRequest(request: JsonRpcRequest): void {
+    const params = request.params ?? {};
+    const serverRequest = checked(
+      ServerRequestSchema,
+      { ...request, params, category: classifyServerRequest(request.method) },
+      "server request",
+    );
+    this.emitNotification({ kind: "server_request", method: request.method, params });
+    const handlers = [...this.serverRequestHandlers];
+    if (handlers.length === 0) {
+      this.trackServerRequestTask(
+        this.writeServerError(request.id, -32601, `No handler for ${request.method}.`),
       );
-      const event: CodexNotification = {
-        kind: "turn_completed",
-        method: "turn/completed",
-        params,
-      };
-      this.emitNotification(event);
       return;
     }
-    const event: CodexNotification = {
+    const handler = handlers[0];
+    if (handler === undefined) {
+      this.trackServerRequestTask(
+        this.writeServerError(request.id, -32601, `No handler for ${request.method}.`),
+      );
+      return;
+    }
+    const work: ServerRequestWork = { active: true };
+    this.serverRequestWork.add(work);
+    let result: JsonValue | Promise<JsonValue>;
+    try {
+      result = handler(serverRequest);
+    } catch (error: unknown) {
+      this.completeServerRequest(work, () =>
+        this.writeServerError(request.id, -32000, sanitizeText(String(error))),
+      );
+      return;
+    }
+    if (result instanceof Promise) {
+      this.trackServerRequestTask(
+        result.then(
+          (value) =>
+            this.completeServerRequest(work, () =>
+              this.writeValidatedServerResult(request.id, value),
+            ),
+          (error: unknown) =>
+            this.completeServerRequest(work, () =>
+              this.writeServerError(request.id, -32000, sanitizeText(String(error))),
+            ),
+        ),
+      );
+      return;
+    }
+    this.completeServerRequest(work, () => this.writeValidatedServerResult(request.id, result));
+  }
+
+  private writeValidatedServerResult(id: RequestId, value: JsonValue): Promise<void> {
+    try {
+      const result = checked(ServerResponseSchema, value, "server response");
+      return this.writeServerResult(id, result);
+    } catch (error: unknown) {
+      return this.writeServerError(id, -32000, sanitizeText(String(error)));
+    }
+  }
+
+  private completeServerRequest(
+    work: ServerRequestWork,
+    createResponse: () => Promise<void>,
+  ): void {
+    if (!work.active) {
+      return;
+    }
+    work.active = false;
+    this.serverRequestWork.delete(work);
+    try {
+      this.trackServerRequestTask(createResponse());
+    } catch {
+      // The response task owns and observes asynchronous transport failures.
+    }
+  }
+
+  private trackServerRequestTask(task: Promise<void>): void {
+    const observed = task.catch(() => undefined);
+    this.serverRequestTasks.add(observed);
+    void observed.then(
+      () => this.serverRequestTasks.delete(observed),
+      () => this.serverRequestTasks.delete(observed),
+    );
+  }
+
+  private async writeServerResult(id: RequestId, result: JsonValue): Promise<void> {
+    const response = checked(JsonRpcResponseSchema, { id, result }, "server response");
+    await this.transport.writeLine(JSON.stringify(response));
+  }
+
+  private async writeServerError(id: RequestId, code: number, message: string): Promise<void> {
+    const response = checked(
+      JsonRpcResponseSchema,
+      { id, error: { code, message: TextSchemaValue(message) } },
+      "server error response",
+    );
+    await this.transport.writeLine(JSON.stringify(response));
+  }
+
+  private handleNotification(notification: {
+    readonly method: string;
+    readonly params?: JsonValue | undefined;
+  }): void {
+    const params = notification.params;
+    if (notification.method === GENERATED_TURN_COMPLETED_NOTIFICATION_METHOD) {
+      const completed = checked(
+        TurnCompletedNotificationSchema,
+        params,
+        "turn/completed notification",
+      );
+      this.emitNotification({
+        kind: "turn_completed",
+        method: notification.method,
+        params: completed,
+      });
+      return;
+    }
+    if (notification.method.includes("agent") || notification.method.includes("subagent")) {
+      this.emitNotification({
+        kind: "multi_agent",
+        method: notification.method,
+        ...(params === undefined ? {} : { params }),
+      });
+      return;
+    }
+    this.emitNotification({
       kind: "unknown",
       method: notification.method,
-      metadata: safeDetails({ params: sanitizeMetadata(notification.params) }),
-    };
-    this.emitNotification(event);
+      metadata: safeDetails({ params: sanitizeMetadata(params) }),
+    });
   }
 
   private emitNotification(notification: CodexNotification): void {
@@ -490,9 +680,50 @@ export class AppServerClient {
     this.pending.clear();
   }
 
+  private async closeWithError(error: CodexError): Promise<void> {
+    if (this.transportClosePromise !== undefined) {
+      await this.transportClosePromise;
+      return;
+    }
+    this.closed = true;
+    this.rejectPending(error);
+    for (const work of this.serverRequestWork) {
+      work.active = false;
+    }
+    this.serverRequestWork.clear();
+    this.serverRequestTasks.clear();
+    this.transportClosePromise = Promise.resolve()
+      .then(() => this.transport.close())
+      .catch(() => undefined);
+    await this.transportClosePromise;
+  }
+
   private ensureOpen(): void {
     if (this.closed) {
       throw new CodexError("closed", "The App Server client is closed.");
     }
   }
+}
+
+function TextSchemaValue(value: string): string {
+  const normalized = sanitizeText(value);
+  return normalized.length > 0 ? normalized : "server request failed";
+}
+
+function serverErrorCode(
+  method: string,
+): "approval_required" | "permission_denied" | "cancellation" | "turn_failed" | "server_error" {
+  if (GENERATED_PERMISSION_REQUEST_METHODS.some((candidate) => candidate === method)) {
+    return "permission_denied";
+  }
+  if (GENERATED_APPROVAL_REQUEST_METHODS.some((candidate) => candidate === method)) {
+    return "approval_required";
+  }
+  if (method === "turn/interrupt") {
+    return "cancellation";
+  }
+  if (method.startsWith("turn/")) {
+    return "turn_failed";
+  }
+  return "server_error";
 }

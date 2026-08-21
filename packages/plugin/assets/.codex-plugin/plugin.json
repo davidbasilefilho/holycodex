@@ -10,7 +10,17 @@
     "debugging",
     "context7-cli",
     "writing-for-agents",
-    "babysit-ci"
+    "babysit-ci",
+    "ast-grep",
+    "commit",
+    "compress",
+    "handoff",
+    "lsp-setup",
+    "lsp",
+    "plan-review",
+    "refactor",
+    "remove-slop",
+    "rules"
   ],
   "assets": [
     "agents/root.md",
@@ -18,5 +28,8 @@
     "agents/librarian.md",
     "agents/worker.md",
     "agents/reviewer.md"
-  ]
+  ],
+  "hooks": ["hooks/manifest.json"],
+  "rules": ["rules/manifest.json", "rules/holycodex.md"],
+  "compaction": ["compaction/manifest.json", "compaction/holycodex.md"]
 }

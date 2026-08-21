@@ -2,39 +2,42 @@
 
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { type } from "arktype";
+import * as Schema from "effect/Schema";
 import {
+  checked,
   CodexError,
   failure,
   invalidData,
   isPlainObject,
+  isValid,
   JsonValueSchema,
   success,
   TextSchema,
   type CodexResult,
 } from "./common";
 
-const PluginNameSchema = type(/^[a-z][a-z0-9._-]{1,63}$/u);
-const PluginVersionSchema = type(/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/u);
-const StringArraySchema = type("string[]");
+const PluginNameSchema = Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9._-]{1,63}$/u));
+const PluginVersionSchema = Schema.String.pipe(
+  Schema.pattern(/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/u),
+);
+const StringArraySchema = Schema.Array(Schema.String);
 
-export const OfficialPluginManifestSchema = type({
-  "+": "reject",
+export const OfficialPluginManifestSchema = Schema.Struct({
   name: PluginNameSchema,
   version: PluginVersionSchema,
   description: TextSchema,
-  "author?": JsonValueSchema,
-  "license?": TextSchema,
-  "homepage?": TextSchema,
-  "repository?": TextSchema,
-  "keywords?": StringArraySchema,
-  "skills?": StringArraySchema,
-  "commands?": StringArraySchema,
-  "hooks?": StringArraySchema,
-  "assets?": StringArraySchema,
-  "official?": "boolean",
+  author: Schema.optional(JsonValueSchema),
+  license: Schema.optional(TextSchema),
+  homepage: Schema.optional(TextSchema),
+  repository: Schema.optional(TextSchema),
+  keywords: Schema.optional(StringArraySchema),
+  skills: Schema.optional(StringArraySchema),
+  commands: Schema.optional(StringArraySchema),
+  hooks: Schema.optional(StringArraySchema),
+  assets: Schema.optional(StringArraySchema),
+  official: Schema.optional(Schema.Boolean),
 });
-export type OfficialPluginManifest = typeof OfficialPluginManifestSchema.infer;
+export type OfficialPluginManifest = typeof OfficialPluginManifestSchema.Type;
 
 export interface OfficialPluginVerification {
   readonly manifest: OfficialPluginManifest;
@@ -66,11 +69,10 @@ export function parseOfficialPluginManifest(input: unknown): CodexResult<Officia
       new CodexError("manifest_invalid", "HolyCodex-owned plugin payloads cannot declare MCP."),
     );
   }
-  const parsed = OfficialPluginManifestSchema(input);
-  if (parsed instanceof type.errors) {
-    return failure(invalidData("official plugin manifest", input, parsed.summary));
+  if (!isValid(OfficialPluginManifestSchema, input)) {
+    return failure(invalidData("official plugin manifest", input));
   }
-  return success(parsed);
+  return success(checked(OfficialPluginManifestSchema, input, "official plugin manifest"));
 }
 
 export function verifyOfficialPluginManifest(input: unknown): OfficialPluginVerification {
@@ -130,12 +132,11 @@ export async function verifyOfficialPluginManifestFile(
   return { ...verification, manifestPath };
 }
 
-export const OfficialPluginSelectionSchema = type({
-  "+": "reject",
+export const OfficialPluginSelectionSchema = Schema.Struct({
   id: PluginNameSchema,
-  selected: "true",
+  selected: Schema.Literal(true),
 });
-export type OfficialPluginSelection = typeof OfficialPluginSelectionSchema.infer;
+export type OfficialPluginSelection = typeof OfficialPluginSelectionSchema.Type;
 
 export function selectOfficialPlugins(
   available: readonly OfficialPluginManifest[],
@@ -145,10 +146,11 @@ export function selectOfficialPlugins(
   const output: OfficialPluginVerification[] = [];
   const seen = new Set<string>();
   for (const selection of selections) {
-    const parsedSelection = OfficialPluginSelectionSchema(selection);
-    if (parsedSelection instanceof type.errors) {
-      throw invalidData("official plugin selection", selection, parsedSelection.summary);
-    }
+    const parsedSelection = checked(
+      OfficialPluginSelectionSchema,
+      selection,
+      "official plugin selection",
+    );
     if (seen.has(parsedSelection.id)) {
       throw new CodexError("manifest_invalid", "An official plugin was selected more than once.", {
         id: parsedSelection.id,

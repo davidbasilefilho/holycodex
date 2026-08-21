@@ -4,6 +4,7 @@ import { canonicalJson } from "@holycodex/core";
 import {
   RefinementProposalSchema,
   WORKFLOW_HOST_SCHEMA_EPOCHS,
+  decodeHostSchema,
   type Refinement,
   type RefinementProposal,
 } from "./schemas.ts";
@@ -12,7 +13,6 @@ import {
   asJsonValue,
   assertIdentifier,
   assertInputIdentity,
-  isArkErrors,
   now,
   randomId,
   safeText,
@@ -48,8 +48,8 @@ export async function createRefinement(
   }
   const args = asJsonValue(input.args, "refinement args");
   await assertInputIdentity(loaded.snapshot.definition, input.source, args);
-  const proposal = RefinementProposalSchema(input.proposal);
-  if (isArkErrors(proposal)) {
+  const proposal = decodeHostSchema(RefinementProposalSchema, input.proposal);
+  if (proposal === undefined) {
     throw new WorkflowHostError("invalid_input", "The refinement proposal is invalid.");
   }
   const sanitizedProposal: RefinementProposal = {

@@ -3,14 +3,15 @@
 import { readFile, readdir, lstat, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { verifyPayload } from "@holycodex/plugin";
-import { type JsonObject } from "@holycodex/core";
+import type { JsonObject } from "@holycodex/core";
 import { FileRunStore } from "@holycodex/workflow-host";
 import {
   InstallJournalRecordSchema,
+  appendJournal,
   readActiveInstallRecord,
   verifyActivation,
 } from "./installer.ts";
-import { type } from "arktype";
+import { acquireInstallLock, type LockLease } from "./lock.ts";
 import {
   findManagedEntry,
   managedEntryMatches,
@@ -19,11 +20,14 @@ import {
 } from "./marketplace.ts";
 import {
   assertNoSymlink,
+  assertNoSymlinkTree,
   isFsCode,
   pathWithin,
   resolveInstallerPaths,
   type ResolvedInstallerPaths,
 } from "./paths.ts";
+import { decodeSchema } from "./schema.ts";
+import { inspectLegacyState } from "./migration.ts";
 import { StorageError } from "./storage.ts";
 import type {
   CleanupResult,
@@ -40,6 +44,19 @@ export async function doctorHolyCodex(
 ): Promise<DoctorResult> {
   const paths = resolveInstallerPaths(options, environment);
   const checks: Record<string, DoctorCheck> = {};
+  try {
+    await assertNoSymlinkTree(paths.codexHome);
+    await assertNoSymlinkTree(paths.marketplaceRoot);
+    await assertNoSymlinkTree(paths.stateRoot);
+  } catch (error: unknown) {
+    checks["paths"] = failedCheck(["path_symlink"], { error: safeMessage(error) });
+    return {
+      healthy: false,
+      checks,
+      reasons: ["path_symlink"],
+      inactive_artifacts: [],
+    };
+  }
   let active: InstallRecord | undefined;
   try {
     active = await readActiveInstallRecord(paths);
@@ -48,6 +65,19 @@ export async function doctorHolyCodex(
       : failedCheck(["active_record_missing"]);
   } catch (error: unknown) {
     checks["state"] = failedCheck(["state_corrupt"], { error: safeMessage(error) });
+  }
+  try {
+    const migration = await inspectLegacyState(paths);
+    checks["migration"] =
+      migration.status === "quarantined"
+        ? failedCheck(["legacy_state_quarantined"], { target: migration.target_path })
+        : migration.source_paths.length > 0
+          ? warningCheck(["legacy_state_present"], { target: migration.target_path })
+          : healthyCheck({ target: migration.target_path });
+  } catch (error: unknown) {
+    checks["migration"] = failedCheck(["migration_state_corrupt"], {
+      error: safeMessage(error),
+    });
   }
   if (active) {
     const artifact = join(paths.marketplaceRoot, active.relative_path.slice(2));
@@ -136,6 +166,38 @@ export async function cleanupHolyCodex(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<CleanupResult> {
   const paths = resolveInstallerPaths(options, environment);
+  await assertNoSymlinkTree(paths.codexHome);
+  await assertNoSymlinkTree(paths.marketplaceRoot);
+  await assertNoSymlinkTree(paths.stateRoot);
+  if (input.yes === true) {
+    const now = options.now ?? (() => new Date());
+    const runId = options.runIdFactory?.() ?? `cleanup-${crypto.randomUUID()}`;
+    let lease: LockLease | undefined;
+    try {
+      lease = await acquireInstallLock(
+        paths,
+        {
+          ttlMs: options.lockTtlMs ?? 5 * 60 * 1000,
+          pid: options.pid ?? process.pid,
+          runId,
+          now,
+        },
+        async (details) => appendJournal(paths, runId, "lock-recovery", details, now),
+      );
+      return await cleanupHolyCodexUnlocked(scope, options, input, paths);
+    } finally {
+      await lease?.release();
+    }
+  }
+  return await cleanupHolyCodexUnlocked(scope, options, input, paths);
+}
+
+async function cleanupHolyCodexUnlocked(
+  scope: CleanupScope,
+  options: InstallerOptions,
+  input: Readonly<{ yes?: boolean; runId?: string }>,
+  paths: ResolvedInstallerPaths,
+): Promise<CleanupResult> {
   const preview = input.yes !== true;
   const removed: string[] = [];
   const preserved: string[] = [];
@@ -237,8 +299,8 @@ async function inspectJournal(paths: ResolvedInstallerPaths): Promise<DoctorChec
     let expectedSequence = 1;
     for (const line of lines) {
       const parsed: unknown = JSON.parse(line);
-      const record = InstallJournalRecordSchema(parsed);
-      if (record instanceof type.errors || record.sequence !== expectedSequence) {
+      const record = decodeSchema(InstallJournalRecordSchema, parsed);
+      if (record === undefined || record.sequence !== expectedSequence) {
         return failedCheck(["journal_corrupt"]);
       }
       expectedSequence += 1;

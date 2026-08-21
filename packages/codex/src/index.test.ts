@@ -3,7 +3,9 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSha256Digest } from "@holycodex/core";
+import { createSha256Digest, decodeUnknown } from "@holycodex/core";
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
 import { describe, expect, test } from "vite-plus/test";
 import {
   AppServerClient,
@@ -24,12 +26,16 @@ import {
   selectOfficialPlugins,
 } from "./index";
 import type { AsyncLineTransport } from "./index";
-import { type } from "arktype";
+
+function decode<T>(schema: Schema.Schema<T>, input: unknown): Either.Either<T, unknown> {
+  return decodeUnknown(schema, input);
+}
 
 type WriteHandler = (line: string) => void | Promise<void>;
 
 class FakeTransport implements AsyncLineTransport {
   readonly lines: string[] = [];
+  closeCount = 0;
   private readonly queued: string[] = [];
   private readonly waiters: Array<(line: string | null) => void> = [];
   private closed = false;
@@ -62,6 +68,7 @@ class FakeTransport implements AsyncLineTransport {
   }
 
   async close(): Promise<void> {
+    this.closeCount += 1;
     this.closed = true;
     for (const waiter of this.waiters.splice(0)) {
       waiter(null);
@@ -86,12 +93,20 @@ function requestFromLine(line: string): {
 }
 
 function response(id: number, result: unknown): unknown {
-  return { jsonrpc: "2.0", id, result };
+  return { id, result };
 }
 
 function errorResponse(id: number, code: number, message: string): unknown {
-  return { jsonrpc: "2.0", id, error: { code, message } };
+  return { id, error: { code, message } };
 }
+
+const initializeResult = {
+  userAgent: "codex-cli 0.148.0",
+  codexHome: "/tmp/codex",
+  platformFamily: "unix",
+  platformOs: "linux",
+  serverInfo: { name: "codex", version: "0.148.0" },
+};
 
 function createInitializedClient(
   handler: (
@@ -111,24 +126,29 @@ function createInitializedClient(
 
 describe("Codex App Server schemas", () => {
   test("validate JSON-RPC responses, notifications, and complete usage", () => {
-    expect(JsonRpcResponseSchema(response(1, { ok: true }))).not.toBeInstanceOf(type.errors);
-    expect(JsonRpcResponseSchema(errorResponse(1, -32001, "busy"))).not.toBeInstanceOf(type.errors);
+    expect(Either.isRight(decode(JsonRpcResponseSchema, response(1, { ok: true })))).toBe(true);
+    expect(Either.isRight(decode(JsonRpcResponseSchema, errorResponse(1, -32001, "busy")))).toBe(
+      true,
+    );
     expect(
-      JsonRpcNotificationSchema({
-        jsonrpc: "2.0",
-        method: "turn/started",
-        params: { threadId: "t" },
-      }),
-    ).not.toBeInstanceOf(type.errors);
+      Either.isRight(
+        decode(JsonRpcNotificationSchema, {
+          method: "turn/started",
+          params: { threadId: "t" },
+        }),
+      ),
+    ).toBe(true);
     expect(
-      SupportedUsageSchema({
-        inputTokens: 1,
-        cachedInputTokens: 0,
-        outputTokens: 2,
-        reasoningOutputTokens: 0,
-      }),
-    ).not.toBeInstanceOf(type.errors);
-    expect(SupportedUsageSchema({ inputTokens: 1 })).toBeInstanceOf(type.errors);
+      Either.isRight(
+        decode(SupportedUsageSchema, {
+          inputTokens: 1,
+          cachedInputTokens: 0,
+          outputTokens: 2,
+          reasoningOutputTokens: 0,
+        }),
+      ),
+    ).toBe(true);
+    expect(Either.isRight(decode(SupportedUsageSchema, { inputTokens: 1 }))).toBe(false);
   });
 
   test("require turn input while preserving inherited approval and sandbox fields", () => {
@@ -138,8 +158,8 @@ describe("Codex App Server schemas", () => {
       approvalPolicy: "on-request",
       sandboxPolicy: { type: "workspace-write" },
     };
-    expect(TurnStartParamsSchema(params)).toMatchObject(params);
-    expect(TurnStartParamsSchema({ threadId: "thread-1" })).toBeInstanceOf(type.errors);
+    expect(Either.isRight(decode(TurnStartParamsSchema, params))).toBe(true);
+    expect(Either.isRight(decode(TurnStartParamsSchema, { threadId: "thread-1" }))).toBe(false);
   });
 });
 
@@ -147,11 +167,11 @@ describe("AppServerClient", () => {
   test("performs initialize once and sends initialized after the result", async () => {
     const { client, transport } = createInitializedClient((fake, request) => {
       expect(request.method).toBe("initialize");
-      fake.enqueue(response(request.id, { serverInfo: { name: "codex", version: "1" } }));
+      fake.enqueue(response(request.id, initializeResult));
     });
 
     const result = await client.initialize();
-    expect(result.serverInfo?.name).toBe("codex");
+    expect(result.serverInfo?.["name"]).toBe("codex");
     expect(transport.lines).toHaveLength(2);
     expect(transport.lines[1]).toContain('"method":"initialized"');
     await expect(client.initialize()).resolves.toEqual(result);
@@ -162,11 +182,11 @@ describe("AppServerClient", () => {
     const events: unknown[] = [];
     const { client } = createInitializedClient((fake, request) => {
       if (request.method === "initialize") {
-        fake.enqueue(response(request.id, {}));
+        fake.enqueue(response(request.id, initializeResult));
         return;
       }
       if (request.method === "thread/start") {
-        fake.enqueue({ jsonrpc: "2.0", method: "thread/updated", params: { token: "secret" } });
+        fake.enqueue({ method: "thread/updated", params: { token: "secret" } });
         fake.enqueue(response(request.id, { thread: { id: "thread-1" } }));
         return;
       }
@@ -189,7 +209,7 @@ describe("AppServerClient", () => {
     const { client } = createInitializedClient((fake, request) => {
       methods.push(request.method);
       if (request.method === "initialize") {
-        fake.enqueue(response(request.id, {}));
+        fake.enqueue(response(request.id, initializeResult));
       } else if (request.method === "thread/list") {
         fake.enqueue(response(request.id, { threads: [{ id: "thread-1" }] }));
       } else if (request.method === "thread/read") {
@@ -198,6 +218,8 @@ describe("AppServerClient", () => {
         fake.enqueue(response(request.id, { turnId: "turn-1" }));
       } else if (request.method === "turn/interrupt") {
         fake.enqueue(response(request.id, { ok: true, turnId: "turn-1" }));
+      } else if (request.method === "thread/unsubscribe") {
+        fake.enqueue(response(request.id, { status: "unsubscribed" }));
       } else {
         fake.enqueue(response(request.id, { thread: { id: "thread-1" } }));
       }
@@ -208,6 +230,7 @@ describe("AppServerClient", () => {
     await client.readThread("thread-1");
     await client.listThreads();
     await client.forkThread("thread-1");
+    await client.unsubscribeThread("thread-1");
     await client.startTurn({ threadId: "thread-1", prompt: "continue" });
     await client.interruptTurn("thread-1", "turn-1");
     expect(methods).toEqual([
@@ -217,6 +240,7 @@ describe("AppServerClient", () => {
       "thread/read",
       "thread/list",
       "thread/fork",
+      "thread/unsubscribe",
       "turn/start",
       "turn/interrupt",
     ]);
@@ -227,7 +251,7 @@ describe("AppServerClient", () => {
     let overload = false;
     const { client } = createInitializedClient((fake, request) => {
       if (request.method === "initialize") {
-        fake.enqueue(response(request.id, {}));
+        fake.enqueue(response(request.id, initializeResult));
       } else if (overload) {
         fake.enqueue(errorResponse(request.id, -32001, "server busy"));
       } else {
@@ -245,6 +269,18 @@ describe("AppServerClient", () => {
     await client.close();
   });
 
+  test("bounds an unresponsive App Server request", async () => {
+    const { transport } = createInitializedClient((fake, request) => {
+      if (request.method === "initialize") {
+        fake.enqueue(response(request.id, initializeResult));
+      }
+    });
+    const timedClient = new AppServerClient(transport, { requestTimeoutMs: 25 });
+    await timedClient.initialize();
+    await expect(timedClient.startThread()).rejects.toMatchObject({ code: "timeout" });
+    await timedClient.close();
+  });
+
   test("fails bounded malformed lines and unsupported server requests", async () => {
     const transport = new FakeTransport();
     transport.onWrite = (line) => {
@@ -253,15 +289,16 @@ describe("AppServerClient", () => {
       }
       const request = requestFromLine(line);
       if (request.method === "initialize") {
-        transport.enqueue(response(request.id, {}));
+        transport.enqueue(response(request.id, initializeResult));
       }
     };
-    const client = new AppServerClient(transport, { maxLineBytes: 64 });
+    const client = new AppServerClient(transport, { maxLineBytes: 256 });
     await client.initialize();
     const action = client.startThread();
-    transport.enqueue("x".repeat(100));
+    transport.enqueue("x".repeat(300));
     await expect(action).rejects.toMatchObject({ code: "invalid_transport_line" });
     await client.close();
+    expect(transport.closeCount).toBe(1);
 
     const secondTransport = new FakeTransport();
     secondTransport.onWrite = (line) => {
@@ -270,17 +307,21 @@ describe("AppServerClient", () => {
       }
       const request = requestFromLine(line);
       if (request.method === "initialize") {
-        secondTransport.enqueue(response(request.id, {}));
+        secondTransport.enqueue(response(request.id, initializeResult));
       }
     };
     const secondClient = new AppServerClient(secondTransport);
     await secondClient.initialize();
-    await expect(secondClient.call("unsupported/method", {})).rejects.toMatchObject({
-      code: "method_unsupported",
+    await expect(secondClient.call("unsupported method", {})).rejects.toMatchObject({
+      code: "invalid_external_data",
     });
     const pending = secondClient.startThread();
-    secondTransport.enqueue({ jsonrpc: "2.0", id: 9, method: "server/request", params: {} });
-    await expect(pending).rejects.toMatchObject({ code: "server_request_unsupported" });
+    secondTransport.enqueue({ id: 9, method: "server/request", params: {} });
+    secondTransport.enqueue(response(2, { thread: { id: "thread-2" } }));
+    await expect(pending).resolves.toEqual({ thread: { id: "thread-2" } });
+    expect(secondTransport.lines).toContainEqual(
+      JSON.stringify({ id: 9, error: { code: -32601, message: "No handler for server/request." } }),
+    );
     await secondClient.close();
   });
 });
@@ -335,7 +376,7 @@ describe("Codex identity, configuration, and plugins", () => {
       version: "1.0.0",
       description: "An official tool",
     };
-    expect(OfficialPluginManifestSchema(manifest)).not.toBeInstanceOf(type.errors);
+    expect(Either.isRight(decode(OfficialPluginManifestSchema, manifest))).toBe(true);
     expect(parseOfficialPluginManifest({ ...manifest, mcpServers: {} }).ok).toBe(false);
     expect(selectOfficialPlugins([manifest], [])).toEqual([]);
     expect(selectOfficialPlugins([manifest], [{ id: "official-tool", selected: true }])).toEqual([

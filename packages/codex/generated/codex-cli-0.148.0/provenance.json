@@ -1,0 +1,29 @@
+{
+  "artifact_digest": "24436be19cd8ea368d18154da5d8354b9b6ce1671da1fb49e958a6341d3e7d7d",
+  "artifact_root": "packages/codex/generated/codex-cli-0.148.0",
+  "codex_cli": {
+    "path_observed": "/home/basile/.local/share/mise/installs/codex/latest/bin/codex",
+    "sha256": "ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074",
+    "version": "codex-cli 0.148.0"
+  },
+  "generator": {
+    "commands": [
+      ["app-server", "generate-ts", "--out", "<artifact-root>/typescript"],
+      ["app-server", "generate-json-schema", "--out", "<artifact-root>/json-schema"]
+    ],
+    "experimental": false,
+    "protocol_epoch": "codex-app-server-0.148.0",
+    "supported_surface": "codex app-server generators"
+  },
+  "files": {
+    "count": 943,
+    "typescript_root": "typescript",
+    "json_schema_root": "json-schema"
+  },
+  "capability_evidence": {
+    "multi_agent": "stable",
+    "multi_agent_v2": "disabled",
+    "generated_lifecycle": "unverified",
+    "selection_rule": "prefer v2 only when the server advertises it and the generated contract verifies a distinct lifecycle; local 0.148.0 evidence is unverified, so fail closed on v2 and use stable fallback"
+  }
+}

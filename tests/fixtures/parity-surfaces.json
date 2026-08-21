@@ -1,0 +1,25 @@
+{
+  "schema_epoch": "holycodex-parity-fixtures-1",
+  "normalization": "machine envelopes are compared after JSON decoding; paths and timestamps are never part of the expected value",
+  "surfaces": [
+    { "id": "cli-help", "owner": "cli", "expected": "success" },
+    { "id": "cli-version", "owner": "cli", "expected": "canonical-version" },
+    { "id": "cli-json-and-exits", "owner": "cli", "expected": "one-envelope" },
+    { "id": "workflow-lifecycle", "owner": "workflow-host", "expected": "durable-transition" },
+    { "id": "workflow-native-default", "owner": "cli", "expected": "native" },
+    {
+      "id": "workflow-compatibility-gate",
+      "owner": "workflow-runtime",
+      "expected": "explicit-only"
+    },
+    { "id": "v2-disabled-fallback", "owner": "codex", "expected": "stable-v1-fallback" },
+    { "id": "v2-unverified", "owner": "codex", "expected": "fail-closed" },
+    { "id": "capability-denied-enabled", "owner": "cli", "expected": "typed-port" },
+    { "id": "hooks-rules-compaction", "owner": "plugin", "expected": "manifest-assets" },
+    { "id": "lsp-platform-fixtures", "owner": "cli", "expected": "path-fixtures" },
+    { "id": "migration-recovery", "owner": "cli", "expected": "quarantine-or-resume" },
+    { "id": "packed-install-doctor-cleanup", "owner": "validation", "expected": "isolated" },
+    { "id": "babysit-ci", "owner": "workflow", "expected": "observation-only" },
+    { "id": "cutover-runbook", "owner": "release", "expected": "approval-gated" }
+  ]
+}

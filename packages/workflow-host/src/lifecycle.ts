@@ -4,14 +4,13 @@ import type { RouteKey, SpecialistOutcome } from "@holycodex/core";
 import {
   CheckpointSchema,
   InspectionProjectionSchema,
-  JournalEventSchema,
   RetainedContextIdentitySchema,
   RunSnapshotSchema,
   TelemetrySchema,
   WORKFLOW_HOST_SCHEMA_EPOCHS,
+  decodeHostSchema,
   type Checkpoint,
   type InspectionProjection,
-  type JournalEvent,
   type OperationLifecycle,
   type RetainedContextIdentity,
   type RunDefinition,
@@ -20,14 +19,7 @@ import {
   type Telemetry,
 } from "./schemas.ts";
 import { WorkflowHostError } from "./errors.ts";
-import {
-  isArkErrors,
-  MAX_PENDING_TEXT,
-  normalizeEpochs,
-  now,
-  safeText,
-  safeTextArray,
-} from "./identity.ts";
+import { MAX_PENDING_TEXT, normalizeEpochs, now, safeText, safeTextArray } from "./identity.ts";
 import type { CheckpointValues, HostContext, JournalInput } from "./types.ts";
 import type { StoredRun } from "./store.ts";
 
@@ -88,37 +80,48 @@ export async function appendEvent(
   runId: string,
   input: JournalInput,
 ): Promise<void> {
-  const sequence = (context.journalSequences.get(runId) ?? 0) + 1;
-  const base = {
-    schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCHS.journal,
-    run_id: runId,
-    sequence,
-    at: now(),
-  };
-  let event: JournalEvent;
-  switch (input.event) {
-    case "state-changed":
-      event = { ...base, ...input };
-      break;
-    case "operation":
-      event = { ...base, ...input };
-      break;
-    case "checkpoint":
-      event = { ...base, ...input };
-      break;
-    case "continuation-claimed":
-      event = { ...base, ...input };
-      break;
-    case "refinement":
-      event = { ...base, ...input };
-      break;
+  const appended = await context.store.appendJournalNext(runId, (sequence) => {
+    const base = {
+      schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCHS.journal,
+      run_id: runId,
+      sequence,
+      at: now(),
+    };
+    switch (input.event) {
+      case "state-changed":
+        return { ...base, ...input };
+      case "operation":
+        return { ...base, ...input };
+      case "checkpoint":
+        return { ...base, ...input };
+      case "continuation-claimed":
+        return { ...base, ...input };
+      case "refinement":
+        return { ...base, ...input };
+    }
+  });
+  context.journalSequences.set(runId, appended.sequence);
+}
+
+async function withLifecycleLock<T>(
+  context: HostContext,
+  runId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = context.lifecycleLocks.get(runId) ?? Promise.resolve();
+  const result = previous.catch(() => undefined).then(operation);
+  const next: Promise<void> = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  context.lifecycleLocks.set(runId, next);
+  try {
+    return await result;
+  } finally {
+    if (context.lifecycleLocks.get(runId) === next) {
+      context.lifecycleLocks.delete(runId);
+    }
   }
-  const parsed = JournalEventSchema(event);
-  if (isArkErrors(parsed)) {
-    throw new WorkflowHostError("state_corrupt", "The journal event is invalid.");
-  }
-  await context.store.appendJournal(runId, parsed);
-  context.journalSequences.set(runId, sequence);
 }
 
 export async function emitTelemetry(
@@ -133,8 +136,8 @@ export async function emitTelemetry(
     schema_epochs: normalizeEpochs(),
     ...input,
   };
-  const parsed = TelemetrySchema(event);
-  if (isArkErrors(parsed)) {
+  const parsed = decodeHostSchema(TelemetrySchema, event);
+  if (parsed === undefined) {
     return;
   }
   try {
@@ -150,46 +153,57 @@ export async function changeState(
   status: RunStatus,
   reason: string,
 ): Promise<RunSnapshot> {
-  if (snapshot.status === status) {
-    return snapshot;
-  }
-  const valid =
-    (snapshot.status === "created" && (status === "running" || status === "stopped")) ||
-    (snapshot.status === "reopened" && (status === "running" || status === "stopped")) ||
-    (snapshot.status === "paused" && (status === "running" || status === "stopped")) ||
-    (snapshot.status === "running" &&
-      (status === "paused" ||
-        status === "stopped" ||
-        status === "completed" ||
-        status === "failed" ||
-        status === "blocked")) ||
-    ((snapshot.status === "paused" || snapshot.status === "stopped") && status === "blocked") ||
-    (["completed", "failed", "stopped"].includes(snapshot.status) && status === "reopened") ||
-    (snapshot.status === "blocked" && status === "reopened");
-  if (!valid) {
-    throw new WorkflowHostError(
-      "run_state_invalid",
-      `The transition ${snapshot.status} -> ${status} is invalid.`,
-    );
-  }
-  await appendEvent(context, snapshot.definition.run_id, {
-    event: "state-changed",
-    from: snapshot.status,
-    to: status,
-    reason: safeText(reason),
+  return await withLifecycleLock(context, snapshot.definition.run_id, async () => {
+    const current = await loadRun(context, snapshot.definition.run_id);
+    if (current.snapshot.status === status) {
+      return current.snapshot;
+    }
+    const valid =
+      (current.snapshot.status === "created" && (status === "running" || status === "stopped")) ||
+      (current.snapshot.status === "reopened" && (status === "running" || status === "stopped")) ||
+      (current.snapshot.status === "paused" && (status === "running" || status === "stopped")) ||
+      (current.snapshot.status === "running" &&
+        (status === "paused" ||
+          status === "stopped" ||
+          status === "waiting_for_approval" ||
+          status === "completed" ||
+          status === "failed" ||
+          status === "blocked")) ||
+      (current.snapshot.status === "waiting_for_approval" &&
+        (status === "approved" || status === "denied" || status === "stopped")) ||
+      (current.snapshot.status === "approved" &&
+        (status === "running" || status === "completed" || status === "failed")) ||
+      (current.snapshot.status === "denied" && (status === "reopened" || status === "blocked")) ||
+      ((current.snapshot.status === "paused" || current.snapshot.status === "stopped") &&
+        status === "blocked") ||
+      (["completed", "failed", "stopped"].includes(current.snapshot.status) &&
+        status === "reopened") ||
+      (current.snapshot.status === "blocked" && status === "reopened");
+    if (!valid) {
+      throw new WorkflowHostError(
+        "run_state_invalid",
+        `The transition ${current.snapshot.status} -> ${status} is invalid.`,
+      );
+    }
+    await appendEvent(context, current.snapshot.definition.run_id, {
+      event: "state-changed",
+      from: current.snapshot.status,
+      to: status,
+      reason: safeText(reason),
+    });
+    const next: RunSnapshot = {
+      ...current.snapshot,
+      status,
+      revision: current.snapshot.revision + 1,
+      updated_at: now(),
+    };
+    const parsed = decodeHostSchema(RunSnapshotSchema, next);
+    if (parsed === undefined) {
+      throw new WorkflowHostError("state_corrupt", "The next run snapshot is invalid.");
+    }
+    await context.store.saveSnapshot(parsed);
+    return parsed;
   });
-  const next: RunSnapshot = {
-    ...snapshot,
-    status,
-    revision: snapshot.revision + 1,
-    updated_at: now(),
-  };
-  const parsed = RunSnapshotSchema(next);
-  if (isArkErrors(parsed)) {
-    throw new WorkflowHostError("state_corrupt", "The next run snapshot is invalid.");
-  }
-  await context.store.saveSnapshot(parsed);
-  return parsed;
 }
 
 export async function writeCheckpoint(
@@ -199,55 +213,72 @@ export async function writeCheckpoint(
   constraints: readonly string[],
   values: CheckpointValues,
 ): Promise<Checkpoint> {
-  const revision = snapshot.revision + 1;
-  const sequence = (context.journalSequences.get(snapshot.definition.run_id) ?? 0) + 1;
-  const checkpoint: Checkpoint = {
-    schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCHS.checkpoint,
-    run_id: snapshot.definition.run_id,
-    revision,
-    journal_sequence: sequence,
-    objective: safeText(objective, MAX_PENDING_TEXT),
-    constraints: safeTextArray(constraints),
-    decisions: safeTextArray(values.decisions),
-    verified_evidence: safeTextArray(values.verifiedEvidence),
-    phases: safeTextArray(values.phases),
-    active_work: safeTextArray(values.activeWork),
-    unresolved_work: safeTextArray(values.unresolvedWork),
-    blockers: safeTextArray(values.blockers),
-    verification: safeTextArray(values.verification),
-    resources: {},
-    retained_summaries: safeTextArray(values.retainedSummaries),
-    next_actions: safeTextArray(values.nextActions),
-    usage_completeness: values.usageCompleteness,
-    recoverable_errors: safeTextArray(values.recoverableErrors),
-    captured_at: now(),
-  };
-  const parsed = CheckpointSchema(checkpoint);
-  if (isArkErrors(parsed)) {
-    throw new WorkflowHostError("state_corrupt", "The checkpoint is invalid.");
-  }
-  await appendEvent(context, snapshot.definition.run_id, {
-    event: "checkpoint",
-    checkpoint: parsed,
+  return await withLifecycleLock(context, snapshot.definition.run_id, async () => {
+    const current = await loadRun(context, snapshot.definition.run_id);
+    const revision = current.snapshot.revision + 1;
+    let checkpoint: Checkpoint | undefined;
+    await context.store.appendJournalNext(snapshot.definition.run_id, (sequence) => {
+      const candidate: Checkpoint = {
+        schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCHS.checkpoint,
+        run_id: snapshot.definition.run_id,
+        revision,
+        journal_sequence: sequence,
+        objective: safeText(objective, MAX_PENDING_TEXT),
+        constraints: safeTextArray(constraints),
+        decisions: safeTextArray(values.decisions),
+        verified_evidence: safeTextArray(values.verifiedEvidence),
+        phases: safeTextArray(values.phases),
+        active_work: safeTextArray(values.activeWork),
+        unresolved_work: safeTextArray(values.unresolvedWork),
+        blockers: safeTextArray(values.blockers),
+        verification: safeTextArray(values.verification),
+        resources: {},
+        retained_summaries: safeTextArray(values.retainedSummaries),
+        next_actions: safeTextArray(values.nextActions),
+        usage_completeness: values.usageCompleteness,
+        recoverable_errors: safeTextArray(values.recoverableErrors),
+        captured_at: now(),
+      };
+      const parsed = decodeHostSchema(CheckpointSchema, candidate);
+      if (parsed === undefined) {
+        throw new WorkflowHostError("state_corrupt", "The checkpoint is invalid.");
+      }
+      checkpoint = parsed;
+      return {
+        schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCHS.journal,
+        event: "checkpoint" as const,
+        run_id: snapshot.definition.run_id,
+        sequence,
+        at: now(),
+        checkpoint: parsed,
+      };
+    });
+    if (checkpoint === undefined) {
+      throw new WorkflowHostError("state_corrupt", "The checkpoint was not persisted.");
+    }
+    const nextSnapshot: RunSnapshot = {
+      ...current.snapshot,
+      checkpoint,
+      revision,
+      updated_at: now(),
+    };
+    const parsedSnapshot = decodeHostSchema(RunSnapshotSchema, nextSnapshot);
+    if (parsedSnapshot === undefined) {
+      throw new WorkflowHostError("state_corrupt", "The checkpoint snapshot is invalid.");
+    }
+    await context.store.saveSnapshot(parsedSnapshot);
+    await emitTelemetry(context, {
+      event: "checkpoint",
+      run_id: snapshot.definition.run_id,
+      route: snapshot.definition.identity.route,
+      status: "written",
+      duration_ms: 0,
+      count: 1,
+      error_code: null,
+      replayed: false,
+    });
+    return checkpoint;
   });
-  const nextSnapshot: RunSnapshot = {
-    ...snapshot,
-    checkpoint: parsed,
-    revision,
-    updated_at: now(),
-  };
-  await context.store.saveSnapshot(nextSnapshot);
-  await emitTelemetry(context, {
-    event: "checkpoint",
-    run_id: snapshot.definition.run_id,
-    route: snapshot.definition.identity.route,
-    status: "written",
-    duration_ms: 0,
-    count: 1,
-    error_code: null,
-    replayed: false,
-  });
-  return parsed;
 }
 
 export function contextFromOperation(
@@ -276,8 +307,8 @@ export function contextFromOperation(
     ]),
     created_at: now(),
   };
-  const parsed = RetainedContextIdentitySchema(context);
-  if (isArkErrors(parsed)) {
+  const parsed = decodeHostSchema(RetainedContextIdentitySchema, context);
+  if (parsed === undefined) {
     throw new WorkflowHostError("state_corrupt", "The retained context identity is invalid.");
   }
   return parsed;
@@ -313,8 +344,8 @@ export async function inspect(
     integrity: loaded.snapshot.integrity,
     replayed,
   };
-  const parsed = InspectionProjectionSchema(projection);
-  if (isArkErrors(parsed)) {
+  const parsed = decodeHostSchema(InspectionProjectionSchema, projection);
+  if (parsed === undefined) {
     throw new WorkflowHostError("state_corrupt", "The inspection projection is invalid.");
   }
   return parsed;

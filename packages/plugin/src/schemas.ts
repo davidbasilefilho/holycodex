@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
+import { decodeUnknown } from "@holycodex/core";
 import { readPayloadFile, readSourceFile, assertSafePath, comparePathText } from "./source.ts";
 import {
   DIGEST_PATTERN,
@@ -14,120 +16,124 @@ import {
 import { pluginError } from "./errors.ts";
 import { normalizeRelativePath } from "./source.ts";
 
-const PluginNameSchema = type(PLUGIN_NAME_PATTERN);
-const SkillNameSchema = type(SKILL_NAME_PATTERN);
-const VersionSchema = type(VERSION_PATTERN);
-const SchemaEpochSchema = type(EPOCH_PATTERN);
-const DigestSchema = type(DIGEST_PATTERN);
-const PathSchema = type("string").narrow((value): value is string => {
-  try {
-    normalizeRelativePath(value);
-    return true;
-  } catch {
-    return false;
-  }
-});
-const DescriptionSchema = type("string").narrow(
-  (value): value is string => value.length > 0 && value.length <= 300,
+const PluginNameSchema = Schema.String.pipe(Schema.pattern(PLUGIN_NAME_PATTERN));
+const SkillNameSchema = Schema.String.pipe(Schema.pattern(SKILL_NAME_PATTERN));
+const VersionSchema = Schema.String.pipe(Schema.pattern(VERSION_PATTERN));
+const SchemaEpochSchema = Schema.String.pipe(Schema.pattern(EPOCH_PATTERN));
+const DigestSchema = Schema.String.pipe(Schema.pattern(DIGEST_PATTERN));
+const PathSchema = Schema.String.pipe(
+  Schema.filter((value) => {
+    try {
+      normalizeRelativePath(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }),
 );
-const SkillNamesSchema = type("string[]").narrow((value): value is string[] =>
-  value.every((skill) => !(SkillNameSchema(skill) instanceof type.errors)),
+const DescriptionSchema = Schema.String.pipe(
+  Schema.filter((value) => value.length > 0 && value.length <= 300),
 );
-const AssetPathsSchema = type("string[]").narrow((value): value is string[] =>
-  value.every((asset) => !(PathSchema(asset) instanceof type.errors)),
-);
+const SkillNamesSchema = Schema.Array(SkillNameSchema);
+const AssetPathsSchema = Schema.Array(PathSchema);
+const CapabilityAssetPathsSchema = Schema.Array(PathSchema);
 
-export const SourceManifestSchema = type({
-  "+": "reject",
+export const SourceManifestSchema = Schema.Struct({
   name: PluginNameSchema,
   description: DescriptionSchema,
-  "license?": "string",
-  "skills?": SkillNamesSchema,
-  "assets?": AssetPathsSchema,
+  license: Schema.optional(Schema.String),
+  skills: Schema.optional(SkillNamesSchema),
+  assets: Schema.optional(AssetPathsSchema),
+  hooks: Schema.optional(CapabilityAssetPathsSchema),
+  rules: Schema.optional(CapabilityAssetPathsSchema),
+  compaction: Schema.optional(CapabilityAssetPathsSchema),
 });
-export type SourceManifest = typeof SourceManifestSchema.infer;
+export type SourceManifest = typeof SourceManifestSchema.Type;
 
-export const GeneratedManifestSchema = type({
-  "+": "reject",
+export const GeneratedManifestSchema = Schema.Struct({
   name: PluginNameSchema,
   version: VersionSchema,
   description: DescriptionSchema,
-  "license?": "string",
-  "skills?": SkillNamesSchema,
-  "assets?": AssetPathsSchema,
+  license: Schema.optional(Schema.String),
+  skills: Schema.optional(SkillNamesSchema),
+  assets: Schema.optional(AssetPathsSchema),
+  hooks: Schema.optional(CapabilityAssetPathsSchema),
+  rules: Schema.optional(CapabilityAssetPathsSchema),
+  compaction: Schema.optional(CapabilityAssetPathsSchema),
 });
-export type GeneratedManifest = typeof GeneratedManifestSchema.infer;
+export type GeneratedManifest = typeof GeneratedManifestSchema.Type;
 export const SourcePluginManifestSchema = SourceManifestSchema;
 export const GeneratedPluginManifestSchema = GeneratedManifestSchema;
 export type GeneratedPluginManifest = GeneratedManifest;
 
-const PayloadFileSchema = type({
-  "+": "reject",
+const PayloadFileSchema = Schema.Struct({
   path: PathSchema,
-  size: "number.integer >= 0",
+  size: Schema.Number.pipe(Schema.filter((value) => Number.isSafeInteger(value) && value >= 0)),
   sha256: DigestSchema,
 });
-const PayloadFilesSchema = PayloadFileSchema.array();
-export type PayloadFile = typeof PayloadFileSchema.infer;
+const PayloadFilesSchema = Schema.Array(PayloadFileSchema);
+export type PayloadFile = typeof PayloadFileSchema.Type;
 
-export const PayloadIdentitySchema = type({
-  "+": "reject",
+export const PayloadIdentitySchema = Schema.Struct({
   version: VersionSchema,
   digest: DigestSchema,
   epoch: SchemaEpochSchema,
 });
-export type PayloadIdentity = typeof PayloadIdentitySchema.infer;
+export type PayloadIdentity = typeof PayloadIdentitySchema.Type;
 export type ArtifactIdentity = PayloadIdentity;
 
-export const PayloadManifestSchema = type({
-  "+": "reject",
+export const PayloadManifestSchema = Schema.Struct({
   schema_epoch: SchemaEpochSchema,
   version: VersionSchema,
   files: PayloadFilesSchema,
   payload_digest: DigestSchema,
   identity: PayloadIdentitySchema,
 });
-export type PayloadManifest = typeof PayloadManifestSchema.infer;
+export type PayloadManifest = typeof PayloadManifestSchema.Type;
 
-const AssemblyRequestSchema = type({
-  "+": "reject",
-  sourceRoot: type("string").narrow(isUsableDirectoryText),
-  stagingDirectory: type("string").narrow(isUsableDirectoryText),
+const AssemblyRequestSchema = Schema.Struct({
+  sourceRoot: Schema.String.pipe(Schema.filter(isUsableDirectoryText)),
+  stagingDirectory: Schema.String.pipe(Schema.filter(isUsableDirectoryText)),
   version: VersionSchema,
-  "schemaEpoch?": SchemaEpochSchema,
+  schemaEpoch: Schema.optional(SchemaEpochSchema),
 });
-export type AssemblyRequest = typeof AssemblyRequestSchema.infer;
+export type AssemblyRequest = typeof AssemblyRequestSchema.Type;
+
+export function decodeSchema<T>(schema: Schema.Schema<T>, input: unknown): T | undefined {
+  const parsed = decodeUnknown(schema, input);
+  return Either.isRight(parsed) ? parsed.right : undefined;
+}
 
 export function parseAssemblyRequest(input: unknown): AssemblyRequest {
-  const parsed = AssemblyRequestSchema(input);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeSchema(AssemblyRequestSchema, input);
+  if (parsed === undefined) {
     throw pluginError("source_invalid", "Assembly options are invalid.", {
-      summary: parsed.summary,
+      summary: "Effect Schema rejected the assembly options.",
     });
   }
   return parsed;
 }
 
 export function parseDirectoryText(input: unknown, field: string): string {
-  const parsed = type("string").narrow(isUsableDirectoryText)(input);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeSchema(Schema.String.pipe(Schema.filter(isUsableDirectoryText)), input);
+  if (parsed === undefined) {
     throw pluginError("source_invalid", `The ${field} path is invalid.`, { field });
   }
   return parsed;
 }
 
 export function parsePayloadLocation(input: unknown): string {
-  const direct = type("string").narrow(isUsableDirectoryText)(input);
-  if (!(direct instanceof type.errors)) {
+  const direct = decodeSchema(Schema.String.pipe(Schema.filter(isUsableDirectoryText)), input);
+  if (direct !== undefined) {
     return direct;
   }
-  const parsed = type({
-    "+": "reject",
-    stagingDirectory: type("string").narrow(isUsableDirectoryText),
-  })(input);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeSchema(
+    Schema.Struct({ stagingDirectory: Schema.String.pipe(Schema.filter(isUsableDirectoryText)) }),
+    input,
+  );
+  if (parsed === undefined) {
     throw pluginError("payload_invalid", "The payload location is invalid.", {
-      summary: parsed.summary,
+      summary: "Effect Schema rejected the payload location.",
     });
   }
   return parsed.stagingDirectory;
@@ -146,10 +152,10 @@ export async function readSourceManifest(root: string): Promise<SourceManifest> 
       error,
     );
   }
-  const parsed = SourceManifestSchema(input);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeSchema(SourceManifestSchema, input);
+  if (parsed === undefined) {
     throw pluginError("manifest_invalid", "The source plugin manifest is invalid.", {
-      summary: parsed.summary,
+      summary: "Effect Schema rejected the source manifest.",
     });
   }
   if (containsMcpDeclaration(input)) {
@@ -175,10 +181,10 @@ export async function readGeneratedManifest(root: string): Promise<GeneratedMani
       error,
     );
   }
-  const parsed = GeneratedManifestSchema(input);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeSchema(GeneratedManifestSchema, input);
+  if (parsed === undefined) {
     throw pluginError("payload_invalid", "The generated plugin manifest is invalid.", {
-      summary: parsed.summary,
+      summary: "Effect Schema rejected the generated manifest.",
     });
   }
   if (containsMcpDeclaration(input)) {
@@ -199,10 +205,10 @@ export async function readPayloadManifest(root: string): Promise<PayloadManifest
   } catch (error: unknown) {
     throw pluginError("payload_invalid", "The payload manifest is not valid JSON.", {}, error);
   }
-  const parsed = PayloadManifestSchema(input);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeSchema(PayloadManifestSchema, input);
+  if (parsed === undefined) {
     throw pluginError("payload_invalid", "The payload manifest is invalid.", {
-      summary: parsed.summary,
+      summary: "Effect Schema rejected the payload manifest.",
     });
   }
   const paths = parsed.files.map((file) => file.path);
@@ -221,11 +227,15 @@ export async function readPayloadManifest(root: string): Promise<PayloadManifest
 export function validateManifestDeclarations(manifest: SourceManifest | GeneratedManifest): void {
   const skills = manifest.skills ?? [];
   const assets = manifest.assets ?? [];
-  if (new Set(skills).size !== skills.length || new Set(assets).size !== assets.length) {
+  const hooks = manifest.hooks ?? [];
+  const rules = manifest.rules ?? [];
+  const compaction = manifest.compaction ?? [];
+  const declared = [...assets, ...hooks, ...rules, ...compaction];
+  if (new Set(skills).size !== skills.length || new Set(declared).size !== declared.length) {
     throw pluginError("manifest_invalid", "Manifest asset declarations must be unique.");
   }
   const seen = new Set<string>();
-  for (const asset of assets) {
+  for (const asset of declared) {
     const normalized = normalizeRelativePath(asset);
     if (normalized === SOURCE_MANIFEST_PATH || normalized === PAYLOAD_MANIFEST_PATH) {
       throw pluginError("manifest_invalid", "Generated metadata paths are reserved.", {
@@ -249,6 +259,14 @@ export function declaredSourcePaths(manifest: SourceManifest): Set<string> {
   for (const skill of manifest.skills ?? []) {
     paths.add(`skills/${skill}/SKILL.md`);
     paths.add(`skills/${skill}/agents/openai.yaml`);
+  }
+  for (const path of [
+    ...(manifest.assets ?? []),
+    ...(manifest.hooks ?? []),
+    ...(manifest.rules ?? []),
+    ...(manifest.compaction ?? []),
+  ]) {
+    paths.add(normalizeRelativePath(path));
   }
   return paths;
 }

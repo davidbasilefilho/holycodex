@@ -1,64 +1,89 @@
 # HolyCodex provenance ledger
 
-This document owns evidence admissibility and limitation claims. It is the
-single source for what may be treated as a supplied fact. Contract decisions
-are marked as decisions; they are not disguised as historical compatibility
-or official behavior.
+This document owns evidence admissibility, identity records, and limitation
+claims. Contract decisions are marked as decisions; they are not disguised as
+historical compatibility or live-provider facts.
 
-## Exact whitelist
+## Clean-room boundary
 
-The only admissible inputs for this clean-room foundation are:
+The only admissible inputs for this foundation are:
 
-1. The user-provided task specification and explicit completion criteria.
-2. Legacy HolyCodex README and high-level documentation, release notes, public
-   package metadata, and black-box output from a released artifact.
-3. Legacy tests interpreted only as descriptions of externally observable
-   inputs and outputs, never as implementation templates.
-4. Primary official Codex, dependency, tooling, and license documentation.
-5. Files authored on `next`, only for internal consistency checks rather than
-   evidence of historical behavior.
+1. The user-provided task specification, stable profile, and explicit
+   completion criteria.
+2. The expressly supplied official current-source dossier.
+3. Files authored in this repository, generated artifacts checked into this
+   repository, and repository-native tests or scripts, only to prove the
+   implementation and internal consistency.
 
-The assignment's stated official facts are admissible under item 1. A claim
-not stated by item 1 or item 2 is unknown. A design choice needed to make the
-requested independent foundation coherent is admissible as `D-*` contract
-decisions only when it is labeled as such.
+No claim is inferred from an unprovided historical implementation, remembered
+behavior, public summary, package name, or live provider. Network, package,
+plugin, MCP, and external repository material is not evidence unless the task
+context expressly admits it.
 
-## Exact denylist
+## Evidence classes
 
-The following are never admissible inputs, whether read directly, through a
-tool, through cache or history, by quotation, by comparison, or by adaptation:
+| ID     | Source class                                                            | Supports                                                                                                       | Does not support                                                                          |
+| ------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `P-01` | Task specification and stable profile                                   | Release scope, requested documents, clean-room rule, roles, values, capability limits, and completion criteria | Undocumented historical behavior or compatibility                                         |
+| `P-02` | Supplied official current-source dossier                                | Current Codex, toolchain, dependency, protocol, and license facts stated in the dossier                        | Live-provider availability or guarantees beyond the dossier                               |
+| `P-03` | Local implementation, generated provenance, and repository-native proof | Implemented behavior, deterministic fixtures, local validation, and checked-in identities                      | Canonical external clone, post-push Actions, publication, deployment, or external cutover |
+| `D-01` | Authored behavioral contract                                            | Observable choices required to make this foundation testable                                                   | Proof of an earlier product                                                               |
+| `D-02` | Authored architecture, security, installation, and cutover contracts    | Package ownership, trust boundaries, recovery, and approval-gated operations                                   | Authorization to perform an external mutation                                             |
 
-- legacy HolyCodex `.ts`, `.js`, `.mjs`, runtime or bundled source, prompts,
-  skills, hooks, agents, generated internal code, and history diffs;
-- any OmO or LazyCodex implementation material or derivative;
-- undocumented remembered behavior, unverified compatibility assumptions,
-  public summaries used as a substitute for the supplied dossier, or facts
-  inferred from a name alone;
-- network, package, plugin, MCP, or external repository material not
-  expressly admitted by the task context.
+The denylist is a boundary rather than a proof obligation. Historical source,
+history or diff, generated internal material from another project, undocumented
+compatibility assumptions, and unadmitted external material remain outside the
+clean-room input set.
 
-The denylist is a clean-room boundary, not a request to inspect or prove the
-absence of those materials.
+## Foundation identities
 
-## Ledger entries
+The parity matrix in [PARITY.md](PARITY.md) owns surface status. Package
+ownership remains in [ARCHITECTURE.md](ARCHITECTURE.md); dependency purpose and
+attribution remain in [DEPENDENCIES.md](DEPENDENCIES.md) and
+[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md).
 
-| ID     | Source class                                                                       | Supports                                                                                                                                                        | Does not support                                                               |
-| ------ | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `P-01` | Task specification and stable profile                                              | Independent clean-room release scope, requested documents, role/value names, clean-room rule, tool and licensing requirements, and completion gate stated there | Any undocumented prior implementation or compatibility claim                   |
-| `P-02` | Permitted legacy documentation, metadata, black-box output, and tests-as-contracts | Externally observable product behavior with exact source locator                                                                                                | Implementation structure, distinctive prose reuse, or undocumented internals   |
-| `P-03` | Primary official current documentation                                             | Current API, toolchain, and licensing facts with locator and access date                                                                                        | Guarantees beyond the cited official material                                  |
-| `D-01` | Authored behavioral contract                                                       | Observable choices for routing, state identities, failure, telemetry, and acceptance required to make the requested foundation testable                         | Proof that an earlier product behaved this way                                 |
-| `D-02` | Authored architecture/CLI/security contracts                                       | Intended package graph, wire envelope, threat model, and recovery boundary                                                                                      | Implemented availability, performance, security certification, or legal status |
+| Identity                 | Recorded value                                                                       | Evidence        | Reproduction or limitation                                                                                            |
+| ------------------------ | ------------------------------------------------------------------------------------ | --------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Clean-room base          | `682adea6d6cba374251152af612489126e9c64c1`                                           | `P-01`          | Assignment-provided SHA; repository-local consistency only                                                            |
+| Frozen behavioral oracle | `eb796235f2f29f2c67c869408a0e22c1a72c13eb`                                           | `P-01`          | Assignment-provided SHA; no historical source is admissible                                                           |
+| Public version           | Canonical `version` in `packages/cli/package.json`                                   | `P-01` / `D-02` | The manifest is the sole version authority                                                                            |
+| Bun                      | `1.4.x`, resolved `1.4.0`                                                            | `P-01` / `P-03` | `mise.toml`, root manifest, lockfile, and validation gate agree                                                       |
+| TypeScript               | `7.0.2`                                                                              | `P-01` / `P-03` | Checked-in lock entry and manifests                                                                                   |
+| Vite+                    | `0.2.9`                                                                              | `P-01` / `P-03` | Root manifest and lockfile                                                                                            |
+| Effect                   | `3.22.1`                                                                             | `P-01` / `P-03` | All workspace package manifests and source boundary scans use `effect/Schema`                                         |
+| Codex CLI                | `codex-cli 0.148.0`                                                                  | `P-01` / `P-03` | Executable SHA-256 `ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074`; observed path is host-specific |
+| Generated inventory      | 943 files, digest `24436be19cd8ea368d18154da5d8354b9b6ce1671da1fb49e958a6341d3e7d7d` | `P-03`          | Sorted path/size/SHA-256 inventory under `packages/codex/generated/codex-cli-0.148.0/`                                |
+| Protocol epoch           | `codex-app-server-0.148.0`                                                           | `P-02` / `P-03` | Checked-in generated provenance and protocol tests                                                                    |
+| `multi_agent_v2`         | Locally disabled; distinct generated lifecycle unverified                            | `P-01` / `P-03` | Advertised V2 fails closed; stable App Server fallback is executable                                                  |
 
-## Limitations
+## Generated artifact
 
-This ledger does not establish compatibility, authorship beyond the stated
-clean-room process, licensing status beyond the repository's license files,
-security certification, legal advice, performance, availability, or fitness
-for a purpose. It records an independently authored specification, not proof
-of a prior system. Missing dossier content remains unspecified; authors must
-raise a material ambiguity to Root rather than fill it with legacy knowledge.
+The checked-in artifact was produced with the exact Codex executable and these
+commands, using separate generated roots:
 
-Every future implementation change should preserve the relevant `P-*` or
-`D-*` classification, update the owning document, and link to it instead of
-copying its normative text.
+```sh
+codex app-server generate-ts --out <artifact-root>/typescript
+codex app-server generate-json-schema --out <artifact-root>/json-schema
+```
+
+`provenance.json` records the executable path, version, executable digest,
+commands, protocol epoch, capability evidence, file count, and inventory
+digest. `scripts/repository-proof.ts` re-derives the sorted file inventory and
+rejects a mismatch. The artifact is proof of the checked-in generated surface,
+not proof that a live provider exposes every generated capability.
+
+## Validation evidence and limits
+
+The completed local gate recorded 15 files and 98 tests, package smoke,
+artifact/provenance/architecture checks, dependency and license checks,
+fixture fresh-clone and dry-run checks, and `git diff --check`. Checked-in CI
+is configured for Ubuntu and Windows/Git Bash but post-push required-job
+evidence is pending until an approved push. A real canonical fresh clone and
+external repository cutover metadata are likewise pending. Trusted publishing
+is not configured; package publication, release publication, deployment,
+registry actions, and tags are excluded.
+
+Local proof does not establish legal advice, security certification,
+performance, availability, compatibility with an unrecorded provider, or
+fitness for a purpose. Subsequent changes must update the owning document and
+evidence class instead of copying a claim into another owner.

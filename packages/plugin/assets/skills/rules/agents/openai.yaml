@@ -1,0 +1,6 @@
+interface:
+  display_name: "Rules"
+  short_description: "Trace repository rule discovery, validation, and application failures."
+  default_prompt: "Inspect the assigned rule seam and return exact behavior, limits, and failure evidence."
+policy:
+  allow_implicit_invocation: true

@@ -87,7 +87,7 @@ export function transformWorkflowSource(source: string, maxSourceBytes: number):
   try {
     const transpiler = new Bun.Transpiler({ loader: "ts", target: "bun" });
     return transpiler.transformSync(
-      `globalThis.__workflow = async (args, runtime, agent, pipeline) => {\n${rewritten}\n};`,
+      `globalThis.__workflow = async (args, runtime, agent) => {\n${rewritten}\n};`,
     );
   } catch {
     throw sourceError("The workflow TypeScript source is invalid.");

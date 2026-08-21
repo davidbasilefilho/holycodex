@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, join, posix, resolve, sep, win32 } from "node:path";
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
 import type { InstallerOptions, InstallerPaths } from "./types.ts";
@@ -77,19 +77,27 @@ export class PathBoundaryError extends Error {
   }
 }
 
-export function assertRootText(value: string, label: string): string {
-  if (typeof value !== "string" || value.length === 0 || !isAbsolute(value)) {
+export function assertRootText(
+  value: string,
+  label: string,
+  platform: "posix" | "win32" = process.platform === "win32" ? "win32" : "posix",
+): string {
+  const api = platform === "win32" ? win32 : posix;
+  const candidate = normalizePlatformPath(value, platform);
+  if (typeof candidate !== "string" || candidate.length === 0 || !api.isAbsolute(candidate)) {
     throw new PathBoundaryError("invalid_path", `${label} must be an absolute path.`);
   }
-  const normalized = resolve(value);
-  const segments = normalized.split(sep).filter((segment) => segment.length > 0);
-  if (segments.length === 0 || normalized === dirname(normalized)) {
+  const normalized = api.normalize(candidate);
+  const segments = normalized
+    .split(platform === "win32" ? "\\" : sep)
+    .filter((segment) => segment.length > 0);
+  if (segments.length === 0 || normalized === api.dirname(normalized)) {
     throw new PathBoundaryError("broad_path", `${label} is too broad.`);
   }
-  if (value.split(/[\\/]/u).some((segment) => segment === "..")) {
+  if (candidate.split(/[\\/]/u).some((segment) => segment === "..")) {
     throw new PathBoundaryError("invalid_path", `${label} cannot contain traversal.`);
   }
-  return normalized;
+  return api.resolve(normalized);
 }
 
 export async function ensureOwnedDirectory(path: string): Promise<void> {
@@ -144,16 +152,28 @@ export async function assertNoSymlinkTree(path: string): Promise<void> {
   }
 }
 
-export function pathWithin(root: string, child: string): boolean {
-  const rootPath = resolve(root);
-  const childPath = resolve(child);
-  const remainder = relative(rootPath, childPath);
+export function pathWithin(
+  root: string,
+  child: string,
+  platform: "posix" | "win32" = process.platform === "win32" ? "win32" : "posix",
+): boolean {
+  const api = platform === "win32" ? win32 : posix;
+  const rootPath = api.resolve(normalizePlatformPath(root, platform));
+  const childPath = api.resolve(normalizePlatformPath(child, platform));
+  const remainder = api.relative(rootPath, childPath);
   return (
     remainder.length > 0 &&
-    !remainder.startsWith(`..${sep}`) &&
+    !remainder.startsWith(`..${platform === "win32" ? "\\" : sep}`) &&
     remainder !== ".." &&
-    !isAbsolute(remainder)
+    !api.isAbsolute(remainder)
   );
+}
+
+function normalizePlatformPath(value: string, platform: "posix" | "win32"): string {
+  if (platform === "win32" && /^\/[A-Za-z](?:\/|$)/u.test(value)) {
+    return `${value[1]?.toUpperCase() ?? ""}:${value.slice(2).replaceAll("/", "\\")}`;
+  }
+  return value;
 }
 
 export function isFsCode(error: unknown, code: string): boolean {

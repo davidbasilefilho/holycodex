@@ -3,9 +3,8 @@
 This document owns package placement and control/data flow. Observable
 behavior belongs to [BEHAVIOR.md](BEHAVIOR.md); CLI wire details belong to
 [CLI.md](CLI.md); security ownership belongs to [SECURITY.md](SECURITY.md).
-The graph is an intended foundation for an empty repository, so an
-implementation may combine packages only when it preserves these owners,
-interfaces, and dependency directions.
+The graph is the implemented package shape. A change may combine packages
+only when it preserves these owners, interfaces, and dependency directions.
 
 ## Package graph
 
@@ -23,12 +22,13 @@ packages/core
                          packages/cli
 ```
 
-`core` owns side-effect-free domain values, ArkType boundary schemas, IDs,
+`core` owns side-effect-free domain values, Effect Schema boundary schemas, IDs,
 errors, the plan catalog, route policy, limits, and identity encodings.
 `codex` owns App Server transport, exact-binary capability validation,
 project/trust identity, Codex configuration ownership, and official-plugin
-verification. `workflow-runtime` owns the isolated TypeScript evaluator and
-its inert workflow API; it owns no routing or host policy. `workflow-host`
+verification. `workflow-runtime` owns the production Effect workflow runtime,
+the isolated TypeScript evaluator, its inert workflow API, and the explicit
+QuickJS compatibility evaluator; it owns no routing or host policy. `workflow-host`
 owns orchestration, plan enforcement, journals, checkpoints, replay, retained
 specialists, continuation, refinements, and sanitized telemetry. `plugin` is
 private source and generation for independently authored installed assets.
@@ -40,14 +40,14 @@ dependencies.
 
 ## Ownership and interfaces
 
-| Concern                                 | Owner              | Stable interface                               |
-| --------------------------------------- | ------------------ | ---------------------------------------------- |
-| Domain, catalog, identities             | `core`             | ArkType schemas and immutable typed values     |
-| Codex transport and trust               | `codex`            | validated App Server and configuration ports   |
-| Untrusted workflow evaluation           | `workflow-runtime` | subprocess protocol and inert capability calls |
-| Orchestration and durable state         | `workflow-host`    | plan-enforced run lifecycle                    |
-| Installed Codex assets                  | `plugin`           | generated immutable payload                    |
-| Install/doctor/cleanup and presentation | `cli`              | user-facing commands and envelopes             |
+| Concern                                 | Owner              | Stable interface                                 |
+| --------------------------------------- | ------------------ | ------------------------------------------------ |
+| Domain, catalog, identities             | `core`             | Effect Schema schemas and immutable typed values |
+| Codex transport and trust               | `codex`            | validated App Server and configuration ports     |
+| Untrusted workflow evaluation           | `workflow-runtime` | subprocess protocol and inert capability calls   |
+| Orchestration and durable state         | `workflow-host`    | plan-enforced run lifecycle                      |
+| Installed Codex assets                  | `plugin`           | generated immutable payload                      |
+| Install/doctor/cleanup and presentation | `cli`              | user-facing commands and envelopes               |
 
 Only the owning package decides its concern. Callers consume explicit public
 exports and structured results; cross-package filesystem imports and cycles
@@ -60,7 +60,7 @@ the receiving edge. I/O remains in `codex`, `workflow-host`, and `cli`.
 CLI or App Server request
         |
         v
-ArkType boundary validation -> Root scope/policy decision
+Effect Schema boundary validation -> Root scope/policy decision
         |                              |
         |                              +-- denied -> structured failure, no effect
         v
@@ -72,7 +72,7 @@ plan and task-slot route -> bounded specialist assignment
         +------------------------------v
                  Root integration and final judgment
                          |
-                 authorized effect through typed port
+           pre-effect approval -> authorized typed port
                          |
         journal intent -> Bun runtime/installer -> journal result
                          |

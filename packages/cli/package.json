@@ -19,7 +19,7 @@
     "@jitl/quickjs-wasmfile-debug-sync": "0.32.0",
     "@jitl/quickjs-wasmfile-release-asyncify": "0.32.0",
     "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
-    "arktype": "^2.2.3",
+    "effect": "3.22.1",
     "quickjs-emscripten": "0.32.0",
     "quickjs-emscripten-core": "0.32.0",
     "typescript": "^7.0.0"

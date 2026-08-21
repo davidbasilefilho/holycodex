@@ -23,12 +23,13 @@ failure rather than an assumed success.
 
 ## Isolation and trust boundaries
 
-1. The CLI/App Server boundary accepts only ArkType-validated envelopes. The
-   caller supplies intent; it does not supply authorization, internal state,
-   specialist identity, or a trusted result.
+1. Every external, persisted, CLI, App Server, and specialist boundary accepts
+   only values validated with Effect Schema at the receiving edge. The caller
+   supplies intent; it does not supply authorization, internal state, specialist
+   identity, or a trusted result.
 2. Root owns scope, architecture, product, policy, permission, integration,
-   and final judgment. It accepts specialist evidence but does not delegate
-   those decisions.
+   pre-effect approval, and final judgment. Runtime owns deterministic workflow
+   mechanics; it cannot turn mechanics into permission.
 3. Explorer, Librarian, Worker, and Reviewer receive literal bounded
    assignments. Their outputs are untrusted until validated and integrated by
    Root. A Worker effect uses an approved typed port; a Reviewer cannot
@@ -49,6 +50,11 @@ failure rather than an assumed success.
 8. Optional Context7, LSP, Git Bash, Computer Use, Work, Web, and Security
    integrations are capability boundaries. Availability is not authority;
    each invocation is policy-checked and a denied capability remains denied.
+
+The checked-in Codex 0.148.0 artifact records stable multi-agent support,
+locally disabled `multi_agent_v2`, and an unverified distinct V2 lifecycle.
+Advertised V2 therefore fails closed and uses the stable App Server fallback;
+the generated contract does not claim a live provider.
 
 App Server runs as a managed local subprocess using its supported protocol. It
 inherits the active project, trust, approval, sandbox, and tool boundaries. A

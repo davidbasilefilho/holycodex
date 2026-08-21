@@ -1,0 +1,6 @@
+interface:
+  display_name: "Remove slop"
+  short_description: "Remove proven boilerplate or cruft from explicit changed files."
+  default_prompt: "Remove only proven cruft in the assigned changed files and report behavior proof."
+policy:
+  allow_implicit_invocation: true

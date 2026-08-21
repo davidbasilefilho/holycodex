@@ -1,0 +1,4 @@
+{
+  "schema_epoch": "plugin-rules-1",
+  "rules": ["rules/holycodex.md"]
+}

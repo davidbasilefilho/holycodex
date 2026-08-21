@@ -1,14 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { canonicalJson } from "@holycodex/core";
-import { IdentityComponentsSchema } from "./schemas.ts";
-import {
-  assertDigest,
-  assertIdentifier,
-  inputDigest,
-  isArkErrors,
-  normalizeProjectTrust,
-} from "./identity.ts";
+import { decodeHostSchema, IdentityComponentsSchema } from "./schemas.ts";
+import { assertDigest, assertIdentifier, inputDigest, normalizeProjectTrust } from "./identity.ts";
 import { inspect, list, loadRun } from "./lifecycle.ts";
 import type {
   HostContext,
@@ -24,9 +18,9 @@ export async function replay(
   admission: ReplayAdmission,
 ): Promise<ReplayDecision> {
   const loaded = await loadRun(context, runId);
-  const identity = IdentityComponentsSchema(admission.identity);
+  const identity = decodeHostSchema(IdentityComponentsSchema, admission.identity);
   if (
-    isArkErrors(identity) ||
+    identity === undefined ||
     canonicalJson(identity) !== canonicalJson(loaded.snapshot.definition.identity)
   ) {
     return {

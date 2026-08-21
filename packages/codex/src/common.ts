@@ -1,11 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
-import { canonicalJson, type JsonObject, type JsonValue } from "@holycodex/core";
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
+import {
+  canonicalJson,
+  CLI_SCHEMA_VERSION,
+  decodeUnknown,
+  type JsonObject,
+  type JsonValue,
+} from "@holycodex/core";
 
 export const packageName = "@holycodex/codex" as const;
-export const CODEX_PROTOCOL_VERSION = "0.15" as const;
-export const CODEX_CLIENT_VERSION = [CODEX_PROTOCOL_VERSION, "0"].join(".");
+export const CODEX_PROTOCOL_VERSION = "codex-cli-0.148.0" as const;
+export const CODEX_CLIENT_VERSION = CLI_SCHEMA_VERSION;
+export const CODEX_PROTOCOL_EPOCH = "codex-app-server-0.148.0" as const;
 export const DEFAULT_MAX_LINE_BYTES = 1024 * 1024;
 export const DEFAULT_MAX_DIAGNOSTIC_BYTES = 64 * 1024;
 
@@ -28,37 +36,110 @@ export function isJsonValue(value: unknown): value is JsonValue {
   }
 }
 
-export const JsonValueSchema = type("unknown").narrow((value): value is JsonValue =>
+export const JsonValueSchema = Schema.declare((value: unknown): value is JsonValue =>
   isJsonValue(value),
 );
-export const JsonObjectSchema = type("object").narrow(
-  (value): value is JsonObject => isPlainObject(value) && isJsonValue(value),
+export const JsonObjectSchema = Schema.declare(
+  (value: unknown): value is JsonObject => isPlainObject(value) && isJsonValue(value),
 );
-export const IdentifierSchema = type(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u);
-export const TextSchema = type("string").narrow(
-  (value): value is string => value.length > 0 && value.length <= 4096,
+export const IdentifierSchema = Schema.String.pipe(
+  Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u),
 );
-export const NonNegativeNumberSchema = type("number").narrow(
-  (value): value is number => Number.isFinite(value) && value >= 0,
+export const TextSchema = Schema.String.pipe(
+  Schema.filter((value) => value.length > 0 && value.length <= 4096),
+);
+export const NonNegativeNumberSchema = Schema.Number.pipe(
+  Schema.filter((value) => Number.isFinite(value) && value >= 0),
 );
 
 export type CodexErrorCode =
+  | "approval_required"
+  | "cancellation"
+  | "capability_unavailable"
   | "closed"
   | "discovery_failed"
   | "empty_output_directory"
+  | "execution_failed"
   | "invalid_external_data"
   | "invalid_project_root"
   | "invalid_transport_line"
   | "manifest_invalid"
   | "method_unsupported"
+  | "model_unsupported"
+  | "permission_denied"
+  | "protocol_mismatch"
+  | "route_incompatible"
   | "server_error"
   | "server_request_unsupported"
+  | "subprocess_failed"
+  | "timeout"
   | "transport_closed"
   | "transport_failure"
+  | "turn_failed"
   | "unexpected_response";
+
+export type CodexFailureKind =
+  | "approval"
+  | "capability"
+  | "closed"
+  | "identity"
+  | "interruption"
+  | "protocol"
+  | "route"
+  | "server"
+  | "subprocess"
+  | "timeout"
+  | "transport"
+  | "turn"
+  | "uncertain_effect"
+  | "validation";
+
+export function failureKind(code: CodexErrorCode): CodexFailureKind {
+  switch (code) {
+    case "invalid_external_data":
+    case "manifest_invalid":
+    case "invalid_project_root":
+    case "empty_output_directory":
+      return "validation";
+    case "discovery_failed":
+      return "identity";
+    case "protocol_mismatch":
+    case "method_unsupported":
+    case "server_request_unsupported":
+    case "unexpected_response":
+      return "protocol";
+    case "invalid_transport_line":
+    case "transport_closed":
+    case "transport_failure":
+      return "transport";
+    case "capability_unavailable":
+    case "model_unsupported":
+      return "capability";
+    case "route_incompatible":
+      return "route";
+    case "approval_required":
+    case "permission_denied":
+      return "approval";
+    case "cancellation":
+      return "interruption";
+    case "timeout":
+      return "timeout";
+    case "turn_failed":
+      return "turn";
+    case "execution_failed":
+      return "uncertain_effect";
+    case "subprocess_failed":
+      return "subprocess";
+    case "closed":
+      return "closed";
+    case "server_error":
+      return "server";
+  }
+}
 
 export class CodexError extends Error {
   readonly code: CodexErrorCode;
+  readonly kind: CodexFailureKind;
   readonly details: JsonObject;
   readonly retryable: boolean;
 
@@ -71,6 +152,7 @@ export class CodexError extends Error {
     super(message, options?.cause === undefined ? undefined : { cause: options.cause });
     this.name = "CodexError";
     this.code = code;
+    this.kind = failureKind(code);
     this.details = details;
     this.retryable = options?.retryable ?? false;
     Object.freeze(this.details);
@@ -149,14 +231,19 @@ export function invalidData(label: string, input: unknown, cause?: unknown): Cod
   );
 }
 
-export function checked<T>(
-  schema: (input: unknown) => T | InstanceType<typeof type.errors>,
-  input: unknown,
-  label: string,
-): T {
-  const parsed = schema(input);
-  if (parsed instanceof type.errors) {
-    throw invalidData(label, input, parsed.summary);
+export function checked<T>(schema: Schema.Schema<T>, input: unknown, label: string): T {
+  const parsed = decodeUnknown(schema, input);
+  if (Either.isLeft(parsed)) {
+    throw invalidData(label, input, String(parsed.left));
   }
-  return parsed;
+  return parsed.right;
+}
+
+export function isValid<T>(schema: Schema.Schema<T>, input: unknown): input is T {
+  try {
+    checked(schema, input, "value");
+    return true;
+  } catch {
+    return false;
+  }
 }

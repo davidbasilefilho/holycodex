@@ -1,27 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { lookupRoute, resolvePlanSelection } from "@holycodex/core";
+import * as Effect from "effect/Effect";
+import type { ExecutionPlan } from "@holycodex/workflow-runtime";
+import { compileHostWorkflow } from "./effect-runtime.ts";
 import {
   IdentityComponentsSchema,
   JournalEventSchema,
   RunSnapshotSchema,
   WORKFLOW_HOST_SCHEMA_EPOCHS,
+  decodeHostSchema,
   type IdentityComponents,
   type JournalEvent,
   type RunDefinition,
   type RunSnapshot,
+  type WorkflowDescriptor,
 } from "./schemas.ts";
 import { WorkflowHostError } from "./errors.ts";
-import { admit } from "./admission.ts";
+import { admit, effectiveCompileOptions } from "./admission.ts";
 import {
   asJsonValue,
   assertIdentifier,
   buildIdentity,
   DEFAULT_ROUTE,
-  isArkErrors,
   MAX_PENDING_TEXT,
   now,
   randomId,
+  jsonObject,
   safeText,
   safeTextArray,
 } from "./identity.ts";
@@ -70,17 +75,51 @@ export async function createRun(
   const expectedConcurrency = input.expectedConcurrency ?? 1;
   const expectedRetries = input.expectedRetries ?? 0;
   const expectedFanOut = input.expectedFanOut ?? 1;
-  admit(
+  const executionMode =
+    input.executionMode ??
+    (input.workflow === undefined
+      ? context.compatibilityEnabled
+        ? "compatibility"
+        : undefined
+      : "native");
+  if (executionMode === undefined) {
+    throw new WorkflowHostError(
+      "invalid_input",
+      "A native workflow terminal or explicit compatibility mode is required.",
+    );
+  }
+  if (executionMode === "native" && input.workflow === undefined) {
+    throw new WorkflowHostError(
+      "invalid_input",
+      "The native workflow execution path requires an immutable workflow terminal.",
+    );
+  }
+  if (executionMode === "compatibility" && expectedRetries > 0) {
+    throw new WorkflowHostError(
+      "retry_limit",
+      "Compatibility workflow retries are unsupported; use native workflow retries.",
+    );
+  }
+  const runId = randomId("run");
+  const compileOptions = effectiveCompileOptions(
     context,
     selection.value.plan,
-    estimatedCost,
-    expectedCalls,
-    expectedConcurrency,
-    expectedRetries,
-    expectedFanOut,
+    input.compileOptions ?? context.compileOptions,
   );
+  let compiledPlan: ExecutionPlan<unknown> | undefined;
+  if (input.workflow !== undefined) {
+    try {
+      compiledPlan = await Effect.runPromise(compileHostWorkflow(input.workflow, compileOptions));
+    } catch (error) {
+      throw new WorkflowHostError(
+        "invalid_input",
+        "The immutable workflow could not be compiled under the selected plan.",
+        {},
+        { cause: error },
+      );
+    }
+  }
 
-  const runId = randomId("run");
   const lineage = input.objectiveLineage ?? randomId("lineage");
   const parentRunId = input.parentRunId ?? null;
   const identity: IdentityComponents = await buildIdentity({
@@ -100,6 +139,22 @@ export async function createRun(
     created_at: now(),
     identity,
   };
+  const descriptor: WorkflowDescriptor = {
+    schema_epoch: "host-workflow-1.0",
+    execution_mode: executionMode,
+    source: input.source,
+    args,
+    objective,
+    constraints: safeTextArray(input.constraints),
+    ...(input.compileOptions === undefined
+      ? {}
+      : {
+          compile_options: jsonObject(
+            asJsonValue(input.compileOptions, "compile options"),
+            "compile options",
+          ),
+        }),
+  };
   const snapshot: RunSnapshot = {
     schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCHS.run,
     definition,
@@ -108,9 +163,10 @@ export async function createRun(
     checkpoint: null,
     integrity: "valid",
     updated_at: now(),
+    workflow: descriptor,
   };
-  const parsedSnapshot = RunSnapshotSchema(snapshot);
-  if (isArkErrors(parsedSnapshot)) {
+  const parsedSnapshot = decodeHostSchema(RunSnapshotSchema, snapshot);
+  if (parsedSnapshot === undefined) {
     throw new WorkflowHostError("invalid_input", "The run snapshot could not be formed.");
   }
   const event: JournalEvent = {
@@ -121,18 +177,35 @@ export async function createRun(
     at: now(),
     definition,
   };
-  const parsedEvent = JournalEventSchema(event);
-  if (isArkErrors(parsedEvent)) {
+  const parsedEvent = decodeHostSchema(JournalEventSchema, event);
+  if (parsedEvent === undefined) {
     throw new WorkflowHostError("invalid_input", "The run journal could not be formed.");
   }
-  await context.store.createRun(parsedSnapshot, parsedEvent);
+  const reservation = await admit(
+    context,
+    selection.value.plan,
+    estimatedCost,
+    expectedCalls,
+    expectedConcurrency,
+    expectedRetries,
+    expectedFanOut,
+    runId,
+  );
+  try {
+    await context.store.createRun(parsedSnapshot, parsedEvent);
+  } catch (error) {
+    await Effect.runPromise(reservation.release);
+    throw error;
+  }
   context.journalSequences.set(runId, 1);
-  context.reservations.set(runId, estimatedCost);
+  context.reservations.set(runId, reservation);
   context.pending.set(runId, {
     objective,
     constraints: safeTextArray(input.constraints),
+    ...(input.workflow === undefined ? {} : { workflow: input.workflow }),
+    ...(input.compileOptions === undefined ? {} : { compileOptions: input.compileOptions }),
+    ...(compiledPlan === undefined ? {} : { compiledPlan }),
   });
-  context.reservedCost += estimatedCost;
   await emitTelemetry(context, {
     event: "run",
     run_id: runId,
@@ -165,8 +238,8 @@ export async function createDerivedRun(
     integrity: "valid",
     updated_at: now(),
   };
-  const parsedSnapshot = RunSnapshotSchema(snapshot);
-  if (isArkErrors(parsedSnapshot)) {
+  const parsedSnapshot = decodeHostSchema(RunSnapshotSchema, snapshot);
+  if (parsedSnapshot === undefined) {
     throw new WorkflowHostError("invalid_input", "The derived run snapshot is invalid.");
   }
   const event: JournalEvent = {
@@ -177,8 +250,8 @@ export async function createDerivedRun(
     at: now(),
     definition,
   };
-  const parsedEvent = JournalEventSchema(event);
-  if (isArkErrors(parsedEvent)) {
+  const parsedEvent = decodeHostSchema(JournalEventSchema, event);
+  if (parsedEvent === undefined) {
     throw new WorkflowHostError("invalid_input", "The derived run journal is invalid.");
   }
   await context.store.createRun(parsedSnapshot, parsedEvent);
@@ -187,7 +260,6 @@ export async function createDerivedRun(
     objective: safeText(input.objective, MAX_PENDING_TEXT),
     constraints: safeTextArray(input.constraints),
   });
-  context.reservations.set(definition.run_id, 0);
   return definition;
 }
 
@@ -195,8 +267,8 @@ export function buildDerivedDefinition(
   parent: RunDefinition,
   identity: IdentityComponents = parent.identity,
 ): RunDefinition {
-  const parsedIdentity = IdentityComponentsSchema(identity);
-  if (isArkErrors(parsedIdentity)) {
+  const parsedIdentity = decodeHostSchema(IdentityComponentsSchema, identity);
+  if (parsedIdentity === undefined) {
     throw new WorkflowHostError("invalid_input", "The derived run identity is invalid.");
   }
   return {

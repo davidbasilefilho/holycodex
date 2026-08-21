@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+
+name: HolyCodex validation
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: validate (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: "1"
+      MSYS_NO_PATHCONV: "1"
+    steps:
+      - name: Check out the requested ref
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Activate mise and install the pinned toolchain
+        uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: false
+
+      - name: Verify the mise-resolved Bun version
+        run: mise exec -- bun --version
+
+      - name: Install the frozen workspace
+        run: mise exec -- bun install --frozen-lockfile
+
+      - name: Run the repository-native validation gate
+        run: mise exec -- bun run validate

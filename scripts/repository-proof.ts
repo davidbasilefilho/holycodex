@@ -1,0 +1,388 @@
+// SPDX-License-Identifier: Apache-2.0
+
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
+import { lstat, readFile, readdir } from "node:fs/promises";
+import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { canonicalJsonUtf8, domainSeparatedSha256 } from "../packages/core/src/canonical.ts";
+import { runChecked } from "./process.ts";
+
+const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const packageManifestPaths = [
+  "packages/core/package.json",
+  "packages/codex/package.json",
+  "packages/workflow-runtime/package.json",
+  "packages/workflow-host/package.json",
+  "packages/plugin/package.json",
+  "packages/cli/package.json",
+] as const;
+
+const ManifestSchema = Schema.Struct({
+  name: Schema.String.pipe(Schema.minLength(1)),
+  private: Schema.optional(Schema.Boolean),
+  version: Schema.optional(Schema.String),
+  packageManager: Schema.optional(Schema.String),
+  scripts: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  dependencies: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  devDependencies: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+});
+type Manifest = typeof ManifestSchema.Type;
+
+const AdapterInventorySchema = Schema.Struct({
+  schema_epoch: Schema.Literal("validation-effect-promise-adapters-1"),
+  entries: Schema.Array(
+    Schema.Struct({
+      path: Schema.String.pipe(Schema.minLength(1)),
+      markers: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
+      reason: Schema.String.pipe(Schema.minLength(1)),
+    }),
+  ),
+});
+
+const adapterInventoryPath = resolve(workspaceRoot, "tests/fixtures/effect-promise-adapters.json");
+
+const authoredCodeExtensions = new Set([".ts", ".yml", ".yaml"]);
+
+export interface RepositoryProof {
+  readonly checks: readonly string[];
+  readonly generatedArtifactDigest: string;
+  readonly generatedArtifactFiles: number;
+}
+
+export async function runRepositoryProof(): Promise<RepositoryProof> {
+  const rootManifest = await readManifest("package.json");
+  const mise = await readText("mise.toml");
+  const vite = await readText("vite.config.ts");
+  const lockfile = await readText("bun.lock");
+  const notices = await readText("THIRD-PARTY-NOTICES.md");
+  const workflowFiles = await listFiles(".github/workflows");
+
+  assert(rootManifest.packageManager === "bun@1.4.0", "root packageManager must resolve Bun 1.4.0");
+  assert(mise.includes('bun = "1.4"'), "mise must select the Bun 1.4 line");
+  assert(
+    rootManifest.scripts?.["validate"] === "bun scripts/validate.ts",
+    "validate must be the repository gate",
+  );
+  assert(!rootManifest.scripts?.["publish"], "the root scripts must not declare publication");
+  assert(!rootManifest.scripts?.["deploy"], "the root scripts must not declare deployment");
+  assert(!vite.includes("arktype"), "the pack configuration must not retain ArkType externals");
+  assert(!lockfile.includes("arktype"), "the lockfile must not retain ArkType packages");
+
+  const manifests = await Promise.all(packageManifestPaths.map((path) => readManifest(path)));
+  for (const manifest of manifests) {
+    const dependencies = { ...manifest.dependencies, ...manifest.devDependencies };
+    assert(!("arktype" in dependencies), `${manifest.name} must not depend on ArkType`);
+    assert(
+      !("@effect/schema" in dependencies),
+      `${manifest.name} must not depend on @effect/schema`,
+    );
+  }
+
+  const packageSources = await listFiles("packages");
+  for (const path of packageSources.filter((candidate) => candidate.startsWith("packages/"))) {
+    if (!path.endsWith(".ts") || path.includes("/generated/")) {
+      continue;
+    }
+    const source = await readText(path);
+    assert(
+      !/arktype|@effect\/schema/iu.test(source),
+      `${path} contains a forbidden validator artifact`,
+    );
+  }
+
+  const schemaOwners = [
+    "packages/core/src",
+    "packages/codex/src",
+    "packages/workflow-runtime/src",
+    "packages/workflow-host/src",
+    "packages/plugin/src",
+    "packages/cli/src",
+  ] as const;
+  for (const owner of schemaOwners) {
+    const source = (await listFiles(owner))
+      .filter((path) => path.endsWith(".ts") && !path.endsWith(".test.ts"))
+      .map((path) => readText(path));
+    const contents = (await Promise.all(source)).join("\n");
+    assert(
+      contents.includes('from "effect/Schema"'),
+      `${owner} must use Effect Schema at its boundary`,
+    );
+  }
+
+  const authoredFiles = (await listFiles("."))
+    .filter((path) => authoredCodeExtensions.has(extension(path)))
+    .filter(
+      (path) =>
+        path === "vite.config.ts" ||
+        path.startsWith("scripts/") ||
+        path.startsWith("tests/") ||
+        (path.startsWith("packages/") && path.includes("/src/")) ||
+        path.startsWith(".github/workflows/"),
+    )
+    .filter((path) => !isGeneratedOrTransient(path));
+  for (const path of authoredFiles) {
+    const content = await readText(path);
+    assert(
+      content.startsWith("// SPDX-License-Identifier: Apache-2.0") ||
+        content.startsWith("# SPDX-License-Identifier: Apache-2.0"),
+      `${path} is missing its SPDX header`,
+    );
+  }
+
+  const adapterInventory = await readAdapterInventory();
+  const inventoryPaths = new Set(adapterInventory.entries.map((entry) => entry.path));
+  const adapterMarkers = /Effect\.(?:runPromise|runPromiseExit|tryPromise)/u;
+  for (const path of packageSources.filter((candidate) => candidate.endsWith(".ts"))) {
+    if (path.endsWith(".test.ts") || path.includes("/generated/")) {
+      continue;
+    }
+    const source = await readText(path);
+    if (adapterMarkers.test(source)) {
+      assert(inventoryPaths.has(path), `${path} has an unreviewed Effect-to-Promise adapter`);
+    }
+  }
+  for (const entry of adapterInventory.entries) {
+    const source = await readText(entry.path);
+    for (const marker of entry.markers) {
+      assert(
+        source.includes(marker),
+        `${entry.path} no longer contains inventory marker ${marker}`,
+      );
+    }
+  }
+
+  assert(workflowFiles.length > 0, "at least one checked-in GitHub Actions workflow is required");
+  for (const path of workflowFiles) {
+    const workflow = await readText(path);
+    assert(workflow.includes("contents: read"), `${path} must use least-read permissions`);
+    assert(
+      !/\b(?:publish|deploy|trusted publishing)\b/iu.test(workflow),
+      `${path} declares an excluded external job`,
+    );
+    for (const action of workflow.matchAll(/uses:\s*([^\s#]+)/gu)) {
+      const reference = action[1] ?? "";
+      assert(
+        reference.startsWith("actions/checkout@") || reference.startsWith("jdx/mise-action@"),
+        `${path} uses an unapproved third-party action ${reference}`,
+      );
+      if (reference.startsWith("actions/checkout@")) {
+        assert(/@[0-9a-f]{40}$/u.test(reference), `${path} must pin checkout to an immutable SHA`);
+      }
+    }
+  }
+
+  assert(notices.includes("effect"), "third-party notices must include Effect attribution");
+  assert(
+    notices.includes("quickjs-emscripten"),
+    "third-party notices must include QuickJS attribution",
+  );
+
+  const generated = await verifyGeneratedArtifactPortable();
+  await runChecked(["git", "diff", "--check"], { cwd: workspaceRoot });
+  return {
+    checks: [
+      "dependency graph",
+      "Effect Schema ownership",
+      "SPDX headers",
+      "Effect-to-Promise adapter inventory",
+      "GitHub Actions shape",
+      "license notices",
+      "generated provenance and digest",
+      "clean diff whitespace",
+    ],
+    generatedArtifactDigest: generated.inventory.digest,
+    generatedArtifactFiles: generated.inventory.count,
+  };
+}
+
+const generatedArtifactRoot = resolve(workspaceRoot, "packages/codex/generated/codex-cli-0.148.0");
+const Sha256Schema = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
+const GeneratedProvenanceSchema = Schema.Struct({
+  artifact_digest: Sha256Schema,
+  artifact_root: Schema.Literal("packages/codex/generated/codex-cli-0.148.0"),
+  codex_cli: Schema.Struct({
+    path_observed: Schema.String.pipe(Schema.minLength(1)),
+    sha256: Sha256Schema,
+    version: Schema.Literal("codex-cli 0.148.0"),
+  }),
+  generator: Schema.Struct({
+    commands: Schema.Array(Schema.Array(Schema.String)),
+    experimental: Schema.Literal(false),
+    protocol_epoch: Schema.String.pipe(Schema.minLength(1)),
+    supported_surface: Schema.Literal("codex app-server generators"),
+  }),
+  capability_evidence: Schema.Struct({
+    multi_agent: Schema.Literal("stable"),
+    multi_agent_v2: Schema.Literal("disabled"),
+    generated_lifecycle: Schema.Literal("verified", "unverified"),
+    selection_rule: Schema.String.pipe(Schema.minLength(1)),
+  }),
+  files: Schema.Struct({
+    count: Schema.Number.pipe(Schema.int(), Schema.positive()),
+    typescript_root: Schema.Literal("typescript"),
+    json_schema_root: Schema.Literal("json-schema"),
+  }),
+});
+
+async function verifyGeneratedArtifactPortable(): Promise<{
+  readonly inventory: { readonly count: number; readonly digest: string };
+}> {
+  const provenanceRaw: unknown = JSON.parse(
+    await readFile(join(generatedArtifactRoot, "provenance.json"), "utf8"),
+  );
+  const parsed = Schema.decodeUnknownEither(GeneratedProvenanceSchema, {
+    onExcessProperty: "preserve",
+  })(provenanceRaw);
+  if (Either.isLeft(parsed)) {
+    throw new Error(`Generated artifact provenance is invalid: ${String(parsed.left)}`);
+  }
+  const files: Array<{ readonly path: string; readonly size: number; readonly sha256: string }> =
+    [];
+  const visit = async (directory: string): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const absolute = join(directory, entry.name);
+      const metadata = await lstat(absolute);
+      if (metadata.isSymbolicLink()) {
+        throw new Error("Generated artifacts may not contain symlinks.");
+      }
+      if (metadata.isDirectory()) {
+        await visit(absolute);
+        continue;
+      }
+      if (!metadata.isFile()) {
+        throw new Error("Generated artifacts contain a non-file entry.");
+      }
+      if (entry.name === "provenance.json") {
+        continue;
+      }
+      const relativePath = relative(generatedArtifactRoot, absolute).split("\\").join("/");
+      if (!relativePath.startsWith("typescript/") && !relativePath.startsWith("json-schema/")) {
+        throw new Error(`Generated artifact file is outside its declared roots: ${relativePath}`);
+      }
+      if (metadata.size <= 0 || metadata.size > 4 * 1024 * 1024) {
+        throw new Error(`Generated artifact file has an invalid size: ${relativePath}`);
+      }
+      const bytes = await readFile(absolute);
+      files.push({ path: relativePath, size: bytes.byteLength, sha256: await sha256(bytes) });
+    }
+  };
+  await visit(generatedArtifactRoot);
+  files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  const digest = await domainSeparatedSha256("codex-schema-output", [canonicalJsonUtf8(files)]);
+  if (files.length !== parsed.right.files.count || digest !== parsed.right.artifact_digest) {
+    throw new Error("Generated artifact provenance does not match its portable inventory digest.");
+  }
+  return { inventory: { count: files.length, digest } };
+}
+
+async function sha256(bytes: Uint8Array): Promise<string> {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const digest = await crypto.subtle.digest("SHA-256", copy.buffer);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function readAdapterInventory(): Promise<typeof AdapterInventorySchema.Type> {
+  const raw: unknown = JSON.parse(await readFile(adapterInventoryPath, "utf8"));
+  const parsed = Schema.decodeUnknownEither(AdapterInventorySchema, {
+    onExcessProperty: "error",
+  })(raw);
+  if (Either.isLeft(parsed)) {
+    throw new Error(`Effect-to-Promise adapter inventory is invalid: ${String(parsed.left)}`);
+  }
+  return parsed.right;
+}
+
+async function readManifest(path: string): Promise<Manifest> {
+  const raw: unknown = JSON.parse(await readFile(resolve(workspaceRoot, path), "utf8"));
+  const parsed = Schema.decodeUnknownEither(ManifestSchema)(raw);
+  if (Either.isLeft(parsed)) {
+    throw new Error(`${path} is invalid: ${String(parsed.left)}`);
+  }
+  return parsed.right;
+}
+
+async function readText(path: string): Promise<string> {
+  return await readFile(resolve(workspaceRoot, path), "utf8");
+}
+
+async function listFiles(path: string): Promise<readonly string[]> {
+  const absolute = resolve(workspaceRoot, path);
+  let entries;
+  try {
+    entries = await readdir(absolute, { withFileTypes: true });
+  } catch (error: unknown) {
+    if (isFsCode(error, "ENOENT")) {
+      return [];
+    }
+    throw error;
+  }
+  const files: string[] = [];
+  for (const entry of entries) {
+    const child = join(absolute, entry.name);
+    const relativePath = relative(workspaceRoot, child).split("\\").join("/");
+    if (entry.isDirectory()) {
+      if (!shouldSkipDirectory(relativePath)) {
+        files.push(...(await listFiles(relativePath)));
+      }
+    } else if (entry.isFile()) {
+      files.push(relativePath);
+    }
+  }
+  return files.sort();
+}
+
+function shouldSkipDirectory(path: string): boolean {
+  return (
+    path === ".git" ||
+    path === "node_modules" ||
+    path.startsWith(".git/") ||
+    path.startsWith("node_modules/") ||
+    path.startsWith("dist/") ||
+    path.startsWith("coverage/") ||
+    path.startsWith("tmp/") ||
+    path.startsWith("temp/") ||
+    path.startsWith(".vite/") ||
+    path.startsWith(".vp/")
+  );
+}
+
+function isGeneratedOrTransient(path: string): boolean {
+  return (
+    path === "bun.lock" ||
+    path.startsWith("node_modules/") ||
+    path.startsWith("packages/codex/generated/") ||
+    /^(?:dist|coverage|tmp|temp|scratch|out|build|\.git|\.vite|\.vp|\.cache)\//u.test(path)
+  );
+}
+
+function extension(path: string): string {
+  const index = path.lastIndexOf(".");
+  return index < 0 ? "" : path.slice(index);
+}
+
+function isFsCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
+}
+
+function assert(condition: boolean, message: string): asserts condition {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+if (import.meta.main) {
+  try {
+    const result = await runRepositoryProof();
+    console.log(JSON.stringify({ status: "verified", ...result }));
+  } catch (error: unknown) {
+    console.error(
+      JSON.stringify({
+        status: "failed",
+        message: error instanceof Error ? error.message : "repository proof failed",
+      }),
+    );
+    process.exitCode = 1;
+  }
+}

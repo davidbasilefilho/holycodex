@@ -1,0 +1,11 @@
+{
+  "schema_epoch": "plugin-hooks-1",
+  "hooks": [
+    {
+      "name": "holycodex-doctor",
+      "event": "install-complete",
+      "command": "holycodex doctor --json",
+      "mutates": false
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { lookupPlan, ServiceTierSchema } from "@holycodex/core";
-import { type } from "arktype";
 import type { ParsedCommand } from "./types.ts";
+import { AutonomySchema, decodeSchema } from "./schema.ts";
 
 const VALUE_OPTIONS = new Set([
   "codex-home",
@@ -13,6 +13,9 @@ const VALUE_OPTIONS = new Set([
   "run-id",
   "official-plugin",
   "task",
+  "autonomy",
+  "max-subagents",
+  "max-subagent",
 ]);
 const BOOLEAN_OPTIONS = new Set([
   "yes",
@@ -21,6 +24,7 @@ const BOOLEAN_OPTIONS = new Set([
   "dry-run",
   "follow",
   "trusted",
+  "compat-quickjs",
   "computer-use",
   "no-computer-use",
   "work",
@@ -29,6 +33,8 @@ const BOOLEAN_OPTIONS = new Set([
   "no-web",
   "security",
   "no-security",
+  "fast",
+  "no-tui",
 ]);
 
 export class ArgumentError extends Error {
@@ -47,6 +53,21 @@ export function parseArgv(argv: readonly string[]): ParsedCommand {
   if (argv.length === 0) {
     throw new ArgumentError("unknown_command", "A command is required.");
   }
+  if (argv.includes("-h") || argv.includes("--help") || argv.includes("--help=true")) {
+    return { command: "help", positionals: [], options: {} };
+  }
+  if (argv[0] === "help") {
+    return { command: "help", positionals: argv.slice(1), options: {} };
+  }
+  if (argv[0] === "-v") {
+    return parseArgv(["version", ...argv.slice(1)]);
+  }
+  if (argv[0] === "--version") {
+    return parseArgv(["version", ...argv.slice(1)]);
+  }
+  if (argv[0] === "--version=true") {
+    return parseArgv(["version", ...argv.slice(1)]);
+  }
   const [top, second, third, ...rest] = argv;
   if (
     top !== "install" &&
@@ -63,7 +84,7 @@ export function parseArgv(argv: readonly string[]): ParsedCommand {
     if (second === undefined || second.startsWith("-")) {
       throw new ArgumentError("unknown_command", "A workflow command is required.");
     }
-    commandParts.push(second);
+    commandParts.push(second === "continue" ? "continuation" : second);
     remainder = [third, ...rest].filter((value): value is string => value !== undefined);
     if (second === "refinement") {
       const refinement = remainder.shift();
@@ -110,19 +131,20 @@ export function parseArgv(argv: readonly string[]): ParsedCommand {
       if (inlineValue === undefined) {
         index += 1;
       }
-      if (normalizedName === "official-plugin") {
+      const canonicalName = normalizedName === "max-subagent" ? "max-subagents" : normalizedName;
+      if (canonicalName === "official-plugin") {
         const previous = options[normalizedName];
         const values = Array.isArray(previous) ? [...previous, value] : [value];
-        options[normalizedName] = values;
+        options[canonicalName] = values;
       } else {
-        if (options[normalizedName] !== undefined) {
+        if (options[canonicalName] !== undefined) {
           throw new ArgumentError(
             "invalid_argument",
             `Option --${name} may only be supplied once.`,
             { option: `--${name}` },
           );
         }
-        options[normalizedName] = value;
+        options[canonicalName] = value;
       }
       continue;
     }
@@ -170,8 +192,25 @@ function validateCommand(
     throw new ArgumentError("invalid_argument", "The plan is not supported.", { plan });
   }
   const tier = options["tier"];
-  if (typeof tier === "string" && ServiceTierSchema(tier) instanceof type.errors) {
+  if (typeof tier === "string" && decodeSchema(ServiceTierSchema, tier) === undefined) {
     throw new ArgumentError("invalid_argument", "The tier is not supported.", { tier });
+  }
+  const autonomy = options["autonomy"];
+  if (typeof autonomy === "string" && decodeSchema(AutonomySchema, autonomy) === undefined) {
+    throw new ArgumentError("invalid_argument", "The autonomy mode is not supported.", {
+      autonomy,
+    });
+  }
+  const maxSubagents = options["max-subagents"];
+  if (
+    typeof maxSubagents === "string" &&
+    (!/^\d+$/u.test(maxSubagents) ||
+      Number(maxSubagents) < 1 ||
+      !Number.isSafeInteger(Number(maxSubagents)))
+  ) {
+    throw new ArgumentError("invalid_argument", "The maximum specialist count is invalid.", {
+      max_subagents: maxSubagents,
+    });
   }
   if (
     options["scope"] !== undefined &&
@@ -182,6 +221,9 @@ function validateCommand(
     throw new ArgumentError("invalid_argument", "The cleanup scope is not supported.", {
       scope: String(options["scope"]),
     });
+  }
+  if (options["fast"] === true && options["tier"] !== undefined) {
+    throw new ArgumentError("invalid_argument", "Conflicting --fast and --tier options.");
   }
   if (command === "cleanup" && options["scope"] === undefined) {
     throw new ArgumentError("invalid_argument", "Cleanup requires --scope.");
@@ -224,6 +266,8 @@ function positionalRange(command: string): { readonly min: number; readonly max:
       return { min: 1, max: 1 };
     case "workflow resume":
       return { min: 2, max: 3 };
+    case "workflow continuation":
+      return { min: 2, max: 3 };
     case "workflow goal":
       return { min: 2, max: 2 };
     case "workflow stop-agent":
@@ -242,7 +286,7 @@ function positionalRange(command: string): { readonly min: number; readonly max:
 }
 
 function commandOptions(command: string): ReadonlySet<string> {
-  const common = ["json", "verbose"];
+  const common = ["json", "verbose", "no-tui"];
   switch (command) {
     case "install":
       return new Set([
@@ -252,6 +296,9 @@ function commandOptions(command: string): ReadonlySet<string> {
         "marketplace-root",
         "plan",
         "tier",
+        "fast",
+        "autonomy",
+        "max-subagents",
         "official-plugin",
         ...optionalChoiceOptions(),
       ]);
@@ -262,15 +309,27 @@ function commandOptions(command: string): ReadonlySet<string> {
     case "version":
       return new Set([...common, "dry-run"]);
     case "workflow run":
-      return new Set([...common, "task", "plan", "tier", "trusted"]);
+      return new Set([
+        ...common,
+        "task",
+        "plan",
+        "tier",
+        "fast",
+        "autonomy",
+        "max-subagents",
+        "trusted",
+        "compat-quickjs",
+      ]);
     case "workflow resume":
-      return new Set([...common, "trusted"]);
+      return new Set([...common, "trusted", "compat-quickjs"]);
+    case "workflow continuation":
+      return new Set([...common, "trusted", "compat-quickjs"]);
     case "workflow inspect":
       return new Set([...common, "follow"]);
     case "workflow save":
-      return new Set([...common, "trusted"]);
+      return new Set([...common, "trusted", "compat-quickjs"]);
     case "workflow invoke":
-      return new Set([...common, "trusted"]);
+      return new Set([...common, "trusted", "compat-quickjs"]);
     default:
       if (command.startsWith("workflow")) {
         return new Set(common);

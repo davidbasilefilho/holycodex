@@ -7,7 +7,17 @@ import { describe, expect, test } from "vite-plus/test";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const owningTopics = {
-  "README.md": ["package graph", "mise", "bun", "clean-room", "security"],
+  "README.md": [
+    "package graph",
+    "mise",
+    "bun",
+    "clean-room",
+    "security",
+    "native",
+    "compat-quickjs",
+    "capability_denied",
+    "migration",
+  ],
   "docs/INSTALLATION.md": [
     "content-addressed",
     "marketplace",
@@ -23,7 +33,7 @@ const owningTopics = {
   ],
   "docs/STATE.md": [
     "schema epoch",
-    "canonical identity",
+    "canonical identities",
     "journal",
     "checkpoint",
     "replay",
@@ -47,7 +57,7 @@ const owningTopics = {
     "bun",
     "vite+",
     "typescript",
-    "arktype",
+    "effect schema",
     "dependency direction",
     "clean-room",
     "test isolation",
@@ -70,10 +80,11 @@ const owningTopics = {
     "push",
     "tag",
     "publication",
-    "parentless",
+    "branch",
   ],
   "docs/DEPENDENCIES.md": [
-    "arktype",
+    "effect",
+    "effect schema",
     "quickjs",
     "vite-plus",
     "typescript",
@@ -81,12 +92,41 @@ const owningTopics = {
     "license",
     "source",
   ],
-  "THIRD-PARTY-NOTICES.md": ["arktype", "quickjs", "wasm", "development-only"],
+  "docs/PARITY.md": [
+    "clean-room base",
+    "frozen behavioral oracle",
+    "babysit-ci",
+    "admissible evidence",
+    "independent proof",
+  ],
+  "docs/DECISIONS.md": ["Effect Schema", "sole", "lock", "provenance", "fallback"],
+  "docs/CUTOVER.md": [
+    "preflight",
+    "authority",
+    "branch protection",
+    "issue",
+    "pull request",
+    "release",
+    "license",
+    "provenance",
+    "frozen",
+    "holycodex-legacy",
+    "holycodex-next",
+    "fresh clone",
+    "rollback",
+    "babysit-ci",
+  ],
+  "THIRD-PARTY-NOTICES.md": ["quickjs", "wasm", "development-only"],
 } as const;
 
 describe("documentation invariants", () => {
   test("keeps every local Markdown link resolvable", async () => {
-    const markdownFiles = await listMarkdownFiles(workspaceRoot);
+    const markdownFiles = [
+      "AGENTS.md",
+      "README.md",
+      "THIRD-PARTY-NOTICES.md",
+      ...(await listMarkdownFiles(resolve(workspaceRoot, "docs"), "docs")),
+    ];
 
     for (const relativePath of markdownFiles) {
       const content = await readFile(resolve(workspaceRoot, relativePath), "utf8");
@@ -106,9 +146,25 @@ describe("documentation invariants", () => {
     for (const [relativePath, topics] of Object.entries(owningTopics)) {
       const content = (await readFile(resolve(workspaceRoot, relativePath), "utf8")).toLowerCase();
       for (const topic of topics) {
-        expect(content).toContain(topic);
+        expect(content).toContain(topic.toLowerCase());
       }
     }
+    const files = [
+      "AGENTS.md",
+      "README.md",
+      "THIRD-PARTY-NOTICES.md",
+      ...(await listMarkdownFiles(resolve(workspaceRoot, "docs"), "docs")),
+    ];
+    for (const relativePath of files) {
+      const content = await readFile(resolve(workspaceRoot, relativePath), "utf8");
+      expect(content).not.toMatch(/arktype/iu);
+    }
+    const behavior = await readFile(resolve(workspaceRoot, "docs/BEHAVIOR.md"), "utf8");
+    const cli = await readFile(resolve(workspaceRoot, "docs/CLI.md"), "utf8");
+    expect(behavior).toContain("Native workflow-module execution is the production path");
+    expect(behavior).toContain("pre-effect approval");
+    expect(cli).toContain("--compat-quickjs");
+    expect(cli).toContain("capability_denied");
   });
 });
 

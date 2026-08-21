@@ -5,6 +5,7 @@ export type { JsonObject, JsonPrimitive, JsonValue, SafeDetails } from "./common
 
 export { CoreError } from "./errors.ts";
 export type { CoreErrorCode, CoreResult } from "./errors.ts";
+export { decodeUnknown } from "./schema.ts";
 
 export {
   createProjectId,

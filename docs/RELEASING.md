@@ -1,8 +1,10 @@
 # Releasing
 
-This document owns release versioning, generated reflections, CI release gates,
-provenance and license checks, and approval boundaries. Product behavior and
-CLI syntax remain in [BEHAVIOR.md](BEHAVIOR.md) and [CLI.md](CLI.md).
+This document owns release versioning, generated reflections, repository proof,
+CI validation, provenance and license checks, and approval boundaries. Product
+behavior and CLI syntax remain in [BEHAVIOR.md](BEHAVIOR.md) and [CLI.md](CLI.md).
+Repository rename and archival are owned by the separately gated
+[CUTOVER.md](CUTOVER.md) runbook.
 
 ## Canonical version and zerover policy
 
@@ -35,37 +37,40 @@ the lockfile, and the public manifest agree, and that no second release literal
 was introduced in authored text. Attribution and clean-room provenance are
 gates, not release notes copied from an older implementation.
 
-## CI-only release validation
+## Local and CI validation
 
-The release pipeline, from a clean checkout, must run the repository checks and
-then validate the publishable artifact through the full boundary:
+The repository validation gate runs from the current checkout and from
+checked-in CI on Ubuntu and Windows/Git Bash:
 
 1. Check the manifest, lockfile, generated metadata, documentation links,
    version authority, provenance, and third-party license notices.
 2. Run Vite+ checks and the full Bun/Vite+ test suite.
-3. Build and pack in CI, then install the packed result into fresh isolated
-   `CODEX_HOME` and marketplace roots.
-4. Run install, doctor, cleanup, and clean-checkout assertions against that
-   packed result, including the A-to-B activation invariant.
-5. Confirm that the artifact contains no undeclared payload files, secret
-   material, MCP declaration, or unaccounted dependency attribution.
+3. Build the package and verify generated artifacts, provenance, dependency
+   attribution, and architecture invariants.
+4. Run isolated package smoke: pack and install the artifact, then exercise
+   install, doctor, cleanup, and migration before fixture fresh-clone and
+   dry-run checks.
+5. Confirm that the package artifact contains no undeclared payload files,
+   secret material, MCP declaration, or unaccounted dependency attribution.
 
-Build and pack are intentionally CI-only under the repository development
-rule. A local tree is not release evidence merely because a command completed.
+The real canonical fresh clone and post-push required-job result remain
+external evidence until an approved push. Package publication and pack upload
+are not configured release steps.
 
 ## Approval and branch gates
 
-Commit, push, tag, and publication are separate externally visible effects.
-Obtain explicit approval immediately before each effect, confirm the exact
-files and version in scope, and record the resulting ref or publication
-identity. Never combine a version write with an unreviewed push or tag.
+Commit and push are separate externally visible effects. Obtain explicit
+approval immediately before each effect, confirm the exact files and version in
+scope, and record the resulting ref. No tag or release is required. Trusted
+publishing is not configured, so package publication, registry actions,
+release publication, and deployment are excluded.
 
-The release job must also verify the intended parentless branch topology from
-repository metadata before publication. An unexpected parent, descendant, or
-dirty worktree is a release failure; it must not be normalized by rewriting
-history or guessing the intended release base.
+The validation job must verify the intended branch topology and frozen SHA
+from repository metadata before an approved cutover. An unexpected parent,
+descendant, or dirty worktree is a release failure; it must not be normalized by
+rewriting history or guessing the intended release base.
 
-The final release record links the commit, tag, package artifact, generated
+The final validation record links the commit, package artifact, generated
 metadata, lockfile, test evidence, provenance ledger, and
 [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). These records do not make
 legal, security, compatibility, performance, or availability guarantees.

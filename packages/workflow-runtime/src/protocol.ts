@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { canonicalJson, type JsonValue } from "@holycodex/core";
-import { type } from "arktype";
+import { canonicalJson, decodeUnknown, type JsonObject, type JsonValue } from "@holycodex/core";
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
 
 export const WORKFLOW_PROTOCOL_VERSION = 1 as const;
 
@@ -38,7 +39,7 @@ export const DEFAULT_WORKFLOW_LIMITS = Object.freeze({
   maxInterrupts: 100_000,
 });
 
-const WORKFLOW_LIMIT_CEILINGS: Readonly<Record<keyof WorkflowLimits, number>> = Object.freeze({
+const WORKFLOW_LIMIT_CEILINGS = Object.freeze({
   maxLineBytes: 4 * 1024 * 1024,
   maxJsonDepth: 64,
   maxObjectKeys: 4_096,
@@ -86,11 +87,11 @@ const WORKFLOW_LIMIT_KEYS = [
   "maxInterrupts",
 ] as const satisfies readonly (keyof WorkflowLimits)[];
 
-export type WorkflowOperation = {
+export type WorkflowOperation = Readonly<{
   readonly name: "agent";
   readonly prompt: string;
   readonly options: JsonValue;
-};
+}>;
 
 export type WorkflowOperationHandler = (
   operation: WorkflowOperation,
@@ -109,7 +110,7 @@ export type WorkflowErrorCode =
   | "resource_limit"
   | "invalid_result";
 
-export type WorkflowErrorDetails = Readonly<Record<string, JsonValue>>;
+export type WorkflowErrorDetails = JsonObject;
 
 export class WorkflowRuntimeError extends Error {
   readonly code: WorkflowErrorCode;
@@ -128,106 +129,112 @@ export type WorkflowResult =
   | { readonly ok: true; readonly value: JsonValue }
   | { readonly ok: false; readonly error: WorkflowRuntimeError };
 
-const IdentifierSchema = type(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/u);
-const JsonValueSchema = type("unknown").narrow((value): value is JsonValue => isJsonValue(value));
-const ErrorCodeSchema = type(
-  "'invalid_input' | 'source_rejected' | 'protocol_breach' | 'timed_out' | 'cancelled' | 'child_crashed' | 'operation_failed' | 'evaluation_failed' | 'interrupted' | 'resource_limit' | 'invalid_result'",
+const IdentifierSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/u));
+const JsonValueSchema = Schema.declare((value: unknown): value is JsonValue => isJsonValue(value));
+const ErrorCodeSchema = Schema.Literal(
+  "invalid_input",
+  "source_rejected",
+  "protocol_breach",
+  "timed_out",
+  "cancelled",
+  "child_crashed",
+  "operation_failed",
+  "evaluation_failed",
+  "interrupted",
+  "resource_limit",
+  "invalid_result",
 );
-const WireErrorSchema = type({
-  "+": "reject",
+const WireErrorSchema = Schema.Struct({
   code: ErrorCodeSchema,
-  message: "string",
+  message: Schema.String,
 });
-type WireError = typeof WireErrorSchema.infer;
+type WireError = typeof WireErrorSchema.Type;
 
-export const WorkflowLimitsSchema = type({
-  "+": "reject",
-  max_line_bytes: "number.integer > 0",
-  max_json_depth: "number.integer > 0",
-  max_object_keys: "number.integer > 0",
-  max_array_items: "number.integer > 0",
-  max_string_bytes: "number.integer > 0",
-  max_operation_count: "number.integer > 0",
-  max_concurrent_operations: "number.integer > 0",
-  max_result_bytes: "number.integer > 0",
-  max_source_bytes: "number.integer > 0",
-  wall_time_ms: "number.integer > 0",
-  memory_limit_bytes: "number.integer > 0",
-  stack_limit_bytes: "number.integer > 0",
-  max_interrupts: "number.integer > 0",
+const PositiveIntegerSchema = Schema.Number.pipe(Schema.int(), Schema.greaterThan(0));
+
+export const WorkflowLimitsSchema = Schema.Struct({
+  max_line_bytes: PositiveIntegerSchema,
+  max_json_depth: PositiveIntegerSchema,
+  max_object_keys: PositiveIntegerSchema,
+  max_array_items: PositiveIntegerSchema,
+  max_string_bytes: PositiveIntegerSchema,
+  max_operation_count: PositiveIntegerSchema,
+  max_concurrent_operations: PositiveIntegerSchema,
+  max_result_bytes: PositiveIntegerSchema,
+  max_source_bytes: PositiveIntegerSchema,
+  wall_time_ms: PositiveIntegerSchema,
+  memory_limit_bytes: PositiveIntegerSchema,
+  stack_limit_bytes: PositiveIntegerSchema,
+  max_interrupts: PositiveIntegerSchema,
 });
 
-export type WireLimits = typeof WorkflowLimitsSchema.infer;
+export type WireLimits = typeof WorkflowLimitsSchema.Type;
 
-const StartMessageSchema = type({
-  "+": "reject",
-  version: "1",
-  type: "'start'",
-  source: "string",
+const StartMessageSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("start"),
+  source: Schema.String,
   args: JsonValueSchema,
   runtime: JsonValueSchema,
   limits: WorkflowLimitsSchema,
 });
 
-const OperationInputSchema = type({
-  "+": "reject",
-  prompt: "string",
+const OperationInputSchema = Schema.Struct({
+  prompt: Schema.String,
   options: JsonValueSchema,
 });
 
-const OperationRequestMessageSchema = type({
-  "+": "reject",
-  version: "1",
-  type: "'operation-request'",
+const OperationRequestMessageSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("operation-request"),
   request_id: IdentifierSchema,
-  operation: "'agent'",
+  operation: Schema.Literal("agent"),
   input: OperationInputSchema,
 });
 
-const OperationResultMessageSchema = type({
-  "+": "reject",
-  version: "1",
-  type: "'operation-result'",
+const OperationResultMessageSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("operation-result"),
   request_id: IdentifierSchema,
-  ok: "boolean",
-  "result?": JsonValueSchema,
-  "error?": WireErrorSchema,
+  ok: Schema.Boolean,
+  result: Schema.optional(JsonValueSchema),
+  error: Schema.optional(WireErrorSchema),
 });
 
-const CancelMessageSchema = type({
-  "+": "reject",
-  version: "1",
-  type: "'cancel'",
-  reason: "'cancelled' | 'timed_out'",
+const CancelMessageSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("cancel"),
+  reason: Schema.Literal("cancelled", "timed_out"),
 });
 
-const TerminalSuccessMessageSchema = type({
-  "+": "reject",
-  version: "1",
-  type: "'terminal-success'",
+const TerminalSuccessMessageSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("terminal-success"),
   result: JsonValueSchema,
 });
 
-const TerminalFailureMessageSchema = type({
-  "+": "reject",
-  version: "1",
-  type: "'terminal-failure'",
+const TerminalFailureMessageSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("terminal-failure"),
   error: WireErrorSchema,
 });
 
-export const WorkflowProtocolMessageSchema = StartMessageSchema.or(OperationRequestMessageSchema)
-  .or(OperationResultMessageSchema)
-  .or(CancelMessageSchema)
-  .or(TerminalSuccessMessageSchema)
-  .or(TerminalFailureMessageSchema);
+export const WorkflowProtocolMessageSchema = Schema.Union(
+  StartMessageSchema,
+  OperationRequestMessageSchema,
+  OperationResultMessageSchema,
+  CancelMessageSchema,
+  TerminalSuccessMessageSchema,
+  TerminalFailureMessageSchema,
+);
 
-export type StartMessage = typeof StartMessageSchema.infer;
-export type OperationRequestMessage = typeof OperationRequestMessageSchema.infer;
-export type OperationResultMessage = typeof OperationResultMessageSchema.infer;
-export type CancelMessage = typeof CancelMessageSchema.infer;
-export type TerminalSuccessMessage = typeof TerminalSuccessMessageSchema.infer;
-export type TerminalFailureMessage = typeof TerminalFailureMessageSchema.infer;
-export type WorkflowProtocolMessage = typeof WorkflowProtocolMessageSchema.infer;
+export type StartMessage = typeof StartMessageSchema.Type;
+export type OperationRequestMessage = typeof OperationRequestMessageSchema.Type;
+export type OperationResultMessage = typeof OperationResultMessageSchema.Type;
+export type CancelMessage = typeof CancelMessageSchema.Type;
+export type TerminalSuccessMessage = typeof TerminalSuccessMessageSchema.Type;
+export type TerminalFailureMessage = typeof TerminalFailureMessageSchema.Type;
+export type WorkflowProtocolMessage = typeof WorkflowProtocolMessageSchema.Type;
 
 export function mergeWorkflowLimits(input: WorkflowLimitsInput = {}): WorkflowLimits {
   const merged = {
@@ -246,7 +253,7 @@ export function mergeWorkflowLimits(input: WorkflowLimitsInput = {}): WorkflowLi
     stackLimitBytes: input.stackLimitBytes ?? DEFAULT_WORKFLOW_LIMITS.stackLimitBytes,
     maxInterrupts: input.maxInterrupts ?? DEFAULT_WORKFLOW_LIMITS.maxInterrupts,
   };
-  const parsed = WorkflowLimitsSchema({
+  const parsed = decodeWireLimits({
     max_line_bytes: merged.maxLineBytes,
     max_json_depth: merged.maxJsonDepth,
     max_object_keys: merged.maxObjectKeys,
@@ -261,11 +268,6 @@ export function mergeWorkflowLimits(input: WorkflowLimitsInput = {}): WorkflowLi
     stack_limit_bytes: merged.stackLimitBytes,
     max_interrupts: merged.maxInterrupts,
   });
-  if (parsed instanceof type.errors) {
-    throw new WorkflowRuntimeError("invalid_input", "Invalid workflow limits.", {
-      field: "limits",
-    });
-  }
   if (parsed.max_line_bytes < parsed.max_source_bytes) {
     throw new WorkflowRuntimeError("invalid_input", "The line limit must fit the source limit.", {
       field: "limits.maxLineBytes",
@@ -276,7 +278,7 @@ export function mergeWorkflowLimits(input: WorkflowLimitsInput = {}): WorkflowLi
 }
 
 export function toWireLimits(limits: WorkflowLimits): WireLimits {
-  return {
+  return decodeWireLimits({
     max_line_bytes: limits.maxLineBytes,
     max_json_depth: limits.maxJsonDepth,
     max_object_keys: limits.maxObjectKeys,
@@ -290,14 +292,11 @@ export function toWireLimits(limits: WorkflowLimits): WireLimits {
     memory_limit_bytes: limits.memoryLimitBytes,
     stack_limit_bytes: limits.stackLimitBytes,
     max_interrupts: limits.maxInterrupts,
-  };
+  });
 }
 
 export function fromWireLimits(input: unknown): WorkflowLimits {
-  const parsed = WorkflowLimitsSchema(input);
-  if (parsed instanceof type.errors) {
-    throw new WorkflowRuntimeError("protocol_breach", "The workflow limits message is invalid.");
-  }
+  const parsed = decodeWireLimits(input, "protocol_breach");
   if (parsed.max_line_bytes < parsed.max_source_bytes) {
     throw new WorkflowRuntimeError("protocol_breach", "The workflow line limit is invalid.");
   }
@@ -353,27 +352,38 @@ export function parseProtocolLine(line: string, limits: WorkflowLimits): Workflo
     throw new WorkflowRuntimeError("protocol_breach", "The workflow protocol JSON is malformed.");
   }
   validateJsonShape(parsedJson, limits, "$", new Set<object>());
-  const parsed = WorkflowProtocolMessageSchema(parsedJson);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeUnknown(WorkflowProtocolMessageSchema, parsedJson);
+  if (Either.isLeft(parsed)) {
     throw new WorkflowRuntimeError("protocol_breach", "The workflow protocol message is invalid.");
   }
-  return parsed;
+  return parsed.right;
 }
 
 export function serializeProtocolMessage(
   message: WorkflowProtocolMessage,
   limits: WorkflowLimits,
 ): string {
-  const parsed = WorkflowProtocolMessageSchema(message);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeUnknown(WorkflowProtocolMessageSchema, message);
+  if (Either.isLeft(parsed)) {
     throw new WorkflowRuntimeError("protocol_breach", "The workflow protocol message is invalid.");
   }
-  validateJsonShape(parsed, limits, "$", new Set<object>());
-  const line = JSON.stringify(message);
+  validateJsonShape(parsed.right, limits, "$", new Set<object>());
+  const line = JSON.stringify(parsed.right);
   if (line === undefined || new TextEncoder().encode(line).byteLength + 1 > limits.maxLineBytes) {
     throw new WorkflowRuntimeError("protocol_breach", "The workflow protocol line is too large.");
   }
   return `${line}\n`;
+}
+
+function decodeWireLimits(
+  input: unknown,
+  code: "invalid_input" | "protocol_breach" = "invalid_input",
+): WireLimits {
+  const parsed = decodeUnknown(WorkflowLimitsSchema, input);
+  if (Either.isLeft(parsed)) {
+    throw new WorkflowRuntimeError(code, "The workflow limits message is invalid.");
+  }
+  return parsed.right;
 }
 
 function assertLimitCeilings(
@@ -400,7 +410,7 @@ export function wireError(error: WorkflowRuntimeError): WireError {
 
 export function createProtocolFailure(error: WorkflowRuntimeError): TerminalFailureMessage {
   return {
-    version: WORKFLOW_PROTOCOL_VERSION,
+    version: 1,
     type: "terminal-failure",
     error: wireError(error),
   };

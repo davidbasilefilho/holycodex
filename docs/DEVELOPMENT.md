@@ -6,8 +6,10 @@ limits are in [PROVENANCE.md](PROVENANCE.md).
 
 ## Toolchain
 
-`mise.toml` pins Bun for this workspace. Use `mise` to select the toolchain and
-Bun as the only runtime, package manager, script runner, and test runner:
+`mise.toml` selects the Bun `1.4.x` line; the checked-in toolchain resolves to
+Bun 1.4.0, TypeScript 7.0.2, and Vite+ 0.2.9. Use `mise` to select the
+toolchain and Bun as the only runtime, package manager, script runner, and test
+runner:
 
 ```sh
 mise install
@@ -23,10 +25,17 @@ mise exec -- vp check --fix
 mise exec -- vp test --run
 ```
 
-The codebase targets current TypeScript 7 with strict settings. ArkType
-validates CLI, App Server, persisted, external, and specialist boundaries;
-internal values remain typed. Authored code carries an SPDX `Apache-2.0`
-header; Markdown is not headed.
+After an approved manifest dependency or Bun pin change, run
+`mise exec -- bun install` to regenerate the lockfile; subsequent clean
+checkouts use `bun install --frozen-lockfile`. The checked-in lockfile and
+repository proof must agree with the manifests before handoff.
+
+The codebase targets TypeScript 7 with strict settings. Effect Schema from
+`effect/Schema` is the validation owner at every external, persisted, CLI, App
+Server, and specialist boundary. Native Effect workflow modules are the
+production path; QuickJS is explicit compatibility support selected only by
+`--compat-quickjs`. Internal values remain typed. Authored code carries an
+SPDX `Apache-2.0` header; Markdown is not headed.
 
 ## Package and dependency direction
 
@@ -63,7 +72,10 @@ single canonical release-version literal. Tests that touch installation or
 workflow state must use temporary, non-overlapping roots and must not inspect a
 personal `CODEX_HOME`, marketplace, credentials, or broad filesystem path.
 
-Do not run local build or pack commands as a release substitute. CI owns
-build, pack, clean-checkout install, doctor, and publication validation; the
-local proof is checks, tests, diff inspection, and explicit isolated smoke
-tests.
+The validation gate runs formatting, lint, TypeScript, the full test suite,
+package build, repository proof, generated-artifact verification, package
+smoke, fixture fresh-clone proof, and diff hygiene. Checked-in CI runs that
+gate on Ubuntu and Windows/Git Bash. A real canonical fresh clone and
+post-push Actions result remain external evidence until cutover. Package
+publication, release publication, deployment, and registry actions are not
+configured.

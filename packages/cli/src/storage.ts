@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
+import * as Schema from "effect/Schema";
 import { dirname } from "node:path";
 import { lstat, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { canonicalJson, type JsonObject, type JsonValue } from "@holycodex/core";
 import { assertNoSymlink, ensureOwnedDirectory, isFsCode } from "./paths.ts";
+import { decodeSchema, JsonObjectSchema } from "./schema.ts";
 
 const IGNORED_SYNC_CODES = new Set(["EBADF", "EINVAL", "ENOSYS", "ENOTSUP", "EISDIR"]);
-const JsonObjectBoundarySchema = type("object").narrow(
-  (input): input is JsonObject =>
-    typeof input === "object" && input !== null && !Array.isArray(input),
-);
+const JsonObjectBoundarySchema = JsonObjectSchema;
 
 export async function syncFile(path: string): Promise<void> {
   let handle: Awaited<ReturnType<typeof open>> | undefined;
@@ -50,10 +48,7 @@ export async function writeAtomicJson(path: string, value: JsonValue): Promise<v
   }
 }
 
-export async function readJsonFile<T>(
-  path: string,
-  schema: (input: unknown) => T | InstanceType<typeof type.errors>,
-): Promise<T> {
+export async function readJsonFile<T>(path: string, schema: Schema.Schema<T>): Promise<T> {
   const entry = await lstat(path);
   if (!entry.isFile() || entry.isSymbolicLink()) {
     throw new StorageError("state_corrupt", "A persisted file is not a regular file.");
@@ -64,9 +59,9 @@ export async function readJsonFile<T>(
   } catch (error: unknown) {
     throw new StorageError("state_corrupt", "A persisted file is not valid JSON.", error);
   }
-  const parsed = schema(parsedJson);
-  if (parsed instanceof type.errors) {
-    throw new StorageError("state_corrupt", "A persisted file failed schema validation.", parsed);
+  const parsed = decodeSchema(schema, parsedJson);
+  if (parsed === undefined) {
+    throw new StorageError("state_corrupt", "A persisted file failed schema validation.");
   }
   return parsed;
 }
@@ -78,7 +73,7 @@ export async function readJsonObject(path: string): Promise<JsonObject> {
 
 export async function optionalJsonFile<T>(
   path: string,
-  schema: (input: unknown) => T | InstanceType<typeof type.errors>,
+  schema: Schema.Schema<T>,
 ): Promise<T | undefined> {
   try {
     return await readJsonFile(path, schema);

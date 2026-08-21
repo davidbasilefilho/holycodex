@@ -259,7 +259,7 @@ export class BunStdioTransport implements AsyncLineTransport {
     }
     this.closed = true;
     try {
-      this.stdin.end();
+      await Promise.resolve(this.stdin.end());
     } catch {
       // The subprocess may already have closed its stdin.
     }

@@ -98,7 +98,8 @@ they preserve the managed scope and report an integrity reason.
 ## Doctor, cleanup, and recovery
 
 `doctor` is read-only. It checks the active record, payload identity,
-marketplace agreement, and a strict ArkType installer journal whose record
+marketplace agreement, and a strict schema-validated installer journal whose
+record
 identity, event phase, and sequence must be monotonic. It also checks staging
 residue, lock shape, Codex MCP configuration, an optional Codex executable
 probe, inactive payloads, and optional official-plugin status. A disagreement
@@ -127,6 +128,17 @@ entry, or uncertain effect completion stops the relevant operation. Recovery
 keeps evidence or quarantines unusable state; it does not turn uncertainty into
 success. The durable run-state layout and epoch policy are owned by
 [STATE.md](STATE.md).
+
+## Legacy-state migration
+
+Install explicitly recognizes the recorded `legacy-state-1` JSON state shape.
+It validates and digests the source, writes and revalidates
+`migrated-state.json`, projects compatible installer selections and durable
+records, and records each phase in `migration.json`. Identical completed input
+is reused, an interrupted migration resumes, and malformed or conflicting
+input is quarantined with its historical data retained. `doctor` reports this
+state read-only. Unknown schema epochs are not guessed or silently converted;
+they fail closed.
 
 ## Isolated testing
 

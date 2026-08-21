@@ -1,34 +1,33 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
+import * as Schema from "effect/Schema";
 import { canonicalJson, type JsonObject, type JsonValue } from "@holycodex/core";
 import {
   checked,
   IdentifierSchema,
   invalidData,
+  isValid,
   JsonObjectSchema,
   JsonValueSchema,
   TextSchema,
 } from "./common";
 
-export const ManagedConfigMetadataSchema = type({
-  "+": "reject",
-  owner: "'holycodex'",
+export const ManagedConfigMetadataSchema = Schema.Struct({
+  owner: Schema.Literal("holycodex"),
   schema: TextSchema,
   installId: IdentifierSchema,
 });
-export type ManagedConfigMetadata = typeof ManagedConfigMetadataSchema.infer;
+export type ManagedConfigMetadata = typeof ManagedConfigMetadataSchema.Type;
 
-export const ManagedConfigEntrySchema = type({
-  "+": "reject",
-  owner: "'holycodex'",
+export const ManagedConfigEntrySchema = Schema.Struct({
+  owner: Schema.Literal("holycodex"),
   schema: TextSchema,
   installId: IdentifierSchema,
   originalValue: JsonValueSchema,
   lastManagedValue: JsonValueSchema,
-  hadOriginalValue: "boolean",
+  hadOriginalValue: Schema.Boolean,
 });
-export type ManagedConfigEntry = typeof ManagedConfigEntrySchema.infer;
+export type ManagedConfigEntry = typeof ManagedConfigEntrySchema.Type;
 
 export interface ManagedConfigState {
   readonly values: JsonObject;
@@ -47,10 +46,10 @@ function copyJsonObject(value: JsonObject): Record<string, JsonValue> {
 
 function validateManagedEntries(managed: Readonly<Record<string, ManagedConfigEntry>>): void {
   for (const [key, entry] of Object.entries(managed)) {
-    if (IdentifierSchema(key) instanceof type.errors) {
+    if (!isValid(IdentifierSchema, key)) {
       throw invalidData("managed config key", key);
     }
-    if (ManagedConfigEntrySchema(entry) instanceof type.errors) {
+    if (!isValid(ManagedConfigEntrySchema, entry)) {
       throw invalidData("managed config entry", entry);
     }
   }
@@ -64,7 +63,7 @@ function equalJson(left: JsonValue | undefined, right: JsonValue): boolean {
 }
 
 export function createManagedConfigState(values: JsonObject = {}): ManagedConfigState {
-  if (JsonObjectSchema(values) instanceof type.errors) {
+  if (!isValid(JsonObjectSchema, values)) {
     throw invalidData("managed config values", values);
   }
   return { values: copyJsonObject(values), managed: {} };
@@ -80,10 +79,7 @@ export function mergeManagedConfig(
     metadata,
     "managed config metadata",
   );
-  if (
-    JsonObjectSchema(current.values) instanceof type.errors ||
-    JsonObjectSchema(desired) instanceof type.errors
-  ) {
+  if (!isValid(JsonObjectSchema, current.values) || !isValid(JsonObjectSchema, desired)) {
     throw invalidData("managed config", { values: current.values, desired });
   }
   validateManagedEntries(current.managed);
@@ -116,7 +112,7 @@ export function cleanupManagedConfig(
     metadata,
     "managed config metadata",
   );
-  if (JsonObjectSchema(current.values) instanceof type.errors) {
+  if (!isValid(JsonObjectSchema, current.values)) {
     throw invalidData("managed config values", current.values);
   }
   validateManagedEntries(current.managed);

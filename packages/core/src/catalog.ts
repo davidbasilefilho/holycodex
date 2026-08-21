@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
+import * as Either from "effect/Either";
 import { freezeDeep } from "./common.ts";
 import { CoreError, type CoreResult, failure, inputError, success } from "./errors.ts";
+import { decodeUnknown } from "./schema.ts";
 import {
   PlanNameSchema,
   PlanSelectionSchema,
@@ -21,11 +22,11 @@ import {
 } from "./routes.ts";
 
 export function parsePlanSelection(input: unknown): CoreResult<PlanSelection> {
-  const parsed = PlanSelectionSchema(input);
-  if (parsed instanceof type.errors) {
-    return failure(inputError("plan selection", parsed));
+  const parsed = decodeUnknown(PlanSelectionSchema, input);
+  if (Either.isLeft(parsed)) {
+    return failure(inputError("plan selection", parsed.left));
   }
-  return success(parsed);
+  return success(parsed.right);
 }
 
 function route<R extends Role>(role: R, task: TaskForRole<R>, effort: Effort): RouteDefinition {
@@ -277,33 +278,35 @@ for (const definition of PLAN_CATALOG) {
 }
 
 export function lookupPlan(input: unknown): CoreResult<PlanDefinition> {
-  const parsed = PlanNameSchema(input);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeUnknown(PlanNameSchema, input);
+  if (Either.isLeft(parsed)) {
     return failure(
       new CoreError(
         "invalid_plan",
         "Unknown plan selection.",
         { field: "plan" },
-        { cause: parsed },
+        { cause: parsed.left },
       ),
     );
   }
-  const definition = plansByName.get(parsed);
+  const definition = plansByName.get(parsed.right);
   if (!definition) {
-    return failure(new CoreError("invalid_plan", "Unknown plan selection.", { plan: parsed }));
+    return failure(
+      new CoreError("invalid_plan", "Unknown plan selection.", { plan: parsed.right }),
+    );
   }
   return success(definition);
 }
 
 function parseRouteKey(input: unknown): CoreResult<RouteKey> {
-  const parsedKey = RouteKeySchema(input);
-  if (!(parsedKey instanceof type.errors)) {
-    return success(parsedKey);
+  const parsedKey = decodeUnknown(RouteKeySchema, input);
+  if (Either.isRight(parsedKey)) {
+    return success(parsedKey.right);
   }
 
-  const parsedRoleTask = RoleTaskSchema(input);
-  if (!(parsedRoleTask instanceof type.errors)) {
-    const key = `${parsedRoleTask.role}:${parsedRoleTask.task}`;
+  const parsedRoleTask = decodeUnknown(RoleTaskSchema, input);
+  if (Either.isRight(parsedRoleTask)) {
+    const key = `${parsedRoleTask.right.role}:${parsedRoleTask.right.task}`;
     if (routeKeys.has(key as RouteKey)) {
       return success(key as RouteKey);
     }
@@ -314,7 +317,7 @@ function parseRouteKey(input: unknown): CoreResult<RouteKey> {
       "Unknown specialist route.",
       { field: "route" },
       {
-        cause: parsedKey,
+        cause: parsedKey.left,
       },
     ),
   );

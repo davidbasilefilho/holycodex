@@ -5,8 +5,11 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "verify:generated": "bun scripts/verify-generated-artifact.ts"
+  },
   "dependencies": {
     "@holycodex/core": "workspace:*",
-    "arktype": "^2.2.3"
+    "effect": "3.22.1"
   }
 }

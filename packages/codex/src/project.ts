@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { realpath, stat } from "node:fs/promises";
-import { type } from "arktype";
+import * as Schema from "effect/Schema";
 import {
   canonicalIdentityUtf8,
   createProjectId,
@@ -13,13 +13,12 @@ import {
 } from "@holycodex/core";
 import { CodexError, checked, sanitizeText, TextSchema } from "./common";
 
-export const ProjectTrustInputSchema = type({
-  "+": "reject",
+export const ProjectTrustInputSchema = Schema.Struct({
   root: TextSchema,
   trustEpoch: TextSchema,
   trustFingerprint: TextSchema,
 });
-export type ProjectTrustInput = typeof ProjectTrustInputSchema.infer;
+export type ProjectTrustInput = typeof ProjectTrustInputSchema.Type;
 
 export interface ProjectTrustIdentity {
   readonly root: string;

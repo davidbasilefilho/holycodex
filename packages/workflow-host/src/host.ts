@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { evaluateWorkflow } from "@holycodex/workflow-runtime";
+import { evaluateWorkflowCompatibility, makeCapacityService } from "@holycodex/workflow-runtime";
+import * as Effect from "effect/Effect";
 import { WorkflowHostError } from "./errors.ts";
 import { normalizeHostCapacity, releaseReservation } from "./admission.ts";
 import { createContinuation } from "./continuation.ts";
@@ -58,33 +59,82 @@ export class WorkflowHost {
     ) {
       throw new WorkflowHostError("invalid_input", "The workflow host cwd must be absolute.");
     }
-    const executor = options.executeSpecialist ?? options.specialistExecutor;
-    if (!executor) {
-      throw new WorkflowHostError("invalid_input", "A specialist executor is required.");
+    const compatibilityExecutor = options.executeSpecialist ?? options.specialistExecutor;
+    const configuredAgent =
+      options.codex ?? options.agentExecution ?? options.codexLayer ?? options.services?.agent;
+    if (compatibilityExecutor === undefined && configuredAgent === undefined) {
+      throw new WorkflowHostError(
+        "capability_denied",
+        "No workflow agent capability is configured.",
+      );
     }
+    const executor =
+      compatibilityExecutor ??
+      (() => {
+        throw new WorkflowHostError(
+          "capability_denied",
+          "No compatibility specialist executor is configured.",
+        );
+      });
+    const capacity = normalizeHostCapacity(options.capacity ?? {});
+    const globalConcurrency = Math.max(1, capacity.maxConcurrency ?? 8);
+    const sharedCapacity = Effect.runSync(
+      makeCapacityService({
+        planConcurrency: globalConcurrency,
+        sessionConcurrency: globalConcurrency,
+        codexConcurrency: globalConcurrency,
+        maxRetries: capacity.maxRetries ?? 0,
+        maxCalls: capacity.maxCalls ?? Number.MAX_SAFE_INTEGER,
+        costMax: capacity.costMax ?? Number.MAX_SAFE_INTEGER,
+      }),
+    );
     this.store = options.store;
     this.context = {
       store: options.store,
       project,
       cwd: options.cwd,
-      evaluator: options.evaluate ?? options.runtimeEvaluator ?? evaluateWorkflow,
+      evaluator:
+        options.compatibilityEvaluator ??
+        options.evaluate ??
+        options.runtimeEvaluator ??
+        evaluateWorkflowCompatibility,
+      compatibilityEvaluator:
+        options.compatibilityEvaluator ??
+        options.evaluate ??
+        options.runtimeEvaluator ??
+        (compatibilityExecutor === undefined ? undefined : evaluateWorkflowCompatibility),
+      compatibilityEnabled:
+        options.compatibilityEvaluator !== undefined ||
+        options.evaluate !== undefined ||
+        options.runtimeEvaluator !== undefined ||
+        compatibilityExecutor !== undefined,
       executor,
-      capacity: normalizeHostCapacity(options.capacity ?? {}),
+      services: options.services ?? {},
+      codex: options.codex ?? options.agentExecution,
+      codexLayer: options.codexLayer,
+      compileOptions: options.compileOptions ?? {},
+      approval: options.approval,
+      verification: options.verification,
+      checkpoint: options.checkpoint,
+      capacity,
       runtimeLimits: options.runtimeLimits ?? {},
       policyDigest: assertDigest(options.policyDigest, "policy digest"),
       promptProfile: assertIdentifier(options.promptProfile, "prompt profile"),
       toolProfile: assertIdentifier(options.toolProfile, "tool profile"),
       securityProfile: assertIdentifier(options.securityProfile, "security profile"),
-      approvalPolicy: assertIdentifier(options.approvalPolicy, "approval policy"),
+      approvalPolicy: assertIdentifier(options.approvalPolicy ?? "never", "approval policy"),
       sandboxPolicy: assertIdentifier(options.sandboxPolicy, "sandbox policy"),
       codexCapabilityDigest: assertDigest(options.codexCapabilityDigest, "Codex capability digest"),
       telemetry: options.telemetry,
       refinementsEnabled: options.refinementsEnabled ?? false,
       pending: new Map(),
       active: new Map(),
+      executionLocks: new Map(),
       journalSequences: new Map(),
+      approvalLocks: new Map(),
+      lifecycleLocks: new Map(),
       reservations: new Map(),
-      reservedCost: 0,
+      sharedCapacity,
     };
   }
 
@@ -94,6 +144,14 @@ export class WorkflowHost {
 
   async run(input: RunInput): Promise<RunExecution> {
     return await runWorkflow(this.context, input);
+  }
+
+  async runNative(input: RunInput): Promise<RunExecution> {
+    return await runWorkflow(this.context, { ...input, executionMode: "native" });
+  }
+
+  async runCompatibility(input: RunInput): Promise<RunExecution> {
+    return await runWorkflow(this.context, { ...input, executionMode: "compatibility" });
   }
 
   async resume(input: RunInput): Promise<RunExecution> {
@@ -213,7 +271,7 @@ export class WorkflowHost {
       return await inspect(this.context, runId);
     }
     await changeState(this.context, loaded.snapshot, "stopped", "stop requested");
-    releaseReservation(this.context, runId);
+    await releaseReservation(this.context, runId);
     return await inspect(this.context, runId);
   }
 

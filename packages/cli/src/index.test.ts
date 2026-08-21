@@ -4,13 +4,18 @@ import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:
 import { join } from "node:path";
 import { describe, expect, test } from "vite-plus/test";
 import {
+  acquireInstallLock,
   doctorHolyCodex,
   executeWorkflowCommand,
   installHolyCodex,
   parseArgv,
+  pathWithin,
+  readCanonicalVersion,
   readMarketplace,
   resolveInstallerPaths,
+  runBinary,
   runCli,
+  assertRootText,
 } from "./index.ts";
 import { CodexOfficialPluginManager } from "./index.ts";
 import type { OfficialPluginManager, WorkflowService } from "./index.ts";
@@ -23,9 +28,90 @@ describe("CLI argument and envelope boundaries", () => {
     expect(() => parseArgv(["workflow", "show", "run-1", "extra"])).toThrow();
     expect(() => parseArgv(["workflow", "inspect", "run-1", "extra"])).toThrow();
     expect(parseArgv(["cleanup", "--scope", "expired", "--json"]).command).toBe("cleanup");
+    expect(parseArgv(["--version"]).command).toBe("version");
+    expect(parseArgv(["-v"]).command).toBe("version");
+    expect(parseArgv(["--help"]).command).toBe("help");
+    expect(parseArgv(["workflow", "continue", "run-1", "workflow.ts"]).command).toBe(
+      "workflow continuation",
+    );
+    expect(parseArgv(["workflow", "run", "workflow.ts", "--fast"]).options["fast"]).toBe(true);
+    expect(parseArgv(["workflow", "run", "workflow.ts", "--no-tui"]).options["no-tui"]).toBe(true);
     expect(() => parseArgv(["workflow", "run", "workflow.ts", "--name", "legacy"])).toThrow();
     expect(parseArgv(["workflow", "run", "-", "--task", "stdin objective"]).options["task"]).toBe(
       "stdin objective",
+    );
+  });
+
+  test("keeps help on stdout with no stderr and failures on stderr in human mode", async () => {
+    let stdout = "";
+    let stderr = "";
+    const io = {
+      stdoutIsTTY: false,
+      stderrIsTTY: false,
+      writeStdout: (text: string) => {
+        stdout += text;
+      },
+      writeStderr: (text: string) => {
+        stderr += text;
+      },
+    };
+    const helpExit = await runBinary(["workflow", "run", "--help"], io);
+    expect(helpExit).toBe(0);
+    expect(stdout).toContain("Native workflow files must export");
+    expect(stderr).toBe("");
+
+    stdout = "";
+    const canonicalVersion = await readCanonicalVersion();
+    const versionExit = await runBinary(["-v"], io);
+    expect(versionExit).toBe(0);
+    expect(stdout).toContain(`"version": "${canonicalVersion}"`);
+    expect(stderr).toBe("");
+
+    const root = await mkdtemp("/tmp/holycodex-cli-no-tui-");
+    try {
+      stdout = "";
+      const noTuiExit = await runBinary(
+        [
+          "cleanup",
+          "--scope",
+          "workspace",
+          "--no-tui",
+          "--codex-home",
+          join(root, "home"),
+          "--marketplace-root",
+          join(root, "market"),
+        ],
+        {
+          ...io,
+          stdoutIsTTY: true,
+          confirm: async () => {
+            throw new Error("prompted");
+          },
+        },
+      );
+      expect(noTuiExit).toBe(0);
+      expect(stdout).toContain('"preview": true');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+
+    stdout = "";
+    stderr = "";
+    const failureExit = await runBinary(["doctor", "--unknown"], io);
+    expect(failureExit).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("invalid_argument");
+  });
+
+  test("normalizes Windows and Git Bash fixture paths without allowing traversal", () => {
+    const windowsRoot = assertRootText("C:\\Users\\codex\\.codex", "CODEX_HOME", "win32");
+    const gitBashRoot = assertRootText("/c/Users/codex/.codex", "CODEX_HOME", "win32");
+    expect(windowsRoot).toBe("C:\\Users\\codex\\.codex");
+    expect(gitBashRoot).toBe(windowsRoot);
+    expect(pathWithin(windowsRoot, "C:\\Users\\codex\\.codex\\runs", "win32")).toBe(true);
+    expect(pathWithin(windowsRoot, "C:\\Users\\other", "win32")).toBe(false);
+    expect(() => assertRootText("C:\\Users\\codex\\..\\other", "CODEX_HOME", "win32")).toThrow(
+      /traversal/u,
     );
   });
 
@@ -58,11 +144,41 @@ describe("CLI argument and envelope boundaries", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  test("bounds workflow source before loading or dispatching it", async () => {
+    const parsed = parseArgv(["workflow", "run", "-", "--task", "bounded input"]);
+    await expect(
+      executeWorkflowCommand(parsed, {
+        readStdin: async () => "x".repeat(1024 * 1024 + 1),
+        workflowService: {
+          create: async () => {
+            throw new Error("source should be rejected before dispatch");
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_argument" });
+  });
+
   test("fails closed when the official plugin list is not an array envelope", async () => {
     const manager = new CodexOfficialPluginManager({
       run: async () => ({ exitCode: 0, stdout: "null", stderr: "" }),
     });
     await expect(manager.list()).rejects.toMatchObject({ code: "list_failed" });
+  });
+
+  test("reports listed official plugins as installed and absent selections as missing", async () => {
+    const manager = new CodexOfficialPluginManager({
+      run: async () => ({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          plugins: [{ name: "sample", version: "1.0.0", description: "sample" }],
+        }),
+        stderr: "",
+      }),
+    });
+    await expect(manager.status(["sample", "other"])).resolves.toEqual({
+      sample: "installed",
+      other: "missing",
+    });
   });
 
   test("emits one validated JSON envelope and never prompts without --yes", async () => {
@@ -221,6 +337,24 @@ describe("installer recovery and cleanup boundaries", () => {
     const paths = { codexHome: join(root, "home"), marketplaceRoot: join(root, "market") };
     try {
       const installed = await installHolyCodex({}, { paths });
+      const resolvedPaths = resolveInstallerPaths({ paths });
+      const lease = await acquireInstallLock(
+        resolvedPaths,
+        {
+          ttlMs: 60_000,
+          pid: process.pid,
+          runId: "cleanup-lock-test",
+          now: () => new Date("2026-08-21T00:00:00.000Z"),
+        },
+        async () => undefined,
+      );
+      await expect(
+        (async () => {
+          const maintenance = await import("./maintenance.ts");
+          return await maintenance.cleanupHolyCodex("workspace", { paths }, { yes: true });
+        })(),
+      ).rejects.toMatchObject({ code: "lock_live" });
+      await lease.release();
       const marketplacePath = join(paths.marketplaceRoot, "marketplace.json");
       const marketplace = await readMarketplace(marketplacePath);
       const changed = {

@@ -1,91 +1,91 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { type } from "arktype";
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
 import { type CoreResult, CoreError, failure, inputError, success } from "./errors.ts";
+import { decodeUnknown } from "./schema.ts";
 
-export const identifierTextSchema = type(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u);
-export const digestTextSchema = type(/^[0-9a-f]{64}$/u);
+export const identifierTextSchema = Schema.String.pipe(
+  Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u),
+);
+export const digestTextSchema = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u));
 
-declare const runIdBrand: unique symbol;
-declare const projectIdBrand: unique symbol;
-declare const trustIdBrand: unique symbol;
-declare const workflowIdBrand: unique symbol;
-declare const digestBrand: unique symbol;
+const RunIdSchema = identifierTextSchema.pipe(Schema.brand("RunId"));
+const ProjectIdSchema = identifierTextSchema.pipe(Schema.brand("ProjectId"));
+const TrustIdSchema = identifierTextSchema.pipe(Schema.brand("TrustId"));
+const WorkflowIdSchema = identifierTextSchema.pipe(Schema.brand("WorkflowId"));
+const Sha256DigestSchema = digestTextSchema.pipe(Schema.brand("Sha256Digest"));
 
-export type RunId = string & { readonly [runIdBrand]: true };
-export type ProjectId = string & { readonly [projectIdBrand]: true };
-export type TrustId = string & { readonly [trustIdBrand]: true };
-export type WorkflowId = string & { readonly [workflowIdBrand]: true };
-export type Sha256Digest = string & { readonly [digestBrand]: true };
+export type RunId = typeof RunIdSchema.Type;
+export type ProjectId = typeof ProjectIdSchema.Type;
+export type TrustId = typeof TrustIdSchema.Type;
+export type WorkflowId = typeof WorkflowIdSchema.Type;
+export type Sha256Digest = typeof Sha256DigestSchema.Type;
 
 function createIdentifier<T extends string>(
+  schema: Schema.Schema<T, string>,
   value: unknown,
   field: string,
-  brand: (value: string) => T,
 ): CoreResult<T> {
-  const parsed = identifierTextSchema(value);
-  if (parsed instanceof type.errors) {
-    return failure(inputError(field, parsed));
+  const parsed = decodeUnknown(schema, value);
+  if (Either.isLeft(parsed)) {
+    return failure(inputError(field, parsed.left));
   }
   // The schema establishes the non-empty, bounded identifier invariant.
-  return success(brand(parsed));
+  return success(parsed.right);
 }
 
 export function createRunId(value: unknown): CoreResult<RunId> {
-  return createIdentifier(value, "run_id", (parsed) => parsed as RunId);
+  return createIdentifier(RunIdSchema, value, "run_id");
 }
 
 export function createProjectId(value: unknown): CoreResult<ProjectId> {
-  return createIdentifier(value, "project_id", (parsed) => parsed as ProjectId);
+  return createIdentifier(ProjectIdSchema, value, "project_id");
 }
 
 export function createTrustId(value: unknown): CoreResult<TrustId> {
-  return createIdentifier(value, "trust_id", (parsed) => parsed as TrustId);
+  return createIdentifier(TrustIdSchema, value, "trust_id");
 }
 
 export function createWorkflowId(value: unknown): CoreResult<WorkflowId> {
-  return createIdentifier(value, "workflow_id", (parsed) => parsed as WorkflowId);
+  return createIdentifier(WorkflowIdSchema, value, "workflow_id");
 }
 
 export function createSha256Digest(value: unknown): CoreResult<Sha256Digest> {
-  const parsed = digestTextSchema(value);
-  if (parsed instanceof type.errors) {
-    return failure(inputError("sha256 digest", parsed));
+  const parsed = decodeUnknown(Sha256DigestSchema, value);
+  if (Either.isLeft(parsed)) {
+    return failure(inputError("sha256 digest", parsed.left));
   }
   // The schema establishes the exact lowercase 32-byte hexadecimal form.
-  return success(parsed as Sha256Digest);
+  return success(parsed.right);
 }
 
-export const RunIdentityInputSchema = type({
-  "+": "reject",
+export const RunIdentityInputSchema = Schema.Struct({
   run_id: identifierTextSchema,
   objective_lineage: identifierTextSchema,
-  "parent_run_id?": identifierTextSchema.or("null"),
+  parent_run_id: Schema.optional(Schema.Union(identifierTextSchema, Schema.Null)),
 });
-export type RunIdentityInput = typeof RunIdentityInputSchema.infer;
+export type RunIdentityInput = typeof RunIdentityInputSchema.Type;
 
-export const TrustIdentityInputSchema = type({
-  "+": "reject",
+export const TrustIdentityInputSchema = Schema.Struct({
   project_id: identifierTextSchema,
   trust_id: identifierTextSchema,
   trust_digest: digestTextSchema,
 });
-export type TrustIdentityInput = typeof TrustIdentityInputSchema.infer;
+export type TrustIdentityInput = typeof TrustIdentityInputSchema.Type;
 
-export const ProjectIdentityInputSchema = type({
-  "+": "reject",
+export const ProjectIdentityInputSchema = Schema.Struct({
   project_id: identifierTextSchema,
   project_digest: digestTextSchema,
 });
-export type ProjectIdentityInput = typeof ProjectIdentityInputSchema.infer;
+export type ProjectIdentityInput = typeof ProjectIdentityInputSchema.Type;
 
-export const WorkflowIdentityInputSchema = type({
-  "+": "reject",
+export const WorkflowIdentityInputSchema = Schema.Struct({
   workflow_id: identifierTextSchema,
   project_id: identifierTextSchema,
   source_digest: digestTextSchema,
 });
-export type WorkflowIdentityInput = typeof WorkflowIdentityInputSchema.infer;
+export type WorkflowIdentityInput = typeof WorkflowIdentityInputSchema.Type;
 
 export type IdentityRecord =
   | RunIdentityInput
@@ -93,36 +93,36 @@ export type IdentityRecord =
   | ProjectIdentityInput
   | WorkflowIdentityInput;
 
-export const SchemaEpochIdSchema = type(/^state-[0-9]+\.[0-9]+$/u);
-export type SchemaEpochId = typeof SchemaEpochIdSchema.infer;
+export const SchemaEpochIdSchema = Schema.String.pipe(Schema.pattern(/^state-[0-9]+\.[0-9]+$/u));
+export type SchemaEpochId = typeof SchemaEpochIdSchema.Type;
 
 export function parseIdentityInput(input: unknown): CoreResult<IdentityRecord> {
-  const run = RunIdentityInputSchema(input);
-  if (!(run instanceof type.errors)) {
-    return success(run);
+  const run = decodeUnknown(RunIdentityInputSchema, input);
+  if (Either.isRight(run)) {
+    return success(run.right);
   }
 
-  const trust = TrustIdentityInputSchema(input);
-  if (!(trust instanceof type.errors)) {
-    return success(trust);
+  const trust = decodeUnknown(TrustIdentityInputSchema, input);
+  if (Either.isRight(trust)) {
+    return success(trust.right);
   }
 
-  const project = ProjectIdentityInputSchema(input);
-  if (!(project instanceof type.errors)) {
-    return success(project);
+  const project = decodeUnknown(ProjectIdentityInputSchema, input);
+  if (Either.isRight(project)) {
+    return success(project.right);
   }
 
-  const workflow = WorkflowIdentityInputSchema(input);
-  if (!(workflow instanceof type.errors)) {
-    return success(workflow);
+  const workflow = decodeUnknown(WorkflowIdentityInputSchema, input);
+  if (Either.isRight(workflow)) {
+    return success(workflow.right);
   }
 
-  return failure(inputError("identity input", workflow));
+  return failure(inputError("identity input", workflow.left));
 }
 
 export function parseSchemaEpochId(input: unknown): CoreResult<SchemaEpochId> {
-  const parsed = SchemaEpochIdSchema(input);
-  if (parsed instanceof type.errors) {
+  const parsed = decodeUnknown(SchemaEpochIdSchema, input);
+  if (Either.isLeft(parsed)) {
     return failure(
       new CoreError(
         "invalid_schema_epoch",
@@ -130,9 +130,9 @@ export function parseSchemaEpochId(input: unknown): CoreResult<SchemaEpochId> {
         {
           field: "schema_epoch",
         },
-        { cause: parsed },
+        { cause: parsed.left },
       ),
     );
   }
-  return success(parsed);
+  return success(parsed.right);
 }

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Lsp"
+  short_description: "Use a validated language-server boundary for type-aware code facts."
+  default_prompt: "Query the assigned LSP seam and return exact typed evidence or actionable denial."
+policy:
+  allow_implicit_invocation: true
