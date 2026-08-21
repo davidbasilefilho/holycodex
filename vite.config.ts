@@ -14,7 +14,7 @@ export default defineConfig({
     },
   },
   pack: {
-    entry: ["packages/cli/src/index.ts"],
+    entry: ["packages/cli/src/index.ts", "packages/cli/src/workflow-public.ts"],
     outDir: "packages/cli/dist",
     format: ["esm"],
     outExtensions: () => ({ js: ".js" }),
