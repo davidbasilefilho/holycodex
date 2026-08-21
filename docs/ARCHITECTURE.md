@@ -33,10 +33,11 @@ owns orchestration, plan enforcement, journals, checkpoints, replay, retained
 specialists, continuation, refinements, and sanitized telemetry. `plugin` is
 private source and generation for independently authored installed assets.
 `cli` is the only published package and composes installation, doctor,
-cleanup, workflow commands, and output formatting. Its public package points
-to one bundled Bun ESM artifact at `packages/cli/dist/index.js`; private
-workspace packages are build-time inputs, not published workspace runtime
-dependencies.
+cleanup, workflow commands, session workflow-file ownership, and output
+formatting. The published package exposes the executable/root bundle at
+`packages/cli/dist/index.js` and the supported authoring surface at
+`holycodex/workflow`; private workspace packages remain build-time inputs and
+must not be imported by users.
 
 ## Ownership and interfaces
 
@@ -44,8 +45,9 @@ dependencies.
 | --------------------------------------- | ------------------ | ------------------------------------------------ |
 | Domain, catalog, identities             | `core`             | Effect Schema schemas and immutable typed values |
 | Codex transport and trust               | `codex`            | validated App Server and configuration ports     |
-| Untrusted workflow evaluation           | `workflow-runtime` | subprocess protocol and inert capability calls   |
-| Orchestration and durable state         | `workflow-host`    | plan-enforced run lifecycle                      |
+| Workflow DSL and Effect runtime         | `workflow-runtime` | internal implementation consumed through `holycodex/workflow` |
+| Orchestration and durable run state     | `workflow-host`    | plan-enforced run lifecycle                      |
+| Session workflow file ownership         | `cli`              | managed `.ts` identity/materialization boundary  |
 | Installed Codex assets                  | `plugin`           | generated immutable payload                      |
 | Install/doctor/cleanup and presentation | `cli`              | user-facing commands and envelopes               |
 
@@ -53,6 +55,45 @@ Only the owning package decides its concern. Callers consume explicit public
 exports and structured results; cross-package filesystem imports and cycles
 are invalid. A type that crosses a package or process boundary is validated at
 the receiving edge. I/O remains in `codex`, `workflow-host`, and `cli`.
+
+## Public workflow authoring boundary
+
+Workflow authors import DSL primitives and author-facing codecs from
+`holycodex/workflow`. That subpath is a deliberate compatibility boundary: it
+re-exports only the supported authoring API from the private runtime package.
+Documentation, examples, generated workflows, and package smoke tests must use
+that public subpath. Direct imports of `@holycodex/workflow-runtime` are
+workspace-internal and are not a supported user contract.
+
+Native workflow examples are only considered valid when the packed package can
+load them through the production CLI path and execute the resulting
+`workflow.wait(...)` value. Workspace-only typechecking is insufficient proof.
+
+## Session workflow-file architecture
+
+Root-authored/generated workflows are source artifacts, not opaque JSON cache
+entries. The CLI-owned state root materializes them at:
+
+```text
+~/.codex/holycodex/workflows/{sessionId}/{name}-{shortHash}.ts
+```
+
+The session directory provides ownership and collision isolation. `name` is a
+purpose-derived filesystem-safe slug, while `shortHash` derives from a full
+domain-separated content/identity digest. Identical workflow identity/content
+therefore has a stable path where practical and revisions receive distinct
+paths. The ordinary `.ts` file is the inspectable/debuggable source of truth.
+
+The CLI owns path validation, no-symlink enforcement, deterministic naming,
+atomic persistence, digest verification, tamper detection, and session cleanup.
+The workflow host continues to own run identity and stores the workflow source
+digest as part of that identity rather than embedding source text in durable run
+state. Resume/replay/continuation recover or receive the owned source and must
+verify it against that digest before effects.
+
+Explicit `workflow save user|project` semantics remain separate persisted
+features. Their JSON stores are not an implementation shortcut for ephemeral or
+session-generated Root workflows.
 
 ## Control and data flow
 
@@ -63,6 +104,9 @@ CLI or App Server request
 Effect Schema boundary validation -> Root scope/policy decision
         |                              |
         |                              +-- denied -> structured failure, no effect
+        v
+materialize/verify owned workflow .ts when session-generated
+        |
         v
 plan and task-slot route -> bounded specialist assignment
         |                              |
