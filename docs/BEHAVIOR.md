@@ -18,6 +18,12 @@ assignment, or review its assigned surface; it may not broaden scope, invent a
 material requirement, delegate, change Root's decision, or approve its own
 unreviewed external effect.
 
+Within an assigned repository change, local inspection, editing, formatting,
+linting, typechecking, compilation, builds, tests, and reruns require no
+additional approval. Approval remains a pre-effect gate for external effects,
+destructive actions, permission changes, dependency installation, commits,
+pushes, tags, publication, and deployment.
+
 The four capability specialists are fixed role contracts:
 
 | Specialist | Capability                                                           | Authority boundary                                                                                                                                    |
@@ -41,6 +47,22 @@ Root selects the specialist and slot from the outcome, evidence needed,
 authority boundary, and completion criterion. One specialist may serve several
 slots in sequence, but no slot creates a new authority or permits a specialist
 to delegate.
+
+Delegation has three observable wire modes: `DIRECT`, `SINGLE`, and
+`DYNAMIC_WORKFLOW`. `DIRECT` keeps work with Root and is never admitted by
+`workflow-host`. `SINGLE` admits exactly one specialist contribution;
+`DYNAMIC_WORKFLOW` admits at least two. Native cardinality is the compiled
+workflow node count, while compatibility cardinality is `expectedCalls`.
+Omitted legacy input normalizes to `SINGLE` for one-or-fewer and
+`DYNAMIC_WORKFLOW` for two-or-more. The selected mode is persisted in each new
+workflow descriptor and is used on resume; a supplied conflicting mode is
+rejected. Budget availability never selects a mode or forces a call. Go is
+rejected by `workflow-host` and remains Root-only.
+
+Parallel assignments may declare exclusive `writes` ownership for file or
+symbol scopes. The compiler preserves parallel read-only work and rejects a
+same-layer writer overlap before any assignment executes; callers serialize
+dependent writers explicitly with `queue`.
 
 ## Effort and interaction values
 
@@ -106,6 +128,16 @@ fallback is the executable path. App Server cannot bypass Root routing,
 inherited approval/sandbox policy, journals, checkpoints, telemetry, or
 fail-closed rules.
 
+The workflow host normalizes existing assignment payloads at its boundary. For
+scope, files, symbols, references, constraints, evidence, completion,
+exclusions, escalation, and delta, direct payload values take precedence over
+nested `options`; files and symbols become scope, run constraints are combined
+with assignment constraints, and each semantic list is stably de-duplicated.
+Catalog evidence and completion defaults apply only when those values are
+absent. Codex validates catalog authority and route agreement before effects,
+then compiles only the validated semantic assignment; raw payload and host
+state do not cross into the specialist instruction.
+
 Each execution has a stable `run_id` and an append-only journal. A checkpoint
 is a validated, resumable projection tied to a journal position. Resume loads
 the last valid checkpoint and journal tail, does not repeat a committed effect,
@@ -121,11 +153,16 @@ explicit parent identity. A refinement creates a new `run_id` and a new
 refinement identity because its objective, constraints, or acceptance criteria
 changed; it retains parent linkage for auditability. A crash resume retains the
 run identity. Retries and idempotency keys never turn an uncertain effect into
-an assumed success.
+an assumed success. An explicitly non-retryable failure bypasses a configured
+retry schedule, and a specialist outcome completes only when its validated
+terminal status is `completed`. Specialist outcomes use the self-versioned v2
+protocol; legacy universal outcomes are decoded only at explicit compatibility
+boundaries and are never stored as the legacy shape.
 
 Telemetry is sanitized before emission. It may contain allowlisted run,
-command, capability, duration, status, count, schema, and redacted error
-metadata. It excludes secrets, credentials, tokens, private keys, cookies,
+command, capability, measured duration, status, count, schema, session mode,
+complete token counters, and redacted error metadata. Missing usage remains
+absent rather than being reported as zero. It excludes secrets, credentials, tokens, private keys, cookies,
 authorization headers, raw environment values, and raw task, file, prompt, or
 specialist content. The complete exclusion and recovery policy is owned by
 [SECURITY.md](SECURITY.md).

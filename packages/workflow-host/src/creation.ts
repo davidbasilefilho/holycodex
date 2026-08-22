@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { lookupRoute, resolvePlanSelection } from "@holycodex/core";
+import {
+  DelegationModeSchema,
+  lookupRoute,
+  resolvePlanSelection,
+  type DelegationMode,
+} from "@holycodex/core";
 import * as Effect from "effect/Effect";
 import type { ExecutionPlan } from "@holycodex/workflow-runtime";
 import { compileHostWorkflow } from "./effect-runtime.ts";
@@ -30,8 +35,69 @@ import {
   safeText,
   safeTextArray,
 } from "./identity.ts";
-import type { CreateRunInput, HostContext } from "./types.ts";
+import type { CreateRunInput, HostContext, WorkflowExecutionMode } from "./types.ts";
 import { emitTelemetry } from "./lifecycle.ts";
+
+export function parseDelegationMode(value: unknown): DelegationMode | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = decodeHostSchema(DelegationModeSchema, value);
+  if (parsed === undefined) {
+    throw new WorkflowHostError("invalid_input", "The delegation mode is invalid.");
+  }
+  return parsed;
+}
+
+export function normalizeDelegationMode(
+  input: Readonly<{
+    readonly requested: unknown;
+    readonly executionMode: WorkflowExecutionMode;
+    readonly nativeNodeCount?: number;
+    readonly expectedCalls: number;
+    readonly expectedCallsProvided: boolean;
+  }>,
+): DelegationMode {
+  const requested = parseDelegationMode(input.requested);
+  if (requested === "DIRECT") {
+    throw new WorkflowHostError(
+      "admission_denied",
+      "DIRECT delegation remains with Root and cannot enter the workflow host.",
+    );
+  }
+  if (input.executionMode === "native") {
+    const nodeCount = input.nativeNodeCount;
+    if (nodeCount === undefined || nodeCount < 1) {
+      throw new WorkflowHostError(
+        "invalid_input",
+        "A native workflow must contain at least one compiled node.",
+      );
+    }
+    const derived = nodeCount === 1 ? "SINGLE" : "DYNAMIC_WORKFLOW";
+    if (requested !== undefined && requested !== derived) {
+      throw new WorkflowHostError(
+        "admission_denied",
+        "The requested delegation mode does not match native workflow cardinality.",
+      );
+    }
+    return requested ?? derived;
+  }
+  const derived = input.expectedCalls > 1 ? "DYNAMIC_WORKFLOW" : "SINGLE";
+  if (requested === undefined) {
+    return derived;
+  }
+  const matches =
+    requested === "SINGLE"
+      ? input.expectedCallsProvided && input.expectedCalls === 1
+      : input.expectedCallsProvided && input.expectedCalls >= 2;
+  if (!matches) {
+    throw new WorkflowHostError(
+      "admission_denied",
+      "The requested delegation mode does not match compatibility call cardinality.",
+    );
+  }
+  return requested;
+}
 
 export async function createRun(
   context: HostContext,
@@ -75,6 +141,7 @@ export async function createRun(
   const expectedConcurrency = input.expectedConcurrency ?? 1;
   const expectedRetries = input.expectedRetries ?? 0;
   const expectedFanOut = input.expectedFanOut ?? 1;
+  const requestedDelegationMode = parseDelegationMode(input.delegationMode);
   const executionMode =
     input.executionMode ??
     (input.workflow === undefined
@@ -119,6 +186,13 @@ export async function createRun(
       );
     }
   }
+  const delegationMode = normalizeDelegationMode({
+    requested: requestedDelegationMode,
+    executionMode,
+    ...(compiledPlan === undefined ? {} : { nativeNodeCount: compiledPlan.nodes.length }),
+    expectedCalls,
+    expectedCallsProvided: input.expectedCalls !== undefined,
+  });
 
   const lineage = input.objectiveLineage ?? randomId("lineage");
   const parentRunId = input.parentRunId ?? null;
@@ -142,6 +216,7 @@ export async function createRun(
   const descriptor: WorkflowDescriptor = {
     schema_epoch: "host-workflow-1.0",
     execution_mode: executionMode,
+    delegation_mode: delegationMode,
     source: input.source,
     args,
     objective,
@@ -185,7 +260,7 @@ export async function createRun(
     context,
     selection.value.plan,
     estimatedCost,
-    expectedCalls,
+    executionMode === "native" ? (compiledPlan?.nodes.length ?? 0) : expectedCalls,
     expectedConcurrency,
     expectedRetries,
     expectedFanOut,
@@ -210,6 +285,7 @@ export async function createRun(
     event: "run",
     run_id: runId,
     route,
+    delegation_mode: delegationMode,
     status: "created",
     duration_ms: 0,
     count: 1,

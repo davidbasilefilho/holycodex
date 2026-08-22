@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import {
-  lookupRoute,
-  parseSpecialistOutcome,
-  RoleTaskSchema,
-  type JsonValue,
-  type PlanDefinition,
-} from "@holycodex/core";
+import { lookupRoute, RoleTaskSchema, type JsonValue, type PlanDefinition } from "@holycodex/core";
 import * as Effect from "effect/Effect";
 import type { CapacityLease, WorkflowOperation } from "@holycodex/workflow-runtime";
 import { executeCodexOperation } from "./effect-runtime.ts";
@@ -15,8 +9,12 @@ import { approveBeforeDispatch } from "./approval.ts";
 import { decodeHostSchema, type RunDefinition } from "./schemas.ts";
 import { WorkflowHostError } from "./errors.ts";
 import {
+  admitOperationEvent,
+  findOperationEvent,
   inputDigest,
   jsonObject,
+  normalizeCompatibilityOperation,
+  operationFingerprint,
   operationRoute,
   optionInteger,
   randomId,
@@ -24,6 +22,7 @@ import {
 } from "./identity.ts";
 import { appendEvent, emitTelemetry, loadRun, operationLifecycle } from "./lifecycle.ts";
 import type { ActiveRun, HostContext } from "./types.ts";
+import type { SpecialistOutcomeV2 } from "@holycodex/core";
 
 export async function handleOperation(
   context: HostContext,
@@ -85,16 +84,22 @@ export async function handleOperation(
       "The workflow operation fan-out request is not admitted.",
     );
   }
-  const digest = await inputDigest({ prompt: operation.prompt, options, route });
-  const existing = (await loadRun(context, definition.run_id)).journal.find(
-    (event) =>
-      event.event === "operation" &&
-      event.lifecycle.state === "completed" &&
-      event.lifecycle.operation.input_digest === digest &&
-      event.outcome !== undefined,
+  const normalizedInput = normalizeCompatibilityOperation({
+    prompt: operation.prompt,
+    options,
+    route,
+    roleTask: parsedRoleTask,
+  });
+  const digest = await operationFingerprint(definition, normalizedInput);
+  const legacyDigest = await inputDigest({ prompt: operation.prompt, options, route });
+  const existing = findOperationEvent(
+    (await loadRun(context, definition.run_id)).journal,
+    digest,
+    legacyDigest,
   );
-  if (existing?.event === "operation" && existing.outcome !== undefined) {
-    return existing.outcome;
+  const retained = admitOperationEvent(existing);
+  if (retained !== undefined) {
+    return retained;
   }
   const operationId = randomId("operation");
   const operationController = new AbortController();
@@ -112,6 +117,7 @@ export async function handleOperation(
     fanOut,
   } as const;
   const runtimeAgent = context.services.agent;
+  const startedAt = Date.now();
   try {
     const attempt = 1;
     await appendEvent(context, definition.run_id, {
@@ -123,6 +129,15 @@ export async function handleOperation(
         errorCode: null,
       }),
     });
+    const competing = findOperationEvent(
+      (await loadRun(context, definition.run_id)).journal,
+      digest,
+      legacyDigest,
+    );
+    const competingOutcome = admitOperationEvent(competing, operationId);
+    if (competingOutcome !== undefined) {
+      return competingOutcome;
+    }
     try {
       await approveBeforeDispatch(context, {
         runId: definition.run_id,
@@ -152,6 +167,8 @@ export async function handleOperation(
     });
     let lease: CapacityLease | undefined;
     let dispatched = false;
+    let effectClassified = false;
+    let normalizedOutcome: SpecialistOutcomeV2 | undefined;
     try {
       lease = await acquireDispatch(context, active, definition.run_id);
       dispatched = true;
@@ -216,14 +233,15 @@ export async function handleOperation(
           "The specialist operation was cancelled ambiguously.",
         );
       }
-      const outcomeResult = parseSpecialistOutcome(rawOutcome);
-      if (!outcomeResult.ok) {
+      const outcome = sanitizeOutcome(rawOutcome, parsedRoleTask);
+      normalizedOutcome = outcome;
+      effectClassified = true;
+      if (outcome.status !== "completed") {
         throw new WorkflowHostError(
           "specialist_invalid",
-          "The specialist outcome failed schema validation.",
+          "The specialist outcome did not complete.",
         );
       }
-      const outcome = sanitizeOutcome(outcomeResult.value);
       await appendEvent(context, definition.run_id, {
         event: "operation",
         lifecycle: operationLifecycle({
@@ -239,7 +257,7 @@ export async function handleOperation(
         run_id: definition.run_id,
         route,
         status: "completed",
-        duration_ms: 0,
+        duration_ms: Date.now() - startedAt,
         count: 1,
         error_code: null,
         replayed: false,
@@ -252,11 +270,22 @@ export async function handleOperation(
         lifecycle: operationLifecycle({
           ...operationInput,
           attempt,
-          state: dispatched ? "uncertain" : "failed",
+          state: dispatched && !effectClassified ? "uncertain" : "failed",
           errorCode,
         }),
+        ...(normalizedOutcome === undefined ? {} : { outcome: normalizedOutcome }),
       });
-      if (!dispatched) {
+      await emitTelemetry(context, {
+        event: "operation",
+        run_id: definition.run_id,
+        route,
+        status: dispatched && !effectClassified ? "uncertain" : "failed",
+        duration_ms: Date.now() - startedAt,
+        count: 1,
+        error_code: errorCode,
+        replayed: false,
+      });
+      if (!dispatched || effectClassified) {
         throw error;
       }
       throw new WorkflowHostError(

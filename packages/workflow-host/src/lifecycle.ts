@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import type { RouteKey, SpecialistOutcome } from "@holycodex/core";
+import type { RouteKey, SpecialistOutcomeV2 } from "@holycodex/core";
 import {
   CheckpointSchema,
   InspectionProjectionSchema,
@@ -13,10 +13,12 @@ import {
   type InspectionProjection,
   type OperationLifecycle,
   type RetainedContextIdentity,
+  type RetainedSessionRef,
   type RunDefinition,
   type RunSnapshot,
   type RunStatus,
   type Telemetry,
+  type WorkflowRuntimeEvent,
 } from "./schemas.ts";
 import { WorkflowHostError } from "./errors.ts";
 import { MAX_PENDING_TEXT, normalizeEpochs, now, safeText, safeTextArray } from "./identity.ts";
@@ -91,6 +93,8 @@ export async function appendEvent(
       case "state-changed":
         return { ...base, ...input };
       case "operation":
+        return { ...base, ...input };
+      case "workflow":
         return { ...base, ...input };
       case "checkpoint":
         return { ...base, ...input };
@@ -271,6 +275,9 @@ export async function writeCheckpoint(
       event: "checkpoint",
       run_id: snapshot.definition.run_id,
       route: snapshot.definition.identity.route,
+      ...(current.snapshot.workflow?.delegation_mode === undefined
+        ? {}
+        : { delegation_mode: current.snapshot.workflow.delegation_mode }),
       status: "written",
       duration_ms: 0,
       count: 1,
@@ -284,28 +291,38 @@ export async function writeCheckpoint(
 export function contextFromOperation(
   definition: RunDefinition,
   lifecycle: OperationLifecycle,
-  outcome: SpecialistOutcome,
+  outcome: SpecialistOutcomeV2,
+  session: RetainedSessionRef,
 ): RetainedContextIdentity {
+  const summary = (() => {
+    switch (outcome.status) {
+      case "blocked":
+        return [outcome.reason, ...outcome.evidence];
+      case "completed":
+        return [outcome.summary, ...outcome.evidence];
+      case "failed":
+        return [outcome.error, ...outcome.evidence];
+      case "partial":
+        return [outcome.summary, ...outcome.completed, ...outcome.remaining, ...outcome.evidence];
+    }
+  })();
   const context: RetainedContextIdentity = {
     schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCHS.journal,
     context_id: `context-${lifecycle.operation.operation_id}`,
     run_id: definition.run_id,
     project: definition.identity.project,
-    route: lifecycle.operation.route,
-    role: lifecycle.operation.role,
-    policy_digest: definition.identity.policy_digest,
-    tool_profile: definition.identity.tool_profile,
-    security_profile: definition.identity.security_profile,
-    prompt_profile: definition.identity.prompt_profile,
-    approval_policy: definition.identity.approval_policy,
-    sandbox_policy: definition.identity.sandbox_policy,
-    status: outcome.blocked || outcome.status !== "completed" ? "blocked" : "available",
-    summary: safeTextArray([
-      ...outcome.verification,
-      ...outcome.material_findings,
-      ...outcome.remaining_risk,
-    ]),
+    route: session.route,
+    role: session.role_task.role,
+    policy_digest: session.policy_digest,
+    tool_profile: session.tool_profile,
+    security_profile: session.security_profile,
+    prompt_profile: session.prompt_profile,
+    approval_policy: session.approval_policy,
+    sandbox_policy: session.sandbox_policy,
+    status: outcome.status === "completed" ? "available" : "blocked",
+    summary: safeTextArray(summary),
     created_at: now(),
+    session,
   };
   const parsed = decodeHostSchema(RetainedContextIdentitySchema, context);
   if (parsed === undefined) {
@@ -321,15 +338,25 @@ export async function inspect(
 ): Promise<InspectionProjection> {
   const loaded = await loadRun(context, runId);
   const operations: OperationLifecycle[] = [];
+  const workflowEvents: WorkflowRuntimeEvent[] = [];
   const retained: RetainedContextIdentity[] = [];
   for (const event of loaded.journal) {
+    if (event.event === "workflow") {
+      workflowEvents.push(event);
+      continue;
+    }
     if (event.event !== "operation") {
       continue;
     }
     operations.push(event.lifecycle);
-    if (event.lifecycle.state === "completed" && event.outcome) {
+    if (event.lifecycle.state === "completed" && event.outcome && event.session) {
       retained.push(
-        contextFromOperation(loaded.snapshot.definition, event.lifecycle, event.outcome),
+        contextFromOperation(
+          loaded.snapshot.definition,
+          event.lifecycle,
+          event.outcome,
+          event.session,
+        ),
       );
     }
   }
@@ -339,7 +366,9 @@ export async function inspect(
     status: loaded.snapshot.status,
     revision: loaded.snapshot.revision,
     checkpoint: loaded.snapshot.checkpoint,
+    ...(loaded.snapshot.workflow === undefined ? {} : { workflow: loaded.snapshot.workflow }),
     operations,
+    workflow_events: workflowEvents,
     retained_contexts: retained,
     integrity: loaded.snapshot.integrity,
     replayed,

@@ -51,7 +51,7 @@ const pairCodec = createCodec(
 function descriptor<I, O>(
   input: ValueCodec<I>,
   output: ValueCodec<O>,
-  payload: unknown = undefined,
+  payload?: unknown,
 ): Assignment<I, O> {
   return { input, output, payload };
 }
@@ -174,6 +174,32 @@ describe("workflow 0.15 DSL and Effect runtime", () => {
     await expect(prepare(terminal, 4)).resolves.toEqual({ left: 5, right: "value:4" });
   });
 
+  test("rejects overlapping writer ownership in a parallel layer", async () => {
+    const left = workflow.step({
+      id: "writer-left",
+      assignment: {
+        ...descriptor(numberCodec, numberCodec),
+        metadata: { writes: ["packages/core"] },
+      },
+    });
+    const right = workflow.step({
+      id: "writer-right",
+      assignment: {
+        ...descriptor(numberCodec, numberCodec),
+        metadata: { writes: ["packages/core/src/routes.ts#lookupRoute"] },
+      },
+    });
+    const result = await Effect.runPromiseExit(compileWorkflow(workflow.wait({ left, right })));
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      const failure = Cause.failureOption(result.cause);
+      expect(Option.isSome(failure)).toBe(true);
+      if (Option.isSome(failure)) {
+        expect(failure.value.code).toBe("compilation");
+      }
+    }
+  });
+
   test("passes an opaque join result to the next queue callback", async () => {
     const seed = workflow.step({
       id: "seed",
@@ -271,6 +297,35 @@ describe("workflow 0.15 DSL and Effect runtime", () => {
       Effect.runPromise(runExecutionPlan(plan, 2, { capacity, services })),
     ).resolves.toBe(3);
     expect(calls).toBe(2);
+  });
+
+  test("does not retry a failure marked as an uncertain external effect", async () => {
+    let calls = 0;
+    const step = workflow.step({
+      id: "uncertain",
+      assignment: {
+        ...descriptor(numberCodec, numberCodec),
+        metadata: { retries: 1 },
+      },
+    });
+    const plan = await Effect.runPromise(
+      compileWorkflow(workflow.wait(step), { capacity: { maxRetries: 1 } }),
+    );
+    const capacity = await Effect.runPromise(makeCapacityService(plan.capacity));
+    const services = fixtureServices(() => {
+      calls += 1;
+      return Effect.fail({
+        _tag: "WorkflowFailure" as const,
+        code: "execution" as const,
+        message: "uncertain",
+        retryable: false,
+      });
+    });
+
+    await expect(
+      Effect.runPromise(runExecutionPlan(plan, 1, { capacity, services })),
+    ).rejects.toBeDefined();
+    expect(calls).toBe(1);
   });
 
   test("records each native retry attempt without post-effect approval", async () => {

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { canonicalJson } from "@holycodex/core";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Schedule from "effect/Schedule";
@@ -60,10 +61,11 @@ export type CapacityService = Readonly<{
 }>;
 
 export type WorkflowJournalEvent = Readonly<{
-  readonly type: "started" | "completed" | "failed";
+  readonly type: "started" | "completed" | "failed" | "skipped";
   readonly runId: string;
   readonly nodeId: string;
   readonly attempt: number;
+  readonly reason?: "condition_false" | "early_termination";
   readonly failure?: WorkflowFailure;
 }>;
 
@@ -371,8 +373,9 @@ export function runExecutionPlan<T>(
       const nodes = new Map(plan.nodes.map((node) => [node.id, node] as const));
       const planGate = yield* Effect.makeSemaphore(plan.capacity.planConcurrency);
 
-      for (const layer of plan.layers) {
-        yield* Effect.forEach(
+      for (let layerIndex = 0; layerIndex < plan.layers.length; layerIndex += 1) {
+        const layer = plan.layers[layerIndex] ?? [];
+        const outcomes = yield* Effect.forEach(
           layer,
           (nodeId) => {
             const node = nodes.get(nodeId);
@@ -385,8 +388,27 @@ export function runExecutionPlan<T>(
             }
             return runNode(node, results, input, runId, plan.capacity, planGate, options);
           },
-          { concurrency: "unbounded", discard: true },
+          { concurrency: "unbounded" },
         );
+        if (outcomes.some((outcome) => outcome.stop)) {
+          for (let laterLayer = layerIndex + 1; laterLayer < plan.layers.length; laterLayer += 1) {
+            for (const nodeId of plan.layers[laterLayer] ?? []) {
+              if (results.has(nodeId)) {
+                continue;
+              }
+              const node = nodes.get(nodeId);
+              if (node === undefined) {
+                return yield* Effect.fail(
+                  workflowFailure("execution", "The execution plan node is missing.", {
+                    nodeId,
+                  }),
+                );
+              }
+              yield* skipNode(node, results, runId, options.services, "early_termination");
+            }
+          }
+          break;
+        }
       }
 
       const rawResult = assembleTerminalResult(plan, results);
@@ -431,9 +453,23 @@ function runNode(
   capacity: PlanCapacity,
   planGate: Effect.Semaphore,
   options: WorkflowRuntimeOptions,
-): Effect.Effect<void, WorkflowFailure> {
+): Effect.Effect<NodeRunResult, WorkflowFailure> {
   let attempt = 0;
-  const program: Effect.Effect<void, WorkflowFailure> = Effect.gen(function* () {
+  const program: Effect.Effect<NodeRunResult, WorkflowFailure> = Effect.gen(function* () {
+    const condition = node.metadata.when;
+    if (condition !== undefined) {
+      const sourceOutput = results.get(condition.source);
+      const matches = yield* predicateMatches(
+        sourceOutput,
+        condition.path,
+        condition.equals,
+        node.id,
+      );
+      if (!matches) {
+        yield* skipNode(node, results, runId, options.services, "condition_false");
+        return { stop: false } satisfies NodeRunResult;
+      }
+    }
     const input = yield* Effect.try({
       try: () => nodeInput(node, results, rootInput),
       catch: (cause) =>
@@ -446,104 +482,63 @@ function runNode(
     });
     const services = options.services;
     const agent = services?.agent;
-    const task = Effect.suspend(() => {
-      attempt += 1;
-      const validatedInput = decodeInput(node, input);
-      const routed: Effect.Effect<string | undefined, WorkflowFailure> =
-        services?.route === undefined
-          ? Effect.succeed(undefined)
-          : services
-              .route({ nodeId: node.id, name: node.name })
-              .pipe(Effect.mapError((cause) => toExecutionFailure(cause, node.id)));
-      const dispatch = routed.pipe(
-        Effect.flatMap((route) => {
-          if (agent === undefined) {
-            return Effect.fail(
-              workflowFailure("execution", "The workflow host agent service is required.", {
-                nodeId: node.id,
-              }),
-            );
-          }
-          const assignment = materializeAssignment(
-            node.assignment,
-            validatedInput,
-            results,
-            route,
-            attempt,
-          );
-          const approval =
-            services?.approval === undefined
-              ? Effect.void
-              : services.approval({ runId, nodeId: node.id, name: node.name });
-          const admitted = Effect.gen(function* () {
-            const lease = yield* options.capacity.acquire({
-              runId,
-              maxCalls: capacity.maxCalls ?? Number.MAX_SAFE_INTEGER,
-              maxConcurrency: Math.min(
-                capacity.planConcurrency,
-                capacity.sessionConcurrency,
-                capacity.codexConcurrency,
-              ),
-              maxCost: capacity.costMax ?? Number.MAX_SAFE_INTEGER,
-              costUnits: 1,
-            });
-            const executed = agent.execute(assignment).pipe(
-              Effect.mapError((cause) => toExecutionFailure(cause, node.id)),
-              Effect.flatMap((raw) =>
-                Effect.try({
-                  try: () => decodeOutput(node, raw),
-                  catch: (cause) => toExecutionFailure(cause, node.id),
-                }),
-              ),
-            );
-            return yield* executed.pipe(Effect.ensuring(lease.release));
-          });
-          return approval.pipe(Effect.andThen(admitted));
-        }),
-      );
-      return notifyJournal(services, {
-        type: "started",
+    const repeatUntil = node.metadata.repeatUntil;
+    let previousFingerprint: string | undefined;
+    const maxIterations = repeatUntil?.maxIterations ?? 1;
+    for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+      const output = yield* runNodeIteration(
+        node,
+        input,
+        results,
         runId,
+        capacity,
+        planGate,
+        options,
+        agent,
+        () => {
+          attempt += 1;
+          return attempt;
+        },
+      );
+      results.set(node.id, output);
+      const stop =
+        node.metadata.stopWhen === undefined
+          ? false
+          : yield* predicateMatches(
+              output,
+              node.metadata.stopWhen.path,
+              node.metadata.stopWhen.equals,
+              node.id,
+            );
+      if (stop || repeatUntil === undefined) {
+        return { stop } satisfies NodeRunResult;
+      }
+      const repeated = yield* predicateMatches(
+        output,
+        repeatUntil.path,
+        repeatUntil.equals,
+        node.id,
+      );
+      if (repeated) {
+        return { stop: false } satisfies NodeRunResult;
+      }
+      const fingerprint = yield* outputFingerprint(output, node.id);
+      if (previousFingerprint === fingerprint) {
+        return yield* Effect.fail(
+          workflowFailure("no_progress", "The workflow repeat condition made no progress.", {
+            nodeId: node.id,
+            retryable: false,
+          }),
+        );
+      }
+      previousFingerprint = fingerprint;
+    }
+    return yield* Effect.fail(
+      workflowFailure("iteration_limit", "The workflow repeat iteration limit was exhausted.", {
         nodeId: node.id,
-        attempt,
-      }).pipe(Effect.andThen(dispatch));
-    });
-    const retried =
-      node.metadata.retries === 0
-        ? task
-        : Effect.retryOrElse(task, Schedule.recurs(node.metadata.retries), () =>
-            Effect.fail(
-              workflowFailure("retry_exhausted", "The workflow retry schedule was exhausted.", {
-                nodeId: node.id,
-              }),
-            ),
-          );
-    const timed =
-      node.metadata.timeoutMs === undefined
-        ? retried
-        : Effect.timeoutFail({
-            duration: `${node.metadata.timeoutMs} millis`,
-            onTimeout: () =>
-              workflowFailure("timeout", "The workflow step timed out.", { nodeId: node.id }),
-          })(retried);
-    const output = yield* options.capacity.codex.withPermits(1)(
-      options.capacity.session.withPermits(1)(
-        options.capacity.plan.withPermits(1)(planGate.withPermits(1)(timed)),
-      ),
+        retryable: false,
+      }),
     );
-    yield* notifyJournal(services, {
-      type: "completed",
-      runId,
-      nodeId: node.id,
-      attempt,
-    });
-    if (services?.verification !== undefined) {
-      yield* services.verification({ runId, nodeId: node.id, name: node.name, output });
-    }
-    if (services?.durability !== undefined) {
-      yield* services.durability.checkpoint({ runId, nodeId: node.id, output });
-    }
-    results.set(node.id, output);
   });
   return program.pipe(
     Effect.catchAll((failure) =>
@@ -559,6 +554,228 @@ function runNode(
       ),
     ),
   );
+}
+
+type NodeRunResult = Readonly<{ readonly stop: boolean }>;
+
+function runNodeIteration(
+  node: CompiledNode,
+  input: unknown,
+  results: Map<string, unknown>,
+  runId: string,
+  capacity: PlanCapacity,
+  planGate: Effect.Semaphore,
+  options: WorkflowRuntimeOptions,
+  agent: WorkflowHostServices["agent"] | undefined,
+  nextAttempt: () => number,
+): Effect.Effect<unknown, WorkflowFailure> {
+  const services = options.services;
+  let currentAttempt = 0;
+  const task = Effect.suspend(() => {
+    const attempt = nextAttempt();
+    currentAttempt = attempt;
+    const validatedInput = decodeInput(node, input);
+    const routed: Effect.Effect<string | undefined, WorkflowFailure> =
+      services?.route === undefined
+        ? Effect.succeed(undefined)
+        : services
+            .route({ nodeId: node.id, name: node.name })
+            .pipe(Effect.mapError((cause) => toExecutionFailure(cause, node.id)));
+    const dispatch = routed.pipe(
+      Effect.flatMap((route) => {
+        if (agent === undefined) {
+          return Effect.fail(
+            workflowFailure("execution", "The workflow host agent service is required.", {
+              nodeId: node.id,
+            }),
+          );
+        }
+        const assignment = materializeAssignment(
+          node.assignment,
+          validatedInput,
+          results,
+          route,
+          attempt,
+        );
+        const approval =
+          services?.approval === undefined
+            ? Effect.void
+            : services.approval({ runId, nodeId: node.id, name: node.name });
+        const admitted = Effect.gen(function* () {
+          const lease = yield* options.capacity.acquire({
+            runId,
+            maxCalls: capacity.maxCalls ?? Number.MAX_SAFE_INTEGER,
+            maxConcurrency: Math.min(
+              capacity.planConcurrency,
+              capacity.sessionConcurrency,
+              capacity.codexConcurrency,
+            ),
+            maxCost: capacity.costMax ?? Number.MAX_SAFE_INTEGER,
+            costUnits: 1,
+          });
+          const executed = agent.execute(assignment).pipe(
+            Effect.mapError((cause) => toExecutionFailure(cause, node.id)),
+            Effect.flatMap((raw) =>
+              Effect.try({
+                try: () => decodeOutput(node, raw),
+                catch: (cause) => toExecutionFailure(cause, node.id),
+              }),
+            ),
+          );
+          return yield* executed.pipe(Effect.ensuring(lease.release));
+        });
+        return approval.pipe(Effect.andThen(admitted));
+      }),
+    );
+    return notifyJournal(services, {
+      type: "started",
+      runId,
+      nodeId: node.id,
+      attempt,
+    }).pipe(Effect.andThen(dispatch));
+  });
+  const retried =
+    node.metadata.retries === 0
+      ? task
+      : Effect.retryOrElse(
+          task,
+          Schedule.recurs(node.metadata.retries).pipe(
+            Schedule.whileInput((failure: WorkflowFailure) => failure.retryable !== false),
+          ),
+          () =>
+            Effect.fail(
+              workflowFailure("retry_exhausted", "The workflow retry schedule was exhausted.", {
+                nodeId: node.id,
+              }),
+            ),
+        );
+  const timed =
+    node.metadata.timeoutMs === undefined
+      ? retried
+      : Effect.timeoutFail({
+          duration: `${node.metadata.timeoutMs} millis`,
+          onTimeout: () =>
+            workflowFailure("timeout", "The workflow step timed out.", { nodeId: node.id }),
+        })(retried);
+  return options.capacity.codex
+    .withPermits(1)(
+      options.capacity.session.withPermits(1)(
+        options.capacity.plan.withPermits(1)(planGate.withPermits(1)(timed)),
+      ),
+    )
+    .pipe(
+      Effect.flatMap((output) =>
+        notifyJournal(services, {
+          type: "completed",
+          runId,
+          nodeId: node.id,
+          attempt: currentAttempt,
+        }).pipe(
+          Effect.andThen(
+            services?.verification === undefined
+              ? Effect.void
+              : services.verification({ runId, nodeId: node.id, name: node.name, output }),
+          ),
+          Effect.andThen(
+            services?.durability === undefined
+              ? Effect.void
+              : services.durability.checkpoint({ runId, nodeId: node.id, output }),
+          ),
+          Effect.andThen(Effect.succeed(output)),
+        ),
+      ),
+    );
+}
+
+function skipNode(
+  node: CompiledNode,
+  results: Map<string, unknown>,
+  runId: string,
+  services: WorkflowHostServices | undefined,
+  reason: "condition_false" | "early_termination",
+): Effect.Effect<void, WorkflowFailure> {
+  return notifyJournal(services, {
+    type: "skipped",
+    runId,
+    nodeId: node.id,
+    attempt: 0,
+    reason,
+  }).pipe(
+    Effect.andThen(
+      Effect.sync(() => {
+        results.set(node.id, {
+          status: "skipped",
+          reason,
+          node_id: node.id,
+        });
+      }),
+    ),
+  );
+}
+
+function predicateMatches(
+  value: unknown,
+  path: readonly string[],
+  expected: unknown,
+  nodeId: string,
+): Effect.Effect<boolean, WorkflowFailure> {
+  return Effect.try({
+    try: () => {
+      const resolved = resolvePath(value, path);
+      return resolved.found && canonicalJson(resolved.value) === canonicalJson(expected);
+    },
+    catch: (cause) =>
+      workflowFailure("validation", "A workflow condition value is not JSON-compatible.", {
+        nodeId,
+        cause,
+      }),
+  });
+}
+
+function outputFingerprint(value: unknown, nodeId: string): Effect.Effect<string, WorkflowFailure> {
+  return Effect.try({
+    try: () => canonicalJson(value),
+    catch: (cause) =>
+      workflowFailure("validation", "A workflow output is not JSON-compatible.", {
+        nodeId,
+        cause,
+      }),
+  });
+}
+
+type ResolvedPath = Readonly<{ readonly found: boolean; readonly value?: unknown }>;
+
+function resolvePath(value: unknown, path: readonly string[]): ResolvedPath {
+  let current: unknown = value;
+  for (const segment of path) {
+    if (Array.isArray(current)) {
+      if (!isArrayIndex(segment) || !Object.prototype.hasOwnProperty.call(current, segment)) {
+        return { found: false };
+      }
+      current = current[Number(segment)];
+      continue;
+    }
+    if (typeof current !== "object" || current === null) {
+      return { found: false };
+    }
+    if (!Object.prototype.hasOwnProperty.call(current, segment)) {
+      return { found: false };
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(current, segment);
+    if (descriptor === undefined || !("value" in descriptor)) {
+      return { found: false };
+    }
+    current = descriptor.value;
+  }
+  return { found: true, value: current };
+}
+
+function isArrayIndex(value: string): boolean {
+  if (!/^(?:0|[1-9][0-9]*)$/u.test(value)) {
+    return false;
+  }
+  const index = Number(value);
+  return Number.isSafeInteger(index) && index < 4_294_967_295;
 }
 
 function nodeInput(

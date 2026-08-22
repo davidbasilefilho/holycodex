@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type {
+  DelegationMode,
   JsonObject,
   PlanDefinition,
   RouteKey,
   ServiceTier,
-  SpecialistOutcome,
+  SpecialistOutcomeV2,
 } from "@holycodex/core";
 import type {
   AgentExecution,
@@ -37,10 +38,12 @@ import type {
   ProjectTrustRef,
   Refinement,
   RetainedContextIdentity,
+  RetainedSessionRef,
   RunDefinition,
   RunId,
   RunStatus,
   Telemetry,
+  WorkflowRuntimeEvent,
 } from "./schemas.ts";
 import type { FileRunStore } from "./store.ts";
 
@@ -156,6 +159,7 @@ export type CreateRunInput = Readonly<{
   readonly workflow?: WorkflowDefinition;
   readonly compileOptions?: CompileOptions;
   readonly executionMode?: WorkflowExecutionMode;
+  readonly delegationMode?: DelegationMode;
 }>;
 
 export type RunInput = Readonly<{
@@ -166,6 +170,7 @@ export type RunInput = Readonly<{
   readonly workflow?: WorkflowDefinition;
   readonly compileOptions?: CompileOptions;
   readonly executionMode?: WorkflowExecutionMode;
+  readonly delegationMode?: DelegationMode;
 }>;
 
 export type RunExecution = Readonly<{
@@ -184,11 +189,16 @@ export type ReplayDecision =
   | Readonly<{
       readonly kind: "replayed";
       readonly projection: InspectionProjection;
-      readonly outcome: SpecialistOutcome;
+      readonly outcome: SpecialistOutcomeV2;
     }>
   | Readonly<{
       readonly kind: "denied";
-      readonly code: "identity_mismatch" | "operation_input_mismatch" | "new_context_required";
+      readonly code:
+        | "identity_mismatch"
+        | "operation_input_mismatch"
+        | "no_progress"
+        | "integrity_uncertain"
+        | "new_context_required";
       readonly reason: string;
     }>;
 
@@ -196,12 +206,16 @@ export type RetainedReuseInput = Readonly<{
   readonly project: ProjectTrustInput;
   readonly route: RouteKey;
   readonly role: "Explorer" | "Librarian" | "Worker" | "Reviewer";
+  readonly task?: string;
+  readonly objectiveLineage?: string;
+  readonly authorityScopeDigest?: string;
   readonly policyDigest: string;
   readonly toolProfile: string;
   readonly securityProfile: string;
   readonly promptProfile: string;
   readonly approvalPolicy?: string;
   readonly sandboxPolicy?: string;
+  readonly codexCapabilityDigest?: string;
 }>;
 
 export type RetainedReuseDecision =
@@ -287,7 +301,13 @@ export type HostContext = {
 
 export type JournalInput =
   | Readonly<{ event: "state-changed"; from: RunStatus; to: RunStatus; reason: string }>
-  | Readonly<{ event: "operation"; lifecycle: OperationLifecycle; outcome?: SpecialistOutcome }>
+  | Readonly<{
+      event: "operation";
+      lifecycle: OperationLifecycle;
+      outcome?: SpecialistOutcomeV2;
+      session?: RetainedSessionRef;
+    }>
+  | Omit<WorkflowRuntimeEvent, "schema_epoch" | "run_id" | "sequence" | "at">
   | Readonly<{ event: "checkpoint"; checkpoint: Checkpoint }>
   | Readonly<{ event: "continuation-claimed"; claim: ContinuationClaim }>
   | Readonly<{ event: "refinement"; refinement: Refinement }>;

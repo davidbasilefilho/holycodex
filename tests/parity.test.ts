@@ -12,9 +12,18 @@ import { runBinary, runCli, assertRootText, pathWithin } from "../packages/cli/s
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const cleanRoomBase = "682adea6d6cba374251152af612489126e9c64c1";
 const frozenOracle = "eb796235f2f29f2c67c869408a0e22c1a72c13eb";
+const parityTarget = "`holycodex-legacy` at `main`";
 const ParityFixturesSchema = Schema.Struct({
   schema_epoch: Schema.Literal("holycodex-parity-fixtures-1"),
   normalization: Schema.String.pipe(Schema.minLength(1)),
+  matrix: Schema.Array(
+    Schema.Struct({
+      id: Schema.String.pipe(Schema.minLength(1)),
+      classification: Schema.Literal("PRESERVED", "SUPERSEDED", "REMOVED-BY-REQUIREMENT"),
+      owner: Schema.String.pipe(Schema.minLength(1)),
+      proof: Schema.String.pipe(Schema.minLength(1)),
+    }),
+  ),
   surfaces: Schema.Array(
     Schema.Struct({
       id: Schema.String.pipe(Schema.minLength(1)),
@@ -49,6 +58,8 @@ describe("0.15 foundation parity contract", () => {
 
     expect(matrix).toContain(cleanRoomBase);
     expect(matrix).toContain(frozenOracle);
+    expect(matrix).toContain(parityTarget);
+    expect(matrix).toContain("target-backed evidence is\npending");
     expect(matrix).toContain(
       "observation after an approved push or tag, with no mutation authority",
     );
@@ -98,6 +109,12 @@ describe("0.15 foundation parity contract", () => {
       throw new Error(String(parsed.left));
     }
     expect(parsed.right.normalization).toContain("JSON decoding");
+    expect(parsed.right.matrix).toHaveLength(26);
+    expect(new Set(parsed.right.matrix.map((row) => row.id)).size).toBe(26);
+    for (const row of parsed.right.matrix) {
+      await expect(readFile(resolve(workspaceRoot, row.owner), "utf8")).resolves.toBeTruthy();
+      await expect(readFile(resolve(workspaceRoot, row.proof), "utf8")).resolves.toBeTruthy();
+    }
     expect(parsed.right.surfaces.map((surface) => surface.id)).toEqual(expectedSurfaceIds);
     expect(parsed.right.surfaces.find((surface) => surface.id === "babysit-ci")).toEqual({
       id: "babysit-ci",

@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: Apache-2.0
+
+name: Publish to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact packages/cli version to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish holycodex
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Activate mise and install the pinned toolchain
+        uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: false
+
+      - name: Install the frozen workspace
+        run: mise exec -- bun install --frozen-lockfile
+
+      - name: Verify the requested version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          PACKAGE_VERSION="$(mise exec -- bun -e 'console.log(require("./packages/cli/package.json").version)')"
+          test "$REQUESTED_VERSION" = "$PACKAGE_VERSION"
+
+      - name: Validate the release checkout
+        run: mise exec -- bun run validate
+
+      - name: Pack the validated public CLI
+        run: mise exec -- bun scripts/package-release.ts "$RUNNER_TEMP"
+
+      - name: Publish the public CLI
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: mise exec -- bun publish "$RUNNER_TEMP/holycodex-${{ inputs.version }}.tgz" --access public

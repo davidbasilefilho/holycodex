@@ -1,6 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import type { JsonValue } from "@holycodex/core";
 import type { ValueCodec } from "./schema.ts";
+
+export type WorkflowCondition = Readonly<{
+  readonly source: string;
+  readonly path: readonly string[];
+  readonly equals: JsonValue;
+}>;
+
+export type WorkflowPredicate = Readonly<{
+  readonly path: readonly string[];
+  readonly equals: JsonValue;
+}>;
+
+export type WorkflowRepeatUntil = Readonly<
+  WorkflowPredicate & {
+    readonly maxIterations: number;
+  }
+>;
 
 export type AssignmentMetadata = Readonly<{
   readonly id?: string;
@@ -9,6 +27,11 @@ export type AssignmentMetadata = Readonly<{
   readonly retries?: number;
   readonly attempt?: number;
   readonly timeoutMs?: number;
+  /** Exclusive file or symbol scopes owned by this assignment while it executes. */
+  readonly writes?: readonly string[];
+  readonly when?: WorkflowCondition;
+  readonly stopWhen?: WorkflowPredicate;
+  readonly repeatUntil?: WorkflowRepeatUntil;
 }>;
 
 /**

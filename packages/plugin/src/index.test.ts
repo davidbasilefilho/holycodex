@@ -43,6 +43,17 @@ describe("plugin source assets", () => {
       expect(role).toContain("Completion:");
       expect(role.toLowerCase()).toContain("delegate");
     }
+    const [root, worker, rule] = await Promise.all([
+      readFile(join(pluginSourceRoot, "agents", "root.md"), "utf8"),
+      readFile(join(pluginSourceRoot, "agents", "worker.md"), "utf8"),
+      readFile(join(pluginSourceRoot, "rules", "holycodex.md"), "utf8"),
+    ]);
+    for (const instruction of [root, worker, rule]) {
+      expect(instruction).toContain("formatting");
+      expect(instruction).toContain("linting");
+      expect(instruction).toContain("tests");
+      expect(instruction).toMatch(/no (?:additional|extra|user) approval/iu);
+    }
   });
 
   test("keeps skill frontmatter, metadata, invocation, and server declarations in policy", async () => {

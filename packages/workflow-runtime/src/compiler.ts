@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { CLI_SCHEMA_VERSION, decodeUnknown } from "@holycodex/core";
+import { CLI_SCHEMA_VERSION, decodeUnknown, type JsonValue } from "@holycodex/core";
 import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -10,9 +10,12 @@ import {
   type Assignment,
   type AssignmentMetadata,
   type Wait,
+  type WorkflowCondition,
   type WorkflowInputSource,
   type WorkflowNode,
   type WorkflowOutputTarget,
+  type WorkflowPredicate,
+  type WorkflowRepeatUntil,
 } from "./dsl.ts";
 import { isWorkflowFailure, workflowFailure, type WorkflowFailure } from "./errors.ts";
 import type { ValueCodec } from "./schema.ts";
@@ -36,6 +39,36 @@ export type CompileOptions = Readonly<{
 const IdentifierSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u));
 const NonNegativeIntegerSchema = Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0));
 const PositiveIntegerSchema = Schema.Number.pipe(Schema.int(), Schema.greaterThan(0));
+const JsonValueSchema = Schema.declare((value: unknown): value is JsonValue => isJsonValue(value));
+const PathSchema = Schema.Array(Schema.String);
+const WriteScopeSchema = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(4096));
+const ConditionSchema = Schema.Struct({
+  source: IdentifierSchema,
+  path: PathSchema,
+  equals: JsonValueSchema,
+});
+const PredicateSchema = Schema.Struct({ path: PathSchema, equals: JsonValueSchema });
+const RepeatUntilSchema = Schema.Struct({
+  path: PathSchema,
+  equals: JsonValueSchema,
+  maxIterations: Schema.Number.pipe(
+    Schema.int(),
+    Schema.greaterThanOrEqualTo(1),
+    Schema.lessThanOrEqualTo(16),
+  ),
+});
+const AssignmentMetadataSchema = Schema.Struct({
+  id: Schema.optional(IdentifierSchema),
+  capabilities: Schema.optional(Schema.Array(IdentifierSchema)),
+  dependencies: Schema.optional(Schema.Array(IdentifierSchema)),
+  retries: Schema.optional(NonNegativeIntegerSchema),
+  attempt: Schema.optional(NonNegativeIntegerSchema),
+  timeoutMs: Schema.optional(PositiveIntegerSchema),
+  writes: Schema.optional(Schema.Array(WriteScopeSchema)),
+  when: Schema.optional(ConditionSchema),
+  stopWhen: Schema.optional(PredicateSchema),
+  repeatUntil: Schema.optional(RepeatUntilSchema),
+});
 const CapacitySchema = Schema.Struct({
   planConcurrency: Schema.optional(PositiveIntegerSchema),
   sessionConcurrency: Schema.optional(PositiveIntegerSchema),
@@ -69,6 +102,10 @@ export type CompiledNodeMetadata = Readonly<{
   readonly dependencies: readonly string[];
   readonly retries: number;
   readonly timeoutMs?: number;
+  readonly writes: readonly string[];
+  readonly when?: WorkflowCondition;
+  readonly stopWhen?: WorkflowPredicate;
+  readonly repeatUntil?: WorkflowRepeatUntil;
 }>;
 
 export type PlanTerminal = Readonly<{
@@ -197,6 +234,7 @@ export function compileWorkflowUnsafe<T, I = unknown>(
   const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
   validateGraph(nodes, nodeById, roots, terminals);
   const layers = topologicalLayers(nodes, nodeById);
+  validateWriterOwnership(layers, nodeById);
   const uniqueRoots = uniqueStrings(roots);
   const uniqueTerminals = uniqueTerminalsByShape(terminals);
 
@@ -302,7 +340,12 @@ function normalizeMetadata(
     readonly capacity: PlanCapacity;
   }>,
 ): CompiledNodeMetadata {
-  const capabilities = [...(input.capabilities ?? [])];
+  const parsed = decodeUnknown(AssignmentMetadataSchema, input);
+  if (Either.isLeft(parsed)) {
+    throw workflowFailure("validation", "The workflow assignment metadata is invalid.");
+  }
+  const metadata = parsed.right;
+  const capabilities = [...(metadata.capabilities ?? [])];
   for (const capability of capabilities) {
     if (!isValidIdentifier(capability)) {
       throw workflowFailure("validation", "The workflow capability identifier is invalid.");
@@ -311,7 +354,7 @@ function normalizeMetadata(
       throw workflowFailure("validation", `The capability ${capability} is not admitted.`);
     }
   }
-  const dependencies = [...(input.dependencies ?? [])];
+  const dependencies = [...(metadata.dependencies ?? [])];
   for (const dependency of dependencies) {
     if (!isValidIdentifier(dependency)) {
       throw workflowFailure("validation", "The workflow dependency identifier is invalid.");
@@ -320,11 +363,11 @@ function normalizeMetadata(
       throw workflowFailure("validation", `The dependency ${dependency} is not admitted.`);
     }
   }
-  const retries = input.retries ?? 0;
+  const retries = metadata.retries ?? 0;
   if (!Number.isInteger(retries) || retries < 0 || retries > policy.capacity.maxRetries) {
     throw workflowFailure("validation", "The workflow retry policy is invalid.");
   }
-  const timeoutMs = input.timeoutMs;
+  const timeoutMs = metadata.timeoutMs;
   if (
     timeoutMs !== undefined &&
     (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 60_000)
@@ -335,8 +378,57 @@ function normalizeMetadata(
     capabilities: Object.freeze(capabilities),
     dependencies: Object.freeze(dependencies),
     retries,
+    writes: Object.freeze(uniqueStrings((metadata.writes ?? []).map(normalizeWriteScope))),
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    ...(metadata.when === undefined ? {} : { when: freezeCondition(metadata.when) }),
+    ...(metadata.stopWhen === undefined ? {} : { stopWhen: freezePredicate(metadata.stopWhen) }),
+    ...(metadata.repeatUntil === undefined
+      ? {}
+      : { repeatUntil: freezeRepeatUntil(metadata.repeatUntil) }),
   });
+}
+
+function normalizeWriteScope(value: string): string {
+  const normalized = value.trim().replaceAll("\\", "/").replace(/\/+$/u, "");
+  if (normalized.length === 0 || normalized.split("/").includes("..")) {
+    throw workflowFailure("validation", "The workflow writer scope is invalid.");
+  }
+  return normalized;
+}
+
+function validateWriterOwnership(
+  layers: readonly (readonly string[])[],
+  nodeById: ReadonlyMap<string, CompiledNode>,
+): void {
+  for (const layer of layers) {
+    for (let leftIndex = 0; leftIndex < layer.length; leftIndex += 1) {
+      const left = nodeById.get(layer[leftIndex] ?? "");
+      if (left === undefined) continue;
+      for (let rightIndex = leftIndex + 1; rightIndex < layer.length; rightIndex += 1) {
+        const right = nodeById.get(layer[rightIndex] ?? "");
+        if (right === undefined) continue;
+        const overlap = left.metadata.writes.find((leftScope) =>
+          right.metadata.writes.some((rightScope) => writeScopesOverlap(leftScope, rightScope)),
+        );
+        if (overlap !== undefined) {
+          throw workflowFailure(
+            "compilation",
+            `Parallel assignments ${left.id} and ${right.id} have overlapping writer ownership at ${overlap}.`,
+          );
+        }
+      }
+    }
+  }
+}
+
+function writeScopesOverlap(left: string, right: string): boolean {
+  return (
+    left === right ||
+    left.startsWith(`${right}/`) ||
+    right.startsWith(`${left}/`) ||
+    left.startsWith(`${right}#`) ||
+    right.startsWith(`${left}#`)
+  );
 }
 
 function validateGraph(
@@ -365,6 +457,21 @@ function validateGraph(
         throw workflowFailure("compilation", "The workflow graph contains a dangling dependency.", {
           nodeId: node.id,
         });
+      }
+    }
+    const condition = node.metadata.when;
+    if (condition !== undefined) {
+      if (condition.source === node.id) {
+        throw workflowFailure("compilation", "A workflow condition cannot self-reference.", {
+          nodeId: node.id,
+        });
+      }
+      if (!nodeById.has(condition.source) || !isAncestor(nodeById, node.id, condition.source)) {
+        throw workflowFailure(
+          "compilation",
+          "A workflow condition must reference a direct or transitive prerequisite.",
+          { nodeId: node.id },
+        );
       }
     }
   }
@@ -563,6 +670,74 @@ function sameStrings(left: readonly string[], right: readonly string[]): boolean
 
 function isValidIdentifier(value: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u.test(value);
+}
+
+function isJsonValue(value: unknown, seen = new Set<object>()): value is JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return true;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value);
+  }
+  if (typeof value !== "object" || seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.every((item) => isJsonValue(item, seen));
+    }
+    const prototype = Object.getPrototypeOf(value);
+    return (
+      (prototype === Object.prototype || prototype === null) &&
+      Object.values(value).every((item) => isJsonValue(item, seen))
+    );
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function freezeCondition(input: WorkflowCondition): WorkflowCondition {
+  return Object.freeze({
+    source: input.source,
+    path: Object.freeze([...input.path]),
+    equals: input.equals,
+  });
+}
+
+function freezePredicate(input: WorkflowPredicate): WorkflowPredicate {
+  return Object.freeze({
+    path: Object.freeze([...input.path]),
+    equals: input.equals,
+  });
+}
+
+function freezeRepeatUntil(input: WorkflowRepeatUntil): WorkflowRepeatUntil {
+  return Object.freeze({
+    ...freezePredicate(input),
+    maxIterations: input.maxIterations,
+  });
+}
+
+function isAncestor(
+  nodeById: ReadonlyMap<string, CompiledNode>,
+  nodeId: string,
+  candidate: string,
+): boolean {
+  const visited = new Set<string>();
+  const pending = [...(nodeById.get(nodeId)?.dependencies ?? [])];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined || visited.has(current)) {
+      continue;
+    }
+    if (current === candidate) {
+      return true;
+    }
+    visited.add(current);
+    pending.push(...(nodeById.get(current)?.dependencies ?? []));
+  }
+  return false;
 }
 
 function toCompilationFailure(error: unknown): WorkflowFailure {

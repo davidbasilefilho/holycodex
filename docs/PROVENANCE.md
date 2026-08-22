@@ -79,9 +79,10 @@ artifact/provenance/architecture checks, dependency and license checks,
 fixture fresh-clone and dry-run checks, and `git diff --check`. Checked-in CI
 is configured for Ubuntu and Windows/Git Bash but post-push required-job
 evidence is pending until an approved push. A real canonical fresh clone and
-external repository cutover metadata are likewise pending. Trusted publishing
-is not configured; package publication, release publication, deployment,
-registry actions, and tags are excluded.
+external repository cutover metadata are likewise pending. Token-backed npm
+publication is configured as an approval-gated manual GitHub Actions workflow;
+its run and registry read-back remain external evidence. GitHub release
+publication and deployment remain excluded.
 
 Local proof does not establish legal advice, security certification,
 performance, availability, compatibility with an unrecorded provider, or

@@ -37,11 +37,23 @@ const source = "return { ok: true };";
 const args = { input: "safe" };
 
 const outcome = {
+  protocol_version: "holycodex-specialist-outcome-2" as const,
+  route: { role: "Worker" as const, task: "implementation" as const },
+  evidence: ["verified\u0000finding", "host test passed"],
+  status: "completed" as const,
+  summary: "verified finding",
+};
+
+function outcomeFor<R extends "Worker" | "Reviewer", T extends string>(role: R, task: T) {
+  return { ...outcome, route: { role, task } };
+}
+
+const legacyOutcome = {
   blocked: false,
   changed_files: ["packages/workflow-host/src/index.ts"],
   confidence: 0.9,
   context_owner: "worker",
-  material_findings: ["verified\u0000finding"],
+  material_findings: ["verified finding"],
   needs_more_context: false,
   needs_root_decision: false,
   needs_verification: false,
@@ -55,6 +67,10 @@ const outcome = {
   verification: ["host test passed"],
   verification_passed: true,
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 async function tempStore(): Promise<{ readonly root: string; readonly store: FileRunStore }> {
   const root = await mkdtemp(join(tmpdir(), "holycodex-workflow-host-"));
@@ -105,12 +121,35 @@ describe("workflow-host", () => {
     const { root } = await tempStore();
     try {
       const packets: SemanticAssignmentPacket[] = [];
+      const telemetry: unknown[] = [];
       const json = createCodec("json", (value: unknown): unknown => value);
       const terminal = workflow.wait(
         workflow.step({
           id: "codex-dispatch",
           assignment: {
-            payload: { objective: "dispatch through Codex" },
+            payload: {
+              objective: "dispatch through Codex",
+              scope: ["packages/core/src/routes.ts", "packages/core/src/routes.ts"],
+              files: ["packages/core/src/routes.ts", "packages/workflow-host/src/index.ts"],
+              references: "docs/ARCHITECTURE.md",
+              constraints: ["run constraint", "assignment constraint"],
+              internal: "must not cross the semantic boundary",
+              options: {
+                scope: "nested scope ignored when direct scope exists",
+                symbols: [
+                  "packages/workflow-host/src/effect-runtime.ts",
+                  "packages/workflow-host/src/index.ts",
+                ],
+                references: "nested reference ignored when direct references exist",
+                constraints: "nested constraint ignored when direct constraints exist",
+                evidence: "nested evidence",
+                completion: ["nested acceptance", "nested acceptance"],
+                exclusions: "nested exclusion",
+                escalation: ["nested escalation", "nested escalation"],
+                delta: ["nested delta", "nested delta"],
+                raw: "must not cross the semantic boundary",
+              },
+            },
             input: json,
             output: json,
             route: "Worker:integration",
@@ -132,7 +171,15 @@ describe("workflow-host", () => {
             thread_id: "thread-test",
             turn_id: "turn-test",
             backend: "app-server-v1-fallback",
-            outcome,
+            session_mode: "fresh",
+            duration_ms: 7,
+            usage: {
+              input_tokens: 0,
+              cached_input_tokens: 0,
+              output_tokens: 2,
+              reasoning_output_tokens: 0,
+            },
+            outcome: outcomeFor("Worker", "integration"),
           };
           return Effect.succeed(result);
         },
@@ -141,20 +188,63 @@ describe("workflow-host", () => {
         hostOptions(root, undefined, {
           codex,
           approvalPolicy: "never",
+          telemetry: (event) => {
+            telemetry.push(event);
+          },
         }),
       );
       const definition = await host.create({
         source,
         args,
         objective: "effect-native host",
+        constraints: ["run constraint", "run constraint", "run-only constraint"],
         workflow: terminal,
       });
       const execution = await host.run({ runId: definition.run_id, source, args });
       expect(execution.status).toBe("completed");
       expect(packets).toHaveLength(1);
-      expect(packets[0]?.route.key).toBe("Worker:integration");
-      expect(packets[0]?.tools.specialist_spawn).toBe(false);
-      expect(packets[0]?.security.workflow).toBe(false);
+      const packet = packets[0];
+      expect(packet).toBeDefined();
+      if (packet === undefined) return;
+      expect(packet.assignment).toEqual({
+        id: expect.any(String),
+        objective: "dispatch through Codex",
+        role_task: { role: "Worker", task: "integration" },
+        authority: "Change only the assigned seam; Root owns material choices.",
+        scope: [
+          "packages/core/src/routes.ts",
+          "packages/workflow-host/src/index.ts",
+          "packages/workflow-host/src/effect-runtime.ts",
+        ],
+        references: ["docs/ARCHITECTURE.md"],
+        constraints: ["run constraint", "run-only constraint", "assignment constraint"],
+        required_evidence: ["nested evidence"],
+        acceptance: ["nested acceptance"],
+        exclusions: ["nested exclusion"],
+        escalation: ["nested escalation"],
+        delta: ["nested delta"],
+      });
+      expect(packet.route.key).toBe("Worker:integration");
+      expect(packet.tools.allowed).toEqual(["read", "write", "execute"]);
+      expect(packet.security.network).toBe(false);
+      expect(packet.tools.specialist_spawn).toBe(false);
+      expect(packet.security.workflow).toBe(false);
+      expect(packet).not.toHaveProperty("context");
+      expect(JSON.stringify(packet)).not.toContain("internal");
+      expect(JSON.stringify(packet)).not.toContain("nested scope ignored");
+      expect(telemetry).toContainEqual(
+        expect.objectContaining({
+          event: "operation",
+          session_mode: "fresh",
+          duration_ms: 7,
+          usage: {
+            input_tokens: 0,
+            cached_input_tokens: 0,
+            output_tokens: 2,
+            reasoning_output_tokens: 0,
+          },
+        }),
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -164,6 +254,7 @@ describe("workflow-host", () => {
     const { root } = await tempStore();
     try {
       let verified = false;
+      const packets: SemanticAssignmentPacket[] = [];
       const json = createCodec("json", (value: unknown): unknown => value);
       const terminal = workflow.wait(
         workflow.step({
@@ -184,13 +275,14 @@ describe("workflow-host", () => {
               new CodexError("invalid_external_data", "The fake Codex packet was invalid."),
             );
           }
+          packets.push(packet);
           return Effect.succeed({
             assignment_id: packet.assignment.id,
             route_key: packet.route.key,
             thread_id: "thread-review",
             turn_id: "turn-review",
             backend: "app-server-v1-fallback" as const,
-            outcome,
+            outcome: outcomeFor("Reviewer", "code"),
           });
         },
       };
@@ -222,6 +314,12 @@ describe("workflow-host", () => {
       );
       expect(execution.status).toBe("completed");
       expect(verified).toBe(true);
+      expect(packets[0]?.assignment.required_evidence).toEqual([
+        "Return findings, repaired paths, verification, and residual risk.",
+      ]);
+      expect(packets[0]?.assignment.acceptance).toEqual([
+        "Reach a fixed point or report each reproducible blocker.",
+      ]);
       expect(journal).toContain("waiting_for_approval");
       expect(journal).toContain("approved");
     } finally {
@@ -252,6 +350,10 @@ describe("workflow-host", () => {
       expect(execution.status).toBe("completed");
       expect(execution.result.ok).toBe(true);
       expect(execution.inspection.operations.some((item) => item.state === "completed")).toBe(true);
+      expect(execution.inspection.workflow?.delegation_mode).toBe("SINGLE");
+      expect(
+        telemetry.some((event) => isRecord(event) && event["delegation_mode"] === "SINGLE"),
+      ).toBe(true);
       expect(telemetry.length).toBeGreaterThan(0);
 
       const files = await readFile(join(root, "runs", definition.run_id, "journal.ndjson"), "utf8");
@@ -269,7 +371,7 @@ describe("workflow-host", () => {
         securityProfile: "default",
         promptProfile: "default",
       });
-      expect(reused.kind).toBe("reused");
+      expect(reused.kind).toBe("new-context-required");
       const policyMismatch = await host.reuseRetainedContext({
         project: projectTrust,
         route: "Worker:implementation",
@@ -309,6 +411,9 @@ describe("workflow-host", () => {
         code: "go_rejected",
       });
       await expect(
+        host.create({ source, args, objective: "direct", delegationMode: "DIRECT" }),
+      ).rejects.toMatchObject({ code: "admission_denied" });
+      await expect(
         host.create({ source, args, objective: "cost", estimatedCost: 99 }),
       ).rejects.toMatchObject({ code: "cost_limit" });
       const limited = new WorkflowHost(
@@ -326,6 +431,113 @@ describe("workflow-host", () => {
       await expect(
         limited.create({ source, args, objective: "empty fan out", expectedFanOut: 0 }),
       ).rejects.toMatchObject({ code: "fan_out_limit" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("persists and validates delegation cardinality across native and compatibility runs", async () => {
+    const { root } = await tempStore();
+    try {
+      const json = createCodec("json", (value: unknown): unknown => value);
+      const single = workflow.wait(
+        workflow.step({
+          id: "mode-single",
+          assignment: { payload: {}, input: json, output: json, route: "Worker:implementation" },
+        }),
+      );
+      const left = workflow.step({
+        id: "mode-left",
+        assignment: { payload: {}, input: json, output: json, route: "Worker:implementation" },
+      });
+      const right = workflow.step({
+        id: "mode-right",
+        assignment: { payload: {}, input: json, output: json, route: "Reviewer:code" },
+      });
+      const dynamic = workflow.wait({ left: workflow.start(left), right: workflow.start(right) });
+      const host = new WorkflowHost(hostOptions(root));
+
+      const singleRun = await host.create({
+        source,
+        args,
+        objective: "native single",
+        workflow: single,
+        delegationMode: "SINGLE",
+      });
+      expect((await host.inspect(singleRun.run_id)).workflow?.delegation_mode).toBe("SINGLE");
+      const dynamicRun = await host.create({
+        source,
+        args,
+        objective: "native dynamic",
+        workflow: dynamic,
+        delegationMode: "DYNAMIC_WORKFLOW",
+      });
+      expect((await host.inspect(dynamicRun.run_id)).workflow?.delegation_mode).toBe(
+        "DYNAMIC_WORKFLOW",
+      );
+      await expect(
+        host.create({
+          source,
+          args,
+          objective: "native mismatch",
+          workflow: dynamic,
+          delegationMode: "SINGLE",
+        }),
+      ).rejects.toMatchObject({ code: "admission_denied" });
+
+      const compatibilitySingle = await host.create({
+        source,
+        args,
+        objective: "compat single",
+        executionMode: "compatibility",
+        expectedCalls: 1,
+        delegationMode: "SINGLE",
+      });
+      expect((await host.inspect(compatibilitySingle.run_id)).workflow?.delegation_mode).toBe(
+        "SINGLE",
+      );
+      const compatibilityLegacy = await host.create({
+        source,
+        args,
+        objective: "compat legacy dynamic",
+        executionMode: "compatibility",
+        expectedCalls: 2,
+      });
+      expect((await host.inspect(compatibilityLegacy.run_id)).workflow?.delegation_mode).toBe(
+        "DYNAMIC_WORKFLOW",
+      );
+      await expect(
+        host.create({
+          source,
+          args,
+          objective: "compat mismatch",
+          executionMode: "compatibility",
+          expectedCalls: 2,
+          delegationMode: "SINGLE",
+        }),
+      ).rejects.toMatchObject({ code: "admission_denied" });
+
+      await expect(
+        host.run({
+          runId: singleRun.run_id,
+          source,
+          args,
+          delegationMode: "DYNAMIC_WORKFLOW",
+        }),
+      ).rejects.toMatchObject({ code: "invalid_input" });
+
+      const stored = await host.store.load(compatibilitySingle.run_id);
+      const descriptor = stored.snapshot.workflow;
+      expect(descriptor).toBeDefined();
+      if (!descriptor) return;
+      const { delegation_mode: _legacyMode, ...legacyDescriptor } = descriptor;
+      await host.store.saveSnapshot({ ...stored.snapshot, workflow: legacyDescriptor });
+      expect((await host.inspect(compatibilitySingle.run_id)).workflow).not.toHaveProperty(
+        "delegation_mode",
+      );
+      await expect(
+        host.run({ runId: compatibilitySingle.run_id, source, args }),
+      ).resolves.toMatchObject({ status: "completed" });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -403,6 +615,94 @@ describe("workflow-host", () => {
           (item) => item.state === "uncertain",
         ),
       ).toBe(true);
+
+      const blockedHost = new WorkflowHost(
+        hostOptions(root, fakeEvaluator(), {
+          executeSpecialist: async () => ({
+            protocol_version: "holycodex-specialist-outcome-2" as const,
+            route: { role: "Worker" as const, task: "implementation" as const },
+            evidence: [],
+            status: "blocked" as const,
+            reason: "Needs a root decision.",
+            needs_root_decision: true,
+          }),
+        }),
+      );
+      const blockedRun = await blockedHost.create({ source, args, objective: "blocked outcome" });
+      const blockedResult = await blockedHost.run({ runId: blockedRun.run_id, source, args });
+      expect(blockedResult.status).toBe("failed");
+      expect(
+        (await blockedHost.inspect(blockedRun.run_id)).operations.some(
+          (item) => item.state === "failed",
+        ),
+      ).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("normalizes legacy compatibility execution before journal storage", async () => {
+    const { root } = await tempStore();
+    try {
+      const host = new WorkflowHost(
+        hostOptions(root, fakeEvaluator(), {
+          executeSpecialist: async () => legacyOutcome,
+        }),
+      );
+      const definition = await host.create({ source, args, objective: "legacy compatibility" });
+      const execution = await host.runCompatibility({ runId: definition.run_id });
+      expect(execution.status).toBe("completed");
+      const operation = (await host.store.load(definition.run_id)).journal.find(
+        (event) => event.event === "operation" && event.lifecycle.state === "completed",
+      );
+      expect(operation?.event === "operation" ? operation.outcome : undefined).toEqual({
+        protocol_version: "holycodex-specialist-outcome-2",
+        route: { role: "Worker", task: "implementation" },
+        evidence: ["packages/workflow-host/src/host.ts", "host test passed", "verified finding"],
+        status: "completed",
+        summary: "verified finding",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("reads legacy journal operation outcomes as canonical v2", async () => {
+    const { root } = await tempStore();
+    try {
+      const host = new WorkflowHost(hostOptions(root));
+      const definition = await host.create({ source, args, objective: "legacy journal" });
+      await host.run({ runId: definition.run_id, source, args });
+      const journalPath = join(root, "runs", definition.run_id, "journal.ndjson");
+      const records = (await readFile(journalPath, "utf8"))
+        .split("\n")
+        .filter((line) => line.length > 0)
+        .map((line): unknown => JSON.parse(line));
+      let migrated = false;
+      const legacyRecords = records.map((record) => {
+        if (!isRecord(record) || record["event"] !== "operation") {
+          return record;
+        }
+        const lifecycle = record["lifecycle"];
+        if (!isRecord(lifecycle) || lifecycle["state"] !== "completed") {
+          return record;
+        }
+        migrated = true;
+        return { ...record, outcome: legacyOutcome };
+      });
+      expect(migrated).toBe(true);
+      await writeFile(
+        journalPath,
+        `${legacyRecords.map((record) => JSON.stringify(record)).join("\n")}\n`,
+      );
+      const loaded = await host.store.load(definition.run_id);
+      expect(loaded.snapshot.integrity).toBe("valid");
+      const operation = loaded.journal.find(
+        (event) => event.event === "operation" && event.lifecycle.state === "completed",
+      );
+      expect(
+        operation?.event === "operation" ? operation.outcome?.protocol_version : undefined,
+      ).toBe("holycodex-specialist-outcome-2");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -661,15 +961,22 @@ describe("workflow-host", () => {
       const native = new WorkflowHost(
         hostOptions(root, undefined, {
           codex: {
-            execute: () =>
-              Effect.succeed({
-                assignment_id: "native-default",
-                route_key: "Worker:integration",
+            execute: (input) => {
+              const packet = decodeHostSchema(SemanticAssignmentPacketSchema, input);
+              if (packet === undefined) {
+                return Effect.fail(
+                  new CodexError("invalid_external_data", "The fake packet was invalid."),
+                );
+              }
+              return Effect.succeed({
+                assignment_id: packet.assignment.id,
+                route_key: packet.route.key,
                 thread_id: "thread",
                 turn_id: "turn",
                 backend: "app-server-v1-fallback" as const,
-                outcome,
-              }),
+                outcome: outcomeFor("Worker", "integration"),
+              });
+            },
           },
           approvalPolicy: "never",
         }),
@@ -695,7 +1002,7 @@ describe("workflow-host", () => {
               thread_id: "thread",
               turn_id: "turn",
               backend: "app-server-v1-fallback" as const,
-              outcome,
+              outcome: outcomeFor("Worker", "integration"),
             }),
         },
       });

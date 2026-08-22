@@ -13,6 +13,7 @@ restating their rules.
 | Identity                             | Exact value                                                                         |
 | ------------------------------------ | ----------------------------------------------------------------------------------- |
 | Clean-room base SHA                  | `682adea6d6cba374251152af612489126e9c64c1`                                          |
+| Parity target                        | `holycodex-legacy` at `main`                                                        |
 | Frozen behavioral oracle SHA         | `eb796235f2f29f2c67c869408a0e22c1a72c13eb`                                          |
 | Foundation version                   | Canonical `version` field in `packages/cli/package.json`                            |
 | Sole permitted behavioral difference | `babysit-ci`: observation after an approved push or tag, with no mutation authority |
@@ -24,6 +25,17 @@ pending` is reserved for the real canonical clone, post-push CI, or approved
 repository cutover metadata. The local gate recorded 15 files and 98 tests,
 package smoke, artifact/provenance/architecture checks, fixture fresh-clone
 and dry-run checks, and diff hygiene. No required local capability is unresolved.
+
+The parity target is `holycodex-legacy` at `main`. The clean-room rule currently
+forbids direct inspection of that implementation, so target-backed evidence is
+pending until the repository rules expressly admit it; the frozen oracle above
+remains the exact admissible behavioral baseline. `tests/fixtures/parity-surfaces.json` records one
+`PRESERVED`, `SUPERSEDED`, or `REMOVED-BY-REQUIREMENT` classification, canonical
+owner, and automated proof path for every row below. `SUPERSEDED` means the
+current proof preserves the useful capability through a newer architecture.
+`REMOVED-BY-REQUIREMENT` requires an explicit current requirement; no current
+row uses it. The observation-only `babysit-ci` difference is `SUPERSEDED`
+because the useful CI follow-up capability remains without mutation authority.
 
 ## Required surface inventory
 
@@ -58,4 +70,5 @@ and dry-run checks, and diff hygiene. No required local capability is unresolved
 
 All local rows carry a present proof status. The only pending evidence is the
 real canonical clone, post-push CI/observation, and the separately approved
-repository cutover metadata. Trusted publishing is not configured.
+repository cutover metadata. Approval-gated npm publication is configured but
+remains externally pending until its workflow and registry read-back succeed.

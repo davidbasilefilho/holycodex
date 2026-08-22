@@ -4,9 +4,11 @@ export const packageName = "@holycodex/workflow-host" as const;
 
 export { WorkflowHostError } from "./errors.ts";
 export type { WorkflowHostErrorCode } from "./errors.ts";
-export { FileRunStore } from "./store.ts";
+export { decodeStoredJournalEvent, FileRunStore } from "./store.ts";
 export type { StoredRun } from "./store.ts";
 export { WorkflowHost } from "./host.ts";
+export { operationFingerprint } from "./identity.ts";
+export type { NormalizedOperationInput } from "./identity.ts";
 export type {
   ContinuationDecision,
   CreateRunInput,
@@ -48,6 +50,7 @@ export {
   RefinementSchema,
   RetainedContextIdentitySchema,
   RetainedContextStatusSchema,
+  RetainedSessionRefSchema,
   RunDefinitionSchema,
   RunSnapshotSchema,
   RunStatusSchema,
@@ -74,6 +77,7 @@ export type {
   RefinementProposal,
   RetainedContextIdentity,
   RetainedContextStatus,
+  RetainedSessionRef,
   RunDefinition,
   RunId,
   RunSnapshot,

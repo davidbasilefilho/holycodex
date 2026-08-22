@@ -6,7 +6,7 @@ import { CLI_SCHEMA_VERSION, isObject, type JsonObject, type JsonValue } from ".
 import { type CoreResult, failure, inputError, success } from "./errors.ts";
 import { identifierTextSchema } from "./identifiers.ts";
 import { canonicalJson } from "./canonical.ts";
-import { RoleSchema } from "./routes.ts";
+import { RoleSchema, RoleTaskSchema, type RoleTask } from "./routes.ts";
 import { decodeUnknown } from "./schema.ts";
 
 export const SpecialistStatusSchema = Schema.Literal("blocked", "completed", "failed", "partial");
@@ -55,6 +55,50 @@ export const SpecialistOutcomeSchema = Schema.Struct({
 });
 export type SpecialistOutcome = typeof SpecialistOutcomeSchema.Type;
 
+export const SPECIALIST_OUTCOME_VERSION = "holycodex-specialist-outcome-2";
+const OutcomeTextSchema = Schema.String.pipe(Schema.minLength(1));
+
+const SpecialistOutcomeV2CompletedSchema = Schema.Struct({
+  protocol_version: Schema.Literal(SPECIALIST_OUTCOME_VERSION),
+  route: RoleTaskSchema,
+  evidence: Schema.Array(OutcomeTextSchema),
+  status: Schema.Literal("completed"),
+  summary: OutcomeTextSchema,
+});
+const SpecialistOutcomeV2BlockedSchema = Schema.Struct({
+  protocol_version: Schema.Literal(SPECIALIST_OUTCOME_VERSION),
+  route: RoleTaskSchema,
+  evidence: Schema.Array(OutcomeTextSchema),
+  status: Schema.Literal("blocked"),
+  reason: OutcomeTextSchema,
+  needs_root_decision: Schema.Boolean,
+});
+const SpecialistOutcomeV2PartialSchema = Schema.Struct({
+  protocol_version: Schema.Literal(SPECIALIST_OUTCOME_VERSION),
+  route: RoleTaskSchema,
+  evidence: Schema.Array(OutcomeTextSchema),
+  status: Schema.Literal("partial"),
+  summary: OutcomeTextSchema,
+  completed: Schema.Array(OutcomeTextSchema),
+  remaining: Schema.Array(OutcomeTextSchema),
+  needs_root_decision: Schema.Boolean,
+});
+const SpecialistOutcomeV2FailedSchema = Schema.Struct({
+  protocol_version: Schema.Literal(SPECIALIST_OUTCOME_VERSION),
+  route: RoleTaskSchema,
+  evidence: Schema.Array(OutcomeTextSchema),
+  status: Schema.Literal("failed"),
+  error: OutcomeTextSchema,
+});
+
+export const SpecialistOutcomeV2Schema = Schema.Union(
+  SpecialistOutcomeV2CompletedSchema,
+  SpecialistOutcomeV2BlockedSchema,
+  SpecialistOutcomeV2PartialSchema,
+  SpecialistOutcomeV2FailedSchema,
+);
+export type SpecialistOutcomeV2 = typeof SpecialistOutcomeV2Schema.Type;
+
 const CliWarningSchema = Schema.Array(Schema.String);
 const CliCommandSchema = Schema.String.pipe(
   Schema.pattern(/^[a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*)*$/u),
@@ -87,12 +131,108 @@ export type CliFailureEnvelope = typeof CliFailureEnvelopeSchema.Type;
 export const CliEnvelopeSchema = Schema.Union(CliSuccessEnvelopeSchema, CliFailureEnvelopeSchema);
 export type CliEnvelope = typeof CliEnvelopeSchema.Type;
 
+/** @deprecated Use normalizeSpecialistOutcome at compatibility boundaries. */
 export function parseSpecialistOutcome(input: unknown): CoreResult<SpecialistOutcome> {
   const parsed = decodeUnknown(SpecialistOutcomeSchema, input);
   if (Either.isLeft(parsed)) {
     return failure(inputError("specialist outcome", parsed.left));
   }
   return success(parsed.right);
+}
+
+export function parseSpecialistOutcomeV2(input: unknown): CoreResult<SpecialistOutcomeV2> {
+  const parsed = decodeUnknown(SpecialistOutcomeV2Schema, input);
+  if (Either.isLeft(parsed)) {
+    return failure(inputError("specialist outcome v2", parsed.left));
+  }
+  return success(parsed.right);
+}
+
+function sameRoute(left: RoleTask, right: RoleTask): boolean {
+  return left.role === right.role && left.task === right.task;
+}
+
+function stableUnique(values: readonly string[]): string[] {
+  return [...new Set(values.filter((value) => value.length > 0))];
+}
+
+function firstOr(values: readonly string[], fallback: string): string {
+  return values.find((value) => value.length > 0) ?? fallback;
+}
+
+function legacyEvidence(outcome: SpecialistOutcome): string[] {
+  return stableUnique([
+    ...outcome.relevant_files,
+    ...outcome.verification,
+    ...outcome.material_findings,
+  ]);
+}
+
+function normalizeLegacyOutcome(
+  outcome: SpecialistOutcome,
+  expectedRoute: RoleTask,
+): SpecialistOutcomeV2 {
+  const base = {
+    protocol_version: SPECIALIST_OUTCOME_VERSION,
+    route: expectedRoute,
+    evidence: legacyEvidence(outcome),
+  } as const;
+  switch (outcome.status) {
+    case "blocked":
+      return {
+        ...base,
+        status: "blocked",
+        reason:
+          outcome.suggested_followup ??
+          outcome.remaining_risk[0] ??
+          "Specialist reported a blocked outcome.",
+        needs_root_decision: outcome.needs_root_decision,
+      };
+    case "completed":
+      return {
+        ...base,
+        status: "completed",
+        summary: firstOr(outcome.material_findings, "Completed assigned work."),
+      };
+    case "failed":
+      return {
+        ...base,
+        status: "failed",
+        error:
+          outcome.suggested_followup ?? outcome.remaining_risk[0] ?? "Specialist execution failed.",
+      };
+    case "partial":
+      return {
+        ...base,
+        status: "partial",
+        summary: firstOr(outcome.material_findings, "Partially completed assigned work."),
+        completed: stableUnique(outcome.changed_files),
+        remaining: stableUnique(outcome.remaining_risk),
+        needs_root_decision: outcome.needs_root_decision,
+      };
+  }
+}
+
+export function normalizeSpecialistOutcome(
+  input: unknown,
+  expectedRoute: RoleTask,
+): CoreResult<SpecialistOutcomeV2> {
+  const route = decodeUnknown(RoleTaskSchema, expectedRoute);
+  if (Either.isLeft(route)) {
+    return failure(inputError("specialist outcome route", route.left));
+  }
+  const v2 = decodeUnknown(SpecialistOutcomeV2Schema, input);
+  if (Either.isRight(v2) && sameRoute(v2.right.route, route.right)) {
+    return success(v2.right);
+  }
+  const legacy = decodeUnknown(SpecialistOutcomeSchema, input);
+  if (Either.isRight(legacy)) {
+    if (legacy.right.blocked !== (legacy.right.status === "blocked")) {
+      return failure(inputError("specialist outcome status", "Legacy blocked/status mismatch."));
+    }
+    return success(normalizeLegacyOutcome(legacy.right, route.right));
+  }
+  return failure(inputError("specialist outcome", legacy.left));
 }
 
 export function parseCliEnvelope(input: unknown): CoreResult<CliEnvelope> {

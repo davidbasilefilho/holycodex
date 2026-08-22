@@ -15,7 +15,8 @@ import {
   releaseReservation,
 } from "./admission.ts";
 import { asJsonValue, assertInputIdentity } from "./identity.ts";
-import { runCompiledWorkflow } from "./effect-runtime.ts";
+import { compileHostWorkflow, runCompiledWorkflow } from "./effect-runtime.ts";
+import { normalizeDelegationMode, parseDelegationMode } from "./creation.ts";
 import { changeState, inspect, loadRun, writeCheckpoint, emitTelemetry } from "./lifecycle.ts";
 import { handleOperation } from "./operation.ts";
 import { decodeHostSchema, WORKFLOW_HOST_SCHEMA_EPOCH } from "./schemas.ts";
@@ -98,6 +99,18 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
     descriptor?.compile_options === undefined
       ? undefined
       : decodePersistedCompileOptions(descriptor.compile_options);
+  const suppliedDelegationMode = parseDelegationMode(input.delegationMode);
+  const persistedDelegationMode = descriptor?.delegation_mode;
+  if (
+    persistedDelegationMode !== undefined &&
+    suppliedDelegationMode !== undefined &&
+    persistedDelegationMode !== suppliedDelegationMode
+  ) {
+    throw new WorkflowHostError(
+      "invalid_input",
+      "The supplied delegation mode conflicts with the persisted workflow mode.",
+    );
+  }
   if (source === undefined || args === undefined || executionMode === undefined) {
     throw new WorkflowHostError(
       "resume_input_required",
@@ -114,6 +127,69 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
     throw new WorkflowHostError("invalid_plan", "The persisted plan is no longer recognized.");
   }
   const effectiveLimits = effectiveRuntimeLimits(context, planResult.value.plan);
+  const workflow = input.workflow ?? pending?.workflow;
+  let compiledPlan = pending?.compiledPlan;
+  let compileOptions: CompileOptions | undefined;
+  let delegationMode: NonNullable<typeof persistedDelegationMode>;
+  if (executionMode !== "native" && executionMode !== "compatibility") {
+    throw new WorkflowHostError("invalid_input", "The workflow execution mode is invalid.");
+  }
+  if (executionMode === "native") {
+    if (workflow === undefined) {
+      throw new WorkflowHostError(
+        "resume_input_required",
+        "The native workflow terminal must be supplied when resuming in a new host process.",
+      );
+    }
+    compileOptions = effectiveCompileOptions(
+      context,
+      planResult.value.plan,
+      input.compileOptions ??
+        pending?.compileOptions ??
+        persistedCompileOptions ??
+        context.compileOptions,
+    );
+    if (
+      input.workflow !== undefined ||
+      compiledPlan === undefined ||
+      input.compileOptions !== undefined
+    ) {
+      try {
+        compiledPlan = await Effect.runPromise(compileHostWorkflow(workflow, compileOptions));
+      } catch (error) {
+        throw new WorkflowHostError(
+          "invalid_input",
+          "The immutable workflow could not be compiled under the persisted delegation mode.",
+          {},
+          { cause: error },
+        );
+      }
+    }
+    delegationMode = normalizeDelegationMode({
+      requested: persistedDelegationMode ?? suppliedDelegationMode,
+      executionMode,
+      nativeNodeCount: compiledPlan?.nodes.length,
+      expectedCalls: 0,
+      expectedCallsProvided: false,
+    });
+  } else if (persistedDelegationMode !== undefined) {
+    if (persistedDelegationMode === "DIRECT") {
+      normalizeDelegationMode({
+        requested: persistedDelegationMode,
+        executionMode,
+        expectedCalls: 0,
+        expectedCallsProvided: false,
+      });
+    }
+    delegationMode = persistedDelegationMode;
+  } else {
+    delegationMode = normalizeDelegationMode({
+      requested: suppliedDelegationMode,
+      executionMode,
+      expectedCalls: 0,
+      expectedCallsProvided: false,
+    });
+  }
   const controller = new AbortController();
   if (input.signal) {
     if (input.signal.aborted) {
@@ -146,27 +222,14 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
   const startedAt = Date.now();
   let result: WorkflowResult;
   try {
-    const workflow = input.workflow ?? pending?.workflow;
     if (executionMode === "native") {
-      if (workflow === undefined) {
-        throw new WorkflowHostError(
-          "resume_input_required",
-          "The native workflow terminal must be supplied when resuming in a new host process.",
-        );
-      }
-      const runtimePending =
-        input.workflow === undefined
-          ? (pending ?? { objective, constraints })
-          : {
-              objective,
-              constraints,
-              workflow,
-              ...(input.compileOptions === undefined
-                ? pending?.compileOptions === undefined
-                  ? {}
-                  : { compileOptions: pending.compileOptions }
-                : { compileOptions: input.compileOptions }),
-            };
+      const runtimePending = {
+        objective,
+        constraints,
+        ...(workflow === undefined ? {} : { workflow }),
+        ...(compileOptions === undefined ? {} : { compileOptions }),
+        ...(compiledPlan === undefined ? {} : { compiledPlan }),
+      };
       const compiled = await Effect.runPromise(
         runCompiledWorkflow(
           context,
@@ -174,14 +237,7 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
           runtimePending,
           active,
           args,
-          effectiveCompileOptions(
-            context,
-            planResult.value.plan,
-            input.compileOptions ??
-              pending?.compileOptions ??
-              persistedCompileOptions ??
-              context.compileOptions,
-          ),
+          compileOptions ?? context.compileOptions,
         ),
       );
       result = {
@@ -237,6 +293,7 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
       event: "run",
       run_id: definition.run_id,
       route: definition.identity.route,
+      delegation_mode: delegationMode,
       status: "blocked",
       duration_ms: Date.now() - startedAt,
       count: 1,
@@ -295,6 +352,7 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
       event: "run",
       run_id: definition.run_id,
       route: definition.identity.route,
+      delegation_mode: delegationMode,
       status: "completed",
       duration_ms: Date.now() - startedAt,
       count: 1,
@@ -319,6 +377,7 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
     event: "run",
     run_id: definition.run_id,
     route: definition.identity.route,
+    delegation_mode: delegationMode,
     status: "failed",
     duration_ms: Date.now() - startedAt,
     count: 1,

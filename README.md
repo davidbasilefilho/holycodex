@@ -144,5 +144,6 @@ executable. `multi_agent_v2` is locally disabled and its distinct generated
 lifecycle is unverified; advertised V2 therefore fails closed and the stable
 App Server fallback remains executable. The installer has an explicit,
 idempotent legacy-state migration with quarantine and recovery; unknown schema
-epochs still fail closed. Package publication, release publication,
-deployment, and registry actions remain excluded.
+epochs still fail closed. npm publication is manual, approval-gated, and
+version-checked through `.github/workflows/publish.yml`; GitHub release
+publication and deployment remain excluded.

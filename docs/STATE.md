@@ -37,6 +37,13 @@ Epochs are identity components, not display labels. A record with an unknown
 epoch, invalid schema, invalid sequence, or mismatched run identity is not
 silently interpreted as a newer or older record.
 
+New run snapshots persist a validated `delegation_mode` in the existing
+workflow descriptor. The descriptor field is optional only for compatibility
+with stored runs from before delegation modes; those records remain readable,
+are treated as legacy unspecified, and are never silently rewritten. Inspection
+returns the descriptor, including the persisted mode when present. Derived runs
+created without workflow descriptors do not invent one.
+
 ## Canonical identities
 
 The run identity includes project and trust identities, workflow source and
@@ -48,9 +55,12 @@ checkpoints, never raw workflow source, arguments, prompts, credentials, or
 transcripts. Resume callers must resupply source and arguments and pass both
 canonical digest checks before execution effects.
 
-An operation identity includes its safe operation identifier, input digest,
-route, role, task, attempt, retry limit, and fan-out. Replaying an operation
-requires an exact identity and exact retained input digest. Resupplied source
+An operation identity includes its safe operation identifier, semantic
+fingerprint, route, role, task, attempt, retry limit, and fan-out. The
+domain-separated fingerprint covers definition identity, route/role-task,
+semantic assignment content, and protocol while excluding mechanical attempt
+and scheduling fields. Replaying an operation requires an exact identity and
+exact fingerprint. Resupplied source
 or arguments must match the run identity; a mismatch is a failure, not a new
 run hidden behind the old run ID.
 
@@ -58,8 +68,13 @@ run hidden behind the old run ID.
 
 The journal is append-only within a run and uses monotonically increasing
 sequences. It records creation, state changes, operation lifecycle and
-validated specialist outcomes, checkpoints, continuation claims, and
-refinements. Snapshot writes are atomic and always validate before persistence.
+validated v2 specialist outcomes, checkpoints, continuation claims, and
+refinements. New operation events accept only v2 outcomes. Existing
+`host-journal-1.0` operation records with the legacy universal shape are read
+through an explicit route-checked decoder and returned as canonical v2 values;
+the journal epoch remains unchanged because the outcome protocol is
+self-versioned. Snapshot writes are atomic and always validate before
+persistence.
 
 A checkpoint is a validated projection tied to a run, revision, and journal
 sequence. It records bounded objective and constraints, decisions, verified
@@ -83,12 +98,15 @@ written. Replay projects retained records and never re-enters an effect port.
 
 Replay is projection-only. The host admits it only when the supplied identity
 equals the stored run identity and a completed operation has the exact same
-canonical input digest. The replay result is marked `replayed` and does not
+semantic fingerprint. The replay result is marked `replayed` and does not
 retry the specialist or external operation.
 
-Retained context is reusable only when its project/trust reference, route,
-role, policy digest, tool profile, security profile, prompt profile, approval
-policy, and sandbox policy all match. A retained context can be `available`,
+Retained context is reusable only after a completed operation persisted a real
+App Server thread and turn, and when its project/trust reference, objective
+lineage, route/role-task, authority scope, policy digest, tool profile, security
+profile, prompt profile, approval policy, sandbox policy, and Codex capability
+digest all match. Resume requires a non-empty delta; otherwise execution starts
+a fresh non-ephemeral thread. A retained context can be `available`,
 `consumed`, `invalidated`, or `blocked`. A partial match returns
 `new-context-required`; it never weakens the identity to make reuse succeed.
 
@@ -111,8 +129,10 @@ disabled by default and cannot cross project/trust scope.
 ## Telemetry retention
 
 Telemetry is a sanitized, allowlisted projection. It may carry run and route
-identity, event status, bounded duration/count, error code, schema epochs, and
-the replay flag. It does not carry prompts, file contents, transcripts,
+identity, the bounded delegation and session modes, event status, measured
+duration/count, complete token counters when supplied, error code, schema
+epochs, and the replay flag. Absence means usage was unavailable; zero remains
+an observed counter. It does not carry prompts, file contents, transcripts,
 environment values, credentials, or raw specialist output. Telemetry sinks are
 descriptive; sink failure cannot change scheduling or run outcome.
 

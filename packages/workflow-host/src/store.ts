@@ -4,8 +4,12 @@ import {
   canonicalJson,
   canonicalJsonUtf8,
   domainSeparatedSha256,
+  normalizeSpecialistOutcome,
+  RoleTaskSchema,
+  SpecialistOutcomeSchema,
   type JsonObject,
 } from "@holycodex/core";
+import * as Schema from "effect/Schema";
 import {
   link,
   lstat,
@@ -23,6 +27,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   ContinuationClaimSchema,
   JournalEventSchema,
+  OperationLifecycleSchema,
   RunSnapshotSchema,
   decodeHostSchema,
   type ContinuationClaim,
@@ -32,6 +37,79 @@ import {
   type RunSnapshot,
 } from "./schemas.ts";
 import { WorkflowHostError } from "./errors.ts";
+
+const LegacyOperationEventSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-journal-1.0"),
+  event: Schema.Literal("operation"),
+  run_id: Schema.String,
+  sequence: Schema.Number,
+  at: Schema.String,
+  lifecycle: OperationLifecycleSchema,
+  outcome: SpecialistOutcomeSchema,
+});
+
+function operationRouteTask(
+  lifecycle: import("./schemas.ts").OperationLifecycle,
+): import("@holycodex/core").RoleTask | undefined {
+  const [role, task, ...rest] = lifecycle.operation.route.split(":");
+  if (role === undefined || task === undefined || rest.length > 0) {
+    return undefined;
+  }
+  const route = decodeHostSchema(RoleTaskSchema, { role, task });
+  if (
+    route === undefined ||
+    route.role !== lifecycle.operation.role ||
+    route.task !== lifecycle.operation.task
+  ) {
+    return undefined;
+  }
+  return route;
+}
+
+function canonicalizeStoredEvent(event: JournalEvent): JournalEvent | undefined {
+  if (event.event !== "operation") {
+    return event;
+  }
+  if (
+    event.session !== undefined &&
+    (event.session.route !== event.lifecycle.operation.route ||
+      event.session.role_task.role !== event.lifecycle.operation.role ||
+      event.session.role_task.task !== event.lifecycle.operation.task ||
+      event.session.fingerprint !== event.lifecycle.operation.input_digest)
+  ) {
+    return undefined;
+  }
+  const expectedRoute = operationRouteTask(event.lifecycle);
+  if (expectedRoute === undefined || event.outcome === undefined) {
+    return expectedRoute === undefined ? undefined : event;
+  }
+  const normalized = normalizeSpecialistOutcome(event.outcome, expectedRoute);
+  return normalized.ok ? { ...event, outcome: normalized.value } : undefined;
+}
+
+/** Decodes current journal events and explicitly migrates legacy stored operation outcomes. */
+export function decodeStoredJournalEvent(input: unknown): JournalEvent | undefined {
+  const current = decodeHostSchema(JournalEventSchema, input);
+  if (current !== undefined) {
+    return canonicalizeStoredEvent(current);
+  }
+  const legacy = decodeHostSchema(LegacyOperationEventSchema, input);
+  if (legacy === undefined) {
+    return undefined;
+  }
+  const expectedRoute = operationRouteTask(legacy.lifecycle);
+  if (expectedRoute === undefined) {
+    return undefined;
+  }
+  const normalized = normalizeSpecialistOutcome(legacy.outcome, expectedRoute);
+  if (!normalized.ok) {
+    return undefined;
+  }
+  return decodeHostSchema(JournalEventSchema, {
+    ...legacy,
+    outcome: normalized.value,
+  });
+}
 
 export type StoredRun = Readonly<{
   readonly snapshot: RunSnapshot;
@@ -312,7 +390,7 @@ export class FileRunStore {
       }
       try {
         const parsedJson: unknown = JSON.parse(line);
-        const parsed = decodeHostSchema(JournalEventSchema, parsedJson);
+        const parsed = decodeStoredJournalEvent(parsedJson);
         if (parsed === undefined) {
           throw new Error("schema validation failed");
         }
@@ -346,10 +424,11 @@ export class FileRunStore {
     await this.init();
     assertValidRunId(runId);
     const parsed = decodeHostSchema(JournalEventSchema, event);
-    if (parsed === undefined || parsed.run_id !== runId) {
+    const canonical = parsed === undefined ? undefined : canonicalizeStoredEvent(parsed);
+    if (canonical === undefined || canonical.run_id !== runId) {
       throw new WorkflowHostError("invalid_input", "The journal event does not match the run.");
     }
-    await this.appendJournalWithFactory(runId, () => parsed);
+    await this.appendJournalWithFactory(runId, () => canonical);
   }
 
   async appendJournalNext(
@@ -407,7 +486,7 @@ export class FileRunStore {
                 { cause: error },
               );
             }
-            const existing = decodeHostSchema(JournalEventSchema, existingJson);
+            const existing = decodeStoredJournalEvent(existingJson);
             if (
               existing === undefined ||
               existing.run_id !== runId ||
@@ -445,16 +524,17 @@ export class FileRunStore {
           );
         }
         const parsed = decodeHostSchema(JournalEventSchema, candidate);
-        if (parsed === undefined || parsed.run_id !== runId) {
+        const canonical = parsed === undefined ? undefined : canonicalizeStoredEvent(parsed);
+        if (canonical === undefined || canonical.run_id !== runId) {
           throw new WorkflowHostError("invalid_input", "The journal event does not match the run.");
         }
-        if (parsed.sequence !== nextSequence) {
+        if (canonical.sequence !== nextSequence) {
           throw new WorkflowHostError(
             "state_corrupt",
             "The appended journal event is not the next monotonic sequence.",
           );
         }
-        if (journalMissing && (parsed.sequence !== 1 || parsed.event !== "run-created")) {
+        if (journalMissing && (canonical.sequence !== 1 || canonical.event !== "run-created")) {
           throw new WorkflowHostError(
             "state_corrupt",
             "A missing run journal cannot be repaired by appending an arbitrary event.",
@@ -462,7 +542,7 @@ export class FileRunStore {
         }
         const handle = await open(journalPath, "a", 0o600);
         try {
-          await handle.writeFile(`${canonicalJson(parsed)}\n`, "utf8");
+          await handle.writeFile(`${canonicalJson(canonical)}\n`, "utf8");
           await handle.sync().catch((error: unknown) => {
             const code =
               typeof error === "object" && error !== null && "code" in error ? error.code : null;
@@ -473,7 +553,7 @@ export class FileRunStore {
         } finally {
           await handle.close();
         }
-        return parsed;
+        return canonical;
       } finally {
         await lock.release();
       }

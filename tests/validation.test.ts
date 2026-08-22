@@ -59,6 +59,21 @@ describe("repository validation machinery", () => {
     expect(workflow).not.toMatch(/\b(?:publish|deploy|trusted publishing)\b/iu);
   });
 
+  test("keeps npm publication manual, version-gated, and Bun-only", async () => {
+    const workflow = await readFile(
+      resolve(workspaceRoot, ".github/workflows/publish.yml"),
+      "utf8",
+    );
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("github.ref == 'refs/heads/main'");
+    expect(workflow).toContain("secrets.NPM_TOKEN");
+    expect(workflow).toContain("mise exec -- bun run validate");
+    expect(workflow).toContain('mise exec -- bun scripts/package-release.ts "$RUNNER_TEMP"');
+    expect(workflow).toContain("mise exec -- bun publish");
+    expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/u);
+    expect(workflow).not.toMatch(/\bnpm\s+(?:publish|install|ci|test|run)\b/u);
+  });
+
   test("proves fresh-clone fixture and dry-run paths do not use the network", async () => {
     await expect(
       runFreshClone({ url: null, ref: null, dryRun: false, fixture: true, network: false }),

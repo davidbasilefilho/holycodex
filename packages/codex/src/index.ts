@@ -165,11 +165,15 @@ export {
   AgentExecutionLive,
   AssignmentExecutionOptionsSchema,
   CapabilityMatrixSchemaForHost,
+  compileSpecialistAssignment,
   detectCapabilityMatrix,
   executeAssignment,
   ExecutionBackendSchema,
+  RetainedContextSchema,
   SemanticAssignmentPacketSchema,
   SemanticExecutionOutcomeSchema,
+  ExecutionUsageSchema,
+  SessionModeSchema,
   selectExecutionBackend,
 } from "./assignment";
 export type {
@@ -177,14 +181,16 @@ export type {
   CapabilityMatrixForHost,
   AssignmentExecutionOptions,
   AssignmentExecutionService,
-  AssignmentPacketParts,
   AssignmentPlanInputs,
   CompatibilityPacket,
   ExecutionBackend,
   RoutePacket,
+  RetainedContext,
   SecurityPolicy,
   SemanticAssignmentPacket,
   SemanticExecutionOutcome,
+  ExecutionUsage,
+  SessionMode,
   ToolPolicy,
 } from "./assignment";
 

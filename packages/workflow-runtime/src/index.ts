@@ -29,6 +29,9 @@ export type {
   NamedWaitResult,
   StepDefinition,
   WorkflowDsl,
+  WorkflowCondition,
+  WorkflowPredicate,
+  WorkflowRepeatUntil,
   WorkflowStage,
 } from "./dsl.ts";
 export { createCodec } from "./schema.ts";

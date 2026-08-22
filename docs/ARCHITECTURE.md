@@ -23,7 +23,10 @@ packages/core
 ```
 
 `core` owns side-effect-free domain values, Effect Schema boundary schemas, IDs,
-errors, the plan catalog, route policy, limits, and identity encodings.
+errors, the plan catalog, the declarative role/task registry, route policy,
+limits, and identity encodings. Runtime role/task schemas, route keys,
+capability metadata, assignment defaults, skill applicability, and permissions
+derive from that registry.
 `codex` owns App Server transport, exact-binary capability validation,
 project/trust identity, Codex configuration ownership, and official-plugin
 verification. `workflow-runtime` owns the production Effect workflow runtime,
@@ -89,6 +92,29 @@ not re-enter effect ports. Resume reconstructs from the last valid checkpoint
 and uncommitted journal tail without repeating committed effects. These are
 observable rules owned by [BEHAVIOR.md](BEHAVIOR.md), while this diagram owns
 their package placement.
+
+`workflow-host` is the compatibility normalization boundary: it reads existing
+payload and nested `options` values, combines run constraints, de-duplicates
+lists, and emits one semantic assignment packet. The packet contains only the
+assignment identity, objective, catalog authority, scope, references,
+constraints, required evidence, acceptance, exclusions, escalation, and
+optional delta, alongside validated route, tool, security, and compatibility
+policy objects. `codex` owns the sole assignment compiler and renders only
+those semantic fields plus role/task, the outcome protocol, and the
+structural-leaf boundary. Host state and raw payload are not rendered. The
+specialist result returns through the validated outcome boundary; deterministic
+completion and retry eligibility remain runtime-owned.
+
+Delegation mode is a core-owned enum and a workflow-host admission fact. Core
+owns the exact wire values; workflow-host derives native cardinality from the
+compiled plan, normalizes legacy compatibility callers at creation, persists
+the mode in the workflow descriptor, and reuses that descriptor on inspection
+and resume. Derived runs without descriptors remain mode-unspecified.
+
+`workflow-runtime` owns declarative writer scopes because it owns graph
+layering. It rejects overlapping file or symbol ownership in one parallel
+layer; `workflow-host` therefore receives only plans whose writers are already
+serialized or disjoint.
 
 ## Repository shape and checks
 

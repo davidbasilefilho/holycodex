@@ -22,6 +22,7 @@ export type WorkflowHostErrorCode =
   | "resume_input_required"
   | "identity_mismatch"
   | "operation_input_mismatch"
+  | "no_progress"
   | "new_context_required"
   | "specialist_invalid"
   | "state_corrupt"

@@ -2,7 +2,17 @@
 
 import { canonicalJson } from "@holycodex/core";
 import { decodeHostSchema, IdentityComponentsSchema } from "./schemas.ts";
-import { assertDigest, assertIdentifier, inputDigest, normalizeProjectTrust } from "./identity.ts";
+import { WorkflowHostError } from "./errors.ts";
+import {
+  admitOperationEvent,
+  assertDigest,
+  assertIdentifier,
+  findOperationEvent,
+  inputDigest,
+  normalizeOperationInput,
+  normalizeProjectTrust,
+  operationFingerprint,
+} from "./identity.ts";
 import { inspect, list, loadRun } from "./lifecycle.ts";
 import type {
   HostContext,
@@ -18,6 +28,13 @@ export async function replay(
   admission: ReplayAdmission,
 ): Promise<ReplayDecision> {
   const loaded = await loadRun(context, runId);
+  if (loaded.snapshot.integrity !== "valid") {
+    return {
+      kind: "denied",
+      code: "integrity_uncertain",
+      reason: "The run integrity is uncertain.",
+    };
+  }
   const identity = decodeHostSchema(IdentityComponentsSchema, admission.identity);
   if (
     identity === undefined ||
@@ -29,26 +46,58 @@ export async function replay(
       reason: "Replay identity does not match the run.",
     };
   }
-  const digest = await inputDigest(admission.operationInput);
-  const matching = loaded.journal.find(
-    (event) =>
-      event.event === "operation" &&
-      event.lifecycle.state === "completed" &&
-      event.lifecycle.operation.input_digest === digest &&
-      event.outcome,
-  );
-  if (!matching || matching.event !== "operation" || !matching.outcome) {
+  let digest: string;
+  try {
+    digest = await operationFingerprint(
+      loaded.snapshot.definition,
+      normalizeOperationInput(admission.operationInput),
+    );
+  } catch {
     return {
       kind: "denied",
       code: "operation_input_mismatch",
       reason: "No exact retained operation input exists.",
     };
   }
-  return {
-    kind: "replayed",
-    projection: await inspect(context, runId, true),
-    outcome: matching.outcome,
-  };
+  const matching = findOperationEvent(
+    loaded.journal,
+    digest,
+    await inputDigest(admission.operationInput),
+  );
+  if (matching === undefined) {
+    return {
+      kind: "denied",
+      code: "operation_input_mismatch",
+      reason: "No exact retained operation input exists.",
+    };
+  }
+  try {
+    const outcome = admitOperationEvent(matching);
+    if (outcome === undefined) {
+      return {
+        kind: "denied",
+        code: "operation_input_mismatch",
+        reason: "No completed retained operation exists for the input.",
+      };
+    }
+    return {
+      kind: "replayed",
+      projection: await inspect(context, runId, true),
+      outcome,
+    };
+  } catch (error) {
+    if (error instanceof WorkflowHostError) {
+      return {
+        kind: "denied",
+        code:
+          error.code === "no_progress" || error.code === "integrity_uncertain"
+            ? error.code
+            : "identity_mismatch",
+        reason: error.message,
+      };
+    }
+    throw error;
+  }
 }
 
 export async function reuseRetainedContext(
@@ -61,9 +110,17 @@ export async function reuseRetainedContext(
     for (const retained of projection.retained_contexts) {
       if (
         retained.status === "available" &&
+        retained.session !== undefined &&
         canonicalJson(retained.project) === canonicalJson(project) &&
         retained.route === input.route &&
         retained.role === input.role &&
+        (input.task === undefined || retained.session.role_task.task === input.task) &&
+        (input.objectiveLineage === undefined ||
+          retained.session.objective_lineage ===
+            assertIdentifier(input.objectiveLineage, "objective lineage")) &&
+        (input.authorityScopeDigest === undefined ||
+          retained.session.authority_scope_digest ===
+            assertDigest(input.authorityScopeDigest, "authority scope digest")) &&
         retained.policy_digest === assertDigest(input.policyDigest, "policy digest") &&
         retained.tool_profile === input.toolProfile &&
         retained.security_profile === input.securityProfile &&
@@ -71,7 +128,10 @@ export async function reuseRetainedContext(
         retained.approval_policy ===
           assertIdentifier(input.approvalPolicy ?? context.approvalPolicy, "approval policy") &&
         retained.sandbox_policy ===
-          assertIdentifier(input.sandboxPolicy ?? context.sandboxPolicy, "sandbox policy")
+          assertIdentifier(input.sandboxPolicy ?? context.sandboxPolicy, "sandbox policy") &&
+        (input.codexCapabilityDigest === undefined ||
+          retained.session.codex_capability_digest ===
+            assertDigest(input.codexCapabilityDigest, "Codex capability digest"))
       ) {
         return { kind: "reused", context: retained };
       }

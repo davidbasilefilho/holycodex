@@ -5,10 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSha256Digest, decodeUnknown } from "@holycodex/core";
 import * as Either from "effect/Either";
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { describe, expect, test } from "vite-plus/test";
 import {
   AppServerClient,
+  compileSpecialistAssignment,
   JsonRpcNotificationSchema,
   JsonRpcResponseSchema,
   OfficialPluginManifestSchema,
@@ -18,6 +20,7 @@ import {
   createManagedConfigState,
   createProjectTrustIdentity,
   discoverCodexExecutable,
+  executeAssignment,
   generateCodexSchemas,
   mergeManagedConfig,
   cleanupManagedConfig,
@@ -125,6 +128,99 @@ function createInitializedClient(
 }
 
 describe("Codex App Server schemas", () => {
+  test("compiles the exact useful literal from semantic assignment fields", () => {
+    const prompt = compileSpecialistAssignment({
+      assignment: {
+        id: "assignment-1",
+        objective: "Change the parser",
+        role_task: { role: "Worker", task: "implementation" },
+        authority: "Change only the assigned seam; Root owns material choices.",
+        scope: ["packages/core/src/routes.ts"],
+        references: ["docs/ARCHITECTURE.md"],
+        constraints: ["Keep the boundary typed."],
+        required_evidence: ["Run the core test"],
+        acceptance: ["The route test passes"],
+        exclusions: ["No unrelated refactor."],
+        escalation: ["Return material choices to Root."],
+        delta: ["Phase 3 semantic packet."],
+      },
+      route: {
+        key: "Worker:implementation",
+        role_task: { role: "Worker", task: "implementation" },
+      },
+      tools: { allowed: [], specialist_spawn: false, workflow: false },
+      security: { network: false, specialist_spawn: false, workflow: false },
+      compatibility: {
+        model: "Luna",
+        effort: "high",
+        service_tier: "Standard",
+        prefer_multi_agent_v2: false,
+        require_multi_agent_v2: false,
+      },
+    });
+    expect(prompt).toBe(
+      [
+        "Assignment ID: assignment-1",
+        "Objective: Change the parser",
+        "Role/task: Worker/implementation",
+        "Authority: Change only the assigned seam; Root owns material choices.",
+        "Scope: packages/core/src/routes.ts",
+        "References: docs/ARCHITECTURE.md",
+        "Constraints: Keep the boundary typed.",
+        "Required evidence: Run the core test",
+        "Acceptance: The route test passes",
+        "Exclusions: No unrelated refactor.",
+        "Escalation: Return material choices to Root.",
+        "Delta: Phase 3 semantic packet.",
+        "Outcome protocol: holycodex-specialist-outcome-2; terminal shapes: completed {protocol_version,route,evidence,status,summary}; blocked {protocol_version,route,evidence,status,reason,needs_root_decision}; partial {protocol_version,route,evidence,status,summary,completed,remaining,needs_root_decision}; failed {protocol_version,route,evidence,status,error}.",
+        "Boundary: Do not delegate or broaden scope; return material choices to Root.",
+      ].join("\n"),
+    );
+    expect(prompt).not.toContain("payload");
+    expect(prompt).not.toContain("internal state");
+  });
+
+  test("rejects an authority that disagrees with the role catalog before effects", async () => {
+    const { client } = createInitializedClient(() => undefined);
+    const result = await Effect.runPromise(
+      Effect.either(
+        executeAssignment(client, {
+          assignment: {
+            id: "assignment-1",
+            objective: "Change the parser",
+            role_task: { role: "Worker", task: "implementation" },
+            authority: "wrong",
+            scope: [],
+            references: [],
+            constraints: [],
+            required_evidence: [],
+            acceptance: [],
+            exclusions: [],
+            escalation: [],
+          },
+          route: {
+            key: "Worker:implementation",
+            role_task: { role: "Worker", task: "implementation" },
+          },
+          tools: { allowed: [], specialist_spawn: false, workflow: false },
+          security: { network: false, specialist_spawn: false, workflow: false },
+          compatibility: {
+            model: "Luna",
+            effort: "high",
+            service_tier: "Standard",
+            prefer_multi_agent_v2: false,
+            require_multi_agent_v2: false,
+          },
+        }),
+      ),
+    );
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.code).toBe("route_incompatible");
+    }
+    await client.close();
+  });
+
   test("validate JSON-RPC responses, notifications, and complete usage", () => {
     expect(Either.isRight(decode(JsonRpcResponseSchema, response(1, { ok: true })))).toBe(true);
     expect(Either.isRight(decode(JsonRpcResponseSchema, errorResponse(1, -32001, "busy")))).toBe(

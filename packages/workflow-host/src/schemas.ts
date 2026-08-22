@@ -3,11 +3,13 @@
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 import {
+  DelegationModeSchema,
   PlanNameSchema,
   RoleSchema,
+  RoleTaskSchema,
   RouteKeySchema,
   ServiceTierSchema,
-  SpecialistOutcomeSchema,
+  SpecialistOutcomeV2Schema,
   type JsonObject,
   type JsonValue,
   type PlanName,
@@ -15,7 +17,7 @@ import {
   type RoleTask,
   type RouteKey,
   type ServiceTier,
-  type SpecialistOutcome,
+  type SpecialistOutcomeV2,
 } from "@holycodex/core";
 
 export const WORKFLOW_HOST_SCHEMA_EPOCH = "host-state-1.0" as const;
@@ -186,6 +188,20 @@ export const OperationLifecycleSchema = Schema.Struct({
 });
 export type OperationLifecycle = typeof OperationLifecycleSchema.Type;
 
+export const WorkflowRuntimeEventSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-journal-1.0"),
+  event: Schema.Literal("workflow"),
+  run_id: IdentifierSchema,
+  sequence: PositiveIntegerSchema,
+  at: DateTimeSchema,
+  node_id: IdentifierSchema,
+  type: Schema.Literal("started", "completed", "failed", "skipped"),
+  attempt: NonNegativeIntegerSchema,
+  reason: Schema.optional(Schema.Literal("condition_false", "early_termination")),
+  error_code: Schema.Union(IdentifierSchema, Schema.Null),
+});
+export type WorkflowRuntimeEvent = typeof WorkflowRuntimeEventSchema.Type;
+
 const SafeStringArraySchema = Schema.Array(Schema.String).pipe(
   Schema.filter((value) => value.length <= 64 && value.every((item) => item.length <= 512)),
 );
@@ -221,6 +237,26 @@ export const RetainedContextStatusSchema = Schema.Literal(
 );
 export type RetainedContextStatus = typeof RetainedContextStatusSchema.Type;
 
+export const RetainedSessionRefSchema = Schema.Struct({
+  thread_id: IdentifierSchema,
+  turn_id: IdentifierSchema,
+  session_mode: Schema.Literal("fresh", "resumed"),
+  project: ProjectTrustRefSchema,
+  objective_lineage: IdentifierSchema,
+  role_task: RoleTaskSchema,
+  route: RouteKeySchema,
+  authority_scope_digest: DigestSchema,
+  policy_digest: DigestSchema,
+  tool_profile: IdentifierSchema,
+  security_profile: IdentifierSchema,
+  prompt_profile: IdentifierSchema,
+  approval_policy: IdentifierSchema,
+  sandbox_policy: IdentifierSchema,
+  codex_capability_digest: DigestSchema,
+  fingerprint: DigestSchema,
+});
+export type RetainedSessionRef = typeof RetainedSessionRefSchema.Type;
+
 export const RetainedContextIdentitySchema = Schema.Struct({
   schema_epoch: Schema.Literal("host-journal-1.0"),
   context_id: IdentifierSchema,
@@ -237,6 +273,7 @@ export const RetainedContextIdentitySchema = Schema.Struct({
   status: RetainedContextStatusSchema,
   summary: SafeStringArraySchema,
   created_at: DateTimeSchema,
+  session: Schema.optional(RetainedSessionRefSchema),
 });
 export type RetainedContextIdentity = typeof RetainedContextIdentitySchema.Type;
 
@@ -299,6 +336,17 @@ export const TelemetrySchema = Schema.Struct({
   event: Schema.Literal("run", "operation", "checkpoint", "replay", "continuation", "refinement"),
   run_id: Schema.Union(IdentifierSchema, Schema.Null),
   route: Schema.Union(RouteKeySchema, Schema.Null),
+  delegation_mode: Schema.optional(DelegationModeSchema),
+  session_mode: Schema.optional(Schema.Literal("fresh", "resumed")),
+  usage: Schema.optional(
+    Schema.Struct({
+      input_tokens: NonNegativeIntegerSchema,
+      cached_input_tokens: NonNegativeIntegerSchema,
+      output_tokens: NonNegativeIntegerSchema,
+      reasoning_output_tokens: NonNegativeIntegerSchema,
+      total_tokens: Schema.optional(NonNegativeIntegerSchema),
+    }),
+  ),
   status: IdentifierSchema,
   duration_ms: NonNegativeIntegerSchema,
   count: NonNegativeIntegerSchema,
@@ -315,6 +363,7 @@ export const WorkflowExecutionModeSchema = Schema.Literal("native", "compatibili
 export const WorkflowDescriptorSchema = Schema.Struct({
   schema_epoch: Schema.Literal("host-workflow-1.0"),
   execution_mode: WorkflowExecutionModeSchema,
+  delegation_mode: Schema.optional(DelegationModeSchema),
   source: WorkflowSourceSchema,
   args: JsonValueSchema,
   objective: BoundedTextSchema,
@@ -348,7 +397,8 @@ const OperationEventSchema = Schema.Struct({
   sequence: PositiveIntegerSchema,
   at: DateTimeSchema,
   lifecycle: OperationLifecycleSchema,
-  outcome: Schema.optional(SpecialistOutcomeSchema),
+  outcome: Schema.optional(SpecialistOutcomeV2Schema),
+  session: Schema.optional(RetainedSessionRefSchema),
 });
 const CheckpointEventSchema = Schema.Struct({
   schema_epoch: Schema.Literal("host-journal-1.0"),
@@ -379,6 +429,7 @@ export const JournalEventSchema = Schema.Union(
   RunCreatedEventSchema,
   StateEventSchema,
   OperationEventSchema,
+  WorkflowRuntimeEventSchema,
   CheckpointEventSchema,
   ContinuationEventSchema,
   RefinementEventSchema,
@@ -403,7 +454,9 @@ export const InspectionProjectionSchema = Schema.Struct({
   status: RunStatusSchema,
   revision: NonNegativeIntegerSchema,
   checkpoint: Schema.Union(CheckpointSchema, Schema.Null),
+  workflow: Schema.optional(WorkflowDescriptorSchema),
   operations: Schema.Array(OperationLifecycleSchema),
+  workflow_events: Schema.Array(WorkflowRuntimeEventSchema),
   retained_contexts: Schema.Array(RetainedContextIdentitySchema),
   integrity: Schema.Literal("valid", "uncertain"),
   replayed: Schema.Boolean,
@@ -415,5 +468,5 @@ export type HostPlanName = PlanName;
 export type HostRole = Role;
 export type HostRouteKey = RouteKey;
 export type HostServiceTier = ServiceTier;
-export type HostSpecialistOutcome = SpecialistOutcome;
+export type HostSpecialistOutcome = SpecialistOutcomeV2;
 export type RunId = string;

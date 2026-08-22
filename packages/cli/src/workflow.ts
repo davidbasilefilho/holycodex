@@ -15,6 +15,7 @@ import * as Layer from "effect/Layer";
 import {
   canonicalJson,
   domainSeparatedSha256,
+  lookupRoleDefinition,
   lookupPlan,
   RoleTaskSchema,
   SpecialistOutcomeSchema,
@@ -604,13 +605,21 @@ async function executeCodexSpecialist(
       "The workflow specialist route has an unsupported role and task combination.",
     );
   }
+  const role = lookupRoleDefinition(roleTask.role);
   const packet: SemanticAssignmentPacket = {
     assignment: {
       id: `${assignment.runId}:${assignment.route}`,
       objective: assignment.prompt,
       role_task: roleTask,
+      authority: role.authority,
+      scope: [],
+      references: [],
+      constraints: [],
+      required_evidence: [role.evidence],
+      acceptance: [role.completion],
+      exclusions: [],
+      escalation: [],
     },
-    context: assignment.options,
     route: { key: assignment.route, role_task: roleTask },
     tools: { allowed: [], specialist_spawn: false, workflow: false },
     security: { network: false, specialist_spawn: false, workflow: false },

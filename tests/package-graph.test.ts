@@ -19,6 +19,8 @@ const PackageManifest = Schema.Struct({
   bin: Schema.optional(Schema.Struct({ holycodex: Schema.optional(Schema.String) })),
   exports: Schema.optional(Schema.Struct({ ".": Schema.optional(Schema.String) })),
   files: Schema.optional(Schema.Array(Schema.String)),
+  repository: Schema.optional(Schema.Struct({ type: Schema.Literal("git"), url: Schema.String })),
+  publishConfig: Schema.optional(Schema.Struct({ access: Schema.Literal("public") })),
   scripts: Schema.optional(Schema.Record({ key: PackageScriptName, value: PackageScriptCommand })),
 });
 type PackageManifest = typeof PackageManifest.Type;
@@ -70,6 +72,8 @@ describe("workspace package graph", () => {
         expect(manifest.bin?.holycodex).toBe("./dist/index.js");
         expect(manifest.exports?.["."]).toBe("./dist/index.js");
         expect(manifest.files).toContain("dist");
+        expect(manifest.repository?.url).toBe("https://github.com/davidbasilefilho/holycodex.git");
+        expect(manifest.publishConfig?.access).toBe("public");
       } else {
         expect(manifest.private).toBe(true);
         expect(manifest.version).toBeUndefined();

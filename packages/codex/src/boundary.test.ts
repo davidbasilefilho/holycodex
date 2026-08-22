@@ -268,8 +268,15 @@ describe("codex-cli 0.148.0 boundary fixtures", () => {
             id: "assignment-1",
             objective: "inspect the fixture",
             role_task: { role: "Worker", task: "implementation" },
+            authority: "Change only the assigned seam; Root owns material choices.",
+            scope: [],
+            references: [],
+            constraints: [],
+            required_evidence: [],
+            acceptance: [],
+            exclusions: [],
+            escalation: [],
           },
-          context: {},
           route: {
             key: "Worker:implementation",
             role_task: { role: "Worker", task: "implementation" },
@@ -288,7 +295,14 @@ describe("codex-cli 0.148.0 boundary fixtures", () => {
       ),
     );
     expect(outcome.backend).toBe("app-server-v1-fallback");
+    expect(outcome.session_mode).toBe("fresh");
     expect(outcome.thread_id).toBe("thread-fixture");
+    expect(outcome.outcome).toMatchObject({
+      protocol_version: "holycodex-specialist-outcome-2",
+      route: { role: "Worker", task: "implementation" },
+      status: "completed",
+    });
+    expect(outcome.outcome).not.toHaveProperty("changed_files");
     expect(methods).toEqual(["initialize", "model/list", "thread/start", "turn/start"]);
     expect(stages).toEqual([
       "initialize",
@@ -297,8 +311,104 @@ describe("codex-cli 0.148.0 boundary fixtures", () => {
       "turn/start",
       "turn/completed",
     ]);
+    const threadStart = transport.writes
+      .map((line) => JSON.parse(line) as { readonly method?: string; readonly params?: unknown })
+      .find((request) => request.method === "thread/start");
+    expect(threadStart?.params).toMatchObject({ ephemeral: false });
     await client.close();
     expect(transport.closeCount).toBe(1);
+  });
+
+  test("resumes a matching retained thread and sends only delta context", async () => {
+    const transport = new FixtureTransport();
+    const handshake = await fixtureLines("handshake.ndjson");
+    const capabilities = await fixtureLines("capability-v1-fallback.ndjson");
+    const completion = await fixtureLines("assignment-completion.ndjson");
+    const methods: string[] = [];
+    transport.onWrite = (line) => {
+      const request = JSON.parse(line) as { readonly method?: string; readonly id?: number };
+      if (request.method !== undefined && request.method !== "initialized") {
+        methods.push(request.method);
+      }
+      if (request.method === "initialize") {
+        transport.enqueue(handshake[0]!);
+      } else if (request.method === "model/list") {
+        transport.enqueue(capabilities[0]!);
+      } else if (request.method === "thread/resume") {
+        transport.enqueue(completion[0]!);
+      } else if (request.method === "turn/start") {
+        transport.enqueue(completion[1]!);
+        queueMicrotask(() => transport.enqueue(completion[2]!));
+      }
+    };
+    const client = new AppServerClient(transport);
+    await client.initialize();
+    const outcome = await Effect.runPromise(
+      executeAssignment(
+        client,
+        {
+          assignment: {
+            id: "assignment-2",
+            objective: "continue the fixture",
+            role_task: { role: "Worker", task: "implementation" },
+            authority: "Change only the assigned seam; Root owns material choices.",
+            scope: ["must not be repeated"],
+            references: ["must not be repeated"],
+            constraints: ["must not be repeated"],
+            required_evidence: ["return proof"],
+            acceptance: ["finish the delta"],
+            exclusions: ["must not be repeated"],
+            escalation: ["must not be repeated"],
+            delta: ["Implement the next bounded change."],
+          },
+          route: {
+            key: "Worker:implementation",
+            role_task: { role: "Worker", task: "implementation" },
+          },
+          tools: { allowed: [], specialist_spawn: false, workflow: false },
+          security: { network: false, specialist_spawn: false, workflow: false },
+          compatibility: {
+            model: "gpt-5",
+            effort: "medium",
+            service_tier: "Standard",
+            prefer_multi_agent_v2: true,
+            require_multi_agent_v2: false,
+          },
+          retained_context: {
+            thread_id: "thread-fixture",
+            project: {
+              project_id: "project-1",
+              trust_id: "trust-1",
+              project_digest: "a".repeat(64),
+              trust_digest: "b".repeat(64),
+            },
+            objective_lineage: "lineage-1",
+            role_task: { role: "Worker", task: "implementation" },
+            route: "Worker:implementation",
+            authority_scope_digest: "c".repeat(64),
+            policy_digest: "d".repeat(64),
+            tool_profile: "default",
+            security_profile: "default",
+            prompt_profile: "default",
+            approval_policy: "root",
+            sandbox_policy: "workspace-write",
+            codex_capability_digest: "e".repeat(64),
+            last_accepted_fingerprint: "f".repeat(64),
+            last_accepted_turn_id: "turn-previous",
+          },
+        },
+        { timeoutMs: 1000 },
+      ),
+    );
+    expect(outcome.session_mode).toBe("resumed");
+    expect(methods).toEqual(["initialize", "model/list", "thread/resume", "turn/start"]);
+    const turnStart = transport.writes
+      .map((line) => JSON.parse(line) as { readonly method?: string; readonly params?: unknown })
+      .find((request) => request.method === "turn/start");
+    const prompt = JSON.stringify(turnStart?.params);
+    expect(prompt).toContain("Delta: Implement the next bounded change.");
+    expect(prompt).not.toContain("must not be repeated");
+    await client.close();
   });
 
   test("keeps cancellation and failure typed at the Effect adapter boundary", async () => {

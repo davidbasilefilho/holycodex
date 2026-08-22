@@ -6,15 +6,19 @@ import {
   CliFailureEnvelopeSchema,
   CliSuccessEnvelopeSchema,
   CoreError,
+  DelegationModeSchema,
   EffortSchema,
   PLAN_CATALOG,
   PlanNameSchema,
   PlanSelectionSchema,
   RoleTaskSchema,
+  ROLE_DEFINITIONS,
   ROUTE_KEYS,
   RouteKeySchema,
   RunIdentityInputSchema,
+  SPECIALIST_OUTCOME_VERSION,
   SpecialistOutcomeSchema,
+  parseSpecialistOutcomeV2,
   STATE_SCHEMA_EPOCH,
   TrustIdentityInputSchema,
   canonicalIdentityUtf8,
@@ -26,6 +30,7 @@ import {
   lookupRoute,
   parseCliEnvelope,
   parseIdentityInput,
+  normalizeSpecialistOutcome,
   parseSchemaEpochId,
   parseSpecialistOutcome,
 } from "./index";
@@ -88,6 +93,23 @@ describe("core plan catalog", () => {
     ]);
   });
 
+  test("derives every role/task route from one capability registry", () => {
+    expect(
+      ROLE_DEFINITIONS.flatMap((definition) =>
+        definition.tasks.map((task) => `${definition.role}:${task}`),
+      ),
+    ).toEqual(ROUTE_KEYS);
+    expect(ROLE_DEFINITIONS.map((definition) => definition.permissions.write)).toEqual([
+      false,
+      false,
+      true,
+      true,
+    ]);
+    expect(ROLE_DEFINITIONS.find((definition) => definition.role === "Explorer")?.ponytail).toBe(
+      false,
+    );
+  });
+
   test("deep-freezes catalog values", () => {
     expect(Object.isFrozen(PLAN_CATALOG)).toBe(true);
     expect(Object.isFrozen(PLAN_CATALOG[2])).toBe(true);
@@ -106,6 +128,15 @@ describe("core plan catalog", () => {
 });
 
 describe("core route and boundary schemas", () => {
+  test("owns the exact delegation mode wire values", () => {
+    expect(
+      ["DIRECT", "SINGLE", "DYNAMIC_WORKFLOW"].map((mode) =>
+        Either.isRight(decodeUnknown(DelegationModeSchema, mode)),
+      ),
+    ).toEqual([true, true, true]);
+    expect(Either.isLeft(decodeUnknown(DelegationModeSchema, "DYNAMIC WORKFLOW"))).toBe(true);
+  });
+
   test("preserves stable error codes, safe details, and causes", () => {
     const cause = new Error("schema detail");
     const error = new CoreError("invalid_input", "Invalid input.", { field: "plan" }, { cause });
@@ -215,6 +246,160 @@ describe("core route and boundary schemas", () => {
     };
     expect(Either.isRight(decodeUnknown(SpecialistOutcomeSchema, outcome))).toBe(true);
     expect(parseSpecialistOutcome({ ...outcome, status: "unknown" }).ok).toBe(false);
+  });
+
+  test("parses every SpecialistOutcome v2 terminal variant", () => {
+    const common = {
+      protocol_version: SPECIALIST_OUTCOME_VERSION,
+      route: { role: "Worker", task: "implementation" },
+      evidence: ["focused core test"],
+    };
+    const outcomes = [
+      { ...common, status: "completed", summary: "Implemented the boundary." },
+      { ...common, status: "blocked", reason: "Needs a root decision.", needs_root_decision: true },
+      {
+        ...common,
+        status: "partial",
+        summary: "Implemented the boundary.",
+        completed: ["schema"],
+        remaining: ["consumer migration"],
+        needs_root_decision: false,
+      },
+      { ...common, status: "failed", error: "Test command failed." },
+    ];
+
+    for (const outcome of outcomes) {
+      expect(parseSpecialistOutcomeV2(outcome).ok).toBe(true);
+    }
+    expect(
+      parseSpecialistOutcomeV2({
+        ...common,
+        status: "failed",
+        error: "Test command failed.",
+        retryable: true,
+      }).ok,
+    ).toBe(false);
+  });
+
+  test("rejects invalid SpecialistOutcome v2 routes and terminal fields", () => {
+    const common = {
+      protocol_version: SPECIALIST_OUTCOME_VERSION,
+      route: { role: "Worker", task: "research" },
+      evidence: [],
+      status: "completed",
+      summary: "Implemented the boundary.",
+    };
+    expect(parseSpecialistOutcomeV2(common).ok).toBe(false);
+
+    const completed = {
+      protocol_version: SPECIALIST_OUTCOME_VERSION,
+      route: { role: "Worker", task: "implementation" },
+      evidence: [],
+      status: "completed",
+      summary: "Implemented the boundary.",
+    };
+    expect(parseSpecialistOutcomeV2({ ...completed, reason: "contradictory" }).ok).toBe(false);
+    expect(
+      parseSpecialistOutcomeV2({
+        ...completed,
+        status: "failed",
+        error: "contradictory",
+        retryable: false,
+        summary: undefined,
+      }).ok,
+    ).toBe(false);
+    expect(parseSpecialistOutcomeV2({ ...completed, protocol_version: "legacy" }).ok).toBe(false);
+    expect(parseSpecialistOutcomeV2({ ...completed, summary: "" }).ok).toBe(false);
+  });
+
+  test("normalizes legacy outcomes only for the expected route", () => {
+    const route = { role: "Worker" as const, task: "implementation" as const };
+    const legacy = {
+      blocked: false,
+      changed_files: ["changed"],
+      confidence: 0.5,
+      context_owner: "legacy",
+      material_findings: ["finding", "duplicate"],
+      needs_more_context: true,
+      needs_root_decision: true,
+      needs_verification: true,
+      relevant_files: ["relevant", "duplicate"],
+      remaining_risk: ["risk"],
+      reuse_recommended: true,
+      status: "completed" as const,
+      suggested_followup: null,
+      suggested_luna_effort: "high" as const,
+      suggested_specialist: "Reviewer" as const,
+      verification: ["verified", "duplicate"],
+      verification_passed: false,
+    };
+    expect(normalizeSpecialistOutcome(legacy, route)).toEqual({
+      ok: true,
+      value: {
+        protocol_version: SPECIALIST_OUTCOME_VERSION,
+        route,
+        evidence: ["relevant", "duplicate", "verified", "finding"],
+        status: "completed",
+        summary: "finding",
+      },
+    });
+
+    const variants = [
+      {
+        status: "blocked" as const,
+        blocked: true,
+        suggested_followup: "follow up",
+        remaining_risk: ["risk"],
+        expected: {
+          status: "blocked" as const,
+          reason: "follow up",
+          needs_root_decision: true,
+        },
+      },
+      {
+        status: "partial" as const,
+        suggested_followup: null,
+        material_findings: [],
+        remaining_risk: ["remaining"],
+        expected: {
+          status: "partial" as const,
+          summary: "Partially completed assigned work.",
+          completed: ["changed"],
+          remaining: ["remaining"],
+          needs_root_decision: true,
+        },
+      },
+      {
+        status: "failed" as const,
+        suggested_followup: null,
+        remaining_risk: ["failure risk"],
+        expected: { status: "failed" as const, error: "failure risk" },
+      },
+    ];
+    for (const variant of variants) {
+      const { expected, ...legacyVariant } = variant;
+      const result = normalizeSpecialistOutcome({ ...legacy, ...legacyVariant }, route);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toMatchObject(expected);
+      }
+    }
+
+    const v2 = {
+      protocol_version: SPECIALIST_OUTCOME_VERSION,
+      route,
+      evidence: [],
+      status: "completed" as const,
+      summary: "done",
+    };
+    expect(normalizeSpecialistOutcome(v2, route).ok).toBe(true);
+    expect(
+      normalizeSpecialistOutcome({ ...legacy, blocked: true, status: "completed" }, route).ok,
+    ).toBe(false);
+    expect(
+      normalizeSpecialistOutcome({ ...v2, route: { role: "Worker", task: "integration" } }, route)
+        .ok,
+    ).toBe(false);
   });
 });
 

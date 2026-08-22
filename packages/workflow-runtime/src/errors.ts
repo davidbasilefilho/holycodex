@@ -7,6 +7,8 @@ export type WorkflowFailureCode =
   | "timeout"
   | "interruption"
   | "retry_exhausted"
+  | "iteration_limit"
+  | "no_progress"
   | "execution"
   | "cancellation";
 
@@ -14,6 +16,7 @@ export type WorkflowFailure = Readonly<{
   readonly _tag: "WorkflowFailure";
   readonly code: WorkflowFailureCode;
   readonly message: string;
+  readonly retryable?: boolean;
   readonly nodeId?: string;
   readonly cause?: unknown;
 }>;
@@ -21,7 +24,11 @@ export type WorkflowFailure = Readonly<{
 export function workflowFailure(
   code: WorkflowFailureCode,
   message: string,
-  details: Readonly<{ readonly nodeId?: string; readonly cause?: unknown }> = {},
+  details: Readonly<{
+    readonly nodeId?: string;
+    readonly cause?: unknown;
+    readonly retryable?: boolean;
+  }> = {},
 ): WorkflowFailure {
   return Object.freeze({ _tag: "WorkflowFailure" as const, code, message, ...details });
 }

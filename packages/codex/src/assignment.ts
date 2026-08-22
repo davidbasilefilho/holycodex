@@ -1,33 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import * as Context from "effect/Context";
-import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import {
-  decodeUnknown,
   EffortSchema,
+  lookupRoleDefinition,
+  normalizeSpecialistOutcome,
   RoleTaskSchema,
   RouteKeySchema,
   ServiceTierSchema,
-  SpecialistOutcomeSchema,
-  type JsonObject,
+  SPECIALIST_OUTCOME_VERSION,
+  SpecialistOutcomeV2Schema,
   type JsonValue,
   type RoleTask,
   type RouteKey,
   type ServiceTier,
   type Effort,
-  type SpecialistOutcome,
+  type SpecialistOutcomeV2,
 } from "@holycodex/core";
-import {
-  checked,
-  CodexError,
-  IdentifierSchema,
-  isPlainObject,
-  JsonObjectSchema,
-  TextSchema,
-} from "./common";
+import { checked, CodexError, IdentifierSchema, isPlainObject, TextSchema } from "./common";
 import type { AppServerClient } from "./client";
 import { AppServer } from "./effect-services";
 import { generatedMultiAgentV2LifecycleStatus } from "./generated-wire";
@@ -35,6 +28,7 @@ import {
   TurnCompletedNotificationSchema,
   type ModelCapability,
   type ModelListResult,
+  type SupportedUsage,
   type TurnCompletedNotification,
 } from "./protocol";
 
@@ -56,6 +50,15 @@ const AssignmentSchema = Schema.Struct({
   id: IdentifierSchema,
   objective: TextSchema,
   role_task: RoleTaskSchema,
+  authority: TextSchema,
+  scope: Schema.Array(TextSchema),
+  references: Schema.Array(TextSchema),
+  constraints: Schema.Array(TextSchema),
+  required_evidence: Schema.Array(TextSchema),
+  acceptance: Schema.Array(TextSchema),
+  exclusions: Schema.Array(TextSchema),
+  escalation: Schema.Array(TextSchema),
+  delta: Schema.optional(Schema.Array(TextSchema)),
 });
 export type Assignment = typeof AssignmentSchema.Type;
 
@@ -74,15 +77,114 @@ const CompatibilityPacketSchema = Schema.Struct({
 });
 export type CompatibilityPacket = typeof CompatibilityPacketSchema.Type;
 
+const DigestSchema = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u));
+const ProjectTrustIdentitySchema = Schema.Struct({
+  project_id: IdentifierSchema,
+  trust_id: IdentifierSchema,
+  project_digest: DigestSchema,
+  trust_digest: DigestSchema,
+});
+const RetainedContextFieldsSchema = {
+  thread_id: Schema.optional(IdentifierSchema),
+  project: Schema.optional(ProjectTrustIdentitySchema),
+  objective_lineage: Schema.optional(IdentifierSchema),
+  role_task: Schema.optional(RoleTaskSchema),
+  route: Schema.optional(RouteKeySchema),
+  authority_scope_digest: Schema.optional(DigestSchema),
+  policy_digest: Schema.optional(DigestSchema),
+  tool_profile: Schema.optional(IdentifierSchema),
+  security_profile: Schema.optional(IdentifierSchema),
+  prompt_profile: Schema.optional(IdentifierSchema),
+  approval_policy: Schema.optional(IdentifierSchema),
+  sandbox_policy: Schema.optional(IdentifierSchema),
+  codex_capability_digest: Schema.optional(DigestSchema),
+  last_accepted_fingerprint: Schema.optional(DigestSchema),
+  last_accepted_turn_id: Schema.optional(IdentifierSchema),
+} as const;
+export const RetainedContextSchema = Schema.Struct(RetainedContextFieldsSchema);
+const CompleteRetainedContextSchema = Schema.Struct({
+  thread_id: IdentifierSchema,
+  project: ProjectTrustIdentitySchema,
+  objective_lineage: IdentifierSchema,
+  role_task: RoleTaskSchema,
+  route: RouteKeySchema,
+  authority_scope_digest: DigestSchema,
+  policy_digest: DigestSchema,
+  tool_profile: IdentifierSchema,
+  security_profile: IdentifierSchema,
+  prompt_profile: IdentifierSchema,
+  approval_policy: IdentifierSchema,
+  sandbox_policy: IdentifierSchema,
+  codex_capability_digest: DigestSchema,
+  last_accepted_fingerprint: DigestSchema,
+  last_accepted_turn_id: IdentifierSchema,
+});
+export type RetainedContext = typeof RetainedContextSchema.Type;
+type CompleteRetainedContext = typeof CompleteRetainedContextSchema.Type;
+
+export const SessionModeSchema = Schema.Literal("fresh", "resumed");
+export type SessionMode = typeof SessionModeSchema.Type;
+
+const TokenCountSchema = Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0));
+export const ExecutionUsageSchema = Schema.Struct({
+  input_tokens: TokenCountSchema,
+  cached_input_tokens: TokenCountSchema,
+  output_tokens: TokenCountSchema,
+  reasoning_output_tokens: TokenCountSchema,
+  total_tokens: Schema.optional(TokenCountSchema),
+});
+export type ExecutionUsage = typeof ExecutionUsageSchema.Type;
+
 export const SemanticAssignmentPacketSchema = Schema.Struct({
   assignment: AssignmentSchema,
-  context: JsonObjectSchema,
   route: RoutePacketSchema,
   tools: ToolPolicySchema,
   security: SecurityPolicySchema,
   compatibility: CompatibilityPacketSchema,
+  retained_context: Schema.optional(RetainedContextSchema),
 });
 export type SemanticAssignmentPacket = typeof SemanticAssignmentPacketSchema.Type;
+
+const ASSIGNMENT_FIELDS = [
+  ["scope", "Scope"],
+  ["references", "References"],
+  ["constraints", "Constraints"],
+  ["required_evidence", "Required evidence"],
+  ["acceptance", "Acceptance"],
+  ["exclusions", "Exclusions"],
+  ["escalation", "Escalation"],
+  ["delta", "Delta"],
+] as const;
+
+/** Compiles semantic state into the one literal instruction sent to a managed specialist. */
+export function compileSpecialistAssignment(packet: SemanticAssignmentPacket): string {
+  const lines = [
+    `Assignment ID: ${packet.assignment.id}`,
+    `Objective: ${packet.assignment.objective}`,
+    `Role/task: ${packet.assignment.role_task.role}/${packet.assignment.role_task.task}`,
+    `Authority: ${packet.assignment.authority}`,
+  ];
+  const retained = completeRetainedContext(packet.retained_context);
+  const fields =
+    retained !== undefined && hasNonEmptyDelta(packet.assignment.delta)
+      ? ([
+          ["delta", "Delta"],
+          ["required_evidence", "Required evidence"],
+          ["acceptance", "Acceptance"],
+        ] as const)
+      : ASSIGNMENT_FIELDS;
+  for (const [field, label] of fields) {
+    const value = packet.assignment[field];
+    if (value !== undefined && value.length > 0) {
+      lines.push(`${label}: ${value.join("; ")}`);
+    }
+  }
+  lines.push(
+    `Outcome protocol: ${SPECIALIST_OUTCOME_VERSION}; terminal shapes: completed {protocol_version,route,evidence,status,summary}; blocked {protocol_version,route,evidence,status,reason,needs_root_decision}; partial {protocol_version,route,evidence,status,summary,completed,remaining,needs_root_decision}; failed {protocol_version,route,evidence,status,error}.`,
+  );
+  lines.push("Boundary: Do not delegate or broaden scope; return material choices to Root.");
+  return lines.join("\n");
+}
 
 export const ExecutionBackendSchema = Schema.Literal("app-server-v1-fallback", "app-server-v2");
 export type ExecutionBackend = typeof ExecutionBackendSchema.Type;
@@ -93,7 +195,10 @@ export const SemanticExecutionOutcomeSchema = Schema.Struct({
   thread_id: IdentifierSchema,
   turn_id: IdentifierSchema,
   backend: ExecutionBackendSchema,
-  outcome: SpecialistOutcomeSchema,
+  session_mode: Schema.optional(SessionModeSchema),
+  duration_ms: Schema.optional(TokenCountSchema),
+  usage: Schema.optional(ExecutionUsageSchema),
+  outcome: SpecialistOutcomeV2Schema,
 });
 export type SemanticExecutionOutcome = typeof SemanticExecutionOutcomeSchema.Type;
 
@@ -131,6 +236,69 @@ function assertStructuralLeaf(input: unknown): void {
       );
     }
   }
+}
+
+function assertAssignmentConsistency(packet: SemanticAssignmentPacket): void {
+  const assignment = packet.assignment;
+  const roleTask = assignment.role_task;
+  const route = packet.route.role_task;
+  const definition = lookupRoleDefinition(roleTask.role);
+  if (assignment.authority !== definition.authority) {
+    throw new CodexError(
+      "route_incompatible",
+      "The assignment authority does not match the selected role catalog definition.",
+      { role: roleTask.role, needs_root_decision: true },
+    );
+  }
+  if (
+    roleTask.role !== route.role ||
+    roleTask.task !== route.task ||
+    packet.route.key !== `${roleTask.role}:${roleTask.task}`
+  ) {
+    throw new CodexError("route_incompatible", "The assignment and route identities disagree.", {
+      needs_root_decision: true,
+    });
+  }
+  const expectedCapabilities = [
+    "read",
+    ...(definition.permissions.write ? ["write"] : []),
+    ...(definition.permissions.execute ? ["execute"] : []),
+    ...(definition.permissions.network ? ["network"] : []),
+  ];
+  if (
+    packet.tools.allowed.some((capability) => !expectedCapabilities.includes(capability)) ||
+    (packet.security.network && !definition.permissions.network)
+  ) {
+    throw new CodexError(
+      "route_incompatible",
+      "The assignment capabilities exceed the selected role catalog definition.",
+      { role: roleTask.role, needs_root_decision: true },
+    );
+  }
+}
+
+function completeRetainedContext(
+  input: RetainedContext | undefined,
+): CompleteRetainedContext | undefined {
+  if (input === undefined) {
+    return undefined;
+  }
+  try {
+    const parsed = checked(CompleteRetainedContextSchema, input, "retained context");
+    if (
+      parsed.route !== `${parsed.role_task.role}:${parsed.role_task.task}` ||
+      parsed.route !== `${input.role_task?.role ?? ""}:${input.role_task?.task ?? ""}`
+    ) {
+      return undefined;
+    }
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function hasNonEmptyDelta(value: readonly string[] | undefined): boolean {
+  return value !== undefined && value.some((item) => item.trim().length > 0);
 }
 
 function selectModel(models: ModelListResult, requestedModel: string): ModelCapability {
@@ -250,29 +418,34 @@ function turnIdFromResult(result: unknown): string {
   throw new CodexError("turn_failed", "Codex did not return a native turn identity.");
 }
 
-function decodeOutcome(value: unknown): SpecialistOutcome | undefined {
-  const parsed = decodeUnknown(SpecialistOutcomeSchema, value);
-  return Either.isRight(parsed) ? parsed.right : undefined;
+function decodeOutcome(value: unknown, expectedRoute: RoleTask): SpecialistOutcomeV2 | undefined {
+  const parsed = normalizeSpecialistOutcome(value, expectedRoute);
+  return parsed.ok ? parsed.value : undefined;
 }
 
-function findOutcome(value: unknown, depth = 0): SpecialistOutcome | undefined {
+function findOutcome(
+  value: unknown,
+  expectedRoute: RoleTask,
+  depth = 0,
+): SpecialistOutcomeV2 | undefined {
   if (depth > 8) {
     return undefined;
   }
-  const direct = decodeOutcome(value);
+  const direct = decodeOutcome(value, expectedRoute);
   if (direct !== undefined) {
     return direct;
   }
   if (typeof value === "string") {
     try {
-      return decodeOutcome(JSON.parse(value) as unknown);
+      const parsed: unknown = JSON.parse(value);
+      return decodeOutcome(parsed, expectedRoute);
     } catch {
       return undefined;
     }
   }
   if (Array.isArray(value)) {
     for (const item of [...value].reverse()) {
-      const found = findOutcome(item, depth + 1);
+      const found = findOutcome(item, expectedRoute, depth + 1);
       if (found !== undefined) {
         return found;
       }
@@ -283,14 +456,14 @@ function findOutcome(value: unknown, depth = 0): SpecialistOutcome | undefined {
     const preferredKeys = ["outcome", "final", "message", "content", "items", "messages", "turns"];
     for (const key of preferredKeys) {
       if (key in value) {
-        const found = findOutcome(value[key], depth + 1);
+        const found = findOutcome(value[key], expectedRoute, depth + 1);
         if (found !== undefined) {
           return found;
         }
       }
     }
     for (const item of Object.values(value).reverse()) {
-      const found = findOutcome(item, depth + 1);
+      const found = findOutcome(item, expectedRoute, depth + 1);
       if (found !== undefined) {
         return found;
       }
@@ -299,8 +472,11 @@ function findOutcome(value: unknown, depth = 0): SpecialistOutcome | undefined {
   return undefined;
 }
 
-function extractOutcome(notification: TurnCompletedNotification): SpecialistOutcome | undefined {
-  return findOutcome(notification);
+function extractOutcome(
+  notification: TurnCompletedNotification,
+  expectedRoute: RoleTask,
+): SpecialistOutcomeV2 | undefined {
+  return findOutcome(notification, expectedRoute);
 }
 
 interface CompletionWaiter {
@@ -420,26 +596,71 @@ async function executeAssignmentWithClient(
   options: AssignmentExecutionOptions,
   signal: AbortSignal,
 ): Promise<SemanticExecutionOutcome> {
+  const startedAt = performance.now();
   const models = await client.listModels({});
   const model = selectModel(models, packet.compatibility.model);
   validatePlanDerivedInputs(packet.compatibility, model);
   const backend = selectExecutionBackend(packet.compatibility, model);
-  const thread = await client.startThread({
-    model: packet.compatibility.model,
-    serviceTier: packet.compatibility.service_tier,
-    ephemeral: true,
-  });
-  const threadId = threadIdFromResult(thread);
-  const waiter = waitForCompletion(client, threadId, options.timeoutMs ?? 120_000, signal);
+  const completeRetained = completeRetainedContext(packet.retained_context);
+  const retained = hasNonEmptyDelta(packet.assignment.delta) ? completeRetained : undefined;
+  if (
+    retained !== undefined &&
+    (retained.route !== packet.route.key ||
+      retained.role_task.role !== packet.assignment.role_task.role ||
+      retained.role_task.task !== packet.assignment.role_task.task)
+  ) {
+    throw new CodexError(
+      "route_incompatible",
+      "The retained context route does not match the assignment route.",
+      { needs_root_decision: true },
+    );
+  }
+  const sessionMode: SessionMode = retained === undefined ? "fresh" : "resumed";
+  let activeThreadId: string;
+  if (retained !== undefined) {
+    const resumed = await client.resumeThread(retained.thread_id);
+    const resumedThreadId = threadIdFromResult(resumed);
+    if (resumedThreadId !== retained.thread_id) {
+      throw new CodexError(
+        "turn_failed",
+        "Codex resumed a different thread than the retained identity.",
+        { expectedThreadId: retained.thread_id, resumedThreadId },
+      );
+    }
+    activeThreadId = resumedThreadId;
+  } else {
+    const thread = await client.startThread({
+      model: packet.compatibility.model,
+      serviceTier: packet.compatibility.service_tier,
+      ephemeral: false,
+    });
+    activeThreadId = threadIdFromResult(thread);
+  }
+  const threadIdForExecution = activeThreadId;
+  const waiter = waitForCompletion(
+    client,
+    threadIdForExecution,
+    options.timeoutMs ?? 120_000,
+    signal,
+  );
   let turnId: string | undefined;
   let completed = false;
   try {
     const turn = await client.startTurn({
-      threadId,
-      input: [{ type: "text", text: packet.assignment.objective }],
+      threadId: threadIdForExecution,
+      input: [{ type: "text", text: compileSpecialistAssignment(packet) }],
       model: packet.compatibility.model,
       effort: packet.compatibility.effort,
       serviceTier: packet.compatibility.service_tier,
+      ...(packet.assignment.role_task.role === "Explorer" ||
+      packet.assignment.role_task.role === "Librarian"
+        ? {
+            sandboxPolicy: {
+              type: "readOnly",
+              networkAccess: packet.security.network,
+            },
+          }
+        : {}),
     });
     const nativeTurnId = turnIdFromResult(turn);
     turnId = nativeTurnId;
@@ -450,10 +671,12 @@ async function executeAssignmentWithClient(
       throw new CodexError(
         "turn_failed",
         "Codex completed a different turn than the one started for this assignment.",
-        { threadId, turnId: nativeTurnId, completedTurnId },
+        { threadId: threadIdForExecution, turnId: nativeTurnId, completedTurnId },
       );
     }
-    const outcome = extractOutcome(completion) ?? findOutcome(await client.readThread(threadId));
+    const outcome =
+      extractOutcome(completion, packet.assignment.role_task) ??
+      findOutcome(await client.readThread(threadIdForExecution), packet.assignment.role_task);
     if (outcome === undefined) {
       throw new CodexError(
         "turn_failed",
@@ -466,9 +689,14 @@ async function executeAssignmentWithClient(
       {
         assignment_id: packet.assignment.id,
         route_key: packet.route.key,
-        thread_id: threadId,
+        thread_id: threadIdForExecution,
         turn_id: nativeTurnId,
         backend,
+        session_mode: sessionMode,
+        duration_ms: Math.max(0, Math.round(performance.now() - startedAt)),
+        ...(completion.turn?.usage === undefined
+          ? {}
+          : { usage: normalizeUsage(completion.turn.usage) }),
         outcome,
       },
       "semantic execution outcome",
@@ -478,9 +706,21 @@ async function executeAssignmentWithClient(
   } finally {
     waiter.close();
     if (turnId !== undefined && !completed) {
-      await client.interruptTurn({ threadId, turnId }).catch(() => undefined);
+      await client.interruptTurn({ threadId: threadIdForExecution, turnId }).catch(() => undefined);
     }
   }
+}
+
+function normalizeUsage(usage: SupportedUsage): ExecutionUsage {
+  return {
+    input_tokens: usage.inputTokens ?? usage.input_tokens ?? 0,
+    cached_input_tokens: usage.cachedInputTokens ?? usage.cached_input_tokens ?? 0,
+    output_tokens: usage.outputTokens ?? usage.output_tokens ?? 0,
+    reasoning_output_tokens: usage.reasoningOutputTokens ?? usage.reasoning_output_tokens ?? 0,
+    ...(usage.totalTokens === undefined && usage.total_tokens === undefined
+      ? {}
+      : { total_tokens: usage.totalTokens ?? usage.total_tokens }),
+  };
 }
 
 export function executeAssignment(
@@ -492,6 +732,7 @@ export function executeAssignment(
     try: async (signal) => {
       assertStructuralLeaf(input);
       const packet = checked(SemanticAssignmentPacketSchema, input, "semantic assignment packet");
+      assertAssignmentConsistency(packet);
       const validatedOptions = checked(
         AssignmentExecutionOptionsSchema,
         options,
@@ -546,15 +787,6 @@ export const AgentExecutionLive = Layer.effect(
     } satisfies AssignmentExecutionService;
   }),
 );
-
-export type AssignmentPacketParts = {
-  readonly assignment: Assignment;
-  readonly context: JsonObject;
-  readonly route: RoutePacket;
-  readonly tools: ToolPolicy;
-  readonly security: SecurityPolicy;
-  readonly compatibility: CompatibilityPacket;
-};
 
 export type AssignmentPlanInputs = {
   readonly model: string;

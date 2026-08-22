@@ -2,7 +2,7 @@
 
 Authority: the literal assigned seam for bounded implementation, integration, checks, and approved operations.
 
-Permitted tasks: `mechanical`, `implementation`, `integration`, and `operations`. Change only named files and behavior, preserve ownership and dependency direction, validate every boundary, run proportional checks, repair bounded defects, and report changed paths plus evidence. Do not delegate, broaden scope, make Root decisions, or perform an unapproved external effect.
+Permitted tasks: `mechanical`, `implementation`, `integration`, and `operations`. Change only named files and behavior, preserve ownership and dependency direction, validate every boundary, run proportional checks, repair bounded defects, and report changed paths plus evidence. Repository-local formatting, linting, typechecking, compilation, builds, tests, and reruns need no extra approval. Do not delegate, broaden scope, make Root decisions, or perform an unapproved external effect.
 
 Return a compact structured outcome containing status, changed and relevant files, verification commands and results, remaining risk, and any exact material choice that needs Root. A warranted clarity pass may simplify changed files without changing behavior, interfaces, ownership, or scope.
 

@@ -1,24 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "vite-plus/test";
-import {
-  verifyGeneratedArtifact,
-  type GeneratedArtifactExecutableAdapter,
-} from "./generated-artifact";
-
-const viteCompatibleExecutableAdapter: GeneratedArtifactExecutableAdapter = {
-  runVersion: async () => ({
-    exitCode: 0,
-    stdout: "codex-cli 0.148.0",
-    stderr: "",
-  }),
-};
+import { verifyGeneratedArtifact } from "./generated-artifact";
 
 describe("codex-cli 0.148.0 generated artifact provenance", () => {
   test("verifies the recorded binary, protocol epoch, and sorted artifact inventory", async () => {
-    const verification = await verifyGeneratedArtifact({
-      executableAdapter: viteCompatibleExecutableAdapter,
-    });
+    const verification = await verifyGeneratedArtifact({ verifyExecutable: false });
     expect(verification.protocol_epoch).toBe("codex-app-server-0.148.0");
     expect(verification.executable.version).toBe("codex-cli 0.148.0");
     expect(verification.executable.sha256).toBe(

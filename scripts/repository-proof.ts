@@ -156,10 +156,20 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
   for (const path of workflowFiles) {
     const workflow = await readText(path);
     assert(workflow.includes("contents: read"), `${path} must use least-read permissions`);
-    assert(
-      !/\b(?:publish|deploy|trusted publishing)\b/iu.test(workflow),
-      `${path} declares an excluded external job`,
-    );
+    if (path === ".github/workflows/publish.yml") {
+      assert(workflow.includes("workflow_dispatch:"), `${path} must require manual dispatch`);
+      assert(workflow.includes("secrets.NPM_TOKEN"), `${path} must use the owned npm secret`);
+      assert(workflow.includes("bun publish"), `${path} must publish through Bun`);
+      assert(
+        !/\bnpm\s+(?:publish|install|ci|test|run)\b/u.test(workflow),
+        `${path} must not run npm`,
+      );
+    } else {
+      assert(
+        !/\b(?:publish|deploy|trusted publishing)\b/iu.test(workflow),
+        `${path} declares an excluded external job`,
+      );
+    }
     for (const action of workflow.matchAll(/uses:\s*([^\s#]+)/gu)) {
       const reference = action[1] ?? "";
       assert(

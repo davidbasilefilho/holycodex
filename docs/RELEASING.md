@@ -54,16 +54,20 @@ checked-in CI on Ubuntu and Windows/Git Bash:
    secret material, MCP declaration, or unaccounted dependency attribution.
 
 The real canonical fresh clone and post-push required-job result remain
-external evidence until an approved push. Package publication and pack upload
-are not configured release steps.
+external evidence until an approved push. Package publication is implemented
+only by `.github/workflows/publish.yml`: an approved manual dispatch from
+`main` must supply the exact canonical version, pass validation, and publish
+through Bun with the repository-owned `NPM_TOKEN` secret.
 
 ## Approval and branch gates
 
-Commit and push are separate externally visible effects. Obtain explicit
-approval immediately before each effect, confirm the exact files and version in
-scope, and record the resulting ref. No tag or release is required. Trusted
-publishing is not configured, so package publication, registry actions,
-release publication, and deployment are excluded.
+Commit, push, workflow dispatch, and registry publication are separate
+externally visible effects. Obtain explicit approval immediately before each
+effect, confirm the exact files and version in scope, and record the resulting
+ref or workflow run. No tag or GitHub release is required. Publication fails
+closed when `NPM_TOKEN` is absent, the ref is not `main`, the requested version
+differs from `packages/cli/package.json`, validation fails, or the registry
+rejects the immutable version.
 
 The validation job must verify the intended branch topology and frozen SHA
 from repository metadata before an approved cutover. An unexpected parent,

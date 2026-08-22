@@ -4,16 +4,20 @@ import {
   canonicalJson,
   canonicalJsonUtf8,
   domainSeparatedSha256,
-  parseSpecialistOutcome,
+  normalizeSpecialistOutcome,
   RouteKeySchema,
+  RoleTaskSchema,
+  SPECIALIST_OUTCOME_VERSION,
   STATE_SCHEMA_EPOCH,
   type JsonObject,
   type JsonValue,
   type PlanDefinition,
   type RouteKey,
   type ServiceTier,
-  type SpecialistOutcome,
+  type RoleTask,
+  type SpecialistOutcomeV2,
 } from "@holycodex/core";
+import { SemanticAssignmentPacketSchema, type SemanticAssignmentPacket } from "@holycodex/codex";
 import {
   IdentityComponentsSchema,
   JsonObjectSchema,
@@ -23,6 +27,7 @@ import {
   WORKFLOW_HOST_SCHEMA_EPOCH,
   decodeHostSchema,
   type IdentityComponents,
+  type JournalEvent,
   type ProjectTrustRef,
   type SchemaEpochs,
 } from "./schemas.ts";
@@ -35,6 +40,28 @@ export const DEFAULT_ROUTE: RouteKey = "Worker:implementation";
 export const MAX_PENDING_TEXT = 4096;
 export const MAX_CHECKPOINT_ITEMS = 64;
 export const MAX_BOUNDED_JSON_BYTES = 256 * 1024;
+
+const MECHANICAL_OPERATION_FIELDS = new Set([
+  "attempt",
+  "attempt_count",
+  "created_at",
+  "fan_out",
+  "operation_id",
+  "retry",
+  "retry_count",
+  "retries",
+  "run_id",
+  "timestamp",
+]);
+
+export type NormalizedOperationInput = Readonly<{
+  readonly route: RouteKey;
+  readonly roleTask: RoleTask;
+  readonly semantic: JsonValue;
+  readonly protocolVersion: string;
+}>;
+
+type OperationEvent = Extract<JournalEvent, { event: "operation" }>;
 
 export function now(): string {
   return new Date().toISOString();
@@ -153,34 +180,39 @@ export function optionInteger(options: JsonObject, key: string, fallback: number
   return value;
 }
 
-export function sanitizeOutcome(value: SpecialistOutcome): SpecialistOutcome {
-  const parsed = parseSpecialistOutcome(value);
+export function sanitizeOutcome(value: unknown, expectedRoute: RoleTask): SpecialistOutcomeV2 {
+  const parsed = normalizeSpecialistOutcome(value, expectedRoute);
   if (!parsed.ok) {
     throw new WorkflowHostError("specialist_invalid", "The specialist outcome is invalid.");
   }
-  return {
-    blocked: parsed.value.blocked,
-    changed_files: safeTextArray(parsed.value.changed_files),
-    confidence: Number.isFinite(parsed.value.confidence)
-      ? Math.max(0, Math.min(1, parsed.value.confidence))
-      : 0,
-    context_owner:
-      parsed.value.context_owner === null ? null : safeText(parsed.value.context_owner),
-    material_findings: safeTextArray(parsed.value.material_findings),
-    needs_more_context: parsed.value.needs_more_context,
-    needs_root_decision: parsed.value.needs_root_decision,
-    needs_verification: parsed.value.needs_verification,
-    relevant_files: safeTextArray(parsed.value.relevant_files),
-    remaining_risk: safeTextArray(parsed.value.remaining_risk),
-    reuse_recommended: parsed.value.reuse_recommended,
-    status: parsed.value.status,
-    suggested_followup:
-      parsed.value.suggested_followup === null ? null : safeText(parsed.value.suggested_followup),
-    suggested_luna_effort: parsed.value.suggested_luna_effort,
-    suggested_specialist: parsed.value.suggested_specialist,
-    verification: safeTextArray(parsed.value.verification),
-    verification_passed: parsed.value.verification_passed,
-  };
+  const outcome = parsed.value;
+  const common = {
+    protocol_version: outcome.protocol_version,
+    route: outcome.route,
+    evidence: safeTextArray(outcome.evidence),
+  } as const;
+  switch (outcome.status) {
+    case "blocked":
+      return {
+        ...common,
+        status: outcome.status,
+        reason: safeText(outcome.reason),
+        needs_root_decision: outcome.needs_root_decision,
+      };
+    case "completed":
+      return { ...common, status: outcome.status, summary: safeText(outcome.summary) };
+    case "failed":
+      return { ...common, status: outcome.status, error: safeText(outcome.error) };
+    case "partial":
+      return {
+        ...common,
+        status: outcome.status,
+        summary: safeText(outcome.summary),
+        completed: safeTextArray(outcome.completed),
+        remaining: safeTextArray(outcome.remaining),
+        needs_root_decision: outcome.needs_root_decision,
+      };
+  }
 }
 
 export function jsonObject(value: unknown, field: string): JsonObject {
@@ -196,6 +228,205 @@ export async function inputDigest(value: unknown): Promise<string> {
   return await domainSeparatedSha256("workflow-operation-input", [
     canonicalJsonUtf8(asJsonValue(value, "operation input")),
   ]);
+}
+
+export async function authorityScopeDigest(
+  authority: string,
+  scope: readonly string[],
+): Promise<string> {
+  return await domainSeparatedSha256("workflow-authority-scope", [
+    canonicalJsonUtf8({
+      authority: safeText(authority, MAX_PENDING_TEXT),
+      scope: [...new Set(scope.map((item) => safeText(item)))].sort(),
+    }),
+  ]);
+}
+
+export function normalizeSemanticOptions(options: JsonObject): JsonObject {
+  return jsonObject(
+    Object.fromEntries(
+      Object.entries(options).filter(
+        ([key, value]) =>
+          !MECHANICAL_OPERATION_FIELDS.has(key) && (key !== "delta" || hasNonEmptyDelta(value)),
+      ),
+    ),
+    "semantic operation options",
+  );
+}
+
+export function normalizeCompatibilityOperation(
+  input: Readonly<{
+    readonly prompt: string;
+    readonly options: JsonObject;
+    readonly route: RouteKey;
+    readonly roleTask: RoleTask;
+  }>,
+): NormalizedOperationInput {
+  return {
+    route: input.route,
+    roleTask: input.roleTask,
+    semantic: {
+      objective: input.prompt,
+      options: normalizeSemanticOptions(input.options),
+    },
+    protocolVersion: SPECIALIST_OUTCOME_VERSION,
+  };
+}
+
+export function normalizeSemanticAssignment(
+  packet: SemanticAssignmentPacket,
+): NormalizedOperationInput {
+  const { id: _assignmentId, delta, ...assignment } = packet.assignment;
+  return {
+    route: packet.route.key,
+    roleTask: packet.route.role_task,
+    semantic: asJsonValue(
+      {
+        assignment: {
+          ...assignment,
+          ...(hasNonEmptyDelta(delta) ? { delta } : {}),
+        },
+        route: packet.route,
+        tools: packet.tools,
+        security: packet.security,
+        compatibility: packet.compatibility,
+      },
+      "semantic assignment",
+    ),
+    protocolVersion: SPECIALIST_OUTCOME_VERSION,
+  };
+}
+
+export function normalizeOperationInput(value: unknown): NormalizedOperationInput {
+  const packet = decodeHostSchema(SemanticAssignmentPacketSchema, value);
+  if (packet !== undefined) {
+    return normalizeSemanticAssignment(packet);
+  }
+  const input = jsonObject(value, "operation input");
+  const prompt = input["prompt"];
+  const options = input["options"];
+  const route = input["route"];
+  if (typeof prompt !== "string" || !isJsonObjectValue(options) || typeof route !== "string") {
+    throw new WorkflowHostError("invalid_input", "The operation input is invalid.");
+  }
+  const parsedRoute = decodeHostSchema(RouteKeySchema, route);
+  const roleTask = decodeHostSchema(RoleTaskSchema, {
+    role: options["role"],
+    task: options["task"],
+  });
+  if (parsedRoute === undefined || roleTask === undefined) {
+    throw new WorkflowHostError("invalid_route", "The operation input route is invalid.");
+  }
+  if (`${roleTask.role}:${roleTask.task}` !== parsedRoute) {
+    throw new WorkflowHostError("invalid_route", "The operation input route is inconsistent.");
+  }
+  return normalizeCompatibilityOperation({
+    prompt,
+    options,
+    route: parsedRoute,
+    roleTask,
+  });
+}
+
+export async function operationFingerprint(
+  definition: Readonly<{ readonly identity: IdentityComponents }>,
+  input: NormalizedOperationInput,
+): Promise<string> {
+  return await domainSeparatedSha256("workflow-operation-fingerprint", [
+    canonicalJsonUtf8({
+      identity: definition.identity,
+      operation: {
+        protocol_version: input.protocolVersion,
+        route: input.route,
+        role_task: input.roleTask,
+        semantic: input.semantic,
+      },
+    }),
+  ]);
+}
+
+export function findOperationEvent(
+  journal: readonly JournalEvent[],
+  fingerprint: string,
+  legacyDigest?: string,
+): OperationEvent | undefined {
+  const current = journal.findLast(
+    (event): event is OperationEvent =>
+      event.event === "operation" && event.lifecycle.operation.input_digest === fingerprint,
+  );
+  if (current !== undefined || legacyDigest === undefined) {
+    return current;
+  }
+  return journal.findLast(
+    (event): event is OperationEvent =>
+      event.event === "operation" && event.lifecycle.operation.input_digest === legacyDigest,
+  );
+}
+
+export function admitOperationEvent(
+  event: OperationEvent | undefined,
+  currentOperationId?: string,
+): SpecialistOutcomeV2 | undefined {
+  if (
+    event === undefined ||
+    (currentOperationId !== undefined &&
+      event.lifecycle.operation.operation_id === currentOperationId)
+  ) {
+    return undefined;
+  }
+  switch (event.lifecycle.state) {
+    case "completed":
+      if (event.outcome === undefined) {
+        throw new WorkflowHostError(
+          "integrity_uncertain",
+          "The completed operation has no retained outcome.",
+        );
+      }
+      return event.outcome;
+    case "reserved":
+    case "requested":
+    case "waiting_for_approval":
+    case "approved":
+      throw new WorkflowHostError(
+        "identity_mismatch",
+        "An operation with the same semantic fingerprint is already in flight.",
+      );
+    case "uncertain":
+      throw new WorkflowHostError(
+        "integrity_uncertain",
+        "An operation with the same semantic fingerprint has an uncertain effect.",
+      );
+    case "failed":
+      throw new WorkflowHostError(
+        "no_progress",
+        "An operation with the same semantic fingerprint already failed.",
+      );
+    case "denied":
+    case "stopped":
+      return undefined;
+  }
+}
+
+function isJsonObjectValue(value: JsonValue | undefined): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasNonEmptyDelta(value: JsonValue | undefined): boolean {
+  if (value === undefined || value === null) {
+    return false;
+  }
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => hasNonEmptyDelta(item));
+  }
+  if (typeof value === "object") {
+    return Object.entries(value).some(
+      ([key, item]) => key.trim().length > 0 && hasNonEmptyDelta(item),
+    );
+  }
+  return true;
 }
 
 export async function assertInputIdentity(

@@ -36,6 +36,7 @@ export type {
 } from "./identifiers.ts";
 
 export {
+  DelegationModeSchema,
   EffortSchema,
   ExplorerTaskSchema,
   LibrarianTaskSchema,
@@ -44,12 +45,15 @@ export {
   ReviewerTaskSchema,
   RoleSchema,
   RoleTaskSchema,
+  ROLE_DEFINITIONS,
   ROUTE_KEYS,
   RouteKeySchema,
   ServiceTierSchema,
   WorkerTaskSchema,
+  lookupRoleDefinition,
 } from "./routes.ts";
 export type {
+  DelegationMode,
   Effort,
   ExplorerTask,
   LibrarianTask,
@@ -70,9 +74,13 @@ export {
   CliEnvelopeSchema,
   CliFailureEnvelopeSchema,
   CliSuccessEnvelopeSchema,
+  SPECIALIST_OUTCOME_VERSION,
+  normalizeSpecialistOutcome,
   parseCliEnvelope,
   parseSpecialistOutcome,
+  parseSpecialistOutcomeV2,
   SpecialistOutcomeSchema,
+  SpecialistOutcomeV2Schema,
   SpecialistStatusSchema,
   SuggestedLunaEffortSchema,
 } from "./envelopes.ts";
@@ -81,6 +89,7 @@ export type {
   CliFailureEnvelope,
   CliSuccessEnvelope,
   SpecialistOutcome,
+  SpecialistOutcomeV2,
   SpecialistStatus,
   SuggestedLunaEffort,
 } from "./envelopes.ts";

@@ -18,6 +18,8 @@ const PublicManifestSchema = Schema.Struct({
   type: Schema.Literal("module"),
   exports: Schema.Record({ key: Schema.String, value: Schema.String }),
   dependencies: Schema.Record({ key: Schema.String, value: Schema.String }),
+  repository: Schema.Struct({ type: Schema.Literal("git"), url: Schema.String }),
+  publishConfig: Schema.Struct({ access: Schema.Literal("public") }),
 });
 
 export interface PackageSmokeResult {
@@ -26,33 +28,45 @@ export interface PackageSmokeResult {
   readonly commands: readonly string[];
 }
 
-export async function runPackageSmoke(): Promise<PackageSmokeResult> {
+export interface PackedPublicPackage {
+  readonly packageVersion: string;
+  readonly tarball: string;
+  readonly tarballPath: string;
+}
+
+export async function packPublicPackage(temporaryRoot: string): Promise<PackedPublicPackage> {
   const manifest = await readPublicManifest();
   const version = manifest.version;
   await requireFile(join(cliRoot, "dist/index.js"), "the packed CLI entry point");
+  const packageRoot = join(temporaryRoot, "package");
+  await mkdir(packageRoot, { recursive: true });
+  await cp(join(cliRoot, "dist"), join(packageRoot, "dist"), { recursive: true });
+  const readme = join(cliRoot, "README.md");
+  if (await exists(readme)) {
+    await cp(readme, join(packageRoot, "README.md"));
+  }
+  await writeJson(join(packageRoot, "package.json"), manifest);
+  const tarball = `holycodex-${version}.tgz`;
+  await runChecked(["bun", "pm", "pack", "--destination", temporaryRoot, "--quiet"], {
+    cwd: packageRoot,
+    env: process.env,
+  });
+  const tarballPath = join(temporaryRoot, tarball);
+  await requireFile(tarballPath, "the package tarball");
+  return { packageVersion: version, tarball, tarballPath };
+}
+
+export async function runPackageSmoke(): Promise<PackageSmokeResult> {
   return await withTemporaryDirectory("holycodex-package-smoke", async (temporaryRoot) => {
-    const packageRoot = join(temporaryRoot, "package");
-    await mkdir(packageRoot, { recursive: true });
-    await cp(join(cliRoot, "dist"), join(packageRoot, "dist"), { recursive: true });
-    const readme = join(cliRoot, "README.md");
-    if (await exists(readme)) {
-      await cp(readme, join(packageRoot, "README.md"));
-    }
-    await writeJson(join(packageRoot, "package.json"), manifest);
-    const tarballName = `holycodex-${version}.tgz`;
-    await runChecked(["bun", "pm", "pack", "--destination", temporaryRoot, "--quiet"], {
-      cwd: packageRoot,
-      env: process.env,
-    });
-    const tarball = join(temporaryRoot, tarballName);
-    await requireFile(tarball, "the package tarball");
+    const packed = await packPublicPackage(temporaryRoot);
+    const version = packed.packageVersion;
     const installedRoot = join(temporaryRoot, "installed");
     await mkdir(installedRoot, { recursive: true });
     await writeJson(join(installedRoot, "package.json"), {
       name: "holycodex-package-smoke",
       private: true,
       type: "module",
-      dependencies: { holycodex: `file:${tarball.replaceAll("\\", "/")}` },
+      dependencies: { holycodex: `file:${packed.tarballPath.replaceAll("\\", "/")}` },
     });
     await withBunTemporaryDirectory(async (bunStateRoot) => {
       const bunEnvironment = {
@@ -168,7 +182,7 @@ export async function runPackageSmoke(): Promise<PackageSmokeResult> {
     );
     return {
       packageVersion: version,
-      tarball: tarballName,
+      tarball: packed.tarball,
       commands,
     };
   });
