@@ -4,10 +4,40 @@ export const packageName = "@holycodex/workflow-host" as const;
 
 export { WorkflowHostError } from "./errors.ts";
 export type { WorkflowHostErrorCode } from "./errors.ts";
+export {
+  COST_UNIT_SCALE,
+  CostAccountingError,
+  LONG_CONTEXT_INPUT_THRESHOLD,
+  PRICING_REGISTRY,
+  PRICING_VERSION,
+  conservativeSettlement,
+  costMaxToUnits,
+  costUnitsToDisplay,
+  estimatePlanCost,
+  estimateRouteCost,
+  pricingFor,
+  settleUsage,
+} from "./cost.ts";
+export type {
+  CostEstimate,
+  CostJournal,
+  CostSettlement,
+  CostUnits,
+  PricingEntry,
+  PricingKey,
+  PricingRate,
+  TokenCounts,
+} from "./cost.ts";
 export { decodeStoredJournalEvent, FileRunStore } from "./store.ts";
-export type { StoredRun } from "./store.ts";
+export type { IntegrityDiagnostic, RevisionCommitBuilder, StoredRun } from "./store.ts";
 export { WorkflowHost } from "./host.ts";
-export { operationFingerprint } from "./identity.ts";
+export {
+  assertNativeWorkflowIdentity,
+  buildNativeWorkflowIdentity,
+  classifyCompatibilityCardinality,
+  compatibilityProofDigest,
+  operationFingerprint,
+} from "./identity.ts";
 export type { NormalizedOperationInput } from "./identity.ts";
 export type {
   ContinuationDecision,
@@ -36,14 +66,17 @@ export type {
 } from "./types.ts";
 export {
   CheckpointSchema,
+  CompatibilityCardinalitySchema,
   ContinuationClaimSchema,
   ContinuationPacketSchema,
   IdentityComponentsSchema,
+  NativeWorkflowIdentitySchema,
   InspectionProjectionSchema,
   JsonObjectSchema,
   JsonValueSchema,
   JournalEventSchema,
   OperationInputSchema,
+  OperationCostAccountingSchema,
   OperationLifecycleSchema,
   ProjectTrustRefSchema,
   RefinementProposalSchema,
@@ -57,16 +90,20 @@ export {
   SchemaEpochsSchema,
   TelemetrySchema,
   WorkflowDescriptorSchema,
+  WorkflowProjectionSchema,
   WorkflowExecutionModeSchema,
+  WorkflowExecutionIdentitySchema,
   WORKFLOW_HOST_SCHEMA_EPOCH,
   WORKFLOW_HOST_SCHEMA_EPOCHS,
   decodeHostSchema,
 } from "./schemas.ts";
 export type {
   Checkpoint,
+  CompatibilityCardinality,
   ContinuationClaim,
   ContinuationPacket,
   IdentityComponents,
+  NativeWorkflowIdentity,
   InspectionProjection,
   JournalEvent,
   OperationInput,
@@ -85,4 +122,6 @@ export type {
   SchemaEpochs,
   Telemetry,
   WorkflowDescriptor,
+  WorkflowProjection,
+  WorkflowExecutionIdentity,
 } from "./schemas.ts";

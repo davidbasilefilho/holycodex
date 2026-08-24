@@ -11,6 +11,7 @@ const VALUE_OPTIONS = new Set([
   "tier",
   "scope",
   "run-id",
+  "session-id",
   "official-plugin",
   "task",
   "autonomy",
@@ -216,7 +217,8 @@ function validateCommand(
     options["scope"] !== undefined &&
     options["scope"] !== "run" &&
     options["scope"] !== "workspace" &&
-    options["scope"] !== "expired"
+    options["scope"] !== "expired" &&
+    options["scope"] !== "workflow-session"
   ) {
     throw new ArgumentError("invalid_argument", "The cleanup scope is not supported.", {
       scope: String(options["scope"]),
@@ -305,7 +307,15 @@ function commandOptions(command: string): ReadonlySet<string> {
     case "doctor":
       return new Set([...common, "codex-home", "marketplace-root"]);
     case "cleanup":
-      return new Set([...common, "yes", "scope", "run-id", "codex-home", "marketplace-root"]);
+      return new Set([
+        ...common,
+        "yes",
+        "scope",
+        "run-id",
+        "session-id",
+        "codex-home",
+        "marketplace-root",
+      ]);
     case "version":
       return new Set([...common, "dry-run"]);
     case "workflow run":

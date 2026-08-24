@@ -43,7 +43,7 @@ describe("repository validation machinery", () => {
     }
   });
 
-  test("keeps CI thin, least-privilege, cross-platform, and excluded from external writes", async () => {
+  test("keeps CI reusable, least-privilege, cross-platform, and exact-SHA based", async () => {
     const workflow = await readFile(
       resolve(workspaceRoot, ".github/workflows/validation.yml"),
       "utf8",
@@ -55,23 +55,91 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("contents: read");
     expect(workflow).toContain("bun install --frozen-lockfile");
     expect(workflow).toContain("bun run validate");
+    expect(workflow).toContain("workflow_call:");
+    expect(workflow).toContain("inputs.source_sha");
+    expect(workflow).toContain("artifact_sha256:");
+    expect(workflow).toContain("needs: validate");
+    expect(workflow).toContain("package-release.ts create");
+    expect(workflow).toContain("release-metadata.json");
+    expect(workflow).toContain("actions/upload-artifact@");
+    expect(workflow).toContain("actions/download-artifact@");
     expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/u);
-    expect(workflow).not.toMatch(/\b(?:publish|deploy|trusted publishing)\b/iu);
+    expect(workflow).not.toMatch(
+      /\b(?:bun\s+publish|gh\s+release\s+create|deploy|trusted publishing)\b/iu,
+    );
+    for (const checkout of workflow.split("uses: actions/checkout@").slice(1)) {
+      expect(checkout).toContain("ref:");
+    }
   });
 
-  test("keeps npm publication manual, version-gated, and Bun-only", async () => {
+  test("proves development and stable publication channels reuse one exact artifact", async () => {
     const workflow = await readFile(
       resolve(workspaceRoot, ".github/workflows/publish.yml"),
       "utf8",
     );
+    expect(workflow).toContain("branches:");
+    expect(workflow).toContain("- main");
+    expect(workflow).toContain("tags:");
+    expect(workflow).toContain('"v*.*.*"');
+    expect(workflow).toContain('"!v*.*.*-*"');
     expect(workflow).toContain("workflow_dispatch:");
-    expect(workflow).toContain("github.ref == 'refs/heads/main'");
+    expect(workflow).toContain(".github/workflows/validation.yml");
+    expect(workflow).toContain("source_sha: ${{ needs.prepare.outputs.source_sha }}");
+    expect(workflow).toContain("needs: [prepare, validation]");
+    expect(workflow).toContain("needs.validation.outputs.artifact_name");
+    expect(workflow).toContain('git rev-parse "$GITHUB_REF"');
+    expect(workflow).toContain("GITHUB_RUN_NUMBER");
+    expect(workflow).toContain("GITHUB_RUN_ATTEMPT");
+    expect(workflow).toContain("release-version.ts dev");
+    expect(workflow).toContain("release-version.ts stable");
     expect(workflow).toContain("secrets.NPM_TOKEN");
-    expect(workflow).toContain("mise exec -- bun run validate");
-    expect(workflow).toContain('mise exec -- bun scripts/package-release.ts "$RUNNER_TEMP"');
-    expect(workflow).toContain("mise exec -- bun publish");
+    expect(workflow).toContain("actions/download-artifact@");
+    expect(workflow).toContain("EXPECTED_SHA256");
+    expect(workflow).toContain("scripts/package-release.ts verify");
+    expect(workflow).toContain("check-npm");
+    expect(workflow).toContain("check-github");
+    expect(workflow).toContain('absent|matching) echo "status=$STATUS"');
+    expect(workflow).toContain("--tag dev");
+    expect(workflow).toContain("--tag latest");
+    expect(workflow).toContain("gh release create");
+    expect(workflow).toContain("--generate-notes");
+    expect(workflow).toContain("contents: write");
+    expect(workflow).not.toContain("id-token: write");
     expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/u);
     expect(workflow).not.toMatch(/\bnpm\s+(?:publish|install|ci|test|run)\b/u);
+
+    const publishNpm = workflow.slice(
+      workflow.indexOf("  publish_npm:"),
+      workflow.indexOf("  publish_github:"),
+    );
+    const publishGithub = workflow.slice(workflow.indexOf("  publish_github:"));
+    expect(publishNpm).toContain("absent|matching");
+    expect(publishGithub).toContain("needs: [prepare, validation, publish_npm]");
+    expect(workflow.indexOf("  publish_npm:")).toBeLessThan(workflow.indexOf("  publish_github:"));
+
+    const devNpm = workflow.slice(
+      workflow.indexOf("Publish the development artifact under dev"),
+      workflow.indexOf("Publish the stable artifact under latest"),
+    );
+    const stableNpm = workflow.slice(workflow.indexOf("Publish the stable artifact under latest"));
+    expect(devNpm).toContain("--tag dev");
+    expect(devNpm).not.toContain("--tag latest");
+    expect(stableNpm).toContain("--tag latest");
+
+    const devRelease = workflow.slice(
+      workflow.indexOf("Create the development prerelease at the exact main SHA"),
+      workflow.indexOf("Create the stable release from the verified tag"),
+    );
+    const stableRelease = workflow.slice(
+      workflow.indexOf("Create the stable release from the verified tag"),
+    );
+    expect(devRelease).toContain("--prerelease");
+    expect(devRelease).not.toContain("--verify-tag");
+    expect(stableRelease).toContain("--verify-tag");
+    expect(stableRelease).not.toContain("--prerelease");
+    for (const checkout of workflow.split("uses: actions/checkout@").slice(1)) {
+      expect(checkout).toContain("ref:");
+    }
   });
 
   test("proves fresh-clone fixture and dry-run paths do not use the network", async () => {

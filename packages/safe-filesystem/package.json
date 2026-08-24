@@ -1,0 +1,14 @@
+{
+  "name": "@holycodex/safe-filesystem",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./protocol": "./src/protocol.ts"
+  },
+  "dependencies": {
+    "@holycodex/runtime-core": "workspace:*",
+    "effect": "3.22.1"
+  }
+}

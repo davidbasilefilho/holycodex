@@ -27,6 +27,7 @@ import type {
   WorkflowVerificationRequest,
   WorkflowLimitsInput,
   WorkflowResult,
+  NativeWorkflow,
   Wait,
 } from "@holycodex/workflow-runtime";
 import type {
@@ -76,9 +77,9 @@ export type SpecialistAssignment = Readonly<{
   readonly signal: AbortSignal;
 }>;
 
-export type SpecialistExecutor = (assignment: SpecialistAssignment) => unknown | Promise<unknown>;
+export type SpecialistExecutor = (assignment: SpecialistAssignment) => unknown;
 
-export type WorkflowDefinition = Wait<unknown, unknown>;
+export type WorkflowDefinition = Wait<unknown, unknown> | NativeWorkflow;
 export type WorkflowExecutionMode = "native" | "compatibility";
 export type WorkflowHostServices = RuntimeWorkflowHostServices;
 export type HostApprovalDecision = "approved" | "denied";
@@ -144,6 +145,7 @@ export type CreateRunInput = Readonly<{
   readonly source: string;
   readonly args: unknown;
   readonly objective: string;
+  readonly sourcePath?: string;
   readonly constraints?: readonly string[];
   readonly plan?: unknown;
   readonly route?: RouteKey;
@@ -152,6 +154,8 @@ export type CreateRunInput = Readonly<{
   readonly parentRunId?: string | null;
   readonly estimatedCost?: number;
   readonly expectedCalls?: number;
+  /** Optional exact proof digest for an explicit compatibility cardinality declaration. */
+  readonly expectedCallsProofDigest?: string;
   readonly expectedConcurrency?: number;
   readonly expectedRetries?: number;
   readonly expectedFanOut?: number;
@@ -166,6 +170,7 @@ export type RunInput = Readonly<{
   readonly runId: string;
   readonly source?: string;
   readonly args?: unknown;
+  readonly sourcePath?: string;
   readonly signal?: AbortSignal;
   readonly workflow?: WorkflowDefinition;
   readonly compileOptions?: CompileOptions;
@@ -216,6 +221,7 @@ export type RetainedReuseInput = Readonly<{
   readonly approvalPolicy?: string;
   readonly sandboxPolicy?: string;
   readonly codexCapabilityDigest?: string;
+  readonly skillProfileDigest: string;
 }>;
 
 export type RetainedReuseDecision =

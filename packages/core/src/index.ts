@@ -8,6 +8,46 @@ export type { CoreErrorCode, CoreResult } from "./errors.ts";
 export { decodeUnknown } from "./schema.ts";
 
 export {
+  CAPABILITY_REGISTRY,
+  CapabilityNameSchema,
+  CapabilityHealthSchema,
+  CapabilityProviderStatusSchema,
+  DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
+  OPTIONAL_CAPABILITY_NAMES,
+  OptionalCapabilityNameSchema,
+  capabilityHealth,
+  migrateOptionalCapabilitySelections,
+  pluginIdsForOptionalCapabilities,
+  resolveOptionalCapabilitySelections,
+} from "./capabilities.ts";
+export type {
+  CapabilityName,
+  CapabilityDefinition,
+  CapabilityHealth,
+  CapabilityProviderStatus,
+  ExplicitOptionalCapabilitySelections,
+  OptionalCapabilityName,
+  OptionalCapabilitySelections,
+} from "./capabilities.ts";
+
+export {
+  APPROVAL_POLICY,
+  APPROVAL_POLICY_GUIDANCE,
+  ApprovalModeSchema,
+  ApprovalPolicyActionSchema,
+  ApprovalPolicyEntrySchema,
+  ApprovalPolicySchema,
+  approvalModeFor,
+  lookupApprovalPolicy,
+} from "./approval-policy.ts";
+export type {
+  ApprovalMode,
+  ApprovalPolicy,
+  ApprovalPolicyAction,
+  ApprovalPolicyEntry,
+} from "./approval-policy.ts";
+
+export {
   createProjectId,
   createRunId,
   createSha256Digest,
@@ -42,8 +82,10 @@ export {
   LibrarianTaskSchema,
   PlanNameSchema,
   PlanSelectionSchema,
+  PONYTAIL_ROLE_SKILL,
   ReviewerTaskSchema,
   RoleSchema,
+  RoleSkillProfileSchema,
   RoleTaskSchema,
   ROLE_DEFINITIONS,
   ROUTE_KEYS,
@@ -60,6 +102,9 @@ export type {
   PlanName,
   PlanSelection,
   Role,
+  RoleDefinition,
+  RoleSkillProfile,
+  RoleSkillProfileOrEmpty,
   RoleTask,
   ReviewerTask,
   RouteKey,
@@ -75,10 +120,14 @@ export {
   CliFailureEnvelopeSchema,
   CliSuccessEnvelopeSchema,
   SPECIALIST_OUTCOME_VERSION,
+  SpecialistOutcomeV2BaseSchema,
+  CapabilityResultV2Schema,
   normalizeSpecialistOutcome,
+  parseCapabilityResultV2,
   parseCliEnvelope,
   parseSpecialistOutcome,
   parseSpecialistOutcomeV2,
+  specialistOutcomeFromCapabilityResult,
   SpecialistOutcomeSchema,
   SpecialistOutcomeV2Schema,
   SpecialistStatusSchema,
@@ -90,6 +139,13 @@ export type {
   CliSuccessEnvelope,
   SpecialistOutcome,
   SpecialistOutcomeV2,
+  CapabilityResultV2,
+  SpecialistOutcomeV2Base,
+  SpecialistOutcomeV2ForRole,
+  ExplorerOutcome,
+  LibrarianOutcome,
+  WorkerOutcome,
+  ReviewerOutcome,
   SpecialistStatus,
   SuggestedLunaEffort,
 } from "./envelopes.ts";
@@ -99,6 +155,7 @@ export {
   lookupRoute,
   parsePlanSelection,
   PLAN_CATALOG,
+  ROUTE_EFFORT_OVERRIDES,
   resolvePlanSelection,
 } from "./catalog.ts";
 

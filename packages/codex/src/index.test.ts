@@ -3,7 +3,7 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSha256Digest, decodeUnknown } from "@holycodex/core";
+import { createSha256Digest, decodeUnknown, PONYTAIL_ROLE_SKILL } from "@holycodex/core";
 import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -11,8 +11,13 @@ import { describe, expect, test } from "vite-plus/test";
 import {
   AppServerClient,
   compileSpecialistAssignment,
+  codexModelIdFor,
+  codexServiceTierFor,
+  createOfficialPluginAdapter,
   JsonRpcNotificationSchema,
   JsonRpcResponseSchema,
+  LiveOfficialPluginListEnvelopeSchema,
+  OfficialPluginAdapterError,
   OfficialPluginManifestSchema,
   SupportedUsageSchema,
   TurnStartParamsSchema,
@@ -24,6 +29,7 @@ import {
   generateCodexSchemas,
   mergeManagedConfig,
   cleanupManagedConfig,
+  parseLiveOfficialPluginList,
   parseOfficialPluginManifest,
   sanitizeDiagnostics,
   selectOfficialPlugins,
@@ -128,6 +134,17 @@ function createInitializedClient(
 }
 
 describe("Codex App Server schemas", () => {
+  test("maps internal model aliases and service tiers only at the protocol boundary", () => {
+    expect(codexModelIdFor("Sol")).toBe("gpt-5.6-sol");
+    expect(codexModelIdFor("Terra")).toBe("gpt-5.6-terra");
+    expect(codexModelIdFor("Luna")).toBe("gpt-5.6-luna");
+    expect(codexServiceTierFor("Standard")).toBeNull();
+    expect(codexServiceTierFor("Fast")).toBe("priority");
+    expect(() => codexModelIdFor("gpt-5.6-luna")).toThrow(
+      expect.objectContaining({ code: "model_unsupported" }),
+    );
+  });
+
   test("compiles the exact useful literal from semantic assignment fields", () => {
     const prompt = compileSpecialistAssignment({
       assignment: {
@@ -157,6 +174,7 @@ describe("Codex App Server schemas", () => {
         prefer_multi_agent_v2: false,
         require_multi_agent_v2: false,
       },
+      skill_profile: PONYTAIL_ROLE_SKILL,
     });
     expect(prompt).toBe(
       [
@@ -164,6 +182,8 @@ describe("Codex App Server schemas", () => {
         "Objective: Change the parser",
         "Role/task: Worker/implementation",
         "Authority: Change only the assigned seam; Root owns material choices.",
+        "Skill reference: $ponytail",
+        "Skill instruction: Use the literal $ponytail skill reference in lite mode.",
         "Scope: packages/core/src/routes.ts",
         "References: docs/ARCHITECTURE.md",
         "Constraints: Keep the boundary typed.",
@@ -178,6 +198,41 @@ describe("Codex App Server schemas", () => {
     );
     expect(prompt).not.toContain("payload");
     expect(prompt).not.toContain("internal state");
+    expect(prompt).not.toContain("You are a lazy senior developer.");
+  });
+
+  test("keeps Ponytail branch-specific and excludes its body from non-specialist prompts", () => {
+    const prompt = compileSpecialistAssignment({
+      assignment: {
+        id: "assignment-explorer",
+        objective: "Inspect the route",
+        role_task: { role: "Explorer", task: "lookup" },
+        authority: "Read only the assigned repository scope; Root owns decisions.",
+        scope: [],
+        references: [],
+        constraints: [],
+        required_evidence: [],
+        acceptance: [],
+        exclusions: [],
+        escalation: [],
+      },
+      route: {
+        key: "Explorer:lookup",
+        role_task: { role: "Explorer", task: "lookup" },
+      },
+      tools: { allowed: ["read"], specialist_spawn: false, workflow: false },
+      security: { network: false, specialist_spawn: false, workflow: false },
+      compatibility: {
+        model: "Terra",
+        effort: "low",
+        service_tier: "Standard",
+        prefer_multi_agent_v2: false,
+        require_multi_agent_v2: false,
+      },
+      skill_profile: null,
+    });
+    expect(prompt).not.toContain("$ponytail");
+    expect(prompt).not.toContain("You are a lazy senior developer.");
   });
 
   test("rejects an authority that disagrees with the role catalog before effects", async () => {
@@ -211,6 +266,49 @@ describe("Codex App Server schemas", () => {
             prefer_multi_agent_v2: false,
             require_multi_agent_v2: false,
           },
+          skill_profile: PONYTAIL_ROLE_SKILL,
+        }),
+      ),
+    );
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left.code).toBe("route_incompatible");
+    }
+    await client.close();
+  });
+
+  test("rejects a tampered role skill profile before effects", async () => {
+    const { client } = createInitializedClient(() => undefined);
+    const result = await Effect.runPromise(
+      Effect.either(
+        executeAssignment(client, {
+          assignment: {
+            id: "assignment-1",
+            objective: "Change the parser",
+            role_task: { role: "Worker", task: "implementation" },
+            authority: "Change only the assigned seam; Root owns material choices.",
+            scope: [],
+            references: [],
+            constraints: [],
+            required_evidence: [],
+            acceptance: [],
+            exclusions: [],
+            escalation: [],
+          },
+          route: {
+            key: "Worker:implementation",
+            role_task: { role: "Worker", task: "implementation" },
+          },
+          tools: { allowed: [], specialist_spawn: false, workflow: false },
+          security: { network: false, specialist_spawn: false, workflow: false },
+          compatibility: {
+            model: "Luna",
+            effort: "high",
+            service_tier: "Standard",
+            prefer_multi_agent_v2: false,
+            require_multi_agent_v2: false,
+          },
+          skill_profile: { ...PONYTAIL_ROLE_SKILL, digest: "0".repeat(64) },
         }),
       ),
     );
@@ -244,7 +342,17 @@ describe("Codex App Server schemas", () => {
         }),
       ),
     ).toBe(true);
-    expect(Either.isRight(decode(SupportedUsageSchema, { inputTokens: 1 }))).toBe(false);
+    expect(Either.isRight(decode(SupportedUsageSchema, { inputTokens: 1 }))).toBe(true);
+    expect(
+      Either.isRight(
+        decode(SupportedUsageSchema, {
+          input_tokens: 0,
+          cached_input_tokens: 0,
+          output_tokens: 0,
+          reasoning_output_tokens: 0,
+        }),
+      ),
+    ).toBe(true);
   });
 
   test("require turn input while preserving inherited approval and sandbox fields", () => {
@@ -479,6 +587,90 @@ describe("Codex identity, configuration, and plugins", () => {
       { manifest, explicitlySelected: true },
     ]);
   });
+
+  test("parses the live plugin envelope without treating entries as manifests", () => {
+    const input = {
+      installed: [
+        {
+          pluginId: "documents@openai-primary-runtime",
+          installed: true,
+          enabled: true,
+          name: "Documents",
+          marketplaceName: "openai-primary-runtime",
+          version: "1.0.0",
+          extraMetadata: { retainedByCodex: true },
+        },
+      ],
+      available: [
+        {
+          pluginId: "computer-use@openai-bundled",
+          installed: false,
+          enabled: false,
+        },
+      ],
+    };
+    expect(Either.isRight(decode(LiveOfficialPluginListEnvelopeSchema, input))).toBe(true);
+    expect(parseLiveOfficialPluginList(input).ok).toBe(true);
+    expect(parseOfficialPluginManifest(input.installed[0]).ok).toBe(false);
+  });
+
+  test("adds an exact plugin id and requires enabled readback", async () => {
+    const recorded: string[][] = [];
+    const runner = {
+      run: async (args: readonly string[]) => {
+        recorded.push([...args]);
+        if (args[1] === "add") {
+          return { exitCode: 0, stdout: "{}", stderr: "" };
+        }
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            installed: [
+              {
+                pluginId: "documents@openai-primary-runtime",
+                installed: true,
+                enabled: true,
+              },
+            ],
+            available: [],
+          }),
+          stderr: "",
+        };
+      },
+    };
+    const adapter = createOfficialPluginAdapter({ executable: "codex", runner });
+    await adapter.add("documents@openai-primary-runtime");
+    expect(recorded[0]).toEqual(["plugin", "add", "documents@openai-primary-runtime", "--json"]);
+    expect(recorded[1]).toEqual(["plugin", "list", "--json"]);
+  });
+
+  test("reports an installed-disabled provider as unavailable", async () => {
+    const adapter = createOfficialPluginAdapter({
+      executable: "codex",
+      runner: {
+        run: async (args) =>
+          args[1] === "add"
+            ? { exitCode: 0, stdout: "{}", stderr: "" }
+            : {
+                exitCode: 0,
+                stdout: JSON.stringify({
+                  installed: [
+                    {
+                      pluginId: "computer-use@openai-bundled",
+                      installed: true,
+                      enabled: false,
+                    },
+                  ],
+                  available: [],
+                }),
+                stderr: "",
+              },
+      },
+    });
+    await expect(adapter.add("computer-use@openai-bundled")).rejects.toMatchObject({
+      code: "plugin_disabled",
+    } satisfies Partial<OfficialPluginAdapterError>);
+  });
 });
 
 describe("Codex executable and diagnostics boundaries", () => {
@@ -528,8 +720,8 @@ describe("Codex executable and diagnostics boundaries", () => {
     });
     expect(generated.commands).toEqual(commands);
     expect(commands).toEqual([
-      ["app-server", "generate-ts", "--out", outputDirectory],
-      ["app-server", "generate-json-schema", "--out", outputDirectory],
+      ["app-server", "generate-ts", "--out", generated.outputDirectory],
+      ["app-server", "generate-json-schema", "--out", generated.outputDirectory],
     ]);
     const emptyDirectory = join(root, "empty");
     await mkdir(emptyDirectory);

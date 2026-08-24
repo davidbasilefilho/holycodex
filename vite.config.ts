@@ -4,9 +4,10 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   fmt: {
-    ignorePatterns: ["packages/codex/generated/**"],
+    ignorePatterns: ["packages/codex/generated/**", "packages/plugin/assets/skills/ponytail/**"],
   },
   lint: {
+    ignorePatterns: ["packages/codex/generated/**", "packages/plugin/assets/skills/ponytail/**"],
     plugins: ["typescript"],
     options: {
       typeAware: true,

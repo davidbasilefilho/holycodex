@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { evaluateWorkflowCompatibility, makeCapacityService } from "@holycodex/workflow-runtime";
+import { isAbsolute } from "node:path";
 import * as Effect from "effect/Effect";
 import { WorkflowHostError } from "./errors.ts";
 import { normalizeHostCapacity, releaseReservation } from "./admission.ts";
+import { costMaxToUnits } from "./cost.ts";
 import { createContinuation } from "./continuation.ts";
 import { createRun } from "./creation.ts";
 import { runWorkflow } from "./execution.ts";
@@ -52,11 +54,7 @@ export class WorkflowHost {
 
   constructor(options: WorkflowHostOptions) {
     const project = normalizeProjectTrust(options.projectTrust);
-    if (
-      typeof options.cwd !== "string" ||
-      options.cwd.length === 0 ||
-      !options.cwd.startsWith("/")
-    ) {
+    if (typeof options.cwd !== "string" || options.cwd.length === 0 || !isAbsolute(options.cwd)) {
       throw new WorkflowHostError("invalid_input", "The workflow host cwd must be absolute.");
     }
     const compatibilityExecutor = options.executeSpecialist ?? options.specialistExecutor;
@@ -85,7 +83,10 @@ export class WorkflowHost {
         codexConcurrency: globalConcurrency,
         maxRetries: capacity.maxRetries ?? 0,
         maxCalls: capacity.maxCalls ?? Number.MAX_SAFE_INTEGER,
-        costMax: capacity.costMax ?? Number.MAX_SAFE_INTEGER,
+        costMax:
+          capacity.costMax === undefined
+            ? Number.MAX_SAFE_INTEGER
+            : costMaxToUnits(capacity.costMax),
       }),
     );
     this.store = options.store;

@@ -14,6 +14,7 @@ export {
   GeneratedPluginManifestSchema,
   PayloadIdentitySchema,
   PayloadManifestSchema,
+  PonytailMetadataSchema,
   SourceManifestSchema,
   SourcePluginManifestSchema,
 } from "./schemas.ts";
@@ -27,6 +28,7 @@ export type {
   PayloadFile,
   PayloadIdentity,
   PayloadManifest,
+  PonytailMetadata,
   SourceFile,
   SourceManifest,
   SourceValidation,
@@ -34,4 +36,4 @@ export type {
 } from "./types.ts";
 export { validateSource, planAssembly } from "./planning.ts";
 export { assemblePayload } from "./assembly.ts";
-export { verifyPayload } from "./verification.ts";
+export { verifyPayload, verifyPonytailMetadata } from "./verification.ts";

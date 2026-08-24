@@ -2,7 +2,7 @@
 
 import { homedir } from "node:os";
 import { dirname, join, posix, resolve, sep, win32 } from "node:path";
-import { lstat, mkdir, realpath } from "node:fs/promises";
+import { lstat, mkdir } from "node:fs/promises";
 import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
 import type { InstallerOptions, InstallerPaths } from "./types.ts";
 
@@ -23,6 +23,7 @@ export interface ResolvedInstallerPaths extends InstallerPaths {
   readonly payloadRoot: string;
   readonly stagingRoot: string;
   readonly runsRoot: string;
+  readonly generatedWorkflowsRoot: string;
 }
 
 export function resolveInstallerPaths(
@@ -61,6 +62,7 @@ export function resolveInstallerPaths(
     payloadRoot: marketplacePlugins,
     stagingRoot: join(safeMarketplaceRoot, "plugins", ".holycodex-staging"),
     runsRoot: join(stateRoot, "runs"),
+    generatedWorkflowsRoot: join(stateRoot, "workflows"),
   };
 }
 
@@ -109,47 +111,28 @@ export async function ensureOwnedDirectory(path: string): Promise<void> {
 export async function assertNoSymlink(path: string): Promise<void> {
   const absolute = resolve(path);
   let current = absolute;
-  const missing: string[] = [];
   while (true) {
     try {
       const entry = await lstat(current);
       if (entry.isSymbolicLink()) {
         throw new PathBoundaryError("path_symlink", "A managed path cannot contain a symlink.");
       }
-      break;
     } catch (error: unknown) {
       if (error instanceof PathBoundaryError) {
         throw error;
       }
-      if (isFsCode(error, "ENOENT")) {
-        missing.push(current);
-        const parent = dirname(current);
-        if (parent === current) {
-          throw new PathBoundaryError("invalid_path", "The managed path has no existing parent.");
-        }
-        current = parent;
-        continue;
+      if (!isFsCode(error, "ENOENT")) {
+        throw error;
       }
-      throw error;
     }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
   }
-  void missing;
 }
 
 export async function assertNoSymlinkTree(path: string): Promise<void> {
   await assertNoSymlink(path);
-  let canonical: string;
-  try {
-    canonical = await realpath(path);
-  } catch (error: unknown) {
-    if (isFsCode(error, "ENOENT")) {
-      return;
-    }
-    throw error;
-  }
-  if (canonical !== resolve(path)) {
-    throw new PathBoundaryError("path_symlink", "A managed path resolves through an alias.");
-  }
 }
 
 export function pathWithin(

@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { assemblePayload, pluginSourceRoot, verifyPayload } from "@holycodex/plugin";
-import { OfficialPluginSelectionSchema, selectOfficialPlugins } from "@holycodex/codex";
+import type { LiveOfficialPluginListEnvelope } from "@holycodex/codex";
 import {
+  CAPABILITY_REGISTRY,
+  OPTIONAL_CAPABILITY_NAMES,
+  pluginIdsForOptionalCapabilities,
+  resolveOptionalCapabilitySelections,
   lookupPlan,
   type PlanName,
   type ServiceTier,
@@ -38,7 +42,7 @@ import {
   writeAtomicJson,
 } from "./storage.ts";
 import { asJsonValue } from "./json.ts";
-import { CodexOfficialPluginManager } from "./official-manager.ts";
+import { CodexOfficialPluginManager, OfficialPluginManagerError } from "./official-manager.ts";
 import { migrateLegacyState, readMigratedInstallerSelections } from "./migration.ts";
 import {
   ArtifactIdSchema,
@@ -48,6 +52,9 @@ import {
 } from "./schema.ts";
 import type {
   Autonomy,
+  CapabilityInstallState,
+  CapabilityStateRecord,
+  CapabilityStateStatus,
   ExplicitOptionalSelections,
   InstallRecord,
   InstallResult,
@@ -56,7 +63,12 @@ import type {
 } from "./types.ts";
 import type { JsonObject } from "@holycodex/core";
 
-export { InstallJournalRecordSchema, InstallRecordSchema } from "./schema.ts";
+export {
+  CapabilityInstallStateSchema,
+  CapabilityStateRecordSchema,
+  InstallJournalRecordSchema,
+  InstallRecordSchema,
+} from "./schema.ts";
 
 export interface InstallRequest {
   readonly plan?: PlanName | undefined;
@@ -115,6 +127,14 @@ export async function installHolyCodex(
       plan,
     );
     const explicitOptional = request.optional ?? previous?.explicit_optional_selections ?? {};
+    const retainedOfficialPlugins =
+      request.officialPlugins ??
+      (request.optional === undefined ? (previous?.official_plugins ?? []) : []);
+    const requiredOfficialPlugins = pluginIdsForOptionalCapabilities(
+      optional,
+      retainedOfficialPlugins,
+    );
+    let capabilityState = createCapabilityState(optional, "pending");
     const bundledAssets = join(dirname(fileURLToPath(import.meta.url)), "assets");
     const sourceRoot =
       options.sourceRoot ?? ((await isDirectory(bundledAssets)) ? bundledAssets : pluginSourceRoot);
@@ -140,7 +160,8 @@ export async function installHolyCodex(
       tier,
       optional_selections: optional,
       explicit_optional_selections: explicitOptional,
-      official_plugins: request.officialPlugins ?? previous?.official_plugins ?? [],
+      official_plugins: requiredOfficialPlugins,
+      capability_state: capabilityState,
       autonomy,
       max_subagents: maxSubagents,
       installed_at: now().toISOString(),
@@ -179,46 +200,63 @@ export async function installHolyCodex(
         error,
       );
     }
-    const selectedOfficialPlugins = request.officialPlugins ?? [];
-    if (selectedOfficialPlugins.length > 0) {
+    if (requiredOfficialPlugins.length > 0) {
       let manager = options.officialPluginManager;
       try {
         if (!manager) {
           manager = await CodexOfficialPluginManager.discover();
         }
-        await installSelectedOfficialPlugins(selectedOfficialPlugins, manager);
+        capabilityState = await installSelectedOfficialPlugins(
+          requiredOfficialPlugins,
+          optional,
+          capabilityState,
+          manager,
+          paths,
+          runId,
+          now,
+        );
+        const completedRecord: InstallRecord = { ...record, capability_state: capabilityState };
+        await writeAtomicJson(paths.activeRecord, asJsonValue(completedRecord));
+        await verifyActivation(paths, completedRecord);
         await appendJournal(
           paths,
           runId,
           "official-plugins-applied",
-          { count: selectedOfficialPlugins.length },
+          { count: requiredOfficialPlugins.length },
           now,
         );
+        return await finishInstall(
+          paths,
+          completedRecord,
+          artifactPath,
+          lease.recovered,
+          now,
+          runId,
+        );
       } catch (error: unknown) {
+        const failedState = capabilityStateAfterFailure(optional, capabilityState, error);
+        const failedRecord: InstallRecord = { ...record, capability_state: failedState };
+        await writeAtomicJson(paths.activeRecord, asJsonValue(failedRecord)).catch(() => undefined);
         await appendJournal(
           paths,
           runId,
           "official-plugins-uncertain",
-          { count: selectedOfficialPlugins.length },
+          { count: requiredOfficialPlugins.length, reason: safeMessage(error) },
           now,
         ).catch(() => undefined);
         throw new InstallerError(
           "capability_denied",
-          "The core install is active, but official plugin state is uncertain.",
+          `The core install is active, but provider installation is incomplete. Retry install to converge: ${safeMessage(error)}`,
           error,
+          {
+            core_active: true,
+            capability_state: summarizeCapabilityState(failedState),
+            recovery: "retry install to converge provider state",
+          },
         );
       }
     }
-    const prunedArtifacts = await pruneInactiveArtifacts(paths, artifactId);
-    await appendJournal(paths, runId, "pruned", { count: prunedArtifacts.length }, now);
-    return {
-      record,
-      artifact_path: artifactPath,
-      marketplace_path: paths.marketplaceFile,
-      recovered_lock: lease.recovered,
-      pruned_artifacts: prunedArtifacts,
-      optional_plugins: [...(record.official_plugins ?? [])],
-    };
+    return await finishInstall(paths, record, artifactPath, lease.recovered, now, runId);
   } finally {
     await lease?.release();
   }
@@ -300,10 +338,7 @@ function chooseOptional(
   previous: OptionalSelections | undefined,
 ): OptionalSelections {
   return {
-    computer_use: requested?.computer_use ?? previous?.computer_use ?? false,
-    work: requested?.work ?? previous?.work ?? false,
-    web: requested?.web ?? previous?.web ?? false,
-    security: requested?.security ?? previous?.security ?? false,
+    ...resolveOptionalCapabilitySelections(requested, previous),
     coding: true,
   };
 }
@@ -394,25 +429,170 @@ async function activateArtifact(
 
 async function installSelectedOfficialPlugins(
   ids: readonly string[],
+  selections: OptionalSelections,
+  initialState: CapabilityStateRecord,
   manager: NonNullable<InstallerOptions["officialPluginManager"]>,
-): Promise<void> {
-  if (ids.length === 0) {
-    return;
-  }
+  paths: ResolvedInstallerPaths,
+  runId: string,
+  now: () => Date,
+): Promise<CapabilityStateRecord> {
   if (!manager.list || !manager.add) {
-    throw new InstallerError("capability_denied", "Official plugin selection is unavailable.");
+    throw new InstallerError("capability_denied", "Official plugin verification is unavailable.");
   }
-  const selections = ids.map((id) => {
-    const parsed = decodeSchema(OfficialPluginSelectionSchema, { id, selected: true });
-    if (parsed === undefined) {
-      throw new InstallerError("install_failed", "An official plugin selection is invalid.");
+  const live = await manager.list();
+  const pluginStates = new Map<string, PluginInstallProgress>();
+  for (const id of ids) {
+    const entry = findLivePlugin(live, id);
+    if (entry?.installed && entry.enabled) {
+      pluginStates.set(id, "healthy");
+      continue;
     }
-    return parsed;
-  });
-  const selected = selectOfficialPlugins(await manager.list(), selections);
-  for (const plugin of selected) {
-    await manager.add(plugin);
+    if (entry?.installed && !entry.enabled) {
+      pluginStates.set(id, "disabled");
+      throw new InstallerError(
+        "capability_denied",
+        `Official plugin ${id} is installed but disabled; enable it in Codex and retry.`,
+        undefined,
+        { plugin_id: id, provider_status: "disabled" },
+      );
+    }
+    await appendJournal(paths, runId, "official-plugin-attempted", { plugin_id: id }, now);
+    await manager.add(id);
+    const confirmed = findLivePlugin(await manager.list(), id);
+    if (!confirmed || !confirmed.installed || !confirmed.enabled) {
+      const status = confirmed?.installed === true ? "disabled" : "missing";
+      pluginStates.set(id, status === "disabled" ? "disabled" : "unavailable");
+      throw new InstallerError(
+        "capability_denied",
+        status === "disabled"
+          ? `Official plugin ${id} is installed but disabled; enable it in Codex and retry.`
+          : `Official plugin ${id} was not confirmed after add; retry install.`,
+        undefined,
+        { plugin_id: id, provider_status: status },
+      );
+    }
+    pluginStates.set(id, "healthy");
+    await appendJournal(paths, runId, "official-plugin-confirmed", { plugin_id: id }, now);
   }
+  return capabilityStateFromProgress(selections, pluginStates, initialState);
+}
+
+type PluginInstallProgress = "healthy" | "pending" | "uncertain" | "unavailable" | "disabled";
+
+function findLivePlugin(
+  live: LiveOfficialPluginListEnvelope,
+  pluginId: string,
+):
+  | Readonly<{ readonly pluginId: string; readonly installed: boolean; readonly enabled: boolean }>
+  | undefined {
+  const entries = [...live.installed, ...live.available];
+  return entries.find((entry) => entry.pluginId === pluginId);
+}
+
+function createCapabilityState(
+  selections: OptionalSelections,
+  selectedStatus: CapabilityStateStatus,
+): CapabilityStateRecord {
+  const output: Partial<Record<keyof CapabilityStateRecord, CapabilityInstallState>> = {};
+  for (const name of OPTIONAL_CAPABILITY_NAMES) {
+    const definition = CAPABILITY_REGISTRY[name];
+    const selected = selections[name];
+    output[name] = {
+      selected,
+      status: selected ? selectedStatus : "disabled",
+      plugin_ids: [...definition.pluginIds],
+    } satisfies CapabilityInstallState;
+  }
+  return completeCapabilityState(output);
+}
+
+function capabilityStateFromProgress(
+  selections: OptionalSelections,
+  pluginStates: ReadonlyMap<string, PluginInstallProgress>,
+  initialState: CapabilityStateRecord,
+): CapabilityStateRecord {
+  const output: Partial<Record<keyof CapabilityStateRecord, CapabilityInstallState>> = {};
+  for (const name of OPTIONAL_CAPABILITY_NAMES) {
+    const definition = CAPABILITY_REGISTRY[name];
+    const state = initialState[name];
+    if (!selections[name]) {
+      output[name] = { ...state, selected: false, status: "disabled" };
+      continue;
+    }
+    const statuses = definition.pluginIds.map((id) => pluginStates.get(id) ?? "pending");
+    const status: CapabilityStateStatus = statuses.includes("uncertain")
+      ? "uncertain"
+      : statuses.includes("disabled")
+        ? "provider_disabled"
+        : statuses.includes("unavailable")
+          ? "unavailable"
+          : statuses.includes("pending")
+            ? "pending"
+            : "healthy";
+    output[name] = { ...state, selected: true, status };
+  }
+  return completeCapabilityState(output);
+}
+
+function capabilityStateAfterFailure(
+  selections: OptionalSelections,
+  state: CapabilityStateRecord,
+  error: unknown,
+): CapabilityStateRecord {
+  const providerDisabled =
+    (error instanceof InstallerError && error.details["provider_status"] === "disabled") ||
+    (error instanceof OfficialPluginManagerError && error.code === "plugin_disabled");
+  const providerUnavailable =
+    (error instanceof InstallerError && error.details["provider_status"] === "missing") ||
+    (error instanceof OfficialPluginManagerError && error.code === "plugin_missing");
+  const status: CapabilityStateStatus = providerDisabled
+    ? "provider_disabled"
+    : providerUnavailable
+      ? "unavailable"
+      : "uncertain";
+  const output: Partial<Record<keyof CapabilityStateRecord, CapabilityInstallState>> = {};
+  for (const name of OPTIONAL_CAPABILITY_NAMES) {
+    const current = state[name];
+    output[name] = selections[name]
+      ? { ...current, selected: true, status, reason: safeMessage(error) }
+      : { ...current, selected: false, status: "disabled" };
+  }
+  return completeCapabilityState(output);
+}
+
+function completeCapabilityState(state: Partial<CapabilityStateRecord>): CapabilityStateRecord {
+  const computerUse = state.computer_use;
+  const work = state.work;
+  const web = state.web;
+  const security = state.security;
+  if (!computerUse || !work || !web || !security) {
+    throw new InstallerError("state_corrupt", "The capability registry state is incomplete.");
+  }
+  return { computer_use: computerUse, work, web, security };
+}
+
+function summarizeCapabilityState(state: CapabilityStateRecord): string {
+  return OPTIONAL_CAPABILITY_NAMES.map((name) => `${name}=${state[name].status}`).join(",");
+}
+
+async function finishInstall(
+  paths: ResolvedInstallerPaths,
+  record: InstallRecord,
+  artifactPath: string,
+  recoveredLock: boolean,
+  now: () => Date,
+  runId: string,
+): Promise<InstallResult> {
+  const prunedArtifacts = await pruneInactiveArtifacts(paths, record.artifact_id);
+  await appendJournal(paths, runId, "pruned", { count: prunedArtifacts.length }, now);
+  return {
+    record,
+    artifact_path: artifactPath,
+    marketplace_path: paths.marketplaceFile,
+    recovered_lock: recoveredLock,
+    pruned_artifacts: prunedArtifacts,
+    optional_plugins: [...(record.official_plugins ?? [])],
+  };
 }
 
 async function pruneInactiveArtifacts(
@@ -458,6 +638,8 @@ export async function appendJournal(
     | "active-written"
     | "marketplace-written"
     | "activation-verified"
+    | "official-plugin-attempted"
+    | "official-plugin-confirmed"
     | "official-plugins-applied"
     | "official-plugins-uncertain"
     | "rollback"

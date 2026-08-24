@@ -1,31 +1,49 @@
 # SPDX-License-Identifier: Apache-2.0
 
-name: Publish to npm
+name: HolyCodex release
 
 on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+      - "!v*.*.*-*"
   workflow_dispatch:
     inputs:
-      version:
-        description: Exact packages/cli version to publish
+      channel:
+        description: Development from main or stable from an exact version tag
         required: true
-        type: string
+        type: choice
+        options:
+          - dev
+          - stable
 
 permissions:
   contents: read
 
 concurrency:
-  group: npm-publish-${{ github.ref }}
+  group: holycodex-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: publish holycodex
-    if: github.ref == 'refs/heads/main'
+  prepare:
+    name: resolve release identity
+    if: |
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      channel: ${{ steps.release.outputs.channel }}
+      version: ${{ steps.release.outputs.version }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
     steps:
-      - name: Check out main
+      - name: Check out the triggering SHA
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Activate mise and install the pinned toolchain
@@ -37,20 +55,167 @@ jobs:
       - name: Install the frozen workspace
         run: mise exec -- bun install --frozen-lockfile
 
-      - name: Verify the requested version
+      - name: Resolve the exact channel, tag, and source SHA
+        id: release
         env:
-          REQUESTED_VERSION: ${{ inputs.version }}
+          REQUESTED_CHANNEL: ${{ inputs.channel }}
         run: |
-          PACKAGE_VERSION="$(mise exec -- bun -e 'console.log(require("./packages/cli/package.json").version)')"
-          test "$REQUESTED_VERSION" = "$PACKAGE_VERSION"
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            CHANNEL=dev
+          elif [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            CHANNEL=stable
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            CHANNEL="$REQUESTED_CHANNEL"
+          else
+            echo "The release workflow received an unsupported ref." >&2
+            exit 1
+          fi
+          if [ "$CHANNEL" = "dev" ]; then
+            test "$GITHUB_REF" = "refs/heads/main"
+            VERSION="$(mise exec -- bun scripts/release-version.ts dev "$GITHUB_RUN_NUMBER" "$GITHUB_RUN_ATTEMPT")"
+          elif [ "$CHANNEL" = "stable" ]; then
+            test "$GITHUB_REF_TYPE" = "tag"
+            test "$(git rev-parse "$GITHUB_REF")" = "$GITHUB_SHA"
+            VERSION="$(mise exec -- bun scripts/release-version.ts stable "$GITHUB_REF_NAME")"
+          else
+            echo "Unsupported release channel: $CHANNEL" >&2
+            exit 1
+          fi
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Validate the release checkout
-        run: mise exec -- bun run validate
+  validation:
+    name: required cross-platform validation and exact artifact
+    needs: prepare
+    uses: ./.github/workflows/validation.yml
+    with:
+      source_sha: ${{ needs.prepare.outputs.source_sha }}
+      release_channel: ${{ needs.prepare.outputs.channel }}
+      release_version: ${{ needs.prepare.outputs.version }}
+    permissions:
+      contents: read
 
-      - name: Pack the validated public CLI
-        run: mise exec -- bun scripts/package-release.ts "$RUNNER_TEMP"
+  publish_npm:
+    name: publish exact npm artifact
+    needs: [prepare, validation]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      RELEASE_CHANNEL: ${{ needs.prepare.outputs.channel }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+      EXPECTED_SHA256: ${{ needs.validation.outputs.artifact_sha256 }}
+    steps:
+      - name: Check out the triggering SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 0
 
-      - name: Publish the public CLI
+      - name: Activate mise and install the pinned toolchain
+        uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: false
+
+      - name: Install the frozen workspace
+        run: mise exec -- bun install --frozen-lockfile
+
+      - name: Download and verify the exact validated artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.validation.outputs.artifact_name }}
+          path: ${{ runner.temp }}/release
+
+      - name: Verify artifact identity and npm retry state
+        id: npm_state
+        run: |
+          set -euo pipefail
+          mise exec -- bun scripts/package-release.ts verify \
+            "$RUNNER_TEMP/release" "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$SOURCE_SHA" "$EXPECTED_SHA256"
+          STATUS="$(mise exec -- bun scripts/package-release.ts check-npm \
+            "$RUNNER_TEMP/release" "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$SOURCE_SHA" "$EXPECTED_SHA256")"
+          case "$STATUS" in
+            absent|matching) echo "status=$STATUS" >> "$GITHUB_OUTPUT" ;;
+            *) echo "Unexpected npm retry state: $STATUS" >&2; exit 1 ;;
+          esac
+
+      - name: Publish the development artifact under dev
+        if: steps.npm_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'dev'
         env:
           NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: mise exec -- bun publish "$RUNNER_TEMP/holycodex-${{ inputs.version }}.tgz" --access public
+        run: mise exec -- bun publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag dev
+
+      - name: Publish the stable artifact under latest
+        if: steps.npm_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'stable'
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: mise exec -- bun publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag latest
+
+  publish_github:
+    name: publish exact GitHub release
+    needs: [prepare, validation, publish_npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_CHANNEL: ${{ needs.prepare.outputs.channel }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+      EXPECTED_SHA256: ${{ needs.validation.outputs.artifact_sha256 }}
+    steps:
+      - name: Check out the triggering SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 0
+
+      - name: Activate mise and install the pinned toolchain
+        uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: false
+
+      - name: Install the frozen workspace
+        run: mise exec -- bun install --frozen-lockfile
+
+      - name: Download and verify the exact validated artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.validation.outputs.artifact_name }}
+          path: ${{ runner.temp }}/release
+
+      - name: Create the identity-marked release notes
+        run: mise exec -- bun scripts/package-release.ts notes "$RUNNER_TEMP/release" "$RUNNER_TEMP/release-notes.md"
+
+      - name: Verify artifact identity and GitHub retry state
+        id: github_state
+        run: |
+          set -euo pipefail
+          mise exec -- bun scripts/package-release.ts verify \
+            "$RUNNER_TEMP/release" "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$SOURCE_SHA" "$EXPECTED_SHA256"
+          STATUS="$(mise exec -- bun scripts/package-release.ts check-github \
+            "$RUNNER_TEMP/release" "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$SOURCE_SHA" "$EXPECTED_SHA256" "$GITHUB_REPOSITORY")"
+          case "$STATUS" in
+            absent|matching) echo "status=$STATUS" >> "$GITHUB_OUTPUT" ;;
+            *) echo "Unexpected GitHub retry state: $STATUS" >&2; exit 1 ;;
+          esac
+
+      - name: Create the development prerelease at the exact main SHA
+        if: steps.github_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'dev'
+        run: |
+          gh release create "v${RELEASE_VERSION}" "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" \
+            --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --prerelease --generate-notes \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+
+      - name: Create the stable release from the verified tag
+        if: steps.github_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'stable'
+        run: |
+          gh release create "v${RELEASE_VERSION}" "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
+            --notes-file "$RUNNER_TEMP/release-notes.md"

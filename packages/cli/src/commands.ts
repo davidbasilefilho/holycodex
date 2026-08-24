@@ -9,7 +9,7 @@ import {
   type PlanName,
   type ServiceTier,
 } from "@holycodex/core";
-import { lookupPlan } from "@holycodex/core";
+import { lookupPlan, OPTIONAL_CAPABILITY_NAMES } from "@holycodex/core";
 import { ArgumentError, parseArgv } from "./args.ts";
 import { cleanupHolyCodex, doctorHolyCodex } from "./maintenance.ts";
 import { readCanonicalVersion, updateCanonicalVersion } from "./manifest.ts";
@@ -26,6 +26,7 @@ import { CodexError } from "@holycodex/codex";
 import { executeWorkflowCommand, WorkflowCommandError } from "./workflow.ts";
 import { asJsonValue } from "./json.ts";
 import { WorkflowStoreError } from "./workflow-store.ts";
+import { GeneratedWorkflowStoreError } from "./generated-workflow-store.ts";
 import { RefinementStoreError } from "./refinement-store.ts";
 import { helpRequested, helpText, helpTopic } from "./help.ts";
 import type { Autonomy, CliContext, CommandResult, ParsedCommand } from "./types.ts";
@@ -133,9 +134,11 @@ async function executeCleanup(parsed: ParsedCommand, context: CliContext): Promi
       parsed.options["no-tui"] !== true &&
       context.io?.stdoutIsTTY === true &&
       (await confirmIfAvailable(context, "Remove the selected HolyCodex-owned scope?")));
-  const cleanupInput: { yes: boolean; runId?: string } = { yes };
+  const cleanupInput: { yes: boolean; runId?: string; sessionId?: string } = { yes };
   const runId = optionString(parsed, "run-id");
   if (runId !== undefined) cleanupInput.runId = runId;
+  const sessionId = optionString(parsed, "session-id");
+  if (sessionId !== undefined) cleanupInput.sessionId = sessionId;
   return asJsonValue(
     await cleanupHolyCodex(
       requiredCleanupScope(parsed),
@@ -191,13 +194,9 @@ function optionalSelections(parsed: ParsedCommand):
   | undefined {
   const result: Partial<{ computer_use: boolean; work: boolean; web: boolean; security: boolean }> =
     {};
-  const pairs = [
-    ["computer_use", "computer-use", "no-computer-use"],
-    ["work", "work", "no-work"],
-    ["web", "web", "no-web"],
-    ["security", "security", "no-security"],
-  ] as const;
-  for (const [key, positive, negative] of pairs) {
+  for (const key of OPTIONAL_CAPABILITY_NAMES) {
+    const positive = key.replaceAll("_", "-");
+    const negative = `no-${positive}`;
     if (parsed.options[positive] === true) {
       result[key] = true;
     } else if (parsed.options[positive] === false) {
@@ -255,11 +254,14 @@ function optionStrings(parsed: ParsedCommand, key: string): readonly string[] {
     : [];
 }
 
-function requiredCleanupScope(parsed: ParsedCommand): "run" | "workspace" | "expired" {
+function requiredCleanupScope(
+  parsed: ParsedCommand,
+): "run" | "workspace" | "expired" | "workflow-session" {
   const value = parsed.options["scope"];
   if (value === "run" || value === "workspace" || value === "expired") {
     return value;
   }
+  if (value === "workflow-session") return value;
   throw new CliCommandError("invalid_argument", "Cleanup requires a valid scope.");
 }
 
@@ -269,9 +271,14 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
   const codexHome = optionString(parsed, "codex-home");
   const marketplaceRoot = optionString(parsed, "marketplace-root");
   if (codexHome === undefined && marketplaceRoot === undefined) {
-    return base.now === undefined && context.now !== undefined
-      ? { ...base, now: context.now }
-      : base;
+    return {
+      ...base,
+      ...(base.now === undefined && context.now !== undefined ? { now: context.now } : {}),
+      ...(base.generatedWorkflowBoundary === undefined &&
+      context.generatedWorkflowBoundary !== undefined
+        ? { generatedWorkflowBoundary: context.generatedWorkflowBoundary }
+        : {}),
+    };
   }
   const paths = { ...existing };
   if (codexHome !== undefined) paths.codexHome = codexHome;
@@ -280,6 +287,10 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
     ...base,
     paths,
     ...(base.now === undefined && context.now !== undefined ? { now: context.now } : {}),
+    ...(base.generatedWorkflowBoundary === undefined &&
+    context.generatedWorkflowBoundary !== undefined
+      ? { generatedWorkflowBoundary: context.generatedWorkflowBoundary }
+      : {}),
   };
 }
 
@@ -374,11 +385,24 @@ function mapError(
     };
   }
   if (error instanceof OfficialPluginManagerError) {
+    const uncertain =
+      error.code === "timeout" ||
+      error.code === "output_limit" ||
+      error.code === "cancelled" ||
+      error.code === "readback_mismatch";
+    const unavailable = error.code === "plugin_disabled" || error.code === "plugin_missing";
     return {
-      code: error.code === "command_failed" ? "capability_denied" : "install_failed",
+      code:
+        uncertain || unavailable
+          ? uncertain
+            ? "effect_uncertain"
+            : "capability_denied"
+          : error.code === "command_failed"
+            ? "capability_denied"
+            : "install_failed",
       message: sanitizeMessage(error.message),
-      details: {},
-      exitCode: error.code === "command_failed" ? 2 : 3,
+      details: error.details,
+      exitCode: uncertain ? 4 : unavailable || error.code === "command_failed" ? 2 : 3,
     };
   }
   if (error instanceof MarketplaceError) {
@@ -435,6 +459,14 @@ function mapError(
       message: sanitizeMessage(error.message),
       details: {},
       exitCode: error.code === "workflow_missing" ? 1 : 4,
+    };
+  }
+  if (error instanceof GeneratedWorkflowStoreError) {
+    return {
+      code: error.code,
+      message: sanitizeMessage(error.message),
+      details: {},
+      exitCode: error.code === "invalid_input" || error.code === "invalid_name" ? 1 : 4,
     };
   }
   if (error instanceof RefinementStoreError) {

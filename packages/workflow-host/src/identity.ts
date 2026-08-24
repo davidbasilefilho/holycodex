@@ -17,9 +17,13 @@ import {
   type RoleTask,
   type SpecialistOutcomeV2,
 } from "@holycodex/core";
+import { createHash } from "node:crypto";
 import { SemanticAssignmentPacketSchema, type SemanticAssignmentPacket } from "@holycodex/codex";
+import type { CompileOptions, NativeWorkflow } from "@holycodex/workflow-runtime";
 import {
   IdentityComponentsSchema,
+  CompatibilityCardinalitySchema,
+  NativeWorkflowIdentitySchema,
   JsonObjectSchema,
   JsonValueSchema,
   ProjectTrustRefSchema,
@@ -30,9 +34,12 @@ import {
   type JournalEvent,
   type ProjectTrustRef,
   type SchemaEpochs,
+  type NativeWorkflowIdentity,
+  type CompatibilityCardinality,
+  type WorkflowExecutionIdentity,
 } from "./schemas.ts";
 import { WorkflowHostError } from "./errors.ts";
-import type { HostContext, ProjectTrustInput } from "./types.ts";
+import type { HostContext, ProjectTrustInput, WorkflowDefinition } from "./types.ts";
 
 export const ZERO_DIGEST = "0".repeat(64);
 export const DEFAULT_PROFILE = "default";
@@ -230,6 +237,54 @@ export async function inputDigest(value: unknown): Promise<string> {
   ]);
 }
 
+export async function compatibilityProofDigest(
+  source: string,
+  expectedCalls: number,
+): Promise<string> {
+  return await domainSeparatedSha256("workflow-compatibility-cardinality-v1", [
+    canonicalJsonUtf8({
+      proof_version: "explicit-declaration-v1",
+      source_sha256: sha256(new TextEncoder().encode(source)),
+      expected_calls: expectedCalls,
+    }),
+  ]);
+}
+
+export async function classifyCompatibilityCardinality(
+  input: Readonly<{
+    readonly source: string;
+    readonly expectedCalls?: unknown;
+    readonly proofDigest?: unknown;
+  }>,
+): Promise<CompatibilityCardinality> {
+  if (input.expectedCalls === undefined) {
+    return { status: "unknown" };
+  }
+  if (
+    typeof input.expectedCalls !== "number" ||
+    !Number.isSafeInteger(input.expectedCalls) ||
+    input.expectedCalls < 0
+  ) {
+    return { status: "unknown" };
+  }
+  const proofDigest = await compatibilityProofDigest(input.source, input.expectedCalls);
+  if (input.proofDigest !== undefined && input.proofDigest !== proofDigest) {
+    throw new WorkflowHostError(
+      "admission_denied",
+      "The compatibility cardinality proof does not match the source and declaration.",
+    );
+  }
+  const parsed = decodeHostSchema(CompatibilityCardinalitySchema, {
+    status: "proven",
+    expected_calls: input.expectedCalls,
+    proof_digest: proofDigest,
+  });
+  if (parsed === undefined) {
+    throw new WorkflowHostError("invalid_input", "The compatibility cardinality proof is invalid.");
+  }
+  return parsed;
+}
+
 export async function authorityScopeDigest(
   authority: string,
   scope: readonly string[],
@@ -287,9 +342,13 @@ export function normalizeSemanticAssignment(
           ...(hasNonEmptyDelta(delta) ? { delta } : {}),
         },
         route: packet.route,
+        skill_profile: packet.skill_profile,
         tools: packet.tools,
         security: packet.security,
         compatibility: packet.compatibility,
+        ...(packet.capability_input === undefined
+          ? {}
+          : { capability_input: packet.capability_input }),
       },
       "semantic assignment",
     ),
@@ -449,6 +508,78 @@ export async function assertInputIdentity(
   }
 }
 
+export async function assertNativeWorkflowIdentity(
+  definition: Readonly<{ identity: IdentityComponents }>,
+  source: string,
+  workflow: WorkflowDefinition | undefined,
+  compileOptions: CompileOptions,
+  executionMode: "native" | "compatibility",
+): Promise<void> {
+  const persisted = definition.identity.native_workflow;
+  if (executionMode !== "native") {
+    if (persisted !== undefined) {
+      throw new WorkflowHostError(
+        "identity_mismatch",
+        "The persisted native workflow identity cannot be resumed in compatibility mode.",
+      );
+    }
+    return;
+  }
+  if (workflow !== undefined && !isNativeWorkflow(workflow)) {
+    if (persisted !== undefined) {
+      throw new WorkflowHostError(
+        "identity_mismatch",
+        "A serialized native workflow identity cannot be resumed with an in-memory DSL terminal.",
+      );
+    }
+    return;
+  }
+  if (workflow === undefined || persisted === undefined) {
+    throw new WorkflowHostError(
+      "identity_mismatch",
+      "The persisted native workflow identity requires a native workflow terminal.",
+    );
+  }
+  const current = await buildNativeWorkflowIdentity(source, workflow, compileOptions);
+  if (canonicalJson(current) !== canonicalJson(persisted)) {
+    throw new WorkflowHostError(
+      "identity_mismatch",
+      "The supplied native workflow IR, ABI, codec profile, or source identity does not match the persisted run.",
+    );
+  }
+}
+
+export async function buildNativeWorkflowIdentity(
+  source: string,
+  workflow: NativeWorkflow,
+  compileOptions: CompileOptions,
+): Promise<NativeWorkflowIdentity> {
+  const identity: NativeWorkflowIdentity = {
+    source_sha256: sha256(new TextEncoder().encode(source)),
+    ir_sha256: await domainSeparatedSha256("workflow-native-ir", [
+      canonicalJsonUtf8(asJsonValue(workflow.ir, "native workflow IR")),
+    ]),
+    graph_sha256: await domainSeparatedSha256("workflow-native-graph", [
+      canonicalJsonUtf8(asJsonValue(workflow.ir.graph, "native workflow graph")),
+    ]),
+    codec_profile_sha256: await domainSeparatedSha256("workflow-native-codec-profile", [
+      canonicalJsonUtf8(
+        asJsonValue(
+          { codecs: workflow.ir.codecs, compile_options: compileOptions },
+          "native workflow codec profile",
+        ),
+      ),
+    ]),
+    abi_version: workflow.ir.abiVersion,
+    execution_mode: "native",
+  };
+  const parsed = decodeHostSchema(NativeWorkflowIdentitySchema, identity);
+  if (parsed === undefined) {
+    throw new WorkflowHostError("invalid_input", "The native workflow identity is invalid.");
+  }
+  return parsed;
+}
+
 export async function buildIdentity(
   input: Readonly<{
     readonly source: string;
@@ -458,6 +589,9 @@ export async function buildIdentity(
     readonly serviceTier: ServiceTier;
     readonly role: IdentityComponents["role"];
     readonly context: HostContext;
+    readonly nativeWorkflow?: WorkflowDefinition;
+    readonly compileOptions?: CompileOptions;
+    readonly workflowExecution?: WorkflowExecutionIdentity;
   }>,
 ): Promise<IdentityComponents> {
   const sourceDigest = await domainSeparatedSha256("workflow-source", [
@@ -484,10 +618,30 @@ export async function buildIdentity(
     sandbox_policy: input.context.sandboxPolicy,
     codex_capability_digest: input.context.codexCapabilityDigest,
     schema_epochs: normalizeEpochs(),
+    ...(input.workflowExecution === undefined
+      ? {}
+      : { workflow_execution: input.workflowExecution }),
+    ...(input.nativeWorkflow === undefined || !isNativeWorkflow(input.nativeWorkflow)
+      ? {}
+      : {
+          native_workflow: await buildNativeWorkflowIdentity(
+            input.source,
+            input.nativeWorkflow,
+            input.compileOptions ?? {},
+          ),
+        }),
   };
   const parsed = decodeHostSchema(IdentityComponentsSchema, identity);
   if (parsed === undefined) {
     throw new WorkflowHostError("invalid_input", "The run identity could not be formed.");
   }
   return parsed;
+}
+
+function isNativeWorkflow(workflow: WorkflowDefinition): workflow is NativeWorkflow {
+  return typeof workflow === "object" && workflow !== null && "ir" in workflow;
+}
+
+function sha256(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
 }

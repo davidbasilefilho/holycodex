@@ -39,8 +39,10 @@ gates, not release notes copied from an older implementation.
 
 ## Local and CI validation
 
-The repository validation gate runs from the current checkout and from
-checked-in CI on Ubuntu and Windows/Git Bash:
+The repository validation gate runs from the current checkout and from the
+checked-in CI on Ubuntu and Windows/Git Bash. `validation.yml` preserves the
+pull-request, push, and dispatch triggers and also exposes the same gate as a
+reusable `workflow_call`:
 
 1. Check the manifest, lockfile, generated metadata, documentation links,
    version authority, provenance, and third-party license notices.
@@ -50,24 +52,45 @@ checked-in CI on Ubuntu and Windows/Git Bash:
 4. Run isolated package smoke: pack and install the artifact, then exercise
    install, doctor, cleanup, and migration before fixture fresh-clone and
    dry-run checks.
-5. Confirm that the package artifact contains no undeclared payload files,
-   secret material, MCP declaration, or unaccounted dependency attribution.
+5. Confirm that the package artifact contains only allowlisted payload files,
+   secret material is absent, and dependency/runtime boundaries remain
+   publishable.
 
-The real canonical fresh clone and post-push required-job result remain
-external evidence until an approved push. Package publication is implemented
-only by `.github/workflows/publish.yml`: an approved manual dispatch from
-`main` must supply the exact canonical version, pass validation, and publish
-through Bun with the repository-owned `NPM_TOKEN` secret.
+## Development and stable channels
+
+`.github/workflows/publish.yml` handles both release channels. Every successful
+push to `main` resolves the canonical base version to
+`baseVersion-dev.<github.run_number>.<github.run_attempt>`. The reusable gate
+checks out the triggering SHA, requires Ubuntu and Windows validation, reuses
+the validated Ubuntu build, stages the channel version in a temporary package
+workspace, packs once, smoke-tests that exact tarball, and uploads the tarball
+with its SHA-256, source SHA, channel, version, and allowlisted entries.
+
+The publish jobs download that artifact and verify its metadata and digest
+before any external write. Development publication uses Bun under npm
+dist-tag `dev` and creates a GitHub prerelease at the exact main SHA with
+generated notes and the same tarball attached. Stable publication accepts only
+an exact non-prerelease `vX.Y.Z` tag whose tag object resolves to the checked-out
+SHA and whose version matches the canonical manifest. It publishes the same
+tarball under npm dist-tag `latest` and creates a normal GitHub release with
+`--verify-tag`.
+
+Retries are fail-closed. An existing npm version or GitHub release is accepted
+only when its version, channel, source SHA, and downloaded artifact identity
+match the validated release metadata. The npm workflow keeps the configured
+`NPM_TOKEN` mechanism; no `id-token:write` permission is granted. Validation
+uses `contents:read`, the npm job receives only its npm secret, and the GitHub
+release job receives `contents:write`.
 
 ## Approval and branch gates
 
 Commit, push, workflow dispatch, and registry publication are separate
 externally visible effects. Obtain explicit approval immediately before each
 effect, confirm the exact files and version in scope, and record the resulting
-ref or workflow run. No tag or GitHub release is required. Publication fails
-closed when `NPM_TOKEN` is absent, the ref is not `main`, the requested version
-differs from `packages/cli/package.json`, validation fails, or the registry
-rejects the immutable version.
+ref, tag, or workflow run. Publication fails closed when `NPM_TOKEN` is absent,
+the ref/tag/SHA relationship is invalid, the requested version differs from
+`packages/cli/package.json`, validation fails, the artifact identity changes,
+or the registry/release service rejects the immutable version.
 
 The validation job must verify the intended branch topology and frozen SHA
 from repository metadata before an approved cutover. An unexpected parent,

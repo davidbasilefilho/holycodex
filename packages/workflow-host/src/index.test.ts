@@ -12,6 +12,7 @@ import {
   type SemanticAssignmentPacket,
   type SemanticExecutionOutcome,
 } from "@holycodex/codex";
+import { PONYTAIL_ROLE_SKILL } from "@holycodex/core";
 import {
   FileRunStore,
   WorkflowHost,
@@ -21,6 +22,7 @@ import {
 } from "./index.ts";
 import {
   createCodec,
+  evaluateNativeWorkflowSource,
   workflow,
   type EvaluateWorkflowInput,
   type WorkflowResult,
@@ -225,6 +227,7 @@ describe("workflow-host", () => {
         delta: ["nested delta"],
       });
       expect(packet.route.key).toBe("Worker:integration");
+      expect(packet.skill_profile).toEqual(PONYTAIL_ROLE_SKILL);
       expect(packet.tools.allowed).toEqual(["read", "write", "execute"]);
       expect(packet.security.network).toBe(false);
       expect(packet.tools.specialist_spawn).toBe(false);
@@ -314,6 +317,7 @@ describe("workflow-host", () => {
       );
       expect(execution.status).toBe("completed");
       expect(verified).toBe(true);
+      expect(packets[0]?.skill_profile).toEqual(PONYTAIL_ROLE_SKILL);
       expect(packets[0]?.assignment.required_evidence).toEqual([
         "Return findings, repaired paths, verification, and residual risk.",
       ]);
@@ -350,9 +354,11 @@ describe("workflow-host", () => {
       expect(execution.status).toBe("completed");
       expect(execution.result.ok).toBe(true);
       expect(execution.inspection.operations.some((item) => item.state === "completed")).toBe(true);
-      expect(execution.inspection.workflow?.delegation_mode).toBe("SINGLE");
+      expect(execution.inspection.workflow?.delegation_mode).toBe("DYNAMIC_WORKFLOW");
       expect(
-        telemetry.some((event) => isRecord(event) && event["delegation_mode"] === "SINGLE"),
+        telemetry.some(
+          (event) => isRecord(event) && event["delegation_mode"] === "DYNAMIC_WORKFLOW",
+        ),
       ).toBe(true);
       expect(telemetry.length).toBeGreaterThan(0);
 
@@ -370,6 +376,7 @@ describe("workflow-host", () => {
         toolProfile: "default",
         securityProfile: "default",
         promptProfile: "default",
+        skillProfileDigest: PONYTAIL_ROLE_SKILL.digest,
       });
       expect(reused.kind).toBe("new-context-required");
       const policyMismatch = await host.reuseRetainedContext({
@@ -381,6 +388,7 @@ describe("workflow-host", () => {
         securityProfile: "default",
         promptProfile: "default",
         approvalPolicy: "other",
+        skillProfileDigest: PONYTAIL_ROLE_SKILL.digest,
       });
       expect(policyMismatch.kind).toBe("new-context-required");
       const newContext = await host.reuseRetainedContext({
@@ -391,6 +399,7 @@ describe("workflow-host", () => {
         toolProfile: "other",
         securityProfile: "default",
         promptProfile: "default",
+        skillProfileDigest: PONYTAIL_ROLE_SKILL.digest,
       });
       expect(newContext.kind).toBe("new-context-required");
     } finally {
@@ -496,6 +505,29 @@ describe("workflow-host", () => {
       expect((await host.inspect(compatibilitySingle.run_id)).workflow?.delegation_mode).toBe(
         "SINGLE",
       );
+      const compatibilityZero = await host.create({
+        source,
+        args,
+        objective: "compat zero",
+        executionMode: "compatibility",
+        expectedCalls: 0,
+        delegationMode: "SINGLE",
+      });
+      expect((await host.inspect(compatibilityZero.run_id)).workflow).toMatchObject({
+        delegation_mode: "SINGLE",
+        compatibility_cardinality: { status: "proven", expected_calls: 0 },
+      });
+      const compatibilityUnknown = await host.create({
+        source,
+        args,
+        objective: "compat unknown",
+        executionMode: "compatibility",
+        delegationMode: "DYNAMIC_WORKFLOW",
+      });
+      expect((await host.inspect(compatibilityUnknown.run_id)).workflow).toMatchObject({
+        delegation_mode: "DYNAMIC_WORKFLOW",
+        compatibility_cardinality: { status: "unknown" },
+      });
       const compatibilityLegacy = await host.create({
         source,
         args,
@@ -532,9 +564,10 @@ describe("workflow-host", () => {
       if (!descriptor) return;
       const { delegation_mode: _legacyMode, ...legacyDescriptor } = descriptor;
       await host.store.saveSnapshot({ ...stored.snapshot, workflow: legacyDescriptor });
-      expect((await host.inspect(compatibilitySingle.run_id)).workflow).not.toHaveProperty(
-        "delegation_mode",
-      );
+      expect((await host.inspect(compatibilitySingle.run_id)).workflow).toMatchObject({
+        delegation_mode: "SINGLE",
+        compatibility_cardinality: { status: "proven", expected_calls: 1 },
+      });
       await expect(
         host.run({ runId: compatibilitySingle.run_id, source, args }),
       ).resolves.toMatchObject({ status: "completed" });
@@ -555,6 +588,8 @@ describe("workflow-host", () => {
       });
       await host.run({ runId: definition.run_id, source, args });
       const inspection = await host.inspect(definition.run_id);
+      expect(inspection.workflow).not.toHaveProperty("source");
+      expect(inspection.workflow).not.toHaveProperty("args");
       const completed = inspection.operations.find((item) => item.state === "completed");
       expect(completed).toBeDefined();
       if (!completed) return;
@@ -696,13 +731,7 @@ describe("workflow-host", () => {
         `${legacyRecords.map((record) => JSON.stringify(record)).join("\n")}\n`,
       );
       const loaded = await host.store.load(definition.run_id);
-      expect(loaded.snapshot.integrity).toBe("valid");
-      const operation = loaded.journal.find(
-        (event) => event.event === "operation" && event.lifecycle.state === "completed",
-      );
-      expect(
-        operation?.event === "operation" ? operation.outcome?.protocol_version : undefined,
-      ).toBe("holycodex-specialist-outcome-2");
+      expect(loaded.snapshot.integrity).toBe("uncertain");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -769,11 +798,42 @@ describe("workflow-host", () => {
       await rm(journalPath);
       expect((await host.store.load(definition.run_id)).snapshot.integrity).toBe("uncertain");
       expect(() => new FileRunStore("relative-root")).toThrow(WorkflowHostError);
-      await symlink(outside, join(root, "runs", "escape"));
+      await symlink(
+        outside,
+        join(root, "runs", "escape"),
+        process.platform === "win32" ? "junction" : "dir",
+      );
       await expect(host.store.load("escape")).rejects.toMatchObject({ code: "path_rejected" });
     } finally {
       await rm(root, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("commits checkpoint revisions with a verifiable intent and record", async () => {
+    const { root } = await tempStore();
+    try {
+      const host = new WorkflowHost(hostOptions(root));
+      const definition = await host.create({ source, args, objective: "transaction" });
+      const created = await host.store.load(definition.run_id);
+      expect(created.snapshot.integrity).toBe("valid");
+      expect(created.journal.some((event) => event.event === "commit-intent")).toBe(true);
+      expect(created.journal.some((event) => event.event === "commit-record")).toBe(true);
+
+      const inspected = await host.goal(definition.run_id, "checkpoint transaction");
+      expect(inspected.checkpoint?.revision).toBe(1);
+      const committed = await host.store.load(definition.run_id);
+      expect(committed.snapshot.integrity).toBe("valid");
+      expect(committed.diagnostics).toEqual([]);
+
+      await host.store.saveSnapshot({ ...committed.snapshot, revision: 0 });
+      const forged = await host.store.load(definition.run_id);
+      expect(forged.snapshot.integrity).toBe("uncertain");
+      await expect(host.run({ runId: definition.run_id, source, args })).rejects.toMatchObject({
+        code: "integrity_uncertain",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 
@@ -911,10 +971,10 @@ describe("workflow-host", () => {
         ),
       );
       const sequences = appended.map((event) => event.sequence).sort((left, right) => left - right);
-      expect(sequences).toEqual(Array.from({ length: 24 }, (_, index) => index + 2));
+      expect(sequences).toEqual(Array.from({ length: 24 }, (_, index) => index + 4));
       const loaded = await host.store.load(definition.run_id);
       expect(loaded.journal.map((event) => event.sequence)).toEqual(
-        Array.from({ length: 25 }, (_, index) => index + 1),
+        Array.from({ length: 27 }, (_, index) => index + 1),
       );
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -1010,6 +1070,53 @@ describe("workflow-host", () => {
         compatibilityOnly.create({ source, args, objective: "must be native" }),
       ).rejects.toMatchObject({ code: "invalid_input" });
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("hydrates native QuickJS IR before the host specialist seam", async () => {
+    const { root } = await tempStore();
+    const native = await evaluateNativeWorkflowSource({
+      source: `
+        import { createCodec, workflow } from "@holycodex/workflow-runtime";
+        const number = createCodec("number", (value: unknown): number => Number(value));
+        const step = workflow.step({ id: "native-ir-step", assignment: { input: number, output: number } });
+        export default workflow.wait(step);
+      `,
+    });
+    try {
+      const host = new WorkflowHost(
+        hostOptions(root, undefined, {
+          services: {
+            agent: {
+              execute: (assignment) => Effect.succeed(assignment.payload),
+            },
+          },
+        }),
+      );
+      const created = await host.create({
+        source: "native source",
+        args: 9,
+        objective: "native IR",
+        workflow: native,
+      });
+      await expect(
+        host.run({
+          runId: created.run_id,
+          source: "changed native source",
+          args: 9,
+          workflow: native,
+        }),
+      ).rejects.toMatchObject({ code: "identity_mismatch" });
+      const execution = await host.run({
+        runId: created.run_id,
+        source: "native source",
+        args: 9,
+        workflow: native,
+      });
+      expect(execution.result).toEqual({ ok: true, value: 9 });
+    } finally {
+      native.dispose();
       await rm(root, { recursive: true, force: true });
     }
   });

@@ -7,11 +7,13 @@ import { decodeUnknown } from "./schema.ts";
 import {
   PlanNameSchema,
   PlanSelectionSchema,
+  ROLE_DEFINITIONS,
   RoleTaskSchema,
   ROUTE_KEYS,
   RouteKeySchema,
   type Effort,
   type PlanDefinition,
+  type PlanBudget,
   type PlanName,
   type PlanSelection,
   type Role,
@@ -29,7 +31,7 @@ export function parsePlanSelection(input: unknown): CoreResult<PlanSelection> {
   return success(parsed.right);
 }
 
-function route<R extends Role>(role: R, task: TaskForRole<R>, effort: Effort): RouteDefinition {
+function route(role: Role, task: TaskForRole<Role>, effort: Effort): RouteDefinition {
   return {
     key: `${role}:${task}` as RouteKey,
     role,
@@ -48,6 +50,138 @@ const effortRank: Readonly<Record<Effort, number>> = {
   max: 4,
 };
 
+export const ROUTE_EFFORT_OVERRIDES = [
+  {
+    plan: "plus-low",
+    rationale: "Preserve the approved HolyCodex 0.14.1 plus-low route effort policy.",
+    efforts: {
+      "Explorer:lookup": "medium",
+      "Explorer:trace": "high",
+      "Librarian:lookup": "medium",
+      "Librarian:research": "high",
+      "Worker:mechanical": "high",
+      "Worker:implementation": "high",
+      "Worker:integration": "xhigh",
+      "Worker:operations": "high",
+      "Reviewer:plan": "high",
+      "Reviewer:code": "xhigh",
+      "Reviewer:artifact": "high",
+    } satisfies Readonly<Record<RouteKey, Effort>>,
+  },
+  {
+    plan: "plus",
+    rationale: "Preserve the approved HolyCodex 0.14.1 plus route effort policy.",
+    efforts: {
+      "Explorer:lookup": "medium",
+      "Explorer:trace": "high",
+      "Librarian:lookup": "medium",
+      "Librarian:research": "high",
+      "Worker:mechanical": "high",
+      "Worker:implementation": "xhigh",
+      "Worker:integration": "xhigh",
+      "Worker:operations": "high",
+      "Reviewer:plan": "high",
+      "Reviewer:code": "xhigh",
+      "Reviewer:artifact": "high",
+    } satisfies Readonly<Record<RouteKey, Effort>>,
+  },
+  {
+    plan: "plus-high",
+    rationale: "Preserve the approved HolyCodex 0.14.1 plus-high route effort policy.",
+    efforts: {
+      "Explorer:lookup": "medium",
+      "Explorer:trace": "xhigh",
+      "Librarian:lookup": "medium",
+      "Librarian:research": "xhigh",
+      "Worker:mechanical": "high",
+      "Worker:implementation": "xhigh",
+      "Worker:integration": "max",
+      "Worker:operations": "xhigh",
+      "Reviewer:plan": "xhigh",
+      "Reviewer:code": "max",
+      "Reviewer:artifact": "xhigh",
+    } satisfies Readonly<Record<RouteKey, Effort>>,
+  },
+  {
+    plan: "pro-5x",
+    rationale: "Preserve the approved HolyCodex 0.14.1 pro-5x route effort policy.",
+    efforts: {
+      "Explorer:lookup": "high",
+      "Explorer:trace": "xhigh",
+      "Librarian:lookup": "high",
+      "Librarian:research": "xhigh",
+      "Worker:mechanical": "high",
+      "Worker:implementation": "max",
+      "Worker:integration": "max",
+      "Worker:operations": "xhigh",
+      "Reviewer:plan": "xhigh",
+      "Reviewer:code": "max",
+      "Reviewer:artifact": "xhigh",
+    } satisfies Readonly<Record<RouteKey, Effort>>,
+  },
+  {
+    plan: "pro-20x",
+    rationale: "Preserve the approved HolyCodex 0.14.1 pro-20x route effort policy.",
+    efforts: {
+      "Explorer:lookup": "high",
+      "Explorer:trace": "xhigh",
+      "Librarian:lookup": "high",
+      "Librarian:research": "max",
+      "Worker:mechanical": "xhigh",
+      "Worker:implementation": "max",
+      "Worker:integration": "max",
+      "Worker:operations": "xhigh",
+      "Reviewer:plan": "max",
+      "Reviewer:code": "max",
+      "Reviewer:artifact": "max",
+    } satisfies Readonly<Record<RouteKey, Effort>>,
+  },
+] as const;
+freezeDeep(ROUTE_EFFORT_OVERRIDES);
+
+type SpecialistPlanName = Exclude<PlanName, "Go">;
+const effortOverridesByPlan = new Map<SpecialistPlanName, (typeof ROUTE_EFFORT_OVERRIDES)[number]>(
+  ROUTE_EFFORT_OVERRIDES.map((override) => [override.plan, override] as const),
+);
+
+function routesForPlan(plan: SpecialistPlanName): readonly RouteDefinition[] {
+  const override = effortOverridesByPlan.get(plan);
+  if (override === undefined) {
+    throw new CoreError("catalog_invalid", "A specialist plan has no route effort policy.", {
+      plan,
+    });
+  }
+  return ROLE_DEFINITIONS.flatMap((definition) =>
+    definition.tasks.map((task) => {
+      const key = `${definition.role}:${task}` as RouteKey;
+      const effort = override.efforts[key];
+      if (effort === undefined) {
+        throw new CoreError("catalog_invalid", "A route effort policy is incomplete.", {
+          plan,
+          route: key,
+        });
+      }
+      return route(definition.role, task, effort);
+    }),
+  );
+}
+
+function specialistPlan(
+  input: Readonly<{
+    readonly name: SpecialistPlanName;
+    readonly root: PlanDefinition["root"];
+    readonly budget: PlanBudget;
+  }>,
+): PlanDefinition {
+  return {
+    ...input,
+    specialistModel: "Luna",
+    workflowEnabled: true,
+    defaultServiceTier: "Standard",
+    routes: routesForPlan(input.name),
+  };
+}
+
 const planDefinitions: PlanDefinition[] = [
   {
     name: "Go",
@@ -58,111 +192,31 @@ const planDefinitions: PlanDefinition[] = [
     budget: null,
     routes: [],
   },
-  {
+  specialistPlan({
     name: "plus-low",
     root: { model: "Sol", effort: "low" },
-    specialistModel: "Luna",
-    workflowEnabled: true,
-    defaultServiceTier: "Standard",
     budget: { costTarget: 1.0, costMax: 1.5, maxCalls: 10, maxConcurrency: 3 },
-    routes: [
-      route("Explorer", "lookup", "low"),
-      route("Explorer", "trace", "medium"),
-      route("Librarian", "lookup", "low"),
-      route("Librarian", "research", "medium"),
-      route("Worker", "mechanical", "medium"),
-      route("Worker", "implementation", "high"),
-      route("Worker", "integration", "high"),
-      route("Worker", "operations", "medium"),
-      route("Reviewer", "plan", "medium"),
-      route("Reviewer", "code", "high"),
-      route("Reviewer", "artifact", "medium"),
-    ],
-  },
-  {
+  }),
+  specialistPlan({
     name: "plus",
     root: { model: "Sol", effort: "medium" },
-    specialistModel: "Luna",
-    workflowEnabled: true,
-    defaultServiceTier: "Standard",
     budget: { costTarget: 1.6, costMax: 2.5, maxCalls: 16, maxConcurrency: 3 },
-    routes: [
-      route("Explorer", "lookup", "medium"),
-      route("Explorer", "trace", "high"),
-      route("Librarian", "lookup", "medium"),
-      route("Librarian", "research", "high"),
-      route("Worker", "mechanical", "high"),
-      route("Worker", "implementation", "xhigh"),
-      route("Worker", "integration", "xhigh"),
-      route("Worker", "operations", "high"),
-      route("Reviewer", "plan", "high"),
-      route("Reviewer", "code", "xhigh"),
-      route("Reviewer", "artifact", "high"),
-    ],
-  },
-  {
+  }),
+  specialistPlan({
     name: "plus-high",
     root: { model: "Sol", effort: "high" },
-    specialistModel: "Luna",
-    workflowEnabled: true,
-    defaultServiceTier: "Standard",
     budget: { costTarget: 3.0, costMax: 4.5, maxCalls: 24, maxConcurrency: 4 },
-    routes: [
-      route("Explorer", "lookup", "high"),
-      route("Explorer", "trace", "xhigh"),
-      route("Librarian", "lookup", "high"),
-      route("Librarian", "research", "xhigh"),
-      route("Worker", "mechanical", "high"),
-      route("Worker", "implementation", "max"),
-      route("Worker", "integration", "max"),
-      route("Worker", "operations", "high"),
-      route("Reviewer", "plan", "xhigh"),
-      route("Reviewer", "code", "max"),
-      route("Reviewer", "artifact", "xhigh"),
-    ],
-  },
-  {
+  }),
+  specialistPlan({
     name: "pro-5x",
     root: { model: "Sol", effort: "high" },
-    specialistModel: "Luna",
-    workflowEnabled: true,
-    defaultServiceTier: "Standard",
     budget: { costTarget: 5.0, costMax: 7.5, maxCalls: 40, maxConcurrency: 6 },
-    routes: [
-      route("Explorer", "lookup", "high"),
-      route("Explorer", "trace", "xhigh"),
-      route("Librarian", "lookup", "high"),
-      route("Librarian", "research", "xhigh"),
-      route("Worker", "mechanical", "high"),
-      route("Worker", "implementation", "max"),
-      route("Worker", "integration", "max"),
-      route("Worker", "operations", "high"),
-      route("Reviewer", "plan", "xhigh"),
-      route("Reviewer", "code", "max"),
-      route("Reviewer", "artifact", "xhigh"),
-    ],
-  },
-  {
+  }),
+  specialistPlan({
     name: "pro-20x",
     root: { model: "Sol", effort: "xhigh" },
-    specialistModel: "Luna",
-    workflowEnabled: true,
-    defaultServiceTier: "Standard",
     budget: { costTarget: 12.0, costMax: 20.0, maxCalls: 64, maxConcurrency: 8 },
-    routes: [
-      route("Explorer", "lookup", "high"),
-      route("Explorer", "trace", "max"),
-      route("Librarian", "lookup", "high"),
-      route("Librarian", "research", "max"),
-      route("Worker", "mechanical", "xhigh"),
-      route("Worker", "implementation", "max"),
-      route("Worker", "integration", "max"),
-      route("Worker", "operations", "xhigh"),
-      route("Reviewer", "plan", "max"),
-      route("Reviewer", "code", "max"),
-      route("Reviewer", "artifact", "max"),
-    ],
-  },
+  }),
 ];
 
 function validateCatalog(definitions: readonly PlanDefinition[]): void {

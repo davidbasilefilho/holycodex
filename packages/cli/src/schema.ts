@@ -25,6 +25,9 @@ export const DigestSchema = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u)
 export const IdentifierSchema = Schema.String.pipe(
   Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u),
 );
+export const OfficialPluginIdSchema = Schema.String.pipe(
+  Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$/u),
+);
 export const DateTextSchema = Schema.String.pipe(
   Schema.filter((value) => !Number.isNaN(Date.parse(value))),
 );
@@ -50,6 +53,27 @@ export const ExplicitOptionalSelectionsSchema = Schema.Struct({
   security: Schema.optional(Schema.Boolean),
 });
 
+export const CapabilityInstallStateSchema = Schema.Struct({
+  selected: Schema.Boolean,
+  status: Schema.Literal(
+    "disabled",
+    "pending",
+    "healthy",
+    "missing",
+    "provider_disabled",
+    "uncertain",
+    "unavailable",
+  ),
+  plugin_ids: Schema.Array(OfficialPluginIdSchema),
+  reason: Schema.optional(Schema.String),
+});
+export const CapabilityStateRecordSchema = Schema.Struct({
+  computer_use: CapabilityInstallStateSchema,
+  work: CapabilityInstallStateSchema,
+  web: CapabilityInstallStateSchema,
+  security: CapabilityInstallStateSchema,
+});
+
 export const InstallRecordSchema = Schema.Struct({
   schema_epoch: Schema.Literal(STATE_SCHEMA_EPOCH),
   version: VersionSchema,
@@ -61,7 +85,8 @@ export const InstallRecordSchema = Schema.Struct({
   tier: ServiceTierSchema,
   optional_selections: OptionalSelectionsSchema,
   explicit_optional_selections: ExplicitOptionalSelectionsSchema,
-  official_plugins: Schema.optional(Schema.Array(Schema.String)),
+  official_plugins: Schema.optional(Schema.Array(OfficialPluginIdSchema)),
+  capability_state: Schema.optional(CapabilityStateRecordSchema),
   autonomy: Schema.optional(AutonomySchema),
   max_subagents: Schema.optional(
     Schema.Number.pipe(Schema.filter((value) => Number.isSafeInteger(value) && value > 0)),
@@ -75,6 +100,8 @@ export const JournalPhaseSchema = Schema.Literal(
   "active-written",
   "marketplace-written",
   "activation-verified",
+  "official-plugin-attempted",
+  "official-plugin-confirmed",
   "official-plugins-applied",
   "official-plugins-uncertain",
   "rollback",

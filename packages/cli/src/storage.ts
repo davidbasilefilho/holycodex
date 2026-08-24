@@ -118,11 +118,15 @@ export class StorageError extends Error {
 }
 
 function hasIgnoredSyncCode(error: unknown): boolean {
-  return (
+  if (
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    typeof error.code === "string" &&
-    IGNORED_SYNC_CODES.has(error.code)
-  );
+    typeof error.code === "string"
+  ) {
+    return (
+      IGNORED_SYNC_CODES.has(error.code) || (process.platform === "win32" && error.code === "EPERM")
+    );
+  }
+  return false;
 }

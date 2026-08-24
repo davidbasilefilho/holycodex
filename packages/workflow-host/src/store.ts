@@ -35,8 +35,11 @@ import {
   type RunDefinition,
   type RunId,
   type RunSnapshot,
+  type CompatibilityCardinality,
+  type WorkflowExecutionIdentity,
 } from "./schemas.ts";
 import { WorkflowHostError } from "./errors.ts";
+import { compatibilityProofDigest } from "./identity.ts";
 
 const LegacyOperationEventSchema = Schema.Struct({
   schema_epoch: Schema.Literal("host-journal-1.0"),
@@ -114,6 +117,18 @@ export function decodeStoredJournalEvent(input: unknown): JournalEvent | undefin
 export type StoredRun = Readonly<{
   readonly snapshot: RunSnapshot;
   readonly journal: readonly JournalEvent[];
+  readonly diagnostics: readonly IntegrityDiagnostic[];
+}>;
+
+export type IntegrityDiagnostic = Readonly<{
+  readonly code:
+    | "snapshot_mismatch"
+    | "journal_divergent"
+    | "transaction_incomplete"
+    | "revision_mismatch"
+    | "identity_mismatch"
+    | "ledger_mismatch";
+  readonly run_id: string;
 }>;
 
 type AppendLock = Promise<unknown>;
@@ -122,6 +137,185 @@ const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const IGNORED_FSYNC_CODES = new Set(["EINVAL", "ENOTSUP", "EISDIR", "EBADF", "ENOSYS"]);
 const APPEND_LOCK_TIMEOUT_MS = 5_000;
 const APPEND_LOCK_WAIT_MS = 10;
+const ZERO_DIGEST = "0".repeat(64);
+
+type CommitIntentEvent = Extract<JournalEvent, { event: "commit-intent" }>;
+type CommitRecordEvent = Extract<JournalEvent, { event: "commit-record" }>;
+
+export type RevisionCommitBuilder = (
+  input: Readonly<{
+    readonly current: RunSnapshot;
+    readonly eventSequence: number;
+    readonly revision: number;
+  }>,
+) =>
+  | Promise<Readonly<{ readonly snapshot: RunSnapshot; readonly event: JournalEvent }>>
+  | Readonly<{
+      readonly snapshot: RunSnapshot;
+      readonly event: JournalEvent;
+    }>;
+
+function isCommitIntent(event: JournalEvent): event is CommitIntentEvent {
+  return event.event === "commit-intent";
+}
+
+function isCommitRecord(event: JournalEvent | undefined): event is CommitRecordEvent {
+  return event?.event === "commit-record";
+}
+
+function stripRecordDigest(event: JournalEvent): Omit<JournalEvent, "record_digest"> {
+  const { record_digest: _recordDigest, ...withoutDigest } = event;
+  return withoutDigest;
+}
+
+async function journalRecordDigest(event: JournalEvent): Promise<string> {
+  return await domainSeparatedSha256("workflow-host-journal-record-v1", [
+    canonicalJsonUtf8(stripRecordDigest(event)),
+  ]);
+}
+
+async function journalPayloadDigest(event: JournalEvent): Promise<string> {
+  const { previous_digest: _previousDigest, record_digest: _recordDigest, ...payload } = event;
+  return await domainSeparatedSha256("workflow-host-journal-payload-v1", [
+    canonicalJsonUtf8(payload),
+  ]);
+}
+
+function operationState(journal: readonly JournalEvent[]): JsonObject | null {
+  for (let index = journal.length - 1; index >= 0; index -= 1) {
+    const event = journal[index];
+    if (event?.event === "operation") {
+      return {
+        operation_id: event.lifecycle.operation.operation_id,
+        state: event.lifecycle.state,
+      };
+    }
+  }
+  return null;
+}
+
+async function checkpointDigest(snapshot: RunSnapshot): Promise<string | null> {
+  if (snapshot.checkpoint === null) {
+    return null;
+  }
+  return await domainSeparatedSha256("workflow-checkpoint", [
+    canonicalJsonUtf8(snapshot.checkpoint),
+  ]);
+}
+
+async function snapshotDigest(snapshot: RunSnapshot): Promise<string> {
+  return await domainSeparatedSha256("workflow-host-snapshot-v1", [canonicalJsonUtf8(snapshot)]);
+}
+
+function derivedDelegationMode(
+  executionMode: "native" | "compatibility",
+  cardinality: CompatibilityCardinality | undefined,
+  existing: "DIRECT" | "SINGLE" | "DYNAMIC_WORKFLOW" | undefined,
+): "SINGLE" | "DYNAMIC_WORKFLOW" | "DIRECT" {
+  if (executionMode === "native") {
+    return existing === "DIRECT" ? "DIRECT" : existing === "SINGLE" ? "SINGLE" : "DYNAMIC_WORKFLOW";
+  }
+  if (cardinality?.status === "proven" && cardinality.expected_calls <= 1) {
+    return "SINGLE";
+  }
+  return "DYNAMIC_WORKFLOW";
+}
+
+async function migrateSnapshot(snapshot: RunSnapshot): Promise<{
+  readonly snapshot: RunSnapshot;
+  readonly diagnostics: readonly IntegrityDiagnostic[];
+}> {
+  const descriptor = snapshot.workflow;
+  if (descriptor === undefined) {
+    return { snapshot, diagnostics: [] };
+  }
+  const executionMode = descriptor.execution_mode;
+  let cardinality: CompatibilityCardinality | undefined;
+  let proofValid = true;
+  if (executionMode === "compatibility") {
+    cardinality = descriptor.compatibility_cardinality;
+    if (
+      cardinality === undefined &&
+      descriptor.expected_calls !== undefined &&
+      descriptor.expected_calls > 0
+    ) {
+      const legacyProof = descriptor.expected_calls_proof_digest ?? descriptor.proof_digest;
+      if (
+        legacyProof !== undefined &&
+        legacyProof ===
+          (await compatibilityProofDigest(descriptor.source, descriptor.expected_calls))
+      ) {
+        cardinality = {
+          status: "proven",
+          expected_calls: descriptor.expected_calls,
+          proof_digest: legacyProof,
+        };
+      } else if (legacyProof !== undefined) {
+        proofValid = false;
+      }
+    }
+    if (cardinality?.status === "proven") {
+      proofValid =
+        (await compatibilityProofDigest(descriptor.source, cardinality.expected_calls)) ===
+        cardinality.proof_digest;
+      if (!proofValid) {
+        cardinality = { status: "unknown" };
+      }
+    } else {
+      cardinality = { status: "unknown" };
+    }
+  }
+  const delegationMode = derivedDelegationMode(
+    executionMode,
+    cardinality,
+    descriptor.delegation_mode,
+  );
+  const persistedModeContradiction =
+    executionMode === "compatibility" &&
+    cardinality?.status === "proven" &&
+    descriptor.delegation_mode !== undefined &&
+    descriptor.delegation_mode !== delegationMode;
+  const nativeDirectMode = executionMode === "native" && delegationMode === "DIRECT";
+  const executionIdentity: WorkflowExecutionIdentity = {
+    execution_mode: executionMode,
+    delegation_mode: delegationMode,
+    compatibility_cardinality: executionMode === "compatibility" ? cardinality! : null,
+  };
+  const existingIdentity = snapshot.definition.identity.workflow_execution;
+  const identity = {
+    ...snapshot.definition.identity,
+    workflow_execution: executionIdentity,
+  };
+  const migratedDescriptor = {
+    ...descriptor,
+    delegation_mode: delegationMode,
+    ...(executionMode === "compatibility" ? { compatibility_cardinality: cardinality } : {}),
+    execution_identity: executionIdentity,
+  };
+  const migrated = {
+    ...snapshot,
+    definition: { ...snapshot.definition, identity },
+    workflow: migratedDescriptor,
+  };
+  const parsed = decodeHostSchema(RunSnapshotSchema, migrated);
+  if (parsed === undefined) {
+    return {
+      snapshot: { ...snapshot, integrity: "uncertain" },
+      diagnostics: [{ code: "identity_mismatch", run_id: snapshot.definition.run_id }],
+    };
+  }
+  const diagnostics: IntegrityDiagnostic[] = [];
+  if (
+    !proofValid ||
+    persistedModeContradiction ||
+    nativeDirectMode ||
+    (existingIdentity !== undefined &&
+      canonicalJson(existingIdentity) !== canonicalJson(executionIdentity))
+  ) {
+    diagnostics.push({ code: "identity_mismatch", run_id: snapshot.definition.run_id });
+  }
+  return { snapshot: parsed, diagnostics };
+}
 
 function now(): string {
   return new Date().toISOString();
@@ -129,6 +323,13 @@ function now(): string {
 
 function isErrorCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
+}
+
+function isUnsupportedSyncCode(code: unknown): boolean {
+  return (
+    typeof code === "string" &&
+    (IGNORED_FSYNC_CODES.has(code) || (process.platform === "win32" && code === "EPERM"))
+  );
 }
 
 function assertValidRunId(runId: string): asserts runId is RunId {
@@ -144,7 +345,7 @@ async function syncPath(path: string): Promise<void> {
     await handle.sync();
   } catch (error) {
     const code = typeof error === "object" && error !== null && "code" in error ? error.code : null;
-    if (typeof code !== "string" || !IGNORED_FSYNC_CODES.has(code)) {
+    if (!isUnsupportedSyncCode(code)) {
       throw error;
     }
   } finally {
@@ -155,7 +356,7 @@ async function syncPath(path: string): Promise<void> {
 async function syncDirectory(path: string): Promise<void> {
   await syncPath(path).catch((error: unknown) => {
     const code = typeof error === "object" && error !== null && "code" in error ? error.code : null;
-    if (typeof code !== "string" || !IGNORED_FSYNC_CODES.has(code)) {
+    if (!isUnsupportedSyncCode(code)) {
       throw error;
     }
   });
@@ -298,16 +499,54 @@ export class FileRunStore {
         throw new WorkflowHostError("persistence_failed", "The run snapshot cannot be created.");
       }
     }
-    await this.writeAtomic(snapshotPath, snapshot);
     try {
-      await this.appendJournal(snapshot.definition.run_id, event);
+      await this.writeAtomic(snapshotPath, parsedSnapshot);
+      const initialSnapshotDigest = await snapshotDigest(parsedSnapshot);
+      const storedEvent = await this.appendJournalNext(snapshot.definition.run_id, () => event);
+      const initialJournalDigest = await journalPayloadDigest(storedEvent);
+      const transactionId = `transaction-${crypto.randomUUID().replaceAll("-", "")}`;
+      const storedIntent = await this.appendJournalNext(snapshot.definition.run_id, (sequence) => ({
+        schema_epoch: "host-journal-1.0" as const,
+        event: "commit-intent" as const,
+        run_id: snapshot.definition.run_id,
+        sequence,
+        at: now(),
+        transaction_version: "host-commit-1.0" as const,
+        transaction_id: transactionId,
+        previous_revision: 0,
+        new_revision: 0,
+        snapshot_digest: initialSnapshotDigest,
+        journal_sequence: storedEvent.sequence,
+        journal_digest: initialJournalDigest,
+        checkpoint_revision: null,
+        checkpoint_digest: null,
+        operation_state: null,
+      }));
+      await this.appendJournalNext(snapshot.definition.run_id, (sequence) => ({
+        schema_epoch: "host-journal-1.0" as const,
+        event: "commit-record" as const,
+        run_id: snapshot.definition.run_id,
+        sequence,
+        at: now(),
+        transaction_version: "host-commit-1.0" as const,
+        transaction_id: transactionId,
+        intent_digest: storedIntent.record_digest ?? ZERO_DIGEST,
+        previous_revision: 0,
+        new_revision: 0,
+        snapshot_digest: initialSnapshotDigest,
+        journal_sequence: storedEvent.sequence,
+        journal_digest: initialJournalDigest,
+        checkpoint_revision: null,
+        checkpoint_digest: null,
+        operation_state: null,
+      }));
     } catch (error) {
       await rm(directory, { recursive: true, force: false }).catch(() => undefined);
       throw error;
     }
   }
 
-  async load(runId: string): Promise<StoredRun> {
+  async load(runId: string, reconcile = true): Promise<StoredRun> {
     await this.init();
     assertValidRunId(runId);
     try {
@@ -331,36 +570,45 @@ export class FileRunStore {
     }
     const directory = await this.ensureRunDirectory(runId);
     const snapshotPath = join(directory, "snapshot.json");
-    let snapshot: RunSnapshot;
+    let rawSnapshot: RunSnapshot;
     try {
       const snapshotEntry = await lstat(snapshotPath);
       if (snapshotEntry.isSymbolicLink() || !snapshotEntry.isFile()) {
         throw new WorkflowHostError("path_rejected", "The run snapshot is not a regular file.");
       }
-      const raw = await readFile(snapshotPath, "utf8");
-      const parsedJson: unknown = JSON.parse(raw);
-      const parsed = decodeHostSchema(RunSnapshotSchema, parsedJson);
+      const parsed = decodeHostSchema(
+        RunSnapshotSchema,
+        JSON.parse(await readFile(snapshotPath, "utf8")),
+      );
       if (parsed === undefined || parsed.definition.run_id !== runId) {
-        await this.quarantine(runId, "snapshot", "schema validation failed");
-        throw new WorkflowHostError("state_corrupt", "The run snapshot is corrupt.");
+        throw new WorkflowHostError("integrity_uncertain", "The run snapshot is not trusted.");
       }
-      snapshot = parsed;
+      rawSnapshot = parsed;
     } catch (error) {
       if (error instanceof WorkflowHostError) {
         throw error;
       }
       await this.quarantine(runId, "snapshot", "snapshot could not be read");
       throw new WorkflowHostError(
-        "state_corrupt",
-        "The run snapshot is corrupt.",
+        "integrity_uncertain",
+        "The run snapshot is not trusted.",
         {},
         { cause: error },
       );
     }
 
+    const migrated = await migrateSnapshot(rawSnapshot);
+    let snapshot = migrated.snapshot;
+    const diagnostics: IntegrityDiagnostic[] = [...migrated.diagnostics];
+    const mark = async (code: IntegrityDiagnostic["code"], kind: string): Promise<void> => {
+      if (!diagnostics.some((item) => item.code === code)) {
+        diagnostics.push({ code, run_id: runId });
+        await this.quarantine(runId, kind, code);
+      }
+    };
+
     const journalPath = join(directory, "journal.ndjson");
     let rawJournal = "";
-    let journalMissing = false;
     try {
       const journalEntry = await lstat(journalPath);
       if (journalEntry.isSymbolicLink() || !journalEntry.isFile()) {
@@ -371,43 +619,244 @@ export class FileRunStore {
       if (error instanceof WorkflowHostError) {
         throw error;
       }
-      if (!isErrorCode(error, "ENOENT")) {
-        await this.quarantine(runId, "journal", "journal could not be read");
-        return { snapshot: { ...snapshot, integrity: "uncertain" }, journal: [] };
-      }
-      journalMissing = true;
+      await mark("journal_divergent", "journal");
+      return {
+        snapshot: { ...snapshot, integrity: "uncertain" },
+        journal: [],
+        diagnostics,
+      };
     }
 
     const journal: JournalEvent[] = [];
-    let integrity: RunSnapshot["integrity"] = journalMissing ? "uncertain" : snapshot.integrity;
-    if (journalMissing) {
-      await this.quarantine(runId, "journal", "journal is missing");
-    }
     let expectedSequence = 1;
+    let previousDigest = ZERO_DIGEST;
+    let chained = false;
     for (const line of rawJournal.split("\n")) {
       if (line.trim().length === 0) {
         continue;
       }
+      let parsed: JournalEvent | undefined;
       try {
-        const parsedJson: unknown = JSON.parse(line);
-        const parsed = decodeStoredJournalEvent(parsedJson);
-        if (parsed === undefined) {
-          throw new Error("schema validation failed");
-        }
-        if (parsed.run_id !== runId || parsed.sequence !== expectedSequence) {
-          throw new Error("journal identity or sequence mismatch");
-        }
-        journal.push(parsed);
-        expectedSequence += 1;
+        parsed = decodeStoredJournalEvent(JSON.parse(line));
       } catch {
-        integrity = "uncertain";
-        await this.quarantine(runId, "journal-record", "journal record was corrupt or ambiguous");
+        parsed = undefined;
+      }
+      if (parsed === undefined || parsed.run_id !== runId || parsed.sequence !== expectedSequence) {
+        await mark("journal_divergent", "journal-record");
+        break;
+      }
+      const hasPrevious = parsed.previous_digest !== undefined;
+      const hasRecord = parsed.record_digest !== undefined;
+      if (hasPrevious !== hasRecord) {
+        await mark("journal_divergent", "journal-chain");
+        break;
+      }
+      if (hasPrevious) {
+        chained = true;
+        if (parsed.previous_digest !== previousDigest) {
+          await mark("journal_divergent", "journal-chain");
+          break;
+        }
+        if ((await journalRecordDigest(parsed)) !== parsed.record_digest) {
+          await mark("journal_divergent", "journal-chain");
+          break;
+        }
+        previousDigest = parsed.record_digest;
+      } else if (chained) {
+        await mark("journal_divergent", "journal-chain");
+        break;
+      } else {
+        previousDigest = await journalRecordDigest(parsed);
+      }
+      journal.push(parsed);
+      expectedSequence += 1;
+    }
+
+    const first = journal[0];
+    if (
+      first?.event !== "run-created" ||
+      canonicalJson(first.definition) !== canonicalJson(rawSnapshot.definition)
+    ) {
+      await mark("identity_mismatch", "run-identity");
+    }
+
+    const intents = new Map<
+      string,
+      { readonly intent: CommitIntentEvent; readonly index: number }
+    >();
+    let latestCommit: CommitRecordEvent | undefined;
+    let lastRevision = 0;
+    let sawCommit = false;
+    let pendingRecovery:
+      | Readonly<{
+          readonly intent: CommitIntentEvent;
+          readonly business: JournalEvent;
+        }>
+      | undefined;
+    for (let index = 0; index < journal.length; index += 1) {
+      const event = journal[index];
+      if (event === undefined) continue;
+      if (isCommitIntent(event)) {
+        intents.set(event.transaction_id, { intent: event, index });
+        const forwardBusiness = journal[index + 1];
+        const forwardCommit = journal[index + 2];
+        const backwardBusiness = journal[index - 1];
+        const backwardCommit = journal[index + 1];
+        const initialOrder =
+          backwardBusiness?.sequence === event.journal_sequence && isCommitRecord(backwardCommit);
+        const business = initialOrder ? backwardBusiness : forwardBusiness;
+        const commit = initialOrder ? backwardCommit : forwardCommit;
+        const commitMatches =
+          commit !== undefined &&
+          isCommitRecord(commit) &&
+          commit.transaction_id === event.transaction_id &&
+          commit.intent_digest === event.record_digest &&
+          commit.snapshot_digest === event.snapshot_digest &&
+          commit.journal_sequence === event.journal_sequence &&
+          commit.journal_digest === event.journal_digest &&
+          commit.previous_revision === event.previous_revision &&
+          commit.new_revision === event.new_revision &&
+          commit.checkpoint_revision === event.checkpoint_revision &&
+          commit.checkpoint_digest === event.checkpoint_digest &&
+          canonicalJson(commit.operation_state) === canonicalJson(event.operation_state);
+        const businessMatches =
+          business !== undefined &&
+          business.sequence === event.journal_sequence &&
+          (await journalPayloadDigest(business)) === event.journal_digest;
+        if (!businessMatches || !commitMatches) {
+          if (
+            business !== undefined &&
+            businessMatches &&
+            commit === undefined &&
+            index + 2 === journal.length &&
+            event.new_revision === snapshot.revision &&
+            event.previous_revision === lastRevision &&
+            event.new_revision === event.previous_revision + 1 &&
+            event.snapshot_digest === (await snapshotDigest(snapshot))
+          ) {
+            pendingRecovery = { intent: event, business };
+          } else {
+            await mark("transaction_incomplete", "transaction");
+          }
+        } else {
+          if (
+            event.previous_revision !== lastRevision ||
+            !(
+              (initialOrder && event.previous_revision === 0 && event.new_revision === 0) ||
+              event.new_revision === event.previous_revision + 1
+            )
+          ) {
+            await mark("revision_mismatch", "revision");
+          }
+          lastRevision = event.new_revision;
+          latestCommit = commit as CommitRecordEvent;
+          sawCommit = true;
+        }
+      }
+      if (isCommitRecord(event) && !intents.has(event.transaction_id)) {
+        await mark("transaction_incomplete", "transaction");
       }
     }
-    return {
-      snapshot: integrity === snapshot.integrity ? snapshot : { ...snapshot, integrity },
-      journal,
-    };
+    if (pendingRecovery !== undefined && !reconcile) {
+      await mark("transaction_incomplete", "transaction");
+    }
+    if (pendingRecovery !== undefined && reconcile) {
+      const recovered = await this.appendJournalNext(runId, (sequence) => ({
+        schema_epoch: "host-journal-1.0" as const,
+        event: "commit-record" as const,
+        run_id: runId,
+        sequence,
+        at: now(),
+        transaction_version: "host-commit-1.0" as const,
+        transaction_id: pendingRecovery.intent.transaction_id,
+        intent_digest: pendingRecovery.intent.record_digest ?? ZERO_DIGEST,
+        previous_revision: pendingRecovery.intent.previous_revision,
+        new_revision: pendingRecovery.intent.new_revision,
+        snapshot_digest: pendingRecovery.intent.snapshot_digest,
+        journal_sequence: pendingRecovery.intent.journal_sequence,
+        journal_digest: pendingRecovery.intent.journal_digest,
+        checkpoint_revision: pendingRecovery.intent.checkpoint_revision,
+        checkpoint_digest: pendingRecovery.intent.checkpoint_digest,
+        operation_state: pendingRecovery.intent.operation_state,
+      }));
+      journal.push(recovered);
+      if (!isCommitRecord(recovered)) {
+        throw new WorkflowHostError(
+          "persistence_failed",
+          "The recovered transaction did not produce a commit record.",
+        );
+      }
+      latestCommit = recovered;
+      sawCommit = true;
+      lastRevision = recovered.new_revision;
+    }
+    if (chained && !sawCommit) {
+      await mark("transaction_incomplete", "transaction");
+    }
+    if (
+      latestCommit !== undefined &&
+      (latestCommit.new_revision !== snapshot.revision ||
+        latestCommit.snapshot_digest !== (await snapshotDigest(snapshot)))
+    ) {
+      await mark("snapshot_mismatch", "snapshot-digest");
+    }
+
+    const latestCheckpoint = [...journal]
+      .reverse()
+      .find(
+        (event): event is Extract<JournalEvent, { event: "checkpoint" }> =>
+          event.event === "checkpoint",
+      );
+    if (
+      (snapshot.checkpoint === null && latestCheckpoint !== undefined) ||
+      (snapshot.checkpoint !== null &&
+        (latestCheckpoint === undefined ||
+          latestCheckpoint.checkpoint.revision !== snapshot.checkpoint.revision ||
+          latestCheckpoint.checkpoint.journal_sequence !== snapshot.checkpoint.journal_sequence ||
+          canonicalJson(latestCheckpoint.checkpoint) !== canonicalJson(snapshot.checkpoint)))
+    ) {
+      await mark("revision_mismatch", "checkpoint");
+    }
+
+    const descriptor = snapshot.workflow;
+    if (descriptor !== undefined) {
+      const sourceDigest = await domainSeparatedSha256("workflow-source", [
+        new TextEncoder().encode(descriptor.source),
+      ]);
+      const argsDigest = await domainSeparatedSha256("workflow-args", [
+        canonicalJsonUtf8(descriptor.args),
+      ]);
+      if (
+        sourceDigest !== snapshot.definition.identity.workflow_source_digest ||
+        argsDigest !== snapshot.definition.identity.resupplied_args_digest ||
+        descriptor.execution_identity === undefined ||
+        snapshot.definition.identity.workflow_execution === undefined ||
+        canonicalJson(descriptor.execution_identity) !==
+          canonicalJson(snapshot.definition.identity.workflow_execution)
+      ) {
+        await mark("identity_mismatch", "descriptor-identity");
+      }
+    }
+
+    let committedUnits = 0;
+    for (const event of journal) {
+      if (event.event !== "operation" || event.lifecycle.cost_accounting === undefined) {
+        continue;
+      }
+      const accounting = event.lifecycle.cost_accounting;
+      if (
+        event.lifecycle.cost_units !== accounting.estimated_units ||
+        accounting.committed_units < committedUnits
+      ) {
+        await mark("ledger_mismatch", "ledger");
+      }
+      committedUnits = Math.max(committedUnits, accounting.committed_units);
+    }
+
+    if (diagnostics.length > 0 || snapshot.integrity !== "valid") {
+      snapshot = { ...snapshot, integrity: "uncertain" };
+    }
+    return { snapshot, journal, diagnostics };
   }
 
   async saveSnapshot(snapshot: RunSnapshot): Promise<void> {
@@ -418,6 +867,120 @@ export class FileRunStore {
     }
     const directory = await this.ensureRunDirectory(snapshot.definition.run_id);
     await this.writeAtomic(join(directory, "snapshot.json"), snapshot);
+  }
+
+  /** Persists one snapshot revision and its journal event as one recoverable transaction. */
+  async commitRevision(
+    runId: string,
+    builder: RevisionCommitBuilder,
+  ): Promise<Readonly<{ readonly snapshot: RunSnapshot; readonly event: JournalEvent }>> {
+    await this.init();
+    assertValidRunId(runId);
+    if (typeof builder !== "function") {
+      throw new WorkflowHostError("invalid_input", "The revision transaction builder is invalid.");
+    }
+    const previous = this.appendLocks.get(runId) ?? Promise.resolve();
+    const next = previous.then(async () => {
+      const directory = await this.ensureRunDirectory(runId);
+      const lock = await acquireAppendLock(join(directory, ".append-lock"));
+      try {
+        const current = await this.load(runId, false);
+        if (current.snapshot.integrity !== "valid") {
+          throw new WorkflowHostError(
+            "integrity_uncertain",
+            "The run cannot accept a revision while its persisted state is uncertain.",
+          );
+        }
+        const eventSequence = (current.journal.at(-1)?.sequence ?? 0) + 2;
+        const revision = current.snapshot.revision + 1;
+        const built = await builder({ current: current.snapshot, eventSequence, revision });
+        const parsedSnapshot = decodeHostSchema(RunSnapshotSchema, built.snapshot);
+        const parsedEvent = decodeHostSchema(JournalEventSchema, built.event);
+        if (
+          parsedSnapshot === undefined ||
+          parsedEvent === undefined ||
+          parsedSnapshot.definition.run_id !== runId ||
+          parsedEvent.run_id !== runId ||
+          parsedSnapshot.revision !== revision ||
+          parsedEvent.sequence !== eventSequence
+        ) {
+          throw new WorkflowHostError(
+            "state_corrupt",
+            "The revision transaction contains an invalid snapshot or journal event.",
+          );
+        }
+        const previousRecord = current.journal.at(-1);
+        const previousDigest =
+          previousRecord?.record_digest ??
+          (previousRecord === undefined ? ZERO_DIGEST : await journalRecordDigest(previousRecord));
+        const transactionId = `transaction-${crypto.randomUUID().replaceAll("-", "")}`;
+        const snapshotDigestValue = await snapshotDigest(parsedSnapshot);
+        const checkpointDigestValue = await checkpointDigest(parsedSnapshot);
+        const operationStateValue = operationState([...current.journal, parsedEvent]);
+        const intentCandidate: JournalEvent = {
+          schema_epoch: "host-journal-1.0",
+          event: "commit-intent",
+          run_id: runId,
+          sequence: eventSequence - 1,
+          at: now(),
+          transaction_version: "host-commit-1.0",
+          transaction_id: transactionId,
+          previous_revision: current.snapshot.revision,
+          new_revision: revision,
+          snapshot_digest: snapshotDigestValue,
+          journal_sequence: eventSequence,
+          journal_digest: await journalPayloadDigest(parsedEvent),
+          checkpoint_revision: parsedSnapshot.checkpoint?.revision ?? null,
+          checkpoint_digest: checkpointDigestValue,
+          operation_state: operationStateValue,
+        };
+        const storedIntent = await this.appendRecord(
+          join(directory, "journal.ndjson"),
+          intentCandidate,
+          previousDigest,
+        );
+        const storedEvent = await this.appendRecord(
+          join(directory, "journal.ndjson"),
+          parsedEvent,
+          storedIntent.record_digest ?? ZERO_DIGEST,
+        );
+        await this.writeAtomic(join(directory, "snapshot.json"), parsedSnapshot);
+        const commitCandidate: JournalEvent = {
+          schema_epoch: "host-journal-1.0",
+          event: "commit-record",
+          run_id: runId,
+          sequence: eventSequence + 1,
+          at: now(),
+          transaction_version: "host-commit-1.0",
+          transaction_id: transactionId,
+          intent_digest: storedIntent.record_digest ?? ZERO_DIGEST,
+          previous_revision: current.snapshot.revision,
+          new_revision: revision,
+          snapshot_digest: snapshotDigestValue,
+          journal_sequence: eventSequence,
+          journal_digest: await journalPayloadDigest(parsedEvent),
+          checkpoint_revision: parsedSnapshot.checkpoint?.revision ?? null,
+          checkpoint_digest: checkpointDigestValue,
+          operation_state: operationStateValue,
+        };
+        await this.appendRecord(
+          join(directory, "journal.ndjson"),
+          commitCandidate,
+          storedEvent.record_digest ?? ZERO_DIGEST,
+        );
+        return { snapshot: parsedSnapshot, event: storedEvent };
+      } finally {
+        await lock.release();
+      }
+    });
+    this.appendLocks.set(runId, next);
+    try {
+      return await next;
+    } finally {
+      if (this.appendLocks.get(runId) === next) {
+        this.appendLocks.delete(runId);
+      }
+    }
   }
 
   async appendJournal(runId: string, event: JournalEvent): Promise<void> {
@@ -469,6 +1032,7 @@ export class FileRunStore {
           journalMissing = true;
         }
         let nextSequence = 1;
+        let previousDigest = ZERO_DIGEST;
         try {
           const rawJournal = await readFile(journalPath, "utf8");
           for (const line of rawJournal.split("\n")) {
@@ -497,6 +1061,7 @@ export class FileRunStore {
                 "The run journal sequence is corrupt or ambiguous.",
               );
             }
+            previousDigest = existing.record_digest ?? (await journalRecordDigest(existing));
             nextSequence += 1;
           }
         } catch (error: unknown) {
@@ -540,9 +1105,17 @@ export class FileRunStore {
             "A missing run journal cannot be repaired by appending an arbitrary event.",
           );
         }
+        const withPreviousDigest = {
+          ...canonical,
+          previous_digest: previousDigest,
+        } as JournalEvent;
+        const withRecordDigest = {
+          ...withPreviousDigest,
+          record_digest: await journalRecordDigest(withPreviousDigest),
+        } as JournalEvent;
         const handle = await open(journalPath, "a", 0o600);
         try {
-          await handle.writeFile(`${canonicalJson(canonical)}\n`, "utf8");
+          await handle.writeFile(`${canonicalJson(withRecordDigest)}\n`, "utf8");
           await handle.sync().catch((error: unknown) => {
             const code =
               typeof error === "object" && error !== null && "code" in error ? error.code : null;
@@ -553,7 +1126,7 @@ export class FileRunStore {
         } finally {
           await handle.close();
         }
-        return canonical;
+        return withRecordDigest;
       } finally {
         await lock.release();
       }
@@ -566,6 +1139,37 @@ export class FileRunStore {
         this.appendLocks.delete(runId);
       }
     }
+  }
+
+  private async appendRecord(
+    journalPath: string,
+    event: JournalEvent,
+    previousDigest: string,
+  ): Promise<JournalEvent> {
+    const parsed = decodeHostSchema(JournalEventSchema, event);
+    const canonical = parsed === undefined ? undefined : canonicalizeStoredEvent(parsed);
+    if (canonical === undefined) {
+      throw new WorkflowHostError("invalid_input", "The transaction journal event is invalid.");
+    }
+    const withPreviousDigest = { ...canonical, previous_digest: previousDigest } as JournalEvent;
+    const withRecordDigest = {
+      ...withPreviousDigest,
+      record_digest: await journalRecordDigest(withPreviousDigest),
+    } as JournalEvent;
+    const handle = await open(journalPath, "a", 0o600);
+    try {
+      await handle.writeFile(`${canonicalJson(withRecordDigest)}\n`, "utf8");
+      await handle.sync().catch((error: unknown) => {
+        const code =
+          typeof error === "object" && error !== null && "code" in error ? error.code : null;
+        if (typeof code !== "string" || !IGNORED_FSYNC_CODES.has(code)) {
+          throw error;
+        }
+      });
+    } finally {
+      await handle.close();
+    }
+    return withRecordDigest;
   }
 
   async claimContinuation(claim: ContinuationClaim): Promise<void> {
@@ -823,18 +1427,55 @@ export class FileRunStore {
   private async writeAtomic(path: string, value: unknown): Promise<void> {
     const directory = resolve(path, "..");
     const temporary = `${path}.tmp-${process.pid}-${crypto.randomUUID()}`;
+    const backup = `${path}.bak`;
+    let backedUp = false;
     try {
       await writeFile(temporary, canonicalJson(value), { mode: 0o600 });
       await syncPath(temporary);
+      if (process.platform === "win32") {
+        const existingBackup = await lstat(backup).catch((error: unknown) => {
+          if (isErrorCode(error, "ENOENT")) {
+            return undefined;
+          }
+          throw error;
+        });
+        if (existingBackup !== undefined) {
+          if (existingBackup.isSymbolicLink() || !existingBackup.isFile()) {
+            throw new WorkflowHostError("path_rejected", "The snapshot backup is not safe.");
+          }
+          await unlink(backup);
+        }
+        try {
+          await rename(path, backup);
+          backedUp = true;
+        } catch (error) {
+          if (!isErrorCode(error, "ENOENT")) {
+            throw error;
+          }
+        }
+      }
       await rename(temporary, path);
+      if (backedUp) {
+        await unlink(backup);
+        backedUp = false;
+      }
       await syncDirectory(directory);
     } catch (error) {
+      if (backedUp) {
+        await unlink(path).catch(() => undefined);
+        await rename(backup, path).catch(() => undefined);
+      }
+      if (error instanceof WorkflowHostError) {
+        throw error;
+      }
       throw new WorkflowHostError(
         "persistence_failed",
         "The run-store snapshot could not be written.",
         {},
         { cause: error },
       );
+    } finally {
+      await unlink(temporary).catch(() => undefined);
     }
   }
 

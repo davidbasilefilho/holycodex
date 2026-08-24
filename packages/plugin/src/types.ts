@@ -4,6 +4,7 @@ import type { Sha256Digest } from "@holycodex/core";
 import type {
   AssemblyRequest as ParsedAssemblyRequest,
   GeneratedManifest,
+  PonytailMetadata,
   PayloadFile,
   PayloadIdentity,
   PayloadManifest,
@@ -11,7 +12,14 @@ import type {
 } from "./schemas.ts";
 
 export type AssemblyRequest = ParsedAssemblyRequest;
-export type { PayloadFile, PayloadIdentity, PayloadManifest, SourceManifest, GeneratedManifest };
+export type {
+  PayloadFile,
+  PayloadIdentity,
+  PayloadManifest,
+  PonytailMetadata,
+  SourceManifest,
+  GeneratedManifest,
+};
 export type GeneratedPluginManifest = GeneratedManifest;
 export type ArtifactIdentity = PayloadIdentity;
 

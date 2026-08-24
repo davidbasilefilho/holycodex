@@ -18,6 +18,8 @@ import {
   type RunSnapshot,
   type RunStatus,
   type Telemetry,
+  type WorkflowDescriptor,
+  type WorkflowProjection,
   type WorkflowRuntimeEvent,
 } from "./schemas.ts";
 import { WorkflowHostError } from "./errors.ts";
@@ -37,6 +39,7 @@ export function operationLifecycle(
     fanOut: number;
     state: OperationLifecycle["state"];
     errorCode: string | null;
+    costAccounting?: NonNullable<OperationLifecycle["cost_accounting"]>;
   }>,
 ): OperationLifecycle {
   return {
@@ -52,7 +55,8 @@ export function operationLifecycle(
       fan_out: input.fanOut,
     },
     state: input.state,
-    cost_units: 1,
+    cost_units: input.costAccounting?.estimated_units ?? 0,
+    ...(input.costAccounting === undefined ? {} : { cost_accounting: input.costAccounting }),
     at: now(),
     error_code: input.errorCode,
   };
@@ -189,24 +193,35 @@ export async function changeState(
         `The transition ${current.snapshot.status} -> ${status} is invalid.`,
       );
     }
-    await appendEvent(context, current.snapshot.definition.run_id, {
-      event: "state-changed",
-      from: current.snapshot.status,
-      to: status,
-      reason: safeText(reason),
-    });
-    const next: RunSnapshot = {
-      ...current.snapshot,
-      status,
-      revision: current.snapshot.revision + 1,
-      updated_at: now(),
-    };
-    const parsed = decodeHostSchema(RunSnapshotSchema, next);
-    if (parsed === undefined) {
-      throw new WorkflowHostError("state_corrupt", "The next run snapshot is invalid.");
-    }
-    await context.store.saveSnapshot(parsed);
-    return parsed;
+    const committed = await context.store.commitRevision(
+      current.snapshot.definition.run_id,
+      ({ current: latest, eventSequence, revision }) => {
+        const next: RunSnapshot = {
+          ...latest,
+          status,
+          revision,
+          updated_at: now(),
+        };
+        const parsed = decodeHostSchema(RunSnapshotSchema, next);
+        if (parsed === undefined) {
+          throw new WorkflowHostError("state_corrupt", "The next run snapshot is invalid.");
+        }
+        return {
+          snapshot: parsed,
+          event: {
+            schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCHS.journal,
+            event: "state-changed" as const,
+            run_id: latest.definition.run_id,
+            sequence: eventSequence,
+            at: now(),
+            from: latest.status,
+            to: status,
+            reason: safeText(reason),
+          },
+        };
+      },
+    );
+    return committed.snapshot;
   });
 }
 
@@ -219,58 +234,57 @@ export async function writeCheckpoint(
 ): Promise<Checkpoint> {
   return await withLifecycleLock(context, snapshot.definition.run_id, async () => {
     const current = await loadRun(context, snapshot.definition.run_id);
-    const revision = current.snapshot.revision + 1;
-    let checkpoint: Checkpoint | undefined;
-    await context.store.appendJournalNext(snapshot.definition.run_id, (sequence) => {
-      const candidate: Checkpoint = {
-        schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCHS.checkpoint,
-        run_id: snapshot.definition.run_id,
-        revision,
-        journal_sequence: sequence,
-        objective: safeText(objective, MAX_PENDING_TEXT),
-        constraints: safeTextArray(constraints),
-        decisions: safeTextArray(values.decisions),
-        verified_evidence: safeTextArray(values.verifiedEvidence),
-        phases: safeTextArray(values.phases),
-        active_work: safeTextArray(values.activeWork),
-        unresolved_work: safeTextArray(values.unresolvedWork),
-        blockers: safeTextArray(values.blockers),
-        verification: safeTextArray(values.verification),
-        resources: {},
-        retained_summaries: safeTextArray(values.retainedSummaries),
-        next_actions: safeTextArray(values.nextActions),
-        usage_completeness: values.usageCompleteness,
-        recoverable_errors: safeTextArray(values.recoverableErrors),
-        captured_at: now(),
-      };
-      const parsed = decodeHostSchema(CheckpointSchema, candidate);
-      if (parsed === undefined) {
-        throw new WorkflowHostError("state_corrupt", "The checkpoint is invalid.");
-      }
-      checkpoint = parsed;
-      return {
-        schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCHS.journal,
-        event: "checkpoint" as const,
-        run_id: snapshot.definition.run_id,
-        sequence,
-        at: now(),
-        checkpoint: parsed,
-      };
-    });
-    if (checkpoint === undefined) {
-      throw new WorkflowHostError("state_corrupt", "The checkpoint was not persisted.");
-    }
-    const nextSnapshot: RunSnapshot = {
-      ...current.snapshot,
-      checkpoint,
-      revision,
-      updated_at: now(),
-    };
-    const parsedSnapshot = decodeHostSchema(RunSnapshotSchema, nextSnapshot);
-    if (parsedSnapshot === undefined) {
-      throw new WorkflowHostError("state_corrupt", "The checkpoint snapshot is invalid.");
-    }
-    await context.store.saveSnapshot(parsedSnapshot);
+    const committed = await context.store.commitRevision(
+      snapshot.definition.run_id,
+      ({ current: latest, eventSequence, revision }) => {
+        const candidate: Checkpoint = {
+          schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCHS.checkpoint,
+          run_id: latest.definition.run_id,
+          revision,
+          journal_sequence: eventSequence,
+          objective: safeText(objective, MAX_PENDING_TEXT),
+          constraints: safeTextArray(constraints),
+          decisions: safeTextArray(values.decisions),
+          verified_evidence: safeTextArray(values.verifiedEvidence),
+          phases: safeTextArray(values.phases),
+          active_work: safeTextArray(values.activeWork),
+          unresolved_work: safeTextArray(values.unresolvedWork),
+          blockers: safeTextArray(values.blockers),
+          verification: safeTextArray(values.verification),
+          resources: {},
+          retained_summaries: safeTextArray(values.retainedSummaries),
+          next_actions: safeTextArray(values.nextActions),
+          usage_completeness: values.usageCompleteness,
+          recoverable_errors: safeTextArray(values.recoverableErrors),
+          captured_at: now(),
+        };
+        const parsed = decodeHostSchema(CheckpointSchema, candidate);
+        if (parsed === undefined) {
+          throw new WorkflowHostError("state_corrupt", "The checkpoint is invalid.");
+        }
+        const nextSnapshot: RunSnapshot = {
+          ...latest,
+          checkpoint: parsed,
+          revision,
+          updated_at: now(),
+        };
+        const parsedSnapshot = decodeHostSchema(RunSnapshotSchema, nextSnapshot);
+        if (parsedSnapshot === undefined) {
+          throw new WorkflowHostError("state_corrupt", "The checkpoint snapshot is invalid.");
+        }
+        return {
+          snapshot: parsedSnapshot,
+          event: {
+            schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCHS.journal,
+            event: "checkpoint" as const,
+            run_id: latest.definition.run_id,
+            sequence: eventSequence,
+            at: now(),
+            checkpoint: parsed,
+          },
+        };
+      },
+    );
     await emitTelemetry(context, {
       event: "checkpoint",
       run_id: snapshot.definition.run_id,
@@ -284,6 +298,10 @@ export async function writeCheckpoint(
       error_code: null,
       replayed: false,
     });
+    const checkpoint = committed.snapshot.checkpoint;
+    if (checkpoint === null) {
+      throw new WorkflowHostError("state_corrupt", "The checkpoint transaction was empty.");
+    }
     return checkpoint;
   });
 }
@@ -319,6 +337,7 @@ export function contextFromOperation(
     prompt_profile: session.prompt_profile,
     approval_policy: session.approval_policy,
     sandbox_policy: session.sandbox_policy,
+    skill_profile_digest: session.skill_profile_digest,
     status: outcome.status === "completed" ? "available" : "blocked",
     summary: safeTextArray(summary),
     created_at: now(),
@@ -366,7 +385,9 @@ export async function inspect(
     status: loaded.snapshot.status,
     revision: loaded.snapshot.revision,
     checkpoint: loaded.snapshot.checkpoint,
-    ...(loaded.snapshot.workflow === undefined ? {} : { workflow: loaded.snapshot.workflow }),
+    ...(loaded.snapshot.workflow === undefined
+      ? {}
+      : { workflow: workflowProjection(loaded.snapshot.workflow, loaded.snapshot.definition) }),
     operations,
     workflow_events: workflowEvents,
     retained_contexts: retained,
@@ -378,6 +399,32 @@ export async function inspect(
     throw new WorkflowHostError("state_corrupt", "The inspection projection is invalid.");
   }
   return parsed;
+}
+
+function workflowProjection(
+  descriptor: WorkflowDescriptor,
+  definition: RunDefinition,
+): WorkflowProjection {
+  return {
+    schema_epoch: "host-workflow-1.0",
+    execution_mode: descriptor.execution_mode,
+    ...(descriptor.delegation_mode === undefined
+      ? {}
+      : { delegation_mode: descriptor.delegation_mode }),
+    ...(descriptor.compatibility_cardinality === undefined
+      ? {}
+      : { compatibility_cardinality: descriptor.compatibility_cardinality }),
+    ...(descriptor.execution_identity === undefined
+      ? {}
+      : { execution_identity: descriptor.execution_identity }),
+    source_digest: definition.identity.workflow_source_digest,
+    args_digest: definition.identity.resupplied_args_digest,
+    objective: descriptor.objective,
+    constraints: descriptor.constraints,
+    ...(definition.identity.native_workflow === undefined
+      ? {}
+      : { native_identity: definition.identity.native_workflow }),
+  };
 }
 
 export async function list(context: HostContext): Promise<readonly InspectionProjection[]> {

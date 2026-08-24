@@ -22,6 +22,29 @@ export type Effort = typeof EffortSchema.Type;
 export const DelegationModeSchema = Schema.Literal("DIRECT", "SINGLE", "DYNAMIC_WORKFLOW");
 export type DelegationMode = typeof DelegationModeSchema.Type;
 
+const DigestSchema = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u));
+const SkillReferenceSchema = Schema.String.pipe(Schema.pattern(/^\$[a-z][a-z0-9-]*$/u));
+const SkillVersionSchema = Schema.String.pipe(
+  Schema.pattern(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u),
+);
+export const RoleSkillProfileSchema = Schema.Struct({
+  reference: SkillReferenceSchema,
+  version: SkillVersionSchema,
+  mode: Schema.Literal("lite", "full", "ultra"),
+  digest: DigestSchema,
+  instruction: Schema.String.pipe(Schema.minLength(1)),
+});
+export type RoleSkillProfile = typeof RoleSkillProfileSchema.Type;
+export type RoleSkillProfileOrEmpty = RoleSkillProfile | null;
+
+export const PONYTAIL_ROLE_SKILL = Object.freeze({
+  reference: "$ponytail",
+  version: "4.9.0",
+  mode: "lite",
+  digest: "1316a2f3f95741d2300b116fe0c2d81ce4a9568656ed0a62643f54aaf09957f2",
+  instruction: "Use the literal $ponytail skill reference in lite mode.",
+} as const satisfies RoleSkillProfile);
+
 export const ROLE_DEFINITIONS = [
   {
     role: "Explorer",
@@ -31,7 +54,7 @@ export const ROLE_DEFINITIONS = [
     evidence: "Return exact paths, symbols, callers, tests, and constraints.",
     completion: "Account for every in-scope caller and constraint.",
     skills: [],
-    ponytail: false,
+    skill_profile: null,
     permissions: { network: false, write: false, execute: false },
   },
   {
@@ -42,7 +65,7 @@ export const ROLE_DEFINITIONS = [
     evidence: "Return sourced facts, dates, and explicit uncertainty.",
     completion: "Resolve the assigned external fact or report the exact evidence gap.",
     skills: ["context7-cli"],
-    ponytail: false,
+    skill_profile: null,
     permissions: { network: true, write: false, execute: false },
   },
   {
@@ -53,7 +76,7 @@ export const ROLE_DEFINITIONS = [
     evidence: "Return changed files, verification results, and remaining risk.",
     completion: "Finish the assigned seam with proportional proof or an exact blocker.",
     skills: ["programming"],
-    ponytail: true,
+    skill_profile: PONYTAIL_ROLE_SKILL,
     permissions: { network: false, write: true, execute: true },
   },
   {
@@ -64,13 +87,13 @@ export const ROLE_DEFINITIONS = [
     evidence: "Return findings, repaired paths, verification, and residual risk.",
     completion: "Reach a fixed point or report each reproducible blocker.",
     skills: ["code-review"],
-    ponytail: true,
+    skill_profile: PONYTAIL_ROLE_SKILL,
     permissions: { network: false, write: true, execute: true },
   },
 ] as const;
 freezeDeep(ROLE_DEFINITIONS);
 
-type RoleDefinition = (typeof ROLE_DEFINITIONS)[number];
+export type RoleDefinition = (typeof ROLE_DEFINITIONS)[number];
 export type Role = RoleDefinition["role"];
 export type TaskForRole<R extends Role> = Extract<
   RoleDefinition,
@@ -115,20 +138,30 @@ function isRoleTask(value: unknown): value is RoleTask {
   return roleDefinitionsByName.get(role)?.tasks.some((candidate) => candidate === task) === true;
 }
 
+function isTaskForRole(role: Role, value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    roleDefinitionsByName.get(role)?.tasks.some((candidate) => candidate === value) === true
+  );
+}
+
 function isRouteKey(value: unknown): value is RouteKey {
   return typeof value === "string" && routeKeySet.has(value);
 }
 
 export const RoleSchema = Schema.declare(isRole);
-export const ExplorerTaskSchema = Schema.Literal("lookup", "trace");
-export const LibrarianTaskSchema = Schema.Literal("lookup", "research");
-export const WorkerTaskSchema = Schema.Literal(
-  "mechanical",
-  "implementation",
-  "integration",
-  "operations",
+export const ExplorerTaskSchema = Schema.declare((value: unknown): value is ExplorerTask =>
+  isTaskForRole("Explorer", value),
 );
-export const ReviewerTaskSchema = Schema.Literal("plan", "code", "artifact");
+export const LibrarianTaskSchema = Schema.declare((value: unknown): value is LibrarianTask =>
+  isTaskForRole("Librarian", value),
+);
+export const WorkerTaskSchema = Schema.declare((value: unknown): value is WorkerTask =>
+  isTaskForRole("Worker", value),
+);
+export const ReviewerTaskSchema = Schema.declare((value: unknown): value is ReviewerTask =>
+  isTaskForRole("Reviewer", value),
+);
 export const RoleTaskSchema = Schema.declare(isRoleTask);
 export const ROUTE_KEYS: readonly RouteKey[] = Object.freeze(
   routeKeys.filter((key): key is RouteKey => isRouteKey(key)),

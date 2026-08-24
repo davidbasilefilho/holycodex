@@ -4,8 +4,15 @@ import { lookupRoute, RoleTaskSchema, type JsonValue, type PlanDefinition } from
 import * as Effect from "effect/Effect";
 import type { CapacityLease, WorkflowOperation } from "@holycodex/workflow-runtime";
 import { executeCodexOperation } from "./effect-runtime.ts";
-import { acquireDispatch, releaseDispatch } from "./admission.ts";
+import { acquireDispatch, capacitySnapshot, releaseDispatch, settleDispatch } from "./admission.ts";
 import { approveBeforeDispatch } from "./approval.ts";
+import {
+  CostAccountingError,
+  costJournal,
+  estimateRouteCost,
+  type CostEstimate,
+  type CostJournal,
+} from "./cost.ts";
 import { decodeHostSchema, type RunDefinition } from "./schemas.ts";
 import { WorkflowHostError } from "./errors.ts";
 import {
@@ -62,6 +69,20 @@ export async function handleOperation(
     throw new WorkflowHostError(
       "invalid_route",
       "The workflow operation route is not admitted by the plan.",
+    );
+  }
+  let estimate: CostEstimate;
+  try {
+    estimate = estimateRouteCost({
+      route: routeResult.value,
+      serviceTier: definition.identity.service_tier,
+    });
+  } catch (error) {
+    throw new WorkflowHostError(
+      error instanceof CostAccountingError ? error.code : "estimate_unavailable",
+      "The workflow operation has no conservative pricing estimate.",
+      {},
+      { cause: error },
     );
   }
   const retryLimit = optionInteger(options, "retries", 0);
@@ -169,9 +190,26 @@ export async function handleOperation(
     let dispatched = false;
     let effectClassified = false;
     let normalizedOutcome: SpecialistOutcomeV2 | undefined;
+    let settled = false;
+    let costAccounting: CostJournal | undefined;
     try {
-      lease = await acquireDispatch(context, active, definition.run_id);
+      lease = await acquireDispatch(context, active, definition.run_id, estimate);
       dispatched = true;
+      costAccounting = costJournal(
+        estimate,
+        undefined,
+        await capacitySnapshot(context, definition.run_id),
+      );
+      await appendEvent(context, definition.run_id, {
+        event: "operation",
+        lifecycle: operationLifecycle({
+          ...operationInput,
+          attempt,
+          state: "reserved",
+          errorCode: null,
+          costAccounting,
+        }),
+      });
       let rawOutcome: unknown;
       if (context.codex === undefined && runtimeAgent === undefined) {
         rawOutcome = await context.executor({
@@ -236,6 +274,19 @@ export async function handleOperation(
       const outcome = sanitizeOutcome(rawOutcome, parsedRoleTask);
       normalizedOutcome = outcome;
       effectClassified = true;
+      const settledResult = await settleDispatch(
+        context,
+        definition.run_id,
+        lease,
+        estimate,
+        usageFromResult(rawOutcome),
+      );
+      settled = true;
+      costAccounting = settledResult.journal;
+      active.costUnits = settledResult.journal.committed_units;
+      if (settledResult.failure !== undefined) {
+        throw settledResult.failure;
+      }
       if (outcome.status !== "completed") {
         throw new WorkflowHostError(
           "specialist_invalid",
@@ -249,6 +300,7 @@ export async function handleOperation(
           attempt,
           state: "completed",
           errorCode: null,
+          costAccounting,
         }),
         outcome,
       });
@@ -264,7 +316,24 @@ export async function handleOperation(
       });
       return outcome;
     } catch (error) {
-      const errorCode = error instanceof WorkflowHostError ? error.code : "external-failed";
+      let operationError: unknown = error;
+      if (lease !== undefined && !settled) {
+        const settledResult = await settleDispatch(
+          context,
+          definition.run_id,
+          lease,
+          estimate,
+          undefined,
+        );
+        settled = true;
+        costAccounting = settledResult.journal;
+        active.costUnits = settledResult.journal.committed_units;
+        if (settledResult.failure !== undefined) {
+          operationError = settledResult.failure;
+        }
+      }
+      const errorCode =
+        operationError instanceof WorkflowHostError ? operationError.code : "external-failed";
       await appendEvent(context, definition.run_id, {
         event: "operation",
         lifecycle: operationLifecycle({
@@ -272,6 +341,7 @@ export async function handleOperation(
           attempt,
           state: dispatched && !effectClassified ? "uncertain" : "failed",
           errorCode,
+          ...(costAccounting === undefined ? {} : { costAccounting }),
         }),
         ...(normalizedOutcome === undefined ? {} : { outcome: normalizedOutcome }),
       });
@@ -286,13 +356,13 @@ export async function handleOperation(
         replayed: false,
       });
       if (!dispatched || effectClassified) {
-        throw error;
+        throw operationError;
       }
       throw new WorkflowHostError(
         "external_failed",
         "The specialist operation has an uncertain effect and cannot be retried.",
         { uncertain: true },
-        { cause: error },
+        { cause: operationError },
       );
     } finally {
       if (lease !== undefined) {
@@ -304,4 +374,11 @@ export async function handleOperation(
     active.controller.signal.removeEventListener("abort", abortOperation);
     active.operationControllers.delete(operationId);
   }
+}
+
+function usageFromResult(value: unknown): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  return "usage" in value ? value.usage : undefined;
 }

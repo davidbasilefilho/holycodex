@@ -76,7 +76,7 @@ Usage:
 const CLEANUP_HELP = `Remove only an explicitly selected, resolved HolyCodex-owned scope.
 
 Usage:
-  holycodex cleanup --scope <run|workspace|expired> [--yes] [--json]
+  holycodex cleanup --scope <run|workspace|expired|workflow-session> [--yes] [--json]
 `;
 
 const VERSION_HELP = `Read or update the canonical public package version.
@@ -87,7 +87,7 @@ Usage:
   holycodex -v
 `;
 
-export function helpText(topic: string | undefined = undefined): string {
+export function helpText(topic?: string): string {
   switch (topic) {
     case "install":
       return INSTALL_HELP;

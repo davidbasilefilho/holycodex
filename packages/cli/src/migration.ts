@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import {
   canonicalJson,
   domainSeparatedSha256,
+  migrateOptionalCapabilitySelections,
   PlanNameSchema,
   STATE_SCHEMA_EPOCH,
   type JsonObject,
@@ -551,6 +552,7 @@ function createMigrationState(
   if (input["tier"] === "Standard" && input["fast"] === true) {
     throw new StorageError("state_corrupt", "Legacy Fast and tier selections conflict.");
   }
+  const optional = migrateOptionalCapabilitySelections(input);
   const state: JsonObject = {
     schema_epoch: STATE_SCHEMA_EPOCH,
     source_epoch: LEGACY_SCHEMA_EPOCH,
@@ -566,10 +568,10 @@ function createMigrationState(
         input["max_subagents"] > 0
           ? input["max_subagents"]
           : 1,
-      computer_use: input["computer_use"] === true,
-      work: input["work"] === true,
-      web: input["web"] === true,
-      security: input["security"] === true,
+      computer_use: optional.computer_use,
+      work: optional.work,
+      web: optional.web,
+      security: optional.security,
     },
     managed_config: objectValue(input["managed_config"] ?? input["managedConfig"]),
     ownership: objectValue(input["ownership"] ?? input["ownership_metadata"]),

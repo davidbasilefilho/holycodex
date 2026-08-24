@@ -20,6 +20,7 @@ export async function runBinary(
   const context: CliContext = {
     env: process.env,
     cwd: process.cwd(),
+    workflowSessionId: `cli-${crypto.randomUUID()}`,
     io: {
       stdin: binaryIo.stdin ?? stdinChunks(),
       stdoutIsTTY: binaryIo.stdoutIsTTY ?? process.stdout.isTTY === true,

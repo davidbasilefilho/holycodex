@@ -3,7 +3,13 @@
 import { readFile, readdir, lstat, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { verifyPayload } from "@holycodex/plugin";
-import type { JsonObject } from "@holycodex/core";
+import {
+  CAPABILITY_REGISTRY,
+  OPTIONAL_CAPABILITY_NAMES,
+  capabilityHealth,
+  pluginIdsForOptionalCapabilities,
+  type JsonObject,
+} from "@holycodex/core";
 import { FileRunStore } from "@holycodex/workflow-host";
 import {
   InstallJournalRecordSchema,
@@ -29,6 +35,12 @@ import {
 import { decodeSchema } from "./schema.ts";
 import { inspectLegacyState } from "./migration.ts";
 import { StorageError } from "./storage.ts";
+import { CodexOfficialPluginManager } from "./official-manager.ts";
+import {
+  assertSafeSessionId,
+  GeneratedWorkflowStore,
+  GeneratedWorkflowStoreError,
+} from "./generated-workflow-store.ts";
 import type {
   CleanupResult,
   CleanupScope,
@@ -128,9 +140,13 @@ export async function doctorHolyCodex(
     inactive.length === 0
       ? healthyCheck({ count: 0 })
       : warningCheck(["inactive_owned_payloads"], { count: inactive.length });
-  if (options.officialPluginManager?.status) {
+  const officialPluginManager =
+    options.officialPluginManager ??
+    (await CodexOfficialPluginManager.discover().catch(() => undefined));
+  checks["capabilities"] = await inspectCapabilities(active, officialPluginManager);
+  if (officialPluginManager?.status) {
     try {
-      const status = await options.officialPluginManager.status(active?.official_plugins ?? []);
+      const status = await officialPluginManager.status(active?.official_plugins ?? []);
       const missing = Object.entries(status)
         .filter(([, value]) => value !== "installed")
         .map(([key]) => key);
@@ -159,10 +175,97 @@ export async function doctorHolyCodex(
   };
 }
 
+async function inspectCapabilities(
+  active: InstallRecord | undefined,
+  manager: InstallerOptions["officialPluginManager"] | undefined,
+): Promise<DoctorCheck> {
+  const details: Record<string, JsonObject> = {};
+  const reasons: string[] = [];
+  if (!active) {
+    return healthyCheck({ configured: false });
+  }
+  let liveStatus: Readonly<
+    Record<string, "installed" | "available" | "missing" | "disabled" | "uncertain" | "unknown">
+  > = {};
+  if (manager?.status || manager?.list) {
+    try {
+      const selectedProviderIds = pluginIdsForOptionalCapabilities(active.optional_selections);
+      const providerIds = [
+        ...new Set([
+          ...(active.official_plugins ?? []),
+          ...selectedProviderIds,
+          ...OPTIONAL_CAPABILITY_NAMES.flatMap(
+            (name) => active.capability_state?.[name]?.plugin_ids ?? [],
+          ),
+        ]),
+      ];
+      if (manager.status) {
+        liveStatus = await manager.status(providerIds);
+      } else {
+        const list = manager.list;
+        if (list === undefined) throw new Error("Official plugin listing is unavailable.");
+        const live = await list();
+        for (const pluginId of providerIds) {
+          const entry = [...live.installed, ...live.available].find(
+            (candidate) => candidate.pluginId === pluginId,
+          );
+          liveStatus = {
+            ...liveStatus,
+            [pluginId]:
+              entry === undefined
+                ? "missing"
+                : entry.installed && entry.enabled
+                  ? "installed"
+                  : entry.installed
+                    ? "disabled"
+                    : "missing",
+          };
+        }
+      }
+    } catch (error: unknown) {
+      for (const name of OPTIONAL_CAPABILITY_NAMES) {
+        if (active.optional_selections[name]) {
+          reasons.push(`${name}:uncertain`);
+          details[name] = { selected: true, status: "uncertain", reason: safeMessage(error) };
+        } else {
+          details[name] = { selected: false, status: "healthy" };
+        }
+      }
+      return failedCheck(reasons, details);
+    }
+  }
+  for (const name of OPTIONAL_CAPABILITY_NAMES) {
+    const selected = active.optional_selections[name];
+    if (!selected) {
+      details[name] = { selected: false, status: "healthy" };
+      continue;
+    }
+    const state = active.capability_state?.[name];
+    const pluginIds = state?.plugin_ids ?? CAPABILITY_REGISTRY[name].pluginIds;
+    const statuses = pluginIds.map((pluginId) => liveStatus[pluginId] ?? "unknown");
+    const providerStatus = statuses.includes("disabled")
+      ? "disabled"
+      : statuses.includes("uncertain") || statuses.includes("unknown")
+        ? "uncertain"
+        : statuses.includes("missing") || statuses.includes("available")
+          ? "missing"
+          : "installed";
+    const status = capabilityHealth(selected, providerStatus);
+    details[name] = {
+      selected: true,
+      status,
+      plugin_ids: [...pluginIds],
+      persisted_status: state?.status ?? "missing",
+    };
+    if (status !== "healthy") reasons.push(`${name}:${status}`);
+  }
+  return reasons.length === 0 ? healthyCheck(details) : failedCheck(reasons, details);
+}
+
 export async function cleanupHolyCodex(
   scope: CleanupScope,
   options: InstallerOptions = {},
-  input: Readonly<{ yes?: boolean; runId?: string }> = {},
+  input: Readonly<{ yes?: boolean; runId?: string; sessionId?: string }> = {},
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<CleanupResult> {
   const paths = resolveInstallerPaths(options, environment);
@@ -195,7 +298,7 @@ export async function cleanupHolyCodex(
 async function cleanupHolyCodexUnlocked(
   scope: CleanupScope,
   options: InstallerOptions,
-  input: Readonly<{ yes?: boolean; runId?: string }>,
+  input: Readonly<{ yes?: boolean; runId?: string; sessionId?: string }>,
   paths: ResolvedInstallerPaths,
 ): Promise<CleanupResult> {
   const preview = input.yes !== true;
@@ -249,8 +352,56 @@ async function cleanupHolyCodexUnlocked(
     await planOrRemove(target, preview, removed, preserved);
     return { scope, preview, removed, preserved, reasons };
   }
+  if (scope === "workflow-session") {
+    if (input.sessionId === undefined) {
+      throw new CleanupError(
+        "cleanup_failed",
+        "Workflow session cleanup requires one validated session id.",
+      );
+    }
+    const sessionId = assertSafeSessionId(input.sessionId);
+    const target = join(paths.generatedWorkflowsRoot, sessionId);
+    if (!pathWithin(paths.generatedWorkflowsRoot, target)) {
+      throw new CleanupError("cleanup_failed", "The workflow session path escaped the owned root.");
+    }
+    try {
+      const store = new GeneratedWorkflowStore(paths.stateRoot, {
+        now: () => now,
+        ...(options.generatedWorkflowBoundary === undefined
+          ? {}
+          : { boundary: options.generatedWorkflowBoundary }),
+      });
+      if (!(await store.sessionExists(sessionId))) {
+        return { scope, preview, removed, preserved, reasons };
+      }
+      if (!preview) await store.sessionEnd(sessionId);
+      removed.push(target);
+    } catch (error: unknown) {
+      if (isFsCode(error, "ENOENT")) return { scope, preview, removed, preserved, reasons };
+      if (error instanceof GeneratedWorkflowStoreError && error.code === "needs_root_decision") {
+        preserved.push(target);
+        reasons.push("workflow_session_uncertain");
+        return { scope, preview, removed, preserved, reasons };
+      }
+      throw new CleanupError(
+        "cleanup_failed",
+        "The generated workflow session could not be cleaned.",
+        error,
+      );
+    }
+    return { scope, preview, removed, preserved, reasons };
+  }
   if (scope === "expired") {
     await removeExpired(paths, preview, removed, preserved, active?.artifact_id, cutoff);
+    await removeExpiredGeneratedWorkflows(
+      paths,
+      preview,
+      removed,
+      preserved,
+      now,
+      cutoff,
+      options.generatedWorkflowBoundary,
+    );
     return { scope, preview, removed, preserved, reasons };
   }
   if (active) {
@@ -289,7 +440,45 @@ async function cleanupHolyCodexUnlocked(
   }
   await planOrRemove(paths.journal, preview, removed, preserved);
   await removeExpired(paths, preview, removed, preserved, active?.artifact_id, cutoff);
+  await removeExpiredGeneratedWorkflows(
+    paths,
+    preview,
+    removed,
+    preserved,
+    now,
+    cutoff,
+    options.generatedWorkflowBoundary,
+  );
   return { scope, preview, removed, preserved, reasons };
+}
+
+async function removeExpiredGeneratedWorkflows(
+  paths: ResolvedInstallerPaths,
+  preview: boolean,
+  removed: string[],
+  preserved: string[],
+  now: Date,
+  cutoff: number,
+  boundary: InstallerOptions["generatedWorkflowBoundary"],
+): Promise<void> {
+  try {
+    const store = new GeneratedWorkflowStore(paths.stateRoot, {
+      now: () => now,
+      ttlMs: Math.max(1, now.getTime() - cutoff),
+      ...(boundary === undefined ? {} : { boundary }),
+    });
+    const result = await store.cleanupExpired({ preview, maxEntries: 128, maxMs: 250 });
+    removed.push(...result.removed);
+    preserved.push(...result.preserved);
+    preserved.push(...result.uncertain);
+  } catch (error: unknown) {
+    if (isFsCode(error, "ENOENT")) return;
+    if (error instanceof GeneratedWorkflowStoreError && error.code === "needs_root_decision") {
+      preserved.push(paths.generatedWorkflowsRoot);
+      return;
+    }
+    preserved.push(paths.generatedWorkflowsRoot);
+  }
 }
 
 async function inspectJournal(paths: ResolvedInstallerPaths): Promise<DoctorCheck> {
@@ -526,10 +715,12 @@ function safeMessage(error: unknown): string {
 
 export class CleanupError extends Error {
   readonly code: "cleanup_failed";
+  readonly causeValue: unknown;
 
-  constructor(code: "cleanup_failed", message: string) {
+  constructor(code: "cleanup_failed", message: string, causeValue?: unknown) {
     super(message);
     this.name = "CleanupError";
     this.code = code;
+    this.causeValue = causeValue;
   }
 }

@@ -1,0 +1,15 @@
+{
+  "name": "@holycodex/git-bash",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./errors": "./src/errors.ts",
+    "./resolver": "./src/git-bash-resolver.ts",
+    "./runner": "./src/runner.ts"
+  },
+  "dependencies": {
+    "@holycodex/runtime-core": "workspace:*",
+    "effect": "3.22.1"
+  }
+}

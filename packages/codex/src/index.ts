@@ -166,6 +166,8 @@ export {
   AssignmentExecutionOptionsSchema,
   CapabilityMatrixSchemaForHost,
   compileSpecialistAssignment,
+  codexModelIdFor,
+  codexServiceTierFor,
   detectCapabilityMatrix,
   executeAssignment,
   ExecutionBackendSchema,
@@ -214,15 +216,27 @@ export type {
 } from "./managed-config";
 
 export {
+  createOfficialPluginAdapter,
   OfficialPluginManifestSchema,
+  OfficialPluginIdSchema,
   OfficialPluginSelectionSchema,
+  LiveOfficialPluginEntrySchema,
+  LiveOfficialPluginListEnvelopeSchema,
   parseOfficialPluginManifest,
+  parseLiveOfficialPluginList,
   selectOfficialPlugins,
   verifyOfficialPluginManifest,
   verifyOfficialPluginManifestFile,
 } from "./official-plugins";
 export type {
+  LiveOfficialPluginEntry,
+  LiveOfficialPluginListEnvelope,
+  OfficialPluginAdapter,
+  OfficialPluginAdapterOptions,
+  OfficialPluginCommandRunner,
+  OfficialPluginId,
   OfficialPluginManifest,
   OfficialPluginSelection,
   OfficialPluginVerification,
 } from "./official-plugins";
+export { OfficialPluginAdapterError } from "./official-plugins";

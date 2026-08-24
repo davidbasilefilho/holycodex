@@ -22,5 +22,5 @@
     "moduleDetection": "force"
   },
   "include": ["vite.config.ts", "scripts/**/*.ts", "packages/**/*.ts", "tests/**/*.ts"],
-  "exclude": ["node_modules", "dist", "coverage", "tmp", "temp"]
+  "exclude": ["node_modules", "dist", "coverage", "tmp", "temp", ".tmp/**", "**/.tmp/**"]
 }

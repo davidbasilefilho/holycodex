@@ -131,7 +131,9 @@ export async function reuseRetainedContext(
           assertIdentifier(input.sandboxPolicy ?? context.sandboxPolicy, "sandbox policy") &&
         (input.codexCapabilityDigest === undefined ||
           retained.session.codex_capability_digest ===
-            assertDigest(input.codexCapabilityDigest, "Codex capability digest"))
+            assertDigest(input.codexCapabilityDigest, "Codex capability digest")) &&
+        retained.skill_profile_digest === input.skillProfileDigest &&
+        retained.session.skill_profile_digest === input.skillProfileDigest
       ) {
         return { kind: "reused", context: retained };
       }

@@ -31,7 +31,11 @@
       "devDependencies": {
         "@holycodex/codex": "workspace:*",
         "@holycodex/core": "workspace:*",
+        "@holycodex/git-bash": "workspace:*",
+        "@holycodex/lsp-core": "workspace:*",
+        "@holycodex/lsp-daemon": "workspace:*",
         "@holycodex/plugin": "workspace:*",
+        "@holycodex/safe-filesystem": "workspace:*",
         "@holycodex/workflow-host": "workspace:*",
         "@holycodex/workflow-runtime": "workspace:*",
       },
@@ -49,10 +53,43 @@
         "effect": "3.22.1",
       },
     },
+    "packages/git-bash": {
+      "name": "@holycodex/git-bash",
+      "dependencies": {
+        "@holycodex/runtime-core": "workspace:*",
+        "effect": "3.22.1",
+      },
+    },
+    "packages/lsp-core": {
+      "name": "@holycodex/lsp-core",
+      "dependencies": {
+        "effect": "3.22.1",
+      },
+    },
+    "packages/lsp-daemon": {
+      "name": "@holycodex/lsp-daemon",
+      "dependencies": {
+        "@holycodex/lsp-core": "workspace:*",
+        "effect": "3.22.1",
+      },
+    },
     "packages/plugin": {
       "name": "@holycodex/plugin",
       "dependencies": {
         "@holycodex/core": "workspace:*",
+        "effect": "3.22.1",
+      },
+    },
+    "packages/runtime-core": {
+      "name": "@holycodex/runtime-core",
+      "dependencies": {
+        "effect": "3.22.1",
+      },
+    },
+    "packages/safe-filesystem": {
+      "name": "@holycodex/safe-filesystem",
+      "dependencies": {
+        "@holycodex/runtime-core": "workspace:*",
         "effect": "3.22.1",
       },
     },
@@ -88,7 +125,17 @@
 
     "@holycodex/core": ["@holycodex/core@workspace:packages/core"],
 
+    "@holycodex/git-bash": ["@holycodex/git-bash@workspace:packages/git-bash"],
+
+    "@holycodex/lsp-core": ["@holycodex/lsp-core@workspace:packages/lsp-core"],
+
+    "@holycodex/lsp-daemon": ["@holycodex/lsp-daemon@workspace:packages/lsp-daemon"],
+
     "@holycodex/plugin": ["@holycodex/plugin@workspace:packages/plugin"],
+
+    "@holycodex/runtime-core": ["@holycodex/runtime-core@workspace:packages/runtime-core"],
+
+    "@holycodex/safe-filesystem": ["@holycodex/safe-filesystem@workspace:packages/safe-filesystem"],
 
     "@holycodex/workflow-host": ["@holycodex/workflow-host@workspace:packages/workflow-host"],
 

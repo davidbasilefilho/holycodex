@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { CLI_SCHEMA_VERSION, decodeUnknown, type JsonValue } from "@holycodex/core";
+import { CLI_SCHEMA_VERSION, canonicalJson, decodeUnknown, type JsonValue } from "@holycodex/core";
 import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import {
   readWaitDecoder,
   readWaitTargets,
+  makeSymbolicValue,
   type Assignment,
   type AssignmentMetadata,
   type Wait,
@@ -16,9 +17,25 @@ import {
   type WorkflowOutputTarget,
   type WorkflowPredicate,
   type WorkflowRepeatUntil,
+  type WorkflowOutput,
 } from "./dsl.ts";
 import { isWorkflowFailure, workflowFailure, type WorkflowFailure } from "./errors.ts";
 import type { ValueCodec } from "./schema.ts";
+import {
+  NATIVE_OUTPUT_REFERENCE_KEY,
+  freezeWorkflowPlanIR,
+  nativePlanJson,
+  nativeWorkflowIdentityDigest,
+  isNativeWorkflowOutputIR,
+  validateWorkflowPlanIR,
+  type NativeWorkflow,
+  type NativeWorkflowInputIR,
+  type NativeWorkflowNodeIR,
+  type NativeWorkflowOutputIR,
+  type NativeWorkflowOutputTargetIR,
+  type NativeWorkflowTerminalIR,
+  type WorkflowPlanIR,
+} from "./native-ir.ts";
 
 export type PlanCapacity = Readonly<{
   readonly planConcurrency: number;
@@ -124,6 +141,7 @@ export class ExecutionPlan<T> {
   readonly roots: readonly string[];
   readonly terminals: readonly PlanTerminal[];
   readonly capacity: PlanCapacity;
+  readonly identityDigest: string;
   readonly decodeResult: (value: unknown) => T;
 
   protected constructor(
@@ -134,6 +152,7 @@ export class ExecutionPlan<T> {
       readonly terminals: readonly PlanTerminal[];
       readonly capacity: PlanCapacity;
       readonly graphId: string;
+      readonly identityDigest: string;
       readonly decodeResult: (value: unknown) => T;
     }>,
   ) {
@@ -150,6 +169,7 @@ export class ExecutionPlan<T> {
     );
     this.capacity = Object.freeze({ ...input.capacity });
     this.graphId = input.graphId;
+    this.identityDigest = input.identityDigest;
     this.decodeResult = input.decodeResult;
     Object.freeze(this);
   }
@@ -164,6 +184,7 @@ class ExecutionPlanHandle<T> extends ExecutionPlan<T> {
       readonly terminals: readonly PlanTerminal[];
       readonly capacity: PlanCapacity;
       readonly graphId: string;
+      readonly identityDigest: string;
       readonly decodeResult: (value: unknown) => T;
     }>,
   ) {
@@ -177,7 +198,7 @@ export function compileWorkflow<T, I = unknown>(
 ): Effect.Effect<ExecutionPlan<T>, WorkflowFailure> {
   return Effect.try({
     try: () => compileWorkflowUnsafe(terminal, options),
-    catch: (error) => toCompilationFailure(error),
+    catch: (error: unknown) => toCompilationFailure(error),
   });
 }
 
@@ -245,8 +266,308 @@ export function compileWorkflowUnsafe<T, I = unknown>(
     terminals: uniqueTerminals,
     capacity: policy.capacity,
     graphId: stablePlanId(nodes, uniqueTerminals),
+    identityDigest: stablePlanId(nodes, uniqueTerminals),
     decodeResult: readWaitDecoder(terminal),
   });
+}
+
+/**
+ * Hydrates and validates inert native IR into the existing Effect execution
+ * plan. This is the sole compiler-owned entry for source-authored native IR.
+ */
+export function hydrateWorkflowPlanIR(
+  native: NativeWorkflow,
+  options: CompileOptions = {},
+): Effect.Effect<ExecutionPlan<unknown>, WorkflowFailure> {
+  return Effect.tryPromise({
+    try: async () => await hydrateWorkflowPlanIRUnsafe(native, options),
+    catch: (error: unknown) => toCompilationFailure(error),
+  });
+}
+
+/** Alias retained for callers that describe hydration as native plan compilation. */
+export const compileWorkflowPlanIR = hydrateWorkflowPlanIR;
+
+async function hydrateWorkflowPlanIRUnsafe(
+  native: NativeWorkflow,
+  options: CompileOptions,
+): Promise<ExecutionPlan<unknown>> {
+  if (!validateWorkflowPlanIR(native.ir)) {
+    throw workflowFailure("validation", "The native workflow plan IR is invalid.");
+  }
+  const ir = freezeWorkflowPlanIR(native.ir);
+  const expectedIdentityDigest = await nativeWorkflowIdentityDigest({
+    abiVersion: ir.abiVersion,
+    executionMode: ir.executionMode,
+    sourceDigest: ir.sourceDigest,
+    transformedDigest: ir.transformedDigest,
+    graph: ir.graph,
+    codecs: ir.codecs,
+    capacityInputs: ir.capacityInputs,
+    compileOptions: {},
+  });
+  if (ir.identityDigest !== expectedIdentityDigest) {
+    throw workflowFailure("validation", "The native workflow producer identity is invalid.");
+  }
+  const policy = parseCompileOptions(options);
+  const codecMap = new Map<string, ValueCodec<unknown>>();
+  for (const descriptor of ir.codecs) {
+    const codec = native.codecs.get(descriptor.id);
+    if (
+      codec === undefined ||
+      codec.name !== descriptor.name ||
+      typeof codec.decode !== "function"
+    ) {
+      throw workflowFailure("validation", "The native workflow codec handle is invalid.");
+    }
+    if (codecMap.has(descriptor.id)) {
+      throw workflowFailure("validation", "The native workflow codec identity is duplicated.");
+    }
+    codecMap.set(descriptor.id, codec);
+  }
+  const nodes = ir.graph.nodes.map((node) => compileNode(nativeNode(node, codecMap), policy));
+  const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
+  const terminals = ir.graph.terminals.map((terminal) => {
+    const output = nativeOutput(terminal.output, codecMap);
+    return toPlanTerminal(terminal.key, terminal.runId, output);
+  });
+  if (ir.graph.conflicts.length > 0) {
+    throw workflowFailure(
+      "compilation",
+      "The native workflow graph contains conflicting declarations.",
+    );
+  }
+  if (nodes.length === 0 || nodes.length > policy.maxNodes) {
+    throw workflowFailure(
+      "compilation",
+      "The native workflow graph exceeds its admitted node capacity.",
+    );
+  }
+  const maxRetries = nodes.reduce((maximum, node) => Math.max(maximum, node.metadata.retries), 0);
+  if (
+    ir.capacityInputs.nodeCount !== nodes.length ||
+    ir.capacityInputs.rootCount !== ir.graph.roots.length ||
+    ir.capacityInputs.terminalCount !== ir.graph.terminals.length ||
+    ir.capacityInputs.maxRetries !== maxRetries
+  ) {
+    throw workflowFailure("validation", "The native workflow capacity inputs are invalid.");
+  }
+  validateGraph(nodes, nodeById, ir.graph.roots, terminals);
+  const layers = topologicalLayers(nodes, nodeById);
+  validateWriterOwnership(layers, nodeById);
+  const expectedGraphId = stableNativeGraphId(ir);
+  if (ir.graphId !== expectedGraphId) {
+    throw workflowFailure("validation", "The native workflow graph identity is invalid.");
+  }
+  const uniqueRoots = uniqueStrings(ir.graph.roots);
+  const uniqueTerminals = uniqueTerminalsByShape(terminals);
+  return new ExecutionPlanHandle({
+    nodes,
+    layers,
+    roots: uniqueRoots,
+    terminals: uniqueTerminals,
+    capacity: policy.capacity,
+    graphId: ir.graphId,
+    identityDigest: stableNativeIdentity(ir, options),
+    decodeResult: nativeResultDecoder(ir.graph.terminals, codecMap),
+  });
+}
+
+function nativeNode(
+  node: NativeWorkflowNodeIR,
+  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+): WorkflowNode {
+  const inputCodec = requireNativeCodec(codecs, node.assignment.inputCodecId);
+  const outputCodec = requireNativeCodec(codecs, node.assignment.outputCodecId);
+  const input = nativeInput(node.input, codecs);
+  const assignment: Assignment<unknown, unknown> = {
+    payload: node.assignment.hasPayload
+      ? nativePayload(node.assignment.payload, codecs)
+      : undefined,
+    input: inputCodec,
+    output: outputCodec,
+    metadata: node.assignment.metadata,
+    ...(node.assignment.route === undefined ? {} : { route: node.assignment.route }),
+  };
+  return {
+    id: node.id,
+    name: node.name,
+    input,
+    dependencies: node.dependencies,
+    assignment,
+    inputCodec,
+    outputCodec,
+    metadata: node.assignment.metadata,
+  };
+}
+
+function nativeInput(
+  input: NativeWorkflowInputIR,
+  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+): WorkflowNode["input"] {
+  if (input.kind === "root") return { kind: "root" };
+  if (input.kind === "single") return { kind: "single", nodeId: input.nodeId };
+  return { kind: "join", targets: input.targets.map((target) => nativeTarget(target, codecs)) };
+}
+
+function nativeTarget(
+  target: NativeWorkflowOutputTargetIR,
+  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+): WorkflowOutputTarget {
+  return {
+    key: target.key,
+    nodeId: target.nodeId,
+    outputCodec: nativeOutputCodec(target, codecs),
+    ...(target.source === undefined ? {} : { source: nativeOutput(target.source, codecs) }),
+  };
+}
+
+function nativeOutput(
+  output: NativeWorkflowOutputIR,
+  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+): WorkflowOutput {
+  if (output.kind === "single") {
+    return {
+      kind: "single",
+      nodeId: output.nodeId,
+      outputCodec: requireNativeCodec(codecs, output.codecId),
+    };
+  }
+  const targets = output.targets.map((target) => nativeTarget(target, codecs));
+  return {
+    kind: "join",
+    targets,
+    outputCodec: Object.freeze({
+      name: `native-join(${targets.map((target) => target.key).join(",")})`,
+      decode: (value: unknown) => decodeNativeTargets(value, targets),
+    }),
+  };
+}
+
+function nativeOutputCodec(
+  target: NativeWorkflowOutputTargetIR,
+  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+): ValueCodec<unknown> {
+  if (target.source === undefined) return requireNativeCodec(codecs, target.codecId);
+  const source = nativeOutput(target.source, codecs);
+  return Object.freeze({
+    name: `native-output(${target.key})`,
+    decode: (value: unknown) => decodeNativeOutput(value, source),
+  });
+}
+
+function decodeNativeOutput(value: unknown, output: WorkflowOutput): unknown {
+  return output.outputCodec.decode(value);
+}
+
+function decodeNativeTargets(value: unknown, targets: readonly WorkflowOutputTarget[]): unknown {
+  if (!isRecord(value)) throw new Error("The native workflow join result is not an object.");
+  const result: Record<string, unknown> = {};
+  for (const target of targets) {
+    if (!(target.key in value))
+      throw new Error(`The native workflow result is missing ${target.key}.`);
+    result[target.key] = target.outputCodec.decode(value[target.key]);
+  }
+  return result;
+}
+
+function nativePayload(
+  value: JsonValue,
+  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+  seen = new Set<object>(),
+): unknown {
+  if (isRecord(value) && NATIVE_OUTPUT_REFERENCE_KEY in value) {
+    const output = value[NATIVE_OUTPUT_REFERENCE_KEY];
+    if (!isNativeWorkflowOutputIR(output)) {
+      throw workflowFailure(
+        "validation",
+        "The native workflow payload output reference is invalid.",
+      );
+    }
+    return makeSymbolicValue(nativeOutput(output, codecs));
+  }
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value))
+    throw workflowFailure("validation", "The native workflow payload is cyclic.");
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) return value.map((item) => nativePayload(item, codecs, seen));
+    const result: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value))
+      result[key] = nativePayload(item, codecs, seen);
+    return result;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function requireNativeCodec(
+  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+  id: string,
+): ValueCodec<unknown> {
+  const codec = codecs.get(id);
+  if (codec === undefined)
+    throw workflowFailure("validation", "The native workflow codec is missing.");
+  return codec;
+}
+
+function nativeResultDecoder(
+  terminals: readonly NativeWorkflowTerminalIR[],
+  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+): (value: unknown) => unknown {
+  const outputs = terminals.map((terminal) => ({
+    key: terminal.key,
+    output: nativeOutput(terminal.output, codecs),
+  }));
+  return (value: unknown) => {
+    if (outputs.length === 1 && outputs[0]?.key === "") {
+      const output = outputs[0]?.output;
+      if (!output) throw new Error("The native workflow terminal is missing.");
+      return decodeNativeOutput(value, output);
+    }
+    if (!isRecord(value)) throw new Error("The native workflow result is not an object.");
+    const result: Record<string, unknown> = {};
+    for (const entry of outputs) {
+      if (!(entry.key in value))
+        throw new Error(`The native workflow result is missing ${entry.key}.`);
+      result[entry.key] = decodeNativeOutput(value[entry.key], entry.output);
+    }
+    return result;
+  };
+}
+
+function stableNativeGraphId(ir: WorkflowPlanIR): string {
+  return stableNativeHash(
+    canonicalJson({
+      nodes: ir.graph.nodes,
+      roots: ir.graph.roots,
+      conflicts: ir.graph.conflicts,
+      terminals: ir.graph.terminals,
+    }),
+  );
+}
+
+function stableNativeIdentity(ir: WorkflowPlanIR, options: CompileOptions): string {
+  return stableNativeHash(
+    canonicalJson({
+      ...nativePlanJson(ir),
+      compileOptions: options,
+      executionMode: "native",
+    }),
+  );
+}
+
+function stableNativeHash(source: string): string {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return `graph-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseCompileOptions(input: unknown): Readonly<{

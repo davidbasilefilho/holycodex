@@ -6,8 +6,9 @@ import { CLI_SCHEMA_VERSION, isObject, type JsonObject, type JsonValue } from ".
 import { type CoreResult, failure, inputError, success } from "./errors.ts";
 import { identifierTextSchema } from "./identifiers.ts";
 import { canonicalJson } from "./canonical.ts";
-import { RoleSchema, RoleTaskSchema, type RoleTask } from "./routes.ts";
+import { RoleSchema, RoleTaskSchema, type Role, type RoleTask } from "./routes.ts";
 import { decodeUnknown } from "./schema.ts";
+import { CapabilityNameSchema } from "./capabilities.ts";
 
 export const SpecialistStatusSchema = Schema.Literal("blocked", "completed", "failed", "partial");
 export type SpecialistStatus = typeof SpecialistStatusSchema.Type;
@@ -58,25 +59,27 @@ export type SpecialistOutcome = typeof SpecialistOutcomeSchema.Type;
 export const SPECIALIST_OUTCOME_VERSION = "holycodex-specialist-outcome-2";
 const OutcomeTextSchema = Schema.String.pipe(Schema.minLength(1));
 
-const SpecialistOutcomeV2CompletedSchema = Schema.Struct({
+const SpecialistOutcomeV2BaseFields = {
   protocol_version: Schema.Literal(SPECIALIST_OUTCOME_VERSION),
   route: RoleTaskSchema,
   evidence: Schema.Array(OutcomeTextSchema),
+} as const;
+export const SpecialistOutcomeV2BaseSchema = Schema.Struct(SpecialistOutcomeV2BaseFields);
+export type SpecialistOutcomeV2Base = typeof SpecialistOutcomeV2BaseSchema.Type;
+
+const SpecialistOutcomeV2CompletedSchema = Schema.Struct({
+  ...SpecialistOutcomeV2BaseFields,
   status: Schema.Literal("completed"),
   summary: OutcomeTextSchema,
 });
 const SpecialistOutcomeV2BlockedSchema = Schema.Struct({
-  protocol_version: Schema.Literal(SPECIALIST_OUTCOME_VERSION),
-  route: RoleTaskSchema,
-  evidence: Schema.Array(OutcomeTextSchema),
+  ...SpecialistOutcomeV2BaseFields,
   status: Schema.Literal("blocked"),
   reason: OutcomeTextSchema,
   needs_root_decision: Schema.Boolean,
 });
 const SpecialistOutcomeV2PartialSchema = Schema.Struct({
-  protocol_version: Schema.Literal(SPECIALIST_OUTCOME_VERSION),
-  route: RoleTaskSchema,
-  evidence: Schema.Array(OutcomeTextSchema),
+  ...SpecialistOutcomeV2BaseFields,
   status: Schema.Literal("partial"),
   summary: OutcomeTextSchema,
   completed: Schema.Array(OutcomeTextSchema),
@@ -84,9 +87,7 @@ const SpecialistOutcomeV2PartialSchema = Schema.Struct({
   needs_root_decision: Schema.Boolean,
 });
 const SpecialistOutcomeV2FailedSchema = Schema.Struct({
-  protocol_version: Schema.Literal(SPECIALIST_OUTCOME_VERSION),
-  route: RoleTaskSchema,
-  evidence: Schema.Array(OutcomeTextSchema),
+  ...SpecialistOutcomeV2BaseFields,
   status: Schema.Literal("failed"),
   error: OutcomeTextSchema,
 });
@@ -98,6 +99,105 @@ export const SpecialistOutcomeV2Schema = Schema.Union(
   SpecialistOutcomeV2FailedSchema,
 );
 export type SpecialistOutcomeV2 = typeof SpecialistOutcomeV2Schema.Type;
+export type SpecialistOutcomeV2ForRole<R extends Role> = SpecialistOutcomeV2 & {
+  readonly route: Extract<RoleTask, { readonly role: R }>;
+};
+type PublicOutcomeAliases = {
+  [R in Role as `${R}Outcome`]: SpecialistOutcomeV2ForRole<R>;
+};
+export type ExplorerOutcome = PublicOutcomeAliases["ExplorerOutcome"];
+export type LibrarianOutcome = PublicOutcomeAliases["LibrarianOutcome"];
+export type WorkerOutcome = PublicOutcomeAliases["WorkerOutcome"];
+export type ReviewerOutcome = PublicOutcomeAliases["ReviewerOutcome"];
+
+const CapabilityResultV2BaseFields = {
+  protocol_version: Schema.Literal(SPECIALIST_OUTCOME_VERSION),
+  capability: CapabilityNameSchema,
+  route: Schema.Union(RoleTaskSchema, Schema.Null),
+  evidence: Schema.Array(OutcomeTextSchema),
+  data: JsonValueSchema,
+} as const;
+const CapabilityResultV2CompletedSchema = Schema.Struct({
+  ...CapabilityResultV2BaseFields,
+  status: Schema.Literal("completed"),
+  summary: OutcomeTextSchema,
+});
+const CapabilityResultV2BlockedSchema = Schema.Struct({
+  ...CapabilityResultV2BaseFields,
+  status: Schema.Literal("blocked"),
+  reason: OutcomeTextSchema,
+  needs_root_decision: Schema.Boolean,
+});
+const CapabilityResultV2PartialSchema = Schema.Struct({
+  ...CapabilityResultV2BaseFields,
+  status: Schema.Literal("partial"),
+  summary: OutcomeTextSchema,
+  completed: Schema.Array(OutcomeTextSchema),
+  remaining: Schema.Array(OutcomeTextSchema),
+  needs_root_decision: Schema.Boolean,
+});
+const CapabilityResultV2FailedSchema = Schema.Struct({
+  ...CapabilityResultV2BaseFields,
+  status: Schema.Literal("failed"),
+  error: OutcomeTextSchema,
+});
+
+/** Common V2 envelope for typed host capabilities and specialist-compatible results. */
+export const CapabilityResultV2Schema = Schema.Union(
+  CapabilityResultV2CompletedSchema,
+  CapabilityResultV2BlockedSchema,
+  CapabilityResultV2PartialSchema,
+  CapabilityResultV2FailedSchema,
+);
+export type CapabilityResultV2 = typeof CapabilityResultV2Schema.Type;
+
+export function parseCapabilityResultV2(input: unknown): CoreResult<CapabilityResultV2> {
+  const parsed = decodeUnknown(CapabilityResultV2Schema, input);
+  if (Either.isLeft(parsed)) {
+    return failure(inputError("capability result v2", parsed.left));
+  }
+  return success(parsed.right);
+}
+
+export function specialistOutcomeFromCapabilityResult(
+  result: CapabilityResultV2,
+  expectedCapability: typeof CapabilityNameSchema.Type,
+  expectedRoute: RoleTask,
+): CoreResult<SpecialistOutcomeV2> {
+  if (result.capability !== expectedCapability || result.route === null) {
+    return failure(inputError("capability result route"));
+  }
+  if (!sameRoute(result.route, expectedRoute)) {
+    return failure(inputError("capability result route"));
+  }
+  const base = {
+    protocol_version: SPECIALIST_OUTCOME_VERSION,
+    route: expectedRoute,
+    evidence: result.evidence,
+  } as const;
+  switch (result.status) {
+    case "completed":
+      return success({ ...base, status: "completed", summary: result.summary });
+    case "blocked":
+      return success({
+        ...base,
+        status: "blocked",
+        reason: result.reason,
+        needs_root_decision: result.needs_root_decision,
+      });
+    case "partial":
+      return success({
+        ...base,
+        status: "partial",
+        summary: result.summary,
+        completed: result.completed,
+        remaining: result.remaining,
+        needs_root_decision: result.needs_root_decision,
+      });
+    case "failed":
+      return success({ ...base, status: "failed", error: result.error });
+  }
+}
 
 const CliWarningSchema = Schema.Array(Schema.String);
 const CliCommandSchema = Schema.String.pipe(

@@ -24,6 +24,10 @@ export type CapacityDispatchRequest = Readonly<{
   readonly maxCalls: number;
   readonly maxConcurrency: number;
   readonly maxCost: number;
+  readonly estimatedCost: number;
+}>;
+
+export type CapacitySettlement = Readonly<{
   readonly costUnits: number;
 }>;
 
@@ -36,11 +40,34 @@ export type CapacityRunReservationRequest = Readonly<{
 }>;
 
 export type CapacityLease = Readonly<{
+  readonly estimatedCost: number;
+  /** Commits measured or conservative cost; call exactly once per admitted dispatch. */
+  readonly settle: (settlement: CapacitySettlement) => Effect.Effect<void, WorkflowFailure>;
+  /** Releases only the live concurrency slot; calls and committed cost remain counted. */
   readonly release: Effect.Effect<void>;
 }>;
 
 export type CapacityRunReservation = Readonly<{
   readonly release: Effect.Effect<void>;
+}>;
+
+export type CapacityRunRestoreRequest = Readonly<{
+  readonly runId: string;
+  readonly maxCalls: number;
+  readonly maxConcurrency: number;
+  readonly maxCost: number;
+  readonly calls: number;
+  readonly committedCost: number;
+  readonly reservedCost: number;
+  readonly overflow: boolean;
+}>;
+
+export type CapacityLedgerSnapshot = Readonly<{
+  readonly calls: number;
+  readonly inFlight: number;
+  readonly committedCost: number;
+  readonly reservedCost: number;
+  readonly overflow: boolean;
 }>;
 
 export type CapacityService = Readonly<{
@@ -56,7 +83,12 @@ export type CapacityService = Readonly<{
   readonly reserveRun: (
     request: CapacityRunReservationRequest,
   ) => Effect.Effect<CapacityRunReservation, WorkflowFailure>;
-  /** Releases all reservations and observed accounting for a completed run. */
+  /** Restores persisted committed and outstanding ledger values without double charging. */
+  readonly restoreRun: (request: CapacityRunRestoreRequest) => Effect.Effect<void, WorkflowFailure>;
+  readonly snapshot: (
+    runId: string,
+  ) => Effect.Effect<CapacityLedgerSnapshot | undefined, WorkflowFailure>;
+  /** Releases run-local reservations while shared committed totals remain counted. */
   readonly releaseRun: (runId: string) => Effect.Effect<void>;
 }>;
 
@@ -112,23 +144,28 @@ export type WorkflowRuntimeOptions = Readonly<{
   readonly capacity: CapacityService;
   readonly services?: WorkflowHostServices;
   readonly runId?: string;
+  /** Optional exact internal hard-cost units supplied by a public host boundary. */
+  readonly costMax?: number;
+  /** Host-owned provider bridges perform the single external admission themselves. */
+  readonly externalAdmission?: boolean;
 }>;
 
 export function makeCapacityService(
   capacity: PlanCapacity,
 ): Effect.Effect<CapacityService, WorkflowFailure> {
   if (
-    !Number.isInteger(capacity.planConcurrency) ||
+    !Number.isSafeInteger(capacity.planConcurrency) ||
     capacity.planConcurrency < 1 ||
-    !Number.isInteger(capacity.sessionConcurrency) ||
+    !Number.isSafeInteger(capacity.sessionConcurrency) ||
     capacity.sessionConcurrency < 1 ||
-    !Number.isInteger(capacity.codexConcurrency) ||
+    !Number.isSafeInteger(capacity.codexConcurrency) ||
     capacity.codexConcurrency < 1 ||
-    !Number.isInteger(capacity.maxRetries) ||
+    !Number.isSafeInteger(capacity.maxRetries) ||
     capacity.maxRetries < 0 ||
     (capacity.maxCalls !== undefined &&
-      (!Number.isInteger(capacity.maxCalls) || capacity.maxCalls < 0)) ||
-    (capacity.costMax !== undefined && (!Number.isFinite(capacity.costMax) || capacity.costMax < 0))
+      (!Number.isSafeInteger(capacity.maxCalls) || capacity.maxCalls < 0)) ||
+    (capacity.costMax !== undefined &&
+      (!Number.isSafeInteger(capacity.costMax) || capacity.costMax < 0))
   ) {
     return Effect.fail(workflowFailure("capacity", "The shared workflow capacity is invalid."));
   }
@@ -139,8 +176,11 @@ export function makeCapacityService(
     const transaction = yield* Effect.makeSemaphore(1);
     const state: CapacityState = {
       runs: new Map(),
+      committedByRun: new Map(),
       inFlight: 0,
       globalCost: 0,
+      globalCalls: 0,
+      overflow: false,
     };
     const globalConcurrency = Math.min(
       capacity.planConcurrency,
@@ -148,6 +188,7 @@ export function makeCapacityService(
       capacity.codexConcurrency,
     );
     const globalCostMax = capacity.costMax ?? Number.MAX_SAFE_INTEGER;
+    const globalCallsMax = capacity.maxCalls ?? Number.MAX_SAFE_INTEGER;
 
     const acquire = (
       request: CapacityDispatchRequest,
@@ -158,46 +199,134 @@ export function makeCapacityService(
           if (invalid !== undefined) {
             return yield* Effect.fail(invalid);
           }
+          if (state.overflow) {
+            return yield* Effect.fail(
+              workflowFailure(
+                "settlement_overflow",
+                "The workflow cost ledger is closed after an overage.",
+                { retryable: false },
+              ),
+            );
+          }
           const existing = state.runs.get(request.runId);
           const run = existing ?? createRunState(request);
-          if (existing === undefined) {
-            state.runs.set(request.runId, run);
-          }
           if (run.maxCalls !== request.maxCalls || run.maxCost !== request.maxCost) {
             run.maxCalls = Math.min(run.maxCalls, request.maxCalls);
             run.maxCost = Math.min(run.maxCost, request.maxCost);
           }
           if (run.calls >= run.maxCalls) {
             return yield* Effect.fail(
-              workflowFailure("capacity", "The workflow call capacity was exhausted."),
+              workflowFailure("admission_exceeded", "The workflow call capacity was exhausted."),
+            );
+          }
+          if (state.globalCalls >= globalCallsMax) {
+            return yield* Effect.fail(
+              workflowFailure(
+                "admission_exceeded",
+                "The shared workflow call capacity was exhausted.",
+              ),
             );
           }
           if (run.inFlight >= request.maxConcurrency || state.inFlight >= globalConcurrency) {
             return yield* Effect.fail(
-              workflowFailure("capacity", "The workflow concurrency capacity was exhausted."),
+              workflowFailure(
+                "admission_exceeded",
+                "The workflow concurrency capacity was exhausted.",
+              ),
             );
           }
-          const nextCost = run.costUnits + request.costUnits;
-          if (nextCost > run.maxCost) {
+          const plannedCoverage = Math.min(run.plannedCost, request.estimatedCost);
+          const incrementalReservation = request.estimatedCost - plannedCoverage;
+          const nextRunCost = safeSum([
+            run.committedCost,
+            run.plannedCost,
+            run.outstandingCost,
+            incrementalReservation,
+          ]);
+          if (nextRunCost === undefined || nextRunCost > run.maxCost) {
             return yield* Effect.fail(
-              workflowFailure("capacity", "The workflow cost capacity was exhausted."),
+              workflowFailure("admission_exceeded", "The workflow cost capacity was exhausted."),
             );
           }
-          const nextCommittedCost = additionalCost(run, nextCost);
-          const nextGlobalCost = state.globalCost + nextCommittedCost - run.committedCost;
-          if (nextGlobalCost > globalCostMax) {
+          const nextGlobalCost = safeAdd(state.globalCost, incrementalReservation);
+          if (nextGlobalCost === undefined || nextGlobalCost > globalCostMax) {
             return yield* Effect.fail(
-              workflowFailure("capacity", "The shared workflow cost capacity was exhausted."),
+              workflowFailure(
+                "admission_exceeded",
+                "The shared workflow cost capacity was exhausted.",
+              ),
             );
+          }
+          if (existing === undefined) {
+            state.runs.set(request.runId, run);
           }
           run.calls += 1;
           run.inFlight += 1;
-          run.costUnits = nextCost;
-          run.committedCost = nextCommittedCost;
+          run.plannedCost -= plannedCoverage;
+          run.outstandingCost += request.estimatedCost;
           state.inFlight += 1;
+          state.globalCalls += 1;
           state.globalCost = nextGlobalCost;
           let released = false;
+          let settled = false;
           return {
+            estimatedCost: request.estimatedCost,
+            settle: (settlement: CapacitySettlement) =>
+              transaction.withPermits(1)(
+                Effect.gen(function* () {
+                  const invalidSettlement = validateSettlement(settlement);
+                  if (invalidSettlement !== undefined) {
+                    return yield* Effect.fail(invalidSettlement);
+                  }
+                  if (settled) {
+                    return;
+                  }
+                  if (
+                    state.runs.get(request.runId) !== run ||
+                    run.outstandingCost < request.estimatedCost
+                  ) {
+                    return yield* Effect.fail(
+                      workflowFailure(
+                        "ledger_corruption",
+                        "The workflow cost lease is no longer tracked.",
+                      ),
+                    );
+                  }
+                  settled = true;
+                  run.outstandingCost -= request.estimatedCost;
+                  const nextCommittedCost = safeAdd(run.committedCost, settlement.costUnits);
+                  const remainingGlobalCost = state.globalCost - request.estimatedCost;
+                  const nextGlobalCost = safeAdd(remainingGlobalCost, settlement.costUnits);
+                  run.committedCost = nextCommittedCost ?? Number.MAX_SAFE_INTEGER;
+                  state.globalCost = nextGlobalCost ?? Number.MAX_SAFE_INTEGER;
+                  state.committedByRun.set(request.runId, {
+                    calls: run.calls,
+                    cost: run.committedCost,
+                  });
+                  const runTotal = safeSum([
+                    run.committedCost,
+                    run.plannedCost,
+                    run.outstandingCost,
+                  ]);
+                  const runOverflow =
+                    nextCommittedCost === undefined ||
+                    runTotal === undefined ||
+                    runTotal > run.maxCost;
+                  const globalOverflow =
+                    nextGlobalCost === undefined || state.globalCost > globalCostMax;
+                  if (runOverflow || globalOverflow) {
+                    run.overflow = true;
+                    state.overflow = true;
+                    return yield* Effect.fail(
+                      workflowFailure(
+                        "settlement_overflow",
+                        "Measured workflow cost exceeded the hard budget.",
+                        { retryable: false },
+                      ),
+                    );
+                  }
+                }),
+              ),
             release: transaction.withPermits(1)(
               Effect.sync(() => {
                 if (released) {
@@ -223,7 +352,7 @@ export function makeCapacityService(
           }
           if (request.calls > request.maxCalls || request.costUnits > request.maxCost) {
             return yield* Effect.fail(
-              workflowFailure("capacity", "The run exceeds its admitted capacity."),
+              workflowFailure("admission_exceeded", "The run exceeds its admitted capacity."),
             );
           }
           const existing = state.runs.get(request.runId);
@@ -232,23 +361,28 @@ export function makeCapacityService(
               workflowFailure("capacity", "The workflow run is already admitted."),
             );
           }
-          if (state.globalCost + request.costUnits > globalCostMax) {
+          const nextGlobalCost = safeAdd(state.globalCost, request.costUnits);
+          if (state.overflow || nextGlobalCost === undefined || nextGlobalCost > globalCostMax) {
             return yield* Effect.fail(
-              workflowFailure("capacity", "The shared workflow cost capacity was exhausted."),
+              workflowFailure(
+                "admission_exceeded",
+                "The shared workflow cost capacity was exhausted.",
+              ),
             );
           }
           const run: CapacityRunState = {
             calls: 0,
             inFlight: 0,
-            costUnits: 0,
+            plannedCost: request.costUnits,
+            outstandingCost: 0,
             reservedCalls: request.calls,
-            reservedCost: request.costUnits,
             committedCost: 0,
             maxCalls: request.maxCalls,
             maxCost: request.maxCost,
+            overflow: false,
           };
           state.runs.set(request.runId, run);
-          state.globalCost += request.costUnits;
+          state.globalCost = nextGlobalCost;
           let released = false;
           return {
             release: transaction.withPermits(1)(
@@ -265,11 +399,110 @@ export function makeCapacityService(
                 state.inFlight = Math.max(0, state.inFlight - current.inFlight);
                 state.globalCost = Math.max(
                   0,
-                  state.globalCost - current.reservedCost - current.committedCost,
+                  state.globalCost - current.plannedCost - current.outstandingCost,
                 );
               }),
             ),
           } satisfies CapacityRunReservation;
+        }),
+      );
+
+    const restoreRun = (request: CapacityRunRestoreRequest): Effect.Effect<void, WorkflowFailure> =>
+      transaction.withPermits(1)(
+        Effect.gen(function* () {
+          const invalid = validateRestoreRequest(request);
+          if (invalid !== undefined) {
+            return yield* Effect.fail(invalid);
+          }
+          const existing = state.runs.get(request.runId);
+          if (existing !== undefined) {
+            if (
+              existing.calls !== request.calls ||
+              existing.committedCost !== request.committedCost ||
+              existing.outstandingCost + existing.plannedCost !== request.reservedCost
+            ) {
+              return yield* Effect.fail(
+                workflowFailure(
+                  "ledger_corruption",
+                  "The persisted workflow ledger conflicts with live state.",
+                ),
+              );
+            }
+            return;
+          }
+          const prior = state.committedByRun.get(request.runId);
+          if (
+            prior !== undefined &&
+            (prior.calls !== request.calls || prior.cost !== request.committedCost)
+          ) {
+            return yield* Effect.fail(
+              workflowFailure(
+                "ledger_corruption",
+                "The persisted workflow ledger was changed unexpectedly.",
+              ),
+            );
+          }
+          const additionalCommitted = prior === undefined ? request.committedCost : 0;
+          const additionalCalls = prior === undefined ? request.calls : 0;
+          const nextGlobalCost = safeSum([
+            state.globalCost,
+            additionalCommitted,
+            request.reservedCost,
+          ]);
+          const nextGlobalCalls = safeAdd(state.globalCalls, additionalCalls);
+          if (
+            nextGlobalCost === undefined ||
+            nextGlobalCost > globalCostMax ||
+            nextGlobalCalls === undefined ||
+            nextGlobalCalls > globalCallsMax
+          ) {
+            return yield* Effect.fail(
+              workflowFailure(
+                "ledger_corruption",
+                "The persisted workflow ledger exceeds shared capacity.",
+              ),
+            );
+          }
+          state.globalCost = nextGlobalCost;
+          state.globalCalls = nextGlobalCalls;
+          state.committedByRun.set(request.runId, {
+            calls: request.calls,
+            cost: request.committedCost,
+          });
+          state.runs.set(request.runId, {
+            calls: request.calls,
+            inFlight: 0,
+            plannedCost: 0,
+            outstandingCost: request.reservedCost,
+            reservedCalls: 0,
+            committedCost: request.committedCost,
+            maxCalls: request.maxCalls,
+            maxCost: request.maxCost,
+            overflow: request.overflow,
+          });
+          if (request.overflow) {
+            state.overflow = true;
+          }
+        }),
+      );
+
+    const snapshot = (
+      runId: string,
+    ): Effect.Effect<CapacityLedgerSnapshot | undefined, WorkflowFailure> =>
+      transaction.withPermits(1)(
+        Effect.sync(() => {
+          const run = state.runs.get(runId);
+          if (run === undefined) {
+            return undefined;
+          }
+          return {
+            calls: run.calls,
+            inFlight: run.inFlight,
+            committedCost: run.committedCost,
+            reservedCost:
+              safeSum([run.plannedCost, run.outstandingCost]) ?? Number.MAX_SAFE_INTEGER,
+            overflow: state.overflow || run.overflow,
+          } satisfies CapacityLedgerSnapshot;
         }),
       );
 
@@ -282,64 +515,83 @@ export function makeCapacityService(
           }
           state.runs.delete(runId);
           state.inFlight = Math.max(0, state.inFlight - run.inFlight);
-          state.globalCost = Math.max(0, state.globalCost - run.reservedCost - run.committedCost);
+          state.globalCost = Math.max(0, state.globalCost - run.plannedCost - run.outstandingCost);
         }),
       );
 
-    return { plan, session, codex, acquire, reserveRun, releaseRun } satisfies CapacityService;
+    return {
+      plan,
+      session,
+      codex,
+      acquire,
+      reserveRun,
+      restoreRun,
+      snapshot,
+      releaseRun,
+    } satisfies CapacityService;
   });
 }
 
 type CapacityRunState = {
   calls: number;
   inFlight: number;
-  costUnits: number;
+  plannedCost: number;
+  outstandingCost: number;
   reservedCalls: number;
-  reservedCost: number;
   committedCost: number;
   maxCalls: number;
   maxCost: number;
+  overflow: boolean;
 };
 
 type CapacityState = {
   readonly runs: Map<string, CapacityRunState>;
+  readonly committedByRun: Map<string, Readonly<{ readonly calls: number; readonly cost: number }>>;
   inFlight: number;
   globalCost: number;
+  globalCalls: number;
+  overflow: boolean;
 };
 
 function createRunState(request: CapacityDispatchRequest): CapacityRunState {
   const run: CapacityRunState = {
     calls: 0,
     inFlight: 0,
-    costUnits: 0,
+    plannedCost: 0,
+    outstandingCost: 0,
     reservedCalls: 0,
-    reservedCost: 0,
     committedCost: 0,
     maxCalls: request.maxCalls,
     maxCost: request.maxCost,
+    overflow: false,
   };
   return run;
-}
-
-function additionalCost(run: CapacityRunState, nextCost: number): number {
-  return Math.max(0, nextCost - run.reservedCost);
 }
 
 function validateDispatchRequest(request: CapacityDispatchRequest): WorkflowFailure | undefined {
   if (
     request.runId.length === 0 ||
-    !Number.isInteger(request.maxCalls) ||
+    !Number.isSafeInteger(request.maxCalls) ||
     request.maxCalls < 0 ||
-    !Number.isInteger(request.maxConcurrency) ||
+    !Number.isSafeInteger(request.maxConcurrency) ||
     request.maxConcurrency < 1 ||
-    !Number.isFinite(request.maxCost) ||
+    !Number.isSafeInteger(request.maxCost) ||
     request.maxCost < 0 ||
-    !Number.isFinite(request.costUnits) ||
-    request.costUnits <= 0
+    !Number.isSafeInteger(request.estimatedCost) ||
+    request.estimatedCost <= 0
   ) {
-    return workflowFailure("capacity", "The workflow dispatch capacity request is invalid.");
+    return workflowFailure(
+      "ledger_corruption",
+      "The workflow dispatch capacity request is invalid.",
+    );
   }
   return undefined;
+}
+
+function validateSettlement(settlement: CapacitySettlement): WorkflowFailure | undefined {
+  return Number.isSafeInteger(settlement.costUnits) && settlement.costUnits >= 0
+    ? undefined
+    : workflowFailure("measurement_malformed", "The measured workflow cost is invalid.");
 }
 
 function validateReservationRequest(
@@ -347,18 +599,78 @@ function validateReservationRequest(
 ): WorkflowFailure | undefined {
   if (
     request.runId.length === 0 ||
-    !Number.isInteger(request.calls) ||
+    !Number.isSafeInteger(request.calls) ||
     request.calls < 0 ||
-    !Number.isInteger(request.maxCalls) ||
+    !Number.isSafeInteger(request.maxCalls) ||
     request.maxCalls < 0 ||
-    !Number.isFinite(request.costUnits) ||
+    !Number.isSafeInteger(request.costUnits) ||
     request.costUnits < 0 ||
-    !Number.isFinite(request.maxCost) ||
+    !Number.isSafeInteger(request.maxCost) ||
     request.maxCost < 0
   ) {
-    return workflowFailure("capacity", "The workflow run capacity request is invalid.");
+    return workflowFailure("ledger_corruption", "The workflow run capacity request is invalid.");
   }
   return undefined;
+}
+
+function validateRestoreRequest(request: CapacityRunRestoreRequest): WorkflowFailure | undefined {
+  const totalCost = safeSum([request.committedCost, request.reservedCost]);
+  if (
+    request.runId.length === 0 ||
+    !Number.isSafeInteger(request.maxCalls) ||
+    request.maxCalls < 0 ||
+    !Number.isSafeInteger(request.maxConcurrency) ||
+    request.maxConcurrency < 1 ||
+    !Number.isSafeInteger(request.maxCost) ||
+    request.maxCost < 0 ||
+    !Number.isSafeInteger(request.calls) ||
+    request.calls < 0 ||
+    !Number.isSafeInteger(request.committedCost) ||
+    request.committedCost < 0 ||
+    !Number.isSafeInteger(request.reservedCost) ||
+    request.reservedCost < 0 ||
+    request.calls > request.maxCalls ||
+    totalCost === undefined ||
+    totalCost > request.maxCost
+  ) {
+    return workflowFailure("ledger_corruption", "The persisted workflow ledger is invalid.");
+  }
+  return undefined;
+}
+
+function runtimeEstimate(capacity: PlanCapacity): number {
+  const maxCalls = Math.max(1, capacity.maxCalls ?? 1);
+  const costMax =
+    capacity.costMax === undefined || capacity.costMax === Number.MAX_SAFE_INTEGER
+      ? maxCalls
+      : capacity.costMax;
+  const estimate = Math.max(1, Math.ceil(costMax / maxCalls));
+  return Number.isSafeInteger(estimate) ? estimate : Number.MAX_SAFE_INTEGER;
+}
+
+function safeAdd(left: number, right: number): number | undefined {
+  if (
+    !Number.isSafeInteger(left) ||
+    left < 0 ||
+    !Number.isSafeInteger(right) ||
+    right < 0 ||
+    left > Number.MAX_SAFE_INTEGER - right
+  ) {
+    return undefined;
+  }
+  return left + right;
+}
+
+function safeSum(values: readonly number[]): number | undefined {
+  let total = 0;
+  for (const value of values) {
+    const next = safeAdd(total, value);
+    if (next === undefined) {
+      return undefined;
+    }
+    total = next;
+  }
+  return total;
 }
 
 export function runExecutionPlan<T>(
@@ -602,17 +914,6 @@ function runNodeIteration(
             ? Effect.void
             : services.approval({ runId, nodeId: node.id, name: node.name });
         const admitted = Effect.gen(function* () {
-          const lease = yield* options.capacity.acquire({
-            runId,
-            maxCalls: capacity.maxCalls ?? Number.MAX_SAFE_INTEGER,
-            maxConcurrency: Math.min(
-              capacity.planConcurrency,
-              capacity.sessionConcurrency,
-              capacity.codexConcurrency,
-            ),
-            maxCost: capacity.costMax ?? Number.MAX_SAFE_INTEGER,
-            costUnits: 1,
-          });
           const executed = agent.execute(assignment).pipe(
             Effect.mapError((cause) => toExecutionFailure(cause, node.id)),
             Effect.flatMap((raw) =>
@@ -622,7 +923,31 @@ function runNodeIteration(
               }),
             ),
           );
-          return yield* executed.pipe(Effect.ensuring(lease.release));
+          if (options.externalAdmission === true) {
+            return yield* executed;
+          }
+          const runtimeCostMax = options.costMax ?? capacity.costMax ?? Number.MAX_SAFE_INTEGER;
+          const estimatedCost = runtimeEstimate({ ...capacity, costMax: runtimeCostMax });
+          const lease = yield* options.capacity.acquire({
+            runId,
+            maxCalls: capacity.maxCalls ?? Number.MAX_SAFE_INTEGER,
+            maxConcurrency: Math.min(
+              capacity.planConcurrency,
+              capacity.sessionConcurrency,
+              capacity.codexConcurrency,
+            ),
+            maxCost: runtimeCostMax,
+            estimatedCost,
+          });
+          return yield* executed.pipe(
+            Effect.catchAllCause((cause) =>
+              lease
+                .settle({ costUnits: estimatedCost })
+                .pipe(Effect.andThen(Effect.failCause(cause))),
+            ),
+            Effect.tap(() => lease.settle({ costUnits: estimatedCost })),
+            Effect.ensuring(lease.release),
+          );
         });
         return approval.pipe(Effect.andThen(admitted));
       }),

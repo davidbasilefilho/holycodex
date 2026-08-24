@@ -6,6 +6,11 @@ import { readFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vite-plus/test";
+import {
+  assertReleaseVersion,
+  developmentVersion,
+  stableVersionFromTag,
+} from "../scripts/release-version.ts";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const canonicalManifestPath = "packages/cli/package.json";
@@ -35,6 +40,21 @@ describe("release version authority", () => {
     const manifest = await readCanonicalManifest();
 
     expect(manifest.version).toMatch(VersionText);
+  });
+
+  test("derives collision-safe development versions without changing the base version", () => {
+    const version = developmentVersion("0.1.2", "17", "3");
+
+    expect(version).toBe("0.1.2-dev.17.3");
+    expect(version).not.toBe("0.1.2-dev.17.2");
+    expect(() => developmentVersion("0.1.2", "0", "1")).toThrow();
+  });
+
+  test("requires stable tags to match the canonical version and rejects prerelease mixing", () => {
+    expect(stableVersionFromTag("0.1.2", "v0.1.2")).toBe("0.1.2");
+    expect(() => stableVersionFromTag("0.1.2", "v0.1.3")).toThrow();
+    expect(() => assertReleaseVersion("0.1.2", "stable", "0.1.2-dev.17.3")).toThrow();
+    expect(() => assertReleaseVersion("0.1.2", "dev", "0.1.2")).toThrow();
   });
 });
 

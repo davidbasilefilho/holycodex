@@ -20,14 +20,18 @@
     "plan-review",
     "refactor",
     "remove-slop",
-    "rules"
+    "rules",
+    "ponytail"
   ],
   "assets": [
     "agents/root.md",
     "agents/explorer.md",
     "agents/librarian.md",
     "agents/worker.md",
-    "agents/reviewer.md"
+    "agents/reviewer.md",
+    "skills/ponytail/LICENSE",
+    "skills/ponytail/NOTICE",
+    "skills/ponytail/metadata.json"
   ],
   "hooks": ["hooks/manifest.json"],
   "rules": ["rules/manifest.json", "rules/holycodex.md"],

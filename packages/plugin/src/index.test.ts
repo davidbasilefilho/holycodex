@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vite-plus/test";
+import { APPROVAL_POLICY_GUIDANCE } from "@holycodex/core";
 import {
   PluginError,
   assemblePayload,
@@ -13,10 +15,9 @@ import {
   sourceManifestPath,
   validateSource,
   verifyPayload,
+  verifyPonytailMetadata,
 } from "./index";
 import { normalizeRelativePath } from "./source.ts";
-
-const tempRoot = "/tmp";
 
 describe("plugin source assets", () => {
   test("validates the complete owned source and independent capability roles", async () => {
@@ -53,23 +54,33 @@ describe("plugin source assets", () => {
       expect(instruction).toContain("linting");
       expect(instruction).toContain("tests");
       expect(instruction).toMatch(/no (?:additional|extra|user) approval/iu);
+      expect(instruction.replaceAll(/\s+/gu, " ")).toContain(
+        APPROVAL_POLICY_GUIDANCE.noRootApproval,
+      );
+      expect(instruction.replaceAll(/\s+/gu, " ")).toContain(APPROVAL_POLICY_GUIDANCE.rootApproval);
     }
   });
 
   test("keeps skill frontmatter, metadata, invocation, and server declarations in policy", async () => {
     const source = await validateSource(pluginSourceRoot);
     const skills = source.manifest.skills ?? [];
-    expect(skills).toHaveLength(18);
+    expect(skills).toHaveLength(19);
     for (const skill of skills) {
       const body = await readFile(join(pluginSourceRoot, "skills", skill, "SKILL.md"), "utf8");
       const metadata = await readFile(
         join(pluginSourceRoot, "skills", skill, "agents", "openai.yaml"),
         "utf8",
       );
-      expect(body).toMatch(new RegExp(`^---\\nname: ${skill}\\ndescription: .+\\n---`, "u"));
-      expect(body).toContain("Owner:");
-      expect(body).toContain("Boundary:");
-      expect(body).toContain("Completion:");
+      if (skill === "ponytail") {
+        expect(body).toContain("description: >");
+        expect(body).toContain("name: ponytail");
+        expect(body).toContain("Boundaries");
+      } else {
+        expect(body).toMatch(new RegExp(`^---\\nname: ${skill}\\ndescription: .+\\n---`, "u"));
+        expect(body).toContain("Owner:");
+        expect(body).toContain("Boundary:");
+        expect(body).toContain("Completion:");
+      }
       expect(metadata).toContain("interface:");
       expect(metadata).toContain("default_prompt:");
       expect(metadata).toMatch(/allow_implicit_invocation: (true|false)/u);
@@ -91,13 +102,25 @@ describe("plugin source assets", () => {
     expect(source.files.map((file) => file.path)).toContain("rules/holycodex.md");
     expect(source.files.map((file) => file.path)).toContain("compaction/holycodex.md");
   });
+
+  test("verifies vendored Ponytail metadata and rejects tampered bytes", async () => {
+    const readBytes = (path: string): Promise<Uint8Array> => readFile(join(pluginSourceRoot, path));
+    await expect(verifyPonytailMetadata(readBytes, "source_invalid")).resolves.toBeUndefined();
+
+    await expect(
+      verifyPonytailMetadata(async (path) => {
+        const bytes = await readBytes(path);
+        return path === "skills/ponytail/NOTICE" ? new Uint8Array([...bytes, 0]) : bytes;
+      }, "source_invalid"),
+    ).rejects.toMatchObject({ code: "digest_invalid" });
+  });
 });
 
 describe("deterministic payload assembly", () => {
   test("injects version only into staged metadata and verifies a deterministic identity", async () => {
     const sourceRoot = await createFixture();
-    const stagingA = await mkdtemp(join(tempRoot, "holycodex-plugin-stage-a-"));
-    const stagingB = await mkdtemp(join(tempRoot, "holycodex-plugin-stage-b-"));
+    const stagingA = await mkdtemp(join(tmpdir(), "holycodex-plugin-stage-a-"));
+    const stagingB = await mkdtemp(join(tmpdir(), "holycodex-plugin-stage-b-"));
     try {
       const plan = await planAssembly({
         sourceRoot,
@@ -138,9 +161,9 @@ describe("deterministic payload assembly", () => {
   test("changes identity for different bytes and for a different schema epoch", async () => {
     const sourceRoot = await createFixture();
     const changedRoot = await createFixture();
-    const stagingA = await mkdtemp(join(tempRoot, "holycodex-plugin-stage-byte-a-"));
-    const stagingB = await mkdtemp(join(tempRoot, "holycodex-plugin-stage-byte-b-"));
-    const stagingC = await mkdtemp(join(tempRoot, "holycodex-plugin-stage-epoch-"));
+    const stagingA = await mkdtemp(join(tmpdir(), "holycodex-plugin-stage-byte-a-"));
+    const stagingB = await mkdtemp(join(tmpdir(), "holycodex-plugin-stage-byte-b-"));
+    const stagingC = await mkdtemp(join(tmpdir(), "holycodex-plugin-stage-epoch-"));
     try {
       await writeFile(join(changedRoot, "agents", "worker.md"), "changed bytes\n");
       const first = await assemblePayload({
@@ -180,8 +203,9 @@ describe("deterministic payload assembly", () => {
       });
 
       await symlink(
-        join(symlinkRoot, "agents", "worker.md"),
-        join(symlinkRoot, "agents", "link.md"),
+        join(symlinkRoot, "agents"),
+        join(symlinkRoot, "linked-agents"),
+        process.platform === "win32" ? "junction" : "dir",
       );
       await expect(validateSource(symlinkRoot)).rejects.toMatchObject({ code: "path_invalid" });
 
@@ -200,8 +224,8 @@ describe("deterministic payload assembly", () => {
 
   test("refuses non-empty staging and detects digest corruption", async () => {
     const sourceRoot = await createFixture();
-    const staging = await mkdtemp(join(tempRoot, "holycodex-plugin-stage-corrupt-"));
-    const occupied = await mkdtemp(join(tempRoot, "holycodex-plugin-stage-occupied-"));
+    const staging = await mkdtemp(join(tmpdir(), "holycodex-plugin-stage-corrupt-"));
+    const occupied = await mkdtemp(join(tmpdir(), "holycodex-plugin-stage-occupied-"));
     try {
       await expect(
         assemblePayload({
@@ -238,7 +262,7 @@ describe("deterministic payload assembly", () => {
 });
 
 async function createFixture(): Promise<string> {
-  const root = await mkdtemp(join(tempRoot, "holycodex-plugin-source-"));
+  const root = await mkdtemp(join(tmpdir(), "holycodex-plugin-source-"));
   await mkdir(join(root, ".codex-plugin"), { recursive: true });
   await mkdir(join(root, "agents"), { recursive: true });
   await mkdir(join(root, "skills", "sample", "agents"), { recursive: true });

@@ -44,7 +44,7 @@ const pairCodec = createCodec(
 function assignment<I, O>(
   input: ValueCodec<I>,
   output: ValueCodec<O>,
-  payload: unknown = undefined,
+  payload?: unknown,
 ): Assignment<I, O> {
   return { input, output, payload };
 }

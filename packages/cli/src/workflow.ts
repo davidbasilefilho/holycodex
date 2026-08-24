@@ -3,22 +3,38 @@
 import {
   AppServer,
   AppServerLive,
-  AgentExecutionLive,
+  CodexError,
   createProjectTrustIdentity,
   discoverCodexExecutable,
   executeAssignment,
+  SemanticAssignmentPacketSchema,
+  SemanticExecutionOutcomeSchema,
+  LiveOfficialPluginListEnvelopeSchema,
+  type AssignmentExecutionOptions,
+  type AssignmentExecutionService,
+  type CodexExecutableIdentity,
   type ProjectTrustIdentity,
   type SemanticAssignmentPacket,
+  type SemanticExecutionOutcome,
 } from "@holycodex/codex";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import {
+  CAPABILITY_REGISTRY,
+  CapabilityNameSchema,
   canonicalJson,
+  canonicalJsonUtf8,
   domainSeparatedSha256,
   lookupRoleDefinition,
   lookupPlan,
+  normalizeSpecialistOutcome,
+  parseCapabilityResultV2,
   RoleTaskSchema,
-  SpecialistOutcomeSchema,
+  RouteKeySchema,
+  SPECIALIST_OUTCOME_VERSION,
+  specialistOutcomeFromCapabilityResult,
+  type CapabilityName,
+  type CapabilityResultV2,
   type JsonObject,
   type JsonValue,
   type PlanName,
@@ -26,14 +42,14 @@ import {
 } from "@holycodex/core";
 import {
   FileRunStore,
+  buildNativeWorkflowIdentity,
   WorkflowHost,
   type WorkflowDefinition,
   type WorkflowHostOptions,
 } from "@holycodex/workflow-host";
-import { Wait } from "@holycodex/workflow-runtime";
+import { loadNativeWorkflowSource, type NativeWorkflow } from "@holycodex/workflow-runtime";
 import { readFile, stat } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { basename, extname, relative, resolve } from "node:path";
 import { resolveInstallerPaths } from "./paths.ts";
 import { readActiveInstallRecord } from "./installer.ts";
 import type {
@@ -46,8 +62,24 @@ import type {
 import { decodeSchema, JsonObjectSchema, JsonValueSchema } from "./schema.ts";
 import { asJsonValue } from "./json.ts";
 import { readSavedWorkflow, saveWorkflow } from "./workflow-store.ts";
+import { GeneratedWorkflowStore, GeneratedWorkflowStoreError } from "./generated-workflow-store.ts";
 import { migrateLegacyState, readMigratedInstallerSelections } from "./migration.ts";
 import { findRefinement, listRefinements, replaceRefinement } from "./refinement-store.ts";
+import { CodexOfficialPluginManager } from "./official-manager.ts";
+import { executeLspSetup, type ToolExecutionResult } from "@holycodex/lsp-core/tools";
+import { callToolViaDaemon } from "@holycodex/lsp-daemon";
+import {
+  normalizeGitBashEnvironment,
+  resolveGitBashForCurrentProcess,
+  runGitBashCommand,
+} from "@holycodex/git-bash";
+import type {
+  AppServerAssignmentPort,
+  CapabilityStateRecord,
+  OfficialPluginStatus,
+  WorkflowCapabilityPort,
+  WorkflowCapabilityRequest,
+} from "./types.ts";
 
 const MAX_WORKFLOW_SOURCE_BYTES = 1024 * 1024;
 
@@ -64,7 +96,7 @@ export async function executeWorkflowCommand(
   const service = context.workflowService ?? (await createDefaultWorkflowService(context, parsed));
   switch (parsed.command) {
     case "workflow run": {
-      const workflow = await readWorkflowSource(
+      let workflow = await readWorkflowSource(
         parsed.positionals[0] ?? "",
         parsed.positionals[1],
         parsed,
@@ -72,43 +104,73 @@ export async function executeWorkflowCommand(
       );
       const compatibility = parsed.options["compat-quickjs"] === true;
       const nativeRequested = context.workflowService === undefined && !compatibility;
-      const nativeWorkflow = nativeRequested ? await loadNativeWorkflow(workflow) : undefined;
-      const createInput: {
-        source: string;
-        args: JsonValue;
-        objective: string;
-        plan?: PlanName;
-        serviceTier?: ServiceTier;
-        autonomy?: "manual" | "assisted" | "autonomous";
-        maxSubagents?: number;
-        workflow?: WorkflowDefinition;
-      } = {
-        source: workflow.source,
-        args: workflow.args,
-        objective:
-          optionString(parsed, "task") ?? defaultObjective(workflow.path, parsed.positionals[0]),
-      };
-      const plan = optionalPlan(parsed);
-      const tier = optionalTier(parsed);
-      const autonomy = optionalAutonomy(parsed);
-      const maxSubagents = optionalMaxSubagents(parsed);
-      if (plan !== undefined) createInput.plan = plan;
-      if (tier !== undefined) createInput.serviceTier = tier;
-      if (autonomy !== undefined) createInput.autonomy = autonomy;
-      if (maxSubagents !== undefined) createInput.maxSubagents = maxSubagents;
-      if (nativeWorkflow !== undefined) createInput.workflow = nativeWorkflow;
-      const created = await requireCapability(service.create, "create")(createInput);
-      const execution = await requireCapability(
-        service.run,
-        "run",
-      )({
-        runId: created.run_id,
-        source: workflow.source,
-        args: workflow.args,
-        ...(nativeWorkflow === undefined ? {} : { workflow: nativeWorkflow }),
-        ...(compatibility ? { compatibility: true } : {}),
-      });
-      return asJsonValue(execution);
+      const generatedStore =
+        context.workflowService === undefined && workflow.path === null
+          ? await materializeGeneratedWorkflow(workflow, context)
+          : undefined;
+      if (generatedStore !== undefined) workflow = generatedStore.source;
+      let nativeWorkflow: NativeWorkflow | undefined;
+      try {
+        nativeWorkflow = nativeRequested ? await loadNativeWorkflow(workflow) : undefined;
+        if (
+          nativeWorkflow !== undefined &&
+          generatedStore !== undefined &&
+          workflow.path !== null
+        ) {
+          await generatedStore.store.recordNativeIdentity(
+            workflow.path,
+            await buildNativeWorkflowIdentity(workflow.source, nativeWorkflow, {}),
+          );
+        }
+        const createInput: {
+          source: string;
+          args: JsonValue;
+          objective: string;
+          sourcePath?: string;
+          plan?: PlanName;
+          serviceTier?: ServiceTier;
+          autonomy?: "manual" | "assisted" | "autonomous";
+          maxSubagents?: number;
+          workflow?: WorkflowDefinition;
+        } = {
+          source: workflow.source,
+          args: workflow.args,
+          ...(generatedStore === undefined || workflow.path === null
+            ? {}
+            : { sourcePath: workflow.path }),
+          objective:
+            optionString(parsed, "task") ?? defaultObjective(workflow.path, parsed.positionals[0]),
+        };
+        const plan = optionalPlan(parsed);
+        const tier = optionalTier(parsed);
+        const autonomy = optionalAutonomy(parsed);
+        const maxSubagents = optionalMaxSubagents(parsed);
+        if (plan !== undefined) createInput.plan = plan;
+        if (tier !== undefined) createInput.serviceTier = tier;
+        if (autonomy !== undefined) createInput.autonomy = autonomy;
+        if (maxSubagents !== undefined) createInput.maxSubagents = maxSubagents;
+        if (nativeWorkflow !== undefined) createInput.workflow = nativeWorkflow;
+        const created = await requireCapability(service.create, "create")(createInput);
+        const execution = await requireCapability(
+          service.run,
+          "run",
+        )({
+          runId: created.run_id,
+          source: workflow.source,
+          args: workflow.args,
+          ...(generatedStore === undefined || workflow.path === null
+            ? {}
+            : { sourcePath: workflow.path }),
+          ...(nativeWorkflow === undefined ? {} : { workflow: nativeWorkflow }),
+          ...(compatibility ? { compatibility: true } : {}),
+        });
+        return asJsonValue(execution);
+      } finally {
+        nativeWorkflow?.dispose();
+        await generatedStore?.store
+          .setSessionActivity(generatedStore.sessionId, false)
+          .catch(() => undefined);
+      }
     }
     case "workflow list":
       return asJsonValue(await requireCapability(service.list, "list")());
@@ -125,27 +187,54 @@ export async function executeWorkflowCommand(
       );
     case "workflow resume": {
       const runId = requiredPosition(parsed, 0, "run id");
-      const workflow = await readWorkflowSource(
+      let workflow = await readWorkflowSource(
         requiredPosition(parsed, 1, "workflow source"),
         parsed.positionals[2],
         parsed,
         context,
       );
+      await assertResumeInputIdentity(service, runId, workflow);
       const compatibility = parsed.options["compat-quickjs"] === true;
       const nativeRequested = context.workflowService === undefined && !compatibility;
-      const nativeWorkflow = nativeRequested ? await loadNativeWorkflow(workflow) : undefined;
-      return asJsonValue(
-        await requireCapability(
-          service.resume,
-          "resume",
-        )({
-          runId,
-          source: workflow.source,
-          args: workflow.args,
-          ...(nativeWorkflow === undefined ? {} : { workflow: nativeWorkflow }),
-          ...(compatibility ? { compatibility: true } : {}),
-        }),
-      );
+      const generatedStore =
+        context.workflowService === undefined && workflow.path === null
+          ? await materializeGeneratedWorkflow(workflow, context)
+          : undefined;
+      if (generatedStore !== undefined) workflow = generatedStore.source;
+      let nativeWorkflow: NativeWorkflow | undefined;
+      try {
+        nativeWorkflow = nativeRequested ? await loadNativeWorkflow(workflow) : undefined;
+        if (
+          nativeWorkflow !== undefined &&
+          generatedStore !== undefined &&
+          workflow.path !== null
+        ) {
+          await generatedStore.store.recordNativeIdentity(
+            workflow.path,
+            await buildNativeWorkflowIdentity(workflow.source, nativeWorkflow, {}),
+          );
+        }
+        return asJsonValue(
+          await requireCapability(
+            service.resume,
+            "resume",
+          )({
+            runId,
+            source: workflow.source,
+            args: workflow.args,
+            ...(generatedStore === undefined || workflow.path === null
+              ? {}
+              : { sourcePath: workflow.path }),
+            ...(nativeWorkflow === undefined ? {} : { workflow: nativeWorkflow }),
+            ...(compatibility ? { compatibility: true } : {}),
+          }),
+        );
+      } finally {
+        nativeWorkflow?.dispose();
+        await generatedStore?.store
+          .setSessionActivity(generatedStore.sessionId, false)
+          .catch(() => undefined);
+      }
     }
     case "workflow continuation": {
       const runId = requiredPosition(parsed, 0, "run id");
@@ -295,6 +384,28 @@ export async function readWorkflowSource(
     );
   }
   const path = resolve(context.cwd ?? process.cwd(), reference);
+  const generatedStore = new GeneratedWorkflowStore(
+    resolveWorkflowInstallerPaths(context.installer, context.env).stateRoot,
+    {
+      ...(context.now === undefined ? {} : { now: context.now }),
+      ...(context.generatedWorkflowBoundary === undefined
+        ? {}
+        : { boundary: context.generatedWorkflowBoundary }),
+    },
+  );
+  if (generatedStore.ownsPath(path)) {
+    try {
+      const stored = await generatedStore.read(path);
+      return { source: stored.source, args, path: stored.metadata.source_path };
+    } catch (error: unknown) {
+      if (error instanceof GeneratedWorkflowStoreError) throw error;
+      throw new WorkflowCommandError(
+        "invalid_argument",
+        "The generated workflow source failed its integrity check.",
+        error,
+      );
+    }
+  }
   const trusted = context.trustGate
     ? await context.trustGate(path)
     : parsed.options["trusted"] === true;
@@ -319,16 +430,16 @@ export async function readWorkflowSource(
   }
 }
 
-async function loadNativeWorkflow(source: WorkflowSource): Promise<WorkflowDefinition> {
+/** Load a file-backed native workflow through the bounded runtime source boundary. */
+export async function loadNativeWorkflow(source: WorkflowSource): Promise<NativeWorkflow> {
   if (source.path === null) {
     throw new WorkflowCommandError(
       "invalid_argument",
       "Native workflows require a trusted TypeScript file; use --compat-quickjs with stdin.",
     );
   }
-  let loaded: unknown;
   try {
-    loaded = await import(`${pathToFileURL(source.path).href}?holycodex=${Date.now()}`);
+    return await loadNativeWorkflowSource({ source: source.source });
   } catch (error: unknown) {
     throw new WorkflowCommandError(
       "invalid_argument",
@@ -336,21 +447,30 @@ async function loadNativeWorkflow(source: WorkflowSource): Promise<WorkflowDefin
       error,
     );
   }
-  if (typeof loaded !== "object" || loaded === null) {
+}
+
+async function assertResumeInputIdentity(
+  service: WorkflowService,
+  runId: string,
+  workflow: WorkflowSource,
+): Promise<void> {
+  if (service.show === undefined) return;
+  const projection = await service.show(runId);
+  const sourceDigest = await domainSeparatedSha256("workflow-source", [
+    new TextEncoder().encode(workflow.source),
+  ]);
+  const argsDigest = await domainSeparatedSha256("workflow-args", [
+    canonicalJsonUtf8(workflow.args),
+  ]);
+  if (
+    sourceDigest !== projection.definition.identity.workflow_source_digest ||
+    argsDigest !== projection.definition.identity.resupplied_args_digest
+  ) {
     throw new WorkflowCommandError(
       "invalid_argument",
-      "The native workflow module must export a default workflow.wait(...) value.",
+      "Resupplied workflow source or args do not match the persisted run identity.",
     );
   }
-  const candidate =
-    "default" in loaded ? loaded.default : "workflow" in loaded ? loaded.workflow : undefined;
-  if (!(candidate instanceof Wait)) {
-    throw new WorkflowCommandError(
-      "invalid_argument",
-      "The native workflow module must export a default workflow.wait(...) value.",
-    );
-  }
-  return candidate;
 }
 
 function defaultObjective(path: string | null, reference: string | undefined): string {
@@ -362,6 +482,43 @@ function defaultObjective(path: string | null, reference: string | undefined): s
   }
   const name = basename(reference ?? "workflow.ts", extname(reference ?? "workflow.ts"));
   return `workflow:${name}`;
+}
+
+async function materializeGeneratedWorkflow(
+  source: WorkflowSource,
+  context: CliContext,
+): Promise<
+  Readonly<{
+    readonly source: WorkflowSource;
+    readonly store: GeneratedWorkflowStore;
+    readonly sessionId: string;
+  }>
+> {
+  const sessionId = context.workflowSessionId;
+  if (sessionId === undefined) {
+    throw new WorkflowCommandError(
+      "invalid_argument",
+      "Generated workflow storage requires an explicit caller session identity.",
+    );
+  }
+  const paths = resolveWorkflowInstallerPaths(context.installer, context.env);
+  const store = new GeneratedWorkflowStore(paths.stateRoot, {
+    ...(context.now === undefined ? {} : { now: context.now }),
+    ...(context.generatedWorkflowBoundary === undefined
+      ? {}
+      : { boundary: context.generatedWorkflowBoundary }),
+  });
+  const stored = await store.put(sessionId, context.workflowName ?? "generated", source.source);
+  const verified = await store.read(stored.metadata.source_path);
+  return {
+    store,
+    sessionId,
+    source: {
+      ...source,
+      source: verified.source,
+      path: verified.metadata.source_path,
+    },
+  };
 }
 
 export async function optionalArgs(text: string | undefined): Promise<JsonValue> {
@@ -389,7 +546,7 @@ export async function optionalArgs(text: string | undefined): Promise<JsonValue>
   return validated;
 }
 
-async function createDefaultWorkflowService(
+export async function createDefaultWorkflowService(
   context: CliContext,
   parsed: ParsedCommand,
 ): Promise<WorkflowService> {
@@ -459,20 +616,20 @@ async function createDefaultWorkflowService(
     parsed.command === "workflow run" ||
     parsed.command === "workflow resume" ||
     parsed.command === "workflow invoke";
-  const compatibility = parsed.options["compat-quickjs"] === true;
-  let codexLayer: WorkflowHostOptions["codexLayer"];
-  if (nativeCommand && !compatibility) {
-    const executable = await discoverCodexExecutable({
+  let executable: CodexExecutableIdentity | undefined;
+  if (nativeCommand && context.appServerAssignment === undefined) {
+    executable = await discoverCodexExecutable({
       cwd,
       ...(context.env === undefined ? {} : { environment: context.env }),
     });
-    const appServerLayer = AppServerLive({
-      executable,
-      cwd,
-      ...(context.env === undefined ? {} : { environment: context.env }),
-    });
-    codexLayer = AgentExecutionLive.pipe(Layer.provide(appServerLayer));
   }
+  const capabilityRuntime = await createDefaultCapabilityRuntime({
+    context,
+    installedProfile,
+    cwd,
+    executable,
+    nativeCommand,
+  });
   const hostOptions: WorkflowHostOptions = {
     store: new FileRunStore(stateRoot),
     projectTrust: project,
@@ -483,9 +640,8 @@ async function createDefaultWorkflowService(
     securityProfile: "default",
     approvalPolicy: autonomy === "manual" ? "required" : "never",
     sandboxPolicy: "workspace-write",
-    codexCapabilityDigest: digest,
-    executeSpecialist: (assignment) => executeCodexSpecialist(assignment, context),
-    ...(codexLayer === undefined ? {} : { codexLayer }),
+    codexCapabilityDigest: capabilityRuntime.profileDigest,
+    codex: capabilityRuntime.assignmentService,
     capacity: {
       maxConcurrency: Math.min(maxSubagents, planDefinition.value.budget.maxConcurrency),
       maxCalls: planDefinition.value.budget.maxCalls,
@@ -500,6 +656,7 @@ async function createDefaultWorkflowService(
         source: input.source,
         args: input.args,
         objective: input.objective,
+        ...(input.sourcePath === undefined ? {} : { sourcePath: input.sourcePath }),
         plan: input.plan ?? plan,
         serviceTier: input.serviceTier ?? serviceTier,
         expectedConcurrency: input.maxSubagents ?? maxSubagents,
@@ -575,94 +732,13 @@ function resolveWorkflowInstallerPaths(
   return resolveInstallerPaths({ paths: { codexHome, marketplaceRoot } }, environment);
 }
 
-async function executeCodexSpecialist(
-  assignment: import("@holycodex/workflow-host").SpecialistAssignment,
-  context: CliContext,
-): Promise<unknown> {
-  const capability = assignment.options["capability"];
-  if (
-    capability === "work" ||
-    capability === "web" ||
-    capability === "security" ||
-    capability === "computer_use" ||
-    capability === "lsp" ||
-    capability === "lsp_setup" ||
-    capability === "git_bash"
-  ) {
-    return await invokeWorkflowCapability(capability, assignment.options, context);
-  }
-  const executable = await discoverCodexExecutable({
-    cwd: context.cwd ?? process.cwd(),
-    ...(context.env === undefined ? {} : { environment: context.env }),
-  });
-  const roleTask = decodeSchema(RoleTaskSchema, {
-    role: assignment.role,
-    task: assignment.task,
-  });
-  if (roleTask === undefined) {
-    throw new WorkflowCommandError(
-      "invalid_argument",
-      "The workflow specialist route has an unsupported role and task combination.",
-    );
-  }
-  const role = lookupRoleDefinition(roleTask.role);
-  const packet: SemanticAssignmentPacket = {
-    assignment: {
-      id: `${assignment.runId}:${assignment.route}`,
-      objective: assignment.prompt,
-      role_task: roleTask,
-      authority: role.authority,
-      scope: [],
-      references: [],
-      constraints: [],
-      required_evidence: [role.evidence],
-      acceptance: [role.completion],
-      exclusions: [],
-      escalation: [],
-    },
-    route: { key: assignment.route, role_task: roleTask },
-    tools: { allowed: [], specialist_spawn: false, workflow: false },
-    security: { network: false, specialist_spawn: false, workflow: false },
-    compatibility: {
-      model: "Luna",
-      effort:
-        assignment.plan.routes.find((route) => route.key === assignment.route)?.effort ?? "medium",
-      service_tier: assignment.serviceTier,
-      prefer_multi_agent_v2: true,
-      require_multi_agent_v2: false,
-    },
-  };
-  const effect = Effect.scoped(
-    Effect.gen(function* () {
-      const appServer = yield* AppServer;
-      const execution = yield* executeAssignment(appServer.client, packet);
-      return execution.outcome;
-    }).pipe(
-      Effect.provide(
-        AppServerLive({
-          executable,
-          cwd: context.cwd ?? process.cwd(),
-          ...(context.env === undefined ? {} : { environment: context.env }),
-          signal: assignment.signal,
-        }),
-      ),
-    ),
-  );
-  return await Effect.runPromise(effect);
-}
-
 export async function invokeWorkflowCapability(
   capability: WorkflowCapabilityName,
   options: JsonObject,
   context: CliContext,
 ): Promise<JsonValue> {
-  if (capability === "computer_use" && context.rootAuthority !== true) {
-    throw new WorkflowCommandError(
-      "capability_denied",
-      "Computer Use is a Root-only capability.",
-      undefined,
-      { capability, root_only: true },
-    );
+  if (decodeSchema(CapabilityNameSchema, capability) === undefined) {
+    throw new WorkflowCommandError("invalid_argument", "The capability name is invalid.");
   }
   const input = decodeSchema(JsonObjectSchema, options);
   if (input === undefined) {
@@ -681,67 +757,1007 @@ export async function invokeWorkflowCapability(
       { capability, input_valid: false },
     );
   }
+  const request = capabilityRequestFromInput(capability, input, context);
   const port = context.capabilities?.[capability];
-  if (!port) {
-    throw new WorkflowCommandError(
-      "capability_denied",
-      `The ${capability} capability is unavailable.`,
-      undefined,
+  if (port === undefined) {
+    throw capabilityDenied(
+      capability,
+      "provider_not_configured",
+      `Configure an explicit ${capability} provider port before invoking it.`,
+    );
+  }
+  const result = await invokeCapabilityRequest(request, port);
+  return asJsonValue(result);
+}
+
+type InstalledProfileSnapshot = Readonly<{
+  readonly plan: PlanName;
+  readonly tier: ServiceTier;
+  readonly digest?: string | undefined;
+  readonly optional_selections?:
+    | Readonly<{
+        readonly computer_use: boolean;
+        readonly work: boolean;
+        readonly web: boolean;
+        readonly security: boolean;
+      }>
+    | undefined;
+  readonly optional?:
+    | Readonly<{
+        readonly computer_use: boolean;
+        readonly work: boolean;
+        readonly web: boolean;
+        readonly security: boolean;
+      }>
+    | undefined;
+  readonly capability_state?: CapabilityStateRecord | undefined;
+}>;
+
+type CapabilityGate = Readonly<{
+  readonly selected: boolean;
+  readonly status: "healthy" | "disabled" | "missing" | "pending" | "uncertain";
+  readonly plugin_ids: readonly string[];
+  readonly plugin_statuses: Readonly<Record<string, OfficialPluginStatus>>;
+  readonly reason: string;
+}>;
+
+type CapabilityRuntime = Readonly<{
+  readonly providers: Readonly<Record<WorkflowCapabilityName, WorkflowCapabilityPort>>;
+  readonly gates: Readonly<Record<WorkflowCapabilityName, CapabilityGate>>;
+  readonly assignmentService: AssignmentExecutionService;
+  readonly profileDigest: string;
+}>;
+
+async function createDefaultCapabilityRuntime(
+  input: Readonly<{
+    readonly context: CliContext;
+    readonly installedProfile: InstalledProfileSnapshot;
+    readonly cwd: string;
+    readonly executable: CodexExecutableIdentity | undefined;
+    readonly nativeCommand: boolean;
+  }>,
+): Promise<CapabilityRuntime> {
+  const selections = {
+    computer_use:
+      input.installedProfile.optional_selections?.computer_use ??
+      input.installedProfile.optional?.computer_use ??
+      false,
+    work:
+      input.installedProfile.optional_selections?.work ??
+      input.installedProfile.optional?.work ??
+      false,
+    web:
+      input.installedProfile.optional_selections?.web ??
+      input.installedProfile.optional?.web ??
+      false,
+    security:
+      input.installedProfile.optional_selections?.security ??
+      input.installedProfile.optional?.security ??
+      false,
+  };
+  const selectedPluginIds = [
+    ...new Set(
+      (["computer_use", "work", "web", "security"] as const)
+        .filter((name) => selections[name])
+        .flatMap((name) => CAPABILITY_REGISTRY[name].pluginIds),
+    ),
+  ];
+  const pluginStatuses = await readOfficialPluginStatuses(input.context, selectedPluginIds);
+  const gates = createCapabilityGates(input.installedProfile, selections, pluginStatuses);
+  const defaults = createDefaultCapabilityPorts(input.context, input.cwd, gates);
+  const providers: Record<WorkflowCapabilityName, WorkflowCapabilityPort> = {
+    work: input.context.capabilities?.work ?? defaults.work,
+    web: input.context.capabilities?.web ?? defaults.web,
+    security: input.context.capabilities?.security ?? defaults.security,
+    computer_use: input.context.capabilities?.computer_use ?? defaults.computer_use,
+    lsp: input.context.capabilities?.lsp ?? defaults.lsp,
+    lsp_setup: input.context.capabilities?.lsp_setup ?? defaults.lsp_setup,
+    git_bash: input.context.capabilities?.git_bash ?? defaults.git_bash,
+  };
+  const profileDigest = await domainSeparatedSha256("holycodex-capability-profile", [
+    canonicalJsonUtf8({
+      install_digest: input.installedProfile.digest ?? "missing",
+      capability_state: input.installedProfile.capability_state ?? null,
+      plugin_statuses: pluginStatuses,
+      selected: selections,
+      definitions: Object.fromEntries(
+        (Object.keys(selections) as Array<keyof typeof selections>).map((name) => [
+          name,
+          {
+            plugin_ids: CAPABILITY_REGISTRY[name].pluginIds,
+            semantic_skill_ids: CAPABILITY_REGISTRY[name].semanticSkillIds,
+          },
+        ]),
+      ),
+    }),
+  ]);
+  return {
+    providers,
+    gates,
+    profileDigest,
+    assignmentService: createAssignmentService({
+      context: input.context,
+      cwd: input.cwd,
+      executable: input.executable,
+      nativeCommand: input.nativeCommand,
+      providers,
+      gates,
+    }),
+  };
+}
+
+async function readOfficialPluginStatuses(
+  context: CliContext,
+  selected: readonly string[],
+): Promise<Readonly<Record<string, OfficialPluginStatus>>> {
+  if (selected.length === 0) return {};
+  const unknown = Object.fromEntries(selected.map((id) => [id, "uncertain" as const]));
+  let manager = context.installer?.officialPluginManager;
+  try {
+    manager ??= await CodexOfficialPluginManager.discover();
+    if (manager.status !== undefined) {
+      const raw = await manager.status(selected);
+      const schema = Schema.Record({
+        key: Schema.String,
+        value: Schema.Literal(
+          "installed",
+          "available",
+          "missing",
+          "disabled",
+          "uncertain",
+          "unknown",
+        ),
+      });
+      return decodeSchema(schema, raw) ?? unknown;
+    }
+    if (manager.list === undefined) return unknown;
+    const live = decodeSchema(LiveOfficialPluginListEnvelopeSchema, await manager.list());
+    if (live === undefined) return unknown;
+    const entries = [...live.installed, ...live.available];
+    return Object.fromEntries(
+      selected.map((id) => {
+        const entry = entries.find((candidate) => candidate.pluginId === id);
+        return [
+          id,
+          entry === undefined
+            ? "missing"
+            : entry.installed && entry.enabled
+              ? "installed"
+              : entry.installed
+                ? "disabled"
+                : "available",
+        ];
+      }),
+    );
+  } catch {
+    return unknown;
+  }
+}
+
+function createCapabilityGates(
+  profile: InstalledProfileSnapshot,
+  selections: Readonly<Record<"computer_use" | "work" | "web" | "security", boolean>>,
+  pluginStatuses: Readonly<Record<string, OfficialPluginStatus>>,
+): Readonly<Record<WorkflowCapabilityName, CapabilityGate>> {
+  const gates: Partial<Record<WorkflowCapabilityName, CapabilityGate>> = {};
+  for (const name of ["computer_use", "work", "web", "security"] as const) {
+    const definition = CAPABILITY_REGISTRY[name];
+    const state = profile.capability_state?.[name];
+    const selected = selections[name] === true;
+    const statuses: Record<string, OfficialPluginStatus> = {};
+    for (const id of definition.pluginIds) statuses[id] = pluginStatuses[id] ?? "uncertain";
+    const stateStatus = state?.status;
+    const status: CapabilityGate["status"] = !selected
+      ? "disabled"
+      : stateStatus === "healthy" &&
+          definition.pluginIds.every((id) => statuses[id] === "installed")
+        ? "healthy"
+        : stateStatus === "provider_disabled" || Object.values(statuses).includes("disabled")
+          ? "disabled"
+          : stateStatus === "pending"
+            ? "pending"
+            : stateStatus === "uncertain" ||
+                Object.values(statuses).some((value) => value === "uncertain")
+              ? "uncertain"
+              : "missing";
+    const failedPlugin = definition.pluginIds.find((id) => statuses[id] !== "installed");
+    gates[name] = {
+      selected,
+      status,
+      plugin_ids: [...definition.pluginIds],
+      plugin_statuses: statuses,
+      reason: !selected
+        ? "capability is not selected in the installed profile"
+        : failedPlugin === undefined
+          ? "verified installed and enabled"
+          : `plugin ${failedPlugin} is ${statuses[failedPlugin] ?? "uncertain"}`,
+    };
+  }
+  gates.lsp = healthyLocalGate("LSP daemon adapter");
+  gates.lsp_setup = healthyLocalGate("LSP setup adapter");
+  gates.git_bash = healthyLocalGate("Git Bash adapter");
+  return {
+    computer_use: requiredGate(gates.computer_use, "computer_use"),
+    work: requiredGate(gates.work, "work"),
+    web: requiredGate(gates.web, "web"),
+    security: requiredGate(gates.security, "security"),
+    lsp: requiredGate(gates.lsp, "lsp"),
+    lsp_setup: requiredGate(gates.lsp_setup, "lsp_setup"),
+    git_bash: requiredGate(gates.git_bash, "git_bash"),
+  };
+}
+
+function requiredGate(gate: CapabilityGate | undefined, name: string): CapabilityGate {
+  if (gate === undefined) throw new Error(`Capability gate ${name} was not composed.`);
+  return gate;
+}
+
+function healthyLocalGate(reason: string): CapabilityGate {
+  return {
+    selected: true,
+    status: "healthy",
+    plugin_ids: [],
+    plugin_statuses: {},
+    reason,
+  };
+}
+
+function createDefaultCapabilityPorts(
+  context: CliContext,
+  cwd: string,
+  gates: Readonly<Record<WorkflowCapabilityName, CapabilityGate>>,
+): Record<WorkflowCapabilityName, WorkflowCapabilityPort> {
+  const officialPort = (name: CapabilityName): WorkflowCapabilityPort => ({
+    available: async () => gates[name].status === "healthy",
+    invoke: async () => {
+      throw new WorkflowCommandError(
+        "capability_denied",
+        `The ${name} capability must use the verified App Server semantic route.`,
+        undefined,
+        { capability: name, reason: "semantic_route_required" },
+      );
+    },
+  });
+  return {
+    work: officialPort("work"),
+    web: officialPort("web"),
+    security: officialPort("security"),
+    computer_use: {
+      available: async () => gates.computer_use.status === "healthy",
+      invoke: async (request) => {
+        if (!request.rootAuthority || request.role_task !== null || request.route !== null) {
+          throw new WorkflowCommandError(
+            "capability_denied",
+            "Computer Use requires an explicitly Root-owned operation adapter.",
+            undefined,
+            { capability: "computer_use", root_only: true, reason: "root_operation_required" },
+          );
+        }
+        throw new WorkflowCommandError(
+          "capability_denied",
+          "Computer Use is installed but has no Root-owned operation adapter in this workflow model.",
+          undefined,
+          { capability: "computer_use", root_only: true, reason: "root_adapter_missing" },
+        );
+      },
+    },
+    lsp: {
+      available: async () => true,
+      invoke: async (request) => await executeLspCapability(request, context.env, cwd),
+    },
+    lsp_setup: {
+      available: async () => true,
+      invoke: async (request) => await executeLspSetupCapability(request),
+    },
+    git_bash: {
+      available: async () => {
+        const resolution = resolveGitBashForCurrentProcess();
+        return process.platform === "win32" && resolution.found && resolution.path !== null;
+      },
+      invoke: async (request) => await executeGitBashCapability(request, cwd),
+    },
+  };
+}
+
+function createAssignmentService(
+  input: Readonly<{
+    readonly context: CliContext;
+    readonly cwd: string;
+    readonly executable: CodexExecutableIdentity | undefined;
+    readonly nativeCommand: boolean;
+    readonly providers: Readonly<Record<WorkflowCapabilityName, WorkflowCapabilityPort>>;
+    readonly gates: Readonly<Record<WorkflowCapabilityName, CapabilityGate>>;
+  }>,
+): AssignmentExecutionService {
+  return {
+    execute: (inputValue: unknown, options: AssignmentExecutionOptions = {}) =>
+      Effect.tryPromise({
+        try: async (signal) => {
+          const packet = decodeSchema(SemanticAssignmentPacketSchema, inputValue);
+          if (packet === undefined) {
+            throw new WorkflowCommandError(
+              "capability_denied",
+              "The semantic assignment packet is invalid at the CLI composition boundary.",
+            );
+          }
+          return await executeComposedAssignment(
+            packet,
+            input.context,
+            input.cwd,
+            input.executable,
+            input.nativeCommand,
+            input.providers,
+            input.gates,
+            options,
+            signal,
+          );
+        },
+        catch: (error) =>
+          error instanceof WorkflowCommandError
+            ? new CodexError("capability_unavailable", error.message, error.details)
+            : error instanceof CodexError
+              ? error
+              : new CodexError(
+                  "execution_failed",
+                  error instanceof Error ? error.message : "The capability assignment failed.",
+                  {},
+                  { cause: error },
+                ),
+      }),
+  };
+}
+
+async function executeComposedAssignment(
+  packet: SemanticAssignmentPacket,
+  context: CliContext,
+  cwd: string,
+  executable: CodexExecutableIdentity | undefined,
+  nativeCommand: boolean,
+  providers: Readonly<Record<WorkflowCapabilityName, WorkflowCapabilityPort>>,
+  gates: Readonly<Record<WorkflowCapabilityName, CapabilityGate>>,
+  options: AssignmentExecutionOptions,
+  signal: AbortSignal,
+): Promise<SemanticExecutionOutcome> {
+  const capability = packet.assignment.capability;
+  if (capability === "computer_use") {
+    throw new CodexError(
+      "route_incompatible",
+      "Computer Use is Root-only and cannot enter a specialist assignment.",
+      { capability, root_only: true, needs_root_decision: true },
+    );
+  }
+  if (capability === "work" || capability === "web" || capability === "security") {
+    assertCapabilityGate(capability, gates[capability]);
+    const augmented = augmentSemanticPacket(packet);
+    return await runAppServerAssignment(
+      augmented,
+      context,
+      cwd,
+      executable,
+      nativeCommand,
+      options,
+      signal,
+    );
+  }
+  if (capability === "lsp" || capability === "lsp_setup" || capability === "git_bash") {
+    const request = capabilityRequestFromPacket(packet, signal);
+    const result = await invokeCapabilityRequest(request, providers[capability], gates[capability]);
+    return capabilityResultToSemanticExecution(result, packet, capability);
+  }
+  return await runAppServerAssignment(
+    packet,
+    context,
+    cwd,
+    executable,
+    nativeCommand,
+    options,
+    signal,
+  );
+}
+
+async function runAppServerAssignment(
+  packet: SemanticAssignmentPacket,
+  context: CliContext,
+  cwd: string,
+  executable: CodexExecutableIdentity | undefined,
+  nativeCommand: boolean,
+  options: AssignmentExecutionOptions,
+  signal: AbortSignal,
+): Promise<SemanticExecutionOutcome> {
+  let raw: unknown;
+  const testAdapter: AppServerAssignmentPort | undefined = context.appServerAssignment;
+  if (testAdapter !== undefined) {
+    raw = await testAdapter.execute(packet, { signal, ...options });
+  } else {
+    if (!nativeCommand || executable === undefined) {
+      throw new CodexError(
+        "capability_unavailable",
+        "The Codex App Server assignment adapter is unavailable for this operation.",
+      );
+    }
+    raw = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const appServer = yield* AppServer;
+          return yield* executeAssignment(appServer.client, packet, options);
+        }).pipe(
+          Effect.provide(
+            AppServerLive({
+              executable,
+              cwd,
+              ...(context.env === undefined ? {} : { environment: context.env }),
+              signal,
+            }),
+          ),
+        ),
+      ),
+    );
+  }
+  const result = decodeSchema(SemanticExecutionOutcomeSchema, raw);
+  if (result === undefined || result.assignment_id !== packet.assignment.id) {
+    throw new CodexError(
+      "route_incompatible",
+      "The App Server assignment result failed semantic identity validation.",
+      { route: packet.route.key, assignment_id: packet.assignment.id },
+    );
+  }
+  const normalized = normalizeSpecialistOutcome(result.outcome, packet.route.role_task);
+  if (!normalized.ok) {
+    throw new CodexError(
+      "execution_failed",
+      "The App Server assignment returned an invalid V2 specialist outcome.",
+      { route: packet.route.key },
+    );
+  }
+  return result;
+}
+
+function augmentSemanticPacket(packet: SemanticAssignmentPacket): SemanticAssignmentPacket {
+  const capability = packet.assignment.capability;
+  if (capability !== "work" && capability !== "web" && capability !== "security") {
+    return packet;
+  }
+  const references = stableUnique([
+    ...packet.assignment.references,
+    ...selectSemanticSkillReferences(capability, packet.assignment.objective),
+  ]);
+  return {
+    ...packet,
+    assignment: { ...packet.assignment, references },
+  };
+}
+
+function selectSemanticSkillReferences(
+  capability: "work" | "web" | "security",
+  objective: string,
+): readonly string[] {
+  const all = CAPABILITY_REGISTRY[capability].semanticSkillIds;
+  if (capability !== "work") return all;
+  const lower = objective.toLowerCase();
+  const selected = all.filter((reference) => {
+    if (reference.startsWith("documents:"))
+      return /\b(doc|document|word|write|report)\b/u.test(lower);
+    if (reference.startsWith("pdf:")) return /\b(pdf|acrobat|portable document)\b/u.test(lower);
+    if (reference.startsWith("presentations:"))
+      return /\b(slide|slides|presentation|deck|powerpoint)\b/u.test(lower);
+    if (reference.startsWith("spreadsheets:"))
+      return /\b(spreadsheet|excel|csv|table|sheet)\b/u.test(lower);
+    if (reference.startsWith("template-creator:")) return /\b(template|boilerplate)\b/u.test(lower);
+    return false;
+  });
+  return selected.length === 0 ? all : selected;
+}
+
+function capabilityRequestFromPacket(
+  packet: SemanticAssignmentPacket,
+  signal: AbortSignal,
+): WorkflowCapabilityRequest {
+  const capability = packet.assignment.capability;
+  if (capability === undefined) {
+    throw new CodexError("route_incompatible", "A host capability request has no capability name.");
+  }
+  return {
+    capability,
+    input: packet.capability_input ?? { objective: packet.assignment.objective },
+    objective: packet.assignment.objective,
+    role_task: packet.assignment.role_task,
+    authority: packet.assignment.authority,
+    scope: packet.assignment.scope,
+    constraints: packet.assignment.constraints,
+    required_evidence: packet.assignment.required_evidence,
+    completion: packet.assignment.acceptance,
+    tools: packet.tools,
+    security: packet.security,
+    route: packet.route.key,
+    signal,
+    rootAuthority: false,
+  };
+}
+
+function capabilityRequestFromInput(
+  capability: WorkflowCapabilityName,
+  input: JsonObject,
+  context: CliContext,
+): WorkflowCapabilityRequest {
+  if (capability === "computer_use") {
+    if (context.rootAuthority !== true) {
+      throw capabilityDenied(capability, "root_only", "Computer Use requires Root authority.");
+    }
+    return {
+      capability,
+      input,
+      objective: textInput(input, "objective") ?? "Root-owned Computer Use operation",
+      role_task: null,
+      authority: "Root-only approved operation authority.",
+      scope: textList(input["scope"]),
+      constraints: textList(input["constraints"]),
+      required_evidence: textList(input["required_evidence"]),
+      completion: textList(input["completion"]),
+      tools: { allowed: [], specialist_spawn: false, workflow: false },
+      security: { network: false, specialist_spawn: false, workflow: false },
+      route: null,
+      signal: new AbortController().signal,
+      rootAuthority: true,
+    };
+  }
+  const roleTask = decodeSchema(RoleTaskSchema, {
+    role: input["role"] ?? "Worker",
+    task: input["task"] ?? "implementation",
+  });
+  if (roleTask === undefined) {
+    throw new WorkflowCommandError("invalid_argument", "The capability role/task is invalid.");
+  }
+  const role = lookupRoleDefinition(roleTask.role);
+  const route = decodeSchema(RouteKeySchema, input["route"] ?? `${roleTask.role}:${roleTask.task}`);
+  if (route === undefined || route !== `${roleTask.role}:${roleTask.task}`) {
+    throw new WorkflowCommandError("invalid_argument", "The capability route is invalid.");
+  }
+  return {
+    capability,
+    input,
+    objective: textInput(input, "objective") ?? `Execute ${capability} capability`,
+    role_task: roleTask,
+    authority: role.authority,
+    scope: textList(input["scope"] ?? input["files"]),
+    constraints: textList(input["constraints"]),
+    required_evidence: textList(input["required_evidence"]),
+    completion: textList(input["completion"]),
+    tools: {
+      allowed: [
+        "read",
+        ...(role.permissions.write ? ["write"] : []),
+        ...(role.permissions.execute ? ["execute"] : []),
+        ...(role.permissions.network ? ["network"] : []),
+      ],
+      specialist_spawn: false,
+      workflow: false,
+    },
+    security: {
+      network: role.permissions.network,
+      specialist_spawn: false,
+      workflow: false,
+    },
+    route,
+    signal: new AbortController().signal,
+    rootAuthority: context.rootAuthority === true,
+  };
+}
+
+async function invokeCapabilityRequest(
+  request: WorkflowCapabilityRequest,
+  port: WorkflowCapabilityPort,
+  gate?: CapabilityGate,
+): Promise<CapabilityResultV2> {
+  validateCapabilityRequest(request);
+  if (gate !== undefined && gate.status !== "healthy") {
+    throw capabilityDenied(
+      request.capability,
+      `provider_${gate.status}`,
+      `The ${request.capability} provider is ${gate.status}: ${gate.reason}.`,
       {
-        capability,
-        available: false,
-        reason: "provider_not_configured",
-        action: `Configure an explicit ${capability} provider port before invoking it.`,
+        plugin_ids: gate.plugin_ids,
+        plugin_statuses: gate.plugin_statuses,
+        recovery: recoveryForGate(request.capability, gate),
       },
     );
   }
   if (port.available !== undefined) {
-    let available: boolean;
+    let available = false;
     try {
       available = await port.available();
     } catch (error: unknown) {
-      throw new WorkflowCommandError(
-        "capability_denied",
-        `The ${capability} provider availability check failed.`,
-        error,
-        { capability, available: false, reason: "availability_check_failed" },
+      throw capabilityDenied(
+        request.capability,
+        "availability_check_failed",
+        `The ${request.capability} provider availability check failed.`,
+        { cause: error instanceof Error ? error.message : String(error) },
       );
     }
-    if (available !== true) {
-      throw new WorkflowCommandError(
-        "capability_denied",
-        `The ${capability} provider is unavailable.`,
-        undefined,
-        {
-          capability,
-          available: false,
-          reason: "provider_unavailable",
-          action: `Make the ${capability} provider available and retry.`,
-        },
+    if (!available) {
+      throw capabilityDenied(
+        request.capability,
+        "provider_unavailable",
+        `The ${request.capability} provider is unavailable.`,
+        { recovery: recoveryForUnavailable(request.capability) },
       );
     }
   }
-  let rawResult: unknown;
+  let raw: unknown;
   try {
-    rawResult = await port.invoke(input);
+    raw = await port.invoke(request);
   } catch (error: unknown) {
-    throw new WorkflowCommandError(
-      "capability_denied",
-      `The ${capability} provider invocation failed closed.`,
-      error,
-      { capability, available: false, reason: "provider_invocation_failed" },
+    if (error instanceof WorkflowCommandError) throw error;
+    throw capabilityDenied(
+      request.capability,
+      "provider_invocation_failed",
+      `The ${request.capability} provider invocation failed closed.`,
+      { cause: error instanceof Error ? error.message : String(error) },
     );
   }
-  const result = decodeSchema(SpecialistOutcomeSchema, rawResult);
-  if (result === undefined) {
-    throw new WorkflowCommandError(
-      "capability_denied",
-      `The ${capability} capability returned an invalid specialist outcome.`,
-      undefined,
-      { capability, output_valid: false, reason: "invalid_provider_outcome" },
+  const parsed = parseCapabilityResultV2(raw);
+  if (!parsed.ok || parsed.value.capability !== request.capability) {
+    throw capabilityDenied(
+      request.capability,
+      "invalid_provider_outcome",
+      `The ${request.capability} provider returned an invalid V2 capability result.`,
+      { output_valid: false },
     );
   }
-  return asJsonValue(result);
+  if (
+    (request.route === null && parsed.value.route !== null) ||
+    (request.route !== null &&
+      (parsed.value.route === null ||
+        parsed.value.route.role !== request.role_task?.role ||
+        parsed.value.route.task !== request.role_task?.task))
+  ) {
+    throw capabilityDenied(
+      request.capability,
+      "provider_route_tamper",
+      `The ${request.capability} provider returned a result for a different route.`,
+      { output_valid: false, route: request.route },
+    );
+  }
+  return parsed.value;
+}
+
+function validateCapabilityRequest(request: WorkflowCapabilityRequest): void {
+  if (decodeSchema(CapabilityNameSchema, request.capability) === undefined) {
+    throw new WorkflowCommandError("invalid_argument", "The capability request name is invalid.");
+  }
+  if (request.role_task === null || request.route === null) {
+    if (request.capability !== "computer_use" || !request.rootAuthority) {
+      throw capabilityDenied(
+        request.capability,
+        "root_only",
+        "Only Root may issue a route-less capability request.",
+      );
+    }
+    return;
+  }
+  const role = lookupRoleDefinition(request.role_task.role);
+  if (
+    request.route !== `${request.role_task.role}:${request.role_task.task}` ||
+    request.authority !== role.authority
+  ) {
+    throw capabilityDenied(
+      request.capability,
+      "authority_mismatch",
+      "The capability request authority or route is invalid.",
+    );
+  }
+  const allowed = [
+    "read",
+    ...(role.permissions.write ? ["write"] : []),
+    ...(role.permissions.execute ? ["execute"] : []),
+    ...(role.permissions.network ? ["network"] : []),
+  ];
+  if (
+    request.tools.allowed.some((tool) => !allowed.includes(tool)) ||
+    (request.security.network && !role.permissions.network) ||
+    request.tools.specialist_spawn ||
+    request.tools.workflow ||
+    request.security.specialist_spawn ||
+    request.security.workflow
+  ) {
+    throw capabilityDenied(
+      request.capability,
+      "authority_mismatch",
+      "The capability request exceeds role authority.",
+    );
+  }
+}
+
+function capabilityResultToSemanticExecution(
+  result: CapabilityResultV2,
+  packet: SemanticAssignmentPacket,
+  capability: WorkflowCapabilityName,
+): SemanticExecutionOutcome {
+  const normalized = specialistOutcomeFromCapabilityResult(
+    result,
+    capability,
+    packet.route.role_task,
+  );
+  if (!normalized.ok) {
+    throw new CodexError(
+      "route_incompatible",
+      "The host capability result could not be normalized to the assignment route.",
+      { capability, route: packet.route.key },
+    );
+  }
+  return {
+    assignment_id: packet.assignment.id,
+    route_key: packet.route.key,
+    thread_id: `capability-${capability}`,
+    turn_id: `capability-${capability}`,
+    backend: "host-capability",
+    outcome: normalized.value,
+  };
+}
+
+function capabilityDenied(
+  capability: WorkflowCapabilityName,
+  reason: string,
+  message: string,
+  details: JsonObject = {},
+): WorkflowCommandError {
+  return new WorkflowCommandError("capability_denied", message, undefined, {
+    capability,
+    reason,
+    available: false,
+    ...details,
+  });
+}
+
+function assertCapabilityGate(capability: WorkflowCapabilityName, gate: CapabilityGate): void {
+  if (gate.status === "healthy") return;
+  throw new CodexError(
+    "capability_unavailable",
+    `The ${capability} capability is denied before the specialist effect: ${gate.reason}.`,
+    {
+      capability,
+      provider_status: gate.status,
+      plugin_ids: gate.plugin_ids,
+      plugin_statuses: gate.plugin_statuses,
+      recovery: recoveryForGate(capability, gate),
+    },
+  );
+}
+
+function recoveryForGate(capability: WorkflowCapabilityName, gate: CapabilityGate): string {
+  if (gate.status === "disabled") return `Enable the verified ${capability} plugin(s), then retry.`;
+  if (gate.status === "pending" || gate.status === "uncertain")
+    return "Retry installation to converge provider state, then retry.";
+  return `Select and install the ${capability} capability, then retry.`;
+}
+
+function recoveryForUnavailable(capability: WorkflowCapabilityName): string {
+  if (capability === "git_bash")
+    return "Run on Windows with verified Git Bash available in an allowed path.";
+  if (capability === "lsp" || capability === "lsp_setup")
+    return "Configure a local LSP server explicitly, then retry.";
+  return `Configure a verified ${capability} provider and retry.`;
+}
+
+function textInput(input: JsonObject, key: string): string | undefined {
+  const value = input[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function textList(value: JsonValue | undefined): readonly string[] {
+  if (typeof value === "string") return value.length === 0 ? [] : [value];
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return value;
+  return [];
+}
+
+function stableUnique(values: readonly string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
+}
+
+function extractCapabilityParams(input: JsonObject): JsonObject {
+  const nested = input["params"] ?? input["arguments"];
+  if (typeof nested === "object" && nested !== null && !Array.isArray(nested)) {
+    return decodeSchema(JsonObjectSchema, nested) ?? {};
+  }
+  return Object.fromEntries(
+    Object.entries(input).filter(
+      ([key]) =>
+        ![
+          "capability",
+          "role",
+          "task",
+          "route",
+          "objective",
+          "scope",
+          "constraints",
+          "required_evidence",
+          "completion",
+          "params",
+          "arguments",
+        ].includes(key),
+    ),
+  );
+}
+
+async function executeLspCapability(
+  request: WorkflowCapabilityRequest,
+  environment: Readonly<Record<string, string | undefined>> | undefined,
+  cwd: string,
+): Promise<CapabilityResultV2> {
+  const name =
+    textInput(request.input, "tool") ??
+    textInput(request.input, "operation") ??
+    textInput(request.input, "name");
+  if (name === undefined) {
+    throw capabilityDenied("lsp", "invalid_input", "LSP requires a validated tool name.");
+  }
+  const timeoutMs = boundedTimeout(request.input["timeoutMs"]);
+  const params = extractCapabilityParams(request.input);
+  const result = await callToolViaDaemon(name, params, {
+    context: { cwd, env: filteredLspEnvironment(environment) },
+    requestTimeoutMs: timeoutMs,
+    signal: request.signal,
+  });
+  return capabilityResultFromTool(request, result, `LSP ${name} completed.`);
+}
+
+async function executeLspSetupCapability(
+  request: WorkflowCapabilityRequest,
+): Promise<CapabilityResultV2> {
+  const result = await executeLspSetup({ ...extractCapabilityParams(request.input) });
+  return capabilityResultFromTool(
+    request,
+    result,
+    "LSP setup completed or returned a setup diagnostic.",
+  );
+}
+
+function capabilityResultFromTool(
+  request: WorkflowCapabilityRequest,
+  result: ToolExecutionResult,
+  summary: string,
+): CapabilityResultV2 {
+  const details = decodeSchema(JsonValueSchema, result.details);
+  const data: JsonObject = {
+    content: result.content.map((item) => ({ type: item.type, text: item.text })),
+    ...(result.isError === undefined ? {} : { isError: result.isError }),
+    ...(details === undefined ? {} : { details }),
+  };
+  return {
+    protocol_version: SPECIALIST_OUTCOME_VERSION,
+    capability: request.capability,
+    route: request.role_task,
+    evidence: result.content.map((item) => item.text).filter((text) => text.length > 0),
+    data,
+    status: "completed",
+    summary,
+  };
+}
+
+async function executeGitBashCapability(
+  request: WorkflowCapabilityRequest,
+  projectRoot: string,
+): Promise<CapabilityResultV2> {
+  if (!request.tools.allowed.includes("execute")) {
+    throw capabilityDenied(
+      "git_bash",
+      "authority_mismatch",
+      "Git Bash requires execute permission for the assigned role.",
+    );
+  }
+  const command = textInput(request.input, "command");
+  if (command === undefined)
+    throw capabilityDenied("git_bash", "invalid_input", "Git Bash requires a command.");
+  const resolution = resolveGitBashForCurrentProcess();
+  if (process.platform !== "win32" || !resolution.found || resolution.path === null) {
+    throw capabilityDenied(
+      "git_bash",
+      "git_bash_unavailable",
+      "Git Bash is unavailable on this platform or could not be verified.",
+      { checked_paths: resolution.checkedPaths, recovery: recoveryForUnavailable("git_bash") },
+    );
+  }
+  const requestedCwd = textInput(request.input, "cwd") ?? projectRoot;
+  const effectiveCwd = resolve(requestedCwd);
+  const root = resolve(projectRoot);
+  const relativePath = relative(root, effectiveCwd);
+  if (relativePath.startsWith("..") || relativePath.includes("\u0000")) {
+    throw capabilityDenied(
+      "git_bash",
+      "scope_denied",
+      "Git Bash cwd must remain within the assigned project scope.",
+    );
+  }
+  const envValue = request.input["env"];
+  const env: NodeJS.ProcessEnv | undefined =
+    envValue === undefined
+      ? undefined
+      : typeof envValue === "object" && envValue !== null && !Array.isArray(envValue)
+        ? Object.fromEntries(
+            Object.entries(envValue).map(([key, value]) => {
+              if (typeof value !== "string")
+                throw new WorkflowCommandError(
+                  "invalid_argument",
+                  "Git Bash environment values must be strings.",
+                );
+              return [key, value];
+            }),
+          )
+        : (() => {
+            throw new WorkflowCommandError(
+              "invalid_argument",
+              "Git Bash environment must be an object.",
+            );
+          })();
+  if (env !== undefined) normalizeGitBashEnvironment(env);
+  const result = await runGitBashCommand({
+    bashPath: resolution.path,
+    command,
+    cwd: effectiveCwd,
+    timeoutMs: boundedTimeout(request.input["timeoutMs"]),
+    maxOutputChars: boundedOutput(request.input["maxOutputChars"]),
+    ...(env === undefined ? {} : { env }),
+    signal: request.signal,
+  });
+  const data: JsonObject = {
+    exitCode: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    timedOut: result.timedOut,
+    ...(result.signal === undefined ? {} : { signal: result.signal }),
+    ...(result.aborted === undefined ? {} : { aborted: result.aborted }),
+    ...(result.outputTruncated === undefined ? {} : { outputTruncated: result.outputTruncated }),
+  };
+  if (result.timedOut || result.aborted === true) {
+    return {
+      protocol_version: SPECIALIST_OUTCOME_VERSION,
+      capability: "git_bash",
+      route: request.role_task,
+      evidence: [result.timedOut ? "Git Bash command timed out." : "Git Bash command was aborted."],
+      data,
+      status: "failed",
+      error: result.timedOut ? "Git Bash command timed out." : "Git Bash command was aborted.",
+    };
+  }
+  return {
+    protocol_version: SPECIALIST_OUTCOME_VERSION,
+    capability: "git_bash",
+    route: request.role_task,
+    evidence: ["Git Bash command completed within the assigned scope."],
+    data,
+    status: "completed",
+    summary: "Git Bash command completed.",
+  };
+}
+
+function filteredLspEnvironment(
+  environment: Readonly<Record<string, string | undefined>> | undefined,
+): Readonly<Record<string, string>> {
+  const keys = [
+    "HOLYCODEX_LSP_PROJECT_CONFIG",
+    "HOLYCODEX_LSP_USER_CONFIG",
+    "HOLYCODEX_LSP_INSTALL_DECISIONS",
+  ];
+  return Object.fromEntries(
+    keys.flatMap((key) => {
+      const value = environment?.[key];
+      return value === undefined ? [] : [[key, value]];
+    }),
+  );
+}
+
+function boundedTimeout(value: JsonValue | undefined): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 120_000
+    ? value
+    : 30_000;
+}
+
+function boundedOutput(value: JsonValue | undefined): number {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value > 0 &&
+    value <= 1024 * 1024
+    ? value
+    : 256 * 1024;
 }
 
 function optionalPlan(parsed: ParsedCommand): PlanName | undefined {

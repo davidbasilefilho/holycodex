@@ -3,6 +3,7 @@
 import { cp, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { runChecked } from "./process.ts";
+import { buildSafeFilesystemArtifact } from "./build-safe-filesystem.ts";
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
 const distRoot = join(workspaceRoot, "packages/cli/dist");
@@ -13,6 +14,7 @@ export async function runPackageBuild(): Promise<void> {
   await runChecked(["vp", "pack"], { cwd: workspaceRoot, env: process.env });
   await rm(join(distAssets, "plugin"), { recursive: true, force: true });
   await cp(pluginAssets, distAssets, { recursive: true, dereference: true });
+  await buildSafeFilesystemArtifact(join(distAssets, "safe-filesystem"));
 }
 
 if (import.meta.main) {

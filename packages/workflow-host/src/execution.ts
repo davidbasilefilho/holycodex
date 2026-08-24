@@ -13,8 +13,10 @@ import {
   effectiveCompileOptions,
   effectiveRuntimeLimits,
   releaseReservation,
+  restoreReservation,
 } from "./admission.ts";
-import { asJsonValue, assertInputIdentity } from "./identity.ts";
+import { costMaxToUnits } from "./cost.ts";
+import { asJsonValue, assertInputIdentity, assertNativeWorkflowIdentity } from "./identity.ts";
 import { compileHostWorkflow, runCompiledWorkflow } from "./effect-runtime.ts";
 import { normalizeDelegationMode, parseDelegationMode } from "./creation.ts";
 import { changeState, inspect, loadRun, writeCheckpoint, emitTelemetry } from "./lifecycle.ts";
@@ -89,9 +91,22 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
   const source = input.source ?? descriptor?.source;
   const args =
     input.args === undefined ? descriptor?.args : asJsonValue(input.args, "resupplied args");
-  const executionMode =
-    input.executionMode ??
+  const persistedExecutionMode =
+    descriptor?.execution_identity?.execution_mode ??
     descriptor?.execution_mode ??
+    loaded.snapshot.definition.identity.workflow_execution?.execution_mode;
+  if (
+    input.executionMode !== undefined &&
+    persistedExecutionMode !== undefined &&
+    input.executionMode !== persistedExecutionMode
+  ) {
+    throw new WorkflowHostError(
+      "identity_mismatch",
+      "The supplied execution mode conflicts with the immutable persisted mode.",
+    );
+  }
+  const executionMode =
+    persistedExecutionMode ??
     (input.workflow ? "native" : context.compatibilityEnabled ? "compatibility" : undefined);
   const objective = pending?.objective ?? descriptor?.objective ?? "workflow";
   const constraints = pending?.constraints ?? descriptor?.constraints ?? [];
@@ -100,7 +115,17 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
       ? undefined
       : decodePersistedCompileOptions(descriptor.compile_options);
   const suppliedDelegationMode = parseDelegationMode(input.delegationMode);
-  const persistedDelegationMode = descriptor?.delegation_mode;
+  const persistedDelegationMode =
+    descriptor?.execution_identity?.delegation_mode ??
+    descriptor?.delegation_mode ??
+    loaded.snapshot.definition.identity.workflow_execution?.delegation_mode;
+  const persistedCardinality =
+    descriptor?.execution_identity?.compatibility_cardinality ??
+    descriptor?.compatibility_cardinality ??
+    (executionMode === "compatibility"
+      ? (loaded.snapshot.definition.identity.workflow_execution?.compatibility_cardinality ??
+        undefined)
+      : undefined);
   if (
     persistedDelegationMode !== undefined &&
     suppliedDelegationMode !== undefined &&
@@ -117,6 +142,22 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
       "The persisted workflow descriptor is incomplete; source and args are required to resume.",
     );
   }
+  if (executionMode === "compatibility" && input.workflow !== undefined) {
+    throw new WorkflowHostError(
+      "identity_mismatch",
+      "A compatibility run cannot be resumed with a native workflow terminal.",
+    );
+  }
+  if (
+    descriptor?.source_path !== undefined &&
+    input.sourcePath !== undefined &&
+    descriptor.source_path !== input.sourcePath
+  ) {
+    throw new WorkflowHostError(
+      "identity_mismatch",
+      "The supplied workflow source path does not match the persisted run identity.",
+    );
+  }
   await assertInputIdentity(loaded.snapshot.definition, source, args);
   const definition = loaded.snapshot.definition;
   const planResult = resolvePlanSelection({
@@ -126,6 +167,9 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
   if (!planResult.ok) {
     throw new WorkflowHostError("invalid_plan", "The persisted plan is no longer recognized.");
   }
+  const restored = context.reservations.has(input.runId)
+    ? { calls: 0, committedCost: 0, reservedCost: 0 }
+    : await restoreReservation(context, planResult.value.plan, input.runId, loaded.journal);
   const effectiveLimits = effectiveRuntimeLimits(context, planResult.value.plan);
   const workflow = input.workflow ?? pending?.workflow;
   let compiledPlan = pending?.compiledPlan;
@@ -149,6 +193,13 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
         persistedCompileOptions ??
         context.compileOptions,
     );
+    await assertNativeWorkflowIdentity(
+      loaded.snapshot.definition,
+      source,
+      workflow,
+      compileOptions,
+      executionMode,
+    );
     if (
       input.workflow !== undefined ||
       compiledPlan === undefined ||
@@ -168,26 +219,37 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
     delegationMode = normalizeDelegationMode({
       requested: persistedDelegationMode ?? suppliedDelegationMode,
       executionMode,
-      nativeNodeCount: compiledPlan?.nodes.length,
-      expectedCalls: 0,
-      expectedCallsProvided: false,
+      ...(compiledPlan === undefined ? {} : { nativeNodeCount: compiledPlan.nodes.length }),
     });
   } else if (persistedDelegationMode !== undefined) {
-    if (persistedDelegationMode === "DIRECT") {
-      normalizeDelegationMode({
-        requested: persistedDelegationMode,
-        executionMode,
-        expectedCalls: 0,
-        expectedCallsProvided: false,
-      });
-    }
-    delegationMode = persistedDelegationMode;
+    await assertNativeWorkflowIdentity(
+      loaded.snapshot.definition,
+      source,
+      workflow,
+      context.compileOptions,
+      executionMode,
+    );
+    delegationMode = normalizeDelegationMode({
+      requested: persistedDelegationMode,
+      executionMode,
+      ...(persistedCardinality === undefined
+        ? {}
+        : { compatibilityCardinality: persistedCardinality }),
+    });
   } else {
+    await assertNativeWorkflowIdentity(
+      loaded.snapshot.definition,
+      source,
+      workflow,
+      context.compileOptions,
+      executionMode,
+    );
     delegationMode = normalizeDelegationMode({
       requested: suppliedDelegationMode,
       executionMode,
-      expectedCalls: 0,
-      expectedCallsProvided: false,
+      ...(persistedCardinality === undefined
+        ? {}
+        : { compatibilityCardinality: persistedCardinality }),
     });
   }
   const controller = new AbortController();
@@ -201,16 +263,20 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
   const active = {
     controller,
     operationControllers: new Map<string, AbortController>(),
-    calls: 0,
+    calls: restored.calls,
     maxCalls: effectiveLimits.maxOperationCount ?? planResult.value.plan.budget?.maxCalls ?? 0,
     maxConcurrency:
       effectiveLimits.maxConcurrentOperations ?? planResult.value.plan.budget?.maxConcurrency ?? 0,
     maxCost: Math.min(
-      planResult.value.plan.budget?.costMax ?? 0,
-      context.capacity.costMax ?? planResult.value.plan.budget?.costMax ?? 0,
+      planResult.value.plan.budget === null
+        ? 0
+        : costMaxToUnits(planResult.value.plan.budget.costMax),
+      context.capacity.costMax === undefined
+        ? Number.MAX_SAFE_INTEGER
+        : costMaxToUnits(context.capacity.costMax),
     ),
     inFlight: 0,
-    costUnits: 0,
+    costUnits: restored.committedCost,
   };
   context.active.set(input.runId, active);
   try {

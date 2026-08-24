@@ -16,6 +16,7 @@ import {
   WORKFLOW_HOST_SCHEMA_EPOCHS,
   decodeHostSchema,
   type IdentityComponents,
+  type CompatibilityCardinality,
   type JournalEvent,
   type RunDefinition,
   type RunSnapshot,
@@ -34,6 +35,7 @@ import {
   jsonObject,
   safeText,
   safeTextArray,
+  classifyCompatibilityCardinality,
 } from "./identity.ts";
 import type { CreateRunInput, HostContext, WorkflowExecutionMode } from "./types.ts";
 import { emitTelemetry } from "./lifecycle.ts";
@@ -54,8 +56,7 @@ export function normalizeDelegationMode(
     readonly requested: unknown;
     readonly executionMode: WorkflowExecutionMode;
     readonly nativeNodeCount?: number;
-    readonly expectedCalls: number;
-    readonly expectedCallsProvided: boolean;
+    readonly compatibilityCardinality?: CompatibilityCardinality;
   }>,
 ): DelegationMode {
   const requested = parseDelegationMode(input.requested);
@@ -82,14 +83,15 @@ export function normalizeDelegationMode(
     }
     return requested ?? derived;
   }
-  const derived = input.expectedCalls > 1 ? "DYNAMIC_WORKFLOW" : "SINGLE";
+  const cardinality = input.compatibilityCardinality;
+  const derived =
+    cardinality?.status === "proven" && cardinality.expected_calls <= 1
+      ? "SINGLE"
+      : "DYNAMIC_WORKFLOW";
   if (requested === undefined) {
     return derived;
   }
-  const matches =
-    requested === "SINGLE"
-      ? input.expectedCallsProvided && input.expectedCalls === 1
-      : input.expectedCallsProvided && input.expectedCalls >= 2;
+  const matches = requested === derived;
   if (!matches) {
     throw new WorkflowHostError(
       "admission_denied",
@@ -137,7 +139,7 @@ export async function createRun(
     );
   }
   const estimatedCost = input.estimatedCost ?? 0;
-  const expectedCalls = input.expectedCalls ?? 0;
+  const expectedCalls = input.expectedCalls;
   const expectedConcurrency = input.expectedConcurrency ?? 1;
   const expectedRetries = input.expectedRetries ?? 0;
   const expectedFanOut = input.expectedFanOut ?? 1;
@@ -186,13 +188,28 @@ export async function createRun(
       );
     }
   }
+  const compatibilityCardinality =
+    executionMode === "compatibility"
+      ? await classifyCompatibilityCardinality({
+          source: input.source,
+          expectedCalls,
+          proofDigest: input.expectedCallsProofDigest,
+        })
+      : undefined;
   const delegationMode = normalizeDelegationMode({
     requested: requestedDelegationMode,
     executionMode,
     ...(compiledPlan === undefined ? {} : { nativeNodeCount: compiledPlan.nodes.length }),
-    expectedCalls,
-    expectedCallsProvided: input.expectedCalls !== undefined,
+    ...(compatibilityCardinality === undefined ? {} : { compatibilityCardinality }),
   });
+  const workflowExecution: import("./schemas.ts").WorkflowExecutionIdentity = {
+    execution_mode: executionMode,
+    delegation_mode: delegationMode,
+    compatibility_cardinality:
+      executionMode === "compatibility"
+        ? (compatibilityCardinality ?? { status: "unknown" })
+        : null,
+  };
 
   const lineage = input.objectiveLineage ?? randomId("lineage");
   const parentRunId = input.parentRunId ?? null;
@@ -204,6 +221,9 @@ export async function createRun(
     serviceTier,
     role: routeResult.value.role,
     context,
+    ...(input.workflow === undefined ? {} : { nativeWorkflow: input.workflow }),
+    ...(compileOptions === undefined ? {} : { compileOptions }),
+    ...(workflowExecution === undefined ? {} : { workflowExecution }),
   });
   const definition: RunDefinition = {
     schema_epoch: WORKFLOW_HOST_SCHEMA_EPOCHS.run,
@@ -217,8 +237,13 @@ export async function createRun(
     schema_epoch: "host-workflow-1.0",
     execution_mode: executionMode,
     delegation_mode: delegationMode,
+    ...(compatibilityCardinality === undefined
+      ? {}
+      : { compatibility_cardinality: compatibilityCardinality }),
+    execution_identity: workflowExecution,
     source: input.source,
     args,
+    ...(input.sourcePath === undefined ? {} : { source_path: input.sourcePath }),
     objective,
     constraints: safeTextArray(input.constraints),
     ...(input.compileOptions === undefined
@@ -260,11 +285,17 @@ export async function createRun(
     context,
     selection.value.plan,
     estimatedCost,
-    executionMode === "native" ? (compiledPlan?.nodes.length ?? 0) : expectedCalls,
+    executionMode === "native"
+      ? (compiledPlan?.nodes.length ?? 0)
+      : compatibilityCardinality?.status === "proven"
+        ? compatibilityCardinality.expected_calls
+        : 0,
     expectedConcurrency,
     expectedRetries,
     expectedFanOut,
     runId,
+    routeResult.value,
+    serviceTier,
   );
   try {
     await context.store.createRun(parsedSnapshot, parsedEvent);

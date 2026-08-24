@@ -1,8 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
-import type { CliEnvelope, JsonObject, JsonValue, PlanName, ServiceTier } from "@holycodex/core";
-import type { OfficialPluginManifest, OfficialPluginVerification } from "@holycodex/codex";
+import type {
+  CliEnvelope,
+  JsonObject,
+  JsonValue,
+  OptionalCapabilityName,
+  OptionalCapabilitySelections,
+  PlanName,
+  RouteKey,
+  RoleTask,
+  ServiceTier,
+  CapabilityName,
+  CapabilityResultV2,
+} from "@holycodex/core";
+import type { LiveOfficialPluginListEnvelope } from "@holycodex/codex";
+import type { SafeWorkflowFilesystemBoundary } from "./generated-workflow-store.ts";
 import type {
   InspectionProjection,
   Refinement,
@@ -12,24 +25,14 @@ import type {
   WorkflowHostError,
 } from "@holycodex/workflow-host";
 
-export type OptionalSelectionName = "computer_use" | "work" | "web" | "security" | "coding";
+export type OptionalSelectionName = OptionalCapabilityName | "coding";
 export type Autonomy = "manual" | "assisted" | "autonomous";
-export type WorkflowCapabilityName =
-  | "work"
-  | "web"
-  | "security"
-  | "computer_use"
-  | "lsp"
-  | "lsp_setup"
-  | "git_bash";
+export type WorkflowCapabilityName = CapabilityName;
 
-export type OptionalSelections = Readonly<{
-  readonly computer_use: boolean;
-  readonly work: boolean;
-  readonly web: boolean;
-  readonly security: boolean;
-  readonly coding: true;
-}>;
+export type OptionalSelections = OptionalCapabilitySelections &
+  Readonly<{
+    readonly coding: true;
+  }>;
 
 export type ExplicitOptionalSelections = Readonly<
   Partial<{
@@ -45,12 +48,20 @@ export interface InstallerPaths {
   readonly marketplaceRoot: string;
 }
 
+export type OfficialPluginStatus =
+  | "installed"
+  | "available"
+  | "missing"
+  | "disabled"
+  | "uncertain"
+  | "unknown";
+
 export interface OfficialPluginManager {
-  readonly list?: () => Promise<readonly OfficialPluginManifest[]>;
-  readonly add?: (plugin: OfficialPluginVerification) => Promise<void>;
+  readonly list?: () => Promise<LiveOfficialPluginListEnvelope>;
+  readonly add?: (pluginId: string) => Promise<void>;
   readonly status?: (
     selected: readonly string[],
-  ) => Promise<Readonly<Record<string, "installed" | "available" | "missing" | "unknown">>>;
+  ) => Promise<Readonly<Record<string, OfficialPluginStatus>>>;
 }
 
 export interface CodexExecutableProbe {
@@ -69,10 +80,34 @@ export interface InstallRecord {
   readonly optional_selections: OptionalSelections;
   readonly explicit_optional_selections: ExplicitOptionalSelections;
   readonly official_plugins?: readonly string[] | undefined;
+  readonly capability_state?: CapabilityStateRecord | undefined;
   readonly autonomy?: Autonomy | undefined;
   readonly max_subagents?: number | undefined;
   readonly installed_at: string;
 }
+
+export type CapabilityStateStatus =
+  | "disabled"
+  | "pending"
+  | "healthy"
+  | "missing"
+  | "provider_disabled"
+  | "uncertain"
+  | "unavailable";
+
+export interface CapabilityInstallState {
+  readonly selected: boolean;
+  readonly status: CapabilityStateStatus;
+  readonly plugin_ids: readonly string[];
+  readonly reason?: string | undefined;
+}
+
+export type CapabilityStateRecord = Readonly<{
+  readonly computer_use: CapabilityInstallState;
+  readonly work: CapabilityInstallState;
+  readonly web: CapabilityInstallState;
+  readonly security: CapabilityInstallState;
+}>;
 
 export interface InstallerOptions {
   readonly paths?: Partial<InstallerPaths>;
@@ -84,6 +119,8 @@ export interface InstallerOptions {
   readonly now?: () => Date;
   readonly pid?: number;
   readonly runIdFactory?: () => string;
+  /** Supplied by the platform-native helper or an explicit test primitive. */
+  readonly generatedWorkflowBoundary?: SafeWorkflowFilesystemBoundary;
 }
 
 export interface InstallResult {
@@ -108,7 +145,7 @@ export interface DoctorResult {
   readonly inactive_artifacts: readonly string[];
 }
 
-export type CleanupScope = "run" | "workspace" | "expired";
+export type CleanupScope = "run" | "workspace" | "expired" | "workflow-session";
 
 export interface CleanupResult {
   readonly scope: CleanupScope;
@@ -123,6 +160,7 @@ export interface WorkflowService {
     readonly source: string;
     readonly args: JsonValue;
     readonly objective: string;
+    readonly sourcePath?: string;
     readonly plan?: PlanName;
     readonly serviceTier?: ServiceTier;
     readonly autonomy?: Autonomy;
@@ -133,6 +171,7 @@ export interface WorkflowService {
     readonly runId: string;
     readonly source: string;
     readonly args: JsonValue;
+    readonly sourcePath?: string;
     readonly workflow?: WorkflowDefinition;
     readonly compatibility?: boolean;
   }) => Promise<RunExecution>;
@@ -140,6 +179,7 @@ export interface WorkflowService {
     readonly runId: string;
     readonly source: string;
     readonly args: JsonValue;
+    readonly sourcePath?: string;
     readonly workflow?: WorkflowDefinition;
     readonly compatibility?: boolean;
   }) => Promise<RunExecution>;
@@ -173,8 +213,35 @@ export interface WorkflowService {
   };
 }
 
+export interface WorkflowCapabilityRequest {
+  readonly capability: WorkflowCapabilityName;
+  readonly input: JsonObject;
+  readonly objective: string;
+  readonly role_task: RoleTask | null;
+  readonly authority: string;
+  readonly scope: readonly string[];
+  readonly constraints: readonly string[];
+  readonly required_evidence: readonly string[];
+  readonly completion: readonly string[];
+  readonly tools: Readonly<{
+    readonly allowed: readonly string[];
+    readonly specialist_spawn: false;
+    readonly workflow: false;
+  }>;
+  readonly security: Readonly<{
+    readonly network: boolean;
+    readonly specialist_spawn: false;
+    readonly workflow: false;
+  }>;
+  readonly route: RouteKey | null;
+  readonly signal: AbortSignal;
+  readonly rootAuthority: boolean;
+}
+
+export type WorkflowCapabilityResult = CapabilityResultV2;
+
 export interface WorkflowCapabilityPort {
-  readonly invoke: (input: JsonObject) => Promise<unknown>;
+  readonly invoke: (request: WorkflowCapabilityRequest) => Promise<unknown>;
   readonly available?: () => Promise<boolean>;
 }
 
@@ -196,12 +263,26 @@ export interface CliContext {
   readonly cwd?: string;
   readonly io?: CliIo;
   readonly installer?: InstallerOptions;
+  /** Explicit test seam for a validated App Server assignment adapter. */
+  readonly appServerAssignment?: AppServerAssignmentPort;
   readonly workflowService?: WorkflowService;
   readonly capabilities?: WorkflowCapabilities;
   readonly rootAuthority?: boolean;
+  /** Caller-owned session identity used for generated workflow storage. */
+  readonly workflowSessionId?: string;
+  /** Optional strict generated workflow filename stem supplied by the caller. */
+  readonly workflowName?: string;
+  readonly generatedWorkflowBoundary?: SafeWorkflowFilesystemBoundary;
   readonly trustGate?: (path: string) => Promise<boolean>;
   readonly readStdin?: () => Promise<string>;
   readonly now?: () => Date;
+}
+
+export interface AppServerAssignmentPort {
+  readonly execute: (
+    packet: unknown,
+    options?: Readonly<{ readonly signal?: AbortSignal; readonly timeoutMs?: number }>,
+  ) => Promise<unknown>;
 }
 
 export interface CommandResult {

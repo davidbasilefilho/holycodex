@@ -41,6 +41,8 @@ export {
   ExecutionPlan,
   compileWorkflow,
   compileWorkflowUnsafe,
+  hydrateWorkflowPlanIR,
+  compileWorkflowPlanIR,
 } from "./compiler.ts";
 export type {
   CompileOptions,
@@ -49,12 +51,44 @@ export type {
   PlanCapacity,
   PlanTerminal,
 } from "./compiler.ts";
+export {
+  NATIVE_OUTPUT_REFERENCE_KEY,
+  NATIVE_WORKFLOW_ABI_VERSION,
+  freezeWorkflowPlanIR,
+  nativeWorkflowIdentityDigest,
+  validateWorkflowPlanIR,
+  nativePlanJson,
+} from "./native-ir.ts";
+export type {
+  NativeWorkflow,
+  NativeWorkflowAssignmentIR,
+  NativeWorkflowCapacityInputsIR,
+  NativeWorkflowCodecIR,
+  NativeWorkflowInputIR,
+  NativeWorkflowNodeIR,
+  NativeWorkflowOutputIR,
+  NativeWorkflowOutputTargetIR,
+  NativeWorkflowTerminalIR,
+  NativeWorkflowIdentityInput,
+  WorkflowPlanIR,
+} from "./native-ir.ts";
+export type { NativeWorkflowLimits, NativeWorkflowLimitsInput } from "./native-source.ts";
+export {
+  DEFAULT_NATIVE_WORKFLOW_LIMITS,
+  evaluateNativeWorkflowSource,
+  loadNativeWorkflowSource,
+  mergeNativeWorkflowLimits,
+} from "./native-source.ts";
+export { transformNativeWorkflowSource } from "./transform.ts";
 export { makeCapacityService, runExecutionPlan, runExecutionPlanPromise } from "./runtime.ts";
 export type {
   CapacityDispatchRequest,
   CapacityLease,
+  CapacityLedgerSnapshot,
   CapacityRunReservation,
+  CapacityRunRestoreRequest,
   CapacityRunReservationRequest,
+  CapacitySettlement,
   CapacityService,
   WorkflowApprovalRequest,
   WorkflowCheckpoint,

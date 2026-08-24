@@ -85,19 +85,17 @@ function isNonNegativeFinite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
-function isCompleteUsageVariant(
+function isSupportedUsageVariant(
   value: Record<string, unknown>,
-  requiredKeys: readonly string[],
+  tokenKeys: readonly string[],
   totalKey: string,
 ): boolean {
-  const allowedKeys = new Set([...requiredKeys, totalKey]);
+  const allowedKeys = new Set([...tokenKeys, totalKey]);
+  const presentKeys = Object.keys(value);
   if (Object.keys(value).some((key) => !allowedKeys.has(key))) {
     return false;
   }
-  return (
-    requiredKeys.every((key) => isNonNegativeFinite(value[key])) &&
-    (value[totalKey] === undefined || isNonNegativeFinite(value[totalKey]))
-  );
+  return presentKeys.length > 0 && presentKeys.every((key) => isNonNegativeFinite(value[key]));
 }
 
 function isSupportedUsage(value: unknown): value is SupportedUsage {
@@ -105,12 +103,12 @@ function isSupportedUsage(value: unknown): value is SupportedUsage {
     return false;
   }
   return (
-    isCompleteUsageVariant(
+    isSupportedUsageVariant(
       value,
       ["inputTokens", "cachedInputTokens", "outputTokens", "reasoningOutputTokens"],
       "totalTokens",
     ) ||
-    isCompleteUsageVariant(
+    isSupportedUsageVariant(
       value,
       ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"],
       "total_tokens",
@@ -295,7 +293,8 @@ function isTurnIdentity(value: unknown): value is TurnIdentity {
     isPlainObject(value) &&
     isJsonValue(value) &&
     typeof value["id"] === "string" &&
-    value["id"].length > 0
+    value["id"].length > 0 &&
+    (value["usage"] === undefined || isSupportedUsage(value["usage"]))
   );
 }
 
@@ -380,6 +379,7 @@ export interface ModelCapability {
   readonly model: string;
   readonly supportedReasoningEfforts?: readonly JsonObject[];
   readonly serviceTiers?: readonly JsonObject[];
+  readonly defaultServiceTier?: string | null;
   readonly multiAgentVersion?: GeneratedV2.MultiAgentVersion | null;
 }
 
@@ -399,6 +399,9 @@ function isModelCapability(value: unknown): value is ModelCapability {
         value["serviceTiers"].every(
           (entry) => isPlainObject(entry) && typeof entry["id"] === "string",
         ))) &&
+    (value["defaultServiceTier"] === undefined ||
+      value["defaultServiceTier"] === null ||
+      typeof value["defaultServiceTier"] === "string") &&
     (value["multiAgentVersion"] === undefined ||
       value["multiAgentVersion"] === null ||
       value["multiAgentVersion"] === "disabled" ||

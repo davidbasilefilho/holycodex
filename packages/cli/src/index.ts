@@ -11,6 +11,8 @@ export {
   installHolyCodex,
   readActiveInstallRecord,
   verifyActivation,
+  CapabilityStateRecordSchema,
+  CapabilityInstallStateSchema,
   InstallRecordSchema,
   InstallerError,
 } from "./installer.ts";
@@ -35,7 +37,9 @@ export { CodexOfficialPluginManager, OfficialPluginManagerError } from "./offici
 export type { OfficialPluginCommandRunner } from "./official-manager.ts";
 export {
   executeWorkflowCommand,
+  createDefaultWorkflowService,
   invokeWorkflowCapability,
+  loadNativeWorkflow,
   readWorkflowSource,
   optionalArgs,
   WorkflowCommandError,
@@ -49,8 +53,33 @@ export {
   readMigratedInstallerSelections,
 } from "./migration.ts";
 export { WorkflowStoreError } from "./workflow-store.ts";
+export {
+  assertSafeSessionId,
+  assertSafeWorkflowName,
+  GeneratedWorkflowStore,
+  GeneratedWorkflowStoreError,
+  shortWorkflowHash,
+  GENERATED_WORKFLOW_DEFAULT_TTL_MS,
+  GENERATED_WORKFLOW_MAX_NAME_BYTES,
+  GENERATED_WORKFLOW_MAX_SESSION_ID_BYTES,
+  GENERATED_WORKFLOW_MAX_SOURCE_BYTES,
+  GENERATED_WORKFLOW_NAMING_VERSION,
+  GENERATED_WORKFLOW_SCHEMA_EPOCH,
+} from "./generated-workflow-store.ts";
+export type {
+  GeneratedWorkflowCleanupResult,
+  GeneratedWorkflowMetadata,
+  GeneratedWorkflowStoreOptions,
+  NativeWorkflowStoredIdentity,
+  SafeWorkflowFilesystemBoundary,
+  SafeWorkflowDirectoryEntry,
+  StoredGeneratedWorkflow,
+} from "./generated-workflow-store.ts";
 export { RefinementStoreError } from "./refinement-store.ts";
 export type {
+  CapabilityInstallState,
+  CapabilityStateRecord,
+  CapabilityStateStatus,
   CliContext,
   CliIo,
   CleanupResult,
@@ -64,11 +93,15 @@ export type {
   InstallerOptions,
   InstallerPaths,
   OfficialPluginManager,
+  OfficialPluginStatus,
   OptionalSelections,
   ParsedCommand,
   WorkflowService,
   WorkflowCapabilities,
   WorkflowCapabilityPort,
+  WorkflowCapabilityRequest,
+  WorkflowCapabilityResult,
+  AppServerAssignmentPort,
   Autonomy,
 } from "./types.ts";
 export type { InstallRequest } from "./installer.ts";

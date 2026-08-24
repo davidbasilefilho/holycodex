@@ -11,6 +11,7 @@ import { runChecked } from "./process.ts";
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageManifestPaths = [
   "packages/core/package.json",
+  "packages/safe-filesystem/package.json",
   "packages/codex/package.json",
   "packages/workflow-runtime/package.json",
   "packages/workflow-host/package.json",
@@ -93,6 +94,7 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
 
   const schemaOwners = [
     "packages/core/src",
+    "packages/safe-filesystem/src",
     "packages/codex/src",
     "packages/workflow-runtime/src",
     "packages/workflow-host/src",
@@ -157,26 +159,93 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
     const workflow = await readText(path);
     assert(workflow.includes("contents: read"), `${path} must use least-read permissions`);
     if (path === ".github/workflows/publish.yml") {
-      assert(workflow.includes("workflow_dispatch:"), `${path} must require manual dispatch`);
+      assert(workflow.includes("push:"), `${path} must publish from push events`);
+      assert(workflow.includes("main"), `${path} must include the main development channel`);
+      assert(workflow.includes("tags:"), `${path} must include the stable tag channel`);
+      assert(workflow.includes('"v*.*.*"'), `${path} must filter stable version tags`);
+      assert(workflow.includes('"!v*.*.*-*"'), `${path} must exclude prerelease tags`);
+      assert(workflow.includes("workflow_dispatch:"), `${path} must preserve dispatch control`);
+      assert(
+        workflow.includes("./.github/workflows/validation.yml"),
+        `${path} must reuse the repository validation gate`,
+      );
       assert(workflow.includes("secrets.NPM_TOKEN"), `${path} must use the owned npm secret`);
       assert(workflow.includes("bun publish"), `${path} must publish through Bun`);
+      assert(workflow.includes("--tag dev"), `${path} must publish development versions under dev`);
+      assert(
+        workflow.includes("--tag latest"),
+        `${path} must publish stable versions under latest`,
+      );
+      assert(
+        workflow.includes("--prerelease"),
+        `${path} must mark development releases prerelease`,
+      );
+      assert(workflow.includes("--verify-tag"), `${path} must verify stable tags before release`);
+      assert(workflow.includes("--generate-notes"), `${path} must generate release notes`);
+      assert(workflow.includes("check-npm"), `${path} must prove npm retry identity`);
+      assert(workflow.includes("check-github"), `${path} must prove GitHub retry identity`);
+      assert(workflow.includes('git rev-parse "$GITHUB_REF"'), `${path} must verify tag ancestry`);
+      assert(
+        workflow.includes("needs: [prepare, validation]"),
+        `${path} must gate publication jobs`,
+      );
+      assert(
+        workflow.includes("contents: write"),
+        `${path} must grant release write access explicitly`,
+      );
+      assert(
+        !workflow.includes("id-token: write"),
+        `${path} must not request npm OIDC permissions`,
+      );
       assert(
         !/\bnpm\s+(?:publish|install|ci|test|run)\b/u.test(workflow),
         `${path} must not run npm`,
       );
+    } else if (path === ".github/workflows/validation.yml") {
+      assert(workflow.includes("pull_request:"), `${path} must preserve pull request validation`);
+      assert(workflow.includes("workflow_dispatch:"), `${path} must preserve dispatch validation`);
+      assert(workflow.includes("workflow_call:"), `${path} must expose reusable validation`);
+      assert(
+        workflow.includes("needs: validate"),
+        `${path} release packaging must require validation`,
+      );
+      assert(
+        workflow.includes("package-release.ts create"),
+        `${path} must create the exact artifact`,
+      );
+      assert(
+        workflow.includes("actions/upload-artifact@"),
+        `${path} must upload the exact artifact`,
+      );
+      assert(
+        workflow.includes("actions/download-artifact@"),
+        `${path} must reuse the validated build`,
+      );
     } else {
       assert(
-        !/\b(?:publish|deploy|trusted publishing)\b/iu.test(workflow),
+        !/\b(?:bun\s+publish|gh\s+release\s+create|deploy|trusted publishing)\b/iu.test(workflow),
         `${path} declares an excluded external job`,
       );
+    }
+    const checkoutBlocks = workflow.split("uses: actions/checkout@").slice(1);
+    assert(checkoutBlocks.length > 0, `${path} must check out its source explicitly`);
+    for (const block of checkoutBlocks) {
+      assert(block.includes("ref:"), `${path} must pin every checkout to the triggering SHA`);
     }
     for (const action of workflow.matchAll(/uses:\s*([^\s#]+)/gu)) {
       const reference = action[1] ?? "";
       assert(
-        reference.startsWith("actions/checkout@") || reference.startsWith("jdx/mise-action@"),
+        reference.startsWith("actions/checkout@") ||
+          reference.startsWith("actions/upload-artifact@") ||
+          reference.startsWith("actions/download-artifact@") ||
+          reference.startsWith("jdx/mise-action@"),
         `${path} uses an unapproved third-party action ${reference}`,
       );
-      if (reference.startsWith("actions/checkout@")) {
+      if (
+        reference.startsWith("actions/checkout@") ||
+        reference.startsWith("actions/upload-artifact@") ||
+        reference.startsWith("actions/download-artifact@")
+      ) {
         assert(/@[0-9a-f]{40}$/u.test(reference), `${path} must pin checkout to an immutable SHA`);
       }
     }

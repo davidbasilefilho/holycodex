@@ -34,7 +34,11 @@
   "devDependencies": {
     "@holycodex/codex": "workspace:*",
     "@holycodex/core": "workspace:*",
+    "@holycodex/git-bash": "workspace:*",
+    "@holycodex/lsp-core": "workspace:*",
+    "@holycodex/lsp-daemon": "workspace:*",
     "@holycodex/plugin": "workspace:*",
+    "@holycodex/safe-filesystem": "workspace:*",
     "@holycodex/workflow-host": "workspace:*",
     "@holycodex/workflow-runtime": "workspace:*"
   }

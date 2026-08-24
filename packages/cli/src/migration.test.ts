@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vite-plus/test";
 import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
@@ -22,7 +23,7 @@ describe("legacy state migration", () => {
   });
 
   test("migrates selected state deterministically and reuses the completed result", async () => {
-    const root = await mkdtemp("/tmp/holycodex-cli-migration-");
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-migration-"));
     const paths = resolveInstallerPaths({
       paths: { codexHome: join(root, "home"), marketplaceRoot: join(root, "market") },
     });
@@ -72,7 +73,7 @@ describe("legacy state migration", () => {
   });
 
   test("resumes an interrupted record and quarantines corrupt historical input", async () => {
-    const root = await mkdtemp("/tmp/holycodex-cli-migration-recovery-");
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-migration-recovery-"));
     const paths = resolveInstallerPaths({
       paths: { codexHome: join(root, "home"), marketplaceRoot: join(root, "market") },
     });
@@ -96,7 +97,7 @@ describe("legacy state migration", () => {
       const resumed = await migrateLegacyState(paths, now);
       expect(resumed.recovery).toBe("resumed");
 
-      const corruptRoot = await mkdtemp("/tmp/holycodex-cli-migration-corrupt-");
+      const corruptRoot = await mkdtemp(join(tmpdir(), "holycodex-cli-migration-corrupt-"));
       const corruptPaths = resolveInstallerPaths({
         paths: {
           codexHome: join(corruptRoot, "home"),

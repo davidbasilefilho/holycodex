@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
-import { isAbsolute, join, posix, resolve } from "node:path";
+import { dirname, isAbsolute, join, posix, resolve } from "node:path";
 import {
   GENERATED_DIRECTORY_NAMES,
   SECRET_EXTENSION_PATTERN,
@@ -64,11 +64,8 @@ export async function resolveSourceRoot(sourceRoot: string): Promise<string> {
   if (stats.isSymbolicLink() || !stats.isDirectory()) {
     throw pluginError("source_invalid", "The plugin source root must be a real directory.");
   }
-  const canonical = await realpath(requested);
-  if (canonical !== requested) {
-    throw pluginError("path_invalid", "The plugin source root must not resolve through an alias.");
-  }
-  return canonical;
+  await assertNoSymlinkAncestors(requested, "path_invalid");
+  return await realpath(requested);
 }
 
 export async function resolveStagingRoot(stagingDirectory: string): Promise<string> {
@@ -87,14 +84,24 @@ export async function resolveStagingRoot(stagingDirectory: string): Promise<stri
   if (stats.isSymbolicLink() || !stats.isDirectory()) {
     throw pluginError("staging_invalid", "The payload staging path must be a real directory.");
   }
-  const canonical = await realpath(requested);
-  if (canonical !== requested) {
-    throw pluginError(
-      "staging_invalid",
-      "The payload staging path must not resolve through an alias.",
-    );
+  await assertNoSymlinkAncestors(requested, "staging_invalid");
+  return await realpath(requested);
+}
+
+async function assertNoSymlinkAncestors(
+  requested: string,
+  code: "path_invalid" | "staging_invalid",
+): Promise<void> {
+  let current = requested;
+  while (true) {
+    const entry = await lstat(current);
+    if (entry.isSymbolicLink()) {
+      throw pluginError(code, "The managed plugin path must not contain a symbolic link.");
+    }
+    const parent = dirname(current);
+    if (parent === current) return;
+    current = parent;
   }
-  return canonical;
 }
 
 export async function walkSource(root: string, prefix: string, output: string[]): Promise<void> {

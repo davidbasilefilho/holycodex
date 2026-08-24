@@ -2,235 +2,147 @@
 
 import {
   createAllowlistedEnvironment,
+  createOfficialPluginAdapter,
   discoverCodexExecutable,
-  parseOfficialPluginManifest,
-  type OfficialPluginManifest,
-  type OfficialPluginVerification,
+  OfficialPluginAdapterError,
+  type LiveOfficialPluginEntry,
+  type LiveOfficialPluginListEnvelope,
+  type OfficialPluginCommandRunner,
 } from "@holycodex/codex";
-import type { OfficialPluginManager } from "./types.ts";
+import type { OfficialPluginManager, OfficialPluginStatus } from "./types.ts";
 
-const OFFICIAL_COMMAND_TIMEOUT_MS = 30_000;
-
-export interface OfficialPluginCommandRunner {
-  readonly run: (
-    args: readonly string[],
-  ) => Promise<Readonly<{ exitCode: number; stdout: string; stderr: string }>>;
-}
+export type { OfficialPluginCommandRunner } from "@holycodex/codex";
 
 export class CodexOfficialPluginManager implements OfficialPluginManager {
-  private readonly runner: OfficialPluginCommandRunner;
+  private readonly adapter: OfficialPluginAdapterShape;
 
-  constructor(runner: OfficialPluginCommandRunner) {
-    this.runner = runner;
+  constructor(input: OfficialPluginCommandRunner | OfficialPluginAdapterShape) {
+    if ("run" in input) {
+      const adapter = createOfficialPluginAdapter({ executable: "codex", runner: input });
+      this.adapter = { list: adapter.list, add: adapter.add };
+    } else {
+      this.adapter = input;
+    }
   }
 
   static async discover(): Promise<CodexOfficialPluginManager> {
     const executable = await discoverCodexExecutable();
-    return new CodexOfficialPluginManager({
-      run: async (args) => runCodexCommand(executable.path, args),
+    const adapter = createOfficialPluginAdapter({
+      executable: executable.path,
+      environment: createAllowlistedEnvironment(),
     });
+    return new CodexOfficialPluginManager({ list: adapter.list, add: adapter.add });
   }
 
-  async list(): Promise<readonly OfficialPluginManifest[]> {
-    return (await this.readList()).map((entry) => entry.manifest);
-  }
-
-  private async readList(): Promise<readonly PluginListEntry[]> {
-    const result = await this.runner.run(["plugin", "list", "--json"]);
-    if (result.exitCode !== 0) {
-      throw new OfficialPluginManagerError("list_failed", "Codex could not list official plugins.");
-    }
-    let parsed: unknown;
+  async list(): Promise<LiveOfficialPluginListEnvelope> {
     try {
-      parsed = JSON.parse(result.stdout) as unknown;
+      return await this.adapter.list();
     } catch (error: unknown) {
-      throw new OfficialPluginManagerError(
-        "list_failed",
-        "Codex returned invalid plugin data.",
-        error,
-      );
+      throw wrapManagerError("list", error);
     }
-    let values: readonly unknown[];
-    if (Array.isArray(parsed)) {
-      values = parsed;
-    } else if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      !Array.isArray(parsed) &&
-      "plugins" in parsed &&
-      Array.isArray(parsed.plugins)
-    ) {
-      values = parsed.plugins;
-    } else {
-      throw new OfficialPluginManagerError(
-        "list_failed",
-        "Codex returned an invalid official plugin list.",
-      );
-    }
-    const manifests: PluginListEntry[] = [];
-    for (const value of values) {
-      const verification = parseOfficialPluginManifest(value);
-      if (!verification.ok) {
-        throw new OfficialPluginManagerError(
-          "list_failed",
-          "Codex returned an invalid official plugin manifest.",
-        );
-      }
-      manifests.push({ manifest: verification.value, state: listingState(value) });
-    }
-    return manifests;
   }
 
-  async add(plugin: OfficialPluginVerification): Promise<void> {
-    const result = await this.runner.run(["plugin", "add", plugin.manifest.name]);
-    if (result.exitCode !== 0) {
-      throw new OfficialPluginManagerError(
-        "add_failed",
-        "Codex could not add the selected official plugin.",
-      );
+  async add(pluginId: string): Promise<void> {
+    try {
+      await this.adapter.add(pluginId);
+    } catch (error: unknown) {
+      throw wrapManagerError("add", error, pluginId);
     }
   }
 
   async status(
     selected: readonly string[],
-  ): Promise<Readonly<Record<string, "installed" | "available" | "missing" | "unknown">>> {
-    const entries = await this.readList();
-    const byName = new Map(entries.map((entry) => [entry.manifest.name, entry.state]));
-    return Object.fromEntries(selected.map((id) => [id, byName.get(id) ?? "missing"]));
+  ): Promise<Readonly<Record<string, OfficialPluginStatus>>> {
+    const live = await this.list();
+    const byId = new Map<string, LiveOfficialPluginEntry>();
+    for (const entry of [...live.installed, ...live.available]) {
+      if (!byId.has(entry.pluginId) || entry.installed) {
+        byId.set(entry.pluginId, entry);
+      }
+    }
+    return Object.fromEntries(
+      selected.map((pluginId) => {
+        const entry = byId.get(pluginId);
+        const status: OfficialPluginStatus =
+          entry === undefined
+            ? "missing"
+            : entry.installed && entry.enabled
+              ? "installed"
+              : entry.installed
+                ? "disabled"
+                : "missing";
+        return [pluginId, status];
+      }),
+    );
   }
 }
 
-type PluginListState = "installed" | "available" | "unknown";
-type PluginListEntry = Readonly<{
-  readonly manifest: OfficialPluginManifest;
-  readonly state: PluginListState;
+type OfficialPluginAdapterShape = Readonly<{
+  readonly list: () => Promise<LiveOfficialPluginListEnvelope>;
+  readonly add: (pluginId: string) => Promise<void>;
 }>;
 
-function listingState(value: unknown): PluginListState {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return "installed";
-  }
-  if ("installed" in value && value.installed === true) {
-    return "installed";
-  }
-  if ("available" in value && value.available === true) {
-    return "available";
-  }
-  if ("status" in value && (value.status === "installed" || value.status === "available")) {
-    return value.status;
-  }
-  return "installed";
-}
-
-async function runCodexCommand(
-  executable: string,
-  args: readonly string[],
-): Promise<Readonly<{ exitCode: number; stdout: string; stderr: string }>> {
-  const child = Bun.spawn([executable, ...args], {
-    env: createAllowlistedEnvironment(),
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (!(child.stdout instanceof ReadableStream) || !(child.stderr instanceof ReadableStream)) {
-    throw new OfficialPluginManagerError(
-      "command_failed",
-      "Codex plugin command output is unavailable.",
-    );
-  }
-  try {
-    const [stdout, stderr, exitCode] = await waitForChild(
-      Promise.all([
-        readBounded(child.stdout, 128 * 1024),
-        readBounded(child.stderr, 16 * 1024),
-        child.exited,
-      ]),
-      () => child.kill(),
-    );
-    return { exitCode, stdout, stderr };
-  } catch (error: unknown) {
-    try {
-      child.kill();
-    } catch {
-      // The subprocess may already have exited.
-    }
-    if (error instanceof OfficialPluginManagerError) {
-      throw error;
-    }
-    throw new OfficialPluginManagerError(
-      "command_failed",
-      "The Codex plugin command failed.",
-      error,
-    );
-  }
-}
-
-async function waitForChild<T>(operation: Promise<T>, kill: () => void): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(() => {
-          try {
-            kill();
-          } catch {
-            // The subprocess may already have exited.
-          }
-          reject(
-            new OfficialPluginManagerError("command_failed", "The Codex plugin command timed out."),
-          );
-        }, OFFICIAL_COMMAND_TIMEOUT_MS);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-    }
-  }
-}
-
-async function readBounded(stream: ReadableStream<Uint8Array>, limit: number): Promise<string> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      size += next.value.byteLength;
-      if (size > limit) {
-        throw new OfficialPluginManagerError(
-          "command_failed",
-          "Codex plugin output exceeded the limit.",
-        );
-      }
-      chunks.push(next.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
+function wrapManagerError(
+  operation: "list" | "add",
+  error: unknown,
+  pluginId?: string,
+): OfficialPluginManagerError {
+  if (error instanceof OfficialPluginManagerError) return error;
+  const adapterError = error instanceof OfficialPluginAdapterError ? error : undefined;
+  const adapterCode = adapterError?.code;
+  const code =
+    adapterCode === "timeout" ||
+    adapterCode === "output_limit" ||
+    adapterCode === "cancelled" ||
+    adapterCode === "readback_mismatch" ||
+    adapterCode === "plugin_disabled" ||
+    adapterCode === "plugin_missing"
+      ? adapterCode
+      : adapterCode === "command_failed"
+        ? operation === "list"
+          ? "list_failed"
+          : "add_failed"
+        : operation === "list"
+          ? "list_failed"
+          : "add_failed";
+  const message =
+    error instanceof Error
+      ? error.message
+      : operation === "list"
+        ? "Codex could not list official plugins."
+        : `Codex could not add ${pluginId ?? "the selected official plugin"}.`;
+  return new OfficialPluginManagerError(
+    code,
+    message,
+    error,
+    pluginId === undefined ? {} : { plugin_id: pluginId },
+  );
 }
 
 export class OfficialPluginManagerError extends Error {
-  readonly code: "list_failed" | "add_failed" | "command_failed";
+  readonly code:
+    | "list_failed"
+    | "add_failed"
+    | "command_failed"
+    | "timeout"
+    | "output_limit"
+    | "cancelled"
+    | "readback_mismatch"
+    | "plugin_disabled"
+    | "plugin_missing";
   readonly causeValue: unknown;
+  readonly details: Readonly<Record<string, string>>;
 
   constructor(
-    code: "list_failed" | "add_failed" | "command_failed",
+    code: OfficialPluginManagerError["code"],
     message: string,
     causeValue?: unknown,
+    details: Readonly<Record<string, string>> = {},
   ) {
     super(message);
     this.name = "OfficialPluginManagerError";
     this.code = code;
     this.causeValue = causeValue;
+    this.details = details;
   }
 }

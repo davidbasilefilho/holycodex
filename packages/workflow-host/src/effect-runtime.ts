@@ -2,6 +2,7 @@
 
 import {
   canonicalJson,
+  CapabilityNameSchema,
   lookupRoute,
   lookupRoleDefinition,
   normalizeSpecialistOutcome,
@@ -25,12 +26,14 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
   compileWorkflow,
+  hydrateWorkflowPlanIR,
   runExecutionPlan,
   type CapacityLease,
   type Assignment,
   type CompileOptions,
   type ExecutionPlan,
   type WorkflowFailure,
+  type NativeWorkflow,
   type WorkflowHostServices as RuntimeWorkflowHostServices,
 } from "@holycodex/workflow-runtime";
 import {
@@ -40,8 +43,15 @@ import {
   operationLifecycle,
   writeCheckpoint,
 } from "./lifecycle.ts";
-import { acquireDispatch, releaseDispatch } from "./admission.ts";
+import { acquireDispatch, capacitySnapshot, releaseDispatch, settleDispatch } from "./admission.ts";
 import { approveBeforeDispatch } from "./approval.ts";
+import {
+  CostAccountingError,
+  costJournal,
+  estimateRouteCost,
+  type CostEstimate,
+  type CostJournal,
+} from "./cost.ts";
 import { WorkflowHostError } from "./errors.ts";
 import {
   admitOperationEvent,
@@ -82,7 +92,14 @@ export function compileHostWorkflow(
       message: "An immutable workflow terminal is required for the Effect runtime path.",
     });
   }
+  if (isNativeWorkflow(workflow)) {
+    return hydrateWorkflowPlanIR(workflow, options);
+  }
   return compileWorkflow(workflow, options);
+}
+
+function isNativeWorkflow(value: PendingRun["workflow"]): value is NativeWorkflow {
+  return typeof value === "object" && value !== null && "ir" in value && "codecs" in value;
 }
 
 export function runCompiledWorkflow(
@@ -104,6 +121,8 @@ export function runCompiledWorkflow(
       capacity: context.sharedCapacity,
       services,
       runId: definition.run_id,
+      costMax: active.maxCost,
+      externalAdmission: context.services.agent === undefined,
     });
     return { plan, value } satisfies CompiledWorkflowRun;
   });
@@ -243,6 +262,21 @@ function executeCodexAssignment(
   return Effect.gen(function* () {
     const route = yield* resolveAssignmentRoute(definition, assignment);
     const routeDefinition = yield* resolvePlanRoute(definition, route);
+    let estimate: CostEstimate;
+    try {
+      estimate = estimateRouteCost({
+        route: routeDefinition,
+        serviceTier: definition.identity.service_tier,
+      });
+    } catch (cause) {
+      return yield* Effect.fail(
+        workflowFailure(
+          cause instanceof CostAccountingError ? cause.code : "estimate_unavailable",
+          "The workflow assignment has no conservative pricing estimate.",
+          { cause },
+        ),
+      );
+    }
     const packet = yield* makeSemanticPacket(definition, pending, assignment, routeDefinition);
     const normalizedInput = normalizeSemanticAssignment(packet);
     const authorityDigest = yield* Effect.tryPromise({
@@ -297,6 +331,8 @@ function executeCodexAssignment(
           approvalPolicy: definition.identity.approval_policy,
           sandboxPolicy: definition.identity.sandbox_policy,
           codexCapabilityDigest: definition.identity.codex_capability_digest,
+          skillProfileDigest:
+            lookupRoleDefinition(routeDefinition.role).skill_profile?.digest ?? "none",
         }),
       catch: (cause) => toWorkflowFailure(cause, assignment),
     });
@@ -312,6 +348,8 @@ function executeCodexAssignment(
     active.controller.signal.addEventListener("abort", removeAbort, { once: true });
     active.operationControllers.set(operationId, controller);
     let lease: CapacityLease | undefined;
+    let settled = false;
+    let costAccounting: CostJournal | undefined;
     try {
       yield* appendOperation(context, definition, operationInput, "requested");
       const competing = yield* Effect.tryPromise({
@@ -325,10 +363,29 @@ function executeCodexAssignment(
       if (competingOutcome !== undefined) {
         return competingOutcome;
       }
-      lease = yield* Effect.tryPromise({
-        try: () => acquireDispatch(context, active, definition.run_id),
+      const admittedLease = yield* Effect.tryPromise({
+        try: () => acquireDispatch(context, active, definition.run_id, estimate),
         catch: (cause) => toWorkflowFailure(cause, assignment),
       });
+      lease = admittedLease;
+      costAccounting = costJournal(
+        estimate,
+        undefined,
+        yield* Effect.tryPromise({
+          try: () => capacitySnapshot(context, definition.run_id),
+          catch: (cause) => toWorkflowFailure(cause, assignment),
+        }),
+      );
+      yield* appendOperation(
+        context,
+        definition,
+        operationInput,
+        "reserved",
+        undefined,
+        null,
+        undefined,
+        costAccounting,
+      );
       const result = yield* Effect.raceFirst(
         agent
           .execute(executionPacket)
@@ -340,6 +397,28 @@ function executeCodexAssignment(
         assignment,
         roleTaskForRoute(routeDefinition),
       );
+      const settledResult = yield* Effect.tryPromise({
+        try: () =>
+          settleDispatch(
+            context,
+            definition.run_id,
+            admittedLease,
+            estimate,
+            validated.result.usage,
+          ),
+        catch: (cause) => toWorkflowFailure(cause, assignment),
+      });
+      settled = true;
+      costAccounting = settledResult.journal;
+      active.costUnits = settledResult.journal.committed_units;
+      if (settledResult.failure !== undefined) {
+        yield* Effect.fail(toWorkflowFailure(settledResult.failure, assignment));
+      }
+      if (validated.outcome.status !== "completed") {
+        yield* Effect.fail(
+          workflowFailure("execution", "The specialist outcome did not complete."),
+        );
+      }
       const session = sessionFromOutcome(
         validated.result,
         definition,
@@ -355,6 +434,7 @@ function executeCodexAssignment(
         validated.outcome,
         null,
         session,
+        costAccounting,
       );
       yield* emitOperationTelemetry(
         context,
@@ -366,9 +446,34 @@ function executeCodexAssignment(
       );
       return validated.outcome;
     } catch (cause) {
-      const state = isUncertainCodexFailure(cause) ? "uncertain" : "failed";
-      const errorCode = cause instanceof WorkflowHostError ? cause.code : "external-failed";
-      yield* appendOperation(context, definition, operationInput, state, undefined, errorCode);
+      let operationCause: unknown = cause;
+      if (lease !== undefined && !settled) {
+        const unsettledLease = lease;
+        const settledResult = yield* Effect.tryPromise({
+          try: () =>
+            settleDispatch(context, definition.run_id, unsettledLease, estimate, undefined),
+          catch: (settlementCause) => toWorkflowFailure(settlementCause, assignment),
+        });
+        settled = true;
+        costAccounting = settledResult.journal;
+        active.costUnits = settledResult.journal.committed_units;
+        if (settledResult.failure !== undefined) {
+          operationCause = settledResult.failure;
+        }
+      }
+      const state = isUncertainCodexFailure(operationCause) ? "uncertain" : "failed";
+      const errorCode =
+        operationCause instanceof WorkflowHostError ? operationCause.code : "external-failed";
+      yield* appendOperation(
+        context,
+        definition,
+        operationInput,
+        state,
+        undefined,
+        errorCode,
+        undefined,
+        costAccounting,
+      );
       yield* emitOperationTelemetry(
         context,
         definition,
@@ -378,7 +483,7 @@ function executeCodexAssignment(
         undefined,
         Date.now() - startedAt,
       );
-      yield* Effect.fail(toWorkflowFailure(cause, assignment));
+      yield* Effect.fail(toWorkflowFailure(operationCause, assignment));
     } finally {
       if (lease !== undefined) {
         yield* lease.release;
@@ -430,6 +535,14 @@ function makeSemanticPacket(
       const evidence = readAssignmentList(fields, options, "evidence");
       const completion = readAssignmentList(fields, options, "completion");
       const delta = readAssignmentList(fields, options, "delta");
+      const capability = readCapability(fields, options);
+      if (capability === "computer_use") {
+        throw new WorkflowHostError(
+          "capability_denied",
+          "Computer Use is Root-only and cannot enter a specialist workflow operation.",
+          { capability, root_only: true, needs_root_decision: true },
+        );
+      }
       const allowed = [
         "read",
         ...(role.permissions.write ? ["write"] : []),
@@ -441,6 +554,7 @@ function makeSemanticPacket(
           id,
           objective,
           role_task: roleTask,
+          ...(capability === undefined ? {} : { capability }),
           authority: role.authority,
           scope: stableUnique([
             ...(readAssignmentList(fields, options, "scope") ?? []),
@@ -475,6 +589,8 @@ function makeSemanticPacket(
           prefer_multi_agent_v2: false,
           require_multi_agent_v2: false,
         },
+        skill_profile: role.skill_profile,
+        ...(capability === undefined ? {} : { capability_input: options }),
         ...(retainedContext === undefined ? {} : { retained_context: retainedContext }),
       };
       const parsed = decodeSemanticPacket(packet);
@@ -487,10 +603,25 @@ function makeSemanticPacket(
       return parsed;
     },
     catch: (cause) =>
-      workflowFailure("validation", "The semantic Codex assignment could not be formed.", {
-        cause,
-      }),
+      cause instanceof WorkflowHostError
+        ? toWorkflowFailure(cause)
+        : workflowFailure("validation", "The semantic Codex assignment could not be formed.", {
+            cause,
+          }),
   });
+}
+
+function readCapability(
+  fields: JsonObject,
+  options: JsonObject,
+): import("@holycodex/core").CapabilityName | undefined {
+  const supplied = fields["capability"] ?? options["capability"];
+  if (supplied === undefined) return undefined;
+  const capability = decodeHostSchema(CapabilityNameSchema, supplied);
+  if (capability === undefined) {
+    throw new WorkflowHostError("invalid_input", "The workflow capability name is invalid.");
+  }
+  return capability;
 }
 
 function readAssignmentList(
@@ -616,6 +747,8 @@ function retainedContextForPacket(input: RetainedContextIdentity): RetainedConte
     approval_policy: session.approval_policy,
     sandbox_policy: session.sandbox_policy,
     codex_capability_digest: session.codex_capability_digest,
+    skill_profile: session.skill_profile,
+    skill_profile_digest: session.skill_profile_digest,
     last_accepted_fingerprint: session.fingerprint,
     last_accepted_turn_id: session.turn_id,
   };
@@ -631,6 +764,7 @@ function sessionFromOutcome(
   if (result.session_mode === undefined) {
     return undefined;
   }
+  const skillProfile = lookupRoleDefinition(route.role).skill_profile;
   const session: RetainedSessionRef = {
     thread_id: result.thread_id,
     turn_id: result.turn_id,
@@ -647,6 +781,8 @@ function sessionFromOutcome(
     approval_policy: definition.identity.approval_policy,
     sandbox_policy: definition.identity.sandbox_policy,
     codex_capability_digest: definition.identity.codex_capability_digest,
+    skill_profile: skillProfile,
+    skill_profile_digest: skillProfile?.digest ?? "none",
     fingerprint,
   };
   const parsed = decodeHostSchema(RetainedSessionRefSchema, session);
@@ -689,9 +825,6 @@ function validateSemanticOutcome(
       if (!normalized.ok) {
         throw workflowFailure("execution", "The specialist outcome is invalid.");
       }
-      if (normalized.value.status !== "completed") {
-        throw workflowFailure("execution", "The specialist outcome did not complete.");
-      }
       return { result: parsed, outcome: normalized.value };
     },
     catch: (cause) => toWorkflowFailure(cause, assignment),
@@ -719,12 +852,18 @@ function appendOperation(
   outcome?: SpecialistOutcomeV2,
   errorCode: string | null = null,
   session?: RetainedSessionRef,
+  costAccounting?: CostJournal,
 ): Effect.Effect<void, WorkflowFailure> {
   return Effect.tryPromise({
     try: async () => {
       await appendEvent(context, definition.run_id, {
         event: "operation",
-        lifecycle: operationLifecycle({ ...input, state, errorCode }),
+        lifecycle: operationLifecycle({
+          ...input,
+          state,
+          errorCode,
+          ...(costAccounting === undefined ? {} : { costAccounting }),
+        }),
         ...(outcome === undefined ? {} : { outcome }),
         ...(session === undefined ? {} : { session }),
       });

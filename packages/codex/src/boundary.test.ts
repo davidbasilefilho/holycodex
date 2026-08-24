@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
-import { decodeUnknown } from "@holycodex/core";
+import { decodeUnknown, PONYTAIL_ROLE_SKILL } from "@holycodex/core";
 import { describe, expect, test } from "vite-plus/test";
 import {
   AppServerClient,
@@ -284,12 +284,13 @@ describe("codex-cli 0.148.0 boundary fixtures", () => {
           tools: { allowed: [], specialist_spawn: false, workflow: false },
           security: { network: false, specialist_spawn: false, workflow: false },
           compatibility: {
-            model: "gpt-5",
+            model: "Luna",
             effort: "medium",
             service_tier: "Standard",
             prefer_multi_agent_v2: true,
             require_multi_agent_v2: false,
           },
+          skill_profile: PONYTAIL_ROLE_SKILL,
         },
         { timeoutMs: 1000 },
       ),
@@ -302,6 +303,7 @@ describe("codex-cli 0.148.0 boundary fixtures", () => {
       route: { role: "Worker", task: "implementation" },
       status: "completed",
     });
+    expect(outcome).not.toHaveProperty("usage");
     expect(outcome.outcome).not.toHaveProperty("changed_files");
     expect(methods).toEqual(["initialize", "model/list", "thread/start", "turn/start"]);
     expect(stages).toEqual([
@@ -314,7 +316,16 @@ describe("codex-cli 0.148.0 boundary fixtures", () => {
     const threadStart = transport.writes
       .map((line) => JSON.parse(line) as { readonly method?: string; readonly params?: unknown })
       .find((request) => request.method === "thread/start");
-    expect(threadStart?.params).toMatchObject({ ephemeral: false });
+    expect(threadStart?.params).toMatchObject({
+      ephemeral: false,
+      model: "gpt-5.6-luna",
+      serviceTier: null,
+    });
+    const turnStart = transport.writes
+      .map((line) => JSON.parse(line) as { readonly method?: string; readonly params?: unknown })
+      .find((request) => request.method === "turn/start");
+    expect(turnStart?.params).toMatchObject({ model: "gpt-5.6-luna", serviceTier: null });
+    expect(JSON.stringify(turnStart?.params)).not.toContain('"model":"Luna"');
     await client.close();
     expect(transport.closeCount).toBe(1);
   });
@@ -368,12 +379,13 @@ describe("codex-cli 0.148.0 boundary fixtures", () => {
           tools: { allowed: [], specialist_spawn: false, workflow: false },
           security: { network: false, specialist_spawn: false, workflow: false },
           compatibility: {
-            model: "gpt-5",
+            model: "Luna",
             effort: "medium",
             service_tier: "Standard",
             prefer_multi_agent_v2: true,
             require_multi_agent_v2: false,
           },
+          skill_profile: PONYTAIL_ROLE_SKILL,
           retained_context: {
             thread_id: "thread-fixture",
             project: {
@@ -393,6 +405,8 @@ describe("codex-cli 0.148.0 boundary fixtures", () => {
             approval_policy: "root",
             sandbox_policy: "workspace-write",
             codex_capability_digest: "e".repeat(64),
+            skill_profile: PONYTAIL_ROLE_SKILL,
+            skill_profile_digest: PONYTAIL_ROLE_SKILL.digest,
             last_accepted_fingerprint: "f".repeat(64),
             last_accepted_turn_id: "turn-previous",
           },
@@ -408,6 +422,10 @@ describe("codex-cli 0.148.0 boundary fixtures", () => {
     const prompt = JSON.stringify(turnStart?.params);
     expect(prompt).toContain("Delta: Implement the next bounded change.");
     expect(prompt).not.toContain("must not be repeated");
+    expect(prompt).not.toContain("Skill reference: $ponytail");
+    expect(prompt).not.toContain(
+      "Skill instruction: Use the literal $ponytail skill reference in lite mode.",
+    );
     await client.close();
   });
 

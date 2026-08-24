@@ -6,6 +6,7 @@ import {
   DelegationModeSchema,
   PlanNameSchema,
   RoleSchema,
+  RoleSkillProfileSchema,
   RoleTaskSchema,
   RouteKeySchema,
   ServiceTierSchema,
@@ -39,7 +40,7 @@ const BoundedTextSchema = Schema.String.pipe(
   Schema.filter(
     (value) =>
       value.length <= 4096 &&
-      [...value].every((character) => {
+      Array.from(value).every((character) => {
         const code = character.codePointAt(0) ?? 0;
         return !(code <= 31 || code === 127);
       }),
@@ -50,6 +51,11 @@ const ShortTextSchema = Schema.String.pipe(
 );
 const NonNegativeIntegerSchema = Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0));
 const PositiveIntegerSchema = Schema.Number.pipe(Schema.int(), Schema.greaterThan(0));
+const SafeIntegerSchema = Schema.Number.pipe(
+  Schema.int(),
+  Schema.filter((value) => Number.isSafeInteger(value)),
+);
+const SafeNonNegativeIntegerSchema = SafeIntegerSchema.pipe(Schema.greaterThanOrEqualTo(0));
 
 function isJsonValue(value: unknown, seen = new Set<object>()): value is JsonValue {
   if (value === null || typeof value === "string" || typeof value === "boolean") {
@@ -108,6 +114,35 @@ export const SchemaEpochsSchema = Schema.Struct({
 });
 export type SchemaEpochs = typeof SchemaEpochsSchema.Type;
 
+export const NativeWorkflowIdentitySchema = Schema.Struct({
+  source_sha256: DigestSchema,
+  ir_sha256: DigestSchema,
+  graph_sha256: DigestSchema,
+  codec_profile_sha256: DigestSchema,
+  abi_version: IdentifierSchema,
+  execution_mode: Schema.Literal("native"),
+});
+export type NativeWorkflowIdentity = typeof NativeWorkflowIdentitySchema.Type;
+
+export const CompatibilityCardinalitySchema = Schema.Union(
+  Schema.Struct({
+    status: Schema.Literal("proven"),
+    expected_calls: SafeNonNegativeIntegerSchema,
+    proof_digest: DigestSchema,
+  }),
+  Schema.Struct({
+    status: Schema.Literal("unknown"),
+  }),
+);
+export type CompatibilityCardinality = typeof CompatibilityCardinalitySchema.Type;
+
+export const WorkflowExecutionIdentitySchema = Schema.Struct({
+  execution_mode: Schema.Literal("native", "compatibility"),
+  delegation_mode: DelegationModeSchema,
+  compatibility_cardinality: Schema.Union(CompatibilityCardinalitySchema, Schema.Null),
+});
+export type WorkflowExecutionIdentity = typeof WorkflowExecutionIdentitySchema.Type;
+
 export const IdentityComponentsSchema = Schema.Struct({
   project: ProjectTrustRefSchema,
   workflow_source_digest: DigestSchema,
@@ -125,6 +160,8 @@ export const IdentityComponentsSchema = Schema.Struct({
   sandbox_policy: IdentifierSchema,
   codex_capability_digest: DigestSchema,
   schema_epochs: SchemaEpochsSchema,
+  native_workflow: Schema.optional(NativeWorkflowIdentitySchema),
+  workflow_execution: Schema.optional(WorkflowExecutionIdentitySchema),
 });
 export type IdentityComponents = typeof IdentityComponentsSchema.Type;
 
@@ -178,11 +215,34 @@ export const OperationInputSchema = Schema.Struct({
 });
 export type OperationInput = typeof OperationInputSchema.Type;
 
+const CostUsageSchema = Schema.Struct({
+  input_tokens: Schema.optional(SafeNonNegativeIntegerSchema),
+  cached_input_tokens: Schema.optional(SafeNonNegativeIntegerSchema),
+  output_tokens: Schema.optional(SafeNonNegativeIntegerSchema),
+  reasoning_output_tokens: Schema.optional(SafeNonNegativeIntegerSchema),
+  total_tokens: Schema.optional(SafeNonNegativeIntegerSchema),
+});
+
+export const OperationCostAccountingSchema = Schema.Struct({
+  estimated_units: SafeNonNegativeIntegerSchema,
+  measured_units: Schema.optional(SafeNonNegativeIntegerSchema),
+  pricing_key: ShortTextSchema,
+  pricing_version: ShortTextSchema,
+  usage: Schema.optional(CostUsageSchema),
+  usage_completeness: Schema.Literal("complete", "partial", "unknown"),
+  adjustment_units: SafeIntegerSchema,
+  committed_units: SafeNonNegativeIntegerSchema,
+  reserved_units: SafeNonNegativeIntegerSchema,
+  overflow: Schema.Boolean,
+});
+export type OperationCostAccounting = typeof OperationCostAccountingSchema.Type;
+
 export const OperationLifecycleSchema = Schema.Struct({
   schema_epoch: Schema.Literal("host-journal-1.0"),
   operation: OperationInputSchema,
   state: OperationStateSchema,
   cost_units: NonNegativeIntegerSchema,
+  cost_accounting: Schema.optional(OperationCostAccountingSchema),
   at: DateTimeSchema,
   error_code: Schema.Union(IdentifierSchema, Schema.Null),
 });
@@ -199,6 +259,8 @@ export const WorkflowRuntimeEventSchema = Schema.Struct({
   attempt: NonNegativeIntegerSchema,
   reason: Schema.optional(Schema.Literal("condition_false", "early_termination")),
   error_code: Schema.Union(IdentifierSchema, Schema.Null),
+  previous_digest: Schema.optional(DigestSchema),
+  record_digest: Schema.optional(DigestSchema),
 });
 export type WorkflowRuntimeEvent = typeof WorkflowRuntimeEventSchema.Type;
 
@@ -253,6 +315,8 @@ export const RetainedSessionRefSchema = Schema.Struct({
   approval_policy: IdentifierSchema,
   sandbox_policy: IdentifierSchema,
   codex_capability_digest: DigestSchema,
+  skill_profile: Schema.Union(RoleSkillProfileSchema, Schema.Null),
+  skill_profile_digest: Schema.Union(DigestSchema, Schema.Literal("none")),
   fingerprint: DigestSchema,
 });
 export type RetainedSessionRef = typeof RetainedSessionRefSchema.Type;
@@ -270,6 +334,7 @@ export const RetainedContextIdentitySchema = Schema.Struct({
   prompt_profile: IdentifierSchema,
   approval_policy: IdentifierSchema,
   sandbox_policy: IdentifierSchema,
+  skill_profile_digest: Schema.Union(DigestSchema, Schema.Literal("none")),
   status: RetainedContextStatusSchema,
   summary: SafeStringArraySchema,
   created_at: DateTimeSchema,
@@ -364,13 +429,34 @@ export const WorkflowDescriptorSchema = Schema.Struct({
   schema_epoch: Schema.Literal("host-workflow-1.0"),
   execution_mode: WorkflowExecutionModeSchema,
   delegation_mode: Schema.optional(DelegationModeSchema),
+  compatibility_cardinality: Schema.optional(CompatibilityCardinalitySchema),
+  execution_identity: Schema.optional(WorkflowExecutionIdentitySchema),
+  /** Read-only migration inputs from pre-0.15 compatibility descriptors. */
+  expected_calls: Schema.optional(SafeNonNegativeIntegerSchema),
+  expected_calls_proof_digest: Schema.optional(DigestSchema),
+  proof_digest: Schema.optional(DigestSchema),
   source: WorkflowSourceSchema,
   args: JsonValueSchema,
+  source_path: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(4096))),
   objective: BoundedTextSchema,
   constraints: SafeStringArraySchema,
   compile_options: Schema.optional(JsonObjectSchema),
 });
 export type WorkflowDescriptor = typeof WorkflowDescriptorSchema.Type;
+
+export const WorkflowProjectionSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-workflow-1.0"),
+  execution_mode: WorkflowExecutionModeSchema,
+  delegation_mode: Schema.optional(DelegationModeSchema),
+  compatibility_cardinality: Schema.optional(CompatibilityCardinalitySchema),
+  execution_identity: Schema.optional(WorkflowExecutionIdentitySchema),
+  source_digest: DigestSchema,
+  args_digest: DigestSchema,
+  objective: BoundedTextSchema,
+  constraints: SafeStringArraySchema,
+  native_identity: Schema.optional(NativeWorkflowIdentitySchema),
+});
+export type WorkflowProjection = typeof WorkflowProjectionSchema.Type;
 
 const RunCreatedEventSchema = Schema.Struct({
   schema_epoch: Schema.Literal("host-journal-1.0"),
@@ -379,6 +465,8 @@ const RunCreatedEventSchema = Schema.Struct({
   sequence: PositiveIntegerSchema,
   at: DateTimeSchema,
   definition: RunDefinitionSchema,
+  previous_digest: Schema.optional(DigestSchema),
+  record_digest: Schema.optional(DigestSchema),
 });
 const StateEventSchema = Schema.Struct({
   schema_epoch: Schema.Literal("host-journal-1.0"),
@@ -389,6 +477,8 @@ const StateEventSchema = Schema.Struct({
   from: RunStatusSchema,
   to: RunStatusSchema,
   reason: ShortTextSchema,
+  previous_digest: Schema.optional(DigestSchema),
+  record_digest: Schema.optional(DigestSchema),
 });
 const OperationEventSchema = Schema.Struct({
   schema_epoch: Schema.Literal("host-journal-1.0"),
@@ -399,6 +489,8 @@ const OperationEventSchema = Schema.Struct({
   lifecycle: OperationLifecycleSchema,
   outcome: Schema.optional(SpecialistOutcomeV2Schema),
   session: Schema.optional(RetainedSessionRefSchema),
+  previous_digest: Schema.optional(DigestSchema),
+  record_digest: Schema.optional(DigestSchema),
 });
 const CheckpointEventSchema = Schema.Struct({
   schema_epoch: Schema.Literal("host-journal-1.0"),
@@ -407,6 +499,8 @@ const CheckpointEventSchema = Schema.Struct({
   sequence: PositiveIntegerSchema,
   at: DateTimeSchema,
   checkpoint: CheckpointSchema,
+  previous_digest: Schema.optional(DigestSchema),
+  record_digest: Schema.optional(DigestSchema),
 });
 const ContinuationEventSchema = Schema.Struct({
   schema_epoch: Schema.Literal("host-journal-1.0"),
@@ -415,6 +509,8 @@ const ContinuationEventSchema = Schema.Struct({
   sequence: PositiveIntegerSchema,
   at: DateTimeSchema,
   claim: ContinuationClaimSchema,
+  previous_digest: Schema.optional(DigestSchema),
+  record_digest: Schema.optional(DigestSchema),
 });
 const RefinementEventSchema = Schema.Struct({
   schema_epoch: Schema.Literal("host-journal-1.0"),
@@ -423,6 +519,49 @@ const RefinementEventSchema = Schema.Struct({
   sequence: PositiveIntegerSchema,
   at: DateTimeSchema,
   refinement: RefinementSchema,
+  previous_digest: Schema.optional(DigestSchema),
+  record_digest: Schema.optional(DigestSchema),
+});
+
+const CommitIntentEventSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-journal-1.0"),
+  event: Schema.Literal("commit-intent"),
+  run_id: IdentifierSchema,
+  sequence: PositiveIntegerSchema,
+  at: DateTimeSchema,
+  transaction_version: Schema.Literal("host-commit-1.0"),
+  transaction_id: IdentifierSchema,
+  previous_revision: NonNegativeIntegerSchema,
+  new_revision: NonNegativeIntegerSchema,
+  snapshot_digest: DigestSchema,
+  journal_sequence: PositiveIntegerSchema,
+  journal_digest: DigestSchema,
+  checkpoint_revision: Schema.Union(PositiveIntegerSchema, Schema.Null),
+  checkpoint_digest: Schema.Union(DigestSchema, Schema.Null),
+  operation_state: Schema.Union(JsonObjectSchema, Schema.Null),
+  previous_digest: Schema.optional(DigestSchema),
+  record_digest: Schema.optional(DigestSchema),
+});
+
+const CommitRecordEventSchema = Schema.Struct({
+  schema_epoch: Schema.Literal("host-journal-1.0"),
+  event: Schema.Literal("commit-record"),
+  run_id: IdentifierSchema,
+  sequence: PositiveIntegerSchema,
+  at: DateTimeSchema,
+  transaction_version: Schema.Literal("host-commit-1.0"),
+  transaction_id: IdentifierSchema,
+  intent_digest: DigestSchema,
+  previous_revision: NonNegativeIntegerSchema,
+  new_revision: NonNegativeIntegerSchema,
+  snapshot_digest: DigestSchema,
+  journal_sequence: PositiveIntegerSchema,
+  journal_digest: DigestSchema,
+  checkpoint_revision: Schema.Union(PositiveIntegerSchema, Schema.Null),
+  checkpoint_digest: Schema.Union(DigestSchema, Schema.Null),
+  operation_state: Schema.Union(JsonObjectSchema, Schema.Null),
+  previous_digest: Schema.optional(DigestSchema),
+  record_digest: Schema.optional(DigestSchema),
 });
 
 export const JournalEventSchema = Schema.Union(
@@ -433,6 +572,8 @@ export const JournalEventSchema = Schema.Union(
   CheckpointEventSchema,
   ContinuationEventSchema,
   RefinementEventSchema,
+  CommitIntentEventSchema,
+  CommitRecordEventSchema,
 );
 export type JournalEvent = typeof JournalEventSchema.Type;
 
@@ -454,7 +595,7 @@ export const InspectionProjectionSchema = Schema.Struct({
   status: RunStatusSchema,
   revision: NonNegativeIntegerSchema,
   checkpoint: Schema.Union(CheckpointSchema, Schema.Null),
-  workflow: Schema.optional(WorkflowDescriptorSchema),
+  workflow: Schema.optional(WorkflowProjectionSchema),
   operations: Schema.Array(OperationLifecycleSchema),
   workflow_events: Schema.Array(WorkflowRuntimeEventSchema),
   retained_contexts: Schema.Array(RetainedContextIdentitySchema),

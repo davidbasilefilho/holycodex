@@ -5,15 +5,19 @@ import { describe, expect, test } from "vite-plus/test";
 import {
   CliFailureEnvelopeSchema,
   CliSuccessEnvelopeSchema,
+  CapabilityResultV2Schema,
+  CAPABILITY_REGISTRY,
   CoreError,
   DelegationModeSchema,
   EffortSchema,
   PLAN_CATALOG,
+  PONYTAIL_ROLE_SKILL,
   PlanNameSchema,
   PlanSelectionSchema,
   RoleTaskSchema,
   ROLE_DEFINITIONS,
   ROUTE_KEYS,
+  ROUTE_EFFORT_OVERRIDES,
   RouteKeySchema,
   RunIdentityInputSchema,
   SPECIALIST_OUTCOME_VERSION,
@@ -29,14 +33,86 @@ import {
   lookupPlan,
   lookupRoute,
   parseCliEnvelope,
+  parseCapabilityResultV2,
   parseIdentityInput,
   normalizeSpecialistOutcome,
   parseSchemaEpochId,
   parseSpecialistOutcome,
+  specialistOutcomeFromCapabilityResult,
 } from "./index";
 import { decodeUnknown } from "./schema";
 
 const planNames = ["Go", "plus-low", "plus", "plus-high", "pro-5x", "pro-20x"] as const;
+const expectedRouteEffortsByPlan = [
+  {
+    plan: "plus-low",
+    efforts: [
+      "medium",
+      "high",
+      "medium",
+      "high",
+      "high",
+      "high",
+      "xhigh",
+      "high",
+      "high",
+      "xhigh",
+      "high",
+    ],
+  },
+  {
+    plan: "plus",
+    efforts: [
+      "medium",
+      "high",
+      "medium",
+      "high",
+      "high",
+      "xhigh",
+      "xhigh",
+      "high",
+      "high",
+      "xhigh",
+      "high",
+    ],
+  },
+  {
+    plan: "plus-high",
+    efforts: [
+      "medium",
+      "xhigh",
+      "medium",
+      "xhigh",
+      "high",
+      "xhigh",
+      "max",
+      "xhigh",
+      "xhigh",
+      "max",
+      "xhigh",
+    ],
+  },
+  {
+    plan: "pro-5x",
+    efforts: [
+      "high",
+      "xhigh",
+      "high",
+      "xhigh",
+      "high",
+      "max",
+      "max",
+      "xhigh",
+      "xhigh",
+      "max",
+      "xhigh",
+    ],
+  },
+  {
+    plan: "pro-20x",
+    efforts: ["high", "xhigh", "high", "max", "xhigh", "max", "max", "xhigh", "max", "max", "max"],
+  },
+] as const;
 
 describe("core plan catalog", () => {
   test("contains every frozen plan and exact budgets", () => {
@@ -65,7 +141,7 @@ describe("core plan catalog", () => {
     ]);
   });
 
-  test("contains all eleven route slots and the frozen Plus efforts", () => {
+  test("contains all eleven route slots and exact parity-floor efforts", () => {
     expect(ROUTE_KEYS).toHaveLength(11);
     expect(new Set(ROUTE_KEYS).size).toBe(11);
     for (const plan of PLAN_CATALOG.slice(1)) {
@@ -73,24 +149,14 @@ describe("core plan catalog", () => {
       expect(plan.routes.every((route) => route.model === "Luna")).toBe(true);
     }
 
-    const plus = lookupPlan("plus");
-    expect(plus.ok).toBe(true);
-    if (!plus.ok) {
-      return;
+    for (const expected of expectedRouteEffortsByPlan) {
+      const plan = lookupPlan(expected.plan);
+      expect(plan.ok).toBe(true);
+      if (!plan.ok) {
+        continue;
+      }
+      expect(plan.value.routes.map((route) => route.effort)).toEqual(expected.efforts);
     }
-    expect(plus.value.routes.map((route) => route.effort)).toEqual([
-      "medium",
-      "high",
-      "medium",
-      "high",
-      "high",
-      "xhigh",
-      "xhigh",
-      "high",
-      "high",
-      "xhigh",
-      "high",
-    ]);
   });
 
   test("derives every role/task route from one capability registry", () => {
@@ -105,9 +171,38 @@ describe("core plan catalog", () => {
       true,
       true,
     ]);
-    expect(ROLE_DEFINITIONS.find((definition) => definition.role === "Explorer")?.ponytail).toBe(
-      false,
+    expect(
+      ROLE_DEFINITIONS.find((definition) => definition.role === "Explorer")?.skill_profile,
+    ).toBe(null);
+    expect(
+      ROLE_DEFINITIONS.find((definition) => definition.role === "Librarian")?.skill_profile,
+    ).toBe(null);
+    expect(ROLE_DEFINITIONS.find((definition) => definition.role === "Worker")?.skill_profile).toBe(
+      PONYTAIL_ROLE_SKILL,
     );
+    expect(
+      ROLE_DEFINITIONS.find((definition) => definition.role === "Reviewer")?.skill_profile,
+    ).toBe(PONYTAIL_ROLE_SKILL);
+  });
+
+  test("keeps plan route parity in the single effort policy source", () => {
+    for (const plan of PLAN_CATALOG.slice(1)) {
+      const override = ROUTE_EFFORT_OVERRIDES.find((candidate) => candidate.plan === plan.name);
+      expect(override).toBeDefined();
+      expect(plan.routes.map((route) => route.model)).toEqual(
+        Array(ROUTE_KEYS.length).fill("Luna"),
+      );
+      expect(plan.routes.map((route) => route.effort)).toEqual(
+        ROUTE_KEYS.map((key) => override?.efforts[key]),
+      );
+      expect(plan.defaultServiceTier).toBe("Standard");
+      expect(plan.budget).toMatchObject({
+        costTarget: expect.any(Number),
+        costMax: expect.any(Number),
+        maxCalls: expect.any(Number),
+        maxConcurrency: expect.any(Number),
+      });
+    }
   });
 
   test("deep-freezes catalog values", () => {
@@ -128,6 +223,33 @@ describe("core plan catalog", () => {
 });
 
 describe("core route and boundary schemas", () => {
+  test("owns capability registry references and one V2 result boundary", () => {
+    expect(CAPABILITY_REGISTRY.web.semanticSkillIds).toEqual([
+      "build-web-apps:frontend-app-builder",
+      "build-web-apps:frontend-testing-debugging",
+      "build-web-apps:react-best-practices",
+    ]);
+    const result = {
+      protocol_version: SPECIALIST_OUTCOME_VERSION,
+      capability: "web",
+      route: { role: "Worker", task: "implementation" },
+      evidence: ["verified"],
+      data: { accepted: true },
+      status: "completed",
+      summary: "web completed",
+    } as const;
+    expect(Either.isRight(decodeUnknown(CapabilityResultV2Schema, result))).toBe(true);
+    const parsed = parseCapabilityResultV2(result);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const normalized = specialistOutcomeFromCapabilityResult(parsed.value, "web", {
+      role: "Worker",
+      task: "implementation",
+    });
+    expect(normalized.ok).toBe(true);
+    expect(normalized.ok && normalized.value.status).toBe("completed");
+  });
+
   test("owns the exact delegation mode wire values", () => {
     expect(
       ["DIRECT", "SINGLE", "DYNAMIC_WORKFLOW"].map((mode) =>

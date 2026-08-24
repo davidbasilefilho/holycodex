@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vite-plus/test";
+import { CAPABILITY_REGISTRY } from "@holycodex/core";
 import {
   acquireInstallLock,
   doctorHolyCodex,
@@ -67,7 +69,7 @@ describe("CLI argument and envelope boundaries", () => {
     expect(stdout).toContain(`"version": "${canonicalVersion}"`);
     expect(stderr).toBe("");
 
-    const root = await mkdtemp("/tmp/holycodex-cli-no-tui-");
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-no-tui-"));
     try {
       stdout = "";
       const noTuiExit = await runBinary(
@@ -116,7 +118,7 @@ describe("CLI argument and envelope boundaries", () => {
   });
 
   test("resupplies resume source and args to the durable host", async () => {
-    const root = await mkdtemp("/tmp/holycodex-cli-resume-");
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-resume-"));
     const sourcePath = join(root, "workflow.ts");
     await writeFile(sourcePath, "return { resumed: true };\n");
     let received: Parameters<NonNullable<WorkflowService["resume"]>>[0] | undefined;
@@ -170,7 +172,8 @@ describe("CLI argument and envelope boundaries", () => {
       run: async () => ({
         exitCode: 0,
         stdout: JSON.stringify({
-          plugins: [{ name: "sample", version: "1.0.0", description: "sample" }],
+          installed: [{ pluginId: "sample", installed: true, enabled: true }],
+          available: [],
         }),
         stderr: "",
       }),
@@ -182,7 +185,7 @@ describe("CLI argument and envelope boundaries", () => {
   });
 
   test("emits one validated JSON envelope and never prompts without --yes", async () => {
-    const root = await mkdtemp("/tmp/holycodex-cli-envelope-");
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-envelope-"));
     try {
       const result = await runCli(
         [
@@ -216,7 +219,7 @@ describe("CLI argument and envelope boundaries", () => {
 
 describe("owned installation", () => {
   test("preserves marketplace order and converges idempotently", async () => {
-    const root = await mkdtemp("/tmp/holycodex-cli-market-");
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-market-"));
     const paths = { codexHome: join(root, "home"), marketplaceRoot: join(root, "market") };
     try {
       await mkdir(paths.marketplaceRoot, { recursive: true });
@@ -240,7 +243,7 @@ describe("owned installation", () => {
   });
 
   test("activates changed bytes at the same reported version and prunes only after verification", async () => {
-    const root = await mkdtemp("/tmp/holycodex-cli-regression-");
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-regression-"));
     const sourceA = join(root, "source-a");
     const sourceB = join(root, "source-b");
     const paths = { codexHome: join(root, "home"), marketplaceRoot: join(root, "market") };
@@ -266,13 +269,22 @@ describe("owned installation", () => {
   });
 
   test("uses fresh-off defaults, preserves omitted upgrade choices, and calls only selected official plugins", async () => {
-    const root = await mkdtemp("/tmp/holycodex-cli-options-");
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-options-"));
     const paths = { codexHome: join(root, "home"), marketplaceRoot: join(root, "market") };
     const calls: string[] = [];
+    const installed = new Set<string>();
     const manager: OfficialPluginManager = {
-      list: async () => [{ name: "sample", version: "1.0.0", description: "sample" }],
-      add: async (plugin) => {
-        calls.push(plugin.manifest.name);
+      list: async () => ({
+        installed: [...installed].map((pluginId) => ({
+          pluginId,
+          installed: true,
+          enabled: true,
+        })),
+        available: [],
+      }),
+      add: async (pluginId) => {
+        calls.push(pluginId);
+        installed.add(pluginId);
       },
     };
     try {
@@ -290,7 +302,7 @@ describe("owned installation", () => {
       });
       expect(second.record.optional_selections.work).toBe(true);
       expect(second.record.optional_selections.web).toBe(false);
-      expect(calls).toEqual(["sample"]);
+      expect(calls).toEqual([...CAPABILITY_REGISTRY.work.pluginIds, "sample"]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -299,7 +311,7 @@ describe("owned installation", () => {
 
 describe("installer recovery and cleanup boundaries", () => {
   test("recovers only a validated stale lock and rejects traversal or symlink roots", async () => {
-    const root = await mkdtemp("/tmp/holycodex-cli-boundary-");
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-boundary-"));
     const paths = { codexHome: join(root, "home"), marketplaceRoot: join(root, "market") };
     try {
       await mkdir(paths.codexHome, { recursive: true });
@@ -320,7 +332,7 @@ describe("installer recovery and cleanup boundaries", () => {
       const symlinkTarget = join(root, "symlink-target");
       await mkdir(symlinkTarget, { recursive: true });
       const symlinkPath = join(root, "symlink-market");
-      await symlink(symlinkTarget, symlinkPath);
+      await symlink(symlinkTarget, symlinkPath, process.platform === "win32" ? "junction" : "dir");
       await expect(
         installHolyCodex(
           {},
@@ -333,7 +345,7 @@ describe("installer recovery and cleanup boundaries", () => {
   });
 
   test("cleanup is compare-gated and idempotent", async () => {
-    const root = await mkdtemp("/tmp/holycodex-cli-cleanup-");
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-cleanup-"));
     const paths = { codexHome: join(root, "home"), marketplaceRoot: join(root, "market") };
     try {
       const installed = await installHolyCodex({}, { paths });
@@ -382,7 +394,7 @@ describe("installer recovery and cleanup boundaries", () => {
 
 describe("workflow dispatch", () => {
   test("uses task as the run objective and requires task for stdin", async () => {
-    const root = await mkdtemp("/tmp/holycodex-cli-task-");
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-task-"));
     const source = join(root, "workflow.ts");
     await writeFile(source, "return { ok: true };\n");
     let created:
@@ -424,7 +436,7 @@ describe("workflow dispatch", () => {
   });
 
   test("trust-gates files and validates JSON args before dispatch", async () => {
-    const root = await mkdtemp("/tmp/holycodex-cli-workflow-");
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-workflow-"));
     const source = join(root, "workflow.ts");
     await writeFile(source, "return { ok: true };\n");
     const service: WorkflowService = {

@@ -47,9 +47,13 @@ const expectedDependencies: Record<string, readonly string[]> = {
   holycodex: [
     "@holycodex/core",
     "@holycodex/codex",
+    "@holycodex/git-bash",
+    "@holycodex/lsp-core",
+    "@holycodex/lsp-daemon",
     "@holycodex/workflow-host",
     "@holycodex/workflow-runtime",
     "@holycodex/plugin",
+    "@holycodex/safe-filesystem",
   ],
 };
 

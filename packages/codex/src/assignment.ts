@@ -5,12 +5,14 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import {
+  CapabilityNameSchema,
   EffortSchema,
   lookupRoleDefinition,
   normalizeSpecialistOutcome,
   RoleTaskSchema,
   RouteKeySchema,
   ServiceTierSchema,
+  RoleSkillProfileSchema,
   SPECIALIST_OUTCOME_VERSION,
   SpecialistOutcomeV2Schema,
   type JsonValue,
@@ -18,9 +20,17 @@ import {
   type RouteKey,
   type ServiceTier,
   type Effort,
+  type RoleSkillProfile,
   type SpecialistOutcomeV2,
 } from "@holycodex/core";
-import { checked, CodexError, IdentifierSchema, isPlainObject, TextSchema } from "./common";
+import {
+  checked,
+  CodexError,
+  IdentifierSchema,
+  isPlainObject,
+  JsonObjectSchema,
+  TextSchema,
+} from "./common";
 import type { AppServerClient } from "./client";
 import { AppServer } from "./effect-services";
 import { generatedMultiAgentV2LifecycleStatus } from "./generated-wire";
@@ -50,6 +60,7 @@ const AssignmentSchema = Schema.Struct({
   id: IdentifierSchema,
   objective: TextSchema,
   role_task: RoleTaskSchema,
+  capability: Schema.optional(CapabilityNameSchema),
   authority: TextSchema,
   scope: Schema.Array(TextSchema),
   references: Schema.Array(TextSchema),
@@ -78,6 +89,7 @@ const CompatibilityPacketSchema = Schema.Struct({
 export type CompatibilityPacket = typeof CompatibilityPacketSchema.Type;
 
 const DigestSchema = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u));
+const SkillProfileDigestSchema = Schema.Union(DigestSchema, Schema.Literal("none"));
 const ProjectTrustIdentitySchema = Schema.Struct({
   project_id: IdentifierSchema,
   trust_id: IdentifierSchema,
@@ -98,6 +110,8 @@ const RetainedContextFieldsSchema = {
   approval_policy: Schema.optional(IdentifierSchema),
   sandbox_policy: Schema.optional(IdentifierSchema),
   codex_capability_digest: Schema.optional(DigestSchema),
+  skill_profile: Schema.optional(Schema.Union(RoleSkillProfileSchema, Schema.Null)),
+  skill_profile_digest: Schema.optional(SkillProfileDigestSchema),
   last_accepted_fingerprint: Schema.optional(DigestSchema),
   last_accepted_turn_id: Schema.optional(IdentifierSchema),
 } as const;
@@ -116,6 +130,8 @@ const CompleteRetainedContextSchema = Schema.Struct({
   approval_policy: IdentifierSchema,
   sandbox_policy: IdentifierSchema,
   codex_capability_digest: DigestSchema,
+  skill_profile: Schema.Union(RoleSkillProfileSchema, Schema.Null),
+  skill_profile_digest: SkillProfileDigestSchema,
   last_accepted_fingerprint: DigestSchema,
   last_accepted_turn_id: IdentifierSchema,
 });
@@ -141,6 +157,8 @@ export const SemanticAssignmentPacketSchema = Schema.Struct({
   tools: ToolPolicySchema,
   security: SecurityPolicySchema,
   compatibility: CompatibilityPacketSchema,
+  skill_profile: Schema.Union(RoleSkillProfileSchema, Schema.Null),
+  capability_input: Schema.optional(JsonObjectSchema),
   retained_context: Schema.optional(RetainedContextSchema),
 });
 export type SemanticAssignmentPacket = typeof SemanticAssignmentPacketSchema.Type;
@@ -165,6 +183,10 @@ export function compileSpecialistAssignment(packet: SemanticAssignmentPacket): s
     `Authority: ${packet.assignment.authority}`,
   ];
   const retained = completeRetainedContext(packet.retained_context);
+  if (packet.skill_profile !== null && retained === undefined) {
+    lines.push(`Skill reference: ${packet.skill_profile.reference}`);
+    lines.push(`Skill instruction: ${packet.skill_profile.instruction}`);
+  }
   const fields =
     retained !== undefined && hasNonEmptyDelta(packet.assignment.delta)
       ? ([
@@ -186,7 +208,11 @@ export function compileSpecialistAssignment(packet: SemanticAssignmentPacket): s
   return lines.join("\n");
 }
 
-export const ExecutionBackendSchema = Schema.Literal("app-server-v1-fallback", "app-server-v2");
+export const ExecutionBackendSchema = Schema.Literal(
+  "app-server-v1-fallback",
+  "app-server-v2",
+  "host-capability",
+);
 export type ExecutionBackend = typeof ExecutionBackendSchema.Type;
 
 export const SemanticExecutionOutcomeSchema = Schema.Struct({
@@ -236,6 +262,13 @@ function assertStructuralLeaf(input: unknown): void {
       );
     }
   }
+  if (isPlainObject(input["assignment"]) && input["assignment"]["capability"] === "computer_use") {
+    throw new CodexError(
+      "route_incompatible",
+      "Computer Use is a Root-only capability and cannot enter a specialist assignment.",
+      { capability: "computer_use", root_only: true, needs_root_decision: true },
+    );
+  }
 }
 
 function assertAssignmentConsistency(packet: SemanticAssignmentPacket): void {
@@ -247,6 +280,13 @@ function assertAssignmentConsistency(packet: SemanticAssignmentPacket): void {
     throw new CodexError(
       "route_incompatible",
       "The assignment authority does not match the selected role catalog definition.",
+      { role: roleTask.role, needs_root_decision: true },
+    );
+  }
+  if (!sameSkillProfile(packet.skill_profile, definition.skill_profile)) {
+    throw new CodexError(
+      "route_incompatible",
+      "The assignment skill profile does not match the selected role catalog definition.",
       { role: roleTask.role, needs_root_decision: true },
     );
   }
@@ -277,6 +317,23 @@ function assertAssignmentConsistency(packet: SemanticAssignmentPacket): void {
   }
 }
 
+function sameSkillProfile(left: RoleSkillProfile | null, right: RoleSkillProfile | null): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+  return (
+    left.reference === right.reference &&
+    left.version === right.version &&
+    left.mode === right.mode &&
+    left.digest === right.digest &&
+    left.instruction === right.instruction
+  );
+}
+
+function skillProfileDigest(profile: RoleSkillProfile | null): string {
+  return profile?.digest ?? "none";
+}
+
 function completeRetainedContext(
   input: RetainedContext | undefined,
 ): CompleteRetainedContext | undefined {
@@ -301,9 +358,30 @@ function hasNonEmptyDelta(value: readonly string[] | undefined): boolean {
   return value !== undefined && value.some((item) => item.trim().length > 0);
 }
 
+const CODEX_MODEL_IDS = {
+  Sol: "gpt-5.6-sol",
+  Terra: "gpt-5.6-terra",
+  Luna: "gpt-5.6-luna",
+} as const;
+
+export function codexModelIdFor(requestedModel: string): string {
+  const mapped = Object.entries(CODEX_MODEL_IDS).find(([alias]) => alias === requestedModel)?.[1];
+  if (mapped === undefined) {
+    throw new CodexError("model_unsupported", "The plan-derived model alias is not supported.", {
+      model: requestedModel,
+    });
+  }
+  return mapped;
+}
+
+export function codexServiceTierFor(serviceTier: ServiceTier): string | null {
+  return serviceTier === "Fast" ? "priority" : null;
+}
+
 function selectModel(models: ModelListResult, requestedModel: string): ModelCapability {
+  const protocolId = codexModelIdFor(requestedModel);
   const model = models.data.find(
-    (candidate) => candidate.id === requestedModel || candidate.model === requestedModel,
+    (candidate) => candidate.id === protocolId || candidate.model === protocolId,
   );
   if (!model) {
     throw new CodexError(
@@ -322,8 +400,7 @@ function validatePlanDerivedInputs(
   model: ModelCapability,
 ): void {
   if (
-    model.supportedReasoningEfforts !== undefined &&
-    model.supportedReasoningEfforts.length > 0 &&
+    model.supportedReasoningEfforts === undefined ||
     !model.supportedReasoningEfforts.some(
       (entry) => entry["reasoningEffort"] === compatibility.effort,
     )
@@ -334,15 +411,16 @@ function validatePlanDerivedInputs(
       { model: model.model, effort: compatibility.effort },
     );
   }
+  const requestedServiceTier = codexServiceTierFor(compatibility.service_tier);
   if (
-    model.serviceTiers !== undefined &&
-    model.serviceTiers.length > 0 &&
-    !model.serviceTiers.some((entry) => entry["id"] === compatibility.service_tier)
+    requestedServiceTier !== null &&
+    (model.serviceTiers === undefined ||
+      !model.serviceTiers.some((entry) => entry["id"] === requestedServiceTier))
   ) {
     throw new CodexError(
       "model_unsupported",
       "The plan-derived service tier is not advertised by Codex.",
-      { model: model.model, service_tier: compatibility.service_tier },
+      { model: model.model, service_tier: requestedServiceTier },
     );
   }
 }
@@ -598,6 +676,8 @@ async function executeAssignmentWithClient(
 ): Promise<SemanticExecutionOutcome> {
   const startedAt = performance.now();
   const models = await client.listModels({});
+  const protocolModel = codexModelIdFor(packet.compatibility.model);
+  const protocolTier = codexServiceTierFor(packet.compatibility.service_tier);
   const model = selectModel(models, packet.compatibility.model);
   validatePlanDerivedInputs(packet.compatibility, model);
   const backend = selectExecutionBackend(packet.compatibility, model);
@@ -612,6 +692,17 @@ async function executeAssignmentWithClient(
     throw new CodexError(
       "route_incompatible",
       "The retained context route does not match the assignment route.",
+      { needs_root_decision: true },
+    );
+  }
+  if (
+    retained !== undefined &&
+    (!sameSkillProfile(retained.skill_profile, packet.skill_profile) ||
+      retained.skill_profile_digest !== skillProfileDigest(packet.skill_profile))
+  ) {
+    throw new CodexError(
+      "route_incompatible",
+      "The retained context skill profile does not match the assignment.",
       { needs_root_decision: true },
     );
   }
@@ -630,8 +721,8 @@ async function executeAssignmentWithClient(
     activeThreadId = resumedThreadId;
   } else {
     const thread = await client.startThread({
-      model: packet.compatibility.model,
-      serviceTier: packet.compatibility.service_tier,
+      model: protocolModel,
+      serviceTier: protocolTier,
       ephemeral: false,
     });
     activeThreadId = threadIdFromResult(thread);
@@ -649,9 +740,9 @@ async function executeAssignmentWithClient(
     const turn = await client.startTurn({
       threadId: threadIdForExecution,
       input: [{ type: "text", text: compileSpecialistAssignment(packet) }],
-      model: packet.compatibility.model,
+      model: protocolModel,
       effort: packet.compatibility.effort,
-      serviceTier: packet.compatibility.service_tier,
+      serviceTier: protocolTier,
       ...(packet.assignment.role_task.role === "Explorer" ||
       packet.assignment.role_task.role === "Librarian"
         ? {
@@ -684,6 +775,8 @@ async function executeAssignmentWithClient(
         { needs_root_decision: true },
       );
     }
+    const normalizedUsage =
+      completion.turn?.usage === undefined ? undefined : normalizeUsage(completion.turn.usage);
     const result = checked(
       SemanticExecutionOutcomeSchema,
       {
@@ -694,9 +787,7 @@ async function executeAssignmentWithClient(
         backend,
         session_mode: sessionMode,
         duration_ms: Math.max(0, Math.round(performance.now() - startedAt)),
-        ...(completion.turn?.usage === undefined
-          ? {}
-          : { usage: normalizeUsage(completion.turn.usage) }),
+        ...(normalizedUsage === undefined ? {} : { usage: normalizedUsage }),
         outcome,
       },
       "semantic execution outcome",
@@ -711,12 +802,24 @@ async function executeAssignmentWithClient(
   }
 }
 
-function normalizeUsage(usage: SupportedUsage): ExecutionUsage {
+function normalizeUsage(usage: SupportedUsage): ExecutionUsage | undefined {
+  const inputTokens = usage.inputTokens ?? usage.input_tokens;
+  const cachedInputTokens = usage.cachedInputTokens ?? usage.cached_input_tokens;
+  const outputTokens = usage.outputTokens ?? usage.output_tokens;
+  const reasoningOutputTokens = usage.reasoningOutputTokens ?? usage.reasoning_output_tokens;
+  if (
+    inputTokens === undefined ||
+    cachedInputTokens === undefined ||
+    outputTokens === undefined ||
+    reasoningOutputTokens === undefined
+  ) {
+    return undefined;
+  }
   return {
-    input_tokens: usage.inputTokens ?? usage.input_tokens ?? 0,
-    cached_input_tokens: usage.cachedInputTokens ?? usage.cached_input_tokens ?? 0,
-    output_tokens: usage.outputTokens ?? usage.output_tokens ?? 0,
-    reasoning_output_tokens: usage.reasoningOutputTokens ?? usage.reasoning_output_tokens ?? 0,
+    input_tokens: inputTokens,
+    cached_input_tokens: cachedInputTokens,
+    output_tokens: outputTokens,
+    reasoning_output_tokens: reasoningOutputTokens,
     ...(usage.totalTokens === undefined && usage.total_tokens === undefined
       ? {}
       : { total_tokens: usage.totalTokens ?? usage.total_tokens }),
