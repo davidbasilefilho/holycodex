@@ -1,5 +1,9 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 /*
  * SafeWorkflowFilesystemBoundary native handle helper.
  *
@@ -1202,7 +1206,7 @@ static int open_root(const char *root, int create, NativeHandle *result) {
         native_close(current);
         return 0;
       }
-      wcsncpy(component, start, length);
+      wmemcpy(component, start, length);
       component[length] = L'\0';
       NativeHandle next;
       if (!nt_open_relative(current, component, 1, create ? LOCAL_FILE_OPEN_IF : LOCAL_FILE_OPEN, &next)) {
@@ -1236,7 +1240,7 @@ static int open_parent(NativeHandle root, const char *target, int create, Native
         return 0;
       }
       if (*cursor == '\0') {
-        wcscpy(leaf, component);
+        wmemcpy(leaf, component, wcslen(component) + 1U);
         *parent = current;
         return 1;
       }
@@ -1275,7 +1279,7 @@ static int remove_contents(NativeHandle directory) {
     if (name_length > 0U && !(name_length == 1U && entry->FileName[0] == L'.') && !(name_length == 2U && entry->FileName[0] == L'.' && entry->FileName[1] == L'.')) {
       if (name_length > SAFE_MAX_COMPONENT) return 0;
       WCHAR name[SAFE_MAX_COMPONENT + 1U];
-      wcsncpy(name, entry->FileName, name_length);
+      wmemcpy(name, entry->FileName, name_length);
       name[name_length] = L'\0';
       NativeHandle child;
       if (!nt_open_relative(directory, name, (entry->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U, LOCAL_FILE_OPEN, &child)) return 0;
@@ -1312,7 +1316,7 @@ static int cleanup_staging_files(NativeHandle directory) {
     if (name_length >= 16U && name_length <= SAFE_MAX_COMPONENT &&
         wcsncmp(entry->FileName, L"holycodex-stage-", 16U) == 0) {
       WCHAR name[SAFE_MAX_COMPONENT + 1U];
-      wcsncpy(name, entry->FileName, name_length);
+      wmemcpy(name, entry->FileName, name_length);
       name[name_length] = L'\0';
       NativeHandle staged = NULL;
       if (!nt_open_relative(directory, name, (entry->FileAttributes & LOCAL_FILE_ATTRIBUTE_DIRECTORY) != 0U,
