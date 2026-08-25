@@ -701,34 +701,45 @@ static int read_fd(NativeHandle file, uint8_t **bytes, size_t *length) {
 static int list_directory(NativeHandle directory) {
   DIR *stream = fdopendir(dup(directory));
   if (stream == NULL) return 0;
-  char response[SAFE_MAX_LINE];
-  size_t used = (size_t)snprintf(response, sizeof(response), "{\"version\":%d,\"ok\":true,\"op\":\"listDirectory\",\"entries\":[", SAFE_PROTOCOL_VERSION);
+  char *response = (char *)malloc(SAFE_MAX_LINE);
+  if (response == NULL) {
+    (void)closedir(stream);
+    return 0;
+  }
+  size_t used = (size_t)snprintf(response, SAFE_MAX_LINE, "{\"version\":%d,\"ok\":true,\"op\":\"listDirectory\",\"entries\":[", SAFE_PROTOCOL_VERSION);
   size_t count = 0U;
   struct dirent *entry;
   while ((entry = readdir(stream)) != NULL) {
     if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
     if (count >= SAFE_MAX_ENTRIES || !safe_component(entry->d_name, strlen(entry->d_name))) {
       (void)closedir(stream);
+      free(response);
       return 0;
     }
     struct stat metadata;
     if (fstatat(directory, entry->d_name, &metadata, AT_SYMLINK_NOFOLLOW) < 0) {
       (void)closedir(stream);
+      free(response);
       return 0;
     }
     const char *kind = S_ISLNK(metadata.st_mode) ? "symlink" : S_ISREG(metadata.st_mode) ? "file" : S_ISDIR(metadata.st_mode) ? "directory" : "other";
-    const int written = snprintf(response + used, sizeof(response) - used, "%s{\"name\":\"%s\",\"kind\":\"%s\"}", count == 0U ? "" : ",", entry->d_name, kind);
-    if (written < 0 || (size_t)written >= sizeof(response) - used) {
+    const int written = snprintf(response + used, SAFE_MAX_LINE - used, "%s{\"name\":\"%s\",\"kind\":\"%s\"}", count == 0U ? "" : ",", entry->d_name, kind);
+    if (written < 0 || (size_t)written >= SAFE_MAX_LINE - used) {
       (void)closedir(stream);
+      free(response);
       return 0;
     }
     used += (size_t)written;
     count += 1U;
   }
   (void)closedir(stream);
-  if (used + 3U >= sizeof(response)) return 0;
-  (void)snprintf(response + used, sizeof(response) - used, "]}\n");
+  if (used + 3U >= SAFE_MAX_LINE) {
+    free(response);
+    return 0;
+  }
+  (void)snprintf(response + used, SAFE_MAX_LINE - used, "]}\n");
   (void)fputs(response, stdout);
+  free(response);
   return 1;
 }
 
@@ -1348,33 +1359,53 @@ static int cleanup_staging_files(NativeHandle directory) {
 
 static int list_directory(NativeHandle directory) {
   uint8_t buffer[64U * 1024U];
-  char response[SAFE_MAX_LINE];
-  size_t used = (size_t)snprintf(response, sizeof(response), "{\"version\":%d,\"ok\":true,\"op\":\"listDirectory\",\"entries\":[", SAFE_PROTOCOL_VERSION);
+  char *response = (char *)malloc(SAFE_MAX_LINE);
+  if (response == NULL) return 0;
+  size_t used = (size_t)snprintf(response, SAFE_MAX_LINE, "{\"version\":%d,\"ok\":true,\"op\":\"listDirectory\",\"entries\":[", SAFE_PROTOCOL_VERSION);
   size_t count = 0U;
   memset(buffer, 0, sizeof(buffer));
   if (!GetFileInformationByHandleEx(directory, FileIdBothDirectoryInfo, buffer, sizeof(buffer)) &&
-      GetLastError() != ERROR_NO_MORE_FILES) return 0;
+      GetLastError() != ERROR_NO_MORE_FILES) {
+    free(response);
+    return 0;
+  }
   size_t offset = 0U;
   for (;;) {
     FILE_ID_BOTH_DIR_INFO *entry = (FILE_ID_BOTH_DIR_INFO *)(void *)(buffer + offset);
     const size_t name_length = entry->FileNameLength / sizeof(WCHAR);
     if (name_length > 0U && !(name_length == 1U && entry->FileName[0] == L'.') && !(name_length == 2U && entry->FileName[0] == L'.' && entry->FileName[1] == L'.')) {
-      if (count >= SAFE_MAX_ENTRIES || name_length > SAFE_MAX_COMPONENT) return 0;
+      if (count >= SAFE_MAX_ENTRIES || name_length > SAFE_MAX_COMPONENT) {
+        free(response);
+        return 0;
+      }
       char name[SAFE_MAX_COMPONENT * 4U + 1U];
-      if (!wide_to_utf8(entry->FileName, (DWORD)name_length, name, sizeof(name))) return 0;
+      if (!wide_to_utf8(entry->FileName, (DWORD)name_length, name, sizeof(name))) {
+        free(response);
+        return 0;
+      }
       const char *kind = (entry->FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U ? "symlink" : (entry->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U ? "directory" : "file";
-      const int written = snprintf(response + used, sizeof(response) - used, "%s{\"name\":\"%s\",\"kind\":\"%s\"}", count == 0U ? "" : ",", name, kind);
-      if (written < 0 || (size_t)written >= sizeof(response) - used) return 0;
+      const int written = snprintf(response + used, SAFE_MAX_LINE - used, "%s{\"name\":\"%s\",\"kind\":\"%s\"}", count == 0U ? "" : ",", name, kind);
+      if (written < 0 || (size_t)written >= SAFE_MAX_LINE - used) {
+        free(response);
+        return 0;
+      }
       used += (size_t)written;
       count += 1U;
     }
     if (entry->NextEntryOffset == 0U) break;
     offset += entry->NextEntryOffset;
-    if (offset >= sizeof(buffer)) return 0;
+    if (offset >= sizeof(buffer)) {
+      free(response);
+      return 0;
+    }
   }
-  if (used + 3U >= sizeof(response)) return 0;
-  (void)snprintf(response + used, sizeof(response) - used, "]}\n");
+  if (used + 3U >= SAFE_MAX_LINE) {
+    free(response);
+    return 0;
+  }
+  (void)snprintf(response + used, SAFE_MAX_LINE - used, "]}\n");
   (void)fputs(response, stdout);
+  free(response);
   return 1;
 }
 
