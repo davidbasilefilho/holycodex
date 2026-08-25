@@ -47,6 +47,11 @@
       "reason": "Host operations cross the typed specialist and lease Promise boundary."
     },
     {
+      "path": "packages/workflow-runtime/src/compiler.ts",
+      "markers": ["Effect.tryPromise"],
+      "reason": "Workflow compilation adapts asynchronous native IR identity validation at its compiler-owned Effect boundary."
+    },
+    {
       "path": "packages/workflow-runtime/src/runtime.ts",
       "markers": ["runExecutionPlanPromise", "Effect.runPromise"],
       "reason": "Workflow runtime exposes one documented Promise adapter for host callers."

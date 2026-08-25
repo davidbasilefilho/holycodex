@@ -1429,7 +1429,7 @@ static int handle_windows(const Request *request) {
     respond_stat("directory", 1, 0U, "");
     return 1;
   }
-  NativeHandle parent;
+  NativeHandle parent = NULL;
   WCHAR leaf[SAFE_MAX_COMPONENT + 1U];
   if (!(strcmp(request->op, "listDirectory") == 0 && request->target[0] == '\0') &&
       !open_parent(root, request->target, 0, &parent, leaf)) return 0;

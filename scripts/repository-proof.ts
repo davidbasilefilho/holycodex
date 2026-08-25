@@ -234,6 +234,10 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
     }
     for (const action of workflow.matchAll(/uses:\s*([^\s#]+)/gu)) {
       const reference = action[1] ?? "";
+      if (reference.startsWith("./")) {
+        await assertRepositoryLocalReference(path, reference);
+        continue;
+      }
       assert(
         reference.startsWith("actions/checkout@") ||
           reference.startsWith("actions/upload-artifact@") ||
@@ -410,6 +414,33 @@ async function listFiles(path: string): Promise<readonly string[]> {
     }
   }
   return files.sort();
+}
+
+async function assertRepositoryLocalReference(
+  workflowPath: string,
+  reference: string,
+): Promise<void> {
+  const localPath = reference.slice(2);
+  const absolute = resolve(workspaceRoot, localPath);
+  const relativePath = relative(workspaceRoot, absolute).split("\\").join("/");
+  assert(
+    localPath.length > 0 &&
+      !localPath.includes("\\") &&
+      !/^(?:\.\.(?:\/|$)|\/|[A-Za-z]:\/)/u.test(relativePath),
+    `${workflowPath} uses an invalid repository-local reference ${reference}`,
+  );
+  let metadata;
+  try {
+    metadata = await lstat(absolute);
+  } catch {
+    metadata = undefined;
+  }
+  assert(
+    metadata !== undefined &&
+      !metadata.isSymbolicLink() &&
+      (metadata.isFile() || metadata.isDirectory()),
+    `${workflowPath} uses a missing or non-local repository reference ${reference}`,
+  );
 }
 
 function shouldSkipDirectory(path: string): boolean {
