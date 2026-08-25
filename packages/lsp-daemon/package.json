@@ -22,6 +22,9 @@
     "@holycodex/lsp-core": "workspace:*",
     "effect": "3.22.1"
   },
+  "devDependencies": {
+    "vitest": "4.1.10"
+  },
   "engines": {
     "node": ">=20"
   }

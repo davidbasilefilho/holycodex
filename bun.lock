@@ -66,12 +66,18 @@
       "dependencies": {
         "effect": "3.22.1",
       },
+      "devDependencies": {
+        "vitest": "4.1.10",
+      },
     },
     "packages/lsp-daemon": {
       "name": "@holycodex/lsp-daemon",
       "dependencies": {
         "@holycodex/lsp-core": "workspace:*",
         "effect": "3.22.1",
+      },
+      "devDependencies": {
+        "vitest": "4.1.10",
       },
     },
     "packages/plugin": {
