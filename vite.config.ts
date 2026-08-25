@@ -18,6 +18,7 @@ export default defineConfig({
     entry: ["packages/cli/src/index.ts"],
     outDir: "packages/cli/dist",
     format: ["esm"],
+    banner: "#!/usr/bin/env bun",
     outExtensions: () => ({ js: ".js" }),
     dts: false,
     clean: true,

@@ -1156,7 +1156,7 @@ static int nt_open_relative(NativeHandle parent, const WCHAR *name, int director
   attributes.Attributes = LOCAL_OBJ_CASE_INSENSITIVE;
   LocalIoStatusBlock status;
   memset(&status, 0, sizeof(status));
-  const ACCESS_MASK access = directory ? (FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | DELETE) : (GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | DELETE);
+  const ACCESS_MASK access = directory ? (FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | DELETE | SYNCHRONIZE) : (GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | DELETE | SYNCHRONIZE);
   const ULONG share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
   const ULONG options = (directory ? LOCAL_FILE_DIRECTORY_FILE : LOCAL_FILE_NON_DIRECTORY_FILE) | LOCAL_FILE_SYNCHRONOUS_IO_NONALERT | LOCAL_FILE_OPEN_REPARSE_POINT;
   const NtStatus result_status = create_file(result, access, &attributes, &status, NULL, FILE_ATTRIBUTE_NORMAL, share, disposition, options, NULL, 0U);
