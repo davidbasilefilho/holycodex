@@ -152,7 +152,7 @@ export async function buildSafeFilesystemArtifact(
     platform === "win32" ? [compiler, "/?"] : [compiler, "--version"],
     { cwd: workspaceRoot, env: buildEnvironment, maxOutputBytes: 64 * 1024 },
   );
-  const compilerVersion = `${compilerVersionResult.stdout}${compilerVersionResult.stderr}`.trim();
+  const compilerVersion = summarizeCompilerVersion(platform, compilerVersionResult);
   const sourceDefine =
     platform === "win32"
       ? `/DSAFE_FILESYSTEM_SOURCE_SHA256="${sourceSha256}"`
@@ -192,6 +192,18 @@ export async function buildSafeFilesystemArtifact(
     mode: 0o600,
   });
   return parsed.right;
+}
+
+export function summarizeCompilerVersion(
+  platform: "win32" | "linux",
+  result: CommandResult,
+): string {
+  const output = `${result.stderr}\n${result.stdout}`.trim();
+  if (platform === "win32") {
+    const banner = output.split(/\r?\n/u).find((line) => /Compiler Version/iu.test(line));
+    if (banner !== undefined) return banner.slice(0, 4096);
+  }
+  return output.slice(0, 4096);
 }
 
 async function defaultIsRegularFile(path: string): Promise<boolean> {

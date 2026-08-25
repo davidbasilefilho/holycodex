@@ -2,7 +2,10 @@
 
 import { describe, expect, test } from "vite-plus/test";
 import { join } from "node:path";
-import { resolveWindowsBuildEnvironment } from "./build-safe-filesystem.ts";
+import {
+  resolveWindowsBuildEnvironment,
+  summarizeCompilerVersion,
+} from "./build-safe-filesystem.ts";
 
 describe("Windows safe filesystem build environment", () => {
   test("activates the discovered Visual Studio x64 toolchain", async () => {
@@ -47,5 +50,30 @@ describe("Windows safe filesystem build environment", () => {
         isRegularFile: async () => false,
       }),
     ).rejects.toThrow("Desktop development with C++");
+  });
+});
+
+describe("safe filesystem compiler identity", () => {
+  test("keeps the concise MSVC banner instead of the full help output", () => {
+    const summary = summarizeCompilerVersion("win32", {
+      command: ["cl.exe", "/?"],
+      exitCode: 0,
+      stdout: `C/C++ COMPILER OPTIONS\n${"option ".repeat(1000)}`,
+      stderr: "Microsoft (R) C/C++ Optimizing Compiler Version 19.50 for x64\r\n",
+    });
+
+    expect(summary).toBe("Microsoft (R) C/C++ Optimizing Compiler Version 19.50 for x64");
+  });
+
+  test("retains the Linux compiler banner within the manifest limit", () => {
+    const summary = summarizeCompilerVersion("linux", {
+      command: ["cc", "--version"],
+      exitCode: 0,
+      stdout: `cc (Ubuntu 14.2.0) 14.2.0\n${"option ".repeat(1000)}`,
+      stderr: "",
+    });
+
+    expect(summary.startsWith("cc (Ubuntu 14.2.0) 14.2.0")).toBe(true);
+    expect(summary).toHaveLength(4096);
   });
 });

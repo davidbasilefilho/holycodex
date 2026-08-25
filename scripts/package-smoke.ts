@@ -388,7 +388,7 @@ async function runInstalledExecutable(
 async function readPublicManifest(): Promise<PublicManifest> {
   const raw: unknown = JSON.parse(await readFile(join(cliRoot, "package.json"), "utf8"));
   const parsed = Schema.decodeUnknownEither(PublicManifestSchema, {
-    onExcessProperty: "preserve",
+    onExcessProperty: "ignore",
   })(raw);
   if (Either.isLeft(parsed)) {
     throw new Error(`The public package manifest is invalid: ${String(parsed.left)}`);
