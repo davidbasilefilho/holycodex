@@ -1550,7 +1550,8 @@ static int handle_windows(const Request *request) {
       free(bytes);
       native_close(parent);
       native_close(root);
-      return 0;
+      respond_error(request->op, "io_error", "Atomic write staging cleanup failed.");
+      return 1;
     }
     WCHAR stage[SAFE_MAX_COMPONENT + 1U];
     NativeHandle staged = NULL;
@@ -1562,7 +1563,8 @@ static int handle_windows(const Request *request) {
       free(bytes);
       native_close(parent);
       native_close(root);
-      return 0;
+      respond_error(request->op, "io_error", "Atomic write staging file creation failed.");
+      return 1;
     }
     size_t written = 0U;
     while (written < length) {
@@ -1571,28 +1573,37 @@ static int handle_windows(const Request *request) {
       if (!WriteFile(staged, bytes + written, requested, &amount, NULL) || amount == 0U) break;
       written += amount;
     }
-    int stored = written == length && FlushFileBuffers(staged) != 0;
-    if (stored) {
+    const char *failure_message = NULL;
+    if (written != length) failure_message = "Atomic write staging output failed.";
+    else if (!FlushFileBuffers(staged)) failure_message = "Atomic write staging flush failed.";
+    if (failure_message == NULL) {
       const size_t leaf_length = wcslen(leaf);
       const size_t allocation = sizeof(LocalFileRenameInfoEx) + leaf_length * sizeof(WCHAR);
       LocalFileRenameInfoEx *rename_info = (LocalFileRenameInfoEx *)calloc(1U, allocation);
-      if (rename_info == NULL) stored = 0;
+      if (rename_info == NULL) failure_message = "Atomic write rename allocation failed.";
       else {
         rename_info->Flags = LOCAL_FILE_RENAME_FLAG_REPLACE_IF_EXISTS | LOCAL_FILE_RENAME_FLAG_POSIX_SEMANTICS;
         rename_info->RootDirectory = parent;
         rename_info->FileNameLength = (DWORD)(leaf_length * sizeof(WCHAR));
         memcpy(rename_info->FileName, leaf, leaf_length * sizeof(WCHAR));
-        stored = SetFileInformationByHandle(staged, (FILE_INFO_BY_HANDLE_CLASS)LOCAL_FILE_RENAME_INFO_EX, rename_info, (DWORD)allocation) != 0;
+        if (!SetFileInformationByHandle(staged, (FILE_INFO_BY_HANDLE_CLASS)LOCAL_FILE_RENAME_INFO_EX, rename_info, (DWORD)allocation)) {
+          failure_message = "Atomic write rename failed.";
+        }
         free(rename_info);
       }
     }
-    if (stored) stored = FlushFileBuffers(staged) != 0;
-    if (!stored) (void)mark_deleted(staged);
+    if (failure_message == NULL && !FlushFileBuffers(staged)) {
+      failure_message = "Atomic write post-rename flush failed.";
+    }
+    if (failure_message != NULL) (void)mark_deleted(staged);
     native_close(staged);
     free(bytes);
     native_close(parent);
     native_close(root);
-    if (!stored) return 0;
+    if (failure_message != NULL) {
+      respond_error(request->op, "io_error", failure_message);
+      return 1;
+    }
     respond_mutation(request->op, 1, digest, NULL);
     return 1;
   }
