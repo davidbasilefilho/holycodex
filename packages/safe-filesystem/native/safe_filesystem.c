@@ -1041,6 +1041,7 @@ typedef NtStatus (NTAPI *NtCreateFileFn)(PHANDLE, ACCESS_MASK, LocalObjectAttrib
 #define LOCAL_FILE_ATTRIBUTE_DIRECTORY 0x00000010UL
 #define LOCAL_FILE_ATTRIBUTE_REPARSE_POINT 0x00000400UL
 #define LOCAL_FILE_DISPOSITION_INFO_EX 21
+#define LOCAL_FILE_RENAME_INFO 3
 #define LOCAL_FILE_RENAME_INFO_EX 22
 #define LOCAL_FILE_DISPOSITION_FLAG_DELETE 0x00000001UL
 #define LOCAL_FILE_DISPOSITION_FLAG_POSIX_SEMANTICS 0x00000002UL
@@ -1586,7 +1587,12 @@ static int handle_windows(const Request *request) {
         rename_info->RootDirectory = parent;
         rename_info->FileNameLength = (DWORD)(leaf_length * sizeof(WCHAR));
         memcpy(rename_info->FileName, leaf, leaf_length * sizeof(WCHAR));
-        if (!SetFileInformationByHandle(staged, (FILE_INFO_BY_HANDLE_CLASS)LOCAL_FILE_RENAME_INFO_EX, rename_info, (DWORD)allocation)) {
+        int renamed = SetFileInformationByHandle(staged, (FILE_INFO_BY_HANDLE_CLASS)LOCAL_FILE_RENAME_INFO_EX, rename_info, (DWORD)allocation) != 0;
+        if (!renamed) {
+          rename_info->Flags = LOCAL_FILE_RENAME_FLAG_REPLACE_IF_EXISTS;
+          renamed = SetFileInformationByHandle(staged, (FILE_INFO_BY_HANDLE_CLASS)LOCAL_FILE_RENAME_INFO, rename_info, (DWORD)allocation) != 0;
+        }
+        if (!renamed) {
           failure_message = "Atomic write rename failed.";
         }
         free(rename_info);
