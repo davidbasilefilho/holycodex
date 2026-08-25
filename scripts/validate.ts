@@ -21,7 +21,7 @@ export async function runValidation(): Promise<ValidationResult> {
   steps.push("bun 1.4");
 
   await runStep(["vp", "fmt", "--check"], "format", steps);
-  await runStep(["vp", "lint", "--tsconfig=./tsconfig.json"], "lint", steps);
+  await runStep(["vp", "lint"], "lint", steps);
   await runStep(["vp", "check", "--no-fmt", "--no-lint"], "typescript", steps);
   await runStep(["vp", "test", "--run"], "tests", steps);
   await runStep(["bun", "scripts/package-build.ts"], "package build", steps);
