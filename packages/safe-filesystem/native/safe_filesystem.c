@@ -1158,7 +1158,7 @@ static int nt_open_relative(NativeHandle parent, const WCHAR *name, int director
   attributes.Attributes = LOCAL_OBJ_CASE_INSENSITIVE;
   LocalIoStatusBlock status;
   memset(&status, 0, sizeof(status));
-  const ACCESS_MASK access = directory ? (FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | DELETE | SYNCHRONIZE) : (GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | DELETE | SYNCHRONIZE);
+  const ACCESS_MASK access = directory ? (FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | DELETE | SYNCHRONIZE) : (GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | DELETE | SYNCHRONIZE);
   const ULONG share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
   const ULONG options = (directory ? LOCAL_FILE_DIRECTORY_FILE : LOCAL_FILE_NON_DIRECTORY_FILE) | LOCAL_FILE_SYNCHRONOUS_IO_NONALERT | LOCAL_FILE_OPEN_REPARSE_POINT;
   const NtStatus result_status = create_file(result, access, &attributes, &status, NULL, FILE_ATTRIBUTE_NORMAL, share, disposition, options, NULL, 0U);
@@ -1587,7 +1587,7 @@ static int handle_windows(const Request *request) {
       if (rename_info == NULL) failure_message = "Atomic write rename allocation failed.";
       else {
         rename_info->Flags = LOCAL_FILE_RENAME_FLAG_REPLACE_IF_EXISTS | LOCAL_FILE_RENAME_FLAG_POSIX_SEMANTICS;
-        rename_info->RootDirectory = NULL;
+        rename_info->RootDirectory = parent;
         rename_info->FileNameLength = (DWORD)(leaf_length * sizeof(WCHAR));
         memcpy(rename_info->FileName, leaf, leaf_length * sizeof(WCHAR));
         int renamed = SetFileInformationByHandle(staged, (FILE_INFO_BY_HANDLE_CLASS)LOCAL_FILE_RENAME_INFO_EX, rename_info, (DWORD)allocation) != 0;
