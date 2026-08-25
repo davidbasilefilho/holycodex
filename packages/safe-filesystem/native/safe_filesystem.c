@@ -1587,7 +1587,7 @@ static int handle_windows(const Request *request) {
       if (rename_info == NULL) failure_message = "Atomic write rename allocation failed.";
       else {
         rename_info->Flags = LOCAL_FILE_RENAME_FLAG_REPLACE_IF_EXISTS | LOCAL_FILE_RENAME_FLAG_POSIX_SEMANTICS;
-        rename_info->RootDirectory = parent;
+        rename_info->RootDirectory = NULL;
         rename_info->FileNameLength = (DWORD)(leaf_length * sizeof(WCHAR));
         memcpy(rename_info->FileName, leaf, leaf_length * sizeof(WCHAR));
         int renamed = SetFileInformationByHandle(staged, (FILE_INFO_BY_HANDLE_CLASS)LOCAL_FILE_RENAME_INFO_EX, rename_info, (DWORD)allocation) != 0;
