@@ -19,6 +19,7 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1579,7 +1580,8 @@ static int handle_windows(const Request *request) {
     else if (!FlushFileBuffers(staged)) failure_message = "Atomic write staging flush failed.";
     if (failure_message == NULL) {
       const size_t leaf_length = wcslen(leaf);
-      const size_t allocation = sizeof(LocalFileRenameInfoEx) + leaf_length * sizeof(WCHAR);
+      const size_t allocation =
+          offsetof(LocalFileRenameInfoEx, FileName) + leaf_length * sizeof(WCHAR);
       LocalFileRenameInfoEx *rename_info = (LocalFileRenameInfoEx *)calloc(1U, allocation);
       if (rename_info == NULL) failure_message = "Atomic write rename allocation failed.";
       else {
