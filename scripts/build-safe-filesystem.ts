@@ -105,7 +105,12 @@ export async function resolveWindowsBuildEnvironment(
       "/d",
       "/s",
       "/c",
-      `call "${vcvarsPath}" amd64 >nul && set`,
+      "call",
+      vcvarsPath,
+      "amd64",
+      ">nul",
+      "&&",
+      "set",
     ],
     { cwd: workspaceRoot, env: environment, maxOutputBytes: 256 * 1024 },
   );

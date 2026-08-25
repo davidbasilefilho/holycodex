@@ -56,7 +56,7 @@ describe("Git Bash runner", () => {
           'printf "%s\\n" "$@" > "$FAKE_BASH_ARGV_PATH"',
           'printf "%s|%s|%s|%s" "${ORIGINAL_PATH-unset}" "$PORTABLE_VALUE" "${Path-unset}" "${PATH-unset}" > "$FAKE_BASH_ENV_PATH"',
           'printf "%s" "$PWD" > "$FAKE_BASH_CWD_PATH"',
-          'exec /bin/sh -lc "$2"',
+          'exec /bin/sh -c "$2"',
           "",
         ].join("\n"),
       );
@@ -95,7 +95,7 @@ describe("Git Bash runner", () => {
   it.skipIf(process.platform === "win32")("bounds output and reports a timeout", async () => {
     const directory = createTemporaryDirectory("holycodex-git-bash-limit-");
     const fakeBashPath = join(directory, "bash");
-    writeFileSync(fakeBashPath, '#!/bin/sh\nexec /bin/sh -lc "$2"\n');
+    writeFileSync(fakeBashPath, '#!/bin/sh\nexec /bin/sh -c "$2"\n');
     chmodSync(fakeBashPath, 0o755);
 
     const output = await runGitBashCommand({
