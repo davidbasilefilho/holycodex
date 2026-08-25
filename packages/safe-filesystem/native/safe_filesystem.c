@@ -1575,6 +1575,7 @@ static int handle_windows(const Request *request) {
       if (!WriteFile(staged, bytes + written, requested, &amount, NULL) || amount == 0U) break;
       written += amount;
     }
+    char rename_failure[128];
     const char *failure_message = NULL;
     if (written != length) failure_message = "Atomic write staging output failed.";
     else if (!FlushFileBuffers(staged)) failure_message = "Atomic write staging flush failed.";
@@ -1590,12 +1591,16 @@ static int handle_windows(const Request *request) {
         rename_info->FileNameLength = (DWORD)(leaf_length * sizeof(WCHAR));
         memcpy(rename_info->FileName, leaf, leaf_length * sizeof(WCHAR));
         int renamed = SetFileInformationByHandle(staged, (FILE_INFO_BY_HANDLE_CLASS)LOCAL_FILE_RENAME_INFO_EX, rename_info, (DWORD)allocation) != 0;
+        DWORD extended_error = renamed ? ERROR_SUCCESS : GetLastError();
+        DWORD legacy_error = ERROR_SUCCESS;
         if (!renamed) {
           rename_info->Flags = LOCAL_FILE_RENAME_FLAG_REPLACE_IF_EXISTS;
           renamed = SetFileInformationByHandle(staged, (FILE_INFO_BY_HANDLE_CLASS)LOCAL_FILE_RENAME_INFO, rename_info, (DWORD)allocation) != 0;
+          if (!renamed) legacy_error = GetLastError();
         }
         if (!renamed) {
-          failure_message = "Atomic write rename failed.";
+          (void)snprintf(rename_failure, sizeof(rename_failure), "Atomic write rename failed (extended=%lu, legacy=%lu).", (unsigned long)extended_error, (unsigned long)legacy_error);
+          failure_message = rename_failure;
         }
         free(rename_info);
       }
