@@ -372,10 +372,7 @@ async function runInstalledExecutable(
   commands: string[],
 ): Promise<typeof CliEnvelopeSchema.Type> {
   const args = ["version", "--json"];
-  const command =
-    process.platform === "win32"
-      ? ["cmd.exe", "/d", "/s", "/c", [executable, ...args].map(quoteWindows).join(" ")]
-      : [executable, ...args];
+  const command = [executable, ...args];
   commands.push(command.join(" "));
   const result = await runCommand(command, { cwd, env: process.env });
   assert(
@@ -497,10 +494,6 @@ async function withBunTemporaryDirectory<T>(
   operation: (directory: string) => Promise<T>,
 ): Promise<T> {
   return await withTemporaryDirectory("holycodex-package-smoke-bun", operation);
-}
-
-function quoteWindows(value: string): string {
-  return `"${value.replaceAll('"', '\\"')}"`;
 }
 
 function assert(condition: boolean, message: string): asserts condition {
