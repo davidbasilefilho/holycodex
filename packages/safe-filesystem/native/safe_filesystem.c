@@ -1586,7 +1586,7 @@ static int handle_windows(const Request *request) {
         free(rename_info);
       }
     }
-    if (stored) stored = FlushFileBuffers(parent) != 0;
+    if (stored) stored = FlushFileBuffers(staged) != 0;
     if (!stored) (void)mark_deleted(staged);
     native_close(staged);
     free(bytes);
