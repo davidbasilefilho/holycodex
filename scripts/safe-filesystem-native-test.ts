@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -10,7 +10,8 @@ import {
 
 export async function runSafeFilesystemNativeTest(helperPath: string): Promise<void> {
   const platform = process.platform === "win32" ? "win32" : "posix";
-  const root = await mkdtemp(join(tmpdir(), "holycodex-safe-filesystem-test-"));
+  const temporaryRoot = await realpath(tmpdir());
+  const root = await mkdtemp(join(temporaryRoot, "holycodex-safe-filesystem-test-"));
   const ownedRoot = join(root, "owned");
   try {
     const boundary = createSafeWorkflowFilesystemBoundary({ platform, helperPath });
@@ -29,7 +30,7 @@ export async function runSafeFilesystemNativeTest(helperPath: string): Promise<v
     if (!entries.some((entry) => entry.name === "workflow.ts" && entry.kind === "file")) {
       throw new Error("native directory enumeration missed the written file");
     }
-    const outside = await mkdtemp(join(tmpdir(), "holycodex-safe-filesystem-outside-"));
+    const outside = await mkdtemp(join(temporaryRoot, "holycodex-safe-filesystem-outside-"));
     try {
       await symlink(
         outside,

@@ -24,6 +24,14 @@ import { runSafeFilesystemNativeTest } from "./safe-filesystem-native-test.ts";
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
 const cliRoot = join(workspaceRoot, "packages/cli");
+const packagedPluginRoots = [
+  ".codex-plugin",
+  "agents",
+  "compaction",
+  "hooks",
+  "rules",
+  "skills",
+] as const;
 const ReleaseStampSchema = Schema.Struct({
   schemaVersion: Schema.Literal("holycodex-release-v1"),
   channel: ReleaseChannelSchema,
@@ -172,7 +180,10 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
       `the installed plugin asset ${relativePath}`,
     );
   }
-  await validateSource(join(installedPackageRoot, "dist/assets"));
+  await validateInstalledPluginSource(
+    join(installedPackageRoot, "dist/assets"),
+    join(temporaryRoot, "plugin-validation"),
+  );
   const installedManifest = await readInstalledManifest(join(installedPackageRoot, "package.json"));
   assert(
     Object.keys(installedManifest.dependencies).length > 0,
@@ -394,6 +405,26 @@ async function readPublicManifest(): Promise<PublicManifest> {
     throw new Error(`The public package manifest is invalid: ${String(parsed.left)}`);
   }
   return parsed.right;
+}
+
+export async function validateInstalledPluginSource(
+  installedAssetsRoot: string,
+  validationRoot: string,
+): Promise<void> {
+  const allowedRoots = new Set<string>([...packagedPluginRoots, "safe-filesystem"]);
+  const installedRoots = await readdir(installedAssetsRoot, { withFileTypes: true });
+  assert(
+    installedRoots.every((entry) => allowedRoots.has(entry.name)),
+    "the installed asset root contains an undeclared package entry",
+  );
+  await mkdir(validationRoot, { recursive: true });
+  for (const root of packagedPluginRoots) {
+    await cp(join(installedAssetsRoot, root), join(validationRoot, root), {
+      recursive: true,
+      dereference: false,
+    });
+  }
+  await validateSource(validationRoot);
 }
 
 async function readInstalledManifest(path: string): Promise<PublicManifest> {
