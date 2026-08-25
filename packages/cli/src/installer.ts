@@ -135,7 +135,7 @@ export async function installHolyCodex(
       retainedOfficialPlugins,
     );
     let capabilityState = createCapabilityState(optional, "pending");
-    const bundledAssets = join(dirname(fileURLToPath(import.meta.url)), "assets");
+    const bundledAssets = join(dirname(fileURLToPath(import.meta.url)), "assets", "plugin");
     const sourceRoot =
       options.sourceRoot ?? ((await isDirectory(bundledAssets)) ? bundledAssets : pluginSourceRoot);
     const staged = await stagePayload(paths, sourceRoot, manifestVersion, runId);

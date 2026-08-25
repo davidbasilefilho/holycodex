@@ -13,7 +13,7 @@ const pluginAssets = join(workspaceRoot, "packages/plugin/assets");
 export async function runPackageBuild(): Promise<void> {
   await runChecked(["vp", "pack"], { cwd: workspaceRoot, env: process.env });
   await rm(join(distAssets, "plugin"), { recursive: true, force: true });
-  await cp(pluginAssets, distAssets, { recursive: true, dereference: true });
+  await cp(pluginAssets, join(distAssets, "plugin"), { recursive: true, dereference: true });
   await buildSafeFilesystemArtifact(join(distAssets, "safe-filesystem"));
 }
 

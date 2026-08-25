@@ -54,6 +54,11 @@ export async function runSafeFilesystemNativeTest(helperPath: string): Promise<v
       await rm(outside, { recursive: true, force: true });
     }
     await boundary.removeOwnedDirectory(ownedRoot, join(ownedRoot, "session"));
+  } catch (error: unknown) {
+    if (error instanceof SafeFilesystemError) {
+      throw new Error(`native ${error.operation} failed: ${error.message}`, { cause: error });
+    }
+    throw error;
   } finally {
     await rm(root, { recursive: true, force: true });
   }
