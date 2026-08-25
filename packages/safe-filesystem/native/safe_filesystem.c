@@ -19,7 +19,6 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
-#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1029,6 +1028,7 @@ typedef struct {
   ULONG_PTR Information;
 } LocalIoStatusBlock;
 typedef NtStatus (NTAPI *NtCreateFileFn)(PHANDLE, ACCESS_MASK, LocalObjectAttributes *, LocalIoStatusBlock *, PLARGE_INTEGER, ULONG, ULONG, ULONG, ULONG, PVOID, ULONG);
+typedef NtStatus (NTAPI *NtSetInformationFileFn)(HANDLE, LocalIoStatusBlock *, PVOID, ULONG, ULONG);
 
 #define LOCAL_OBJ_CASE_INSENSITIVE 0x00000040UL
 #define LOCAL_FILE_OPEN 1UL
@@ -1042,8 +1042,8 @@ typedef NtStatus (NTAPI *NtCreateFileFn)(PHANDLE, ACCESS_MASK, LocalObjectAttrib
 #define LOCAL_FILE_ATTRIBUTE_DIRECTORY 0x00000010UL
 #define LOCAL_FILE_ATTRIBUTE_REPARSE_POINT 0x00000400UL
 #define LOCAL_FILE_DISPOSITION_INFO_EX 21
-#define LOCAL_FILE_RENAME_INFO 3
-#define LOCAL_FILE_RENAME_INFO_EX 22
+#define LOCAL_FILE_RENAME_INFORMATION 10UL
+#define LOCAL_FILE_RENAME_INFORMATION_EX 65UL
 #define LOCAL_FILE_DISPOSITION_FLAG_DELETE 0x00000001UL
 #define LOCAL_FILE_DISPOSITION_FLAG_POSIX_SEMANTICS 0x00000002UL
 #define LOCAL_FILE_RENAME_FLAG_REPLACE_IF_EXISTS 0x00000001UL
@@ -1069,6 +1069,17 @@ static NtCreateFileFn nt_create_file(void) {
   if (!loaded) {
     HMODULE module = GetModuleHandleW(L"ntdll.dll");
     function = module == NULL ? NULL : (NtCreateFileFn)(void *)GetProcAddress(module, "NtCreateFile");
+    loaded = 1;
+  }
+  return function;
+}
+
+static NtSetInformationFileFn nt_set_information_file(void) {
+  static NtSetInformationFileFn function;
+  static int loaded;
+  if (!loaded) {
+    HMODULE module = GetModuleHandleW(L"ntdll.dll");
+    function = module == NULL ? NULL : (NtSetInformationFileFn)(void *)GetProcAddress(module, "NtSetInformationFile");
     loaded = 1;
   }
   return function;
@@ -1581,8 +1592,7 @@ static int handle_windows(const Request *request) {
     else if (!FlushFileBuffers(staged)) failure_message = "Atomic write staging flush failed.";
     if (failure_message == NULL) {
       const size_t leaf_length = wcslen(leaf);
-      const size_t allocation =
-          offsetof(LocalFileRenameInfoEx, FileName) + leaf_length * sizeof(WCHAR);
+      const size_t allocation = sizeof(LocalFileRenameInfoEx) + leaf_length * sizeof(WCHAR);
       LocalFileRenameInfoEx *rename_info = (LocalFileRenameInfoEx *)calloc(1U, allocation);
       if (rename_info == NULL) failure_message = "Atomic write rename allocation failed.";
       else {
@@ -1590,16 +1600,18 @@ static int handle_windows(const Request *request) {
         rename_info->RootDirectory = parent;
         rename_info->FileNameLength = (DWORD)(leaf_length * sizeof(WCHAR));
         memcpy(rename_info->FileName, leaf, leaf_length * sizeof(WCHAR));
-        int renamed = SetFileInformationByHandle(staged, (FILE_INFO_BY_HANDLE_CLASS)LOCAL_FILE_RENAME_INFO_EX, rename_info, (DWORD)allocation) != 0;
-        DWORD extended_error = renamed ? ERROR_SUCCESS : GetLastError();
-        DWORD legacy_error = ERROR_SUCCESS;
-        if (!renamed) {
+        NtSetInformationFileFn set_information = nt_set_information_file();
+        LocalIoStatusBlock rename_status;
+        memset(&rename_status, 0, sizeof(rename_status));
+        NtStatus extended_status = set_information == NULL ? (NtStatus)0xC0000002L : set_information(staged, &rename_status, rename_info, (ULONG)allocation, LOCAL_FILE_RENAME_INFORMATION_EX);
+        NtStatus legacy_status = 0;
+        if (extended_status < 0) {
           rename_info->Flags = LOCAL_FILE_RENAME_FLAG_REPLACE_IF_EXISTS;
-          renamed = SetFileInformationByHandle(staged, (FILE_INFO_BY_HANDLE_CLASS)LOCAL_FILE_RENAME_INFO, rename_info, (DWORD)allocation) != 0;
-          if (!renamed) legacy_error = GetLastError();
+          memset(&rename_status, 0, sizeof(rename_status));
+          legacy_status = set_information == NULL ? (NtStatus)0xC0000002L : set_information(staged, &rename_status, rename_info, (ULONG)allocation, LOCAL_FILE_RENAME_INFORMATION);
         }
-        if (!renamed) {
-          (void)snprintf(rename_failure, sizeof(rename_failure), "Atomic write rename failed (extended=%lu, legacy=%lu).", (unsigned long)extended_error, (unsigned long)legacy_error);
+        if (extended_status < 0 && legacy_status < 0) {
+          (void)snprintf(rename_failure, sizeof(rename_failure), "Atomic write rename failed (extended=0x%08lx, legacy=0x%08lx).", (unsigned long)(uint32_t)extended_status, (unsigned long)(uint32_t)legacy_status);
           failure_message = rename_failure;
         }
         free(rename_info);
