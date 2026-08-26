@@ -169,7 +169,14 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
         workflow.includes("./.github/workflows/validation.yml"),
         `${path} must reuse the repository validation gate`,
       );
-      assert(workflow.includes("npm publish"), `${path} must publish through npm`);
+      assert(
+        workflow.includes("bunx npm@11.5.1 publish"),
+        `${path} must publish through the pinned trusted-publishing npm CLI`,
+      );
+      assert(
+        workflow.includes("mise install node@22.14.0"),
+        `${path} must install the pinned trusted-publishing Node runtime through mise`,
+      );
       assert(!workflow.includes("bun publish"), `${path} must not publish through Bun`);
       assert(workflow.includes("--tag dev"), `${path} must publish development versions under dev`);
       assert(
