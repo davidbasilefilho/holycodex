@@ -123,9 +123,6 @@ jobs:
           install: true
           cache: false
 
-      - name: Install the trusted publishing runtime
-        run: mise install node@22.14.0
-
       - name: Install the frozen workspace
         run: mise exec -- bun install --frozen-lockfile
 
@@ -150,11 +147,11 @@ jobs:
 
       - name: Publish the development artifact under dev
         if: steps.npm_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'dev'
-        run: mise exec node@22.14.0 -- bunx npm@11.5.1 publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag dev
+        run: mise exec -- bunx npm@11.5.1 publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag dev
 
       - name: Publish the stable artifact under latest
         if: steps.npm_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'stable'
-        run: mise exec node@22.14.0 -- bunx npm@11.5.1 publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag latest
+        run: mise exec -- bunx npm@11.5.1 publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag latest
 
   publish_github:
     name: publish exact GitHub release

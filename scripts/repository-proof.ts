@@ -61,6 +61,7 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
 
   assert(rootManifest.packageManager === "bun@1.4.0", "root packageManager must resolve Bun 1.4.0");
   assert(mise.includes('bun = "1.4"'), "mise must select the Bun 1.4 line");
+  assert(mise.includes('node = "26"'), "mise must select the Node 26 line");
   assert(
     rootManifest.scripts?.["validate"] === "bun scripts/validate.ts",
     "validate must be the repository gate",
@@ -172,10 +173,6 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
       assert(
         workflow.includes("bunx npm@11.5.1 publish"),
         `${path} must publish through the pinned trusted-publishing npm CLI`,
-      );
-      assert(
-        workflow.includes("mise install node@22.14.0"),
-        `${path} must install the pinned trusted-publishing Node runtime through mise`,
       );
       assert(!workflow.includes("bun publish"), `${path} must not publish through Bun`);
       assert(workflow.includes("--tag dev"), `${path} must publish development versions under dev`);

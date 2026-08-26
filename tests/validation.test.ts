@@ -93,7 +93,7 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("release-version.ts dev");
     expect(workflow).toContain("release-version.ts stable");
     expect(workflow).toContain("bunx npm@11.5.1 publish");
-    expect(workflow).toContain("mise install node@22.14.0");
+    expect(await readFile(resolve(workspaceRoot, "mise.toml"), "utf8")).toContain('node = "26"');
     expect(workflow).not.toContain("bun publish");
     expect(workflow).toContain("actions/download-artifact@");
     expect(workflow).toContain("EXPECTED_SHA256");
@@ -121,7 +121,7 @@ describe("repository validation machinery", () => {
     expect(publishNpm).toContain("absent|matching");
     expect(publishNpm).toContain("contents: read");
     expect(publishNpm).toContain("id-token: write");
-    expect(publishNpm).toContain("mise exec node@22.14.0 -- bunx npm@11.5.1 publish");
+    expect(publishNpm).toContain("mise exec -- bunx npm@11.5.1 publish");
     expect(publishNpm).not.toContain("NPM_TOKEN");
     expect(publishNpm).not.toContain("NPM_CONFIG_TOKEN");
     expect(publishGithub).toContain("needs: [prepare, validation, publish_npm]");

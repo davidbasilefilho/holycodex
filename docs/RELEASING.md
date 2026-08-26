@@ -67,8 +67,8 @@ workspace, packs once, smoke-tests that exact tarball, and uploads the tarball
 with its SHA-256, source SHA, channel, version, and allowlisted entries.
 
 The publish jobs download that artifact and verify its metadata and digest
-before any external write. Development publication uses Bun under npm
-dist-tag `dev` and creates a GitHub prerelease at the exact main SHA with
+before any external write. Development publication uses the pinned npm CLI
+under dist-tag `dev` and creates a GitHub prerelease at the exact main SHA with
 generated notes and the same tarball attached. Stable publication accepts only
 an exact non-prerelease `vX.Y.Z` tag whose tag object resolves to the checked-out
 SHA and whose version matches the canonical manifest. It publishes the same
@@ -77,20 +77,20 @@ tarball under npm dist-tag `latest` and creates a normal GitHub release with
 
 Retries are fail-closed. An existing npm version or GitHub release is accepted
 only when its version, channel, source SHA, and downloaded artifact identity
-match the validated release metadata. The npm workflow keeps the configured
-`NPM_TOKEN` mechanism; no `id-token:write` permission is granted. Validation
-uses `contents:read`, the npm job receives only its npm secret, and the GitHub
-release job receives `contents:write`.
+match the validated release metadata. The npm job uses the repository's
+mise-managed Node runtime and a pinned npm CLI through npm Trusted Publishing.
+Only that job receives `id-token:write`; validation uses `contents:read`, and
+the GitHub release job receives `contents:write`.
 
 ## Approval and branch gates
 
 Commit, push, workflow dispatch, and registry publication are separate
 externally visible effects. Obtain explicit approval immediately before each
 effect, confirm the exact files and version in scope, and record the resulting
-ref, tag, or workflow run. Publication fails closed when `NPM_TOKEN` is absent,
-the ref/tag/SHA relationship is invalid, the requested version differs from
-`packages/cli/package.json`, validation fails, the artifact identity changes,
-or the registry/release service rejects the immutable version.
+ref, tag, or workflow run. Publication fails closed when npm rejects the trusted
+publisher identity, the ref/tag/SHA relationship is invalid, the requested
+version differs from `packages/cli/package.json`, validation fails, the artifact
+identity changes, or the registry/release service rejects the immutable version.
 
 The validation job must verify the intended branch topology and frozen SHA
 from repository metadata before an approved cutover. An unexpected parent,
