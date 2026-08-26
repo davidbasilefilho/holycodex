@@ -9,6 +9,7 @@ import {
   MIGRATION_RECORD_NAME,
   migrateLegacyState,
   publicManifestPath,
+  readCanonicalBaseVersion,
   readCanonicalVersion,
   resolveInstallerPaths,
 } from "./index.ts";
@@ -20,6 +21,21 @@ describe("legacy state migration", () => {
       readonly version: string;
     };
     expect(await readCanonicalVersion()).toBe(manifest.version);
+  });
+
+  test("separates the public development release from the plugin payload base version", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-manifest-"));
+    const manifestPath = join(root, "package.json");
+    try {
+      await writeFile(
+        manifestPath,
+        JSON.stringify({ name: "holycodex", version: "0.15.0-dev.24.1" }),
+      );
+      expect(await readCanonicalVersion(manifestPath)).toBe("0.15.0-dev.24.1");
+      expect(await readCanonicalBaseVersion(manifestPath)).toBe("0.15.0");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("migrates selected state deterministically and reuses the completed result", async () => {

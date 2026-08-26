@@ -35,7 +35,7 @@ import {
   readMarketplace,
   writeMarketplace,
 } from "./marketplace.ts";
-import { readCanonicalVersion } from "./manifest.ts";
+import { readCanonicalBaseVersion } from "./manifest.ts";
 import {
   assertNoSymlink,
   assertNoSymlinkTree,
@@ -123,7 +123,7 @@ export async function installHolyCodex(
     }
     const previous = await readPreviousRecord(paths);
     const migrated = await readMigratedInstallerSelections(paths);
-    const manifestVersion = await readCanonicalVersion();
+    const manifestVersion = await readCanonicalBaseVersion();
     const plan = choosePlan(request.plan, previous?.plan ?? migrated?.plan);
     const tier = chooseTier(request.tier, previous?.tier ?? migrated?.tier);
     const optional = chooseOptional(

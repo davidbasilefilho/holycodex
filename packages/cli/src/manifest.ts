@@ -8,13 +8,16 @@ import type { JsonObject } from "@holycodex/core";
 import { writeAtomicJson } from "./storage.ts";
 import { decodeSchema, isJsonObject, VersionSchema } from "./schema.ts";
 
+const PublicVersionSchema = Schema.String.pipe(
+  Schema.pattern(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-dev\.[1-9]\d*\.[1-9]\d*)?$/u),
+);
 const PublicManifestSchema = Schema.declare(
   (
     value: unknown,
   ): value is JsonObject & { readonly name: "holycodex"; readonly version: string } =>
     isJsonObject(value) &&
     value["name"] === "holycodex" &&
-    decodeSchema(VersionSchema, value["version"]) !== undefined,
+    decodeSchema(PublicVersionSchema, value["version"]) !== undefined,
 );
 type PublicManifest = typeof PublicManifestSchema.Type;
 
@@ -38,17 +41,22 @@ export async function readCanonicalVersion(path = publicManifestPath): Promise<s
   return (await readPublicManifest(path))["version"];
 }
 
+export async function readCanonicalBaseVersion(path = publicManifestPath): Promise<string> {
+  return (await readCanonicalVersion(path)).split("-", 1)[0] ?? "";
+}
+
 export async function updateCanonicalVersion(
   target: string,
   dryRun: boolean,
   path = publicManifestPath,
 ): Promise<Readonly<{ previous: string; next: string }>> {
   const manifest = await readPublicManifest(path);
-  const next = resolveVersion(target, manifest.version);
+  const previous = await readCanonicalBaseVersion(path);
+  const next = resolveVersion(target, previous);
   if (!dryRun) {
     await writeAtomicJson(path, { ...manifest, version: next });
   }
-  return { previous: manifest.version, next };
+  return { previous, next };
 }
 
 export function resolveVersion(target: string, current: string): string {

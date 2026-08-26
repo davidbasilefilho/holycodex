@@ -17,7 +17,12 @@ export {
   InstallerError,
 } from "./installer.ts";
 export { doctorHolyCodex, cleanupHolyCodex, CleanupError } from "./maintenance.ts";
-export { readCanonicalVersion, updateCanonicalVersion, publicManifestPath } from "./manifest.ts";
+export {
+  publicManifestPath,
+  readCanonicalBaseVersion,
+  readCanonicalVersion,
+  updateCanonicalVersion,
+} from "./manifest.ts";
 export {
   resolveInstallerPaths,
   assertRootText,
