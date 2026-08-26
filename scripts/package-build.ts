@@ -12,8 +12,11 @@ const pluginAssets = join(workspaceRoot, "packages/plugin/assets");
 
 export async function runPackageBuild(): Promise<void> {
   await runChecked(["vp", "pack"], { cwd: workspaceRoot, env: process.env });
-  await rm(join(distAssets, "plugin"), { recursive: true, force: true });
-  await cp(pluginAssets, join(distAssets, "plugin"), { recursive: true, dereference: true });
+  const packagedPlugin = join(distAssets, "plugin");
+  await rm(packagedPlugin, { recursive: true, force: true });
+  await cp(pluginAssets, packagedPlugin, { recursive: true, dereference: true });
+  await cp(join(packagedPlugin, ".codex-plugin/plugin.json"), join(packagedPlugin, "plugin.json"));
+  await rm(join(packagedPlugin, ".codex-plugin"), { recursive: true, force: true });
   await buildSafeFilesystemArtifact(join(distAssets, "safe-filesystem"));
 }
 

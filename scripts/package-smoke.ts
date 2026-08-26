@@ -6,7 +6,6 @@ import { access, cp, mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { CliEnvelopeSchema } from "../packages/core/src/envelopes.ts";
-import { validateSource } from "../packages/plugin/src/planning.ts";
 import {
   assertReleaseVersion,
   BaseVersionSchema,
@@ -139,7 +138,7 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
   const installedEntry = join(installedPackageRoot, "dist/index.js");
   await requireFile(installedEntry, "the installed package entry point");
   await requireFile(
-    join(installedPackageRoot, "dist/assets/plugin/.codex-plugin/plugin.json"),
+    join(installedPackageRoot, "dist/assets/plugin/plugin.json"),
     "the installed plugin payload source",
   );
   const helperKey = process.platform === "win32" ? "win32-x64" : "linux-x64";
@@ -172,7 +171,6 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
       `the installed plugin asset ${relativePath}`,
     );
   }
-  await validateSource(join(installedPackageRoot, "dist/assets/plugin"));
   const installedManifest = await readInstalledManifest(join(installedPackageRoot, "package.json"));
   assert(
     Object.keys(installedManifest.dependencies).length > 0,

@@ -13,7 +13,18 @@ import {
   STATE_SCHEMA_EPOCH,
   canonicalJson,
 } from "@holycodex/core";
-import { mkdtemp, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { acquireInstallLock, type LockLease } from "./lock.ts";
@@ -136,9 +147,10 @@ export async function installHolyCodex(
     );
     let capabilityState = createCapabilityState(optional, "pending");
     const bundledAssets = join(dirname(fileURLToPath(import.meta.url)), "assets", "plugin");
-    const sourceRoot =
-      options.sourceRoot ?? ((await isDirectory(bundledAssets)) ? bundledAssets : pluginSourceRoot);
-    const staged = await stagePayload(paths, sourceRoot, manifestVersion, runId);
+    const usesBundledAssets =
+      options.sourceRoot === undefined && (await isDirectory(bundledAssets));
+    const sourceRoot = options.sourceRoot ?? (usesBundledAssets ? bundledAssets : pluginSourceRoot);
+    const staged = await stagePayload(paths, sourceRoot, manifestVersion, runId, usesBundledAssets);
     const identity = staged.identity;
     const artifactId = `artifact-${identity.digest}-${identity.epoch}`;
     const artifactPath = join(paths.payloadRoot, artifactId);
@@ -369,6 +381,7 @@ async function stagePayload(
   sourceRoot: string,
   version: string,
   runId: string,
+  materializeBundledManifest = false,
 ): Promise<
   Readonly<{
     stagingDirectory: string;
@@ -378,13 +391,29 @@ async function stagePayload(
   await ensureOwnedDirectory(paths.payloadRoot);
   await ensureOwnedDirectory(paths.stagingRoot);
   const stagingDirectory = await mkdtemp(join(paths.stagingRoot, `${runId}-`));
+  let assemblySourceRoot = sourceRoot;
+  let materializedSource: string | undefined;
   try {
-    await assemblePayload({ sourceRoot, stagingDirectory, version });
+    if (materializeBundledManifest) {
+      materializedSource = await mkdtemp(join(paths.stagingRoot, `${runId}-source-`));
+      await cp(sourceRoot, materializedSource, { recursive: true, dereference: false });
+      await mkdir(join(materializedSource, ".codex-plugin"), { recursive: true });
+      await rename(
+        join(materializedSource, "plugin.json"),
+        join(materializedSource, ".codex-plugin/plugin.json"),
+      );
+      assemblySourceRoot = materializedSource;
+    }
+    await assemblePayload({ sourceRoot: assemblySourceRoot, stagingDirectory, version });
     const verified = await verifyPayload(stagingDirectory);
     return { stagingDirectory, identity: verified.identity };
   } catch (error: unknown) {
     await rm(stagingDirectory, { recursive: true, force: true }).catch(() => undefined);
     throw new InstallerError("install_failed", "The plugin payload could not be assembled.", error);
+  } finally {
+    if (materializedSource !== undefined) {
+      await rm(materializedSource, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 }
 
