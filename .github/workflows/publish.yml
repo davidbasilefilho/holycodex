@@ -109,6 +109,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
       EXPECTED_SHA256: ${{ needs.validation.outputs.artifact_sha256 }}
+      NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - name: Check out the triggering SHA
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -145,16 +146,16 @@ jobs:
           esac
 
       - name: Publish the development artifact under dev
-        if: steps.npm_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'dev'
-        env:
-          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: steps.npm_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'dev' && env.NPM_CONFIG_TOKEN != ''
         run: mise exec -- bun publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag dev
 
       - name: Publish the stable artifact under latest
-        if: steps.npm_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'stable'
-        env:
-          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: steps.npm_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'stable' && env.NPM_CONFIG_TOKEN != ''
         run: mise exec -- bun publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag latest
+
+      - name: Report unavailable npm publishing credentials
+        if: steps.npm_state.outputs.status == 'absent' && env.NPM_CONFIG_TOKEN == ''
+        run: echo "::warning::NPM_TOKEN is not configured; the verified artifact will be released on GitHub without npm publication."
 
   publish_github:
     name: publish exact GitHub release
