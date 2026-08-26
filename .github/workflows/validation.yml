@@ -121,6 +121,9 @@ jobs:
           name: holycodex-build-${{ github.run_id }}-${{ github.run_attempt }}
           path: packages/cli/dist
 
+      - name: Restore the validated helper executable mode
+        run: chmod 0755 packages/cli/dist/assets/safe-filesystem/linux-x64/safe-filesystem
+
       - name: Resolve and verify the channel version
         id: version
         env:
