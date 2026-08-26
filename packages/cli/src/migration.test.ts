@@ -26,13 +26,15 @@ describe("legacy state migration", () => {
   test("separates the public development release from the plugin payload base version", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-manifest-"));
     const manifestPath = join(root, "package.json");
+    const baseVersion = await readCanonicalVersion();
+    const developmentVersion = `${baseVersion}-dev.24.1`;
     try {
       await writeFile(
         manifestPath,
-        JSON.stringify({ name: "holycodex", version: "0.15.0-dev.24.1" }),
+        JSON.stringify({ name: "holycodex", version: developmentVersion }),
       );
-      expect(await readCanonicalVersion(manifestPath)).toBe("0.15.0-dev.24.1");
-      expect(await readCanonicalBaseVersion(manifestPath)).toBe("0.15.0");
+      expect(await readCanonicalVersion(manifestPath)).toBe(developmentVersion);
+      expect(await readCanonicalBaseVersion(manifestPath)).toBe(baseVersion);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
