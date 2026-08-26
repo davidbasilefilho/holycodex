@@ -92,7 +92,8 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("GITHUB_RUN_ATTEMPT");
     expect(workflow).toContain("release-version.ts dev");
     expect(workflow).toContain("release-version.ts stable");
-    expect(workflow).toContain("secrets.NPM_TOKEN");
+    expect(workflow).toContain("npm publish");
+    expect(workflow).not.toContain("bun publish");
     expect(workflow).toContain("actions/download-artifact@");
     expect(workflow).toContain("EXPECTED_SHA256");
     expect(workflow).toContain("scripts/package-release.ts verify");
@@ -104,9 +105,12 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("gh release create");
     expect(workflow).toContain("--generate-notes");
     expect(workflow).toContain("contents: write");
-    expect(workflow).not.toContain("id-token: write");
+    expect(workflow).toContain("id-token: write");
+    expect(workflow).not.toContain("NPM_TOKEN");
+    expect(workflow).not.toContain("NPM_CONFIG_TOKEN");
+    expect(workflow).not.toContain("Report unavailable npm publishing credentials");
     expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/u);
-    expect(workflow).not.toMatch(/\bnpm\s+(?:publish|install|ci|test|run)\b/u);
+    expect(workflow).not.toMatch(/\bnpm\s+(?:install|ci|test|run)\b/u);
 
     const publishNpm = workflow.slice(
       workflow.indexOf("  publish_npm:"),
@@ -114,7 +118,14 @@ describe("repository validation machinery", () => {
     );
     const publishGithub = workflow.slice(workflow.indexOf("  publish_github:"));
     expect(publishNpm).toContain("absent|matching");
+    expect(publishNpm).toContain("contents: read");
+    expect(publishNpm).toContain("id-token: write");
+    expect(publishNpm).toContain("mise exec -- npm publish");
+    expect(publishNpm).not.toContain("NPM_TOKEN");
+    expect(publishNpm).not.toContain("NPM_CONFIG_TOKEN");
     expect(publishGithub).toContain("needs: [prepare, validation, publish_npm]");
+    expect(workflow.slice(0, workflow.indexOf("  publish_npm:"))).not.toContain("id-token: write");
+    expect(publishGithub).not.toContain("id-token: write");
     expect(workflow.indexOf("  publish_npm:")).toBeLessThan(workflow.indexOf("  publish_github:"));
 
     const devNpm = workflow.slice(
@@ -123,8 +134,12 @@ describe("repository validation machinery", () => {
     );
     const stableNpm = workflow.slice(workflow.indexOf("Publish the stable artifact under latest"));
     expect(devNpm).toContain("--tag dev");
+    expect(devNpm).toContain("npm publish");
+    expect(devNpm).not.toContain("bun publish");
     expect(devNpm).not.toContain("--tag latest");
     expect(stableNpm).toContain("--tag latest");
+    expect(stableNpm).toContain("npm publish");
+    expect(stableNpm).not.toContain("bun publish");
 
     const devRelease = workflow.slice(
       workflow.indexOf("Create the development prerelease at the exact main SHA"),

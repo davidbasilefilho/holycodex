@@ -169,8 +169,8 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
         workflow.includes("./.github/workflows/validation.yml"),
         `${path} must reuse the repository validation gate`,
       );
-      assert(workflow.includes("secrets.NPM_TOKEN"), `${path} must use the owned npm secret`);
-      assert(workflow.includes("bun publish"), `${path} must publish through Bun`);
+      assert(workflow.includes("npm publish"), `${path} must publish through npm`);
+      assert(!workflow.includes("bun publish"), `${path} must not publish through Bun`);
       assert(workflow.includes("--tag dev"), `${path} must publish development versions under dev`);
       assert(
         workflow.includes("--tag latest"),
@@ -193,13 +193,38 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
         workflow.includes("contents: write"),
         `${path} must grant release write access explicitly`,
       );
+      assert(workflow.includes("id-token: write"), `${path} must request npm OIDC permissions`);
+      assert(!workflow.includes("NPM_TOKEN"), `${path} must not use an npm token secret`);
       assert(
-        !workflow.includes("id-token: write"),
-        `${path} must not request npm OIDC permissions`,
+        !workflow.includes("NPM_CONFIG_TOKEN"),
+        `${path} must not gate npm publication on a token`,
       );
       assert(
-        !/\bnpm\s+(?:publish|install|ci|test|run)\b/u.test(workflow),
-        `${path} must not run npm`,
+        !workflow.includes("Report unavailable npm publishing credentials"),
+        `${path} must not warn about unavailable npm credentials`,
+      );
+      assert(
+        !/\bnpm\s+(?:install|ci|test|run)\b/u.test(workflow),
+        `${path} must not use npm outside final publication`,
+      );
+      const publishNpmStart = workflow.indexOf("  publish_npm:");
+      const publishGithubStart = workflow.indexOf("  publish_github:");
+      const publishNpm = workflow.slice(publishNpmStart, publishGithubStart);
+      assert(
+        !workflow.slice(0, publishNpmStart).includes("id-token: write"),
+        `${path} must scope OIDC access to npm publication`,
+      );
+      assert(
+        publishNpm.includes("contents: read"),
+        `${path} npm publication must retain read access`,
+      );
+      assert(
+        publishNpm.includes("id-token: write"),
+        `${path} npm publication must have OIDC access`,
+      );
+      assert(
+        !workflow.slice(publishGithubStart).includes("id-token: write"),
+        `${path} GitHub publication must not receive OIDC access`,
       );
     } else if (path === ".github/workflows/validation.yml") {
       assert(workflow.includes("pull_request:"), `${path} must preserve pull request validation`);
