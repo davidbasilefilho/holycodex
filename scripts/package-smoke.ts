@@ -268,7 +268,7 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
     "installed Codex plugin manifest",
   );
   assert(
-    installedPluginManifest.version === version,
+    installedPluginManifest.version === packed.baseVersion,
     "installed Codex plugin manifest version is not canonical",
   );
 
