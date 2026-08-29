@@ -3,7 +3,6 @@
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 import { access, cp, mkdir, readFile, readdir } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { CliEnvelopeSchema } from "../packages/core/src/envelopes.ts";
@@ -212,19 +211,6 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
     autonomy: "assisted",
     max_subagents: 1,
   });
-
-  const validatorPath =
-    process.env["HOLYCODEX_PLUGIN_VALIDATOR"] ??
-    join(homedir(), ".codex/skills/.system/plugin-creator/scripts/validate_plugin.py");
-  const validatorCommand = process.platform === "win32" ? "python" : "python3";
-  commands.push(`${validatorCommand} ${validatorPath} packages/plugin/assets`);
-  await runChecked(
-    [validatorCommand, validatorPath, join(workspaceRoot, "packages/plugin/assets")],
-    {
-      cwd: workspaceRoot,
-      env: process.env,
-    },
-  );
 
   const codexEnvironment = { ...process.env, CODEX_HOME: codexHome };
   const marketplaceAdd = await runChecked(

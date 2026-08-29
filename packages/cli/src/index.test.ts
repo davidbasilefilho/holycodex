@@ -489,7 +489,9 @@ describe("workflow dispatch", () => {
         throw new Error("workflow create did not return a source path");
       }
       const generated = created["source_path"];
-      expect(generated).toMatch(/\/workflows\/session-1\/review-[0-9a-f]{4}\.ts$/u);
+      expect(generated.replaceAll("\\", "/")).toMatch(
+        /\/workflows\/session-1\/review-[0-9a-f]{4}\.ts$/u,
+      );
       expect(await readFile(generated, "utf8")).toBe(source);
     } finally {
       await rm(root, { recursive: true, force: true });

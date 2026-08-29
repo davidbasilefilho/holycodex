@@ -186,12 +186,13 @@ async function sourceFiles(root: string): Promise<readonly string[]> {
   const result: string[] = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
     const path = join(root, entry.name);
+    const portablePath = path.replaceAll("\\", "/");
     if (entry.isDirectory() && entry.name !== "scripts" && entry.name !== "dist")
       result.push(...(await sourceFiles(path)));
     else if (
       entry.name.endsWith(".ts") &&
       !entry.name.endsWith(".test.ts") &&
-      !path.includes("/generated/")
+      !portablePath.includes("/generated/")
     )
       result.push(path);
   }

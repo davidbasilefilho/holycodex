@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { GitBashError } from "./errors.ts";
+import { GIT_BASH_EXECUTABLE_PATH } from "./git-bash-resolver.ts";
 import { normalizeGitBashEnvironment, runGitBashCommand } from "./runner.ts";
 
 const temporaryDirectories: string[] = [];
@@ -151,13 +152,20 @@ describe("Git Bash runner", () => {
   });
 
   it("fails with a typed unavailable result when launch cannot find the executable", async () => {
-    const directory = createTemporaryDirectory("holycodex-git-bash-missing-");
     await expect(
       runGitBashCommand({
-        bashPath: join(directory, process.platform === "win32" ? "bash.exe" : "bash"),
+        bashPath: GIT_BASH_EXECUTABLE_PATH,
         command: "true",
         timeoutMs: 1_000,
+        platform: "win32",
         isSafeExecutable: () => true,
+        runtime: {
+          spawnChild: () => {
+            const error = new Error("spawn ENOENT") as NodeJS.ErrnoException;
+            error.code = "ENOENT";
+            throw error;
+          },
+        },
       }),
     ).rejects.toMatchObject({ code: "unavailable" });
   });
