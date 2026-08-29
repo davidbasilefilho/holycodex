@@ -45,9 +45,23 @@ export async function runBinary(
   } else if (jsonRequested(argv)) {
     context.io?.writeStdout?.(`${JSON.stringify(result.envelope)}\n`);
   } else if (result.envelope.ok) {
-    context.io?.writeStdout?.(renderHuman(result));
+    context.io?.writeStdout?.(
+      renderHuman(result, {
+        stdoutIsTTY: context.io?.stdoutIsTTY,
+        stderrIsTTY: context.io?.stderrIsTTY,
+        env: context.env,
+        stream: "stdout",
+      }),
+    );
   } else {
-    context.io?.writeStderr?.(renderHuman(result));
+    context.io?.writeStderr?.(
+      renderHuman(result, {
+        stdoutIsTTY: context.io?.stderrIsTTY,
+        stderrIsTTY: context.io?.stderrIsTTY,
+        env: context.env,
+        stream: "stderr",
+      }),
+    );
   }
   return result.exitCode;
 }

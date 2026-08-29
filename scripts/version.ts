@@ -46,6 +46,7 @@ if (Either.isLeft(parsedArguments)) {
 }
 
 const cliManifestPath = `${import.meta.dir}/../packages/cli/package.json`;
+const pluginManifestPath = `${import.meta.dir}/../packages/plugin/assets/.codex-plugin/plugin.json`;
 const rawManifest: unknown = await Bun.file(cliManifestPath).json();
 const currentManifest = Schema.decodeUnknownEither(
   CliManifestSchema,
@@ -60,9 +61,21 @@ const currentVersion = currentManifest.right.version;
 const nextVersion = resolveVersion(parsedArguments.right, currentVersion);
 
 if (!parsedArguments.right.dryRun) {
+  const pluginManifest: unknown = await Bun.file(pluginManifestPath).json();
+  const parsedPluginManifest = Schema.decodeUnknownEither(
+    CliManifestSchema,
+    manifestParseOptions,
+  )(pluginManifest);
+  if (Either.isLeft(parsedPluginManifest)) {
+    throw new Error(parsedPluginManifest.left.message);
+  }
   await Bun.write(
     cliManifestPath,
     `${JSON.stringify({ ...currentManifest.right, version: nextVersion }, null, 2)}\n`,
+  );
+  await Bun.write(
+    pluginManifestPath,
+    `${JSON.stringify({ ...parsedPluginManifest.right, version: nextVersion }, null, 2)}\n`,
   );
 }
 

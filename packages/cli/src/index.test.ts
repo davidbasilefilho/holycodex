@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vite-plus/test";
+import type { JsonObject, JsonValue } from "@holycodex/core";
 import { CAPABILITY_REGISTRY } from "@holycodex/core";
 import {
   acquireInstallLock,
@@ -22,6 +23,47 @@ import {
 import { CodexOfficialPluginManager } from "./index.ts";
 import type { OfficialPluginManager, WorkflowService } from "./index.ts";
 
+function generatedWorkflowTestBoundary() {
+  return {
+    assertOwnedPath: async (root: string, candidate: string, allowMissing: boolean) => {
+      if (root !== candidate && !pathWithin(root, candidate))
+        throw new Error("test boundary escape");
+      const entry = await lstat(candidate).catch((error: unknown) => {
+        if (
+          allowMissing &&
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          error.code === "ENOENT"
+        ) {
+          return undefined;
+        }
+        throw error;
+      });
+      if (entry?.isSymbolicLink()) throw new Error("test boundary symlink");
+    },
+    ensureDirectory: async (_root: string, candidate: string) => {
+      await mkdir(candidate, { recursive: true });
+    },
+    writeAtomicFile: async (_root: string, candidate: string, bytes: Uint8Array) => {
+      await writeFile(candidate, bytes, { mode: 0o600 });
+    },
+    readOwnedFile: async (_root: string, candidate: string) => await readFile(candidate),
+    readDirectory: async (_root: string, candidate: string) =>
+      (await readdir(candidate, { withFileTypes: true })).map((entry) => ({
+        name: entry.name,
+        kind: entry.isSymbolicLink()
+          ? ("symlink" as const)
+          : entry.isDirectory()
+            ? ("directory" as const)
+            : ("file" as const),
+      })),
+    removeOwnedDirectory: async (_root: string, candidate: string) => {
+      await rm(candidate, { recursive: true, force: false });
+    },
+  } as const;
+}
+
 describe("CLI argument and envelope boundaries", () => {
   test("rejects option conflicts, unknown options, and stray positionals", () => {
     expect(() => parseArgv(["install", "--computer-use", "--no-computer-use"])).toThrow();
@@ -38,6 +80,11 @@ describe("CLI argument and envelope boundaries", () => {
     );
     expect(parseArgv(["workflow", "run", "workflow.ts", "--fast"]).options["fast"]).toBe(true);
     expect(parseArgv(["workflow", "run", "workflow.ts", "--no-tui"]).options["no-tui"]).toBe(true);
+    expect(
+      parseArgv(["workflow", "create", "workflow.ts", "--name", "review", "--session-id", "s1"])
+        .command,
+    ).toBe("workflow create");
+    expect(parseArgv(["workflow", "check", "workflow.ts"]).command).toBe("workflow check");
     expect(() => parseArgv(["workflow", "run", "workflow.ts", "--name", "legacy"])).toThrow();
     expect(parseArgv(["workflow", "run", "-", "--task", "stdin objective"]).options["task"]).toBe(
       "stdin objective",
@@ -59,14 +106,14 @@ describe("CLI argument and envelope boundaries", () => {
     };
     const helpExit = await runBinary(["workflow", "run", "--help"], io);
     expect(helpExit).toBe(0);
-    expect(stdout).toContain("Native workflow files must export");
+    expect(stdout).toContain("Workflow files must export");
     expect(stderr).toBe("");
 
     stdout = "";
     const canonicalVersion = await readCanonicalVersion();
     const versionExit = await runBinary(["-v"], io);
     expect(versionExit).toBe(0);
-    expect(stdout).toContain(`"version": "${canonicalVersion}"`);
+    expect(stdout).toContain(`version: ${canonicalVersion}`);
     expect(stderr).toBe("");
 
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-no-tui-"));
@@ -92,7 +139,7 @@ describe("CLI argument and envelope boundaries", () => {
         },
       );
       expect(noTuiExit).toBe(0);
-      expect(stdout).toContain('"preview": true');
+      expect(stdout).toContain("preview  : true");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -231,12 +278,19 @@ describe("owned installation", () => {
       const second = await installHolyCodex({}, { paths });
       const marketplace = await readMarketplace(join(paths.marketplaceRoot, "marketplace.json"));
       expect(second.record.artifact_id).toBe(first.record.artifact_id);
+      expect(marketplace.name).toBe("holycodex");
       expect(marketplace.plugins.map((entry) => entry["name"])).toEqual([
         "other",
         "another",
         "holycodex",
       ]);
-      expect(marketplace.plugins.at(-1)?.["source"]).toBe(first.record.relative_path);
+      expect(marketplace.plugins.at(-1)?.["source"]).toEqual({
+        source: "local",
+        path: first.record.relative_path,
+      });
+      expect(
+        await readFile(join(paths.codexHome, "holycodex", "journal.ndjson"), "utf8"),
+      ).toContain('"legacy_repaired":1');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -393,6 +447,55 @@ describe("installer recovery and cleanup boundaries", () => {
 });
 
 describe("workflow dispatch", () => {
+  test("creates and checks a typed workflow under the Codex workflow root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-create-"));
+    const codexHome = join(root, "codex");
+    const marketplaceRoot = join(root, "marketplace");
+    const sourcePath = join(root, "review.ts");
+    const source = `
+      import { createCodec, workflow } from "@holycodex/workflow";
+      const text = createCodec("text", (value: unknown): string => String(value));
+      const review = workflow.step({ id: "review", assignment: { input: text, output: text } });
+      export default workflow.wait(review);
+    `;
+    await writeFile(sourcePath, source);
+    const context = {
+      cwd: root,
+      trustGate: async () => true,
+      installer: { paths: { codexHome, marketplaceRoot } },
+      generatedWorkflowBoundary: generatedWorkflowTestBoundary(),
+    } as const;
+    try {
+      const checked = await executeWorkflowCommand(
+        parseArgv(["workflow", "check", sourcePath]),
+        context,
+      );
+      expect(checked).toMatchObject({ valid: true, execution_mode: "native" });
+
+      const created = await executeWorkflowCommand(
+        parseArgv([
+          "workflow",
+          "create",
+          sourcePath,
+          "--session-id",
+          "session-1",
+          "--name",
+          "review",
+        ]),
+        context,
+      );
+      expect(created).toMatchObject({ owner_session_id: "session-1", safe_name: "review" });
+      if (!isJsonObject(created) || typeof created["source_path"] !== "string") {
+        throw new Error("workflow create did not return a source path");
+      }
+      const generated = created["source_path"];
+      expect(generated).toMatch(/\/workflows\/session-1\/review-[0-9a-f]{4}\.ts$/u);
+      expect(await readFile(generated, "utf8")).toBe(source);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("uses task as the run objective and requires task for stdin", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-task-"));
     const source = join(root, "workflow.ts");
@@ -475,7 +578,26 @@ async function createSource(root: string, worker: string): Promise<void> {
   await mkdir(join(root, "agents"), { recursive: true });
   await writeFile(
     join(root, ".codex-plugin", "plugin.json"),
-    `${JSON.stringify({ name: "holycodex", description: "fixture", assets: ["agents/worker.md"] })}\n`,
+    `${JSON.stringify({
+      name: "holycodex",
+      version: "0.1.0",
+      description: "fixture",
+      author: { name: "Fixture Author" },
+      skills: "./skills",
+      interface: {
+        displayName: "Fixture",
+        shortDescription: "Fixture plugin.",
+        longDescription: "Fixture plugin for installer tests.",
+        developerName: "Fixture Author",
+        category: "Developer Tools",
+        capabilities: ["Skills"],
+        defaultPrompt: ["Use the fixture plugin."],
+      },
+    })}\n`,
   );
   await writeFile(join(root, "agents", "worker.md"), worker);
+}
+
+function isJsonObject(value: JsonValue): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

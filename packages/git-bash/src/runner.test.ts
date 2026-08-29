@@ -41,6 +41,18 @@ describe("Git Bash environment", () => {
 });
 
 describe("Git Bash runner", () => {
+  it("rejects alternate Windows Bash executables", async () => {
+    await expect(
+      runGitBashCommand({
+        bashPath: "D:\\Git\\bin\\bash.exe",
+        command: "true",
+        timeoutMs: 1_000,
+        platform: "win32",
+        isSafeExecutable: () => true,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
   it.skipIf(process.platform === "win32")(
     "invokes bash -lc with cwd, env, stderr, and exit code",
     async () => {

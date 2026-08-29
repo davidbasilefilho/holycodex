@@ -8,7 +8,7 @@ import {
   type JsonValue,
 } from "@holycodex/core";
 import type { AssignmentMetadata } from "./dsl.ts";
-import type { ValueCodec } from "./schema.ts";
+import type { PortableSchemaIR, ValueCodec } from "./schema.ts";
 
 /** The ABI version for the native TypeScript source loader. */
 export const NATIVE_WORKFLOW_ABI_VERSION = "native-workflow-ir-1" as const;
@@ -41,6 +41,7 @@ export type NativeWorkflowOutputTargetIR = Readonly<{
 export type NativeWorkflowCodecIR = Readonly<{
   readonly id: string;
   readonly name: string;
+  readonly schema?: PortableSchemaIR;
 }>;
 
 export type NativeWorkflowAssignmentIR = Readonly<{
@@ -114,7 +115,7 @@ export type NativeWorkflowIdentityInput = Readonly<{
 /** A native plan together with decoder proxies backed by its QuickJS sandbox. */
 export type NativeWorkflow = Readonly<{
   readonly ir: WorkflowPlanIR;
-  readonly codecs: ReadonlyMap<string, ValueCodec<unknown>>;
+  readonly codecs: ReadonlyMap<string, ValueCodec<JsonValue>>;
   readonly dispose: () => void;
 }>;
 
@@ -339,7 +340,38 @@ function isDigest(value: unknown): value is string {
 }
 
 function isCodec(value: unknown): value is NativeWorkflowCodecIR {
-  return isRecord(value) && typeof value["id"] === "string" && typeof value["name"] === "string";
+  return (
+    isRecord(value) &&
+    typeof value["id"] === "string" &&
+    typeof value["name"] === "string" &&
+    (value["schema"] === undefined || isPortableSchema(value["schema"]))
+  );
+}
+
+function isPortableSchema(value: unknown): value is PortableSchemaIR {
+  if (!isRecord(value) || typeof value["kind"] !== "string") return false;
+  switch (value["kind"]) {
+    case "string":
+    case "number":
+    case "boolean":
+    case "unknown":
+      return true;
+    case "literal":
+      return (
+        value["value"] === null ||
+        typeof value["value"] === "string" ||
+        typeof value["value"] === "boolean" ||
+        (typeof value["value"] === "number" && Number.isFinite(value["value"]))
+      );
+    case "array":
+      return isPortableSchema(value["element"]);
+    case "struct": {
+      const fields = value["fields"];
+      return isRecord(fields) && Object.values(fields).every(isPortableSchema);
+    }
+    default:
+      return false;
+  }
 }
 
 function isInput(value: unknown): value is NativeWorkflowInputIR {

@@ -62,7 +62,7 @@ export function resolveInstallerPaths(
     payloadRoot: marketplacePlugins,
     stagingRoot: join(safeMarketplaceRoot, "plugins", ".holycodex-staging"),
     runsRoot: join(stateRoot, "runs"),
-    generatedWorkflowsRoot: join(stateRoot, "workflows"),
+    generatedWorkflowsRoot: join(safeCodexHome, "workflows"),
   };
 }
 

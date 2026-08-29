@@ -161,7 +161,7 @@ describe("documentation invariants", () => {
     }
     const behavior = await readFile(resolve(workspaceRoot, "docs/BEHAVIOR.md"), "utf8");
     const cli = await readFile(resolve(workspaceRoot, "docs/CLI.md"), "utf8");
-    expect(behavior).toContain("Native workflow-module execution is the production path");
+    expect(behavior).toContain("QuickJS TypeScript workflow execution is the production path");
     expect(behavior).toContain("pre-effect approval");
     expect(cli).toContain("--compat-quickjs");
     expect(cli).toContain("capability_denied");

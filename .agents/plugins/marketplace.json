@@ -1,0 +1,20 @@
+{
+  "name": "holycodex",
+  "interface": {
+    "displayName": "HolyCodex"
+  },
+  "plugins": [
+    {
+      "name": "holycodex",
+      "source": {
+        "source": "local",
+        "path": "./packages/plugin/assets"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

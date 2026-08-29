@@ -15,10 +15,9 @@ Options:
   --json           Emit one validated JSON envelope.
   --no-tui         Disable prompts and interactive UI behavior.
 
-Workflow execution is native Effect workflow-module execution by default. A
-trusted TypeScript file must export a default workflow.wait(...) value. The
-explicit --compat-quickjs flag selects the compatibility-only string evaluator;
-stdin requires that flag and an explicit --task objective.
+Workflow execution uses one capability-denied QuickJS TypeScript evaluator. A
+trusted TypeScript file must export a default workflow.wait(...) value. Use
+workflow create for generated sources; stdin requires an explicit --task objective.
 
 Optional Work, Web, Security, Computer Use, LSP, LSP setup, and Git Bash
 providers are independently capability-gated. Missing providers fail closed;
@@ -29,6 +28,8 @@ const WORKFLOW_HELP = `Workflow commands
 
 Usage:
   holycodex workflow run <file.ts|-> [args.json] [options]
+  holycodex workflow create <file.ts|-> [args.json] [--name <name>] [--session-id <id>]
+  holycodex workflow check <file.ts> [options]
   holycodex workflow list [options]
   holycodex workflow show <run-id> [options]
   holycodex workflow inspect <run-id> [--follow] [options]
@@ -48,12 +49,12 @@ Options:
   --autonomy <mode>      Select manual, assisted, or autonomous execution.
   --max-subagents <n>    Bound specialist concurrency.
   --trusted              Assert the caller has established project trust.
-  --compat-quickjs       Explicitly select the string/QuickJS compatibility path.
-  --task <objective>     Required for native-unsupported stdin compatibility runs.
+  --compat-quickjs       Deprecated one-release alias; the same evaluator is used.
+  --task <objective>     Required when workflow source is read from stdin.
   --json, --no-tui       Select machine/non-interactive output behavior.
 
-Native workflow files must export a default workflow.wait(...) value. The
-compatibility evaluator is never selected implicitly; use --compat-quickjs.
+Workflow files must export a default workflow.wait(...) value. workflow check
+performs type, import, schema, and security validation without host effects.
 `;
 
 const INSTALL_HELP = `Install HolyCodex into the owned scope.
@@ -99,6 +100,8 @@ export function helpText(topic?: string): string {
       return VERSION_HELP;
     case "workflow":
     case "workflow run":
+    case "workflow create":
+    case "workflow check":
     case "workflow list":
     case "workflow show":
     case "workflow inspect":

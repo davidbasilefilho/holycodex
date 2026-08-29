@@ -175,13 +175,17 @@ describe("Codex App Server schemas", () => {
         require_multi_agent_v2: false,
       },
       skill_profile: PONYTAIL_ROLE_SKILL,
+      canonical_version: "fixture-version",
+      platform: "win32",
     });
     expect(prompt).toBe(
       [
         "Assignment ID: assignment-1",
         "Objective: Change the parser",
         "Role/task: Worker/implementation",
+        "Canonical version: fixture-version",
         "Authority: Change only the assigned seam; Root owns material choices.",
+        "Use C:/Program Files/Git/bin/bash.exe for every shell command.",
         "Skill reference: $ponytail",
         "Skill instruction: Use the literal $ponytail skill reference in lite mode.",
         "Scope: packages/core/src/routes.ts",
@@ -193,9 +197,12 @@ describe("Codex App Server schemas", () => {
         "Escalation: Return material choices to Root.",
         "Delta: Phase 3 semantic packet.",
         "Outcome protocol: holycodex-specialist-outcome-2; terminal shapes: completed {protocol_version,route,evidence,status,summary}; blocked {protocol_version,route,evidence,status,reason,needs_root_decision}; partial {protocol_version,route,evidence,status,summary,completed,remaining,needs_root_decision}; failed {protocol_version,route,evidence,status,error}.",
-        "Boundary: Do not delegate or broaden scope; return material choices to Root.",
+        "Boundary: Stay within the assigned scope and return material choices to Root.",
       ].join("\n"),
     );
+    expect(
+      prompt.match(/Use C:\/Program Files\/Git\/bin\/bash\.exe for every shell command\./gu),
+    ).toHaveLength(1);
     expect(prompt).not.toContain("payload");
     expect(prompt).not.toContain("internal state");
     expect(prompt).not.toContain("You are a lazy senior developer.");

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import * as Schema from "effect/Schema";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { join, posix, resolve, win32 } from "node:path";
-import { canonicalJson, domainSeparatedSha256 } from "@holycodex/core";
+import { canonicalJson } from "@holycodex/core";
 import { createPackagedSafeWorkflowFilesystemBoundary } from "@holycodex/safe-filesystem";
 import { isFsCode, pathWithin, type ResolvedInstallerPaths } from "./paths.ts";
 import { decodeSchema, DateTextSchema, DigestSchema } from "./schema.ts";
@@ -19,7 +19,7 @@ const SafeSegmentSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z
 const SafeWorkflowNameSchema = Schema.String.pipe(
   Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u),
 );
-const ShortHashSchema = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{16}$/u));
+const ShortHashSchema = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{4}$/u));
 const NativeWorkflowIdentitySchema = Schema.Struct({
   source_sha256: DigestSchema,
   ir_sha256: DigestSchema,
@@ -150,61 +150,68 @@ export class GeneratedWorkflowStore {
     await this.ensureOwnedDirectory(sessionDirectory);
     await this.assertCaseSafeDirectory(sessionDirectory, name);
     const sourceSha256 = sha256(bytes);
-    const shortHash = await shortWorkflowHash(ownerSessionId, name, sourceSha256);
-    const fileName = `${name}-${shortHash}.ts`;
-    const sourcePath = join(sessionDirectory, fileName);
-    const metadataPath = `${sourcePath}.metadata.json`;
-    const existing = await this.readMetadataIfPresent(metadataPath);
     const now = this.now();
-    if (existing !== undefined) {
-      if (
-        existing.owner_session_id !== ownerSessionId ||
-        existing.safe_name !== name ||
-        existing.short_hash !== shortHash ||
-        existing.source_path !== sourcePath
-      ) {
-        throw new GeneratedWorkflowStoreError(
-          "collision",
-          "The generated workflow name collides with different persisted metadata.",
-        );
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      const shortHash = await shortWorkflowHash(ownerSessionId, name, sourceSha256, attempt);
+      const fileName = `${name}-${shortHash}.ts`;
+      const sourcePath = join(sessionDirectory, fileName);
+      const metadataPath = `${sourcePath}.metadata.json`;
+      const existing = await this.readMetadataIfPresent(metadataPath);
+      if (existing !== undefined) {
+        const existingBytes = await this.readOwnedBytes(sourcePath);
+        if (sha256(existingBytes) !== sourceSha256) continue;
+        if (
+          existing.owner_session_id !== ownerSessionId ||
+          existing.safe_name !== name ||
+          existing.short_hash !== shortHash ||
+          existing.source_path !== sourcePath
+        ) {
+          throw new GeneratedWorkflowStoreError(
+            "collision",
+            "The generated workflow name collides with different persisted metadata.",
+          );
+        }
+        const refreshed = await this.writeMetadata({
+          ...existing,
+          last_access_at: now.toISOString(),
+          expires_at: new Date(now.getTime() + this.ttlMs).toISOString(),
+          active: true,
+        });
+        return { metadata: refreshed, source: new TextDecoder().decode(existingBytes) };
       }
-      const existingBytes = await this.readOwnedBytes(sourcePath);
-      if (sha256(existingBytes) !== sourceSha256) {
-        throw new GeneratedWorkflowStoreError(
-          "collision",
-          "The generated workflow short hash collides with different source bytes.",
-        );
+      try {
+        await this.readOwnedBytes(sourcePath);
+        continue;
+      } catch (error: unknown) {
+        if (!isMissingPath(error)) throw error;
       }
-      const refreshed = await this.writeMetadata({
-        ...existing,
+      await this.writeAtomicBytes(sourcePath, bytes);
+      const metadata = await this.writeMetadata({
+        schema_epoch: GENERATED_WORKFLOW_SCHEMA_EPOCH,
+        naming_version: GENERATED_WORKFLOW_NAMING_VERSION,
+        owner_session_id: ownerSessionId,
+        safe_name: name,
+        short_hash: shortHash,
+        source_sha256: sourceSha256,
+        source_path: sourcePath,
+        created_at: now.toISOString(),
         last_access_at: now.toISOString(),
         expires_at: new Date(now.getTime() + this.ttlMs).toISOString(),
         active: true,
       });
-      return { metadata: refreshed, source: new TextDecoder().decode(existingBytes) };
+      const verified = await this.readOwnedBytes(sourcePath);
+      if (sha256(verified) !== sourceSha256) {
+        throw new GeneratedWorkflowStoreError(
+          "integrity_uncertain",
+          "The generated workflow failed post-write digest verification.",
+        );
+      }
+      return { metadata, source: new TextDecoder().decode(verified) };
     }
-    await this.writeAtomicBytes(sourcePath, bytes);
-    const metadata = await this.writeMetadata({
-      schema_epoch: GENERATED_WORKFLOW_SCHEMA_EPOCH,
-      naming_version: GENERATED_WORKFLOW_NAMING_VERSION,
-      owner_session_id: ownerSessionId,
-      safe_name: name,
-      short_hash: shortHash,
-      source_sha256: sourceSha256,
-      source_path: sourcePath,
-      created_at: now.toISOString(),
-      last_access_at: now.toISOString(),
-      expires_at: new Date(now.getTime() + this.ttlMs).toISOString(),
-      active: true,
-    });
-    const verified = await this.readOwnedBytes(sourcePath);
-    if (sha256(verified) !== sourceSha256) {
-      throw new GeneratedWorkflowStoreError(
-        "integrity_uncertain",
-        "The generated workflow failed post-write digest verification.",
-      );
-    }
-    return { metadata, source: new TextDecoder().decode(verified) };
+    throw new GeneratedWorkflowStoreError(
+      "collision",
+      "The generated workflow short hash collided with different source bytes.",
+    );
   }
 
   async read(sourcePath: string): Promise<StoredGeneratedWorkflow> {
@@ -255,7 +262,7 @@ export class GeneratedWorkflowStore {
     const directory = join(this.root, ownerSessionId);
     await this.assertOwnedPath(directory, true);
     const entries = await this.readOwnedDirectory(directory).catch((error: unknown) => {
-      if (isFsCode(error, "ENOENT")) return [];
+      if (isMissingPath(error)) return [];
       throw error;
     });
     for (const entry of entries) {
@@ -290,7 +297,7 @@ export class GeneratedWorkflowStore {
       await this.assertTree(directory);
       await this.requireBoundary().removeOwnedDirectory(this.root, directory);
     } catch (error: unknown) {
-      if (isFsCode(error, "ENOENT")) return;
+      if (isMissingPath(error)) return;
       if (error instanceof GeneratedWorkflowStoreError) throw error;
       throw new GeneratedWorkflowStoreError(
         "storage_failure",
@@ -318,7 +325,7 @@ export class GeneratedWorkflowStore {
       await this.assertOwnedPath(directory, false);
       return true;
     } catch (error: unknown) {
-      if (isFsCode(error, "ENOENT")) return false;
+      if (isMissingPath(error)) return false;
       throw error;
     }
   }
@@ -376,7 +383,7 @@ export class GeneratedWorkflowStore {
         }
         removed.push(directory);
       } catch (error: unknown) {
-        if (isFsCode(error, "ENOENT")) continue;
+        if (isMissingPath(error)) continue;
         uncertain.push(directory);
       }
     }
@@ -479,7 +486,7 @@ export class GeneratedWorkflowStore {
     try {
       return await this.readMetadata(path);
     } catch (error: unknown) {
-      if (isFsCode(error, "ENOENT")) return undefined;
+      if (isMissingPath(error)) return undefined;
       throw error;
     }
   }
@@ -492,7 +499,7 @@ export class GeneratedWorkflowStore {
         new TextDecoder().decode(await this.requireBoundary().readOwnedFile(this.root, path)),
       ) as unknown;
     } catch (error: unknown) {
-      if (isFsCode(error, "ENOENT")) throw error;
+      if (isMissingPath(error)) throw error;
       throw new GeneratedWorkflowStoreError(
         "malformed_metadata",
         "Generated workflow metadata is not valid JSON.",
@@ -655,23 +662,21 @@ export async function shortWorkflowHash(
   sessionId: string,
   safeName: string,
   sourceSha256: string,
+  attempt = 0,
 ): Promise<string> {
   assertSafeSessionId(sessionId);
   assertSafeWorkflowName(safeName);
   if (decodeSchema(DigestSchema, sourceSha256) === undefined) {
     throw new GeneratedWorkflowStoreError("invalid_input", "The source digest is invalid.");
   }
-  const digest = await domainSeparatedSha256("holycodex-generated-workflow-name-v1", [
-    new TextEncoder().encode(
-      canonicalJson({
-        version: GENERATED_WORKFLOW_NAMING_VERSION,
-        session_id: sessionId,
-        safe_name: safeName,
-        source_sha256: sourceSha256,
-      }),
-    ),
-  ]);
-  return digest.slice(0, 16);
+  if (!Number.isSafeInteger(attempt) || attempt < 0 || attempt > 15) {
+    throw new GeneratedWorkflowStoreError("invalid_input", "The workflow hash attempt is invalid.");
+  }
+  return randomBytes(2).toString("hex");
+}
+
+function isMissingPath(error: unknown): boolean {
+  return isFsCode(error, "ENOENT") || isFsCode(error, "not_found");
 }
 
 function sha256(bytes: Uint8Array): string {

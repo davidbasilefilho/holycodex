@@ -4,7 +4,9 @@ export { GitBashError, isGitBashError } from "./errors.ts";
 export type { GitBashErrorCode, GitBashErrorDetails } from "./errors.ts";
 export {
   GIT_BASH_CAPABILITY_NAME,
+  GIT_BASH_EXECUTABLE_PATH,
   GIT_BASH_ENV_KEY,
+  isRequiredGitBashExecutablePath,
   isSafeGitBashExecutablePath,
   normalizeGitBashExecutablePath,
   resolveGitBash,

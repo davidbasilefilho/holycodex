@@ -7,6 +7,17 @@ in [SECURITY.md](SECURITY.md).
 
 ## Owned roots and personal marketplace
 
+Official first installation is owned by Codex's plugin marketplace:
+
+```sh
+codex plugin marketplace add davidbasilefilho/holycodex
+codex plugin add holycodex@holycodex
+```
+
+The standalone `bunx holycodex` CLI is for diagnostics and legacy repair. Use
+`bunx holycodex install --yes` only to repair the owned legacy payload and
+marketplace state; it is not the official plugin installation method.
+
 The default roots are:
 
 | Root                 | Default                                                     | HolyCodex-owned contents                                            |

@@ -10,6 +10,7 @@ import {
 } from "@holycodex/runtime-core/process";
 import { GitBashError } from "./errors.ts";
 import {
+  isRequiredGitBashExecutablePath,
   isSafeGitBashExecutablePath,
   normalizeGitBashExecutablePath,
 } from "./git-bash-resolver.ts";
@@ -59,6 +60,12 @@ export async function runGitBashCommand(input: GitBashRunInput): Promise<GitBash
     throw new GitBashError(
       "invalid_input",
       "Git Bash executable path must be absolute, traversal-free, and name bash.",
+    );
+  }
+  if (!isRequiredGitBashExecutablePath(normalizedBashPath, platform)) {
+    throw new GitBashError(
+      "invalid_input",
+      "Windows Git Bash must be C:/Program Files/Git/bin/bash.exe.",
     );
   }
   const safeExecutable = validated.isSafeExecutable ?? isSafeGitBashExecutablePath;

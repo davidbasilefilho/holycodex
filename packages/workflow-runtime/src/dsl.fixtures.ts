@@ -9,6 +9,7 @@ import {
   type ValueCodec,
   type Wait,
 } from "./index.ts";
+import type { JsonValue } from "@holycodex/core";
 
 const numberCodec = createCodec("fixture-number", (value: unknown): number => {
   if (typeof value !== "number") {
@@ -41,12 +42,16 @@ const pairCodec = createCodec(
   },
 );
 
-function assignment<I, O>(
+function assignment<I extends JsonValue, O extends JsonValue>(
   input: ValueCodec<I>,
   output: ValueCodec<O>,
-  payload?: unknown,
+  payload?: JsonValue,
 ): Assignment<I, O> {
-  return { input, output, payload };
+  return {
+    input,
+    output,
+    ...(payload === undefined ? {} : { payload }),
+  };
 }
 
 const increment = workflow.step({
@@ -63,7 +68,7 @@ const takesText = workflow.step({
 });
 
 const sequential = workflow.queue(increment, render);
-const callbackSequential = workflow.queue(increment, (value) =>
+const callbackSequential = workflow.queue(increment, (value: number) =>
   workflow.step({
     id: "fixture-callback-render",
     assignment: {
@@ -73,7 +78,7 @@ const callbackSequential = workflow.queue(increment, (value) =>
     },
   }),
 );
-const sixStages = workflow.queue(increment, render, takesText, increment, render, (value) =>
+const sixStages = workflow.queue(increment, render, takesText, increment, render, (value: string) =>
   workflow.step({
     id: "fixture-sixth",
     assignment: {
@@ -116,7 +121,7 @@ const joined = workflow.wait({ left: joinedLeft, right: joinedRight });
 const joinedQueue = workflow.queue(
   increment,
   () => joined,
-  (aggregate) =>
+  (aggregate: { readonly left: number; readonly right: number }) =>
     workflow.step({
       id: "fixture-joined-next",
       assignment: {

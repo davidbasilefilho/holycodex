@@ -18,6 +18,11 @@ directories:
 └── quarantine/<record>.json
 ```
 
+The CLI materializes generated workflow source in
+`~/.codex/workflows/{codex-session-id}/{workflow-name}-{4-lowercase-hex}.ts`.
+The session directory and generated file are owned, digest-checked, and
+removed only by the explicit workflow-session cleanup scope.
+
 Every persisted record carries an epoch validated at the receiving boundary.
 The current host epoch catalog is:
 
@@ -85,6 +90,10 @@ journal tail; an uncertain effect or unresolved checkpoint blocks continuation.
 After dispatch, a throw, malformed response, cancellation ambiguity, or lost
 response is journaled as `uncertain` and blocks the run; it is never retried
 automatically.
+
+For stale sessions, inspect first and restart only a terminal run. Restart
+reopens the durable run without retrying an uncertain effect; inactive
+generated source is cleaned separately through workflow-session cleanup.
 
 Journal appends are serialized by a bounded, owned cross-process lock. The
 store validates the on-disk next sequence while holding that lock, so a

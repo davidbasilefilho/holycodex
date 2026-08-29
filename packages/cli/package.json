@@ -1,6 +1,6 @@
 {
   "name": "holycodex",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "private": false,
   "repository": {
     "type": "git",
@@ -21,15 +21,15 @@
     "access": "public"
   },
   "dependencies": {
-    "@jitl/quickjs-ffi-types": "0.32.0",
-    "@jitl/quickjs-wasmfile-debug-asyncify": "0.32.0",
-    "@jitl/quickjs-wasmfile-debug-sync": "0.32.0",
-    "@jitl/quickjs-wasmfile-release-asyncify": "0.32.0",
-    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
-    "effect": "3.22.1",
-    "quickjs-emscripten": "0.32.0",
-    "quickjs-emscripten-core": "0.32.0",
-    "typescript": "^7.0.0"
+    "@jitl/quickjs-ffi-types": "catalog:",
+    "@jitl/quickjs-wasmfile-debug-asyncify": "catalog:",
+    "@jitl/quickjs-wasmfile-debug-sync": "catalog:",
+    "@jitl/quickjs-wasmfile-release-asyncify": "catalog:",
+    "@jitl/quickjs-wasmfile-release-sync": "catalog:",
+    "effect": "catalog:",
+    "quickjs-emscripten": "catalog:",
+    "quickjs-emscripten-core": "catalog:",
+    "typescript": "catalog:"
   },
   "devDependencies": {
     "@holycodex/codex": "workspace:*",

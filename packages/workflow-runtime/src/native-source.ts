@@ -27,7 +27,7 @@ import {
 } from "./native-ir.ts";
 import { transformNativeWorkflowSource } from "./transform.ts";
 import { WorkflowRuntimeError } from "./protocol.ts";
-import type { ValueCodec } from "./schema.ts";
+import { decodePortableSchema, type PortableSchemaIR, type ValueCodec } from "./schema.ts";
 import type {
   AssignmentMetadata,
   WorkflowCondition,
@@ -133,7 +133,8 @@ type NativeHandle = Readonly<
 type CodecRecord = Readonly<{
   readonly id: string;
   readonly name: string;
-  readonly decoder: QuickJSHandle;
+  readonly decoder?: QuickJSHandle;
+  readonly schema?: PortableSchemaIR;
 }>;
 
 type SymbolicOutput = Readonly<{ readonly token: string; readonly output: NativeWorkflowOutputIR }>;
@@ -284,6 +285,44 @@ class NativeSourceSession {
     const createCodec = this.context.newFunction("__hcCreateCodec", (...args) =>
       this.callback(() => this.createCodec(args)),
     );
+    const schema = this.context.evalCode(`
+      (() => {
+        const make = value => Object.freeze({ __holycodexSchema: Object.freeze(value) });
+        const struct = fields => {
+          const result = Object.create(null);
+          for (const key of Object.keys(fields)) {
+            const schema = fields[key]?.__holycodexSchema;
+            if (!schema) throw new Error("The workflow struct field schema is invalid.");
+            result[key] = schema;
+          }
+          return make({ kind: "struct", fields: result });
+        };
+        return Object.freeze({
+          String: make({ kind: "string" }),
+          Number: make({ kind: "number" }),
+          Boolean: make({ kind: "boolean" }),
+          Unknown: make({ kind: "unknown" }),
+          Literal: value => {
+            if (value !== null && typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+              throw new Error("The workflow literal schema is invalid.");
+            }
+            return make({ kind: "literal", value });
+          },
+          Array: element => {
+            if (!element?.__holycodexSchema) throw new Error("The workflow array schema is invalid.");
+            return make({ kind: "array", element: element.__holycodexSchema });
+          },
+          Struct: struct
+        });
+      })()
+    `);
+    if (schema.error) {
+      schema.error.dispose();
+      throw new WorkflowRuntimeError(
+        "evaluation_failed",
+        "The native schema facade could not be prepared.",
+      );
+    }
     const bootstrap = this.context.evalCode(`
       (() => {
         const symbolicKey = Symbol("HolyCodex callback output");
@@ -351,15 +390,18 @@ class NativeSourceSession {
     this.disposeHandle(workflow);
     this.context.setProp(this.context.global, "workflow", frozenWorkflow);
     this.context.setProp(this.context.global, "createCodec", createCodec);
+    this.context.setProp(this.context.global, "Schema", schema.value);
     const result = this.context.evalCode(transformed);
     this.context.setProp(this.context.global, "workflow", this.context.undefined);
     this.context.setProp(this.context.global, "createCodec", this.context.undefined);
+    this.context.setProp(this.context.global, "Schema", this.context.undefined);
     this.disposeHandle(frozenWorkflow);
     this.disposeHandle(step);
     this.disposeHandle(queue);
     this.disposeHandle(start);
     this.disposeHandle(wait);
     this.disposeHandle(createCodec);
+    schema.value.dispose();
     if (result.error) {
       result.error.dispose();
       const callbackFailure = this.callbackFailure;
@@ -419,18 +461,23 @@ class NativeSourceSession {
 
   codecDescriptors(): readonly NativeWorkflowCodecIR[] {
     return Object.freeze(
-      [...this.codecs.values()].map(({ id, name }) => Object.freeze({ id, name })),
+      [...this.codecs.values()].map(({ id, name, schema }) =>
+        Object.freeze({ id, name, ...(schema === undefined ? {} : { schema }) }),
+      ),
     );
   }
 
-  codecProxies(): ReadonlyMap<string, ValueCodec<unknown>> {
-    const result = new Map<string, ValueCodec<unknown>>();
+  codecProxies(): ReadonlyMap<string, ValueCodec<JsonValue>> {
+    const result = new Map<string, ValueCodec<JsonValue>>();
     for (const record of this.codecs.values()) {
       result.set(
         record.id,
         Object.freeze({
           name: record.name,
-          decode: (value: unknown) => this.decode(record, value),
+          decode: (value: unknown) =>
+            record.schema === undefined
+              ? this.decode(record, value)
+              : decodePortableSchema(record.schema, value),
         }),
       );
     }
@@ -444,7 +491,7 @@ class NativeSourceSession {
     this.symbolicFunction?.dispose();
     this.serializeFunction = undefined;
     this.symbolicFunction = undefined;
-    for (const record of this.codecs.values()) record.decoder.dispose();
+    for (const record of this.codecs.values()) record.decoder?.dispose();
     this.codecs.clear();
     this.runtime.removeInterruptHandler();
     try {
@@ -527,13 +574,21 @@ class NativeSourceSession {
     const name = this.context.getString(args[0] ?? this.context.undefined);
     if (name.length === 0 || name.length > 256)
       throw new Error("A workflow codec name is invalid.");
-    if (String(this.context.typeof(args[1] ?? this.context.undefined)) !== "function") {
-      throw new Error("A workflow codec decoder must be a function.");
-    }
     const id = `codec-${(this.nextCodec += 1)}`;
-    const decoder = args[1]?.dup();
-    if (!decoder) throw new Error("The workflow codec decoder is unavailable.");
-    this.codecs.set(id, { id, name, decoder });
+    const decoderValue = this.context.dump(args[1] ?? this.context.undefined);
+    if (isPortableSchemaValue(decoderValue)) {
+      if (!isPortableSchemaIR(decoderValue.__holycodexSchema)) {
+        throw new Error("The workflow schema facade value is invalid.");
+      }
+      this.codecs.set(id, { id, name, schema: decoderValue.__holycodexSchema });
+    } else {
+      if (String(this.context.typeof(args[1] ?? this.context.undefined)) !== "function") {
+        throw new Error("A workflow codec decoder must be a function.");
+      }
+      const decoder = args[1]?.dup();
+      if (!decoder) throw new Error("The workflow codec decoder is unavailable.");
+      this.codecs.set(id, { id, name, decoder });
+    }
     return this.jsonHandle({ __hcCodecId: id, name });
   }
 
@@ -720,7 +775,10 @@ class NativeSourceSession {
     });
   }
 
-  private decode(record: CodecRecord, value: unknown): unknown {
+  private decode(record: CodecRecord, value: unknown): JsonValue {
+    if (record.decoder === undefined) {
+      throw new WorkflowRuntimeError("invalid_result", "The native codec decoder is unavailable.");
+    }
     if (this.disposed)
       throw new WorkflowRuntimeError(
         "evaluation_failed",
@@ -791,6 +849,45 @@ class NativeSourceSession {
       throw error;
     }
   }
+}
+
+function isPortableSchemaValue(
+  value: unknown,
+): value is Readonly<{ readonly __holycodexSchema: PortableSchemaIR }> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "__holycodexSchema" in value &&
+    typeof value.__holycodexSchema === "object" &&
+    value.__holycodexSchema !== null
+  );
+}
+
+function isPortableSchemaIR(value: unknown): value is PortableSchemaIR {
+  if (!isRecord(value) || typeof value["kind"] !== "string") return false;
+  const kind = value["kind"];
+  if (kind === "string" || kind === "number" || kind === "boolean" || kind === "unknown")
+    return true;
+  if (kind === "literal") {
+    const literal = value["value"];
+    return (
+      literal === null ||
+      typeof literal === "string" ||
+      typeof literal === "boolean" ||
+      (typeof literal === "number" && Number.isFinite(literal))
+    );
+  }
+  if (kind === "array") return isPortableSchemaIR(value["element"]);
+  if (
+    kind === "struct" &&
+    typeof value["fields"] === "object" &&
+    value["fields"] !== null &&
+    !Array.isArray(value["fields"])
+  ) {
+    return Object.values(value["fields"]).every(isPortableSchemaIR);
+  }
+  return false;
 }
 
 function readMetadata(value: unknown): AssignmentMetadata {

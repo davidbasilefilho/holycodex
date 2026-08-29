@@ -126,6 +126,8 @@ export class WorkflowHost {
       approvalPolicy: assertIdentifier(options.approvalPolicy ?? "never", "approval policy"),
       sandboxPolicy: assertIdentifier(options.sandboxPolicy, "sandbox policy"),
       codexCapabilityDigest: assertDigest(options.codexCapabilityDigest, "Codex capability digest"),
+      canonicalVersion: options.canonicalVersion,
+      platform: options.platform ?? "posix",
       telemetry: options.telemetry,
       refinementsEnabled: options.refinementsEnabled ?? false,
       pending: new Map(),

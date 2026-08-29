@@ -258,6 +258,14 @@ export interface CliIo {
   readonly writeStderr?: (text: string) => void;
 }
 
+/** Controls the human renderer without affecting the machine JSON envelope. */
+export interface HumanRenderOptions {
+  readonly stdoutIsTTY?: boolean | undefined;
+  readonly stderrIsTTY?: boolean | undefined;
+  readonly env?: Readonly<Record<string, string | undefined>> | undefined;
+  readonly stream?: "stdout" | "stderr" | undefined;
+}
+
 export interface CliContext {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly cwd?: string;

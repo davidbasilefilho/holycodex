@@ -6,7 +6,7 @@ public package is the `holycodex` CLI; the workspace packages keep domain
 values, Codex transport, isolated evaluation, durable orchestration, and plugin
 assembly behind one-way interfaces.
 
-The package graph and control/data flow are owned by
+The native CLI package graph and control/data flow are owned by
 [the architecture contract](docs/ARCHITECTURE.md#package-graph). Runtime
 behavior, CLI wire rules, security boundaries, and admissible evidence belong
 to [BEHAVIOR](docs/BEHAVIOR.md), [CLI](docs/CLI.md),
@@ -47,6 +47,21 @@ and [CUTOVER.md](docs/CUTOVER.md) for the separate approval boundaries.
 
 ## CLI examples
 
+### Official plugin installation
+
+Install HolyCodex through the Codex plugin marketplace. This is the supported
+installation method:
+
+```sh
+codex plugin marketplace add davidbasilefilho/holycodex
+codex plugin add holycodex@holycodex
+```
+
+Use the standalone CLI through `bunx` for diagnostics or legacy repair when
+the plugin cannot start. `bunx holycodex install` repairs the owned legacy
+payload and marketplace state; it is not a replacement for the official
+`codex plugin add` installation path.
+
 Use an isolated pair of roots when trying installation locally. The installer
 requires a non-overlapping `CODEX_HOME` and personal marketplace root.
 
@@ -74,31 +89,38 @@ holycodex workflow run ./workflow.ts '{}' --trusted --json
 holycodex workflow list --json
 ```
 
-Native workflow execution is the default. A trusted TypeScript file must
-export a default `workflow.wait(...)` value, and project files must pass the
-trust gate. The compatibility evaluator is explicit:
+QuickJS TypeScript workflow execution is the production path. The CLI
+type-checks and validates a trusted workflow before evaluating it. Capability
+calls are denied unless an approved typed port is supplied:
 
 ```sh
 holycodex workflow run ./workflow.ts '{}' --trusted --json
-holycodex workflow run ./workflow.ts '{}' --compat-quickjs --task 'compatibility check' --json
-printf 'return { ok: true };\n' | holycodex workflow run - --compat-quickjs --task 'stdin check' --json
+holycodex workflow run ./workflow.ts '{}' --json
 ```
 
-`--compat-quickjs` is never inferred; native files use the production Effect
-workflow runtime, while compatibility mode uses the isolated QuickJS/string
-evaluator. Stdin requires compatibility mode and an explicit `--task`
-objective. `holycodex workflow --help` and `holycodex --help` show the current
-syntax, including the capability-gated Work, Web, Security, Computer Use, LSP,
-LSP setup, and Git Bash providers. A missing provider returns a typed
-`capability_denied` result; selecting a provider does not claim that it is
-available or install a fallback.
+`--compat-quickjs` remains a deprecated one-release alias and does not select
+a different evaluator. Stdin requires an explicit `--task` objective. CLI-created workflows
+are stored under `~/.codex/workflows/{codex-session-id}/{workflow-name}-{4-lowercase-hex}.ts`,
+for example `review-api-a3f9.ts`.
+`holycodex workflow --help` and `holycodex --help` show the current syntax,
+including capability-gated Work, Web, Security, Computer Use, LSP, LSP setup,
+and Git Bash providers. A missing provider returns a typed `capability_denied`
+result; selecting a provider does not claim availability or install a fallback.
+
+Human output is concise, status-first, and indented for scanning, in the style
+of the official Bun CLI. `--json` remains the stable machine contract: one
+bounded envelope on stdout, with diagnostics and progress on stderr.
 
 Workflow lifecycle commands persist validated state: `run` creates a run,
 `inspect` and `show` are read-only projections, `pause`, `restart`, `reopen`,
 `stop`, `resume`, `continuation`, `goal`, `save`, `invoke`, and refinements
 apply only valid transitions. Resume resupplies source and arguments and
 verifies their stored digests. An uncertain effect remains blocked and is not
-retried automatically. The exact command syntax, envelopes, exit codes, and
+retried automatically. If a run is stale, inspect it first, then use
+`workflow restart <run-id>` only after it is terminal; restart reopens the run
+without claiming an uncertain effect. Use
+`cleanup --scope workflow-session --session-id <id> --yes` only to remove an
+inactive generated-workflow session. The exact command syntax, envelopes, exit codes, and
 non-TTY behavior are owned by [CLI.md](docs/CLI.md). Installation identity,
 recovery, cleanup, and legacy-state migration are owned by
 [INSTALLATION.md](docs/INSTALLATION.md) and [STATE.md](docs/STATE.md).

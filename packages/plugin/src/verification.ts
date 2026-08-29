@@ -42,7 +42,12 @@ export async function verifyPayload(input: unknown): Promise<VerifiedPayload> {
   if (payloadManifest.identity.epoch !== payloadManifest.schema_epoch) {
     throw pluginError("payload_invalid", "Payload identity epoch does not match metadata.");
   }
-  const declaredPaths = [...declaredSourcePaths(generatedManifest)].sort(comparePathText);
+  const declaredPaths = [
+    ...declaredSourcePaths(
+      generatedManifest,
+      payloadManifest.files.map((file) => file.path),
+    ),
+  ].sort(comparePathText);
   const manifestPaths = payloadManifest.files.map((file) => file.path);
   if (
     declaredPaths.length !== manifestPaths.length ||
@@ -99,7 +104,7 @@ export async function verifyPayload(input: unknown): Promise<VerifiedPayload> {
     fileBytes.set(file.path, bytes);
   }
 
-  if (generatedManifest.skills?.includes("ponytail") === true) {
+  if (payloadManifest.files.some((file) => file.path === "skills/ponytail/SKILL.md")) {
     await verifyPonytailMetadata(async (path) => {
       const bytes = fileBytes.get(path);
       if (bytes === undefined) {

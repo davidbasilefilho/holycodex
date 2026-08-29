@@ -3,6 +3,7 @@
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 import { access, cp, mkdir, readFile, readdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { CliEnvelopeSchema } from "../packages/core/src/envelopes.ts";
@@ -39,6 +40,22 @@ const PublicManifestSchema = Schema.Struct({
   repository: Schema.Struct({ type: Schema.Literal("git"), url: Schema.String }),
   publishConfig: Schema.Struct({ access: Schema.Literal("public") }),
   release: Schema.optional(ReleaseStampSchema),
+});
+const WorkspaceManifestSchema = Schema.Struct({
+  catalog: Schema.Record({ key: Schema.String, value: Schema.String }),
+});
+const MarketplaceAddEnvelopeSchema = Schema.Struct({
+  marketplaceName: Schema.Literal("holycodex"),
+});
+const PluginAddEnvelopeSchema = Schema.Struct({
+  pluginId: Schema.Literal("holycodex@holycodex"),
+  installedPath: Schema.String.pipe(Schema.minLength(1)),
+});
+const PluginListEnvelopeSchema = Schema.Struct({
+  installed: Schema.Array(Schema.Struct({ pluginId: Schema.String.pipe(Schema.minLength(1)) })),
+});
+const InstalledPluginManifestSchema = Schema.Struct({
+  version: Schema.String.pipe(Schema.minLength(1)),
 });
 
 type PublicManifest = typeof PublicManifestSchema.Type;
@@ -162,7 +179,7 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
   await runSafeFilesystemNativeTest(helperPath);
   for (const relativePath of [
     "agents/root.md",
-    "hooks/manifest.json",
+    "hooks/hooks.json",
     "rules/manifest.json",
     "skills/plan/SKILL.md",
   ]) {
@@ -185,6 +202,7 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
 
   const codexHome = join(temporaryRoot, "codex-home");
   const marketplaceRoot = join(temporaryRoot, "marketplace");
+  const commands: string[] = [];
   const stateRoot = join(codexHome, "holycodex");
   await mkdir(stateRoot, { recursive: true });
   await writeJson(join(stateRoot, "legacy-state.json"), {
@@ -195,7 +213,78 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
     max_subagents: 1,
   });
 
-  const commands: string[] = [];
+  const validatorPath =
+    process.env["HOLYCODEX_PLUGIN_VALIDATOR"] ??
+    join(homedir(), ".codex/skills/.system/plugin-creator/scripts/validate_plugin.py");
+  const validatorCommand = process.platform === "win32" ? "python" : "python3";
+  commands.push(`${validatorCommand} ${validatorPath} packages/plugin/assets`);
+  await runChecked(
+    [validatorCommand, validatorPath, join(workspaceRoot, "packages/plugin/assets")],
+    {
+      cwd: workspaceRoot,
+      env: process.env,
+    },
+  );
+
+  const codexEnvironment = { ...process.env, CODEX_HOME: codexHome };
+  const marketplaceAdd = await runChecked(
+    ["codex", "plugin", "marketplace", "add", workspaceRoot, "--json"],
+    { cwd: workspaceRoot, env: codexEnvironment },
+  );
+  commands.push("codex plugin marketplace add <workspace> --json");
+  const pluginAdd = await runChecked(["codex", "plugin", "add", "holycodex@holycodex", "--json"], {
+    cwd: workspaceRoot,
+    env: codexEnvironment,
+  });
+  commands.push("codex plugin add holycodex@holycodex --json");
+  const pluginList = await runChecked(["codex", "plugin", "list", "--json"], {
+    cwd: workspaceRoot,
+    env: codexEnvironment,
+  });
+  commands.push("codex plugin list --json");
+  const marketplaceEnvelope = decode(
+    MarketplaceAddEnvelopeSchema,
+    JSON.parse(marketplaceAdd.stdout),
+    "Codex marketplace add response",
+  );
+  const pluginEnvelope = decode(
+    PluginAddEnvelopeSchema,
+    JSON.parse(pluginAdd.stdout),
+    "Codex plugin add response",
+  );
+  const pluginListEnvelope = decode(
+    PluginListEnvelopeSchema,
+    JSON.parse(pluginList.stdout),
+    "Codex plugin list response",
+  );
+  assert(marketplaceEnvelope.marketplaceName === "holycodex", "Codex marketplace add failed");
+  assert(pluginEnvelope.pluginId === "holycodex@holycodex", "Codex plugin add failed");
+  assert(
+    pluginListEnvelope.installed.some((entry) => entry.pluginId === "holycodex@holycodex"),
+    "Codex plugin list did not report HolyCodex",
+  );
+  const installedPluginRoot = pluginEnvelope.installedPath;
+  for (const relativePath of [
+    ".codex-plugin/plugin.json",
+    "skills/plan/SKILL.md",
+    "hooks/hooks.json",
+    "hooks/version.ts",
+  ]) {
+    await requireFile(
+      join(installedPluginRoot, relativePath),
+      `installed Codex plugin asset ${relativePath}`,
+    );
+  }
+  const installedPluginManifest = decode(
+    InstalledPluginManifestSchema,
+    JSON.parse(await readFile(join(installedPluginRoot, ".codex-plugin/plugin.json"), "utf8")),
+    "installed Codex plugin manifest",
+  );
+  assert(
+    installedPluginManifest.version === version,
+    "installed Codex plugin manifest version is not canonical",
+  );
+
   const versionEnvelope = await runCli(
     installedEntry,
     ["version", "--json"],
@@ -388,7 +477,28 @@ async function readPublicManifest(): Promise<PublicManifest> {
   if (Either.isLeft(parsed)) {
     throw new Error(`The public package manifest is invalid: ${String(parsed.left)}`);
   }
-  return parsed.right;
+  const workspaceRaw: unknown = JSON.parse(
+    await readFile(join(workspaceRoot, "package.json"), "utf8"),
+  );
+  const workspace = Schema.decodeUnknownEither(WorkspaceManifestSchema, {
+    onExcessProperty: "ignore",
+  })(workspaceRaw);
+  if (Either.isLeft(workspace)) {
+    throw new Error(`The workspace manifest is invalid: ${String(workspace.left)}`);
+  }
+  const dependencies: Record<string, string> = {};
+  for (const [name, version] of Object.entries(parsed.right.dependencies)) {
+    if (version !== "catalog:") {
+      dependencies[name] = version;
+      continue;
+    }
+    const catalogVersion = workspace.right.catalog[name];
+    if (catalogVersion === undefined) {
+      throw new Error(`The workspace catalog is missing ${name}.`);
+    }
+    dependencies[name] = catalogVersion;
+  }
+  return { ...parsed.right, dependencies };
 }
 
 async function readInstalledManifest(path: string): Promise<PublicManifest> {

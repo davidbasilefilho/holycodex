@@ -10,6 +10,6 @@
   },
   "dependencies": {
     "@holycodex/runtime-core": "workspace:*",
-    "effect": "3.22.1"
+    "effect": "catalog:"
   }
 }

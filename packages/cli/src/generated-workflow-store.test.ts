@@ -10,6 +10,7 @@ import {
   assertSafeWorkflowName,
   GeneratedWorkflowStore,
   GeneratedWorkflowStoreError,
+  shortWorkflowHash,
 } from "./generated-workflow-store.ts";
 
 function testBoundary(platform: "posix" | "win32") {
@@ -103,7 +104,7 @@ describe("generated workflow storage boundary", () => {
     expect(() => assertSafeWorkflowName("workflow name")).toThrow(GeneratedWorkflowStoreError);
   });
 
-  test("stores exact bytes with stable revisions and concurrent identical writes", async () => {
+  test("stores exact bytes for concurrent writes and source revisions", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-generated-store-"));
     try {
       const now = () => new Date("2026-08-24T12:00:00.000Z");
@@ -114,8 +115,10 @@ describe("generated workflow storage boundary", () => {
         store.put("session-a", "workflow", source),
       ]);
       expect(first.metadata.source_sha256).toBe(second.metadata.source_sha256);
-      expect(first.metadata.source_path).toBe(second.metadata.source_path);
       expect(await readFile(first.metadata.source_path, "utf8")).toBe(source);
+      expect(await readFile(second.metadata.source_path, "utf8")).toBe(source);
+      expect(first.metadata.source_path).toMatch(/workflow-[0-9a-f]{4}\.ts$/u);
+      expect(second.metadata.source_path).toMatch(/workflow-[0-9a-f]{4}\.ts$/u);
       const revision = await store.put("session-a", "workflow", "export default 2;\n");
       expect(revision.metadata.source_path).not.toBe(first.metadata.source_path);
       expect(revision.metadata.owner_session_id).toBe("session-a");
@@ -123,6 +126,13 @@ describe("generated workflow storage boundary", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  test("uses an automatically generated four-character lowercase hex suffix", async () => {
+    const first = await shortWorkflowHash("session", "workflow", "a".repeat(64));
+    const second = await shortWorkflowHash("session", "workflow", "a".repeat(64));
+    expect(first).toMatch(/^[0-9a-f]{4}$/u);
+    expect(second).toMatch(/^[0-9a-f]{4}$/u);
   });
 
   test("fails closed on source substitution and malformed metadata", async () => {

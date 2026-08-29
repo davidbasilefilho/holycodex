@@ -34,8 +34,8 @@ export type {
   WorkflowRepeatUntil,
   WorkflowStage,
 } from "./dsl.ts";
-export { createCodec } from "./schema.ts";
-export type { ValueCodec } from "./schema.ts";
+export { createCodec, decodePortableSchema } from "./schema.ts";
+export type { PortableSchema, PortableSchemaIR, ValueCodec } from "./schema.ts";
 export {
   CompileOptionsSchema,
   ExecutionPlan,

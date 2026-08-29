@@ -5,11 +5,11 @@
     "": {
       "name": "@holycodex/workspace",
       "devDependencies": {
-        "@types/bun": "1.4.0",
-        "@types/node": "26.2.0",
-        "effect": "3.22.1",
-        "typescript": "7.0.2",
-        "vite-plus": "0.2.9",
+        "@types/bun": "catalog:",
+        "@types/node": "catalog:",
+        "effect": "catalog:",
+        "typescript": "catalog:",
+        "vite-plus": "catalog:",
       },
     },
     "packages/cli": {
@@ -19,15 +19,15 @@
         "holycodex": "./dist/index.js",
       },
       "dependencies": {
-        "@jitl/quickjs-ffi-types": "0.32.0",
-        "@jitl/quickjs-wasmfile-debug-asyncify": "0.32.0",
-        "@jitl/quickjs-wasmfile-debug-sync": "0.32.0",
-        "@jitl/quickjs-wasmfile-release-asyncify": "0.32.0",
-        "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
-        "effect": "3.22.1",
-        "quickjs-emscripten": "0.32.0",
-        "quickjs-emscripten-core": "0.32.0",
-        "typescript": "^7.0.0",
+        "@jitl/quickjs-ffi-types": "catalog:",
+        "@jitl/quickjs-wasmfile-debug-asyncify": "catalog:",
+        "@jitl/quickjs-wasmfile-debug-sync": "catalog:",
+        "@jitl/quickjs-wasmfile-release-asyncify": "catalog:",
+        "@jitl/quickjs-wasmfile-release-sync": "catalog:",
+        "effect": "catalog:",
+        "quickjs-emscripten": "catalog:",
+        "quickjs-emscripten-core": "catalog:",
+        "typescript": "catalog:",
       },
       "devDependencies": {
         "@holycodex/codex": "workspace:*",
@@ -45,59 +45,59 @@
       "name": "@holycodex/codex",
       "dependencies": {
         "@holycodex/core": "workspace:*",
-        "effect": "3.22.1",
+        "effect": "catalog:",
       },
     },
     "packages/core": {
       "name": "@holycodex/core",
       "dependencies": {
-        "effect": "3.22.1",
+        "effect": "catalog:",
       },
     },
     "packages/git-bash": {
       "name": "@holycodex/git-bash",
       "dependencies": {
         "@holycodex/runtime-core": "workspace:*",
-        "effect": "3.22.1",
+        "effect": "catalog:",
       },
     },
     "packages/lsp-core": {
       "name": "@holycodex/lsp-core",
       "dependencies": {
-        "effect": "3.22.1",
+        "effect": "catalog:",
       },
       "devDependencies": {
-        "vitest": "4.1.10",
+        "vitest": "catalog:",
       },
     },
     "packages/lsp-daemon": {
       "name": "@holycodex/lsp-daemon",
       "dependencies": {
         "@holycodex/lsp-core": "workspace:*",
-        "effect": "3.22.1",
+        "effect": "catalog:",
       },
       "devDependencies": {
-        "vitest": "4.1.10",
+        "vitest": "catalog:",
       },
     },
     "packages/plugin": {
       "name": "@holycodex/plugin",
       "dependencies": {
         "@holycodex/core": "workspace:*",
-        "effect": "3.22.1",
+        "effect": "catalog:",
       },
     },
     "packages/runtime-core": {
       "name": "@holycodex/runtime-core",
       "dependencies": {
-        "effect": "3.22.1",
+        "effect": "catalog:",
       },
     },
     "packages/safe-filesystem": {
       "name": "@holycodex/safe-filesystem",
       "dependencies": {
         "@holycodex/runtime-core": "workspace:*",
-        "effect": "3.22.1",
+        "effect": "catalog:",
       },
     },
     "packages/workflow-host": {
@@ -106,18 +106,33 @@
         "@holycodex/codex": "workspace:*",
         "@holycodex/core": "workspace:*",
         "@holycodex/workflow-runtime": "workspace:*",
-        "effect": "3.22.1",
+        "effect": "catalog:",
       },
     },
     "packages/workflow-runtime": {
       "name": "@holycodex/workflow-runtime",
       "dependencies": {
         "@holycodex/core": "workspace:*",
-        "effect": "3.22.1",
-        "quickjs-emscripten": "0.32.0",
-        "typescript": "^7.0.0",
+        "effect": "catalog:",
+        "quickjs-emscripten": "catalog:",
+        "typescript": "catalog:",
       },
     },
+  },
+  "catalog": {
+    "@jitl/quickjs-ffi-types": "0.32.0",
+    "@jitl/quickjs-wasmfile-debug-asyncify": "0.32.0",
+    "@jitl/quickjs-wasmfile-debug-sync": "0.32.0",
+    "@jitl/quickjs-wasmfile-release-asyncify": "0.32.0",
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
+    "@types/bun": "1.4.0",
+    "@types/node": "26.2.0",
+    "effect": "3.22.1",
+    "quickjs-emscripten": "0.32.0",
+    "quickjs-emscripten-core": "0.32.0",
+    "typescript": "7.0.2",
+    "vite-plus": "0.2.9",
+    "vitest": "4.1.10",
   },
   "packages": {
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],

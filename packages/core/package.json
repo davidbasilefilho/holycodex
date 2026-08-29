@@ -6,6 +6,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "effect": "3.22.1"
+    "effect": "catalog:"
   }
 }

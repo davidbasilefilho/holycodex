@@ -2,7 +2,7 @@
 
 export const packageName = "holycodex" as const;
 
-export { runCli, executeCommand, renderHuman } from "./commands.ts";
+export { runCli, executeCommand, renderHuman, renderProgress } from "./commands.ts";
 export { runBinary } from "./binary.ts";
 export type { BinaryIo } from "./binary.ts";
 export { helpText, helpRequested, helpTopic } from "./help.ts";
@@ -34,6 +34,7 @@ export {
   managedMarketplaceEntry,
   managedEntryMatches,
   readMarketplace,
+  readMarketplaceForInstall,
   writeMarketplace,
   MarketplaceError,
 } from "./marketplace.ts";
@@ -87,6 +88,7 @@ export type {
   CapabilityStateStatus,
   CliContext,
   CliIo,
+  HumanRenderOptions,
   CleanupResult,
   CleanupScope,
   CommandResult,

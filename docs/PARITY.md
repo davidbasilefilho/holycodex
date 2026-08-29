@@ -1,5 +1,9 @@
 # HolyCodex parity matrix
 
+This matrix is historical evidence for the clean-room baseline and cutover
+record. It is not the current behavioral authority; current behavior belongs
+to the linked owner documents below.
+
 This document owns the row-by-row surface inventory. Observable behavior is
 owned by [BEHAVIOR.md](BEHAVIOR.md), package placement by
 [ARCHITECTURE.md](ARCHITECTURE.md), wire behavior by [CLI.md](CLI.md),

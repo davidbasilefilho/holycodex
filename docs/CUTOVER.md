@@ -1,5 +1,9 @@
 # Repository cutover runbook
 
+This is a historical, approval-gated runbook retained for evidence. It is
+inert until a human confirms the exact target and command; it does not define
+current product behavior or the official plugin installation path.
+
 This runbook owns the repository rename and archival sequence. It preserves
 issues, pull requests, releases, license metadata, provenance, branches, and
 history. Every external mutation is a separate approval gate. Publication,

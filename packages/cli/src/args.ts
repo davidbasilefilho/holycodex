@@ -12,6 +12,7 @@ const VALUE_OPTIONS = new Set([
   "scope",
   "run-id",
   "session-id",
+  "name",
   "official-plugin",
   "task",
   "autonomy",
@@ -259,6 +260,10 @@ function positionalRange(command: string): { readonly min: number; readonly max:
       return { min: 0, max: 1 };
     case "workflow run":
       return { min: 1, max: 2 };
+    case "workflow create":
+      return { min: 1, max: 2 };
+    case "workflow check":
+      return { min: 1, max: 1 };
     case "workflow show":
     case "workflow inspect":
     case "workflow pause":
@@ -330,6 +335,10 @@ function commandOptions(command: string): ReadonlySet<string> {
         "trusted",
         "compat-quickjs",
       ]);
+    case "workflow create":
+      return new Set([...common, "name", "session-id", "trusted", "task"]);
+    case "workflow check":
+      return new Set([...common, "trusted"]);
     case "workflow resume":
       return new Set([...common, "trusted", "compat-quickjs"]);
     case "workflow continuation":

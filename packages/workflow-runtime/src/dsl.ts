@@ -38,15 +38,15 @@ export type AssignmentMetadata = Readonly<{
  * An inert domain assignment. It contains data and validation metadata only;
  * the host agent owns execution.
  */
-export type Assignment<I, O> = Readonly<{
-  readonly payload: unknown;
+export type Assignment<I extends JsonValue, O extends JsonValue> = Readonly<{
+  readonly payload?: JsonValue;
   readonly input: ValueCodec<I>;
   readonly output: ValueCodec<O>;
   readonly metadata?: AssignmentMetadata;
   readonly route?: string;
 }>;
 
-export type StepDefinition<I, O> = Readonly<{
+export type StepDefinition<I extends JsonValue, O extends JsonValue> = Readonly<{
   readonly id: string;
   readonly assignment: Assignment<I, O>;
 }>;
@@ -63,7 +63,7 @@ export type WorkflowInputSource = Readonly<
 export type WorkflowOutputTarget = Readonly<{
   readonly key: string;
   readonly nodeId: string;
-  readonly outputCodec: ValueCodec<unknown>;
+  readonly outputCodec: ValueCodec<JsonValue>;
   readonly source?: WorkflowOutput;
 }>;
 
@@ -71,12 +71,12 @@ export type WorkflowOutput = Readonly<
   | {
       readonly kind: "single";
       readonly nodeId: string;
-      readonly outputCodec: ValueCodec<unknown>;
+      readonly outputCodec: ValueCodec<JsonValue>;
     }
   | {
       readonly kind: "join";
       readonly targets: readonly WorkflowOutputTarget[];
-      readonly outputCodec: ValueCodec<unknown>;
+      readonly outputCodec: ValueCodec<JsonValue>;
     }
 >;
 
@@ -85,9 +85,9 @@ export type WorkflowNode = Readonly<{
   readonly name: string;
   readonly input: WorkflowInputSource;
   readonly dependencies: readonly string[];
-  readonly assignment: Assignment<unknown, unknown>;
-  readonly inputCodec: ValueCodec<unknown>;
-  readonly outputCodec: ValueCodec<unknown>;
+  readonly assignment: Assignment<JsonValue, JsonValue>;
+  readonly inputCodec: ValueCodec<JsonValue>;
+  readonly outputCodec: ValueCodec<JsonValue>;
   readonly metadata: AssignmentMetadata;
 }>;
 
@@ -104,7 +104,7 @@ export type WaitTarget = Readonly<{
   readonly runId: string;
   readonly graph: WorkflowGraph;
   readonly output: WorkflowOutput;
-  readonly outputCodec: ValueCodec<unknown>;
+  readonly outputCodec: ValueCodec<JsonValue>;
 }>;
 
 const workflowGraphSymbol = Symbol("holycodex.workflow.graph");
@@ -114,7 +114,7 @@ const waitTargetsSymbol = Symbol("holycodex.workflow.wait.targets");
 const waitDecoderSymbol = Symbol("holycodex.workflow.wait.decoder");
 const symbolicValueBindings = new WeakMap<object, WorkflowOutput>();
 
-export class Workflow<I, O> {
+export class Workflow<I extends JsonValue, O extends JsonValue> {
   declare readonly input: I;
   declare readonly output: O;
   readonly [workflowGraphSymbol]: WorkflowGraph;
@@ -125,19 +125,19 @@ export class Workflow<I, O> {
   }
 }
 
-export class Step<I, O> extends Workflow<I, O> {
+export class Step<I extends JsonValue, O extends JsonValue> extends Workflow<I, O> {
   protected constructor(graph: WorkflowGraph) {
     super(graph);
   }
 }
 
-export class Queue<I, O> extends Workflow<I, O> {
+export class Queue<I extends JsonValue, O extends JsonValue> extends Workflow<I, O> {
   protected constructor(graph: WorkflowGraph) {
     super(graph);
   }
 }
 
-export class Run<I, O> {
+export class Run<I extends JsonValue, O extends JsonValue> {
   declare readonly input: I;
   declare readonly result: O;
   readonly [runGraphSymbol]: WorkflowGraph;
@@ -150,7 +150,7 @@ export class Run<I, O> {
   }
 }
 
-export class Wait<I = unknown, O = I> {
+export class Wait<I extends JsonValue = JsonValue, O extends JsonValue = I> {
   declare readonly input: I;
   declare readonly result: O;
   readonly [waitTargetsSymbol]: readonly WaitTarget[];
@@ -163,25 +163,25 @@ export class Wait<I = unknown, O = I> {
   }
 }
 
-class StepHandle<I, O> extends Step<I, O> {
+class StepHandle<I extends JsonValue, O extends JsonValue> extends Step<I, O> {
   constructor(graph: WorkflowGraph) {
     super(graph);
   }
 }
 
-class QueueHandle<I, O> extends Queue<I, O> {
+class QueueHandle<I extends JsonValue, O extends JsonValue> extends Queue<I, O> {
   constructor(graph: WorkflowGraph) {
     super(graph);
   }
 }
 
-class RunHandle<I, O> extends Run<I, O> {
+class RunHandle<I extends JsonValue, O extends JsonValue> extends Run<I, O> {
   constructor(graph: WorkflowGraph, runId: string) {
     super(graph, runId);
   }
 }
 
-class WaitHandle<I, O> extends Wait<I, O> {
+class WaitHandle<I extends JsonValue, O extends JsonValue> extends Wait<I, O> {
   constructor(targets: readonly WaitTarget[], decoder: (value: unknown) => O) {
     super(targets, decoder);
   }
@@ -191,7 +191,7 @@ export type NamedWaitResult<Named extends object> = {
   readonly [Key in keyof Named]: WaitableOutput<Named[Key]>;
 };
 
-export type WorkflowStage<I, O> = Workflow<I, O> | Wait<I, O>;
+export type WorkflowStage<I extends JsonValue, O extends JsonValue> = Workflow<I, O> | Wait<I, O>;
 
 type WaitableInput<Value> =
   Value extends Workflow<infer Input, infer _Output>
@@ -219,90 +219,62 @@ type NamedWaitValidation<Named extends object> = {
       : never;
 };
 
-type QueueStage<Current, Output> =
-  | Workflow<Current, Output>
-  | Wait<Current, Output>
-  | ((input: Current) => Workflow<Current, Output> | Wait<Current, Output>);
+type QueueStageOutput<Current extends JsonValue, Stage> =
+  Stage extends Workflow<Current, infer Output>
+    ? Output
+    : Stage extends Wait<Current, infer Output>
+      ? Output
+      : Stage extends (input: Current) => Workflow<Current, infer Output>
+        ? Output
+        : Stage extends (input: Current) => Wait<Current, infer Output>
+          ? Output
+          : never;
+type QueueStageChain<
+  Current extends JsonValue,
+  Stages extends readonly unknown[],
+> = Stages extends readonly [infer Stage, ...infer Rest]
+  ? [QueueStageOutput<Current, Stage>] extends [never]
+    ? never
+    : readonly [Stage, ...QueueStageChain<QueueStageOutput<Current, Stage>, Rest>]
+  : readonly [];
+type QueueOutput<
+  Current extends JsonValue,
+  Stages extends readonly unknown[],
+> = Stages extends readonly [infer Stage, ...infer Rest]
+  ? QueueOutput<QueueStageOutput<Current, Stage>, Rest>
+  : Current;
 
 export interface WorkflowDsl {
-  readonly step: <I, O>(definition: StepDefinition<I, O>) => Step<I, O>;
-  readonly queue: {
-    <I, O>(first: Workflow<I, O>): Queue<I, O>;
-    <I, O, O1>(first: Workflow<I, O>, stage1: QueueStage<O, O1>): Queue<I, O1>;
-    <I, O, O1, O2>(
-      first: Workflow<I, O>,
-      stage1: QueueStage<O, O1>,
-      stage2: QueueStage<O1, O2>,
-    ): Queue<I, O2>;
-    <I, O, O1, O2, O3>(
-      first: Workflow<I, O>,
-      stage1: QueueStage<O, O1>,
-      stage2: QueueStage<O1, O2>,
-      stage3: QueueStage<O2, O3>,
-    ): Queue<I, O3>;
-    <I, O, O1, O2, O3, O4>(
-      first: Workflow<I, O>,
-      stage1: QueueStage<O, O1>,
-      stage2: QueueStage<O1, O2>,
-      stage3: QueueStage<O2, O3>,
-      stage4: QueueStage<O3, O4>,
-    ): Queue<I, O4>;
-    <I, O, O1, O2, O3, O4, O5>(
-      first: Workflow<I, O>,
-      stage1: QueueStage<O, O1>,
-      stage2: QueueStage<O1, O2>,
-      stage3: QueueStage<O2, O3>,
-      stage4: QueueStage<O3, O4>,
-      stage5: QueueStage<O4, O5>,
-    ): Queue<I, O5>;
-    <I, O, O1, O2, O3, O4, O5, O6>(
-      first: Workflow<I, O>,
-      stage1: QueueStage<O, O1>,
-      stage2: QueueStage<O1, O2>,
-      stage3: QueueStage<O2, O3>,
-      stage4: QueueStage<O3, O4>,
-      stage5: QueueStage<O4, O5>,
-      stage6: QueueStage<O5, O6>,
-    ): Queue<I, O6>;
-    <I, O, O1, O2, O3, O4, O5, O6, O7>(
-      first: Workflow<I, O>,
-      stage1: QueueStage<O, O1>,
-      stage2: QueueStage<O1, O2>,
-      stage3: QueueStage<O2, O3>,
-      stage4: QueueStage<O3, O4>,
-      stage5: QueueStage<O4, O5>,
-      stage6: QueueStage<O5, O6>,
-      stage7: QueueStage<O6, O7>,
-    ): Queue<I, O7>;
-    <I, O, O1, O2, O3, O4, O5, O6, O7, O8>(
-      first: Workflow<I, O>,
-      stage1: QueueStage<O, O1>,
-      stage2: QueueStage<O1, O2>,
-      stage3: QueueStage<O2, O3>,
-      stage4: QueueStage<O3, O4>,
-      stage5: QueueStage<O4, O5>,
-      stage6: QueueStage<O5, O6>,
-      stage7: QueueStage<O6, O7>,
-      stage8: QueueStage<O7, O8>,
-    ): Queue<I, O8>;
-  };
-  readonly start: <I, O>(workflow: Workflow<I, O>) => Run<I, O>;
+  readonly step: <I extends JsonValue, O extends JsonValue>(
+    definition: StepDefinition<I, O>,
+  ) => Step<I, O>;
+  readonly queue: <
+    I extends JsonValue,
+    O extends JsonValue,
+    const Stages extends readonly unknown[],
+  >(
+    first: Workflow<I, O>,
+    ...stages: Stages & QueueStageChain<O, Stages>
+  ) => Queue<I, QueueOutput<O, Stages>>;
+  readonly start: <I extends JsonValue, O extends JsonValue>(workflow: Workflow<I, O>) => Run<I, O>;
   readonly wait: {
-    <I, O>(workflow: Workflow<I, O>): Wait<I, O>;
-    <I, O>(run: Run<I, O>): Wait<I, O>;
+    <I extends JsonValue, O extends JsonValue>(workflow: Workflow<I, O>): Wait<I, O>;
+    <I extends JsonValue, O extends JsonValue>(run: Run<I, O>): Wait<I, O>;
     <Named extends object>(
       values: Named & NamedWaitValidation<Named>,
     ): Wait<NamedWaitInput<Named>, NamedWaitResult<Named>>;
   };
 }
 
-function step<I, O>(definition: StepDefinition<I, O>): Step<I, O> {
+function step<I extends JsonValue, O extends JsonValue>(
+  definition: StepDefinition<I, O>,
+): Step<I, O> {
   const id = definition.id;
   const assignment = normalizeAssignment(definition.assignment);
   const inputCodec = toUnknownCodec(assignment.input);
   const outputCodec = toUnknownCodec(assignment.output);
-  const nodeAssignment: Assignment<unknown, unknown> = {
-    payload: assignment.payload,
+  const nodeAssignment: Assignment<JsonValue, JsonValue> = {
+    ...(assignment.payload === undefined ? {} : { payload: assignment.payload }),
     input: inputCodec,
     output: outputCodec,
     ...(assignment.route === undefined ? {} : { route: assignment.route }),
@@ -334,14 +306,14 @@ function step<I, O>(definition: StepDefinition<I, O>): Step<I, O> {
   );
 }
 
-function queue<I, O, Stages extends readonly unknown[]>(
+function queue<I extends JsonValue, O extends JsonValue, const Stages extends readonly unknown[]>(
   first: Workflow<I, O>,
-  ...stages: Stages
-): Queue<I, unknown>;
-function queue(
-  first: Workflow<unknown, unknown>,
-  ...stages: readonly unknown[]
-): Queue<unknown, unknown> {
+  ...stages: Stages & QueueStageChain<O, Stages>
+): Queue<I, QueueOutput<O, Stages>>;
+function queue<I extends JsonValue, O extends JsonValue, const Stages extends readonly unknown[]>(
+  first: Workflow<I, O>,
+  ...stages: Stages & QueueStageChain<O, Stages>
+): Queue<I, QueueOutput<O, Stages>> {
   let graph = readWorkflowGraph(first);
   for (const stage of stages) {
     const source = graph.output;
@@ -349,20 +321,20 @@ function queue(
     const next = toStageGraph(declaration);
     graph = connectGraphs(graph, next);
   }
-  return new QueueHandle(graph);
+  return new QueueHandle<I, QueueOutput<O, Stages>>(graph);
 }
 
-function start<I, O>(root: Workflow<I, O>): Run<I, O> {
+function start<I extends JsonValue, O extends JsonValue>(root: Workflow<I, O>): Run<I, O> {
   const graph = readWorkflowGraph(root);
   return new RunHandle(graph, stableRunId(graph));
 }
 
-function wait<I, O>(workflowValue: Workflow<I, O>): Wait<I, O>;
-function wait<I, O>(run: Run<I, O>): Wait<I, O>;
+function wait<I extends JsonValue, O extends JsonValue>(workflowValue: Workflow<I, O>): Wait<I, O>;
+function wait<I extends JsonValue, O extends JsonValue>(run: Run<I, O>): Wait<I, O>;
 function wait<Named extends object>(
   values: Named & NamedWaitValidation<Named>,
 ): Wait<NamedWaitInput<Named>, NamedWaitResult<Named>>;
-function wait(input: unknown): Wait<unknown, unknown> {
+function wait(input: unknown): Wait<JsonValue, JsonValue> {
   if (input instanceof Workflow || input instanceof Run) {
     const run = input instanceof Run ? input : start(input);
     const target = targetFromRun(run, "");
@@ -392,27 +364,35 @@ export const workflow: WorkflowDsl = Object.freeze({
   wait,
 });
 
-export function readWorkflowGraph<I, O>(value: Workflow<I, O>): WorkflowGraph {
+export function readWorkflowGraph<I extends JsonValue, O extends JsonValue>(
+  value: Workflow<I, O>,
+): WorkflowGraph {
   return value[workflowGraphSymbol];
 }
 
-export function readRunGraph<I, O>(value: Run<I, O>): WorkflowGraph {
+export function readRunGraph<I extends JsonValue, O extends JsonValue>(
+  value: Run<I, O>,
+): WorkflowGraph {
   return value[runGraphSymbol];
 }
 
-export function readRunId<I, O>(value: Run<I, O>): string {
+export function readRunId<I extends JsonValue, O extends JsonValue>(value: Run<I, O>): string {
   return value[runIdSymbol];
 }
 
-export function readWaitTargets<I, O>(value: Wait<I, O>): readonly WaitTarget[] {
+export function readWaitTargets<I extends JsonValue, O extends JsonValue>(
+  value: Wait<I, O>,
+): readonly WaitTarget[] {
   return value[waitTargetsSymbol];
 }
 
-export function readWaitDecoder<I, O>(value: Wait<I, O>): (value: unknown) => O {
+export function readWaitDecoder<I extends JsonValue, O extends JsonValue>(
+  value: Wait<I, O>,
+): (value: unknown) => O {
   return value[waitDecoderSymbol];
 }
 
-export function readOutputCodec(output: WorkflowOutput): ValueCodec<unknown> {
+export function readOutputCodec(output: WorkflowOutput): ValueCodec<JsonValue> {
   return output.outputCodec;
 }
 
@@ -440,14 +420,16 @@ export function readSymbolicSource(value: object): WorkflowOutput | undefined {
   return symbolicValueBindings.get(value);
 }
 
-function toUnknownCodec<T>(codec: ValueCodec<T>): ValueCodec<unknown> {
+function toUnknownCodec<T extends JsonValue>(codec: ValueCodec<T>): ValueCodec<JsonValue> {
   return Object.freeze({
     name: codec.name,
     decode: (value: unknown) => codec.decode(value),
   });
 }
 
-function normalizeAssignment<I, O>(assignment: Assignment<I, O>): Assignment<I, O> {
+function normalizeAssignment<I extends JsonValue, O extends JsonValue>(
+  assignment: Assignment<I, O>,
+): Assignment<I, O> {
   if (
     typeof assignment !== "object" ||
     assignment === null ||
@@ -466,7 +448,7 @@ function normalizeAssignment<I, O>(assignment: Assignment<I, O>): Assignment<I, 
   const metadata =
     assignment.metadata === undefined ? undefined : Object.freeze({ ...assignment.metadata });
   return Object.freeze({
-    payload: assignment.payload,
+    ...(assignment.payload === undefined ? {} : { payload: assignment.payload }),
     input: assignment.input,
     output: assignment.output,
     ...(assignment.route === undefined ? {} : { route: assignment.route }),
@@ -592,7 +574,10 @@ function outputTargetNodeIds(target: WorkflowOutputTarget): readonly string[] {
     : target.source.targets.flatMap((entry) => outputTargetNodeIds(entry));
 }
 
-function targetFromRun<I, O>(run: Run<I, O>, key: string): WaitTarget {
+function targetFromRun<I extends JsonValue, O extends JsonValue>(
+  run: Run<I, O>,
+  key: string,
+): WaitTarget {
   const graph = readRunGraph(run);
   const output = graph.output;
   return Object.freeze({
@@ -631,22 +616,22 @@ function joinOutput(targets: readonly WorkflowOutputTarget[]): WorkflowOutput {
   });
 }
 
-function joinCodec(targets: readonly WorkflowOutputTarget[]): ValueCodec<unknown> {
+function joinCodec(targets: readonly WorkflowOutputTarget[]): ValueCodec<JsonValue> {
   return Object.freeze({
     name: `join(${targets.map((target) => target.key).join(",")})`,
     decode: (value: unknown) => decodeOutputTargets(value, targets),
   });
 }
 
-function decodeOutput(value: unknown, output: WorkflowOutput): unknown {
+function decodeOutput(value: unknown, output: WorkflowOutput): JsonValue {
   return output.outputCodec.decode(value);
 }
 
-function decodeNamedWait(value: unknown, targets: readonly WaitTarget[]): unknown {
+function decodeNamedWait(value: unknown, targets: readonly WaitTarget[]): JsonValue {
   if (!isRecord(value)) {
     throw new Error("The named workflow result is not an object.");
   }
-  const pairs: Array<readonly [string, unknown]> = [];
+  const pairs: Array<readonly [string, JsonValue]> = [];
   for (const target of targets) {
     if (!(target.key in value)) {
       throw new Error(`The named workflow result is missing ${target.key}.`);
@@ -656,11 +641,11 @@ function decodeNamedWait(value: unknown, targets: readonly WaitTarget[]): unknow
   return Object.fromEntries(pairs);
 }
 
-function decodeOutputTargets(value: unknown, targets: readonly WorkflowOutputTarget[]): unknown {
+function decodeOutputTargets(value: unknown, targets: readonly WorkflowOutputTarget[]): JsonValue {
   if (!isRecord(value)) {
     throw new Error("The workflow join result is not an object.");
   }
-  const pairs: Array<readonly [string, unknown]> = [];
+  const pairs: Array<readonly [string, JsonValue]> = [];
   for (const target of targets) {
     if (!(target.key in value)) {
       throw new Error(`The workflow join result is missing ${target.key}.`);

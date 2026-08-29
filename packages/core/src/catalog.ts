@@ -53,7 +53,7 @@ const effortRank: Readonly<Record<Effort, number>> = {
 export const ROUTE_EFFORT_OVERRIDES = [
   {
     plan: "plus-low",
-    rationale: "Preserve the approved HolyCodex 0.14.1 plus-low route effort policy.",
+    rationale: "Preserve the approved plus-low route effort policy.",
     efforts: {
       "Explorer:lookup": "medium",
       "Explorer:trace": "high",
@@ -70,7 +70,7 @@ export const ROUTE_EFFORT_OVERRIDES = [
   },
   {
     plan: "plus",
-    rationale: "Preserve the approved HolyCodex 0.14.1 plus route effort policy.",
+    rationale: "Preserve the approved plus route effort policy.",
     efforts: {
       "Explorer:lookup": "medium",
       "Explorer:trace": "high",
@@ -87,7 +87,7 @@ export const ROUTE_EFFORT_OVERRIDES = [
   },
   {
     plan: "plus-high",
-    rationale: "Preserve the approved HolyCodex 0.14.1 plus-high route effort policy.",
+    rationale: "Preserve the approved plus-high route effort policy.",
     efforts: {
       "Explorer:lookup": "medium",
       "Explorer:trace": "xhigh",
@@ -104,7 +104,7 @@ export const ROUTE_EFFORT_OVERRIDES = [
   },
   {
     plan: "pro-5x",
-    rationale: "Preserve the approved HolyCodex 0.14.1 pro-5x route effort policy.",
+    rationale: "Preserve the approved pro-5x route effort policy.",
     efforts: {
       "Explorer:lookup": "high",
       "Explorer:trace": "xhigh",
@@ -121,7 +121,7 @@ export const ROUTE_EFFORT_OVERRIDES = [
   },
   {
     plan: "pro-20x",
-    rationale: "Preserve the approved HolyCodex 0.14.1 pro-20x route effort policy.",
+    rationale: "Preserve the approved pro-20x route effort policy.",
     efforts: {
       "Explorer:lookup": "high",
       "Explorer:trace": "xhigh",

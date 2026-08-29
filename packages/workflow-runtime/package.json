@@ -7,8 +7,8 @@
   },
   "dependencies": {
     "@holycodex/core": "workspace:*",
-    "effect": "3.22.1",
-    "quickjs-emscripten": "0.32.0",
-    "typescript": "^7.0.0"
+    "effect": "catalog:",
+    "quickjs-emscripten": "catalog:",
+    "typescript": "catalog:"
   }
 }

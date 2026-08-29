@@ -3,6 +3,7 @@
 import type {
   DelegationMode,
   JsonObject,
+  JsonValue,
   PlanDefinition,
   RouteKey,
   ServiceTier,
@@ -79,7 +80,7 @@ export type SpecialistAssignment = Readonly<{
 
 export type SpecialistExecutor = (assignment: SpecialistAssignment) => unknown;
 
-export type WorkflowDefinition = Wait<unknown, unknown> | NativeWorkflow;
+export type WorkflowDefinition = Wait<JsonValue, JsonValue> | NativeWorkflow;
 export type WorkflowExecutionMode = "native" | "compatibility";
 export type WorkflowHostServices = RuntimeWorkflowHostServices;
 export type HostApprovalDecision = "approved" | "denied";
@@ -137,6 +138,10 @@ export type WorkflowHostOptions = Readonly<{
   readonly approvalPolicy?: string;
   readonly sandboxPolicy?: string;
   readonly codexCapabilityDigest?: string;
+  /** Canonical HolyCodex version supplied by the CLI composition root. */
+  readonly canonicalVersion?: string;
+  /** Platform identity used to select exact conditional tool instructions. */
+  readonly platform?: "win32" | "posix";
   readonly telemetry?: TelemetrySink;
   readonly refinementsEnabled?: boolean;
 }>;
@@ -294,6 +299,8 @@ export type HostContext = {
   readonly approvalPolicy: string;
   readonly sandboxPolicy: string;
   readonly codexCapabilityDigest: string;
+  readonly canonicalVersion: string | undefined;
+  readonly platform: "win32" | "posix";
   readonly telemetry: TelemetrySink | undefined;
   readonly refinementsEnabled: boolean;
   readonly pending: Map<string, PendingRun>;

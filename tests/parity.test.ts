@@ -90,7 +90,7 @@ describe("0.15 foundation parity contract", () => {
     expect(rootManifest).not.toContain('"arktype"');
     expect(rootManifest).toContain('"packageManager": "bun@1.4.0"');
     expect(mise).toContain('bun = "1.4"');
-    expect(coreManifest).toContain('"effect": "3.22.1"');
+    expect(coreManifest).toContain('"effect": "catalog:"');
     expect(coreManifest).not.toContain("arktype");
     expect(coreSources.join("\n")).toContain('from "effect/Schema"');
     expect(coreSources.join("\n")).not.toMatch(/arktype|ArkType/u);
@@ -133,7 +133,7 @@ describe("0.15 foundation parity contract", () => {
     expect(help.exitCode).toBe(0);
     expect(help.envelope.ok).toBe(true);
     if (help.envelope.ok) {
-      expect(JSON.stringify(help.envelope.data)).toContain("compatibility-only");
+      expect(JSON.stringify(help.envelope.data)).toContain("capability-denied QuickJS");
     }
 
     const manifestRaw: unknown = JSON.parse(
@@ -177,11 +177,11 @@ describe("0.15 foundation parity contract", () => {
     expect(pathWithin(windowsRoot, "C:\\Users\\fixture\\.codex\\runs", "win32")).toBe(true);
 
     const [hooks, rules, compaction] = await Promise.all([
-      readFile(resolve(workspaceRoot, "packages/plugin/assets/hooks/manifest.json"), "utf8"),
+      readFile(resolve(workspaceRoot, "packages/plugin/assets/hooks/hooks.json"), "utf8"),
       readFile(resolve(workspaceRoot, "packages/plugin/assets/rules/manifest.json"), "utf8"),
       readFile(resolve(workspaceRoot, "packages/plugin/assets/compaction/manifest.json"), "utf8"),
     ]);
-    expect(hooks).toContain("install-complete");
+    expect(hooks).toContain("SessionStart");
     expect(rules).toContain("rules/holycodex.md");
     expect(compaction).toContain("verification");
   });
@@ -196,7 +196,8 @@ describe("0.15 foundation parity contract", () => {
       "packages/codex/test/fixtures/codex-cli-0.148.0/capability-v1-fallback.ndjson",
       "packages/codex/test/fixtures/codex-cli-0.148.0/capability-v2-disabled.ndjson",
       "packages/codex/test/fixtures/codex-cli-0.148.0/capability-v2-advertised.ndjson",
-      "packages/plugin/assets/hooks/manifest.json",
+      "packages/plugin/assets/hooks/hooks.json",
+      "packages/plugin/assets/hooks/version.ts",
       "packages/plugin/assets/rules/manifest.json",
       "packages/plugin/assets/compaction/manifest.json",
       "tests/fixtures/effect-promise-adapters.json",

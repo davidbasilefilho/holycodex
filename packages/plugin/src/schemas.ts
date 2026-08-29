@@ -9,7 +9,6 @@ import {
   EPOCH_PATTERN,
   PAYLOAD_MANIFEST_PATH,
   PLUGIN_NAME_PATTERN,
-  SKILL_NAME_PATTERN,
   SOURCE_MANIFEST_PATH,
   VERSION_PATTERN,
 } from "./constants.ts";
@@ -17,7 +16,6 @@ import { pluginError } from "./errors.ts";
 import { normalizeRelativePath } from "./source.ts";
 
 const PluginNameSchema = Schema.String.pipe(Schema.pattern(PLUGIN_NAME_PATTERN));
-const SkillNameSchema = Schema.String.pipe(Schema.pattern(SKILL_NAME_PATTERN));
 const VersionSchema = Schema.String.pipe(Schema.pattern(VERSION_PATTERN));
 const SchemaEpochSchema = Schema.String.pipe(Schema.pattern(EPOCH_PATTERN));
 const DigestSchema = Schema.String.pipe(Schema.pattern(DIGEST_PATTERN));
@@ -34,9 +32,21 @@ const PathSchema = Schema.String.pipe(
 const DescriptionSchema = Schema.String.pipe(
   Schema.filter((value) => value.length > 0 && value.length <= 300),
 );
-const SkillNamesSchema = Schema.Array(SkillNameSchema);
-const AssetPathsSchema = Schema.Array(PathSchema);
-const CapabilityAssetPathsSchema = Schema.Array(PathSchema);
+const SkillRootSchema = Schema.Literal("skills", "./skills", "skills/");
+const AuthorSchema = Schema.Struct({
+  name: Schema.String.pipe(Schema.minLength(1)),
+  email: Schema.optional(Schema.String),
+  url: Schema.optional(Schema.String),
+});
+const InterfaceSchema = Schema.Struct({
+  displayName: Schema.String.pipe(Schema.minLength(1)),
+  shortDescription: Schema.String.pipe(Schema.minLength(1)),
+  longDescription: Schema.String.pipe(Schema.minLength(1)),
+  developerName: Schema.String.pipe(Schema.minLength(1)),
+  category: Schema.String.pipe(Schema.minLength(1)),
+  capabilities: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
+  defaultPrompt: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
+});
 export const PonytailMetadataSchema = Schema.Struct({
   name: Schema.Literal("ponytail"),
   version: Schema.Literal("4.9.0"),
@@ -55,13 +65,15 @@ export type PonytailMetadata = typeof PonytailMetadataSchema.Type;
 
 export const SourceManifestSchema = Schema.Struct({
   name: PluginNameSchema,
+  version: VersionSchema,
   description: DescriptionSchema,
+  author: AuthorSchema,
+  homepage: Schema.optional(Schema.String),
+  repository: Schema.optional(Schema.String),
   license: Schema.optional(Schema.String),
-  skills: Schema.optional(SkillNamesSchema),
-  assets: Schema.optional(AssetPathsSchema),
-  hooks: Schema.optional(CapabilityAssetPathsSchema),
-  rules: Schema.optional(CapabilityAssetPathsSchema),
-  compaction: Schema.optional(CapabilityAssetPathsSchema),
+  keywords: Schema.optional(Schema.Array(Schema.String.pipe(Schema.minLength(1)))),
+  skills: SkillRootSchema,
+  interface: InterfaceSchema,
 });
 export type SourceManifest = typeof SourceManifestSchema.Type;
 
@@ -69,12 +81,13 @@ export const GeneratedManifestSchema = Schema.Struct({
   name: PluginNameSchema,
   version: VersionSchema,
   description: DescriptionSchema,
+  author: AuthorSchema,
+  homepage: Schema.optional(Schema.String),
+  repository: Schema.optional(Schema.String),
   license: Schema.optional(Schema.String),
-  skills: Schema.optional(SkillNamesSchema),
-  assets: Schema.optional(AssetPathsSchema),
-  hooks: Schema.optional(CapabilityAssetPathsSchema),
-  rules: Schema.optional(CapabilityAssetPathsSchema),
-  compaction: Schema.optional(CapabilityAssetPathsSchema),
+  keywords: Schema.optional(Schema.Array(Schema.String.pipe(Schema.minLength(1)))),
+  skills: SkillRootSchema,
+  interface: InterfaceSchema,
 });
 export type GeneratedManifest = typeof GeneratedManifestSchema.Type;
 export const SourcePluginManifestSchema = SourceManifestSchema;
@@ -179,6 +192,17 @@ export async function readSourceManifest(root: string): Promise<SourceManifest> 
       "Plugin source manifests cannot declare external servers.",
     );
   }
+  if (
+    typeof input === "object" &&
+    input !== null &&
+    !Array.isArray(input) &&
+    Object.keys(input).some((key) => !OFFICIAL_MANIFEST_KEYS.has(key))
+  ) {
+    throw pluginError(
+      "manifest_invalid",
+      "The source plugin manifest contains unsupported fields.",
+    );
+  }
   validateManifestDeclarations(parsed);
   return parsed;
 }
@@ -240,50 +264,46 @@ export async function readPayloadManifest(root: string): Promise<PayloadManifest
 }
 
 export function validateManifestDeclarations(manifest: SourceManifest | GeneratedManifest): void {
-  const skills = manifest.skills ?? [];
-  const assets = manifest.assets ?? [];
-  const hooks = manifest.hooks ?? [];
-  const rules = manifest.rules ?? [];
-  const compaction = manifest.compaction ?? [];
-  const declared = [...assets, ...hooks, ...rules, ...compaction];
-  if (new Set(skills).size !== skills.length || new Set(declared).size !== declared.length) {
-    throw pluginError("manifest_invalid", "Manifest asset declarations must be unique.");
-  }
-  const seen = new Set<string>();
-  for (const asset of declared) {
-    const normalized = normalizeRelativePath(asset);
-    if (normalized === SOURCE_MANIFEST_PATH || normalized === PAYLOAD_MANIFEST_PATH) {
-      throw pluginError("manifest_invalid", "Generated metadata paths are reserved.", {
-        path: normalized,
-      });
-    }
-    if (seen.has(normalized)) {
-      throw pluginError("manifest_invalid", "Manifest asset declarations must be canonical.", {
-        path: normalized,
-      });
-    }
-    seen.add(normalized);
+  if (
+    manifest.skills !== "skills" &&
+    manifest.skills !== "./skills" &&
+    manifest.skills !== "skills/"
+  ) {
+    throw pluginError("manifest_invalid", "The plugin skills path must resolve to `skills`.");
   }
 }
 
-export function declaredSourcePaths(manifest: SourceManifest): Set<string> {
+export function declaredSourcePaths(
+  _manifest: SourceManifest | GeneratedManifest,
+  candidates: readonly string[] = [],
+): Set<string> {
   const paths = new Set<string>([SOURCE_MANIFEST_PATH]);
-  for (const asset of manifest.assets ?? []) {
-    paths.add(normalizeRelativePath(asset));
-  }
-  for (const skill of manifest.skills ?? []) {
-    paths.add(`skills/${skill}/SKILL.md`);
-    paths.add(`skills/${skill}/agents/openai.yaml`);
-  }
-  for (const path of [
-    ...(manifest.assets ?? []),
-    ...(manifest.hooks ?? []),
-    ...(manifest.rules ?? []),
-    ...(manifest.compaction ?? []),
-  ]) {
-    paths.add(normalizeRelativePath(path));
+  for (const candidate of candidates) {
+    const normalized = normalizeRelativePath(candidate);
+    if (isPayloadAssetPath(normalized)) {
+      paths.add(normalized);
+    }
   }
   return paths;
+}
+
+const OFFICIAL_MANIFEST_KEYS = new Set([
+  "name",
+  "version",
+  "description",
+  "author",
+  "homepage",
+  "repository",
+  "license",
+  "keywords",
+  "skills",
+  "interface",
+]);
+
+function isPayloadAssetPath(path: string): boolean {
+  return ["agents/", "skills/", "hooks/", "rules/", "compaction/"].some((prefix) =>
+    path.startsWith(prefix),
+  );
 }
 
 export function isUsableDirectoryText(value: string): boolean {

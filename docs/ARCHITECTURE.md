@@ -29,9 +29,9 @@ capability metadata, assignment defaults, skill applicability, and permissions
 derive from that registry.
 `codex` owns App Server transport, exact-binary capability validation,
 project/trust identity, Codex configuration ownership, and official-plugin
-verification. `workflow-runtime` owns the production Effect workflow runtime,
-the isolated TypeScript evaluator, its inert workflow API, and the explicit
-QuickJS compatibility evaluator; it owns no routing or host policy. `workflow-host`
+verification. `workflow-runtime` owns the production capability-denied QuickJS
+TypeScript evaluator, its inert workflow API, Effect service boundaries, and
+deterministic four-primitive mechanics; it owns no routing or host policy. `workflow-host`
 owns orchestration, plan enforcement, journals, checkpoints, replay, retained
 specialists, continuation, refinements, and sanitized telemetry. `plugin` is
 private source and generation for independently authored installed assets.

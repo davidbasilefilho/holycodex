@@ -51,6 +51,7 @@ import { loadNativeWorkflowSource, type NativeWorkflow } from "@holycodex/workfl
 import { readFile, stat } from "node:fs/promises";
 import { basename, extname, relative, resolve } from "node:path";
 import { resolveInstallerPaths } from "./paths.ts";
+import { readCanonicalVersion } from "./manifest.ts";
 import { readActiveInstallRecord } from "./installer.ts";
 import type {
   CliContext,
@@ -93,8 +94,45 @@ export async function executeWorkflowCommand(
   parsed: ParsedCommand,
   context: CliContext,
 ): Promise<JsonValue> {
-  const service = context.workflowService ?? (await createDefaultWorkflowService(context, parsed));
+  const service: WorkflowService =
+    parsed.command === "workflow create" || parsed.command === "workflow check"
+      ? (context.workflowService ?? {})
+      : (context.workflowService ?? (await createDefaultWorkflowService(context, parsed)));
   switch (parsed.command) {
+    case "workflow create": {
+      const source = await readWorkflowSource(
+        parsed.positionals[0] ?? "",
+        parsed.positionals[1],
+        parsed,
+        context,
+      );
+      const validated = await loadNativeWorkflowSource({ source: source.source });
+      validated.dispose();
+      const sessionId = optionString(parsed, "session-id") ?? context.workflowSessionId;
+      const name = optionString(parsed, "name") ?? context.workflowName;
+      const materialized = await materializeGeneratedWorkflow(source, {
+        ...context,
+        ...(sessionId === undefined ? {} : { workflowSessionId: sessionId }),
+        ...(name === undefined ? {} : { workflowName: name }),
+      });
+      await materialized.store.setSessionActivity(materialized.sessionId, false);
+      const stored = await materialized.store.read(materialized.source.path ?? "");
+      return asJsonValue(stored.metadata);
+    }
+    case "workflow check": {
+      const source = await readWorkflowSource(
+        parsed.positionals[0] ?? "",
+        undefined,
+        parsed,
+        context,
+      );
+      const workflow = await loadNativeWorkflow(source);
+      try {
+        return asJsonValue({ valid: true, execution_mode: "native", source_path: source.path });
+      } finally {
+        workflow.dispose();
+      }
+    }
     case "workflow run": {
       let workflow = await readWorkflowSource(
         parsed.positionals[0] ?? "",
@@ -102,8 +140,7 @@ export async function executeWorkflowCommand(
         parsed,
         context,
       );
-      const compatibility = parsed.options["compat-quickjs"] === true;
-      const nativeRequested = context.workflowService === undefined && !compatibility;
+      const nativeRequested = context.workflowService === undefined;
       const generatedStore =
         context.workflowService === undefined && workflow.path === null
           ? await materializeGeneratedWorkflow(workflow, context)
@@ -162,7 +199,6 @@ export async function executeWorkflowCommand(
             ? {}
             : { sourcePath: workflow.path }),
           ...(nativeWorkflow === undefined ? {} : { workflow: nativeWorkflow }),
-          ...(compatibility ? { compatibility: true } : {}),
         });
         return asJsonValue(execution);
       } finally {
@@ -194,8 +230,7 @@ export async function executeWorkflowCommand(
         context,
       );
       await assertResumeInputIdentity(service, runId, workflow);
-      const compatibility = parsed.options["compat-quickjs"] === true;
-      const nativeRequested = context.workflowService === undefined && !compatibility;
+      const nativeRequested = context.workflowService === undefined;
       const generatedStore =
         context.workflowService === undefined && workflow.path === null
           ? await materializeGeneratedWorkflow(workflow, context)
@@ -226,7 +261,6 @@ export async function executeWorkflowCommand(
               ? {}
               : { sourcePath: workflow.path }),
             ...(nativeWorkflow === undefined ? {} : { workflow: nativeWorkflow }),
-            ...(compatibility ? { compatibility: true } : {}),
           }),
         );
       } finally {
@@ -252,7 +286,6 @@ export async function executeWorkflowCommand(
           runId,
           source: workflow.source,
           args: workflow.args,
-          ...(parsed.options["compat-quickjs"] === true ? { compatibility: true } : {}),
         }),
       );
     }
@@ -384,15 +417,13 @@ export async function readWorkflowSource(
     );
   }
   const path = resolve(context.cwd ?? process.cwd(), reference);
-  const generatedStore = new GeneratedWorkflowStore(
-    resolveWorkflowInstallerPaths(context.installer, context.env).stateRoot,
-    {
-      ...(context.now === undefined ? {} : { now: context.now }),
-      ...(context.generatedWorkflowBoundary === undefined
-        ? {}
-        : { boundary: context.generatedWorkflowBoundary }),
-    },
-  );
+  const generatedPaths = resolveWorkflowInstallerPaths(context.installer, context.env);
+  const generatedStore = new GeneratedWorkflowStore(generatedPaths.codexHome, {
+    ...(context.now === undefined ? {} : { now: context.now }),
+    ...(context.generatedWorkflowBoundary === undefined
+      ? {}
+      : { boundary: context.generatedWorkflowBoundary }),
+  });
   if (generatedStore.ownsPath(path)) {
     try {
       const stored = await generatedStore.read(path);
@@ -435,7 +466,7 @@ export async function loadNativeWorkflow(source: WorkflowSource): Promise<Native
   if (source.path === null) {
     throw new WorkflowCommandError(
       "invalid_argument",
-      "Native workflows require a trusted TypeScript file; use --compat-quickjs with stdin.",
+      "Workflows require a trusted TypeScript file; use workflow create for generated sources.",
     );
   }
   try {
@@ -502,7 +533,7 @@ async function materializeGeneratedWorkflow(
     );
   }
   const paths = resolveWorkflowInstallerPaths(context.installer, context.env);
-  const store = new GeneratedWorkflowStore(paths.stateRoot, {
+  const store = new GeneratedWorkflowStore(paths.codexHome, {
     ...(context.now === undefined ? {} : { now: context.now }),
     ...(context.generatedWorkflowBoundary === undefined
       ? {}
@@ -648,6 +679,8 @@ export async function createDefaultWorkflowService(
       costMax: planDefinition.value.budget.costMax,
     },
     refinementsEnabled: true,
+    canonicalVersion: await readCanonicalVersion(),
+    platform: process.platform === "win32" ? "win32" : "posix",
   };
   const host = new WorkflowHost(hostOptions);
   return {
@@ -684,23 +717,25 @@ export async function createDefaultWorkflowService(
     stopAgent: async (runId, callId) => await host.stopAgent(runId, callId),
     save: async (scope, name, source) =>
       await saveWorkflow(stateRoot, scope, name, source, cwd, context.now ?? (() => new Date())),
-    invoke: async (scope, name, args, useCompatibility = false) => {
+    invoke: async (scope, name, args, _compatibilityAlias = false) => {
       const saved = await readSavedWorkflow(stateRoot, scope, name, cwd);
-      if (!useCompatibility) {
-        throw new WorkflowCommandError(
-          "invalid_argument",
-          "Saved native workflows require a file-backed module; invoke with --compat-quickjs for stored source.",
+      const workflow = await loadNativeWorkflowSource({ source: saved.source });
+      try {
+        const created = await host.create({
+          source: saved.source,
+          args,
+          objective: `workflow:${saved.name}`,
+          plan,
+          serviceTier,
+          expectedConcurrency: maxSubagents,
+          workflow,
+        });
+        return asJsonValue(
+          await host.run({ runId: created.run_id, source: saved.source, args, workflow }),
         );
+      } finally {
+        workflow.dispose();
       }
-      const created = await host.create({
-        source: saved.source,
-        args,
-        objective: `workflow:${saved.name}`,
-        plan,
-        serviceTier,
-        expectedConcurrency: maxSubagents,
-      });
-      return asJsonValue(await host.run({ runId: created.run_id, source: saved.source, args }));
     },
     refinements: {
       list: async () => await listRefinements(stateRoot),
@@ -723,13 +758,7 @@ function resolveWorkflowInstallerPaths(
   installer: InstallerOptions | undefined,
   environment: Readonly<Record<string, string | undefined>> | undefined,
 ) {
-  const codexHome =
-    installer?.paths?.codexHome ?? environment?.["CODEX_HOME"] ?? resolve(process.cwd(), ".codex");
-  const marketplaceRoot =
-    installer?.paths?.marketplaceRoot ??
-    environment?.["HOLYCODEX_MARKETPLACE_ROOT"] ??
-    resolve(process.cwd(), ".marketplace");
-  return resolveInstallerPaths({ paths: { codexHome, marketplaceRoot } }, environment);
+  return resolveInstallerPaths(installer, environment);
 }
 
 export async function invokeWorkflowCapability(

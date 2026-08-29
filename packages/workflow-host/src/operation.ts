@@ -17,6 +17,7 @@ import { decodeHostSchema, type RunDefinition } from "./schemas.ts";
 import { WorkflowHostError } from "./errors.ts";
 import {
   admitOperationEvent,
+  asJsonValue,
   findOperationEvent,
   inputDigest,
   jsonObject,
@@ -258,8 +259,14 @@ export async function handleOperation(
         rawOutcome = await Effect.runPromise(
           agent.execute({
             payload: { objective: operation.prompt, options },
-            input: { name: "json", decode: (value: unknown): unknown => value },
-            output: { name: "json", decode: (value: unknown): unknown => value },
+            input: {
+              name: "json",
+              decode: (value: unknown): JsonValue => asJsonValue(value, "operation input"),
+            },
+            output: {
+              name: "json",
+              decode: (value: unknown): JsonValue => asJsonValue(value, "operation output"),
+            },
             metadata: { id: operationId },
             route,
           }),

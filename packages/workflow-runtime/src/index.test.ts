@@ -4,6 +4,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { describe, expect, test } from "vite-plus/test";
+import type { JsonValue } from "@holycodex/core";
 import {
   compileWorkflow,
   createCodec,
@@ -48,34 +49,38 @@ const pairCodec = createCodec(
   },
 );
 
-function descriptor<I, O>(
+function descriptor<I extends JsonValue, O extends JsonValue>(
   input: ValueCodec<I>,
   output: ValueCodec<O>,
-  payload?: unknown,
+  payload?: JsonValue,
 ): Assignment<I, O> {
-  return { input, output, payload };
+  return {
+    input,
+    output,
+    ...(payload === undefined ? {} : { payload }),
+  };
 }
 
-function assignmentResult(assignment: Assignment<unknown, unknown>): unknown {
+function assignmentResult(assignment: Assignment<JsonValue, JsonValue>): unknown {
   const payload = assignment.payload;
   if (assignment.output.name === "number") {
     if (typeof payload === "number") {
       return payload + 1;
     }
     if (typeof payload === "object" && payload !== null && "value" in payload) {
-      const value = payload.value;
+      const value = payload["value"];
       if (typeof value === "number") {
-        return payload && "op" in payload && payload.op === "double" ? value * 2 : value + 1;
+        return payload && "op" in payload && payload["op"] === "double" ? value * 2 : value + 1;
       }
       if (
         typeof value === "object" &&
         value !== null &&
         "left" in value &&
         "right" in value &&
-        typeof value.left === "number" &&
-        typeof value.right === "number"
+        typeof value["left"] === "number" &&
+        typeof value["right"] === "number"
       ) {
-        return value.left + value.right;
+        return value["left"] + value["right"];
       }
     }
   }
@@ -84,7 +89,15 @@ function assignmentResult(assignment: Assignment<unknown, unknown>): unknown {
       return `value:${payload}`;
     }
     if (typeof payload === "object" && payload !== null && "value" in payload) {
-      return `value:${String(payload.value)}`;
+      const value = payload["value"];
+      if (
+        value === null ||
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+      ) {
+        return `value:${String(value)}`;
+      }
     }
   }
   throw new Error("unexpected fixture assignment payload");
@@ -92,7 +105,7 @@ function assignmentResult(assignment: Assignment<unknown, unknown>): unknown {
 
 function fixtureServices(
   execute: (
-    assignment: Assignment<unknown, unknown>,
+    assignment: Assignment<JsonValue, JsonValue>,
   ) => Effect.Effect<unknown, import("./index.ts").WorkflowFailure> = (assignment) =>
     Effect.try({
       try: () => assignmentResult(assignment),
@@ -107,7 +120,7 @@ function fixtureServices(
   return { agent: { execute } };
 }
 
-async function prepare<I, T>(
+async function prepare<I extends JsonValue, T extends JsonValue>(
   terminal: Wait<I, T>,
   input: unknown,
   services: WorkflowHostServices = fixtureServices(),
@@ -140,7 +153,7 @@ describe("workflow 0.15 DSL and Effect runtime", () => {
       assignment: descriptor(numberCodec, numberCodec),
     });
     const terminal = workflow.wait(
-      workflow.queue(first, (value) =>
+      workflow.queue(first, (value: number) =>
         workflow.step({
           id: "second",
           assignment: descriptor(numberCodec, numberCodec, { op: "double", value }),
@@ -216,7 +229,7 @@ describe("workflow 0.15 DSL and Effect runtime", () => {
       workflow.queue(
         seed,
         () => branch,
-        (value) =>
+        (value: { readonly left: number; readonly right: number }) =>
           workflow.step({
             id: "join-next",
             assignment: descriptor(pairCodec, numberCodec, { value }),

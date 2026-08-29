@@ -2,7 +2,7 @@
 
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "vite-plus/test";
 import { APPROVAL_POLICY_GUIDANCE } from "@holycodex/core";
 import {
@@ -18,8 +18,37 @@ import {
   verifyPonytailMetadata,
 } from "./index";
 import { normalizeRelativePath } from "./source.ts";
+import {
+  readInstalledPluginVersion,
+  renderSessionStartOutput,
+  renderVersionContext,
+} from "../assets/hooks/version.ts";
 
 describe("plugin source assets", () => {
+  test("renders the SessionStart version context for each platform", async () => {
+    const version = await readInstalledPluginVersion(pluginSourceRoot);
+    expect(version).toMatch(/^\d+\.\d+\.\d+$/u);
+    expect(renderVersionContext(version, "linux")).toBe(`HolyCodex ${version}.`);
+    expect(renderVersionContext(version, "win32")).toBe(
+      `HolyCodex ${version}. Use C:/Program Files/Git/bin/bash.exe for every shell command.`,
+    );
+    expect(renderSessionStartOutput(version, "linux")).toContain('"hookEventName":"SessionStart"');
+    const hooks = await readFile(join(pluginSourceRoot, "hooks", "hooks.json"), "utf8");
+    expect(hooks).toContain('"SessionStart"');
+    expect(hooks).toContain('"command": "bun \\\"${PLUGIN_ROOT}/hooks/version.ts\\\""');
+    expect(hooks).toContain('"commandWindows": "\\"C:/Program Files/Git/bin/bash.exe\\" -lc');
+  });
+
+  test("keeps the checked-in Codex manifest on the canonical CLI version", async () => {
+    const pluginManifest = JSON.parse(
+      await readFile(join(pluginSourceRoot, ".codex-plugin", "plugin.json"), "utf8"),
+    ) as { readonly version?: unknown };
+    const cliManifest = JSON.parse(
+      await readFile(resolve(pluginSourceRoot, "../../cli/package.json"), "utf8"),
+    ) as { readonly version?: unknown };
+    expect(pluginManifest.version).toBe(cliManifest.version);
+  });
+
   test("validates the complete owned source and independent capability roles", async () => {
     const source = await validateSource(pluginSourceRoot);
     expect(source.manifest.name).toBe("holycodex");
@@ -63,7 +92,10 @@ describe("plugin source assets", () => {
 
   test("keeps skill frontmatter, metadata, invocation, and server declarations in policy", async () => {
     const source = await validateSource(pluginSourceRoot);
-    const skills = source.manifest.skills ?? [];
+    const skills = source.files
+      .map((file) => /^skills\/([^/]+)\/SKILL\.md$/u.exec(file.path)?.[1])
+      .filter((skill): skill is string => skill !== undefined);
+    expect(source.manifest.skills).toBe("./skills");
     expect(skills).toHaveLength(19);
     for (const skill of skills) {
       const body = await readFile(join(pluginSourceRoot, "skills", skill, "SKILL.md"), "utf8");
@@ -81,6 +113,12 @@ describe("plugin source assets", () => {
         expect(body).toContain("Boundary:");
         expect(body).toContain("Completion:");
       }
+      if (skill === "writing-for-agents") {
+        expect(body).toContain("Objective and outcome");
+        expect(body).toContain("For Sol");
+        expect(body).toContain("For Luna");
+        expect(body).toContain("Matt Pocock");
+      }
       expect(metadata).toContain("interface:");
       expect(metadata).toContain("default_prompt:");
       expect(metadata).toMatch(/allow_implicit_invocation: (true|false)/u);
@@ -92,13 +130,8 @@ describe("plugin source assets", () => {
       "utf8",
     );
     expect(babysitMetadata).toContain("allow_implicit_invocation: false");
-    expect(source.manifest.hooks).toEqual(["hooks/manifest.json"]);
-    expect(source.manifest.rules).toEqual(["rules/manifest.json", "rules/holycodex.md"]);
-    expect(source.manifest.compaction).toEqual([
-      "compaction/manifest.json",
-      "compaction/holycodex.md",
-    ]);
-    expect(source.files.map((file) => file.path)).toContain("hooks/manifest.json");
+    expect(source.files.map((file) => file.path)).toContain("hooks/hooks.json");
+    expect(source.files.map((file) => file.path)).toContain("hooks/version.ts");
     expect(source.files.map((file) => file.path)).toContain("rules/holycodex.md");
     expect(source.files.map((file) => file.path)).toContain("compaction/holycodex.md");
   });
@@ -148,7 +181,7 @@ describe("deterministic payload assembly", () => {
       const stagedManifest = JSON.parse(
         await readFile(join(stagingA, sourceManifestPath), "utf8"),
       ) as Record<string, unknown>;
-      expect(sourceManifest["version"]).toBeUndefined();
+      expect(sourceManifest["version"]).toBe("0.1.0");
       expect(stagedManifest["version"]).toBe("0.1.0");
       const verified = await verifyPayload(stagingA);
       expect(verified.identity).toEqual(first.identity);
@@ -212,7 +245,7 @@ describe("deterministic payload assembly", () => {
       await writeFile(join(secretRoot, ".env"), "secret=true\n");
       await expect(validateSource(secretRoot)).rejects.toMatchObject({ code: "path_invalid" });
 
-      await rm(join(missingRoot, "agents", "worker.md"));
+      await rm(join(missingRoot, "skills", "sample", "SKILL.md"));
       await expect(validateSource(missingRoot)).rejects.toMatchObject({ code: "source_invalid" });
 
       await writeFile(join(extraRoot, "extra.md"), "extra\n");
@@ -271,9 +304,19 @@ async function createFixture(): Promise<string> {
     `${JSON.stringify(
       {
         name: "sample-plugin",
+        version: "0.1.0",
         description: "A deterministic fixture.",
-        skills: ["sample"],
-        assets: ["agents/worker.md"],
+        author: { name: "Fixture Author" },
+        skills: "./skills",
+        interface: {
+          displayName: "Sample",
+          shortDescription: "Sample fixture.",
+          longDescription: "Sample fixture plugin.",
+          developerName: "Fixture Author",
+          category: "Developer Tools",
+          capabilities: ["Skills"],
+          defaultPrompt: ["Use the sample fixture."],
+        },
       },
       null,
       2,
@@ -294,8 +337,19 @@ async function setManifestAssets(root: string, assets: readonly string[]): Promi
     `${JSON.stringify(
       {
         name: "sample-plugin",
+        version: "0.1.0",
         description: "A deterministic fixture.",
-        skills: ["sample"],
+        author: { name: "Fixture Author" },
+        skills: assets[0] ?? "./skills",
+        interface: {
+          displayName: "Sample",
+          shortDescription: "Sample fixture.",
+          longDescription: "Sample fixture plugin.",
+          developerName: "Fixture Author",
+          category: "Developer Tools",
+          capabilities: ["Skills"],
+          defaultPrompt: ["Use the sample fixture."],
+        },
         assets,
       },
       null,

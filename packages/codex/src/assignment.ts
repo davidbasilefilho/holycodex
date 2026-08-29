@@ -158,6 +158,9 @@ export const SemanticAssignmentPacketSchema = Schema.Struct({
   security: SecurityPolicySchema,
   compatibility: CompatibilityPacketSchema,
   skill_profile: Schema.Union(RoleSkillProfileSchema, Schema.Null),
+  /** Runtime metadata supplied by the host; never hardcode release or platform values here. */
+  canonical_version: Schema.optional(TextSchema),
+  platform: Schema.optional(Schema.Literal("win32", "posix")),
   capability_input: Schema.optional(JsonObjectSchema),
   retained_context: Schema.optional(RetainedContextSchema),
 });
@@ -180,8 +183,14 @@ export function compileSpecialistAssignment(packet: SemanticAssignmentPacket): s
     `Assignment ID: ${packet.assignment.id}`,
     `Objective: ${packet.assignment.objective}`,
     `Role/task: ${packet.assignment.role_task.role}/${packet.assignment.role_task.task}`,
+    ...(packet.canonical_version === undefined
+      ? []
+      : [`Canonical version: ${packet.canonical_version}`]),
     `Authority: ${packet.assignment.authority}`,
   ];
+  if (packet.platform === "win32") {
+    lines.push("Use C:/Program Files/Git/bin/bash.exe for every shell command.");
+  }
   const retained = completeRetainedContext(packet.retained_context);
   if (packet.skill_profile !== null && retained === undefined) {
     lines.push(`Skill reference: ${packet.skill_profile.reference}`);
@@ -204,7 +213,7 @@ export function compileSpecialistAssignment(packet: SemanticAssignmentPacket): s
   lines.push(
     `Outcome protocol: ${SPECIALIST_OUTCOME_VERSION}; terminal shapes: completed {protocol_version,route,evidence,status,summary}; blocked {protocol_version,route,evidence,status,reason,needs_root_decision}; partial {protocol_version,route,evidence,status,summary,completed,remaining,needs_root_decision}; failed {protocol_version,route,evidence,status,error}.`,
   );
-  lines.push("Boundary: Do not delegate or broaden scope; return material choices to Root.");
+  lines.push("Boundary: Stay within the assigned scope and return material choices to Root.");
   return lines.join("\n");
 }
 

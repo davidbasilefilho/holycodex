@@ -35,8 +35,19 @@ export async function validateSource(input: unknown = pluginSourceRoot): Promise
   await walkSource(root, "", walkedFiles);
 
   const manifest = await readSourceManifest(root);
-  const declaredPaths = declaredSourcePaths(manifest);
+  const declaredPaths = declaredSourcePaths(manifest, walkedFiles);
   const walkedSet = new Set(walkedFiles);
+
+  const skillDirectories = new Set(
+    walkedFiles
+      .map((path) => /^skills\/([^/]+)\//u.exec(path)?.[1])
+      .filter((name): name is string => name !== undefined),
+  );
+  for (const skill of skillDirectories) {
+    if (!walkedSet.has(`skills/${skill}/SKILL.md`)) {
+      throw pluginError("source_invalid", "A skill directory is missing SKILL.md.", { skill });
+    }
+  }
 
   for (const declaredPath of declaredPaths) {
     if (!walkedSet.has(declaredPath)) {
@@ -54,7 +65,7 @@ export async function validateSource(input: unknown = pluginSourceRoot): Promise
     }
   }
 
-  if (manifest.skills?.includes("ponytail") === true) {
+  if (walkedFiles.includes("skills/ponytail/SKILL.md")) {
     await verifyPonytailMetadata((path) => readSourceFile(root, path), "source_invalid");
   }
 
@@ -124,24 +135,14 @@ export function createGeneratedManifest(
     name: source.name,
     version,
     description: source.description,
+    author: source.author,
+    skills: source.skills,
+    interface: source.interface,
   };
-  if (source["license"] !== undefined) {
-    manifest["license"] = source["license"];
-  }
-  if (source["skills"] !== undefined) {
-    manifest["skills"] = [...source["skills"]];
-  }
-  if (source["assets"] !== undefined) {
-    manifest["assets"] = [...source["assets"]];
-  }
-  if (source["hooks"] !== undefined) {
-    manifest["hooks"] = [...source["hooks"]];
-  }
-  if (source["rules"] !== undefined) {
-    manifest["rules"] = [...source["rules"]];
-  }
-  if (source["compaction"] !== undefined) {
-    manifest["compaction"] = [...source["compaction"]];
+  for (const key of ["license", "homepage", "repository", "keywords"] as const) {
+    if (source[key] !== undefined) {
+      manifest[key] = source[key];
+    }
   }
   const parsed = decodeSchema(GeneratedManifestSchema, manifest);
   if (parsed === undefined) {

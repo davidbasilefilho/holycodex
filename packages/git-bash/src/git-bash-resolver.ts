@@ -2,7 +2,6 @@
 
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
-import { execFileSync } from "node:child_process";
 import { lstatSync } from "node:fs";
 import { posix, win32 } from "node:path";
 import { GitBashError } from "./errors.ts";
@@ -10,9 +9,8 @@ import { GitBashError } from "./errors.ts";
 export const GIT_BASH_CAPABILITY_NAME = "git_bash" as const;
 export const GIT_BASH_ENV_KEY = "HOLYCODEX_GIT_BASH_PATH" as const;
 
-const PROGRAM_FILES_GIT_BASH = "C:\\Program Files\\Git\\bin\\bash.exe";
-const PROGRAM_FILES_X86_GIT_BASH = "C:\\Program Files (x86)\\Git\\bin\\bash.exe";
-const DEFAULT_INSTALL_HINT = `Git Bash required. Install: winget install --id Git.Git -e --source winget\nCustom path: set ${GIT_BASH_ENV_KEY}=C:\\path\\to\\bash.exe`;
+export const GIT_BASH_EXECUTABLE_PATH = "C:\\Program Files\\Git\\bin\\bash.exe";
+const DEFAULT_INSTALL_HINT = `Git Bash is required at ${GIT_BASH_EXECUTABLE_PATH}. Install: winget install --id Git.Git -e --source winget`;
 const EnvironmentShapeSchema = Schema.Record({ key: Schema.String, value: Schema.Unknown });
 const ResolverShapeSchema = Schema.Struct({
   platform: Schema.String.pipe(Schema.minLength(1)),
@@ -20,7 +18,7 @@ const ResolverShapeSchema = Schema.Struct({
 });
 
 export type GitBashCapabilityName = typeof GIT_BASH_CAPABILITY_NAME;
-export type GitBashSource = "not-required" | "env" | "program-files" | "program-files-x86" | "path";
+export type GitBashSource = "not-required" | "env" | "program-files";
 export type GitBashResolution =
   | Readonly<{
       readonly found: true;
@@ -64,7 +62,11 @@ export function resolveGitBash(input: GitBashResolverInput): GitBashResolution {
   if (configured !== undefined && configured.length > 0) {
     checkedPaths.push(configured);
     const normalized = normalizeGitBashExecutablePath(configured, input.platform);
-    if (normalized !== null && available(input, configured, normalized)) {
+    if (
+      normalized !== null &&
+      isRequiredGitBashExecutablePath(normalized, input.platform) &&
+      available(input, configured, normalized)
+    ) {
       return found(normalized, "env", checkedPaths);
     }
     return missing(
@@ -73,43 +75,11 @@ export function resolveGitBash(input: GitBashResolverInput): GitBashResolution {
     );
   }
 
-  const fixedCandidates = [
-    { path: PROGRAM_FILES_GIT_BASH, source: "program-files" as const },
-    { path: PROGRAM_FILES_X86_GIT_BASH, source: "program-files-x86" as const },
-  ];
-  for (const candidate of fixedCandidates) {
-    checkedPaths.push(candidate.path);
-    const normalized = normalizeGitBashExecutablePath(candidate.path, input.platform);
-    if (normalized !== null && available(input, candidate.path, normalized)) {
-      return found(normalized, candidate.source, checkedPaths);
-    }
+  checkedPaths.push(GIT_BASH_EXECUTABLE_PATH);
+  const normalized = normalizeGitBashExecutablePath(GIT_BASH_EXECUTABLE_PATH, input.platform);
+  if (normalized !== null && available(input, GIT_BASH_EXECUTABLE_PATH, normalized)) {
+    return found(normalized, "program-files", checkedPaths);
   }
-
-  let pathCandidates: readonly string[];
-  try {
-    pathCandidates = validateWhereOutput(input.where("bash"));
-  } catch (error: unknown) {
-    return missing(
-      checkedPaths,
-      `${DEFAULT_INSTALL_HINT}\nPATH lookup failed: ${errorMessage(error)}`,
-    );
-  }
-
-  const seen = new Set<string>();
-  for (const raw of pathCandidates) {
-    const candidate = raw.trim();
-    if (candidate.length === 0) continue;
-    checkedPaths.push(candidate);
-    const normalized = normalizeGitBashExecutablePath(candidate, input.platform);
-    if (normalized === null) continue;
-    const key = normalized.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (available(input, candidate, normalized)) {
-      return found(normalized, "path", checkedPaths);
-    }
-  }
-
   return missing(checkedPaths);
 }
 
@@ -128,12 +98,7 @@ export function resolveGitBashForCurrentProcess(
       (input.exists === undefined
         ? defaultInspect
         : (path) => (safeExists(input.exists!, path) ? "file" : "missing")),
-    where:
-      input.where ??
-      ((command) => {
-        if (platform !== "win32") return [];
-        return whereGitBash(command, environment);
-      }),
+    where: input.where ?? (() => []),
   });
 }
 
@@ -161,6 +126,14 @@ export function normalizeGitBashExecutablePath(value: string, platform: string):
   }
   if (platform === "win32" && isRejectedWindowsAlias(normalized)) return null;
   return normalized;
+}
+
+export function isRequiredGitBashExecutablePath(path: string, platform: string): boolean {
+  const normalized = normalizeGitBashExecutablePath(path, platform);
+  if (normalized === null) return false;
+  return (
+    platform !== "win32" || normalized.toLowerCase() === GIT_BASH_EXECUTABLE_PATH.toLowerCase()
+  );
 }
 
 /** Checks a candidate without following symbolic links or reparse aliases. */
@@ -200,21 +173,6 @@ function validateResolverInput(
   return Object.freeze(environment);
 }
 
-function validateWhereOutput(value: readonly string[]): readonly string[] {
-  const decoded = Schema.decodeUnknownEither(Schema.Array(Schema.String), {
-    onExcessProperty: "error",
-  })(value);
-  if (Either.isLeft(decoded)) {
-    throw new GitBashError(
-      "unavailable",
-      "The Windows PATH lookup returned invalid candidates.",
-      {},
-      { cause: decoded.left },
-    );
-  }
-  return decoded.right;
-}
-
 function available(input: GitBashResolverInput, raw: string, normalized: string): boolean {
   const inspected = input.inspect === undefined ? "file" : safeInspect(input.inspect, normalized);
   if (inspected !== "file") return false;
@@ -247,43 +205,6 @@ function defaultInspect(path: string): GitBashFileProbe {
   return isSafeGitBashExecutablePath(path) ? "file" : "missing";
 }
 
-function whereGitBash(
-  command: "bash",
-  environment: Readonly<Record<string, string | undefined>>,
-): readonly string[] {
-  try {
-    const output = execFileSync("where.exe", [command], {
-      encoding: "utf8",
-      windowsHide: true,
-      env: whereEnvironment(environment),
-    });
-    return String(output)
-      .split(/\r?\n/u)
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
-  } catch {
-    return [];
-  }
-}
-
-function whereEnvironment(input: Readonly<Record<string, string | undefined>>): NodeJS.ProcessEnv {
-  const entries = Object.entries(input);
-  const exactPath = entries.find(([key, value]) => key === "PATH" && value !== undefined);
-  const fallbackPath = [...entries]
-    .reverse()
-    .find(([key, value]) => key.toLowerCase() === "path" && value !== undefined);
-  const pathEntry = exactPath ?? fallbackPath;
-  const environment: NodeJS.ProcessEnv = {};
-  for (const [key, value] of entries) {
-    const normalizedKey = key.toLowerCase();
-    if (normalizedKey === "path" || normalizedKey === "original_path" || value === undefined)
-      continue;
-    environment[key] = value;
-  }
-  if (pathEntry !== undefined) environment["PATH"] = pathEntry[1];
-  return environment;
-}
-
 function isRejectedWindowsAlias(path: string): boolean {
   const normalized = path.toLowerCase().replaceAll("/", "\\");
   return (
@@ -313,8 +234,4 @@ function missing(
     checkedPaths: Object.freeze([...checkedPaths]),
     installHint,
   });
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

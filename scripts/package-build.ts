@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { cp, rm } from "node:fs/promises";
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
+import { cp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { SourceManifestSchema } from "../packages/plugin/src/index.ts";
 import { runChecked } from "./process.ts";
 import { buildSafeFilesystemArtifact } from "./build-safe-filesystem.ts";
+import { readCanonicalVersion } from "../packages/cli/src/manifest.ts";
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
 const distRoot = join(workspaceRoot, "packages/cli/dist");
@@ -15,6 +19,21 @@ export async function runPackageBuild(): Promise<void> {
   const packagedPlugin = join(distAssets, "plugin");
   await rm(packagedPlugin, { recursive: true, force: true });
   await cp(pluginAssets, packagedPlugin, { recursive: true, dereference: true });
+  const pluginManifestPath = join(packagedPlugin, ".codex-plugin/plugin.json");
+  const rawPluginManifest: unknown = JSON.parse(await readFile(pluginManifestPath, "utf8"));
+  const parsedPluginManifest = Schema.decodeUnknownEither(SourceManifestSchema, {
+    onExcessProperty: "preserve",
+  })(rawPluginManifest);
+  if (Either.isLeft(parsedPluginManifest)) {
+    throw new Error(
+      `The packaged plugin manifest is invalid: ${String(parsedPluginManifest.left)}`,
+    );
+  }
+  const pluginManifest = {
+    ...parsedPluginManifest.right,
+    version: await readCanonicalVersion(),
+  };
+  await writeFile(pluginManifestPath, `${JSON.stringify(pluginManifest, null, 2)}\n`);
   await cp(join(packagedPlugin, ".codex-plugin/plugin.json"), join(packagedPlugin, "plugin.json"));
   await rm(join(packagedPlugin, ".codex-plugin"), { recursive: true, force: true });
   await buildSafeFilesystemArtifact(join(distAssets, "safe-filesystem"));

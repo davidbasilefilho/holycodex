@@ -29,7 +29,13 @@ import { WorkflowStoreError } from "./workflow-store.ts";
 import { GeneratedWorkflowStoreError } from "./generated-workflow-store.ts";
 import { RefinementStoreError } from "./refinement-store.ts";
 import { helpRequested, helpText, helpTopic } from "./help.ts";
-import type { Autonomy, CliContext, CommandResult, ParsedCommand } from "./types.ts";
+import type {
+  Autonomy,
+  CliContext,
+  CommandResult,
+  HumanRenderOptions,
+  ParsedCommand,
+} from "./types.ts";
 
 export async function runCli(
   argv: readonly string[],
@@ -529,18 +535,98 @@ function emitProgress(context: CliContext, json: boolean, message: string): void
   if (json || parsedVerbose(context) === false) {
     return;
   }
-  context.io?.writeStderr?.(`${message}\n`);
+  context.io?.writeStderr?.(
+    `${renderProgress(message, {
+      stderrIsTTY: context.io?.stderrIsTTY,
+      env: context.env,
+    })}\n`,
+  );
 }
 
 function parsedVerbose(context: CliContext): boolean {
   return context.io?.stderrIsTTY === true || context.io?.stderrIsTTY === undefined;
 }
 
-export function renderHuman(result: CommandResult): string {
+export function renderHuman(result: CommandResult, options: HumanRenderOptions = {}): string {
+  const color = colorEnabled(options);
   if (result.envelope.ok) {
-    return `${result.envelope.command}: ok\n${JSON.stringify(result.envelope.data, null, 2)}\n`;
+    return `${paint("✔", "green", color)} ${result.envelope.command}\n${renderData(
+      result.envelope.data,
+      color,
+    )}`;
   }
-  return `${result.envelope.command}: error ${result.envelope.error.code}\n${result.envelope.error.message}\n`;
+  const error = result.envelope.error;
+  const hint = actionableHint(error.code, result.envelope.command);
+  return [
+    `${paint("✖", "red", color)} ${result.envelope.command}`,
+    `  ${paint(error.code, "red", color)}: ${error.message}`,
+    ...renderDetails(error.details, color),
+    ...(hint === undefined ? [] : [`  hint: ${hint}`]),
+    "",
+  ].join("\n");
+}
+
+export function renderProgress(
+  message: string,
+  options: Pick<HumanRenderOptions, "stderrIsTTY" | "env"> = {},
+): string {
+  return `${paint("•", "cyan", colorEnabled({ ...options, stream: "stderr" }))} ${message}`;
+}
+
+function renderData(data: JsonValue, color: boolean): string {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    return `  ${paint(formatValue(data), "dim", color)}\n`;
+  }
+  const entries = Object.entries(data);
+  if (entries.length === 0) return "";
+  const width = Math.max(...entries.map(([key]) => key.length));
+  return `${entries
+    .map(([key, value]) => `  ${key.padEnd(width)}: ${formatValue(value)}`)
+    .join("\n")}\n`;
+}
+
+function renderDetails(details: JsonObject, color: boolean): readonly string[] {
+  return Object.entries(details).map(
+    ([key, value]) => `  ${key}: ${paint(formatValue(value), "dim", color)}`,
+  );
+}
+
+function formatValue(value: JsonValue): string {
+  if (typeof value === "string") return value;
+  if (value === null || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
+function actionableHint(code: string, command: string): string | undefined {
+  if (code === "invalid_argument" || code === "unknown_command") {
+    return `holycodex ${command.split(" ")[0] ?? "help"} --help`;
+  }
+  if (code === "non_tty_confirmation_required") {
+    return "rerun with --yes or use an interactive terminal";
+  }
+  if (code === "capability_denied") {
+    return "run `holycodex doctor` to inspect capability availability";
+  }
+  return undefined;
+}
+
+type Color = "red" | "green" | "cyan" | "dim";
+
+function colorEnabled(options: HumanRenderOptions): boolean {
+  const env = options.env ?? {};
+  if (env["NO_COLOR"] !== undefined || env["TERM"] === "dumb") return false;
+  if (env["FORCE_COLOR"] !== undefined && env["FORCE_COLOR"] !== "0") return true;
+  if (env["CI"] !== undefined && env["CI"] !== "false") return false;
+  const tty = options.stream === "stderr" ? options.stderrIsTTY : options.stdoutIsTTY;
+  return tty === true;
+}
+
+function paint(value: string, color: Color, enabled: boolean): string {
+  if (!enabled) return value;
+  const codes: Record<Color, string> = { red: "31", green: "32", cyan: "36", dim: "2" };
+  return `\u001b[${codes[color]}m${value}\u001b[0m`;
 }
 
 export class CliCommandError extends Error {

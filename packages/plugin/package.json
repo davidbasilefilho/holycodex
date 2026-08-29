@@ -7,6 +7,6 @@
   },
   "dependencies": {
     "@holycodex/core": "workspace:*",
-    "effect": "3.22.1"
+    "effect": "catalog:"
   }
 }

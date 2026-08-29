@@ -365,7 +365,7 @@ async function cleanupHolyCodexUnlocked(
       throw new CleanupError("cleanup_failed", "The workflow session path escaped the owned root.");
     }
     try {
-      const store = new GeneratedWorkflowStore(paths.stateRoot, {
+      const store = new GeneratedWorkflowStore(paths.codexHome, {
         now: () => now,
         ...(options.generatedWorkflowBoundary === undefined
           ? {}
@@ -413,12 +413,7 @@ async function cleanupHolyCodexUnlocked(
       return { scope, preview, removed, preserved, reasons };
     }
   }
-  const marketplace = await readMarketplace(paths.marketplaceFile).catch((error: unknown) => {
-    if (isFsCode(error, "ENOENT")) {
-      return { plugins: [] };
-    }
-    throw error;
-  });
+  const marketplace = await readMarketplace(paths.marketplaceFile);
   const managed = active ? findManagedEntry(marketplace) : undefined;
   if (active && managed && managedEntryMatches(managed, active)) {
     const next = {
@@ -462,7 +457,7 @@ async function removeExpiredGeneratedWorkflows(
   boundary: InstallerOptions["generatedWorkflowBoundary"],
 ): Promise<void> {
   try {
-    const store = new GeneratedWorkflowStore(paths.stateRoot, {
+    const store = new GeneratedWorkflowStore(paths.codexHome, {
       now: () => now,
       ttlMs: Math.max(1, now.getTime() - cutoff),
       ...(boundary === undefined ? {} : { boundary }),

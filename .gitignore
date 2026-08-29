@@ -36,6 +36,8 @@ temp/
 **/temp/
 scratch/
 **/scratch/
+.tmp/
+**/.tmp/
 logs/
 **/logs/
 *.log
@@ -52,12 +54,15 @@ release-artifacts/
 **/release-artifacts/
 *.release
 *.release.*
+*.tgz
 
 # Local Codex test homes and state
 .codex-test-home/
 **/.codex-test-home/
 .codex-test-state/
 **/.codex-test-state/
+.marketplace/
+**/.marketplace/
 .codex/local/
 .codex/state/
 
@@ -82,16 +87,16 @@ release-artifacts/
 *.pfx
 *.jks
 *.keystore
-credentials/
-**/credentials/
-secrets/
-**/secrets/
-auth/
-**/auth/
-tokens/
-**/tokens/
-private/
-**/private/
+/.credentials/
+/.secrets/
+/.auth/
+/.tokens/
+/.private/
+**/.credentials/
+**/.secrets/
+**/.auth/
+**/.tokens/
+**/.private/
 
 # Deliberately retained workspace inputs and safe templates
 !bun.lock
@@ -112,7 +117,3 @@ private/
 !**/*.template
 !*.tmpl
 !**/*.tmpl
-!**/package.json
-!**/tsconfig*.json
-!**/vite.config.*
-!**/src/**

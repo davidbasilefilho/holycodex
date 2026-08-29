@@ -9,7 +9,6 @@ import {
 } from "./git-bash-resolver.ts";
 
 const PROGRAM_FILES_GIT_BASH = "C:\\Program Files\\Git\\bin\\bash.exe";
-const PROGRAM_FILES_X86_GIT_BASH = "C:\\Program Files (x86)\\Git\\bin\\bash.exe";
 
 describe("Git Bash resolution", () => {
   it("keeps an explicitly configured invalid path fail-closed", () => {
@@ -27,8 +26,8 @@ describe("Git Bash resolution", () => {
     }
   });
 
-  it("uses the configured executable before fixed installations", () => {
-    const configured = "D:\\Tools\\Git\\bin\\bash.exe";
+  it("accepts an explicit spelling of the required executable", () => {
+    const configured = "C:/Program Files/Git/bin/bash.exe";
     const result = resolveGitBash({
       platform: "win32",
       env: { [GIT_BASH_ENV_KEY]: configured },
@@ -36,48 +35,42 @@ describe("Git Bash resolution", () => {
       where: () => [],
     });
 
-    expect(result).toMatchObject({ found: true, path: configured, source: "env" });
+    expect(result).toMatchObject({
+      found: true,
+      path: PROGRAM_FILES_GIT_BASH,
+      source: "env",
+    });
   });
 
-  it("checks Program Files before Program Files x86", () => {
+  it("checks only the required Program Files installation", () => {
     const checked: string[] = [];
     const result = resolveGitBash({
       platform: "win32",
       env: {},
       exists: (path) => {
         checked.push(path);
-        return path === PROGRAM_FILES_X86_GIT_BASH;
+        return path === PROGRAM_FILES_GIT_BASH;
       },
       where: () => [],
     });
 
     expect(result).toMatchObject({
       found: true,
-      path: PROGRAM_FILES_X86_GIT_BASH,
-      source: "program-files-x86",
+      path: PROGRAM_FILES_GIT_BASH,
+      source: "program-files",
     });
-    expect(checked).toEqual([PROGRAM_FILES_GIT_BASH, PROGRAM_FILES_X86_GIT_BASH]);
+    expect(checked).toEqual([PROGRAM_FILES_GIT_BASH]);
   });
 
-  it("preserves PATH candidate precedence while rejecting aliases case-insensitively", () => {
-    const system32 = "c:\\WINDOWS\\System32\\BASH.EXE";
-    const windowsApps = "C:/Users/dev/AppData/Local/Microsoft/WindowsApps/bash.exe";
-    const gitBash = "E:\\Git\\bin\\bash.exe";
+  it("does not fall back to PATH candidates", () => {
     const result = resolveGitBash({
       platform: "win32",
       env: {},
-      exists: (path) => path === system32 || path === gitBash,
-      where: () => [system32, windowsApps, gitBash],
+      exists: (path) => path === "E:\\Git\\bin\\bash.exe",
+      where: () => ["E:\\Git\\bin\\bash.exe"],
     });
 
-    expect(result).toMatchObject({ found: true, path: gitBash, source: "path" });
-    expect(result.found && result.checkedPaths).toEqual([
-      PROGRAM_FILES_GIT_BASH,
-      PROGRAM_FILES_X86_GIT_BASH,
-      system32,
-      windowsApps,
-      gitBash,
-    ]);
+    expect(result).toMatchObject({ found: false, checkedPaths: [PROGRAM_FILES_GIT_BASH] });
   });
 
   it("rejects traversal, aliases, and wrong executable names before probing", () => {
@@ -90,7 +83,7 @@ describe("Git Bash resolution", () => {
   it("rejects symlink and reparse probes without resolving them", () => {
     const result = resolveGitBash({
       platform: "win32",
-      env: { [GIT_BASH_ENV_KEY]: "D:\\Git\\bin\\bash.exe" },
+      env: { [GIT_BASH_ENV_KEY]: PROGRAM_FILES_GIT_BASH },
       exists: () => true,
       inspect: () => "symlink",
       where: () => [],
@@ -99,7 +92,7 @@ describe("Git Bash resolution", () => {
 
     const reparse = resolveGitBash({
       platform: "win32",
-      env: { [GIT_BASH_ENV_KEY]: "D:\\Git\\bin\\bash.exe" },
+      env: { [GIT_BASH_ENV_KEY]: PROGRAM_FILES_GIT_BASH },
       exists: () => true,
       inspect: () => "reparse",
       where: () => [],
@@ -110,11 +103,11 @@ describe("Git Bash resolution", () => {
   it("uses the injected current-process seams and returns not-required off Windows", () => {
     const winResult = resolveGitBashForCurrentProcess({
       platform: "win32",
-      env: { Path: "D:\\Git\\bin", PATH: "C:\\shadow" },
-      exists: (path) => path === "D:\\Git\\bin\\bash.exe",
-      where: () => ["D:\\Git\\bin\\bash.exe"],
+      env: {},
+      exists: (path) => path === PROGRAM_FILES_GIT_BASH,
+      where: () => [],
     });
-    expect(winResult).toMatchObject({ found: true, source: "path" });
+    expect(winResult).toMatchObject({ found: true, source: "program-files" });
 
     const unixResult = resolveGitBashForCurrentProcess({
       platform: "linux",

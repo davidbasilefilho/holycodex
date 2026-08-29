@@ -33,6 +33,7 @@ import {
   managedEntryMatches,
   marketplaceWithManagedEntry,
   readMarketplace,
+  readMarketplaceForInstall,
   writeMarketplace,
 } from "./marketplace.ts";
 import { readCanonicalBaseVersion } from "./manifest.ts";
@@ -194,10 +195,16 @@ export async function installHolyCodex(
     try {
       await writeAtomicJson(paths.activeRecord, asJsonValue(record));
       await appendJournal(paths, runId, "active-written", { artifact_id: artifactId }, now);
-      const marketplace = await readMarketplace(paths.marketplaceFile);
-      const nextMarketplace = marketplaceWithManagedEntry(marketplace, record);
+      const marketplace = await readMarketplaceForInstall(paths.marketplaceFile);
+      const nextMarketplace = marketplaceWithManagedEntry(marketplace.document, record);
       await writeMarketplace(paths.marketplaceFile, nextMarketplace);
-      await appendJournal(paths, runId, "marketplace-written", { artifact_id: artifactId }, now);
+      await appendJournal(
+        paths,
+        runId,
+        "marketplace-written",
+        { artifact_id: artifactId, legacy_repaired: marketplace.repaired ? 1 : 0 },
+        now,
+      );
       await verifyActivation(paths, record);
       await appendJournal(paths, runId, "activation-verified", { artifact_id: artifactId }, now);
     } catch (error: unknown) {

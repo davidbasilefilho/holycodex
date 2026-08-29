@@ -9,6 +9,6 @@
     "@holycodex/codex": "workspace:*",
     "@holycodex/core": "workspace:*",
     "@holycodex/workflow-runtime": "workspace:*",
-    "effect": "3.22.1"
+    "effect": "catalog:"
   }
 }

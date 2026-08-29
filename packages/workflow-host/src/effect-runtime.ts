@@ -179,7 +179,7 @@ function makeRuntimeServices(
   return Effect.gen(function* () {
     const agent = yield* AgentExecution;
     return withAgent({
-      execute: (assignment: Assignment<unknown, unknown>) =>
+      execute: (assignment: Assignment<JsonValue, JsonValue>) =>
         executeCodexAssignment(context, definition, pending, active, agent, assignment),
     });
   });
@@ -224,10 +224,16 @@ export function executeCodexOperation(
     readonly route: string;
   }>,
 ): Effect.Effect<SpecialistOutcomeV2, WorkflowFailure> {
-  const assignment: Assignment<unknown, unknown> = {
+  const assignment: Assignment<JsonValue, JsonValue> = {
     payload: { objective: input.prompt, options: input.options },
-    input: { name: "json", decode: (value: unknown): unknown => value },
-    output: { name: "json", decode: (value: unknown): unknown => value },
+    input: {
+      name: "json",
+      decode: (value: unknown): JsonValue => asJsonValue(value, "operation input"),
+    },
+    output: {
+      name: "json",
+      decode: (value: unknown): JsonValue => asJsonValue(value, "operation output"),
+    },
     metadata: { id: input.operationId },
     route: input.route,
   };
@@ -242,7 +248,7 @@ export function executeCodexOperation(
   }
   return Effect.gen(function* () {
     const route = yield* resolvePlanRoute(definition, input.route);
-    const packet = yield* makeSemanticPacket(definition, pending, assignment, route);
+    const packet = yield* makeSemanticPacket(context, definition, pending, assignment, route);
     const result = yield* codex
       .execute(packet)
       .pipe(Effect.mapError((cause) => codexFailure(cause, assignment)));
@@ -257,7 +263,7 @@ function executeCodexAssignment(
   pending: PendingRun,
   active: ActiveRun,
   agent: AssignmentExecutionService,
-  assignment: Assignment<unknown, unknown>,
+  assignment: Assignment<JsonValue, JsonValue>,
 ): Effect.Effect<unknown, WorkflowFailure> {
   return Effect.gen(function* () {
     const route = yield* resolveAssignmentRoute(definition, assignment);
@@ -277,7 +283,13 @@ function executeCodexAssignment(
         ),
       );
     }
-    const packet = yield* makeSemanticPacket(definition, pending, assignment, routeDefinition);
+    const packet = yield* makeSemanticPacket(
+      context,
+      definition,
+      pending,
+      assignment,
+      routeDefinition,
+    );
     const normalizedInput = normalizeSemanticAssignment(packet);
     const authorityDigest = yield* Effect.tryPromise({
       try: () => authorityScopeDigest(packet.assignment.authority, packet.assignment.scope),
@@ -497,7 +509,7 @@ function executeCodexAssignment(
 
 function resolveAssignmentRoute(
   definition: RunDefinition,
-  assignment: Assignment<unknown, unknown>,
+  assignment: Assignment<JsonValue, JsonValue>,
 ): Effect.Effect<string, WorkflowFailure> {
   const route = assignment.route ?? definition.identity.route;
   const selected = lookupRoute(definition.identity.plan, route);
@@ -517,9 +529,10 @@ function resolvePlanRoute(
 }
 
 function makeSemanticPacket(
+  context: HostContext,
   definition: RunDefinition,
   pending: PendingRun,
-  assignment: Assignment<unknown, unknown>,
+  assignment: Assignment<JsonValue, JsonValue>,
   route: RouteDefinition,
   retainedContext?: RetainedContext,
 ): Effect.Effect<SemanticAssignmentPacket, WorkflowFailure> {
@@ -589,6 +602,10 @@ function makeSemanticPacket(
           prefer_multi_agent_v2: false,
           require_multi_agent_v2: false,
         },
+        ...(context.canonicalVersion === undefined
+          ? {}
+          : { canonical_version: context.canonicalVersion }),
+        platform: context.platform,
         skill_profile: role.skill_profile,
         ...(capability === undefined ? {} : { capability_input: options }),
         ...(retainedContext === undefined ? {} : { retained_context: retainedContext }),
@@ -659,7 +676,7 @@ function decodeSemanticPacket(input: unknown): SemanticAssignmentPacket | undefi
 }
 
 function assignmentId(
-  assignment: Assignment<unknown, unknown>,
+  assignment: Assignment<JsonValue, JsonValue>,
   route = assignment.route ?? "default",
 ): string {
   const metadataId = assignment.metadata?.id;
@@ -717,10 +734,10 @@ function roleTaskForRoute(route: RouteDefinition): RoleTask {
   throw new WorkflowHostError("invalid_route", "The route role/task pair is inconsistent.");
 }
 
-function readFanOut(assignment: Assignment<unknown, unknown>): number {
+function readFanOut(assignment: Assignment<JsonValue, JsonValue>): number {
   const payload = assignment.payload;
   if (typeof payload === "object" && payload !== null && !Array.isArray(payload)) {
-    const options = "options" in payload ? payload.options : undefined;
+    const options = "options" in payload ? payload["options"] : undefined;
     if (typeof options === "object" && options !== null && !Array.isArray(options)) {
       return optionInteger(jsonObject(options, "assignment options"), "fan_out", 1);
     }
@@ -797,7 +814,7 @@ function sessionFromOutcome(
 
 function validateSemanticOutcome(
   result: unknown,
-  assignment: Assignment<unknown, unknown>,
+  assignment: Assignment<JsonValue, JsonValue>,
   expectedRoute: RoleTask,
 ): Effect.Effect<
   Readonly<{ readonly result: SemanticExecutionOutcome; readonly outcome: SpecialistOutcomeV2 }>,
@@ -976,7 +993,10 @@ function emitOperationTelemetry(
   });
 }
 
-function codexFailure(cause: unknown, assignment: Assignment<unknown, unknown>): WorkflowFailure {
+function codexFailure(
+  cause: unknown,
+  assignment: Assignment<JsonValue, JsonValue>,
+): WorkflowFailure {
   return workflowFailure("execution", "Codex assignment execution failed.", {
     nodeId: assignmentId(assignment),
     cause,
@@ -986,7 +1006,7 @@ function codexFailure(cause: unknown, assignment: Assignment<unknown, unknown>):
 
 function toWorkflowFailure(
   cause: unknown,
-  assignment?: Assignment<unknown, unknown>,
+  assignment?: Assignment<JsonValue, JsonValue>,
 ): WorkflowFailure {
   if (isWorkflowFailureLike(cause)) {
     return cause;

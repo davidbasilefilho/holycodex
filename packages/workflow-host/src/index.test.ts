@@ -12,7 +12,7 @@ import {
   type SemanticAssignmentPacket,
   type SemanticExecutionOutcome,
 } from "@holycodex/codex";
-import { PONYTAIL_ROLE_SKILL } from "@holycodex/core";
+import { PONYTAIL_ROLE_SKILL, type JsonValue } from "@holycodex/core";
 import {
   FileRunStore,
   WorkflowHost,
@@ -27,6 +27,7 @@ import {
   type EvaluateWorkflowInput,
   type WorkflowResult,
 } from "@holycodex/workflow-runtime";
+import { asJsonValue } from "./identity.ts";
 
 const digest = "a".repeat(64);
 const projectTrust = {
@@ -124,7 +125,9 @@ describe("workflow-host", () => {
     try {
       const packets: SemanticAssignmentPacket[] = [];
       const telemetry: unknown[] = [];
-      const json = createCodec("json", (value: unknown): unknown => value);
+      const json = createCodec("json", (value: unknown): JsonValue =>
+        asJsonValue(value, "test codec"),
+      );
       const terminal = workflow.wait(
         workflow.step({
           id: "codex-dispatch",
@@ -258,7 +261,9 @@ describe("workflow-host", () => {
     try {
       let verified = false;
       const packets: SemanticAssignmentPacket[] = [];
-      const json = createCodec("json", (value: unknown): unknown => value);
+      const json = createCodec("json", (value: unknown): JsonValue =>
+        asJsonValue(value, "test codec"),
+      );
       const terminal = workflow.wait(
         workflow.step({
           id: "review-dispatch",
@@ -448,7 +453,9 @@ describe("workflow-host", () => {
   test("persists and validates delegation cardinality across native and compatibility runs", async () => {
     const { root } = await tempStore();
     try {
-      const json = createCodec("json", (value: unknown): unknown => value);
+      const json = createCodec("json", (value: unknown): JsonValue =>
+        asJsonValue(value, "test codec"),
+      );
       const single = workflow.wait(
         workflow.step({
           id: "mode-single",
@@ -1011,7 +1018,9 @@ describe("workflow-host", () => {
   test("requires an explicit compatibility adapter when no native terminal is supplied", async () => {
     const { root } = await tempStore();
     try {
-      const json = createCodec("json", (value: unknown): unknown => value);
+      const json = createCodec("json", (value: unknown): JsonValue =>
+        asJsonValue(value, "test codec"),
+      );
       const terminal = workflow.wait(
         workflow.step({
           id: "native-default",

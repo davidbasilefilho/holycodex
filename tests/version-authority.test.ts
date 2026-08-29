@@ -14,7 +14,10 @@ import {
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const canonicalManifestPath = "packages/cli/package.json";
+const generatedPluginManifestPath = "packages/plugin/assets/.codex-plugin/plugin.json";
 const VersionText = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
+const RELEASE_LITERAL =
+  /(?<![0-9A-Za-z])0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-dev\.\d+\.\d+)?(?![0-9A-Za-z])/gu;
 const CliManifest = Schema.Struct({
   name: Schema.Literal("holycodex"),
   version: Schema.String.pipe(Schema.pattern(VersionText)),
@@ -33,13 +36,85 @@ describe("release version authority", () => {
       }
     }
 
-    expect(occurrences).toEqual([{ path: canonicalManifestPath, count: 1 }]);
+    expect(occurrences).toEqual([
+      { path: canonicalManifestPath, count: 1 },
+      { path: generatedPluginManifestPath, count: 1 },
+    ]);
   });
 
   test("keeps the canonical version in the public CLI manifest", async () => {
     const manifest = await readCanonicalManifest();
 
     expect(manifest.version).toMatch(VersionText);
+  });
+
+  test("keeps shared dependency versions in the root Bun catalog", async () => {
+    const rootManifest = JSON.parse(await readFile(`${workspaceRoot}/package.json`, "utf8")) as {
+      catalog?: Readonly<Record<string, string>>;
+      devDependencies?: Readonly<Record<string, string>>;
+    };
+    const sharedDependencies = [
+      "@jitl/quickjs-ffi-types",
+      "@jitl/quickjs-wasmfile-debug-asyncify",
+      "@jitl/quickjs-wasmfile-debug-sync",
+      "@jitl/quickjs-wasmfile-release-asyncify",
+      "@jitl/quickjs-wasmfile-release-sync",
+      "@types/bun",
+      "@types/node",
+      "effect",
+      "quickjs-emscripten",
+      "quickjs-emscripten-core",
+      "typescript",
+      "vite-plus",
+      "vitest",
+    ] as const;
+    const catalog = rootManifest.catalog ?? {};
+    for (const dependency of sharedDependencies) {
+      expect(catalog[dependency]).toBeTruthy();
+      if (rootManifest.devDependencies?.[dependency] !== undefined) {
+        expect(rootManifest.devDependencies[dependency]).toBe("catalog:");
+      }
+    }
+    for (const relativePath of await listFiles(workspaceRoot)) {
+      if (!/^packages\/[^/]+\/package\.json$/u.test(relativePath)) continue;
+      const packageManifest = JSON.parse(
+        await readFile(`${workspaceRoot}/${relativePath}`, "utf8"),
+      ) as {
+        dependencies?: Readonly<Record<string, string>>;
+        devDependencies?: Readonly<Record<string, string>>;
+      };
+      for (const dependency of sharedDependencies) {
+        const version =
+          packageManifest.dependencies?.[dependency] ??
+          packageManifest.devDependencies?.[dependency];
+        if (version !== undefined) expect(version).toBe("catalog:");
+      }
+    }
+  });
+
+  test("rejects stale HolyCodex release literals outside owned version domains", async () => {
+    const manifest = await readCanonicalManifest();
+    const rootManifest = JSON.parse(await readFile(`${workspaceRoot}/package.json`, "utf8")) as {
+      catalog?: Readonly<Record<string, string>>;
+    };
+    const dependencyVersions = new Set(Object.values(rootManifest.catalog ?? {}));
+    const violations: string[] = [];
+    for (const relativePath of await listFiles(workspaceRoot)) {
+      if (relativePath === "tests/version-authority.test.ts") continue;
+      const content = await readFile(`${workspaceRoot}/${relativePath}`, "utf8");
+      for (const match of content.matchAll(RELEASE_LITERAL)) {
+        const literal = match[0];
+        if (
+          (relativePath === canonicalManifestPath ||
+            relativePath === generatedPluginManifestPath) &&
+          literal === manifest.version
+        )
+          continue;
+        if (isOwnedNonHolyCodexVersion(relativePath, literal, dependencyVersions)) continue;
+        violations.push(`${relativePath}: ${literal}`);
+      }
+    }
+    expect(violations).toEqual([]);
   });
 
   test("derives collision-safe development versions without changing the base version", () => {
@@ -89,6 +164,7 @@ function isGeneratedOrPackageManagerPath(relativePath: string): boolean {
     ".vite/",
     ".vp-cache/",
     ".vp/",
+    ".tmp/",
     "build/",
     "coverage/",
     "dist/",
@@ -101,10 +177,12 @@ function isGeneratedOrPackageManagerPath(relativePath: string): boolean {
     "tmp/",
   ];
 
+  const segments = normalizedPath.split("/");
   return (
     normalizedPath === "bun.lock" ||
     normalizedPath === "bun.lockb" ||
-    generatedPrefixes.some((prefix) => normalizedPath.startsWith(prefix))
+    generatedPrefixes.some((prefix) => normalizedPath.startsWith(prefix)) ||
+    segments.some((segment) => generatedPrefixes.includes(`${segment}/`))
   );
 }
 
@@ -123,4 +201,35 @@ function countLiteral(content: string, literal: string): number {
   const escaped = literal.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   return [...content.matchAll(new RegExp(`(?<![0-9A-Za-z])${escaped}(?![0-9A-Za-z])`, "gu"))]
     .length;
+}
+
+function isOwnedNonHolyCodexVersion(
+  relativePath: string,
+  literal: string,
+  dependencyVersions: ReadonlySet<string>,
+): boolean {
+  if (dependencyVersions.has(literal)) return true;
+  if (literal === "0.148.0") {
+    return (
+      relativePath.includes("packages/codex/generated/") ||
+      relativePath.includes("packages/codex/test/fixtures/") ||
+      relativePath.startsWith("packages/codex/src/") ||
+      [
+        "docs/BEHAVIOR.md",
+        "docs/DEPENDENCIES.md",
+        "docs/PARITY.md",
+        "docs/PROVENANCE.md",
+        "docs/SECURITY.md",
+        "scripts/repository-proof.ts",
+        "THIRD-PARTY-NOTICES.md",
+        "tests/parity.test.ts",
+      ].includes(relativePath)
+    );
+  }
+  if (literal === "0.1.0") {
+    return ["packages/plugin/src/index.test.ts", "packages/cli/src/index.test.ts"].includes(
+      relativePath,
+    );
+  }
+  return false;
 }

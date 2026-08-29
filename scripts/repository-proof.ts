@@ -6,7 +6,7 @@ import { lstat, readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalJsonUtf8, domainSeparatedSha256 } from "../packages/core/src/canonical.ts";
-import { runChecked } from "./process.ts";
+import { runChecked, runCommand } from "./process.ts";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageManifestPaths = [
@@ -291,6 +291,7 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
   );
 
   const generated = await verifyGeneratedArtifactPortable();
+  await verifyIgnoreContract();
   await runChecked(["git", "diff", "--check"], { cwd: workspaceRoot });
   return {
     checks: [
@@ -301,11 +302,45 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
       "GitHub Actions shape",
       "license notices",
       "generated provenance and digest",
+      "ignore contract",
       "clean diff whitespace",
     ],
     generatedArtifactDigest: generated.inventory.digest,
     generatedArtifactFiles: generated.inventory.count,
   };
+}
+
+async function verifyIgnoreContract(): Promise<void> {
+  const mustIgnore = [
+    "node_modules/example.js",
+    "packages/cli/dist/index.js",
+    ".tmp/session/output.json",
+    ".marketplace/marketplace.json",
+    "release-artifacts/holycodex.tgz",
+    ".env.local",
+  ] as const;
+  const mustTrack = [
+    "packages/codex/generated/codex-cli-0.148.0/provenance.json",
+    "packages/core/src/auth/provider.ts",
+    "packages/core/src/private/types.ts",
+  ] as const;
+
+  for (const path of mustIgnore) {
+    const result = await runCommand(["git", "check-ignore", "--no-index", "--quiet", path], {
+      cwd: workspaceRoot,
+    });
+    assert(result.exitCode === 0, `${path} must be ignored`);
+  }
+  for (const path of mustTrack) {
+    const result = await runCommand(["git", "check-ignore", "--no-index", "--quiet", path], {
+      cwd: workspaceRoot,
+    });
+    assert(result.exitCode === 1, `${path} must remain trackable`);
+  }
+  const ignoredTracked = await runChecked(["git", "ls-files", "-ci", "--exclude-standard"], {
+    cwd: workspaceRoot,
+  });
+  assert(ignoredTracked.stdout.trim() === "", "tracked files must not match .gitignore");
 }
 
 const generatedArtifactRoot = resolve(workspaceRoot, "packages/codex/generated/codex-cli-0.148.0");

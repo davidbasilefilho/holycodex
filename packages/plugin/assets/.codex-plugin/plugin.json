@@ -1,39 +1,23 @@
 {
-  "name": "holycodex",
   "description": "Root-directed capabilities and deterministic installed assets for HolyCodex.",
+  "author": {
+    "name": "David Basile Filho",
+    "url": "https://github.com/davidbasilefilho"
+  },
+  "homepage": "https://github.com/davidbasilefilho/holycodex",
+  "repository": "https://github.com/davidbasilefilho/holycodex",
   "license": "Apache-2.0",
-  "skills": [
-    "plan",
-    "workflows",
-    "programming",
-    "code-review",
-    "debugging",
-    "context7-cli",
-    "writing-for-agents",
-    "babysit-ci",
-    "ast-grep",
-    "commit",
-    "compress",
-    "handoff",
-    "lsp-setup",
-    "lsp",
-    "plan-review",
-    "refactor",
-    "remove-slop",
-    "rules",
-    "ponytail"
-  ],
-  "assets": [
-    "agents/root.md",
-    "agents/explorer.md",
-    "agents/librarian.md",
-    "agents/worker.md",
-    "agents/reviewer.md",
-    "skills/ponytail/LICENSE",
-    "skills/ponytail/NOTICE",
-    "skills/ponytail/metadata.json"
-  ],
-  "hooks": ["hooks/manifest.json"],
-  "rules": ["rules/manifest.json", "rules/holycodex.md"],
-  "compaction": ["compaction/manifest.json", "compaction/holycodex.md"]
+  "keywords": ["codex", "agents", "workflows", "developer-tools"],
+  "skills": "./skills",
+  "interface": {
+    "displayName": "HolyCodex",
+    "shortDescription": "Root-directed Codex workflows and bounded specialist skills.",
+    "longDescription": "HolyCodex provides plan-aware workflows, bounded specialist agents, and deterministic verification for Codex tasks.",
+    "developerName": "David Basile Filho",
+    "category": "Developer Tools",
+    "capabilities": ["Skills", "Hooks", "Code Intelligence"],
+    "defaultPrompt": ["Use HolyCodex to implement and verify this task."]
+  },
+  "name": "holycodex",
+  "version": "0.15.1"
 }

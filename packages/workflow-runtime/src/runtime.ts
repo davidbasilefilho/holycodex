@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { canonicalJson } from "@holycodex/core";
+import { canonicalJson, type JsonValue } from "@holycodex/core";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Schedule from "effect/Schedule";
@@ -18,6 +18,7 @@ import {
   type PlanTerminal,
 } from "./compiler.ts";
 import { isWorkflowFailure, workflowFailure, type WorkflowFailure } from "./errors.ts";
+import { isJsonValue } from "./native-ir.ts";
 
 export type CapacityDispatchRequest = Readonly<{
   readonly runId: string;
@@ -127,7 +128,7 @@ export interface WorkflowHostServices {
   ) => Effect.Effect<string, WorkflowFailure>;
   readonly agent?: Readonly<{
     readonly execute: (
-      assignment: Assignment<unknown, unknown>,
+      assignment: Assignment<JsonValue, JsonValue>,
     ) => Effect.Effect<unknown, WorkflowFailure>;
   }>;
   readonly journal?: (event: WorkflowJournalEvent) => Effect.Effect<void, WorkflowFailure>;
@@ -1131,14 +1132,16 @@ function readInputSource(
 }
 
 function materializeAssignment(
-  assignment: Assignment<unknown, unknown>,
+  assignment: Assignment<JsonValue, JsonValue>,
   input: unknown,
   results: ReadonlyMap<string, unknown>,
   route: string | undefined,
   attempt: number,
-): Assignment<unknown, unknown> {
+): Assignment<JsonValue, JsonValue> {
   const payload =
-    assignment.payload === undefined ? input : resolvePayload(assignment.payload, results);
+    assignment.payload === undefined
+      ? requireJsonValue(input)
+      : resolvePayload(assignment.payload, results);
   return Object.freeze({
     ...assignment,
     payload,
@@ -1151,11 +1154,11 @@ function resolvePayload(
   value: unknown,
   results: ReadonlyMap<string, unknown>,
   seen = new Set<object>(),
-): unknown {
+): JsonValue {
   if (typeof value === "object" && value !== null) {
     const source = readSymbolicSource(value);
     if (source !== undefined) {
-      return assembleWorkflowOutput(source, results);
+      return requireJsonValue(assembleWorkflowOutput(source, results));
     }
     if (seen.has(value)) {
       throw workflowFailure("validation", "The workflow assignment payload is cyclic.");
@@ -1163,18 +1166,28 @@ function resolvePayload(
     seen.add(value);
     try {
       if (Array.isArray(value)) {
-        return value.map((entry) => resolvePayload(entry, results, seen));
+        const result: JsonValue[] = [];
+        for (const entry of value) result.push(resolvePayload(entry, results, seen));
+        return result;
       }
-      const pairs = Object.entries(value).map(
-        ([key, entry]) => [key, resolvePayload(entry, results, seen)] as const,
-      );
-      return Object.fromEntries(pairs);
+      const result: Record<string, JsonValue> = {};
+      for (const [key, entry] of Object.entries(value)) {
+        result[key] = resolvePayload(entry, results, seen);
+      }
+      return result;
     } finally {
       seen.delete(value);
     }
   }
   if (typeof value === "function") {
     throw workflowFailure("validation", "The workflow assignment payload is executable.");
+  }
+  return requireJsonValue(value);
+}
+
+function requireJsonValue(value: unknown): JsonValue {
+  if (!isJsonValue(value)) {
+    throw workflowFailure("validation", "The workflow value is not inert JSON.");
   }
   return value;
 }

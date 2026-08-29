@@ -108,9 +108,9 @@ export type CompiledNode = Readonly<{
   readonly name: string;
   readonly input: WorkflowInputSource;
   readonly dependencies: readonly string[];
-  readonly assignment: Assignment<unknown, unknown>;
-  readonly inputCodec: ValueCodec<unknown>;
-  readonly outputCodec: ValueCodec<unknown>;
+  readonly assignment: Assignment<JsonValue, JsonValue>;
+  readonly inputCodec: ValueCodec<JsonValue>;
+  readonly outputCodec: ValueCodec<JsonValue>;
   readonly metadata: CompiledNodeMetadata;
 }>;
 
@@ -192,7 +192,7 @@ class ExecutionPlanHandle<T> extends ExecutionPlan<T> {
   }
 }
 
-export function compileWorkflow<T, I = unknown>(
+export function compileWorkflow<T extends JsonValue, I extends JsonValue = JsonValue>(
   terminal: Wait<I, T>,
   options: CompileOptions = {},
 ): Effect.Effect<ExecutionPlan<T>, WorkflowFailure> {
@@ -202,7 +202,7 @@ export function compileWorkflow<T, I = unknown>(
   });
 }
 
-export function compileWorkflowUnsafe<T, I = unknown>(
+export function compileWorkflowUnsafe<T extends JsonValue, I extends JsonValue = JsonValue>(
   terminal: Wait<I, T>,
   options: CompileOptions = {},
 ): ExecutionPlan<T> {
@@ -310,7 +310,7 @@ async function hydrateWorkflowPlanIRUnsafe(
     throw workflowFailure("validation", "The native workflow producer identity is invalid.");
   }
   const policy = parseCompileOptions(options);
-  const codecMap = new Map<string, ValueCodec<unknown>>();
+  const codecMap = new Map<string, ValueCodec<JsonValue>>();
   for (const descriptor of ir.codecs) {
     const codec = native.codecs.get(descriptor.id);
     if (
@@ -375,15 +375,15 @@ async function hydrateWorkflowPlanIRUnsafe(
 
 function nativeNode(
   node: NativeWorkflowNodeIR,
-  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+  codecs: ReadonlyMap<string, ValueCodec<JsonValue>>,
 ): WorkflowNode {
   const inputCodec = requireNativeCodec(codecs, node.assignment.inputCodecId);
   const outputCodec = requireNativeCodec(codecs, node.assignment.outputCodecId);
   const input = nativeInput(node.input, codecs);
-  const assignment: Assignment<unknown, unknown> = {
-    payload: node.assignment.hasPayload
-      ? nativePayload(node.assignment.payload, codecs)
-      : undefined,
+  const assignment: Assignment<JsonValue, JsonValue> = {
+    ...(node.assignment.hasPayload
+      ? { payload: nativePayload(node.assignment.payload, codecs) }
+      : {}),
     input: inputCodec,
     output: outputCodec,
     metadata: node.assignment.metadata,
@@ -403,7 +403,7 @@ function nativeNode(
 
 function nativeInput(
   input: NativeWorkflowInputIR,
-  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+  codecs: ReadonlyMap<string, ValueCodec<JsonValue>>,
 ): WorkflowNode["input"] {
   if (input.kind === "root") return { kind: "root" };
   if (input.kind === "single") return { kind: "single", nodeId: input.nodeId };
@@ -412,7 +412,7 @@ function nativeInput(
 
 function nativeTarget(
   target: NativeWorkflowOutputTargetIR,
-  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+  codecs: ReadonlyMap<string, ValueCodec<JsonValue>>,
 ): WorkflowOutputTarget {
   return {
     key: target.key,
@@ -424,7 +424,7 @@ function nativeTarget(
 
 function nativeOutput(
   output: NativeWorkflowOutputIR,
-  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+  codecs: ReadonlyMap<string, ValueCodec<JsonValue>>,
 ): WorkflowOutput {
   if (output.kind === "single") {
     return {
@@ -446,8 +446,8 @@ function nativeOutput(
 
 function nativeOutputCodec(
   target: NativeWorkflowOutputTargetIR,
-  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
-): ValueCodec<unknown> {
+  codecs: ReadonlyMap<string, ValueCodec<JsonValue>>,
+): ValueCodec<JsonValue> {
   if (target.source === undefined) return requireNativeCodec(codecs, target.codecId);
   const source = nativeOutput(target.source, codecs);
   return Object.freeze({
@@ -456,13 +456,13 @@ function nativeOutputCodec(
   });
 }
 
-function decodeNativeOutput(value: unknown, output: WorkflowOutput): unknown {
+function decodeNativeOutput(value: unknown, output: WorkflowOutput): JsonValue {
   return output.outputCodec.decode(value);
 }
 
-function decodeNativeTargets(value: unknown, targets: readonly WorkflowOutputTarget[]): unknown {
+function decodeNativeTargets(value: unknown, targets: readonly WorkflowOutputTarget[]): JsonValue {
   if (!isRecord(value)) throw new Error("The native workflow join result is not an object.");
-  const result: Record<string, unknown> = {};
+  const result: Record<string, JsonValue> = {};
   for (const target of targets) {
     if (!(target.key in value))
       throw new Error(`The native workflow result is missing ${target.key}.`);
@@ -473,9 +473,9 @@ function decodeNativeTargets(value: unknown, targets: readonly WorkflowOutputTar
 
 function nativePayload(
   value: JsonValue,
-  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+  codecs: ReadonlyMap<string, ValueCodec<JsonValue>>,
   seen = new Set<object>(),
-): unknown {
+): JsonValue {
   if (isRecord(value) && NATIVE_OUTPUT_REFERENCE_KEY in value) {
     const output = value[NATIVE_OUTPUT_REFERENCE_KEY];
     if (!isNativeWorkflowOutputIR(output)) {
@@ -484,17 +484,22 @@ function nativePayload(
         "The native workflow payload output reference is invalid.",
       );
     }
-    return makeSymbolicValue(nativeOutput(output, codecs));
+    return makeSymbolicValue<JsonValue>(nativeOutput(output, codecs));
   }
   if (value === null || typeof value !== "object") return value;
   if (seen.has(value))
     throw workflowFailure("validation", "The native workflow payload is cyclic.");
   seen.add(value);
   try {
-    if (Array.isArray(value)) return value.map((item) => nativePayload(item, codecs, seen));
-    const result: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value))
+    if (Array.isArray(value)) {
+      const result: JsonValue[] = [];
+      for (const item of value) result.push(nativePayload(item, codecs, seen));
+      return result;
+    }
+    const result: Record<string, JsonValue> = {};
+    for (const [key, item] of Object.entries(value)) {
       result[key] = nativePayload(item, codecs, seen);
+    }
     return result;
   } finally {
     seen.delete(value);
@@ -502,9 +507,9 @@ function nativePayload(
 }
 
 function requireNativeCodec(
-  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+  codecs: ReadonlyMap<string, ValueCodec<JsonValue>>,
   id: string,
-): ValueCodec<unknown> {
+): ValueCodec<JsonValue> {
   const codec = codecs.get(id);
   if (codec === undefined)
     throw workflowFailure("validation", "The native workflow codec is missing.");
@@ -513,7 +518,7 @@ function requireNativeCodec(
 
 function nativeResultDecoder(
   terminals: readonly NativeWorkflowTerminalIR[],
-  codecs: ReadonlyMap<string, ValueCodec<unknown>>,
+  codecs: ReadonlyMap<string, ValueCodec<JsonValue>>,
 ): (value: unknown) => unknown {
   const outputs = terminals.map((terminal) => ({
     key: terminal.key,
@@ -941,12 +946,12 @@ function toPlanTerminal(
     | Readonly<{
         readonly kind: "single";
         readonly nodeId: string;
-        readonly outputCodec: ValueCodec<unknown>;
+        readonly outputCodec: ValueCodec<JsonValue>;
       }>
     | Readonly<{
         readonly kind: "join";
         readonly targets: readonly WorkflowOutputTarget[];
-        readonly outputCodec: ValueCodec<unknown>;
+        readonly outputCodec: ValueCodec<JsonValue>;
       }>,
 ): PlanTerminal {
   const targets =

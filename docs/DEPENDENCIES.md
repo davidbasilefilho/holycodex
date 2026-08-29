@@ -12,7 +12,7 @@ package and every alternate validator are not part of the dependency graph.
 | Package                                          | Used by                                | Purpose                                                                                  | Recorded license                                                                                 | Source                                                                          |
 | ------------------------------------------------ | -------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
 | `effect` 3.22.1                                  | all workspace packages                 | Effect Schema boundary validation, typed Effect services, scheduling, and error handling | MIT                                                                                              | [Effect repository](https://github.com/Effect-TS/effect)                        |
-| `quickjs-emscripten` 0.32.0                      | `workflow-runtime`, `cli`              | Explicit compatibility evaluator for isolated string workflows                           | MIT; bundled QuickJS notices are recorded in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | [quickjs-emscripten repository](https://github.com/justjake/quickjs-emscripten) |
+| `quickjs-emscripten` 0.32.0                      | `workflow-runtime`, `cli`              | Isolated, capability-denied QuickJS TypeScript workflow evaluator                        | MIT; bundled QuickJS notices are recorded in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | [quickjs-emscripten repository](https://github.com/justjake/quickjs-emscripten) |
 | `quickjs-emscripten-core` 0.32.0                 | transitive QuickJS runtime             | QuickJS runtime bindings                                                                 | MIT; bundled QuickJS notices are recorded in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | [quickjs-emscripten repository](https://github.com/justjake/quickjs-emscripten) |
 | `@jitl/quickjs-ffi-types` 0.32.0                 | transitive QuickJS runtime             | FFI types used by the QuickJS bindings                                                   | MIT; bundled QuickJS notices are recorded in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | [quickjs-emscripten repository](https://github.com/justjake/quickjs-emscripten) |
 | `@jitl/quickjs-wasmfile-debug-asyncify` 0.32.0   | transitive QuickJS runtime             | Debug Asyncify Wasm variant                                                              | MIT; bundled QuickJS notices are recorded in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | [quickjs-emscripten repository](https://github.com/justjake/quickjs-emscripten) |
@@ -21,9 +21,11 @@ package and every alternate validator are not part of the dependency graph.
 | `@jitl/quickjs-wasmfile-release-sync` 0.32.0     | transitive QuickJS runtime             | Release synchronous Wasm variant                                                         | MIT; bundled QuickJS notices are recorded in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | [quickjs-emscripten repository](https://github.com/justjake/quickjs-emscripten) |
 | `typescript` 7.0.2                               | `workflow-runtime`, `cli`, development | TypeScript AST transformation and the pinned TypeScript toolchain                        | Apache-2.0                                                                                       | [TypeScript repository](https://github.com/microsoft/TypeScript)                |
 
-All package boundary schemas import `effect/Schema`. Native workflow-module
-execution uses the Effect runtime; QuickJS is isolated compatibility support
-and is never selected implicitly.
+All package boundary schemas import `effect/Schema`; Effect modules own typed
+services and boundary validation. QuickJS TypeScript is the production
+workflow evaluator and exposes no capability unless the host supplies an
+approved typed port. `--compat-quickjs` is a deprecated one-release alias for
+the same evaluator.
 
 ## Development-only dependencies
 

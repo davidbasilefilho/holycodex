@@ -97,13 +97,14 @@ an explicit input, validated state transition, bounded effect,
 journal/checkpoint decision, verification result, and terminal outcome.
 Unvalidated JSON, `any`, and unjustified casts do not cross a boundary.
 
-Native workflow-module execution is the production path. The CLI accepts a
-trusted TypeScript file whose default export is a `workflow.wait(...)` value;
-the runtime owns deterministic four-primitive mechanics, while Root performs
-the pre-effect approval and final judgment. QuickJS is an explicit
-compatibility-only evaluator selected by `--compat-quickjs`; stdin requires
-that flag and an explicit task objective. The compatibility path does not
-change native workflow policy.
+QuickJS TypeScript workflow execution is the production path. The CLI
+type-checks and validates a trusted source before evaluation; the capability-
+denied runtime exposes only approved typed ports, while Root performs
+pre-effect approval and final judgment. The runtime owns deterministic
+four-primitive mechanics. `--compat-quickjs` is retained as a deprecated
+one-release alias for the same evaluator, and stdin requires an explicit task
+objective. CLI-created source is stored at
+`~/.codex/workflows/{codex-session-id}/{workflow-name}-{4-lowercase-hex}.ts`.
 
 Optional Context7, LSP, Git Bash, Computer Use, Work, Web, and Security
 capabilities are independently deniable. Context7 is the first route for
@@ -114,6 +115,10 @@ workflows; Computer Use supports approved interactive computer control; Work
 and Web support their enabled product surfaces; Security supports authorized
 security work. An unavailable capability produces a structured denial, and no
 MCP server or plugin is installed as a fallback or as a side effect.
+
+On Windows, the base instruction and executor use one shell command path:
+`Use C:/Program Files/Git/bin/bash.exe for every shell command.` A missing or
+unusable Git Bash capability returns `capability_denied`.
 
 ## App Server and state identity
 
@@ -158,6 +163,10 @@ retry schedule, and a specialist outcome completes only when its validated
 terminal status is `completed`. Specialist outcomes use the self-versioned v2
 protocol; legacy universal outcomes are decoded only at explicit compatibility
 boundaries and are never stored as the legacy shape.
+
+Stale-session recovery is explicit: inspect first, restart only a terminal run,
+and use workflow-session cleanup only for an inactive generated-workflow
+session. Restart reopens the run; it never retries an uncertain effect.
 
 Telemetry is sanitized before emission. It may contain allowlisted run,
 command, capability, measured duration, status, count, schema, session mode,

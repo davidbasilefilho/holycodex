@@ -30,12 +30,14 @@ After an approved manifest dependency or Bun pin change, run
 checkouts use `bun install --frozen-lockfile`. The checked-in lockfile and
 repository proof must agree with the manifests before handoff.
 
-The codebase targets TypeScript 7 with strict settings. Effect Schema from
-`effect/Schema` is the validation owner at every external, persisted, CLI, App
-Server, and specialist boundary. Native Effect workflow modules are the
-production path; QuickJS is explicit compatibility support selected only by
-`--compat-quickjs`. Internal values remain typed. Authored code carries an
-SPDX `Apache-2.0` header; Markdown is not headed.
+The codebase targets TypeScript 7 with strict settings. Effect and its modules
+are the single validation and service boundary: Effect Schema from
+`effect/Schema` validates every external, persisted, CLI, App Server, and
+specialist value, and internal Effect services remain typed. QuickJS TypeScript
+workflows are the production path; capability calls are denied unless an
+approved typed port is supplied. `--compat-quickjs` is a deprecated one-release
+alias for the same evaluator. Internal values remain typed. Authored
+code carries an SPDX `Apache-2.0` header; Markdown is not headed.
 
 ## Package and dependency direction
 
@@ -79,3 +81,8 @@ gate on Ubuntu and Windows/Git Bash. A real canonical fresh clone and
 post-push Actions result remain external evidence until cutover. Package
 publication, release publication, deployment, and registry actions are not
 configured.
+
+On Windows, run every shell command through
+`C:/Program Files/Git/bin/bash.exe`; the Git Bash capability is denied when
+that executor is unavailable. CLI-created workflow source uses
+`~/.codex/workflows/{codex-session-id}/{workflow-name}-{4-lowercase-hex}.ts`.
