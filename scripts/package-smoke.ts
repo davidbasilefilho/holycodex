@@ -213,17 +213,18 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
   });
 
   const codexEnvironment = { ...process.env, CODEX_HOME: codexHome };
+  const codexCommand = ["bun", "x", "--no-install", "codex"] as const;
   const marketplaceAdd = await runChecked(
-    ["codex", "plugin", "marketplace", "add", workspaceRoot, "--json"],
+    [...codexCommand, "plugin", "marketplace", "add", workspaceRoot, "--json"],
     { cwd: workspaceRoot, env: codexEnvironment },
   );
   commands.push("codex plugin marketplace add <workspace> --json");
-  const pluginAdd = await runChecked(["codex", "plugin", "add", "holycodex@holycodex", "--json"], {
-    cwd: workspaceRoot,
-    env: codexEnvironment,
-  });
+  const pluginAdd = await runChecked(
+    [...codexCommand, "plugin", "add", "holycodex@holycodex", "--json"],
+    { cwd: workspaceRoot, env: codexEnvironment },
+  );
   commands.push("codex plugin add holycodex@holycodex --json");
-  const pluginList = await runChecked(["codex", "plugin", "list", "--json"], {
+  const pluginList = await runChecked([...codexCommand, "plugin", "list", "--json"], {
     cwd: workspaceRoot,
     env: codexEnvironment,
   });
