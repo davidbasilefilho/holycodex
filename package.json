@@ -19,6 +19,7 @@
     "version:set": "bun scripts/version.ts"
   },
   "devDependencies": {
+    "@openai/codex": "catalog:",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "effect": "catalog:",
@@ -32,6 +33,7 @@
     "@jitl/quickjs-wasmfile-debug-sync": "0.32.0",
     "@jitl/quickjs-wasmfile-release-asyncify": "0.32.0",
     "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
+    "@openai/codex": "0.150.1",
     "@types/bun": "1.4.0",
     "@types/node": "26.2.0",
     "effect": "3.22.1",

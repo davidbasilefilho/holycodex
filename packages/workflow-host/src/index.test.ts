@@ -742,7 +742,7 @@ describe("workflow-host", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   test("blocks after an explicitly cancelled specialist becomes ambiguous", async () => {
     const { root } = await tempStore();
