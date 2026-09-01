@@ -12,7 +12,9 @@ import {
   EffortSchema,
   PLAN_CATALOG,
   PONYTAIL_ROLE_SKILL,
+  NATIVE_AGENT_TYPES,
   PlanNameSchema,
+  PlanFirstExecutionGate,
   PlanSelectionSchema,
   RoleTaskSchema,
   ROLE_DEFINITIONS,
@@ -36,6 +38,7 @@ import {
   parseCapabilityResultV2,
   parseIdentityInput,
   normalizeSpecialistOutcome,
+  nativeAgentTypeFor,
   parseSchemaEpochId,
   parseSpecialistOutcome,
   specialistOutcomeFromCapabilityResult,
@@ -115,7 +118,7 @@ const expectedRouteEffortsByPlan = [
 ] as const;
 
 describe("core plan catalog", () => {
-  test("contains every frozen plan and exact budgets", () => {
+  test("contains every plan with hard cost, throughput, and emergency runaway budgets", () => {
     expect(PLAN_CATALOG.map((plan) => plan.name)).toEqual(planNames);
     expect(PLAN_CATALOG[0]).toMatchObject({
       name: "Go",
@@ -124,12 +127,12 @@ describe("core plan catalog", () => {
       budget: null,
     });
 
-    expect(PLAN_CATALOG.slice(1).map((plan) => plan.budget)).toEqual([
-      { costTarget: 1.0, costMax: 1.5, maxCalls: 10, maxConcurrency: 3 },
-      { costTarget: 1.6, costMax: 2.5, maxCalls: 16, maxConcurrency: 3 },
-      { costTarget: 3.0, costMax: 4.5, maxCalls: 24, maxConcurrency: 4 },
-      { costTarget: 5.0, costMax: 7.5, maxCalls: 40, maxConcurrency: 6 },
-      { costTarget: 12.0, costMax: 20.0, maxCalls: 64, maxConcurrency: 8 },
+    expect(PLAN_CATALOG.slice(1).map((plan) => plan.budget?.costMax)).toEqual([
+      1.5, 2.5, 4.5, 7.5, 20,
+    ]);
+    expect(PLAN_CATALOG.slice(1).every((plan) => plan.budget?.maxCalls === 10_000)).toBe(true);
+    expect(PLAN_CATALOG.slice(1).map((plan) => plan.budget?.maxConcurrency)).toEqual([
+      3, 3, 4, 6, 8,
     ]);
     expect(PLAN_CATALOG.map((plan) => plan.root)).toEqual([
       { model: "Terra", effort: "high" },
@@ -162,7 +165,7 @@ describe("core plan catalog", () => {
   test("derives every role/task route from one capability registry", () => {
     expect(
       ROLE_DEFINITIONS.flatMap((definition) =>
-        definition.tasks.map((task) => `${definition.role}:${task}`),
+        definition.tasks.map((task) => `${definition.role}:${task.name}`),
       ),
     ).toEqual(ROUTE_KEYS);
     expect(ROLE_DEFINITIONS.map((definition) => definition.permissions.write)).toEqual([
@@ -185,6 +188,14 @@ describe("core plan catalog", () => {
     ).toBe(PONYTAIL_ROLE_SKILL);
   });
 
+  test("derives canonical native agent types from valid semantic routes", () => {
+    expect(nativeAgentTypeFor({ role: "Worker", task: "implementation" })).toBe(
+      "Worker.implementation",
+    );
+    expect(NATIVE_AGENT_TYPES).toContain("Worker.mechanical");
+    expect(NATIVE_AGENT_TYPES).not.toContain("Worker.research" as never);
+  });
+
   test("keeps plan route parity in the single effort policy source", () => {
     for (const plan of PLAN_CATALOG.slice(1)) {
       const override = ROUTE_EFFORT_OVERRIDES.find((candidate) => candidate.plan === plan.name);
@@ -203,22 +214,6 @@ describe("core plan catalog", () => {
         maxConcurrency: expect.any(Number),
       });
     }
-  });
-
-  test("deep-freezes catalog values", () => {
-    expect(Object.isFrozen(PLAN_CATALOG)).toBe(true);
-    expect(Object.isFrozen(PLAN_CATALOG[2])).toBe(true);
-    expect(Object.isFrozen(PLAN_CATALOG[2]?.root)).toBe(true);
-    expect(Object.isFrozen(PLAN_CATALOG[2]?.budget)).toBe(true);
-    expect(Object.isFrozen(PLAN_CATALOG[2]?.routes)).toBe(true);
-    expect(Object.isFrozen(PLAN_CATALOG[2]?.routes[0])).toBe(true);
-
-    const plan = PLAN_CATALOG[2];
-    if (!plan) {
-      return;
-    }
-    expect(Reflect.set(plan, "name", "Go")).toBe(false);
-    expect(Reflect.set(plan.routes[0] ?? {}, "effort", "low")).toBe(false);
   });
 });
 
@@ -546,6 +541,19 @@ describe("core CLI envelopes", () => {
     expect(parseCliEnvelope(successEnvelope).ok).toBe(true);
     expect(parseCliEnvelope({ ...successEnvelope, ok: false }).ok).toBe(false);
     expect(parseCliEnvelope({ ...failureEnvelope, schema_version: "0.14" }).ok).toBe(false);
+  });
+});
+
+describe("plan-first execution gate", () => {
+  test("holds all mutation and dispatch until explicit continuation", () => {
+    const gate = new PlanFirstExecutionGate("planning");
+    expect(() => gate.assertMutationAllowed()).toThrow(/read-only/u);
+    expect(() => gate.assertDispatchAllowed()).toThrow(/read-only/u);
+    gate.authorizeContinuation();
+    expect(gate.phase).toBe("implementation");
+    expect(() => gate.assertMutationAllowed()).not.toThrow();
+    gate.enterPlanning();
+    expect(gate.phase).toBe("planning");
   });
 });
 

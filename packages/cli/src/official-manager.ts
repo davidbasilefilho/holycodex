@@ -19,19 +19,21 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
   constructor(input: OfficialPluginCommandRunner | OfficialPluginAdapterShape) {
     if ("run" in input) {
       const adapter = createOfficialPluginAdapter({ executable: "codex", runner: input });
-      this.adapter = { list: adapter.list, add: adapter.add };
+      this.adapter = adapter;
     } else {
       this.adapter = input;
     }
   }
 
-  static async discover(): Promise<CodexOfficialPluginManager> {
-    const executable = await discoverCodexExecutable();
+  static async discover(
+    environment: Readonly<Record<string, string | undefined>> = process.env,
+  ): Promise<CodexOfficialPluginManager> {
+    const executable = await discoverCodexExecutable({ environment });
     const adapter = createOfficialPluginAdapter({
       executable: executable.path,
-      environment: createAllowlistedEnvironment(),
+      environment: createAllowlistedEnvironment(environment),
     });
-    return new CodexOfficialPluginManager({ list: adapter.list, add: adapter.add });
+    return new CodexOfficialPluginManager(adapter);
   }
 
   async list(): Promise<LiveOfficialPluginListEnvelope> {
@@ -47,6 +49,30 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
       await this.adapter.add(pluginId);
     } catch (error: unknown) {
       throw wrapManagerError("add", error, pluginId);
+    }
+  }
+
+  async addMarketplace(source: string): Promise<void> {
+    try {
+      await this.adapter.addMarketplace(source);
+    } catch (error: unknown) {
+      throw wrapManagerError("add", error, source);
+    }
+  }
+
+  async enableFeature(feature: string): Promise<void> {
+    try {
+      await this.adapter.enableFeature(feature);
+    } catch (error: unknown) {
+      throw wrapManagerError("add", error, feature);
+    }
+  }
+
+  async featureEnabled(feature: string): Promise<boolean> {
+    try {
+      return await this.adapter.featureEnabled(feature);
+    } catch (error: unknown) {
+      throw wrapManagerError("list", error, feature);
     }
   }
 
@@ -79,7 +105,10 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
 
 type OfficialPluginAdapterShape = Readonly<{
   readonly list: () => Promise<LiveOfficialPluginListEnvelope>;
+  readonly addMarketplace: (source: string) => Promise<void>;
   readonly add: (pluginId: string) => Promise<void>;
+  readonly enableFeature: (feature: string) => Promise<void>;
+  readonly featureEnabled: (feature: string) => Promise<boolean>;
 }>;
 
 function wrapManagerError(

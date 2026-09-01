@@ -114,6 +114,7 @@ export type NativeWorkflowIdentityInput = Readonly<{
 
 /** A native plan together with decoder proxies backed by its QuickJS sandbox. */
 export type NativeWorkflow = Readonly<{
+  readonly name: string;
   readonly ir: WorkflowPlanIR;
   readonly codecs: ReadonlyMap<string, ValueCodec<JsonValue>>;
   readonly dispose: () => void;

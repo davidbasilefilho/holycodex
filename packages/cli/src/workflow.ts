@@ -27,6 +27,7 @@ import {
   domainSeparatedSha256,
   lookupRoleDefinition,
   lookupPlan,
+  nativeAgentTypeFor,
   normalizeSpecialistOutcome,
   parseCapabilityResultV2,
   RoleTaskSchema,
@@ -51,7 +52,6 @@ import { loadNativeWorkflowSource, type NativeWorkflow } from "@holycodex/workfl
 import { readFile, stat } from "node:fs/promises";
 import { basename, extname, relative, resolve } from "node:path";
 import { resolveInstallerPaths } from "./paths.ts";
-import { readCanonicalVersion } from "./manifest.ts";
 import { readActiveInstallRecord } from "./installer.ts";
 import type {
   CliContext,
@@ -64,7 +64,6 @@ import { decodeSchema, JsonObjectSchema, JsonValueSchema } from "./schema.ts";
 import { asJsonValue } from "./json.ts";
 import { readSavedWorkflow, saveWorkflow } from "./workflow-store.ts";
 import { GeneratedWorkflowStore, GeneratedWorkflowStoreError } from "./generated-workflow-store.ts";
-import { migrateLegacyState, readMigratedInstallerSelections } from "./migration.ts";
 import { findRefinement, listRefinements, replaceRefinement } from "./refinement-store.ts";
 import { CodexOfficialPluginManager } from "./official-manager.ts";
 import { executeLspSetup, type ToolExecutionResult } from "@holycodex/lsp-core/tools";
@@ -76,6 +75,7 @@ import {
 } from "@holycodex/git-bash";
 import type {
   AppServerAssignmentPort,
+  NativeAgentDispatchPort,
   CapabilityStateRecord,
   OfficialPluginStatus,
   WorkflowCapabilityPort,
@@ -83,6 +83,22 @@ import type {
 } from "./types.ts";
 
 const MAX_WORKFLOW_SOURCE_BYTES = 1024 * 1024;
+const WORKFLOW_MUTATING_COMMANDS = new Set([
+  "workflow create",
+  "workflow run",
+  "workflow resume",
+  "workflow continuation",
+  "workflow goal",
+  "workflow pause",
+  "workflow restart",
+  "workflow reopen",
+  "workflow stop",
+  "workflow stop-agent",
+  "workflow save",
+  "workflow invoke",
+  "workflow refinement enable",
+  "workflow refinement disable",
+]);
 
 export interface WorkflowSource {
   readonly source: string;
@@ -94,6 +110,9 @@ export async function executeWorkflowCommand(
   parsed: ParsedCommand,
   context: CliContext,
 ): Promise<JsonValue> {
+  if (workflowCommandMutatesState(parsed.command)) {
+    context.planFirstGate?.assertMutationAllowed();
+  }
   const service: WorkflowService =
     parsed.command === "workflow create" || parsed.command === "workflow check"
       ? (context.workflowService ?? {})
@@ -140,15 +159,19 @@ export async function executeWorkflowCommand(
         parsed,
         context,
       );
-      const nativeRequested = context.workflowService === undefined;
+      const fromStdin = workflow.path === null;
+      const nativeWorkflow: NativeWorkflow = await loadNativeWorkflowSource({
+        source: workflow.source,
+      });
       const generatedStore =
-        context.workflowService === undefined && workflow.path === null
-          ? await materializeGeneratedWorkflow(workflow, context)
+        workflow.path === null
+          ? await materializeGeneratedWorkflow(workflow, {
+              ...context,
+              ...(nativeWorkflow === undefined ? {} : { workflowName: nativeWorkflow.name }),
+            })
           : undefined;
       if (generatedStore !== undefined) workflow = generatedStore.source;
-      let nativeWorkflow: NativeWorkflow | undefined;
       try {
-        nativeWorkflow = nativeRequested ? await loadNativeWorkflow(workflow) : undefined;
         if (
           nativeWorkflow !== undefined &&
           generatedStore !== undefined &&
@@ -176,7 +199,12 @@ export async function executeWorkflowCommand(
             ? {}
             : { sourcePath: workflow.path }),
           objective:
-            optionString(parsed, "task") ?? defaultObjective(workflow.path, parsed.positionals[0]),
+            optionString(parsed, "task") ??
+            defaultObjective(
+              fromStdin ? null : workflow.path,
+              parsed.positionals[0],
+              nativeWorkflow.name,
+            ),
         };
         const plan = optionalPlan(parsed);
         const tier = optionalTier(parsed);
@@ -381,6 +409,10 @@ export async function executeWorkflowCommand(
   }
 }
 
+function workflowCommandMutatesState(command: string): boolean {
+  return WORKFLOW_MUTATING_COMMANDS.has(command);
+}
+
 async function assertProjectTrusted(parsed: ParsedCommand, context: CliContext): Promise<void> {
   const trusted = context.trustGate
     ? await context.trustGate(resolve(context.cwd ?? process.cwd()))
@@ -398,12 +430,6 @@ export async function readWorkflowSource(
 ): Promise<WorkflowSource> {
   const args = await optionalArgs(argumentText);
   if (reference === "-") {
-    if (parsed.command === "workflow run" && optionString(parsed, "task") === undefined) {
-      throw new WorkflowCommandError(
-        "invalid_argument",
-        "Workflow stdin requires an explicit --task objective.",
-      );
-    }
     const source = context.readStdin ? await context.readStdin() : await readAllStdin(context);
     if (source.length === 0) {
       throw new WorkflowCommandError("invalid_argument", "Workflow stdin is empty.");
@@ -504,12 +530,13 @@ async function assertResumeInputIdentity(
   }
 }
 
-function defaultObjective(path: string | null, reference: string | undefined): string {
+function defaultObjective(
+  path: string | null,
+  reference: string | undefined,
+  sourceName?: string,
+): string {
   if (path === null) {
-    throw new WorkflowCommandError(
-      "invalid_argument",
-      "Workflow stdin requires an explicit --task objective.",
-    );
+    return `workflow:${sourceName ?? "generated"}`;
   }
   const name = basename(reference ?? "workflow.ts", extname(reference ?? "workflow.ts"));
   return `workflow:${name}`;
@@ -525,13 +552,8 @@ async function materializeGeneratedWorkflow(
     readonly sessionId: string;
   }>
 > {
-  const sessionId = context.workflowSessionId;
-  if (sessionId === undefined) {
-    throw new WorkflowCommandError(
-      "invalid_argument",
-      "Generated workflow storage requires an explicit caller session identity.",
-    );
-  }
+  const sessionId =
+    context.workflowSessionId ?? `run-${crypto.randomUUID().replaceAll("-", "").slice(0, 24)}`;
   const paths = resolveWorkflowInstallerPaths(context.installer, context.env);
   const store = new GeneratedWorkflowStore(paths.codexHome, {
     ...(context.now === undefined ? {} : { now: context.now }),
@@ -584,16 +606,8 @@ export async function createDefaultWorkflowService(
   const cwd = resolve(context.cwd ?? process.cwd());
   const installerPaths = resolveWorkflowInstallerPaths(context.installer, context.env);
   const stateRoot = installerPaths.stateRoot;
-  const migration = await migrateLegacyState(installerPaths, context.now ?? (() => new Date()));
-  if (migration.status === "quarantined") {
-    throw new WorkflowCommandError(
-      "trust_boundary_failed",
-      "Legacy workflow state was retained as incompatible historical data.",
-    );
-  }
   const active = await readActiveInstallRecord(installerPaths);
-  const migrated = await readMigratedInstallerSelections(installerPaths);
-  const installedProfile = active ?? migrated;
+  const installedProfile = active;
   if (installedProfile === undefined) {
     throw new WorkflowCommandError(
       "capability_denied",
@@ -679,8 +693,8 @@ export async function createDefaultWorkflowService(
       costMax: planDefinition.value.budget.costMax,
     },
     refinementsEnabled: true,
-    canonicalVersion: await readCanonicalVersion(),
     platform: process.platform === "win32" ? "win32" : "posix",
+    ...(context.planFirstGate === undefined ? {} : { planFirstGate: context.planFirstGate }),
   };
   const host = new WorkflowHost(hostOptions);
   return {
@@ -774,14 +788,6 @@ export async function invokeWorkflowCapability(
     throw new WorkflowCommandError(
       "invalid_argument",
       `The ${capability} capability input is not a JSON object.`,
-      undefined,
-      { capability, input_valid: false },
-    );
-  }
-  if (new TextEncoder().encode(canonicalJson(input)).byteLength > 256 * 1024) {
-    throw new WorkflowCommandError(
-      "invalid_argument",
-      `The ${capability} capability input exceeds the size limit.`,
       undefined,
       { capability, input_valid: false },
     );
@@ -923,7 +929,7 @@ async function readOfficialPluginStatuses(
   const unknown = Object.fromEntries(selected.map((id) => [id, "uncertain" as const]));
   let manager = context.installer?.officialPluginManager;
   try {
-    manager ??= await CodexOfficialPluginManager.discover();
+    manager ??= await CodexOfficialPluginManager.discover(context.env);
     if (manager.status !== undefined) {
       const raw = await manager.status(selected);
       const schema = Schema.Record({
@@ -1194,8 +1200,20 @@ async function runAppServerAssignment(
   signal: AbortSignal,
 ): Promise<SemanticExecutionOutcome> {
   let raw: unknown;
+  const nativeDispatch: NativeAgentDispatchPort | undefined = context.nativeAgentDispatch;
   const testAdapter: AppServerAssignmentPort | undefined = context.appServerAssignment;
-  if (testAdapter !== undefined) {
+  if (options.execution_mode === "native") {
+    context.planFirstGate?.assertDispatchAllowed();
+    if (nativeDispatch !== undefined) {
+      raw = await nativeDispatch.execute(packet, { signal, ...options });
+    } else {
+      throw new CodexError(
+        "capability_unavailable",
+        "The native Codex agent dispatcher is unavailable; App Server is compatibility-only.",
+        { agent_type: packet.route.agent_type, task_name: packet.assignment.task_name ?? null },
+      );
+    }
+  } else if (testAdapter !== undefined) {
     raw = await testAdapter.execute(packet, { signal, ...options });
   } else {
     if (!nativeCommand || executable === undefined) {
@@ -1516,6 +1534,8 @@ function capabilityResultToSemanticExecution(
   return {
     assignment_id: packet.assignment.id,
     route_key: packet.route.key,
+    agent_type: nativeAgentTypeFor(packet.route.role_task),
+    task_name: packet.assignment.task_name ?? "capability_task",
     thread_id: `capability-${capability}`,
     turn_id: `capability-${capability}`,
     backend: "host-capability",

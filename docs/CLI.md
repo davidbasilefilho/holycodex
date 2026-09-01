@@ -18,28 +18,36 @@ codex plugin marketplace add davidbasilefilho/holycodex
 codex plugin add holycodex@holycodex
 ```
 
-`bunx holycodex ...` is the standalone CLI route for diagnostics and legacy
-payload or marketplace repair. It does not replace `codex plugin add`.
+`bunx holycodex install` drives the native Codex marketplace/plugin commands,
+enables Default-mode `request_user_input`, verifies effective feature state,
+and projects native specialist agent profiles without rewriting unrelated
+Codex configuration.
+
+Workflow execution targets the installed native `{Role}.{task}` dispatcher and
+passes `task_name` only as the concrete invocation identity. The generic App
+Server assignment bridge is compatibility-only and is never selected silently.
+An explicit plan-first gate rejects workflow mutation and specialist dispatch
+until a later continuation authorizes implementation.
 
 ## Commands
 
-| Command                                                                                            | Required behavior                                                                                                                                                                                                       |
-| -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `holycodex install [--yes] [--json]`                                                               | Validate the target and install only the owned HolyCodex scope. A mutation requires explicit confirmation; `--yes` is the non-interactive confirmation.                                                                 |
-| `holycodex doctor [--json]`                                                                        | Read-only inspection of toolchain, configuration, owned state, and capability availability. It does not repair or install.                                                                                              |
-| `holycodex cleanup --scope <run\|workspace\|expired> [--yes] [--json]`                             | Preview or remove only the selected HolyCodex-owned scope. Active, ambiguous, or integrity-uncertain state is refused. Mutation requires `--yes`.                                                                       |
-| `holycodex version <0.x.y\|patch\|minor> [--dry-run] [--json]`                                     | Read or update only the canonical public-package version.                                                                                                                                                               |
-| `holycodex workflow run <file.ts\|-> [args.json] [--task <objective>] [--compat-quickjs] [--json]` | Start a validated workflow in the capability-denied QuickJS TypeScript evaluator. Files require a trusted default `workflow.wait(...)` export. `--compat-quickjs` is a deprecated no-op alias; stdin requires `--task`. |
-| `holycodex workflow list [--json]`                                                                 | List sanitized HolyCodex-owned workflow runs.                                                                                                                                                                           |
-| `holycodex workflow show <run-id> [--json]`                                                        | Return a sanitized durable run snapshot.                                                                                                                                                                                |
-| `holycodex workflow inspect <run-id> [--follow] [--json]`                                          | Return operational progress without prompts, transcripts, or secrets.                                                                                                                                                   |
-| `holycodex workflow resume <run-id> <file.ts\|-> [args.json] [--json]`                             | Resume from the last valid checkpoint with explicitly resupplied source and arguments; both must match the stored digests.                                                                                              |
-| `holycodex workflow goal <run-id> <summary> [--json]`                                              | Update the durable goal without changing authority or policy.                                                                                                                                                           |
-| `holycodex workflow pause\|restart\|reopen\|stop <run-id> [--json]`                                | Apply the named lifecycle transition when valid.                                                                                                                                                                        |
-| `holycodex workflow stop-agent <run-id> <call-id> [--json]`                                        | Stop one active specialist call without granting a retry.                                                                                                                                                               |
-| `holycodex workflow save <user\|project> <name> <file.ts> [--json]`                                | Save a trusted TypeScript workflow in HolyCodex-owned state.                                                                                                                                                            |
-| `holycodex workflow invoke <user\|project> <name> [args.json] [--json]`                            | Invoke a saved workflow after identity and trust validation.                                                                                                                                                            |
-| `holycodex workflow refinement list\|show\|enable\|disable ... [--json]`                           | Inspect or explicitly activate typed, scoped refinement records.                                                                                                                                                        |
+| Command                                                                                            | Required behavior                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `holycodex install [--yes] [--json]`                                                               | Validate the target and install only the owned HolyCodex scope. A mutation requires explicit confirmation; `--yes` is the non-interactive confirmation.                                                                                                       |
+| `holycodex doctor [--json]`                                                                        | Read-only inspection of toolchain, configuration, owned state, and capability availability. It does not repair or install.                                                                                                                                    |
+| `holycodex cleanup --scope <run\|workspace\|expired> [--yes] [--json]`                             | Preview or remove only the selected HolyCodex-owned scope. Active, ambiguous, or integrity-uncertain state is refused. Mutation requires `--yes`.                                                                                                             |
+| `holycodex version <0.x.y\|patch\|minor> [--dry-run] [--json]`                                     | Read or update only the canonical public-package version.                                                                                                                                                                                                     |
+| `holycodex workflow run <file.ts\|-> [args.json] [--task <objective>] [--compat-quickjs] [--json]` | Start a validated workflow in the capability-denied QuickJS TypeScript evaluator. Files require a trusted default `workflow.wait(...)` export. `--compat-quickjs` is a deprecated no-op alias; stdin derives a default objective from the submitted workflow. |
+| `holycodex workflow list [--json]`                                                                 | List sanitized HolyCodex-owned workflow runs.                                                                                                                                                                                                                 |
+| `holycodex workflow show <run-id> [--json]`                                                        | Return a sanitized durable run snapshot.                                                                                                                                                                                                                      |
+| `holycodex workflow inspect <run-id> [--follow] [--json]`                                          | Return operational progress without prompts, transcripts, or secrets.                                                                                                                                                                                         |
+| `holycodex workflow resume <run-id> <file.ts\|-> [args.json] [--json]`                             | Resume from the last valid checkpoint with explicitly resupplied source and arguments; both must match the stored digests.                                                                                                                                    |
+| `holycodex workflow goal <run-id> <summary> [--json]`                                              | Update the durable goal without changing authority or policy.                                                                                                                                                                                                 |
+| `holycodex workflow pause\|restart\|reopen\|stop <run-id> [--json]`                                | Apply the named lifecycle transition when valid.                                                                                                                                                                                                              |
+| `holycodex workflow stop-agent <run-id> <call-id> [--json]`                                        | Stop one active specialist call without granting a retry.                                                                                                                                                                                                     |
+| `holycodex workflow save <user\|project> <name> <file.ts> [--json]`                                | Save a trusted TypeScript workflow in HolyCodex-owned state.                                                                                                                                                                                                  |
+| `holycodex workflow invoke <user\|project> <name> [args.json] [--json]`                            | Invoke a saved workflow after identity and trust validation.                                                                                                                                                                                                  |
+| `holycodex workflow refinement list\|show\|enable\|disable ... [--json]`                           | Inspect or explicitly activate typed, scoped refinement records.                                                                                                                                                                                              |
 
 Unknown commands, missing required arguments, malformed values, and invalid
 combinations are usage failures. Options are explicit; a command never turns
@@ -115,9 +123,9 @@ needs confirmation must receive `--yes`; otherwise it returns
 `non_tty_confirmation_required` with exit `1`. `--json` is always
 non-interactive, even on a TTY.
 
-Workflow-run task text in non-TTY use must be supplied with `--task` when the
-source is stdin. Explicit files use only their deterministic basename default
-when `--task` is omitted; resume always names its source explicitly. End of
+Workflow-run task text defaults to the deterministic file basename, or to the
+submitted workflow name and source for stdin, when `--task` is omitted. Resume
+always names its source explicitly. End of
 input is a validation failure, not a prompt. QuickJS TypeScript is the
 production workflow path: the CLI type-checks and validates the trusted source
 before evaluation, and every capability call is denied unless an approved
@@ -139,10 +147,9 @@ only through the explicit `workflow-session` cleanup scope.
 
 ## Command-specific safety
 
-`install` validates its target, toolchain, and owned scope before mutation and
-does not install MCP servers. Official optional-plugin mutation occurs only
-after core activation is verified; desired state is journaled, failures remain
-uncertain, and doctor reports disagreement without claiming rollback.
+`install` validates its target and toolchain, uses Codex's official plugin and
+feature mutation surfaces, verifies Default-mode `request_user_input`, and
+does not install MCP servers. Doctor reports native readback disagreement.
 `doctor` is read-only. `cleanup`
 requires a named scope, never follows an unresolved broad path, and refuses
 active or uncertain state. Workflow lifecycle commands require an existing

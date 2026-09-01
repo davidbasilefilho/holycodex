@@ -145,7 +145,7 @@ describe("Codex App Server schemas", () => {
     );
   });
 
-  test("compiles the exact useful literal from semantic assignment fields", () => {
+  test("compiles a stable contract prefix followed by a TOON assignment", () => {
     const prompt = compileSpecialistAssignment({
       assignment: {
         id: "assignment-1",
@@ -164,6 +164,7 @@ describe("Codex App Server schemas", () => {
       route: {
         key: "Worker:implementation",
         role_task: { role: "Worker", task: "implementation" },
+        agent_type: "Worker.implementation",
       },
       tools: { allowed: [], specialist_spawn: false, workflow: false },
       security: { network: false, specialist_spawn: false, workflow: false },
@@ -175,34 +176,13 @@ describe("Codex App Server schemas", () => {
         require_multi_agent_v2: false,
       },
       skill_profile: PONYTAIL_ROLE_SKILL,
-      canonical_version: "fixture-version",
-      platform: "win32",
     });
-    expect(prompt).toBe(
-      [
-        "Assignment ID: assignment-1",
-        "Objective: Change the parser",
-        "Role/task: Worker/implementation",
-        "Canonical version: fixture-version",
-        "Authority: Change only the assigned seam; Root owns material choices.",
-        "Use C:/Program Files/Git/bin/bash.exe for every shell command.",
-        "Skill reference: $ponytail",
-        "Skill instruction: Use the literal $ponytail skill reference in lite mode.",
-        "Scope: packages/core/src/routes.ts",
-        "References: docs/ARCHITECTURE.md",
-        "Constraints: Keep the boundary typed.",
-        "Required evidence: Run the core test",
-        "Acceptance: The route test passes",
-        "Exclusions: No unrelated refactor.",
-        "Escalation: Return material choices to Root.",
-        "Delta: Phase 3 semantic packet.",
-        "Outcome protocol: holycodex-specialist-outcome-2; terminal shapes: completed {protocol_version,route,evidence,status,summary}; blocked {protocol_version,route,evidence,status,reason,needs_root_decision}; partial {protocol_version,route,evidence,status,summary,completed,remaining,needs_root_decision}; failed {protocol_version,route,evidence,status,error}.",
-        "Boundary: Stay within the assigned scope and return material choices to Root.",
-      ].join("\n"),
-    );
-    expect(
-      prompt.match(/Use C:\/Program Files\/Git\/bin\/bash\.exe for every shell command\./gu),
-    ).toHaveLength(1);
+    expect(prompt.indexOf("Role contract:")).toBeLessThan(prompt.indexOf("Assignment (TOON):"));
+    expect(prompt).toContain("objective: Change the parser");
+    expect(prompt).toContain("scope[1]: packages/core/src/routes.ts");
+    expect(prompt).toContain("required_evidence[1]: Run the core test");
+    expect(prompt).toContain("delta[1]: Phase 3 semantic packet.");
+    expect(prompt).not.toContain("HolyCodex version");
     expect(prompt).not.toContain("payload");
     expect(prompt).not.toContain("internal state");
     expect(prompt).not.toContain("You are a lazy senior developer.");
@@ -226,6 +206,7 @@ describe("Codex App Server schemas", () => {
       route: {
         key: "Explorer:lookup",
         role_task: { role: "Explorer", task: "lookup" },
+        agent_type: "Explorer.lookup",
       },
       tools: { allowed: ["read"], specialist_spawn: false, workflow: false },
       security: { network: false, specialist_spawn: false, workflow: false },
@@ -263,6 +244,7 @@ describe("Codex App Server schemas", () => {
           route: {
             key: "Worker:implementation",
             role_task: { role: "Worker", task: "implementation" },
+            agent_type: "Worker.implementation",
           },
           tools: { allowed: [], specialist_spawn: false, workflow: false },
           security: { network: false, specialist_spawn: false, workflow: false },
@@ -305,6 +287,7 @@ describe("Codex App Server schemas", () => {
           route: {
             key: "Worker:implementation",
             role_task: { role: "Worker", task: "implementation" },
+            agent_type: "Worker.implementation",
           },
           tools: { allowed: [], specialist_spawn: false, workflow: false },
           security: { network: false, specialist_spawn: false, workflow: false },
@@ -626,6 +609,16 @@ describe("Codex identity, configuration, and plugins", () => {
     const runner = {
       run: async (args: readonly string[]) => {
         recorded.push([...args]);
+        if (args[0] === "features") {
+          return {
+            exitCode: 0,
+            stdout:
+              args[1] === "list"
+                ? "default_mode_request_user_input under-development true\n"
+                : "enabled\n",
+            stderr: "",
+          };
+        }
         if (args[1] === "add") {
           return { exitCode: 0, stdout: "{}", stderr: "" };
         }
@@ -646,9 +639,15 @@ describe("Codex identity, configuration, and plugins", () => {
       },
     };
     const adapter = createOfficialPluginAdapter({ executable: "codex", runner });
+    await adapter.addMarketplace("davidbasilefilho/holycodex");
     await adapter.add("documents@openai-primary-runtime");
-    expect(recorded[0]).toEqual(["plugin", "add", "documents@openai-primary-runtime", "--json"]);
-    expect(recorded[1]).toEqual(["plugin", "list", "--json"]);
+    await adapter.enableFeature("default_mode_request_user_input");
+    await expect(adapter.featureEnabled("default_mode_request_user_input")).resolves.toBe(true);
+    expect(recorded[0]).toEqual(["plugin", "marketplace", "add", "davidbasilefilho/holycodex"]);
+    expect(recorded[1]).toEqual(["plugin", "add", "documents@openai-primary-runtime", "--json"]);
+    expect(recorded[2]).toEqual(["plugin", "list", "--json"]);
+    expect(recorded[3]).toEqual(["features", "enable", "default_mode_request_user_input"]);
+    expect(recorded[4]).toEqual(["features", "list"]);
   });
 
   test("reports an installed-disabled provider as unavailable", async () => {
@@ -718,18 +717,12 @@ describe("Codex executable and diagnostics boundaries", () => {
       outputDirectory,
       commandRunner: async (_path, args) => {
         commands.push([...args]);
-        await writeFile(
-          join(outputDirectory, args[1] === "generate-ts" ? "types.ts" : "schema.json"),
-          "generated\n",
-        );
+        await writeFile(join(outputDirectory, "types.ts"), "generated\n");
         return { exitCode: 0, stdout: "", stderr: "" };
       },
     });
     expect(generated.commands).toEqual(commands);
-    expect(commands).toEqual([
-      ["app-server", "generate-ts", "--out", generated.outputDirectory],
-      ["app-server", "generate-json-schema", "--out", generated.outputDirectory],
-    ]);
+    expect(commands).toEqual([["app-server", "generate-ts", "--out", generated.outputDirectory]]);
     const emptyDirectory = join(root, "empty");
     await mkdir(emptyDirectory);
     await expect(

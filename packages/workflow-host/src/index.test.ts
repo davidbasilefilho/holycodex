@@ -12,7 +12,12 @@ import {
   type SemanticAssignmentPacket,
   type SemanticExecutionOutcome,
 } from "@holycodex/codex";
-import { PONYTAIL_ROLE_SKILL, type JsonValue } from "@holycodex/core";
+import {
+  PONYTAIL_ROLE_SKILL,
+  PlanFirstExecutionGate,
+  nativeAgentTypeFor,
+  type JsonValue,
+} from "@holycodex/core";
 import {
   FileRunStore,
   WorkflowHost,
@@ -109,6 +114,40 @@ function hostOptions(
 }
 
 describe("workflow-host", () => {
+  test("plan-first blocks run creation without dispatch or store mutation", async () => {
+    const { root } = await tempStore();
+    try {
+      let dispatches = 0;
+      const gate = new PlanFirstExecutionGate("planning");
+      const host = new WorkflowHost(
+        hostOptions(root, undefined, {
+          planFirstGate: gate,
+          codex: {
+            execute: () => {
+              dispatches += 1;
+              return Effect.fail(new CodexError("execution_failed", "dispatch must remain locked"));
+            },
+          },
+        }),
+      );
+      await expect(host.create({ source, args, objective: "plan first" })).rejects.toMatchObject({
+        code: "plan_first_locked",
+      });
+      expect(dispatches).toBe(0);
+      expect(await readdir(root)).toEqual([]);
+
+      gate.authorizeContinuation();
+      const definition = await host.create({
+        source,
+        args,
+        objective: "continue implementation",
+      });
+      expect(definition.run_id).toMatch(/^run-/u);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("initializes concurrent run-store owners without directory races", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-workflow-host-init-"));
     try {
@@ -162,7 +201,7 @@ describe("workflow-host", () => {
         }),
       );
       const codex: AssignmentExecutionService = {
-        execute: (input: unknown) => {
+        execute: (input: unknown, options) => {
           const packet = decodeHostSchema(SemanticAssignmentPacketSchema, input);
           if (packet === undefined) {
             return Effect.fail(
@@ -170,9 +209,12 @@ describe("workflow-host", () => {
             );
           }
           packets.push(packet);
+          expect(options).toEqual({ execution_mode: "native" });
           const result: SemanticExecutionOutcome = {
             assignment_id: packet.assignment.id,
             route_key: packet.route.key,
+            agent_type: nativeAgentTypeFor(packet.route.role_task),
+            task_name: packet.assignment.task_name ?? "test_task",
             thread_id: "thread-test",
             turn_id: "turn-test",
             backend: "app-server-v1-fallback",
@@ -213,6 +255,7 @@ describe("workflow-host", () => {
       if (packet === undefined) return;
       expect(packet.assignment).toEqual({
         id: expect.any(String),
+        task_name: expect.any(String),
         objective: "dispatch through Codex",
         role_task: { role: "Worker", task: "integration" },
         authority: "Change only the assigned seam; Root owns material choices.",
@@ -230,6 +273,7 @@ describe("workflow-host", () => {
         delta: ["nested delta"],
       });
       expect(packet.route.key).toBe("Worker:integration");
+      expect(packet.route.agent_type).toBe("Worker.integration");
       expect(packet.skill_profile).toEqual(PONYTAIL_ROLE_SKILL);
       expect(packet.tools.allowed).toEqual(["read", "write", "execute"]);
       expect(packet.security.network).toBe(false);
@@ -256,7 +300,7 @@ describe("workflow-host", () => {
     }
   });
 
-  test("persists approval transitions and deterministic Reviewer verification", async () => {
+  test("dispatches Reviewer verification without generic specialist approval", async () => {
     const { root } = await tempStore();
     try {
       let verified = false;
@@ -287,6 +331,8 @@ describe("workflow-host", () => {
           return Effect.succeed({
             assignment_id: packet.assignment.id,
             route_key: packet.route.key,
+            agent_type: nativeAgentTypeFor(packet.route.role_task),
+            task_name: packet.assignment.task_name ?? "test_task",
             thread_id: "thread-review",
             turn_id: "turn-review",
             backend: "app-server-v1-fallback" as const,
@@ -329,8 +375,8 @@ describe("workflow-host", () => {
       expect(packets[0]?.assignment.acceptance).toEqual([
         "Reach a fixed point or report each reproducible blocker.",
       ]);
-      expect(journal).toContain("waiting_for_approval");
-      expect(journal).toContain("approved");
+      expect(journal).not.toContain("waiting_for_approval");
+      expect(journal).not.toContain('"state":"approved"');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -438,7 +484,7 @@ describe("workflow-host", () => {
       ).rejects.toMatchObject({ code: "call_limit" });
       await expect(
         limited.create({ source, args, objective: "concurrency", expectedConcurrency: 2 }),
-      ).rejects.toMatchObject({ code: "concurrency_limit" });
+      ).resolves.toBeDefined();
       await expect(
         limited.create({ source, args, objective: "negative retry", expectedRetries: -1 }),
       ).rejects.toMatchObject({ code: "retry_limit" });
@@ -672,14 +718,113 @@ describe("workflow-host", () => {
       );
       const blockedRun = await blockedHost.create({ source, args, objective: "blocked outcome" });
       const blockedResult = await blockedHost.run({ runId: blockedRun.run_id, source, args });
-      expect(blockedResult.status).toBe("failed");
-      expect(
-        (await blockedHost.inspect(blockedRun.run_id)).operations.some(
-          (item) => item.state === "failed",
-        ),
-      ).toBe(true);
+      expect(blockedResult.status).toBe("blocked");
+      expect(blockedResult.result).toMatchObject({
+        ok: false,
+        error: {
+          code: "operation_failed",
+          details: { semantic_outcome: { status: "blocked" } },
+        },
+      });
+      const blockedInspection = await blockedHost.inspect(blockedRun.run_id);
+      expect(blockedInspection.operations.some((item) => item.state === "failed")).toBe(true);
+      expect(blockedInspection.checkpoint?.blockers).toContain("Needs a root decision.");
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves blocked, partial-root, and failed semantic outcomes", async () => {
+    const cases = [
+      {
+        status: "blocked" as const,
+        outcome: {
+          protocol_version: "holycodex-specialist-outcome-2" as const,
+          route: { role: "Worker" as const, task: "implementation" as const },
+          evidence: ["root evidence"],
+          status: "blocked" as const,
+          reason: "Root must choose the implementation strategy.",
+          needs_root_decision: true,
+        },
+      },
+      {
+        status: "blocked" as const,
+        outcome: {
+          protocol_version: "holycodex-specialist-outcome-2" as const,
+          route: { role: "Worker" as const, task: "implementation" as const },
+          evidence: ["partial evidence"],
+          status: "partial" as const,
+          summary: "The safe subset is complete.",
+          completed: ["safe subset"],
+          remaining: ["Root decision"],
+          needs_root_decision: true,
+        },
+      },
+      {
+        status: "failed" as const,
+        outcome: {
+          protocol_version: "holycodex-specialist-outcome-2" as const,
+          route: { role: "Worker" as const, task: "implementation" as const },
+          evidence: ["failure evidence"],
+          status: "failed" as const,
+          error: "The bounded implementation failed.",
+        },
+      },
+    ];
+    for (const [index, candidate] of cases.entries()) {
+      const { root } = await tempStore();
+      try {
+        const host = new WorkflowHost(
+          hostOptions(root, fakeEvaluator(), {
+            executeSpecialist: async () => candidate.outcome,
+          }),
+        );
+        const definition = await host.create({
+          source,
+          args,
+          objective: `semantic outcome ${index}`,
+        });
+        const execution = await host.run({ runId: definition.run_id, source, args });
+        expect(execution.status).toBe(candidate.status);
+        expect(execution.result).toMatchObject({
+          ok: false,
+          error: {
+            code: "operation_failed",
+            details: { semantic_outcome: { status: candidate.outcome.status } },
+          },
+        });
+        const inspection = await host.inspect(definition.run_id);
+        expect(inspection.operations.at(-1)?.state).toBe("failed");
+        expect(inspection.operations.at(-1)?.error_code).toBe(
+          `specialist-${candidate.outcome.status}`,
+        );
+        if (candidate.outcome.status === "blocked") {
+          expect(inspection.checkpoint).not.toBeNull();
+          expect(inspection.checkpoint?.blockers.length).toBeGreaterThan(0);
+          if ("remaining" in candidate.outcome) {
+            expect(inspection.checkpoint?.unresolved_work).toEqual(candidate.outcome.remaining);
+            await expect(
+              host.createContinuation({
+                runId: definition.run_id,
+                sessionId: `semantic-session-${index}`,
+                source,
+                args,
+              }),
+            ).resolves.toMatchObject({ kind: "denied", code: "continuation_denied" });
+          } else {
+            await expect(
+              host.createContinuation({
+                runId: definition.run_id,
+                sessionId: `semantic-session-${index}`,
+                source,
+                args,
+              }),
+            ).resolves.toMatchObject({ kind: "claimed" });
+          }
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
     }
   });
 
@@ -928,7 +1073,7 @@ describe("workflow-host", () => {
     }
   });
 
-  test("denies compatibility dispatch before the specialist effect", async () => {
+  test("does not apply generic approval to compatibility dispatch", async () => {
     const { root } = await tempStore();
     try {
       let dispatched = 0;
@@ -944,15 +1089,15 @@ describe("workflow-host", () => {
       );
       const definition = await host.create({ source, args, objective: "deny before effect" });
       const execution = await host.runCompatibility({ runId: definition.run_id });
-      expect(execution.status).toBe("denied");
-      expect(dispatched).toBe(0);
+      expect(execution.status).toBe("completed");
+      expect(dispatched).toBe(1);
       const journal = await readFile(
         join(root, "runs", definition.run_id, "journal.ndjson"),
         "utf8",
       );
-      expect(journal).toContain("waiting_for_approval");
-      expect(journal).toContain("denied");
-      expect(journal).not.toContain('"state":"completed"');
+      expect(journal).not.toContain("waiting_for_approval");
+      expect(journal).not.toContain('"state":"denied"');
+      expect(journal).toContain('"state":"completed"');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1040,6 +1185,8 @@ describe("workflow-host", () => {
               return Effect.succeed({
                 assignment_id: packet.assignment.id,
                 route_key: packet.route.key,
+                agent_type: nativeAgentTypeFor(packet.route.role_task),
+                task_name: packet.assignment.task_name ?? "test_task",
                 thread_id: "thread",
                 turn_id: "turn",
                 backend: "app-server-v1-fallback" as const,
@@ -1068,6 +1215,8 @@ describe("workflow-host", () => {
             Effect.succeed({
               assignment_id: "native-default",
               route_key: "Worker:integration",
+              agent_type: "Worker.integration" as const,
+              task_name: "native_default",
               thread_id: "thread",
               turn_id: "turn",
               backend: "app-server-v1-fallback" as const,

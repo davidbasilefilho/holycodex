@@ -1,7 +1,7 @@
 # HolyCodex
 
 HolyCodex is an independently authored, clean-room foundation for installing
-an owned Codex plugin payload and running bounded TypeScript workflows. The
+a Codex plugin and running bounded TypeScript workflows. The
 public package is the `holycodex` CLI; the workspace packages keep domain
 values, Codex transport, isolated evaluation, durable orchestration, and plugin
 assembly behind one-way interfaces.
@@ -57,27 +57,20 @@ codex plugin marketplace add davidbasilefilho/holycodex
 codex plugin add holycodex@holycodex
 ```
 
-Use the standalone CLI through `bunx` for diagnostics or legacy repair when
-the plugin cannot start. `bunx holycodex install` repairs the owned legacy
-payload and marketplace state; it is not a replacement for the official
-`codex plugin add` installation path.
+Use the standalone CLI through `bunx` for setup and diagnostics when the
+plugin cannot start. `bunx holycodex install` uses Codex's native plugin and
+feature commands, verifies Default-mode user input, and projects the native
+specialist agent types.
 
-Use an isolated pair of roots when trying installation locally. The installer
-requires a non-overlapping `CODEX_HOME` and personal marketplace root.
+Use an isolated `CODEX_HOME` when trying installation locally.
 
 ```sh
 test_root="$(mktemp -d)"
 cli='mise exec -- bun packages/cli/src/index.ts'
 
-$cli install --yes --json \
-  --codex-home "$test_root/codex" \
-  --marketplace-root "$test_root/marketplace"
-$cli doctor --json \
-  --codex-home "$test_root/codex" \
-  --marketplace-root "$test_root/marketplace"
-$cli cleanup --scope workspace --yes --json \
-  --codex-home "$test_root/codex" \
-  --marketplace-root "$test_root/marketplace"
+$cli install --yes --json --codex-home "$test_root/codex"
+$cli doctor --json --codex-home "$test_root/codex"
+$cli cleanup --scope workspace --yes --json --codex-home "$test_root/codex"
 ```
 
 An installed executable exposes the same command surface:
@@ -99,7 +92,8 @@ holycodex workflow run ./workflow.ts '{}' --json
 ```
 
 `--compat-quickjs` remains a deprecated one-release alias and does not select
-a different evaluator. Stdin requires an explicit `--task` objective. CLI-created workflows
+a different evaluator. Stdin derives an objective from the submitted workflow
+when `--task` is omitted. CLI-created workflows
 are stored under `~/.codex/workflows/{codex-session-id}/{workflow-name}-{4-lowercase-hex}.ts`,
 for example `review-api-a3f9.ts`.
 `holycodex workflow --help` and `holycodex --help` show the current syntax,
@@ -122,13 +116,13 @@ without claiming an uncertain effect. Use
 `cleanup --scope workflow-session --session-id <id> --yes` only to remove an
 inactive generated-workflow session. The exact command syntax, envelopes, exit codes, and
 non-TTY behavior are owned by [CLI.md](docs/CLI.md). Installation identity,
-recovery, cleanup, and legacy-state migration are owned by
+recovery and cleanup are owned by
 [INSTALLATION.md](docs/INSTALLATION.md) and [STATE.md](docs/STATE.md).
 
 ## Repository map
 
-- [Installation](docs/INSTALLATION.md) — payload identity, activation, doctor,
-  cleanup, and isolated roots.
+- [Installation](docs/INSTALLATION.md) — native setup, configuration readback,
+  doctor, cleanup, and isolated roots.
 - [State](docs/STATE.md) — schema epochs, identities, journals, checkpoints,
   replay, continuation, refinement, and telemetry.
 - [Configuration](docs/CONFIGURATION.md) — precedence, plans, optional
@@ -164,8 +158,7 @@ workflow that requests a specialist operation fails closed until an approved
 executor is supplied. Official plugin selection depends on a capable Codex
 executable. `multi_agent_v2` is locally disabled and its distinct generated
 lifecycle is unverified; advertised V2 therefore fails closed and the stable
-App Server fallback remains executable. The installer has an explicit,
-idempotent legacy-state migration with quarantine and recovery; unknown schema
-epochs still fail closed. npm publication is manual, approval-gated, and
+App Server fallback remains executable. Unknown schema epochs fail closed. npm
+publication is manual, approval-gated, and
 version-checked through `.github/workflows/publish.yml`; GitHub release
 publication and deployment remain excluded.

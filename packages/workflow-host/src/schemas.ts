@@ -4,6 +4,7 @@ import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 import {
   DelegationModeSchema,
+  NativeAgentTypeSchema,
   PlanNameSchema,
   RoleSchema,
   RoleSkillProfileSchema,
@@ -306,6 +307,7 @@ export const RetainedSessionRefSchema = Schema.Struct({
   project: ProjectTrustRefSchema,
   objective_lineage: IdentifierSchema,
   role_task: RoleTaskSchema,
+  agent_type: NativeAgentTypeSchema,
   route: RouteKeySchema,
   authority_scope_digest: DigestSchema,
   policy_digest: DigestSchema,
@@ -318,6 +320,7 @@ export const RetainedSessionRefSchema = Schema.Struct({
   skill_profile: Schema.Union(RoleSkillProfileSchema, Schema.Null),
   skill_profile_digest: Schema.Union(DigestSchema, Schema.Literal("none")),
   fingerprint: DigestSchema,
+  last_assignment: Schema.optional(JsonObjectSchema),
 });
 export type RetainedSessionRef = typeof RetainedSessionRefSchema.Type;
 

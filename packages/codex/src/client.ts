@@ -121,7 +121,6 @@ const DEFAULT_CLIENT_INFO: InitializeParams = {
   clientInfo: { name: "holycodex", title: null, version: CODEX_CLIENT_VERSION },
   capabilities: null,
 };
-const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 
 const SUPPORTED_METHODS = new Set<string>(GENERATED_SUPPORTED_CLIENT_METHODS);
 
@@ -146,12 +145,15 @@ export class AppServerClient {
   constructor(transport: AsyncLineTransport, options: AppServerClientOptions = {}) {
     this.transport = transport;
     this.maxLineBytes = options.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES;
-    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.requestTimeoutMs = options.requestTimeoutMs;
     this.signal = options.signal;
     if (!Number.isSafeInteger(this.maxLineBytes) || this.maxLineBytes < 1) {
       throw new CodexError("invalid_external_data", "The maximum line size is invalid.");
     }
-    if (!Number.isSafeInteger(this.requestTimeoutMs) || this.requestTimeoutMs < 1) {
+    if (
+      this.requestTimeoutMs !== undefined &&
+      (!Number.isSafeInteger(this.requestTimeoutMs) || this.requestTimeoutMs < 1)
+    ) {
       throw new CodexError("invalid_external_data", "The request timeout is invalid.");
     }
     if (options.onNotification) {

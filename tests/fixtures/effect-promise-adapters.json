@@ -12,6 +12,11 @@
       "reason": "Codex Effect Layers own the subprocess and App Server Promise adapters."
     },
     {
+      "path": "packages/cli/src/native-agents.ts",
+      "markers": ["installNativeAgents"],
+      "reason": "The CLI native-agent projection writes bounded Codex profile files through the owned storage adapter."
+    },
+    {
       "path": "packages/cli/src/workflow.ts",
       "markers": ["Effect.runPromise"],
       "reason": "The CLI boundary turns a validated host Effect into its user-facing Promise result."

@@ -1,6 +1,6 @@
 ---
 name: compress
-description: Shorten text while preserving meaning, constraints, and voice.
+description: Use when text must be shortened; preserve meaning, constraints, and voice.
 ---
 
 Owner: Worker. Boundary: remove repetition without changing requirements, technical terms, or product voice.

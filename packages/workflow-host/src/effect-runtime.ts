@@ -3,9 +3,13 @@
 import {
   canonicalJson,
   CapabilityNameSchema,
+  encodeModelWire,
   lookupRoute,
   lookupRoleDefinition,
+  nativeAgentTypeFor,
   normalizeSpecialistOutcome,
+  RoleTaskSchema,
+  SpecialistOutcomeV2Schema,
   type JsonObject,
   type JsonValue,
   type RoleTask,
@@ -44,7 +48,6 @@ import {
   writeCheckpoint,
 } from "./lifecycle.ts";
 import { acquireDispatch, capacitySnapshot, releaseDispatch, settleDispatch } from "./admission.ts";
-import { approveBeforeDispatch } from "./approval.ts";
 import {
   CostAccountingError,
   costJournal,
@@ -161,7 +164,7 @@ function makeRuntimeServices(
     agent,
     route: inherited.route ?? ((node) => routeForNode(definition, plan, node)),
     journal: inherited.journal ?? ((event) => journalRuntimeEvent(context, event)),
-    approval: (request) => approveRuntimeNode(context, request),
+    approval: () => Effect.void,
     verification: inherited.verification ?? ((request) => verifyRuntimeNode(context, request)),
     durability: inherited.durability ?? {
       checkpoint: (event) => checkpointRuntimeNode(context, pending, event),
@@ -224,6 +227,13 @@ export function executeCodexOperation(
     readonly route: string;
   }>,
 ): Effect.Effect<SpecialistOutcomeV2, WorkflowFailure> {
+  try {
+    context.planFirstGate.assertDispatchAllowed();
+  } catch (cause) {
+    return Effect.fail(
+      workflowFailure("execution", "Plan-first mode blocks specialist dispatch.", { cause }),
+    );
+  }
   const assignment: Assignment<JsonValue, JsonValue> = {
     payload: { objective: input.prompt, options: input.options },
     input: {
@@ -250,7 +260,7 @@ export function executeCodexOperation(
     const route = yield* resolvePlanRoute(definition, input.route);
     const packet = yield* makeSemanticPacket(context, definition, pending, assignment, route);
     const result = yield* codex
-      .execute(packet)
+      .execute(packet, { execution_mode: "compatibility" })
       .pipe(Effect.mapError((cause) => codexFailure(cause, assignment)));
     const validated = yield* validateSemanticOutcome(result, assignment, roleTaskForRoute(route));
     return validated.outcome;
@@ -266,6 +276,11 @@ function executeCodexAssignment(
   assignment: Assignment<JsonValue, JsonValue>,
 ): Effect.Effect<unknown, WorkflowFailure> {
   return Effect.gen(function* () {
+    try {
+      context.planFirstGate.assertDispatchAllowed();
+    } catch (cause) {
+      return yield* Effect.fail(toWorkflowFailure(cause, assignment));
+    }
     const route = yield* resolveAssignmentRoute(definition, assignment);
     const routeDefinition = yield* resolvePlanRoute(definition, route);
     let estimate: CostEstimate;
@@ -353,7 +368,21 @@ function executeCodexAssignment(
         ? retainedContextForPacket(retainedDecision.context)
         : undefined;
     const executionPacket: SemanticAssignmentPacket =
-      retainedContext === undefined ? packet : { ...packet, retained_context: retainedContext };
+      retainedContext === undefined
+        ? packet
+        : {
+            ...packet,
+            assignment: {
+              ...packet.assignment,
+              delta: semanticAssignmentDelta(
+                retainedDecision.kind === "reused"
+                  ? retainedDecision.context.session?.last_assignment
+                  : undefined,
+                packet.assignment,
+              ),
+            },
+            retained_context: retainedContext,
+          };
     const controller = new AbortController();
     const startedAt = Date.now();
     const removeAbort = (): void => controller.abort();
@@ -400,7 +429,7 @@ function executeCodexAssignment(
       );
       const result = yield* Effect.raceFirst(
         agent
-          .execute(executionPacket)
+          .execute(executionPacket, { execution_mode: "native" })
           .pipe(Effect.mapError((cause) => codexFailure(cause, assignment))),
         cancellationEffect(controller.signal),
       );
@@ -426,17 +455,13 @@ function executeCodexAssignment(
       if (settledResult.failure !== undefined) {
         yield* Effect.fail(toWorkflowFailure(settledResult.failure, assignment));
       }
-      if (validated.outcome.status !== "completed") {
-        yield* Effect.fail(
-          workflowFailure("execution", "The specialist outcome did not complete."),
-        );
-      }
       const session = sessionFromOutcome(
         validated.result,
         definition,
         routeDefinition,
         authorityDigest,
         operationInput.digest,
+        packet.assignment,
       );
       yield* appendOperation(
         context,
@@ -473,26 +498,43 @@ function executeCodexAssignment(
           operationCause = settledResult.failure;
         }
       }
+      const semanticOutcome = semanticOutcomeFromFailure(operationCause);
+      const semanticExecution = semanticExecutionFromFailure(operationCause);
       const state = isUncertainCodexFailure(operationCause) ? "uncertain" : "failed";
       const errorCode =
-        operationCause instanceof WorkflowHostError ? operationCause.code : "external-failed";
+        semanticOutcome === undefined
+          ? operationCause instanceof WorkflowHostError
+            ? operationCause.code
+            : "external-failed"
+          : semanticOutcomeErrorCode(semanticOutcome);
+      const session =
+        semanticExecution === undefined
+          ? undefined
+          : sessionFromOutcome(
+              semanticExecution,
+              definition,
+              routeDefinition,
+              authorityDigest,
+              operationInput.digest,
+              packet.assignment,
+            );
       yield* appendOperation(
         context,
         definition,
         operationInput,
         state,
-        undefined,
+        semanticOutcome,
         errorCode,
-        undefined,
+        session,
         costAccounting,
       );
       yield* emitOperationTelemetry(
         context,
         definition,
         routeDefinition,
-        state,
+        semanticOutcome?.status ?? state,
         errorCode,
-        undefined,
+        semanticExecution,
         Date.now() - startedAt,
       );
       yield* Effect.fail(toWorkflowFailure(operationCause, assignment));
@@ -544,6 +586,7 @@ function makeSemanticPacket(
       const id = assignmentId(assignment, route.key);
       const objective = assignmentObjective(payload, id);
       const roleTask = roleTaskForRoute(route);
+      const agentType = nativeAgentTypeFor(roleTask);
       const role = lookupRoleDefinition(roleTask.role);
       const evidence = readAssignmentList(fields, options, "evidence");
       const completion = readAssignmentList(fields, options, "completion");
@@ -565,6 +608,7 @@ function makeSemanticPacket(
       const packet: SemanticAssignmentPacket = {
         assignment: {
           id,
+          task_name: nativeTaskName(id),
           objective,
           role_task: roleTask,
           ...(capability === undefined ? {} : { capability }),
@@ -588,6 +632,7 @@ function makeSemanticPacket(
         route: {
           key: route.key,
           role_task: roleTask,
+          agent_type: agentType,
         },
         tools: { allowed, specialist_spawn: false, workflow: false },
         security: {
@@ -602,10 +647,6 @@ function makeSemanticPacket(
           prefer_multi_agent_v2: false,
           require_multi_agent_v2: false,
         },
-        ...(context.canonicalVersion === undefined
-          ? {}
-          : { canonical_version: context.canonicalVersion }),
-        platform: context.platform,
         skill_profile: role.skill_profile,
         ...(capability === undefined ? {} : { capability_input: options }),
         ...(retainedContext === undefined ? {} : { retained_context: retainedContext }),
@@ -692,6 +733,14 @@ function assignmentId(
   return `assignment-${(hash >>> 0).toString(16)}`;
 }
 
+function nativeTaskName(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/gu, "_")
+    .replace(/^_+|_+$/gu, "");
+  return /^[a-z]/u.test(normalized) ? normalized.slice(0, 128) : `task_${normalized}`.slice(0, 128);
+}
+
 function assignmentObjective(payload: JsonValue, id: string): string {
   if (isJsonObject(payload) && typeof payload["objective"] === "string") {
     return safeText(payload["objective"], 4096);
@@ -699,37 +748,14 @@ function assignmentObjective(payload: JsonValue, id: string): string {
   return safeText(`Execute workflow assignment ${id}.`, 4096);
 }
 
-function isJsonObject(value: JsonValue | undefined): value is JsonObject {
+function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function roleTaskForRoute(route: RouteDefinition): RoleTask {
-  switch (route.role) {
-    case "Explorer":
-      if (route.task === "lookup" || route.task === "trace") {
-        return { role: "Explorer", task: route.task };
-      }
-      break;
-    case "Librarian":
-      if (route.task === "lookup" || route.task === "research") {
-        return { role: "Librarian", task: route.task };
-      }
-      break;
-    case "Worker":
-      if (
-        route.task === "mechanical" ||
-        route.task === "implementation" ||
-        route.task === "integration" ||
-        route.task === "operations"
-      ) {
-        return { role: "Worker", task: route.task };
-      }
-      break;
-    case "Reviewer":
-      if (route.task === "plan" || route.task === "code" || route.task === "artifact") {
-        return { role: "Reviewer", task: route.task };
-      }
-      break;
+  const roleTask = decodeHostSchema(RoleTaskSchema, { role: route.role, task: route.task });
+  if (roleTask !== undefined) {
+    return roleTask;
   }
   throw new WorkflowHostError("invalid_route", "The route role/task pair is inconsistent.");
 }
@@ -755,6 +781,7 @@ function retainedContextForPacket(input: RetainedContextIdentity): RetainedConte
     project: session.project,
     objective_lineage: session.objective_lineage,
     role_task: session.role_task,
+    agent_type: session.agent_type,
     route: session.route,
     authority_scope_digest: session.authority_scope_digest,
     policy_digest: session.policy_digest,
@@ -777,6 +804,7 @@ function sessionFromOutcome(
   route: RouteDefinition,
   authorityDigest: string,
   fingerprint: string,
+  assignment: SemanticAssignmentPacket["assignment"],
 ): RetainedSessionRef | undefined {
   if (result.session_mode === undefined) {
     return undefined;
@@ -789,6 +817,7 @@ function sessionFromOutcome(
     project: definition.identity.project,
     objective_lineage: definition.objective_lineage,
     role_task: roleTaskForRoute(route),
+    agent_type: result.agent_type,
     route: route.key,
     authority_scope_digest: authorityDigest,
     policy_digest: definition.identity.policy_digest,
@@ -801,6 +830,7 @@ function sessionFromOutcome(
     skill_profile: skillProfile,
     skill_profile_digest: skillProfile?.digest ?? "none",
     fingerprint,
+    last_assignment: jsonObject(assignment, "retained assignment"),
   };
   const parsed = decodeHostSchema(RetainedSessionRefSchema, session);
   if (parsed === undefined) {
@@ -810,6 +840,21 @@ function sessionFromOutcome(
     );
   }
   return parsed;
+}
+
+function semanticAssignmentDelta(
+  previous: JsonObject | undefined,
+  current: SemanticAssignmentPacket["assignment"],
+): readonly string[] {
+  if (previous === undefined) return current.delta ?? [current.objective];
+  const changed: string[] = [];
+  for (const [key, value] of Object.entries(current)) {
+    if (key === "id" || key === "delta") continue;
+    if (previous[key] === undefined || canonicalJson(previous[key]) !== canonicalJson(value)) {
+      changed.push(`${key}: ${encodeModelWire(asJsonValue(value, `assignment ${key}`))}`);
+    }
+  }
+  return changed.length > 0 ? changed : (current.delta ?? ["Continue the accepted assignment."]);
 }
 
 function validateSemanticOutcome(
@@ -838,9 +883,29 @@ function validateSemanticOutcome(
       if (parsed.route_key !== `${expectedRoute.role}:${expectedRoute.task}`) {
         throw workflowFailure("validation", "The semantic outcome route is inconsistent.");
       }
+      if (parsed.agent_type !== nativeAgentTypeFor(expectedRoute)) {
+        throw workflowFailure(
+          "validation",
+          "The semantic outcome native agent type is inconsistent.",
+        );
+      }
       const normalized = normalizeSpecialistOutcome(parsed.outcome, expectedRoute);
       if (!normalized.ok) {
         throw workflowFailure("execution", "The specialist outcome is invalid.");
+      }
+      if (normalized.value.status !== "completed") {
+        throw workflowFailure(
+          "execution",
+          `The specialist reported a ${normalized.value.status} outcome.`,
+          {
+            nodeId: assignmentId(assignment, `${expectedRoute.role}:${expectedRoute.task}`),
+            retryable: false,
+            metadata: {
+              semantic_outcome: normalized.value,
+              semantic_execution: asJsonValue(parsed, "semantic execution"),
+            },
+          },
+        );
       }
       return { result: parsed, outcome: normalized.value };
     },
@@ -914,16 +979,6 @@ function journalRuntimeEvent(
         replayed: false,
       });
     },
-    catch: (cause) => toWorkflowFailure(cause),
-  });
-}
-
-function approveRuntimeNode(
-  context: HostContext,
-  request: import("@holycodex/workflow-runtime").WorkflowApprovalRequest,
-): Effect.Effect<void, WorkflowFailure> {
-  return Effect.tryPromise({
-    try: () => approveBeforeDispatch(context, request),
     catch: (cause) => toWorkflowFailure(cause),
   });
 }
@@ -1017,6 +1072,42 @@ function toWorkflowFailure(
   });
 }
 
+function semanticOutcomeFromFailure(value: unknown): SpecialistOutcomeV2 | undefined {
+  const metadata = failureMetadata(value);
+  const candidate = metadata?.["semantic_outcome"];
+  if (candidate === undefined) {
+    return undefined;
+  }
+  const parsed = decodeHostSchema(SpecialistOutcomeV2Schema, candidate);
+  return parsed;
+}
+
+function semanticExecutionFromFailure(value: unknown): SemanticExecutionOutcome | undefined {
+  const metadata = failureMetadata(value);
+  const candidate = metadata?.["semantic_execution"];
+  if (candidate === undefined) {
+    return undefined;
+  }
+  return decodeHostSchema(SemanticExecutionOutcomeSchema, candidate);
+}
+
+function failureMetadata(value: unknown): JsonObject | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  if ("metadata" in value && isJsonObject(value.metadata)) {
+    return value.metadata;
+  }
+  if ("details" in value && isJsonObject(value.details)) {
+    return value.details;
+  }
+  return undefined;
+}
+
+function semanticOutcomeErrorCode(outcome: SpecialistOutcomeV2): string {
+  return `specialist-${outcome.status}`;
+}
+
 function isWorkflowFailureLike(value: unknown): value is WorkflowFailure {
   return (
     typeof value === "object" &&
@@ -1061,6 +1152,7 @@ function workflowFailure(
     readonly nodeId?: string;
     readonly cause?: unknown;
     readonly retryable?: boolean;
+    readonly metadata?: JsonObject;
   }> = {},
 ): WorkflowFailure {
   return Object.freeze({ _tag: "WorkflowFailure" as const, code, message, ...details });

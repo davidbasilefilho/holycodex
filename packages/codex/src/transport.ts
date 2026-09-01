@@ -17,7 +17,7 @@ export interface AsyncLineTransport {
 export function allowlistedEnvironment(
   source: Readonly<Record<string, string | undefined>> = process.env,
 ): Record<string, string> {
-  const allowed = ["PATH", "HOME", "USER", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL"];
+  const allowed = ["PATH", "HOME", "USER", "CODEX_HOME", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL"];
   const output: Record<string, string> = {};
   for (const key of allowed) {
     const value = source[key];

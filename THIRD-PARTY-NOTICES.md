@@ -11,6 +11,7 @@ license interpretation. Package/source metadata is also summarized in
 The following installed runtime packages are MIT-licensed:
 
 - `effect` 3.22.1
+- `@toon-format/toon` 4.1.1
 - `quickjs-emscripten` 0.32.0
 - `quickjs-emscripten-core` 0.32.0
 - `@jitl/quickjs-ffi-types` 0.32.0
@@ -19,7 +20,8 @@ The following installed runtime packages are MIT-licensed:
 - `@jitl/quickjs-wasmfile-release-asyncify` 0.32.0
 - `@jitl/quickjs-wasmfile-release-sync` 0.32.0
 
-The `quickjs-emscripten`, `quickjs-emscripten-core`, and FFI package files
+TOON is copyright Johann Schopplich. Its installed package carries the MIT
+license. The `quickjs-emscripten`, `quickjs-emscripten-core`, and FFI package files
 carry the first MIT section below. Each of the four Wasm package files carries
 that section followed by the QuickJS engine attribution. The consolidated text
 below reproduces both sections from those installed files:
@@ -97,11 +99,18 @@ Bun type declarations are bundled into the runtime payload. See the installed
 package files and `bun.lock` when a platform-specific attribution needs to be
 refreshed.
 
+## Vendored plugin skills
+
+The installed plugin contains adapted MIT-licensed material from Matt Pocock's
+`writing-for-agents` skill and Hardik Pandya's `stop-slop` skill. Each skill
+directory retains its upstream license and attribution; the exact admitted
+source revisions are recorded in [PROVENANCE.md](docs/PROVENANCE.md).
+
 ## Generated App Server artifacts
 
 The files under `packages/codex/generated/codex-cli-0.148.0/` are generated
 protocol artifacts, not third-party packages and not a new license assertion.
-Their executable identity, 943-file inventory, SHA-256 digests, protocol epoch,
+Their executable identity, 655-file TypeScript inventory, SHA-256 digests, protocol epoch,
 and capability limits are recorded in
 [PROVENANCE.md](docs/PROVENANCE.md#generated-artifact). The local artifact
 records `multi_agent_v2` as disabled with an unverified distinct lifecycle;

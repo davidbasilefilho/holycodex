@@ -68,11 +68,6 @@ const PredicateSchema = Schema.Struct({ path: PathSchema, equals: JsonValueSchem
 const RepeatUntilSchema = Schema.Struct({
   path: PathSchema,
   equals: JsonValueSchema,
-  maxIterations: Schema.Number.pipe(
-    Schema.int(),
-    Schema.greaterThanOrEqualTo(1),
-    Schema.lessThanOrEqualTo(16),
-  ),
 });
 const AssignmentMetadataSchema = Schema.Struct({
   id: Schema.optional(IdentifierSchema),
@@ -80,7 +75,6 @@ const AssignmentMetadataSchema = Schema.Struct({
   dependencies: Schema.optional(Schema.Array(IdentifierSchema)),
   retries: Schema.optional(NonNegativeIntegerSchema),
   attempt: Schema.optional(NonNegativeIntegerSchema),
-  timeoutMs: Schema.optional(PositiveIntegerSchema),
   writes: Schema.optional(Schema.Array(WriteScopeSchema)),
   when: Schema.optional(ConditionSchema),
   stopWhen: Schema.optional(PredicateSchema),
@@ -118,7 +112,6 @@ export type CompiledNodeMetadata = Readonly<{
   readonly capabilities: readonly string[];
   readonly dependencies: readonly string[];
   readonly retries: number;
-  readonly timeoutMs?: number;
   readonly writes: readonly string[];
   readonly when?: WorkflowCondition;
   readonly stopWhen?: WorkflowPredicate;
@@ -693,19 +686,11 @@ function normalizeMetadata(
   if (!Number.isInteger(retries) || retries < 0 || retries > policy.capacity.maxRetries) {
     throw workflowFailure("validation", "The workflow retry policy is invalid.");
   }
-  const timeoutMs = metadata.timeoutMs;
-  if (
-    timeoutMs !== undefined &&
-    (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 60_000)
-  ) {
-    throw workflowFailure("validation", "The workflow timeout policy is invalid.");
-  }
   return Object.freeze({
     capabilities: Object.freeze(capabilities),
     dependencies: Object.freeze(dependencies),
     retries,
     writes: Object.freeze(uniqueStrings((metadata.writes ?? []).map(normalizeWriteScope))),
-    ...(timeoutMs === undefined ? {} : { timeoutMs }),
     ...(metadata.when === undefined ? {} : { when: freezeCondition(metadata.when) }),
     ...(metadata.stopWhen === undefined ? {} : { stopWhen: freezePredicate(metadata.stopWhen) }),
     ...(metadata.repeatUntil === undefined
@@ -1039,10 +1024,7 @@ function freezePredicate(input: WorkflowPredicate): WorkflowPredicate {
 }
 
 function freezeRepeatUntil(input: WorkflowRepeatUntil): WorkflowRepeatUntil {
-  return Object.freeze({
-    ...freezePredicate(input),
-    maxIterations: input.maxIterations,
-  });
+  return freezePredicate(input);
 }
 
 function isAncestor(

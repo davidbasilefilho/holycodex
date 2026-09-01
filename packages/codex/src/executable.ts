@@ -286,10 +286,7 @@ export async function generateCodexSchemas(
   await assertExecutableStable(options.executable);
   const environment = allowlistedEnvironment(options.environment);
   const runner = options.commandRunner ?? runCommand;
-  const commands = [
-    ["app-server", "generate-ts", "--out", outputDirectory] as const,
-    ["app-server", "generate-json-schema", "--out", outputDirectory] as const,
-  ] as const;
+  const commands = [["app-server", "generate-ts", "--out", outputDirectory] as const] as const;
   for (const args of commands) {
     await assertExecutableStable(options.executable);
     const result = await runner(options.executable.path, args, environment);

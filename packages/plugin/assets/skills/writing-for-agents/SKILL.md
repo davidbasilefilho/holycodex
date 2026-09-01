@@ -1,26 +1,37 @@
 ---
 name: writing-for-agents
-description: Use when authoring or reviewing instructions consumed by agents, including prompts, skills, profiles, delegations, handoffs, and workflows.
+description: Use when authoring or reviewing prompts, skills, profiles, delegations, handoffs, workflows, or agent-facing repository instructions; make them independently actionable with low context load.
 ---
 
 # Writing for agents
 
-Treat instructions as a small interface, not a role description. Start with one contract:
+Treat each instruction as an interface with one contract:
 
-Owner: the authoring role within its approved scope.
-Boundary: keep policy in one source of truth and return material decisions to the owning agent.
-Completion: the receiving agent can act, prove, and stop from this instruction alone.
+- **Owner:** the role permitted to act or decide.
+- **Boundary:** the exact scope, authority, constraints, and escalation point.
+- **Completion:** the observable outcome and proof that permit the agent to stop.
 
-- **Objective and outcome:** what must be true when the assignment ends.
-- **Scope and authority:** exact files or decisions in scope, and who owns everything else.
-- **Constraints:** retained policy, tools, security, and non-goals.
-- **Evidence and completion:** the output shape, proof required, and the condition that permits stopping.
-- **Escalation:** the precise missing fact or conflict that returns to the owning agent.
+Write an objective, scope, retained constraints, evidence, exclusions, and the exact missing fact or material choice that returns to the owner. The receiver must be able to act, prove, and stop without reconstructing intent.
 
-Write each behavior beside its reason when the reason changes a decision. Prefer direct positive steering, one source of truth, and pointers to branch-only detail. Remove duplicate policy, stale context, no-op prose, and instructions the environment already enforces. Keep a resumed assignment to its changed constraints and delta; do not replay the whole contract.
+## Information design
 
-For Sol, state invariants and decision boundaries. For Luna, name the exact files or actions, evidence fields, authority limit, and stop condition; do not leave operational choices implicit. Keep dynamic assignments short enough to preserve working context.
+A **context pointer** names out-of-context material and front-loads the branches that load it. Keep one trigger per genuine branch; synonyms spend permanent context without improving routing.
 
-Use the narrowest route: `programming` for implementation, `code-review` once after implementation, `workflows` for substantive orchestration, `context7-cli` for current external documentation, and `handoff` when context must pause or transfer. Read the selected route's skill only after choosing it.
+Budget two loads:
 
-Completion means the instruction is independently actionable, triggerable at the right branch, explicit about exclusions and escalation, and testable through the receiver's output. Adapted from the supplied Matt Pocock skills-writing concepts.
+- **Context load:** always-loaded descriptions and repository rules.
+- **Cognitive load:** material a person must remember and select.
+
+Place information by immediacy: in-file steps, in-file reference, then disclosed reference. Inline what every invocation needs. Put branch-specific mechanics behind a clear pointer. Co-locate each concept with its rules and caveats; split real invocation or sequence branches when one file sprawls or later steps cause premature completion.
+
+Each step needs a clear, demanding completion criterion. Sharpen a vague bound before splitting the sequence. Use leading words with useful pretrained meaning to compress repeated concepts. Prefer positive steering; keep prohibitions for hard guardrails and pair them with the target behavior.
+
+## Pruning
+
+Keep each meaning in one source of truth. Treat code, configuration, directory layout, and `--help` as authoritative environment lookups; document only reasons, gotchas, or contracts the environment cannot reveal. Delete stale caches, irrelevant branches, sediment, and instructions that do not change model behavior.
+
+Use architectural role names: Root owns material decisions, Workers implement bounded seams, Reviewers repair their assigned findings to fixed point, and other specialists follow their literal authority. Continuations carry changed constraints, evidence, decisions, and semantic delta instead of replaying accepted context.
+
+When the document is a skill, read [SKILL-MECHANICS.md](SKILL-MECHANICS.md) for invocation and frontmatter mechanics.
+
+Completion means the instruction routes at the right branch, names authority and exclusions, prevents premature completion, supplies checkable proof, and contains no duplicated or no-op policy.

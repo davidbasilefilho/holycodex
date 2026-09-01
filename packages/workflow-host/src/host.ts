@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { evaluateWorkflowCompatibility, makeCapacityService } from "@holycodex/workflow-runtime";
+import { PlanFirstExecutionGate } from "@holycodex/core";
 import { isAbsolute } from "node:path";
 import * as Effect from "effect/Effect";
 import { WorkflowHostError } from "./errors.ts";
@@ -126,10 +127,10 @@ export class WorkflowHost {
       approvalPolicy: assertIdentifier(options.approvalPolicy ?? "never", "approval policy"),
       sandboxPolicy: assertIdentifier(options.sandboxPolicy, "sandbox policy"),
       codexCapabilityDigest: assertDigest(options.codexCapabilityDigest, "Codex capability digest"),
-      canonicalVersion: options.canonicalVersion,
       platform: options.platform ?? "posix",
       telemetry: options.telemetry,
       refinementsEnabled: options.refinementsEnabled ?? false,
+      planFirstGate: options.planFirstGate ?? new PlanFirstExecutionGate(),
       pending: new Map(),
       active: new Map(),
       executionLocks: new Map(),
@@ -190,6 +191,7 @@ export class WorkflowHost {
   }
 
   async goal(runId: string, summary: string): Promise<InspectionProjection> {
+    this.context.planFirstGate.assertMutationAllowed();
     const loaded = await loadRun(this.context, runId);
     const checkpoint = loaded.snapshot.checkpoint;
     const nextCheckpoint = await writeCheckpoint(
@@ -216,6 +218,7 @@ export class WorkflowHost {
   }
 
   async pause(runId: string): Promise<InspectionProjection> {
+    this.context.planFirstGate.assertMutationAllowed();
     const loaded = await loadRun(this.context, runId);
     if (loaded.snapshot.status !== "running") {
       throw new WorkflowHostError("run_state_invalid", "Only running runs may be paused.");
@@ -251,6 +254,7 @@ export class WorkflowHost {
   }
 
   async restart(runId: string): Promise<InspectionProjection> {
+    this.context.planFirstGate.assertMutationAllowed();
     const loaded = await loadRun(this.context, runId);
     if (!["completed", "failed", "blocked", "stopped"].includes(loaded.snapshot.status)) {
       throw new WorkflowHostError("run_state_invalid", "Only terminal runs may restart.");
@@ -264,6 +268,7 @@ export class WorkflowHost {
   }
 
   async stop(runId: string): Promise<InspectionProjection> {
+    this.context.planFirstGate.assertMutationAllowed();
     const loaded = await loadRun(this.context, runId);
     if (["completed", "failed", "stopped"].includes(loaded.snapshot.status)) {
       return await inspect(this.context, runId);
@@ -279,6 +284,7 @@ export class WorkflowHost {
   }
 
   async stopAgent(runId: string, operationId: string): Promise<InspectionProjection> {
+    this.context.planFirstGate.assertMutationAllowed();
     const active = this.context.active.get(runId);
     if (!active) {
       throw new WorkflowHostError(

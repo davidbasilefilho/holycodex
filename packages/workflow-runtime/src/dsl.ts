@@ -14,11 +14,7 @@ export type WorkflowPredicate = Readonly<{
   readonly equals: JsonValue;
 }>;
 
-export type WorkflowRepeatUntil = Readonly<
-  WorkflowPredicate & {
-    readonly maxIterations: number;
-  }
->;
+export type WorkflowRepeatUntil = WorkflowPredicate;
 
 export type AssignmentMetadata = Readonly<{
   readonly id?: string;
@@ -26,7 +22,6 @@ export type AssignmentMetadata = Readonly<{
   readonly dependencies?: readonly string[];
   readonly retries?: number;
   readonly attempt?: number;
-  readonly timeoutMs?: number;
   /** Exclusive file or symbol scopes owned by this assignment while it executes. */
   readonly writes?: readonly string[];
   readonly when?: WorkflowCondition;

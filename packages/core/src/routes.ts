@@ -48,7 +48,10 @@ export const PONYTAIL_ROLE_SKILL = Object.freeze({
 export const ROLE_DEFINITIONS = [
   {
     role: "Explorer",
-    tasks: ["lookup", "trace"],
+    tasks: [
+      { name: "lookup", instruction: "Locate the exact requested repository fact." },
+      { name: "trace", instruction: "Trace the complete in-scope execution or reference path." },
+    ],
     capability: "repository-read",
     authority: "Read only the assigned repository scope; Root owns decisions.",
     evidence: "Return exact paths, symbols, callers, tests, and constraints.",
@@ -59,7 +62,10 @@ export const ROLE_DEFINITIONS = [
   },
   {
     role: "Librarian",
-    tasks: ["lookup", "research"],
+    tasks: [
+      { name: "lookup", instruction: "Locate the exact requested authoritative external fact." },
+      { name: "research", instruction: "Synthesize the assigned current sources with citations." },
+    ],
     capability: "current-research",
     authority: "Research only the assigned current sources; Root owns decisions.",
     evidence: "Return sourced facts, dates, and explicit uncertainty.",
@@ -70,7 +76,15 @@ export const ROLE_DEFINITIONS = [
   },
   {
     role: "Worker",
-    tasks: ["mechanical", "implementation", "integration", "operations"],
+    tasks: [
+      { name: "mechanical", instruction: "Apply only deterministic, already-decided edits." },
+      { name: "implementation", instruction: "Implement and verify the bounded behavior seam." },
+      { name: "integration", instruction: "Integrate the decided seams and verify them together." },
+      {
+        name: "operations",
+        instruction: "Perform only the explicitly approved stateful operation.",
+      },
+    ],
     capability: "bounded-write",
     authority: "Change only the assigned seam; Root owns material choices.",
     evidence: "Return changed files, verification results, and remaining risk.",
@@ -81,7 +95,14 @@ export const ROLE_DEFINITIONS = [
   },
   {
     role: "Reviewer",
-    tasks: ["plan", "code", "artifact"],
+    tasks: [
+      { name: "plan", instruction: "Review the complete plan to a fixed point." },
+      { name: "code", instruction: "Review and repair the implemented code to a fixed point." },
+      {
+        name: "artifact",
+        instruction: "Review and repair the produced artifact to a fixed point.",
+      },
+    ],
     capability: "bounded-review",
     authority: "Inspect and repair only reviewer-owned defects; Root owns material choices.",
     evidence: "Return findings, repaired paths, verification, and residual risk.",
@@ -98,12 +119,12 @@ export type Role = RoleDefinition["role"];
 export type TaskForRole<R extends Role> = Extract<
   RoleDefinition,
   { readonly role: R }
->["tasks"][number];
+>["tasks"][number]["name"];
 export type ExplorerTask = TaskForRole<"Explorer">;
 export type LibrarianTask = TaskForRole<"Librarian">;
 export type WorkerTask = TaskForRole<"Worker">;
 export type ReviewerTask = TaskForRole<"Reviewer">;
-export type TaskSlot = RoleDefinition["tasks"][number];
+export type TaskSlot = RoleDefinition["tasks"][number]["name"];
 export type RoleTask = {
   readonly [R in Role]: { readonly role: R; readonly task: TaskForRole<R> };
 }[Role];
@@ -112,15 +133,22 @@ export type RouteKey = RoleTask extends infer Pair
     ? `${Pair["role"]}:${Pair["task"]}`
     : never
   : never;
+export type NativeAgentType = RoleTask extends infer Pair
+  ? Pair extends RoleTask
+    ? `${Pair["role"]}.${Pair["task"]}`
+    : never
+  : never;
 
 const roleDefinitionsByName = new Map<Role, RoleDefinition>(
   ROLE_DEFINITIONS.map((definition) => [definition.role, definition]),
 );
 const roleNameSet = new Set<string>(ROLE_DEFINITIONS.map((definition) => definition.role));
 const routeKeys = ROLE_DEFINITIONS.flatMap((definition) =>
-  definition.tasks.map((task) => `${definition.role}:${task}`),
+  definition.tasks.map((task) => `${definition.role}:${task.name}`),
 );
 const routeKeySet = new Set<string>(routeKeys);
+const nativeAgentTypes = routeKeys.map((key) => key.replace(":", "."));
+const nativeAgentTypeSet = new Set(nativeAgentTypes);
 
 function isRole(value: unknown): value is Role {
   return typeof value === "string" && roleNameSet.has(value);
@@ -135,13 +163,15 @@ function isRoleTask(value: unknown): value is RoleTask {
   if (!isRole(role) || typeof task !== "string") {
     return false;
   }
-  return roleDefinitionsByName.get(role)?.tasks.some((candidate) => candidate === task) === true;
+  return (
+    roleDefinitionsByName.get(role)?.tasks.some((candidate) => candidate.name === task) === true
+  );
 }
 
 function isTaskForRole(role: Role, value: unknown): boolean {
   return (
     typeof value === "string" &&
-    roleDefinitionsByName.get(role)?.tasks.some((candidate) => candidate === value) === true
+    roleDefinitionsByName.get(role)?.tasks.some((candidate) => candidate.name === value) === true
   );
 }
 
@@ -167,6 +197,29 @@ export const ROUTE_KEYS: readonly RouteKey[] = Object.freeze(
   routeKeys.filter((key): key is RouteKey => isRouteKey(key)),
 );
 export const RouteKeySchema = Schema.declare(isRouteKey);
+export const NATIVE_AGENT_TYPES: readonly NativeAgentType[] = Object.freeze(
+  nativeAgentTypes.filter((agentType): agentType is NativeAgentType =>
+    nativeAgentTypeSet.has(agentType),
+  ),
+);
+export const NativeAgentTypeSchema = Schema.declare(
+  (value: unknown): value is NativeAgentType =>
+    typeof value === "string" && nativeAgentTypeSet.has(value),
+);
+
+export function nativeAgentTypeFor(route: RoleTask): NativeAgentType {
+  const value = `${route.role}.${route.task}`;
+  if (!nativeAgentTypeSet.has(value)) throw new Error("Unknown native specialist agent type.");
+  return value as NativeAgentType;
+}
+
+export function taskInstructionFor(route: RoleTask): string {
+  const task = roleDefinitionsByName
+    .get(route.role)
+    ?.tasks.find((candidate) => candidate.name === route.task);
+  if (task === undefined) throw new Error("Unknown specialist task policy.");
+  return task.instruction;
+}
 
 export function lookupRoleDefinition(role: Role): RoleDefinition {
   const definition = roleDefinitionsByName.get(role);

@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { lookupRoute, RoleTaskSchema, type JsonValue, type PlanDefinition } from "@holycodex/core";
+import {
+  lookupRoute,
+  RoleTaskSchema,
+  SpecialistOutcomeV2Schema,
+  type JsonObject,
+  type JsonValue,
+  type PlanDefinition,
+  type SpecialistOutcomeV2,
+} from "@holycodex/core";
 import * as Effect from "effect/Effect";
 import type { CapacityLease, WorkflowOperation } from "@holycodex/workflow-runtime";
 import { executeCodexOperation } from "./effect-runtime.ts";
 import { acquireDispatch, capacitySnapshot, releaseDispatch, settleDispatch } from "./admission.ts";
-import { approveBeforeDispatch } from "./approval.ts";
 import {
   CostAccountingError,
   costJournal,
@@ -30,7 +37,6 @@ import {
 } from "./identity.ts";
 import { appendEvent, emitTelemetry, loadRun, operationLifecycle } from "./lifecycle.ts";
 import type { ActiveRun, HostContext } from "./types.ts";
-import type { SpecialistOutcomeV2 } from "@holycodex/core";
 
 export async function handleOperation(
   context: HostContext,
@@ -45,10 +51,7 @@ export async function handleOperation(
       "The workflow requested an unsupported operation.",
     );
   }
-  if (
-    typeof operation.prompt !== "string" ||
-    new TextEncoder().encode(operation.prompt).byteLength > 128 * 1024
-  ) {
+  if (typeof operation.prompt !== "string" || operation.prompt.length === 0) {
     throw new WorkflowHostError("invalid_input", "The workflow operation prompt is invalid.");
   }
   const options = jsonObject(operation.options, "workflow operation options");
@@ -100,12 +103,6 @@ export async function handleOperation(
       "The workflow operation retry request is not admitted.",
     );
   }
-  if (fanOut > (context.capacity.maxFanOut ?? plan.budget?.maxConcurrency ?? 1)) {
-    throw new WorkflowHostError(
-      "fan_out_limit",
-      "The workflow operation fan-out request is not admitted.",
-    );
-  }
   const normalizedInput = normalizeCompatibilityOperation({
     prompt: operation.prompt,
     options,
@@ -147,7 +144,7 @@ export async function handleOperation(
       lifecycle: operationLifecycle({
         ...operationInput,
         attempt,
-        state: "waiting_for_approval",
+        state: "approved",
         errorCode: null,
       }),
     });
@@ -160,33 +157,6 @@ export async function handleOperation(
     if (competingOutcome !== undefined) {
       return competingOutcome;
     }
-    try {
-      await approveBeforeDispatch(context, {
-        runId: definition.run_id,
-        nodeId: operationId,
-        name: operationId,
-      });
-    } catch (error) {
-      await appendEvent(context, definition.run_id, {
-        event: "operation",
-        lifecycle: operationLifecycle({
-          ...operationInput,
-          attempt,
-          state: "denied",
-          errorCode: error instanceof WorkflowHostError ? error.code : "approval_denied",
-        }),
-      });
-      throw error;
-    }
-    await appendEvent(context, definition.run_id, {
-      event: "operation",
-      lifecycle: operationLifecycle({
-        ...operationInput,
-        attempt,
-        state: "approved",
-        errorCode: null,
-      }),
-    });
     let lease: CapacityLease | undefined;
     let dispatched = false;
     let effectClassified = false;
@@ -297,7 +267,8 @@ export async function handleOperation(
       if (outcome.status !== "completed") {
         throw new WorkflowHostError(
           "specialist_invalid",
-          "The specialist outcome did not complete.",
+          `The specialist reported a ${outcome.status} outcome.`,
+          { semantic_outcome: outcome },
         );
       }
       await appendEvent(context, definition.run_id, {
@@ -324,6 +295,11 @@ export async function handleOperation(
       return outcome;
     } catch (error) {
       let operationError: unknown = error;
+      const failureOutcome = semanticOutcomeFromFailure(error);
+      if (failureOutcome !== undefined) {
+        normalizedOutcome = failureOutcome;
+        effectClassified = true;
+      }
       if (lease !== undefined && !settled) {
         const settledResult = await settleDispatch(
           context,
@@ -340,7 +316,11 @@ export async function handleOperation(
         }
       }
       const errorCode =
-        operationError instanceof WorkflowHostError ? operationError.code : "external-failed";
+        failureOutcome === undefined
+          ? operationError instanceof WorkflowHostError
+            ? operationError.code
+            : "external-failed"
+          : `specialist-${failureOutcome.status}`;
       await appendEvent(context, definition.run_id, {
         event: "operation",
         lifecycle: operationLifecycle({
@@ -356,7 +336,8 @@ export async function handleOperation(
         event: "operation",
         run_id: definition.run_id,
         route,
-        status: dispatched && !effectClassified ? "uncertain" : "failed",
+        status:
+          failureOutcome?.status ?? (dispatched && !effectClassified ? "uncertain" : "failed"),
         duration_ms: Date.now() - startedAt,
         count: 1,
         error_code: errorCode,
@@ -381,6 +362,28 @@ export async function handleOperation(
     active.controller.signal.removeEventListener("abort", abortOperation);
     active.operationControllers.delete(operationId);
   }
+}
+
+function semanticOutcomeFromFailure(value: unknown): SpecialistOutcomeV2 | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  const candidate = (() => {
+    if ("metadata" in value && isJsonObject(value.metadata)) {
+      return value.metadata["semantic_outcome"];
+    }
+    if ("details" in value && isJsonObject(value.details)) {
+      return value.details["semantic_outcome"];
+    }
+    return undefined;
+  })();
+  return candidate === undefined
+    ? undefined
+    : decodeHostSchema(SpecialistOutcomeV2Schema, candidate);
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function usageFromResult(value: unknown): unknown {

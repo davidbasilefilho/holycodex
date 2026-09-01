@@ -225,7 +225,10 @@ export interface OfficialPluginAdapterOptions {
 
 export interface OfficialPluginAdapter {
   readonly list: () => Promise<LiveOfficialPluginListEnvelope>;
+  readonly addMarketplace: (source: string, signal?: AbortSignal) => Promise<void>;
   readonly add: (pluginId: string, signal?: AbortSignal) => Promise<void>;
+  readonly enableFeature: (feature: string, signal?: AbortSignal) => Promise<void>;
+  readonly featureEnabled: (feature: string) => Promise<boolean>;
 }
 
 export class OfficialPluginAdapterError extends Error {
@@ -284,6 +287,34 @@ export function createOfficialPluginAdapter(
   };
   return {
     list,
+    enableFeature: async (feature, signal) => {
+      const checkedFeature = checked(PluginNameSchema, feature, "Codex feature name");
+      const result = await runner.run(
+        ["features", "enable", checkedFeature],
+        signal === undefined ? undefined : { signal },
+      );
+      if (result.exitCode !== 0) throw commandError("feature enable", result, checkedFeature);
+    },
+    featureEnabled: async (feature) => {
+      const checkedFeature = checked(PluginNameSchema, feature, "Codex feature name");
+      const result = await runner.run(["features", "list"]);
+      if (result.exitCode !== 0) throw commandError("feature list", result, checkedFeature);
+      const line = result.stdout
+        .split(/\r?\n/u)
+        .find((candidate) => candidate.trimStart().startsWith(`${checkedFeature} `));
+      if (line === undefined) return false;
+      return /\btrue\s*$/u.test(line);
+    },
+    addMarketplace: async (source, signal) => {
+      const checkedSource = checked(OfficialPluginIdSchema, source, "plugin marketplace source");
+      const result = await runner.run(
+        ["plugin", "marketplace", "add", checkedSource],
+        signal === undefined ? undefined : { signal },
+      );
+      if (result.exitCode !== 0 && !/already (?:exists|added)/iu.test(result.stderr)) {
+        throw commandError("marketplace add", result, checkedSource);
+      }
+    },
     add: async (pluginId, signal) => {
       const checkedPluginId = checked(OfficialPluginIdSchema, pluginId, "official plugin id");
       const result = await runner.run(
@@ -324,7 +355,7 @@ export function createOfficialPluginAdapter(
 }
 
 function commandError(
-  operation: "list" | "add",
+  operation: "list" | "add" | "marketplace add" | "feature enable" | "feature list",
   result: Readonly<{ exitCode: number; stdout: string; stderr: string }>,
   pluginId?: string,
 ): OfficialPluginAdapterError {

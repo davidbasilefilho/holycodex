@@ -117,10 +117,10 @@
       "proof": "packages/workflow-host/src/index.test.ts"
     },
     {
-      "id": "install-maintenance-migration",
+      "id": "native-install-maintenance",
       "classification": "SUPERSEDED",
       "owner": "docs/INSTALLATION.md",
-      "proof": "packages/cli/src/migration.test.ts"
+      "proof": "packages/cli/src/index.test.ts"
     },
     {
       "id": "rules-lsp-platform",
@@ -173,9 +173,9 @@
     { "id": "v2-disabled-fallback", "owner": "codex", "expected": "stable-v1-fallback" },
     { "id": "v2-unverified", "owner": "codex", "expected": "fail-closed" },
     { "id": "capability-denied-enabled", "owner": "cli", "expected": "typed-port" },
-    { "id": "hooks-rules-compaction", "owner": "plugin", "expected": "manifest-assets" },
+    { "id": "rules-compaction", "owner": "plugin", "expected": "manifest-assets" },
     { "id": "lsp-platform-fixtures", "owner": "cli", "expected": "path-fixtures" },
-    { "id": "migration-recovery", "owner": "cli", "expected": "quarantine-or-resume" },
+    { "id": "native-install-readback", "owner": "cli", "expected": "verified" },
     { "id": "packed-install-doctor-cleanup", "owner": "validation", "expected": "isolated" },
     { "id": "babysit-ci", "owner": "workflow", "expected": "observation-only" },
     { "id": "cutover-runbook", "owner": "release", "expected": "approval-gated" }

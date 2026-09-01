@@ -78,9 +78,6 @@ export const InstallRecordSchema = Schema.Struct({
   schema_epoch: Schema.Literal(STATE_SCHEMA_EPOCH),
   version: VersionSchema,
   digest: DigestSchema,
-  epoch: EpochSchema,
-  artifact_id: ArtifactIdSchema,
-  relative_path: RelativeArtifactPathSchema,
   plan: PlanNameSchema,
   tier: ServiceTierSchema,
   optional_selections: OptionalSelectionsSchema,
@@ -92,34 +89,6 @@ export const InstallRecordSchema = Schema.Struct({
     Schema.Number.pipe(Schema.filter((value) => Number.isSafeInteger(value) && value > 0)),
   ),
   installed_at: DateTextSchema,
-});
-
-export const JournalPhaseSchema = Schema.Literal(
-  "lock-recovery",
-  "artifact-ready",
-  "active-written",
-  "marketplace-written",
-  "activation-verified",
-  "official-plugin-attempted",
-  "official-plugin-confirmed",
-  "official-plugins-applied",
-  "official-plugins-uncertain",
-  "rollback",
-  "pruned",
-  "migration-started",
-  "migration-completed",
-  "migration-quarantined",
-);
-export const JournalDetailsSchema = Schema.Record({
-  key: Schema.String,
-  value: Schema.Union(Schema.String, Schema.Number),
-});
-export const InstallJournalRecordSchema = Schema.Struct({
-  phase: JournalPhaseSchema,
-  at: DateTextSchema,
-  run_id: IdentifierSchema,
-  sequence: Schema.Number.pipe(Schema.filter((value) => Number.isSafeInteger(value) && value > 0)),
-  details: JournalDetailsSchema,
 });
 
 export const LockMetadataSchema = Schema.Struct({

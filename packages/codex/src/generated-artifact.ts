@@ -36,7 +36,6 @@ const GeneratedProvenanceSchema = Schema.Struct({
   files: Schema.Struct({
     count: Schema.Number.pipe(Schema.int(), Schema.positive()),
     typescript_root: Schema.Literal("typescript"),
-    json_schema_root: Schema.Literal("json-schema"),
   }),
   capability_evidence: Schema.Struct({
     multi_agent: Schema.Literal("stable"),
@@ -168,7 +167,7 @@ async function collectInventory(root: string): Promise<GeneratedArtifactInventor
       if (path === "provenance.json") {
         continue;
       }
-      if (!path.startsWith("typescript/") && !path.startsWith("json-schema/")) {
+      if (!path.startsWith("typescript/")) {
         throw new CodexError(
           "protocol_mismatch",
           "Generated artifacts contain a file outside the declared roots.",
@@ -320,16 +319,13 @@ async function verifyGeneratedArtifactInternal(
     options.artifactRoot ?? join(import.meta.dirname, "../generated/codex-cli-0.148.0"),
   );
   const provenance = await readProvenance(root);
-  if (provenance.generator.commands.length !== 2) {
+  if (provenance.generator.commands.length !== 1) {
     throw new CodexError(
       "protocol_mismatch",
       "Generated artifact provenance has an invalid generator command list.",
     );
   }
-  const expectedCommands = [
-    ["app-server", "generate-ts", "--out", "<artifact-root>/typescript"],
-    ["app-server", "generate-json-schema", "--out", "<artifact-root>/json-schema"],
-  ];
+  const expectedCommands = [["app-server", "generate-ts", "--out", "<artifact-root>/typescript"]];
   if (canonicalJson(provenance.generator.commands) !== canonicalJson(expectedCommands)) {
     throw new CodexError(
       "protocol_mismatch",

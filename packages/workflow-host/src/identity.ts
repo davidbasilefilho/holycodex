@@ -44,9 +44,7 @@ import type { HostContext, ProjectTrustInput, WorkflowDefinition } from "./types
 export const ZERO_DIGEST = "0".repeat(64);
 export const DEFAULT_PROFILE = "default";
 export const DEFAULT_ROUTE: RouteKey = "Worker:implementation";
-export const MAX_PENDING_TEXT = 4096;
-export const MAX_CHECKPOINT_ITEMS = 64;
-export const MAX_BOUNDED_JSON_BYTES = 256 * 1024;
+export const MAX_PENDING_TEXT = Number.MAX_SAFE_INTEGER;
 
 const MECHANICAL_OPERATION_FIELDS = new Set([
   "attempt",
@@ -74,7 +72,7 @@ export function now(): string {
   return new Date().toISOString();
 }
 
-export function safeText(value: string, limit = 512): string {
+export function safeText(value: string, _limit?: number): string {
   if (typeof value !== "string") {
     throw new WorkflowHostError("invalid_input", "A bounded text value is invalid.");
   }
@@ -87,7 +85,7 @@ export function safeText(value: string, limit = 512): string {
       output += character;
     }
   }
-  return output.replace(/\s+/gu, " ").trim().slice(0, limit);
+  return output.replace(/\s+/gu, " ").trim();
 }
 
 export function safeTextArray(values: readonly string[] | undefined): string[] {
@@ -97,7 +95,7 @@ export function safeTextArray(values: readonly string[] | undefined): string[] {
   if (!Array.isArray(values) || values.some((value) => typeof value !== "string")) {
     throw new WorkflowHostError("invalid_input", "A bounded text list is invalid.");
   }
-  return values.slice(0, MAX_CHECKPOINT_ITEMS).map((value) => safeText(value));
+  return values.map((value) => safeText(value));
 }
 
 export function assertDigest(value: string | undefined, field: string): string {
@@ -123,10 +121,7 @@ export function randomId(prefix: string): string {
 export function asJsonValue(value: unknown, field: string): JsonValue {
   const parsed = decodeHostSchema(JsonValueSchema, value);
   if (parsed === undefined) {
-    throw new WorkflowHostError("invalid_input", `The ${field} must be bounded JSON.`);
-  }
-  if (new TextEncoder().encode(canonicalJson(parsed)).byteLength > MAX_BOUNDED_JSON_BYTES) {
-    throw new WorkflowHostError("invalid_input", `The ${field} exceeds the host size bound.`);
+    throw new WorkflowHostError("invalid_input", `The ${field} must be valid JSON.`);
   }
   return parsed;
 }

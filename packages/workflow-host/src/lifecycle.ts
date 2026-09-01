@@ -161,6 +161,7 @@ export async function changeState(
   status: RunStatus,
   reason: string,
 ): Promise<RunSnapshot> {
+  context.planFirstGate.assertMutationAllowed();
   return await withLifecycleLock(context, snapshot.definition.run_id, async () => {
     const current = await loadRun(context, snapshot.definition.run_id);
     if (current.snapshot.status === status) {
@@ -232,6 +233,7 @@ export async function writeCheckpoint(
   constraints: readonly string[],
   values: CheckpointValues,
 ): Promise<Checkpoint> {
+  context.planFirstGate.assertMutationAllowed();
   return await withLifecycleLock(context, snapshot.definition.run_id, async () => {
     const current = await loadRun(context, snapshot.definition.run_id);
     const committed = await context.store.commitRevision(

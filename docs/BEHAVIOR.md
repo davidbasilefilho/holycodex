@@ -18,11 +18,16 @@ assignment, or review its assigned surface; it may not broaden scope, invent a
 material requirement, delegate, change Root's decision, or approve its own
 unreviewed external effect.
 
+An explicit plan-first request puts the shared execution gate in `planning`:
+workflow state mutation and specialist dispatch are both denied, so a plan
+request cannot create runs or invoke `Worker.implementation`. Only an explicit
+continuation changes the gate to `implementation`; showing a plan does not.
+
 Within an assigned repository change, local inspection, editing, formatting,
-linting, typechecking, compilation, builds, tests, and reruns require no
-additional approval. Approval remains a pre-effect gate for external effects,
-destructive actions, permission changes, dependency installation, commits,
-pushes, tags, publication, and deployment.
+linting, typechecking, compilation, builds, tests, local commits, external
+reads, and specialist dispatch require no additional approval. Remote
+version-control mutation, CI triggering, and unclassified effects require Root
+approval; destructive actions and permission changes remain platform-gated.
 
 The four capability specialists are fixed role contracts:
 
@@ -33,8 +38,9 @@ The four capability specialists are fixed role contracts:
 | Worker     | Bounded implementation, integration, checks, and approved operations | Changes only the assigned seam, runs proportional checks, repairs bounded defects, and returns structured evidence. Material choices return to Root.  |
 | Reviewer   | Adversarial review and bounded repair                                | Inspects the assigned result to a fixed point, repairs only reviewer-owned defects within scope, and returns findings and proof.                      |
 
-The eleven task slots are routing identifiers attached to one capability role,
-not stages or additional authorities:
+The route catalog derives eleven canonical native Codex agent types. Each
+`{Role}.{task}` is the semantic specialist identity used by dispatch,
+retention, continuation, evidence, and telemetry:
 
 | Specialist | Task slots                                                  |
 | ---------- | ----------------------------------------------------------- |
@@ -43,10 +49,10 @@ not stages or additional authorities:
 | Worker     | `mechanical`, `implementation`, `integration`, `operations` |
 | Reviewer   | `plan`, `code`, `artifact`                                  |
 
-Root selects the specialist and slot from the outcome, evidence needed,
-authority boundary, and completion criterion. One specialist may serve several
-slots in sequence, but no slot creates a new authority or permits a specialist
-to delegate.
+Root selects the native type from the outcome, evidence needed, authority
+boundary, and completion criterion. Shared role policy is defined once; a task
+subtype adds only its task-specific behavior. `task_name` identifies one
+spawned invocation and never replaces the canonical `agent_type`.
 
 Delegation has three observable wire modes: `DIRECT`, `SINGLE`, and
 `DYNAMIC_WORKFLOW`. `DIRECT` keeps work with Root and is never admitted by
@@ -71,14 +77,14 @@ The active plan owns the cost target, hard maximum, `maxCalls`,
 evidence gathering only when the plan permits it; it never changes authority,
 scope, trust boundaries, or completion criteria.
 
-| Value       | Observable routing meaning                                        |
-| ----------- | ----------------------------------------------------------------- |
-| `Go`        | Root uses Terra high directly. Specialist workflows are disabled. |
-| `plus-low`  | Sol low; cost target/max `1.0/1.5`, 10 calls, concurrency 3.      |
-| `plus`      | Sol medium; cost target/max `1.6/2.5`, 16 calls, concurrency 3.   |
-| `plus-high` | Sol high; cost target/max `3.0/4.5`, 24 calls, concurrency 4.     |
-| `pro-5x`    | Sol high; cost target/max `5.0/7.5`, 40 calls, concurrency 6.     |
-| `pro-20x`   | Sol xhigh; cost target/max `12.0/20.0`, 64 calls, concurrency 8.  |
+| Value       | Observable routing meaning                                           |
+| ----------- | -------------------------------------------------------------------- |
+| `Go`        | Root uses Terra high directly. Specialist workflows are disabled.    |
+| `plus-low`  | Sol low; cost target/max `1.0/1.5`, 10,000 calls, concurrency 3.     |
+| `plus`      | Sol medium; cost target/max `1.6/2.5`, 10,000 calls, concurrency 3.  |
+| `plus-high` | Sol high; cost target/max `3.0/4.5`, 10,000 calls, concurrency 4.    |
+| `pro-5x`    | Sol high; cost target/max `5.0/7.5`, 10,000 calls, concurrency 6.    |
+| `pro-20x`   | Sol xhigh; cost target/max `12.0/20.0`, 10,000 calls, concurrency 8. |
 
 Workflow specialists use Luna and the active plan's role-and-task-specific
 effort. `Standard` is the default service tier. `Fast` changes service tier,
@@ -100,10 +106,10 @@ Unvalidated JSON, `any`, and unjustified casts do not cross a boundary.
 QuickJS TypeScript workflow execution is the production path. The CLI
 type-checks and validates a trusted source before evaluation; the capability-
 denied runtime exposes only approved typed ports, while Root performs
-pre-effect approval and final judgment. The runtime owns deterministic
+external-effect approval and final judgment. The runtime owns deterministic
 four-primitive mechanics. `--compat-quickjs` is retained as a deprecated
-one-release alias for the same evaluator, and stdin requires an explicit task
-objective. CLI-created source is stored at
+one-release alias for the same evaluator, and stdin derives a default objective
+from its submitted workflow. CLI-created source is stored at
 `~/.codex/workflows/{codex-session-id}/{workflow-name}-{4-lowercase-hex}.ts`.
 
 Optional Context7, LSP, Git Bash, Computer Use, Work, Web, and Security
@@ -116,20 +122,21 @@ and Web support their enabled product surfaces; Security supports authorized
 security work. An unavailable capability produces a structured denial, and no
 MCP server or plugin is installed as a fallback or as a side effect.
 
-On Windows, the base instruction and executor use one shell command path:
-`Use C:/Program Files/Git/bin/bash.exe for every shell command.` A missing or
-unusable Git Bash capability returns `capability_denied`.
+On Windows, the runtime shell boundary resolves and executes exactly
+`C:/Program Files/Git/bin/bash.exe`. A different, missing, or unusable shell is
+rejected structurally with `capability_denied`; no shell choice is placed in
+agent context.
 
 ## App Server and state identity
 
 Codex App Server is the supported programmatic bridge to managed Codex
 threads. HolyCodex performs its initialization handshake, validates the
 capabilities and response schemas exposed by the exact discovered Codex
-binary, and uses only the required thread and turn methods. The local
-0.148.0 generated artifact records stable multi-agent support, locally
-disabled `multi_agent_v2`, and an unverified distinct V2 lifecycle. An
-advertised V2 capability therefore fails closed; the stable App Server
-fallback is the executable path. App Server cannot bypass Root routing,
+binary, and uses only the required thread and turn methods. Native workflow
+operations cross the native collaboration dispatcher with the canonical
+`agent_type` and per-invocation `task_name`; they fail closed when that
+dispatcher is unavailable. Direct App Server assignment execution remains an
+explicit compatibility fallback only. App Server cannot bypass Root routing,
 inherited approval/sandbox policy, journals, checkpoints, telemetry, or
 fail-closed rules.
 

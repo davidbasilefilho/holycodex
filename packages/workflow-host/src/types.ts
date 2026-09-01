@@ -48,6 +48,7 @@ import type {
   WorkflowRuntimeEvent,
 } from "./schemas.ts";
 import type { FileRunStore } from "./store.ts";
+import type { PlanFirstExecutionGate } from "@holycodex/core";
 
 export type ProjectTrustInput = Readonly<
   | ProjectTrustRef
@@ -138,12 +139,12 @@ export type WorkflowHostOptions = Readonly<{
   readonly approvalPolicy?: string;
   readonly sandboxPolicy?: string;
   readonly codexCapabilityDigest?: string;
-  /** Canonical HolyCodex version supplied by the CLI composition root. */
-  readonly canonicalVersion?: string;
   /** Platform identity used to select exact conditional tool instructions. */
   readonly platform?: "win32" | "posix";
   readonly telemetry?: TelemetrySink;
   readonly refinementsEnabled?: boolean;
+  /** Shared conversational gate; planning is read-only until explicit continuation. */
+  readonly planFirstGate?: PlanFirstExecutionGate;
 }>;
 
 export type CreateRunInput = Readonly<{
@@ -299,10 +300,10 @@ export type HostContext = {
   readonly approvalPolicy: string;
   readonly sandboxPolicy: string;
   readonly codexCapabilityDigest: string;
-  readonly canonicalVersion: string | undefined;
   readonly platform: "win32" | "posix";
   readonly telemetry: TelemetrySink | undefined;
   readonly refinementsEnabled: boolean;
+  readonly planFirstGate: PlanFirstExecutionGate;
   readonly pending: Map<string, PendingRun>;
   readonly active: Map<string, ActiveRun>;
   readonly executionLocks: Map<string, Promise<void>>;

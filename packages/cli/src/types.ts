@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
+import type { PlanFirstExecutionGate } from "@holycodex/core";
 import type {
   CliEnvelope,
   JsonObject,
@@ -45,7 +46,6 @@ export type ExplicitOptionalSelections = Readonly<
 
 export interface InstallerPaths {
   readonly codexHome: string;
-  readonly marketplaceRoot: string;
 }
 
 export type OfficialPluginStatus =
@@ -58,7 +58,10 @@ export type OfficialPluginStatus =
 
 export interface OfficialPluginManager {
   readonly list?: () => Promise<LiveOfficialPluginListEnvelope>;
+  readonly addMarketplace?: (source: string) => Promise<void>;
   readonly add?: (pluginId: string) => Promise<void>;
+  readonly enableFeature?: (feature: string) => Promise<void>;
+  readonly featureEnabled?: (feature: string) => Promise<boolean>;
   readonly status?: (
     selected: readonly string[],
   ) => Promise<Readonly<Record<string, OfficialPluginStatus>>>;
@@ -72,9 +75,6 @@ export interface InstallRecord {
   readonly schema_epoch: typeof STATE_SCHEMA_EPOCH;
   readonly version: string;
   readonly digest: string;
-  readonly epoch: string;
-  readonly artifact_id: string;
-  readonly relative_path: string;
   readonly plan: PlanName;
   readonly tier: ServiceTier;
   readonly optional_selections: OptionalSelections;
@@ -125,10 +125,7 @@ export interface InstallerOptions {
 
 export interface InstallResult {
   readonly record: InstallRecord;
-  readonly artifact_path: string;
-  readonly marketplace_path: string;
   readonly recovered_lock: boolean;
-  readonly pruned_artifacts: readonly string[];
   readonly optional_plugins: readonly string[];
 }
 
@@ -273,6 +270,10 @@ export interface CliContext {
   readonly installer?: InstallerOptions;
   /** Explicit test seam for a validated App Server assignment adapter. */
   readonly appServerAssignment?: AppServerAssignmentPort;
+  /** Native Codex collaboration boundary; packet identity is preserved verbatim. */
+  readonly nativeAgentDispatch?: NativeAgentDispatchPort;
+  /** Shared plan-first state used by CLI and workflow-host mutation gates. */
+  readonly planFirstGate?: PlanFirstExecutionGate;
   readonly workflowService?: WorkflowService;
   readonly capabilities?: WorkflowCapabilities;
   readonly rootAuthority?: boolean;
@@ -287,6 +288,13 @@ export interface CliContext {
 }
 
 export interface AppServerAssignmentPort {
+  readonly execute: (
+    packet: unknown,
+    options?: Readonly<{ readonly signal?: AbortSignal; readonly timeoutMs?: number }>,
+  ) => Promise<unknown>;
+}
+
+export interface NativeAgentDispatchPort {
   readonly execute: (
     packet: unknown,
     options?: Readonly<{ readonly signal?: AbortSignal; readonly timeoutMs?: number }>,

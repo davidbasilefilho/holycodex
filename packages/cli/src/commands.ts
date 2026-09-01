@@ -2,6 +2,7 @@
 
 import {
   CLI_SCHEMA_VERSION,
+  PlanFirstGateError,
   parseCliEnvelope,
   type CliEnvelope,
   type JsonObject,
@@ -16,8 +17,6 @@ import { readCanonicalVersion, updateCanonicalVersion } from "./manifest.ts";
 import { ManifestError } from "./manifest.ts";
 import { PathBoundaryError } from "./paths.ts";
 import { installHolyCodex, InstallerError, type InstallRequest } from "./installer.ts";
-import { LockError } from "./lock.ts";
-import { MarketplaceError } from "./marketplace.ts";
 import { CleanupError } from "./maintenance.ts";
 import { StorageError } from "./storage.ts";
 import { OfficialPluginManagerError } from "./official-manager.ts";
@@ -77,7 +76,7 @@ export async function executeCommand(
     case "cleanup":
       return await executeCleanup(parsed, context);
     case "version":
-      return await executeVersion(parsed);
+      return await executeVersion(parsed, context);
     case "help":
       return { help: helpText(parsed.positionals[0]) };
     default:
@@ -86,6 +85,7 @@ export async function executeCommand(
 }
 
 async function executeInstall(parsed: ParsedCommand, context: CliContext): Promise<JsonValue> {
+  context.planFirstGate?.assertMutationAllowed();
   const json = parsed.options["json"] === true;
   const confirmed = await confirmation(
     parsed,
@@ -141,6 +141,9 @@ async function executeCleanup(parsed: ParsedCommand, context: CliContext): Promi
       context.io?.stdoutIsTTY === true &&
       (await confirmIfAvailable(context, "Remove the selected HolyCodex-owned scope?")));
   const cleanupInput: { yes: boolean; runId?: string; sessionId?: string } = { yes };
+  if (yes) {
+    context.planFirstGate?.assertMutationAllowed();
+  }
   const runId = optionString(parsed, "run-id");
   if (runId !== undefined) cleanupInput.runId = runId;
   const sessionId = optionString(parsed, "session-id");
@@ -155,10 +158,13 @@ async function executeCleanup(parsed: ParsedCommand, context: CliContext): Promi
   );
 }
 
-async function executeVersion(parsed: ParsedCommand): Promise<JsonValue> {
+async function executeVersion(parsed: ParsedCommand, context: CliContext): Promise<JsonValue> {
   const target = parsed.positionals[0];
   if (!target) {
     return { version: await readCanonicalVersion() };
+  }
+  if (parsed.options["dry-run"] !== true) {
+    context.planFirstGate?.assertMutationAllowed();
   }
   return await updateCanonicalVersion(target, parsed.options["dry-run"] === true);
 }
@@ -275,8 +281,7 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
   const base = context.installer ?? {};
   const existing = base.paths ?? {};
   const codexHome = optionString(parsed, "codex-home");
-  const marketplaceRoot = optionString(parsed, "marketplace-root");
-  if (codexHome === undefined && marketplaceRoot === undefined) {
+  if (codexHome === undefined) {
     return {
       ...base,
       ...(base.now === undefined && context.now !== undefined ? { now: context.now } : {}),
@@ -288,7 +293,6 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
   }
   const paths = { ...existing };
   if (codexHome !== undefined) paths.codexHome = codexHome;
-  if (marketplaceRoot !== undefined) paths.marketplaceRoot = marketplaceRoot;
   return {
     ...base,
     paths,
@@ -348,6 +352,14 @@ function successExitCode(command: string, data: JsonValue): number {
 function mapError(
   error: unknown,
 ): Readonly<{ code: string; message: string; details: JsonObject; exitCode: number }> {
+  if (error instanceof PlanFirstGateError) {
+    return {
+      code: "capability_denied",
+      message: sanitizeMessage(error.message),
+      details: { reason: error.code },
+      exitCode: 2,
+    };
+  }
   if (error instanceof ArgumentError) {
     return {
       code: error.code,
@@ -370,14 +382,6 @@ function mapError(
       message: sanitizeMessage(error.message),
       details: {},
       exitCode: 4,
-    };
-  }
-  if (error instanceof LockError) {
-    return {
-      code: error.code === "lock_live" ? "capability_denied" : "trust_boundary_failed",
-      message: sanitizeMessage(error.message),
-      details: {},
-      exitCode: error.code === "lock_live" ? 2 : 4,
     };
   }
   if (error instanceof InstallerError) {
@@ -409,14 +413,6 @@ function mapError(
       message: sanitizeMessage(error.message),
       details: error.details,
       exitCode: uncertain ? 4 : unavailable || error.code === "command_failed" ? 2 : 3,
-    };
-  }
-  if (error instanceof MarketplaceError) {
-    return {
-      code: "state_corrupt",
-      message: sanitizeMessage(error.message),
-      details: {},
-      exitCode: 4,
     };
   }
   if (error instanceof StorageError) {

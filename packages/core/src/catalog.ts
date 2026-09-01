@@ -153,7 +153,7 @@ function routesForPlan(plan: SpecialistPlanName): readonly RouteDefinition[] {
   }
   return ROLE_DEFINITIONS.flatMap((definition) =>
     definition.tasks.map((task) => {
-      const key = `${definition.role}:${task}` as RouteKey;
+      const key = `${definition.role}:${task.name}` as RouteKey;
       const effort = override.efforts[key];
       if (effort === undefined) {
         throw new CoreError("catalog_invalid", "A route effort policy is incomplete.", {
@@ -161,7 +161,7 @@ function routesForPlan(plan: SpecialistPlanName): readonly RouteDefinition[] {
           route: key,
         });
       }
-      return route(definition.role, task, effort);
+      return route(definition.role, task.name, effort);
     }),
   );
 }
@@ -195,27 +195,27 @@ const planDefinitions: PlanDefinition[] = [
   specialistPlan({
     name: "plus-low",
     root: { model: "Sol", effort: "low" },
-    budget: { costTarget: 1.0, costMax: 1.5, maxCalls: 10, maxConcurrency: 3 },
+    budget: { costTarget: 1.0, costMax: 1.5, maxCalls: 10_000, maxConcurrency: 3 },
   }),
   specialistPlan({
     name: "plus",
     root: { model: "Sol", effort: "medium" },
-    budget: { costTarget: 1.6, costMax: 2.5, maxCalls: 16, maxConcurrency: 3 },
+    budget: { costTarget: 1.6, costMax: 2.5, maxCalls: 10_000, maxConcurrency: 3 },
   }),
   specialistPlan({
     name: "plus-high",
     root: { model: "Sol", effort: "high" },
-    budget: { costTarget: 3.0, costMax: 4.5, maxCalls: 24, maxConcurrency: 4 },
+    budget: { costTarget: 3.0, costMax: 4.5, maxCalls: 10_000, maxConcurrency: 4 },
   }),
   specialistPlan({
     name: "pro-5x",
     root: { model: "Sol", effort: "high" },
-    budget: { costTarget: 5.0, costMax: 7.5, maxCalls: 40, maxConcurrency: 6 },
+    budget: { costTarget: 5.0, costMax: 7.5, maxCalls: 10_000, maxConcurrency: 6 },
   }),
   specialistPlan({
     name: "pro-20x",
     root: { model: "Sol", effort: "xhigh" },
-    budget: { costTarget: 12.0, costMax: 20.0, maxCalls: 64, maxConcurrency: 8 },
+    budget: { costTarget: 12.0, costMax: 20.0, maxCalls: 10_000, maxConcurrency: 8 },
   }),
 ];
 

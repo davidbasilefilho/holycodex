@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import type { JsonObject } from "@holycodex/core";
+
 export type WorkflowFailureCode =
   | "validation"
   | "compilation"
@@ -12,7 +14,6 @@ export type WorkflowFailureCode =
   | "timeout"
   | "interruption"
   | "retry_exhausted"
-  | "iteration_limit"
   | "no_progress"
   | "execution"
   | "cancellation";
@@ -24,6 +25,8 @@ export type WorkflowFailure = Readonly<{
   readonly retryable?: boolean;
   readonly nodeId?: string;
   readonly cause?: unknown;
+  /** Structured host metadata that must survive runtime error adaptation. */
+  readonly metadata?: JsonObject;
 }>;
 
 export function workflowFailure(
@@ -33,6 +36,7 @@ export function workflowFailure(
     readonly nodeId?: string;
     readonly cause?: unknown;
     readonly retryable?: boolean;
+    readonly metadata?: JsonObject;
   }> = {},
 ): WorkflowFailure {
   return Object.freeze({ _tag: "WorkflowFailure" as const, code, message, ...details });

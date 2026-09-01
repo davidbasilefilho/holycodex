@@ -82,7 +82,8 @@ post-push Actions result remain external evidence until cutover. Package
 publication, release publication, deployment, and registry actions are not
 configured.
 
-On Windows, run every shell command through
+On Windows, the runtime shell boundary resolves and verifies
 `C:/Program Files/Git/bin/bash.exe`; the Git Bash capability is denied when
-that executor is unavailable. CLI-created workflow source uses
+that executor is unavailable. The shell choice is enforced at execution time,
+not supplied as agent instruction. CLI-created workflow source uses
 `~/.codex/workflows/{codex-session-id}/{workflow-name}-{4-lowercase-hex}.ts`.

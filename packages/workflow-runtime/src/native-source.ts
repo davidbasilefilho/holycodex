@@ -202,7 +202,12 @@ export async function evaluateNativeWorkflowSource(
       throw new WorkflowRuntimeError("resource_limit", "The native workflow IR is too large.");
     }
     const codecMap = session.codecProxies();
-    return Object.freeze({ ir, codecs: codecMap, dispose: () => session.dispose() });
+    return Object.freeze({
+      name: graph.name,
+      ir,
+      codecs: codecMap,
+      dispose: () => session.dispose(),
+    });
   } catch (error) {
     session.dispose();
     throw error;
@@ -267,9 +272,10 @@ class NativeSourceSession {
     this.context = this.runtime.newContext();
   }
 
-  evaluate(
-    transformed: string,
-  ): NativeGraph & { readonly terminals: readonly NativeWorkflowTerminalIR[] } {
+  evaluate(transformed: string): NativeGraph & {
+    readonly name: string;
+    readonly terminals: readonly NativeWorkflowTerminalIR[];
+  } {
     const step = this.context.newFunction("__hcStep", (...args) =>
       this.callback(() => this.step(args)),
     );
@@ -415,18 +421,30 @@ class NativeSourceSession {
     const dumped = this.context.dump(result.value);
     result.value.dispose();
     let finalHandle: NativeHandle;
+    let name = "workflow";
     try {
-      finalHandle = this.readHandle(dumped);
+      if (isRecord(dumped) && "name" in dumped && "workflow" in dumped) {
+        if (
+          typeof dumped["name"] !== "string" ||
+          !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u.test(dumped["name"])
+        ) {
+          throw new Error("invalid workflow definition");
+        }
+        name = dumped["name"];
+        finalHandle = this.readHandle(dumped["workflow"]);
+      } else {
+        finalHandle = this.readHandle(dumped);
+      }
     } catch {
       throw new WorkflowRuntimeError(
         "source_rejected",
-        "The native workflow default export must be workflow.wait(...).",
+        "The native workflow default export is invalid.",
       );
     }
     if (finalHandle.kind !== "wait") {
       throw new WorkflowRuntimeError(
         "source_rejected",
-        "The native workflow default export must be workflow.wait(...).",
+        "The native workflow definition must contain workflow.wait(...).",
       );
     }
     if (this.handles.size > this.limits.maxPlanNodes * 4) {
@@ -444,6 +462,7 @@ class NativeSourceSession {
       );
     }
     return {
+      name,
       nodes,
       roots: uniqueStrings(targets.flatMap((target) => target.graph.roots)),
       output:
@@ -899,7 +918,6 @@ function readMetadata(value: unknown): AssignmentMetadata {
   const dependencies = readOptionalStringArray(value["dependencies"], "metadata.dependencies");
   const retries = readOptionalInteger(value["retries"], "metadata.retries");
   const attempt = readOptionalInteger(value["attempt"], "metadata.attempt");
-  const timeoutMs = readOptionalInteger(value["timeoutMs"], "metadata.timeoutMs");
   const writes = readOptionalStringArray(value["writes"], "metadata.writes");
   const when = readCondition(value["when"]);
   const stopWhen = readPredicate(value["stopWhen"]);
@@ -910,7 +928,6 @@ function readMetadata(value: unknown): AssignmentMetadata {
     ...(dependencies === undefined ? {} : { dependencies }),
     ...(retries === undefined ? {} : { retries }),
     ...(attempt === undefined ? {} : { attempt }),
-    ...(timeoutMs === undefined ? {} : { timeoutMs }),
     ...(writes === undefined ? {} : { writes }),
     ...(when === undefined ? {} : { when }),
     ...(stopWhen === undefined ? {} : { stopWhen }),
@@ -922,7 +939,6 @@ function readMetadata(value: unknown): AssignmentMetadata {
     "dependencies",
     "retries",
     "attempt",
-    "timeoutMs",
     "writes",
     "when",
     "stopWhen",
@@ -978,16 +994,10 @@ function readPredicate(value: unknown): WorkflowPredicate | undefined {
 
 function readRepeatUntil(value: unknown): WorkflowRepeatUntil | undefined {
   if (value === undefined) return undefined;
-  if (
-    !isRecord(value) ||
-    !isStringArray(value["path"]) ||
-    !isJsonValue(value["equals"]) ||
-    typeof value["maxIterations"] !== "number" ||
-    !Number.isInteger(value["maxIterations"])
-  ) {
+  if (!isRecord(value) || !isStringArray(value["path"]) || !isJsonValue(value["equals"])) {
     throw new Error("The workflow repeat policy is invalid.");
   }
-  return { path: value["path"], equals: value["equals"], maxIterations: value["maxIterations"] };
+  return { path: value["path"], equals: value["equals"] };
 }
 
 function isStringArray(value: unknown): value is readonly string[] {

@@ -24,6 +24,7 @@ export async function createContinuation(
     checkpointRevision?: number;
   }>,
 ): Promise<ContinuationDecision> {
+  context.planFirstGate.assertMutationAllowed();
   const loaded = await loadRun(context, input.runId);
   if (loaded.snapshot.integrity !== "valid") {
     return {

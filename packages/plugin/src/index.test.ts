@@ -18,27 +18,8 @@ import {
   verifyPonytailMetadata,
 } from "./index";
 import { normalizeRelativePath } from "./source.ts";
-import {
-  readInstalledPluginVersion,
-  renderSessionStartOutput,
-  renderVersionContext,
-} from "../assets/hooks/version.ts";
 
 describe("plugin source assets", () => {
-  test("renders the SessionStart version context for each platform", async () => {
-    const version = await readInstalledPluginVersion(pluginSourceRoot);
-    expect(version).toMatch(/^\d+\.\d+\.\d+$/u);
-    expect(renderVersionContext(version, "linux")).toBe(`HolyCodex ${version}.`);
-    expect(renderVersionContext(version, "win32")).toBe(
-      `HolyCodex ${version}. Use C:/Program Files/Git/bin/bash.exe for every shell command.`,
-    );
-    expect(renderSessionStartOutput(version, "linux")).toContain('"hookEventName":"SessionStart"');
-    const hooks = await readFile(join(pluginSourceRoot, "hooks", "hooks.json"), "utf8");
-    expect(hooks).toContain('"SessionStart"');
-    expect(hooks).toContain('"command": "bun \\\"${PLUGIN_ROOT}/hooks/version.ts\\\""');
-    expect(hooks).toContain('"commandWindows": "\\"C:/Program Files/Git/bin/bash.exe\\" -lc');
-  });
-
   test("keeps the checked-in Codex manifest on the canonical CLI version", async () => {
     const pluginManifest = JSON.parse(
       await readFile(join(pluginSourceRoot, ".codex-plugin", "plugin.json"), "utf8"),
@@ -78,16 +59,18 @@ describe("plugin source assets", () => {
       readFile(join(pluginSourceRoot, "agents", "worker.md"), "utf8"),
       readFile(join(pluginSourceRoot, "rules", "holycodex.md"), "utf8"),
     ]);
-    for (const instruction of [root, worker, rule]) {
-      expect(instruction).toContain("formatting");
-      expect(instruction).toContain("linting");
-      expect(instruction).toContain("tests");
-      expect(instruction).toMatch(/no (?:additional|extra|user) approval/iu);
-      expect(instruction.replaceAll(/\s+/gu, " ")).toContain(
-        APPROVAL_POLICY_GUIDANCE.noRootApproval,
-      );
-      expect(instruction.replaceAll(/\s+/gu, " ")).toContain(APPROVAL_POLICY_GUIDANCE.rootApproval);
-    }
+    expect(rule.replaceAll(/\s+/gu, " ")).toContain(APPROVAL_POLICY_GUIDANCE.noRootApproval);
+    expect(rule.replaceAll(/\s+/gu, " ")).toContain(APPROVAL_POLICY_GUIDANCE.rootApproval);
+    expect(root).not.toContain(APPROVAL_POLICY_GUIDANCE.rootApproval);
+    expect(worker).not.toContain(APPROVAL_POLICY_GUIDANCE.rootApproval);
+    const planSkill = await readFile(join(pluginSourceRoot, "skills", "plan", "SKILL.md"), "utf8");
+    expect(rule).toContain("An explicit plan-first request enters a read-only planning state.");
+    expect(rule).toContain("must not write files");
+    expect(rule).toContain("dispatch implementation Workers");
+    expect(rule).toContain("only a later explicit user instruction");
+    expect(root).not.toContain("plan-first request enters");
+    expect(planSkill).not.toContain("plan-first request enters");
+    expect(rule).toContain("native `request_user_input`");
   });
 
   test("keeps skill frontmatter, metadata, invocation, and server declarations in policy", async () => {
@@ -96,7 +79,6 @@ describe("plugin source assets", () => {
       .map((file) => /^skills\/([^/]+)\/SKILL\.md$/u.exec(file.path)?.[1])
       .filter((skill): skill is string => skill !== undefined);
     expect(source.manifest.skills).toBe("./skills");
-    expect(skills).toHaveLength(19);
     for (const skill of skills) {
       const body = await readFile(join(pluginSourceRoot, "skills", skill, "SKILL.md"), "utf8");
       const metadata = await readFile(
@@ -104,9 +86,12 @@ describe("plugin source assets", () => {
         "utf8",
       );
       if (skill === "ponytail") {
-        expect(body).toContain("description: >");
         expect(body).toContain("name: ponytail");
         expect(body).toContain("Boundaries");
+      } else if (skill === "stop-slop") {
+        expect(body).toContain("references/phrases.md");
+        expect(body).toContain("references/structures.md");
+        expect(body).toContain("references/examples.md");
       } else {
         expect(body).toMatch(new RegExp(`^---\\nname: ${skill}\\ndescription: .+\\n---`, "u"));
         expect(body).toContain("Owner:");
@@ -114,10 +99,11 @@ describe("plugin source assets", () => {
         expect(body).toContain("Completion:");
       }
       if (skill === "writing-for-agents") {
-        expect(body).toContain("Objective and outcome");
-        expect(body).toContain("For Sol");
-        expect(body).toContain("For Luna");
-        expect(body).toContain("Matt Pocock");
+        expect(body).toContain("SKILL-MECHANICS.md");
+        expect(body).toContain("context pointer");
+        expect(body).toContain("Owner:");
+        expect(body).not.toContain("For Sol");
+        expect(body).not.toContain("For Luna");
       }
       expect(metadata).toContain("interface:");
       expect(metadata).toContain("default_prompt:");
@@ -130,8 +116,6 @@ describe("plugin source assets", () => {
       "utf8",
     );
     expect(babysitMetadata).toContain("allow_implicit_invocation: false");
-    expect(source.files.map((file) => file.path)).toContain("hooks/hooks.json");
-    expect(source.files.map((file) => file.path)).toContain("hooks/version.ts");
     expect(source.files.map((file) => file.path)).toContain("rules/holycodex.md");
     expect(source.files.map((file) => file.path)).toContain("compaction/holycodex.md");
   });

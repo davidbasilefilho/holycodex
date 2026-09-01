@@ -50,7 +50,7 @@ reusable `workflow_call`:
 3. Build the package and verify generated artifacts, provenance, dependency
    attribution, and architecture invariants.
 4. Run isolated package smoke: pack and install the artifact, then exercise
-   install, doctor, cleanup, and migration before fixture fresh-clone and
+   install, doctor, and cleanup before fixture fresh-clone and
    dry-run checks.
 5. Confirm that the package artifact contains only allowlisted payload files,
    secret material is absent, and dependency/runtime boundaries remain

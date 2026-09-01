@@ -1,6 +1,0 @@
-interface:
-  display_name: "AST grep"
-  short_description: "Match or rewrite code by syntax shape with deterministic reviewed results."
-  default_prompt: "Match the assigned syntax shape, make only the bounded change, and return evidence."
-policy:
-  allow_implicit_invocation: true

@@ -4,9 +4,89 @@ import { lookupPlan, ServiceTierSchema } from "@holycodex/core";
 import type { ParsedCommand } from "./types.ts";
 import { AutonomySchema, decodeSchema } from "./schema.ts";
 
+export const INSTALL_OPTION_CATALOG = Object.freeze([
+  {
+    name: "yes",
+    kind: "boolean",
+    usage: "--yes",
+    description: "Confirm non-interactive installation.",
+  },
+  {
+    name: "plan",
+    kind: "value",
+    usage: "--plan <name>",
+    description: "Select a configured HolyCodex plan.",
+  },
+  {
+    name: "tier",
+    kind: "value",
+    usage: "--tier <Standard|Fast>",
+    description: "Select the service tier.",
+  },
+  {
+    name: "fast",
+    kind: "boolean",
+    usage: "--fast",
+    description: "Alias for --tier Fast; conflicts with --tier.",
+  },
+  {
+    name: "autonomy",
+    kind: "value",
+    usage: "--autonomy <manual|assisted|autonomous>",
+    description: "Select the autonomy mode.",
+  },
+  {
+    name: "max-subagents",
+    kind: "value",
+    usage: "--max-subagents <n>",
+    description: "Set simultaneous specialist capacity.",
+  },
+  {
+    name: "work",
+    kind: "boolean",
+    usage: "--work / --no-work",
+    description: "Enable or disable Work providers.",
+  },
+  {
+    name: "web",
+    kind: "boolean",
+    usage: "--web / --no-web",
+    description: "Enable or disable Web providers.",
+  },
+  {
+    name: "security",
+    kind: "boolean",
+    usage: "--security / --no-security",
+    description: "Enable or disable Security providers.",
+  },
+  {
+    name: "computer-use",
+    kind: "boolean",
+    usage: "--computer-use / --no-computer-use",
+    description: "Enable or disable Computer Use providers.",
+  },
+  {
+    name: "official-plugin",
+    kind: "value",
+    usage: "--official-plugin <id>",
+    description: "Install an additional Codex plugin; repeatable.",
+  },
+  {
+    name: "json",
+    kind: "boolean",
+    usage: "--json",
+    description: "Emit one plain machine envelope.",
+  },
+  {
+    name: "no-tui",
+    kind: "boolean",
+    usage: "--no-tui",
+    description: "Disable prompts and interactive output.",
+  },
+] as const);
+
 const VALUE_OPTIONS = new Set([
   "codex-home",
-  "marketplace-root",
   "plan",
   "tier",
   "scope",
@@ -297,30 +377,16 @@ function commandOptions(command: string): ReadonlySet<string> {
   switch (command) {
     case "install":
       return new Set([
-        ...common,
-        "yes",
+        ...INSTALL_OPTION_CATALOG.flatMap((option) =>
+          option.usage.includes(" / ") ? [option.name, `no-${option.name}`] : [option.name],
+        ),
+        "verbose",
         "codex-home",
-        "marketplace-root",
-        "plan",
-        "tier",
-        "fast",
-        "autonomy",
-        "max-subagents",
-        "official-plugin",
-        ...optionalChoiceOptions(),
       ]);
     case "doctor":
-      return new Set([...common, "codex-home", "marketplace-root"]);
+      return new Set([...common, "codex-home"]);
     case "cleanup":
-      return new Set([
-        ...common,
-        "yes",
-        "scope",
-        "run-id",
-        "session-id",
-        "codex-home",
-        "marketplace-root",
-      ]);
+      return new Set([...common, "yes", "scope", "run-id", "session-id", "codex-home"]);
     case "version":
       return new Set([...common, "dry-run"]);
     case "workflow run":
@@ -355,17 +421,4 @@ function commandOptions(command: string): ReadonlySet<string> {
       }
       return new Set(common);
   }
-}
-
-function optionalChoiceOptions(): readonly string[] {
-  return [
-    "computer-use",
-    "no-computer-use",
-    "work",
-    "no-work",
-    "web",
-    "no-web",
-    "security",
-    "no-security",
-  ];
 }

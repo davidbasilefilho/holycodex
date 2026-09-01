@@ -20,6 +20,13 @@ behavior, public summary, package name, or live provider. Network, package,
 plugin, MCP, and external repository material is not evidence unless the task
 context expressly admits it.
 
+The release specification expressly admitted two vendored upstream skill
+sources: Matt Pocock's `writing-for-agents` at
+`6654f6b60cd9d5be8b54c6fafe44346dabeb3b76`, merged with HolyCodex mechanics,
+and Hardik Pandya's `stop-slop` at
+`8da1f030185bdfe8471220585162991eaeb970e9`. Their MIT licenses are retained in
+their installed skill directories.
+
 ## Evidence classes
 
 | ID     | Source class                                                            | Supports                                                                                                       | Does not support                                                                          |
@@ -42,19 +49,19 @@ ownership remains in [ARCHITECTURE.md](ARCHITECTURE.md); dependency purpose and
 attribution remain in [DEPENDENCIES.md](DEPENDENCIES.md) and
 [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md).
 
-| Identity                 | Recorded value                                                                       | Evidence        | Reproduction or limitation                                                                                            |
-| ------------------------ | ------------------------------------------------------------------------------------ | --------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Clean-room base          | `682adea6d6cba374251152af612489126e9c64c1`                                           | `P-01`          | Assignment-provided SHA; repository-local consistency only                                                            |
-| Frozen behavioral oracle | `eb796235f2f29f2c67c869408a0e22c1a72c13eb`                                           | `P-01`          | Assignment-provided SHA; no historical source is admissible                                                           |
-| Public version           | Canonical `version` in `packages/cli/package.json`                                   | `P-01` / `D-02` | The manifest is the sole version authority                                                                            |
-| Bun                      | `1.4.x`, resolved `1.4.0`                                                            | `P-01` / `P-03` | `mise.toml`, root manifest, lockfile, and validation gate agree                                                       |
-| TypeScript               | `7.0.2`                                                                              | `P-01` / `P-03` | Checked-in lock entry and manifests                                                                                   |
-| Vite+                    | `0.2.9`                                                                              | `P-01` / `P-03` | Root manifest and lockfile                                                                                            |
-| Effect                   | `3.22.1`                                                                             | `P-01` / `P-03` | All workspace package manifests and source boundary scans use `effect/Schema`                                         |
-| Codex CLI                | `codex-cli 0.148.0`                                                                  | `P-01` / `P-03` | Executable SHA-256 `ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074`; observed path is host-specific |
-| Generated inventory      | 943 files, digest `24436be19cd8ea368d18154da5d8354b9b6ce1671da1fb49e958a6341d3e7d7d` | `P-03`          | Sorted path/size/SHA-256 inventory under `packages/codex/generated/codex-cli-0.148.0/`                                |
-| Protocol epoch           | `codex-app-server-0.148.0`                                                           | `P-02` / `P-03` | Checked-in generated provenance and protocol tests                                                                    |
-| `multi_agent_v2`         | Locally disabled; distinct generated lifecycle unverified                            | `P-01` / `P-03` | Advertised V2 fails closed; stable App Server fallback is executable                                                  |
+| Identity                 | Recorded value                                                                       | Evidence        | Reproduction or limitation                                                                                                            |
+| ------------------------ | ------------------------------------------------------------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Clean-room base          | `682adea6d6cba374251152af612489126e9c64c1`                                           | `P-01`          | Assignment-provided SHA; repository-local consistency only                                                                            |
+| Frozen behavioral oracle | `eb796235f2f29f2c67c869408a0e22c1a72c13eb`                                           | `P-01`          | Assignment-provided SHA; no historical source is admissible                                                                           |
+| Public version           | Canonical `version` in `packages/cli/package.json`                                   | `P-01` / `D-02` | The manifest is the sole version authority                                                                                            |
+| Bun                      | `1.4.x`, resolved `1.4.0`                                                            | `P-01` / `P-03` | `mise.toml`, root manifest, lockfile, and validation gate agree                                                                       |
+| TypeScript               | `7.0.2`                                                                              | `P-01` / `P-03` | Checked-in lock entry and manifests                                                                                                   |
+| Vite+                    | `0.2.9`                                                                              | `P-01` / `P-03` | Root manifest and lockfile                                                                                                            |
+| Effect                   | `3.22.1`                                                                             | `P-01` / `P-03` | All workspace package manifests and source boundary scans use `effect/Schema`                                                         |
+| Codex CLI                | `codex-cli 0.148.0`                                                                  | `P-01` / `P-03` | Executable SHA-256 `ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074`; observed path is host-specific                 |
+| Generated inventory      | 655 files, digest `ce20023cb681bfaf8f2d6911a42735bb218541781b873e09b167e8efe0a1fed4` | `P-03`          | Sorted TypeScript path/size/SHA-256 inventory under `packages/codex/generated/codex-cli-0.148.0/`                                     |
+| Protocol epoch           | `codex-app-server-0.148.0`                                                           | `P-02` / `P-03` | Checked-in generated provenance and protocol tests                                                                                    |
+| `multi_agent_v2`         | Locally disabled; distinct generated lifecycle unverified                            | `P-01` / `P-03` | Advertised V2 fails closed; native workflows require the collaboration dispatcher, with App Server as explicit compatibility fallback |
 
 ## Generated artifact
 
@@ -63,7 +70,6 @@ commands, using separate generated roots:
 
 ```sh
 codex app-server generate-ts --out <artifact-root>/typescript
-codex app-server generate-json-schema --out <artifact-root>/json-schema
 ```
 
 `provenance.json` records the executable path, version, executable digest,

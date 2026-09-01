@@ -11,9 +11,9 @@ describe("codex-cli 0.148.0 generated artifact provenance", () => {
     expect(verification.executable.sha256).toBe(
       "ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074",
     );
-    expect(verification.inventory.count).toBe(943);
+    expect(verification.inventory.count).toBe(655);
     expect(verification.inventory.digest).toBe(
-      "24436be19cd8ea368d18154da5d8354b9b6ce1671da1fb49e958a6341d3e7d7d",
+      "ce20023cb681bfaf8f2d6911a42735bb218541781b873e09b167e8efe0a1fed4",
     );
     expect(verification.inventory.files).toEqual(
       [...verification.inventory.files].sort((left, right) =>
@@ -25,6 +25,6 @@ describe("codex-cli 0.148.0 generated artifact provenance", () => {
 
   test("can verify the checked-in artifact without executing the binary", async () => {
     const verification = await verifyGeneratedArtifact({ verifyExecutable: false });
-    expect(verification.inventory.count).toBe(943);
+    expect(verification.inventory.count).toBe(655);
   });
 });

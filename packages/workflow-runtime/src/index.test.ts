@@ -395,38 +395,20 @@ describe("workflow 0.15 DSL and Effect runtime", () => {
     expect(events.at(-1)).toEqual({ type: "completed", attempt: 2 });
   });
 
-  test("preserves timeout and interruption failures", async () => {
-    const timed = workflow.step({
-      id: "timed",
-      assignment: {
-        ...descriptor(numberCodec, numberCodec, { op: "timed" }),
-        metadata: { timeoutMs: 1 },
-      },
+  test("preserves interruption failures without timing out live agents", async () => {
+    const step = workflow.step({
+      id: "interruptible",
+      assignment: descriptor(numberCodec, numberCodec, { op: "interruptible" }),
     });
-    const timeoutPlan = await Effect.runPromise(
-      compileWorkflow(workflow.wait(timed), {
+    const plan = await Effect.runPromise(
+      compileWorkflow(workflow.wait(step), {
         capacity: { maxRetries: 0 },
       }),
     );
-    const timeoutCapacity = await Effect.runPromise(makeCapacityService(timeoutPlan.capacity));
-    const timeout = await Effect.runPromiseExit(
-      runExecutionPlan(timeoutPlan, 1, {
-        capacity: timeoutCapacity,
-        services: fixtureServices(() => Effect.sleep("20 millis").pipe(Effect.as(2))),
-      }),
-    );
-    expect(timeout._tag).toBe("Failure");
-    if (timeout._tag === "Failure") {
-      const failure = Cause.failureOption(timeout.cause);
-      expect(Option.isSome(failure)).toBe(true);
-      if (Option.isSome(failure)) {
-        expect(failure.value.code).toBe("timeout");
-      }
-    }
-
+    const capacity = await Effect.runPromise(makeCapacityService(plan.capacity));
     const interrupted = await Effect.runPromiseExit(
-      runExecutionPlan(timeoutPlan, 1, {
-        capacity: timeoutCapacity,
+      runExecutionPlan(plan, 1, {
+        capacity,
         services: fixtureServices(() => Effect.interrupt),
       }),
     );

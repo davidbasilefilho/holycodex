@@ -67,7 +67,7 @@ Effect Schema boundary validation -> Root scope/policy decision
         |                              |
         |                              +-- denied -> structured failure, no effect
         v
-plan and task-slot route -> bounded specialist assignment
+canonical native agent route -> bounded specialist assignment
         |                              |
         |                              v
         |                       structured specialist outcome

@@ -1,6 +1,6 @@
 ---
 name: lsp-setup
-description: Configure one required language server with minimum verified setup.
+description: Use when a required language server is unavailable; configure and verify the minimum setup.
 ---
 
 Owner: Worker. Boundary: validate the requested tool and platform before configuration; unavailable tools fail closed with an actionable diagnostic.

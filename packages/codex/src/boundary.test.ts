@@ -280,6 +280,7 @@ describe("codex-cli 0.148.0 boundary fixtures", () => {
           route: {
             key: "Worker:implementation",
             role_task: { role: "Worker", task: "implementation" },
+            agent_type: "Worker.implementation",
           },
           tools: { allowed: [], specialist_spawn: false, workflow: false },
           security: { network: false, specialist_spawn: false, workflow: false },
@@ -292,7 +293,7 @@ describe("codex-cli 0.148.0 boundary fixtures", () => {
           },
           skill_profile: PONYTAIL_ROLE_SKILL,
         },
-        { timeoutMs: 1000 },
+        {},
       ),
     );
     expect(outcome.backend).toBe("app-server-v1-fallback");
@@ -375,6 +376,7 @@ describe("codex-cli 0.148.0 boundary fixtures", () => {
           route: {
             key: "Worker:implementation",
             role_task: { role: "Worker", task: "implementation" },
+            agent_type: "Worker.implementation",
           },
           tools: { allowed: [], specialist_spawn: false, workflow: false },
           security: { network: false, specialist_spawn: false, workflow: false },
@@ -396,6 +398,7 @@ describe("codex-cli 0.148.0 boundary fixtures", () => {
             },
             objective_lineage: "lineage-1",
             role_task: { role: "Worker", task: "implementation" },
+            agent_type: "Worker.implementation",
             route: "Worker:implementation",
             authority_scope_digest: "c".repeat(64),
             policy_digest: "d".repeat(64),
@@ -411,16 +414,17 @@ describe("codex-cli 0.148.0 boundary fixtures", () => {
             last_accepted_turn_id: "turn-previous",
           },
         },
-        { timeoutMs: 1000 },
+        {},
       ),
     );
     expect(outcome.session_mode).toBe("resumed");
+    expect(outcome.agent_type).toBe("Worker.implementation");
     expect(methods).toEqual(["initialize", "model/list", "thread/resume", "turn/start"]);
     const turnStart = transport.writes
       .map((line) => JSON.parse(line) as { readonly method?: string; readonly params?: unknown })
       .find((request) => request.method === "turn/start");
     const prompt = JSON.stringify(turnStart?.params);
-    expect(prompt).toContain("Delta: Implement the next bounded change.");
+    expect(prompt).toContain("delta[1]: Implement the next bounded change.");
     expect(prompt).not.toContain("must not be repeated");
     expect(prompt).not.toContain("Skill reference: $ponytail");
     expect(prompt).not.toContain(

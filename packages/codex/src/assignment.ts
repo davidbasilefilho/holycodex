@@ -6,8 +6,12 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import {
   CapabilityNameSchema,
+  decodeModelWire,
+  encodeModelWire,
   EffortSchema,
   lookupRoleDefinition,
+  nativeAgentTypeFor,
+  NativeAgentTypeSchema,
   normalizeSpecialistOutcome,
   RoleTaskSchema,
   RouteKeySchema,
@@ -58,6 +62,7 @@ export type SecurityPolicy = typeof SecurityPolicySchema.Type;
 
 const AssignmentSchema = Schema.Struct({
   id: IdentifierSchema,
+  task_name: Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9_]{0,127}$/u))),
   objective: TextSchema,
   role_task: RoleTaskSchema,
   capability: Schema.optional(CapabilityNameSchema),
@@ -76,6 +81,7 @@ export type Assignment = typeof AssignmentSchema.Type;
 const RoutePacketSchema = Schema.Struct({
   key: RouteKeySchema,
   role_task: RoleTaskSchema,
+  agent_type: NativeAgentTypeSchema,
 });
 export type RoutePacket = typeof RoutePacketSchema.Type;
 
@@ -101,6 +107,7 @@ const RetainedContextFieldsSchema = {
   project: Schema.optional(ProjectTrustIdentitySchema),
   objective_lineage: Schema.optional(IdentifierSchema),
   role_task: Schema.optional(RoleTaskSchema),
+  agent_type: NativeAgentTypeSchema,
   route: Schema.optional(RouteKeySchema),
   authority_scope_digest: Schema.optional(DigestSchema),
   policy_digest: Schema.optional(DigestSchema),
@@ -121,6 +128,7 @@ const CompleteRetainedContextSchema = Schema.Struct({
   project: ProjectTrustIdentitySchema,
   objective_lineage: IdentifierSchema,
   role_task: RoleTaskSchema,
+  agent_type: NativeAgentTypeSchema,
   route: RouteKeySchema,
   authority_scope_digest: DigestSchema,
   policy_digest: DigestSchema,
@@ -158,63 +166,34 @@ export const SemanticAssignmentPacketSchema = Schema.Struct({
   security: SecurityPolicySchema,
   compatibility: CompatibilityPacketSchema,
   skill_profile: Schema.Union(RoleSkillProfileSchema, Schema.Null),
-  /** Runtime metadata supplied by the host; never hardcode release or platform values here. */
-  canonical_version: Schema.optional(TextSchema),
-  platform: Schema.optional(Schema.Literal("win32", "posix")),
   capability_input: Schema.optional(JsonObjectSchema),
   retained_context: Schema.optional(RetainedContextSchema),
 });
 export type SemanticAssignmentPacket = typeof SemanticAssignmentPacketSchema.Type;
 
-const ASSIGNMENT_FIELDS = [
-  ["scope", "Scope"],
-  ["references", "References"],
-  ["constraints", "Constraints"],
-  ["required_evidence", "Required evidence"],
-  ["acceptance", "Acceptance"],
-  ["exclusions", "Exclusions"],
-  ["escalation", "Escalation"],
-  ["delta", "Delta"],
-] as const;
-
 /** Compiles semantic state into the one literal instruction sent to a managed specialist. */
 export function compileSpecialistAssignment(packet: SemanticAssignmentPacket): string {
-  const lines = [
-    `Assignment ID: ${packet.assignment.id}`,
-    `Objective: ${packet.assignment.objective}`,
-    `Role/task: ${packet.assignment.role_task.role}/${packet.assignment.role_task.task}`,
-    ...(packet.canonical_version === undefined
-      ? []
-      : [`Canonical version: ${packet.canonical_version}`]),
-    `Authority: ${packet.assignment.authority}`,
-  ];
-  if (packet.platform === "win32") {
-    lines.push("Use C:/Program Files/Git/bin/bash.exe for every shell command.");
-  }
   const retained = completeRetainedContext(packet.retained_context);
+  const stable = [
+    `Native agent type: ${nativeAgentTypeFor(packet.assignment.role_task)}.`,
+    "HolyCodex protocol: stay within assigned authority and return material choices to Root.",
+    `TOON outcome contract: protocol_version=${SPECIALIST_OUTCOME_VERSION}; emit exactly one schema-valid completed, partial, blocked, or failed semantic outcome.`,
+  ];
   if (packet.skill_profile !== null && retained === undefined) {
-    lines.push(`Skill reference: ${packet.skill_profile.reference}`);
-    lines.push(`Skill instruction: ${packet.skill_profile.instruction}`);
+    stable.push(`Skill reference: ${packet.skill_profile.reference}`);
+    stable.push(`Skill instruction: ${packet.skill_profile.instruction}`);
   }
-  const fields =
-    retained !== undefined && hasNonEmptyDelta(packet.assignment.delta)
-      ? ([
-          ["delta", "Delta"],
-          ["required_evidence", "Required evidence"],
-          ["acceptance", "Acceptance"],
-        ] as const)
-      : ASSIGNMENT_FIELDS;
-  for (const [field, label] of fields) {
-    const value = packet.assignment[field];
-    if (value !== undefined && value.length > 0) {
-      lines.push(`${label}: ${value.join("; ")}`);
-    }
-  }
-  lines.push(
-    `Outcome protocol: ${SPECIALIST_OUTCOME_VERSION}; terminal shapes: completed {protocol_version,route,evidence,status,summary}; blocked {protocol_version,route,evidence,status,reason,needs_root_decision}; partial {protocol_version,route,evidence,status,summary,completed,remaining,needs_root_decision}; failed {protocol_version,route,evidence,status,error}.`,
-  );
-  lines.push("Boundary: Stay within the assigned scope and return material choices to Root.");
-  return lines.join("\n");
+  const assignment =
+    retained === undefined
+      ? packet.assignment
+      : {
+          id: packet.assignment.id,
+          role_task: packet.assignment.role_task,
+          delta: packet.assignment.delta ?? [],
+          required_evidence: packet.assignment.required_evidence,
+          acceptance: packet.assignment.acceptance,
+        };
+  return `${stable.join("\n")}\nAssignment (TOON):\n${encodeModelWire(assignment)}`;
 }
 
 export const ExecutionBackendSchema = Schema.Literal(
@@ -227,6 +206,8 @@ export type ExecutionBackend = typeof ExecutionBackendSchema.Type;
 export const SemanticExecutionOutcomeSchema = Schema.Struct({
   assignment_id: IdentifierSchema,
   route_key: RouteKeySchema,
+  agent_type: NativeAgentTypeSchema,
+  task_name: Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9_]{0,127}$/u)),
   thread_id: IdentifierSchema,
   turn_id: IdentifierSchema,
   backend: ExecutionBackendSchema,
@@ -237,15 +218,10 @@ export const SemanticExecutionOutcomeSchema = Schema.Struct({
 });
 export type SemanticExecutionOutcome = typeof SemanticExecutionOutcomeSchema.Type;
 
-export interface AssignmentExecutionOptions {
-  readonly timeoutMs?: number;
-}
-
 export const AssignmentExecutionOptionsSchema = Schema.Struct({
-  timeoutMs: Schema.optional(
-    Schema.Number.pipe(Schema.filter((value) => Number.isSafeInteger(value) && value > 0)),
-  ),
+  execution_mode: Schema.optional(Schema.Literal("native", "compatibility")),
 });
+export type AssignmentExecutionOptions = typeof AssignmentExecutionOptionsSchema.Type;
 
 function failureFromUnknown(error: unknown, fallback: string): CodexError {
   if (error instanceof CodexError) {
@@ -302,7 +278,8 @@ function assertAssignmentConsistency(packet: SemanticAssignmentPacket): void {
   if (
     roleTask.role !== route.role ||
     roleTask.task !== route.task ||
-    packet.route.key !== `${roleTask.role}:${roleTask.task}`
+    packet.route.key !== `${roleTask.role}:${roleTask.task}` ||
+    packet.route.agent_type !== nativeAgentTypeFor(roleTask)
   ) {
     throw new CodexError("route_incompatible", "The assignment and route identities disagree.", {
       needs_root_decision: true,
@@ -361,10 +338,6 @@ function completeRetainedContext(
   } catch {
     return undefined;
   }
-}
-
-function hasNonEmptyDelta(value: readonly string[] | undefined): boolean {
-  return value !== undefined && value.some((item) => item.trim().length > 0);
 }
 
 const CODEX_MODEL_IDS = {
@@ -524,7 +497,7 @@ function findOutcome(
   }
   if (typeof value === "string") {
     try {
-      const parsed: unknown = JSON.parse(value);
+      const parsed: unknown = decodeModelWire(value);
       return decodeOutcome(parsed, expectedRoute);
     } catch {
       return undefined;
@@ -575,7 +548,6 @@ interface CompletionWaiter {
 function waitForCompletion(
   client: AppServerClient,
   threadId: string,
-  timeoutMs: number,
   signal: AbortSignal,
 ): CompletionWaiter {
   let cleanup = (): void => undefined;
@@ -604,7 +576,6 @@ function waitForCompletion(
       cleanup();
       reject(error);
     };
-    let timeout: ReturnType<typeof setTimeout> | undefined;
     const removeNotification = client.onNotification((notification) => {
       if (notification.kind !== "turn_completed" || notification.params === undefined) {
         return;
@@ -639,20 +610,12 @@ function waitForCompletion(
         resolveCompletion(completed);
       }
     });
-    timeout = setTimeout(() => {
-      rejectCompletion(
-        new CodexError("timeout", "The Codex turn did not complete before the deadline."),
-      );
-    }, timeoutMs);
     const abort = (): void => {
       rejectCompletion(new CodexError("cancellation", "The Codex turn was cancelled."));
     };
     signal.addEventListener("abort", abort, { once: true });
     cleanup = () => {
       removeNotification();
-      if (timeout !== undefined) {
-        clearTimeout(timeout);
-      }
       signal.removeEventListener("abort", abort);
     };
   });
@@ -683,6 +646,13 @@ async function executeAssignmentWithClient(
   options: AssignmentExecutionOptions,
   signal: AbortSignal,
 ): Promise<SemanticExecutionOutcome> {
+  if (options.execution_mode === "native") {
+    throw new CodexError(
+      "capability_unavailable",
+      "Native Codex agent dispatch requires the collaboration boundary; App Server is compatibility-only.",
+      { agent_type: nativeAgentTypeFor(packet.assignment.role_task) },
+    );
+  }
   const startedAt = performance.now();
   const models = await client.listModels({});
   const protocolModel = codexModelIdFor(packet.compatibility.model);
@@ -691,10 +661,16 @@ async function executeAssignmentWithClient(
   validatePlanDerivedInputs(packet.compatibility, model);
   const backend = selectExecutionBackend(packet.compatibility, model);
   const completeRetained = completeRetainedContext(packet.retained_context);
-  const retained = hasNonEmptyDelta(packet.assignment.delta) ? completeRetained : undefined;
+  const retained = completeRetained;
+  const agentType = nativeAgentTypeFor(packet.assignment.role_task);
+  const taskName = packet.assignment.task_name ?? nativeTaskName(packet.assignment.id);
+  if (packet.route.agent_type !== agentType) {
+    throw new CodexError("route_incompatible", "The native agent type does not match the route.");
+  }
   if (
     retained !== undefined &&
     (retained.route !== packet.route.key ||
+      retained.agent_type !== agentType ||
       retained.role_task.role !== packet.assignment.role_task.role ||
       retained.role_task.task !== packet.assignment.role_task.task)
   ) {
@@ -737,78 +713,110 @@ async function executeAssignmentWithClient(
     activeThreadId = threadIdFromResult(thread);
   }
   const threadIdForExecution = activeThreadId;
-  const waiter = waitForCompletion(
-    client,
-    threadIdForExecution,
-    options.timeoutMs ?? 120_000,
-    signal,
-  );
   let turnId: string | undefined;
-  let completed = false;
-  try {
-    const turn = await client.startTurn({
-      threadId: threadIdForExecution,
-      input: [{ type: "text", text: compileSpecialistAssignment(packet) }],
-      model: protocolModel,
-      effort: packet.compatibility.effort,
-      serviceTier: protocolTier,
-      ...(packet.assignment.role_task.role === "Explorer" ||
-      packet.assignment.role_task.role === "Librarian"
-        ? {
-            sandboxPolicy: {
-              type: "readOnly",
-              networkAccess: packet.security.network,
-            },
-          }
-        : {}),
-    });
-    const nativeTurnId = turnIdFromResult(turn);
-    turnId = nativeTurnId;
-    waiter.setTurnId(nativeTurnId);
-    const completion = await waiter.promise;
-    const completedTurnId = turnIdFromResult(completion);
-    if (completedTurnId !== nativeTurnId) {
-      throw new CodexError(
-        "turn_failed",
-        "Codex completed a different turn than the one started for this assignment.",
-        { threadId: threadIdForExecution, turnId: nativeTurnId, completedTurnId },
+  let totalUsage: ExecutionUsage | undefined;
+  let prompt = compileSpecialistAssignment(packet);
+  for (;;) {
+    const waiter = waitForCompletion(client, threadIdForExecution, signal);
+    let turnCompleted = false;
+    try {
+      const turn = await client.startTurn({
+        threadId: threadIdForExecution,
+        input: [{ type: "text", text: prompt }],
+        model: protocolModel,
+        effort: packet.compatibility.effort,
+        serviceTier: protocolTier,
+        ...(packet.assignment.role_task.role === "Explorer" ||
+        packet.assignment.role_task.role === "Librarian"
+          ? {
+              sandboxPolicy: {
+                type: "readOnly",
+                networkAccess: packet.security.network,
+              },
+            }
+          : {}),
+      });
+      const nativeTurnId = turnIdFromResult(turn);
+      turnId = nativeTurnId;
+      waiter.setTurnId(nativeTurnId);
+      const completion = await waiter.promise;
+      const completedTurnId = turnIdFromResult(completion);
+      if (completedTurnId !== nativeTurnId) {
+        throw new CodexError(
+          "turn_failed",
+          "Codex completed a different turn than the one started for this assignment.",
+          { threadId: threadIdForExecution, turnId: nativeTurnId, completedTurnId },
+        );
+      }
+      const outcome =
+        extractOutcome(completion, packet.assignment.role_task) ??
+        findOutcome(await client.readThread(threadIdForExecution), packet.assignment.role_task);
+      if (outcome === undefined) {
+        throw new CodexError(
+          "turn_failed",
+          "Codex completed a turn without a validated HolyCodex specialist outcome.",
+          { needs_root_decision: true },
+        );
+      }
+      const usage =
+        completion.turn?.usage === undefined ? undefined : normalizeUsage(completion.turn.usage);
+      totalUsage = mergeUsage(totalUsage, usage);
+      turnCompleted = true;
+      if (outcome.status === "partial" && !outcome.needs_root_decision) {
+        prompt = `Continue the retained assignment with this semantic delta (TOON):\n${encodeModelWire({ remaining: outcome.remaining, evidence: outcome.evidence })}`;
+        continue;
+      }
+      return checked(
+        SemanticExecutionOutcomeSchema,
+        {
+          assignment_id: packet.assignment.id,
+          route_key: packet.route.key,
+          agent_type: agentType,
+          task_name: taskName,
+          thread_id: threadIdForExecution,
+          turn_id: nativeTurnId,
+          backend,
+          session_mode: sessionMode,
+          duration_ms: Math.max(0, Math.round(performance.now() - startedAt)),
+          ...(totalUsage === undefined ? {} : { usage: totalUsage }),
+          outcome,
+        },
+        "semantic execution outcome",
       );
-    }
-    const outcome =
-      extractOutcome(completion, packet.assignment.role_task) ??
-      findOutcome(await client.readThread(threadIdForExecution), packet.assignment.role_task);
-    if (outcome === undefined) {
-      throw new CodexError(
-        "turn_failed",
-        "Codex completed a turn without a validated HolyCodex specialist outcome.",
-        { needs_root_decision: true },
-      );
-    }
-    const normalizedUsage =
-      completion.turn?.usage === undefined ? undefined : normalizeUsage(completion.turn.usage);
-    const result = checked(
-      SemanticExecutionOutcomeSchema,
-      {
-        assignment_id: packet.assignment.id,
-        route_key: packet.route.key,
-        thread_id: threadIdForExecution,
-        turn_id: nativeTurnId,
-        backend,
-        session_mode: sessionMode,
-        duration_ms: Math.max(0, Math.round(performance.now() - startedAt)),
-        ...(normalizedUsage === undefined ? {} : { usage: normalizedUsage }),
-        outcome,
-      },
-      "semantic execution outcome",
-    );
-    completed = true;
-    return result;
-  } finally {
-    waiter.close();
-    if (turnId !== undefined && !completed) {
-      await client.interruptTurn({ threadId: threadIdForExecution, turnId }).catch(() => undefined);
+    } finally {
+      waiter.close();
+      if (turnId !== undefined && !turnCompleted) {
+        await client
+          .interruptTurn({ threadId: threadIdForExecution, turnId })
+          .catch(() => undefined);
+      }
     }
   }
+}
+
+function nativeTaskName(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/gu, "_")
+    .replace(/^_+|_+$/gu, "");
+  return /^[a-z]/u.test(normalized) ? normalized.slice(0, 128) : `task_${normalized}`.slice(0, 128);
+}
+
+function mergeUsage(
+  total: ExecutionUsage | undefined,
+  next: ExecutionUsage | undefined,
+): ExecutionUsage | undefined {
+  if (next === undefined) return total;
+  if (total === undefined) return next;
+  return {
+    input_tokens: total.input_tokens + next.input_tokens,
+    cached_input_tokens: total.cached_input_tokens + next.cached_input_tokens,
+    output_tokens: total.output_tokens + next.output_tokens,
+    reasoning_output_tokens: total.reasoning_output_tokens + next.reasoning_output_tokens,
+    ...(total.total_tokens === undefined || next.total_tokens === undefined
+      ? {}
+      : { total_tokens: total.total_tokens + next.total_tokens }),
+  };
 }
 
 function normalizeUsage(usage: SupportedUsage): ExecutionUsage | undefined {
@@ -845,17 +853,8 @@ export function executeAssignment(
       assertStructuralLeaf(input);
       const packet = checked(SemanticAssignmentPacketSchema, input, "semantic assignment packet");
       assertAssignmentConsistency(packet);
-      const validatedOptions = checked(
-        AssignmentExecutionOptionsSchema,
-        options,
-        "assignment execution options",
-      );
-      return await executeAssignmentWithClient(
-        client,
-        packet,
-        validatedOptions.timeoutMs === undefined ? {} : { timeoutMs: validatedOptions.timeoutMs },
-        signal,
-      );
+      checked(AssignmentExecutionOptionsSchema, options, "assignment execution options");
+      return await executeAssignmentWithClient(client, packet, options, signal);
     },
     catch: (error) => failureFromUnknown(error, "Codex assignment execution failed."),
   });

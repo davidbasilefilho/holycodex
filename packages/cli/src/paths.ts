@@ -8,20 +8,11 @@ import type { InstallerOptions, InstallerPaths } from "./types.ts";
 
 export const STATE_ROOT_NAME = "holycodex";
 export const ACTIVE_RECORD_NAME = "active.json";
-export const JOURNAL_NAME = "journal.ndjson";
-export const LOCK_NAME = ".holycodex-install.lock";
-export const PAYLOAD_DIRECTORY_NAME = "holycodex";
 export const STATE_SCHEMA = STATE_SCHEMA_EPOCH;
 
 export interface ResolvedInstallerPaths extends InstallerPaths {
   readonly stateRoot: string;
   readonly activeRecord: string;
-  readonly journal: string;
-  readonly lock: string;
-  readonly marketplaceFile: string;
-  readonly marketplacePlugins: string;
-  readonly payloadRoot: string;
-  readonly stagingRoot: string;
   readonly runsRoot: string;
   readonly generatedWorkflowsRoot: string;
 }
@@ -32,35 +23,12 @@ export function resolveInstallerPaths(
 ): ResolvedInstallerPaths {
   const home = homedir();
   const codexHome = options.paths?.codexHome ?? environment["CODEX_HOME"] ?? join(home, ".codex");
-  const marketplaceRoot =
-    options.paths?.marketplaceRoot ??
-    environment["HOLYCODEX_MARKETPLACE_ROOT"] ??
-    join(home, ".agents", "plugins");
   const safeCodexHome = assertRootText(codexHome, "CODEX_HOME");
-  const safeMarketplaceRoot = assertRootText(marketplaceRoot, "marketplace root");
-  if (
-    safeCodexHome === safeMarketplaceRoot ||
-    pathWithin(safeCodexHome, safeMarketplaceRoot) ||
-    pathWithin(safeMarketplaceRoot, safeCodexHome)
-  ) {
-    throw new PathBoundaryError(
-      "unsafe_root_alias",
-      "CODEX_HOME and marketplace root must differ.",
-    );
-  }
   const stateRoot = join(safeCodexHome, STATE_ROOT_NAME);
-  const marketplacePlugins = join(safeMarketplaceRoot, "plugins", PAYLOAD_DIRECTORY_NAME);
   return {
     codexHome: safeCodexHome,
-    marketplaceRoot: safeMarketplaceRoot,
     stateRoot,
     activeRecord: join(stateRoot, ACTIVE_RECORD_NAME),
-    journal: join(stateRoot, JOURNAL_NAME),
-    lock: join(safeCodexHome, LOCK_NAME),
-    marketplaceFile: join(safeMarketplaceRoot, "marketplace.json"),
-    marketplacePlugins,
-    payloadRoot: marketplacePlugins,
-    stagingRoot: join(safeMarketplaceRoot, "plugins", ".holycodex-staging"),
     runsRoot: join(stateRoot, "runs"),
     generatedWorkflowsRoot: join(safeCodexHome, "workflows"),
   };

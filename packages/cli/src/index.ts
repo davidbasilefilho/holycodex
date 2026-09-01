@@ -10,7 +10,6 @@ export { parseArgv, ArgumentError } from "./args.ts";
 export {
   installHolyCodex,
   readActiveInstallRecord,
-  verifyActivation,
   CapabilityStateRecordSchema,
   CapabilityInstallStateSchema,
   InstallRecordSchema,
@@ -30,15 +29,6 @@ export {
   PathBoundaryError,
   STATE_SCHEMA,
 } from "./paths.ts";
-export {
-  managedMarketplaceEntry,
-  managedEntryMatches,
-  readMarketplace,
-  readMarketplaceForInstall,
-  writeMarketplace,
-  MarketplaceError,
-} from "./marketplace.ts";
-export { acquireInstallLock, LockError } from "./lock.ts";
 export { CodexOfficialPluginManager, OfficialPluginManagerError } from "./official-manager.ts";
 export type { OfficialPluginCommandRunner } from "./official-manager.ts";
 export {
@@ -50,14 +40,6 @@ export {
   optionalArgs,
   WorkflowCommandError,
 } from "./workflow.ts";
-export {
-  LEGACY_SCHEMA_EPOCH,
-  MIGRATED_STATE_NAME,
-  MIGRATION_RECORD_NAME,
-  inspectLegacyState,
-  migrateLegacyState,
-  readMigratedInstallerSelections,
-} from "./migration.ts";
 export { WorkflowStoreError } from "./workflow-store.ts";
 export {
   assertSafeSessionId,
@@ -109,6 +91,7 @@ export type {
   WorkflowCapabilityRequest,
   WorkflowCapabilityResult,
   AppServerAssignmentPort,
+  NativeAgentDispatchPort,
   Autonomy,
 } from "./types.ts";
 export type { InstallRequest } from "./installer.ts";

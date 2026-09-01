@@ -3,7 +3,7 @@
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 import { access, cp, mkdir, readFile, readdir } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { delimiter, dirname, join, relative, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { CliEnvelopeSchema } from "../packages/core/src/envelopes.ts";
 import {
@@ -133,21 +133,20 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
     type: "module",
     dependencies: { holycodex: `file:${packed.tarballPath.replaceAll("\\", "/")}` },
   });
-  await withBunTemporaryDirectory(async (bunStateRoot) => {
-    const bunEnvironment = {
-      ...process.env,
-      BUN_INSTALL: join(bunStateRoot, "install"),
-      BUN_TMPDIR: join(bunStateRoot, "tmp"),
-      TEMP: join(bunStateRoot, "tmp"),
-      TMP: join(bunStateRoot, "tmp"),
-      TMPDIR: join(bunStateRoot, "tmp"),
-    };
-    await mkdir(bunEnvironment.BUN_INSTALL, { recursive: true });
-    await mkdir(bunEnvironment.BUN_TMPDIR, { recursive: true });
-    await runChecked(["bun", "install", "--no-save", "--ignore-scripts", "--no-progress"], {
-      cwd: installedRoot,
-      env: bunEnvironment,
-    });
+  const bunStateRoot = join(temporaryRoot, "bun-state");
+  const bunEnvironment = {
+    ...process.env,
+    BUN_INSTALL: join(bunStateRoot, "install"),
+    BUN_TMPDIR: join(bunStateRoot, "tmp"),
+    TEMP: join(bunStateRoot, "tmp"),
+    TMP: join(bunStateRoot, "tmp"),
+    TMPDIR: join(bunStateRoot, "tmp"),
+  };
+  await mkdir(bunEnvironment.BUN_INSTALL, { recursive: true });
+  await mkdir(bunEnvironment.BUN_TMPDIR, { recursive: true });
+  await runChecked(["bun", "install", "--no-save", "--ignore-scripts", "--no-progress"], {
+    cwd: installedRoot,
+    env: bunEnvironment,
   });
 
   const installedPackageRoot = join(installedRoot, "node_modules/holycodex");
@@ -176,12 +175,7 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
     "the installed safe filesystem helper digest does not match its manifest",
   );
   await runSafeFilesystemNativeTest(helperPath);
-  for (const relativePath of [
-    "agents/root.md",
-    "hooks/hooks.json",
-    "rules/manifest.json",
-    "skills/plan/SKILL.md",
-  ]) {
+  for (const relativePath of ["agents/root.md", "rules/manifest.json", "skills/plan/SKILL.md"]) {
     await requireFile(
       join(installedPackageRoot, "dist/assets/plugin", relativePath),
       `the installed plugin asset ${relativePath}`,
@@ -200,19 +194,17 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
   );
 
   const codexHome = join(temporaryRoot, "codex-home");
-  const marketplaceRoot = join(temporaryRoot, "marketplace");
   const commands: string[] = [];
   const stateRoot = join(codexHome, "holycodex");
-  await mkdir(stateRoot, { recursive: true });
-  await writeJson(join(stateRoot, "legacy-state.json"), {
-    schema_epoch: "legacy-state-1",
-    plan: "plus",
-    tier: "Standard",
-    autonomy: "assisted",
-    max_subagents: 1,
-  });
+  await mkdir(codexHome, { recursive: true });
 
-  const codexEnvironment = { ...process.env, CODEX_HOME: codexHome };
+  const codexEnvironment = {
+    ...bunEnvironment,
+    CODEX_HOME: codexHome,
+    PATH: [join(workspaceRoot, "node_modules/.bin"), process.env["PATH"]]
+      .filter((value): value is string => value !== undefined && value.length > 0)
+      .join(delimiter),
+  };
   const codexCommand = ["bun", "x", "--no-install", "codex"] as const;
   const marketplaceAdd = await runChecked(
     [...codexCommand, "plugin", "marketplace", "add", workspaceRoot, "--json"],
@@ -251,12 +243,7 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
     "Codex plugin list did not report HolyCodex",
   );
   const installedPluginRoot = pluginEnvelope.installedPath;
-  for (const relativePath of [
-    ".codex-plugin/plugin.json",
-    "skills/plan/SKILL.md",
-    "hooks/hooks.json",
-    "hooks/version.ts",
-  ]) {
+  for (const relativePath of [".codex-plugin/plugin.json", "skills/plan/SKILL.md"]) {
     await requireFile(
       join(installedPluginRoot, relativePath),
       `installed Codex plugin asset ${relativePath}`,
@@ -296,26 +283,19 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
 
   const installEnvelope = await runCli(
     installedEntry,
-    [
-      "install",
-      "--yes",
-      "--json",
-      "--codex-home",
-      codexHome,
-      "--marketplace-root",
-      marketplaceRoot,
-    ],
+    ["install", "--yes", "--json", "--codex-home", codexHome],
     installedRoot,
     commands,
+    codexEnvironment,
   );
   assert(installEnvelope.ok, "packed package install failed");
-  await requireFile(join(stateRoot, "migrated-state.json"), "the migrated state record");
 
   const doctorEnvelope = await runCli(
     installedEntry,
-    ["doctor", "--json", "--codex-home", codexHome, "--marketplace-root", marketplaceRoot],
+    ["doctor", "--json", "--codex-home", codexHome],
     installedRoot,
     commands,
+    codexEnvironment,
   );
   assert(doctorEnvelope.ok, "packed package doctor command failed");
   if (doctorEnvelope.ok) {
@@ -326,19 +306,10 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
 
   const cleanupEnvelope = await runCli(
     installedEntry,
-    [
-      "cleanup",
-      "--scope",
-      "workspace",
-      "--yes",
-      "--json",
-      "--codex-home",
-      codexHome,
-      "--marketplace-root",
-      marketplaceRoot,
-    ],
+    ["cleanup", "--scope", "workspace", "--yes", "--json", "--codex-home", codexHome],
     installedRoot,
     commands,
+    codexEnvironment,
   );
   assert(cleanupEnvelope.ok, "packed package cleanup command failed");
   assert(!(await exists(join(stateRoot, "active.json"))), "cleanup left the active install record");
@@ -429,10 +400,11 @@ async function runCli(
   args: readonly string[],
   cwd: string,
   commands: string[],
+  environment: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<typeof CliEnvelopeSchema.Type> {
   const command = ["bun", entry, ...args];
   commands.push(command.join(" "));
-  const result = await runCommand(command, { cwd, env: process.env });
+  const result = await runCommand(command, { cwd, env: environment });
   assert(
     result.exitCode === 0,
     `CLI command failed with exit ${result.exitCode}: ${result.stderr || result.stdout}`,
@@ -583,12 +555,6 @@ async function exists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-async function withBunTemporaryDirectory<T>(
-  operation: (directory: string) => Promise<T>,
-): Promise<T> {
-  return await withTemporaryDirectory("holycodex-package-smoke-bun", operation);
 }
 
 function assert(condition: boolean, message: string): asserts condition {

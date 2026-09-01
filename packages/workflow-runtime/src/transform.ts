@@ -160,6 +160,7 @@ interface WorkflowAssignment<I extends WorkflowJsonValue = WorkflowJsonValue, O 
 interface WorkflowStepDefinition<I extends WorkflowJsonValue = WorkflowJsonValue, O extends WorkflowJsonValue = WorkflowJsonValue> { readonly id: string; readonly assignment: WorkflowAssignment<I, O>; }
 interface WorkflowValue<I extends WorkflowJsonValue = WorkflowJsonValue, O extends WorkflowJsonValue = WorkflowJsonValue> { readonly input: I; readonly output: O; }
 interface WorkflowWait<I extends WorkflowJsonValue = WorkflowJsonValue, O extends WorkflowJsonValue = WorkflowJsonValue> { readonly input: I; readonly result: O; }
+interface WorkflowDefinition<I extends WorkflowJsonValue = WorkflowJsonValue, O extends WorkflowJsonValue = WorkflowJsonValue> { readonly name: string; readonly workflow: WorkflowWait<I, O>; }
 type WorkflowQueueStageOutput<Current extends WorkflowJsonValue, Stage> = Stage extends WorkflowValue<Current, infer Output> ? Output : Stage extends WorkflowWait<Current, infer Output> ? Output : Stage extends (input: Current) => WorkflowValue<Current, infer Output> ? Output : Stage extends (input: Current) => WorkflowWait<Current, infer Output> ? Output : never;
 type WorkflowQueueStageChain<Current extends WorkflowJsonValue, Stages extends readonly unknown[]> = Stages extends readonly [infer Stage, ...infer Rest] ? [WorkflowQueueStageOutput<Current, Stage>] extends [never] ? never : readonly [Stage, ...WorkflowQueueStageChain<WorkflowQueueStageOutput<Current, Stage>, Rest>] : readonly [];
 type WorkflowQueueOutput<Current extends WorkflowJsonValue, Stages extends readonly unknown[]> = Stages extends readonly [infer Stage, ...infer Rest] ? WorkflowQueueOutput<WorkflowQueueStageOutput<Current, Stage>, Rest> : Current;
@@ -180,6 +181,7 @@ declare module "@holycodex/workflow" {
   export type StepDefinition<I extends WorkflowJsonValue = WorkflowJsonValue, O extends WorkflowJsonValue = WorkflowJsonValue> = WorkflowStepDefinition<I, O>;
   export type Workflow<I extends WorkflowJsonValue = WorkflowJsonValue, O extends WorkflowJsonValue = WorkflowJsonValue> = WorkflowValue<I, O>;
   export type Wait<I extends WorkflowJsonValue = WorkflowJsonValue, O extends WorkflowJsonValue = WorkflowJsonValue> = WorkflowWait<I, O>;
+  export type Definition<I extends WorkflowJsonValue = WorkflowJsonValue, O extends WorkflowJsonValue = WorkflowJsonValue> = WorkflowDefinition<I, O>;
   export const workflow: WorkflowDsl;
   export function createCodec<T extends WorkflowJsonValue = WorkflowJsonValue>(name: string, decoder: ((value: unknown) => T) | WorkflowPortableSchema<T>): ValueCodec<T>;
 }
@@ -189,6 +191,7 @@ declare module "@holycodex/workflow-runtime" {
   export type StepDefinition<I extends WorkflowJsonValue = WorkflowJsonValue, O extends WorkflowJsonValue = WorkflowJsonValue> = WorkflowStepDefinition<I, O>;
   export type Workflow<I extends WorkflowJsonValue = WorkflowJsonValue, O extends WorkflowJsonValue = WorkflowJsonValue> = WorkflowValue<I, O>;
   export type Wait<I extends WorkflowJsonValue = WorkflowJsonValue, O extends WorkflowJsonValue = WorkflowJsonValue> = WorkflowWait<I, O>;
+  export type Definition<I extends WorkflowJsonValue = WorkflowJsonValue, O extends WorkflowJsonValue = WorkflowJsonValue> = WorkflowDefinition<I, O>;
   export const workflow: WorkflowDsl;
   export function createCodec<T extends WorkflowJsonValue = WorkflowJsonValue>(name: string, decoder: ((value: unknown) => T) | WorkflowPortableSchema<T>): ValueCodec<T>;
 }
@@ -322,7 +325,7 @@ function rewriteNativeSource(source: string): string {
     if (token.text === "}") braceDepth = Math.max(0, braceDepth - 1);
   }
   if (exports !== 1)
-    throw sourceError("The native workflow must export exactly one workflow.wait(...) value.");
+    throw sourceError("The native workflow must export exactly one named workflow definition.");
   return applyReplacements(source, replacements);
 }
 

@@ -293,10 +293,26 @@ async function monitorChild(
     let settled = false;
     let operationCount = 0;
     const outstanding = new Map<string, Promise<void>>();
-    const timer = setTimeout(() => {
+    const pending: OperationRequestMessage[] = [];
+    let remainingEvaluationMs = limits.wallTimeMs;
+    let evaluationStartedAt = performance.now();
+    let timer: ReturnType<typeof setTimeout>;
+    const timeOut = (): void => {
       void sendCancellation(processHandle, limits, "timed_out");
       finish(failure(new WorkflowRuntimeError("timed_out", "The workflow timed out.")));
-    }, limits.wallTimeMs);
+    };
+    const resumeEvaluationTimer = (): void => {
+      evaluationStartedAt = performance.now();
+      timer = setTimeout(timeOut, remainingEvaluationMs);
+    };
+    const pauseEvaluationTimer = (): void => {
+      clearTimeout(timer);
+      remainingEvaluationMs = Math.max(
+        0,
+        remainingEvaluationMs - (performance.now() - evaluationStartedAt),
+      );
+    };
+    resumeEvaluationTimer();
 
     const abortListener = (): void => {
       void sendCancellation(processHandle, limits, "cancelled");
@@ -335,6 +351,30 @@ async function monitorChild(
       );
       return;
     }
+    const startOperation = (message: OperationRequestMessage): void => {
+      const task = serviceOperation(processHandle, message, input.operationHandler, limits)
+        .catch(() => {
+          finish(
+            failure(
+              new WorkflowRuntimeError(
+                "protocol_breach",
+                "The workflow operation response failed.",
+              ),
+            ),
+          );
+        })
+        .finally(() => {
+          outstanding.delete(message.request_id);
+          const next = pending.shift();
+          if (next !== undefined) {
+            startOperation(next);
+          } else if (outstanding.size === 0 && !settled) {
+            resumeEvaluationTimer();
+          }
+        });
+      outstanding.set(message.request_id, task);
+    };
+
     void consumeStream(stdout, limits, (line) => {
       if (settled) {
         return;
@@ -347,6 +387,9 @@ async function monitorChild(
         return;
       }
       if (message.type === "operation-request") {
+        if (outstanding.size === 0 && pending.length === 0) {
+          pauseEvaluationTimer();
+        }
         if (operationCount >= limits.maxOperationCount) {
           finish(
             failure(
@@ -358,18 +401,10 @@ async function monitorChild(
           );
           return;
         }
-        if (outstanding.size >= limits.maxConcurrentOperations) {
-          finish(
-            failure(
-              new WorkflowRuntimeError(
-                "resource_limit",
-                "The workflow concurrency limit was exceeded.",
-              ),
-            ),
-          );
-          return;
-        }
-        if (outstanding.has(message.request_id)) {
+        if (
+          outstanding.has(message.request_id) ||
+          pending.some((request) => request.request_id === message.request_id)
+        ) {
           finish(
             failure(
               new WorkflowRuntimeError(
@@ -381,21 +416,11 @@ async function monitorChild(
           return;
         }
         operationCount += 1;
-        const task = serviceOperation(processHandle, message, input.operationHandler, limits)
-          .catch(() => {
-            finish(
-              failure(
-                new WorkflowRuntimeError(
-                  "protocol_breach",
-                  "The workflow operation response failed.",
-                ),
-              ),
-            );
-          })
-          .finally(() => {
-            outstanding.delete(message.request_id);
-          });
-        outstanding.set(message.request_id, task);
+        if (outstanding.size >= limits.maxConcurrentOperations) {
+          pending.push(message);
+        } else {
+          startOperation(message);
+        }
         return;
       }
       if (message.type === "terminal-success") {

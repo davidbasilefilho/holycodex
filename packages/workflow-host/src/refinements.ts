@@ -31,6 +31,7 @@ export async function createRefinement(
     args: unknown;
   }>,
 ): Promise<RefinementOperation> {
+  context.planFirstGate.assertMutationAllowed();
   if (!context.refinementsEnabled) {
     throw new WorkflowHostError("refinement_disabled", "Refinements are disabled by default.");
   }
@@ -89,6 +90,7 @@ export async function setRefinementStatus(
   refinementId: string,
   status: "enabled" | "disabled",
 ): Promise<Refinement> {
+  context.planFirstGate.assertMutationAllowed();
   if (!context.refinementsEnabled) {
     throw new WorkflowHostError("refinement_disabled", "Refinements are disabled by default.");
   }

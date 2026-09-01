@@ -1,6 +1,6 @@
 ---
 name: plan-review
-description: Review one complete plan for feasibility, order, risk, and proof.
+description: Use when a complete plan needs adversarial review; check feasibility, order, risk, and proof to fixed point.
 ---
 
 Owner: Reviewer. Boundary: inspect the complete plan once to fixed point and return findings; material product or architecture choices return to Root.

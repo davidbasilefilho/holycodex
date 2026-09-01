@@ -301,9 +301,7 @@ const OFFICIAL_MANIFEST_KEYS = new Set([
 ]);
 
 function isPayloadAssetPath(path: string): boolean {
-  return ["agents/", "skills/", "hooks/", "rules/", "compaction/"].some((prefix) =>
-    path.startsWith(prefix),
-  );
+  return ["agents/", "skills/", "rules/", "compaction/"].some((prefix) => path.startsWith(prefix));
 }
 
 export function isUsableDirectoryText(value: string): boolean {

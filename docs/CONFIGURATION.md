@@ -21,8 +21,8 @@ required value, malformed value, or untrusted path fails closed. Specialists
 receive a read-only effective snapshot and never write configuration.
 
 The current installer exposes explicit plan, tier, optional-selection, and
-root-path inputs. The environment supplies `CODEX_HOME` and
-`HOLYCODEX_MARKETPLACE_ROOT` when no explicit path is provided. The CLI adapter
+root-path inputs. The environment supplies `CODEX_HOME` when no explicit path
+is provided. The CLI adapter
 does not turn arbitrary environment values into persisted configuration.
 
 ## Plan, tier, and optional selections
@@ -44,22 +44,21 @@ replaced by an unapproved fallback.
 
 ## Explicit paths and ownership
 
-`CODEX_HOME` defaults to `~/.codex`, and the personal marketplace root defaults
-to `~/.agents/plugins`. Use `--codex-home` and `--marketplace-root` for explicit
-overrides or isolated tests. Paths must be absolute, traversal-free, non-broad,
-non-overlapping roots without symlink aliases. The installer owns only its
-state and its managed marketplace entry; it does not rewrite unrelated
-plugins, Codex configuration, or external servers. See
+`CODEX_HOME` defaults to `~/.codex`. Use `--codex-home` for an explicit override
+or isolated test. Paths must be absolute, traversal-free, and non-broad. The
+installer owns only its state and generated `{Role}.{task}` agent profiles; it
+uses Codex's official plugin and feature commands and does not rewrite unrelated
+plugins, configuration fields, feature flags, or external servers. See
 [INSTALLATION.md](INSTALLATION.md) for the path layout and transaction.
 
 ## Managed writes and compare-before-write
 
-Configuration writes require an approved operation and a declared owner. The
+Configuration writes require a declared owner. The
 managed configuration metadata carries owner, schema, and install identity.
 Before a write, the owner compares the existing managed fields and refuses to
 overwrite a changed or foreign value. A matching value is safe to retain; a
 changed value is preserved for explicit resolution. Cleanup applies the same
-ownership test before removing a marketplace entry.
+ownership test before removing HolyCodex-owned state.
 
 Atomic writes and journal records bracket consequential pointer changes. A
 failed write rolls back bytes that were previously read when rollback is safe;

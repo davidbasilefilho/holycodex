@@ -26,9 +26,10 @@ failure rather than an assumed success.
 1. Every external, persisted, CLI, App Server, and specialist boundary accepts
    only values validated with Effect Schema at the receiving edge. The caller
    supplies intent; it does not supply authorization, internal state, specialist
-   identity, or a trusted result.
+   identity, or a trusted result. Canonical `{Role}.{task}` native identities
+   are derived from the route catalog and preserved through continuation.
 2. Root owns scope, architecture, product, policy, permission, integration,
-   pre-effect approval, and final judgment. Runtime owns deterministic workflow
+   external-effect approval, and final judgment. Runtime owns deterministic workflow
    mechanics; it cannot turn mechanics into permission.
 3. Explorer, Librarian, Worker, and Reviewer receive literal bounded
    assignments. Their outputs are untrusted until validated and integrated by
@@ -53,8 +54,10 @@ failure rather than an assumed success.
 
 The checked-in Codex 0.148.0 artifact records stable multi-agent support,
 locally disabled `multi_agent_v2`, and an unverified distinct V2 lifecycle.
-Advertised V2 therefore fails closed and uses the stable App Server fallback;
-the generated contract does not claim a live provider.
+Advertised V2 therefore fails closed. Native workflow dispatch requires the
+configured Codex collaboration boundary and preserves `{Role}.{task}` plus
+`task_name`; the generic App Server assignment bridge is compatibility-only
+and must be selected explicitly.
 
 App Server runs as a managed local subprocess using its supported protocol. It
 inherits the active project, trust, approval, sandbox, and tool boundaries. A

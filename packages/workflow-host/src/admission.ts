@@ -76,14 +76,10 @@ export async function admit(
       : costMaxToUnits(context.capacity.costMax),
   );
   const maxCalls = Math.min(budget.maxCalls, context.capacity.maxCalls ?? budget.maxCalls);
-  const maxConcurrency = Math.min(
-    budget.maxConcurrency,
-    context.capacity.maxConcurrency ?? budget.maxConcurrency,
-  );
   if (!Number.isInteger(calls) || calls < 0 || calls > maxCalls) {
     throw new WorkflowHostError("call_limit", "The run exceeds its live call capacity.");
   }
-  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > maxConcurrency) {
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new WorkflowHostError(
       "concurrency_limit",
       "The run exceeds its live concurrency capacity.",
@@ -92,11 +88,7 @@ export async function admit(
   if (!Number.isInteger(retries) || retries < 0 || retries > (context.capacity.maxRetries ?? 0)) {
     throw new WorkflowHostError("retry_limit", "The run exceeds its retry capacity.");
   }
-  if (
-    !Number.isInteger(fanOut) ||
-    fanOut < 1 ||
-    fanOut > (context.capacity.maxFanOut ?? maxConcurrency)
-  ) {
+  if (!Number.isInteger(fanOut) || fanOut < 1) {
     throw new WorkflowHostError("fan_out_limit", "The run exceeds its fan-out capacity.");
   }
   const derivedCost = estimatePlanCost({

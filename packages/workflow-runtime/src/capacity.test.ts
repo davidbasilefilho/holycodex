@@ -63,12 +63,18 @@ describe("atomic shared capacity settlement", () => {
   test("atomically enforces independent calls, concurrency, and shared cost", async () => {
     const capacity = await service({ maxCalls: 2, maxConcurrency: 1, costMax: 60 });
     const first = await Effect.runPromise(capacity.acquire(request("shared", 40, 2, 60)));
-    const second = Effect.runPromise(Effect.flip(capacity.acquire(request("shared", 40, 2, 60))));
-    await expect(second).resolves.toMatchObject({ code: "admission_exceeded" });
+    let secondSettled = false;
+    const second = Effect.runPromise(capacity.acquire(request("shared", 20, 2, 60))).then(
+      (reservation) => {
+        secondSettled = true;
+        return reservation;
+      },
+    );
+    await Promise.resolve();
+    expect(secondSettled).toBe(false);
     await Effect.runPromise(first.settle({ costUnits: 40 }));
     await Effect.runPromise(first.release);
-
-    const retry = await Effect.runPromise(capacity.acquire(request("shared", 20, 2, 60)));
+    const retry = await second;
     await Effect.runPromise(retry.settle({ costUnits: 20 }));
     await Effect.runPromise(retry.release);
     await expect(

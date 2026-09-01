@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { resolvePlanSelection } from "@holycodex/core";
+import {
+  resolvePlanSelection,
+  SpecialistOutcomeV2Schema,
+  type JsonObject,
+  type SpecialistOutcomeV2,
+} from "@holycodex/core";
 import * as Effect from "effect/Effect";
 import {
   CompileOptionsSchema,
@@ -73,6 +78,7 @@ export async function runWorkflow(context: HostContext, input: RunInput): Promis
 }
 
 async function runWorkflowExclusive(context: HostContext, input: RunInput): Promise<RunExecution> {
+  context.planFirstGate.assertMutationAllowed();
   const loaded = await loadRun(context, input.runId);
   if (loaded.snapshot.integrity !== "valid") {
     throw new WorkflowHostError(
@@ -336,10 +342,23 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
     } else {
       throw new WorkflowHostError("invalid_input", "The workflow execution mode is invalid.");
     }
-  } catch {
+  } catch (error) {
+    const semanticOutcome = semanticOutcomeFromFailure(error);
     result = {
       ok: false,
-      error: new WorkflowRuntimeError("evaluation_failed", "The workflow evaluation failed."),
+      error:
+        semanticOutcome === undefined
+          ? new WorkflowRuntimeError("evaluation_failed", "The workflow evaluation failed.")
+          : new WorkflowRuntimeError(
+              "operation_failed",
+              `The specialist reported a ${semanticOutcome.status} outcome.`,
+              {
+                semantic_outcome: semanticOutcome,
+                ...(semanticOutcome.status === "partial"
+                  ? { needs_root_decision: semanticOutcome.needs_root_decision }
+                  : {}),
+              },
+            ),
     };
   }
   context.active.delete(input.runId);
@@ -389,6 +408,46 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
     return {
       runId: definition.run_id,
       status: latest.snapshot.status,
+      result,
+      inspection: await inspect(context, definition.run_id),
+    };
+  }
+  const semanticOutcome = result.ok ? undefined : semanticOutcomeFromFailure(result.error);
+  if (
+    semanticOutcome !== undefined &&
+    (semanticOutcome.status === "blocked" ||
+      (semanticOutcome.status === "partial" && semanticOutcome.needs_root_decision))
+  ) {
+    await writeSemanticCheckpoint(
+      context,
+      latest.snapshot,
+      objective,
+      constraints,
+      semanticOutcome,
+    );
+    const blocked = await changeState(
+      context,
+      (await loadRun(context, input.runId)).snapshot,
+      "blocked",
+      semanticOutcome.status === "blocked"
+        ? semanticOutcome.reason
+        : "specialist needs a Root decision",
+    );
+    await releaseReservation(context, input.runId);
+    await emitTelemetry(context, {
+      event: "run",
+      run_id: definition.run_id,
+      route: definition.identity.route,
+      delegation_mode: delegationMode,
+      status: "blocked",
+      duration_ms: Date.now() - startedAt,
+      count: 1,
+      error_code: `specialist-${semanticOutcome.status}`,
+      replayed: false,
+    });
+    return {
+      runId: definition.run_id,
+      status: blocked.status,
       result,
       inspection: await inspect(context, definition.run_id),
     };
@@ -447,7 +506,8 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
     status: "failed",
     duration_ms: Date.now() - startedAt,
     count: 1,
-    error_code: "runtime-failure",
+    error_code:
+      semanticOutcome === undefined ? "runtime-failure" : `specialist-${semanticOutcome.status}`,
     replayed: false,
   });
   return {
@@ -456,4 +516,54 @@ async function runWorkflowExclusive(context: HostContext, input: RunInput): Prom
     result,
     inspection: await inspect(context, definition.run_id),
   };
+}
+
+function semanticOutcomeFromFailure(value: unknown): SpecialistOutcomeV2 | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  const containers: unknown[] = [];
+  if ("details" in value) containers.push(value.details);
+  if ("metadata" in value) containers.push(value.metadata);
+  for (const container of containers) {
+    if (typeof container !== "object" || container === null || Array.isArray(container)) {
+      continue;
+    }
+    const candidate = (container as JsonObject)["semantic_outcome"];
+    const parsed = decodeHostSchema(SpecialistOutcomeV2Schema, candidate);
+    if (parsed !== undefined) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+async function writeSemanticCheckpoint(
+  context: HostContext,
+  snapshot: Awaited<ReturnType<typeof loadRun>>["snapshot"],
+  objective: string,
+  constraints: readonly string[],
+  outcome: SpecialistOutcomeV2,
+): Promise<void> {
+  const unresolvedWork = outcome.status === "partial" ? outcome.remaining : [];
+  const blockers =
+    outcome.status === "blocked"
+      ? [outcome.reason]
+      : outcome.status === "partial" && outcome.needs_root_decision
+        ? ["Root decision required"]
+        : [];
+  const nextActions = outcome.status === "partial" ? outcome.remaining : [];
+  await writeCheckpoint(context, snapshot, objective, constraints, {
+    verifiedEvidence: outcome.evidence,
+    decisions: [],
+    phases: ["specialist"],
+    activeWork: [],
+    unresolvedWork,
+    blockers,
+    verification: outcome.evidence,
+    retainedSummaries: [],
+    nextActions,
+    usageCompleteness: "complete",
+    recoverableErrors: [],
+  });
 }

@@ -25,11 +25,17 @@ describe("core approval policy", () => {
       "local.repository.check",
       "local.repository.lint",
       "local.repository.format",
-      "implementation.plan",
-      "origin.mutation",
-      "ci.trigger",
+      "local.repository.commit",
+      "external.read",
+      "specialist.dispatch",
+      "vcs.server.mutation",
+      "vcs.server.ci-trigger",
+      "unknown.effect",
     ]);
     expect(Object.values(APPROVAL_POLICY).map((entry) => entry.requiresRootApproval)).toEqual([
+      false,
+      false,
+      false,
       false,
       false,
       false,
@@ -52,10 +58,15 @@ describe("core approval policy", () => {
     expect(approvalModeFor("local.repository.check")).toBe("never");
     expect(approvalModeFor("local.repository.lint")).toBe("never");
     expect(approvalModeFor("local.repository.format")).toBe("never");
-    expect(approvalModeFor("implementation.plan")).toBe("root");
-    expect(approvalModeFor("origin.mutation")).toBe("root");
-    expect(approvalModeFor("ci.trigger")).toBe("root");
-    expect(lookupApprovalPolicy("origin.mutation").label).toBe("origin mutation");
+    expect(approvalModeFor("local.repository.commit")).toBe("never");
+    expect(approvalModeFor("external.read")).toBe("never");
+    expect(approvalModeFor("specialist.dispatch")).toBe("never");
+    expect(approvalModeFor("vcs.server.mutation")).toBe("root");
+    expect(approvalModeFor("vcs.server.ci-trigger")).toBe("root");
+    expect(approvalModeFor("unknown.effect")).toBe("root");
+    expect(lookupApprovalPolicy("vcs.server.mutation").label).toBe(
+      "version-control-server mutation",
+    );
     expect(APPROVAL_POLICY_GUIDANCE.noRootApproval).toContain("do not require Root approval");
     expect(APPROVAL_POLICY_GUIDANCE.rootApproval).toContain("require Root approval");
   });
@@ -66,7 +77,7 @@ describe("core approval policy", () => {
       Either.isLeft(
         decodeUnknown(ApprovalPolicySchema, {
           ...APPROVAL_POLICY,
-          workflowRun: { ...APPROVAL_POLICY.workflowRun, identifier: "origin.mutation" },
+          workflowRun: { ...APPROVAL_POLICY.workflowRun, identifier: "vcs.server.mutation" },
         }),
       ),
     ).toBe(true);

@@ -2,6 +2,9 @@
 
 export { CLI_SCHEMA_VERSION, STATE_SCHEMA_EPOCH, packageName } from "./common.ts";
 export type { JsonObject, JsonPrimitive, JsonValue, SafeDetails } from "./common.ts";
+export { decodeModelWire, encodeModelWire } from "./model-wire.ts";
+export { PlanFirstExecutionGate, PlanFirstGateError } from "./plan-first.ts";
+export type { PlanFirstPhase } from "./plan-first.ts";
 
 export { CoreError } from "./errors.ts";
 export type { CoreErrorCode, CoreResult } from "./errors.ts";
@@ -83,6 +86,8 @@ export {
   PlanNameSchema,
   PlanSelectionSchema,
   PONYTAIL_ROLE_SKILL,
+  NATIVE_AGENT_TYPES,
+  NativeAgentTypeSchema,
   ReviewerTaskSchema,
   RoleSchema,
   RoleSkillProfileSchema,
@@ -93,6 +98,8 @@ export {
   ServiceTierSchema,
   WorkerTaskSchema,
   lookupRoleDefinition,
+  nativeAgentTypeFor,
+  taskInstructionFor,
 } from "./routes.ts";
 export type {
   DelegationMode,
@@ -101,6 +108,7 @@ export type {
   LibrarianTask,
   PlanName,
   PlanSelection,
+  NativeAgentType,
   Role,
   RoleDefinition,
   RoleSkillProfile,

@@ -105,6 +105,7 @@ export async function createRun(
   context: HostContext,
   input: CreateRunInput,
 ): Promise<RunDefinition> {
+  context.planFirstGate.assertMutationAllowed();
   if (
     typeof input.source !== "string" ||
     input.source.length === 0 ||

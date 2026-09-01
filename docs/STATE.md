@@ -150,24 +150,10 @@ selects it. Active, integrity-uncertain, uncertain, unresolved, corrupt,
 non-expired, symlinked, or unverifiable state is protected. Expired cleanup
 defaults to 30 days and accepts only finite positive retention overrides or
 test clocks. Cleanup deletes only owned, terminal, integrity-valid, resolved
-runs and verified inactive payloads. It never deletes foreign files or turns
-quarantine evidence into success. Installation-owned retention is described
+runs and inactive generated workflows. It never deletes foreign files or
+turn uncertainty into success. Installation-owned retention is described
 in [INSTALLATION.md](INSTALLATION.md).
 
-## Migrations
-
-The CLI has one explicit legacy-state migration for the recorded
-`legacy-state-1` input shape. Install validates the source with Effect Schema,
-writes a content-digested `migrated-state.json`, projects compatible selections,
-saved workflows, runs, continuations, and refinements, verifies the target, and
-records a completed migration journal. A repeated identical migration is
-reused; an interrupted migration resumes from its journal; malformed or
-conflicting input is quarantined and retained. Doctor inspects this migration
-state without mutating it. See [INSTALLATION.md](INSTALLATION.md) for the
-install transaction.
-
-This explicit migration does not reinterpret unknown schema epochs. Any other
-epoch change fails closed until a migration names its source and destination,
-validates every input and output with Effect Schema, preserves canonical
-identity and provenance, writes atomically, and retains a recovery record. An
-uncertain journal tail is never discarded.
+Unknown schema epochs fail closed. A future migration must name its source and
+destination, validate every input and output with Effect Schema, preserve
+canonical identity and provenance, and write atomically.

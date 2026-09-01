@@ -368,7 +368,6 @@ const GeneratedProvenanceSchema = Schema.Struct({
   files: Schema.Struct({
     count: Schema.Number.pipe(Schema.int(), Schema.positive()),
     typescript_root: Schema.Literal("typescript"),
-    json_schema_root: Schema.Literal("json-schema"),
   }),
 });
 
@@ -404,7 +403,7 @@ async function verifyGeneratedArtifactPortable(): Promise<{
         continue;
       }
       const relativePath = relative(generatedArtifactRoot, absolute).split("\\").join("/");
-      if (!relativePath.startsWith("typescript/") && !relativePath.startsWith("json-schema/")) {
+      if (!relativePath.startsWith("typescript/")) {
         throw new Error(`Generated artifact file is outside its declared roots: ${relativePath}`);
       }
       if (metadata.size <= 0 || metadata.size > 4 * 1024 * 1024) {

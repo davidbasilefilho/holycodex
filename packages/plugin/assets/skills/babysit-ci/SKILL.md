@@ -1,6 +1,6 @@
 ---
 name: babysit-ci
-description: Monitor required CI jobs after an approved push or tag and report terminal evidence.
+description: Use after an approved push or tag when required CI must reach a terminal state; monitor jobs and report evidence.
 ---
 
 Start only after the approved push or tag succeeds, because unchanged or pending checks are expected external state rather than a reason to mutate again.

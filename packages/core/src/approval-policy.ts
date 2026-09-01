@@ -11,9 +11,12 @@ export const ApprovalPolicyActionSchema = Schema.Literal(
   "local.repository.check",
   "local.repository.lint",
   "local.repository.format",
-  "implementation.plan",
-  "origin.mutation",
-  "ci.trigger",
+  "local.repository.commit",
+  "external.read",
+  "specialist.dispatch",
+  "vcs.server.mutation",
+  "vcs.server.ci-trigger",
+  "unknown.effect",
 );
 export type ApprovalPolicyAction = typeof ApprovalPolicyActionSchema.Type;
 
@@ -42,9 +45,12 @@ export const ApprovalPolicySchema = Schema.Struct({
   localRepositoryCheck: approvalPolicyEntrySchema("local.repository.check"),
   localRepositoryLint: approvalPolicyEntrySchema("local.repository.lint"),
   localRepositoryFormat: approvalPolicyEntrySchema("local.repository.format"),
-  implementationPlan: approvalPolicyEntrySchema("implementation.plan"),
-  originMutation: approvalPolicyEntrySchema("origin.mutation"),
-  ciTrigger: approvalPolicyEntrySchema("ci.trigger"),
+  localRepositoryCommit: approvalPolicyEntrySchema("local.repository.commit"),
+  externalRead: approvalPolicyEntrySchema("external.read"),
+  specialistDispatch: approvalPolicyEntrySchema("specialist.dispatch"),
+  versionControlServerMutation: approvalPolicyEntrySchema("vcs.server.mutation"),
+  versionControlServerCiTrigger: approvalPolicyEntrySchema("vcs.server.ci-trigger"),
+  unknownEffect: approvalPolicyEntrySchema("unknown.effect"),
 });
 export type ApprovalPolicy = typeof ApprovalPolicySchema.Type;
 
@@ -84,19 +90,34 @@ export const APPROVAL_POLICY = {
     label: "local repository format",
     requiresRootApproval: false,
   },
-  implementationPlan: {
-    identifier: "implementation.plan",
-    label: "implementation plans",
+  localRepositoryCommit: {
+    identifier: "local.repository.commit",
+    label: "local repository commit",
+    requiresRootApproval: false,
+  },
+  externalRead: {
+    identifier: "external.read",
+    label: "external read",
+    requiresRootApproval: false,
+  },
+  specialistDispatch: {
+    identifier: "specialist.dispatch",
+    label: "specialist dispatch",
+    requiresRootApproval: false,
+  },
+  versionControlServerMutation: {
+    identifier: "vcs.server.mutation",
+    label: "version-control-server mutation",
     requiresRootApproval: true,
   },
-  originMutation: {
-    identifier: "origin.mutation",
-    label: "origin mutation",
+  versionControlServerCiTrigger: {
+    identifier: "vcs.server.ci-trigger",
+    label: "version-control-server CI triggering",
     requiresRootApproval: true,
   },
-  ciTrigger: {
-    identifier: "ci.trigger",
-    label: "CI triggering",
+  unknownEffect: {
+    identifier: "unknown.effect",
+    label: "unclassified effect",
     requiresRootApproval: true,
   },
 } as const satisfies ApprovalPolicy;

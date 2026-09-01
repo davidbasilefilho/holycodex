@@ -44,9 +44,9 @@ const expectedSurfaceIds = [
   "v2-disabled-fallback",
   "v2-unverified",
   "capability-denied-enabled",
-  "hooks-rules-compaction",
+  "rules-compaction",
   "lsp-platform-fixtures",
-  "migration-recovery",
+  "native-install-readback",
   "packed-install-doctor-cleanup",
   "babysit-ci",
   "cutover-runbook",
@@ -176,12 +176,10 @@ describe("0.15 foundation parity contract", () => {
     expect(gitBashRoot).toBe(windowsRoot);
     expect(pathWithin(windowsRoot, "C:\\Users\\fixture\\.codex\\runs", "win32")).toBe(true);
 
-    const [hooks, rules, compaction] = await Promise.all([
-      readFile(resolve(workspaceRoot, "packages/plugin/assets/hooks/hooks.json"), "utf8"),
+    const [rules, compaction] = await Promise.all([
       readFile(resolve(workspaceRoot, "packages/plugin/assets/rules/manifest.json"), "utf8"),
       readFile(resolve(workspaceRoot, "packages/plugin/assets/compaction/manifest.json"), "utf8"),
     ]);
-    expect(hooks).toContain("SessionStart");
     expect(rules).toContain("rules/holycodex.md");
     expect(compaction).toContain("verification");
   });
@@ -190,14 +188,12 @@ describe("0.15 foundation parity contract", () => {
     const proofPaths = [
       "packages/cli/src/index.test.ts",
       "packages/cli/src/workflow.test.ts",
-      "packages/cli/src/migration.test.ts",
+      "packages/cli/src/index.test.ts",
       "packages/codex/src/boundary.test.ts",
       "packages/codex/src/generated-artifact.test.ts",
       "packages/codex/test/fixtures/codex-cli-0.148.0/capability-v1-fallback.ndjson",
       "packages/codex/test/fixtures/codex-cli-0.148.0/capability-v2-disabled.ndjson",
       "packages/codex/test/fixtures/codex-cli-0.148.0/capability-v2-advertised.ndjson",
-      "packages/plugin/assets/hooks/hooks.json",
-      "packages/plugin/assets/hooks/version.ts",
       "packages/plugin/assets/rules/manifest.json",
       "packages/plugin/assets/compaction/manifest.json",
       "tests/fixtures/effect-promise-adapters.json",

@@ -33,12 +33,16 @@ export async function syncDirectory(path: string): Promise<void> {
 }
 
 export async function writeAtomicJson(path: string, value: JsonValue): Promise<void> {
+  await writeAtomicText(path, `${canonicalJson(value)}\n`);
+}
+
+export async function writeAtomicText(path: string, value: string): Promise<void> {
   const directory = dirname(path);
   await ensureOwnedDirectory(directory);
   await assertNoSymlink(path);
   const temporary = `${path}.tmp-${process.pid}-${crypto.randomUUID()}`;
   try {
-    await writeFile(temporary, `${canonicalJson(value)}\n`, { encoding: "utf8", mode: 0o600 });
+    await writeFile(temporary, value, { encoding: "utf8", mode: 0o600 });
     await syncFile(temporary);
     await rename(temporary, path);
     await syncDirectory(directory);

@@ -175,6 +175,7 @@ export function makeCapacityService(
     const session = yield* Effect.makeSemaphore(capacity.sessionConcurrency);
     const codex = yield* Effect.makeSemaphore(capacity.codexConcurrency);
     const transaction = yield* Effect.makeSemaphore(1);
+    const runGates = new Map<string, Effect.Semaphore>();
     const state: CapacityState = {
       runs: new Map(),
       committedByRun: new Map(),
@@ -188,159 +189,187 @@ export function makeCapacityService(
       capacity.sessionConcurrency,
       capacity.codexConcurrency,
     );
+    const dispatch = yield* Effect.makeSemaphore(globalConcurrency);
     const globalCostMax = capacity.costMax ?? Number.MAX_SAFE_INTEGER;
     const globalCallsMax = capacity.maxCalls ?? Number.MAX_SAFE_INTEGER;
 
     const acquire = (
       request: CapacityDispatchRequest,
-    ): Effect.Effect<CapacityLease, WorkflowFailure> =>
-      transaction.withPermits(1)(
-        Effect.gen(function* () {
-          const invalid = validateDispatchRequest(request);
-          if (invalid !== undefined) {
-            return yield* Effect.fail(invalid);
-          }
-          if (state.overflow) {
-            return yield* Effect.fail(
-              workflowFailure(
-                "settlement_overflow",
-                "The workflow cost ledger is closed after an overage.",
-                { retryable: false },
-              ),
-            );
-          }
-          const existing = state.runs.get(request.runId);
-          const run = existing ?? createRunState(request);
-          if (run.maxCalls !== request.maxCalls || run.maxCost !== request.maxCost) {
-            run.maxCalls = Math.min(run.maxCalls, request.maxCalls);
-            run.maxCost = Math.min(run.maxCost, request.maxCost);
-          }
-          if (run.calls >= run.maxCalls) {
-            return yield* Effect.fail(
-              workflowFailure("admission_exceeded", "The workflow call capacity was exhausted."),
-            );
-          }
-          if (state.globalCalls >= globalCallsMax) {
-            return yield* Effect.fail(
-              workflowFailure(
-                "admission_exceeded",
-                "The shared workflow call capacity was exhausted.",
-              ),
-            );
-          }
-          if (run.inFlight >= request.maxConcurrency || state.inFlight >= globalConcurrency) {
-            return yield* Effect.fail(
-              workflowFailure(
-                "admission_exceeded",
-                "The workflow concurrency capacity was exhausted.",
-              ),
-            );
-          }
-          const plannedCoverage = Math.min(run.plannedCost, request.estimatedCost);
-          const incrementalReservation = request.estimatedCost - plannedCoverage;
-          const nextRunCost = safeSum([
-            run.committedCost,
-            run.plannedCost,
-            run.outstandingCost,
-            incrementalReservation,
-          ]);
-          if (nextRunCost === undefined || nextRunCost > run.maxCost) {
-            return yield* Effect.fail(
-              workflowFailure("admission_exceeded", "The workflow cost capacity was exhausted."),
-            );
-          }
-          const nextGlobalCost = safeAdd(state.globalCost, incrementalReservation);
-          if (nextGlobalCost === undefined || nextGlobalCost > globalCostMax) {
-            return yield* Effect.fail(
-              workflowFailure(
-                "admission_exceeded",
-                "The shared workflow cost capacity was exhausted.",
-              ),
-            );
-          }
-          if (existing === undefined) {
-            state.runs.set(request.runId, run);
-          }
-          run.calls += 1;
-          run.inFlight += 1;
-          run.plannedCost -= plannedCoverage;
-          run.outstandingCost += request.estimatedCost;
-          state.inFlight += 1;
-          state.globalCalls += 1;
-          state.globalCost = nextGlobalCost;
-          let released = false;
-          let settled = false;
-          return {
-            estimatedCost: request.estimatedCost,
-            settle: (settlement: CapacitySettlement) =>
-              transaction.withPermits(1)(
-                Effect.gen(function* () {
-                  const invalidSettlement = validateSettlement(settlement);
-                  if (invalidSettlement !== undefined) {
-                    return yield* Effect.fail(invalidSettlement);
-                  }
-                  if (settled) {
-                    return;
-                  }
-                  if (
-                    state.runs.get(request.runId) !== run ||
-                    run.outstandingCost < request.estimatedCost
-                  ) {
-                    return yield* Effect.fail(
-                      workflowFailure(
-                        "ledger_corruption",
-                        "The workflow cost lease is no longer tracked.",
-                      ),
-                    );
-                  }
-                  settled = true;
-                  run.outstandingCost -= request.estimatedCost;
-                  const nextCommittedCost = safeAdd(run.committedCost, settlement.costUnits);
-                  const remainingGlobalCost = state.globalCost - request.estimatedCost;
-                  const nextGlobalCost = safeAdd(remainingGlobalCost, settlement.costUnits);
-                  run.committedCost = nextCommittedCost ?? Number.MAX_SAFE_INTEGER;
-                  state.globalCost = nextGlobalCost ?? Number.MAX_SAFE_INTEGER;
-                  state.committedByRun.set(request.runId, {
-                    calls: run.calls,
-                    cost: run.committedCost,
-                  });
-                  const runTotal = safeSum([
-                    run.committedCost,
-                    run.plannedCost,
-                    run.outstandingCost,
-                  ]);
-                  const runOverflow =
-                    nextCommittedCost === undefined ||
-                    runTotal === undefined ||
-                    runTotal > run.maxCost;
-                  const globalOverflow =
-                    nextGlobalCost === undefined || state.globalCost > globalCostMax;
-                  if (runOverflow || globalOverflow) {
-                    run.overflow = true;
-                    state.overflow = true;
-                    return yield* Effect.fail(
-                      workflowFailure(
-                        "settlement_overflow",
-                        "Measured workflow cost exceeded the hard budget.",
-                        { retryable: false },
-                      ),
-                    );
-                  }
-                }),
-              ),
-            release: transaction.withPermits(1)(
-              Effect.sync(() => {
-                if (released) {
-                  return;
-                }
-                released = true;
-                run.inFlight = Math.max(0, run.inFlight - 1);
-                state.inFlight = Math.max(0, state.inFlight - 1);
-              }),
-            ),
-          } satisfies CapacityLease;
-        }),
+    ): Effect.Effect<CapacityLease, WorkflowFailure> => {
+      let dispatchHeld = false;
+      let runGate: Effect.Semaphore | undefined;
+      let runHeld = false;
+      const releasePermits = Effect.gen(function* () {
+        if (runHeld && runGate !== undefined) {
+          runHeld = false;
+          yield* runGate.release(1);
+        }
+        if (dispatchHeld) {
+          dispatchHeld = false;
+          yield* dispatch.release(1);
+        }
+      });
+      return Effect.gen(function* () {
+        yield* dispatch.take(1);
+        dispatchHeld = true;
+        runGate = yield* transaction.withPermits(1)(
+          Effect.gen(function* () {
+            const existing = runGates.get(request.runId);
+            if (existing !== undefined) return existing;
+            const created = yield* Effect.makeSemaphore(request.maxConcurrency);
+            runGates.set(request.runId, created);
+            return created;
+          }),
+        );
+        yield* runGate.take(1);
+        runHeld = true;
+        return yield* transaction.withPermits(1)(
+          Effect.gen(function* () {
+            const invalid = validateDispatchRequest(request);
+            if (invalid !== undefined) {
+              return yield* Effect.fail(invalid);
+            }
+            if (state.overflow) {
+              return yield* Effect.fail(
+                workflowFailure(
+                  "settlement_overflow",
+                  "The workflow cost ledger is closed after an overage.",
+                  { retryable: false },
+                ),
+              );
+            }
+            const existing = state.runs.get(request.runId);
+            const run = existing ?? createRunState(request);
+            if (run.maxCalls !== request.maxCalls || run.maxCost !== request.maxCost) {
+              run.maxCalls = Math.min(run.maxCalls, request.maxCalls);
+              run.maxCost = Math.min(run.maxCost, request.maxCost);
+            }
+            if (run.calls >= run.maxCalls) {
+              return yield* Effect.fail(
+                workflowFailure("admission_exceeded", "The workflow call capacity was exhausted."),
+              );
+            }
+            if (state.globalCalls >= globalCallsMax) {
+              return yield* Effect.fail(
+                workflowFailure(
+                  "admission_exceeded",
+                  "The shared workflow call capacity was exhausted.",
+                ),
+              );
+            }
+            const plannedCoverage = Math.min(run.plannedCost, request.estimatedCost);
+            const incrementalReservation = request.estimatedCost - plannedCoverage;
+            const nextRunCost = safeSum([
+              run.committedCost,
+              run.plannedCost,
+              run.outstandingCost,
+              incrementalReservation,
+            ]);
+            if (nextRunCost === undefined || nextRunCost > run.maxCost) {
+              return yield* Effect.fail(
+                workflowFailure("admission_exceeded", "The workflow cost capacity was exhausted."),
+              );
+            }
+            const nextGlobalCost = safeAdd(state.globalCost, incrementalReservation);
+            if (nextGlobalCost === undefined || nextGlobalCost > globalCostMax) {
+              return yield* Effect.fail(
+                workflowFailure(
+                  "admission_exceeded",
+                  "The shared workflow cost capacity was exhausted.",
+                ),
+              );
+            }
+            if (existing === undefined) {
+              state.runs.set(request.runId, run);
+            }
+            run.calls += 1;
+            run.inFlight += 1;
+            run.plannedCost -= plannedCoverage;
+            run.outstandingCost += request.estimatedCost;
+            state.inFlight += 1;
+            state.globalCalls += 1;
+            state.globalCost = nextGlobalCost;
+            let released = false;
+            let settled = false;
+            return {
+              estimatedCost: request.estimatedCost,
+              settle: (settlement: CapacitySettlement) =>
+                transaction.withPermits(1)(
+                  Effect.gen(function* () {
+                    const invalidSettlement = validateSettlement(settlement);
+                    if (invalidSettlement !== undefined) {
+                      return yield* Effect.fail(invalidSettlement);
+                    }
+                    if (settled) {
+                      return;
+                    }
+                    if (
+                      state.runs.get(request.runId) !== run ||
+                      run.outstandingCost < request.estimatedCost
+                    ) {
+                      return yield* Effect.fail(
+                        workflowFailure(
+                          "ledger_corruption",
+                          "The workflow cost lease is no longer tracked.",
+                        ),
+                      );
+                    }
+                    settled = true;
+                    run.outstandingCost -= request.estimatedCost;
+                    const nextCommittedCost = safeAdd(run.committedCost, settlement.costUnits);
+                    const remainingGlobalCost = state.globalCost - request.estimatedCost;
+                    const nextGlobalCost = safeAdd(remainingGlobalCost, settlement.costUnits);
+                    run.committedCost = nextCommittedCost ?? Number.MAX_SAFE_INTEGER;
+                    state.globalCost = nextGlobalCost ?? Number.MAX_SAFE_INTEGER;
+                    state.committedByRun.set(request.runId, {
+                      calls: run.calls,
+                      cost: run.committedCost,
+                    });
+                    const runTotal = safeSum([
+                      run.committedCost,
+                      run.plannedCost,
+                      run.outstandingCost,
+                    ]);
+                    const runOverflow =
+                      nextCommittedCost === undefined ||
+                      runTotal === undefined ||
+                      runTotal > run.maxCost;
+                    const globalOverflow =
+                      nextGlobalCost === undefined || state.globalCost > globalCostMax;
+                    if (runOverflow || globalOverflow) {
+                      run.overflow = true;
+                      state.overflow = true;
+                      return yield* Effect.fail(
+                        workflowFailure(
+                          "settlement_overflow",
+                          "Measured workflow cost exceeded the hard budget.",
+                          { retryable: false },
+                        ),
+                      );
+                    }
+                  }),
+                ),
+              release: transaction
+                .withPermits(1)(
+                  Effect.sync(() => {
+                    if (released) {
+                      return;
+                    }
+                    released = true;
+                    run.inFlight = Math.max(0, run.inFlight - 1);
+                    state.inFlight = Math.max(0, state.inFlight - 1);
+                  }),
+                )
+                .pipe(Effect.andThen(releasePermits)),
+            } satisfies CapacityLease;
+          }),
+        );
+      }).pipe(
+        Effect.catchAllCause((cause) =>
+          releasePermits.pipe(Effect.andThen(Effect.failCause(cause))),
+        ),
       );
+    };
 
     const reserveRun = (
       request: CapacityRunReservationRequest,
@@ -397,6 +426,7 @@ export function makeCapacityService(
                   return;
                 }
                 state.runs.delete(request.runId);
+                runGates.delete(request.runId);
                 state.inFlight = Math.max(0, state.inFlight - current.inFlight);
                 state.globalCost = Math.max(
                   0,
@@ -515,6 +545,7 @@ export function makeCapacityService(
             return;
           }
           state.runs.delete(runId);
+          runGates.delete(runId);
           state.inFlight = Math.max(0, state.inFlight - run.inFlight);
           state.globalCost = Math.max(0, state.globalCost - run.plannedCost - run.outstandingCost);
         }),
@@ -797,8 +828,7 @@ function runNode(
     const agent = services?.agent;
     const repeatUntil = node.metadata.repeatUntil;
     let previousFingerprint: string | undefined;
-    const maxIterations = repeatUntil?.maxIterations ?? 1;
-    for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    for (;;) {
       const output = yield* runNodeIteration(
         node,
         input,
@@ -846,12 +876,6 @@ function runNode(
       }
       previousFingerprint = fingerprint;
     }
-    return yield* Effect.fail(
-      workflowFailure("iteration_limit", "The workflow repeat iteration limit was exhausted.", {
-        nodeId: node.id,
-        retryable: false,
-      }),
-    );
   });
   return program.pipe(
     Effect.catchAll((failure) =>
@@ -975,20 +999,8 @@ function runNodeIteration(
               }),
             ),
         );
-  const timed =
-    node.metadata.timeoutMs === undefined
-      ? retried
-      : Effect.timeoutFail({
-          duration: `${node.metadata.timeoutMs} millis`,
-          onTimeout: () =>
-            workflowFailure("timeout", "The workflow step timed out.", { nodeId: node.id }),
-        })(retried);
-  return options.capacity.codex
-    .withPermits(1)(
-      options.capacity.session.withPermits(1)(
-        options.capacity.plan.withPermits(1)(planGate.withPermits(1)(timed)),
-      ),
-    )
+  return planGate
+    .withPermits(1)(retried)
     .pipe(
       Effect.flatMap((output) =>
         notifyJournal(services, {

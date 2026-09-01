@@ -16,19 +16,16 @@ const owningTopics = {
     "native",
     "compat-quickjs",
     "capability_denied",
-    "migration",
+    "agent types",
   ],
   "docs/INSTALLATION.md": [
-    "content-addressed",
+    "native",
     "marketplace",
-    "lock",
-    "stage",
-    "activate",
-    "verify",
-    "prune",
+    "request_user_input",
+    "{role}.{task}",
+    "verifies",
     "doctor",
     "cleanup",
-    "a-to-b",
     "codex_home",
   ],
   "docs/STATE.md": [
@@ -41,7 +38,6 @@ const owningTopics = {
     "continuation",
     "refinement",
     "telemetry",
-    "migration",
   ],
   "docs/CONFIGURATION.md": [
     "precedence",
@@ -162,7 +158,7 @@ describe("documentation invariants", () => {
     const behavior = await readFile(resolve(workspaceRoot, "docs/BEHAVIOR.md"), "utf8");
     const cli = await readFile(resolve(workspaceRoot, "docs/CLI.md"), "utf8");
     expect(behavior).toContain("QuickJS TypeScript workflow execution is the production path");
-    expect(behavior).toContain("pre-effect approval");
+    expect(behavior).toContain("Remote\nversion-control mutation");
     expect(cli).toContain("--compat-quickjs");
     expect(cli).toContain("capability_denied");
   });

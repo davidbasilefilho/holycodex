@@ -1,7 +1,7 @@
 ---
 name: commit
-description: Prepare and execute an approved local commit with exact scope proof.
+description: Use when the user requests a local commit; verify scope, commit it, and report the identity.
 ---
 
-Owner: Worker. Boundary: commit only the approved local scope after immediate approval and status proof; do not push, tag, publish, or deploy.
+Owner: Worker. Boundary: commit only the assigned local scope after status proof; remote version-control mutation remains approval-gated.
 Completion: the commit identity and post-commit status are reported.

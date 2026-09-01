@@ -12,6 +12,7 @@ package and every alternate validator are not part of the dependency graph.
 | Package                                          | Used by                                | Purpose                                                                                  | Recorded license                                                                                 | Source                                                                          |
 | ------------------------------------------------ | -------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
 | `effect` 3.22.1                                  | all workspace packages                 | Effect Schema boundary validation, typed Effect services, scheduling, and error handling | MIT                                                                                              | [Effect repository](https://github.com/Effect-TS/effect)                        |
+| `@toon-format/toon` 4.1.1                        | `core`                                 | Canonical compact model-wire encoding                                                    | MIT                                                                                              | [TOON repository](https://github.com/toon-format/toon)                          |
 | `quickjs-emscripten` 0.32.0                      | `workflow-runtime`, `cli`              | Isolated, capability-denied QuickJS TypeScript workflow evaluator                        | MIT; bundled QuickJS notices are recorded in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | [quickjs-emscripten repository](https://github.com/justjake/quickjs-emscripten) |
 | `quickjs-emscripten-core` 0.32.0                 | transitive QuickJS runtime             | QuickJS runtime bindings                                                                 | MIT; bundled QuickJS notices are recorded in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | [quickjs-emscripten repository](https://github.com/justjake/quickjs-emscripten) |
 | `@jitl/quickjs-ffi-types` 0.32.0                 | transitive QuickJS runtime             | FFI types used by the QuickJS bindings                                                   | MIT; bundled QuickJS notices are recorded in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) | [quickjs-emscripten repository](https://github.com/justjake/quickjs-emscripten) |
@@ -43,9 +44,11 @@ owner or boundary; update the package graph and this rationale together.
 The checked-in files under
 `packages/codex/generated/codex-cli-0.148.0/` are generated protocol
 artifacts, not package dependencies. Their provenance is owned by
-[PROVENANCE.md](PROVENANCE.md): the inventory contains 943 files with digest
-`24436be19cd8ea368d18154da5d8354b9b6ce1671da1fb49e958a6341d3e7d7d`, generated
+[PROVENANCE.md](PROVENANCE.md): the TypeScript-only inventory contains 655 files with digest
+`ce20023cb681bfaf8f2d6911a42735bb218541781b873e09b167e8efe0a1fed4`, generated
 from Codex CLI binary digest
 `ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074` under
 protocol epoch `codex-app-server-0.148.0`. The generated V2 lifecycle is
-unverified; stable App Server fallback is the executable route.
+unverified; native workflow dispatch uses the configured collaboration
+boundary, while the App Server assignment path remains explicit compatibility
+fallback.

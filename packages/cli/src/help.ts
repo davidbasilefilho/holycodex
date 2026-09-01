@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { INSTALL_OPTION_CATALOG } from "./args.ts";
+
 const TOP_LEVEL_HELP = `HolyCodex
 
 Usage:
@@ -17,7 +19,8 @@ Options:
 
 Workflow execution uses one capability-denied QuickJS TypeScript evaluator. A
 trusted TypeScript file must export a default workflow.wait(...) value. Use
-workflow create for generated sources; stdin requires an explicit --task objective.
+workflow create for generated sources; stdin derives its objective from the
+submitted workflow name and source unless --task overrides it.
 
 Optional Work, Web, Security, Computer Use, LSP, LSP setup, and Git Bash
 providers are independently capability-gated. Missing providers fail closed;
@@ -50,25 +53,29 @@ Options:
   --max-subagents <n>    Bound specialist concurrency.
   --trusted              Assert the caller has established project trust.
   --compat-quickjs       Deprecated one-release alias; the same evaluator is used.
-  --task <objective>     Required when workflow source is read from stdin.
+  --task <objective>     Override the workflow-derived objective.
   --json, --no-tui       Select machine/non-interactive output behavior.
 
 Workflow files must export a default workflow.wait(...) value. workflow check
 performs type, import, schema, and security validation without host effects.
+Workflow runs target the configured native {Role}.{task} dispatcher; the
+generic App Server assignment path is an explicit compatibility fallback.
 `;
 
-const INSTALL_HELP = `Install HolyCodex into the owned scope.
+const INSTALL_HELP = `Install HolyCodex through Codex native plugin management.
 
 Usage:
-  holycodex install --yes [--json] [--plan <name>] [--tier <Standard|Fast>]
+  holycodex install [options]
 
-Installation preserves unrelated configuration and does not install MCP
-servers. Optional provider selections are recorded as desired state only; a
-provider is available only when an invocation port is configured.
+Options:
+${INSTALL_OPTION_CATALOG.map((option) => `  ${option.usage.padEnd(48)} ${option.description}`).join("\n")}
+
+Positive and negative capability flags conflict with each other. HolyCodex
+settings are persisted separately from Codex-owned plugin state.
 `;
 
-const DOCTOR_HELP = `Inspect owned installation, migration, payload, lock,
-tool, and optional-plugin state without mutating it.
+const DOCTOR_HELP = `Inspect owned configuration, Codex feature, tool, and
+native plugin state without mutating it.
 
 Usage:
   holycodex doctor [--json] [--no-tui]

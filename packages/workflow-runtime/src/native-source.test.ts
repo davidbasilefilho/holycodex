@@ -205,7 +205,7 @@ describe("native workflow source boundary", () => {
           output: number,
           metadata: {
             when: { source: "first", path: [], equals: 5 },
-            repeatUntil: { path: [], equals: 5, maxIterations: 2 }
+            repeatUntil: { path: [], equals: 5 }
           }
         }
       }));

@@ -15,9 +15,9 @@
     "longDescription": "HolyCodex provides plan-aware workflows, bounded specialist agents, and deterministic verification for Codex tasks.",
     "developerName": "David Basile Filho",
     "category": "Developer Tools",
-    "capabilities": ["Skills", "Hooks", "Code Intelligence"],
+    "capabilities": ["Skills", "Code Intelligence"],
     "defaultPrompt": ["Use HolyCodex to implement and verify this task."]
   },
   "name": "holycodex",
-  "version": "0.15.1"
+  "version": "0.15.2"
 }
