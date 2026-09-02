@@ -1,6 +1,6 @@
 interface:
   display_name: "Stop Slop"
-  short_description: "Remove predictable AI prose patterns"
-  default_prompt: "Edit the assigned prose using the stop-slop rules and disclosed references."
+  short_description: "Edit assigned prose to remove predictable AI patterns."
+  default_prompt: "When Root assigns prose editing, apply the concise rules and disclosed references while preserving meaning and voice."
 policy:
   allow_implicit_invocation: true

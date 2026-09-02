@@ -1,6 +1,6 @@
 ---
 name: writing-for-agents
-description: Use when authoring or reviewing prompts, skills, profiles, delegations, handoffs, workflows, or agent-facing repository instructions; make them independently actionable with low context load.
+description: Use when authoring or reviewing prompts, skills, profiles, delegations, handoffs, or agent-facing repository instructions; make them independently actionable with low context load.
 ---
 
 # Writing for agents

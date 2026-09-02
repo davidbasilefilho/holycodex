@@ -52,27 +52,19 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
     }
   }
 
+  async remove(pluginId: string): Promise<void> {
+    try {
+      await this.adapter.remove(pluginId);
+    } catch (error: unknown) {
+      throw wrapManagerError("remove", error, pluginId);
+    }
+  }
+
   async addMarketplace(source: string): Promise<void> {
     try {
       await this.adapter.addMarketplace(source);
     } catch (error: unknown) {
       throw wrapManagerError("add", error, source);
-    }
-  }
-
-  async enableFeature(feature: string): Promise<void> {
-    try {
-      await this.adapter.enableFeature(feature);
-    } catch (error: unknown) {
-      throw wrapManagerError("add", error, feature);
-    }
-  }
-
-  async featureEnabled(feature: string): Promise<boolean> {
-    try {
-      return await this.adapter.featureEnabled(feature);
-    } catch (error: unknown) {
-      throw wrapManagerError("list", error, feature);
     }
   }
 
@@ -107,12 +99,11 @@ type OfficialPluginAdapterShape = Readonly<{
   readonly list: () => Promise<LiveOfficialPluginListEnvelope>;
   readonly addMarketplace: (source: string) => Promise<void>;
   readonly add: (pluginId: string) => Promise<void>;
-  readonly enableFeature: (feature: string) => Promise<void>;
-  readonly featureEnabled: (feature: string) => Promise<boolean>;
+  readonly remove: (pluginId: string) => Promise<void>;
 }>;
 
 function wrapManagerError(
-  operation: "list" | "add",
+  operation: "list" | "add" | "remove",
   error: unknown,
   pluginId?: string,
 ): OfficialPluginManagerError {
@@ -130,7 +121,9 @@ function wrapManagerError(
       : adapterCode === "command_failed"
         ? operation === "list"
           ? "list_failed"
-          : "add_failed"
+          : operation === "remove"
+            ? "remove_failed"
+            : "add_failed"
         : operation === "list"
           ? "list_failed"
           : "add_failed";
@@ -139,7 +132,9 @@ function wrapManagerError(
       ? error.message
       : operation === "list"
         ? "Codex could not list official plugins."
-        : `Codex could not add ${pluginId ?? "the selected official plugin"}.`;
+        : operation === "remove"
+          ? `Codex could not remove ${pluginId ?? "the selected official plugin"}.`
+          : `Codex could not add ${pluginId ?? "the selected official plugin"}.`;
   return new OfficialPluginManagerError(
     code,
     message,
@@ -152,6 +147,7 @@ export class OfficialPluginManagerError extends Error {
   readonly code:
     | "list_failed"
     | "add_failed"
+    | "remove_failed"
     | "command_failed"
     | "timeout"
     | "output_limit"

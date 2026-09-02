@@ -15,31 +15,17 @@
     },
     "packages/cli": {
       "name": "holycodex",
-      "version": "0.15.1",
+      "version": "0.15.2",
       "bin": {
         "holycodex": "./dist/index.js",
       },
       "dependencies": {
-        "@jitl/quickjs-ffi-types": "catalog:",
-        "@jitl/quickjs-wasmfile-debug-asyncify": "catalog:",
-        "@jitl/quickjs-wasmfile-debug-sync": "catalog:",
-        "@jitl/quickjs-wasmfile-release-asyncify": "catalog:",
-        "@jitl/quickjs-wasmfile-release-sync": "catalog:",
         "effect": "catalog:",
-        "quickjs-emscripten": "catalog:",
-        "quickjs-emscripten-core": "catalog:",
-        "typescript": "catalog:",
       },
       "devDependencies": {
         "@holycodex/codex": "workspace:*",
         "@holycodex/core": "workspace:*",
-        "@holycodex/git-bash": "workspace:*",
-        "@holycodex/lsp-core": "workspace:*",
-        "@holycodex/lsp-daemon": "workspace:*",
         "@holycodex/plugin": "workspace:*",
-        "@holycodex/safe-filesystem": "workspace:*",
-        "@holycodex/workflow-host": "workspace:*",
-        "@holycodex/workflow-runtime": "workspace:*",
       },
     },
     "packages/codex": {
@@ -56,32 +42,6 @@
         "effect": "catalog:",
       },
     },
-    "packages/git-bash": {
-      "name": "@holycodex/git-bash",
-      "dependencies": {
-        "@holycodex/runtime-core": "workspace:*",
-        "effect": "catalog:",
-      },
-    },
-    "packages/lsp-core": {
-      "name": "@holycodex/lsp-core",
-      "dependencies": {
-        "effect": "catalog:",
-      },
-      "devDependencies": {
-        "vitest": "catalog:",
-      },
-    },
-    "packages/lsp-daemon": {
-      "name": "@holycodex/lsp-daemon",
-      "dependencies": {
-        "@holycodex/lsp-core": "workspace:*",
-        "effect": "catalog:",
-      },
-      "devDependencies": {
-        "vitest": "catalog:",
-      },
-    },
     "packages/plugin": {
       "name": "@holycodex/plugin",
       "dependencies": {
@@ -89,50 +49,12 @@
         "effect": "catalog:",
       },
     },
-    "packages/runtime-core": {
-      "name": "@holycodex/runtime-core",
-      "dependencies": {
-        "effect": "catalog:",
-      },
-    },
-    "packages/safe-filesystem": {
-      "name": "@holycodex/safe-filesystem",
-      "dependencies": {
-        "@holycodex/runtime-core": "workspace:*",
-        "effect": "catalog:",
-      },
-    },
-    "packages/workflow-host": {
-      "name": "@holycodex/workflow-host",
-      "dependencies": {
-        "@holycodex/codex": "workspace:*",
-        "@holycodex/core": "workspace:*",
-        "@holycodex/workflow-runtime": "workspace:*",
-        "effect": "catalog:",
-      },
-    },
-    "packages/workflow-runtime": {
-      "name": "@holycodex/workflow-runtime",
-      "dependencies": {
-        "@holycodex/core": "workspace:*",
-        "effect": "catalog:",
-        "quickjs-emscripten": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
   },
   "catalog": {
-    "@jitl/quickjs-ffi-types": "0.32.0",
-    "@jitl/quickjs-wasmfile-debug-asyncify": "0.32.0",
-    "@jitl/quickjs-wasmfile-debug-sync": "0.32.0",
-    "@jitl/quickjs-wasmfile-release-asyncify": "0.32.0",
-    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@openai/codex": "0.150.1",
     "@types/bun": "1.4.0",
     "@types/node": "26.2.0",
     "effect": "3.22.1",
-    "quickjs-emscripten": "0.32.0",
-    "quickjs-emscripten-core": "0.32.0",
     "typescript": "7.0.2",
     "vite-plus": "0.2.9",
     "vitest": "4.1.10",
@@ -150,31 +72,7 @@
 
     "@holycodex/core": ["@holycodex/core@workspace:packages/core"],
 
-    "@holycodex/git-bash": ["@holycodex/git-bash@workspace:packages/git-bash"],
-
-    "@holycodex/lsp-core": ["@holycodex/lsp-core@workspace:packages/lsp-core"],
-
-    "@holycodex/lsp-daemon": ["@holycodex/lsp-daemon@workspace:packages/lsp-daemon"],
-
     "@holycodex/plugin": ["@holycodex/plugin@workspace:packages/plugin"],
-
-    "@holycodex/runtime-core": ["@holycodex/runtime-core@workspace:packages/runtime-core"],
-
-    "@holycodex/safe-filesystem": ["@holycodex/safe-filesystem@workspace:packages/safe-filesystem"],
-
-    "@holycodex/workflow-host": ["@holycodex/workflow-host@workspace:packages/workflow-host"],
-
-    "@holycodex/workflow-runtime": ["@holycodex/workflow-runtime@workspace:packages/workflow-runtime"],
-
-    "@jitl/quickjs-ffi-types": ["@jitl/quickjs-ffi-types@0.32.0", "", {}, "sha512-v9T+GQpmk43VDJ7d72sf0Nexhk+ArvtUihW27dy7lqAl0zBObFKtSBBIm5RBjwIhE8VwsPPm9PNuvPvNqLWUEg=="],
-
-    "@jitl/quickjs-wasmfile-debug-asyncify": ["@jitl/quickjs-wasmfile-debug-asyncify@0.32.0", "", { "dependencies": { "@jitl/quickjs-ffi-types": "0.32.0" } }, "sha512-EX8zbXwGqCgAE764M+qvkHtyXDi/FUoMBea0JnES7vCM3P7a2+EOZOjGv85wtZ2sJhI1oJ+nekmqpOODFDY+hw=="],
-
-    "@jitl/quickjs-wasmfile-debug-sync": ["@jitl/quickjs-wasmfile-debug-sync@0.32.0", "", { "dependencies": { "@jitl/quickjs-ffi-types": "0.32.0" } }, "sha512-LeYWrPGC1uNCTBWvibo3ZLJj0CSVNYUXvJpXMCmuQ5Sap2cCACc3uvGvYV4homHHBAzfw5akoTqMMS4YFRtw+Q=="],
-
-    "@jitl/quickjs-wasmfile-release-asyncify": ["@jitl/quickjs-wasmfile-release-asyncify@0.32.0", "", { "dependencies": { "@jitl/quickjs-ffi-types": "0.32.0" } }, "sha512-3oSwPfja12ICz4aIblB58cuY8JlEq5Txt8Cut4VLo+LH47QN+mzCnSgnbB03hWzg1LBcc+VyyI9UOag7a1NF+Q=="],
-
-    "@jitl/quickjs-wasmfile-release-sync": ["@jitl/quickjs-wasmfile-release-sync@0.32.0", "", { "dependencies": { "@jitl/quickjs-ffi-types": "0.32.0" } }, "sha512-BKNDI/TPBfGlLNGYpLrhcDGXmIk4xHm4MRAisOBnOzpXVn9HZWsfmMAc9WMBrAHjvvds6HOikKeaOBKdPdpVrg=="],
 
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
@@ -553,10 +451,6 @@
     "pretty-format": ["pretty-format@27.5.1", "", { "dependencies": { "ansi-regex": "^5.0.1", "ansi-styles": "^5.0.0", "react-is": "^17.0.1" } }, "sha512-Qb1gy5OrP5+zDf2Bvnzdl3jsTf1qXVMazbvCoKhtKqVs4/YK4ozX4gKQJJVyNe+cajNPn0KoC0MC3FUmaHWEmQ=="],
 
     "pure-rand": ["pure-rand@6.1.0", "", {}, "sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA=="],
-
-    "quickjs-emscripten": ["quickjs-emscripten@0.32.0", "", { "dependencies": { "@jitl/quickjs-wasmfile-debug-asyncify": "0.32.0", "@jitl/quickjs-wasmfile-debug-sync": "0.32.0", "@jitl/quickjs-wasmfile-release-asyncify": "0.32.0", "@jitl/quickjs-wasmfile-release-sync": "0.32.0", "quickjs-emscripten-core": "0.32.0" } }, "sha512-So0Sqw869y/S2oE3Nuc0uT3Dhqgvsj8FSrwBdsuTosVsG8ME5/OcudU1GxsrIFdFABgy17GHnTVO9TYV/bLQcA=="],
-
-    "quickjs-emscripten-core": ["quickjs-emscripten-core@0.32.0", "", { "dependencies": { "@jitl/quickjs-ffi-types": "0.32.0" } }, "sha512-QFnPfjFey8EqknSrSxe1hZrf1/8z7/6s1QzGOmKo6++02r7QRRX7ZoyNaZh7JuVjWsVW87KnQrbZqnHkOAzUyg=="],
 
     "react-is": ["react-is@17.0.2", "", {}, "sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w=="],
 

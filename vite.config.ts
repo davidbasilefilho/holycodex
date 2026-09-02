@@ -4,10 +4,10 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   fmt: {
-    ignorePatterns: ["packages/codex/generated/**", "packages/plugin/assets/skills/ponytail/**"],
+    ignorePatterns: ["packages/codex/generated/**"],
   },
   lint: {
-    ignorePatterns: ["packages/codex/generated/**", "packages/plugin/assets/skills/ponytail/**"],
+    ignorePatterns: ["packages/codex/generated/**"],
     plugins: ["typescript"],
     options: {
       typeAware: true,
@@ -25,15 +25,5 @@ export default defineConfig({
     bundle: true,
     platform: "node",
     noExternal: [/^@holycodex\//u],
-    external: [
-      "quickjs-emscripten",
-      "quickjs-emscripten-core",
-      "@jitl/quickjs-ffi-types",
-      "@jitl/quickjs-wasmfile-debug-asyncify",
-      "@jitl/quickjs-wasmfile-debug-sync",
-      "@jitl/quickjs-wasmfile-release-asyncify",
-      "@jitl/quickjs-wasmfile-release-sync",
-      "typescript",
-    ],
   },
 });

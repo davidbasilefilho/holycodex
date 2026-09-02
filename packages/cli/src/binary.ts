@@ -3,6 +3,7 @@
 import { runCli, renderHuman } from "./commands.ts";
 import { helpRequested, helpText, helpTopic } from "./help.ts";
 import type { CliContext } from "./types.ts";
+import { createInterface } from "node:readline/promises";
 
 export interface BinaryIo {
   readonly stdin?: AsyncIterable<string>;
@@ -20,7 +21,6 @@ export async function runBinary(
   const context: CliContext = {
     env: process.env,
     cwd: process.cwd(),
-    workflowSessionId: `cli-${crypto.randomUUID()}`,
     io: {
       stdin: binaryIo.stdin ?? stdinChunks(),
       stdoutIsTTY: binaryIo.stdoutIsTTY ?? process.stdout.isTTY === true,
@@ -28,13 +28,6 @@ export async function runBinary(
       ...(binaryIo.confirm === undefined ? {} : { confirm: binaryIo.confirm }),
       writeStdout: binaryIo.writeStdout,
       writeStderr: binaryIo.writeStderr,
-    },
-    readStdin: async () => {
-      let result = "";
-      for await (const chunk of binaryIo.stdin ?? stdinChunks()) {
-        result += chunk;
-      }
-      return result;
     },
   };
   const result = await runCli(argv, context);
@@ -72,6 +65,15 @@ function processIo(): BinaryIo {
     stderrIsTTY: process.stderr.isTTY === true,
     writeStdout: (text) => process.stdout.write(text),
     writeStderr: (text) => process.stderr.write(text),
+    confirm: async (message) => {
+      const prompt = createInterface({ input: process.stdin, output: process.stderr });
+      try {
+        const answer = await prompt.question(`${message} [y/N] `);
+        return /^(?:y|yes)$/iu.test(answer.trim());
+      } finally {
+        prompt.close();
+      }
+    },
   };
 }
 

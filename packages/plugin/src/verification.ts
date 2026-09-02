@@ -15,7 +15,6 @@ import {
 import { pluginError } from "./errors.ts";
 import {
   PayloadIdentitySchema,
-  PonytailMetadataSchema,
   decodeSchema,
   parsePayloadLocation,
   readGeneratedManifest,
@@ -104,16 +103,6 @@ export async function verifyPayload(input: unknown): Promise<VerifiedPayload> {
     fileBytes.set(file.path, bytes);
   }
 
-  if (payloadManifest.files.some((file) => file.path === "skills/ponytail/SKILL.md")) {
-    await verifyPonytailMetadata(async (path) => {
-      const bytes = fileBytes.get(path);
-      if (bytes === undefined) {
-        throw pluginError("payload_invalid", "A Ponytail metadata input is missing.", { path });
-      }
-      return bytes;
-    }, "payload_invalid");
-  }
-
   const digest = await digestPayload(
     payloadManifest.version,
     payloadManifest.schema_epoch,
@@ -180,38 +169,6 @@ export async function digestPayload(
     parts.push(new TextEncoder().encode(file.path), bytes);
   }
   return sha256DomainDigest("plugin-payload", parts);
-}
-
-export async function verifyPonytailMetadata(
-  readBytes: (path: string) => Promise<Uint8Array>,
-  failureCode: "source_invalid" | "payload_invalid",
-): Promise<void> {
-  let input: unknown;
-  try {
-    input = JSON.parse(
-      new TextDecoder("utf-8", { fatal: true }).decode(
-        await readBytes("skills/ponytail/metadata.json"),
-      ),
-    ) as unknown;
-  } catch (error: unknown) {
-    throw pluginError(failureCode, "Ponytail metadata is not valid JSON.", {}, error);
-  }
-  const metadata = decodeSchema(PonytailMetadataSchema, input);
-  if (metadata === undefined) {
-    throw pluginError(failureCode, "Ponytail metadata is invalid.");
-  }
-  for (const [path, expected] of [
-    [metadata.skill_path, metadata.skill_sha256],
-    [metadata.license_path, metadata.license_sha256],
-    [metadata.notice_path, metadata.notice_sha256],
-  ] as const) {
-    const actual = await sha256(await readBytes(path));
-    if (actual !== expected) {
-      throw pluginError("digest_invalid", "Ponytail metadata does not match its vendored files.", {
-        path,
-      });
-    }
-  }
 }
 
 export function canonicalJsonBytes(value: unknown): Uint8Array {

@@ -71,9 +71,6 @@ jobs:
       - name: Run the repository-native validation gate
         run: mise exec -- bun run validate
 
-      - name: Run the native safe filesystem driver
-        run: mise exec -- bun scripts/safe-filesystem-native-test.ts
-
       - name: Upload the validated Ubuntu build for release packaging
         if: inputs.release_channel != '' && matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -120,9 +117,6 @@ jobs:
         with:
           name: holycodex-build-${{ github.run_id }}-${{ github.run_attempt }}
           path: packages/cli/dist
-
-      - name: Restore the validated helper executable mode
-        run: chmod 0755 packages/cli/dist/assets/safe-filesystem/linux-x64/safe-filesystem
 
       - name: Resolve and verify the channel version
         id: version

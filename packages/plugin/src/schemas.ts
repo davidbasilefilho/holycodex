@@ -47,22 +47,6 @@ const InterfaceSchema = Schema.Struct({
   capabilities: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
   defaultPrompt: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
 });
-export const PonytailMetadataSchema = Schema.Struct({
-  name: Schema.Literal("ponytail"),
-  version: Schema.Literal("4.9.0"),
-  upstream_url: Schema.Literal(
-    "https://github.com/DietrichGebert/ponytail/tree/v4.9.0/skills/ponytail",
-  ),
-  license: Schema.Literal("MIT"),
-  skill_path: Schema.Literal("skills/ponytail/SKILL.md"),
-  license_path: Schema.Literal("skills/ponytail/LICENSE"),
-  notice_path: Schema.Literal("skills/ponytail/NOTICE"),
-  skill_sha256: DigestSchema,
-  license_sha256: DigestSchema,
-  notice_sha256: DigestSchema,
-});
-export type PonytailMetadata = typeof PonytailMetadataSchema.Type;
-
 export const SourceManifestSchema = Schema.Struct({
   name: PluginNameSchema,
   version: VersionSchema,

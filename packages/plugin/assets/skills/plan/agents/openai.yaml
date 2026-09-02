@@ -1,6 +1,6 @@
 interface:
   display_name: "Plan"
   short_description: "Resolve material scope and architecture choices before work."
-  default_prompt: "Create an implementation-ready plan for the unresolved architecture, scope, risk, and proof decisions."
+  default_prompt: "When Root faces an unresolved material choice, produce an implementation-ready plan covering scope, route, risk, and proof."
 policy:
   allow_implicit_invocation: true

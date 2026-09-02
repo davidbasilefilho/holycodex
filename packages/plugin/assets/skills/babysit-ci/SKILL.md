@@ -1,10 +1,17 @@
 ---
 name: babysit-ci
-description: Use after an approved push or tag when required CI must reach a terminal state; monitor jobs and report evidence.
+description: Use after Root approves an exact-ref or SHA push or tag when required CI or release observation must reach terminal state; report evidence.
 ---
 
-Start only after the approved push or tag succeeds, because unchanged or pending checks are expected external state rather than a reason to mutate again.
+Use this skill after the approved exact ref or SHA mutation succeeds. Observe
+the required CI jobs and release state through terminal evidence; pending or
+running checks are incomplete, not success.
 
-Owner: Worker/operations. Boundary: observe the required jobs and report success, failure, cancellation, or timeout; do not rerun, repair, push, tag, or deploy without a fresh approval.
+Owner: Worker/operations. Boundary: observe only the approved exact ref or
+SHA and its required checks. Report success, failure, cancellation, timeout,
+or a still-running blocker. Do not rerun, repair, push, tag, deploy, or change
+external state without fresh Root approval.
 
-Completion: every required job has terminal evidence or a precise still-running/blocked state, with links or identifiers and no claim beyond the observed checks.
+Completion: every required job and release step has terminal evidence, or the
+outcome is explicitly incomplete with exact identifiers, links, and current
+state.

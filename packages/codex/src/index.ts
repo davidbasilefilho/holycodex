@@ -143,63 +143,6 @@ export type {
 } from "./generated-artifact";
 
 export {
-  AppServer,
-  AppServerLive,
-  ExecutableDiscovery,
-  ExecutableDiscoveryLive,
-  PROMISE_ADAPTER_EXCEPTIONS,
-  Subprocess,
-  SubprocessLive,
-} from "./effect-services";
-export type {
-  AppServerLiveOptions,
-  AppServerService,
-  ExecutableDiscoveryService,
-  SubprocessService,
-} from "./effect-services";
-
-export {
-  AssignmentExecution,
-  AssignmentExecutionLive,
-  AgentExecution,
-  AgentExecutionLive,
-  AssignmentExecutionOptionsSchema,
-  CapabilityMatrixSchemaForHost,
-  compileSpecialistAssignment,
-  codexModelIdFor,
-  codexServiceTierFor,
-  detectCapabilityMatrix,
-  executeAssignment,
-  ExecutionBackendSchema,
-  RetainedContextSchema,
-  SemanticAssignmentPacketSchema,
-  SemanticExecutionOutcomeSchema,
-  ExecutionUsageSchema,
-  SessionModeSchema,
-  selectExecutionBackend,
-} from "./assignment";
-export type {
-  Assignment,
-  CapabilityMatrixForHost,
-  AssignmentExecutionOptions,
-  AssignmentExecutionService,
-  AssignmentPlanInputs,
-  CompatibilityPacket,
-  ExecutionBackend,
-  RoutePacket,
-  RetainedContext,
-  SecurityPolicy,
-  SemanticAssignmentPacket,
-  SemanticExecutionOutcome,
-  ExecutionUsage,
-  SessionMode,
-  ToolPolicy,
-} from "./assignment";
-
-export { createProjectTrustIdentity, ProjectTrustInputSchema } from "./project";
-export type { ProjectTrustIdentity, ProjectTrustInput } from "./project";
-
-export {
   cleanupManagedConfig,
   compareBeforeManagedWrite,
   createManagedConfigState,

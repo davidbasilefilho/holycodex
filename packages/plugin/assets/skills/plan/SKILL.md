@@ -1,10 +1,13 @@
 ---
 name: plan
-description: Use for unresolved architecture, scope, coordination, or material risk before work begins; Root owns the resulting decision.
+description: Use when Root faces unresolved architecture, scope, coordination, or material risk before work begins; produce the implementation-ready decision record.
 ---
 
-Use this skill when a task has a material unresolved choice, because a bounded plan keeps authority and proof visible before implementation.
+Owner: Root. Boundary: identify alternatives, constraints, risks, route,
+acceptance evidence, exclusions, and recovery without dispatching
+implementation work before the plan gate opens. Specialists may supply facts
+but may not decide the outcome.
 
-Owner: Root. Boundary: identify alternatives, constraints, risks, route, and acceptance evidence; specialists may supply facts but may not decide the outcome.
-
-Completion: Root has an implementation-ready plan with explicit scope, exclusions, owner/seam, data and control flow, policy and recovery, tests, compatibility, preferred shape, and a bounded proof route.
+Completion: Root has an implementation-ready plan naming scope, owners and
+seams, data and control flow, policy, recovery, tests, compatibility, the
+preferred shape, and a bounded proof route.

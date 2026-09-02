@@ -1,78 +1,40 @@
 # HolyCodex parity matrix
 
-This matrix is historical evidence for the clean-room baseline and cutover
-record. It is not the current behavioral authority; current behavior belongs
-to the linked owner documents below.
-
-This document owns the row-by-row surface inventory. Observable behavior is
-owned by [BEHAVIOR.md](BEHAVIOR.md), package placement by
-[ARCHITECTURE.md](ARCHITECTURE.md), wire behavior by [CLI.md](CLI.md),
-security and recovery by [SECURITY.md](SECURITY.md), release boundaries by
-[RELEASING.md](RELEASING.md) and [CUTOVER.md](CUTOVER.md), and evidence limits
-by [PROVENANCE.md](PROVENANCE.md). This matrix links those owners instead of
-restating their rules.
+This matrix records the clean-room baseline and independent proof for the
+0.16 surface. It is evidence, not the behavioral authority; current behavior
+belongs to [BEHAVIOR.md](BEHAVIOR.md), package placement to
+[ARCHITECTURE.md](ARCHITECTURE.md), CLI wire behavior to [CLI.md](CLI.md),
+security to [SECURITY.md](SECURITY.md), release boundaries to
+[RELEASING.md](RELEASING.md), and evidence limits to [PROVENANCE.md](PROVENANCE.md).
 
 ## Baseline and admissible difference
 
-| Identity                             | Exact value                                                                         |
-| ------------------------------------ | ----------------------------------------------------------------------------------- |
-| Clean-room base SHA                  | `682adea6d6cba374251152af612489126e9c64c1`                                          |
-| Parity target                        | `holycodex-legacy` at `main`                                                        |
-| Frozen behavioral oracle SHA         | `eb796235f2f29f2c67c869408a0e22c1a72c13eb`                                          |
-| Foundation version                   | Canonical `version` field in `packages/cli/package.json`                            |
-| Sole permitted behavioral difference | `babysit-ci`: observation after an approved push or tag, with no mutation authority |
+| Identity                         | Exact value                                                                                                            |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Clean-room base SHA              | `682adea6d6cba374251152af612489126e9c64c1`                                                                             |
+| Frozen behavioral oracle SHA     | `eb796235f2f29f2c67c869408a0e22c1a72c13eb`                                                                             |
+| Foundation version               | Canonical `version` in `packages/cli/package.json`                                                                     |
+| Permitted operational difference | `Worker.operations` observes CI after an approved origin change from the exact ref and SHA, without mutation authority |
 
-`proven` means the implemented surface has repository-native proof or a
-recorded generated artifact. `capability-gated` means denial and/or an injected
-typed port is proven locally while no live provider is claimed. `external
-pending` is reserved for the real canonical clone, post-push CI, or approved
-repository cutover metadata. The local gate recorded 15 files and 98 tests,
-package smoke, artifact/provenance/architecture checks, fixture fresh-clone
-and dry-run checks, and diff hygiene. No required local capability is unresolved.
-
-The parity target is `holycodex-legacy` at `main`. The clean-room rule currently
-forbids direct inspection of that implementation, so target-backed evidence is
-pending until the repository rules expressly admit it; the frozen oracle above
-remains the exact admissible behavioral baseline. `tests/fixtures/parity-surfaces.json` records one
-`PRESERVED`, `SUPERSEDED`, or `REMOVED-BY-REQUIREMENT` classification, canonical
-owner, and automated proof path for every row below. `SUPERSEDED` means the
-current proof preserves the useful capability through a newer architecture.
-`REMOVED-BY-REQUIREMENT` requires an explicit current requirement; no current
-row uses it. The observation-only `babysit-ci` difference is `SUPERSEDED`
-because the useful CI follow-up capability remains without mutation authority.
+`proven` means repository-native proof exists. `capability-gated` means the
+selection and denial path is proven locally while live provider availability is
+not claimed. `external pending` is reserved for approved remote actions and
+their readback.
 
 ## Required surface inventory
 
-| Surface                                                                                                     | Owner                                                                  | Frozen oracle                              | Admissible evidence                               | Independent proof                                                                                           | Status                                                                          |
-| ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------ | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Version authority and zerover release identity                                                              | [RELEASING.md](RELEASING.md)                                           | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Task specification; canonical CLI manifest        | Version-authority test and clean diff                                                                       | proven                                                                          |
-| Bun `1.4.x`, resolved Bun 1.4.0, mise, TypeScript 7.0.2, and Vite+ 0.2.9                                    | [DEVELOPMENT.md](DEVELOPMENT.md)                                       | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Task specification; manifests; lockfile           | Validation gate and repository proof                                                                        | proven                                                                          |
-| Effect 3.22.1 and `effect/Schema` ownership                                                                 | [DEPENDENCIES.md](DEPENDENCIES.md), [ARCHITECTURE.md](ARCHITECTURE.md) | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Task specification; package manifests             | Dependency scan, source scan, boundary tests                                                                | proven                                                                          |
-| Codex CLI 0.148.0 executable identity                                                                       | [PROVENANCE.md](PROVENANCE.md)                                         | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Task specification; local measurement             | Generated-artifact executable verification                                                                  | proven                                                                          |
-| Reproducible App Server generated artifacts                                                                 | [PROVENANCE.md](PROVENANCE.md)                                         | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Exact generation command; checked-in provenance   | 655-file TypeScript inventory and digest `ce20023cb681bfaf8f2d6911a42735bb218541781b873e09b167e8efe0a1fed4` | proven                                                                          |
-| Clean-room admissibility and forbidden-source boundary                                                      | [PROVENANCE.md](PROVENANCE.md)                                         | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Task specification and supplied dossier only      | Repository proof and changed-file provenance                                                                | proven                                                                          |
-| Core leaf ownership and acyclic package graph                                                               | [ARCHITECTURE.md](ARCHITECTURE.md)                                     | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Authored architecture contract                    | Package-graph test and import-direction scan                                                                | proven                                                                          |
-| Core identifiers, schema epochs, canonical identity, and digests                                            | [STATE.md](STATE.md), [BEHAVIOR.md](BEHAVIOR.md)                       | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Authored schemas and state contract               | Core boundary and deterministic digest tests                                                                | proven                                                                          |
-| Plan catalog, native `{Role}.{task}` types, route policy, and Plus envelope                                 | [BEHAVIOR.md](BEHAVIOR.md)                                             | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Supplied values; core catalog tests               | Native identity, route, inheritance, effort, and budget tests                                               | proven                                                                          |
-| CLI commands, help, envelopes, exits, JSON, TTY, and non-TTY rules                                          | [CLI.md](CLI.md)                                                       | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Authored wire contract and local black-box output | CLI boundary and parity tests                                                                               | proven                                                                          |
-| Configuration precedence, optional capabilities, and effective snapshots                                    | [CONFIGURATION.md](CONFIGURATION.md), [BEHAVIOR.md](BEHAVIOR.md)       | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Authored contract and supplied capability facts   | Configuration and CLI boundary tests                                                                        | proven                                                                          |
-| Security isolation, secret exclusion, fail-closed behavior, and recovery                                    | [SECURITY.md](SECURITY.md)                                             | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Authored security contract                        | Denial, redaction, state, and uncertain-effect tests                                                        | proven                                                                          |
-| Workflow source trust, four primitives, typed plans, and graph validation                                   | [ARCHITECTURE.md](ARCHITECTURE.md), [BEHAVIOR.md](BEHAVIOR.md)         | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Supplied specification and authored contract      | Workflow-runtime positive/negative and graph tests                                                          | proven                                                                          |
-| Effect services and Layer adapters for filesystem, git, subprocess, config, Codex, durability, and capacity | [ARCHITECTURE.md](ARCHITECTURE.md), [DEVELOPMENT.md](DEVELOPMENT.md)   | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Supplied specification and Effect dossier         | Layer composition, adapter inventory, and service tests                                                     | proven                                                                          |
-| Effect scheduler, queue sequencing, joins, cancellation, timeout, retry, and capacity                       | [BEHAVIOR.md](BEHAVIOR.md)                                             | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Supplied specification and Effect dossier         | Workflow-runtime and host scheduler tests                                                                   | proven                                                                          |
-| Semantic specialist assignment, structural-leaf authority, and typed outcomes                               | [BEHAVIOR.md](BEHAVIOR.md), [SECURITY.md](SECURITY.md)                 | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Stable profile and supplied assignment schema     | Assignment boundary and outcome-schema tests                                                                | proven                                                                          |
-| Codex App Server handshake, threads, turns, approvals, interruption, and transport                          | [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md)         | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Supplied official current-source dossier          | Fake transport, exact-binary fixtures, and boundary tests                                                   | proven locally; live provider not claimed                                       |
-| `multi_agent_v2` capability detection and stable fallback                                                   | [BEHAVIOR.md](BEHAVIOR.md), [PROVENANCE.md](PROVENANCE.md)             | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Supplied capability facts; generated provenance   | V2 advertised/disabled fixtures and fail-closed test                                                        | capability-gated: stable fallback proven; V2 lifecycle unverified               |
-| Durable host lifecycle, journals, checkpoints, replay, retention, continuation, refinement, and telemetry   | [STATE.md](STATE.md)                                                   | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Authored state contract                           | Isolated state, corruption, recovery, replay, and lifecycle tests                                           | proven                                                                          |
-| Plugin assembly, content identity, native install, doctor, and cleanup                                      | [INSTALLATION.md](INSTALLATION.md), [SECURITY.md](SECURITY.md)         | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Authored install contract and package metadata    | Isolated native setup, readback, repeatability, cleanup, and package smoke tests                            | proven                                                                          |
-| Rules, compaction, LSP/lsp-setup, Windows, and Git Bash behavior                                            | [BEHAVIOR.md](BEHAVIOR.md), [DEVELOPMENT.md](DEVELOPMENT.md)           | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Supplied specification and authored contract      | Asset manifests, path fixtures, and platform tests                                                          | proven                                                                          |
-| Work, Web, Security, and Computer Use capability-gated wiring                                               | [BEHAVIOR.md](BEHAVIOR.md), [SECURITY.md](SECURITY.md)                 | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Supplied capability requirements                  | Denial and injected-provider integration tests                                                              | capability-gated: denial and typed-port path proven; live providers not claimed |
-| CI, dependency/license/provenance checks, generated artifacts, and clean history                            | [RELEASING.md](RELEASING.md), [PROVENANCE.md](PROVENANCE.md)           | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Repository contracts and local evidence           | Local validation and checked-in Ubuntu/Windows workflow                                                     | proven locally; post-push CI external pending                                   |
-| Clean fresh-clone staging gate                                                                              | [RELEASING.md](RELEASING.md), [PROVENANCE.md](PROVENANCE.md)           | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Supplied specification                            | Fixture and dry-run proof; real canonical clone remains external pending                                    | proven locally; canonical clone external pending                                |
-| Repository archival and clean-room rename cutover; tags, releases, publication, and deployment excluded     | [CUTOVER.md](CUTOVER.md)                                               | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Supplied specification and approval-gated runbook | External repository identities and metadata are pending until cutover                                       | external pending                                                                |
-| Babysit-CI observation after approved push/tag, without mutation authority                                  | [RELEASING.md](RELEASING.md), [CUTOVER.md](CUTOVER.md)                 | `eb796235f2f29f2c67c869408a0e22c1a72c13eb` | Sole task-supplied difference                     | Read-only required-job observation after push remains external pending                                      | permitted difference; observation-only                                          |
+| Surface                                               | Owner                                                                  | Independent proof                            | Status           |
+| ----------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------- | ---------------- |
+| Bun, `mise`, TypeScript, and Vite+ toolchain          | [DEVELOPMENT.md](DEVELOPMENT.md)                                       | Validation gate and lockfile checks          | proven           |
+| Effect Schema boundary validation                     | [ARCHITECTURE.md](ARCHITECTURE.md), [DEPENDENCIES.md](DEPENDENCIES.md) | Source and boundary tests                    | proven           |
+| Native role/task identities and route-only plans      | [BEHAVIOR.md](BEHAVIOR.md)                                             | Core catalog and routing tests               | proven           |
+| Independent service tiers                             | [BEHAVIOR.md](BEHAVIOR.md), [CONFIGURATION.md](CONFIGURATION.md)       | Configuration boundary tests                 | proven           |
+| CLI install, remove, version, JSON, and exit behavior | [CLI.md](CLI.md)                                                       | CLI boundary tests                           | proven           |
+| Native Codex plugin management and owned state        | [INSTALLATION.md](INSTALLATION.md), [STATE.md](STATE.md)               | Isolated install/remove smoke                | proven           |
+| Work, frontend, Security, and Computer Use selections | [BEHAVIOR.md](BEHAVIOR.md), [SECURITY.md](SECURITY.md)                 | Denial and typed-port tests                  | capability-gated |
+| Secret exclusion and fail-closed behavior             | [SECURITY.md](SECURITY.md)                                             | Security and redaction tests                 | proven           |
+| Clean-room admissibility and provenance               | [PROVENANCE.md](PROVENANCE.md)                                         | Repository proof and changed-file inspection | proven           |
+| Exact release artifact and publication gates          | [RELEASING.md](RELEASING.md)                                           | CI artifact digest and release checks        | proven           |
 
-All local rows carry a present proof status. The only pending evidence is the
-real canonical clone, post-push CI/observation, and the separately approved
-repository cutover metadata. Approval-gated npm publication is configured but
-remains externally pending until its workflow and registry read-back succeed.
+Every row has one owner. A change updates that owner and its proof instead of
+copying a claim into another document.

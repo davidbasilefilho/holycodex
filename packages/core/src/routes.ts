@@ -13,93 +13,110 @@ export const PlanNameSchema = Schema.Literal(
 );
 export type PlanName = typeof PlanNameSchema.Type;
 
-export const ServiceTierSchema = Schema.Literal("Standard", "Fast");
+export const ServiceTierSchema = Schema.Literal("standard", "fast", "fast-all");
 export type ServiceTier = typeof ServiceTierSchema.Type;
 
 export const EffortSchema = Schema.Literal("low", "medium", "high", "xhigh", "max");
 export type Effort = typeof EffortSchema.Type;
 
-export const DelegationModeSchema = Schema.Literal("DIRECT", "SINGLE", "DYNAMIC_WORKFLOW");
-export type DelegationMode = typeof DelegationModeSchema.Type;
-
-const DigestSchema = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u));
-const SkillReferenceSchema = Schema.String.pipe(Schema.pattern(/^\$[a-z][a-z0-9-]*$/u));
-const SkillVersionSchema = Schema.String.pipe(
-  Schema.pattern(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u),
-);
-export const RoleSkillProfileSchema = Schema.Struct({
-  reference: SkillReferenceSchema,
-  version: SkillVersionSchema,
-  mode: Schema.Literal("lite", "full", "ultra"),
-  digest: DigestSchema,
-  instruction: Schema.String.pipe(Schema.minLength(1)),
-});
-export type RoleSkillProfile = typeof RoleSkillProfileSchema.Type;
-export type RoleSkillProfileOrEmpty = RoleSkillProfile | null;
-
-export const PONYTAIL_ROLE_SKILL = Object.freeze({
-  reference: "$ponytail",
-  version: "4.9.0",
-  mode: "lite",
-  digest: "1316a2f3f95741d2300b116fe0c2d81ce4a9568656ed0a62643f54aaf09957f2",
-  instruction: "Use the literal $ponytail skill reference in lite mode.",
-} as const satisfies RoleSkillProfile);
-
 export const ROLE_DEFINITIONS = [
   {
     role: "Explorer",
     tasks: [
-      { name: "lookup", instruction: "Locate the exact requested repository fact." },
-      { name: "trace", instruction: "Trace the complete in-scope execution or reference path." },
+      {
+        name: "lookup",
+        description: "Use when Root needs one exact repository fact; locate the requested fact.",
+        instruction: "Locate the exact requested repository fact.",
+      },
+      {
+        name: "trace",
+        description:
+          "Use when Root needs a complete in-scope execution or reference path; trace every relevant caller and constraint.",
+        instruction: "Trace the complete in-scope execution or reference path.",
+      },
     ],
     capability: "repository-read",
     authority: "Read only the assigned repository scope; Root owns decisions.",
     evidence: "Return exact paths, symbols, callers, tests, and constraints.",
     completion: "Account for every in-scope caller and constraint.",
-    skills: [],
-    skill_profile: null,
     permissions: { network: false, write: false, execute: false },
   },
   {
     role: "Librarian",
     tasks: [
-      { name: "lookup", instruction: "Locate the exact requested authoritative external fact." },
-      { name: "research", instruction: "Synthesize the assigned current sources with citations." },
+      {
+        name: "lookup",
+        description:
+          "Use when Root needs one exact current external fact; locate it in the assigned authoritative source.",
+        instruction: "Locate the exact requested authoritative external fact.",
+      },
+      {
+        name: "research",
+        description:
+          "Use when Root needs a sourced current synthesis; combine the assigned authoritative sources with citations.",
+        instruction: "Synthesize the assigned current sources with citations.",
+      },
     ],
     capability: "current-research",
     authority: "Research only the assigned current sources; Root owns decisions.",
     evidence: "Return sourced facts, dates, and explicit uncertainty.",
     completion: "Resolve the assigned external fact or report the exact evidence gap.",
-    skills: ["context7-cli"],
-    skill_profile: null,
     permissions: { network: true, write: false, execute: false },
   },
   {
     role: "Worker",
     tasks: [
-      { name: "mechanical", instruction: "Apply only deterministic, already-decided edits." },
-      { name: "implementation", instruction: "Implement and verify the bounded behavior seam." },
-      { name: "integration", instruction: "Integrate the decided seams and verify them together." },
+      {
+        name: "mechanical",
+        description:
+          "Use when Root has decided deterministic edits; apply only those edits and verify the result.",
+        instruction: "Apply only deterministic, already-decided edits.",
+      },
+      {
+        name: "implementation",
+        description:
+          "Use when Root has decided a bounded behavior seam; implement and verify that seam.",
+        instruction: "Implement and verify the bounded behavior seam.",
+      },
+      {
+        name: "integration",
+        description:
+          "Use when Root has decided seams that must be combined; integrate them and verify the result together.",
+        instruction: "Integrate the decided seams and verify them together.",
+      },
       {
         name: "operations",
-        instruction: "Perform only the explicitly approved stateful operation.",
+        description:
+          "Use after Root approves an exact ref or SHA; observe required CI and release state to terminal evidence, never treating pending as success.",
+        instruction:
+          "After Root approves an exact ref or SHA, observe required CI and release state through terminal evidence; pending or running state is never success.",
       },
     ],
     capability: "bounded-write",
     authority: "Change only the assigned seam; Root owns material choices.",
     evidence: "Return changed files, verification results, and remaining risk.",
     completion: "Finish the assigned seam with proportional proof or an exact blocker.",
-    skills: ["programming"],
-    skill_profile: PONYTAIL_ROLE_SKILL,
     permissions: { network: false, write: true, execute: true },
   },
   {
     role: "Reviewer",
     tasks: [
-      { name: "plan", instruction: "Review the complete plan to a fixed point." },
-      { name: "code", instruction: "Review and repair the implemented code to a fixed point." },
+      {
+        name: "plan",
+        description:
+          "Use when Root needs a complete plan adversarially checked; review it to a fixed point.",
+        instruction: "Review the complete plan to a fixed point.",
+      },
+      {
+        name: "code",
+        description:
+          "Use when Root needs implemented code adversarially checked; review and repair it to a fixed point.",
+        instruction: "Review and repair the implemented code to a fixed point.",
+      },
       {
         name: "artifact",
+        description:
+          "Use when Root needs a produced artifact inspected; review and repair it to a fixed point.",
         instruction: "Review and repair the produced artifact to a fixed point.",
       },
     ],
@@ -107,8 +124,6 @@ export const ROLE_DEFINITIONS = [
     authority: "Inspect and repair only reviewer-owned defects; Root owns material choices.",
     evidence: "Return findings, repaired paths, verification, and residual risk.",
     completion: "Reach a fixed point or report each reproducible blocker.",
-    skills: ["code-review"],
-    skill_profile: PONYTAIL_ROLE_SKILL,
     permissions: { network: false, write: true, execute: true },
   },
 ] as const;
@@ -221,19 +236,20 @@ export function taskInstructionFor(route: RoleTask): string {
   return task.instruction;
 }
 
+export function taskDescriptionFor(route: RoleTask): string {
+  const task = roleDefinitionsByName
+    .get(route.role)
+    ?.tasks.find((candidate) => candidate.name === route.task);
+  if (task === undefined) throw new Error("Unknown specialist task policy.");
+  return task.description;
+}
+
 export function lookupRoleDefinition(role: Role): RoleDefinition {
   const definition = roleDefinitionsByName.get(role);
   if (definition === undefined) {
     throw new Error("Unknown specialist role.");
   }
   return definition;
-}
-
-export interface PlanBudget {
-  readonly costTarget: number;
-  readonly costMax: number;
-  readonly maxCalls: number;
-  readonly maxConcurrency: number;
 }
 
 export interface RouteDefinition {
@@ -251,9 +267,7 @@ export interface PlanDefinition {
     readonly effort: Effort;
   };
   readonly specialistModel: "Luna";
-  readonly workflowEnabled: boolean;
   readonly defaultServiceTier: ServiceTier;
-  readonly budget: PlanBudget | null;
   readonly routes: readonly RouteDefinition[];
 }
 

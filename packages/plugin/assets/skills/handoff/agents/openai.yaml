@@ -1,6 +1,6 @@
 interface:
   display_name: "Handoff"
-  short_description: "Produce one redacted resumable handoff when work pauses or transfers."
-  default_prompt: "Write one redacted handoff containing constraints, evidence, risks, and the next action."
+  short_description: "Produce one redacted handoff when assigned work pauses or transfers."
+  default_prompt: "When Root pauses or transfers work, write one redacted handoff containing scope, constraints, evidence, risks, and the next action."
 policy:
   allow_implicit_invocation: false

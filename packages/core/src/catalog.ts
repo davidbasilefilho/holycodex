@@ -13,7 +13,6 @@ import {
   RouteKeySchema,
   type Effort,
   type PlanDefinition,
-  type PlanBudget,
   type PlanName,
   type PlanSelection,
   type Role,
@@ -170,14 +169,12 @@ function specialistPlan(
   input: Readonly<{
     readonly name: SpecialistPlanName;
     readonly root: PlanDefinition["root"];
-    readonly budget: PlanBudget;
   }>,
 ): PlanDefinition {
   return {
     ...input,
     specialistModel: "Luna",
-    workflowEnabled: true,
-    defaultServiceTier: "Standard",
+    defaultServiceTier: "standard",
     routes: routesForPlan(input.name),
   };
 }
@@ -187,35 +184,28 @@ const planDefinitions: PlanDefinition[] = [
     name: "Go",
     root: { model: "Terra", effort: "high" },
     specialistModel: "Luna",
-    workflowEnabled: false,
-    defaultServiceTier: "Standard",
-    budget: null,
-    routes: [],
+    defaultServiceTier: "standard",
+    routes: routesForPlan("plus-low"),
   },
   specialistPlan({
     name: "plus-low",
     root: { model: "Sol", effort: "low" },
-    budget: { costTarget: 1.0, costMax: 1.5, maxCalls: 10_000, maxConcurrency: 3 },
   }),
   specialistPlan({
     name: "plus",
     root: { model: "Sol", effort: "medium" },
-    budget: { costTarget: 1.6, costMax: 2.5, maxCalls: 10_000, maxConcurrency: 3 },
   }),
   specialistPlan({
     name: "plus-high",
     root: { model: "Sol", effort: "high" },
-    budget: { costTarget: 3.0, costMax: 4.5, maxCalls: 10_000, maxConcurrency: 4 },
   }),
   specialistPlan({
     name: "pro-5x",
     root: { model: "Sol", effort: "high" },
-    budget: { costTarget: 5.0, costMax: 7.5, maxCalls: 10_000, maxConcurrency: 6 },
   }),
   specialistPlan({
     name: "pro-20x",
     root: { model: "Sol", effort: "xhigh" },
-    budget: { costTarget: 12.0, costMax: 20.0, maxCalls: 10_000, maxConcurrency: 8 },
   }),
 ];
 
@@ -256,26 +246,12 @@ function validateCatalog(definitions: readonly PlanDefinition[]): void {
         plan: definition.name,
       });
     }
-    if (definition.specialistModel !== "Luna" || definition.defaultServiceTier !== "Standard") {
+    if (definition.specialistModel !== "Luna" || definition.defaultServiceTier !== "standard") {
       throw new CoreError("catalog_invalid", "A plan has an invalid specialist policy.", {
         plan: definition.name,
       });
     }
-    if (definition.name === "Go") {
-      if (
-        definition.workflowEnabled ||
-        definition.budget !== null ||
-        definition.routes.length !== 0
-      ) {
-        throw new CoreError("catalog_invalid", "Go must disable specialist workflows.");
-      }
-      continue;
-    }
-    if (
-      !definition.workflowEnabled ||
-      definition.budget === null ||
-      definition.routes.length !== ROUTE_KEYS.length
-    ) {
+    if (definition.routes.length !== ROUTE_KEYS.length) {
       throw new CoreError("catalog_invalid", "A specialist plan is incomplete.", {
         plan: definition.name,
       });
@@ -301,7 +277,23 @@ function validateCatalog(definitions: readonly PlanDefinition[]): void {
     }
   }
 
-  const specialistPlans = definitions.slice(1);
+  const goRoutes = definitions[0]?.routes;
+  const plusLowRoutes = definitions[1]?.routes;
+  if (
+    !goRoutes ||
+    !plusLowRoutes ||
+    goRoutes.length !== plusLowRoutes.length ||
+    goRoutes.some(
+      (routeDefinition, index) =>
+        routeDefinition.key !== plusLowRoutes[index]?.key ||
+        routeDefinition.model !== plusLowRoutes[index]?.model ||
+        routeDefinition.effort !== plusLowRoutes[index]?.effort,
+    )
+  ) {
+    throw new CoreError("catalog_invalid", "Go must use the plus-low specialist route matrix.");
+  }
+
+  const specialistPlans = definitions;
   for (let routeIndex = 0; routeIndex < ROUTE_KEYS.length; routeIndex += 1) {
     let previousRank = -1;
     for (const definition of specialistPlans) {
@@ -381,14 +373,6 @@ export function lookupRoute(planInput: unknown, routeInput: unknown): CoreResult
   const planResult = lookupPlan(planInput);
   if (!planResult.ok) {
     return planResult;
-  }
-
-  if (!planResult.value.workflowEnabled) {
-    return failure(
-      new CoreError("route_unavailable", "The selected plan disables specialist workflows.", {
-        plan: planResult.value.name,
-      }),
-    );
   }
 
   const routeResult = parseRouteKey(routeInput);

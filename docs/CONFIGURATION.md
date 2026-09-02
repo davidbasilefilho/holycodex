@@ -1,74 +1,65 @@
 # Configuration
 
-This document owns configuration precedence, plan and optional selections,
-explicit paths, managed ownership, and compare-before-write behavior. Runtime
-semantics remain in [BEHAVIOR.md](BEHAVIOR.md); CLI syntax and non-TTY rules
-remain in [CLI.md](CLI.md); secret exclusions remain in [SECURITY.md](SECURITY.md).
+This document owns configuration precedence, plan and tier selection, optional
+plugins, explicit paths, managed ownership, and compare-before-write behavior.
+Runtime semantics remain in [BEHAVIOR.md](BEHAVIOR.md), CLI syntax remains in
+[CLI.md](CLI.md), and secret exclusions remain in [SECURITY.md](SECURITY.md).
 
 ## Precedence
 
-The effective configuration is resolved in this order, from strongest to
-weakest:
+The effective configuration is resolved from strongest to weakest:
 
-1. Explicit invocation input, including CLI flags and an approved caller
-   override.
-2. Workspace configuration for the current trusted project.
-3. User configuration for the current account.
+1. Explicit command input and approved caller overrides.
+2. Trusted workspace configuration.
+3. User configuration.
 4. Safe built-in defaults.
 
-Each layer is validated before it can override the next layer. A missing
-required value, malformed value, or untrusted path fails closed. Specialists
-receive a read-only effective snapshot and never write configuration.
+Each layer is validated before it can override the next. Missing, malformed,
+or untrusted values fail closed. Native subagents receive a read-only snapshot
+and cannot write configuration.
 
-The current installer exposes explicit plan, tier, optional-selection, and
-root-path inputs. The environment supplies `CODEX_HOME` when no explicit path
-is provided. The CLI adapter
-does not turn arbitrary environment values into persisted configuration.
+## Plans, tiers, and optional plugins
 
-## Plan, tier, and optional selections
+The plan catalog owns valid plan names and native routes. A plan controls
+routing only. `Go` keeps Terra/high for Root and uses the plus-low Luna leaf
+route matrix; Plus and Pro plans select specialist routes. A plan does not
+select a service tier or grant authority.
 
-The plan catalog owns valid plan names, budgets, routes, and workflow
-availability. `Go` is a direct Root path and is not admitted to the workflow
-host. Workflow-enabled plans are selected by name and validated against the
-catalog before use.
+The valid plan names are `Go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and
+`pro-20x`.
 
-`Standard` is the default service tier. `Fast` changes service tier only; it
-does not change model, authority, budget, routing, or proof requirements.
+The service tier is an independent setting selected with `--tier`. It changes
+service handling without changing the plan, route, authority, or proof
+requirements. The valid tier names are `standard`, `fast`, and `fast-all`.
 
-Optional selections are explicit booleans for `computer_use`, `work`, `web`,
-and `security`; the `coding` capability is required and remains enabled. An
-omitted optional value inherits the previous install record, then defaults to
-disabled. A positive and negative flag for the same selection is invalid.
-Capability availability never grants authority, and a denied capability is not
-replaced by an unapproved fallback.
+Optional plugins are explicit booleans for `work`, `frontend`, `security`, and
+`computer_use`. On a first install, Work and Computer Use default to false while
+frontend and Security default to true; an omitted selection otherwise inherits
+the existing managed configuration. Availability never grants authority, and a
+missing plugin returns a structured denial rather than selecting a fallback.
 
-## Explicit paths and ownership
+## Paths and ownership
 
-`CODEX_HOME` defaults to `~/.codex`. Use `--codex-home` for an explicit override
-or isolated test. Paths must be absolute, traversal-free, and non-broad. The
-installer owns only its state and generated `{Role}.{task}` agent profiles; it
-uses Codex's official plugin and feature commands and does not rewrite unrelated
-plugins, configuration fields, feature flags, or external servers. See
-[INSTALLATION.md](INSTALLATION.md) for the path layout and transaction.
+`CODEX_HOME` defaults to `~/.codex`; `--codex-home` supplies an absolute,
+isolated test or user path. Paths are traversal-free and never broadened to a
+workspace root. HolyCodex owns only its configuration and the native plugin
+state created for that installation. Codex owns the rest of its plugin and
+configuration state.
 
-## Managed writes and compare-before-write
+## Managed writes
 
-Configuration writes require a declared owner. The
-managed configuration metadata carries owner, schema, and install identity.
-Before a write, the owner compares the existing managed fields and refuses to
-overwrite a changed or foreign value. A matching value is safe to retain; a
-changed value is preserved for explicit resolution. Cleanup applies the same
-ownership test before removing HolyCodex-owned state.
+Every managed write carries an owner, schema, install identity, and digest.
+Before writing, the CLI compares existing managed fields and refuses to
+overwrite a changed or foreign value. Matching state is retained. Writes are
+atomic and validated before persistence; an uncertain result is preserved and
+reported.
 
-Atomic writes and journal records bracket consequential pointer changes. A
-failed write rolls back bytes that were previously read when rollback is safe;
-an uncertain result is preserved and reported. The installer never broadens a
-write because a path is missing.
+Removal applies the same ownership test and never deletes unrelated Codex
+state.
 
 ## Secrets
 
-No secret belongs in configuration, an install record, a CLI envelope, a
-journal, a checkpoint, or telemetry. This includes API keys, access tokens,
-cookies, passwords, private keys, authorization headers, credential-bearing
-URLs, raw environment values, and raw task or specialist content. The complete
-exclusion and sanitization policy is owned by [SECURITY.md](SECURITY.md).
+No secret belongs in configuration, a CLI envelope, or diagnostic output. This
+includes API keys, access tokens, cookies, passwords, private keys,
+authorization headers, credential-bearing URLs, raw environment values, and
+credential files. The complete policy is owned by [SECURITY.md](SECURITY.md).

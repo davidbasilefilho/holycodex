@@ -1,6 +1,6 @@
 interface:
   display_name: "Programming"
-  short_description: "Implement a decided seam with proportional proof."
-  default_prompt: "Implement the assigned seam, add focused proof, inspect the changed files, and return structured evidence."
+  short_description: "Implement one decided seam with proportional proof."
+  default_prompt: "When Root assigns a decided seam, implement it, add focused proof, inspect changed files, and return structured evidence."
 policy:
   allow_implicit_invocation: true

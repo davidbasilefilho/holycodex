@@ -13,8 +13,6 @@ export const STATE_SCHEMA = STATE_SCHEMA_EPOCH;
 export interface ResolvedInstallerPaths extends InstallerPaths {
   readonly stateRoot: string;
   readonly activeRecord: string;
-  readonly runsRoot: string;
-  readonly generatedWorkflowsRoot: string;
 }
 
 export function resolveInstallerPaths(
@@ -29,8 +27,6 @@ export function resolveInstallerPaths(
     codexHome: safeCodexHome,
     stateRoot,
     activeRecord: join(stateRoot, ACTIVE_RECORD_NAME),
-    runsRoot: join(stateRoot, "runs"),
-    generatedWorkflowsRoot: join(safeCodexHome, "workflows"),
   };
 }
 

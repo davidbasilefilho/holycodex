@@ -1,6 +1,6 @@
 interface:
   display_name: "Plan review"
-  short_description: "Review one complete plan for feasibility, order, risk, and proof."
-  default_prompt: "Inspect the complete plan, repair bounded defects, and return structured proof."
+  short_description: "Review one complete plan to a fixed point."
+  default_prompt: "When Root has a complete plan, inspect it once, repair reviewer-owned defects to a fixed point, and return structured proof."
 policy:
   allow_implicit_invocation: true

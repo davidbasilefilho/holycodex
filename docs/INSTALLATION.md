@@ -1,26 +1,44 @@
 # Installation
 
-Codex owns plugin installation state. HolyCodex does not stage plugin copies, rewrite a personal marketplace, maintain activation pointers, or prune Codex plugin artifacts.
+Codex owns plugin installation state. HolyCodex uses Codex's native plugin
+management and does not stage duplicate plugin copies, rewrite unrelated
+settings, or maintain a second activation registry.
 
-The native equivalent is:
+## Install
 
-```sh
-codex plugin marketplace add davidbasilefilho/holycodex
-codex plugin add holycodex@holycodex
-```
-
-`holycodex install` is the supported configuration frontend. It validates HolyCodex options, invokes those native operations through the discovered Codex executable, installs selected provider plugins the same way, reads plugin state back, and fails unless every requested plugin is installed and enabled. It does not invent Codex plugin arguments for HolyCodex settings.
+The supported public path is:
 
 ```sh
-bunx holycodex@latest install --yes --plan plus --work
+bunx holycodex install --yes
 ```
 
-After native readback succeeds, the CLI atomically stores one HolyCodex-owned configuration at `$CODEX_HOME/holycodex/active.json`. It contains plan, tier, autonomy, concurrent-specialist selection, optional capabilities, provider IDs, capability health, version, and a configuration digest. Plugin files and marketplace state remain Codex-owned.
+Configure routing, service handling, and optional plugins explicitly:
 
-Setup also enables Codex's `default_mode_request_user_input` feature, verifies
-that native `request_user_input` is effective in Default mode while preserving
-unrelated Codex configuration, and writes derived native `{Role}.{task}`
-profiles under `$CODEX_HOME/agents`. An uncertain plugin or configuration
-effect is reported without blind retry.
+```sh
+bunx holycodex install --yes \
+  --plan plus --tier standard \
+  --work --frontend --security --computer-use
+```
 
-`doctor` is read-only: it validates the HolyCodex configuration and compares requested plugin state with Codex's live list. `cleanup` removes only HolyCodex-owned configuration, terminal run state, or expired generated workflows for the selected scope; it never removes Codex plugin state.
+The plan controls native subagent routing only. The tier is independent.
+Optional plugins are Work, frontend tooling, Security, and Computer Use. The
+CLI validates each selection, invokes native Codex plugin management, verifies
+readback, and atomically stores one HolyCodex-owned configuration under
+`$CODEX_HOME/holycodex`.
+
+Use `--codex-home <absolute-path>` for an isolated installation. The CLI keeps
+the selected plan, tier, optional plugin state, version, and configuration
+digest; Codex remains the owner of plugin files and marketplace state.
+
+## Remove
+
+Remove only the HolyCodex-owned installation through the same native boundary:
+
+```sh
+bunx holycodex remove --yes
+```
+
+Removal verifies ownership before deleting the managed configuration and the
+corresponding native HolyCodex plugin state. It never removes unrelated Codex
+plugins or settings. An uncertain native result is reported and is not blindly
+repeated.

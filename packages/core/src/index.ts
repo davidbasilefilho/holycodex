@@ -3,9 +3,6 @@
 export { CLI_SCHEMA_VERSION, STATE_SCHEMA_EPOCH, packageName } from "./common.ts";
 export type { JsonObject, JsonPrimitive, JsonValue, SafeDetails } from "./common.ts";
 export { decodeModelWire, encodeModelWire } from "./model-wire.ts";
-export { PlanFirstExecutionGate, PlanFirstGateError } from "./plan-first.ts";
-export type { PlanFirstPhase } from "./plan-first.ts";
-
 export { CoreError } from "./errors.ts";
 export type { CoreErrorCode, CoreResult } from "./errors.ts";
 export { decodeUnknown } from "./schema.ts";
@@ -55,12 +52,10 @@ export {
   createRunId,
   createSha256Digest,
   createTrustId,
-  createWorkflowId,
   ProjectIdentityInputSchema,
   RunIdentityInputSchema,
   SchemaEpochIdSchema,
   TrustIdentityInputSchema,
-  WorkflowIdentityInputSchema,
   parseIdentityInput,
   parseSchemaEpochId,
 } from "./identifiers.ts";
@@ -74,23 +69,18 @@ export type {
   Sha256Digest,
   TrustId,
   TrustIdentityInput,
-  WorkflowId,
-  WorkflowIdentityInput,
 } from "./identifiers.ts";
 
 export {
-  DelegationModeSchema,
   EffortSchema,
   ExplorerTaskSchema,
   LibrarianTaskSchema,
   PlanNameSchema,
   PlanSelectionSchema,
-  PONYTAIL_ROLE_SKILL,
   NATIVE_AGENT_TYPES,
   NativeAgentTypeSchema,
   ReviewerTaskSchema,
   RoleSchema,
-  RoleSkillProfileSchema,
   RoleTaskSchema,
   ROLE_DEFINITIONS,
   ROUTE_KEYS,
@@ -99,10 +89,10 @@ export {
   WorkerTaskSchema,
   lookupRoleDefinition,
   nativeAgentTypeFor,
+  taskDescriptionFor,
   taskInstructionFor,
 } from "./routes.ts";
 export type {
-  DelegationMode,
   Effort,
   ExplorerTask,
   LibrarianTask,
@@ -111,8 +101,6 @@ export type {
   NativeAgentType,
   Role,
   RoleDefinition,
-  RoleSkillProfile,
-  RoleSkillProfileOrEmpty,
   RoleTask,
   ReviewerTask,
   RouteKey,
@@ -121,7 +109,7 @@ export type {
   TaskSlot,
   WorkerTask,
 } from "./routes.ts";
-export type { PlanBudget, PlanDefinition, RouteDefinition } from "./routes.ts";
+export type { PlanDefinition, RouteDefinition } from "./routes.ts";
 
 export {
   CliEnvelopeSchema,

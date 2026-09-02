@@ -14,31 +14,17 @@ const owningTopics = {
     "clean-room",
     "security",
     "native",
-    "compat-quickjs",
-    "capability_denied",
+    "optional capability",
     "agent types",
   ],
   "docs/INSTALLATION.md": [
-    "native",
-    "marketplace",
-    "request_user_input",
-    "{role}.{task}",
-    "verifies",
-    "doctor",
-    "cleanup",
-    "codex_home",
+    "native plugin",
+    "plugin installation",
+    "owned installation",
+    "remove",
+    "configuration",
   ],
-  "docs/STATE.md": [
-    "schema epoch",
-    "canonical identities",
-    "journal",
-    "checkpoint",
-    "replay",
-    "retained",
-    "continuation",
-    "refinement",
-    "telemetry",
-  ],
+  "docs/STATE.md": ["schema epoch", "canonical", "digest", "install identity", "removal"],
   "docs/CONFIGURATION.md": [
     "precedence",
     "plan",
@@ -69,7 +55,6 @@ const owningTopics = {
     "build",
     "pack",
     "install",
-    "doctor",
     "provenance",
     "license",
     "commit",
@@ -81,7 +66,7 @@ const owningTopics = {
   "docs/DEPENDENCIES.md": [
     "effect",
     "effect schema",
-    "quickjs",
+    "boundary-validation",
     "vite-plus",
     "typescript",
     "bun",
@@ -91,11 +76,10 @@ const owningTopics = {
   "docs/PARITY.md": [
     "clean-room base",
     "frozen behavioral oracle",
-    "babysit-ci",
-    "admissible evidence",
+    "required surface inventory",
     "independent proof",
   ],
-  "docs/DECISIONS.md": ["Effect Schema", "sole", "lock", "provenance", "fallback"],
+  "docs/DECISIONS.md": ["Effect Schema", "sole", "toolchain", "provenance", "approval-gated"],
   "docs/CUTOVER.md": [
     "preflight",
     "authority",
@@ -112,7 +96,7 @@ const owningTopics = {
     "rollback",
     "babysit-ci",
   ],
-  "THIRD-PARTY-NOTICES.md": ["quickjs", "wasm", "development-only"],
+  "THIRD-PARTY-NOTICES.md": ["generated codex", "development components", "vendored plugin skills"],
 } as const;
 
 describe("documentation invariants", () => {
@@ -157,9 +141,9 @@ describe("documentation invariants", () => {
     }
     const behavior = await readFile(resolve(workspaceRoot, "docs/BEHAVIOR.md"), "utf8");
     const cli = await readFile(resolve(workspaceRoot, "docs/CLI.md"), "utf8");
-    expect(behavior).toContain("QuickJS TypeScript workflow execution is the production path");
-    expect(behavior).toContain("Remote\nversion-control mutation");
-    expect(cli).toContain("--compat-quickjs");
+    expect(behavior).toContain("native specialist roles");
+    expect(behavior).toContain("native plugin");
+    expect(cli).toContain("--frontend");
     expect(cli).toContain("capability_denied");
   });
 });

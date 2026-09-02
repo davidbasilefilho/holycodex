@@ -6,60 +6,16 @@ const TOP_LEVEL_HELP = `HolyCodex
 
 Usage:
   holycodex install [options]
+  holycodex remove [options]
   holycodex doctor [options]
-  holycodex cleanup --scope <run|workspace|expired> [options]
   holycodex version [<0.x.y|patch|minor>] [options]
-  holycodex workflow <command> [options]
 
 Options:
   --help, -h       Show this help.
   --version, -v    Print the canonical version.
   --json           Emit one validated JSON envelope.
-  --no-tui         Disable prompts and interactive UI behavior.
 
-Workflow execution uses one capability-denied QuickJS TypeScript evaluator. A
-trusted TypeScript file must export a default workflow.wait(...) value. Use
-workflow create for generated sources; stdin derives its objective from the
-submitted workflow name and source unless --task overrides it.
-
-Optional Work, Web, Security, Computer Use, LSP, LSP setup, and Git Bash
-providers are independently capability-gated. Missing providers fail closed;
-installation state does not claim provider availability.
-`;
-
-const WORKFLOW_HELP = `Workflow commands
-
-Usage:
-  holycodex workflow run <file.ts|-> [args.json] [options]
-  holycodex workflow create <file.ts|-> [args.json] [--name <name>] [--session-id <id>]
-  holycodex workflow check <file.ts> [options]
-  holycodex workflow list [options]
-  holycodex workflow show <run-id> [options]
-  holycodex workflow inspect <run-id> [--follow] [options]
-  holycodex workflow resume <run-id> <file.ts|-> [args.json] [options]
-  holycodex workflow continuation <run-id> <file.ts|-> [args.json] [options]
-  holycodex workflow goal <run-id> <summary> [options]
-  holycodex workflow pause|restart|reopen|stop <run-id> [options]
-  holycodex workflow stop-agent <run-id> <call-id> [options]
-  holycodex workflow save <user|project> <name> <file.ts> [options]
-  holycodex workflow invoke <user|project> <name> [args.json] [options]
-  holycodex workflow refinement list|show|enable|disable ... [options]
-
-Options:
-  --plan <name>          Use an explicit validated plan.
-  --tier <Standard|Fast> Use an explicit service tier.
-  --fast                 Alias for --tier Fast.
-  --autonomy <mode>      Select manual, assisted, or autonomous execution.
-  --max-subagents <n>    Bound specialist concurrency.
-  --trusted              Assert the caller has established project trust.
-  --compat-quickjs       Deprecated one-release alias; the same evaluator is used.
-  --task <objective>     Override the workflow-derived objective.
-  --json, --no-tui       Select machine/non-interactive output behavior.
-
-Workflow files must export a default workflow.wait(...) value. workflow check
-performs type, import, schema, and security validation without host effects.
-Workflow runs target the configured native {Role}.{task} dispatcher; the
-generic App Server assignment path is an explicit compatibility fallback.
+Use --json for scripts. Install and remove use native Codex plugin management.
 `;
 
 const INSTALL_HELP = `Install HolyCodex through Codex native plugin management.
@@ -67,24 +23,42 @@ const INSTALL_HELP = `Install HolyCodex through Codex native plugin management.
 Usage:
   holycodex install [options]
 
+Plans control routing only:
+  Go       Root gpt-5.6-terra/high; leaves use plus-low Luna route efforts.
+  plus-low Root gpt-5.6-sol/low; leaves use plus-low Luna route efforts.
+  plus    Root gpt-5.6-sol/medium; leaves use plus Luna route efforts.
+  plus-high, pro-5x Root gpt-5.6-sol/high; each keeps its Luna route efforts.
+  pro-20x Root gpt-5.6-sol/xhigh; leaves use pro-20x Luna route efforts.
+  Default plan: plus.
+
+Tier is independent service handling (CLI values are lowercase only):
+  standard  Standard service handling (default).
+  fast      Fast service handling; it does not change routing.
+  fast-all  Fast service handling for Root and leaves.
+
 Options:
 ${INSTALL_OPTION_CATALOG.map((option) => `  ${option.usage.padEnd(48)} ${option.description}`).join("\n")}
+  --no-work / --no-frontend / --no-security /
+  --no-computer-use                         Disable the corresponding plugin.
+  --codex-home <absolute-path>              Use an isolated Codex home.
 
-Positive and negative capability flags conflict with each other. HolyCodex
-settings are persisted separately from Codex-owned plugin state.
+Capability defaults: Work false, Frontend true (mapped to build-web-apps),
+Security true, and Computer Use false. --add-plugin may be repeated.
 `;
 
-const DOCTOR_HELP = `Inspect owned configuration, Codex feature, tool, and
-native plugin state without mutating it.
+const REMOVE_HELP = `Remove HolyCodex-owned state through Codex native plugin management.
 
 Usage:
-  holycodex doctor [--json] [--no-tui]
+  holycodex remove [--yes] [--json] [--codex-home <absolute-path>]
+
+Only HolyCodex-owned state is removed. Shared and unrelated Codex plugins and
+configuration are preserved; changed owned files are preserved for review.
 `;
 
-const CLEANUP_HELP = `Remove only an explicitly selected, resolved HolyCodex-owned scope.
+const DOCTOR_HELP = `Inspect HolyCodex-owned configuration and native plugin state without mutating it.
 
 Usage:
-  holycodex cleanup --scope <run|workspace|expired|workflow-session> [--yes] [--json]
+  holycodex doctor [--json] [--codex-home <absolute-path>]
 `;
 
 const VERSION_HELP = `Read or update the canonical public package version.
@@ -99,31 +73,12 @@ export function helpText(topic?: string): string {
   switch (topic) {
     case "install":
       return INSTALL_HELP;
+    case "remove":
+      return REMOVE_HELP;
     case "doctor":
       return DOCTOR_HELP;
-    case "cleanup":
-      return CLEANUP_HELP;
     case "version":
       return VERSION_HELP;
-    case "workflow":
-    case "workflow run":
-    case "workflow create":
-    case "workflow check":
-    case "workflow list":
-    case "workflow show":
-    case "workflow inspect":
-    case "workflow resume":
-    case "workflow continuation":
-    case "workflow goal":
-    case "workflow pause":
-    case "workflow restart":
-    case "workflow reopen":
-    case "workflow stop":
-    case "workflow stop-agent":
-    case "workflow save":
-    case "workflow invoke":
-    case "workflow refinement":
-      return WORKFLOW_HELP;
     default:
       return TOP_LEVEL_HELP;
   }
@@ -137,14 +92,7 @@ export function helpRequested(argv: readonly string[]): boolean {
 
 export function helpTopic(argv: readonly string[]): string | undefined {
   const words = argv.filter((argument) => !argument.startsWith("-"));
-  if (words[0] === "help") {
-    return words[1] === "workflow" ? words.slice(1, 3).join(" ") || "workflow" : words[1];
-  }
-  if (words[0] === "--version" || words[0] === "version" || words[0] === "-v") {
-    return "version";
-  }
-  if (words[0] === "workflow") {
-    return words.slice(0, 2).join(" ") || "workflow";
-  }
+  if (words[0] === "help") return words[1];
+  if (words[0] === "--version" || words[0] === "version" || words[0] === "-v") return "version";
   return words[0];
 }

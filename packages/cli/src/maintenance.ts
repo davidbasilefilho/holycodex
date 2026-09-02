@@ -1,24 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { lstat, readdir, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { FileRunStore } from "@holycodex/workflow-host";
+import { lstat, rm, rmdir } from "node:fs/promises";
 import { pluginIdsForOptionalCapabilities, type JsonObject } from "@holycodex/core";
-import { DEFAULT_MODE_USER_INPUT_FEATURE, readActiveInstallRecord } from "./installer.ts";
-import { CodexOfficialPluginManager } from "./official-manager.ts";
-import { assertNoSymlinkTree, isFsCode, pathWithin, resolveInstallerPaths } from "./paths.ts";
 import {
-  assertSafeSessionId,
-  GeneratedWorkflowStore,
-  GeneratedWorkflowStoreError,
-} from "./generated-workflow-store.ts";
-import type {
-  CleanupResult,
-  CleanupScope,
-  DoctorCheck,
-  DoctorResult,
-  InstallerOptions,
-} from "./types.ts";
+  HOLYCODEX_PLUGIN,
+  readActiveInstallRecord,
+  recordDigestMatches,
+  InstallerError,
+} from "./installer.ts";
+import { CodexOfficialPluginManager } from "./official-manager.ts";
+import {
+  assertNoSymlinkTree,
+  isFsCode,
+  resolveInstallerPaths,
+  type ResolvedInstallerPaths,
+} from "./paths.ts";
+import { removeManagedNativeAgents } from "./native-agents.ts";
+import type { DoctorCheck, DoctorResult, InstallerOptions, RemoveResult } from "./types.ts";
 
 export async function doctorHolyCodex(
   options: InstallerOptions = {},
@@ -38,17 +36,38 @@ export async function doctorHolyCodex(
     return undefined;
   });
   if (!checks["configuration"]) {
-    checks["configuration"] = active
-      ? healthyCheck({ plan: active.plan, tier: active.tier })
-      : failedCheck(["configuration_missing"]);
+    if (!active) {
+      checks["configuration"] = failedCheck(["configuration_missing"]);
+    } else if (await recordDigestMatches(active)) {
+      checks["configuration"] = healthyCheck({
+        plan: active.plan,
+        tier: active.tier,
+        install_id: active.install_id,
+      });
+    } else {
+      checks["configuration"] = failedCheck(["configuration_changed"], {
+        path: paths.activeRecord,
+      });
+    }
   }
   const manager =
     options.officialPluginManager ??
-    (await CodexOfficialPluginManager.discover(environment).catch(() => undefined));
+    (await CodexOfficialPluginManager.discover({
+      ...environment,
+      CODEX_HOME: paths.codexHome,
+    }).catch(() => undefined));
   if (active && manager?.status) {
     const selected = [
-      "holycodex@holycodex",
-      ...pluginIdsForOptionalCapabilities(active.optional_selections, active.official_plugins),
+      HOLYCODEX_PLUGIN,
+      ...pluginIdsForOptionalCapabilities(
+        {
+          computer_use: active.optional_selections.computer_use,
+          work: active.optional_selections.work,
+          frontend: active.optional_selections.frontend,
+          security: active.optional_selections.security,
+        },
+        active.official_plugins,
+      ),
     ];
     try {
       const status = await manager.status(selected);
@@ -71,153 +90,112 @@ export async function doctorHolyCodex(
       details: {},
     };
   }
-  if (manager?.featureEnabled) {
-    try {
-      checks["request_user_input"] = (await manager.featureEnabled(DEFAULT_MODE_USER_INPUT_FEATURE))
-        ? healthyCheck({ feature: DEFAULT_MODE_USER_INPUT_FEATURE })
-        : failedCheck(["request_user_input_disabled"]);
-    } catch (error: unknown) {
-      checks["request_user_input"] = failedCheck(["request_user_input_verification_failed"], {
-        error: safeMessage(error),
-      });
-    }
-  } else {
-    checks["request_user_input"] = {
-      status: "unsupported",
-      reasons: ["request_user_input_verification_unavailable"],
-      details: {},
-    };
-  }
   const reasons = Object.values(checks).flatMap((check) => check.reasons);
   return {
     healthy: Object.values(checks).every((check) => check.status !== "failed"),
     checks,
     reasons: [...new Set(reasons)],
-    inactive_artifacts: [],
   };
 }
 
-export async function cleanupHolyCodex(
-  scope: CleanupScope,
+export async function removeHolyCodex(
   options: InstallerOptions = {},
-  input: Readonly<{ yes?: boolean; runId?: string; sessionId?: string }> = {},
   environment: Readonly<Record<string, string | undefined>> = process.env,
-): Promise<CleanupResult> {
+): Promise<RemoveResult> {
   const paths = resolveInstallerPaths(options, environment);
+  await assertNoSymlinkTree(paths.codexHome);
   await assertNoSymlinkTree(paths.stateRoot);
-  const preview = input.yes !== true;
+  const active = await readActiveInstallRecord(paths);
   const removed: string[] = [];
   const preserved: string[] = [];
   const reasons: string[] = [];
-  if (scope === "run") {
-    if (!input.runId || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(input.runId)) {
-      throw new CleanupError("cleanup_failed", "Run cleanup requires a safe run id.");
-    }
-    const target = join(paths.runsRoot, input.runId);
-    if (!pathWithin(paths.runsRoot, target))
-      throw new CleanupError("cleanup_failed", "Run path escaped the owned root.");
-    if (!(await runResolved(paths.stateRoot, input.runId))) {
-      preserved.push(target);
-      reasons.push("run_unresolved_or_uncertain");
-    } else await planOrRemove(target, preview, removed, preserved);
-    return { scope, preview, removed, preserved, reasons };
+  if (active && !(await recordDigestMatches(active))) {
+    preserved.push(paths.activeRecord);
+    reasons.push("configuration_changed");
+    return { removed, preserved, reasons };
   }
-  if (scope === "workflow-session") {
-    const sessionId = assertSafeSessionId(input.sessionId ?? "");
-    const target = join(paths.generatedWorkflowsRoot, sessionId);
-    try {
-      const store = new GeneratedWorkflowStore(paths.codexHome, boundaryOptions(options));
-      if (await store.sessionExists(sessionId)) {
-        if (!preview) await store.sessionEnd(sessionId);
-        removed.push(target);
-      }
-    } catch (error: unknown) {
-      if (error instanceof GeneratedWorkflowStoreError && error.code === "needs_root_decision") {
-        preserved.push(target);
-        reasons.push("workflow_session_uncertain");
-      } else throw error;
-    }
-    return { scope, preview, removed, preserved, reasons };
-  }
-  if (scope === "workspace") {
-    await planOrRemove(paths.activeRecord, preview, removed, preserved);
-  }
-  await removeExpiredRuns(paths.stateRoot, paths.runsRoot, preview, removed, preserved, options);
+  let manager: InstallerOptions["officialPluginManager"];
   try {
-    const store = new GeneratedWorkflowStore(paths.codexHome, boundaryOptions(options));
-    const result = await store.cleanupExpired({ preview, maxEntries: 128, maxMs: 250 });
-    removed.push(...result.removed);
-    preserved.push(...result.preserved, ...result.uncertain);
+    manager =
+      options.officialPluginManager ??
+      (await CodexOfficialPluginManager.discover({
+        ...environment,
+        CODEX_HOME: paths.codexHome,
+      }));
   } catch (error: unknown) {
-    if (!isFsCode(error, "ENOENT")) preserved.push(paths.generatedWorkflowsRoot);
-  }
-  return { scope, preview, removed, preserved, reasons };
-}
-
-function boundaryOptions(options: InstallerOptions) {
-  return {
-    ...(options.now === undefined ? {} : { now: options.now }),
-    ...(options.generatedWorkflowBoundary === undefined
-      ? {}
-      : { boundary: options.generatedWorkflowBoundary }),
-  };
-}
-
-async function runResolved(stateRoot: string, runId: string): Promise<boolean> {
-  try {
-    const loaded = await new FileRunStore(stateRoot).load(runId);
-    return (
-      loaded.snapshot.integrity === "valid" &&
-      ["completed", "failed", "stopped"].includes(loaded.snapshot.status) &&
-      loaded.snapshot.checkpoint?.unresolved_work.length === 0 &&
-      loaded.snapshot.checkpoint?.usage_completeness !== "unknown" &&
-      !loaded.journal.some(
-        (event) => event.event === "operation" && event.lifecycle.state === "uncertain",
-      )
+    throw new InstallerError(
+      "capability_denied",
+      "Native Codex plugin removal is unavailable.",
+      error,
+      { recovery: "Install or expose Codex, then retry." },
     );
-  } catch {
-    return false;
   }
-}
-
-async function removeExpiredRuns(
-  stateRoot: string,
-  root: string,
-  preview: boolean,
-  removed: string[],
-  preserved: string[],
-  options: InstallerOptions,
-): Promise<void> {
-  const cutoff =
-    (options.now?.() ?? new Date()).getTime() - (options.retentionDays ?? 30) * 86_400_000;
+  if (manager === undefined) {
+    throw new InstallerError("capability_denied", "Native Codex plugin removal is unavailable.");
+  }
+  if (!manager.remove) {
+    throw new InstallerError("capability_denied", "Native Codex plugin removal is unavailable.");
+  }
   try {
-    for (const entry of await readdir(root)) {
-      const target = join(root, entry);
-      const stat = await lstat(target);
-      if (stat.isSymbolicLink() || stat.mtimeMs > cutoff || !(await runResolved(stateRoot, entry)))
-        preserved.push(target);
-      else await planOrRemove(target, preview, removed, preserved);
-    }
+    await manager.remove(HOLYCODEX_PLUGIN);
   } catch (error: unknown) {
-    if (!isFsCode(error, "ENOENT")) preserved.push(root);
+    throw new InstallerError(
+      "capability_denied",
+      `Codex native plugin removal did not converge: ${safeMessage(error)}`,
+      error,
+    );
   }
-}
-
-async function planOrRemove(
-  path: string,
-  preview: boolean,
-  removed: string[],
-  preserved: string[],
-): Promise<void> {
+  if (!active) {
+    await removeLegacyState(paths, removed, preserved, reasons);
+    return { removed, preserved, reasons };
+  }
+  const native = await removeManagedNativeAgents(paths.codexHome, active.managed_artifacts);
+  removed.push(...native.removed);
+  preserved.push(...native.preserved);
+  if (native.preserved.length > 0) {
+    reasons.push("managed_artifact_changed");
+    return { removed: [HOLYCODEX_PLUGIN, ...removed], preserved, reasons };
+  }
   try {
-    const entry = await lstat(path);
-    if (entry.isSymbolicLink()) preserved.push(path);
+    await rm(paths.activeRecord, { force: false });
+    removed.push(paths.activeRecord);
+  } catch (error: unknown) {
+    if (isFsCode(error, "ENOENT")) removed.push(paths.activeRecord);
+    else preserved.push(paths.activeRecord);
+  }
+  try {
+    await rmdir(paths.stateRoot);
+    removed.push(paths.stateRoot);
+  } catch (error: unknown) {
+    if (isFsCode(error, "ENOENT")) removed.push(paths.stateRoot);
     else {
-      if (!preview) await rm(path, { recursive: entry.isDirectory(), force: false });
-      removed.push(path);
+      preserved.push(paths.stateRoot);
+      reasons.push("state_directory_not_empty");
     }
+  }
+  return { removed: [HOLYCODEX_PLUGIN, ...removed], preserved, reasons };
+}
+
+async function removeLegacyState(
+  paths: ResolvedInstallerPaths,
+  removed: string[],
+  preserved: string[],
+  reasons: string[],
+): Promise<void> {
+  try {
+    const entry = await lstat(paths.stateRoot);
+    if (entry.isSymbolicLink()) {
+      preserved.push(paths.stateRoot);
+      return;
+    }
+    await rmdir(paths.stateRoot);
+    removed.push(paths.stateRoot);
   } catch (error: unknown) {
-    if (!isFsCode(error, "ENOENT")) preserved.push(path);
+    if (isFsCode(error, "ENOENT")) removed.push(paths.stateRoot);
+    else {
+      preserved.push(paths.stateRoot);
+      reasons.push("state_directory_not_empty");
+    }
   }
 }
 
@@ -229,14 +207,4 @@ function failedCheck(reasons: readonly string[], details: JsonObject = {}): Doct
 }
 function safeMessage(error: unknown): string {
   return error instanceof Error ? error.message.slice(0, 256) : "operation failed";
-}
-
-export class CleanupError extends Error {
-  readonly code = "cleanup_failed" as const;
-  readonly causeValue: unknown;
-  constructor(_code: "cleanup_failed", message: string, causeValue?: unknown) {
-    super(message);
-    this.name = "CleanupError";
-    this.causeValue = causeValue;
-  }
 }

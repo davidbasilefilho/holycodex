@@ -4,9 +4,6 @@ import * as Schema from "effect/Schema";
 import { freezeDeep } from "./common.ts";
 
 export const ApprovalPolicyActionSchema = Schema.Literal(
-  "workflow.create",
-  "workflow.run",
-  "workflow.resume",
   "local.repository.edit",
   "local.repository.check",
   "local.repository.lint",
@@ -38,9 +35,6 @@ function approvalPolicyEntrySchema<const Identifier extends ApprovalPolicyAction
 }
 
 export const ApprovalPolicySchema = Schema.Struct({
-  workflowCreate: approvalPolicyEntrySchema("workflow.create"),
-  workflowRun: approvalPolicyEntrySchema("workflow.run"),
-  workflowResume: approvalPolicyEntrySchema("workflow.resume"),
   localRepositoryEdit: approvalPolicyEntrySchema("local.repository.edit"),
   localRepositoryCheck: approvalPolicyEntrySchema("local.repository.check"),
   localRepositoryLint: approvalPolicyEntrySchema("local.repository.lint"),
@@ -55,21 +49,6 @@ export const ApprovalPolicySchema = Schema.Struct({
 export type ApprovalPolicy = typeof ApprovalPolicySchema.Type;
 
 export const APPROVAL_POLICY = {
-  workflowCreate: {
-    identifier: "workflow.create",
-    label: "workflow create",
-    requiresRootApproval: false,
-  },
-  workflowRun: {
-    identifier: "workflow.run",
-    label: "workflow run",
-    requiresRootApproval: false,
-  },
-  workflowResume: {
-    identifier: "workflow.resume",
-    label: "workflow resume",
-    requiresRootApproval: false,
-  },
   localRepositoryEdit: {
     identifier: "local.repository.edit",
     label: "local repository edit",
@@ -138,7 +117,7 @@ export function lookupApprovalPolicy(action: ApprovalPolicyAction): ApprovalPoli
   return entry;
 }
 
-/** Maps a policy action to the workflow host approval mode. */
+/** Maps a policy action to its approval mode. */
 export function approvalModeFor(action: ApprovalPolicyAction): ApprovalMode {
   return lookupApprovalPolicy(action).requiresRootApproval ? "root" : "never";
 }

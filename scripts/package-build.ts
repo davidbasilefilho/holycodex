@@ -6,7 +6,6 @@ import { cp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { SourceManifestSchema } from "../packages/plugin/src/index.ts";
 import { runChecked } from "./process.ts";
-import { buildSafeFilesystemArtifact } from "./build-safe-filesystem.ts";
 import { readCanonicalVersion } from "../packages/cli/src/manifest.ts";
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
@@ -36,7 +35,6 @@ export async function runPackageBuild(): Promise<void> {
   await writeFile(pluginManifestPath, `${JSON.stringify(pluginManifest, null, 2)}\n`);
   await cp(join(packagedPlugin, ".codex-plugin/plugin.json"), join(packagedPlugin, "plugin.json"));
   await rm(join(packagedPlugin, ".codex-plugin"), { recursive: true, force: true });
-  await buildSafeFilesystemArtifact(join(distAssets, "safe-filesystem"));
 }
 
 if (import.meta.main) {

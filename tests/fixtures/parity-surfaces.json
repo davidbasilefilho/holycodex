@@ -69,52 +69,10 @@
       "proof": "packages/cli/src/index.test.ts"
     },
     {
-      "id": "security",
-      "classification": "SUPERSEDED",
-      "owner": "docs/SECURITY.md",
-      "proof": "packages/workflow-host/src/index.test.ts"
-    },
-    {
-      "id": "workflow-authoring",
-      "classification": "SUPERSEDED",
-      "owner": "docs/ARCHITECTURE.md",
-      "proof": "packages/workflow-runtime/src/index.test.ts"
-    },
-    {
-      "id": "effect-services",
-      "classification": "SUPERSEDED",
-      "owner": "docs/ARCHITECTURE.md",
-      "proof": "tests/fixtures/effect-promise-adapters.json"
-    },
-    {
-      "id": "scheduler",
-      "classification": "PRESERVED",
-      "owner": "docs/BEHAVIOR.md",
-      "proof": "packages/workflow-runtime/src/index.test.ts"
-    },
-    {
-      "id": "specialist-boundary",
-      "classification": "SUPERSEDED",
-      "owner": "docs/BEHAVIOR.md",
-      "proof": "packages/codex/src/index.test.ts"
-    },
-    {
       "id": "app-server",
       "classification": "PRESERVED",
       "owner": "docs/ARCHITECTURE.md",
-      "proof": "packages/codex/src/boundary.test.ts"
-    },
-    {
-      "id": "multi-agent-v2",
-      "classification": "SUPERSEDED",
-      "owner": "docs/BEHAVIOR.md",
-      "proof": "packages/codex/src/boundary.test.ts"
-    },
-    {
-      "id": "durable-lifecycle",
-      "classification": "SUPERSEDED",
-      "owner": "docs/STATE.md",
-      "proof": "packages/workflow-host/src/index.test.ts"
+      "proof": "packages/codex/src/index.test.ts"
     },
     {
       "id": "native-install-maintenance",
@@ -132,7 +90,7 @@
       "id": "optional-capabilities",
       "classification": "PRESERVED",
       "owner": "docs/SECURITY.md",
-      "proof": "packages/cli/src/workflow.test.ts"
+      "proof": "packages/cli/src/index.test.ts"
     },
     {
       "id": "ci-release-proof",
@@ -151,33 +109,18 @@
       "classification": "PRESERVED",
       "owner": "docs/CUTOVER.md",
       "proof": "docs/CUTOVER.md"
-    },
-    {
-      "id": "babysit-ci",
-      "classification": "SUPERSEDED",
-      "owner": "docs/RELEASING.md",
-      "proof": "docs/CUTOVER.md"
     }
   ],
   "surfaces": [
     { "id": "cli-help", "owner": "cli", "expected": "success" },
     { "id": "cli-version", "owner": "cli", "expected": "canonical-version" },
     { "id": "cli-json-and-exits", "owner": "cli", "expected": "one-envelope" },
-    { "id": "workflow-lifecycle", "owner": "workflow-host", "expected": "durable-transition" },
-    { "id": "workflow-native-default", "owner": "cli", "expected": "native" },
-    {
-      "id": "workflow-compatibility-gate",
-      "owner": "workflow-runtime",
-      "expected": "explicit-only"
-    },
     { "id": "v2-disabled-fallback", "owner": "codex", "expected": "stable-v1-fallback" },
     { "id": "v2-unverified", "owner": "codex", "expected": "fail-closed" },
     { "id": "capability-denied-enabled", "owner": "cli", "expected": "typed-port" },
     { "id": "rules-compaction", "owner": "plugin", "expected": "manifest-assets" },
-    { "id": "lsp-platform-fixtures", "owner": "cli", "expected": "path-fixtures" },
     { "id": "native-install-readback", "owner": "cli", "expected": "verified" },
-    { "id": "packed-install-doctor-cleanup", "owner": "validation", "expected": "isolated" },
-    { "id": "babysit-ci", "owner": "workflow", "expected": "observation-only" },
+    { "id": "packed-install-doctor-remove", "owner": "validation", "expected": "isolated" },
     { "id": "cutover-runbook", "owner": "release", "expected": "approval-gated" }
   ]
 }

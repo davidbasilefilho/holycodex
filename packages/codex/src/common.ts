@@ -55,23 +55,17 @@ export const NonNegativeNumberSchema = Schema.Number.pipe(
 export type CodexErrorCode =
   | "approval_required"
   | "cancellation"
-  | "capability_unavailable"
   | "closed"
   | "discovery_failed"
   | "empty_output_directory"
-  | "execution_failed"
   | "invalid_external_data"
-  | "invalid_project_root"
   | "invalid_transport_line"
   | "manifest_invalid"
   | "method_unsupported"
-  | "model_unsupported"
   | "permission_denied"
   | "protocol_mismatch"
-  | "route_incompatible"
   | "server_error"
   | "server_request_unsupported"
-  | "subprocess_failed"
   | "timeout"
   | "transport_closed"
   | "transport_failure"
@@ -80,25 +74,20 @@ export type CodexErrorCode =
 
 export type CodexFailureKind =
   | "approval"
-  | "capability"
   | "closed"
   | "identity"
   | "interruption"
   | "protocol"
-  | "route"
   | "server"
-  | "subprocess"
   | "timeout"
   | "transport"
   | "turn"
-  | "uncertain_effect"
   | "validation";
 
 export function failureKind(code: CodexErrorCode): CodexFailureKind {
   switch (code) {
     case "invalid_external_data":
     case "manifest_invalid":
-    case "invalid_project_root":
     case "empty_output_directory":
       return "validation";
     case "discovery_failed":
@@ -112,11 +101,6 @@ export function failureKind(code: CodexErrorCode): CodexFailureKind {
     case "transport_closed":
     case "transport_failure":
       return "transport";
-    case "capability_unavailable":
-    case "model_unsupported":
-      return "capability";
-    case "route_incompatible":
-      return "route";
     case "approval_required":
     case "permission_denied":
       return "approval";
@@ -126,10 +110,6 @@ export function failureKind(code: CodexErrorCode): CodexFailureKind {
       return "timeout";
     case "turn_failed":
       return "turn";
-    case "execution_failed":
-      return "uncertain_effect";
-    case "subprocess_failed":
-      return "subprocess";
     case "closed":
       return "closed";
     case "server_error":

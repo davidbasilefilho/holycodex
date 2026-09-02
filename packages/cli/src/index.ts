@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { runBinary } from "./binary.ts";
+
 export const packageName = "holycodex" as const;
 
 export { runCli, executeCommand, renderHuman, renderProgress } from "./commands.ts";
@@ -12,10 +14,11 @@ export {
   readActiveInstallRecord,
   CapabilityStateRecordSchema,
   CapabilityInstallStateSchema,
+  InstallRequestSchema,
   InstallRecordSchema,
   InstallerError,
 } from "./installer.ts";
-export { doctorHolyCodex, cleanupHolyCodex, CleanupError } from "./maintenance.ts";
+export { doctorHolyCodex, removeHolyCodex } from "./maintenance.ts";
 export {
   publicManifestPath,
   readCanonicalBaseVersion,
@@ -32,38 +35,12 @@ export {
 export { CodexOfficialPluginManager, OfficialPluginManagerError } from "./official-manager.ts";
 export type { OfficialPluginCommandRunner } from "./official-manager.ts";
 export {
-  executeWorkflowCommand,
-  createDefaultWorkflowService,
-  invokeWorkflowCapability,
-  loadNativeWorkflow,
-  readWorkflowSource,
-  optionalArgs,
-  WorkflowCommandError,
-} from "./workflow.ts";
-export { WorkflowStoreError } from "./workflow-store.ts";
-export {
-  assertSafeSessionId,
-  assertSafeWorkflowName,
-  GeneratedWorkflowStore,
-  GeneratedWorkflowStoreError,
-  shortWorkflowHash,
-  GENERATED_WORKFLOW_DEFAULT_TTL_MS,
-  GENERATED_WORKFLOW_MAX_NAME_BYTES,
-  GENERATED_WORKFLOW_MAX_SESSION_ID_BYTES,
-  GENERATED_WORKFLOW_MAX_SOURCE_BYTES,
-  GENERATED_WORKFLOW_NAMING_VERSION,
-  GENERATED_WORKFLOW_SCHEMA_EPOCH,
-} from "./generated-workflow-store.ts";
-export type {
-  GeneratedWorkflowCleanupResult,
-  GeneratedWorkflowMetadata,
-  GeneratedWorkflowStoreOptions,
-  NativeWorkflowStoredIdentity,
-  SafeWorkflowFilesystemBoundary,
-  SafeWorkflowDirectoryEntry,
-  StoredGeneratedWorkflow,
-} from "./generated-workflow-store.ts";
-export { RefinementStoreError } from "./refinement-store.ts";
+  projectNativeAgents,
+  projectRootAgent,
+  installNativeAgents,
+  removeManagedNativeAgents,
+  renderNativeAgent,
+} from "./native-agents.ts";
 export type {
   CapabilityInstallState,
   CapabilityStateRecord,
@@ -71,8 +48,6 @@ export type {
   CliContext,
   CliIo,
   HumanRenderOptions,
-  CleanupResult,
-  CleanupScope,
   CommandResult,
   DoctorCheck,
   DoctorResult,
@@ -81,27 +56,13 @@ export type {
   InstallResult,
   InstallerOptions,
   InstallerPaths,
+  ManagedArtifact,
   OfficialPluginManager,
   OfficialPluginStatus,
   OptionalSelections,
   ParsedCommand,
-  WorkflowService,
-  WorkflowCapabilities,
-  WorkflowCapabilityPort,
-  WorkflowCapabilityRequest,
-  WorkflowCapabilityResult,
-  AppServerAssignmentPort,
-  NativeAgentDispatchPort,
-  Autonomy,
+  RemoveResult,
 } from "./types.ts";
 export type { InstallRequest } from "./installer.ts";
 
-if (import.meta.main) {
-  if (Bun.argv[2] === "--__holycodex-workflow-child") {
-    const { runWorkflowChild } = await import("@holycodex/workflow-runtime");
-    await runWorkflowChild();
-  } else {
-    const { runBinary } = await import("./binary.ts");
-    process.exitCode = await runBinary();
-  }
-}
+if (import.meta.main) process.exitCode = await runBinary();

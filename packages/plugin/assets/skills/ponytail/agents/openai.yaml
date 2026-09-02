@@ -1,6 +1,0 @@
-interface:
-  display_name: "Ponytail"
-  short_description: "Apply the exact upstream lazy-senior-developer guidance in lite mode."
-  default_prompt: "Load $ponytail in lite mode for this bounded coding assignment."
-policy:
-  allow_implicit_invocation: false

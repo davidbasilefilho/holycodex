@@ -12,7 +12,7 @@ import { runBinary, runCli, assertRootText, pathWithin } from "../packages/cli/s
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const cleanRoomBase = "682adea6d6cba374251152af612489126e9c64c1";
 const frozenOracle = "eb796235f2f29f2c67c869408a0e22c1a72c13eb";
-const parityTarget = "`holycodex-legacy` at `main`";
+const parityTarget = "Foundation version";
 const ParityFixturesSchema = Schema.Struct({
   schema_epoch: Schema.Literal("holycodex-parity-fixtures-1"),
   normalization: Schema.String.pipe(Schema.minLength(1)),
@@ -38,43 +38,35 @@ const expectedSurfaceIds = [
   "cli-help",
   "cli-version",
   "cli-json-and-exits",
-  "workflow-lifecycle",
-  "workflow-native-default",
-  "workflow-compatibility-gate",
   "v2-disabled-fallback",
   "v2-unverified",
   "capability-denied-enabled",
   "rules-compaction",
-  "lsp-platform-fixtures",
   "native-install-readback",
-  "packed-install-doctor-cleanup",
-  "babysit-ci",
+  "packed-install-doctor-remove",
   "cutover-runbook",
 ] as const;
 
-describe("0.15 foundation parity contract", () => {
+describe("0.16 foundation parity contract", () => {
   test("records the exact baseline identities and sole permitted difference", async () => {
     const matrix = await readFile(resolve(workspaceRoot, "docs/PARITY.md"), "utf8");
 
     expect(matrix).toContain(cleanRoomBase);
     expect(matrix).toContain(frozenOracle);
     expect(matrix).toContain(parityTarget);
-    expect(matrix).toContain("target-backed evidence is\npending");
-    expect(matrix).toContain(
-      "observation after an approved push or tag, with no mutation authority",
-    );
-    expect(matrix).toContain("Admissible evidence");
+    expect(matrix).toContain("Worker.operations");
+    expect(matrix).toContain("admissible difference");
     expect(matrix).toContain("Independent proof");
     expect(matrix).toContain("proven");
     expect(matrix).toContain("capability-gated");
     expect(matrix).toContain("external pending");
     expect(matrix).not.toMatch(/\|\s+(?:staged|future)\s+\|/iu);
-    expect(matrix).toContain("No required local capability is unresolved");
+    expect(matrix).toContain("Required surface inventory");
     const inventory = matrix.slice(matrix.indexOf("## Required surface inventory"));
     const tableRows = inventory.split("\n").filter((line) => line.startsWith("|"));
     expect(tableRows.length).toBeGreaterThan(2);
     for (const row of tableRows) {
-      expect(row.split("|")).toHaveLength(8);
+      expect(row.split("|")).toHaveLength(6);
     }
   });
 
@@ -95,7 +87,7 @@ describe("0.15 foundation parity contract", () => {
     expect(coreSources.join("\n")).toContain('from "effect/Schema"');
     expect(coreSources.join("\n")).not.toMatch(/arktype|ArkType/u);
     const docs = await readFile(resolve(workspaceRoot, "docs/DEPENDENCIES.md"), "utf8");
-    expect(docs).toContain("sole runtime");
+    expect(docs).toContain("sole boundary-validation ecosystem");
     expect(docs).not.toMatch(/arktype/iu);
   });
 
@@ -109,18 +101,13 @@ describe("0.15 foundation parity contract", () => {
       throw new Error(String(parsed.left));
     }
     expect(parsed.right.normalization).toContain("JSON decoding");
-    expect(parsed.right.matrix).toHaveLength(26);
-    expect(new Set(parsed.right.matrix.map((row) => row.id)).size).toBe(26);
+    expect(parsed.right.matrix).toHaveLength(18);
+    expect(new Set(parsed.right.matrix.map((row) => row.id)).size).toBe(18);
     for (const row of parsed.right.matrix) {
       await expect(readFile(resolve(workspaceRoot, row.owner), "utf8")).resolves.toBeTruthy();
       await expect(readFile(resolve(workspaceRoot, row.proof), "utf8")).resolves.toBeTruthy();
     }
     expect(parsed.right.surfaces.map((surface) => surface.id)).toEqual(expectedSurfaceIds);
-    expect(parsed.right.surfaces.find((surface) => surface.id === "babysit-ci")).toEqual({
-      id: "babysit-ci",
-      owner: "workflow",
-      expected: "observation-only",
-    });
     expect(parsed.right.surfaces.find((surface) => surface.id === "cutover-runbook")).toEqual({
       id: "cutover-runbook",
       owner: "release",
@@ -133,7 +120,7 @@ describe("0.15 foundation parity contract", () => {
     expect(help.exitCode).toBe(0);
     expect(help.envelope.ok).toBe(true);
     if (help.envelope.ok) {
-      expect(JSON.stringify(help.envelope.data)).toContain("capability-denied QuickJS");
+      expect(JSON.stringify(help.envelope.data)).toContain("native Codex plugin management");
     }
 
     const manifestRaw: unknown = JSON.parse(
@@ -172,8 +159,6 @@ describe("0.15 foundation parity contract", () => {
 
   test("proves isolated platform path fixtures and the plugin asset surfaces", async () => {
     const windowsRoot = assertRootText("C:\\Users\\fixture\\.codex", "CODEX_HOME", "win32");
-    const gitBashRoot = assertRootText("/c/Users/fixture/.codex", "CODEX_HOME", "win32");
-    expect(gitBashRoot).toBe(windowsRoot);
     expect(pathWithin(windowsRoot, "C:\\Users\\fixture\\.codex\\runs", "win32")).toBe(true);
 
     const [rules, compaction] = await Promise.all([
@@ -187,9 +172,7 @@ describe("0.15 foundation parity contract", () => {
   test("keeps every required practical surface mapped to an independent proof", async () => {
     const proofPaths = [
       "packages/cli/src/index.test.ts",
-      "packages/cli/src/workflow.test.ts",
       "packages/cli/src/index.test.ts",
-      "packages/codex/src/boundary.test.ts",
       "packages/codex/src/generated-artifact.test.ts",
       "packages/codex/test/fixtures/codex-cli-0.148.0/capability-v1-fallback.ndjson",
       "packages/codex/test/fixtures/codex-cli-0.148.0/capability-v2-disabled.ndjson",
@@ -206,13 +189,9 @@ describe("0.15 foundation parity contract", () => {
       await expect(readFile(resolve(workspaceRoot, path), "utf8")).resolves.toBeTruthy();
     }
     const matrix = await readFile(resolve(workspaceRoot, "docs/PARITY.md"), "utf8");
-    expect(matrix).toContain(
-      "observation after an approved push or tag, with no mutation authority",
-    );
-    expect(matrix).toContain("real canonical clone remains external pending");
-    expect(matrix).toContain(
-      "External repository identities and metadata are pending until cutover",
-    );
+    expect(matrix).toContain("Worker.operations");
+    expect(matrix).toContain("external pending");
+    expect(matrix).toContain("approved remote actions");
   });
 });
 

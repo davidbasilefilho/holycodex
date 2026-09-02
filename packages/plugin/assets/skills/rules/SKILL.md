@@ -1,7 +1,10 @@
 ---
 name: rules
-description: Use when repository rules fail discovery, validation, or application; trace the owning rule path.
+description: Use when Root assigns a repository rule discovery, validation, or application failure; trace the owning rule path.
 ---
 
-Owner: Worker. Boundary: inspect the owning rule loader and preserve deduplication, limits, caching, and trust boundaries.
-Completion: the rule path, policy, and failure evidence are explicit.
+Owner: Worker. Boundary: inspect the owning rule loader and preserve
+deduplication, limits, caching, trust boundaries, and rule ownership.
+
+Completion: the rule path, policy, observed failure, and verification evidence
+are explicit, or the exact blocker is returned.

@@ -13,13 +13,11 @@ export const digestTextSchema = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}
 const RunIdSchema = identifierTextSchema.pipe(Schema.brand("RunId"));
 const ProjectIdSchema = identifierTextSchema.pipe(Schema.brand("ProjectId"));
 const TrustIdSchema = identifierTextSchema.pipe(Schema.brand("TrustId"));
-const WorkflowIdSchema = identifierTextSchema.pipe(Schema.brand("WorkflowId"));
 const Sha256DigestSchema = digestTextSchema.pipe(Schema.brand("Sha256Digest"));
 
 export type RunId = typeof RunIdSchema.Type;
 export type ProjectId = typeof ProjectIdSchema.Type;
 export type TrustId = typeof TrustIdSchema.Type;
-export type WorkflowId = typeof WorkflowIdSchema.Type;
 export type Sha256Digest = typeof Sha256DigestSchema.Type;
 
 function createIdentifier<T extends string>(
@@ -45,10 +43,6 @@ export function createProjectId(value: unknown): CoreResult<ProjectId> {
 
 export function createTrustId(value: unknown): CoreResult<TrustId> {
   return createIdentifier(TrustIdSchema, value, "trust_id");
-}
-
-export function createWorkflowId(value: unknown): CoreResult<WorkflowId> {
-  return createIdentifier(WorkflowIdSchema, value, "workflow_id");
 }
 
 export function createSha256Digest(value: unknown): CoreResult<Sha256Digest> {
@@ -80,18 +74,7 @@ export const ProjectIdentityInputSchema = Schema.Struct({
 });
 export type ProjectIdentityInput = typeof ProjectIdentityInputSchema.Type;
 
-export const WorkflowIdentityInputSchema = Schema.Struct({
-  workflow_id: identifierTextSchema,
-  project_id: identifierTextSchema,
-  source_digest: digestTextSchema,
-});
-export type WorkflowIdentityInput = typeof WorkflowIdentityInputSchema.Type;
-
-export type IdentityRecord =
-  | RunIdentityInput
-  | TrustIdentityInput
-  | ProjectIdentityInput
-  | WorkflowIdentityInput;
+export type IdentityRecord = RunIdentityInput | TrustIdentityInput | ProjectIdentityInput;
 
 export const SchemaEpochIdSchema = Schema.String.pipe(Schema.pattern(/^state-[0-9]+\.[0-9]+$/u));
 export type SchemaEpochId = typeof SchemaEpochIdSchema.Type;
@@ -112,12 +95,7 @@ export function parseIdentityInput(input: unknown): CoreResult<IdentityRecord> {
     return success(project.right);
   }
 
-  const workflow = decodeUnknown(WorkflowIdentityInputSchema, input);
-  if (Either.isRight(workflow)) {
-    return success(workflow.right);
-  }
-
-  return failure(inputError("identity input", workflow.left));
+  return failure(inputError("identity input", project.left));
 }
 
 export function parseSchemaEpochId(input: unknown): CoreResult<SchemaEpochId> {

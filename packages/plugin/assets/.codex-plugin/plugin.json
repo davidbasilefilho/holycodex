@@ -7,17 +7,17 @@
   "homepage": "https://github.com/davidbasilefilho/holycodex",
   "repository": "https://github.com/davidbasilefilho/holycodex",
   "license": "Apache-2.0",
-  "keywords": ["codex", "agents", "workflows", "developer-tools"],
+  "keywords": ["codex", "agents", "developer-tools"],
   "skills": "./skills",
   "interface": {
     "displayName": "HolyCodex",
-    "shortDescription": "Root-directed Codex workflows and bounded specialist skills.",
-    "longDescription": "HolyCodex provides plan-aware workflows, bounded specialist agents, and deterministic verification for Codex tasks.",
+    "shortDescription": "Root-directed Codex subagents and bounded specialist skills.",
+    "longDescription": "HolyCodex provides native Codex subagent profiles, bounded specialist skills, and deterministic verification for Codex tasks.",
     "developerName": "David Basile Filho",
     "category": "Developer Tools",
     "capabilities": ["Skills", "Code Intelligence"],
     "defaultPrompt": ["Use HolyCodex to implement and verify this task."]
   },
   "name": "holycodex",
-  "version": "0.15.2"
+  "version": "0.16.0"
 }

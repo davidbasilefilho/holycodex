@@ -2,7 +2,7 @@
 
 This is a historical, approval-gated runbook retained for evidence. It is
 inert until a human confirms the exact target and command; it does not define
-current product behavior or the official plugin installation path.
+current product behavior or the native plugin installation path.
 
 This runbook owns the repository rename and archival sequence. It preserves
 issues, pull requests, releases, license metadata, provenance, branches, and
@@ -183,8 +183,8 @@ a temporary clone. Keep the clone result and checked-out SHA in the cutover
 record. The existing fixture and dry-run proofs do not substitute for this
 canonical clone.
 
-After the push succeeds, obtain separate approval to load the `babysit-ci`
-observation workflow and inspect the required Ubuntu and Windows/Git Bash jobs.
+After the push succeeds, obtain separate approval to load `babysit-ci` and
+inspect the required Ubuntu and Windows/Git Bash jobs.
 Babysit-ci may read status and report evidence only; it has no permission to
 rerun, cancel, edit, approve, merge, push, tag, publish, deploy, or otherwise
 mutate external state. Per the parity decision, post-push CI green is

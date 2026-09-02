@@ -15,11 +15,6 @@ import {
   type ReleaseChannel,
 } from "./release-version.ts";
 import { runCommand, runChecked, withTemporaryDirectory, writeJson } from "./process.ts";
-import {
-  SafeFilesystemManifestSchema,
-  type SafeFilesystemManifest,
-} from "../packages/safe-filesystem/src/index.ts";
-import { runSafeFilesystemNativeTest } from "./safe-filesystem-native-test.ts";
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
 const cliRoot = join(workspaceRoot, "packages/cli");
@@ -156,25 +151,6 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
     join(installedPackageRoot, "dist/assets/plugin/plugin.json"),
     "the installed plugin payload source",
   );
-  const helperKey = process.platform === "win32" ? "win32-x64" : "linux-x64";
-  const helperName = process.platform === "win32" ? "safe-filesystem.exe" : "safe-filesystem";
-  const helperPath = join(
-    installedPackageRoot,
-    "dist/assets/safe-filesystem",
-    helperKey,
-    helperName,
-  );
-  await requireFile(helperPath, "the installed safe filesystem helper");
-  const helperManifest = decode(
-    SafeFilesystemManifestSchema,
-    JSON.parse(await readFile(join(dirname(helperPath), "manifest.json"), "utf8")) as unknown,
-    "the installed safe filesystem helper manifest",
-  ) satisfies SafeFilesystemManifest;
-  assert(
-    (await sha256File(helperPath)) === helperManifest.helperSha256,
-    "the installed safe filesystem helper digest does not match its manifest",
-  );
-  await runSafeFilesystemNativeTest(helperPath);
   for (const relativePath of ["agents/root.md", "rules/manifest.json", "skills/plan/SKILL.md"]) {
     await requireFile(
       join(installedPackageRoot, "dist/assets/plugin", relativePath),
@@ -283,7 +259,7 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
 
   const installEnvelope = await runCli(
     installedEntry,
-    ["install", "--yes", "--json", "--codex-home", codexHome],
+    ["install", "--yes", "--json", "--no-frontend", "--no-security", "--codex-home", codexHome],
     installedRoot,
     commands,
     codexEnvironment,
@@ -304,15 +280,15 @@ export async function smokePublicPackage(packed: PackedPublicPackage): Promise<P
     assert(doctorData["healthy"] === true, "packed package doctor did not report healthy");
   }
 
-  const cleanupEnvelope = await runCli(
+  const removeEnvelope = await runCli(
     installedEntry,
-    ["cleanup", "--scope", "workspace", "--yes", "--json", "--codex-home", codexHome],
+    ["remove", "--yes", "--json", "--codex-home", codexHome],
     installedRoot,
     commands,
     codexEnvironment,
   );
-  assert(cleanupEnvelope.ok, "packed package cleanup command failed");
-  assert(!(await exists(join(stateRoot, "active.json"))), "cleanup left the active install record");
+  assert(removeEnvelope.ok, "packed package remove command failed");
+  assert(!(await exists(join(stateRoot, "active.json"))), "remove left the active install record");
   return {
     packageVersion: version,
     tarball: packed.tarball,

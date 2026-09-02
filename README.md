@@ -1,164 +1,72 @@
 # HolyCodex
 
-HolyCodex is an independently authored, clean-room foundation for installing
-a Codex plugin and running bounded TypeScript workflows. The
-public package is the `holycodex` CLI; the workspace packages keep domain
-values, Codex transport, isolated evaluation, durable orchestration, and plugin
-assembly behind one-way interfaces.
+## What?
 
-The native CLI package graph and control/data flow are owned by
-[the architecture contract](docs/ARCHITECTURE.md#package-graph). Runtime
-behavior, CLI wire rules, security boundaries, and admissible evidence belong
-to [BEHAVIOR](docs/BEHAVIOR.md), [CLI](docs/CLI.md),
-[SECURITY](docs/SECURITY.md), and [PROVENANCE](docs/PROVENANCE.md).
+HolyCodex is a clean-room Codex plugin and `holycodex` CLI. It installs the
+repository's native subagent profiles and keeps configuration small, typed,
+and owned by one package.
 
-## Start here
+Its package graph keeps domain, Codex, plugin, and CLI seams one-way. Native
+agent types are selected by route and return bounded evidence to Root.
 
-Install the pinned toolchain and workspace dependencies with `mise` and Bun:
+## Why?
+
+The Codex platform already owns plugin installation and subagent execution.
+HolyCodex supplies the routing policy, safe configuration boundary, and
+optional capability selection without introducing a second execution engine.
+
+## How?
+
+Install through the published CLI and Codex's native plugin management:
+
+```sh
+bunx holycodex install
+```
+
+Remove the installed HolyCodex scope through the same native boundary:
+
+```sh
+bunx holycodex remove
+```
+
+Choose a plan for routing only and choose the service tier independently:
+
+```sh
+bunx holycodex install --yes --plan plus --tier standard
+```
+
+The available plans select native subagent routes. A tier changes service
+handling only; it does not change routes, authority, or proof requirements.
+
+Optional Codex plugins are explicit selections:
+
+```sh
+bunx holycodex install --yes --work --frontend --security --computer-use
+```
+
+The four optional selections are Work, frontend tooling, Security, and
+Computer Use. Missing or unavailable capabilities fail closed.
+
+For repository work, use the pinned toolchain:
 
 ```sh
 mise install
 mise exec -- bun install --frozen-lockfile
-mise exec -- bun packages/cli/src/index.ts version
-```
-
-The command reads the canonical public version from the `holycodex` package at
-runtime. Do not copy a release version into documentation or source.
-
-Run the repository checks with Vite+:
-
-```sh
-mise exec -- vp check --fix
-mise exec -- vp test --run
-git diff --check
-```
-
-The complete local validation gate is:
-
-```sh
 mise exec -- bun run validate
 ```
 
-This gate includes the package build, artifact/provenance checks, isolated
-package smoke, and the fixture fresh-clone proof. Checked-in CI runs the same
-gate on Ubuntu and Windows/Git Bash. Publication, deployment, registry access,
-and release-tag actions are not configured; see [RELEASING.md](docs/RELEASING.md)
-and [CUTOVER.md](docs/CUTOVER.md) for the separate approval boundaries.
+Read the owning contracts for [architecture](docs/ARCHITECTURE.md),
+[behavior](docs/BEHAVIOR.md), [CLI](docs/CLI.md),
+[installation](docs/INSTALLATION.md), [security](docs/SECURITY.md), and
+[provenance](docs/PROVENANCE.md).
 
-## CLI examples
+## Contribute
 
-### Official plugin installation
+Use Bun through `mise`, keep changes on the smallest mergeable seam, and run
+the checks that prove it. Preserve the clean-room boundary: use the task
+specification, admitted current-source facts, and repository-authored files;
+do not import undocumented historical implementation material.
 
-Install HolyCodex through the Codex plugin marketplace. This is the supported
-installation method:
+## License
 
-```sh
-codex plugin marketplace add davidbasilefilho/holycodex
-codex plugin add holycodex@holycodex
-```
-
-Use the standalone CLI through `bunx` for setup and diagnostics when the
-plugin cannot start. `bunx holycodex install` uses Codex's native plugin and
-feature commands, verifies Default-mode user input, and projects the native
-specialist agent types.
-
-Use an isolated `CODEX_HOME` when trying installation locally.
-
-```sh
-test_root="$(mktemp -d)"
-cli='mise exec -- bun packages/cli/src/index.ts'
-
-$cli install --yes --json --codex-home "$test_root/codex"
-$cli doctor --json --codex-home "$test_root/codex"
-$cli cleanup --scope workspace --yes --json --codex-home "$test_root/codex"
-```
-
-An installed executable exposes the same command surface:
-
-```sh
-holycodex doctor --json
-holycodex cleanup --scope expired --json
-holycodex workflow run ./workflow.ts '{}' --trusted --json
-holycodex workflow list --json
-```
-
-QuickJS TypeScript workflow execution is the production path. The CLI
-type-checks and validates a trusted workflow before evaluating it. Capability
-calls are denied unless an approved typed port is supplied:
-
-```sh
-holycodex workflow run ./workflow.ts '{}' --trusted --json
-holycodex workflow run ./workflow.ts '{}' --json
-```
-
-`--compat-quickjs` remains a deprecated one-release alias and does not select
-a different evaluator. Stdin derives an objective from the submitted workflow
-when `--task` is omitted. CLI-created workflows
-are stored under `~/.codex/workflows/{codex-session-id}/{workflow-name}-{4-lowercase-hex}.ts`,
-for example `review-api-a3f9.ts`.
-`holycodex workflow --help` and `holycodex --help` show the current syntax,
-including capability-gated Work, Web, Security, Computer Use, LSP, LSP setup,
-and Git Bash providers. A missing provider returns a typed `capability_denied`
-result; selecting a provider does not claim availability or install a fallback.
-
-Human output is concise, status-first, and indented for scanning, in the style
-of the official Bun CLI. `--json` remains the stable machine contract: one
-bounded envelope on stdout, with diagnostics and progress on stderr.
-
-Workflow lifecycle commands persist validated state: `run` creates a run,
-`inspect` and `show` are read-only projections, `pause`, `restart`, `reopen`,
-`stop`, `resume`, `continuation`, `goal`, `save`, `invoke`, and refinements
-apply only valid transitions. Resume resupplies source and arguments and
-verifies their stored digests. An uncertain effect remains blocked and is not
-retried automatically. If a run is stale, inspect it first, then use
-`workflow restart <run-id>` only after it is terminal; restart reopens the run
-without claiming an uncertain effect. Use
-`cleanup --scope workflow-session --session-id <id> --yes` only to remove an
-inactive generated-workflow session. The exact command syntax, envelopes, exit codes, and
-non-TTY behavior are owned by [CLI.md](docs/CLI.md). Installation identity,
-recovery and cleanup are owned by
-[INSTALLATION.md](docs/INSTALLATION.md) and [STATE.md](docs/STATE.md).
-
-## Repository map
-
-- [Installation](docs/INSTALLATION.md) — native setup, configuration readback,
-  doctor, cleanup, and isolated roots.
-- [State](docs/STATE.md) — schema epochs, identities, journals, checkpoints,
-  replay, continuation, refinement, and telemetry.
-- [Configuration](docs/CONFIGURATION.md) — precedence, plans, optional
-  selections, paths, and managed writes.
-- [Development](docs/DEVELOPMENT.md) — the Bun, mise, Vite+, TypeScript, and
-  Effect Schema workflow.
-- [Releasing](docs/RELEASING.md) — versioning, local/CI proof, and approval
-  boundaries.
-- [Cutover](docs/CUTOVER.md) — the recoverable, separately gated repository
-  rename and archival runbook.
-- [Dependencies](docs/DEPENDENCIES.md) — dependency rationale and source
-  links.
-- [Third-party notices](THIRD-PARTY-NOTICES.md) — installed runtime and
-  development attribution records.
-
-## Clean-room provenance and security
-
-This repository is authored under the clean-room boundary recorded in
-[PROVENANCE.md](docs/PROVENANCE.md). It uses only the task specification,
-expressly admitted official current-source facts, and files authored on this
-repository for internal consistency. Do not import undocumented historical
-behavior or legacy implementation material.
-
-Report security concerns through the process in
-[SECURITY.md](docs/SECURITY.md). The repository's license and informational
-notices are [LICENSE](LICENSE), [NOTICE](NOTICE), and
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-
-## Current limitations
-
-The default CLI workflow adapter has no configured specialist executor, so a
-workflow that requests a specialist operation fails closed until an approved
-executor is supplied. Official plugin selection depends on a capable Codex
-executable. `multi_agent_v2` is locally disabled and its distinct generated
-lifecycle is unverified; advertised V2 therefore fails closed and the stable
-App Server fallback remains executable. Unknown schema epochs fail closed. npm
-publication is manual, approval-gated, and
-version-checked through `.github/workflows/publish.yml`; GitHub release
-publication and deployment remain excluded.
+HolyCodex is licensed under [Apache-2.0](LICENSE).

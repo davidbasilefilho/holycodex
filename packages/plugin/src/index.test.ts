@@ -15,7 +15,6 @@ import {
   sourceManifestPath,
   validateSource,
   verifyPayload,
-  verifyPonytailMetadata,
 } from "./index";
 import { normalizeRelativePath } from "./source.ts";
 
@@ -85,10 +84,7 @@ describe("plugin source assets", () => {
         join(pluginSourceRoot, "skills", skill, "agents", "openai.yaml"),
         "utf8",
       );
-      if (skill === "ponytail") {
-        expect(body).toContain("name: ponytail");
-        expect(body).toContain("Boundaries");
-      } else if (skill === "stop-slop") {
+      if (skill === "stop-slop") {
         expect(body).toContain("references/phrases.md");
         expect(body).toContain("references/structures.md");
         expect(body).toContain("references/examples.md");
@@ -118,18 +114,6 @@ describe("plugin source assets", () => {
     expect(babysitMetadata).toContain("allow_implicit_invocation: false");
     expect(source.files.map((file) => file.path)).toContain("rules/holycodex.md");
     expect(source.files.map((file) => file.path)).toContain("compaction/holycodex.md");
-  });
-
-  test("verifies vendored Ponytail metadata and rejects tampered bytes", async () => {
-    const readBytes = (path: string): Promise<Uint8Array> => readFile(join(pluginSourceRoot, path));
-    await expect(verifyPonytailMetadata(readBytes, "source_invalid")).resolves.toBeUndefined();
-
-    await expect(
-      verifyPonytailMetadata(async (path) => {
-        const bytes = await readBytes(path);
-        return path === "skills/ponytail/NOTICE" ? new Uint8Array([...bytes, 0]) : bytes;
-      }, "source_invalid"),
-    ).rejects.toMatchObject({ code: "digest_invalid" });
   });
 });
 

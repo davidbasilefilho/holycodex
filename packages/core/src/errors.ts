@@ -10,8 +10,7 @@ export type CoreErrorCode =
   | "invalid_input"
   | "invalid_plan"
   | "invalid_route"
-  | "invalid_schema_epoch"
-  | "route_unavailable";
+  | "invalid_schema_epoch";
 
 export class CoreError extends Error {
   readonly code: CoreErrorCode;

@@ -54,16 +54,9 @@ describe("release version authority", () => {
       devDependencies?: Readonly<Record<string, string>>;
     };
     const sharedDependencies = [
-      "@jitl/quickjs-ffi-types",
-      "@jitl/quickjs-wasmfile-debug-asyncify",
-      "@jitl/quickjs-wasmfile-debug-sync",
-      "@jitl/quickjs-wasmfile-release-asyncify",
-      "@jitl/quickjs-wasmfile-release-sync",
       "@types/bun",
       "@types/node",
       "effect",
-      "quickjs-emscripten",
-      "quickjs-emscripten-core",
       "typescript",
       "vite-plus",
       "vitest",

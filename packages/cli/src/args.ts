@@ -1,122 +1,69 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { lookupPlan, ServiceTierSchema } from "@holycodex/core";
+import { lookupPlan } from "@holycodex/core";
 import type { ParsedCommand } from "./types.ts";
-import { AutonomySchema, decodeSchema } from "./schema.ts";
 
 export const INSTALL_OPTION_CATALOG = Object.freeze([
-  {
-    name: "yes",
-    kind: "boolean",
-    usage: "--yes",
-    description: "Confirm non-interactive installation.",
-  },
+  { name: "yes", kind: "boolean", usage: "--yes", description: "Confirm installation." },
   {
     name: "plan",
     kind: "value",
-    usage: "--plan <name>",
-    description: "Select a configured HolyCodex plan.",
+    usage: "--plan <Go|plus-low|plus|plus-high|pro-5x|pro-20x>",
+    description: "Select routing (default: plus).",
   },
   {
     name: "tier",
     kind: "value",
-    usage: "--tier <Standard|Fast>",
-    description: "Select the service tier.",
-  },
-  {
-    name: "fast",
-    kind: "boolean",
-    usage: "--fast",
-    description: "Alias for --tier Fast; conflicts with --tier.",
-  },
-  {
-    name: "autonomy",
-    kind: "value",
-    usage: "--autonomy <manual|assisted|autonomous>",
-    description: "Select the autonomy mode.",
-  },
-  {
-    name: "max-subagents",
-    kind: "value",
-    usage: "--max-subagents <n>",
-    description: "Set simultaneous specialist capacity.",
+    usage: "--tier <standard|fast|fast-all>",
+    description: "Select service handling (default: standard).",
   },
   {
     name: "work",
     kind: "boolean",
     usage: "--work / --no-work",
-    description: "Enable or disable Work providers.",
+    description: "Work plugins (default: false).",
   },
   {
-    name: "web",
+    name: "frontend",
     kind: "boolean",
-    usage: "--web / --no-web",
-    description: "Enable or disable Web providers.",
+    usage: "--frontend / --no-frontend",
+    description: "Frontend plugins via build-web-apps (default: true).",
   },
   {
     name: "security",
     kind: "boolean",
     usage: "--security / --no-security",
-    description: "Enable or disable Security providers.",
+    description: "Security plugins (default: true).",
   },
   {
     name: "computer-use",
     kind: "boolean",
     usage: "--computer-use / --no-computer-use",
-    description: "Enable or disable Computer Use providers.",
+    description: "Computer Use plugins (default: false).",
   },
   {
-    name: "official-plugin",
+    name: "add-plugin",
     kind: "value",
-    usage: "--official-plugin <id>",
-    description: "Install an additional Codex plugin; repeatable.",
+    usage: "--add-plugin <id>",
+    description: "Add a Codex plugin; repeatable.",
   },
-  {
-    name: "json",
-    kind: "boolean",
-    usage: "--json",
-    description: "Emit one plain machine envelope.",
-  },
-  {
-    name: "no-tui",
-    kind: "boolean",
-    usage: "--no-tui",
-    description: "Disable prompts and interactive output.",
-  },
+  { name: "json", kind: "boolean", usage: "--json", description: "Emit one JSON envelope." },
 ] as const);
 
-const VALUE_OPTIONS = new Set([
-  "codex-home",
-  "plan",
-  "tier",
-  "scope",
-  "run-id",
-  "session-id",
-  "name",
-  "official-plugin",
-  "task",
-  "autonomy",
-  "max-subagents",
-  "max-subagent",
-]);
+const VALUE_OPTIONS = new Set(["codex-home", "plan", "tier", "add-plugin"]);
 const BOOLEAN_OPTIONS = new Set([
   "yes",
   "json",
   "verbose",
   "dry-run",
-  "follow",
-  "trusted",
-  "compat-quickjs",
   "computer-use",
   "no-computer-use",
   "work",
   "no-work",
-  "web",
-  "no-web",
+  "frontend",
+  "no-frontend",
   "security",
   "no-security",
-  "fast",
-  "no-tui",
 ]);
 
 export class ArgumentError extends Error {
@@ -132,60 +79,28 @@ export class ArgumentError extends Error {
 }
 
 export function parseArgv(argv: readonly string[]): ParsedCommand {
-  if (argv.length === 0) {
-    throw new ArgumentError("unknown_command", "A command is required.");
-  }
+  if (argv.length === 0) throw new ArgumentError("unknown_command", "A command is required.");
   if (argv.includes("-h") || argv.includes("--help") || argv.includes("--help=true")) {
     return { command: "help", positionals: [], options: {} };
   }
-  if (argv[0] === "help") {
-    return { command: "help", positionals: argv.slice(1), options: {} };
-  }
-  if (argv[0] === "-v") {
+  if (argv[0] === "help") return { command: "help", positionals: argv.slice(1), options: {} };
+  if (argv[0] === "-v" || argv[0] === "--version" || argv[0] === "--version=true") {
     return parseArgv(["version", ...argv.slice(1)]);
   }
-  if (argv[0] === "--version") {
-    return parseArgv(["version", ...argv.slice(1)]);
-  }
-  if (argv[0] === "--version=true") {
-    return parseArgv(["version", ...argv.slice(1)]);
-  }
-  const [top, second, third, ...rest] = argv;
+  const command = argv[0];
   if (
-    top !== "install" &&
-    top !== "doctor" &&
-    top !== "cleanup" &&
-    top !== "version" &&
-    top !== "workflow"
+    command !== "install" &&
+    command !== "doctor" &&
+    command !== "remove" &&
+    command !== "version"
   ) {
-    throw new ArgumentError("unknown_command", "Unknown command.", { command: top ?? "" });
+    throw new ArgumentError("unknown_command", "Unknown command.", { command: command ?? "" });
   }
-  const commandParts = [top];
-  let remainder: string[] = [...rest];
-  if (top === "workflow") {
-    if (second === undefined || second.startsWith("-")) {
-      throw new ArgumentError("unknown_command", "A workflow command is required.");
-    }
-    commandParts.push(second === "continue" ? "continuation" : second);
-    remainder = [third, ...rest].filter((value): value is string => value !== undefined);
-    if (second === "refinement") {
-      const refinement = remainder.shift();
-      if (!refinement || refinement.startsWith("-")) {
-        throw new ArgumentError("unknown_command", "A workflow refinement command is required.");
-      }
-      commandParts.push(refinement);
-    }
-  } else {
-    remainder = [second, third, ...rest].filter((value): value is string => value !== undefined);
-  }
-
   const positionals: string[] = [];
   const options: Record<string, string | boolean | readonly string[]> = {};
-  for (let index = 0; index < remainder.length; index += 1) {
-    const token = remainder[index];
-    if (token === undefined) {
-      continue;
-    }
+  for (let index = 1; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (token === undefined) continue;
     if (token === "-" || !token.startsWith("-")) {
       positionals.push(token);
       continue;
@@ -197,59 +112,55 @@ export function parseArgv(argv: readonly string[]): ParsedCommand {
     }
     const withoutPrefix = token.slice(2);
     const equalsIndex = withoutPrefix.indexOf("=");
-    const name = equalsIndex >= 0 ? withoutPrefix.slice(0, equalsIndex) : withoutPrefix;
+    const rawName = equalsIndex >= 0 ? withoutPrefix.slice(0, equalsIndex) : withoutPrefix;
     const inlineValue = equalsIndex >= 0 ? withoutPrefix.slice(equalsIndex + 1) : undefined;
-    const normalizedName = normalizeOptionName(name);
-    if (!VALUE_OPTIONS.has(normalizedName) && !BOOLEAN_OPTIONS.has(normalizedName)) {
-      throw new ArgumentError("invalid_argument", "Unknown option.", { option: `--${name}` });
+    const name = rawName.replaceAll("_", "-");
+    if (!VALUE_OPTIONS.has(name) && !BOOLEAN_OPTIONS.has(name)) {
+      throw new ArgumentError("invalid_argument", "Unknown option.", { option: `--${rawName}` });
     }
-    if (VALUE_OPTIONS.has(normalizedName)) {
-      const value = inlineValue ?? remainder[index + 1];
-      if (value === undefined || value.length === 0 || value.startsWith("--")) {
-        throw new ArgumentError("invalid_argument", `Option --${name} requires a value.`, {
-          option: `--${name}`,
+    if (VALUE_OPTIONS.has(name)) {
+      const value = inlineValue ?? argv[index + 1];
+      if (value === undefined || value.length === 0 || value.startsWith("-")) {
+        throw new ArgumentError("invalid_argument", `Option --${rawName} requires a value.`, {
+          option: `--${rawName}`,
         });
       }
-      if (inlineValue === undefined) {
-        index += 1;
-      }
-      const canonicalName = normalizedName === "max-subagent" ? "max-subagents" : normalizedName;
-      if (canonicalName === "official-plugin") {
-        const previous = options[normalizedName];
-        const values = Array.isArray(previous) ? [...previous, value] : [value];
-        options[canonicalName] = values;
+      if (inlineValue === undefined) index += 1;
+      if (name === "add-plugin") {
+        const previous = options[name];
+        options[name] = Array.isArray(previous) ? [...previous, value] : [value];
       } else {
-        if (options[canonicalName] !== undefined) {
+        if (options[name] !== undefined) {
           throw new ArgumentError(
             "invalid_argument",
-            `Option --${name} may only be supplied once.`,
-            { option: `--${name}` },
+            `Option --${rawName} may only be supplied once.`,
+            {
+              option: `--${rawName}`,
+            },
           );
         }
-        options[canonicalName] = value;
+        options[name] = value;
       }
       continue;
     }
     if (inlineValue !== undefined && inlineValue !== "true" && inlineValue !== "false") {
-      throw new ArgumentError("invalid_argument", `Option --${name} is boolean.`, {
-        option: `--${name}`,
+      throw new ArgumentError("invalid_argument", `Option --${rawName} is boolean.`, {
+        option: `--${rawName}`,
       });
     }
-    const value = inlineValue === "false" ? false : true;
-    if (options[normalizedName] !== undefined) {
-      throw new ArgumentError("invalid_argument", `Option --${name} may only be supplied once.`, {
-        option: `--${name}`,
-      });
+    if (options[name] !== undefined) {
+      throw new ArgumentError(
+        "invalid_argument",
+        `Option --${rawName} may only be supplied once.`,
+        {
+          option: `--${rawName}`,
+        },
+      );
     }
-    options[normalizedName] = value;
+    options[name] = inlineValue === "false" ? false : true;
   }
-  const command = commandParts.join(" ");
   validateCommand(command, positionals, options);
   return { command, positionals, options };
-}
-
-function normalizeOptionName(name: string): string {
-  return name.replaceAll("_", "-");
 }
 
 function validateCommand(
@@ -265,7 +176,7 @@ function validateCommand(
       });
     }
   }
-  const expected = positionalRange(command);
+  const expected = command === "version" ? { min: 0, max: 1 } : { min: 0, max: 0 };
   if (positionals.length < expected.min || positionals.length > expected.max) {
     throw new ArgumentError("invalid_argument", `Invalid positional arguments for ${command}.`);
   }
@@ -274,57 +185,15 @@ function validateCommand(
     throw new ArgumentError("invalid_argument", "The plan is not supported.", { plan });
   }
   const tier = options["tier"];
-  if (typeof tier === "string" && decodeSchema(ServiceTierSchema, tier) === undefined) {
+  if (typeof tier === "string" && tier !== "standard" && tier !== "fast" && tier !== "fast-all") {
     throw new ArgumentError("invalid_argument", "The tier is not supported.", { tier });
   }
-  const autonomy = options["autonomy"];
-  if (typeof autonomy === "string" && decodeSchema(AutonomySchema, autonomy) === undefined) {
-    throw new ArgumentError("invalid_argument", "The autonomy mode is not supported.", {
-      autonomy,
-    });
-  }
-  const maxSubagents = options["max-subagents"];
-  if (
-    typeof maxSubagents === "string" &&
-    (!/^\d+$/u.test(maxSubagents) ||
-      Number(maxSubagents) < 1 ||
-      !Number.isSafeInteger(Number(maxSubagents)))
-  ) {
-    throw new ArgumentError("invalid_argument", "The maximum specialist count is invalid.", {
-      max_subagents: maxSubagents,
-    });
-  }
-  if (
-    options["scope"] !== undefined &&
-    options["scope"] !== "run" &&
-    options["scope"] !== "workspace" &&
-    options["scope"] !== "expired" &&
-    options["scope"] !== "workflow-session"
-  ) {
-    throw new ArgumentError("invalid_argument", "The cleanup scope is not supported.", {
-      scope: String(options["scope"]),
-    });
-  }
-  if (options["fast"] === true && options["tier"] !== undefined) {
-    throw new ArgumentError("invalid_argument", "Conflicting --fast and --tier options.");
-  }
-  if (command === "cleanup" && options["scope"] === undefined) {
-    throw new ArgumentError("invalid_argument", "Cleanup requires --scope.");
-  }
-  if (
-    command === "workflow inspect" &&
-    options["follow"] !== undefined &&
-    typeof options["follow"] !== "boolean"
-  ) {
-    throw new ArgumentError("invalid_argument", "--follow is boolean.");
-  }
-  const positiveNegativePairs = [
+  for (const [positive, negative] of [
     ["computer-use", "no-computer-use"],
     ["work", "no-work"],
-    ["web", "no-web"],
+    ["frontend", "no-frontend"],
     ["security", "no-security"],
-  ] as const;
-  for (const [positive, negative] of positiveNegativePairs) {
+  ] as const) {
     if (options[positive] !== undefined && options[negative] !== undefined) {
       throw new ArgumentError(
         "invalid_argument",
@@ -332,93 +201,53 @@ function validateCommand(
       );
     }
   }
-}
-
-function positionalRange(command: string): { readonly min: number; readonly max: number } {
-  switch (command) {
-    case "version":
-      return { min: 0, max: 1 };
-    case "workflow run":
-      return { min: 1, max: 2 };
-    case "workflow create":
-      return { min: 1, max: 2 };
-    case "workflow check":
-      return { min: 1, max: 1 };
-    case "workflow show":
-    case "workflow inspect":
-    case "workflow pause":
-    case "workflow restart":
-    case "workflow reopen":
-    case "workflow stop":
-      return { min: 1, max: 1 };
-    case "workflow resume":
-      return { min: 2, max: 3 };
-    case "workflow continuation":
-      return { min: 2, max: 3 };
-    case "workflow goal":
-      return { min: 2, max: 2 };
-    case "workflow stop-agent":
-      return { min: 2, max: 2 };
-    case "workflow save":
-      return { min: 3, max: 3 };
-    case "workflow invoke":
-      return { min: 2, max: 3 };
-    case "workflow refinement show":
-    case "workflow refinement enable":
-    case "workflow refinement disable":
-      return { min: 1, max: 1 };
-    default:
-      return { min: 0, max: 0 };
+  if (command === "install" && options["yes"] === false) {
+    throw new ArgumentError("invalid_argument", "--yes cannot be false.");
+  }
+  if (
+    command !== "install" &&
+    Object.keys(options).some((key) =>
+      [
+        "plan",
+        "tier",
+        "work",
+        "no-work",
+        "frontend",
+        "no-frontend",
+        "security",
+        "no-security",
+        "computer-use",
+        "no-computer-use",
+        "add-plugin",
+      ].includes(key),
+    )
+  ) {
+    throw new ArgumentError(
+      "invalid_argument",
+      `Installation options are not valid for ${command}.`,
+    );
   }
 }
 
 function commandOptions(command: string): ReadonlySet<string> {
-  const common = ["json", "verbose", "no-tui"];
   switch (command) {
     case "install":
       return new Set([
-        ...INSTALL_OPTION_CATALOG.flatMap((option) =>
-          option.usage.includes(" / ") ? [option.name, `no-${option.name}`] : [option.name],
-        ),
-        "verbose",
+        ...INSTALL_OPTION_CATALOG.map((option) => option.name),
+        "no-work",
+        "no-frontend",
+        "no-security",
+        "no-computer-use",
         "codex-home",
+        "verbose",
       ]);
     case "doctor":
-      return new Set([...common, "codex-home"]);
-    case "cleanup":
-      return new Set([...common, "yes", "scope", "run-id", "session-id", "codex-home"]);
+      return new Set(["json", "verbose", "codex-home"]);
+    case "remove":
+      return new Set(["yes", "json", "verbose", "codex-home"]);
     case "version":
-      return new Set([...common, "dry-run"]);
-    case "workflow run":
-      return new Set([
-        ...common,
-        "task",
-        "plan",
-        "tier",
-        "fast",
-        "autonomy",
-        "max-subagents",
-        "trusted",
-        "compat-quickjs",
-      ]);
-    case "workflow create":
-      return new Set([...common, "name", "session-id", "trusted", "task"]);
-    case "workflow check":
-      return new Set([...common, "trusted"]);
-    case "workflow resume":
-      return new Set([...common, "trusted", "compat-quickjs"]);
-    case "workflow continuation":
-      return new Set([...common, "trusted", "compat-quickjs"]);
-    case "workflow inspect":
-      return new Set([...common, "follow"]);
-    case "workflow save":
-      return new Set([...common, "trusted", "compat-quickjs"]);
-    case "workflow invoke":
-      return new Set([...common, "trusted", "compat-quickjs"]);
+      return new Set(["json", "verbose", "dry-run"]);
     default:
-      if (command.startsWith("workflow")) {
-        return new Set(common);
-      }
-      return new Set(common);
+      return new Set();
   }
 }

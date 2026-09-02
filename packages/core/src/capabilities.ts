@@ -5,7 +5,7 @@ import * as Schema from "effect/Schema";
 export const CapabilityNameSchema = Schema.Literal(
   "computer_use",
   "work",
-  "web",
+  "frontend",
   "security",
   "lsp",
   "lsp_setup",
@@ -16,7 +16,7 @@ export type CapabilityName = typeof CapabilityNameSchema.Type;
 export const OptionalCapabilityNameSchema = Schema.Literal(
   "computer_use",
   "work",
-  "web",
+  "frontend",
   "security",
 );
 export type OptionalCapabilityName = typeof OptionalCapabilityNameSchema.Type;
@@ -62,11 +62,11 @@ const registry: Record<OptionalCapabilityName, CapabilityDefinition> = {
     ],
     ownership: "shared-preserve",
   },
-  web: {
-    name: "web",
+  frontend: {
+    name: "frontend",
     pluginIds: ["build-web-apps@openai-curated"],
     defaultSelected: false,
-    migrationKey: "web",
+    migrationKey: "frontend",
     semanticSkillIds: [
       "build-web-apps:frontend-app-builder",
       "build-web-apps:frontend-testing-debugging",
@@ -102,14 +102,14 @@ export const CAPABILITY_REGISTRY: Readonly<Record<OptionalCapabilityName, Capabi
 export const OPTIONAL_CAPABILITY_NAMES: readonly OptionalCapabilityName[] = Object.freeze([
   "computer_use",
   "work",
-  "web",
+  "frontend",
   "security",
 ]);
 
 export type OptionalCapabilitySelections = Readonly<{
   readonly computer_use: boolean;
   readonly work: boolean;
-  readonly web: boolean;
+  readonly frontend: boolean;
   readonly security: boolean;
 }>;
 
@@ -120,7 +120,7 @@ export type ExplicitOptionalCapabilitySelections = Readonly<
 export const DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS: OptionalCapabilitySelections = Object.freeze({
   computer_use: false,
   work: false,
-  web: false,
+  frontend: false,
   security: false,
 });
 
@@ -130,7 +130,7 @@ export function migrateOptionalCapabilitySelections(
   return {
     computer_use: input?.[CAPABILITY_REGISTRY.computer_use.migrationKey] === true,
     work: input?.[CAPABILITY_REGISTRY.work.migrationKey] === true,
-    web: input?.[CAPABILITY_REGISTRY.web.migrationKey] === true,
+    frontend: input?.[CAPABILITY_REGISTRY.frontend.migrationKey] === true,
     security: input?.[CAPABILITY_REGISTRY.security.migrationKey] === true,
   };
 }
@@ -143,7 +143,7 @@ export function resolveOptionalCapabilitySelections(
   return {
     computer_use: requested?.computer_use ?? fallback.computer_use,
     work: requested?.work ?? fallback.work,
-    web: requested?.web ?? fallback.web,
+    frontend: requested?.frontend ?? fallback.frontend,
     security: requested?.security ?? fallback.security,
   };
 }

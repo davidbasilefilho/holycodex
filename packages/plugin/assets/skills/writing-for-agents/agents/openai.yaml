@@ -1,6 +1,6 @@
 interface:
   display_name: "Writing for agents"
-  short_description: "Design compact, actionable agent instructions."
-  default_prompt: "Write or review agent steering with clear behavior, reason, authority, evidence, escalation, and completion."
+  short_description: "Design compact, independently actionable agent instructions."
+  default_prompt: "When Root assigns agent-instruction work, write or review steering with clear behavior, reason, authority, evidence, escalation, and completion."
 policy:
   allow_implicit_invocation: true

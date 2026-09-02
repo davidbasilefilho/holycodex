@@ -28,8 +28,6 @@ const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packagePaths = {
   "@holycodex/core": "packages/core/package.json",
   "@holycodex/codex": "packages/codex/package.json",
-  "@holycodex/workflow-runtime": "packages/workflow-runtime/package.json",
-  "@holycodex/workflow-host": "packages/workflow-host/package.json",
   "@holycodex/plugin": "packages/plugin/package.json",
   holycodex: "packages/cli/package.json",
 } as const;
@@ -37,24 +35,8 @@ const packagePaths = {
 const expectedDependencies: Record<string, readonly string[]> = {
   "@holycodex/core": [],
   "@holycodex/codex": ["@holycodex/core"],
-  "@holycodex/workflow-runtime": ["@holycodex/core"],
-  "@holycodex/workflow-host": [
-    "@holycodex/core",
-    "@holycodex/codex",
-    "@holycodex/workflow-runtime",
-  ],
   "@holycodex/plugin": ["@holycodex/core"],
-  holycodex: [
-    "@holycodex/core",
-    "@holycodex/codex",
-    "@holycodex/git-bash",
-    "@holycodex/lsp-core",
-    "@holycodex/lsp-daemon",
-    "@holycodex/workflow-host",
-    "@holycodex/workflow-runtime",
-    "@holycodex/plugin",
-    "@holycodex/safe-filesystem",
-  ],
+  holycodex: ["@holycodex/core", "@holycodex/codex", "@holycodex/plugin"],
 };
 
 describe("workspace package graph", () => {

@@ -8,13 +8,10 @@ import {
   CapabilityResultV2Schema,
   CAPABILITY_REGISTRY,
   CoreError,
-  DelegationModeSchema,
   EffortSchema,
   PLAN_CATALOG,
-  PONYTAIL_ROLE_SKILL,
   NATIVE_AGENT_TYPES,
   PlanNameSchema,
-  PlanFirstExecutionGate,
   PlanSelectionSchema,
   RoleTaskSchema,
   ROLE_DEFINITIONS,
@@ -118,22 +115,12 @@ const expectedRouteEffortsByPlan = [
 ] as const;
 
 describe("core plan catalog", () => {
-  test("contains every plan with hard cost, throughput, and emergency runaway budgets", () => {
+  test("contains every plan with routing model and reasoning policy", () => {
     expect(PLAN_CATALOG.map((plan) => plan.name)).toEqual(planNames);
     expect(PLAN_CATALOG[0]).toMatchObject({
       name: "Go",
       root: { model: "Terra", effort: "high" },
-      workflowEnabled: false,
-      budget: null,
     });
-
-    expect(PLAN_CATALOG.slice(1).map((plan) => plan.budget?.costMax)).toEqual([
-      1.5, 2.5, 4.5, 7.5, 20,
-    ]);
-    expect(PLAN_CATALOG.slice(1).every((plan) => plan.budget?.maxCalls === 10_000)).toBe(true);
-    expect(PLAN_CATALOG.slice(1).map((plan) => plan.budget?.maxConcurrency)).toEqual([
-      3, 3, 4, 6, 8,
-    ]);
     expect(PLAN_CATALOG.map((plan) => plan.root)).toEqual([
       { model: "Terra", effort: "high" },
       { model: "Sol", effort: "low" },
@@ -142,15 +129,22 @@ describe("core plan catalog", () => {
       { model: "Sol", effort: "high" },
       { model: "Sol", effort: "xhigh" },
     ]);
+    for (const plan of PLAN_CATALOG) {
+      expect(plan).not.toHaveProperty("budget");
+    }
   });
 
   test("contains all eleven route slots and exact parity-floor efforts", () => {
     expect(ROUTE_KEYS).toHaveLength(11);
     expect(new Set(ROUTE_KEYS).size).toBe(11);
-    for (const plan of PLAN_CATALOG.slice(1)) {
+    for (const plan of PLAN_CATALOG) {
       expect(plan.routes.map((route) => route.key)).toEqual(ROUTE_KEYS);
       expect(plan.routes.every((route) => route.model === "Luna")).toBe(true);
     }
+
+    expect(PLAN_CATALOG[0]?.routes.map((route) => route.effort)).toEqual(
+      PLAN_CATALOG[1]?.routes.map((route) => route.effort),
+    );
 
     for (const expected of expectedRouteEffortsByPlan) {
       const plan = lookupPlan(expected.plan);
@@ -174,18 +168,10 @@ describe("core plan catalog", () => {
       true,
       true,
     ]);
-    expect(
-      ROLE_DEFINITIONS.find((definition) => definition.role === "Explorer")?.skill_profile,
-    ).toBe(null);
-    expect(
-      ROLE_DEFINITIONS.find((definition) => definition.role === "Librarian")?.skill_profile,
-    ).toBe(null);
-    expect(ROLE_DEFINITIONS.find((definition) => definition.role === "Worker")?.skill_profile).toBe(
-      PONYTAIL_ROLE_SKILL,
-    );
-    expect(
-      ROLE_DEFINITIONS.find((definition) => definition.role === "Reviewer")?.skill_profile,
-    ).toBe(PONYTAIL_ROLE_SKILL);
+    for (const definition of ROLE_DEFINITIONS) {
+      expect(definition).not.toHaveProperty("skills");
+      expect(definition).not.toHaveProperty("skill_profile");
+    }
   });
 
   test("derives canonical native agent types from valid semantic routes", () => {
@@ -206,52 +192,37 @@ describe("core plan catalog", () => {
       expect(plan.routes.map((route) => route.effort)).toEqual(
         ROUTE_KEYS.map((key) => override?.efforts[key]),
       );
-      expect(plan.defaultServiceTier).toBe("Standard");
-      expect(plan.budget).toMatchObject({
-        costTarget: expect.any(Number),
-        costMax: expect.any(Number),
-        maxCalls: expect.any(Number),
-        maxConcurrency: expect.any(Number),
-      });
+      expect(plan.defaultServiceTier).toBe("standard");
     }
   });
 });
 
 describe("core route and boundary schemas", () => {
   test("owns capability registry references and one V2 result boundary", () => {
-    expect(CAPABILITY_REGISTRY.web.semanticSkillIds).toEqual([
+    expect(CAPABILITY_REGISTRY.frontend.semanticSkillIds).toEqual([
       "build-web-apps:frontend-app-builder",
       "build-web-apps:frontend-testing-debugging",
       "build-web-apps:react-best-practices",
     ]);
     const result = {
       protocol_version: SPECIALIST_OUTCOME_VERSION,
-      capability: "web",
+      capability: "frontend",
       route: { role: "Worker", task: "implementation" },
       evidence: ["verified"],
       data: { accepted: true },
       status: "completed",
-      summary: "web completed",
+      summary: "frontend completed",
     } as const;
     expect(Either.isRight(decodeUnknown(CapabilityResultV2Schema, result))).toBe(true);
     const parsed = parseCapabilityResultV2(result);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    const normalized = specialistOutcomeFromCapabilityResult(parsed.value, "web", {
+    const normalized = specialistOutcomeFromCapabilityResult(parsed.value, "frontend", {
       role: "Worker",
       task: "implementation",
     });
     expect(normalized.ok).toBe(true);
     expect(normalized.ok && normalized.value.status).toBe("completed");
-  });
-
-  test("owns the exact delegation mode wire values", () => {
-    expect(
-      ["DIRECT", "SINGLE", "DYNAMIC_WORKFLOW"].map((mode) =>
-        Either.isRight(decodeUnknown(DelegationModeSchema, mode)),
-      ),
-    ).toEqual([true, true, true]);
-    expect(Either.isLeft(decodeUnknown(DelegationModeSchema, "DYNAMIC WORKFLOW"))).toBe(true);
   });
 
   test("preserves stable error codes, safe details, and causes", () => {
@@ -275,11 +246,9 @@ describe("core route and boundary schemas", () => {
       expect(invalidRoute.error.code).toBe("invalid_route");
     }
 
-    const disabledRoute = lookupRoute("Go", "Worker:implementation");
-    expect(disabledRoute.ok).toBe(false);
-    if (!disabledRoute.ok) {
-      expect(disabledRoute.error.code).toBe("route_unavailable");
-    }
+    const goRoute = lookupRoute("Go", "Worker:implementation");
+    expect(goRoute.ok).toBe(true);
+    if (goRoute.ok) expect(goRoute.value.effort).toBe("high");
 
     expect(
       Either.isRight(decodeUnknown(RoleTaskSchema, { role: "Worker", task: "implementation" })),
@@ -297,7 +266,12 @@ describe("core route and boundary schemas", () => {
     expect(Either.isRight(decodeUnknown(EffortSchema, "xhigh"))).toBe(true);
     expect(Either.isRight(decodeUnknown(EffortSchema, "max"))).toBe(true);
     expect(
-      Either.isRight(decodeUnknown(PlanSelectionSchema, { plan: "plus", service_tier: "Fast" })),
+      Either.isRight(decodeUnknown(PlanSelectionSchema, { plan: "plus", service_tier: "fast" })),
+    ).toBe(true);
+    expect(
+      Either.isRight(
+        decodeUnknown(PlanSelectionSchema, { plan: "plus", service_tier: "fast-all" }),
+      ),
     ).toBe(true);
     expect(
       Either.isLeft(decodeUnknown(PlanSelectionSchema, { plan: "plus", service_tier: "Turbo" })),
@@ -541,19 +515,6 @@ describe("core CLI envelopes", () => {
     expect(parseCliEnvelope(successEnvelope).ok).toBe(true);
     expect(parseCliEnvelope({ ...successEnvelope, ok: false }).ok).toBe(false);
     expect(parseCliEnvelope({ ...failureEnvelope, schema_version: "0.14" }).ok).toBe(false);
-  });
-});
-
-describe("plan-first execution gate", () => {
-  test("holds all mutation and dispatch until explicit continuation", () => {
-    const gate = new PlanFirstExecutionGate("planning");
-    expect(() => gate.assertMutationAllowed()).toThrow(/read-only/u);
-    expect(() => gate.assertDispatchAllowed()).toThrow(/read-only/u);
-    gate.authorizeContinuation();
-    expect(gate.phase).toBe("implementation");
-    expect(() => gate.assertMutationAllowed()).not.toThrow();
-    gate.enterPlanning();
-    expect(gate.phase).toBe("planning");
   });
 });
 

@@ -3,16 +3,12 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSha256Digest, decodeUnknown, PONYTAIL_ROLE_SKILL } from "@holycodex/core";
+import { createSha256Digest, decodeUnknown } from "@holycodex/core";
 import * as Either from "effect/Either";
-import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { describe, expect, test } from "vite-plus/test";
 import {
   AppServerClient,
-  compileSpecialistAssignment,
-  codexModelIdFor,
-  codexServiceTierFor,
   createOfficialPluginAdapter,
   JsonRpcNotificationSchema,
   JsonRpcResponseSchema,
@@ -23,9 +19,7 @@ import {
   TurnStartParamsSchema,
   createAllowlistedEnvironment,
   createManagedConfigState,
-  createProjectTrustIdentity,
   discoverCodexExecutable,
-  executeAssignment,
   generateCodexSchemas,
   mergeManagedConfig,
   cleanupManagedConfig,
@@ -134,181 +128,6 @@ function createInitializedClient(
 }
 
 describe("Codex App Server schemas", () => {
-  test("maps internal model aliases and service tiers only at the protocol boundary", () => {
-    expect(codexModelIdFor("Sol")).toBe("gpt-5.6-sol");
-    expect(codexModelIdFor("Terra")).toBe("gpt-5.6-terra");
-    expect(codexModelIdFor("Luna")).toBe("gpt-5.6-luna");
-    expect(codexServiceTierFor("Standard")).toBeNull();
-    expect(codexServiceTierFor("Fast")).toBe("priority");
-    expect(() => codexModelIdFor("gpt-5.6-luna")).toThrow(
-      expect.objectContaining({ code: "model_unsupported" }),
-    );
-  });
-
-  test("compiles a stable contract prefix followed by a TOON assignment", () => {
-    const prompt = compileSpecialistAssignment({
-      assignment: {
-        id: "assignment-1",
-        objective: "Change the parser",
-        role_task: { role: "Worker", task: "implementation" },
-        authority: "Change only the assigned seam; Root owns material choices.",
-        scope: ["packages/core/src/routes.ts"],
-        references: ["docs/ARCHITECTURE.md"],
-        constraints: ["Keep the boundary typed."],
-        required_evidence: ["Run the core test"],
-        acceptance: ["The route test passes"],
-        exclusions: ["No unrelated refactor."],
-        escalation: ["Return material choices to Root."],
-        delta: ["Phase 3 semantic packet."],
-      },
-      route: {
-        key: "Worker:implementation",
-        role_task: { role: "Worker", task: "implementation" },
-        agent_type: "Worker.implementation",
-      },
-      tools: { allowed: [], specialist_spawn: false, workflow: false },
-      security: { network: false, specialist_spawn: false, workflow: false },
-      compatibility: {
-        model: "Luna",
-        effort: "high",
-        service_tier: "Standard",
-        prefer_multi_agent_v2: false,
-        require_multi_agent_v2: false,
-      },
-      skill_profile: PONYTAIL_ROLE_SKILL,
-    });
-    expect(prompt.indexOf("Role contract:")).toBeLessThan(prompt.indexOf("Assignment (TOON):"));
-    expect(prompt).toContain("objective: Change the parser");
-    expect(prompt).toContain("scope[1]: packages/core/src/routes.ts");
-    expect(prompt).toContain("required_evidence[1]: Run the core test");
-    expect(prompt).toContain("delta[1]: Phase 3 semantic packet.");
-    expect(prompt).not.toContain("HolyCodex version");
-    expect(prompt).not.toContain("payload");
-    expect(prompt).not.toContain("internal state");
-    expect(prompt).not.toContain("You are a lazy senior developer.");
-  });
-
-  test("keeps Ponytail branch-specific and excludes its body from non-specialist prompts", () => {
-    const prompt = compileSpecialistAssignment({
-      assignment: {
-        id: "assignment-explorer",
-        objective: "Inspect the route",
-        role_task: { role: "Explorer", task: "lookup" },
-        authority: "Read only the assigned repository scope; Root owns decisions.",
-        scope: [],
-        references: [],
-        constraints: [],
-        required_evidence: [],
-        acceptance: [],
-        exclusions: [],
-        escalation: [],
-      },
-      route: {
-        key: "Explorer:lookup",
-        role_task: { role: "Explorer", task: "lookup" },
-        agent_type: "Explorer.lookup",
-      },
-      tools: { allowed: ["read"], specialist_spawn: false, workflow: false },
-      security: { network: false, specialist_spawn: false, workflow: false },
-      compatibility: {
-        model: "Terra",
-        effort: "low",
-        service_tier: "Standard",
-        prefer_multi_agent_v2: false,
-        require_multi_agent_v2: false,
-      },
-      skill_profile: null,
-    });
-    expect(prompt).not.toContain("$ponytail");
-    expect(prompt).not.toContain("You are a lazy senior developer.");
-  });
-
-  test("rejects an authority that disagrees with the role catalog before effects", async () => {
-    const { client } = createInitializedClient(() => undefined);
-    const result = await Effect.runPromise(
-      Effect.either(
-        executeAssignment(client, {
-          assignment: {
-            id: "assignment-1",
-            objective: "Change the parser",
-            role_task: { role: "Worker", task: "implementation" },
-            authority: "wrong",
-            scope: [],
-            references: [],
-            constraints: [],
-            required_evidence: [],
-            acceptance: [],
-            exclusions: [],
-            escalation: [],
-          },
-          route: {
-            key: "Worker:implementation",
-            role_task: { role: "Worker", task: "implementation" },
-            agent_type: "Worker.implementation",
-          },
-          tools: { allowed: [], specialist_spawn: false, workflow: false },
-          security: { network: false, specialist_spawn: false, workflow: false },
-          compatibility: {
-            model: "Luna",
-            effort: "high",
-            service_tier: "Standard",
-            prefer_multi_agent_v2: false,
-            require_multi_agent_v2: false,
-          },
-          skill_profile: PONYTAIL_ROLE_SKILL,
-        }),
-      ),
-    );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("route_incompatible");
-    }
-    await client.close();
-  });
-
-  test("rejects a tampered role skill profile before effects", async () => {
-    const { client } = createInitializedClient(() => undefined);
-    const result = await Effect.runPromise(
-      Effect.either(
-        executeAssignment(client, {
-          assignment: {
-            id: "assignment-1",
-            objective: "Change the parser",
-            role_task: { role: "Worker", task: "implementation" },
-            authority: "Change only the assigned seam; Root owns material choices.",
-            scope: [],
-            references: [],
-            constraints: [],
-            required_evidence: [],
-            acceptance: [],
-            exclusions: [],
-            escalation: [],
-          },
-          route: {
-            key: "Worker:implementation",
-            role_task: { role: "Worker", task: "implementation" },
-            agent_type: "Worker.implementation",
-          },
-          tools: { allowed: [], specialist_spawn: false, workflow: false },
-          security: { network: false, specialist_spawn: false, workflow: false },
-          compatibility: {
-            model: "Luna",
-            effort: "high",
-            service_tier: "Standard",
-            prefer_multi_agent_v2: false,
-            require_multi_agent_v2: false,
-          },
-          skill_profile: { ...PONYTAIL_ROLE_SKILL, digest: "0".repeat(64) },
-        }),
-      ),
-    );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.code).toBe("route_incompatible");
-    }
-    await client.close();
-  });
-
   test("validate JSON-RPC responses, notifications, and complete usage", () => {
     expect(Either.isRight(decode(JsonRpcResponseSchema, response(1, { ok: true })))).toBe(true);
     expect(Either.isRight(decode(JsonRpcResponseSchema, errorResponse(1, -32001, "busy")))).toBe(
@@ -521,35 +340,6 @@ describe("AppServerClient", () => {
 });
 
 describe("Codex identity, configuration, and plugins", () => {
-  test("creates deterministic project/trust identity from a canonical root", async () => {
-    const root = await mkdtemp(join(tmpdir(), "holycodex-codex-"));
-    const first = await createProjectTrustIdentity({
-      root,
-      trustEpoch: "epoch-1",
-      trustFingerprint: "fingerprint-1",
-    });
-    const same = await createProjectTrustIdentity({
-      root,
-      trustEpoch: "epoch-1",
-      trustFingerprint: "fingerprint-1",
-    });
-    const changed = await createProjectTrustIdentity({
-      root,
-      trustEpoch: "epoch-2",
-      trustFingerprint: "fingerprint-1",
-    });
-    expect(first).toEqual(same);
-    expect(changed.projectId).toBe(first.projectId);
-    expect(changed.trustId).not.toBe(first.trustId);
-    await expect(
-      createProjectTrustIdentity({
-        root: join(root, "missing"),
-        trustEpoch: "e",
-        trustFingerprint: "f",
-      }),
-    ).rejects.toMatchObject({ code: "invalid_project_root" });
-  });
-
   test("preserves unrelated keys and later user edits during managed cleanup", () => {
     const metadata = { owner: "holycodex" as const, schema: "0.15", installId: "install-1" };
     const initial = createManagedConfigState({ unrelated: "keep", managed: "original" });
@@ -609,16 +399,6 @@ describe("Codex identity, configuration, and plugins", () => {
     const runner = {
       run: async (args: readonly string[]) => {
         recorded.push([...args]);
-        if (args[0] === "features") {
-          return {
-            exitCode: 0,
-            stdout:
-              args[1] === "list"
-                ? "default_mode_request_user_input under-development true\n"
-                : "enabled\n",
-            stderr: "",
-          };
-        }
         if (args[1] === "add") {
           return { exitCode: 0, stdout: "{}", stderr: "" };
         }
@@ -641,13 +421,9 @@ describe("Codex identity, configuration, and plugins", () => {
     const adapter = createOfficialPluginAdapter({ executable: "codex", runner });
     await adapter.addMarketplace("davidbasilefilho/holycodex");
     await adapter.add("documents@openai-primary-runtime");
-    await adapter.enableFeature("default_mode_request_user_input");
-    await expect(adapter.featureEnabled("default_mode_request_user_input")).resolves.toBe(true);
     expect(recorded[0]).toEqual(["plugin", "marketplace", "add", "davidbasilefilho/holycodex"]);
     expect(recorded[1]).toEqual(["plugin", "add", "documents@openai-primary-runtime", "--json"]);
     expect(recorded[2]).toEqual(["plugin", "list", "--json"]);
-    expect(recorded[3]).toEqual(["features", "enable", "default_mode_request_user_input"]);
-    expect(recorded[4]).toEqual(["features", "list"]);
   });
 
   test("reports an installed-disabled provider as unavailable", async () => {

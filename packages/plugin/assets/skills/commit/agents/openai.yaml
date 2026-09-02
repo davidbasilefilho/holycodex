@@ -1,6 +1,6 @@
 interface:
   display_name: "Commit"
-  short_description: "Prepare and execute an approved local commit with exact scope proof."
-  default_prompt: "Verify the exact scope, obtain approval, create the local commit, and report status."
+  short_description: "Create one local commit with exact scope proof."
+  default_prompt: "When Root assigns a local commit, verify the exact scope, create only that commit, and report identity and status."
 policy:
   allow_implicit_invocation: false

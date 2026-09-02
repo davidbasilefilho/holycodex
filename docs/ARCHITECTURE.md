@@ -1,127 +1,77 @@
 # HolyCodex architecture
 
 This document owns package placement and control/data flow. Observable
-behavior belongs to [BEHAVIOR.md](BEHAVIOR.md); CLI wire details belong to
-[CLI.md](CLI.md); security ownership belongs to [SECURITY.md](SECURITY.md).
-The graph is the implemented package shape. A change may combine packages
-only when it preserves these owners, interfaces, and dependency directions.
+behavior belongs to [BEHAVIOR.md](BEHAVIOR.md), CLI wire details belong to
+[CLI.md](CLI.md), security ownership belongs to [SECURITY.md](SECURITY.md),
+and release evidence belongs to [PROVENANCE.md](PROVENANCE.md).
 
 ## Package graph
 
-The arrows point from importer to imported package. No package below may
-import an app, and no package may create a cycle.
+The public package is the only published package. Private workspace packages
+are build inputs and must keep one-way dependencies.
 
 ```text
-packages/core
-├── packages/codex
-├── packages/workflow-runtime
-├── packages/plugin
-└── packages/workflow-host ── codex + workflow-runtime
-                               │
-                               ▼
-                         packages/cli
+packages/cli ── core + codex + plugin
+packages/codex ── core
+packages/plugin ── core
 ```
 
-`core` owns side-effect-free domain values, Effect Schema boundary schemas, IDs,
-errors, the plan catalog, the declarative role/task registry, route policy,
-limits, and identity encodings. Runtime role/task schemas, route keys,
-capability metadata, assignment defaults, skill applicability, and permissions
-derive from that registry.
-`codex` owns App Server transport, exact-binary capability validation,
-project/trust identity, Codex configuration ownership, and official-plugin
-verification. `workflow-runtime` owns the production capability-denied QuickJS
-TypeScript evaluator, its inert workflow API, Effect service boundaries, and
-deterministic four-primitive mechanics; it owns no routing or host policy. `workflow-host`
-owns orchestration, plan enforcement, journals, checkpoints, replay, retained
-specialists, continuation, refinements, and sanitized telemetry. `plugin` is
-private source and generation for independently authored installed assets.
-`cli` is the only published package and composes installation, doctor,
-cleanup, workflow commands, and output formatting. Its public package points
-to one bundled Bun ESM artifact at `packages/cli/dist/index.js`; private
-workspace packages are build-time inputs, not published workspace runtime
-dependencies.
+`core` owns immutable domain values, Effect Schema boundary schemas, errors,
+plan names, route policy, capability metadata, and identity encodings.
+`codex` owns the typed boundary to Codex native plugin management and native
+subagent operations. `plugin` owns independently authored installed assets and
+their manifests. `cli` composes installation, removal, configuration, version,
+and presentation into the published Bun ESM artifact.
 
 ## Ownership and interfaces
 
-| Concern                                 | Owner              | Stable interface                                 |
-| --------------------------------------- | ------------------ | ------------------------------------------------ |
-| Domain, catalog, identities             | `core`             | Effect Schema schemas and immutable typed values |
-| Codex transport and trust               | `codex`            | validated App Server and configuration ports     |
-| Untrusted workflow evaluation           | `workflow-runtime` | subprocess protocol and inert capability calls   |
-| Orchestration and durable state         | `workflow-host`    | plan-enforced run lifecycle                      |
-| Installed Codex assets                  | `plugin`           | generated immutable payload                      |
-| Install/doctor/cleanup and presentation | `cli`              | user-facing commands and envelopes               |
+| Concern                                 | Owner    | Stable interface                       |
+| --------------------------------------- | -------- | -------------------------------------- |
+| Domain, plans, routes, and identities   | `core`   | Effect Schema values and typed records |
+| Codex installation and native subagents | `codex`  | validated native Codex ports           |
+| Installed agent assets                  | `plugin` | generated immutable payload            |
+| Commands and configuration              | `cli`    | user-facing commands and envelopes     |
 
-Only the owning package decides its concern. Callers consume explicit public
-exports and structured results; cross-package filesystem imports and cycles
-are invalid. A type that crosses a package or process boundary is validated at
-the receiving edge. I/O remains in `codex`, `workflow-host`, and `cli`.
+Only the owning package decides its concern. Callers consume explicit exports;
+cross-package filesystem imports and cycles are invalid. Every external,
+persisted, CLI, Codex, and specialist value is validated at its receiving
+boundary. I/O stays in the package that owns it.
 
 ## Control and data flow
 
 ```text
-CLI or App Server request
-        |
-        v
-Effect Schema boundary validation -> Root scope/policy decision
-        |                              |
-        |                              +-- denied -> structured failure, no effect
-        v
-canonical native agent route -> bounded specialist assignment
-        |                              |
-        |                              v
-        |                       structured specialist outcome
-        |                              |
-        +------------------------------v
-                 Root integration and final judgment
-                         |
-           pre-effect approval -> authorized typed port
-                         |
-        journal intent -> Bun runtime/installer -> journal result
-                         |
-                  checkpoint and sanitized telemetry
-                         |
-                  validated CLI/App Server response
+CLI input
+   │
+   ▼
+Effect Schema validation → Root policy and scope decision
+   │                         │
+   │                         └─ denied → structured failure, no effect
+   ▼
+validated plan, tier, and optional selections
+   │
+   ▼
+Codex native plugin management → native subagent assets and readback
+   │
+   ▼
+atomic HolyCodex configuration → validated CLI response
 ```
 
-The workflow host records the accepted operation before a consequential effect,
-records the result after the port returns, and checkpoints at a resumable
-boundary. If the result cannot be classified, policy stops the workflow and
-state preserves the uncertainty. Replay reads state projections only; it does
-not re-enter effect ports. Resume reconstructs from the last valid checkpoint
-and uncommitted journal tail without repeating committed effects. These are
-observable rules owned by [BEHAVIOR.md](BEHAVIOR.md), while this diagram owns
-their package placement.
+Plans select native routing only. Service tiers are independent settings and
+must not rewrite route policy or authority. Optional Work, frontend,
+Security, and Computer Use selections are explicit and independently denied
+when unavailable. Native subagents receive bounded assignments; Root retains
+scope, policy, integration, and final judgment.
 
-`workflow-host` is the compatibility normalization boundary: it reads existing
-payload and nested `options` values, combines run constraints, de-duplicates
-lists, and emits one semantic assignment packet. The packet contains only the
-assignment identity, objective, catalog authority, scope, references,
-constraints, required evidence, acceptance, exclusions, escalation, and
-optional delta, alongside validated route, tool, security, and compatibility
-policy objects. `codex` owns the sole assignment compiler and renders only
-those semantic fields plus role/task, the outcome protocol, and the
-structural-leaf boundary. Host state and raw payload are not rendered. The
-specialist result returns through the validated outcome boundary; deterministic
-completion and retry eligibility remain runtime-owned.
-
-Delegation mode is a core-owned enum and a workflow-host admission fact. Core
-owns the exact wire values; workflow-host derives native cardinality from the
-compiled plan, normalizes legacy compatibility callers at creation, persists
-the mode in the workflow descriptor, and reuses that descriptor on inspection
-and resume. Derived runs without descriptors remain mode-unspecified.
-
-`workflow-runtime` owns declarative writer scopes because it owns graph
-layering. It rejects overlapping file or symbol ownership in one parallel
-layer; `workflow-host` therefore receives only plans whose writers are already
-serialized or disjoint.
+Installation changes only the declared HolyCodex-owned configuration and the
+Codex native plugin state required by that installation. Removal verifies
+ownership before deleting the same scope. Neither command rewrites unrelated
+Codex settings or installs an unrequested capability.
 
 ## Repository shape and checks
 
-Keep each package cohesive, with tests beside the package seam they prove.
-Use Bun and `mise` for runtime and tool selection, Vite+ for project tooling,
-and TypeScript 7 for implementation. Use no reverse imports, compatibility
-shims that hide ownership, or duplicate policy implementations. Add SPDX
-`Apache-2.0` headers to authored code; Markdown remains unheaded. Before a
-change is complete, run checks appropriate to its seam and inspect the final
-diff; use [PROVENANCE.md](PROVENANCE.md) when a design claim needs evidence.
+Keep tests beside the package seam they prove. Use Bun and `mise` for the
+pinned toolchain, Vite+ for project checks, and TypeScript 7 for implementation.
+Use no reverse imports, ownership-hiding compatibility layers, or duplicate
+policy implementations. Add SPDX `Apache-2.0` headers to authored code;
+Markdown remains unheaded. Inspect the final diff and run checks appropriate to
+the changed seam before handoff.

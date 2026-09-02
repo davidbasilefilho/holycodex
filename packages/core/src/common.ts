@@ -2,7 +2,7 @@
 
 export const packageName = "@holycodex/core" as const;
 export const CLI_SCHEMA_VERSION = "0.15" as const;
-export const STATE_SCHEMA_EPOCH = "state-0.15" as const;
+export const STATE_SCHEMA_EPOCH = "state-0.16" as const;
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonObject = { readonly [key: string]: JsonValue };

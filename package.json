@@ -28,17 +28,10 @@
   },
   "packageManager": "bun@1.4.0",
   "catalog": {
-    "@jitl/quickjs-ffi-types": "0.32.0",
-    "@jitl/quickjs-wasmfile-debug-asyncify": "0.32.0",
-    "@jitl/quickjs-wasmfile-debug-sync": "0.32.0",
-    "@jitl/quickjs-wasmfile-release-asyncify": "0.32.0",
-    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@openai/codex": "0.150.1",
     "@types/bun": "1.4.0",
     "@types/node": "26.2.0",
     "effect": "3.22.1",
-    "quickjs-emscripten": "0.32.0",
-    "quickjs-emscripten-core": "0.32.0",
     "typescript": "7.0.2",
     "vite-plus": "0.2.9",
     "vitest": "4.1.10"

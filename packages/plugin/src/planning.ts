@@ -1,13 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { resolve } from "node:path";
-import {
-  canonicalJsonBytes,
-  createIdentity,
-  digestPayload,
-  sha256,
-  verifyPonytailMetadata,
-} from "./verification.ts";
+import { canonicalJsonBytes, createIdentity, digestPayload, sha256 } from "./verification.ts";
 import {
   DEFAULT_SCHEMA_EPOCH,
   MAX_FILE_SIZE,
@@ -63,10 +57,6 @@ export async function validateSource(input: unknown = pluginSourceRoot): Promise
         path: walkedPath,
       });
     }
-  }
-
-  if (walkedFiles.includes("skills/ponytail/SKILL.md")) {
-    await verifyPonytailMetadata((path) => readSourceFile(root, path), "source_invalid");
   }
 
   const files: SourceFile[] = [];

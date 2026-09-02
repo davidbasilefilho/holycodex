@@ -1,6 +1,6 @@
 {
   "name": "holycodex",
-  "version": "0.15.2",
+  "version": "0.16.0",
   "private": false,
   "repository": {
     "type": "git",
@@ -21,25 +21,11 @@
     "access": "public"
   },
   "dependencies": {
-    "@jitl/quickjs-ffi-types": "catalog:",
-    "@jitl/quickjs-wasmfile-debug-asyncify": "catalog:",
-    "@jitl/quickjs-wasmfile-debug-sync": "catalog:",
-    "@jitl/quickjs-wasmfile-release-asyncify": "catalog:",
-    "@jitl/quickjs-wasmfile-release-sync": "catalog:",
-    "effect": "catalog:",
-    "quickjs-emscripten": "catalog:",
-    "quickjs-emscripten-core": "catalog:",
-    "typescript": "catalog:"
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@holycodex/codex": "workspace:*",
     "@holycodex/core": "workspace:*",
-    "@holycodex/git-bash": "workspace:*",
-    "@holycodex/lsp-core": "workspace:*",
-    "@holycodex/lsp-daemon": "workspace:*",
-    "@holycodex/plugin": "workspace:*",
-    "@holycodex/safe-filesystem": "workspace:*",
-    "@holycodex/workflow-host": "workspace:*",
-    "@holycodex/workflow-runtime": "workspace:*"
+    "@holycodex/plugin": "workspace:*"
   }
 }

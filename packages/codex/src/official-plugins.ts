@@ -227,8 +227,7 @@ export interface OfficialPluginAdapter {
   readonly list: () => Promise<LiveOfficialPluginListEnvelope>;
   readonly addMarketplace: (source: string, signal?: AbortSignal) => Promise<void>;
   readonly add: (pluginId: string, signal?: AbortSignal) => Promise<void>;
-  readonly enableFeature: (feature: string, signal?: AbortSignal) => Promise<void>;
-  readonly featureEnabled: (feature: string) => Promise<boolean>;
+  readonly remove: (pluginId: string, signal?: AbortSignal) => Promise<void>;
 }
 
 export class OfficialPluginAdapterError extends Error {
@@ -287,24 +286,6 @@ export function createOfficialPluginAdapter(
   };
   return {
     list,
-    enableFeature: async (feature, signal) => {
-      const checkedFeature = checked(PluginNameSchema, feature, "Codex feature name");
-      const result = await runner.run(
-        ["features", "enable", checkedFeature],
-        signal === undefined ? undefined : { signal },
-      );
-      if (result.exitCode !== 0) throw commandError("feature enable", result, checkedFeature);
-    },
-    featureEnabled: async (feature) => {
-      const checkedFeature = checked(PluginNameSchema, feature, "Codex feature name");
-      const result = await runner.run(["features", "list"]);
-      if (result.exitCode !== 0) throw commandError("feature list", result, checkedFeature);
-      const line = result.stdout
-        .split(/\r?\n/u)
-        .find((candidate) => candidate.trimStart().startsWith(`${checkedFeature} `));
-      if (line === undefined) return false;
-      return /\btrue\s*$/u.test(line);
-    },
     addMarketplace: async (source, signal) => {
       const checkedSource = checked(OfficialPluginIdSchema, source, "plugin marketplace source");
       const result = await runner.run(
@@ -351,11 +332,32 @@ export function createOfficialPluginAdapter(
         );
       }
     },
+    remove: async (pluginId, signal) => {
+      const checkedPluginId = checked(OfficialPluginIdSchema, pluginId, "official plugin id");
+      const result = await runner.run(
+        ["plugin", "remove", checkedPluginId, "--json"],
+        signal === undefined ? undefined : { signal },
+      );
+      if (result.exitCode !== 0 && !/not (?:installed|found)|missing/iu.test(result.stderr)) {
+        throw commandError("remove", result, checkedPluginId);
+      }
+      const live = await list();
+      const entry = [...live.installed, ...live.available].find(
+        (candidate) => candidate.pluginId === checkedPluginId && candidate.installed,
+      );
+      if (entry !== undefined) {
+        throw new OfficialPluginAdapterError(
+          "readback_mismatch",
+          `Codex still reports ${checkedPluginId} after removal.`,
+          { plugin_id: checkedPluginId },
+        );
+      }
+    },
   };
 }
 
 function commandError(
-  operation: "list" | "add" | "marketplace add" | "feature enable" | "feature list",
+  operation: "list" | "add" | "remove" | "marketplace add",
   result: Readonly<{ exitCode: number; stdout: string; stderr: string }>,
   pluginId?: string,
 ): OfficialPluginAdapterError {

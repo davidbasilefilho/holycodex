@@ -11,10 +11,7 @@ import { runChecked, runCommand } from "./process.ts";
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageManifestPaths = [
   "packages/core/package.json",
-  "packages/safe-filesystem/package.json",
   "packages/codex/package.json",
-  "packages/workflow-runtime/package.json",
-  "packages/workflow-host/package.json",
   "packages/plugin/package.json",
   "packages/cli/package.json",
 ] as const;
@@ -95,10 +92,7 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
 
   const schemaOwners = [
     "packages/core/src",
-    "packages/safe-filesystem/src",
     "packages/codex/src",
-    "packages/workflow-runtime/src",
-    "packages/workflow-host/src",
     "packages/plugin/src",
     "packages/cli/src",
   ] as const;
@@ -285,11 +279,6 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
   }
 
   assert(notices.includes("effect"), "third-party notices must include Effect attribution");
-  assert(
-    notices.includes("quickjs-emscripten"),
-    "third-party notices must include QuickJS attribution",
-  );
-
   const generated = await verifyGeneratedArtifactPortable();
   await verifyIgnoreContract();
   await runChecked(["git", "diff", "--check"], { cwd: workspaceRoot });
