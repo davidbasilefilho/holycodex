@@ -21,12 +21,14 @@ Bun is the only repository toolchain.
 
 Installation options are `--yes`, `--plan <name>`,
 `--tier <name>`, `--work`, `--frontend`, `--security`, `--computer-use`, and
-`--json`. Each option is explicit; conflicting or malformed values fail before
-any effect.
+`--add-plugin <id>`, and `--json`. Each option is explicit; conflicting or
+malformed values fail before any effect.
 
 Plans select native subagent routing only. The tier is an independent service
-setting. Optional selections are independently checked and return
-`capability_denied` when unavailable.
+setting. Explicit optional selections and additional plugins return
+`capability_denied` when unavailable. An unavailable implicit frontend or
+Security first-install default is recorded as `missing` or `uncertain`, emits
+a warning, and remains selected for retry on reinstall.
 
 Native profiles encode `standard` as `service_tier = "default"` for Root and
 leaves. `fast` keeps Root on `default` and sets leaves to `fast`; `fast-all`

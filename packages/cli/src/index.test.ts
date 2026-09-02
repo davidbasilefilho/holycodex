@@ -19,7 +19,12 @@ import {
 } from "./index.ts";
 import type { OfficialPluginManager } from "./index.ts";
 
-function fakeManager() {
+function fakeManager(
+  options: Readonly<{
+    readonly failAdds?: ReadonlySet<string>;
+    readonly missingAdds?: ReadonlySet<string>;
+  }> = {},
+) {
   const installed = new Set<string>();
   const manager: OfficialPluginManager = {
     list: async () => ({
@@ -28,6 +33,8 @@ function fakeManager() {
     }),
     addMarketplace: async () => undefined,
     add: async (pluginId) => {
+      if (options.failAdds?.has(pluginId)) throw new Error(`${pluginId} unavailable`);
+      if (options.missingAdds?.has(pluginId)) return;
       installed.add(pluginId);
     },
     remove: async (pluginId) => {
@@ -136,6 +143,146 @@ describe("native installation and removal", () => {
       expect(result.preserved).toEqual([]);
       expect(result.removed).toContain("holycodex@holycodex");
       await expect(readFile(join(codexHome, "holycodex", "active.json"), "utf8")).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("completes an install when implicit default providers are unavailable", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
+    const codexHome = join(root, "codex");
+    const manager = fakeManager({
+      missingAdds: new Set(["build-web-apps@openai-curated"]),
+      failAdds: new Set(["codex-security@openai-curated"]),
+    });
+    try {
+      const install = await installHolyCodex(
+        {},
+        { paths: { codexHome }, officialPluginManager: manager },
+      );
+      expect(install.record.optional_selections.frontend).toBe(true);
+      expect(install.record.optional_selections.security).toBe(true);
+      expect(install.record.capability_state).toMatchObject({
+        frontend: { selected: true, status: "missing" },
+        security: { selected: true, status: "uncertain" },
+      });
+      expect(install.warnings).toEqual([
+        "optional capability frontend unavailable; skipped plugin build-web-apps@openai-curated (missing)",
+        "optional capability security unavailable; skipped plugin codex-security@openai-curated (uncertain)",
+      ]);
+      const result = await removeHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+      });
+      expect(result.preserved).toEqual([]);
+      expect(result.removed).toContain("holycodex@holycodex");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps unavailable defaults recoverable on reinstall but rejects explicit requests", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
+    const codexHome = join(root, "codex");
+    const failures = new Set(["build-web-apps@openai-curated"]);
+    const manager = fakeManager({ failAdds: failures });
+    try {
+      const initial = await installHolyCodex(
+        {},
+        { paths: { codexHome }, officialPluginManager: manager },
+      );
+      expect(initial.record.explicit_optional_selections).toEqual({});
+      failures.clear();
+      const recovered = await installHolyCodex(
+        {},
+        { paths: { codexHome }, officialPluginManager: manager },
+      );
+      expect(recovered.record.capability_state?.frontend.status).toBe("healthy");
+
+      const explicitRoot = await mkdtemp(join(tmpdir(), "holycodex-cli-explicit-"));
+      try {
+        const explicitManager = fakeManager({
+          failAdds: new Set(["build-web-apps@openai-curated"]),
+        });
+        await expect(
+          installHolyCodex(
+            { optional: { frontend: true } },
+            {
+              paths: { codexHome: join(explicitRoot, "codex") },
+              officialPluginManager: explicitManager,
+            },
+          ),
+        ).rejects.toMatchObject({ code: "capability_denied" });
+      } finally {
+        await rm(explicitRoot, { recursive: true, force: true });
+      }
+
+      const additionalRoot = await mkdtemp(join(tmpdir(), "holycodex-cli-additional-"));
+      try {
+        const additionalManager = fakeManager({ failAdds: new Set(["sample@openai-curated"]) });
+        await expect(
+          installHolyCodex(
+            { officialPlugins: ["sample@openai-curated"] },
+            {
+              paths: { codexHome: join(additionalRoot, "codex") },
+              officialPluginManager: additionalManager,
+            },
+          ),
+        ).rejects.toMatchObject({ code: "capability_denied" });
+      } finally {
+        await rm(additionalRoot, { recursive: true, force: true });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("does not swallow an unrelated native list failure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
+    const codexHome = join(root, "codex");
+    let listCalls = 0;
+    const manager: OfficialPluginManager = {
+      list: async () => {
+        listCalls += 1;
+        if (listCalls >= 3) throw new Error("native list backend failed");
+        return {
+          installed: [{ pluginId: "holycodex@holycodex", installed: true, enabled: true }],
+          available: [],
+        };
+      },
+      addMarketplace: async () => undefined,
+      add: async () => undefined,
+      remove: async () => undefined,
+    };
+    try {
+      await expect(
+        installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager }),
+      ).rejects.toMatchObject({ code: "capability_denied" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves an additional provider plugin across reinstall", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
+    const codexHome = join(root, "codex");
+    const provider = "build-web-apps@openai-curated";
+    try {
+      const initial = await installHolyCodex(
+        { optional: { frontend: false, security: false }, officialPlugins: [provider] },
+        { paths: { codexHome }, officialPluginManager: fakeManager() },
+      );
+      expect(initial.record.official_plugins).toEqual([provider]);
+
+      await expect(
+        installHolyCodex(
+          {},
+          {
+            paths: { codexHome },
+            officialPluginManager: fakeManager({ failAdds: new Set([provider]) }),
+          },
+        ),
+      ).rejects.toMatchObject({ code: "capability_denied" });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

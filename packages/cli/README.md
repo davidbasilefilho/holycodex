@@ -21,8 +21,11 @@ bunx holycodex remove
 
 `--plan` selects routing only. `--tier` is independent and controls service
 handling without changing routes or authority. Optional selections are
-`--work`, `--frontend`, `--security`, and `--computer-use`; unavailable
-selections fail closed. `--json` emits one machine-readable result.
+`--work`, `--frontend`, `--security`, and `--computer-use`; explicit
+selections and additional plugins fail closed when unavailable. Omitted
+Frontend and Security defaults may be recorded as missing or uncertain on a
+first install and retried on reinstall. `--json` emits one machine-readable
+result.
 
 The development entry point is:
 

@@ -35,8 +35,11 @@ requirements. The valid tier names are `standard`, `fast`, and `fast-all`.
 Optional plugins are explicit booleans for `work`, `frontend`, `security`, and
 `computer_use`. On a first install, Work and Computer Use default to false while
 frontend and Security default to true; an omitted selection otherwise inherits
-the existing managed configuration. Availability never grants authority, and a
-missing plugin returns a structured denial rather than selecting a fallback.
+the existing managed configuration. Availability never grants authority.
+Explicitly selected or additionally requested plugins return a structured
+denial when missing. An unavailable implicit frontend or Security first-install
+default is recorded as `missing` or `uncertain`, warned about, and retried on a
+later reinstall; no fallback is selected.
 
 ## Paths and ownership
 

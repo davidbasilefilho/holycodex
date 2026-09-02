@@ -9,6 +9,7 @@ import {
   pluginIdsForOptionalCapabilities,
   ServiceTierSchema,
   type JsonObject,
+  type OptionalCapabilityName,
   type OptionalCapabilitySelections,
   type PlanName,
   type ServiceTier,
@@ -22,7 +23,7 @@ import {
 } from "./paths.ts";
 import { optionalJsonFile, writeAtomicJson } from "./storage.ts";
 import { asJsonValue } from "./json.ts";
-import { CodexOfficialPluginManager } from "./official-manager.ts";
+import { CodexOfficialPluginManager, OfficialPluginManagerError } from "./official-manager.ts";
 import { decodeSchema, InstallRecordSchema, InstallRequestSchema } from "./schema.ts";
 import {
   installNativeAgents,
@@ -79,10 +80,15 @@ export async function installHolyCodex(
   const plan = choosePlan(request.plan, previous?.plan);
   const tier = chooseTier(request.tier, previous?.tier);
   const optional = chooseOptional(request.optional, previous?.optional_selections);
-  const explicitOptional = request.optional ?? previous?.explicit_optional_selections ?? {};
+  const explicitOptional = mergeExplicitOptionalSelections(
+    previous?.explicit_optional_selections,
+    request.optional,
+  );
+  const explicitAdditionalPlugins = new Set(request.officialPlugins ?? []);
+  const additionalPlugins = request.officialPlugins ?? additionalPluginsFromPrevious(previous);
   const providerPlugins = pluginIdsForOptionalCapabilities(
     toCoreSelections(optional),
-    request.officialPlugins ?? previous?.official_plugins ?? [],
+    additionalPlugins,
   );
   let manager: OfficialPluginManager;
   try {
@@ -107,12 +113,39 @@ export async function installHolyCodex(
     );
   }
 
+  let nativeCapabilityFailures: ReadonlyMap<OptionalCapabilityName, "missing" | "uncertain"> =
+    new Map();
+  let nativeWarnings: readonly string[] = [];
   try {
     await manager.addMarketplace(HOLYCODEX_MARKETPLACE);
-    await installAndVerify({ list: () => manager.list!(), add: (id) => manager.add!(id) }, [
-      HOLYCODEX_PLUGIN,
-      ...providerPlugins,
-    ]);
+    const nativeManager = { list: () => manager.list!(), add: (id: string) => manager.add!(id) };
+    await installAndVerify(nativeManager, [HOLYCODEX_PLUGIN]);
+    const unavailable = new Map<OptionalCapabilityName, "missing" | "uncertain">();
+    const warnings: string[] = [];
+    for (const pluginId of providerPlugins) {
+      const capability = optionalCapabilityForPlugin(pluginId);
+      const canFailOpen =
+        capability !== undefined &&
+        isImplicitDefault(capability, optional, explicitOptional) &&
+        !explicitAdditionalPlugins.has(pluginId);
+      try {
+        await installAndVerify(nativeManager, [pluginId]);
+      } catch (error: unknown) {
+        if (!canFailOpen) throw error;
+        const status = capabilityFailureStatus(error);
+        if (status === undefined) throw error;
+        const previousStatus = unavailable.get(capability);
+        unavailable.set(
+          capability,
+          previousStatus === "uncertain" || status === "uncertain" ? "uncertain" : status,
+        );
+        warnings.push(
+          `optional capability ${capability} unavailable; skipped plugin ${pluginId} (${status})`,
+        );
+      }
+    }
+    nativeCapabilityFailures = unavailable;
+    nativeWarnings = warnings;
   } catch (error: unknown) {
     throw new InstallerError(
       "capability_denied",
@@ -130,7 +163,7 @@ export async function installHolyCodex(
     if (error instanceof PathBoundaryError) throw error;
     throw new InstallerError("install_failed", safeMessage(error), error);
   }
-  const capabilityState = capabilityStateFor(optional);
+  const capabilityState = capabilityStateFor(optional, nativeCapabilityFailures);
   const version = await readCanonicalBaseVersion();
   const installedAt = (options.now?.() ?? new Date()).toISOString();
   const digest = await installRecordDigest({
@@ -168,7 +201,10 @@ export async function installHolyCodex(
     record,
     optional_plugins: providerPlugins,
     preserved: native.preserved,
-    warnings: native.preserved.length === 0 ? [] : ["modified managed files were preserved"],
+    warnings: [
+      ...nativeWarnings,
+      ...(native.preserved.length === 0 ? [] : ["modified managed files were preserved"]),
+    ],
   };
 }
 
@@ -189,17 +225,81 @@ function toCoreSelections(value: OptionalSelections): OptionalCapabilitySelectio
   };
 }
 
+function mergeExplicitOptionalSelections(
+  previous: ExplicitOptionalSelections | undefined,
+  requested: ExplicitOptionalSelections | undefined,
+): ExplicitOptionalSelections {
+  const merged: Record<string, boolean> = {};
+  for (const name of ["computer_use", "work", "frontend", "security"] as const) {
+    const value = requested?.[name] ?? previous?.[name];
+    if (value !== undefined) merged[name] = value;
+  }
+  return merged;
+}
+
+function optionalCapabilityForPlugin(pluginId: string): OptionalCapabilityName | undefined {
+  return (["computer_use", "work", "frontend", "security"] as const).find((name) =>
+    CAPABILITY_REGISTRY[name].pluginIds.includes(pluginId),
+  );
+}
+
+function additionalPluginsFromPrevious(previous: InstallRecord | undefined): readonly string[] {
+  return (previous?.official_plugins ?? []).filter((pluginId) => {
+    const capability = optionalCapabilityForPlugin(pluginId);
+    return capability === undefined || previous?.optional_selections[capability] !== true;
+  });
+}
+
+function isImplicitDefault(
+  name: OptionalCapabilityName,
+  selections: OptionalSelections,
+  explicit: ExplicitOptionalSelections,
+): boolean {
+  return (
+    (name === "frontend" || name === "security") && selections[name] && explicit[name] === undefined
+  );
+}
+
+function capabilityFailureStatus(error: unknown): "missing" | "uncertain" | undefined {
+  if (error instanceof PluginVerificationError && error.status === "missing") return "missing";
+  if (error instanceof OfficialPluginManagerError && error.code === "plugin_missing") {
+    return "missing";
+  }
+  if (error instanceof PluginVerificationError) return "uncertain";
+  if (error instanceof OfficialPluginManagerError) return "uncertain";
+  return undefined;
+}
+
 async function installAndVerify(
   manager: Required<Pick<OfficialPluginManager, "list" | "add">>,
   ids: readonly string[],
 ): Promise<void> {
   for (const id of ids) {
     const before = findPlugin(await manager.list(), id);
-    if (!(before?.installed && before.enabled)) await manager.add(id);
-    const after = findPlugin(await manager.list(), id);
-    if (!after?.installed || !after.enabled) {
-      throw new Error(`${id} is ${after?.installed ? "disabled" : "not installed"} after add`);
+    if (!(before?.installed && before.enabled)) {
+      try {
+        await manager.add(id);
+      } catch (error: unknown) {
+        if (error instanceof OfficialPluginManagerError || error instanceof PluginVerificationError)
+          throw error;
+        throw new PluginVerificationError("uncertain", `${id} could not be added`);
+      }
     }
+    const after = findPlugin(await manager.list(), id);
+    if (!after?.installed)
+      throw new PluginVerificationError("missing", `${id} is not installed after add`);
+    if (!after.enabled)
+      throw new PluginVerificationError("uncertain", `${id} is disabled after add`);
+  }
+}
+
+class PluginVerificationError extends Error {
+  readonly status: "missing" | "uncertain";
+
+  constructor(status: "missing" | "uncertain", message: string) {
+    super(message);
+    this.name = "PluginVerificationError";
+    this.status = status;
   }
 }
 
@@ -247,14 +347,17 @@ function chooseOptional(
   };
 }
 
-function capabilityStateFor(selections: OptionalSelections): CapabilityStateRecord {
+function capabilityStateFor(
+  selections: OptionalSelections,
+  failures: ReadonlyMap<OptionalCapabilityName, "missing" | "uncertain"> = new Map(),
+): CapabilityStateRecord {
   const names = ["computer_use", "work", "frontend", "security"] as const;
   return Object.fromEntries(
     names.map((name) => {
       const selected = selections[name];
       const value: CapabilityInstallState = {
         selected,
-        status: selected ? "healthy" : "disabled",
+        status: selected ? (failures.get(name) ?? "healthy") : "disabled",
         plugin_ids: [...CAPABILITY_REGISTRY[name].pluginIds],
       };
       return [name, value];

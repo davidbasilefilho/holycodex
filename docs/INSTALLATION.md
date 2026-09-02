@@ -24,7 +24,11 @@ The plan controls native subagent routing only. The tier is independent.
 Optional plugins are Work, frontend tooling, Security, and Computer Use. The
 CLI validates each selection, invokes native Codex plugin management, verifies
 readback, and atomically stores one HolyCodex-owned configuration under
-`$CODEX_HOME/holycodex`.
+`$CODEX_HOME/holycodex`. Explicit capability selections and `--add-plugin` IDs
+fail closed when native installation cannot verify them. The implicit
+first-install Frontend and Security defaults remain selected and are recorded
+as `missing` or `uncertain` with deterministic warnings when their providers
+are unavailable, so a later reinstall can recover them.
 
 Use `--codex-home <absolute-path>` for an isolated installation. The CLI keeps
 the selected plan, tier, optional plugin state, version, and configuration

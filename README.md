@@ -45,7 +45,9 @@ bunx holycodex install --yes --work --frontend --security --computer-use
 ```
 
 The four optional selections are Work, frontend tooling, Security, and
-Computer Use. Missing or unavailable capabilities fail closed.
+Computer Use. Explicit selections and additional plugins fail closed when
+missing. Omitted Frontend and Security defaults may be recorded as missing or
+uncertain on a first install and retried on reinstall; no fallback is used.
 
 For repository work, use the pinned toolchain:
 

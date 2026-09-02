@@ -40,7 +40,7 @@ The valid plan names are `Go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and
 
 The service tier is selected independently. It changes service handling only;
 it does not change the plan, route, authority, trust boundary, or required
-proof. The valid tier names are `standard`, `fast`, and `fast-all`. A missing capability or
+proof. The valid tier names are `standard`, `fast`, and `fast-all`. A missing required capability or
 contradictory material evidence returns a structured denial to Root and is
 never treated as success.
 
@@ -51,9 +51,12 @@ boundaries. Effect Schema from `effect/Schema` validates every external,
 persisted, CLI, Codex, and specialist value before business logic sees it.
 
 Optional Work, frontend, Security, and Computer Use plugins are independently
-selected. Selection does not claim availability or grant authority. An
-unavailable capability returns `capability_denied`; no unapproved fallback is
-installed or used.
+selected. Selection does not claim availability or grant authority. Explicitly
+selected capabilities and additional plugins return `capability_denied` when
+unavailable. On a first install, omitted frontend and Security selections remain
+selected when their native providers are unavailable; the install records the
+provider as `missing` or `uncertain`, emits a warning, and retries it on later
+reinstall. No unapproved fallback is installed or used.
 
 ## Installation state
 
@@ -64,8 +67,10 @@ ownership and removes that configuration and the corresponding native
 HolyCodex plugin state without touching unrelated Codex state.
 
 Both commands are explicit, bounded mutations. Invalid input, missing
-permission, unavailable capability, failed verification, or uncertain external
-state produces a structured failure and does not claim success.
+permission, an unavailable required capability, failed verification, or
+uncertain external state produces a structured failure and does not claim
+success. An unavailable implicit first-install default is the bounded recovery
+exception described above.
 
 ## Acceptance and provenance
 
