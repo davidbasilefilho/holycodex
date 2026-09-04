@@ -1381,12 +1381,7 @@ async function atomicWriteText(path: string, text: string): Promise<void> {
       await handle.close();
     }
     await rename(temporary, path);
-    const directory = await open(dirname(path), "r");
-    try {
-      await directory.sync();
-    } finally {
-      await directory.close();
-    }
+    await syncDirectory(dirname(path));
   } catch (error: unknown) {
     await rm(temporary, { force: true });
     throw storeIo(error);
@@ -1402,16 +1397,39 @@ async function immutableWrite(path: string, text: string): Promise<void> {
     } finally {
       await handle.close();
     }
-    const directory = await open(dirname(path), "r");
+    await syncDirectory(dirname(path));
+  } catch (error: unknown) {
+    if (isFsCode(error, "EEXIST"))
+      throw new IntentStoreError("archive_conflict", "Archived plans are immutable.", { path });
+    throw storeIo(error);
+  }
+}
+
+/**
+ * Flush a containing directory when the platform exposes directory fsync. Windows can open a
+ * directory handle, but its FlushFileBuffers/fsync operation is not a portable durability boundary;
+ * file flush and atomic rename remain the durable boundary there.
+ */
+async function syncDirectory(path: string): Promise<void> {
+  if (process.platform === "win32") return;
+  try {
+    const directory = await open(path, "r");
     try {
       await directory.sync();
     } finally {
       await directory.close();
     }
   } catch (error: unknown) {
-    if (isFsCode(error, "EEXIST"))
-      throw new IntentStoreError("archive_conflict", "Archived plans are immutable.", { path });
-    throw storeIo(error);
+    if (
+      isFsCode(error, "EINVAL") ||
+      isFsCode(error, "ENOSYS") ||
+      isFsCode(error, "ENOTSUP") ||
+      isFsCode(error, "EOPNOTSUPP") ||
+      isFsCode(error, "EISDIR")
+    ) {
+      return;
+    }
+    throw error;
   }
 }
 

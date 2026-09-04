@@ -306,6 +306,7 @@ describe("IntentStore", () => {
     );
     intent = revised.intent;
     expect(revised.archived).toBe("plan.old-001.toon");
+    await expect(store.readPlan(intent.id)).resolves.toEqual(revised.plan);
     const directory = (await readdir(join(root, ".holycodex"))).find(
       (entry) => entry !== "current",
     )!;
