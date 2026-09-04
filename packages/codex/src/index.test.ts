@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -582,7 +591,7 @@ describe("Codex identity, configuration, and plugins", () => {
           );
         },
       });
-      expect(snapshot.rootPath).toBe(join(codexHome, "plugins", "openai-plugins"));
+      expect(snapshot.rootPath).toBe(await realpath(join(codexHome, "plugins", "openai-plugins")));
       expect(commands).toEqual([
         ["ls-remote", OFFICIAL_CURATED_MARKETPLACE_SOURCE, "HEAD"],
         ["rev-parse", "HEAD"],

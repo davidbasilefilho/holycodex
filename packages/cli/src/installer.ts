@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { rm } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   compareManagedConfigKey,
@@ -958,15 +959,16 @@ export async function verifyEffectiveInstall(
     if (typeof ref !== "string") {
       throw new InstallerError("install_failed", `The ${role} role registration is missing.`);
     }
-    const expectedPath = `${paths.roleRoot}/${role}.toml`.replaceAll("\\", "/");
+    const rolePath = join(paths.roleRoot, `${role}.toml`);
+    const expectedPath = rolePath.replaceAll("\\", "/");
     const resolved = resolveAgentConfigPath(paths.configFile, ref).replaceAll("\\", "/");
     if (resolved !== expectedPath) {
       throw new InstallerError("install_failed", `The ${role} role registration is stale.`);
     }
-    const roleText = await optionalTextFile(`${paths.roleRoot}/${role}.toml`);
+    const roleText = await optionalTextFile(rolePath);
     if (roleText === undefined)
       throw new InstallerError("install_failed", `The ${role} role file is missing.`);
-    if (preservedArtifacts.includes(`${paths.roleRoot}/${role}.toml`)) continue;
+    if (preservedArtifacts.includes(rolePath)) continue;
     const roleDoc = parseConfig(roleText);
     if (
       roleDoc["name"] !== role ||
