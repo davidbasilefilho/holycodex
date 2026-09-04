@@ -7,13 +7,8 @@ import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 
 import { assertReleaseOutputDirectory, assertSafeArtifactFile } from "./artifact-security.ts";
-import {
-  assertPackedEntries,
-  packPublicPackage,
-  sha256File,
-  verifyPublicPackage,
-  type PackageReleaseOptions,
-} from "./package-verification.ts";
+import { ensureCodexGenerated } from "./generate-codex-bindings.ts";
+import type { PackageReleaseOptions } from "./package-verification.ts";
 import {
   allowlistedEnvironment,
   DEFAULT_COMMAND_ENVIRONMENT_KEYS,
@@ -84,6 +79,7 @@ export async function createReleaseArtifact(
   outputDirectory: string,
   options: PackageReleaseOptions,
 ): Promise<ArtifactMetadata> {
+  const { packPublicPackage, verifyPublicPackage } = await loadPackageVerification();
   const canonicalVersion = await readCanonicalVersion();
   assertReleaseVersion(canonicalVersion, options.channel, options.version);
   const output = resolve(decode(ArtifactPathSchema, outputDirectory, "the artifact directory"));
@@ -117,6 +113,7 @@ export async function verifyReleaseArtifact(
   sourceSha: string,
   expectedSha256: string,
 ): Promise<ArtifactMetadata> {
+  const { assertPackedEntries, sha256File } = await loadPackageVerification();
   const output = resolve(decode(ArtifactPathSchema, outputDirectory, "the artifact directory"));
   const metadata = await readArtifactMetadata(output);
   await assertReleaseOutputDirectory(output, metadata.tarball);
@@ -279,6 +276,7 @@ export async function checkGitHubPublication(
       { env: githubEnvironment },
     );
     const downloaded = join(directory, metadata.tarball);
+    const { sha256File } = await loadPackageVerification();
     assert(
       (await sha256File(downloaded)) === metadata.tarballSha256,
       "the existing GitHub asset has a different artifact identity",
@@ -309,6 +307,11 @@ export async function writeReleaseNotes(outputDirectory: string, notesPath: stri
     encoding: "utf8",
     mode: 0o600,
   });
+}
+
+async function loadPackageVerification(): Promise<typeof import("./package-verification.ts")> {
+  await ensureCodexGenerated();
+  return await import("./package-verification.ts");
 }
 
 async function readArtifactMetadata(outputDirectory: string): Promise<ArtifactMetadata> {
