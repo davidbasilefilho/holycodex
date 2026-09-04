@@ -3,6 +3,9 @@
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
+  staged: {
+    "*": "bun run --sequential check:fix test",
+  },
   fmt: {
     ignorePatterns: ["packages/codex/generated/**"],
     bracketSameLine: true,
@@ -24,6 +27,7 @@ export default defineConfig({
     format: ["esm"],
     banner: "#!/usr/bin/env bun",
     outExtensions: () => ({ js: ".js" }),
+    minify: true,
     dts: false,
     clean: true,
     bundle: true,
