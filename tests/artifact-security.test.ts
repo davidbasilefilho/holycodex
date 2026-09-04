@@ -15,6 +15,7 @@ import {
 import {
   allowlistedEnvironment,
   redactDiagnostics,
+  runChecked,
   withTemporaryDirectory,
 } from "../scripts/process.ts";
 
@@ -41,6 +42,48 @@ describe("artifact and diagnostic security boundaries", () => {
         process.env[key] = previous;
       }
     }
+  });
+
+  test("redacts before deterministic head/tail bounding", () => {
+    const secret = "HC_JOIN_MARKER_SECRET";
+    const diagnostic = `${"header ".repeat(290)}${secret}${"middle ".repeat(500)}${secret}${"t".repeat(2004)}terminal failure`;
+    const redacted = redactDiagnostics(diagnostic, { TOKEN: secret });
+
+    expect(redacted.startsWith("header ")).toBe(true);
+    expect(redacted.endsWith("terminal failure")).toBe(true);
+    expect(redacted).toContain("...[diagnostic truncated]...");
+    expect(redacted).toBe(redactDiagnostics(diagnostic, { TOKEN: secret }));
+    expect(redacted).not.toContain(secret);
+    expect(redacted).not.toContain(secret.slice(0, 8));
+    expect(redacted).not.toContain(secret.slice(-8));
+    expect(redacted.length).toBeLessThanOrEqual(4096);
+  });
+
+  test("does not split Unicode surrogate pairs at the diagnostic join", () => {
+    const diagnostic = `${"a".repeat(2031)}😀${"middle ".repeat(1000)}✅${"b".repeat(2031)}`;
+    const redacted = redactDiagnostics(diagnostic);
+
+    expect(redacted.length).toBeLessThanOrEqual(4096);
+    for (let index = 0; index < redacted.length; index += 1) {
+      const code = redacted.charCodeAt(index);
+      if (code >= 0xd800 && code <= 0xdbff) {
+        expect(redacted.charCodeAt(index + 1)).toBeGreaterThanOrEqual(0xdc00);
+        expect(redacted.charCodeAt(index + 1)).toBeLessThanOrEqual(0xdfff);
+      } else if (code >= 0xdc00 && code <= 0xdfff) {
+        expect(redacted.charCodeAt(index - 1)).toBeGreaterThanOrEqual(0xd800);
+        expect(redacted.charCodeAt(index - 1)).toBeLessThanOrEqual(0xdbff);
+      }
+    }
+    expect(redacted).toContain("😀");
+    expect(redacted).toContain("✅");
+  });
+
+  test("keeps successful runChecked results unchanged", async () => {
+    const result = await runChecked([process.execPath, "-e", 'process.stdout.write("success")']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("success");
+    expect(result.stderr).toBe("");
   });
 
   test("rejects sensitive package paths at the upload boundary", () => {

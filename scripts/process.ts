@@ -17,6 +17,8 @@ const CommandResultSchema = Schema.Struct({
 export type CommandResult = typeof CommandResultSchema.Type;
 
 const DEFAULT_OUTPUT_LIMIT = 256 * 1024;
+const DIAGNOSTIC_LIMIT = 4096;
+const DIAGNOSTIC_ELLIPSIS = "\n...[diagnostic truncated]...\n";
 
 /**
  * Environment names that are safe and useful for ordinary local tooling.
@@ -219,7 +221,7 @@ export function redactDiagnostics(
   for (const secret of sensitiveValues) {
     redacted = redacted.replaceAll(secret, "[REDACTED]");
   }
-  return redacted
+  redacted = redacted
     .replaceAll(/(https?:\/\/)([^\s/@:]+):([^\s/@]+)@/giu, "$1[REDACTED]@")
     .replaceAll(
       /((?:[A-Za-z][A-Za-z0-9_-]*_)?(?:token|secret|password|passwd|api[_-]?key|authorization|credential|private[_-]?key)(?:[A-Za-z0-9_-]*)[\s]*[=:][\s]*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/giu,
@@ -229,8 +231,36 @@ export function redactDiagnostics(
       /((?:--?)(?:token|secret|password|passwd|api[_-]?key|authorization|credential|private[_-]?key)(?:=|\s+))(?:"[^"]*"|'[^']*'|[^\s]+)/giu,
       "$1[REDACTED]",
     )
-    .replaceAll(/\b(?:gh[pousr]_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+)\b/gu, "[REDACTED]")
-    .slice(0, 4096);
+    .replaceAll(/\b(?:gh[pousr]_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+)\b/gu, "[REDACTED]");
+  return boundDiagnostic(redacted);
+}
+
+/** Keeps both the command failure header and terminal diagnostics observable within the bound. */
+function boundDiagnostic(value: string): string {
+  if (value.length <= DIAGNOSTIC_LIMIT) return value;
+  const available = DIAGNOSTIC_LIMIT - DIAGNOSTIC_ELLIPSIS.length;
+  const headLength = Math.ceil(available / 2);
+  const tailLength = available - headLength;
+  let safeHeadLength = headLength;
+  let safeTailStart = value.length - tailLength;
+  if (isSurrogatePair(value, safeHeadLength - 1)) {
+    safeHeadLength -= 1;
+  }
+  if (isSurrogatePair(value, safeTailStart - 1)) {
+    safeTailStart -= 1;
+  }
+  return `${value.slice(0, safeHeadLength)}${DIAGNOSTIC_ELLIPSIS}${value.slice(safeTailStart)}`;
+}
+
+function isSurrogatePair(value: string, highIndex: number): boolean {
+  return (
+    highIndex >= 0 &&
+    highIndex + 1 < value.length &&
+    value.charCodeAt(highIndex) >= 0xd800 &&
+    value.charCodeAt(highIndex) <= 0xdbff &&
+    value.charCodeAt(highIndex + 1) >= 0xdc00 &&
+    value.charCodeAt(highIndex + 1) <= 0xdfff
+  );
 }
 
 function definedEnvironment(
