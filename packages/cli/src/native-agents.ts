@@ -2,6 +2,7 @@
 
 import { lstat, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
+
 import {
   ROLE_DEFINITIONS,
   lookupPlan,
@@ -13,8 +14,9 @@ import {
   type PlanName,
   type RoleTask,
 } from "@holycodex/core";
-import { writeAtomicText } from "./storage.ts";
+
 import { assertNoSymlink, isFsCode, pathWithin } from "./paths.ts";
+import { writeAtomicText } from "./storage.ts";
 import type { ManagedArtifact } from "./types.ts";
 
 export type NativeAgentProjection = Readonly<{

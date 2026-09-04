@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { rm, rmdir } from "node:fs/promises";
+
 import {
   cleanupManagedRuntimeConfig,
   compareManagedConfigKey,
@@ -11,6 +12,7 @@ import {
   type TomlDocument,
 } from "@holycodex/codex";
 import { pluginIdsForOptionalCapabilities } from "@holycodex/core";
+
 import {
   HOLYCODEX_PLUGIN,
   cleanupHolyCodexPluginConfig,
@@ -22,6 +24,8 @@ import {
   serializeConfig,
   InstallerError,
 } from "./installer.ts";
+import { asJsonValue } from "./json.ts";
+import { isKnownLegacyRootRoleContent, removeManagedNativeAgents } from "./native-agents.ts";
 import { CodexOfficialPluginManager } from "./official-manager.ts";
 import {
   assertNoSymlinkTree,
@@ -29,10 +33,8 @@ import {
   resolveInstallerPaths,
   type ResolvedInstallerPaths,
 } from "./paths.ts";
-import { optionalJsonFile, optionalTextFile, writeAtomicJson, writeAtomicText } from "./storage.ts";
-import { asJsonValue } from "./json.ts";
-import { isKnownLegacyRootRoleContent, removeManagedNativeAgents } from "./native-agents.ts";
 import { decodeSchema, InstallTransactionSchema } from "./schema.ts";
+import { optionalJsonFile, optionalTextFile, writeAtomicJson, writeAtomicText } from "./storage.ts";
 import type {
   DoctorCheck,
   DoctorResult,
@@ -119,7 +121,7 @@ export async function doctorHolyCodex(
       checks["native_roles"] = {
         status: "failed",
         reasons: [...(existing?.reasons ?? []), "stale_legacy_root"],
-        details: { ...(existing?.details ?? {}), path: `${paths.codexHome}/agents/root.toml` },
+        details: { ...existing?.details, path: `${paths.codexHome}/agents/root.toml` },
       };
     }
   } catch (error: unknown) {

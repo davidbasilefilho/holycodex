@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "vite-plus/test";
+
 import { verifyGeneratedArtifact } from "./generated-artifact";
 
 describe("generated Codex artifact provenance", () => {

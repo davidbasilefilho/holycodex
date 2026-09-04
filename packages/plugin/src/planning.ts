@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { resolve } from "node:path";
-import { canonicalJsonBytes, createIdentity, digestPayload, sha256 } from "./verification.ts";
+
 import {
   DEFAULT_SCHEMA_EPOCH,
   MAX_FILE_SIZE,
@@ -18,9 +18,10 @@ import {
   readSourceManifest,
   declaredSourcePaths,
 } from "./schemas.ts";
+import type { GeneratedManifest } from "./schemas.ts";
 import { compareFiles, readSourceFile, resolveSourceRoot, walkSource } from "./source.ts";
 import type { AssemblyPlan, SourceFile, SourceValidation } from "./types.ts";
-import type { GeneratedManifest } from "./schemas.ts";
+import { canonicalJsonBytes, createIdentity, digestPayload, sha256 } from "./verification.ts";
 
 export async function validateSource(input: unknown = pluginSourceRoot): Promise<SourceValidation> {
   const sourceRoot = parseDirectoryText(input, "sourceRoot");

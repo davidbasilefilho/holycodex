@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { join } from "node:path";
+
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
-import { join } from "node:path";
+
 import {
   allowlistedEnvironment,
   DEFAULT_COMMAND_ENVIRONMENT_KEYS,

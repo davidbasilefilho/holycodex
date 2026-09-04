@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Either from "effect/Either";
-import * as Schema from "effect/Schema";
 import { cp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
+
+import { readCanonicalVersion } from "../packages/cli/src/manifest.ts";
 import { SourceManifestSchema, validateSource } from "../packages/plugin/src/index.ts";
 import { assertBuildUploadDirectory, listSafeArtifactEntries } from "./artifact-security.ts";
-import { allowlistedEnvironment, DEFAULT_COMMAND_ENVIRONMENT_KEYS, runChecked } from "./process.ts";
-import { readCanonicalVersion } from "../packages/cli/src/manifest.ts";
 import { ensureCodexGenerated } from "./generate-codex-bindings.ts";
+import { allowlistedEnvironment, DEFAULT_COMMAND_ENVIRONMENT_KEYS, runChecked } from "./process.ts";
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
 const distRoot = join(workspaceRoot, "packages/cli/dist");

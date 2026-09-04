@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { spawn } from "node:child_process";
 import {
   lstat,
   mkdir,
@@ -12,8 +13,10 @@ import {
   stat,
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+
 import * as Schema from "effect/Schema";
-import { spawn } from "node:child_process";
+
+import { AppServerClient } from "./client";
 import {
   checked,
   CodexError,
@@ -26,7 +29,6 @@ import {
   TextSchema,
   type CodexResult,
 } from "./common";
-import { AppServerClient } from "./client";
 import { allowlistedEnvironment, BunStdioTransport, sanitizeDiagnostic } from "./transport";
 
 export const OFFICIAL_CURATED_MARKETPLACE_NAME = "openai-curated" as const;
@@ -111,11 +113,10 @@ export interface OfficialMarketplaceGitFallbackOptions {
 /**
  * Ensure the reserved provider snapshot has been populated by Codex itself.
  *
- * The openai-curated marketplace is owned by Codex. In particular, callers
- * must never clone its repository or register it with `plugin marketplace add`.
- * A normal App Server initialize starts Codex's supported marketplace sync;
- * this function waits for that async work and only returns after validating the
- * reserved snapshot and the selected plugin entries.
+ * The openai-curated marketplace is owned by Codex. In particular, callers must never clone its
+ * repository or register it with `plugin marketplace add`. A normal App Server initialize starts
+ * Codex's supported marketplace sync; this function waits for that async work and only returns
+ * after validating the reserved snapshot and the selected plugin entries.
  */
 export async function bootstrapOfficialMarketplace(
   options: OfficialMarketplaceBootstrapOptions,
@@ -228,9 +229,9 @@ export interface OfficialMarketplaceProvisionOptions {
 }
 
 /**
- * Fetch and publish the canonical official snapshot when Codex startup did not
- * provide it. This is deliberately a separate fallback boundary: it never
- * invokes `plugin marketplace add` and never writes Codex configuration.
+ * Fetch and publish the canonical official snapshot when Codex startup did not provide it. This is
+ * deliberately a separate fallback boundary: it never invokes `plugin marketplace add` and never
+ * writes Codex configuration.
  */
 export async function provisionOfficialMarketplaceSnapshot(
   options: OfficialMarketplaceProvisionOptions,
@@ -816,9 +817,11 @@ function marketplaceBootstrapError(
   message: string,
   cause?: unknown,
 ): OfficialPluginAdapterError {
-  return new OfficialPluginAdapterError(code, message, {
-    ...(cause instanceof Error ? { cause: sanitizeDiagnostic(cause.message) } : {}),
-  });
+  return new OfficialPluginAdapterError(
+    code,
+    message,
+    cause instanceof Error ? { cause: sanitizeDiagnostic(cause.message) } : {},
+  );
 }
 
 function containsMcpDeclaration(value: unknown): boolean {

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { decodeUnknown } from "@holycodex/core";
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
-import { decodeUnknown } from "@holycodex/core";
-import { readPayloadFile, readSourceFile, assertSafePath, comparePathText } from "./source.ts";
+
 import {
   DIGEST_PATTERN,
   EPOCH_PATTERN,
@@ -13,6 +13,7 @@ import {
   VERSION_PATTERN,
 } from "./constants.ts";
 import { pluginError } from "./errors.ts";
+import { readPayloadFile, readSourceFile, assertSafePath, comparePathText } from "./source.ts";
 import { normalizeRelativePath } from "./source.ts";
 
 const PluginNameSchema = Schema.String.pipe(Schema.pattern(PLUGIN_NAME_PATTERN));

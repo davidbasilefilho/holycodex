@@ -2,6 +2,7 @@
 
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
+
 import {
   MAX_FILE_SIZE,
   MAX_TOTAL_SIZE,
@@ -9,11 +10,11 @@ import {
   SOURCE_MANIFEST_PATH,
 } from "./constants.ts";
 import { pluginError } from "./errors.ts";
-import { decodeSchema, PayloadManifestSchema, parseAssemblyRequest } from "./schemas.ts";
 import { planAssembly } from "./planning.ts";
+import { decodeSchema, PayloadManifestSchema, parseAssemblyRequest } from "./schemas.ts";
 import { comparePathText, readSourceFile, resolveStagingRoot } from "./source.ts";
-import { canonicalJsonBytes, sha256, verifyPayload } from "./verification.ts";
 import type { AssembledPayload, AssemblyPlan, PayloadManifest } from "./types.ts";
+import { canonicalJsonBytes, sha256, verifyPayload } from "./verification.ts";
 
 export async function assemblePayload(input: unknown): Promise<AssembledPayload> {
   const request = parseAssemblyRequest(input);

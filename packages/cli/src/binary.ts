@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { createInterface } from "node:readline/promises";
+
 import { runCli, renderHuman } from "./commands.ts";
 import { helpRequested, helpTopic, renderHelp } from "./help.ts";
 import type { CliContext } from "./types.ts";
-import { createInterface } from "node:readline/promises";
 
 export interface BinaryIo {
   readonly stdin?: AsyncIterable<string>;

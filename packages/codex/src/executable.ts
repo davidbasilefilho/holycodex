@@ -2,13 +2,15 @@
 
 import { lstat, mkdir, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
-import * as Schema from "effect/Schema";
+
 import {
   canonicalJsonUtf8,
   createSha256Digest,
   domainSeparatedSha256,
   type Sha256Digest,
 } from "@holycodex/core";
+import * as Schema from "effect/Schema";
+
 import { CODEX_PROTOCOL_EPOCH, checked, CodexError, sanitizeText } from "./common";
 import {
   allowlistedEnvironment,

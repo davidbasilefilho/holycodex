@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Sha256Digest } from "@holycodex/core";
+
 import type {
   AssemblyRequest as ParsedAssemblyRequest,
   GeneratedManifest,

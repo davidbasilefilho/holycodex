@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
 import type { ManagedRuntimeConfigState } from "@holycodex/codex";
-import type { CliEnvelope, JsonObject, PlanName, ServiceTier } from "@holycodex/core";
 import type { LiveOfficialPluginListEnvelope } from "@holycodex/codex";
+import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
+import type { CliEnvelope, JsonObject, PlanName, ServiceTier } from "@holycodex/core";
 
 export type OptionalSelections = Readonly<{
   readonly computer_use: boolean;

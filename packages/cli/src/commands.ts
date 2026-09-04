@@ -10,15 +10,16 @@ import {
   type ServiceTier,
 } from "@holycodex/core";
 import { lookupPlan } from "@holycodex/core";
+
 import { ArgumentError, parseArgv } from "./args.ts";
+import { colorEnabled, helpRequested, helpText, helpTopic } from "./help.ts";
+import { installHolyCodex, InstallerError, type InstallRequest } from "./installer.ts";
+import { asJsonValue } from "./json.ts";
 import { doctorHolyCodex, removeHolyCodex } from "./maintenance.ts";
 import { readCanonicalVersion, updateCanonicalVersion, ManifestError } from "./manifest.ts";
-import { PathBoundaryError } from "./paths.ts";
-import { installHolyCodex, InstallerError, type InstallRequest } from "./installer.ts";
-import { StorageError } from "./storage.ts";
 import { OfficialPluginManagerError } from "./official-manager.ts";
-import { asJsonValue } from "./json.ts";
-import { colorEnabled, helpRequested, helpText, helpTopic } from "./help.ts";
+import { PathBoundaryError } from "./paths.ts";
+import { StorageError } from "./storage.ts";
 import type { CliContext, CommandResult, HumanRenderOptions, ParsedCommand } from "./types.ts";
 
 export async function runCli(
@@ -169,7 +170,7 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
     return { ...base, ...(context.now ? { now: context.now } : {}) };
   return {
     ...base,
-    paths: { ...(base.paths ?? {}), codexHome },
+    paths: { ...base.paths, codexHome },
     ...(context.now ? { now: context.now } : {}),
   };
 }

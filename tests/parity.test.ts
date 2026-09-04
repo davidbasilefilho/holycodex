@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Either from "effect/Either";
-import * as Schema from "effect/Schema";
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
 import { describe, expect, test } from "vite-plus/test";
-import { parseCliEnvelope } from "../packages/core/src/envelopes.ts";
+
 import { runBinary, runCli, assertRootText, pathWithin } from "../packages/cli/src/index.ts";
+import { parseCliEnvelope } from "../packages/core/src/envelopes.ts";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const cleanRoomBase = "682adea6d6cba374251152af612489126e9c64c1";

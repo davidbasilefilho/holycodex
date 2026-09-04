@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Either from "effect/Either";
-import * as Schema from "effect/Schema";
 import { access, chmod, cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { delimiter, dirname, join, relative, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
+
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
+
 import { AppServerClient, BunStdioTransport } from "../packages/codex/src/index.ts";
 import { CliEnvelopeSchema } from "../packages/core/src/envelopes.ts";
 import {
-  assertReleaseVersion,
-  BaseVersionSchema,
-  ReleaseChannelSchema,
-  ReleaseVersionSchema,
-  SourceShaSchema,
-  type ReleaseChannel,
-} from "./release-version.ts";
+  assertBuildUploadEntries,
+  assertPublicPackageEntries,
+  assertSafeArtifactFile,
+  listSafeArtifactEntries,
+} from "./artifact-security.ts";
+import { ensureCodexGenerated } from "./generate-codex-bindings.ts";
 import {
   allowlistedEnvironment,
   DEFAULT_COMMAND_ENVIRONMENT_KEYS,
@@ -24,13 +25,14 @@ import {
   withTemporaryDirectory,
   writeJson,
 } from "./process.ts";
-import { ensureCodexGenerated } from "./generate-codex-bindings.ts";
 import {
-  assertBuildUploadEntries,
-  assertPublicPackageEntries,
-  assertSafeArtifactFile,
-  listSafeArtifactEntries,
-} from "./artifact-security.ts";
+  assertReleaseVersion,
+  BaseVersionSchema,
+  ReleaseChannelSchema,
+  ReleaseVersionSchema,
+  SourceShaSchema,
+  type ReleaseChannel,
+} from "./release-version.ts";
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
 const cliRoot = join(workspaceRoot, "packages/cli");

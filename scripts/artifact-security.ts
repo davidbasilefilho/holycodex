@@ -2,12 +2,13 @@
 
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
+
 import { isSensitiveEnvironmentKey } from "./process.ts";
 
 /**
- * Names that must never cross a package, build-upload, or release boundary.
- * This is deliberately broader than the VCS ignore list: an ignored local
- * file can still be copied into a staged directory by an unsafe build.
+ * Names that must never cross a package, build-upload, or release boundary. This is deliberately
+ * broader than the VCS ignore list: an ignored local file can still be copied into a staged
+ * directory by an unsafe build.
  */
 const SENSITIVE_PATH_PART_PATTERN =
   /^(?:\.env(?:\..*)?|.*[._-]env(?:\..*)?|\.npmrc(?:\..*)?|\.pypirc(?:\..*)?|\.aws(?:\..*)?|\.ssh(?:\..*)?|\.kube(?:\..*)?|\.terraform(?:\..*)?|(?:auth|authorization|credential|credentials|secret|secrets|token|tokens)(?:\..*)?|.*\.tfstate(?:\..*)?|.*\.(?:auth|cert|cer|cookie|credential|credentials|der|jks|key|keystore|pem|pfx|p12|secret|secrets|token|tokens))$/iu;
@@ -36,8 +37,8 @@ export function assertAllowedArtifactEntries(
 }
 
 /**
- * Enumerate a staged tree while rejecting links and secret-like names. The
- * returned paths are relative, normalized with forward slashes, and stable.
+ * Enumerate a staged tree while rejecting links and secret-like names. The returned paths are
+ * relative, normalized with forward slashes, and stable.
  */
 export async function listSafeArtifactEntries(root: string, label: string): Promise<string[]> {
   const resolvedRoot = resolve(root);

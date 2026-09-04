@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Schema from "effect/Schema";
 import type { JsonObject, JsonValue } from "@holycodex/core";
+import * as Schema from "effect/Schema";
+
+import type { v2 as GeneratedV2 } from "../generated/typescript";
 import {
   isJsonValue,
   isPlainObject,
@@ -17,7 +19,6 @@ import {
   GENERATED_PERMISSION_REQUEST_METHODS,
 } from "./generated-wire";
 import { TomlDocumentSchema } from "./runtime-config";
-import type { v2 as GeneratedV2 } from "../generated/typescript";
 
 const ProtocolMethodSchema = Schema.String.pipe(
   Schema.pattern(/^[A-Za-z][A-Za-z0-9_./:-]{0,127}$/u),

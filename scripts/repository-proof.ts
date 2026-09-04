@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Either from "effect/Either";
-import * as Schema from "effect/Schema";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
+
 import { canonicalJsonUtf8, domainSeparatedSha256 } from "../packages/core/src/canonical.ts";
-import { runChecked, runCommand } from "./process.ts";
 import { ensureCodexGenerated } from "./generate-codex-bindings.ts";
+import { runChecked, runCommand } from "./process.ts";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageManifestPaths = [

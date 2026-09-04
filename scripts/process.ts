@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Either from "effect/Either";
-import * as Schema from "effect/Schema";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
+
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
 
 const CommandResultSchema = Schema.Struct({
   command: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
@@ -20,10 +21,9 @@ const DEFAULT_OUTPUT_LIMIT = 256 * 1024;
 /**
  * Environment names that are safe and useful for ordinary local tooling.
  *
- * Callers must opt in to any additional name (for example GH_TOKEN for a
- * read-only GitHub lookup).  In particular, this is intentionally not a
- * copy of process.env: credentials and local configuration must not flow
- * into package/build/release subprocesses by accident.
+ * Callers must opt in to any additional name (for example GH_TOKEN for a read-only GitHub lookup).
+ * In particular, this is intentionally not a copy of process.env: credentials and local
+ * configuration must not flow into package/build/release subprocesses by accident.
  */
 export const DEFAULT_COMMAND_ENVIRONMENT_KEYS = [
   "PATH",
@@ -71,9 +71,9 @@ export function isSensitiveEnvironmentKey(key: string): boolean {
 /**
  * Select only the environment names needed by one operation.
  *
- * Overrides are explicit operation inputs and may include a credential when
- * the native command genuinely requires one.  Such values are still passed
- * to the central diagnostic redactor by runChecked.
+ * Overrides are explicit operation inputs and may include a credential when the native command
+ * genuinely requires one. Such values are still passed to the central diagnostic redactor by
+ * runChecked.
  */
 export function allowlistedEnvironment(
   keys: readonly string[],

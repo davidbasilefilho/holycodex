@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { lstat, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, posix, resolve, sep, win32 } from "node:path";
-import { lstat, mkdir } from "node:fs/promises";
+
 import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
+
 import type { InstallerOptions, InstallerPaths } from "./types.ts";
 
 export const STATE_ROOT_NAME = "holycodex";

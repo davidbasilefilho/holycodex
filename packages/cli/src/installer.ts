@@ -1,5 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { rm } from "node:fs/promises";
+
+import {
+  compareManagedConfigKey,
+  createManagedRuntimeConfigState,
+  deleteTomlPath,
+  mergeManagedRuntimeConfig,
+  readTomlPath,
+  resolveAgentConfigPath,
+  TomlDocumentSchema,
+  type ManagedConfigKeyPath,
+  type ManagedRuntimeConfigState,
+  type TomlDocument,
+  type TomlTable,
+  type TomlValue,
+} from "@holycodex/codex";
 import {
   CAPABILITY_REGISTRY,
   DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
@@ -17,41 +33,9 @@ import {
   type PlanName,
   type ServiceTier,
 } from "@holycodex/core";
-import {
-  compareManagedConfigKey,
-  createManagedRuntimeConfigState,
-  deleteTomlPath,
-  mergeManagedRuntimeConfig,
-  readTomlPath,
-  resolveAgentConfigPath,
-  TomlDocumentSchema,
-  type ManagedConfigKeyPath,
-  type ManagedRuntimeConfigState,
-  type TomlDocument,
-  type TomlTable,
-  type TomlValue,
-} from "@holycodex/codex";
-import { rm } from "node:fs/promises";
-import { readCanonicalBaseVersion } from "./manifest.ts";
-import {
-  ensureOwnedDirectory,
-  isFsCode,
-  resolveInstallerPaths,
-  PathBoundaryError,
-  type ResolvedInstallerPaths,
-} from "./paths.ts";
-import { optionalJsonFile, optionalTextFile, writeAtomicJson, writeAtomicText } from "./storage.ts";
+
 import { asJsonValue } from "./json.ts";
-import { parseToml, stringifyToml } from "./toml.ts";
-import { CodexOfficialPluginManager, OfficialPluginManagerError } from "./official-manager.ts";
-import {
-  decodeSchema,
-  InstallRecordMigrationSchema,
-  InstallRecordSchema,
-  InstallRequestSchema,
-  InstallTransactionSchema,
-  JsonObjectSchema,
-} from "./schema.ts";
+import { readCanonicalBaseVersion } from "./manifest.ts";
 import {
   installNativeAgents,
   removeManagedNativeAgents,
@@ -60,6 +44,24 @@ import {
   isKnownLegacyRootRoleContent,
   type NativeAgentInstallResult,
 } from "./native-agents.ts";
+import { CodexOfficialPluginManager, OfficialPluginManagerError } from "./official-manager.ts";
+import {
+  ensureOwnedDirectory,
+  isFsCode,
+  resolveInstallerPaths,
+  PathBoundaryError,
+  type ResolvedInstallerPaths,
+} from "./paths.ts";
+import {
+  decodeSchema,
+  InstallRecordMigrationSchema,
+  InstallRecordSchema,
+  InstallRequestSchema,
+  InstallTransactionSchema,
+  JsonObjectSchema,
+} from "./schema.ts";
+import { optionalJsonFile, optionalTextFile, writeAtomicJson, writeAtomicText } from "./storage.ts";
+import { parseToml, stringifyToml } from "./toml.ts";
 import type {
   CapabilityInstallState,
   CapabilityStateRecord,

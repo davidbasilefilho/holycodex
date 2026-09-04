@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Either from "effect/Either";
-import * as Schema from "effect/Schema";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
 import { describe, expect, test } from "vite-plus/test";
 
 const PackageScriptName = Schema.String.pipe(Schema.maxLength(256));

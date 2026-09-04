@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import * as Schema from "effect/Schema";
+
 import { freezeDeep } from "./common.ts";
 
 export const PlanNameSchema = Schema.Literal(

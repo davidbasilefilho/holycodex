@@ -2,13 +2,15 @@
 
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import * as Schema from "effect/Schema";
+
 import {
   canonicalJsonUtf8,
   createSha256Digest,
   domainSeparatedSha256,
   type Sha256Digest,
 } from "@holycodex/core";
+import * as Schema from "effect/Schema";
+
 import { CodexError, checked } from "./common";
 
 const ARTIFACT_ROOT_RELATIVE = "packages/codex/generated" as const;

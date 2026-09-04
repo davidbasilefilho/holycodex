@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Schema from "effect/Schema";
-import { dirname } from "node:path";
 import { lstat, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+
 import { canonicalJson, type JsonObject, type JsonValue } from "@holycodex/core";
+import * as Schema from "effect/Schema";
+
 import { assertNoSymlink, ensureOwnedDirectory, isFsCode } from "./paths.ts";
 import { decodeSchema, JsonObjectSchema } from "./schema.ts";
 

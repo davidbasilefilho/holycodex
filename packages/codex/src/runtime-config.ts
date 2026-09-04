@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Schema from "effect/Schema";
 import { canonicalJsonUtf8, domainSeparatedSha256, type Sha256Digest } from "@holycodex/core";
 import type { Effort } from "@holycodex/core";
+import * as Schema from "effect/Schema";
+
 import { isPlainObject, invalidData } from "./common";
 
 /**
- * A parsed TOML value. Parsing and serialization stay with the Codex boundary;
- * this package only manipulates validated values and never implements a TOML
- * parser.
+ * A parsed TOML value. Parsing and serialization stay with the Codex boundary; this package only
+ * manipulates validated values and never implements a TOML parser.
  */
 export type TomlValue = string | number | boolean | null | readonly TomlValue[] | TomlTable;
 export interface TomlTable {
@@ -463,8 +463,8 @@ export interface ManagedRuntimeConfigMerge {
 }
 
 /**
- * Merge only managed keys into a parsed document. Existing managed keys are
- * compared individually; a changed value is preserved and reported as drift.
+ * Merge only managed keys into a parsed document. Existing managed keys are compared individually;
+ * a changed value is preserved and reported as drift.
  */
 export async function mergeManagedRuntimeConfig(
   document: TomlDocument,

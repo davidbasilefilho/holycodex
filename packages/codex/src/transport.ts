@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { isAbsolute } from "node:path";
+
 import {
   CodexError,
   DEFAULT_MAX_DIAGNOSTIC_BYTES,

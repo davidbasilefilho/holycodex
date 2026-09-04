@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { lookupPlan } from "@holycodex/core";
+
 import type { ParsedCommand } from "./types.ts";
 
 export const INSTALL_OPTION_CATALOG = Object.freeze([

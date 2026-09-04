@@ -2,6 +2,7 @@
 
 import type { JsonValue } from "@holycodex/core";
 import * as Schema from "effect/Schema";
+
 import {
   CODEX_CLIENT_VERSION,
   DEFAULT_MAX_LINE_BYTES,
@@ -13,7 +14,6 @@ import {
   sanitizeMetadata,
   sanitizeText,
 } from "./common";
-import type { AsyncLineTransport } from "./transport";
 import {
   GENERATED_APPROVAL_REQUEST_METHODS,
   GENERATED_INITIALIZED_NOTIFICATION,
@@ -94,6 +94,7 @@ import type {
   TurnSteerParams,
   TurnSteerResult,
 } from "./protocol";
+import type { AsyncLineTransport } from "./transport";
 
 export type ServerRequestHandler = (request: ServerRequest) => JsonValue | Promise<JsonValue>;
 

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import * as Either from "effect/Either";
+
 import { freezeDeep } from "./common.ts";
 import { CoreError, type CoreResult, failure, inputError, success } from "./errors.ts";
-import { decodeUnknown } from "./schema.ts";
 import {
   PlanNameSchema,
   PlanSelectionSchema,
@@ -21,6 +21,7 @@ import {
   type ServiceTier,
   type TaskForRole,
 } from "./routes.ts";
+import { decodeUnknown } from "./schema.ts";
 
 export function parsePlanSelection(input: unknown): CoreResult<PlanSelection> {
   const parsed = decodeUnknown(PlanSelectionSchema, input);

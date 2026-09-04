@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Either from "effect/Either";
-import * as Schema from "effect/Schema";
 import {
   canonicalJson,
   CLI_SCHEMA_VERSION,
@@ -9,6 +7,9 @@ import {
   type JsonObject,
   type JsonValue,
 } from "@holycodex/core";
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
+
 import { CODEX_PROTOCOL_EPOCH, CODEX_PROTOCOL_VERSION } from "../generated/typescript/protocol";
 
 export const packageName = "@holycodex/codex" as const;

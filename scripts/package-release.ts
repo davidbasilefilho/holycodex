@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Either from "effect/Either";
-import * as Schema from "effect/Schema";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
+
+import { assertReleaseOutputDirectory, assertSafeArtifactFile } from "./artifact-security.ts";
 import {
   assertPackedEntries,
   packPublicPackage,
@@ -11,6 +14,15 @@ import {
   verifyPublicPackage,
   type PackageReleaseOptions,
 } from "./package-verification.ts";
+import {
+  allowlistedEnvironment,
+  DEFAULT_COMMAND_ENVIRONMENT_KEYS,
+  redactDiagnostics,
+  runCommand,
+  runChecked,
+  withTemporaryDirectory,
+  writeJson,
+} from "./process.ts";
 import {
   assertReleaseVersion,
   BaseVersionSchema,
@@ -21,16 +33,6 @@ import {
   SourceShaSchema,
   type ReleaseChannel,
 } from "./release-version.ts";
-import {
-  allowlistedEnvironment,
-  DEFAULT_COMMAND_ENVIRONMENT_KEYS,
-  redactDiagnostics,
-  runCommand,
-  runChecked,
-  withTemporaryDirectory,
-  writeJson,
-} from "./process.ts";
-import { assertReleaseOutputDirectory, assertSafeArtifactFile } from "./artifact-security.ts";
 
 const ReleaseStampSchema = Schema.Struct({
   schemaVersion: Schema.Literal("holycodex-release-v1"),

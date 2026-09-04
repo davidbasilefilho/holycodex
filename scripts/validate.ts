@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { runFreshClone } from "./fresh-clone.ts";
-import { runPackageVerification } from "./package-verification.ts";
-import { runRepositoryProof } from "./repository-proof.ts";
-import { allowlistedEnvironment, DEFAULT_COMMAND_ENVIRONMENT_KEYS, runChecked } from "./process.ts";
 import { resolve } from "node:path";
+
+import { runFreshClone } from "./fresh-clone.ts";
 import { ensureCodexGenerated } from "./generate-codex-bindings.ts";
+import { runPackageVerification } from "./package-verification.ts";
+import { allowlistedEnvironment, DEFAULT_COMMAND_ENVIRONMENT_KEYS, runChecked } from "./process.ts";
+import { runRepositoryProof } from "./repository-proof.ts";
 
 const workspaceRoot = resolveWorkspaceRoot();
 
@@ -23,7 +24,7 @@ export async function runValidation(): Promise<ValidationResult> {
     cwd: workspaceRoot,
     env: commandEnvironment,
   });
-  assert(/^1\.4\./u.test(bun.stdout.trim()), "validation requires mise-resolved Bun 1.4");
+  assert(bun.stdout.trim().startsWith("1.4."), "validation requires mise-resolved Bun 1.4");
   steps.push("bun 1.4");
 
   await runStep(["vp", "run", "fmt", "--check"], "format", steps);

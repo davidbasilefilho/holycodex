@@ -2,6 +2,7 @@
 
 import { cp, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
+
 import { canonicalJsonUtf8, domainSeparatedSha256 } from "../packages/core/src/canonical.ts";
 import {
   allowlistedEnvironment,
@@ -84,9 +85,8 @@ export function canReuseGeneratedOutput(
 let activeGeneration: Promise<EnsureCodexGeneratedResult> | undefined;
 
 /**
- * Ensure local generated bindings match the stable Codex CLI resolved by the
- * stable mise channel. A valid current tree is reused without invoking the
- * generator again.
+ * Ensure local generated bindings match the stable Codex CLI resolved by the stable mise channel. A
+ * valid current tree is reused without invoking the generator again.
  */
 export function ensureCodexGenerated(): Promise<EnsureCodexGeneratedResult> {
   if (activeGeneration !== undefined) {

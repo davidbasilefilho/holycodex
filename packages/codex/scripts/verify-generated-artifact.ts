@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { verifyGeneratedArtifact } from "../src/generated-artifact";
 import { CodexError } from "../src/common";
+import { verifyGeneratedArtifact } from "../src/generated-artifact";
 
 try {
   const verification = await verifyGeneratedArtifact();

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { decode, encode } from "@toon-format/toon";
+
 import type { JsonValue } from "./common.ts";
 
 /** The sole structured model-boundary codec. Internal protocols may keep JSON. */

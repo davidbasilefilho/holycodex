@@ -3,9 +3,9 @@
 import type { TomlDocument, TomlTable, TomlValue } from "@holycodex/codex";
 
 /**
- * Small TOML 1.0 subset used only when the CLI is exercised outside Bun.
- * Production uses Bun.TOML; this fallback keeps the validated config boundary
- * available to the Node-based test runner without storing raw TOML in state.
+ * Small TOML 1.0 subset used only when the CLI is exercised outside Bun. Production uses Bun.TOML;
+ * this fallback keeps the validated config boundary available to the Node-based test runner without
+ * storing raw TOML in state.
  */
 export function parseToml(text: string): TomlDocument {
   const document: Record<string, TomlValue> = {};

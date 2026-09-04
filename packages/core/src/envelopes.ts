@@ -2,13 +2,14 @@
 
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
+
+import { canonicalJson } from "./canonical.ts";
+import { CapabilityNameSchema } from "./capabilities.ts";
 import { CLI_SCHEMA_VERSION, isObject, type JsonObject, type JsonValue } from "./common.ts";
 import { type CoreResult, failure, inputError, success } from "./errors.ts";
 import { identifierTextSchema } from "./identifiers.ts";
-import { canonicalJson } from "./canonical.ts";
 import { RoleSchema, RoleTaskSchema, type Role, type RoleTask } from "./routes.ts";
 import { decodeUnknown } from "./schema.ts";
-import { CapabilityNameSchema } from "./capabilities.ts";
 
 export const SpecialistStatusSchema = Schema.Literal("blocked", "completed", "failed", "partial");
 export type SpecialistStatus = typeof SpecialistStatusSchema.Type;

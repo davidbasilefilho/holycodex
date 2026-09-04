@@ -9,6 +9,7 @@ import {
   type LiveOfficialPluginListEnvelope,
   type OfficialPluginCommandRunner,
 } from "@holycodex/codex";
+
 import type { OfficialPluginManager, OfficialPluginStatus } from "./types.ts";
 
 export type { OfficialPluginCommandRunner } from "@holycodex/codex";

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Either from "effect/Either";
-import * as Schema from "effect/Schema";
+import { ManagedRuntimeConfigStateSchema } from "@holycodex/codex";
 import {
   decodeUnknown,
   PlanNameSchema,
@@ -9,7 +8,9 @@ import {
   STATE_SCHEMA_EPOCH,
   type JsonObject,
 } from "@holycodex/core";
-import { ManagedRuntimeConfigStateSchema } from "@holycodex/codex";
+import * as Either from "effect/Either";
+import * as Schema from "effect/Schema";
+
 import { isJsonValue } from "./json.ts";
 
 export const JsonObjectSchema = Schema.declare(

@@ -5,10 +5,14 @@ import { defineConfig } from "vite-plus";
 export default defineConfig({
   fmt: {
     ignorePatterns: ["packages/codex/generated/**"],
+    bracketSameLine: true,
+    jsdoc: true,
+    sortImports: true,
+    sortPackageJson: true,
   },
   lint: {
     ignorePatterns: ["packages/codex/generated/**"],
-    plugins: ["typescript"],
+    plugins: ["typescript", "eslint", "import", "jsdoc", "oxc", "unicorn"],
     options: {
       typeAware: true,
       typeCheck: true,

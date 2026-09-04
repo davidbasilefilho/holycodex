@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "vite-plus/test";
+
 import { assertLatestStableMatch, canReuseGeneratedOutput } from "./generate-codex-bindings.ts";
 
 describe("latest stable Codex generation contract", () => {

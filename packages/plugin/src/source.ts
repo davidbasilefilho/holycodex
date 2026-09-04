@@ -2,6 +2,7 @@
 
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, resolve } from "node:path";
+
 import {
   GENERATED_DIRECTORY_NAMES,
   SECRET_EXTENSION_PATTERN,
