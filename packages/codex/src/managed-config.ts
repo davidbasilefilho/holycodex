@@ -1,163 +1,87 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import * as Schema from "effect/Schema";
-import { canonicalJson, type JsonObject, type JsonValue } from "@holycodex/core";
 import {
-  checked,
-  IdentifierSchema,
-  invalidData,
-  isValid,
-  JsonObjectSchema,
-  JsonValueSchema,
-  TextSchema,
-} from "./common";
+  cleanupManagedRuntimeConfig,
+  compareManagedConfigKey,
+  createManagedRuntimeConfigState,
+  ManagedConfigOriginalValueSchema,
+  ManagedConfigSafeValueSchema,
+  ManagedRuntimeConfigEntrySchema,
+  ManagedRuntimeConfigStateSchema,
+  mergeManagedRuntimeConfig,
+  type ManagedConfigKeyPath,
+  type ManagedConfigSafeValue,
+  type ManagedRuntimeConfigCleanup,
+  type ManagedRuntimeConfigEntry,
+  type ManagedRuntimeConfigMerge,
+  type ManagedRuntimeConfigState,
+  type ManagedConfigWriteValue,
+  type TomlDocument,
+} from "./runtime-config";
 
+/** Compatibility metadata for callers that previously used this module. */
 export const ManagedConfigMetadataSchema = Schema.Struct({
   owner: Schema.Literal("holycodex"),
-  schema: TextSchema,
-  installId: IdentifierSchema,
+  schema: Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u)),
+  installId: Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u)),
 });
 export type ManagedConfigMetadata = typeof ManagedConfigMetadataSchema.Type;
 
-export const ManagedConfigEntrySchema = Schema.Struct({
-  owner: Schema.Literal("holycodex"),
-  schema: TextSchema,
-  installId: IdentifierSchema,
-  originalValue: JsonValueSchema,
-  lastManagedValue: JsonValueSchema,
-  hadOriginalValue: Schema.Boolean,
-});
-export type ManagedConfigEntry = typeof ManagedConfigEntrySchema.Type;
+export const ManagedConfigEntrySchema = ManagedRuntimeConfigEntrySchema;
+export type ManagedConfigEntry = ManagedRuntimeConfigEntry;
+export interface ManagedConfigState extends ManagedRuntimeConfigState {}
+export interface ManagedConfigCleanup extends ManagedRuntimeConfigCleanup {}
 
-export interface ManagedConfigState {
-  readonly values: JsonObject;
-  readonly managed: Readonly<Record<string, ManagedConfigEntry>>;
+export const ManagedConfigStateSchema = ManagedRuntimeConfigStateSchema;
+export { ManagedConfigOriginalValueSchema, ManagedConfigSafeValueSchema };
+
+/** Create a state record containing metadata and safe summaries only. */
+export function createManagedConfigState(metadata: ManagedConfigMetadata): ManagedConfigState {
+  if (metadata.owner !== "holycodex") throw new Error("Invalid managed config owner.");
+  return createManagedRuntimeConfigState(metadata);
 }
 
-export interface ManagedConfigCleanup {
-  readonly state: ManagedConfigState;
-  readonly restoredKeys: readonly string[];
-  readonly preservedKeys: readonly string[];
-}
-
-function copyJsonObject(value: JsonObject): Record<string, JsonValue> {
-  return Object.fromEntries(Object.entries(value));
-}
-
-function validateManagedEntries(managed: Readonly<Record<string, ManagedConfigEntry>>): void {
-  for (const [key, entry] of Object.entries(managed)) {
-    if (!isValid(IdentifierSchema, key)) {
-      throw invalidData("managed config key", key);
-    }
-    if (!isValid(ManagedConfigEntrySchema, entry)) {
-      throw invalidData("managed config entry", entry);
-    }
-  }
-}
-
-function equalJson(left: JsonValue | undefined, right: JsonValue): boolean {
-  if (left === undefined) {
-    return false;
-  }
-  return canonicalJson(left) === canonicalJson(right);
-}
-
-export function createManagedConfigState(values: JsonObject = {}): ManagedConfigState {
-  if (!isValid(JsonObjectSchema, values)) {
-    throw invalidData("managed config values", values);
-  }
-  return { values: copyJsonObject(values), managed: {} };
-}
-
-export function mergeManagedConfig(
+/** Merge parsed TOML using the safe, per-key runtime-config implementation. */
+export async function mergeManagedConfig(
+  document: TomlDocument,
   current: ManagedConfigState,
-  desired: JsonObject,
+  desired: Readonly<Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>>,
   metadata: ManagedConfigMetadata,
-): ManagedConfigState {
-  const validatedMetadata = checked(
-    ManagedConfigMetadataSchema,
-    metadata,
-    "managed config metadata",
-  );
-  if (!isValid(JsonObjectSchema, current.values) || !isValid(JsonObjectSchema, desired)) {
-    throw invalidData("managed config", { values: current.values, desired });
-  }
-  validateManagedEntries(current.managed);
-  const values = copyJsonObject(current.values);
-  const managed: Record<string, ManagedConfigEntry> = { ...current.managed };
-  for (const [key, nextValue] of Object.entries(desired)) {
-    const existing = managed[key];
-    const hadOriginalValue =
-      existing?.hadOriginalValue ?? Object.prototype.hasOwnProperty.call(values, key);
-    const originalValue = existing?.originalValue ?? values[key] ?? null;
-    values[key] = nextValue;
-    managed[key] = {
-      owner: validatedMetadata.owner,
-      schema: validatedMetadata.schema,
-      installId: validatedMetadata.installId,
-      originalValue,
-      lastManagedValue: nextValue,
-      hadOriginalValue,
-    };
-  }
-  return { values, managed };
+): Promise<ManagedRuntimeConfigMerge> {
+  if (metadata.owner !== "holycodex") throw new Error("Invalid managed config owner.");
+  return await mergeManagedRuntimeConfig(document, current, desired, metadata);
 }
 
-export function cleanupManagedConfig(
+/** Remove unchanged managed values and preserve drifted or digest-only keys. */
+export async function cleanupManagedConfig(
+  document: TomlDocument,
   current: ManagedConfigState,
   metadata: ManagedConfigMetadata,
-): ManagedConfigCleanup {
-  const validatedMetadata = checked(
-    ManagedConfigMetadataSchema,
-    metadata,
-    "managed config metadata",
-  );
-  if (!isValid(JsonObjectSchema, current.values)) {
-    throw invalidData("managed config values", current.values);
-  }
-  validateManagedEntries(current.managed);
-  const values = copyJsonObject(current.values);
-  const managed: Record<string, ManagedConfigEntry> = { ...current.managed };
-  const restoredKeys: string[] = [];
-  const preservedKeys: string[] = [];
-  for (const [key, entry] of Object.entries(current.managed)) {
-    if (
-      entry.owner !== validatedMetadata.owner ||
-      entry.schema !== validatedMetadata.schema ||
-      entry.installId !== validatedMetadata.installId
-    ) {
-      continue;
-    }
-    const currentValue = values[key];
-    if (equalJson(currentValue, entry.lastManagedValue)) {
-      if (entry.hadOriginalValue) {
-        values[key] = entry.originalValue;
-      } else {
-        delete values[key];
-      }
-      restoredKeys.push(key);
-    } else {
-      preservedKeys.push(key);
-    }
-    delete managed[key];
-  }
-  return { state: { values, managed }, restoredKeys, preservedKeys };
+): Promise<ManagedConfigCleanup> {
+  if (metadata.owner !== "holycodex") throw new Error("Invalid managed config owner.");
+  return await cleanupManagedRuntimeConfig(document, current, metadata);
 }
 
 export interface ManagedWriteDecision {
   readonly shouldWrite: boolean;
-  readonly current: JsonValue | null;
-  readonly next: JsonValue;
+  readonly current?: ManagedConfigSafeValue;
+  readonly expected?: ManagedConfigSafeValue;
+  readonly next: ManagedConfigSafeValue;
 }
 
-export function compareBeforeManagedWrite(
-  current: JsonValue | undefined,
-  expected: JsonValue,
-  next: JsonValue,
-): ManagedWriteDecision {
+/** Compare one managed key without returning the underlying value. */
+export async function compareBeforeManagedWrite(
+  document: TomlDocument,
+  current: ManagedConfigState,
+  keyPath: ManagedConfigKeyPath,
+  next: ManagedConfigSafeValue,
+): Promise<ManagedWriteDecision> {
+  const comparison = await compareManagedConfigKey(document, current, keyPath);
   return {
-    shouldWrite: !equalJson(current, expected),
-    current: current ?? null,
+    shouldWrite: comparison.status !== "unchanged",
+    ...(comparison.current === undefined ? {} : { current: comparison.current }),
+    ...(comparison.expected === undefined ? {} : { expected: comparison.expected }),
     next,
   };
 }

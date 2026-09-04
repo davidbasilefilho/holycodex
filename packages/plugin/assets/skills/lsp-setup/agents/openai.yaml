@@ -1,6 +1,0 @@
-interface:
-  display_name: "LSP setup"
-  short_description: "Configure one required language server with minimum proof."
-  default_prompt: "When Root assigns code work with an unavailable language server, validate the platform and tool, make the minimum setup, and return evidence or denial."
-policy:
-  allow_implicit_invocation: true

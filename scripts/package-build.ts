@@ -4,9 +4,11 @@ import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 import { cp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { SourceManifestSchema } from "../packages/plugin/src/index.ts";
-import { runChecked } from "./process.ts";
+import { SourceManifestSchema, validateSource } from "../packages/plugin/src/index.ts";
+import { assertBuildUploadDirectory, listSafeArtifactEntries } from "./artifact-security.ts";
+import { allowlistedEnvironment, DEFAULT_COMMAND_ENVIRONMENT_KEYS, runChecked } from "./process.ts";
 import { readCanonicalVersion } from "../packages/cli/src/manifest.ts";
+import { ensureCodexGenerated } from "./generate-codex-bindings.ts";
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
 const distRoot = join(workspaceRoot, "packages/cli/dist");
@@ -14,7 +16,17 @@ const distAssets = join(distRoot, "assets");
 const pluginAssets = join(workspaceRoot, "packages/plugin/assets");
 
 export async function runPackageBuild(): Promise<void> {
-  await runChecked(["vp", "pack"], { cwd: workspaceRoot, env: process.env });
+  await ensureCodexGenerated();
+  // Validate the source tree before copying it into the public build. The
+  // source validator rejects undeclared, linked, generated, and secret-like
+  // files; the artifact policy adds the broader local-store guard used at
+  // package/release boundaries.
+  await validateSource(pluginAssets);
+  await listSafeArtifactEntries(pluginAssets, "the plugin source");
+  await runChecked(["vp", "pack"], {
+    cwd: workspaceRoot,
+    env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
+  });
   const packagedPlugin = join(distAssets, "plugin");
   await rm(packagedPlugin, { recursive: true, force: true });
   await cp(pluginAssets, packagedPlugin, { recursive: true, dereference: true });
@@ -35,6 +47,7 @@ export async function runPackageBuild(): Promise<void> {
   await writeFile(pluginManifestPath, `${JSON.stringify(pluginManifest, null, 2)}\n`);
   await cp(join(packagedPlugin, ".codex-plugin/plugin.json"), join(packagedPlugin, "plugin.json"));
   await rm(join(packagedPlugin, ".codex-plugin"), { recursive: true, force: true });
+  await assertBuildUploadDirectory(distRoot);
 }
 
 if (import.meta.main) {

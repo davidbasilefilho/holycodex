@@ -81,12 +81,6 @@
       "proof": "packages/cli/src/index.test.ts"
     },
     {
-      "id": "rules-lsp-platform",
-      "classification": "PRESERVED",
-      "owner": "docs/BEHAVIOR.md",
-      "proof": "tests/parity.test.ts"
-    },
-    {
       "id": "optional-capabilities",
       "classification": "PRESERVED",
       "owner": "docs/SECURITY.md",
@@ -118,7 +112,6 @@
     { "id": "v2-disabled-fallback", "owner": "codex", "expected": "stable-v1-fallback" },
     { "id": "v2-unverified", "owner": "codex", "expected": "fail-closed" },
     { "id": "capability-denied-enabled", "owner": "cli", "expected": "typed-port" },
-    { "id": "rules-compaction", "owner": "plugin", "expected": "manifest-assets" },
     { "id": "native-install-readback", "owner": "cli", "expected": "verified" },
     { "id": "packed-install-doctor-remove", "owner": "validation", "expected": "isolated" },
     { "id": "cutover-runbook", "owner": "release", "expected": "approval-gated" }

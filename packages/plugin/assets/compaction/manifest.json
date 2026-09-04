@@ -1,5 +1,0 @@
-{
-  "schema_epoch": "plugin-compaction-1",
-  "policy": "compaction/holycodex.md",
-  "preserve": ["scope", "authority", "trust", "interfaces", "verification", "remaining_risk"]
-}

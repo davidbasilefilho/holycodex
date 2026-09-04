@@ -1,31 +1,24 @@
 # HolyCodex CLI
 
-## What?
-
-The published `holycodex` package installs and removes HolyCodex through
-Codex's native plugin management. It also records the selected route plan,
-service tier, and optional capability selections in the owned configuration.
-
-## Why?
-
-Native Codex plugin management owns installed assets and native subagent
-execution. The CLI is a small, typed configuration boundary around that
-platform surface.
-
-## How?
+The `holycodex` package is the public command-line entry point for installing,
+inspecting, and removing HolyCodex through Codex's native plugin management.
 
 ```sh
 bunx holycodex install
+bunx holycodex doctor
 bunx holycodex remove
 ```
 
-`--plan` selects routing only. `--tier` is independent and controls service
-handling without changing routes or authority. Optional selections are
-`--work`, `--frontend`, `--security`, and `--computer-use`; explicit
-selections and additional plugins fail closed when unavailable. Omitted
-Frontend and Security defaults may be recorded as missing or uncertain on a
-first install and retried on reinstall. `--json` emits one machine-readable
-result.
+Use `--yes` when no interactive terminal is available. `--plan` selects native
+Root and specialist routing only. `--tier` independently selects service
+handling (`standard`, `fast`, or `fast-all`). The canonical plans are `go`,
+`plus-low`, `plus`, `plus-high`, `pro-5x`, and `pro-20x`.
+
+Frontend and Security are selected by default; Work and Computer Use are
+opt-in. Selected capabilities must install and verify or installation fails.
+Use `--json` for one validated machine-readable envelope. Human output reports
+the version, plan, tier, selected capabilities, and actionable warnings without
+printing the internal installation record.
 
 The development entry point is:
 
@@ -38,7 +31,9 @@ Command syntax and response contracts are owned by [CLI.md](../../docs/CLI.md).
 ## Contribute
 
 Use Bun through `mise`, keep changes within the assigned package seam, and run
-the relevant validation before handoff.
+the relevant local validation before handoff. Never place environment secrets
+or raw environment values in tracked files, package output, logs, CI artifacts,
+or uploads.
 
 ## License
 

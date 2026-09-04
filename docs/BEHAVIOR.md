@@ -30,12 +30,12 @@ evidence.
 
 ## Plans and tiers
 
-The plan catalog controls routing only. `Go` keeps Terra/high for Root and uses
+The plan catalog controls routing only. `go` keeps Terra/high for Root and uses
 the plus-low Luna leaf route matrix; the Plus and Pro plans select progressively
 broader native specialist routes. A plan never grants authority, changes scope,
 or supplies a completion decision.
 
-The valid plan names are `Go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and
+The valid plan names are `go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and
 `pro-20x`.
 
 The service tier is selected independently. It changes service handling only;
@@ -51,12 +51,13 @@ boundaries. Effect Schema from `effect/Schema` validates every external,
 persisted, CLI, Codex, and specialist value before business logic sees it.
 
 Optional Work, frontend, Security, and Computer Use plugins are independently
-selected. Selection does not claim availability or grant authority. Explicitly
-selected capabilities and additional plugins return `capability_denied` when
-unavailable. On a first install, omitted frontend and Security selections remain
-selected when their native providers are unavailable; the install records the
-provider as `missing` or `uncertain`, emits a warning, and retries it on later
-reinstall. No unapproved fallback is installed or used.
+selected. Selection does not claim availability or grant authority. Every
+selected capability and additional plugin must be installed and enabled by
+native plugin management. If verification cannot confirm that state,
+installation fails with a classified denial or integrity error and does not
+claim success. The default selections are frontend and Security; Work and
+Computer Use are disabled unless selected. No unapproved fallback is installed
+or used.
 
 ## Installation state
 
@@ -69,8 +70,7 @@ HolyCodex plugin state without touching unrelated Codex state.
 Both commands are explicit, bounded mutations. Invalid input, missing
 permission, an unavailable required capability, failed verification, or
 uncertain external state produces a structured failure and does not claim
-success. An unavailable implicit first-install default is the bounded recovery
-exception described above.
+success.
 
 ## Acceptance and provenance
 

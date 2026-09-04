@@ -1,1 +1,0 @@
-{"id":2,"result":{"data":[{"id":"gpt-5-v2","model":"gpt-5-v2","description":"fixture","displayName":"GPT-5 V2","hidden":false,"isDefault":true,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[{"reasoningEffort":"medium","description":"balanced"}],"multiAgentVersion":"v2","serviceTiers":[]}],"nextCursor":null}}

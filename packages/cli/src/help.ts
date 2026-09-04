@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { INSTALL_OPTION_CATALOG } from "./args.ts";
+import type { HumanRenderOptions } from "./types.ts";
 
 const TOP_LEVEL_HELP = `HolyCodex
 
@@ -24,7 +25,7 @@ Usage:
   holycodex install [options]
 
 Plans control routing only:
-  Go       Root gpt-5.6-terra/high; leaves use plus-low Luna route efforts.
+  go       Root gpt-5.6-terra/high; leaves use plus-low Luna route efforts.
   plus-low Root gpt-5.6-sol/low; leaves use plus-low Luna route efforts.
   plus    Root gpt-5.6-sol/medium; leaves use plus Luna route efforts.
   plus-high, pro-5x Root gpt-5.6-sol/high; each keeps its Luna route efforts.
@@ -84,6 +85,27 @@ export function helpText(topic?: string): string {
   }
 }
 
+/** Render human help with restrained terminal color; JSON callers use helpText. */
+export function renderHelp(topic?: string, options: HumanRenderOptions = {}): string {
+  const color = colorEnabled({ ...options, stream: "stdout" });
+  return helpText(topic)
+    .split("\n")
+    .map((line) => {
+      if (line === "HolyCodex") return paint(line, "heading", color);
+      if (
+        /^(?:Usage|Options|Plans control routing only|Tier is independent service handling|Capability defaults).*:$/u.test(
+          line,
+        )
+      ) {
+        return paint(line, "heading", color);
+      }
+      return line
+        .replace(/--[a-z][a-z0-9-]*/gu, (option) => paint(option, "option", color))
+        .replace(/<[^>]+>/gu, (argument) => paint(argument, "argument", color));
+    })
+    .join("\n");
+}
+
 export function helpRequested(argv: readonly string[]): boolean {
   return argv.some(
     (argument) => argument === "-h" || argument === "--help" || argument === "--help=true",
@@ -95,4 +117,21 @@ export function helpTopic(argv: readonly string[]): string | undefined {
   if (words[0] === "help") return words[1];
   if (words[0] === "--version" || words[0] === "version" || words[0] === "-v") return "version";
   return words[0];
+}
+
+export function colorEnabled(options: HumanRenderOptions): boolean {
+  const env = options.env ?? {};
+  if (env["NO_COLOR"] !== undefined || env["TERM"] === "dumb") return false;
+  if (env["FORCE_COLOR"] !== undefined && env["FORCE_COLOR"] !== "0") return true;
+  if (env["CI"] !== undefined && env["CI"] !== "false") return false;
+  const tty = options.stream === "stderr" ? options.stderrIsTTY : options.stdoutIsTTY;
+  return tty === true;
+}
+
+type HelpColor = "heading" | "option" | "argument";
+
+function paint(value: string, color: HelpColor, enabled: boolean): string {
+  if (!enabled) return value;
+  const codes: Record<HelpColor, string> = { heading: "1", option: "36", argument: "2" };
+  return `\u001b[${codes[color]}m${value}\u001b[0m`;
 }

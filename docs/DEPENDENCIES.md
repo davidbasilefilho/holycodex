@@ -30,8 +30,7 @@ manifest change.
 
 ## Generated Codex protocol artifact
 
-The checked-in files under
-`packages/codex/generated/codex-cli-0.148.0/` are generated protocol types,
-not package dependencies. Their executable identity, inventory, and digest are
-recorded in [PROVENANCE.md](PROVENANCE.md); the repository proof verifies the
-recorded artifact before release.
+The generated files under `packages/codex/generated/` are protocol types, not
+package dependencies. They are regenerated from the stable Codex CLI resolved
+by `mise.toml` before validation and packaging, and their executable identity,
+inventory, and digest are verified by the generated artifact proof.

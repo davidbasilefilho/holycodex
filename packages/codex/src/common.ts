@@ -9,11 +9,11 @@ import {
   type JsonObject,
   type JsonValue,
 } from "@holycodex/core";
+import { CODEX_PROTOCOL_EPOCH, CODEX_PROTOCOL_VERSION } from "../generated/typescript/protocol";
 
 export const packageName = "@holycodex/codex" as const;
-export const CODEX_PROTOCOL_VERSION = "codex-cli-0.148.0" as const;
 export const CODEX_CLIENT_VERSION = CLI_SCHEMA_VERSION;
-export const CODEX_PROTOCOL_EPOCH = "codex-app-server-0.148.0" as const;
+export { CODEX_PROTOCOL_EPOCH, CODEX_PROTOCOL_VERSION };
 export const DEFAULT_MAX_LINE_BYTES = 1024 * 1024;
 export const DEFAULT_MAX_DIAGNOSTIC_BYTES = 64 * 1024;
 

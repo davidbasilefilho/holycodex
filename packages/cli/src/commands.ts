@@ -18,7 +18,7 @@ import { installHolyCodex, InstallerError, type InstallRequest } from "./install
 import { StorageError } from "./storage.ts";
 import { OfficialPluginManagerError } from "./official-manager.ts";
 import { asJsonValue } from "./json.ts";
-import { helpRequested, helpText, helpTopic } from "./help.ts";
+import { colorEnabled, helpRequested, helpText, helpTopic } from "./help.ts";
 import type { CliContext, CommandResult, HumanRenderOptions, ParsedCommand } from "./types.ts";
 
 export async function runCli(
@@ -78,7 +78,11 @@ async function executeInstall(parsed: ParsedCommand, context: CliContext) {
       "Install requires --yes in non-interactive mode.",
     );
   }
-  emitProgress(context, json, "install: validating target");
+  emitProgress(context, json, "Validating Codex target");
+  emitProgress(context, json, "Installing HolyCodex");
+  emitProgress(context, json, "Installing selected capabilities");
+  emitProgress(context, json, "Configuring Root");
+  emitProgress(context, json, "Installing subagent roles");
   const request: InstallRequest = {
     ...(optionPlan(parsed) === undefined ? {} : { plan: optionPlan(parsed) }),
     ...(optionTier(parsed) === undefined ? {} : { tier: optionTier(parsed) }),
@@ -88,7 +92,8 @@ async function executeInstall(parsed: ParsedCommand, context: CliContext) {
       : { officialPlugins: optionStrings(parsed, "add-plugin") }),
   };
   const result = await installHolyCodex(request, installerOptions(parsed, context), context.env);
-  emitProgress(context, json, "install: activated");
+  emitProgress(context, json, "Verifying installation");
+  emitProgress(context, json, "HolyCodex installation complete");
   return result;
 }
 
@@ -100,9 +105,10 @@ async function executeRemove(parsed: ParsedCommand, context: CliContext) {
       "Remove requires --yes in non-interactive mode.",
     );
   }
-  emitProgress(context, json, "remove: validating ownership");
+  emitProgress(context, json, "Validating HolyCodex ownership");
   const result = await removeHolyCodex(installerOptions(parsed, context), context.env);
-  emitProgress(context, json, "remove: complete");
+  emitProgress(context, json, "Removing HolyCodex-owned state");
+  emitProgress(context, json, "HolyCodex removal complete");
   return result;
 }
 
@@ -297,7 +303,7 @@ function sanitizeMessage(message: string): string {
     .slice(0, 512);
 }
 
-function isJsonObject(value: JsonValue): value is JsonObject {
+function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -311,6 +317,10 @@ function emitProgress(context: CliContext, json: boolean, message: string): void
 export function renderHuman(result: CommandResult, options: HumanRenderOptions = {}): string {
   const color = colorEnabled(options);
   if (result.envelope.ok) {
+    if (result.envelope.command === "version") return renderVersion(result.envelope.data);
+    if (result.envelope.command === "install") return renderInstall(result.envelope.data, color);
+    if (result.envelope.command === "remove") return renderRemove(result.envelope.data, color);
+    if (result.envelope.command === "doctor") return renderDoctor(result.envelope.data, color);
     return `${paint("✔", "green", color)} ${paint(result.envelope.command, "heading", color)}\n${renderData(result.envelope.data, color)}`;
   }
   const error = result.envelope.error;
@@ -329,6 +339,113 @@ export function renderProgress(
   options: Pick<HumanRenderOptions, "stderrIsTTY" | "env"> = {},
 ): string {
   return `${paint("•", "cyan", colorEnabled({ ...options, stream: "stderr" }))} ${message}`;
+}
+
+function renderVersion(data: JsonValue): string {
+  if (isJsonObject(data) && typeof data["version"] === "string") {
+    return `holycodex ${data["version"]}\n`;
+  }
+  if (isJsonObject(data) && typeof data["next"] === "string") {
+    const previous = typeof data["previous"] === "string" ? ` (from ${data["previous"]})` : "";
+    return `holycodex version updated to ${data["next"]}${previous}\n`;
+  }
+  return "holycodex version completed\n";
+}
+
+function renderInstall(data: JsonValue, color: boolean): string {
+  const record = objectValue(data, "record");
+  const version = stringValue(record, "version") ?? "unknown";
+  const plan = stringValue(record, "plan") ?? "unknown";
+  const tier = stringValue(record, "tier") ?? "unknown";
+  const selections = objectValue(record, "optional_selections");
+  const capabilityState = objectValue(record, "capability_state");
+  const capabilities = ["frontend", "security", "work", "computer_use"]
+    .filter((name) => selections?.[name] === true)
+    .map((name) => {
+      const status = stringValue(objectValue(capabilityState, name), "status");
+      return status === undefined || status === "healthy" ? name : `${name} (${status})`;
+    });
+  const preserved = arrayValue(data, "preserved");
+  const warnings = arrayValue(data, "warnings");
+  const capabilitySummary = capabilities.length === 0 ? "none" : capabilities.join(", ");
+  const preservedSummary =
+    preserved.length === 0
+      ? "none"
+      : `${preserved.length} managed item${preserved.length === 1 ? "" : "s"} (review before retrying)`;
+  const lines = [
+    `${paint("✔", "green", color)} ${paint("install", "heading", color)}`,
+    `  ${paint("version", "option", color)}: ${version}`,
+    `  ${paint("plan", "option", color)}: ${plan}`,
+    `  ${paint("tier", "option", color)}: ${tier}`,
+    `  ${paint("capabilities", "option", color)}: ${capabilitySummary}`,
+    `  ${paint("preserved", "option", color)}: ${preservedSummary}`,
+    ...warnings.map((warning) => `  ${paint("warning", "red", color)}: ${humanizeReason(warning)}`),
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function renderRemove(data: JsonValue, color: boolean): string {
+  const removed = arrayValue(data, "removed");
+  const preserved = arrayValue(data, "preserved");
+  const reasons = arrayValue(data, "reasons");
+  const preservedSummary =
+    preserved.length === 0
+      ? "none"
+      : `${preserved.length} item${preserved.length === 1 ? "" : "s"} (review before retrying)`;
+  const lines = [
+    `${paint("✔", "green", color)} ${paint("remove", "heading", color)}`,
+    `  ${paint("removed", "option", color)}: ${removed.length} owned item${removed.length === 1 ? "" : "s"}`,
+    `  ${paint("preserved", "option", color)}: ${preservedSummary}`,
+    ...reasons.map((reason) => `  ${paint("reason", "option", color)}: ${humanizeReason(reason)}`),
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function renderDoctor(data: JsonValue, color: boolean): string {
+  const healthy = dataValue(data, "healthy") === true;
+  const checks = objectValue(data, "checks");
+  const entries = checks === undefined ? [] : Object.entries(checks);
+  const issues = entries.flatMap(([name, value]) => {
+    const check = isJsonObject(value) ? value : undefined;
+    const status = stringValue(check, "status");
+    if (status === undefined || status === "healthy") return [];
+    const reasons = arrayValue(check, "reasons");
+    return [
+      `  ${paint(name, "option", color)}: ${reasons.length === 0 ? status : reasons.map(humanizeReason).join(", ")}`,
+    ];
+  });
+  const symbol = healthy ? paint("✔", "green", color) : paint("✖", "red", color);
+  const lines = [
+    `${symbol} ${paint("doctor", "heading", color)}`,
+    `  ${paint("status", "option", color)}: ${healthy ? "healthy" : "needs attention"}`,
+    `  ${paint("checks", "option", color)}: ${entries.length}`,
+    ...(issues.length === 0 ? [] : [`  ${paint("issues", "option", color)}:`, ...issues]),
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function objectValue(value: unknown, key: string): JsonObject | undefined {
+  if (!isJsonObject(value)) return undefined;
+  return isJsonObject(value[key]) ? value[key] : undefined;
+}
+
+function dataValue(value: JsonValue, key: string): JsonValue | undefined {
+  return isJsonObject(value) ? value[key] : undefined;
+}
+
+function stringValue(value: JsonObject | undefined, key: string): string | undefined {
+  const item = value?.[key];
+  return typeof item === "string" ? item : undefined;
+}
+
+function arrayValue(value: unknown, key: string): readonly JsonValue[] {
+  if (!isJsonObject(value) || !Array.isArray(value[key])) return [];
+  return value[key];
+}
+
+function humanizeReason(reason: JsonValue): string {
+  if (typeof reason !== "string") return "operation requires review";
+  return reason.replaceAll("_", " ");
 }
 
 function renderData(data: JsonValue, color: boolean): string {
@@ -365,15 +482,6 @@ function actionableHint(code: string, command: string): string | undefined {
 }
 
 type Color = "red" | "green" | "cyan" | "dim" | "heading" | "option";
-
-function colorEnabled(options: HumanRenderOptions): boolean {
-  const env = options.env ?? {};
-  if (env["NO_COLOR"] !== undefined || env["TERM"] === "dumb") return false;
-  if (env["FORCE_COLOR"] !== undefined && env["FORCE_COLOR"] !== "0") return true;
-  if (env["CI"] !== undefined && env["CI"] !== "false") return false;
-  const tty = options.stream === "stderr" ? options.stderrIsTTY : options.stdoutIsTTY;
-  return tty === true;
-}
 
 function paint(value: string, color: Color, enabled: boolean): string {
   if (!enabled) return value;

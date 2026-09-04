@@ -75,6 +75,19 @@ export async function readJsonObject(path: string): Promise<JsonObject> {
   return value;
 }
 
+export async function optionalTextFile(path: string): Promise<string | undefined> {
+  try {
+    const entry = await lstat(path);
+    if (!entry.isFile() || entry.isSymbolicLink()) {
+      throw new StorageError("state_corrupt", "A persisted file is not a regular file.");
+    }
+    return await readFile(path, "utf8");
+  } catch (error: unknown) {
+    if (isFsCode(error, "ENOENT")) return undefined;
+    throw error;
+  }
+}
+
 export async function optionalJsonFile<T>(
   path: string,
   schema: Schema.Schema<T>,

@@ -41,7 +41,6 @@ const expectedSurfaceIds = [
   "v2-disabled-fallback",
   "v2-unverified",
   "capability-denied-enabled",
-  "rules-compaction",
   "native-install-readback",
   "packed-install-doctor-remove",
   "cutover-runbook",
@@ -101,8 +100,8 @@ describe("0.16 foundation parity contract", () => {
       throw new Error(String(parsed.left));
     }
     expect(parsed.right.normalization).toContain("JSON decoding");
-    expect(parsed.right.matrix).toHaveLength(18);
-    expect(new Set(parsed.right.matrix.map((row) => row.id)).size).toBe(18);
+    expect(parsed.right.matrix).toHaveLength(17);
+    expect(new Set(parsed.right.matrix.map((row) => row.id)).size).toBe(17);
     for (const row of parsed.right.matrix) {
       await expect(readFile(resolve(workspaceRoot, row.owner), "utf8")).resolves.toBeTruthy();
       await expect(readFile(resolve(workspaceRoot, row.proof), "utf8")).resolves.toBeTruthy();
@@ -157,33 +156,23 @@ describe("0.16 foundation parity contract", () => {
     }
   });
 
-  test("proves isolated platform path fixtures and the plugin asset surfaces", async () => {
+  test("proves isolated platform path fixtures and the plugin skill surface", async () => {
     const windowsRoot = assertRootText("C:\\Users\\fixture\\.codex", "CODEX_HOME", "win32");
     expect(pathWithin(windowsRoot, "C:\\Users\\fixture\\.codex\\runs", "win32")).toBe(true);
-
-    const [rules, compaction] = await Promise.all([
-      readFile(resolve(workspaceRoot, "packages/plugin/assets/rules/manifest.json"), "utf8"),
-      readFile(resolve(workspaceRoot, "packages/plugin/assets/compaction/manifest.json"), "utf8"),
-    ]);
-    expect(rules).toContain("rules/holycodex.md");
-    expect(compaction).toContain("verification");
+    await expect(
+      readFile(resolve(workspaceRoot, "packages/plugin/assets/skills/plan/SKILL.md"), "utf8"),
+    ).resolves.toContain("name: plan");
   });
 
   test("keeps every required practical surface mapped to an independent proof", async () => {
     const proofPaths = [
       "packages/cli/src/index.test.ts",
-      "packages/cli/src/index.test.ts",
       "packages/codex/src/generated-artifact.test.ts",
-      "packages/codex/test/fixtures/codex-cli-0.148.0/capability-v1-fallback.ndjson",
-      "packages/codex/test/fixtures/codex-cli-0.148.0/capability-v2-disabled.ndjson",
-      "packages/codex/test/fixtures/codex-cli-0.148.0/capability-v2-advertised.ndjson",
-      "packages/plugin/assets/rules/manifest.json",
-      "packages/plugin/assets/compaction/manifest.json",
+      "packages/plugin/assets/skills/plan/SKILL.md",
       "tests/fixtures/effect-promise-adapters.json",
       "scripts/fresh-clone.ts",
-      "scripts/package-smoke.ts",
+      "scripts/package-verification.ts",
       "docs/CUTOVER.md",
-      "packages/codex/generated/codex-cli-0.148.0/provenance.json",
     ] as const;
     for (const path of proofPaths) {
       await expect(readFile(resolve(workspaceRoot, path), "utf8")).resolves.toBeTruthy();

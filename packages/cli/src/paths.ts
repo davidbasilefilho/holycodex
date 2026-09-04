@@ -8,11 +8,17 @@ import type { InstallerOptions, InstallerPaths } from "./types.ts";
 
 export const STATE_ROOT_NAME = "holycodex";
 export const ACTIVE_RECORD_NAME = "active.json";
+export const PREPARING_RECORD_NAME = "preparing.json";
+export const CONFLICTED_RECORD_NAME = "conflicted.json";
 export const STATE_SCHEMA = STATE_SCHEMA_EPOCH;
 
 export interface ResolvedInstallerPaths extends InstallerPaths {
   readonly stateRoot: string;
   readonly activeRecord: string;
+  readonly preparingRecord: string;
+  readonly conflictedRecord: string;
+  readonly roleRoot: string;
+  readonly configFile: string;
 }
 
 export function resolveInstallerPaths(
@@ -27,6 +33,10 @@ export function resolveInstallerPaths(
     codexHome: safeCodexHome,
     stateRoot,
     activeRecord: join(stateRoot, ACTIVE_RECORD_NAME),
+    preparingRecord: join(stateRoot, PREPARING_RECORD_NAME),
+    conflictedRecord: join(stateRoot, CONFLICTED_RECORD_NAME),
+    roleRoot: join(stateRoot, "agents"),
+    configFile: join(safeCodexHome, "config.toml"),
   };
 }
 
@@ -48,6 +58,9 @@ export function assertRootText(
   label: string,
   platform: "posix" | "win32" = process.platform === "win32" ? "win32" : "posix",
 ): string {
+  if (typeof value !== "string" || hasControlCharacter(value)) {
+    throw new PathBoundaryError("invalid_path", `${label} contains invalid characters.`);
+  }
   const api = platform === "win32" ? win32 : posix;
   const candidate = normalizePlatformPath(value, platform);
   if (typeof candidate !== "string" || candidate.length === 0 || !api.isAbsolute(candidate)) {
@@ -66,8 +79,20 @@ export function assertRootText(
   return api.resolve(normalized);
 }
 
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint <= 31 || codePoint === 127) return true;
+  }
+  return false;
+}
+
 export async function ensureOwnedDirectory(path: string): Promise<void> {
   assertRootText(path, "owned path");
+  // Check before mkdir as well as after it. Otherwise a symlinked ancestor
+  // could cause recursive mkdir to create the managed tree outside CODEX_HOME
+  // before the postcondition check rejects it.
+  await assertNoSymlink(path);
   await mkdir(path, { recursive: true });
   await assertNoSymlink(path);
 }

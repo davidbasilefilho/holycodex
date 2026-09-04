@@ -1,6 +1,6 @@
 interface:
   display_name: "Commit"
   short_description: "Create one local commit with exact scope proof."
-  default_prompt: "When Root assigns a local commit, verify the exact scope, create only that commit, and report identity and status."
+  default_prompt: "When Root owns a local commit, verify exact scope, required proof, ignore coverage, and secret exclusions, create only that commit, and report redacted identity and status."
 policy:
   allow_implicit_invocation: false

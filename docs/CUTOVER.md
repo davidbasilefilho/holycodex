@@ -108,9 +108,9 @@ Abort before the next step if rename or archive verification fails. If an
 approved rollback is required, unarchive with `-F archived=false` as its own
 approval-gated mutation and verify before continuing.
 
-## 4. Rename the clean-room repository
+## 4. Rename the new repository
 
-Confirm that the legacy repository is archived and the clean-room repository
+Confirm that the legacy repository is archived and the new repository
 still has the recorded metadata. Then obtain approval for this one repository
 rename and perform it as a separate gate:
 
@@ -183,9 +183,9 @@ a temporary clone. Keep the clone result and checked-out SHA in the cutover
 record. The existing fixture and dry-run proofs do not substitute for this
 canonical clone.
 
-After the push succeeds, obtain separate approval to load `babysit-ci` and
-inspect the required Ubuntu and Windows/Git Bash jobs.
-Babysit-ci may read status and report evidence only; it has no permission to
+After the push succeeds, delegate exact-ref/SHA CI observation to
+`Worker.operations` and inspect the required Ubuntu and Windows/Git Bash jobs.
+The observer may read status and report evidence only; it has no permission to
 rerun, cancel, edit, approve, merge, push, tag, publish, deploy, or otherwise
 mutate external state. Per the parity decision, post-push CI green is
 nonblocking for this cutover record.
@@ -199,7 +199,7 @@ nonblocking for this cutover record.
   explicit rename request.
 - After archive: unarchive only through a separate approval and preserve all
   historical data.
-- After the clean-room rename: update the local remote only after read-back;
+- After the repository rename: update the local remote only after read-back;
   restore the prior local URL separately if required.
 - After push: preserve the exact remote response and commit; do not force-push,
   rewrite history, delete repositories, or invent a new ref to repair an

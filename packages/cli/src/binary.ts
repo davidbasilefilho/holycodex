@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { runCli, renderHuman } from "./commands.ts";
-import { helpRequested, helpText, helpTopic } from "./help.ts";
+import { helpRequested, helpTopic, renderHelp } from "./help.ts";
 import type { CliContext } from "./types.ts";
 import { createInterface } from "node:readline/promises";
 
@@ -31,10 +31,15 @@ export async function runBinary(
     },
   };
   const result = await runCli(argv, context);
-  if (helpRequested(argv) && !jsonRequested(argv)) {
-    context.io?.writeStdout?.(helpText(helpTopic(argv)));
-  } else if (argv[0] === "help" && !jsonRequested(argv)) {
-    context.io?.writeStdout?.(helpText(helpTopic(argv)));
+  if ((helpRequested(argv) || argv[0] === "help") && !jsonRequested(argv)) {
+    context.io?.writeStdout?.(
+      renderHelp(helpTopic(argv), {
+        stdoutIsTTY: context.io?.stdoutIsTTY,
+        stderrIsTTY: context.io?.stderrIsTTY,
+        env: context.env,
+        stream: "stdout",
+      }),
+    );
   } else if (jsonRequested(argv)) {
     context.io?.writeStdout?.(`${JSON.stringify(result.envelope)}\n`);
   } else if (result.envelope.ok) {

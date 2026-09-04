@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
+import type { ManagedRuntimeConfigState } from "@holycodex/codex";
 import type { CliEnvelope, JsonObject, PlanName, ServiceTier } from "@holycodex/core";
 import type { LiveOfficialPluginListEnvelope } from "@holycodex/codex";
 
@@ -35,6 +36,8 @@ export type OfficialPluginStatus =
 
 export interface OfficialPluginManager {
   readonly list?: () => Promise<LiveOfficialPluginListEnvelope>;
+  /** Populate Codex-owned reserved marketplaces through supported runtime startup. */
+  readonly ensureOfficialMarketplace?: (selectedPluginIds: readonly string[]) => Promise<void>;
   readonly addMarketplace?: (source: string) => Promise<void>;
   readonly add?: (pluginId: string) => Promise<void>;
   readonly remove?: (pluginId: string) => Promise<void>;
@@ -62,7 +65,68 @@ export interface InstallRecord {
   readonly capability_state?: CapabilityStateRecord | undefined;
   readonly managed_artifacts: readonly ManagedArtifact[];
   readonly installed_at: string;
+  /** Present on current records; omitted only for legacy-state compatibility. */
+  readonly status?: "active" | undefined;
+  readonly step?: "active" | undefined;
+  readonly managed_config?: ManagedRuntimeConfigState | undefined;
+  readonly plugin_snapshot?: readonly PluginSnapshot[] | undefined;
+  readonly plugin_config?: PluginConfigSnapshot | undefined;
+  readonly provider_config?: readonly ProviderPluginConfigSnapshot[] | undefined;
+  readonly owned_plugins?: readonly string[] | undefined;
 }
+
+export interface PluginSnapshot {
+  readonly plugin_id: string;
+  readonly status: OfficialPluginStatus;
+}
+
+export type PluginConfigSafeValue =
+  | Readonly<{ readonly kind: "boolean"; readonly value: boolean }>
+  | Readonly<{
+      readonly kind: "marketplace";
+      readonly source_type: "git";
+      readonly source: "https://github.com/davidbasilefilho/holycodex.git";
+    }>;
+
+export interface PluginConfigEntrySnapshot {
+  readonly presence: "absent" | "present";
+  readonly digest: string;
+  readonly safe_value?: PluginConfigSafeValue | undefined;
+}
+
+export interface PluginConfigSnapshot {
+  readonly plugin_id: "holycodex@holycodex";
+  readonly before: Readonly<{
+    readonly preference: PluginConfigEntrySnapshot;
+    readonly marketplace: PluginConfigEntrySnapshot;
+  }>;
+  readonly after: Readonly<{
+    readonly preference: PluginConfigEntrySnapshot;
+    readonly marketplace: PluginConfigEntrySnapshot;
+  }>;
+}
+
+export interface ProviderPluginConfigEntrySnapshot {
+  readonly presence: "absent" | "present";
+  readonly digest: string;
+  readonly safe_value?: Readonly<{ readonly kind: "boolean"; readonly value: boolean }> | undefined;
+}
+
+export interface ProviderPluginConfigSnapshot {
+  readonly plugin_id: string;
+  readonly before: ProviderPluginConfigEntrySnapshot;
+  readonly after: ProviderPluginConfigEntrySnapshot;
+}
+
+export type InstallTransactionStatus = "preparing" | "conflicted";
+export type InstallTransactionStep =
+  | "validated"
+  | "plugins_snapshotted"
+  | "roles_prepared"
+  | "plugins_installed"
+  | "config_published"
+  | "verified"
+  | "conflicted";
 
 export type CapabilityStateStatus =
   | "disabled"

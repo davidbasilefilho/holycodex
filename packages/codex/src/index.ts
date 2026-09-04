@@ -33,6 +33,8 @@ export {
   InitializedNotificationSchema,
   InitializeParamsSchema,
   InitializeResultSchema,
+  ConfigReadParamsSchema,
+  ConfigReadResultSchema,
   JsonRpcErrorResponseSchema,
   JsonRpcErrorSchema,
   JsonRpcNotificationSchema,
@@ -73,6 +75,8 @@ export {
 export type {
   InitializeParams,
   InitializeResult,
+  ConfigReadParams,
+  ConfigReadResult,
   ApprovalRequest,
   DynamicToolRequest,
   ElicitationRequest,
@@ -148,6 +152,7 @@ export {
   createManagedConfigState,
   ManagedConfigEntrySchema,
   ManagedConfigMetadataSchema,
+  ManagedConfigStateSchema,
   mergeManagedConfig,
 } from "./managed-config";
 export type {
@@ -157,6 +162,47 @@ export type {
   ManagedConfigState,
   ManagedWriteDecision,
 } from "./managed-config";
+
+export {
+  cleanupManagedRuntimeConfig,
+  compareManagedConfigKey,
+  createManagedRuntimeConfigState,
+  deleteTomlPath,
+  HOLYCODEX_AGENT_ROLES,
+  isManagedConfigKeyPath,
+  isManagedRuntimeConfigState,
+  ManagedConfigKeyPathSchema,
+  ManagedConfigOriginalValueSchema,
+  ManagedConfigSafeValueSchema,
+  ManagedRuntimeConfigEntrySchema,
+  ManagedRuntimeConfigStateSchema,
+  mergeManagedRuntimeConfig,
+  normalizeRelativeConfigPath,
+  readTomlPath,
+  resolveAgentConfigPath,
+  summarizeManagedConfigValue,
+  TomlDocumentSchema,
+  TomlValueSchema,
+  writeTomlPath,
+  ROOT_CONFIG_KEY_PATHS,
+} from "./runtime-config";
+export type {
+  AgentConfigKeyPath,
+  HolyCodexAgentRole,
+  ManagedConfigKeyPath,
+  ManagedConfigOriginalValue,
+  ManagedConfigSafeValue,
+  ManagedConfigWriteValue,
+  ManagedRuntimeConfigCleanup,
+  ManagedRuntimeConfigEntry,
+  ManagedRuntimeConfigMerge,
+  ManagedRuntimeConfigState,
+  ManagedConfigDrift,
+  RootConfigKeyPath,
+  TomlDocument,
+  TomlTable,
+  TomlValue,
+} from "./runtime-config";
 
 export {
   createOfficialPluginAdapter,
@@ -170,6 +216,12 @@ export {
   selectOfficialPlugins,
   verifyOfficialPluginManifest,
   verifyOfficialPluginManifestFile,
+  bootstrapOfficialMarketplace,
+  parseOfficialMarketplaceSnapshot,
+  provisionOfficialMarketplaceSnapshot,
+  readOfficialMarketplaceSnapshot,
+  OFFICIAL_CURATED_MARKETPLACE_NAME,
+  OFFICIAL_CURATED_MARKETPLACE_SOURCE,
 } from "./official-plugins";
 export type {
   LiveOfficialPluginEntry,
@@ -181,5 +233,11 @@ export type {
   OfficialPluginManifest,
   OfficialPluginSelection,
   OfficialPluginVerification,
+  OfficialMarketplaceBootstrapOptions,
+  OfficialMarketplaceGitFallbackOptions,
+  OfficialMarketplacePluginEntry,
+  OfficialMarketplaceProvisionOptions,
+  OfficialMarketplaceRuntimeClose,
+  OfficialMarketplaceSnapshot,
 } from "./official-plugins";
 export { OfficialPluginAdapterError } from "./official-plugins";

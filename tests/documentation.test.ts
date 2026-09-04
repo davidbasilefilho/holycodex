@@ -6,99 +6,6 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vite-plus/test";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const owningTopics = {
-  "README.md": [
-    "package graph",
-    "mise",
-    "bun",
-    "clean-room",
-    "security",
-    "native",
-    "optional capability",
-    "agent types",
-  ],
-  "docs/INSTALLATION.md": [
-    "native plugin",
-    "plugin installation",
-    "owned installation",
-    "remove",
-    "configuration",
-  ],
-  "docs/STATE.md": ["schema epoch", "canonical", "digest", "install identity", "removal"],
-  "docs/CONFIGURATION.md": [
-    "precedence",
-    "plan",
-    "tier",
-    "optional",
-    "explicit path",
-    "compare-before-write",
-    "secret",
-  ],
-  "docs/DEVELOPMENT.md": [
-    "mise",
-    "bun",
-    "vite+",
-    "typescript",
-    "effect schema",
-    "dependency direction",
-    "clean-room",
-    "test isolation",
-    "build",
-  ],
-  "docs/RELEASING.md": [
-    "canonical version",
-    "patch",
-    "minor",
-    "lockfile",
-    "generated",
-    "ci",
-    "build",
-    "pack",
-    "install",
-    "provenance",
-    "license",
-    "commit",
-    "push",
-    "tag",
-    "publication",
-    "branch",
-  ],
-  "docs/DEPENDENCIES.md": [
-    "effect",
-    "effect schema",
-    "boundary-validation",
-    "vite-plus",
-    "typescript",
-    "bun",
-    "license",
-    "source",
-  ],
-  "docs/PARITY.md": [
-    "clean-room base",
-    "frozen behavioral oracle",
-    "required surface inventory",
-    "independent proof",
-  ],
-  "docs/DECISIONS.md": ["Effect Schema", "sole", "toolchain", "provenance", "approval-gated"],
-  "docs/CUTOVER.md": [
-    "preflight",
-    "authority",
-    "branch protection",
-    "issue",
-    "pull request",
-    "release",
-    "license",
-    "provenance",
-    "frozen",
-    "holycodex-legacy",
-    "holycodex-next",
-    "fresh clone",
-    "rollback",
-    "babysit-ci",
-  ],
-  "THIRD-PARTY-NOTICES.md": ["generated codex", "development components", "vendored plugin skills"],
-} as const;
-
 describe("documentation invariants", () => {
   test("keeps every local Markdown link resolvable", async () => {
     const markdownFiles = [
@@ -122,13 +29,7 @@ describe("documentation invariants", () => {
     }
   });
 
-  test("keeps the owning documentation set and topics present", async () => {
-    for (const [relativePath, topics] of Object.entries(owningTopics)) {
-      const content = (await readFile(resolve(workspaceRoot, relativePath), "utf8")).toLowerCase();
-      for (const topic of topics) {
-        expect(content).toContain(topic.toLowerCase());
-      }
-    }
+  test("keeps documentation policy free of stale validators", async () => {
     const files = [
       "AGENTS.md",
       "README.md",

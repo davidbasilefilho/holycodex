@@ -9,6 +9,7 @@ import {
   STATE_SCHEMA_EPOCH,
   type JsonObject,
 } from "@holycodex/core";
+import { ManagedRuntimeConfigStateSchema } from "@holycodex/codex";
 import { isJsonValue } from "./json.ts";
 
 export const JsonObjectSchema = Schema.declare(
@@ -75,7 +76,45 @@ export const CapabilityStateRecordSchema = Schema.Struct({
   security: CapabilityInstallStateSchema,
 });
 
-export const InstallRecordSchema = Schema.Struct({
+const PluginConfigEntrySnapshotSchema = Schema.Struct({
+  presence: Schema.Literal("absent", "present"),
+  digest: DigestSchema,
+  safe_value: Schema.optional(
+    Schema.Union(
+      Schema.Struct({ kind: Schema.Literal("boolean"), value: Schema.Boolean }),
+      Schema.Struct({
+        kind: Schema.Literal("marketplace"),
+        source_type: Schema.Literal("git"),
+        source: Schema.Literal("https://github.com/davidbasilefilho/holycodex.git"),
+      }),
+    ),
+  ),
+});
+export const PluginConfigSnapshotSchema = Schema.Struct({
+  plugin_id: Schema.Literal("holycodex@holycodex"),
+  before: Schema.Struct({
+    preference: PluginConfigEntrySnapshotSchema,
+    marketplace: PluginConfigEntrySnapshotSchema,
+  }),
+  after: Schema.Struct({
+    preference: PluginConfigEntrySnapshotSchema,
+    marketplace: PluginConfigEntrySnapshotSchema,
+  }),
+});
+const ProviderPluginConfigEntrySnapshotSchema = Schema.Struct({
+  presence: Schema.Literal("absent", "present"),
+  digest: DigestSchema,
+  safe_value: Schema.optional(
+    Schema.Struct({ kind: Schema.Literal("boolean"), value: Schema.Boolean }),
+  ),
+});
+const ProviderPluginConfigSnapshotSchema = Schema.Struct({
+  plugin_id: OfficialPluginIdSchema,
+  before: ProviderPluginConfigEntrySnapshotSchema,
+  after: ProviderPluginConfigEntrySnapshotSchema,
+});
+
+const InstallRecordFields = {
   owner: Schema.Literal("holycodex"),
   schema_epoch: Schema.Literal(STATE_SCHEMA_EPOCH),
   install_id: IdentifierSchema,
@@ -89,6 +128,48 @@ export const InstallRecordSchema = Schema.Struct({
   capability_state: Schema.optional(CapabilityStateRecordSchema),
   managed_artifacts: Schema.Array(ManagedArtifactSchema),
   installed_at: DateTextSchema,
+  status: Schema.optional(Schema.Literal("active")),
+  step: Schema.optional(Schema.Literal("active")),
+  managed_config: Schema.optional(ManagedRuntimeConfigStateSchema),
+  plugin_snapshot: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        plugin_id: OfficialPluginIdSchema,
+        status: Schema.Literal(
+          "installed",
+          "available",
+          "missing",
+          "disabled",
+          "uncertain",
+          "unknown",
+        ),
+      }),
+    ),
+  ),
+  plugin_config: Schema.optional(PluginConfigSnapshotSchema),
+  provider_config: Schema.optional(Schema.Array(ProviderPluginConfigSnapshotSchema)),
+  owned_plugins: Schema.optional(Schema.Array(OfficialPluginIdSchema)),
+} as const;
+export const InstallRecordSchema = Schema.Struct(InstallRecordFields);
+export const InstallRecordMigrationSchema = Schema.Struct({
+  ...InstallRecordFields,
+  plan: Schema.Union(PlanNameSchema, Schema.Literal("Go")),
+});
+
+export const InstallTransactionStatusSchema = Schema.Literal("preparing", "conflicted");
+export const InstallTransactionStepSchema = Schema.Literal(
+  "validated",
+  "plugins_snapshotted",
+  "roles_prepared",
+  "plugins_installed",
+  "config_published",
+  "verified",
+  "conflicted",
+);
+export const InstallTransactionSchema = Schema.Struct({
+  ...InstallRecordSchema.fields,
+  status: InstallTransactionStatusSchema,
+  step: InstallTransactionStepSchema,
 });
 
 export function decodeSchema<T>(schema: Schema.Schema<T>, input: unknown): T | undefined {

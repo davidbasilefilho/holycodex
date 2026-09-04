@@ -202,23 +202,8 @@ function isOwnedNonHolyCodexVersion(
   dependencyVersions: ReadonlySet<string>,
 ): boolean {
   if (dependencyVersions.has(literal)) return true;
-  if (literal === "0.148.0") {
-    return (
-      relativePath.includes("packages/codex/generated/") ||
-      relativePath.includes("packages/codex/test/fixtures/") ||
-      relativePath.startsWith("packages/codex/src/") ||
-      [
-        "docs/BEHAVIOR.md",
-        "docs/DEPENDENCIES.md",
-        "docs/PARITY.md",
-        "docs/PROVENANCE.md",
-        "docs/SECURITY.md",
-        "scripts/repository-proof.ts",
-        "THIRD-PARTY-NOTICES.md",
-        "tests/parity.test.ts",
-      ].includes(relativePath)
-    );
-  }
+  if (literal === "0.0.0" && relativePath === "packages/cli/src/maintenance.ts") return true;
+  if (relativePath === "scripts/generate-codex-bindings.test.ts") return true;
   if (literal === "0.1.0") {
     return ["packages/plugin/src/index.test.ts", "packages/cli/src/index.test.ts"].includes(
       relativePath,

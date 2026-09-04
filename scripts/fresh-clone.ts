@@ -4,6 +4,8 @@ import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 import { join } from "node:path";
 import {
+  allowlistedEnvironment,
+  DEFAULT_COMMAND_ENVIRONMENT_KEYS,
   redactDiagnostics,
   runChecked,
   runCommand,
@@ -49,35 +51,45 @@ export async function runFreshClone(options: FreshCloneOptions): Promise<FreshCl
     throw new Error("A network clone requires the explicit --network safety switch.");
   }
 
+  const commandEnvironment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
+    GIT_TERMINAL_PROMPT: "0",
+    GCM_INTERACTIVE: "Never",
+  });
+
   return await withTemporaryDirectory("holycodex-fresh-clone", async (temporaryRoot) => {
     const cloneRoot = join(temporaryRoot, "repository");
     await checkedGit(
       ["clone", "--no-checkout", "--no-tags", repositoryUrl, cloneRoot],
       temporaryRoot,
       "clone",
-      process.env,
+      commandEnvironment,
     );
     await checkedGit(
       ["fetch", "--depth", "1", "origin", repositoryRef],
       cloneRoot,
       "fetch",
-      process.env,
+      commandEnvironment,
     );
-    await checkedGit(["checkout", "--detach", "FETCH_HEAD"], cloneRoot, "checkout", process.env);
+    await checkedGit(
+      ["checkout", "--detach", "FETCH_HEAD"],
+      cloneRoot,
+      "checkout",
+      commandEnvironment,
+    );
 
     const origin = await checkedGit(
       ["remote", "get-url", "origin"],
       cloneRoot,
       "origin",
-      process.env,
+      commandEnvironment,
     );
     assert(origin.stdout.trim() === repositoryUrl, "clone origin does not match the requested URL");
-    const head = await checkedGit(["rev-parse", "HEAD"], cloneRoot, "head", process.env);
+    const head = await checkedGit(["rev-parse", "HEAD"], cloneRoot, "head", commandEnvironment);
     const fetched = await checkedGit(
       ["rev-parse", "FETCH_HEAD"],
       cloneRoot,
       "fetched ref",
-      process.env,
+      commandEnvironment,
     );
     assert(
       head.stdout.trim() === fetched.stdout.trim(),
@@ -87,17 +99,17 @@ export async function runFreshClone(options: FreshCloneOptions): Promise<FreshCl
       ["status", "--porcelain", "--untracked-files=all"],
       cloneRoot,
       "clean state",
-      process.env,
+      commandEnvironment,
     );
     assert(status.stdout.trim().length === 0, "fresh clone is not clean before validation");
 
     await runChecked(["mise", "exec", "--", "bun", "install", "--frozen-lockfile"], {
       cwd: cloneRoot,
-      env: process.env,
+      env: commandEnvironment,
     });
     await runChecked(["mise", "exec", "--", "bun", "run", "validate"], {
       cwd: cloneRoot,
-      env: process.env,
+      env: commandEnvironment,
     });
     return { mode: "network", ref: repositoryRef, validation: "passed" };
   });
@@ -193,7 +205,9 @@ async function checkedGit(
     },
   });
   if (result.exitCode !== 0) {
-    throw new Error(`${label} failed: ${redactDiagnostics(result.stderr || result.stdout)}`);
+    throw new Error(
+      `${label} failed: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
+    );
   }
   return result;
 }

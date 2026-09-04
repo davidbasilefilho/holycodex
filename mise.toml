@@ -2,3 +2,4 @@
 [tools]
 bun = "1.4"
 node = "26"
+codex = "latest"

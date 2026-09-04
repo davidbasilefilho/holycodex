@@ -8,7 +8,7 @@ export const INSTALL_OPTION_CATALOG = Object.freeze([
   {
     name: "plan",
     kind: "value",
-    usage: "--plan <Go|plus-low|plus|plus-high|pro-5x|pro-20x>",
+    usage: "--plan <go|plus-low|plus|plus-high|pro-5x|pro-20x>",
     description: "Select routing (default: plus).",
   },
   {

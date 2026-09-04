@@ -7,14 +7,14 @@ import type {
   ClientRequest,
   ServerNotification,
   ServerRequest,
-} from "../generated/codex-cli-0.148.0/typescript";
+} from "../generated/typescript";
 
 export type {
   ClientNotification as GeneratedClientNotification,
   ClientRequest as GeneratedClientRequest,
   ServerNotification as GeneratedServerNotification,
   ServerRequest as GeneratedServerRequest,
-} from "../generated/codex-cli-0.148.0/typescript";
+} from "../generated/typescript";
 
 export type GeneratedClientRequestMethod = ClientRequest["method"];
 export type GeneratedServerRequestMethod = ServerRequest["method"];
@@ -80,7 +80,7 @@ export const GENERATED_TURN_COMPLETED_NOTIFICATION_METHOD =
   "turn/completed" satisfies GeneratedServerNotificationMethod;
 
 // A distinct V2 lifecycle needs a generated client request surface for agent/collaboration
-// control. The 0.148.0 request union has no such method; its V2 files describe model and
+// control. The generated request union has no such method; its V2 files describe model and
 // item data only. The conditional type intentionally turns a future generated lifecycle
 // addition into a compile-time reminder to add the corresponding lifecycle adapter.
 type GeneratedV2LifecycleRequest = Extract<

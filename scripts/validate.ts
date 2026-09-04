@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { runFreshClone } from "./fresh-clone.ts";
-import { runPackageSmoke } from "./package-smoke.ts";
+import { runPackageVerification } from "./package-verification.ts";
 import { runRepositoryProof } from "./repository-proof.ts";
-import { runChecked } from "./process.ts";
+import { allowlistedEnvironment, DEFAULT_COMMAND_ENVIRONMENT_KEYS, runChecked } from "./process.ts";
 import { resolve } from "node:path";
+import { ensureCodexGenerated } from "./generate-codex-bindings.ts";
 
 const workspaceRoot = resolveWorkspaceRoot();
 
@@ -15,21 +16,26 @@ export interface ValidationResult {
 }
 
 export async function runValidation(): Promise<ValidationResult> {
+  await ensureCodexGenerated();
   const steps: string[] = [];
-  const bun = await runChecked(["bun", "--version"], { cwd: workspaceRoot, env: process.env });
+  const commandEnvironment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS);
+  const bun = await runChecked(["bun", "--version"], {
+    cwd: workspaceRoot,
+    env: commandEnvironment,
+  });
   assert(/^1\.4\./u.test(bun.stdout.trim()), "validation requires mise-resolved Bun 1.4");
   steps.push("bun 1.4");
 
-  await runStep(["vp", "fmt", "--check"], "format", steps);
-  await runStep(["vp", "lint"], "lint", steps);
-  await runStep(["vp", "check", "--no-fmt", "--no-lint"], "typescript", steps);
-  await runStep(["vp", "test", "--run"], "tests", steps);
+  await runStep(["vp", "run", "fmt", "--check"], "format", steps);
+  await runStep(["vp", "run", "lint"], "lint", steps);
+  await runStep(["vp", "run", "check", "--no-fmt", "--no-lint"], "typescript", steps);
+  await runStep(["vp", "run", "test", "--run"], "tests", steps);
   await runStep(["bun", "scripts/package-build.ts"], "package build", steps);
 
   const proof = await runRepositoryProof();
   steps.push("repository proof");
-  const smoke = await runPackageSmoke();
-  steps.push("package artifact smoke");
+  const packageVerification = await runPackageVerification();
+  steps.push("package artifact verification");
   const clone = await runFreshClone({
     url: null,
     ref: null,
@@ -43,12 +49,15 @@ export async function runValidation(): Promise<ValidationResult> {
   return {
     steps,
     generatedArtifactDigest: proof.generatedArtifactDigest,
-    packageVersion: smoke.packageVersion,
+    packageVersion: packageVerification.packageVersion,
   };
 }
 
 async function runStep(command: readonly string[], label: string, steps: string[]): Promise<void> {
-  await runChecked(command, { cwd: workspaceRoot, env: process.env });
+  await runChecked(command, {
+    cwd: workspaceRoot,
+    env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
+  });
   steps.push(label);
 }
 

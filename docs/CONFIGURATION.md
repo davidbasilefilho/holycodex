@@ -21,11 +21,11 @@ and cannot write configuration.
 ## Plans, tiers, and optional plugins
 
 The plan catalog owns valid plan names and native routes. A plan controls
-routing only. `Go` keeps Terra/high for Root and uses the plus-low Luna leaf
+routing only. `go` keeps Terra/high for Root and uses the plus-low Luna leaf
 route matrix; Plus and Pro plans select specialist routes. A plan does not
 select a service tier or grant authority.
 
-The valid plan names are `Go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and
+The valid plan names are `go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and
 `pro-20x`.
 
 The service tier is an independent setting selected with `--tier`. It changes
@@ -37,9 +37,9 @@ Optional plugins are explicit booleans for `work`, `frontend`, `security`, and
 frontend and Security default to true; an omitted selection otherwise inherits
 the existing managed configuration. Availability never grants authority.
 Explicitly selected or additionally requested plugins return a structured
-denial when missing. An unavailable implicit frontend or Security first-install
-default is recorded as `missing` or `uncertain`, warned about, and retried on a
-later reinstall; no fallback is selected.
+denial when missing. Every selected capability and additional plugin must
+verify as installed and enabled or installation fails; no selected capability
+is recorded as a successful unresolved state and no fallback is selected.
 
 ## Paths and ownership
 

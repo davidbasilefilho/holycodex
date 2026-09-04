@@ -4,7 +4,7 @@ import * as Schema from "effect/Schema";
 import { freezeDeep } from "./common.ts";
 
 export const PlanNameSchema = Schema.Literal(
-  "Go",
+  "go",
   "plus-low",
   "plus",
   "plus-high",
@@ -12,6 +12,16 @@ export const PlanNameSchema = Schema.Literal(
   "pro-20x",
 );
 export type PlanName = typeof PlanNameSchema.Type;
+
+/** Historical plan spelling accepted only while migrating persisted state. */
+export const LegacyPlanNameSchema = Schema.Literal("Go");
+export type LegacyPlanName = typeof LegacyPlanNameSchema.Type;
+export const PlanNameMigrationSchema = Schema.Union(PlanNameSchema, LegacyPlanNameSchema);
+export type PlanNameMigrationInput = typeof PlanNameMigrationSchema.Type;
+
+export function migratePlanName(input: PlanNameMigrationInput): PlanName {
+  return input === "Go" ? "go" : input;
+}
 
 export const ServiceTierSchema = Schema.Literal("standard", "fast", "fast-all");
 export type ServiceTier = typeof ServiceTierSchema.Type;
@@ -25,13 +35,14 @@ export const ROLE_DEFINITIONS = [
     tasks: [
       {
         name: "lookup",
-        description: "Use when Root needs one exact repository fact; locate the requested fact.",
+        description:
+          "Use when Root needs one exact repository fact; locate it and return the exact path, symbol, or value.",
         instruction: "Locate the exact requested repository fact.",
       },
       {
         name: "trace",
         description:
-          "Use when Root needs a complete in-scope execution or reference path; trace every relevant caller and constraint.",
+          "Use when Root needs a complete in-scope execution or reference path; trace every relevant caller and constraint, then return the path and evidence.",
         instruction: "Trace the complete in-scope execution or reference path.",
       },
     ],
@@ -47,13 +58,13 @@ export const ROLE_DEFINITIONS = [
       {
         name: "lookup",
         description:
-          "Use when Root needs one exact current external fact; locate it in the assigned authoritative source.",
+          "Use when Root needs one exact current external fact; locate it in the assigned authoritative source and return the citation.",
         instruction: "Locate the exact requested authoritative external fact.",
       },
       {
         name: "research",
         description:
-          "Use when Root needs a sourced current synthesis; combine the assigned authoritative sources with citations.",
+          "Use when Root needs a sourced current synthesis; combine the assigned authoritative sources with citations and return the evidence and uncertainty.",
         instruction: "Synthesize the assigned current sources with citations.",
       },
     ],
@@ -69,25 +80,25 @@ export const ROLE_DEFINITIONS = [
       {
         name: "mechanical",
         description:
-          "Use when Root has decided deterministic edits; apply only those edits and verify the result.",
+          "Use when Root has decided deterministic edits; apply only those edits, verify the result, and return changed paths and evidence.",
         instruction: "Apply only deterministic, already-decided edits.",
       },
       {
         name: "implementation",
         description:
-          "Use when Root has decided a bounded behavior seam; implement and verify that seam.",
+          "Use when Root has decided a bounded behavior seam; implement and verify that seam, then return changed paths and evidence.",
         instruction: "Implement and verify the bounded behavior seam.",
       },
       {
         name: "integration",
         description:
-          "Use when Root has decided seams that must be combined; integrate them and verify the result together.",
+          "Use when Root has decided seams that must be combined; integrate and verify them together, then return the result and residual risk.",
         instruction: "Integrate the decided seams and verify them together.",
       },
       {
         name: "operations",
         description:
-          "Use after Root approves an exact ref or SHA; observe required CI and release state to terminal evidence, never treating pending as success.",
+          "Use after Root approves an exact ref or SHA; observe required CI and release state to terminal evidence and return it, never treating pending as success.",
         instruction:
           "After Root approves an exact ref or SHA, observe required CI and release state through terminal evidence; pending or running state is never success.",
       },
@@ -104,19 +115,19 @@ export const ROLE_DEFINITIONS = [
       {
         name: "plan",
         description:
-          "Use when Root needs a complete plan adversarially checked; review it to a fixed point.",
+          "Use when Root needs a complete plan adversarially checked; review it to a fixed point and return findings, proof, and residual risk.",
         instruction: "Review the complete plan to a fixed point.",
       },
       {
         name: "code",
         description:
-          "Use when Root needs implemented code adversarially checked; review and repair it to a fixed point.",
+          "Use when Root needs implemented code adversarially checked; review and repair it to a fixed point, returning findings, proof, and residual risk.",
         instruction: "Review and repair the implemented code to a fixed point.",
       },
       {
         name: "artifact",
         description:
-          "Use when Root needs a produced artifact inspected; review and repair it to a fixed point.",
+          "Use when Root needs a produced artifact inspected; review and repair it to a fixed point, returning findings, proof, and residual risk.",
         instruction: "Review and repair the produced artifact to a fixed point.",
       },
     ],

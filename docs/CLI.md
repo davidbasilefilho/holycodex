@@ -8,7 +8,8 @@ confirmation behavior. Observable product behavior is in
 
 The executable is `holycodex`. The published entry point is invoked with
 `bunx`; development uses `mise exec -- bun packages/cli/src/index.ts ...`.
-Bun is the only repository toolchain.
+Bun is the only repository toolchain. The canonical install and removal
+commands are `bunx holycodex install` and `bunx holycodex remove`.
 
 ## Commands
 
@@ -25,16 +26,17 @@ Installation options are `--yes`, `--plan <name>`,
 malformed values fail before any effect.
 
 Plans select native subagent routing only. The tier is an independent service
-setting. Explicit optional selections and additional plugins return
-`capability_denied` when unavailable. An unavailable implicit frontend or
-Security first-install default is recorded as `missing` or `uncertain`, emits
-a warning, and remains selected for retry on reinstall.
+setting. A selected capability and every additional plugin must install and
+verify as installed and enabled; otherwise installation returns
+`capability_denied` or a classified installation failure without claiming
+success. The default selections are Frontend and Security; Work and Computer
+Use remain disabled unless selected.
 
 Native profiles encode `standard` as `service_tier = "default"` for Root and
 leaves. `fast` keeps Root on `default` and sets leaves to `fast`; `fast-all`
 sets both Root and leaves to `fast`.
 
-Valid plan names are `Go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and
+Valid plan names are `go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and
 `pro-20x`.
 Valid tier names are `standard`, `fast`, and `fast-all`; select them through
 `--tier`.
@@ -76,3 +78,23 @@ Mutating commands require `--yes` when confirmation cannot be collected.
 JSON mode is always non-interactive. A nonzero exit never means that an
 external effect succeeded. An uncertain effect is reported and preserved for
 Root or user resolution; it is not blindly repeated.
+
+## Human output
+
+Without `--json`, install, remove, and doctor report concise semantic results.
+Install reports the version, plan, tier, selected capabilities, preserved
+state, and actionable warnings. Remove reports owned state removed or
+preserved. Doctor reports health and checks that need attention. Human output
+does not print the internal installation record. Progress is written to stderr
+on an interactive terminal.
+
+`holycodex -v` and `holycodex --version` print one line:
+
+```text
+holycodex <version>
+```
+
+Help colors headings, options, and arguments on interactive non-CI terminals.
+`NO_COLOR`, CI environments, and non-TTY output receive plain text. JSON mode
+always emits one validated envelope and never includes ANSI, prompts, progress,
+or secrets.

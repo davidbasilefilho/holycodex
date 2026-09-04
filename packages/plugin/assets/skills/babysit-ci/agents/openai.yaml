@@ -1,6 +1,0 @@
-interface:
-  display_name: "Babysit CI"
-  short_description: "Observe exact-ref or SHA CI and release state to terminal evidence."
-  default_prompt: "After Root approves the exact ref or SHA mutation, observe required CI and release checks until terminal and report pending as incomplete."
-policy:
-  allow_implicit_invocation: false

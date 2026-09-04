@@ -1,2 +1,0 @@
-{"id":5,"method":"item/commandExecution/requestApproval","params":{"threadId":"thread-fixture","turnId":"turn-fixture","itemId":"item-fixture","startedAtMs":1,"environmentId":null,"command":"echo fixture"}}
-{"id":5,"result":{"decision":"accept"}}

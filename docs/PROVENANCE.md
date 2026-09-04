@@ -1,10 +1,10 @@
 # HolyCodex provenance
 
 This ledger defines what evidence may support a claim. It is the source of
-truth for clean-room admissibility, version identity, generated assets, and
+truth for evidence admissibility, version identity, generated assets, and
 validation limits.
 
-## Clean-room boundary
+## Contribution evidence boundary
 
 The admissible input set is:
 
@@ -20,35 +20,36 @@ parity with an unadmitted source.
 
 ## Evidence classes
 
-| ID     | Source                                           | Permitted use                                                                              |
-| ------ | ------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| `P-01` | Task specification and stable profile            | Project identity, clean-room rule, roles, values, capabilities, and requested deliverables |
-| `P-02` | Supplied current-source dossier                  | Current Codex, toolchain, dependency, and license facts stated there                       |
-| `P-03` | Local implementation and repository-native proof | Implemented behavior, generated plugin assets, and local validation evidence               |
-| `D-01` | Authored contract decisions                      | New observable choices required for a coherent implementation; not historical facts        |
+| ID     | Source                                           | Permitted use                                                                                |
+| ------ | ------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `P-01` | Task specification and stable profile            | Project identity, evidence boundary, roles, values, capabilities, and requested deliverables |
+| `P-02` | Supplied current-source dossier                  | Current Codex, toolchain, dependency, and license facts stated there                         |
+| `P-03` | Local implementation and repository-native proof | Implemented behavior, generated plugin assets, and local validation evidence                 |
+| `D-01` | Authored contract decisions                      | New observable choices required for a coherent implementation; not historical facts          |
 
 ## Recorded identities
 
-| Identity                 | Recorded value                                                             | Evidence       |
-| ------------------------ | -------------------------------------------------------------------------- | -------------- |
-| Clean-room base          | `682adea6d6cba374251152af612489126e9c64c1`                                 | `P-01`         |
-| Frozen behavioral oracle | `eb796235f2f29f2c67c869408a0e22c1a72c13eb`                                 | `P-01`         |
-| Public version           | `packages/cli/package.json` `version`, synchronized to the plugin manifest | `P-01`, `P-03` |
-| Bun                      | `1.4.x`, resolved by `mise` and the lockfile                               | `P-01`, `P-03` |
-| TypeScript               | `7.0.2`                                                                    | `P-01`, `P-03` |
-| Vite+                    | `0.2.9`                                                                    | `P-01`, `P-03` |
-| Effect                   | `3.22.1` with `effect/Schema`                                              | `P-01`, `P-03` |
-| Codex protocol artifact  | `codex-cli 0.148.0`, inventory and digest recorded by the repository proof | `P-02`, `P-03` |
+| Identity                 | Recorded value                                                                                                               | Evidence       |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| Source baseline          | `682adea6d6cba374251152af612489126e9c64c1`                                                                                   | `P-01`         |
+| Frozen behavioral oracle | `eb796235f2f29f2c67c869408a0e22c1a72c13eb`                                                                                   | `P-01`         |
+| Public version           | `packages/cli/package.json` `version`, synchronized to the plugin manifest                                                   | `P-01`, `P-03` |
+| Bun                      | `1.4.x`, resolved by `mise` and the lockfile                                                                                 | `P-01`, `P-03` |
+| TypeScript               | `7.0.2`                                                                                                                      | `P-01`, `P-03` |
+| Vite+                    | `0.2.9`                                                                                                                      | `P-01`, `P-03` |
+| Effect                   | `3.22.1` with `effect/Schema`                                                                                                | `P-01`, `P-03` |
+| Codex protocol artifact  | Stable Codex CLI resolved by the `mise.toml` `latest` channel; inventory and digest recorded by the generated artifact proof | `P-02`, `P-03` |
 
 The manifest, lockfile, generated assets, and version script are the
 repository-native identity checks. Release publication is configured through
 GitHub Actions, but external registry and release readback remain evidence
 from the specific approved run.
 
-The generated Codex protocol types are checked in under
-`packages/codex/generated/codex-cli-0.148.0/`. Their source executable,
-protocol epoch, file inventory, and SHA-256 identity are recorded in the
-generated provenance file and re-verified by `scripts/repository-proof.ts`.
+The generated Codex protocol types are produced under
+`packages/codex/generated/` before validation and packaging. This directory is
+fully ignored by VCS; its source executable, protocol epoch, file inventory,
+and SHA-256 identity are recorded in local generated provenance and
+re-verified by the generated artifact proof.
 
 ## Validation limits
 

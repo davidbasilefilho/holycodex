@@ -30,12 +30,19 @@ published surface. Keep the graph acyclic, keep I/O in its owning package, and
 put policy in one module. Do not add a dependency to bypass an owner or
 boundary. Markdown needs no SPDX header; authored code uses `Apache-2.0`.
 
-## Clean-room contribution boundary
+## Contribution evidence boundary
 
 Contributions may use the task specification, expressly admitted current-source
 facts, and files authored on this repository for internal consistency checks.
 Do not read, search, import, quote, adapt, or compare undocumented historical
 implementation material. Material ambiguity returns to Root.
+
+## Development before stable
+
+Verify changes through the smallest relevant local path first, then broader
+local or development checks. Use development or staging CI before any stable
+publication or production-like action. If stable verification fails, reproduce
+and repair through local/development checks before trying stable again.
 
 ## Checks and test isolation
 

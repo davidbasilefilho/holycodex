@@ -12,6 +12,7 @@ export {
   CapabilityNameSchema,
   CapabilityHealthSchema,
   CapabilityProviderStatusSchema,
+  DEFAULT_CAPABILITY_SELECTIONS,
   DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
   OPTIONAL_CAPABILITY_NAMES,
   OptionalCapabilityNameSchema,
@@ -22,6 +23,7 @@ export {
 } from "./capabilities.ts";
 export type {
   CapabilityName,
+  CapabilityDefaults,
   CapabilityDefinition,
   CapabilityHealth,
   CapabilityProviderStatus,
@@ -74,8 +76,11 @@ export type {
 export {
   EffortSchema,
   ExplorerTaskSchema,
+  LegacyPlanNameSchema,
   LibrarianTaskSchema,
+  migratePlanName,
   PlanNameSchema,
+  PlanNameMigrationSchema,
   PlanSelectionSchema,
   NATIVE_AGENT_TYPES,
   NativeAgentTypeSchema,
@@ -95,7 +100,9 @@ export {
 export type {
   Effort,
   ExplorerTask,
+  LegacyPlanName,
   LibrarianTask,
+  PlanNameMigrationInput,
   PlanName,
   PlanSelection,
   NativeAgentType,

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSha256Digest, decodeUnknown } from "@holycodex/core";
@@ -9,12 +9,20 @@ import * as Schema from "effect/Schema";
 import { describe, expect, test } from "vite-plus/test";
 import {
   AppServerClient,
+  bootstrapOfficialMarketplace,
+  CODEX_PROTOCOL_VERSION,
+  ConfigReadParamsSchema,
+  ConfigReadResultSchema,
   createOfficialPluginAdapter,
   JsonRpcNotificationSchema,
   JsonRpcResponseSchema,
   LiveOfficialPluginListEnvelopeSchema,
   OfficialPluginAdapterError,
+  OFFICIAL_CURATED_MARKETPLACE_NAME,
+  OFFICIAL_CURATED_MARKETPLACE_SOURCE,
   OfficialPluginManifestSchema,
+  parseOfficialMarketplaceSnapshot,
+  provisionOfficialMarketplaceSnapshot,
   SupportedUsageSchema,
   TurnStartParamsSchema,
   createAllowlistedEnvironment,
@@ -104,11 +112,11 @@ function errorResponse(id: number, code: number, message: string): unknown {
 }
 
 const initializeResult = {
-  userAgent: "codex-cli 0.148.0",
+  userAgent: `codex-cli ${CODEX_PROTOCOL_VERSION.slice("codex-cli-".length)}`,
   codexHome: "/tmp/codex",
   platformFamily: "unix",
   platformOs: "linux",
-  serverInfo: { name: "codex", version: "0.148.0" },
+  serverInfo: { name: "codex", version: CODEX_PROTOCOL_VERSION.slice("codex-cli-".length) },
 };
 
 function createInitializedClient(
@@ -340,18 +348,48 @@ describe("AppServerClient", () => {
 });
 
 describe("Codex identity, configuration, and plugins", () => {
-  test("preserves unrelated keys and later user edits during managed cleanup", () => {
+  test("validates current config readback and its TOML layer options", () => {
+    expect(
+      Either.isRight(
+        decode(ConfigReadParamsSchema, {
+          includeLayers: true,
+          cwd: "/workspace/project",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isRight(
+        decode(ConfigReadResultSchema, {
+          config: {
+            model: "gpt-5.6-terra",
+            features: { default_mode_request_user_input: true },
+          },
+          origins: {},
+          layers: null,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("preserves unrelated keys and later user edits during managed cleanup", async () => {
     const metadata = { owner: "holycodex" as const, schema: "0.15", installId: "install-1" };
-    const initial = createManagedConfigState({ unrelated: "keep", managed: "original" });
-    const merged = mergeManagedConfig(initial, { managed: "managed-value", added: true }, metadata);
-    const userEdited = { ...merged, values: { ...merged.values, managed: "user-value" } };
-    const cleaned = cleanupManagedConfig(userEdited, metadata);
-    expect(cleaned.state.values).toEqual({ unrelated: "keep", managed: "user-value" });
-    expect(cleaned.state.managed).toEqual({});
-    expect(cleaned.preservedKeys).toEqual(["managed"]);
-    const restored = cleanupManagedConfig(merged, metadata);
-    expect(restored.state.values).toEqual({ unrelated: "keep", managed: "original" });
-    expect(restored.restoredKeys).toEqual(["managed", "added"]);
+    const initial = createManagedConfigState(metadata);
+    const merged = await mergeManagedConfig(
+      { unrelated: "keep", model: "gpt-5.6-luna" },
+      initial,
+      { model: "gpt-5.6-terra", "features.default_mode_request_user_input": true },
+      metadata,
+    );
+    const userEdited = { ...merged.document, model: "gpt-5.6-sol" };
+    const cleaned = await cleanupManagedConfig(userEdited, merged.state, metadata);
+    expect(cleaned.document).toEqual({
+      unrelated: "keep",
+      model: "gpt-5.6-sol",
+    });
+    expect(cleaned.preservedKeys).toEqual(["model"]);
+    const restored = await cleanupManagedConfig(merged.document, merged.state, metadata);
+    expect(restored.document).toEqual({ unrelated: "keep", model: "gpt-5.6-luna" });
+    expect(restored.restoredKeys).toEqual(["model", "features.default_mode_request_user_input"]);
   });
 
   test("rejects MCP declarations and requires explicit official selections", () => {
@@ -392,6 +430,342 @@ describe("Codex identity, configuration, and plugins", () => {
     expect(Either.isRight(decode(LiveOfficialPluginListEnvelopeSchema, input))).toBe(true);
     expect(parseLiveOfficialPluginList(input).ok).toBe(true);
     expect(parseOfficialPluginManifest(input.installed[0]).ok).toBe(false);
+  });
+
+  test("validates the reserved official marketplace snapshot and source paths", () => {
+    const snapshot = parseOfficialMarketplaceSnapshot({
+      name: OFFICIAL_CURATED_MARKETPLACE_NAME,
+      source: OFFICIAL_CURATED_MARKETPLACE_SOURCE,
+      plugins: [
+        { name: "build-web-apps", source: "./plugins/build-web-apps" },
+        { name: "codex-security", source: "./plugins/codex-security" },
+      ],
+    });
+    expect(snapshot.plugins.map((plugin) => plugin.name)).toEqual([
+      "build-web-apps",
+      "codex-security",
+    ]);
+    expect(() =>
+      parseOfficialMarketplaceSnapshot({
+        name: OFFICIAL_CURATED_MARKETPLACE_NAME,
+        source: "https://example.invalid/plugins.git",
+        plugins: [{ name: "build-web-apps", source: "./plugins/build-web-apps" }],
+      }),
+    ).toThrow("approved OpenAI repository");
+    expect(() =>
+      parseOfficialMarketplaceSnapshot({
+        name: OFFICIAL_CURATED_MARKETPLACE_NAME,
+        plugins: [{ name: "build-web-apps", source: "https://example.invalid/plugin" }],
+      }),
+    ).toThrow("source for build-web-apps is unsafe");
+  });
+
+  test("waits for a delayed official marketplace sync", async () => {
+    const snapshot = parseOfficialMarketplaceSnapshot({
+      name: OFFICIAL_CURATED_MARKETPLACE_NAME,
+      source: OFFICIAL_CURATED_MARKETPLACE_SOURCE,
+      plugins: [
+        { name: "build-web-apps", source: "./plugins/build-web-apps" },
+        { name: "codex-security", source: "./plugins/codex-security" },
+      ],
+    });
+    let reads = 0;
+    let initialized = 0;
+    let closed = 0;
+    const result = await bootstrapOfficialMarketplace({
+      codexHome: "/tmp/codex-bootstrap-test",
+      executablePath: "/tmp/codex",
+      selectedPluginIds: ["build-web-apps@openai-curated", "codex-security@openai-curated"],
+      timeoutMs: 100,
+      pollIntervalMs: 0,
+      initializeRuntime: async () => {
+        initialized += 1;
+        return async () => {
+          closed += 1;
+        };
+      },
+      readSnapshot: async () => {
+        reads += 1;
+        return reads < 3 ? undefined : snapshot;
+      },
+      sleep: async () => undefined,
+    });
+    expect(result).toBe(snapshot);
+    expect(initialized).toBe(1);
+    expect(closed).toBe(1);
+    expect(reads).toBe(3);
+  });
+
+  test("fails closed on an official marketplace timeout", async () => {
+    let initialized = 0;
+    await expect(
+      bootstrapOfficialMarketplace({
+        codexHome: "/tmp/codex-bootstrap-timeout",
+        executablePath: "/tmp/codex",
+        selectedPluginIds: ["build-web-apps@openai-curated"],
+        timeoutMs: 1,
+        pollIntervalMs: 0,
+        initializeRuntime: async () => {
+          initialized += 1;
+          return async () => undefined;
+        },
+        readSnapshot: async () => undefined,
+        sleep: async () => undefined,
+        gitFallback: false,
+      }),
+    ).rejects.toMatchObject({ code: "marketplace_timeout" });
+    expect(initialized).toBe(1);
+  });
+
+  test("rejects a symlinked marketplace ancestor before App Server startup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "codex-official-marketplace-ancestor-"));
+    const codexHome = join(root, "codex");
+    const outside = join(root, "outside");
+    let initialized = false;
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await mkdir(outside, { recursive: true });
+      await symlink(outside, join(codexHome, "plugins"));
+      await expect(
+        bootstrapOfficialMarketplace({
+          codexHome,
+          executablePath: "/tmp/codex",
+          selectedPluginIds: ["build-web-apps@openai-curated"],
+          initializeRuntime: async () => {
+            initialized = true;
+            return async () => undefined;
+          },
+        }),
+      ).rejects.toMatchObject({ code: "marketplace_invalid" });
+      expect(initialized).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("verifies and atomically publishes a shallow official Git snapshot", async () => {
+    const root = await mkdtemp(join(tmpdir(), "codex-official-marketplace-"));
+    const codexHome = join(root, "codex");
+    const head = "a".repeat(40);
+    const commands: string[][] = [];
+    const runner = {
+      run: async (args: readonly string[]) => {
+        commands.push([...args]);
+        if (args[0] === "ls-remote") {
+          return { exitCode: 0, stdout: `${head}\tHEAD\n`, stderr: "" };
+        }
+        if (args[0] === "rev-parse") {
+          return { exitCode: 0, stdout: `${head}\n`, stderr: "" };
+        }
+        throw new Error(`unexpected git command: ${args.join(" ")}`);
+      },
+    };
+    try {
+      const snapshot = await provisionOfficialMarketplaceSnapshot({
+        codexHome,
+        selectedPluginIds: ["build-web-apps@openai-curated", "codex-security@openai-curated"],
+        gitRunner: runner,
+        cloneSnapshot: async (source, destination) => {
+          expect(source).toBe(OFFICIAL_CURATED_MARKETPLACE_SOURCE);
+          await mkdir(join(destination, ".agents", "plugins"), { recursive: true });
+          await writeFile(
+            join(destination, ".agents", "plugins", "marketplace.json"),
+            JSON.stringify({
+              name: OFFICIAL_CURATED_MARKETPLACE_NAME,
+              plugins: [
+                { name: "build-web-apps", source: "./build-web-apps" },
+                { name: "codex-security", source: "./codex-security" },
+              ],
+            }),
+          );
+        },
+      });
+      expect(snapshot.rootPath).toBe(join(codexHome, "plugins", "openai-plugins"));
+      expect(commands).toEqual([
+        ["ls-remote", OFFICIAL_CURATED_MARKETPLACE_SOURCE, "HEAD"],
+        ["rev-parse", "HEAD"],
+      ]);
+      await expect(
+        readFile(
+          join(codexHome, "plugins", "openai-plugins", ".agents", "plugins", "marketplace.json"),
+          "utf8",
+        ),
+      ).resolves.toContain(OFFICIAL_CURATED_MARKETPLACE_NAME);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a remote HEAD mismatch and cleans staged content", async () => {
+    const root = await mkdtemp(join(tmpdir(), "codex-official-marketplace-mismatch-"));
+    const codexHome = join(root, "codex");
+    const remoteHead = "b".repeat(40);
+    try {
+      await expect(
+        provisionOfficialMarketplaceSnapshot({
+          codexHome,
+          selectedPluginIds: ["build-web-apps@openai-curated"],
+          gitRunner: {
+            run: async (args) =>
+              args[0] === "ls-remote"
+                ? { exitCode: 0, stdout: `${remoteHead}\tHEAD\n`, stderr: "" }
+                : { exitCode: 0, stdout: `${"c".repeat(40)}\n`, stderr: "" },
+          },
+          cloneSnapshot: async (_source, destination) => {
+            await mkdir(join(destination, ".agents", "plugins"), { recursive: true });
+            await writeFile(
+              join(destination, ".agents", "plugins", "marketplace.json"),
+              JSON.stringify({
+                name: OFFICIAL_CURATED_MARKETPLACE_NAME,
+                plugins: [{ name: "build-web-apps", source: "./build-web-apps" }],
+              }),
+            );
+          },
+        }),
+      ).rejects.toMatchObject({ code: "marketplace_invalid" });
+      const parent = join(codexHome, "plugins");
+      const entries = await readdir(parent);
+      expect(entries.some((entry) => entry.startsWith(".openai-plugins-stage-"))).toBe(false);
+      await expect(readFile(join(parent, "openai-plugins", "marketplace.json"))).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("reports an offline Git fallback and removes failed staging", async () => {
+    const root = await mkdtemp(join(tmpdir(), "codex-official-marketplace-offline-"));
+    const codexHome = join(root, "codex");
+    try {
+      await expect(
+        provisionOfficialMarketplaceSnapshot({
+          codexHome,
+          selectedPluginIds: ["build-web-apps@openai-curated"],
+          gitRunner: {
+            run: async (args) =>
+              args[0] === "ls-remote"
+                ? { exitCode: 0, stdout: `${"1".repeat(40)}\tHEAD\n`, stderr: "" }
+                : { exitCode: 1, stdout: "", stderr: "network is unreachable" },
+          },
+        }),
+      ).rejects.toMatchObject({ code: "marketplace_unavailable" });
+      const parent = join(codexHome, "plugins");
+      const entries = await readdir(parent);
+      expect(entries.some((entry) => entry.startsWith(".openai-plugins-stage-"))).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fails closed for malformed or symlinked official snapshots", async () => {
+    const root = await mkdtemp(join(tmpdir(), "codex-official-marketplace-unsafe-"));
+    const codexHome = join(root, "codex");
+    try {
+      await expect(
+        provisionOfficialMarketplaceSnapshot({
+          codexHome,
+          selectedPluginIds: ["build-web-apps@openai-curated"],
+          gitRunner: {
+            run: async (args) =>
+              args[0] === "ls-remote"
+                ? { exitCode: 0, stdout: `${"d".repeat(40)}\tHEAD\n`, stderr: "" }
+                : { exitCode: 0, stdout: `${"d".repeat(40)}\n`, stderr: "" },
+          },
+          cloneSnapshot: async (_source, destination) => {
+            await mkdir(join(destination, ".agents", "plugins"), { recursive: true });
+            await symlink("/tmp", join(destination, "unsafe-link"));
+            await writeFile(
+              join(destination, ".agents", "plugins", "marketplace.json"),
+              JSON.stringify({
+                name: OFFICIAL_CURATED_MARKETPLACE_NAME,
+                plugins: [{ name: "build-web-apps", source: "./build-web-apps" }],
+              }),
+            );
+          },
+        }),
+      ).rejects.toMatchObject({ code: "marketplace_invalid" });
+      await expect(
+        provisionOfficialMarketplaceSnapshot({
+          codexHome,
+          selectedPluginIds: ["build-web-apps@openai-curated"],
+          gitRunner: {
+            run: async (args) =>
+              args[0] === "ls-remote"
+                ? { exitCode: 0, stdout: `${"e".repeat(40)}\tHEAD\n`, stderr: "" }
+                : { exitCode: 0, stdout: `${"e".repeat(40)}\n`, stderr: "" },
+          },
+          cloneSnapshot: async (_source, destination) => {
+            await mkdir(join(destination, ".agents", "plugins"), { recursive: true });
+            await writeFile(
+              join(destination, ".agents", "plugins", "marketplace.json"),
+              JSON.stringify({
+                name: OFFICIAL_CURATED_MARKETPLACE_NAME,
+                plugins: [{ name: "build-web-apps", source: "../other" }],
+              }),
+            );
+          },
+        }),
+      ).rejects.toMatchObject({ code: "marketplace_invalid" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a publication collision without replacing the existing path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "codex-official-marketplace-collision-"));
+    const codexHome = join(root, "codex");
+    try {
+      await expect(
+        provisionOfficialMarketplaceSnapshot({
+          codexHome,
+          selectedPluginIds: ["build-web-apps@openai-curated"],
+          gitRunner: {
+            run: async (args) =>
+              args[0] === "ls-remote"
+                ? { exitCode: 0, stdout: `${"f".repeat(40)}\tHEAD\n`, stderr: "" }
+                : { exitCode: 0, stdout: `${"f".repeat(40)}\n`, stderr: "" },
+          },
+          cloneSnapshot: async (_source, destination) => {
+            await mkdir(join(destination, ".agents", "plugins"), { recursive: true });
+            await writeFile(
+              join(destination, ".agents", "plugins", "marketplace.json"),
+              JSON.stringify({
+                name: OFFICIAL_CURATED_MARKETPLACE_NAME,
+                plugins: [{ name: "build-web-apps", source: "./build-web-apps" }],
+              }),
+            );
+            await mkdir(join(codexHome, "plugins", "openai-plugins"), { recursive: true });
+            await writeFile(join(codexHome, "plugins", "openai-plugins", "keep.txt"), "preserve");
+          },
+        }),
+      ).rejects.toMatchObject({ code: "marketplace_invalid" });
+      await expect(
+        readFile(join(codexHome, "plugins", "openai-plugins", "keep.txt"), "utf8"),
+      ).resolves.toBe("preserve");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("does not initialize Codex when the official marketplace is already present", async () => {
+    const snapshot = parseOfficialMarketplaceSnapshot({
+      name: OFFICIAL_CURATED_MARKETPLACE_NAME,
+      source: OFFICIAL_CURATED_MARKETPLACE_SOURCE,
+      plugins: [{ name: "build-web-apps", source: "./plugins/build-web-apps" }],
+    });
+    let initialized = false;
+    await expect(
+      bootstrapOfficialMarketplace({
+        codexHome: "/tmp/codex-bootstrap-present",
+        executablePath: "/tmp/codex",
+        selectedPluginIds: ["build-web-apps@openai-curated"],
+        initializeRuntime: async () => {
+          initialized = true;
+          return async () => undefined;
+        },
+        readSnapshot: async () => snapshot,
+      }),
+    ).resolves.toBe(snapshot);
+    expect(initialized).toBe(false);
   });
 
   test("adds an exact plugin id and requires enabled readback", async () => {
@@ -452,6 +826,20 @@ describe("Codex identity, configuration, and plugins", () => {
     await expect(adapter.add("computer-use@openai-bundled")).rejects.toMatchObject({
       code: "plugin_disabled",
     } satisfies Partial<OfficialPluginAdapterError>);
+  });
+
+  test("redacts credentials from plugin command failures", async () => {
+    const sentinel = "super-secret-token-value";
+    const adapter = createOfficialPluginAdapter({
+      executable: "codex",
+      runner: {
+        run: async () => ({ exitCode: 1, stdout: "", stderr: `token=${sentinel}` }),
+      },
+    });
+    await expect(adapter.list()).rejects.toMatchObject({
+      code: "command_failed",
+      message: expect.not.stringContaining(sentinel),
+    });
   });
 });
 

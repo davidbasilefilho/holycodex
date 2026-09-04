@@ -8,9 +8,14 @@ import {
   CapabilityResultV2Schema,
   CAPABILITY_REGISTRY,
   CoreError,
+  DEFAULT_CAPABILITY_SELECTIONS,
+  DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
   EffortSchema,
+  LegacyPlanNameSchema,
   PLAN_CATALOG,
   NATIVE_AGENT_TYPES,
+  migratePlanName,
+  PlanNameMigrationSchema,
   PlanNameSchema,
   PlanSelectionSchema,
   RoleTaskSchema,
@@ -42,7 +47,7 @@ import {
 } from "./index";
 import { decodeUnknown } from "./schema";
 
-const planNames = ["Go", "plus-low", "plus", "plus-high", "pro-5x", "pro-20x"] as const;
+const planNames = ["go", "plus-low", "plus", "plus-high", "pro-5x", "pro-20x"] as const;
 const expectedRouteEffortsByPlan = [
   {
     plan: "plus-low",
@@ -118,7 +123,7 @@ describe("core plan catalog", () => {
   test("contains every plan with routing model and reasoning policy", () => {
     expect(PLAN_CATALOG.map((plan) => plan.name)).toEqual(planNames);
     expect(PLAN_CATALOG[0]).toMatchObject({
-      name: "Go",
+      name: "go",
       root: { model: "Terra", effort: "high" },
     });
     expect(PLAN_CATALOG.map((plan) => plan.root)).toEqual([
@@ -195,6 +200,36 @@ describe("core plan catalog", () => {
       expect(plan.defaultServiceTier).toBe("standard");
     }
   });
+
+  test("keeps capability defaults in one typed source", () => {
+    expect(DEFAULT_CAPABILITY_SELECTIONS).toMatchObject({
+      coding: true,
+      computer_use: false,
+      work: false,
+      frontend: true,
+      security: true,
+    });
+    expect(DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS).toEqual({
+      computer_use: DEFAULT_CAPABILITY_SELECTIONS.computer_use,
+      work: DEFAULT_CAPABILITY_SELECTIONS.work,
+      frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
+      security: DEFAULT_CAPABILITY_SELECTIONS.security,
+    });
+    for (const name of ["computer_use", "work", "frontend", "security"] as const) {
+      expect(CAPABILITY_REGISTRY[name].defaultSelected).toBe(DEFAULT_CAPABILITY_SELECTIONS[name]);
+    }
+  });
+
+  test("keeps public plan lookup canonical while migrating known legacy state", () => {
+    expect(Either.isRight(decodeUnknown(PlanNameSchema, "go"))).toBe(true);
+    expect(Either.isLeft(decodeUnknown(PlanNameSchema, "Go"))).toBe(true);
+    expect(lookupPlan("go").ok).toBe(true);
+    expect(lookupPlan("Go").ok).toBe(false);
+    expect(Either.isRight(decodeUnknown(LegacyPlanNameSchema, "Go"))).toBe(true);
+    expect(Either.isRight(decodeUnknown(PlanNameMigrationSchema, "Go"))).toBe(true);
+    expect(migratePlanName("Go")).toBe("go");
+    expect(migratePlanName("plus")).toBe("plus");
+  });
 });
 
 describe("core route and boundary schemas", () => {
@@ -217,6 +252,11 @@ describe("core route and boundary schemas", () => {
     const parsed = parseCapabilityResultV2(result);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
+    for (const capability of ["removed_capability", "unknown_capability"] as const) {
+      expect(
+        Either.isRight(decodeUnknown(CapabilityResultV2Schema, { ...result, capability })),
+      ).toBe(false);
+    }
     const normalized = specialistOutcomeFromCapabilityResult(parsed.value, "frontend", {
       role: "Worker",
       task: "implementation",
@@ -246,7 +286,7 @@ describe("core route and boundary schemas", () => {
       expect(invalidRoute.error.code).toBe("invalid_route");
     }
 
-    const goRoute = lookupRoute("Go", "Worker:implementation");
+    const goRoute = lookupRoute("go", "Worker:implementation");
     expect(goRoute.ok).toBe(true);
     if (goRoute.ok) expect(goRoute.value.effort).toBe("high");
 

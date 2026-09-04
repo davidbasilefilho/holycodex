@@ -59,6 +59,16 @@ Diagnostics use an allowlist of command, capability, bounded counts and
 durations, schema/version, status, and sanitized error codes. Redaction failure
 is a fail-closed output drop rather than a raw fallback.
 
+## Repository and VCS boundary
+
+Environment secrets, credentials, raw environment values, private keys, and
+secret-bearing release material must never enter tracked files, commits,
+packages, logs, CI artifacts, or uploads. Keep local secret-bearing paths
+covered by the repository's ignore rules. Before staging any candidate path,
+verify the rule with `git check-ignore -v --no-index -- <path>` and inspect the
+staged file list. If a secret is not ignored or appears in a diff, stop and
+fail closed. Never print the value while investigating or reporting the stop.
+
 ## Recovery
 
 On invalid input, denied permission, unavailable capability, corrupt state,

@@ -9,8 +9,7 @@ try {
     JSON.stringify({
       status: "verified",
       protocol_epoch: verification.protocol_epoch,
-      binary_version: verification.executable.version,
-      binary_sha256: verification.executable.sha256,
+      codex_cli_version: verification.codex_cli_version,
       artifact_count: verification.inventory.count,
       artifact_digest: verification.inventory.digest,
       multi_agent_v2_lifecycle: verification.multi_agent_v2_lifecycle,

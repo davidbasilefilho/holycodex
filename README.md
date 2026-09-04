@@ -2,54 +2,43 @@
 
 ## What?
 
-HolyCodex is a clean-room Codex plugin and `holycodex` CLI. It installs the
-repository's native subagent profiles and keeps configuration small, typed,
-and owned by one package.
-
-Its package graph keeps domain, Codex, plugin, and CLI seams one-way. Native
-agent types are selected by route and return bounded evidence to Root.
+HolyCodex is a Codex plugin and CLI for sessions that need dependable
+delegation. It installs native specialist profiles, applies a routing plan,
+and keeps the selected capabilities and service tier in one owned state.
 
 ## Why?
 
-The Codex platform already owns plugin installation and subagent execution.
-HolyCodex supplies the routing policy, safe configuration boundary, and
-optional capability selection without introducing a second execution engine.
+Long coding tasks often need repository lookup, current-fact research,
+implementation, and review. HolyCodex lets the user-facing Root session send
+bounded work to the right specialist and combine the returned evidence while
+Root keeps scope, approvals, integration, and final decisions.
 
 ## How?
 
-Install through the published CLI and Codex's native plugin management:
+Install the published package through Codex's native plugin management:
 
 ```sh
 bunx holycodex install
 ```
 
-Remove the installed HolyCodex scope through the same native boundary:
+Use `--yes` for a non-interactive install. `doctor` inspects the effective
+installation, and removal is:
 
 ```sh
 bunx holycodex remove
 ```
 
-Choose a plan for routing only and choose the service tier independently:
+Plans choose routing only. `go`, `plus-low`, `plus`, `plus-high`, `pro-5x`,
+and `pro-20x` select the native routes; the default is `plus`. Service tiers
+(`standard`, `fast`, and `fast-all`) control service handling independently.
+They do not change authority or the required proof.
 
-```sh
-bunx holycodex install --yes --plan plus --tier standard
-```
+Frontend and Security plugins are selected by default. Work and Computer Use
+are opt-in. A selected capability must install and verify successfully or the
+installation fails. Use `--json` when another program needs the complete
+structured state; human output stays concise.
 
-The available plans select native subagent routes. A tier changes service
-handling only; it does not change routes, authority, or proof requirements.
-
-Optional Codex plugins are explicit selections:
-
-```sh
-bunx holycodex install --yes --work --frontend --security --computer-use
-```
-
-The four optional selections are Work, frontend tooling, Security, and
-Computer Use. Explicit selections and additional plugins fail closed when
-missing. Omitted Frontend and Security defaults may be recorded as missing or
-uncertain on a first install and retried on reinstall; no fallback is used.
-
-For repository work, use the pinned toolchain:
+For repository development, use the pinned toolchain:
 
 ```sh
 mise install
@@ -60,14 +49,15 @@ mise exec -- bun run validate
 Read the owning contracts for [architecture](docs/ARCHITECTURE.md),
 [behavior](docs/BEHAVIOR.md), [CLI](docs/CLI.md),
 [installation](docs/INSTALLATION.md), [security](docs/SECURITY.md), and
-[provenance](docs/PROVENANCE.md).
+[release](docs/RELEASING.md) details.
 
 ## Contribute
 
-Use Bun through `mise`, keep changes on the smallest mergeable seam, and run
-the checks that prove it. Preserve the clean-room boundary: use the task
-specification, admitted current-source facts, and repository-authored files;
-do not import undocumented historical implementation material.
+Keep changes on a small mergeable seam and run proportional local checks
+before broader development or stable-release checks. Keep environment secrets,
+credentials, and raw environment values out of tracked files, commits,
+packages, logs, CI artifacts, and uploads. Add local secret-bearing paths to
+the repository ignore rules and verify them before staging.
 
 ## License
 

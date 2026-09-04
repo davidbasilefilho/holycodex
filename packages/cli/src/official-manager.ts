@@ -32,6 +32,7 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
     const adapter = createOfficialPluginAdapter({
       executable: executable.path,
       environment: createAllowlistedEnvironment(environment),
+      ...(environment["CODEX_HOME"] === undefined ? {} : { codexHome: environment["CODEX_HOME"] }),
     });
     return new CodexOfficialPluginManager(adapter);
   }
@@ -49,6 +50,15 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
       await this.adapter.add(pluginId);
     } catch (error: unknown) {
       throw wrapManagerError("add", error, pluginId);
+    }
+  }
+
+  async ensureOfficialMarketplace(selectedPluginIds: readonly string[]): Promise<void> {
+    if (this.adapter.ensureOfficialMarketplace === undefined) return;
+    try {
+      await this.adapter.ensureOfficialMarketplace(selectedPluginIds);
+    } catch (error: unknown) {
+      throw wrapManagerError("bootstrap", error);
     }
   }
 
@@ -97,13 +107,14 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
 
 type OfficialPluginAdapterShape = Readonly<{
   readonly list: () => Promise<LiveOfficialPluginListEnvelope>;
+  readonly ensureOfficialMarketplace?: (selectedPluginIds: readonly string[]) => Promise<void>;
   readonly addMarketplace: (source: string) => Promise<void>;
   readonly add: (pluginId: string) => Promise<void>;
   readonly remove: (pluginId: string) => Promise<void>;
 }>;
 
 function wrapManagerError(
-  operation: "list" | "add" | "remove",
+  operation: "list" | "add" | "remove" | "bootstrap",
   error: unknown,
   pluginId?: string,
 ): OfficialPluginManagerError {
@@ -116,17 +127,24 @@ function wrapManagerError(
     adapterCode === "cancelled" ||
     adapterCode === "readback_mismatch" ||
     adapterCode === "plugin_disabled" ||
-    adapterCode === "plugin_missing"
+    adapterCode === "plugin_missing" ||
+    adapterCode === "marketplace_invalid" ||
+    adapterCode === "marketplace_timeout" ||
+    adapterCode === "marketplace_unavailable"
       ? adapterCode
       : adapterCode === "command_failed"
         ? operation === "list"
           ? "list_failed"
           : operation === "remove"
             ? "remove_failed"
-            : "add_failed"
+            : operation === "bootstrap"
+              ? "marketplace_unavailable"
+              : "add_failed"
         : operation === "list"
           ? "list_failed"
-          : "add_failed";
+          : operation === "bootstrap"
+            ? "marketplace_unavailable"
+            : "add_failed";
   const message =
     error instanceof Error
       ? error.message
@@ -134,7 +152,9 @@ function wrapManagerError(
         ? "Codex could not list official plugins."
         : operation === "remove"
           ? `Codex could not remove ${pluginId ?? "the selected official plugin"}.`
-          : `Codex could not add ${pluginId ?? "the selected official plugin"}.`;
+          : operation === "bootstrap"
+            ? "Codex could not initialize the official marketplace."
+            : `Codex could not add ${pluginId ?? "the selected official plugin"}.`;
   return new OfficialPluginManagerError(
     code,
     message,
@@ -154,7 +174,10 @@ export class OfficialPluginManagerError extends Error {
     | "cancelled"
     | "readback_mismatch"
     | "plugin_disabled"
-    | "plugin_missing";
+    | "plugin_missing"
+    | "marketplace_invalid"
+    | "marketplace_timeout"
+    | "marketplace_unavailable";
   readonly causeValue: unknown;
   readonly details: Readonly<Record<string, string>>;
 

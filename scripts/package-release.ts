@@ -8,9 +8,9 @@ import {
   assertPackedEntries,
   packPublicPackage,
   sha256File,
-  smokePublicPackage,
+  verifyPublicPackage,
   type PackageReleaseOptions,
-} from "./package-smoke.ts";
+} from "./package-verification.ts";
 import {
   assertReleaseVersion,
   BaseVersionSchema,
@@ -21,7 +21,16 @@ import {
   SourceShaSchema,
   type ReleaseChannel,
 } from "./release-version.ts";
-import { runCommand, runChecked, withTemporaryDirectory, writeJson } from "./process.ts";
+import {
+  allowlistedEnvironment,
+  DEFAULT_COMMAND_ENVIRONMENT_KEYS,
+  redactDiagnostics,
+  runCommand,
+  runChecked,
+  withTemporaryDirectory,
+  writeJson,
+} from "./process.ts";
+import { assertReleaseOutputDirectory, assertSafeArtifactFile } from "./artifact-security.ts";
 
 const ReleaseStampSchema = Schema.Struct({
   schemaVersion: Schema.Literal("holycodex-release-v1"),
@@ -35,10 +44,10 @@ const ArtifactMetadataSchema = Schema.Struct({
   version: ReleaseVersionSchema,
   channel: ReleaseChannelSchema,
   sourceSha: SourceShaSchema,
-  tarball: Schema.String.pipe(Schema.pattern(/^holycodex-.+\.tgz$/u)),
+  tarball: Schema.String.pipe(Schema.pattern(/^holycodex-[^/\\]+\.tgz$/u)),
   tarballSha256: Sha256Schema,
   entries: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
-  smokeCommands: Schema.Array(Schema.String),
+  verificationCommands: Schema.Array(Schema.String),
 });
 const RegistryMetadataSchema = Schema.Struct({
   name: Schema.Literal("holycodex"),
@@ -61,7 +70,7 @@ const ReleaseMarkerSchema = Schema.Struct({
   version: ReleaseVersionSchema,
   channel: ReleaseChannelSchema,
   sourceSha: SourceShaSchema,
-  tarball: Schema.String.pipe(Schema.pattern(/^holycodex-.+\.tgz$/u)),
+  tarball: Schema.String.pipe(Schema.pattern(/^holycodex-[^/\\]+\.tgz$/u)),
   tarballSha256: Sha256Schema,
 });
 const ArtifactPathSchema = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(4096));
@@ -79,7 +88,7 @@ export async function createReleaseArtifact(
   await mkdir(output, { recursive: true });
   return await withTemporaryDirectory("holycodex-package-release", async (temporaryRoot) => {
     const packed = await packPublicPackage(temporaryRoot, options);
-    const smoke = await smokePublicPackage(packed);
+    const verification = await verifyPublicPackage(packed);
     const metadata: ArtifactMetadata = {
       schemaVersion: "holycodex-artifact-v1",
       name: "holycodex",
@@ -90,10 +99,11 @@ export async function createReleaseArtifact(
       tarball: packed.tarball,
       tarballSha256: packed.tarballSha256,
       entries: [...packed.entries],
-      smokeCommands: [...smoke.commands],
+      verificationCommands: [...verification.commands],
     };
     await cp(packed.tarballPath, join(output, packed.tarball));
     await writeJson(join(output, "release-metadata.json"), metadata);
+    await assertReleaseOutputDirectory(output, packed.tarball);
     return metadata;
   });
 }
@@ -107,6 +117,7 @@ export async function verifyReleaseArtifact(
 ): Promise<ArtifactMetadata> {
   const output = resolve(decode(ArtifactPathSchema, outputDirectory, "the artifact directory"));
   const metadata = await readArtifactMetadata(output);
+  await assertReleaseOutputDirectory(output, metadata.tarball);
   const canonicalVersion = await readCanonicalVersion();
   assertReleaseVersion(canonicalVersion, channel, version);
   assert(metadata.baseVersion === canonicalVersion, "the artifact base version is not canonical");
@@ -123,6 +134,7 @@ export async function verifyReleaseArtifact(
   );
   const tarballPath = join(output, metadata.tarball);
   await requireFile(tarballPath, "the downloaded release tarball");
+  await assertSafeArtifactFile(tarballPath, metadata.tarball, "the release tarball");
   const actualSha256 = await sha256File(tarballPath);
   assert(actualSha256 === metadata.tarballSha256, "the release tarball digest is not stable");
   await assertPackedEntries(tarballPath, metadata.entries);
@@ -193,6 +205,10 @@ export async function checkGitHubPublication(
     expectedSha256,
   );
   const tag = `v${version}`;
+  const githubEnvironment = allowlistedEnvironment([
+    ...DEFAULT_COMMAND_ENVIRONMENT_KEYS,
+    "GH_TOKEN",
+  ]);
   const viewed = await runCommand(
     [
       "gh",
@@ -204,13 +220,15 @@ export async function checkGitHubPublication(
       "--json",
       "tagName,isPrerelease,isDraft,body,assets",
     ],
-    { env: process.env },
+    { env: githubEnvironment },
   );
   if (viewed.exitCode !== 0) {
     if (/(?:not found|HTTP 404|404 Not Found)/iu.test(viewed.stderr)) {
       return "absent";
     }
-    throw new Error(`GitHub release lookup failed: ${viewed.stderr || viewed.stdout}`);
+    throw new Error(
+      `GitHub release lookup failed: ${redactDiagnostics(viewed.stderr || viewed.stdout, githubEnvironment)}`,
+    );
   }
   const raw: unknown = JSON.parse(viewed.stdout);
   const release = decode(GitHubReleaseSchema, raw, "the GitHub release metadata");
@@ -256,7 +274,7 @@ export async function checkGitHubPublication(
         directory,
         "--clobber",
       ],
-      { env: process.env },
+      { env: githubEnvironment },
     );
     const downloaded = join(directory, metadata.tarball);
     assert(

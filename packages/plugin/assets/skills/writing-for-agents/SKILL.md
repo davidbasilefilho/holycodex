@@ -1,6 +1,6 @@
 ---
 name: writing-for-agents
-description: Use when authoring or reviewing prompts, skills, profiles, delegations, handoffs, or agent-facing repository instructions; make them independently actionable with low context load.
+description: Use when Root prepares or reviews a subagent delegation, handoff, profile, skill, prompt, or agent-facing instruction; write a low-context independent contract. Before each dispatch ensure this skill is loaded and applied; reuse it until compaction, a new context, or an incomplete/unavailable load.
 ---
 
 # Writing for agents
@@ -12,6 +12,11 @@ Treat each instruction as an interface with one contract:
 - **Completion:** the observable outcome and proof that permit the agent to stop.
 
 Write an objective, scope, retained constraints, evidence, exclusions, and the exact missing fact or material choice that returns to the owner. The receiver must be able to act, prove, and stop without reconstructing intent.
+
+Before any Root subagent dispatch, ensure this skill is fully loaded and applied
+in the current context. Reuse the loaded instructions for later dispatches
+while they remain complete; reload after compaction, a new context, or an
+incomplete/unavailable load.
 
 ## Information design
 

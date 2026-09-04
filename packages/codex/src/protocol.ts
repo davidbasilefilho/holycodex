@@ -16,7 +16,8 @@ import {
   GENERATED_ELICITATION_REQUEST_METHODS,
   GENERATED_PERMISSION_REQUEST_METHODS,
 } from "./generated-wire";
-import type { v2 as GeneratedV2 } from "../generated/codex-cli-0.148.0/typescript";
+import { TomlDocumentSchema } from "./runtime-config";
+import type { v2 as GeneratedV2 } from "../generated/typescript";
 
 const ProtocolMethodSchema = Schema.String.pipe(
   Schema.pattern(/^[A-Za-z][A-Za-z0-9_./:-]{0,127}$/u),
@@ -424,9 +425,16 @@ export type ModelProviderCapabilitiesParams = typeof ModelProviderCapabilitiesPa
 export const ModelProviderCapabilitiesResultSchema = JsonObjectSchema;
 export type ModelProviderCapabilitiesResult = typeof ModelProviderCapabilitiesResultSchema.Type;
 
-export const ConfigReadParamsSchema = JsonObjectSchema;
+export const ConfigReadParamsSchema = Schema.Struct({
+  includeLayers: Schema.optional(Schema.Boolean),
+  cwd: Schema.optional(Schema.Union(Schema.String, Schema.Null)),
+});
 export type ConfigReadParams = typeof ConfigReadParamsSchema.Type;
-export const ConfigReadResultSchema = JsonObjectSchema;
+export const ConfigReadResultSchema = Schema.Struct({
+  config: TomlDocumentSchema,
+  origins: JsonObjectSchema,
+  layers: Schema.Union(Schema.Array(JsonObjectSchema), Schema.Null),
+});
 export type ConfigReadResult = typeof ConfigReadResultSchema.Type;
 
 export const PermissionProfileListParamsSchema = JsonObjectSchema;

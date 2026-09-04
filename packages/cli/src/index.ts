@@ -7,10 +7,11 @@ export const packageName = "holycodex" as const;
 export { runCli, executeCommand, renderHuman, renderProgress } from "./commands.ts";
 export { runBinary } from "./binary.ts";
 export type { BinaryIo } from "./binary.ts";
-export { helpText, helpRequested, helpTopic } from "./help.ts";
+export { helpText, helpRequested, helpTopic, renderHelp } from "./help.ts";
 export { parseArgv, ArgumentError } from "./args.ts";
 export {
   installHolyCodex,
+  installRecordDigest,
   readActiveInstallRecord,
   CapabilityStateRecordSchema,
   CapabilityInstallStateSchema,
@@ -60,6 +61,14 @@ export type {
   OfficialPluginManager,
   OfficialPluginStatus,
   OptionalSelections,
+  PluginSnapshot,
+  PluginConfigSafeValue,
+  PluginConfigEntrySnapshot,
+  PluginConfigSnapshot,
+  ProviderPluginConfigEntrySnapshot,
+  ProviderPluginConfigSnapshot,
+  InstallTransactionStatus,
+  InstallTransactionStep,
   ParsedCommand,
   RemoveResult,
 } from "./types.ts";

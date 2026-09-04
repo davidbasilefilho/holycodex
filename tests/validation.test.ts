@@ -2,10 +2,12 @@
 
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "vite-plus/test";
 import { runFreshClone } from "../scripts/fresh-clone.ts";
+import { verifyGeneratedArtifactPortable } from "../scripts/repository-proof.ts";
+import { tmpdir } from "node:os";
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
 const RootManifestSchema = Schema.Struct({
@@ -26,13 +28,13 @@ describe("repository validation machinery", () => {
     expect(manifest.right.scripts["validate"]).toBe("bun scripts/validate.ts");
     const validation = await readFile(resolve(workspaceRoot, "scripts/validate.ts"), "utf8");
     const order = [
-      /runStep\(\["vp", "fmt"/u,
-      /runStep\(\["vp", "lint"/u,
-      /runStep\(\["vp", "check"/u,
-      /runStep\(\["vp", "test"/u,
+      /runStep\(\["vp", "run", "fmt"/u,
+      /runStep\(\["vp", "run", "lint"/u,
+      /runStep\(\["vp", "run", "check"/u,
+      /runStep\(\["vp", "run", "test"/u,
       /runStep\(\["bun", "scripts\/package-build\.ts"/u,
       /runRepositoryProof/u,
-      /runPackageSmoke/u,
+      /runPackageVerification/u,
     ];
     let previous = -1;
     for (const token of order) {
@@ -41,6 +43,7 @@ describe("repository validation machinery", () => {
       expect(index).toBeGreaterThan(previous);
       previous = index;
     }
+    expect(validation).not.toMatch(/runStep\(\["vp", "(?:fmt|lint|check|test)"/u);
   });
 
   test("keeps CI reusable, least-privilege, cross-platform, and exact-SHA based", async () => {
@@ -63,6 +66,10 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("release-metadata.json");
     expect(workflow).toContain("actions/upload-artifact@");
     expect(workflow).toContain("actions/download-artifact@");
+    expect(workflow).not.toMatch(
+      /packages\/cli\/dist\/assets\/plugin\/(?:agents|compaction|rules)\//u,
+    );
+    expect(workflow).toContain("packages/cli/dist/assets/plugin/skills/**");
     expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/u);
     expect(workflow).not.toMatch(
       /\b(?:bun\s+publish|gh\s+release\s+create|deploy|trusted publishing)\b/iu,
@@ -171,5 +178,25 @@ describe("repository validation machinery", () => {
         network: false,
       }),
     ).resolves.toMatchObject({ mode: "dry-run", validation: "skipped" });
+  });
+
+  test("rejects a symlinked generated artifact root or ancestor", async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "holycodex-proof-symlink-"));
+    const generatedRoot = resolve(workspaceRoot, "packages/codex/generated");
+    try {
+      const rootLink = join(temporaryRoot, "root-link");
+      await symlink(generatedRoot, rootLink);
+      await expect(verifyGeneratedArtifactPortable(rootLink)).rejects.toThrow("symlinked roots");
+
+      const targetParent = join(temporaryRoot, "target-parent");
+      const linkedParent = join(temporaryRoot, "linked-parent");
+      await mkdir(join(targetParent, "generated"), { recursive: true });
+      await symlink(targetParent, linkedParent);
+      await expect(
+        verifyGeneratedArtifactPortable(join(linkedParent, "generated")),
+      ).rejects.toThrow("symlinked roots");
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
   });
 });

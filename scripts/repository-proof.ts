@@ -7,6 +7,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalJsonUtf8, domainSeparatedSha256 } from "../packages/core/src/canonical.ts";
 import { runChecked, runCommand } from "./process.ts";
+import { ensureCodexGenerated } from "./generate-codex-bindings.ts";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageManifestPaths = [
@@ -49,6 +50,7 @@ export interface RepositoryProof {
 }
 
 export async function runRepositoryProof(): Promise<RepositoryProof> {
+  await ensureCodexGenerated();
   const rootManifest = await readManifest("package.json");
   const mise = await readText("mise.toml");
   const vite = await readText("vite.config.ts");
@@ -307,11 +309,26 @@ async function verifyIgnoreContract(): Promise<void> {
     ".marketplace/marketplace.json",
     "release-artifacts/holycodex.tgz",
     ".env.local",
+    ".npmrc",
+    ".pypirc",
+    ".aws/credentials",
+    ".ssh/id_rsa",
+    ".kube/config",
+    ".terraform/terraform.tfstate",
+    "terraform/production.tfstate",
+    "packages/codex/generated/typescript/index.ts",
+    "packages/codex/generated/provenance.json",
   ] as const;
   const mustTrack = [
-    "packages/codex/generated/codex-cli-0.148.0/provenance.json",
     "packages/core/src/auth/provider.ts",
     "packages/core/src/private/types.ts",
+    ".env.example",
+    ".npmrc.example",
+    ".pypirc.example",
+    ".aws.example",
+    ".ssh.example",
+    ".kube.example",
+    ".tfstate.example",
   ] as const;
 
   for (const path of mustIgnore) {
@@ -332,39 +349,34 @@ async function verifyIgnoreContract(): Promise<void> {
   assert(ignoredTracked.stdout.trim() === "", "tracked files must not match .gitignore");
 }
 
-const generatedArtifactRoot = resolve(workspaceRoot, "packages/codex/generated/codex-cli-0.148.0");
+const generatedArtifactRoot = resolve(workspaceRoot, "packages/codex/generated");
 const Sha256Schema = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
 const GeneratedProvenanceSchema = Schema.Struct({
-  artifact_digest: Sha256Schema,
-  artifact_root: Schema.Literal("packages/codex/generated/codex-cli-0.148.0"),
-  codex_cli: Schema.Struct({
-    path_observed: Schema.String.pipe(Schema.minLength(1)),
-    sha256: Sha256Schema,
-    version: Schema.Literal("codex-cli 0.148.0"),
-  }),
+  schema_version: Schema.Literal("holycodex-generated-v2"),
+  artifact_root: Schema.Literal("packages/codex/generated"),
+  codex_cli_version: Schema.String.pipe(Schema.pattern(/^codex-cli \d+\.\d+\.\d+$/u)),
+  codex_cli_digest: Sha256Schema,
+  protocol_epoch: Schema.String.pipe(Schema.pattern(/^codex-app-server-\d+\.\d+\.\d+$/u)),
   generator: Schema.Struct({
-    commands: Schema.Array(Schema.Array(Schema.String)),
-    experimental: Schema.Literal(false),
-    protocol_epoch: Schema.String.pipe(Schema.minLength(1)),
+    command: Schema.Tuple(Schema.Literal("app-server"), Schema.Literal("generate-ts")),
     supported_surface: Schema.Literal("codex app-server generators"),
   }),
-  capability_evidence: Schema.Struct({
-    multi_agent: Schema.Literal("stable"),
-    multi_agent_v2: Schema.Literal("disabled"),
-    generated_lifecycle: Schema.Literal("verified", "unverified"),
-    selection_rule: Schema.String.pipe(Schema.minLength(1)),
-  }),
+  typescript_root: Schema.Literal("typescript"),
   files: Schema.Struct({
     count: Schema.Number.pipe(Schema.int(), Schema.positive()),
-    typescript_root: Schema.Literal("typescript"),
+    digest: Sha256Schema,
   }),
 });
 
-async function verifyGeneratedArtifactPortable(): Promise<{
+export async function verifyGeneratedArtifactPortable(
+  artifactRoot: string = generatedArtifactRoot,
+): Promise<{
   readonly inventory: { readonly count: number; readonly digest: string };
 }> {
+  const resolvedArtifactRoot = resolve(artifactRoot);
+  await assertNoSymlinkBoundary(resolvedArtifactRoot);
   const provenanceRaw: unknown = JSON.parse(
-    await readFile(join(generatedArtifactRoot, "provenance.json"), "utf8"),
+    await readFile(join(resolvedArtifactRoot, "provenance.json"), "utf8"),
   );
   const parsed = Schema.decodeUnknownEither(GeneratedProvenanceSchema, {
     onExcessProperty: "preserve",
@@ -391,7 +403,7 @@ async function verifyGeneratedArtifactPortable(): Promise<{
       if (entry.name === "provenance.json") {
         continue;
       }
-      const relativePath = relative(generatedArtifactRoot, absolute).split("\\").join("/");
+      const relativePath = relative(resolvedArtifactRoot, absolute).split("\\").join("/");
       if (!relativePath.startsWith("typescript/")) {
         throw new Error(`Generated artifact file is outside its declared roots: ${relativePath}`);
       }
@@ -402,13 +414,26 @@ async function verifyGeneratedArtifactPortable(): Promise<{
       files.push({ path: relativePath, size: bytes.byteLength, sha256: await sha256(bytes) });
     }
   };
-  await visit(generatedArtifactRoot);
+  await visit(resolvedArtifactRoot);
   files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
   const digest = await domainSeparatedSha256("codex-schema-output", [canonicalJsonUtf8(files)]);
-  if (files.length !== parsed.right.files.count || digest !== parsed.right.artifact_digest) {
+  if (files.length !== parsed.right.files.count || digest !== parsed.right.files.digest) {
     throw new Error("Generated artifact provenance does not match its portable inventory digest.");
   }
   return { inventory: { count: files.length, digest } };
+}
+
+async function assertNoSymlinkBoundary(path: string): Promise<void> {
+  let current = resolve(path);
+  while (true) {
+    const metadata = await lstat(current);
+    if (metadata.isSymbolicLink()) {
+      throw new Error("Generated artifacts may not contain symlinked roots.");
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
 }
 
 async function sha256(bytes: Uint8Array): Promise<string> {

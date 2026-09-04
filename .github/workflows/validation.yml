@@ -76,7 +76,10 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: holycodex-build-${{ github.run_id }}-${{ github.run_attempt }}
-          path: packages/cli/dist
+          path: |
+            packages/cli/dist/index.js
+            packages/cli/dist/assets/plugin/plugin.json
+            packages/cli/dist/assets/plugin/skills/**
           if-no-files-found: error
           retention-days: 14
 
@@ -139,7 +142,7 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Pack and smoke the exact release artifact once
+      - name: Pack and verify the exact release artifact once
         id: package
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
@@ -155,12 +158,12 @@ jobs:
           echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
           echo "artifact_sha256=$ARTIFACT_SHA256" >> "$GITHUB_OUTPUT"
 
-      - name: Upload the smoke-validated tarball and identity manifest
+      - name: Upload the verified tarball and identity manifest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.package.outputs.artifact_name }}
           path: |
-            ${{ runner.temp }}/release/*.tgz
+            ${{ runner.temp }}/release/holycodex-${{ steps.version.outputs.version }}.tgz
             ${{ runner.temp }}/release/release-metadata.json
           if-no-files-found: error
           retention-days: 14

@@ -6,7 +6,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "verify:generated": "bun scripts/verify-generated-artifact.ts"
+    "generate": "bun ../../scripts/generate-codex-bindings.ts",
+    "verify:generated": "bun ../../scripts/generate-codex-bindings.ts && bun scripts/verify-generated-artifact.ts"
   },
   "dependencies": {
     "@holycodex/core": "workspace:*",

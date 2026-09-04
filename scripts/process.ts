@@ -17,6 +17,90 @@ export type CommandResult = typeof CommandResultSchema.Type;
 
 const DEFAULT_OUTPUT_LIMIT = 256 * 1024;
 
+/**
+ * Environment names that are safe and useful for ordinary local tooling.
+ *
+ * Callers must opt in to any additional name (for example GH_TOKEN for a
+ * read-only GitHub lookup).  In particular, this is intentionally not a
+ * copy of process.env: credentials and local configuration must not flow
+ * into package/build/release subprocesses by accident.
+ */
+export const DEFAULT_COMMAND_ENVIRONMENT_KEYS = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "PWD",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "TERM",
+  "CI",
+  "NO_COLOR",
+  "FORCE_COLOR",
+  "BUN_INSTALL",
+  "BUN_TMPDIR",
+  "MISE_DATA_DIR",
+  "MISE_CACHE_DIR",
+  "MSYS_NO_PATHCONV",
+  "GITHUB_ACTIONS",
+  "GITHUB_API_URL",
+  "GITHUB_GRAPHQL_URL",
+  "GITHUB_REPOSITORY",
+  "GITHUB_REF",
+  "GITHUB_REF_NAME",
+  "GITHUB_REF_TYPE",
+  "GITHUB_SHA",
+  "GITHUB_RUN_ID",
+  "GITHUB_RUN_NUMBER",
+  "GITHUB_RUN_ATTEMPT",
+  "RUNNER_TEMP",
+  "GIT_TERMINAL_PROMPT",
+  "GIT_CONFIG_NOSYSTEM",
+] as const;
+
+const ENVIRONMENT_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+const SENSITIVE_ENVIRONMENT_KEY_PATTERN =
+  /(?:^|_)(?:ACCESS[_-]?KEY|API[_-]?KEY|AUTH(?:ORIZATION)?|CERT(?:IFICATE)?|COOKIE|CREDENTIALS?|PASSWORD|PASSWD|PRIVATE[_-]?KEY|SECRET|TOKEN)(?:$|_)/iu;
+
+export function isSensitiveEnvironmentKey(key: string): boolean {
+  return SENSITIVE_ENVIRONMENT_KEY_PATTERN.test(key);
+}
+
+/**
+ * Select only the environment names needed by one operation.
+ *
+ * Overrides are explicit operation inputs and may include a credential when
+ * the native command genuinely requires one.  Such values are still passed
+ * to the central diagnostic redactor by runChecked.
+ */
+export function allowlistedEnvironment(
+  keys: readonly string[],
+  overrides: Readonly<Record<string, string | undefined>> = {},
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const key of [...keys, ...Object.keys(overrides)]) {
+    if (!ENVIRONMENT_KEY_PATTERN.test(key)) {
+      throw new Error(`Invalid subprocess environment key: ${key}`);
+    }
+  }
+  for (const key of keys) {
+    const value = process.env[key];
+    if (value !== undefined) {
+      result[key] = value;
+    }
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value !== undefined) {
+      result[key] = value;
+    } else {
+      delete result[key];
+    }
+  }
+  return result;
+}
+
 export async function runCommand(
   command: readonly string[],
   options: Readonly<{
@@ -28,7 +112,10 @@ export async function runCommand(
   if (command.length === 0 || command.some((part) => part.length === 0)) {
     throw new Error("A subprocess command must contain non-empty arguments.");
   }
-  const env = options.env === undefined ? undefined : definedEnvironment(options.env);
+  const env =
+    options.env === undefined
+      ? allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS)
+      : definedEnvironment(options.env);
   const child = Bun.spawn([...command], {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     ...(env === undefined ? {} : { env }),
@@ -63,10 +150,14 @@ export async function runChecked(
     readonly maxOutputBytes?: number;
   }> = {},
 ): Promise<CommandResult> {
-  const result = await runCommand(command, options);
+  const environment =
+    options.env === undefined
+      ? allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS)
+      : definedEnvironment(options.env);
+  const result = await runCommand(command, { ...options, env: environment });
   if (result.exitCode !== 0) {
     throw new Error(
-      `${command.join(" ")} failed with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout)}`,
+      `${redactDiagnostics(command.join(" "), environment)} failed with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
     );
   }
   return result;
@@ -112,11 +203,29 @@ export async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value)}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
-export function redactDiagnostics(value: string): string {
-  return value
+export function redactDiagnostics(
+  value: string,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  let redacted = value;
+  const sensitiveValues = Object.entries(environment)
+    .filter(
+      (entry): entry is [string, string] =>
+        isSensitiveEnvironmentKey(entry[0]) && entry[1] !== undefined && entry[1].length >= 4,
+    )
+    .map(([, candidate]) => candidate)
+    .sort((left, right) => right.length - left.length);
+  for (const secret of sensitiveValues) {
+    redacted = redacted.replaceAll(secret, "[REDACTED]");
+  }
+  return redacted
     .replaceAll(/(https?:\/\/)([^\s/@:]+):([^\s/@]+)@/giu, "$1[REDACTED]@")
     .replaceAll(
-      /((?:token|secret|password|api[_-]?key|authorization)[=:])[^\s,;]+/giu,
+      /((?:[A-Za-z][A-Za-z0-9_-]*_)?(?:token|secret|password|passwd|api[_-]?key|authorization|credential|private[_-]?key)(?:[A-Za-z0-9_-]*)[\s]*[=:][\s]*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/giu,
+      "$1[REDACTED]",
+    )
+    .replaceAll(
+      /((?:--?)(?:token|secret|password|passwd|api[_-]?key|authorization|credential|private[_-]?key)(?:=|\s+))(?:"[^"]*"|'[^']*'|[^\s]+)/giu,
       "$1[REDACTED]",
     )
     .replaceAll(/\b(?:gh[pousr]_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+)\b/gu, "[REDACTED]")

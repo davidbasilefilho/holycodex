@@ -2,15 +2,7 @@
 
 import * as Schema from "effect/Schema";
 
-export const CapabilityNameSchema = Schema.Literal(
-  "computer_use",
-  "work",
-  "frontend",
-  "security",
-  "lsp",
-  "lsp_setup",
-  "git_bash",
-);
+export const CapabilityNameSchema = Schema.Literal("computer_use", "work", "frontend", "security");
 export type CapabilityName = typeof CapabilityNameSchema.Type;
 
 export const OptionalCapabilityNameSchema = Schema.Literal(
@@ -32,10 +24,27 @@ export type CapabilityProviderStatus = typeof CapabilityProviderStatusSchema.Typ
 export const CapabilityHealthSchema = Schema.Literal("healthy", "missing", "disabled", "uncertain");
 export type CapabilityHealth = typeof CapabilityHealthSchema.Type;
 
+/** Canonical capability selection defaults consumed by installers and state migration. */
+export type CapabilityDefaults = Readonly<{
+  readonly coding: true;
+  readonly computer_use: boolean;
+  readonly work: boolean;
+  readonly frontend: boolean;
+  readonly security: boolean;
+}>;
+
+export const DEFAULT_CAPABILITY_SELECTIONS: CapabilityDefaults = Object.freeze({
+  coding: true,
+  computer_use: false,
+  work: false,
+  frontend: true,
+  security: true,
+});
+
 export type CapabilityDefinition = Readonly<{
   readonly name: OptionalCapabilityName;
   readonly pluginIds: readonly string[];
-  readonly defaultSelected: false;
+  readonly defaultSelected: boolean;
   readonly migrationKey: OptionalCapabilityName;
   readonly semanticSkillIds: readonly string[];
   readonly ownership: "shared-preserve";
@@ -51,7 +60,7 @@ const registry: Record<OptionalCapabilityName, CapabilityDefinition> = {
       "spreadsheets@openai-primary-runtime",
       "template-creator@openai-primary-runtime",
     ],
-    defaultSelected: false,
+    defaultSelected: DEFAULT_CAPABILITY_SELECTIONS.work,
     migrationKey: "work",
     semanticSkillIds: [
       "documents:documents",
@@ -65,7 +74,7 @@ const registry: Record<OptionalCapabilityName, CapabilityDefinition> = {
   frontend: {
     name: "frontend",
     pluginIds: ["build-web-apps@openai-curated"],
-    defaultSelected: false,
+    defaultSelected: DEFAULT_CAPABILITY_SELECTIONS.frontend,
     migrationKey: "frontend",
     semanticSkillIds: [
       "build-web-apps:frontend-app-builder",
@@ -77,7 +86,7 @@ const registry: Record<OptionalCapabilityName, CapabilityDefinition> = {
   security: {
     name: "security",
     pluginIds: ["codex-security@openai-curated"],
-    defaultSelected: false,
+    defaultSelected: DEFAULT_CAPABILITY_SELECTIONS.security,
     migrationKey: "security",
     semanticSkillIds: [
       "codex-security:security-scan",
@@ -89,7 +98,7 @@ const registry: Record<OptionalCapabilityName, CapabilityDefinition> = {
   computer_use: {
     name: "computer_use",
     pluginIds: ["computer-use@openai-bundled"],
-    defaultSelected: false,
+    defaultSelected: DEFAULT_CAPABILITY_SELECTIONS.computer_use,
     migrationKey: "computer_use",
     semanticSkillIds: ["computer-use:computer-use"],
     ownership: "shared-preserve",
@@ -118,10 +127,10 @@ export type ExplicitOptionalCapabilitySelections = Readonly<
 >;
 
 export const DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS: OptionalCapabilitySelections = Object.freeze({
-  computer_use: false,
-  work: false,
-  frontend: false,
-  security: false,
+  computer_use: DEFAULT_CAPABILITY_SELECTIONS.computer_use,
+  work: DEFAULT_CAPABILITY_SELECTIONS.work,
+  frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
+  security: DEFAULT_CAPABILITY_SELECTIONS.security,
 });
 
 export function migrateOptionalCapabilitySelections(

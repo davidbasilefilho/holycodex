@@ -1,35 +1,49 @@
 # HolyCodex development rules
 
-## What?
+HolyCodex is a Codex plugin and CLI that supplies native subagent profiles,
+route policy, typed boundaries, and native plugin setup. Keep one authority for
+each concern and every change mergeable.
 
-HolyCodex is a clean-room Codex plugin and CLI. The repository supplies native
-subagent profiles, route policy, typed boundaries, and native plugin setup.
+Root owns user intent, scope, architecture, product and policy choices,
+material risk, integration, external state, all Git/VCS inspection and
+mutation, and the final readiness judgment. Root delegates every substantive
+non-VCS operation to a named native Explorer, Librarian, Worker, or Reviewer
+seam. Leaves execute only their literal boundary, preserve project contracts,
+and return evidence; they do not make Root decisions or perform Git/VCS work.
 
-## Why?
+Before any subagent dispatch, Root ensures `writing-for-agents` is fully loaded
+and applied in the current context. Reuse it for later dispatches while its
+complete instructions remain available; reload after compaction, a new
+context, or an incomplete/unavailable earlier load. Each delegation names one
+owner, exact scope, retained constraints, evidence, exclusions, escalation,
+and an observable completion criterion. Root inspects and integrates returned
+evidence rather than accepting it blindly.
 
-Keep one authority for each concern and keep every change mergeable. Root owns
-intent, scope, architecture, product and policy choices, material risk,
-integration, external state, and the final readiness judgment. Workers execute
-literal bounded seams and return evidence; they do not make Root decisions.
+Before implementation, Root obtains the user's explicit plan approval through
+native `request_user_input`. Immediately before each exact push, Root obtains
+fresh user approval for that ref/SHA through the same tool. Root cannot approve
+its own user-gated action; unknown or materially risky effects fail closed.
 
-## How?
+Split genuine parallel work into bounded, independently mergeable seams. Keep
+dependency direction and typed/public boundaries coherent, reuse an existing
+boundary when it has real callers or clear near-term value, avoid pointless
+file splitting and speculative abstraction, and make the smallest goal-specific
+diff. Verify proportional stable behavior before adding tests; remove temporary
+debug/generated output before handoff and keep build/release artifacts ignored
+by VCS except legitimate checked-in generated type definitions.
 
-Root orchestrates the work. Assign one named seam to each leaf Worker, require
-the Worker to inspect callers and owning contracts, and keep boundaries small
-enough to merge independently. A Worker may edit only its assigned files,
-repair bounded defects, run proportional checks, and stop with exact evidence.
-Reviewers inspect the actual integrated diff once and repair only their owned
-findings. Material architecture, interface, scope, trust, or release choices
-return to Root.
+Environment secrets, credentials, raw environment values, private keys, and
+secret-bearing release material must never enter tracked files, commits,
+packages, logs, CI artifacts, or uploads. Before any VCS mutation, verify
+candidate paths with the repository ignore rules (for example,
+`git check-ignore -v --no-index`) and inspect the staged file list; if a secret
+is not ignored or appears in a diff, stop and fail closed. Never print secret
+values while investigating or reporting.
 
-Plans select routing only. Service tiers are independent settings. Native
-subagents own execution; repository code must not grow a parallel execution
-engine, hidden scheduler, or alternate capability path.
-
-After every triggering origin change, `Worker.operations` babysits CI from the
-exact ref and SHA. It may observe required checks and report the result; it may
-not rerun, cancel, edit, approve, merge, push, tag, publish, deploy, or mutate
-external state. A changed ref or SHA is a new observation request.
+Use local/dev verification before broader dev or staging checks, and only then
+production/stable actions. After each approved push, delegate exact-ref/SHA CI
+observation to `Worker.operations`; pending or running checks are incomplete,
+and the observer may only read and report terminal evidence.
 
 Use Bun and `mise` for the pinned toolchain:
 
@@ -40,9 +54,9 @@ mise exec -- bun run validate
 git diff --check
 ```
 
-Before handoff, inspect the final diff and prove the relevant validation,
-package graph, generated assets, clean-room, and release invariants. The
-canonical version is maintained by the version script in both
+Before handoff, Root inspects the final diff and proves relevant validation,
+package graph, generated assets, and release invariants. The canonical version
+is maintained by the version script in both
 `packages/cli/package.json` and
 `packages/plugin/assets/.codex-plugin/plugin.json`. Publishing is configured
 through the checked-in GitHub Actions release pipeline and remains approval-
@@ -58,11 +72,9 @@ Source-of-truth pointers:
 - [RELEASING.md](docs/RELEASING.md) owns version and publication gates.
 - [PROVENANCE.md](docs/PROVENANCE.md) owns admissible evidence.
 
-Contributions use only the task specification, expressly admitted current
-source facts, and files authored in this repository. Do not read, search,
-import, quote, adapt, or compare undocumented historical implementation
-material. Preserve unrelated user work and stop at the assigned completion
-criterion.
+Contributions use the task specification, current source facts, and files
+authored in this repository. Preserve unrelated user work and stop at the
+assigned completion criterion.
 
 ## Contribute
 

@@ -9,7 +9,7 @@ settings, or maintain a second activation registry.
 The supported public path is:
 
 ```sh
-bunx holycodex install --yes
+bunx holycodex install
 ```
 
 Configure routing, service handling, and optional plugins explicitly:
@@ -24,11 +24,9 @@ The plan controls native subagent routing only. The tier is independent.
 Optional plugins are Work, frontend tooling, Security, and Computer Use. The
 CLI validates each selection, invokes native Codex plugin management, verifies
 readback, and atomically stores one HolyCodex-owned configuration under
-`$CODEX_HOME/holycodex`. Explicit capability selections and `--add-plugin` IDs
-fail closed when native installation cannot verify them. The implicit
-first-install Frontend and Security defaults remain selected and are recorded
-as `missing` or `uncertain` with deterministic warnings when their providers
-are unavailable, so a later reinstall can recover them.
+`$CODEX_HOME/holycodex`. Frontend and Security are selected by default; Work
+and Computer Use are disabled unless selected. Every selected capability and
+`--add-plugin` ID must verify as installed and enabled or installation fails.
 
 Use `--codex-home <absolute-path>` for an isolated installation. The CLI keeps
 the selected plan, tier, optional plugin state, version, and configuration
@@ -43,6 +41,8 @@ bunx holycodex remove --yes
 ```
 
 Removal verifies ownership before deleting the managed configuration and the
-corresponding native HolyCodex plugin state. It never removes unrelated Codex
-plugins or settings. An uncertain native result is reported and is not blindly
+corresponding native HolyCodex plugin state. It also removes HolyCodex-owned
+role registrations and restores managed configuration values where the
+installation recorded a prior state. It never removes unrelated Codex plugins
+or settings. An uncertain native result is reported and is not blindly
 repeated.

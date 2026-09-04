@@ -6,20 +6,20 @@
   ],
   "type": "module",
   "scripts": {
-    "check": "vp check",
+    "generate:codex": "bun scripts/generate-codex-bindings.ts",
+    "check": "bun run generate:codex && vp check",
     "check:fix": "vp check --fix",
     "fmt": "vp fmt",
     "lint": "vp lint",
     "lint:fix": "vp lint --fix",
-    "build": "bun scripts/package-build.ts",
-    "test": "vp test",
+    "build": "bun run generate:codex && bun scripts/package-build.ts",
+    "test": "bun run generate:codex && vp test",
     "validate": "bun scripts/validate.ts",
     "version:patch": "bun scripts/version.ts patch",
     "version:minor": "bun scripts/version.ts minor",
     "version:set": "bun scripts/version.ts"
   },
   "devDependencies": {
-    "@openai/codex": "catalog:",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "effect": "catalog:",
@@ -28,7 +28,6 @@
   },
   "packageManager": "bun@1.4.0",
   "catalog": {
-    "@openai/codex": "0.150.1",
     "@types/bun": "1.4.0",
     "@types/node": "26.2.0",
     "effect": "3.22.1",

@@ -160,7 +160,6 @@ jobs:
     permissions:
       contents: write
     env:
-      GH_TOKEN: ${{ github.token }}
       RELEASE_CHANNEL: ${{ needs.prepare.outputs.channel }}
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
@@ -192,6 +191,8 @@ jobs:
 
       - name: Verify artifact identity and GitHub retry state
         id: github_state
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mise exec -- bun scripts/package-release.ts verify \
@@ -205,6 +206,8 @@ jobs:
 
       - name: Create the development prerelease at the exact main SHA
         if: steps.github_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'dev'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "v${RELEASE_VERSION}" "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" \
             --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --prerelease --generate-notes \
@@ -212,6 +215,8 @@ jobs:
 
       - name: Create the stable release from the verified tag
         if: steps.github_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'stable'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "v${RELEASE_VERSION}" "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" \
             --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \

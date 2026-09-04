@@ -138,7 +138,7 @@ export const ROUTE_EFFORT_OVERRIDES = [
 ] as const;
 freezeDeep(ROUTE_EFFORT_OVERRIDES);
 
-type SpecialistPlanName = Exclude<PlanName, "Go">;
+type SpecialistPlanName = Exclude<PlanName, "go">;
 const effortOverridesByPlan = new Map<SpecialistPlanName, (typeof ROUTE_EFFORT_OVERRIDES)[number]>(
   ROUTE_EFFORT_OVERRIDES.map((override) => [override.plan, override] as const),
 );
@@ -181,7 +181,7 @@ function specialistPlan(
 
 const planDefinitions: PlanDefinition[] = [
   {
-    name: "Go",
+    name: "go",
     root: { model: "Terra", effort: "high" },
     specialistModel: "Luna",
     defaultServiceTier: "standard",
@@ -211,7 +211,7 @@ const planDefinitions: PlanDefinition[] = [
 
 function validateCatalog(definitions: readonly PlanDefinition[]): void {
   const expectedPlans: readonly PlanName[] = [
-    "Go",
+    "go",
     "plus-low",
     "plus",
     "plus-high",
@@ -229,7 +229,7 @@ function validateCatalog(definitions: readonly PlanDefinition[]): void {
       throw new CoreError("catalog_invalid", "The plan catalog order is invalid.", { index });
     }
     const expectedRoot =
-      definition.name === "Go"
+      definition.name === "go"
         ? { model: "Terra", effort: "high" }
         : definition.name === "plus-low"
           ? { model: "Sol", effort: "low" }
@@ -290,7 +290,7 @@ function validateCatalog(definitions: readonly PlanDefinition[]): void {
         routeDefinition.effort !== plusLowRoutes[index]?.effort,
     )
   ) {
-    throw new CoreError("catalog_invalid", "Go must use the plus-low specialist route matrix.");
+    throw new CoreError("catalog_invalid", "go must use the plus-low specialist route matrix.");
   }
 
   const specialistPlans = definitions;

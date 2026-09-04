@@ -1,6 +1,0 @@
-interface:
-  display_name: "Lsp"
-  short_description: "Return type-aware code facts through a validated LSP boundary."
-  default_prompt: "When Root assigns type-aware code investigation, query only the validated LSP seam and return exact evidence or actionable denial."
-policy:
-  allow_implicit_invocation: true

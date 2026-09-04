@@ -4,7 +4,6 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "vite-plus/test";
-import { APPROVAL_POLICY_GUIDANCE } from "@holycodex/core";
 import {
   PluginError,
   assemblePayload,
@@ -29,47 +28,11 @@ describe("plugin source assets", () => {
     expect(pluginManifest.version).toBe(cliManifest.version);
   });
 
-  test("validates the complete owned source and independent capability roles", async () => {
+  test("validates the current owned source and skill policy", async () => {
     const source = await validateSource(pluginSourceRoot);
     expect(source.manifest.name).toBe("holycodex");
     expect(source.files.map((file) => file.path)).toContain(sourceManifestPath);
-    expect(source.files.map((file) => file.path)).toContain("agents/explorer.md");
-    expect(source.files.map((file) => file.path)).toContain("agents/librarian.md");
-    expect(source.files.map((file) => file.path)).toContain("agents/worker.md");
-    expect(source.files.map((file) => file.path)).toContain("agents/reviewer.md");
-
-    const roles = await Promise.all(
-      ["explorer", "librarian", "worker", "reviewer"].map(async (role) => {
-        const text = await readFile(join(pluginSourceRoot, "agents", `${role}.md`), "utf8");
-        return text;
-      }),
-    );
-    expect(new Set(roles).size).toBe(4);
-    for (const role of roles) {
-      expect(role).toContain("Authority:");
-      expect(role).toContain("Permitted tasks:");
-      expect(role).toContain("Return");
-      expect(role).toContain("Escalate");
-      expect(role).toContain("Completion:");
-      expect(role.toLowerCase()).toContain("delegate");
-    }
-    const [root, worker, rule] = await Promise.all([
-      readFile(join(pluginSourceRoot, "agents", "root.md"), "utf8"),
-      readFile(join(pluginSourceRoot, "agents", "worker.md"), "utf8"),
-      readFile(join(pluginSourceRoot, "rules", "holycodex.md"), "utf8"),
-    ]);
-    expect(rule.replaceAll(/\s+/gu, " ")).toContain(APPROVAL_POLICY_GUIDANCE.noRootApproval);
-    expect(rule.replaceAll(/\s+/gu, " ")).toContain(APPROVAL_POLICY_GUIDANCE.rootApproval);
-    expect(root).not.toContain(APPROVAL_POLICY_GUIDANCE.rootApproval);
-    expect(worker).not.toContain(APPROVAL_POLICY_GUIDANCE.rootApproval);
-    const planSkill = await readFile(join(pluginSourceRoot, "skills", "plan", "SKILL.md"), "utf8");
-    expect(rule).toContain("An explicit plan-first request enters a read-only planning state.");
-    expect(rule).toContain("must not write files");
-    expect(rule).toContain("dispatch implementation Workers");
-    expect(rule).toContain("only a later explicit user instruction");
-    expect(root).not.toContain("plan-first request enters");
-    expect(planSkill).not.toContain("plan-first request enters");
-    expect(rule).toContain("native `request_user_input`");
+    expect(source.files.map((file) => file.path)).toContain("skills/plan/SKILL.md");
   });
 
   test("keeps skill frontmatter, metadata, invocation, and server declarations in policy", async () => {
@@ -107,13 +70,6 @@ describe("plugin source assets", () => {
       expect(`${body}\n${metadata}`.toLowerCase()).not.toContain("mcp");
       expect(`${body}\n${metadata}`).not.toContain(["0", "15", "0"].join("."));
     }
-    const babysitMetadata = await readFile(
-      join(pluginSourceRoot, "skills", "babysit-ci", "agents", "openai.yaml"),
-      "utf8",
-    );
-    expect(babysitMetadata).toContain("allow_implicit_invocation: false");
-    expect(source.files.map((file) => file.path)).toContain("rules/holycodex.md");
-    expect(source.files.map((file) => file.path)).toContain("compaction/holycodex.md");
   });
 });
 
@@ -166,7 +122,7 @@ describe("deterministic payload assembly", () => {
     const stagingB = await mkdtemp(join(tmpdir(), "holycodex-plugin-stage-byte-b-"));
     const stagingC = await mkdtemp(join(tmpdir(), "holycodex-plugin-stage-epoch-"));
     try {
-      await writeFile(join(changedRoot, "agents", "worker.md"), "changed bytes\n");
+      await writeFile(join(changedRoot, "skills", "sample", "SKILL.md"), "changed bytes\n");
       const first = await assemblePayload({
         sourceRoot,
         stagingDirectory: stagingA,
@@ -242,7 +198,7 @@ describe("deterministic payload assembly", () => {
       ).rejects.toMatchObject({ code: "staging_invalid" });
 
       await assemblePayload({ sourceRoot, stagingDirectory: staging, version: "0.1.0" });
-      await writeFile(join(staging, "agents", "worker.md"), "corruption\n");
+      await writeFile(join(staging, "skills", "sample", "SKILL.md"), "corruption\n");
       await expect(verifyPayload(staging)).rejects.toBeInstanceOf(PluginError);
       await expect(verifyPayload(staging)).rejects.toMatchObject({ code: "digest_invalid" });
     } finally {
@@ -251,7 +207,7 @@ describe("deterministic payload assembly", () => {
   });
 
   test("keeps Windows and Git Bash executable-style paths outside relative assets", () => {
-    expect(normalizeRelativePath("agents\\worker.md")).toBe("agents/worker.md");
+    expect(normalizeRelativePath("skills\\sample\\SKILL.md")).toBe("skills/sample/SKILL.md");
     expect(() => normalizeRelativePath("C:\\Users\\codex\\worker.md")).toThrow(
       /inside their source root|relative/u,
     );
@@ -265,7 +221,6 @@ describe("deterministic payload assembly", () => {
 async function createFixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "holycodex-plugin-source-"));
   await mkdir(join(root, ".codex-plugin"), { recursive: true });
-  await mkdir(join(root, "agents"), { recursive: true });
   await mkdir(join(root, "skills", "sample", "agents"), { recursive: true });
   await writeFile(
     join(root, sourceManifestPath),
@@ -290,7 +245,6 @@ async function createFixture(): Promise<string> {
       2,
     )}\n`,
   );
-  await writeFile(join(root, "agents", "worker.md"), "worker fixture\n");
   await writeFile(
     join(root, "skills", "sample", "SKILL.md"),
     "---\nname: sample\ndescription: fixture\n---\n",
