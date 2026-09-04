@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 
 import { runFreshClone } from "./fresh-clone.ts";
 import { ensureCodexGenerated } from "./generate-codex-bindings.ts";
-import { runPackageVerification } from "./package-verification.ts";
 import { allowlistedEnvironment, DEFAULT_COMMAND_ENVIRONMENT_KEYS, runChecked } from "./process.ts";
 import { runRepositoryProof } from "./repository-proof.ts";
 
@@ -35,6 +34,7 @@ export async function runValidation(): Promise<ValidationResult> {
 
   const proof = await runRepositoryProof();
   steps.push("repository proof");
+  const { runPackageVerification } = await import("./package-verification.ts");
   const packageVerification = await runPackageVerification();
   steps.push("package artifact verification");
   const clone = await runFreshClone({
