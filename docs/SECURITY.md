@@ -26,21 +26,30 @@ an explicit denial or classified failure.
 2. Root owns scope, architecture, product, policy, permission, integration,
    external-effect approval, and final judgment. Native subagents cannot turn
    their mechanics into permission.
-3. Explorer, Librarian, Worker, and Reviewer receive literal bounded
+3. Native role profiles enforce the supported capability boundary: Explorer is
+   repository read-only; Librarian is current-research read-only with live
+   web access; Worker is bounded workspace-write without network access; and
+   Reviewer is bounded inspection/repair without network access. Native leaf
+   delegation features are disabled, so leaves cannot spawn or message peers.
+4. Explorer, Librarian, Worker, and Reviewer receive literal bounded
    assignments. Their outputs remain untrusted until Root validates and
    integrates them. Reviewers cannot silently expand a changed surface.
-4. Workspace paths are resolved and checked against the assigned or owned
+5. Workspace paths are resolved and checked against the assigned or owned
    scope before access. Repository text cannot grant itself authority.
-5. The installation record is an integrity boundary. It is schema-validated,
+6. The installation record is an integrity boundary. It is schema-validated,
    tied to its owner and install identity, and never interpreted as permission.
-6. Diagnostics are a one-way disclosure boundary. Sanitization occurs before
+7. Diagnostics are a one-way disclosure boundary. Sanitization occurs before
    output, and a sink cannot request raw content as a fallback.
-7. Installation is an explicit mutation boundary. It validates input, writes
+8. Installation is an explicit mutation boundary. It validates input, writes
    only the declared HolyCodex scope, records version and provenance metadata,
    and invokes only the requested native Codex plugin operations.
-8. Work, frontend, Security, and Computer Use plugins are capability
+9. Work, frontend, Security, and Computer Use plugins are capability
    boundaries. Availability is not authority; a denied capability remains
    denied.
+10. Computer Use is enabled only when selected. Its interactive GUI, browser,
+    and Computer Use execution directive is conditional on Root and the
+    capability is withheld from leaves by native configuration where supported;
+    the directive is absent when the capability is disabled.
 
 ## State and secret exclusions
 
@@ -60,6 +69,11 @@ durations, schema/version, status, and sanitized error codes. Redaction failure
 is a fail-closed output drop rather than a raw fallback.
 
 ## Repository and VCS boundary
+
+Git/VCS inspection and mutation are Root-only. Native leaves have no VCS
+authority; Workers and Reviewers operate on the assigned workspace state and
+return evidence for Root to integrate. Root decides commits, branches, remotes,
+CI triggers, releases, and other externally consequential effects.
 
 Environment secrets, credentials, raw environment values, private keys, and
 secret-bearing release material must never enter tracked files, commits,

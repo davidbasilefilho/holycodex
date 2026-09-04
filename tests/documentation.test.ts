@@ -43,7 +43,8 @@ describe("documentation invariants", () => {
     }
     const behavior = await readFile(resolve(workspaceRoot, "docs/BEHAVIOR.md"), "utf8");
     const cli = await readFile(resolve(workspaceRoot, "docs/CLI.md"), "utf8");
-    expect(behavior).toContain("native specialist roles");
+    expect(behavior).toContain("Explorer.lookup");
+    expect(behavior).toContain('agents."<Role.task>"');
     expect(behavior).toContain("native plugin");
     expect(cli).toContain("--frontend");
     expect(cli).toContain("capability_denied");

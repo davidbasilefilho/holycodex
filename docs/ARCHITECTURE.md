@@ -23,6 +23,12 @@ subagent operations. `plugin` owns independently authored installed assets and
 their manifests. `cli` composes installation, removal, configuration, version,
 and presentation into the published Bun ESM artifact.
 
+The native runtime has one parent and eleven leaves. Root is the parent Codex
+session configured in `config.toml`. Each canonical `{Role}.{task}` leaf has
+one managed TOML under `holycodex/agents/` and one matching
+`agents."{Role}.{task}"` registration. A role-only file or registration is
+legacy state, not a second supported model.
+
 ## Ownership and interfaces
 
 | Concern                                 | Owner    | Stable interface                       |
@@ -62,10 +68,18 @@ Security, and Computer Use selections are explicit and independently denied
 when unavailable. Native subagents receive bounded assignments; Root retains
 scope, policy, integration, and final judgment.
 
-Installation changes only the declared HolyCodex-owned configuration and the
-Codex native plugin state required by that installation. Removal verifies
-ownership before deleting the same scope. Neither command rewrites unrelated
-Codex settings or installs an unrequested capability.
+Role profiles carry semantic authority and native capability controls. Task
+skills carry branch-specific workflow, and delegation prompts carry only the
+facts of one assignment. This keeps a hard invariant in runtime configuration
+and each semantic instruction in one layer.
+
+Installation preflights selected capabilities and runtime compatibility, then
+journals native mutations and verifies readback before publishing managed
+state. A retry reconciles an incomplete transaction. Installation changes only
+the declared HolyCodex-owned configuration and the Codex native plugin state
+required by that installation. Removal verifies ownership before deleting the
+same scope. Neither command rewrites unrelated Codex settings or installs an
+unrequested capability.
 
 ## Repository shape and checks
 

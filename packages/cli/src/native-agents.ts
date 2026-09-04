@@ -40,22 +40,21 @@ export type RootAgentProjection = Readonly<{
 export interface NativeAgentInstallResult {
   readonly managed_artifacts: readonly ManagedArtifact[];
   readonly preserved: readonly string[];
+  readonly rollback: readonly NativeAgentRollbackEntry[];
 }
 
-type NativeRoleProjection = Readonly<{
-  readonly role: "explorer" | "librarian" | "worker" | "reviewer";
-  readonly description: string;
-  readonly model: "gpt-5.6-luna";
-  readonly effort: string;
-  readonly serviceTier: "default" | "fast";
-  readonly instructions: string;
-}>;
+export interface NativeAgentRollbackEntry {
+  readonly path: string;
+  readonly previous: string | undefined;
+  readonly installedDigest: string | undefined;
+}
 
 export interface NativeAgentRemovalResult {
   readonly removed: readonly string[];
   readonly preserved: readonly string[];
 }
 
+/** Project every canonical specialist profile for a plan and service tier. */
 export function projectNativeAgents(
   planName: PlanName,
   tier: ServiceTier = "standard",
@@ -76,6 +75,7 @@ export function projectNativeAgents(
   });
 }
 
+/** Project the parent Root model configuration for a plan and service tier. */
 export function projectRootAgent(
   planName: PlanName,
   tier: ServiceTier = "standard",
@@ -92,18 +92,23 @@ export function projectRootAgent(
 }
 
 /** The parent session is configured in config.toml, never as a spawnable role. */
-export function rootDeveloperInstructions(): string {
-  return [
+export function rootDeveloperInstructions(computerUse = false): string {
+  const instructions = [
     "You are the HolyCodex Root orchestrator.",
-    "Own user intent, scope, architecture, product and policy choices, material risk, integration, external state, and final readiness.",
-    "Delegate every substantive non-VCS operation to one named native Explorer, Librarian, Worker, or Reviewer with an exact bounded scope and observable completion criterion.",
-    "Before delegation, ensure writing-for-agents is fully loaded and applied in the active context. For any applicable skill, fully load it on first use in the active context, reuse it while its complete instructions remain available, and reload only after compaction, a new context, or an incomplete or unavailable load.",
-    "Inspect and integrate returned evidence; do not blindly accept conclusions. Keep Git/VCS inspection and mutation Root-only.",
-    "Use request_user_input whenever user information or approval is required and available; do not replace it with a prose question.",
-    "Keep changes minimal, mergeable, and within the assigned seam. Preserve unrelated user state and fail closed on ambiguity or conflict.",
-  ].join("\n");
+    "Own user intent and scope; architecture, product, policy, and material choices; integration; external state and effects; Git/VCS; contradictory-evidence resolution; and final readiness.",
+    "Proceed autonomously with safe local inspection, implementation, and proportional verification inside approved scope. Use request_user_input for genuinely required information or approval, including material scope or product choices and destructive, remote, or externally consequential effects.",
+    "Delegate substantive specialist work when it has a bounded scope and observable completion. Apply writing-for-agents before dispatch; keep routine Root-owned inspection, synthesis, and coordination local.",
+    "Inspect returned evidence before integration. Use planning and review gates when architecture, scope, coordination, risk, or material choices justify them, including an adversarial Reviewer.code fixed-point gate for substantive implementation where appropriate.",
+  ];
+  if (computerUse) {
+    instructions.push(
+      "Interactive GUI, browser, and Computer Use execution is Root-only and must not be delegated.",
+    );
+  }
+  return instructions.join("\n");
 }
 
+/** Publish canonical native profiles while preserving foreign or modified files. */
 export async function installNativeAgents(
   codexHome: string,
   plan: PlanName,
@@ -112,9 +117,10 @@ export async function installNativeAgents(
 ): Promise<NativeAgentInstallResult> {
   const root = join(codexHome, "holycodex", "agents");
   const preserved: string[] = [];
-  const projections = projectNativeRoles(plan, tier).map((agent) => ({
-    path: join(root, `${agent.role}.toml`),
-    contents: renderNativeRole(agent),
+  const rollback: NativeAgentRollbackEntry[] = [];
+  const projections = projectNativeAgents(plan, tier).map((agent) => ({
+    path: join(root, `${agent.name}.toml`),
+    contents: renderNativeAgent(agent),
   }));
   const previousByPath = new Map(
     previous.map((artifact) => [join(codexHome, artifact.path), artifact]),
@@ -135,57 +141,105 @@ export async function installNativeAgents(
     }
   }
   const managed_artifacts: ManagedArtifact[] = [];
-  for (const projection of projections) {
-    const current = currentByPath.get(projection.path);
-    const previousArtifact = previousByPath.get(projection.path);
-    if (current !== undefined && previousArtifact !== undefined) {
-      const digest = await sha256(current);
-      if (digest !== previousArtifact.digest && current !== projection.contents) {
-        preserved.push(projection.path);
-        managed_artifacts.push({
-          path: relative(codexHome, projection.path).replaceAll("\\", "/"),
-          digest: previousArtifact.digest,
+  try {
+    for (const projection of projections) {
+      const current = currentByPath.get(projection.path);
+      const previousArtifact = previousByPath.get(projection.path);
+      if (current !== undefined && previousArtifact !== undefined) {
+        const digest = await sha256(current);
+        if (digest !== previousArtifact.digest && current !== projection.contents) {
+          preserved.push(projection.path);
+          managed_artifacts.push({
+            path: relative(codexHome, projection.path).replaceAll("\\", "/"),
+            digest: previousArtifact.digest,
+          });
+          continue;
+        }
+      }
+      if (current === undefined || current !== projection.contents) {
+        await writeAtomicText(projection.path, projection.contents);
+        rollback.push({
+          path: projection.path,
+          previous: current,
+          installedDigest: await sha256(projection.contents),
         });
-        continue;
+      }
+      managed_artifacts.push({
+        path: relative(codexHome, projection.path).replaceAll("\\", "/"),
+        digest: await sha256(projection.contents),
+      });
+    }
+    // A legacy root role was invalid by construction. Remove it only when its
+    // content carries the old HolyCodex marker; an unrelated user root role is
+    // preserved.
+    const legacyRoot = join(codexHome, "agents", "root.toml");
+    const legacyRootContents = await readRegularFile(legacyRoot);
+    const legacyRootStatus = await removeLegacyRootIfOwned(legacyRoot);
+    if (legacyRootStatus === "preserved") preserved.push(legacyRoot);
+    if (legacyRootStatus === "removed" && legacyRootContents !== undefined) {
+      rollback.push({ path: legacyRoot, previous: legacyRootContents, installedDigest: undefined });
+    }
+    for (const artifact of previous) {
+      const absolute = join(codexHome, artifact.path);
+      if (!projections.some((candidate) => candidate.path === absolute)) {
+        if (!isKnownLegacyNativePath(codexHome, absolute, artifact.path)) {
+          preserved.push(absolute);
+          continue;
+        }
+        const status = await removeIfUnchanged(absolute, artifact.digest);
+        if (status.status === "preserved") preserved.push(absolute);
+        else if (status.previous !== undefined) {
+          rollback.push({ path: absolute, previous: status.previous, installedDigest: undefined });
+        }
       }
     }
-    if (current === undefined || current !== projection.contents) {
-      await writeAtomicText(projection.path, projection.contents);
-    }
-    managed_artifacts.push({
-      path: relative(codexHome, projection.path).replaceAll("\\", "/"),
-      digest: await sha256(projection.contents),
-    });
-  }
-  // A legacy root role was invalid by construction. Remove it only when its
-  // content carries the old HolyCodex marker; an unrelated user root role is
-  // preserved.
-  const legacyRoot = join(codexHome, "agents", "root.toml");
-  const legacyRootStatus = await removeLegacyRootIfOwned(legacyRoot);
-  if (legacyRootStatus === "preserved") preserved.push(legacyRoot);
-  for (const artifact of previous) {
-    const absolute = join(codexHome, artifact.path);
-    if (!projections.some((candidate) => candidate.path === absolute)) {
-      if (!isKnownLegacyNativePath(codexHome, absolute, artifact.path)) {
-        preserved.push(absolute);
-        continue;
+    for (const artifact of previous) {
+      const absolute = join(codexHome, artifact.path);
+      if (
+        preserved.includes(absolute) &&
+        !managed_artifacts.some((candidate) => join(codexHome, candidate.path) === absolute)
+      ) {
+        managed_artifacts.push(artifact);
       }
-      const status = await removeIfUnchanged(absolute, artifact.digest);
-      if (status === "preserved") preserved.push(absolute);
     }
+    return { managed_artifacts, preserved, rollback };
+  } catch (error: unknown) {
+    // The caller cannot receive a result when a write fails midway. Restore
+    // everything already published while preserving concurrent user edits.
+    await rollbackNativeAgentInstall(rollback).catch(() => undefined);
+    throw error;
   }
-  for (const artifact of previous) {
-    const absolute = join(codexHome, artifact.path);
-    if (
-      preserved.includes(absolute) &&
-      !managed_artifacts.some((candidate) => join(codexHome, candidate.path) === absolute)
-    ) {
-      managed_artifacts.push(artifact);
-    }
-  }
-  return { managed_artifacts, preserved };
 }
 
+/** Restore only files that still match the just-published native-agent state. */
+export async function rollbackNativeAgentInstall(
+  entries: readonly NativeAgentRollbackEntry[],
+): Promise<NativeAgentRemovalResult> {
+  const removed: string[] = [];
+  const preserved: string[] = [];
+  for (const entry of [...entries].reverse()) {
+    const current = await readRegularFile(entry.path);
+    const unchanged =
+      entry.installedDigest === undefined
+        ? current === undefined
+        : current !== undefined && (await sha256(current)) === entry.installedDigest;
+    if (!unchanged) {
+      preserved.push(entry.path);
+      continue;
+    }
+    if (entry.previous === undefined) {
+      await rm(entry.path, { force: false }).catch((error: unknown) => {
+        if (!isFsCode(error, "ENOENT")) throw error;
+      });
+      removed.push(entry.path);
+    } else {
+      await writeAtomicText(entry.path, entry.previous);
+    }
+  }
+  return { removed, preserved };
+}
+
+/** Remove only unchanged native profiles recorded as HolyCodex-owned artifacts. */
 export async function removeManagedNativeAgents(
   codexHome: string,
   artifacts: readonly ManagedArtifact[],
@@ -231,6 +285,7 @@ export async function removeManagedNativeAgents(
   return { removed, preserved };
 }
 
+/** Render one canonical native specialist profile as Codex TOML. */
 export function renderNativeAgent(agent: NativeAgentProjection): string {
   const shared = agent.rolePolicy;
   const instructions = [
@@ -247,8 +302,10 @@ export function renderNativeAgent(agent: NativeAgentProjection): string {
     `service_tier = ${JSON.stringify(agent.serviceTier)}`,
     'model_reasoning_summary = "none"',
     'model_verbosity = "low"',
-    "tool_output_token_limit = 12000",
-    `developer_instructions = ${JSON.stringify(`${instructions}\nExecute only the assigned scope, escalate material decisions to Root, and return evidence/results to Root.`)}`,
+    `sandbox_mode = ${JSON.stringify(shared.permissions.write ? "workspace-write" : "read-only")}`,
+    'approval_policy = "never"',
+    `web_search = ${JSON.stringify(shared.permissions.network ? "live" : "disabled")}`,
+    `developer_instructions = ${JSON.stringify(instructions)}`,
     "",
     "[agents]",
     "enabled = false",
@@ -257,61 +314,9 @@ export function renderNativeAgent(agent: NativeAgentProjection): string {
     "[features]",
     "multi_agent_v2 = false",
     "multi_agent = false",
-    "",
-  ].join("\n");
-}
-
-function projectNativeRoles(
-  planName: PlanName,
-  tier: ServiceTier,
-): readonly NativeRoleProjection[] {
-  const projected = projectNativeAgents(planName, tier);
-  const roles = ["explorer", "librarian", "worker", "reviewer"] as const;
-  return roles.map((role) => {
-    const matching = projected.filter((agent) => agent.name.toLowerCase().startsWith(`${role}.`));
-    const first = matching[0];
-    if (!first) throw new Error(`Plan does not define the ${role} role.`);
-    const effort = matching.reduce(
-      (current, agent) => maxEffort(current, agent.effort),
-      first.effort,
-    );
-    const descriptions = matching.map((agent) => agent.description).join(" ");
-    const rolePolicy = first.rolePolicy;
-    return {
-      role,
-      description: `${rolePolicy.role}: ${descriptions}`,
-      model: first.model,
-      effort,
-      serviceTier: first.serviceTier,
-      instructions: [
-        `${rolePolicy.role} shared policy: ${rolePolicy.authority}`,
-        rolePolicy.evidence,
-        rolePolicy.completion,
-        ...matching.map((agent) => agent.taskInstruction),
-      ].join("\n"),
-    };
-  });
-}
-
-function renderNativeRole(agent: NativeRoleProjection): string {
-  return [
-    `name = ${JSON.stringify(agent.role)}`,
-    `description = ${JSON.stringify(agent.description)}`,
-    `model = ${JSON.stringify(agent.model)}`,
-    `model_reasoning_effort = ${JSON.stringify(agent.effort)}`,
-    `service_tier = ${JSON.stringify(agent.serviceTier)}`,
-    'model_reasoning_summary = "none"',
-    'model_verbosity = "low"',
-    "tool_output_token_limit = 12000",
-    `developer_instructions = ${JSON.stringify(`${agent.instructions}\nExecute only the assigned scope, escalate material decisions to Root, and return evidence/results to Root.`)}`,
-    "",
-    "[agents]",
-    "enabled = false",
-    "interrupt_message = false",
-    "",
-    "[features]",
-    "multi_agent_v2 = false",
-    "multi_agent = false",
+    "computer_use = false",
+    "browser_use = false",
+    "in_app_browser = false",
     "",
   ].join("\n");
 }
@@ -340,13 +345,9 @@ const LEGACY_ROOT_ROLE_CONTENTS = new Set(
   ),
 );
 
+/** Identify the closed set of legacy HolyCodex Root files safe to remove. */
 export function isKnownLegacyRootRoleContent(content: string): boolean {
   return LEGACY_ROOT_ROLE_CONTENTS.has(content);
-}
-
-function maxEffort(left: string, right: string): string {
-  const rank: Record<string, number> = { low: 0, medium: 1, high: 2, xhigh: 3, max: 4 };
-  return (rank[right] ?? 0) > (rank[left] ?? 0) ? right : left;
 }
 
 function isKnownLegacyNativePath(
@@ -355,6 +356,9 @@ function isKnownLegacyNativePath(
   relativePath: string,
 ): boolean {
   if (relativePath === "agents/root.toml") return true;
+  if (/^holycodex\/agents\/(?:explorer|librarian|worker|reviewer)\.toml$/u.test(relativePath)) {
+    return true;
+  }
   return (
     pathWithin(join(codexHome, "agents"), absolute) &&
     /^(?:Explorer|Librarian|Worker|Reviewer)\.(?:lookup|trace|research|mechanical|implementation|integration|operations|plan|code|artifact)\.toml$/u.test(
@@ -392,18 +396,22 @@ async function readRegularFile(path: string): Promise<string | undefined> {
   }
 }
 
-async function removeIfUnchanged(path: string, digest: string): Promise<"removed" | "preserved"> {
+async function removeIfUnchanged(
+  path: string,
+  digest: string,
+): Promise<Readonly<{ status: "removed" | "preserved"; previous?: string }>> {
   try {
     await assertNoSymlink(path);
     const entry = await lstat(path);
-    if (entry.isSymbolicLink() || !entry.isFile()) return "preserved";
-    if ((await sha256(await readFile(path))) === digest) {
+    if (entry.isSymbolicLink() || !entry.isFile()) return { status: "preserved" };
+    const previous = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path));
+    if ((await sha256(previous)) === digest) {
       await rm(path, { force: false });
-      return "removed";
+      return { status: "removed", previous };
     }
-    return "preserved";
+    return { status: "preserved" };
   } catch (error: unknown) {
-    if (isFsCode(error, "ENOENT")) return "removed";
+    if (isFsCode(error, "ENOENT")) return { status: "removed" };
     throw error;
   }
 }

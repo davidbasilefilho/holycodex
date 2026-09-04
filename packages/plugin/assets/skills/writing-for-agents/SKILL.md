@@ -10,8 +10,12 @@ Treat each instruction as an interface with one contract:
 - **Owner:** the role permitted to act or decide.
 - **Boundary:** the exact scope, authority, constraints, and escalation point.
 - **Completion:** the observable outcome and proof that permit the agent to stop.
+- **Return:** the result Root needs to integrate: outcome or findings, changed
+  paths, verification, unresolved risk, and any requested decision.
 
-Write an objective, scope, retained constraints, evidence, exclusions, and the exact missing fact or material choice that returns to the owner. The receiver must be able to act, prove, and stop without reconstructing intent.
+Write an objective, scope, retained constraints, evidence, exclusions, and the
+exact missing fact or material choice that returns to the owner. The receiver
+must be able to act, prove, and stop without reconstructing intent.
 
 Before any Root subagent dispatch, ensure this skill is fully loaded and applied
 in the current context. Reuse the loaded instructions for later dispatches

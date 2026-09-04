@@ -39,8 +39,14 @@ export {
   projectNativeAgents,
   projectRootAgent,
   installNativeAgents,
+  rollbackNativeAgentInstall,
   removeManagedNativeAgents,
   renderNativeAgent,
+} from "./native-agents.ts";
+export type {
+  NativeAgentInstallResult,
+  NativeAgentRemovalResult,
+  NativeAgentRollbackEntry,
 } from "./native-agents.ts";
 export type {
   CapabilityInstallState,

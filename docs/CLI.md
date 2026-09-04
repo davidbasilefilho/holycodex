@@ -16,6 +16,7 @@ commands are `bunx holycodex install` and `bunx holycodex remove`.
 | Command                                                          | Required behavior                                                                                                                                               |
 | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `holycodex install [options]`                                    | Validate input, configure the selected plan, tier, and optional plugins through Codex native plugin management, verify readback, and write owned configuration. |
+| `holycodex doctor [--json]`                                      | Compare effective Root config, canonical leaf registrations/files, selected capabilities, ownership, and transaction state.                                     |
 | `holycodex remove [--yes] [--json]`                              | Verify ownership, remove HolyCodex's native plugin state, and remove its owned configuration without touching unrelated state.                                  |
 | `holycodex version [<0.x.y\|patch\|minor>] [--dry-run] [--json]` | Read or update the canonical package version.                                                                                                                   |
 | `holycodex --help`                                               | Print the current command and option syntax.                                                                                                                    |
@@ -32,9 +33,23 @@ verify as installed and enabled; otherwise installation returns
 success. The default selections are Frontend and Security; Work and Computer
 Use remain disabled unless selected.
 
-Native profiles encode `standard` as `service_tier = "default"` for Root and
-leaves. `fast` keeps Root on `default` and sets leaves to `fast`; `fast-all`
-sets both Root and leaves to `fast`.
+Root's selected model, reasoning effort, service tier, compact developer
+instructions, required feature flags, and eleven canonical leaf registrations
+are managed in `config.toml`. The parent session is Root; HolyCodex never
+creates or registers `agents/root.toml`. Native leaf profiles encode
+`standard` as `service_tier = "default"`; `fast` keeps Root on `default` and
+sets leaves to `fast`; `fast-all` sets both Root and leaves to `fast`. Leaf
+TOMLs omit `tool_output_token_limit` and use native sandbox, approval, network,
+and delegation-feature controls.
+
+With `--computer-use`, the official Computer Use capability is installed and
+Root receives the conditional Root-only interactive execution directive. The
+directive is absent without that option, and native configuration withholds
+the capability from leaves where supported.
+
+Official OpenAI plugin health accepts the allowlisted `openai-curated` and
+`openai-curated-remote` identities for build-web-apps and codex-security. An
+arbitrary same-name plugin from another marketplace is not accepted.
 
 Valid plan names are `go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and
 `pro-20x`.

@@ -4,7 +4,7 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   staged: {
-    "*": "bun run --sequential check:fix test",
+    "*": () => "bun run --sequential check:fix test",
   },
   fmt: {
     ignorePatterns: ["packages/codex/generated/**"],
@@ -33,5 +33,8 @@ export default defineConfig({
     bundle: true,
     platform: "node",
     noExternal: [/^@holycodex\//u],
+    outputOptions: {
+      codeSplitting: false,
+    },
   },
 });

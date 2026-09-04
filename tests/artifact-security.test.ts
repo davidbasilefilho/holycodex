@@ -98,7 +98,7 @@ describe("artifact and diagnostic security boundaries", () => {
       const outside = join(directory, "outside");
       const link = join(directory, "link");
       await mkdir(outside);
-      await symlink(outside, link);
+      await symlink(outside, link, process.platform === "win32" ? "junction" : "dir");
       await expect(listSafeArtifactEntries(link, "the package")).rejects.toThrow("symbolic links");
     });
   });

@@ -168,7 +168,7 @@ export {
   compareManagedConfigKey,
   createManagedRuntimeConfigState,
   deleteTomlPath,
-  HOLYCODEX_AGENT_ROLES,
+  HOLYCODEX_AGENT_TYPES,
   isManagedConfigKeyPath,
   isManagedRuntimeConfigState,
   ManagedConfigKeyPathSchema,
@@ -188,7 +188,7 @@ export {
 } from "./runtime-config";
 export type {
   AgentConfigKeyPath,
-  HolyCodexAgentRole,
+  HolyCodexAgentType,
   ManagedConfigKeyPath,
   ManagedConfigOriginalValue,
   ManagedConfigSafeValue,
@@ -220,6 +220,8 @@ export {
   parseOfficialMarketplaceSnapshot,
   provisionOfficialMarketplaceSnapshot,
   readOfficialMarketplaceSnapshot,
+  resolveOfficialPluginEntry,
+  isRecognizedOfficialPluginName,
   OFFICIAL_CURATED_MARKETPLACE_NAME,
   OFFICIAL_CURATED_MARKETPLACE_SOURCE,
 } from "./official-plugins";
@@ -239,5 +241,6 @@ export type {
   OfficialMarketplaceProvisionOptions,
   OfficialMarketplaceRuntimeClose,
   OfficialMarketplaceSnapshot,
+  ResolvedOfficialPluginEntry,
 } from "./official-plugins";
 export { OfficialPluginAdapterError } from "./official-plugins";

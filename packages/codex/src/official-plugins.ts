@@ -14,6 +14,12 @@ import {
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import {
+  canonicalOfficialPluginId,
+  OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES,
+  resolveOfficialPluginIdentity,
+  type OfficialPluginIdentity,
+} from "@holycodex/core";
 import * as Schema from "effect/Schema";
 
 import { AppServerClient } from "./client";
@@ -130,7 +136,9 @@ export async function bootstrapOfficialMarketplace(
       "Official Codex marketplace bootstrap was cancelled.",
     );
   }
-  const readSnapshot = options.readSnapshot ?? readOfficialMarketplaceSnapshot;
+  const readSnapshot =
+    options.readSnapshot ??
+    ((codexHome: string) => readOfficialMarketplaceSnapshot(codexHome, options.selectedPluginIds));
   const initial = await readSnapshot(options.codexHome);
   if (initial !== undefined && hasSelectedMarketplacePlugins(initial, selectedNames)) {
     return initial;
@@ -296,7 +304,22 @@ export async function provisionOfficialMarketplaceSnapshot(
   try {
     await assertReservedPathHasNoSymlink(options.codexHome, stagingRoot);
     if (options.cloneSnapshot !== undefined) {
-      await options.cloneSnapshot(OFFICIAL_CURATED_MARKETPLACE_SOURCE, stagingRoot);
+      try {
+        await options.cloneSnapshot(OFFICIAL_CURATED_MARKETPLACE_SOURCE, stagingRoot);
+      } catch (error: unknown) {
+        // A deterministic staging seam may fail before tree validation when
+        // the host refuses symlink creation (notably Windows EPERM). Treat
+        // that as an unsafe snapshot, matching the validator's fail-closed
+        // classification instead of reporting a network outage.
+        if (isFilesystemPermissionError(error)) {
+          throw marketplaceBootstrapError(
+            "marketplace_invalid",
+            "The staged official marketplace could not be created as a safe file tree.",
+            error,
+          );
+        }
+        throw error;
+      }
     } else {
       const result = await gitRunner.run(
         ["clone", "--depth=1", "--no-tags", OFFICIAL_CURATED_MARKETPLACE_SOURCE, stagingRoot],
@@ -314,6 +337,7 @@ export async function provisionOfficialMarketplaceSnapshot(
     const stagedSnapshot = await readOfficialMarketplaceSnapshotAtRoot(
       stagingRoot,
       options.codexHome,
+      selectedNames,
     );
     if (
       stagedSnapshot === undefined ||
@@ -351,7 +375,10 @@ export async function provisionOfficialMarketplaceSnapshot(
       );
     }
     await rename(stagingRoot, targetRoot);
-    const published = await readOfficialMarketplaceSnapshot(options.codexHome);
+    const published = await readOfficialMarketplaceSnapshot(
+      options.codexHome,
+      options.selectedPluginIds,
+    );
     if (published === undefined || !hasSelectedMarketplacePlugins(published, selectedNames)) {
       throw marketplaceBootstrapError(
         "marketplace_invalid",
@@ -495,18 +522,22 @@ async function assertNoSymlinkTree(root: string): Promise<void> {
   }
 }
 
+/** Read a trusted marketplace snapshot, optionally scoped to selected providers. */
 export async function readOfficialMarketplaceSnapshot(
   codexHome: string,
+  selectedPluginIds: readonly string[] = [],
 ): Promise<OfficialMarketplaceSnapshot | undefined> {
   return await readOfficialMarketplaceSnapshotAtRoot(
     join(codexHome, ...OFFICIAL_CURATED_MARKETPLACE_DIRECTORY),
     codexHome,
+    selectedOfficialCuratedPluginNames(selectedPluginIds),
   );
 }
 
 async function readOfficialMarketplaceSnapshotAtRoot(
   rootPath: string,
   codexHome: string | undefined,
+  selectedNames: readonly string[] = [],
 ): Promise<OfficialMarketplaceSnapshot | undefined> {
   // Validate the complete reserved path before checking the leaf.  When the
   // leaf is absent, a symlinked ancestor would otherwise be treated as a
@@ -589,13 +620,15 @@ async function readOfficialMarketplaceSnapshotAtRoot(
       error,
     );
   }
-  return parseOfficialMarketplaceSnapshot(parsed, root, manifestPath);
+  return parseOfficialMarketplaceSnapshot(parsed, root, manifestPath, selectedNames);
 }
 
+/** Parse a trusted marketplace manifest and validate the selected provider entries. */
 export function parseOfficialMarketplaceSnapshot(
   input: unknown,
   rootPath = `${OFFICIAL_CURATED_MARKETPLACE_DIRECTORY.join("/")}`,
   manifestPath = `${rootPath}/marketplace.json`,
+  selectedNames: readonly string[] = [],
 ): OfficialMarketplaceSnapshot {
   if (!isPlainObject(input) || input["name"] !== OFFICIAL_CURATED_MARKETPLACE_NAME) {
     throw marketplaceBootstrapError(
@@ -615,18 +648,29 @@ export function parseOfficialMarketplaceSnapshot(
   const names = new Set<string>();
   for (const rawPlugin of rawPlugins) {
     if (!isPlainObject(rawPlugin) || typeof rawPlugin["name"] !== "string") {
+      if (selectedNames.length > 0) continue;
       throw marketplaceBootstrapError(
         "marketplace_invalid",
         "The official marketplace contains a malformed plugin entry.",
       );
     }
     const name = rawPlugin["name"];
-    if (!/^[a-z][a-z0-9._-]{1,63}$/u.test(name) || names.has(name)) {
+    if (!/^[a-z][a-z0-9._-]{1,63}$/u.test(name)) {
+      if (selectedNames.length > 0) continue;
       throw marketplaceBootstrapError(
         "marketplace_invalid",
-        "The official marketplace contains a duplicate or invalid plugin name.",
+        "The official marketplace contains an invalid plugin name.",
       );
     }
+    if (names.has(name)) {
+      if (selectedNames.length > 0 && !selectedNames.includes(name)) continue;
+      throw marketplaceBootstrapError(
+        "marketplace_invalid",
+        "The official marketplace contains a duplicate plugin name.",
+      );
+    }
+    names.add(name);
+    if (selectedNames.length > 0 && !selectedNames.includes(name)) continue;
     const source = marketplacePluginSource(rawPlugin);
     if (!isSafeMarketplaceRelativePath(source)) {
       throw marketplaceBootstrapError(
@@ -634,8 +678,13 @@ export function parseOfficialMarketplaceSnapshot(
         `The official marketplace source for ${name} is unsafe.`,
       );
     }
-    names.add(name);
     plugins.push({ name, source });
+  }
+  if (selectedNames.some((name) => !plugins.some((plugin) => plugin.name === name))) {
+    throw marketplaceBootstrapError(
+      "marketplace_invalid",
+      "The official marketplace is missing a selected plugin entry.",
+    );
   }
   return {
     name: OFFICIAL_CURATED_MARKETPLACE_NAME,
@@ -692,7 +741,12 @@ function selectedOfficialCuratedPluginNames(
     const separator = pluginId.lastIndexOf("@");
     if (separator < 1) continue;
     const marketplace = pluginId.slice(separator + 1);
-    if (marketplace !== OFFICIAL_CURATED_MARKETPLACE_NAME) continue;
+    if (
+      marketplace !== OFFICIAL_CURATED_MARKETPLACE_NAME &&
+      marketplace !== "openai-curated-remote"
+    ) {
+      continue;
+    }
     const name = pluginId.slice(0, separator);
     if (!/^[a-z][a-z0-9._-]{1,63}$/u.test(name)) {
       throw marketplaceBootstrapError(
@@ -700,6 +754,7 @@ function selectedOfficialCuratedPluginNames(
         "A selected official marketplace plugin id is invalid.",
       );
     }
+    if (!isRecognizedOfficialPluginName(name)) continue;
     if (!seen.has(name)) {
       seen.add(name);
       names.push(name);
@@ -806,6 +861,15 @@ async function assertReservedPathHasNoSymlink(codexHome: string, rootPath: strin
 
 function isFileMissing(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+}
+
+function isFilesystemPermissionError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error.code === "EPERM" || error.code === "EACCES")
+  );
 }
 
 async function sleep(milliseconds: number): Promise<void> {
@@ -970,6 +1034,41 @@ export const LiveOfficialPluginListEnvelopeSchema = Schema.Struct({
 });
 export type LiveOfficialPluginListEnvelope = typeof LiveOfficialPluginListEnvelopeSchema.Type;
 
+export type ResolvedOfficialPluginEntry = Readonly<{
+  readonly identity: OfficialPluginIdentity;
+  readonly entry: LiveOfficialPluginEntry;
+}>;
+
+/**
+ * Resolve a canonical capability provider to a live trusted OpenAI plugin entry.
+ *
+ * The id and marketplaceName must describe the same recognized marketplace. Exact canonical entries
+ * are preferred over the remote runtime identity; unrelated marketplaces are ignored.
+ */
+export function resolveOfficialPluginEntry(
+  live: LiveOfficialPluginListEnvelope,
+  canonicalPluginId: string,
+): ResolvedOfficialPluginEntry | undefined {
+  const canonical = canonicalOfficialPluginId(canonicalPluginId);
+  if (canonical === undefined || canonical !== canonicalPluginId) return undefined;
+  const entries = [...live.installed, ...live.available];
+  const matches = entries.flatMap((entry) => {
+    const identity = resolveOfficialPluginIdentity(entry.pluginId, entry.marketplaceName);
+    return identity?.canonicalPluginId === canonical ? [{ identity, entry }] : [];
+  });
+  return (
+    matches.find((match) => match.entry.pluginId === canonical && match.entry.installed) ??
+    matches.find((match) => match.entry.installed) ??
+    matches.find((match) => match.entry.pluginId === canonical) ??
+    matches[0]
+  );
+}
+
+/** Return whether a provider name is one of the capability providers trusted by HolyCodex. */
+export function isRecognizedOfficialPluginName(name: string): boolean {
+  return (OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES as readonly string[]).includes(name);
+}
+
 export function parseLiveOfficialPluginList(
   input: unknown,
 ): CodexResult<LiveOfficialPluginListEnvelope> {
@@ -1115,10 +1214,15 @@ export function createOfficialPluginAdapter(
         throw commandError("add", result, checkedPluginId);
       }
       const live = await list();
+      const resolved = resolveOfficialPluginEntry(live, checkedPluginId);
+      const canonical = canonicalOfficialPluginId(checkedPluginId);
       const entries = [...live.installed, ...live.available].filter(
-        (entry) => entry.pluginId === checkedPluginId,
+        (entry) =>
+          entry.pluginId === checkedPluginId &&
+          (canonical === undefined || entry.marketplaceName == null),
       );
-      const entry = entries.find((candidate) => candidate.installed) ?? entries[0];
+      const entry =
+        resolved?.entry ?? entries.find((candidate) => candidate.installed) ?? entries[0];
       if (!entry) {
         throw new OfficialPluginAdapterError(
           "readback_mismatch",
@@ -1143,22 +1247,28 @@ export function createOfficialPluginAdapter(
     },
     remove: async (pluginId, signal) => {
       const checkedPluginId = checked(OfficialPluginIdSchema, pluginId, "official plugin id");
+      let removalId = checkedPluginId;
+      if (canonicalOfficialPluginId(checkedPluginId) === checkedPluginId) {
+        const before = await list();
+        const resolved = resolveOfficialPluginEntry(before, checkedPluginId);
+        if (resolved?.entry.installed) removalId = resolved.entry.pluginId;
+      }
       const result = await runner.run(
-        ["plugin", "remove", checkedPluginId, "--json"],
+        ["plugin", "remove", removalId, "--json"],
         signal === undefined ? undefined : { signal },
       );
       if (result.exitCode !== 0 && !/not (?:installed|found)|missing/iu.test(result.stderr)) {
-        throw commandError("remove", result, checkedPluginId);
+        throw commandError("remove", result, removalId);
       }
       const live = await list();
       const entry = [...live.installed, ...live.available].find(
-        (candidate) => candidate.pluginId === checkedPluginId && candidate.installed,
+        (candidate) => candidate.pluginId === removalId,
       );
-      if (entry !== undefined) {
+      if (entry?.installed) {
         throw new OfficialPluginAdapterError(
           "readback_mismatch",
           `Codex still reports ${checkedPluginId} after removal.`,
-          { plugin_id: checkedPluginId },
+          { plugin_id: checkedPluginId, observed_plugin_id: entry.pluginId },
         );
       }
     },

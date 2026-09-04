@@ -187,13 +187,13 @@ describe("repository validation machinery", () => {
     const generatedRoot = resolve(workspaceRoot, "packages/codex/generated");
     try {
       const rootLink = join(temporaryRoot, "root-link");
-      await symlink(generatedRoot, rootLink);
+      await symlink(generatedRoot, rootLink, process.platform === "win32" ? "junction" : "dir");
       await expect(verifyGeneratedArtifactPortable(rootLink)).rejects.toThrow("symlinked roots");
 
       const targetParent = join(temporaryRoot, "target-parent");
       const linkedParent = join(temporaryRoot, "linked-parent");
       await mkdir(join(targetParent, "generated"), { recursive: true });
-      await symlink(targetParent, linkedParent);
+      await symlink(targetParent, linkedParent, process.platform === "win32" ? "junction" : "dir");
       await expect(
         verifyGeneratedArtifactPortable(join(linkedParent, "generated")),
       ).rejects.toThrow("symlinked roots");

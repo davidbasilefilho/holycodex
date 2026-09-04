@@ -44,6 +44,7 @@ export interface OfficialPluginManager {
   readonly status?: (
     selected: readonly string[],
   ) => Promise<Readonly<Record<string, OfficialPluginStatus>>>;
+  readonly getObservedIdentities?: () => Readonly<Record<string, string>>;
 }
 
 export interface ManagedArtifact {

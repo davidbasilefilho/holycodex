@@ -174,13 +174,34 @@ describe("typed runtime configuration", () => {
   });
 
   test("resolves relative agent targets from the declaring config file", () => {
-    expect(normalizeRelativeConfigPath("./holycodex\\agents\\worker.toml")).toBe(
-      "holycodex/agents/worker.toml",
+    expect(normalizeRelativeConfigPath("./holycodex\\agents\\Worker.implementation.toml")).toBe(
+      "holycodex/agents/Worker.implementation.toml",
     );
-    expect(resolveAgentConfigPath("/opt/codex/config.toml", "holycodex/agents/worker.toml")).toBe(
-      "/opt/codex/holycodex/agents/worker.toml",
-    );
+    expect(
+      resolveAgentConfigPath(
+        "/opt/codex/config.toml",
+        "holycodex/agents/Worker.implementation.toml",
+      ),
+    ).toBe("/opt/codex/holycodex/agents/Worker.implementation.toml");
     expect(() => normalizeRelativeConfigPath("../outside.toml")).toThrow();
     expect(() => normalizeRelativeConfigPath("/etc/secrets.toml")).toThrow();
+  });
+
+  test("manages quoted canonical agent registration keys", async () => {
+    const keyPath = 'agents."Worker.implementation".config_file' as const;
+    expect(isManagedConfigKeyPath(keyPath)).toBe(true);
+    const document = writeTomlPath({}, keyPath, "holycodex/agents/Worker.implementation.toml");
+    expect(readTomlPath(document, keyPath)).toBe("holycodex/agents/Worker.implementation.toml");
+    const merged = await mergeManagedRuntimeConfig(
+      {},
+      createManagedRuntimeConfigState(metadata),
+      { [keyPath]: "holycodex/agents/Worker.implementation.toml" },
+      metadata,
+    );
+    expect(merged.driftedKeys).toEqual([]);
+    expect(merged.state.managed[keyPath]?.lastManagedValue).toEqual({
+      kind: "relative_path",
+      value: "holycodex/agents/Worker.implementation.toml",
+    });
   });
 });

@@ -557,15 +557,32 @@ async function assertCodexAppServerReadback(
       "Codex App Server config readback omitted role registrations",
     );
     const agentTable = agents as Record<string, unknown>;
-    for (const role of ["explorer", "librarian", "worker", "reviewer"] as const) {
-      const registration = agentTable[role];
+    const agentTypes = [
+      "Explorer.lookup",
+      "Explorer.trace",
+      "Librarian.lookup",
+      "Librarian.research",
+      "Worker.mechanical",
+      "Worker.implementation",
+      "Worker.integration",
+      "Worker.operations",
+      "Reviewer.plan",
+      "Reviewer.code",
+      "Reviewer.artifact",
+    ] as const;
+    for (const agentType of agentTypes) {
+      const registration = agentTable[agentType];
       assert(
         typeof registration === "object" &&
           registration !== null &&
           !Array.isArray(registration) &&
           (registration as Record<string, unknown>)["config_file"] ===
-            `holycodex/agents/${role}.toml`,
-        `Codex App Server config readback omitted the ${role} role`,
+            `holycodex/agents/${agentType}.toml`,
+        `Codex App Server config readback omitted the ${agentType} registration`,
+      );
+      assert(
+        typeof (registration as Record<string, unknown>)["name"] === "undefined",
+        `Codex App Server config readback unexpectedly materialized ${agentType} metadata`,
       );
     }
   } finally {
@@ -745,11 +762,28 @@ async function configRead() {
   const text = await readFile(join(HOME, "config.toml"), "utf8");
   if (!text.includes("multi_agent_v2 = true")) fail("Codex config omitted multi-agent mode");
   const config = { features: { multi_agent_v2: true }, agents: {} };
-  for (const role of ["explorer", "librarian", "worker", "reviewer"]) {
-    const reference = "config_file = \"holycodex/agents/" + role + ".toml\"";
-    if (!text.includes(reference)) fail("Codex config omitted the " + role + " role");
-    await readFile(join(HOME, "holycodex", "agents", role + ".toml"), "utf8");
-    config.agents[role] = { config_file: "holycodex/agents/" + role + ".toml" };
+  const agentTypes = [
+    "Explorer.lookup",
+    "Explorer.trace",
+    "Librarian.lookup",
+    "Librarian.research",
+    "Worker.mechanical",
+    "Worker.implementation",
+    "Worker.integration",
+    "Worker.operations",
+    "Reviewer.plan",
+    "Reviewer.code",
+    "Reviewer.artifact",
+  ];
+  for (const agentType of agentTypes) {
+    const reference = "config_file = \"holycodex/agents/" + agentType + ".toml\"";
+    if (!text.includes(reference)) fail("Codex config omitted the " + agentType + " registration");
+    const roleFile = agentType + ".toml";
+    const roleText = await readFile(join(HOME, "holycodex", "agents", roleFile), "utf8");
+    if (roleText.includes("tool_output_token_limit")) {
+      fail("Codex role file contains the removed tool_output_token_limit");
+    }
+    config.agents[agentType] = { config_file: "holycodex/agents/" + roleFile };
   }
   return { config, origins: {}, layers: null };
 }

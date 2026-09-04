@@ -1,7 +1,7 @@
 # HolyCodex parity matrix
 
 This matrix records the current baseline and independent proof for the
-0.16 surface. It is evidence, not the behavioral authority; current behavior
+current surface. It is evidence, not the behavioral authority; current behavior
 belongs to [BEHAVIOR.md](BEHAVIOR.md), package placement to
 [ARCHITECTURE.md](ARCHITECTURE.md), CLI wire behavior to [CLI.md](CLI.md),
 security to [SECURITY.md](SECURITY.md), release boundaries to
@@ -23,18 +23,18 @@ their readback.
 
 ## Required surface inventory
 
-| Surface                                               | Owner                                                                  | Independent proof                            | Status           |
-| ----------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------- | ---------------- |
-| Bun, `mise`, TypeScript, and Vite+ toolchain          | [DEVELOPMENT.md](DEVELOPMENT.md)                                       | Validation gate and lockfile checks          | proven           |
-| Effect Schema boundary validation                     | [ARCHITECTURE.md](ARCHITECTURE.md), [DEPENDENCIES.md](DEPENDENCIES.md) | Source and boundary tests                    | proven           |
-| Native role/task identities and route-only plans      | [BEHAVIOR.md](BEHAVIOR.md)                                             | Core catalog and routing tests               | proven           |
-| Independent service tiers                             | [BEHAVIOR.md](BEHAVIOR.md), [CONFIGURATION.md](CONFIGURATION.md)       | Configuration boundary tests                 | proven           |
-| CLI install, remove, version, JSON, and exit behavior | [CLI.md](CLI.md)                                                       | CLI boundary tests                           | proven           |
-| Native Codex plugin management and owned state        | [INSTALLATION.md](INSTALLATION.md), [STATE.md](STATE.md)               | Isolated installation/removal verification   | proven           |
-| Work, frontend, Security, and Computer Use selections | [BEHAVIOR.md](BEHAVIOR.md), [SECURITY.md](SECURITY.md)                 | Denial and typed-port tests                  | capability-gated |
-| Secret exclusion and fail-closed behavior             | [SECURITY.md](SECURITY.md)                                             | Security and redaction tests                 | proven           |
-| Evidence admissibility and provenance                 | [PROVENANCE.md](PROVENANCE.md)                                         | Repository proof and changed-file inspection | proven           |
-| Exact release artifact and publication gates          | [RELEASING.md](RELEASING.md)                                           | CI artifact digest and release checks        | proven           |
+| Surface                                                                 | Owner                                                                  | Independent proof                             | Status           |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------- | ---------------- |
+| Bun, `mise`, TypeScript, and Vite+ toolchain                            | [DEVELOPMENT.md](DEVELOPMENT.md)                                       | Validation gate and lockfile checks           | proven           |
+| Effect Schema boundary validation                                       | [ARCHITECTURE.md](ARCHITECTURE.md), [DEPENDENCIES.md](DEPENDENCIES.md) | Source and boundary tests                     | proven           |
+| Eleven canonical native Role.task identities and route-only plans       | [BEHAVIOR.md](BEHAVIOR.md)                                             | Core catalog, registration, and routing tests | proven           |
+| Independent service tiers                                               | [BEHAVIOR.md](BEHAVIOR.md), [CONFIGURATION.md](CONFIGURATION.md)       | Configuration boundary tests                  | proven           |
+| CLI install, remove, version, JSON, and exit behavior                   | [CLI.md](CLI.md)                                                       | CLI boundary tests                            | proven           |
+| Native Codex plugin management, owned state, and transactional recovery | [INSTALLATION.md](INSTALLATION.md), [STATE.md](STATE.md)               | Isolated install/removal/doctor verification  | proven           |
+| Work, frontend, Security, and Computer Use selections                   | [BEHAVIOR.md](BEHAVIOR.md), [SECURITY.md](SECURITY.md)                 | Denial and typed-port tests                   | capability-gated |
+| Secret exclusion and fail-closed behavior                               | [SECURITY.md](SECURITY.md)                                             | Security and redaction tests                  | proven           |
+| Evidence admissibility and provenance                                   | [PROVENANCE.md](PROVENANCE.md)                                         | Repository proof and changed-file inspection  | proven           |
+| Exact release artifact and publication gates                            | [RELEASING.md](RELEASING.md)                                           | CI artifact digest and release checks         | proven           |
 
 Every row has one owner. A change updates that owner and its proof instead of
 copying a claim into another document.

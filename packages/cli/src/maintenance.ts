@@ -7,6 +7,7 @@ import {
   compareManagedConfigKey,
   readTomlPath,
   resolveAgentConfigPath,
+  resolveOfficialPluginEntry,
   type ManagedConfigKeyPath,
   type ManagedRuntimeConfigState,
   type TomlDocument,
@@ -25,7 +26,12 @@ import {
   InstallerError,
 } from "./installer.ts";
 import { asJsonValue } from "./json.ts";
-import { isKnownLegacyRootRoleContent, removeManagedNativeAgents } from "./native-agents.ts";
+import {
+  isKnownLegacyRootRoleContent,
+  projectNativeAgents,
+  renderNativeAgent,
+  removeManagedNativeAgents,
+} from "./native-agents.ts";
 import { CodexOfficialPluginManager } from "./official-manager.ts";
 import {
   assertNoSymlinkTree,
@@ -102,7 +108,7 @@ export async function doctorHolyCodex(
 
   if (active) {
     checks["runtime_config"] = await doctorRuntimeConfig(paths, active);
-    checks["native_roles"] = await doctorNativeRoles(paths, active.tier);
+    checks["native_roles"] = await doctorNativeRoles(paths, active.plan, active.tier);
     const failedCapability = Object.entries(active.capability_state ?? {}).find(
       ([, value]) => value.selected && value.status !== "healthy",
     );
@@ -157,10 +163,15 @@ export async function doctorHolyCodex(
       const missing = Object.entries(status)
         .filter(([, value]) => value !== "installed")
         .map(([id]) => id);
+      const observed = manager.getObservedIdentities?.() ?? {};
       checks["native_plugins"] =
         missing.length === 0
-          ? healthyCheck({ status })
-          : failedCheck(["native_plugin_disagreement"], { missing, status });
+          ? healthyCheck({ status, observed_identities: observed })
+          : failedCheck(["native_plugin_disagreement"], {
+              missing,
+              status,
+              observed_identities: observed,
+            });
     } catch (error: unknown) {
       checks["native_plugins"] = failedCheck(["native_plugin_status_failed"], {
         error: safeMessage(error),
@@ -281,12 +292,18 @@ export async function removeHolyCodex(
 
   for (const pluginId of ownedPlugins) {
     try {
-      await manager.remove(pluginId);
+      const before = await manager.list();
+      const observed = resolveOfficialPluginEntry(before, pluginId);
+      const removalId = observed?.entry.installed ? observed.entry.pluginId : pluginId;
+      await manager.remove(removalId);
       const live = await manager.list();
-      const remaining = [...live.installed, ...live.available].find(
-        (entry) => entry.pluginId === pluginId && entry.installed,
-      );
-      if (remaining !== undefined) {
+      const resolvedRemaining = resolveOfficialPluginEntry(live, pluginId)?.entry;
+      const remaining =
+        resolvedRemaining?.installed === true ||
+        [...live.installed, ...live.available].some(
+          (entry) => entry.pluginId === pluginId && entry.installed,
+        );
+      if (remaining) {
         throw new InstallerError(
           "capability_denied",
           `Codex still reports ${pluginId} after removal.`,
@@ -438,7 +455,11 @@ async function doctorRuntimeConfig(
   if (!active.managed_config) return failedCheck(["incomplete_install_state"]);
   try {
     const document = parseConfig(await optionalTextFile(paths.configFile));
-    const expected = desiredRootConfig(active.plan, active.tier);
+    const expected = desiredRootConfig(
+      active.plan,
+      active.tier,
+      active.optional_selections.computer_use,
+    );
     const drift: string[] = [];
     for (const [keyPath, value] of Object.entries(expected)) {
       const comparison = await compareManagedConfigKey(
@@ -463,41 +484,54 @@ async function doctorRuntimeConfig(
 
 async function doctorNativeRoles(
   paths: ResolvedInstallerPaths,
+  plan: InstallRecord["plan"],
   tier: InstallRecord["tier"],
 ): Promise<DoctorCheck> {
   try {
     const document = parseConfig(await optionalTextFile(paths.configFile));
     const failures: string[] = [];
-    for (const role of ["explorer", "librarian", "worker", "reviewer"] as const) {
-      const ref = readTomlPath(document, `agents.${role}.config_file`);
-      const expected = `${paths.roleRoot}/${role}.toml`.replaceAll("\\", "/");
+    for (const agent of projectNativeAgents(plan, tier)) {
+      const ref = readTomlPath(document, `agents."${agent.name}".config_file`);
+      const expected = `${paths.roleRoot}/${agent.name}.toml`.replaceAll("\\", "/");
       if (
         typeof ref !== "string" ||
         resolveAgentConfigPath(paths.configFile, ref).replaceAll("\\", "/") !== expected
       ) {
-        failures.push(`${role}:registration`);
+        failures.push(`${agent.name}:registration`);
         continue;
       }
-      const roleText = await optionalTextFile(`${paths.roleRoot}/${role}.toml`);
+      const roleText = await optionalTextFile(`${paths.roleRoot}/${agent.name}.toml`);
       if (roleText === undefined) {
-        failures.push(`${role}:missing`);
+        failures.push(`${agent.name}:missing`);
+        continue;
+      }
+      if (roleText !== renderNativeAgent(agent)) {
+        failures.push(`${agent.name}:changed`);
         continue;
       }
       const roleDocument = parseConfig(roleText);
       if (
-        roleDocument["name"] !== role ||
+        roleDocument["name"] !== agent.name ||
         typeof roleDocument["description"] !== "string" ||
         typeof roleDocument["developer_instructions"] !== "string" ||
         roleDocument["model"] !== "gpt-5.6-luna" ||
         roleDocument["model_reasoning_summary"] !== "none" ||
         roleDocument["model_verbosity"] !== "low" ||
-        roleDocument["tool_output_token_limit"] !== 12000 ||
+        roleDocument["tool_output_token_limit"] !== undefined ||
         roleDocument["service_tier"] !== (tier === "standard" ? "default" : "fast") ||
+        roleDocument["sandbox_mode"] !==
+          (agent.rolePolicy.permissions.write ? "workspace-write" : "read-only") ||
+        roleDocument["approval_policy"] !== "never" ||
+        roleDocument["web_search"] !==
+          (agent.rolePolicy.permissions.network ? "live" : "disabled") ||
         readTomlPath(roleDocument, "agents.enabled") !== false ||
         readTomlPath(roleDocument, "features.multi_agent_v2") !== false ||
-        readTomlPath(roleDocument, "features.multi_agent") !== false
+        readTomlPath(roleDocument, "features.multi_agent") !== false ||
+        readTomlPath(roleDocument, "features.computer_use") !== false ||
+        readTomlPath(roleDocument, "features.browser_use") !== false ||
+        readTomlPath(roleDocument, "features.in_app_browser") !== false
       ) {
-        failures.push(`${role}:malformed`);
+        failures.push(`${agent.name}:malformed`);
       }
     }
     const staleRoot = await optionalTextFile(`${paths.codexHome}/agents/root.toml`);
@@ -505,7 +539,10 @@ async function doctorNativeRoles(
       failures.push("root:stale");
     }
     return failures.length === 0
-      ? healthyCheck({ role_root: paths.roleRoot })
+      ? healthyCheck({
+          role_root: paths.roleRoot,
+          agent_types: projectNativeAgents(plan, tier).map((agent) => agent.name),
+        })
       : failedCheck(["native_role_disagreement"], { roles: failures });
   } catch (error: unknown) {
     return failedCheck(["native_role_invalid"], { error: safeMessage(error) });

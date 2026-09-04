@@ -19,5 +19,5 @@
     "defaultPrompt": ["Use HolyCodex to implement and verify this task."]
   },
   "name": "holycodex",
-  "version": "0.16.2"
+  "version": "0.16.3"
 }

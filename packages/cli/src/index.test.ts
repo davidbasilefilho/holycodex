@@ -8,6 +8,7 @@ import { describe, expect, test } from "vite-plus/test";
 
 import {
   assertRootText,
+  CodexOfficialPluginManager,
   doctorHolyCodex,
   installHolyCodex,
   installRecordDigest,
@@ -113,7 +114,7 @@ describe("CLI boundaries", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   test("normalizes Windows paths without traversal", () => {
     const root = assertRootText("/c/Users/codex/.codex", "CODEX_HOME", "win32");
@@ -149,33 +150,47 @@ describe("native installation and removal", () => {
         "build-web-apps@openai-curated",
         "codex-security@openai-curated",
       ]);
-      expect(install.record.managed_artifacts).toHaveLength(4);
+      expect(install.record.managed_artifacts).toHaveLength(11);
+      expect(install.record.managed_artifacts.map((artifact) => artifact.path)).toEqual(
+        projectNativeAgents("plus").map((agent) => `holycodex/agents/${agent.name}.toml`),
+      );
       expect(install.record.status).toBe("active");
       expect(
-        await readFile(join(codexHome, "holycodex", "agents", "worker.toml"), "utf8"),
+        await readFile(
+          join(codexHome, "holycodex", "agents", "Worker.implementation.toml"),
+          "utf8",
+        ),
       ).toContain('model_reasoning_summary = "none"');
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
       expect(config).toContain('model = "gpt-5.6-sol"');
       expect(config).toContain("default_mode_request_user_input = true");
       expect(config).toContain("multi_agent_v2 = true");
       expect(config).toContain("experimental_mode = true");
-      expect(config).toContain("Before delegation, ensure writing-for-agents is fully loaded");
-      expect(config).toContain("fully load it on first use in the active context");
-      expect(config).toContain("reuse it while its complete instructions remain available");
-      expect(config).toContain("reload only after compaction, a new context");
+      expect(config).toContain("Apply writing-for-agents before dispatch");
+      expect(config).not.toContain("Interactive GUI, browser, and Computer Use execution");
+      for (const agent of projectNativeAgents("plus")) {
+        expect(config).toContain(`[agents.${JSON.stringify(agent.name)}]`);
+        expect(config).toContain(`holycodex/agents/${agent.name}.toml`);
+      }
       expect(config).not.toContain('name = "root"');
-      const leaf = await readFile(join(codexHome, "holycodex", "agents", "worker.toml"), "utf8");
+      const leaf = await readFile(
+        join(codexHome, "holycodex", "agents", "Worker.implementation.toml"),
+        "utf8",
+      );
       expect(leaf).toContain('service_tier = "default"');
       expect(leaf).toContain('model_verbosity = "low"');
-      expect(leaf).toContain("tool_output_token_limit = 12000");
+      expect(leaf).not.toContain("tool_output_token_limit");
+      expect(leaf).toContain('sandbox_mode = "workspace-write"');
+      expect(leaf).toContain('approval_policy = "never"');
+      expect(leaf).toContain('web_search = "disabled"');
       expect(leaf).toContain("[agents]");
       expect(leaf).toContain("enabled = false");
       expect(leaf).toContain("interrupt_message = false");
       expect(leaf).toContain("[features]");
       expect(leaf).toContain("multi_agent_v2 = false");
       expect(leaf).toContain("multi_agent = false");
-      expect(leaf).not.toContain("sandbox_mode");
-      expect(leaf).toContain("Execute only the assigned scope");
+      expect(leaf).toContain("computer_use = false");
+      expect(leaf).toContain("browser_use = false");
       expect(leaf).not.toContain("Do not spawn agents, message peers, or delegate work.");
       const result = await removeHolyCodex({
         paths: { codexHome },
@@ -187,6 +202,31 @@ describe("native installation and removal", () => {
       expect(result.removed).toContain("codex-security@openai-curated");
       await expect(manager.list?.()).resolves.toMatchObject({ installed: [] });
       await expect(readFile(join(codexHome, "holycodex", "active.json"), "utf8")).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps Computer Use Root-only when the capability is selected", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-computer-use-"));
+    const codexHome = join(root, "codex");
+    try {
+      const install = await installHolyCodex(
+        { optional: { computer_use: true, frontend: false, security: false } },
+        { paths: { codexHome }, officialPluginManager: fakeManager() },
+      );
+      expect(install.record.official_plugins).toContain("computer-use@openai-bundled");
+      const config = await readFile(join(codexHome, "config.toml"), "utf8");
+      expect(config).toContain("Interactive GUI, browser, and Computer Use execution is Root-only");
+      for (const agent of projectNativeAgents("plus")) {
+        const leaf = await readFile(
+          join(codexHome, "holycodex", "agents", `${agent.name}.toml`),
+          "utf8",
+        );
+        expect(leaf).toContain("computer_use = false");
+        expect(leaf).toContain("browser_use = false");
+        expect(leaf).toContain("in_app_browser = false");
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -204,7 +244,12 @@ describe("native installation and removal", () => {
         installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager }),
       ).rejects.toMatchObject({ code: "capability_denied" });
       await expect(readFile(join(codexHome, "holycodex", "active.json"))).rejects.toThrow();
-      await expect(readFile(join(codexHome, "holycodex", "conflicted.json"))).resolves.toBeTruthy();
+      await expect(readFile(join(codexHome, "holycodex", "preparing.json"))).rejects.toThrow();
+      await expect(readFile(join(codexHome, "holycodex", "conflicted.json"))).rejects.toThrow();
+      await expect(readFile(join(codexHome, "config.toml"))).rejects.toThrow();
+      await expect(
+        readFile(join(codexHome, "holycodex", "agents", "Explorer.lookup.toml")),
+      ).rejects.toThrow();
       await expect(manager.list?.()).resolves.toMatchObject({ installed: [] });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -354,10 +399,63 @@ describe("native installation and removal", () => {
     }
   });
 
+  test("reuses recognized remote official providers without bootstrap or duplicate add", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-remote-provider-"));
+    const codexHome = join(root, "codex");
+    const events: string[] = [];
+    const installed = new Map(
+      ["build-web-apps", "codex-security"].map((name) => [
+        `${name}@openai-curated-remote`,
+        {
+          pluginId: `${name}@openai-curated-remote`,
+          marketplaceName: "openai-curated-remote",
+          installed: true,
+          enabled: true,
+        },
+      ]),
+    );
+    const manager: OfficialPluginManager = {
+      list: async () => ({ installed: [...installed.values()], available: [] }),
+      ensureOfficialMarketplace: async (ids) => {
+        events.push(`bootstrap:${ids.join(",")}`);
+      },
+      addMarketplace: async () => undefined,
+      add: async (pluginId) => {
+        events.push(`add:${pluginId}`);
+        installed.set(pluginId, {
+          pluginId,
+          marketplaceName: pluginId.slice(pluginId.indexOf("@") + 1),
+          installed: true,
+          enabled: true,
+        });
+      },
+      remove: async (pluginId) => {
+        installed.delete(pluginId);
+      },
+    };
+    try {
+      const install = await installHolyCodex(
+        {},
+        {
+          paths: { codexHome },
+          officialPluginManager: manager,
+        },
+      );
+      expect(events).toEqual(["add:holycodex@holycodex"]);
+      expect(install.record.official_plugins).toEqual([
+        "build-web-apps@openai-curated",
+        "codex-security@openai-curated",
+      ]);
+      expect(install.record.owned_plugins).toEqual(["holycodex@holycodex"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("does not register a malformed pre-existing HolyCodex role", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-role-conflict-"));
     const codexHome = join(root, "codex");
-    const rolePath = join(codexHome, "holycodex", "agents", "worker.toml");
+    const rolePath = join(codexHome, "holycodex", "agents", "Worker.implementation.toml");
     try {
       await mkdir(join(codexHome, "holycodex", "agents"), { recursive: true });
       await writeFile(rolePath, 'name = "not-worker"\n');
@@ -462,7 +560,9 @@ describe("native installation and removal", () => {
       await expect(
         installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager }),
       ).rejects.toMatchObject({ code: "capability_denied" });
-      await expect(readFile(join(codexHome, "holycodex", "conflicted.json"))).resolves.toBeTruthy();
+      // A failed provider add with no observed side effect is transactionally rolled back.
+      await expect(readFile(join(codexHome, "holycodex", "preparing.json"))).rejects.toThrow();
+      await expect(readFile(join(codexHome, "holycodex", "conflicted.json"))).rejects.toThrow();
       failures.clear();
       const recoveredRoot = await mkdtemp(join(tmpdir(), "holycodex-cli-recovered-"));
       const recoveredCodexHome = join(recoveredRoot, "codex");
@@ -914,7 +1014,7 @@ describe("native installation and removal", () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-role-preflight-"));
     const codexHome = join(root, "codex");
     const roleRoot = join(codexHome, "holycodex", "agents");
-    const malformedWorker = join(roleRoot, "worker.toml");
+    const malformedWorker = join(roleRoot, "Worker.implementation.toml");
     try {
       await mkdir(roleRoot, { recursive: true });
       await writeFile(malformedWorker, "not valid HolyCodex role data\n");
@@ -925,8 +1025,8 @@ describe("native installation and removal", () => {
         ),
       ).rejects.toMatchObject({ code: "install_failed" });
       expect(await readFile(malformedWorker, "utf8")).toBe("not valid HolyCodex role data\n");
-      for (const role of ["explorer", "librarian", "reviewer"] as const) {
-        await expect(readFile(join(roleRoot, `${role}.toml`), "utf8")).rejects.toThrow();
+      for (const agentType of ["Explorer.lookup", "Librarian.lookup", "Reviewer.code"] as const) {
+        await expect(readFile(join(roleRoot, `${agentType}.toml`), "utf8")).rejects.toThrow();
       }
       await expect(readFile(join(codexHome, "holycodex", "active.json"))).rejects.toThrow();
     } finally {
@@ -938,7 +1038,7 @@ describe("native installation and removal", () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
     const codexHome = join(root, "codex");
     const manager = fakeManager();
-    const leaf = join(codexHome, "holycodex", "agents", "worker.toml");
+    const leaf = join(codexHome, "holycodex", "agents", "Worker.implementation.toml");
     const config = join(codexHome, "config.toml");
     try {
       await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager });
@@ -1035,6 +1135,129 @@ describe("native installation and removal", () => {
       });
       expect(changed.healthy).toBe(false);
       expect(changed.reasons).toContain("state_corrupt");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("doctor reports recognized observed official provider identities", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-observed-provider-"));
+    const codexHome = join(root, "codex");
+    try {
+      await installHolyCodex(
+        {},
+        {
+          paths: { codexHome },
+          officialPluginManager: fakeManager(),
+        },
+      );
+      const live = {
+        installed: [
+          {
+            pluginId: "holycodex@holycodex",
+            marketplaceName: "holycodex",
+            installed: true,
+            enabled: true,
+          },
+          ...["build-web-apps", "codex-security"].map((name) => ({
+            pluginId: `${name}@openai-curated-remote`,
+            marketplaceName: "openai-curated-remote",
+            installed: true,
+            enabled: true,
+          })),
+        ],
+        available: [],
+      };
+      const manager = new CodexOfficialPluginManager({
+        list: async () => live,
+        ensureOfficialMarketplace: async () => undefined,
+        addMarketplace: async () => undefined,
+        add: async () => undefined,
+        remove: async () => undefined,
+      });
+      const doctor = await doctorHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+      });
+      expect(doctor.healthy).toBe(true);
+      expect(doctor.checks["native_plugins"]?.details["observed_identities"]).toMatchObject({
+        "build-web-apps@openai-curated": "build-web-apps@openai-curated-remote",
+        "codex-security@openai-curated": "codex-security@openai-curated-remote",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("doctor reports canonical agent drift and incomplete transactions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-doctor-runtime-"));
+    const codexHome = join(root, "codex");
+    const manager = fakeManager();
+    try {
+      await installHolyCodex(
+        {},
+        {
+          paths: { codexHome },
+          officialPluginManager: manager,
+        },
+      );
+      await rm(join(codexHome, "holycodex", "agents", "Reviewer.code.toml"));
+      const drifted = await doctorHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+      });
+      expect(drifted.healthy).toBe(false);
+      expect(drifted.checks["native_roles"]?.reasons).toContain("native_role_disagreement");
+      expect(drifted.checks["native_roles"]?.details["roles"]).toContain("Reviewer.code:missing");
+
+      const activePath = join(codexHome, "holycodex", "active.json");
+      const active = JSON.parse(await readFile(activePath, "utf8")) as Record<string, unknown>;
+      await writeFile(
+        join(codexHome, "holycodex", "preparing.json"),
+        `${JSON.stringify({ ...active, status: "preparing", step: "roles_prepared" })}\n`,
+      );
+      const incomplete = await doctorHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+      });
+      expect(incomplete.checks["transaction"]?.reasons).toContain("incomplete_install_state");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("retries reconcile an incomplete transaction before reinstalling", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-retry-transaction-"));
+    const codexHome = join(root, "codex");
+    const manager = fakeManager();
+    try {
+      const initial = await installHolyCodex(
+        {},
+        {
+          paths: { codexHome },
+          officialPluginManager: manager,
+        },
+      );
+      await writeFile(
+        join(codexHome, "holycodex", "preparing.json"),
+        `${JSON.stringify({ ...initial.record, status: "preparing", step: "config_published" })}\n`,
+      );
+      const retried = await installHolyCodex(
+        { tier: "fast-all" },
+        { paths: { codexHome }, officialPluginManager: manager },
+      );
+      expect(retried.record.status).toBe("active");
+      expect(retried.record.tier).toBe("fast-all");
+      await expect(readFile(join(codexHome, "holycodex", "preparing.json"))).rejects.toThrow();
+      await expect(readFile(join(codexHome, "holycodex", "conflicted.json"))).rejects.toThrow();
+      expect(
+        (
+          await doctorHolyCodex({
+            paths: { codexHome },
+            officialPluginManager: manager,
+          })
+        ).healthy,
+      ).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

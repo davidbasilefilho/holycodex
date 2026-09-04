@@ -48,10 +48,10 @@ export const ROLE_DEFINITIONS = [
       },
     ],
     capability: "repository-read",
-    authority: "Read only the assigned repository scope; Root owns decisions.",
+    authority: "Read only the assigned repository scope; Git/VCS and decisions remain Root-only.",
     evidence: "Return exact paths, symbols, callers, tests, and constraints.",
     completion: "Account for every in-scope caller and constraint.",
-    permissions: { network: false, write: false, execute: false },
+    permissions: { network: false, write: false },
   },
   {
     role: "Librarian",
@@ -70,10 +70,11 @@ export const ROLE_DEFINITIONS = [
       },
     ],
     capability: "current-research",
-    authority: "Research only the assigned current sources; Root owns decisions.",
+    authority:
+      "Research only the assigned current sources without repository mutation; Git/VCS and decisions remain Root-only.",
     evidence: "Return sourced facts, dates, and explicit uncertainty.",
     completion: "Resolve the assigned external fact or report the exact evidence gap.",
-    permissions: { network: true, write: false, execute: false },
+    permissions: { network: true, write: false },
   },
   {
     role: "Worker",
@@ -105,10 +106,10 @@ export const ROLE_DEFINITIONS = [
       },
     ],
     capability: "bounded-write",
-    authority: "Change only the assigned seam; Root owns material choices.",
+    authority: "Change only the assigned seam; Git/VCS and material choices remain Root-only.",
     evidence: "Return changed files, verification results, and remaining risk.",
     completion: "Finish the assigned seam with proportional proof or an exact blocker.",
-    permissions: { network: false, write: true, execute: true },
+    permissions: { network: false, write: true },
   },
   {
     role: "Reviewer",
@@ -133,10 +134,11 @@ export const ROLE_DEFINITIONS = [
       },
     ],
     capability: "bounded-review",
-    authority: "Inspect and repair only reviewer-owned defects; Root owns material choices.",
+    authority:
+      "Inspect and repair only reviewer-owned defects; Git/VCS and material choices remain Root-only.",
     evidence: "Return findings, repaired paths, verification, and residual risk.",
     completion: "Reach a fixed point or report each reproducible blocker.",
-    permissions: { network: false, write: true, execute: true },
+    permissions: { network: false, write: true },
   },
 ] as const;
 freezeDeep(ROLE_DEFINITIONS);

@@ -7,17 +7,10 @@ Use this skill once after implementation or manifest work. Inspect the actual
 integrated result to a fixed point before Root judges readiness. Apply
 [testing quality](../testing-quality.md) when judging new or modified tests.
 
-Owner: Reviewer. Boundary: inspect the assigned diff, callers, contracts,
-tests, compatibility, and artifact. Repair only reviewer-owned defects inside
-scope, verify each repair, and repeat until no assigned defect remains. Root
-retains architecture, product, scope, trust, interface, external-state, and
-final readiness decisions.
+Inspect the assigned diff, callers, contracts, tests, compatibility, and
+artifact. Repair defects inside the review surface, verify each repair, and
+repeat until the review reaches a fixed point.
 
-Use existing code and project conventions before adding code; prefer
-standard-library or native behavior; trace callers before judging a shared root
-cause; and flag speculative abstractions, pointless file splits, oversized or
-unmergeable diffs, unclear dependency direction, and unnecessary tests.
-Check that temporary/generated output is absent and Git/VCS remains Root-only.
-
-Completion: no reviewer-owned defect remains, verification evidence is
-recorded, and every residual risk or Root decision is explicit.
+Flag speculative abstractions, pointless file splits, oversized changes,
+unclear dependency direction, and tests that protect implementation detail.
+Confirm incidental generated output is absent before stopping.

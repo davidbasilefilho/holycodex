@@ -5,10 +5,13 @@ import {
   createOfficialPluginAdapter,
   discoverCodexExecutable,
   OfficialPluginAdapterError,
+  resolveOfficialPluginEntry,
+  type ResolvedOfficialPluginEntry,
   type LiveOfficialPluginEntry,
   type LiveOfficialPluginListEnvelope,
   type OfficialPluginCommandRunner,
 } from "@holycodex/codex";
+import { canonicalOfficialPluginId } from "@holycodex/core";
 
 import type { OfficialPluginManager, OfficialPluginStatus } from "./types.ts";
 
@@ -16,6 +19,7 @@ export type { OfficialPluginCommandRunner } from "@holycodex/codex";
 
 export class CodexOfficialPluginManager implements OfficialPluginManager {
   private readonly adapter: OfficialPluginAdapterShape;
+  private observedIdentities: Readonly<Record<string, string>> = {};
 
   constructor(input: OfficialPluginCommandRunner | OfficialPluginAdapterShape) {
     if ("run" in input) {
@@ -83,15 +87,23 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
     selected: readonly string[],
   ): Promise<Readonly<Record<string, OfficialPluginStatus>>> {
     const live = await this.list();
+    const observed: Record<string, string> = {};
     const byId = new Map<string, LiveOfficialPluginEntry>();
     for (const entry of [...live.installed, ...live.available]) {
       if (!byId.has(entry.pluginId) || entry.installed) {
         byId.set(entry.pluginId, entry);
       }
     }
-    return Object.fromEntries(
+    const statuses = Object.fromEntries(
       selected.map((pluginId) => {
-        const entry = byId.get(pluginId);
+        const resolved = resolveOfficialPluginEntry(live, pluginId);
+        const canonical = canonicalOfficialPluginId(pluginId);
+        const exact = byId.get(pluginId);
+        const entry =
+          resolved?.entry ??
+          (canonical === undefined || exact?.marketplaceName == null ? exact : undefined);
+        const identity: ResolvedOfficialPluginEntry | undefined = resolved;
+        if (entry !== undefined) observed[pluginId] = identity?.entry.pluginId ?? entry.pluginId;
         const status: OfficialPluginStatus =
           entry === undefined
             ? "missing"
@@ -103,6 +115,13 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
         return [pluginId, status];
       }),
     );
+    this.observedIdentities = Object.freeze(observed);
+    return statuses;
+  }
+
+  /** Return the live plugin id observed for each canonical provider in the last status check. */
+  getObservedIdentities(): Readonly<Record<string, string>> {
+    return this.observedIdentities;
   }
 }
 

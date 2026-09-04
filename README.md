@@ -38,6 +38,14 @@ are opt-in. A selected capability must install and verify successfully or the
 installation fails. Use `--json` when another program needs the complete
 structured state; human output stays concise.
 
+The native surface has eleven canonical leaves: `Explorer.lookup`,
+`Explorer.trace`, `Librarian.lookup`, `Librarian.research`,
+`Worker.mechanical`, `Worker.implementation`, `Worker.integration`,
+`Worker.operations`, `Reviewer.plan`, `Reviewer.code`, and
+`Reviewer.artifact`. Each has one TOML and one `config.toml` registration.
+Root is the parent Codex session configured in `config.toml`; HolyCodex never
+creates `agents/root.toml`.
+
 For repository development, use the pinned toolchain:
 
 ```sh

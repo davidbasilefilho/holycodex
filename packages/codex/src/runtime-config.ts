@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { canonicalJsonUtf8, domainSeparatedSha256, type Sha256Digest } from "@holycodex/core";
-import type { Effort } from "@holycodex/core";
+import { NATIVE_AGENT_TYPES, type Effort, type NativeAgentType } from "@holycodex/core";
 import * as Schema from "effect/Schema";
 
 import { isPlainObject, invalidData } from "./common";
@@ -42,16 +42,50 @@ export const TomlDocumentSchema = Schema.declare((value: unknown): value is Toml
 );
 
 function pathParts(keyPath: string): readonly string[] {
-  if (!/^[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z][A-Za-z0-9_-]*)*$/u.test(keyPath)) {
-    throw invalidData("TOML key path", keyPath);
+  const parts: string[] = [];
+  let start = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index <= keyPath.length; index += 1) {
+    const character = keyPath[index];
+    if (index === keyPath.length || (character === "." && !quoted)) {
+      const raw = keyPath.slice(start, index);
+      const part = raw.startsWith('"') ? parseQuotedKeyPart(raw) : raw;
+      if (
+        !/^[A-Za-z][A-Za-z0-9_-]*$/u.test(part) &&
+        !NATIVE_AGENT_TYPES.includes(part as NativeAgentType)
+      ) {
+        throw invalidData("TOML key path", keyPath);
+      }
+      parts.push(part);
+      start = index + 1;
+      continue;
+    }
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quoted = false;
+    } else if (character === '"') {
+      quoted = true;
+    }
   }
-  const parts = keyPath.split(".");
+  if (quoted || escaped || parts.length === 0) throw invalidData("TOML key path", keyPath);
   if (
     parts.some((part) => part === "__proto__" || part === "constructor" || part === "prototype")
   ) {
     throw invalidData("TOML key path", keyPath);
   }
   return parts;
+}
+
+function parseQuotedKeyPart(value: string): string {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (typeof parsed === "string") return parsed;
+  } catch {
+    // The caller reports the complete invalid key path.
+  }
+  throw invalidData("TOML quoted key", value);
 }
 
 /** Read a dotted key from a parsed TOML document without exposing raw state. */
@@ -146,10 +180,18 @@ export const ROOT_CONFIG_KEY_PATHS = [
 ] as const;
 export type RootConfigKeyPath = (typeof ROOT_CONFIG_KEY_PATHS)[number];
 
-export const HOLYCODEX_AGENT_ROLES = ["explorer", "librarian", "worker", "reviewer"] as const;
-export type HolyCodexAgentRole = (typeof HOLYCODEX_AGENT_ROLES)[number];
-export type AgentConfigKeyPath = `agents.${HolyCodexAgentRole}.config_file`;
-export type ManagedConfigKeyPath = RootConfigKeyPath | AgentConfigKeyPath;
+export const HOLYCODEX_AGENT_TYPES = NATIVE_AGENT_TYPES;
+export type HolyCodexAgentType = NativeAgentType;
+export type AgentConfigKeyPath = `agents."${HolyCodexAgentType}".config_file`;
+type LegacyAgentConfigKeyPath =
+  | "agents.explorer.config_file"
+  | "agents.librarian.config_file"
+  | "agents.worker.config_file"
+  | "agents.reviewer.config_file";
+export type ManagedConfigKeyPath =
+  | RootConfigKeyPath
+  | AgentConfigKeyPath
+  | LegacyAgentConfigKeyPath;
 
 export const ManagedConfigKeyPathSchema = Schema.declare(
   (value: unknown): value is ManagedConfigKeyPath => isManagedConfigKeyPath(value),
@@ -158,7 +200,8 @@ export const ManagedConfigKeyPathSchema = Schema.declare(
 export function isManagedConfigKeyPath(value: unknown): value is ManagedConfigKeyPath {
   if (typeof value !== "string") return false;
   if ((ROOT_CONFIG_KEY_PATHS as readonly string[]).includes(value)) return true;
-  return /^agents\.(?:explorer|librarian|worker|reviewer)\.config_file$/u.test(value);
+  if (/^agents\.(?:explorer|librarian|worker|reviewer)\.config_file$/u.test(value)) return true;
+  return NATIVE_AGENT_TYPES.some((agentType) => value === `agents."${agentType}".config_file`);
 }
 
 type ManagedEnum =

@@ -55,14 +55,14 @@ describe("plugin source assets", () => {
         expect(body).toContain("references/examples.md");
       } else {
         expect(body).toMatch(new RegExp(`^---\\nname: ${skill}\\ndescription: .+\\n---`, "u"));
-        expect(body).toContain("Owner:");
-        expect(body).toContain("Boundary:");
-        expect(body).toContain("Completion:");
       }
       if (skill === "writing-for-agents") {
         expect(body).toContain("SKILL-MECHANICS.md");
         expect(body).toContain("context pointer");
         expect(body).toContain("Owner:");
+        expect(body).toContain("Boundary:");
+        expect(body).toContain("Completion:");
+        expect(body).toContain("Return:");
         expect(body).not.toContain("For Sol");
         expect(body).not.toContain("For Luna");
       }

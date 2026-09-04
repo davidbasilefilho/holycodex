@@ -536,7 +536,11 @@ describe("Codex identity, configuration, and plugins", () => {
     try {
       await mkdir(codexHome, { recursive: true });
       await mkdir(outside, { recursive: true });
-      await symlink(outside, join(codexHome, "plugins"));
+      await symlink(
+        outside,
+        join(codexHome, "plugins"),
+        process.platform === "win32" ? "junction" : "dir",
+      );
       await expect(
         bootstrapOfficialMarketplace({
           codexHome,
@@ -683,7 +687,11 @@ describe("Codex identity, configuration, and plugins", () => {
           },
           cloneSnapshot: async (_source, destination) => {
             await mkdir(join(destination, ".agents", "plugins"), { recursive: true });
-            await symlink("/tmp", join(destination, "unsafe-link"));
+            await symlink(
+              "/tmp",
+              join(destination, "unsafe-link"),
+              process.platform === "win32" ? "junction" : "dir",
+            );
             await writeFile(
               join(destination, ".agents", "plugins", "marketplace.json"),
               JSON.stringify({
