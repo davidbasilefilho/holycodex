@@ -505,13 +505,21 @@ async function createCodexFixture(
     mode: 0o600,
   });
   if (process.platform === "win32") {
-    const executable = join(binDirectory, "codex.cmd");
-    const bunPath = process.execPath.replaceAll('"', '""');
-    const script = programPath.replaceAll('"', '""');
-    await writeFile(executable, `@echo off\r\n"${bunPath}" "${script}" %*\r\n`, {
-      encoding: "utf8",
-      mode: 0o700,
-    });
+    const executable = join(binDirectory, "codex.exe");
+    await runChecked(
+      [
+        process.execPath,
+        "build",
+        "--compile",
+        "--windows-hide-console",
+        `--outfile=${executable}`,
+        programPath,
+      ],
+      {
+        cwd: workspaceRoot,
+        env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
+      },
+    );
     return { binDirectory, executable };
   }
   const executable = join(binDirectory, "codex");
