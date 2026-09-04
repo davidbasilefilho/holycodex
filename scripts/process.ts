@@ -27,6 +27,7 @@ const DEFAULT_OUTPUT_LIMIT = 256 * 1024;
  */
 export const DEFAULT_COMMAND_ENVIRONMENT_KEYS = [
   "PATH",
+  "PATHEXT",
   "HOME",
   "USER",
   "LOGNAME",
