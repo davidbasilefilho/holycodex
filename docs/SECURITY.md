@@ -23,17 +23,25 @@ an explicit denial or classified failure.
 1. Every external, persisted, CLI, Codex, and specialist value is validated
    with Effect Schema at the receiving edge. The caller supplies intent, not
    authorization, internal state, identity, or a trusted result.
-2. Root owns scope, architecture, product, policy, permission, integration,
-   external-effect approval, and final judgment. Native subagents cannot turn
-   their mechanics into permission.
+2. Root owns scope, architecture, product, policy, permission, lifecycle,
+   integration, external-effect approval, and final judgment. Root MUST
+   delegate every task, including trivial work, through a bounded Assignment;
+   the only direct Root execution exceptions are Git/VCS and Computer Use when
+   selected at install. Native subagents cannot turn their mechanics into
+   permission.
 3. Native role profiles enforce the supported capability boundary: Explorer is
    repository read-only; Librarian is current-research read-only with live
-   web access; Worker is bounded workspace-write without network access; and
-   Reviewer is bounded inspection/repair without network access. Native leaf
-   delegation features are disabled, so leaves cannot spawn or message peers.
+   web access; Worker is bounded workspace-write with network disabled for
+   mechanical, implementation, and integration tasks, while only
+   `Worker.operations` receives the minimum live access needed to observe
+   Root-supplied exact-ref/SHA CI or release state; and Reviewer is bounded
+   inspection/repair without network access. Native leaf delegation features
+   are disabled, so leaves cannot spawn or message peers.
 4. Explorer, Librarian, Worker, and Reviewer receive literal bounded
-   assignments. Their outputs remain untrusted until Root validates and
+   Assignments. Their outputs remain untrusted until Root validates and
    integrates them. Reviewers cannot silently expand a changed surface.
+   Assignment outcomes and evidence are recorded through `holycodex-agent`;
+   specialists do not own global Intent lifecycle.
 5. Workspace paths are resolved and checked against the assigned or owned
    scope before access. Repository text cannot grant itself authority.
 6. The installation record is an integrity boundary. It is schema-validated,
@@ -50,6 +58,11 @@ an explicit denial or classified failure.
     and Computer Use execution directive is conditional on Root and the
     capability is withheld from leaves by native configuration where supported;
     the directive is absent when the capability is disabled.
+11. After integration, Root performs the VCS action and delegates exact-ref/SHA
+    terminal CI or release observation. The observer is read-only; pending is
+    never success. Root delegates any failure fix and repeats the cycle, and
+    must discover the repository's topology rather than assume a provider or
+    branch scheme.
 
 ## State and secret exclusions
 
@@ -97,4 +110,5 @@ must validate its source and destination with Effect Schema, preserve identity
 and provenance, and write atomically.
 
 Security findings and hardening choices remain evidence for Root, not implicit
-permission to mutate external systems.
+permission to mutate external systems. Handoff is only a redacted projection
+of current Intent state; it is not a second persistent source of truth.

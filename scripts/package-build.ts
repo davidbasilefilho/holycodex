@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cp, readFile, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
@@ -10,13 +10,24 @@ import { readCanonicalVersion } from "../packages/cli/src/manifest.ts";
 import { SourceManifestSchema, validateSource } from "../packages/plugin/src/index.ts";
 import { assertBuildUploadDirectory, listSafeArtifactEntries } from "./artifact-security.ts";
 import { ensureCodexGenerated } from "./generate-codex-bindings.ts";
-import { allowlistedEnvironment, DEFAULT_COMMAND_ENVIRONMENT_KEYS, runChecked } from "./process.ts";
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
 const distRoot = join(workspaceRoot, "packages/cli/dist");
 const distAssets = join(distRoot, "assets");
 const pluginAssets = join(workspaceRoot, "packages/plugin/assets");
 
+const buildEntries = [
+  {
+    source: join(workspaceRoot, "packages/cli/src/index.ts"),
+    output: join(distRoot, "index.js"),
+  },
+  {
+    source: join(workspaceRoot, "packages/agent/src/index.ts"),
+    output: join(distRoot, "agent.js"),
+  },
+] as const;
+
+/** Builds the public CLI and model-facing agent bundles, then stages plugin assets. */
 export async function runPackageBuild(): Promise<void> {
   await ensureCodexGenerated();
   // Validate the source tree before copying it into the public build. The
@@ -25,10 +36,25 @@ export async function runPackageBuild(): Promise<void> {
   // package/release boundaries.
   await validateSource(pluginAssets);
   await listSafeArtifactEntries(pluginAssets, "the plugin source");
-  await runChecked(["vp", "pack"], {
-    cwd: workspaceRoot,
-    env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
-  });
+  await rm(distRoot, { recursive: true, force: true });
+  for (const entry of buildEntries) {
+    const result = await Bun.build({
+      entrypoints: [entry.source],
+      outdir: distRoot,
+      naming: basename(entry.output),
+      target: "bun",
+      format: "esm",
+      splitting: false,
+      minify: true,
+      banner: "#!/usr/bin/env bun",
+      external: ["@opentui/core"],
+    });
+    if (!result.success) {
+      throw new Error(
+        `Bun build failed: ${result.logs.map((log) => log.message).join("\n") || "unknown error"}`,
+      );
+    }
+  }
   const packagedPlugin = join(distAssets, "plugin");
   await rm(packagedPlugin, { recursive: true, force: true });
   await cp(pluginAssets, packagedPlugin, { recursive: true, dereference: true });

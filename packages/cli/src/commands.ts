@@ -13,7 +13,13 @@ import { lookupPlan } from "@holycodex/core";
 
 import { ArgumentError, parseArgv } from "./args.ts";
 import { colorEnabled, helpRequested, helpText, helpTopic } from "./help.ts";
-import { installHolyCodex, InstallerError, type InstallRequest } from "./installer.ts";
+import { runOpenTuiInstallWizard } from "./installer-wizard.ts";
+import {
+  installHolyCodex,
+  InstallerError,
+  validateInstallOptions,
+  type InstallRequest,
+} from "./installer.ts";
 import { asJsonValue } from "./json.ts";
 import { doctorHolyCodex, removeHolyCodex } from "./maintenance.ts";
 import { readCanonicalVersion, updateCanonicalVersion, ManifestError } from "./manifest.ts";
@@ -73,29 +79,57 @@ export async function executeCommand(
 
 async function executeInstall(parsed: ParsedCommand, context: CliContext) {
   const json = parsed.options["json"] === true;
+  const initialRequest = installRequestFromParsed(parsed);
+  const request = await resolveInstallRequest(parsed, context, initialRequest);
+  emitProgress(context, json, "Validating Codex target");
+  emitProgress(context, json, "Installing HolyCodex");
+  emitProgress(context, json, "Installing selected capabilities");
+  emitProgress(context, json, "Configuring Root");
+  emitProgress(context, json, "Installing subagent roles");
+  const result = await installHolyCodex(request, installerOptions(parsed, context), context.env);
+  emitProgress(context, json, "Verifying installation");
+  emitProgress(context, json, "HolyCodex installation complete");
+  return result;
+}
+
+/** Resolve one validated install request from flags or the interactive wizard. */
+async function resolveInstallRequest(
+  parsed: ParsedCommand,
+  context: CliContext,
+  initial: InstallRequest,
+): Promise<InstallRequest> {
+  const interactive =
+    parsed.options["json"] !== true &&
+    parsed.options["yes"] !== true &&
+    context.io?.stdoutIsTTY === true &&
+    context.io?.stderrIsTTY === true;
+  if (interactive) {
+    const result = await (context.io?.installWizard ?? runOpenTuiInstallWizard)(initial);
+    if (result.action === "cancel") {
+      throw new CliCommandError("install_cancelled", "Installation cancelled.");
+    }
+    return validateInstallOptions(result.request);
+  }
   if (!(await confirmation(parsed, context, "Install HolyCodex into the selected Codex home?"))) {
     throw new CliCommandError(
       "non_tty_confirmation_required",
       "Install requires --yes in non-interactive mode.",
     );
   }
-  emitProgress(context, json, "Validating Codex target");
-  emitProgress(context, json, "Installing HolyCodex");
-  emitProgress(context, json, "Installing selected capabilities");
-  emitProgress(context, json, "Configuring Root");
-  emitProgress(context, json, "Installing subagent roles");
-  const request: InstallRequest = {
-    ...(optionPlan(parsed) === undefined ? {} : { plan: optionPlan(parsed) }),
-    ...(optionTier(parsed) === undefined ? {} : { tier: optionTier(parsed) }),
-    ...(optionalSelections(parsed) === undefined ? {} : { optional: optionalSelections(parsed) }),
-    ...(optionStrings(parsed, "add-plugin").length === 0
-      ? {}
-      : { officialPlugins: optionStrings(parsed, "add-plugin") }),
-  };
-  const result = await installHolyCodex(request, installerOptions(parsed, context), context.env);
-  emitProgress(context, json, "Verifying installation");
-  emitProgress(context, json, "HolyCodex installation complete");
-  return result;
+  return validateInstallOptions(initial);
+}
+
+function installRequestFromParsed(parsed: ParsedCommand): InstallRequest {
+  const plan = optionPlan(parsed);
+  const tier = optionTier(parsed);
+  const optional = optionalSelections(parsed);
+  const officialPlugins = optionStrings(parsed, "add-plugin");
+  return validateInstallOptions({
+    ...(plan === undefined ? {} : { plan }),
+    ...(tier === undefined ? {} : { tier }),
+    ...(optional === undefined ? {} : { optional }),
+    ...(officialPlugins.length === 0 ? {} : { officialPlugins }),
+  });
 }
 
 async function executeRemove(parsed: ParsedCommand, context: CliContext) {
@@ -498,7 +532,11 @@ function paint(value: string, color: Color, enabled: boolean): string {
 }
 
 export class CliCommandError extends Error {
-  readonly code: "invalid_argument" | "non_tty_confirmation_required" | "internal_error";
+  readonly code:
+    | "invalid_argument"
+    | "non_tty_confirmation_required"
+    | "install_cancelled"
+    | "internal_error";
 
   constructor(code: CliCommandError["code"], message: string) {
     super(message);

@@ -1,1 +1,1 @@
-vp staged
+bun run check:fix && bun test

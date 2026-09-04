@@ -11,12 +11,14 @@ The runtime dependency set includes:
 
 - `effect` — MIT, [source repository](https://github.com/Effect-TS/effect)
 - `@toon-format/toon` — MIT, [source repository](https://github.com/toon-format/toon)
+- `@opentui/core` — MIT, [source repository](https://github.com/anomalyco/opentui)
 
 The package files for these dependencies carry their respective license text.
 
 ## Development components
 
-- `vite-plus` — MIT, [source repository](https://github.com/voidzero-dev/vite-plus)
+- `oxfmt` — MIT, [source repository](https://github.com/oxc-project/oxc)
+- `oxlint` — MIT, [source repository](https://github.com/oxc-project/oxc)
 - `typescript` — Apache-2.0, [source repository](https://github.com/microsoft/TypeScript)
 - `@types/bun` / `bun-types` — MIT, [source repository](https://github.com/oven-sh/bun)
 

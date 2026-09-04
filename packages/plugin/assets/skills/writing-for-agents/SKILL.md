@@ -41,6 +41,11 @@ Keep each meaning in one source of truth. Treat code, configuration, directory l
 
 Use architectural role names: Root owns material decisions, Workers implement bounded seams, Reviewers repair their assigned findings to fixed point, and other specialists follow their literal authority. Continuations carry changed constraints, evidence, decisions, and semantic delta instead of replaying accepted context.
 
+Project the single repository surgical-mutation rule from `AGENTS.md` into
+every write-capable Assignment: minimize the edit/write surface and operation
+count while staying careful, complete, and evidence-driven. Do not create a
+weaker or competing mutation variant in a profile, skill, or dispatch prompt.
+
 When the document is a skill, read [SKILL-MECHANICS.md](SKILL-MECHANICS.md) for invocation and frontmatter mechanics.
 
 Completion means the instruction routes at the right branch, names authority and exclusions, prevents premature completion, supplies checkable proof, and contains no duplicated or no-op policy.

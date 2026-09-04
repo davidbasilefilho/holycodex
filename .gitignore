@@ -5,11 +5,9 @@ node_modules/
 **/.bun/
 bun-debug.log*
 
-# Vite, Vite+ and task-runner caches
+# Build and task-runner caches
 .vite/
 **/.vite/
-.vite-plus/
-**/.vite-plus/
 .vp/
 **/.vp/
 .cache/
@@ -56,6 +54,8 @@ release-artifacts/
 *.tgz
 
 # Local Codex test homes and state
+.holycodex/
+**/.holycodex/
 .codex-test-home/
 **/.codex-test-home/
 .codex-test-state/

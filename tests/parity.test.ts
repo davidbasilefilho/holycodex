@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, expect, test } from "bun:test";
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
-import { describe, expect, test } from "vite-plus/test";
 
 import { runBinary, runCli, assertRootText, pathWithin } from "../packages/cli/src/index.ts";
 import { parseCliEnvelope } from "../packages/core/src/envelopes.ts";
@@ -79,9 +79,9 @@ describe("0.16 foundation parity contract", () => {
       readCoreSources(resolve(workspaceRoot, "packages/core/src")),
     ]);
 
-    expect(rootManifest).toContain('"effect": "3.22.1"');
+    expect(rootManifest).toContain('"effect": "^3.22.1"');
     expect(rootManifest).not.toContain('"arktype"');
-    expect(rootManifest).toContain('"packageManager": "bun@1.4.0"');
+    expect(rootManifest).toContain('"packageManager": "bun@1.4.1"');
     expect(mise).toContain('bun = "1.4"');
     expect(coreManifest).toContain('"effect": "catalog:"');
     expect(coreManifest).not.toContain("arktype");
@@ -108,7 +108,8 @@ describe("0.16 foundation parity contract", () => {
       await expect(readFile(resolve(workspaceRoot, row.owner), "utf8")).resolves.toBeTruthy();
       await expect(readFile(resolve(workspaceRoot, row.proof), "utf8")).resolves.toBeTruthy();
     }
-    expect(parsed.right.surfaces.map((surface) => surface.id)).toEqual(expectedSurfaceIds);
+    const actualSurfaceIds: string[] = parsed.right.surfaces.map((surface) => surface.id);
+    expect(actualSurfaceIds).toEqual([...expectedSurfaceIds]);
     expect(parsed.right.surfaces.find((surface) => surface.id === "cutover-runbook")).toEqual({
       id: "cutover-runbook",
       owner: "release",

@@ -6,10 +6,15 @@ description: Use when Root assigns a reproducible crash, wrong result, regressio
 Reproduce the defect before changing code. A stable red case distinguishes
 cause from symptom and makes the repair checkable.
 
-Owner: Worker within the assigned seam. Boundary: capture the smallest
+Owner: Worker within one delegated Assignment. Boundary: capture the smallest
 failing input and trace, form an evidence-backed cause, apply the narrow fix,
 and preserve unrelated behavior. Escalate competing causes or material
-redesign.
+redesign. Root creates/starts the Assignment and records the result through
+`holycodex-agent assignment result`; the Worker must not mutate Intent state or
+edit TOON files manually.
+
+Apply the repository surgical-mutation rule: minimize edit/write surface and
+operation count while remaining careful, complete, and evidence-driven.
 
 Discover and use the repository-specific formatter, linter, typecheck, and
 validation commands before and after the repair. Start with the smallest
@@ -17,6 +22,7 @@ relevant local proof and expand only when the defect crosses that boundary or
 the release gate requires it; report unavailable commands rather than
 inventing replacements.
 
-Completion: the failure is reproduced, the cause is supported by repository
-evidence, the fix and regression proof pass, and remaining uncertainty is
-recorded.
+Return one outcome from `completed`, `blocked`, `needs_root_input`, or
+`failed`, including reproduction, cause, repair proof, and remaining
+uncertainty. Completion requires the failure to be reproduced, the cause to be
+supported by repository evidence, and the fix and regression proof to pass.

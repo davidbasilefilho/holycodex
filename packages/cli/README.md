@@ -12,7 +12,9 @@ bunx holycodex remove
 Use `--yes` when no interactive terminal is available. `--plan` selects native
 Root and specialist routing only. `--tier` independently selects service
 handling (`standard`, `fast`, or `fast-all`). The canonical plans are `go`,
-`plus-low`, `plus`, `plus-high`, `pro-5x`, and `pro-20x`.
+`low`, `default`, and `high` (`default` is recommended). Legacy `plus-low`,
+`plus`, and `plus-high` configuration is migrated; removed Pro plans fail with
+an explicit replacement requirement.
 
 Frontend and Security are selected by default; Work and Computer Use are
 opt-in. Selected capabilities must install and verify or installation fails.
@@ -27,6 +29,10 @@ mise exec -- bun packages/cli/src/index.ts install --yes
 ```
 
 Command syntax and response contracts are owned by [CLI.md](../../docs/CLI.md).
+
+This package does not expose Intent or Assignment mutation. Root uses the
+separate deterministic `holycodex-agent` CLI for repo-local `.holycodex/`
+work state; it is non-interactive and has no TUI, prompts, or ANSI output.
 
 ## Contribute
 

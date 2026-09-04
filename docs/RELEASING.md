@@ -36,14 +36,27 @@ Run the local gate from the exact checkout:
 
 1. Validate manifests, lockfile, generated assets, documentation links,
    version authority, provenance, and third-party notices.
-2. Run Vite+ checks and the full Bun test suite.
-3. Build the package and verify dependency, license, and architecture rules.
-4. Pack the public artifact and exercise isolated install and removal.
+2. Run OXC/TypeScript checks and the full Bun test suite.
+3. Build/bundle the package with Bun and verify dependency, license, and
+   architecture rules.
+4. Pack the public artifact with `bun pm pack` and exercise isolated install
+   and removal.
 5. Confirm that the artifact contains only allowlisted files and no secrets.
 
 The checked-in GitHub Actions pipeline repeats this proof on its supported
 platforms and attaches the exact source SHA and artifact digest to release
 metadata.
+
+Before completion, Root delegates `Worker.operations` to observe the terminal
+development/release result for the exact ref and SHA. Discover the repository
+topology from its own configuration: it may have separate development and
+release gates, one pipeline, or no formal separation. Pending or running is
+never green. If release is in the requested and approved scope, Root performs
+the repository's release action only after terminal development green, then
+delegates release verification. Root delegates a fix for any failure and
+repeats implementation, review, VCS, and exact-ref observation until terminal
+green. With no separate release gate, record the single available gate instead
+of inventing a second verification path.
 
 ## Development and stable channels
 
@@ -61,9 +74,13 @@ version, channel, source SHA, and artifact identity match exactly.
 ## Approval and branch gates
 
 Commit, push, CI dispatch, and publication are separate externally visible
-effects. Obtain approval immediately before each effect, confirm the exact
-files, version, ref, and SHA, and record the result. Publication fails closed
-when identity, validation, artifact, or registry checks disagree.
+effects. Root uses `request_user_input` before plan approval and immediately
+before each remote/origin/server VCS mutation or publication; confirm the exact
+files, version, ref, and SHA, and record the result. If ambiguity or missing
+material input blocks progress, persist `needs_root_input` and ask the user.
+Publication fails closed when identity, validation, artifact, or registry
+checks disagree. A passing `Reviewer.code` fixed-point review is required
+after implementation or a major codebase change and before any VCS operation.
 
 The final validation record links the commit, package artifact, generated
 metadata, lockfile, tests, provenance ledger, and

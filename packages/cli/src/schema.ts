@@ -4,6 +4,7 @@ import { ManagedRuntimeConfigStateSchema } from "@holycodex/codex";
 import {
   decodeUnknown,
   PlanNameSchema,
+  PlanNameMigrationSchema,
   ServiceTierSchema,
   STATE_SCHEMA_EPOCH,
   type JsonObject,
@@ -55,6 +56,8 @@ export const InstallRequestSchema = Schema.Struct({
   optional: Schema.optional(ExplicitOptionalSelectionsSchema),
   officialPlugins: Schema.optional(Schema.Array(OfficialPluginIdSchema)),
 });
+/** Canonical validated domain schema shared by CLI flags and the TTY wizard. */
+export const InstallOptionsSchema = InstallRequestSchema;
 
 export const CapabilityInstallStateSchema = Schema.Struct({
   selected: Schema.Boolean,
@@ -154,7 +157,7 @@ const InstallRecordFields = {
 export const InstallRecordSchema = Schema.Struct(InstallRecordFields);
 export const InstallRecordMigrationSchema = Schema.Struct({
   ...InstallRecordFields,
-  plan: Schema.Union(PlanNameSchema, Schema.Literal("Go")),
+  plan: PlanNameMigrationSchema,
 });
 
 export const InstallTransactionStatusSchema = Schema.Literal("preparing", "conflicted");

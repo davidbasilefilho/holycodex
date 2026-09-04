@@ -1,6 +1,6 @@
 interface:
   display_name: "Handoff"
-  short_description: "Produce one redacted handoff when assigned work pauses or transfers."
-  default_prompt: "When Root pauses or transfers work, write one redacted handoff containing scope, constraints, evidence, risks, and the next action."
+  short_description: "Export a redacted projection of current Intent state."
+  default_prompt: "When Root needs a resume projection, read current Intent, Plan, and Assignments through holycodex-agent and export one redacted projection without creating duplicate state."
 policy:
   allow_implicit_invocation: false

@@ -4,13 +4,16 @@ import { createInterface } from "node:readline/promises";
 
 import { runCli, renderHuman } from "./commands.ts";
 import { helpRequested, helpTopic, renderHelp } from "./help.ts";
-import type { CliContext } from "./types.ts";
+import type { InstallRequest } from "./installer.ts";
+import type { CliContext, InstallWizardResult } from "./types.ts";
 
 export interface BinaryIo {
   readonly stdin?: AsyncIterable<string>;
   readonly stdoutIsTTY?: boolean;
   readonly stderrIsTTY?: boolean;
   readonly confirm?: (message: string) => Promise<boolean>;
+  /** Optional injectable wizard used by embedders and tests. */
+  readonly installWizard?: (initial: InstallRequest) => Promise<InstallWizardResult>;
   readonly writeStdout: (text: string) => void;
   readonly writeStderr: (text: string) => void;
 }
@@ -27,6 +30,7 @@ export async function runBinary(
       stdoutIsTTY: binaryIo.stdoutIsTTY ?? process.stdout.isTTY === true,
       stderrIsTTY: binaryIo.stderrIsTTY ?? process.stderr.isTTY === true,
       ...(binaryIo.confirm === undefined ? {} : { confirm: binaryIo.confirm }),
+      ...(binaryIo.installWizard === undefined ? {} : { installWizard: binaryIo.installWizard }),
       writeStdout: binaryIo.writeStdout,
       writeStderr: binaryIo.writeStderr,
     },

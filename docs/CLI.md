@@ -8,7 +8,7 @@ confirmation behavior. Observable product behavior is in
 
 The executable is `holycodex`. The published entry point is invoked with
 `bunx`; development uses `mise exec -- bun packages/cli/src/index.ts ...`.
-Bun is the only repository toolchain. The canonical install and removal
+Bun is the repository runtime/toolchain. The canonical install and removal
 commands are `bunx holycodex install` and `bunx holycodex remove`.
 
 ## Commands
@@ -51,10 +51,44 @@ Official OpenAI plugin health accepts the allowlisted `openai-curated` and
 `openai-curated-remote` identities for build-web-apps and codex-security. An
 arbitrary same-name plugin from another marketplace is not accepted.
 
-Valid plan names are `go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and
-`pro-20x`.
+Valid plan names are `go`, `low`, `default`, and `high`; `default` is
+recommended. Persisted `plus-low`, `plus`, and `plus-high` values migrate to
+`low`, `default`, and `high`. Removed `pro-5x` and `pro-20x` values are
+classified as legacy and require an explicit replacement.
 Valid tier names are `standard`, `fast`, and `fast-all`; select them through
 `--tier`.
+
+## Agent CLI
+
+`holycodex-agent` is a separate deterministic model-facing CLI. It has no TUI,
+prompts, or ANSI output and emits stable structured responses. It is the only
+normal mutation interface for repo-local `.holycodex/` Intent, Plan, and
+Assignment state; it does not replace the public human CLI.
+
+```text
+holycodex-agent intent   create|list|current|read|select|transition|evidence|complete|abandon
+holycodex-agent plan     read|revise
+holycodex-agent assignment create|list|read|start|result
+```
+
+Every command and nested subcommand accepts equivalent `-h` and `--help`,
+exits 0 without mandatory arguments or side effects, and documents its input,
+output, effects, and important failure conditions. Semantic operations validate
+all request and persisted values and return deterministic error codes. Agents
+must not rename or edit TOON files directly.
+
+Root MUST delegate every task, including trivial work, through a bounded
+Assignment and native specialist. Direct Root execution is limited to Git/VCS
+and Computer Use when selected during install. Root owns intent, material
+decisions, lifecycle, integration, approvals, and final completion. A passing
+`Reviewer.code` fixed-point review is mandatory after implementation or a
+major codebase change and before completion or any VCS operation. Root uses
+`request_user_input` before plan approval, remote/origin/server VCS mutations,
+and whenever ambiguity or missing material input blocks progress; record
+`needs_root_input` in the relevant Intent or Plan. After terminal development
+green, an authorized release uses the repository's own mechanism and is
+followed by delegated exact-ref release observation; if no separate release
+gate exists, use the discovered single gate and do not infer one.
 
 ## Response envelopes
 

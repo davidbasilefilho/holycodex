@@ -52,8 +52,8 @@ const effortRank: Readonly<Record<Effort, number>> = {
 
 export const ROUTE_EFFORT_OVERRIDES = [
   {
-    plan: "plus-low",
-    rationale: "Preserve the approved plus-low route effort policy.",
+    plan: "low",
+    rationale: "Preserve the approved low route effort policy.",
     efforts: {
       "Explorer:lookup": "medium",
       "Explorer:trace": "high",
@@ -69,8 +69,8 @@ export const ROUTE_EFFORT_OVERRIDES = [
     } satisfies Readonly<Record<RouteKey, Effort>>,
   },
   {
-    plan: "plus",
-    rationale: "Preserve the approved plus route effort policy.",
+    plan: "default",
+    rationale: "Preserve the approved default route effort policy.",
     efforts: {
       "Explorer:lookup": "medium",
       "Explorer:trace": "high",
@@ -86,8 +86,8 @@ export const ROUTE_EFFORT_OVERRIDES = [
     } satisfies Readonly<Record<RouteKey, Effort>>,
   },
   {
-    plan: "plus-high",
-    rationale: "Preserve the approved plus-high route effort policy.",
+    plan: "high",
+    rationale: "Preserve the approved high route effort policy.",
     efforts: {
       "Explorer:lookup": "medium",
       "Explorer:trace": "xhigh",
@@ -100,40 +100,6 @@ export const ROUTE_EFFORT_OVERRIDES = [
       "Reviewer:plan": "xhigh",
       "Reviewer:code": "max",
       "Reviewer:artifact": "xhigh",
-    } satisfies Readonly<Record<RouteKey, Effort>>,
-  },
-  {
-    plan: "pro-5x",
-    rationale: "Preserve the approved pro-5x route effort policy.",
-    efforts: {
-      "Explorer:lookup": "high",
-      "Explorer:trace": "xhigh",
-      "Librarian:lookup": "high",
-      "Librarian:research": "xhigh",
-      "Worker:mechanical": "high",
-      "Worker:implementation": "max",
-      "Worker:integration": "max",
-      "Worker:operations": "xhigh",
-      "Reviewer:plan": "xhigh",
-      "Reviewer:code": "max",
-      "Reviewer:artifact": "xhigh",
-    } satisfies Readonly<Record<RouteKey, Effort>>,
-  },
-  {
-    plan: "pro-20x",
-    rationale: "Preserve the approved pro-20x route effort policy.",
-    efforts: {
-      "Explorer:lookup": "high",
-      "Explorer:trace": "xhigh",
-      "Librarian:lookup": "high",
-      "Librarian:research": "max",
-      "Worker:mechanical": "xhigh",
-      "Worker:implementation": "max",
-      "Worker:integration": "max",
-      "Worker:operations": "xhigh",
-      "Reviewer:plan": "max",
-      "Reviewer:code": "max",
-      "Reviewer:artifact": "max",
     } satisfies Readonly<Record<RouteKey, Effort>>,
   },
 ] as const;
@@ -186,39 +152,24 @@ const planDefinitions: PlanDefinition[] = [
     root: { model: "Terra", effort: "high" },
     specialistModel: "Luna",
     defaultServiceTier: "standard",
-    routes: routesForPlan("plus-low"),
+    routes: routesForPlan("low"),
   },
   specialistPlan({
-    name: "plus-low",
+    name: "low",
     root: { model: "Sol", effort: "low" },
   }),
   specialistPlan({
-    name: "plus",
+    name: "default",
     root: { model: "Sol", effort: "medium" },
   }),
   specialistPlan({
-    name: "plus-high",
+    name: "high",
     root: { model: "Sol", effort: "high" },
-  }),
-  specialistPlan({
-    name: "pro-5x",
-    root: { model: "Sol", effort: "high" },
-  }),
-  specialistPlan({
-    name: "pro-20x",
-    root: { model: "Sol", effort: "xhigh" },
   }),
 ];
 
 function validateCatalog(definitions: readonly PlanDefinition[]): void {
-  const expectedPlans: readonly PlanName[] = [
-    "go",
-    "plus-low",
-    "plus",
-    "plus-high",
-    "pro-5x",
-    "pro-20x",
-  ];
+  const expectedPlans: readonly PlanName[] = ["go", "low", "default", "high"];
   if (definitions.length !== expectedPlans.length) {
     throw new CoreError("catalog_invalid", "The plan catalog has an invalid size.");
   }
@@ -232,13 +183,11 @@ function validateCatalog(definitions: readonly PlanDefinition[]): void {
     const expectedRoot =
       definition.name === "go"
         ? { model: "Terra", effort: "high" }
-        : definition.name === "plus-low"
+        : definition.name === "low"
           ? { model: "Sol", effort: "low" }
-          : definition.name === "plus"
+          : definition.name === "default"
             ? { model: "Sol", effort: "medium" }
-            : definition.name === "pro-20x"
-              ? { model: "Sol", effort: "xhigh" }
-              : { model: "Sol", effort: "high" };
+            : { model: "Sol", effort: "high" };
     if (
       definition.root.model !== expectedRoot.model ||
       definition.root.effort !== expectedRoot.effort
@@ -279,19 +228,19 @@ function validateCatalog(definitions: readonly PlanDefinition[]): void {
   }
 
   const goRoutes = definitions[0]?.routes;
-  const plusLowRoutes = definitions[1]?.routes;
+  const lowRoutes = definitions[1]?.routes;
   if (
     !goRoutes ||
-    !plusLowRoutes ||
-    goRoutes.length !== plusLowRoutes.length ||
+    !lowRoutes ||
+    goRoutes.length !== lowRoutes.length ||
     goRoutes.some(
       (routeDefinition, index) =>
-        routeDefinition.key !== plusLowRoutes[index]?.key ||
-        routeDefinition.model !== plusLowRoutes[index]?.model ||
-        routeDefinition.effort !== plusLowRoutes[index]?.effort,
+        routeDefinition.key !== lowRoutes[index]?.key ||
+        routeDefinition.model !== lowRoutes[index]?.model ||
+        routeDefinition.effort !== lowRoutes[index]?.effort,
     )
   ) {
-    throw new CoreError("catalog_invalid", "go must use the plus-low specialist route matrix.");
+    throw new CoreError("catalog_invalid", "go must use the low specialist route matrix.");
   }
 
   const specialistPlans = definitions;

@@ -113,6 +113,7 @@ export async function packPublicPackage(
   }
 
   await requireFile(join(cliRoot, "dist/index.js"), "the packed CLI entry point");
+  await requireFile(join(cliRoot, "dist/agent.js"), "the packed agent CLI entry point");
   const buildEntries = await listSafeArtifactEntries(join(cliRoot, "dist"), "the build output");
   assertBuildUploadEntries(buildEntries);
   const packageRoot = join(temporaryRoot, "package");
@@ -182,7 +183,9 @@ export async function verifyPublicPackage(
 
   const installedPackageRoot = join(installedRoot, "node_modules/holycodex");
   const installedEntry = join(installedPackageRoot, "dist/index.js");
+  const installedAgentEntry = join(installedPackageRoot, "dist/agent.js");
   await requireFile(installedEntry, "the installed package entry point");
+  await requireFile(installedAgentEntry, "the installed agent CLI entry point");
   await requireFile(
     join(installedPackageRoot, "dist/assets/plugin/plugin.json"),
     "the installed plugin payload source",
@@ -204,9 +207,9 @@ export async function verifyPublicPackage(
     ),
     "the installed package must not retain workspace dependency ranges",
   );
-
   const codexHome = join(temporaryRoot, "codex-home");
   const commands: string[] = [];
+  await runInstalledOpenTuiProbe(installedRoot, commands, bunEnvironment);
   const stateRoot = join(codexHome, "holycodex");
   await mkdir(codexHome, { recursive: true });
   const unrelatedConfig = 'approval_policy = "on-request"\n';
@@ -258,6 +261,8 @@ export async function verifyPublicPackage(
     assert(hasProperty(versionData, "version"), "installed package version data is invalid");
     assert(versionData["version"] === version, "installed package version is not canonical");
   }
+
+  await runInstalledAgentHelp(installedAgentEntry, installedRoot, commands);
 
   const executable = await findInstalledExecutable(installedRoot);
   const executableEnvelope = await runInstalledExecutable(
@@ -491,6 +496,41 @@ async function runInstalledExecutable(
     `executable bin failed with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
   );
   return parseEnvelope(result.stdout);
+}
+
+async function runInstalledAgentHelp(
+  entry: string,
+  cwd: string,
+  commands: string[],
+): Promise<void> {
+  const command = ["bun", entry, "-h"];
+  commands.push(command.join(" "));
+  const result = await runCommand(command, {
+    cwd,
+    env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
+  });
+  assert(
+    result.exitCode === 0,
+    `agent CLI help failed with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS))}`,
+  );
+  assert(result.stderr.length === 0, "agent CLI help wrote diagnostics to stderr");
+  assert(!result.stdout.includes("\u001b"), "agent CLI help emitted ANSI");
+  assert(result.stdout.includes("holycodex-agent"), "agent CLI help omitted its command name");
+}
+
+async function runInstalledOpenTuiProbe(
+  cwd: string,
+  commands: string[],
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<void> {
+  const command = ["bun", "-e", 'await import("@opentui/core");'];
+  commands.push(command.join(" "));
+  const result = await runCommand(command, { cwd, env });
+  assert(
+    result.exitCode === 0,
+    `installed OpenTUI runtime could not resolve: ${redactDiagnostics(result.stderr || result.stdout, env)}`,
+  );
+  assert(result.stderr.length === 0, "installed OpenTUI runtime wrote diagnostics to stderr");
 }
 
 async function createCodexFixture(

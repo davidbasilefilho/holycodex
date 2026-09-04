@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, expect, test } from "bun:test";
+
 import * as Either from "effect/Either";
-import { describe, expect, test } from "vite-plus/test";
 
 import {
   APPROVAL_POLICY,

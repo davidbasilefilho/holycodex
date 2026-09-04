@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, expect, test } from "bun:test";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-
-import { describe, expect, test } from "vite-plus/test";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 describe("documentation invariants", () => {

@@ -5,10 +5,12 @@ import { join, relative } from "node:path";
 
 import {
   ROLE_DEFINITIONS,
+  ROOT_ORCHESTRATION_POLICY,
   lookupPlan,
   nativeAgentTypeFor,
   taskDescriptionFor,
   taskInstructionFor,
+  taskPermissionsFor,
   type ServiceTier,
   type NativeAgentType,
   type PlanName,
@@ -27,6 +29,7 @@ export type NativeAgentProjection = Readonly<{
   effort: string;
   description: string;
   serviceTier: "default" | "fast";
+  permissions: ReturnType<typeof taskPermissionsFor>;
 }>;
 
 export type RootAgentProjection = Readonly<{
@@ -36,6 +39,16 @@ export type RootAgentProjection = Readonly<{
   effort: string;
   serviceTier: "default" | "fast";
 }>;
+
+const SPECIALIST_BOUNDARY_POLICY =
+  "Do not delegate, message peers, mutate global Intent lifecycle, make material decisions, or perform Git/VCS. Return exactly one compact structured outcome (`completed`, `blocked`, `needs_root_input`, or `failed`) with observable evidence, changed paths and checks, local blockers, and remaining risk.";
+
+const ASSIGNMENT_CONTRACT_POLICY =
+  "Every Assignment must state its exact boundary, exclusions, acceptance criteria, and evidence.";
+
+function surgicalMutationInstruction(): string {
+  return `Surgical mutation rule: ${ROOT_ORCHESTRATION_POLICY.surgicalMutationRule} ${ASSIGNMENT_CONTRACT_POLICY}`;
+}
 
 export interface NativeAgentInstallResult {
   readonly managed_artifacts: readonly ManagedArtifact[];
@@ -68,6 +81,7 @@ export function projectNativeAgents(
       rolePolicy: ROLE_DEFINITIONS.find((definition) => definition.role === route.role)!,
       description: taskDescriptionFor(roleTask),
       taskInstruction: taskInstructionFor(roleTask),
+      permissions: taskPermissionsFor(roleTask),
       model: "gpt-5.6-luna",
       effort: route.effort,
       serviceTier: tier === "standard" ? "default" : "fast",
@@ -93,16 +107,31 @@ export function projectRootAgent(
 
 /** The parent session is configured in config.toml, never as a spawnable role. */
 export function rootDeveloperInstructions(computerUse = false): string {
+  if (
+    !ROOT_ORCHESTRATION_POLICY.requiresDelegation ||
+    !ROOT_ORCHESTRATION_POLICY.trivialWorkRequiresDelegation ||
+    !ROOT_ORCHESTRATION_POLICY.codeReviewRequiredForImplementation ||
+    !ROOT_ORCHESTRATION_POLICY.codeReviewRequiredBeforeVcs ||
+    !ROOT_ORCHESTRATION_POLICY.externalVerificationMustBeTerminal
+  ) {
+    throw new Error("The Root orchestration policy is incomplete.");
+  }
   const instructions = [
     "You are the HolyCodex Root orchestrator.",
-    "Own user intent and scope; architecture, product, policy, and material choices; integration; external state and effects; Git/VCS; contradictory-evidence resolution; and final readiness.",
-    "Proceed autonomously with safe local inspection, implementation, and proportional verification inside approved scope. Use request_user_input for genuinely required information or approval, including material scope or product choices and destructive, remote, or externally consequential effects.",
-    "Delegate substantive specialist work when it has a bounded scope and observable completion. Apply writing-for-agents before dispatch; keep routine Root-owned inspection, synthesis, and coordination local.",
-    "Inspect returned evidence before integration. Use planning and review gates when architecture, scope, coordination, risk, or material choices justify them, including an adversarial Reviewer.code fixed-point gate for substantive implementation where appropriate.",
+    "MUST orchestrate and delegate every task, including trivial work, through a bounded Assignment to the native Explorer, Librarian, Worker, or Reviewer agents; do not implement, debug, research, or review the underlying work directly.",
+    surgicalMutationInstruction(),
+    "Own the persistent Intent, user goal and acceptance criteria, architecture and material product or policy choices, lifecycle transitions, assignment integration, contradictory-evidence resolution, external effects, and final readiness. Use holycodex-agent semantic operations for Intent, Plan, and Assignment state; never manually edit TOON or create handoff, Decision, or standalone blocker files.",
+    "Git/VCS is always Root-only and may be performed directly. Use request_user_input before plan approval, before any remote/origin/server VCS mutation, before externally consequential publication or release, or whenever ambiguity or missing material input blocks safe progress, and persist the resulting needs_root_input state.",
+    "Apply writing-for-agents before dispatch and before every dispatch. Inspect returned structured outcomes and evidence before integration. Reviewer.code fixed-point review is mandatory after implementation or any major codebase change and must pass before completion or any VCS operation.",
+    "After integration, follow the repository's discovered workflow: commit the finished change as Root, push when its topology requires a remote, and delegate Worker.operations to observe CI for the exact ref/SHA to terminal evidence; pending or running is never success. If the gate is green and a release boundary exists, perform that release action as Root and delegate terminal release observation. If any gate fails, delegate a bounded fix and repeat implementation, fixed-point review, VCS, and exact-ref observation until green. Discover the repository's actual gate and provider topology; never assume a branch or server separation.",
   ];
   if (computerUse) {
     instructions.push(
       "Interactive GUI, browser, and Computer Use execution is Root-only and must not be delegated.",
+    );
+  } else {
+    instructions.push(
+      "Computer Use is not selected for this installation; delegate GUI, browser, and Computer Use execution to an appropriate bounded specialist.",
     );
   }
   return instructions.join("\n");
@@ -289,6 +318,8 @@ export async function removeManagedNativeAgents(
 export function renderNativeAgent(agent: NativeAgentProjection): string {
   const shared = agent.rolePolicy;
   const instructions = [
+    surgicalMutationInstruction(),
+    SPECIALIST_BOUNDARY_POLICY,
     `${shared.role} shared policy: ${shared.authority}`,
     shared.evidence,
     shared.completion,
@@ -302,9 +333,9 @@ export function renderNativeAgent(agent: NativeAgentProjection): string {
     `service_tier = ${JSON.stringify(agent.serviceTier)}`,
     'model_reasoning_summary = "none"',
     'model_verbosity = "low"',
-    `sandbox_mode = ${JSON.stringify(shared.permissions.write ? "workspace-write" : "read-only")}`,
+    `sandbox_mode = ${JSON.stringify(agent.permissions.write ? "workspace-write" : "read-only")}`,
     'approval_policy = "never"',
-    `web_search = ${JSON.stringify(shared.permissions.network ? "live" : "disabled")}`,
+    `web_search = ${JSON.stringify(agent.permissions.network ? "live" : "disabled")}`,
     `developer_instructions = ${JSON.stringify(instructions)}`,
     "",
     "[agents]",
@@ -338,7 +369,7 @@ function renderLegacyRootAgent(agent: RootAgentProjection): string {
 // a user-owned root role with even a small shape/content difference is not
 // ours to remove.
 const LEGACY_ROOT_ROLE_CONTENTS = new Set(
-  (["go", "plus-low", "plus", "plus-high", "pro-5x", "pro-20x"] as const).flatMap((plan) =>
+  (["go", "low", "default", "high"] as const).flatMap((plan) =>
     (["standard", "fast", "fast-all"] as const).map((tier) =>
       renderLegacyRootAgent(projectRootAgent(plan, tier)),
     ),

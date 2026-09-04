@@ -1,6 +1,6 @@
 interface:
   display_name: "Compress"
   short_description: "Shorten assigned text without changing its contract or voice."
-  default_prompt: "When Root assigns text compression, produce one compact constraint-equivalent draft and identify preserved technical terms."
+  default_prompt: "When Root assigns a bounded compression Assignment, apply the repository surgical-mutation rule, produce one constraint-equivalent draft, and return completed, blocked, needs_root_input, or failed evidence for holycodex-agent."
 policy:
   allow_implicit_invocation: true

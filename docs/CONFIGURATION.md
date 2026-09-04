@@ -27,22 +27,35 @@ canonical `agents."{Role}.{task}".config_file` registrations into
 `agents/root.toml` is generated or registered. Leaf TOMLs live under
 `<CODEX_HOME>/holycodex/agents/` and use native controls for their model,
 reasoning effort, service tier, sandbox, approval, network, and delegation
-features. Generated leaves do not set `tool_output_token_limit`.
+features. Worker network access is disabled for mechanical, implementation, and
+integration tasks; only `Worker.operations` uses live access, and its task
+contract requires a Root-supplied exact ref/SHA. Generated leaves do not set
+`tool_output_token_limit`.
 
 The role profile is the authority source. A task skill supplies branch-specific
 workflow, while a delegation prompt supplies assignment facts. Runtime flags
 enforce hard capability boundaries where Codex supports them; prose does not
 stand in for a missing native control.
 
+Root MUST delegate every task, including trivial work, through a bounded
+Assignment. Direct Root execution is limited to Git/VCS and Computer Use when
+selected at installation. A passing `Reviewer.code` fixed-point review is
+required after implementation or a major codebase change and before completion
+or VCS. Root uses `request_user_input` for plan approval, remote/origin/server
+VCS mutations, and ambiguity or missing material input; persist
+`needs_root_input` when blocked.
+
 ## Plans, tiers, and optional plugins
 
 The plan catalog owns valid plan names and native routes. A plan controls
-routing only. `go` keeps Terra/high for Root and uses the plus-low Luna leaf
-route matrix; Plus and Pro plans select specialist routes. A plan does not
-select a service tier or grant authority.
+routing only. `go` keeps Terra/high for Root and uses the low Luna leaf route
+matrix; `low`, `default`, and `high` select specialist route effort. A plan
+does not select a service tier or grant authority.
 
-The valid plan names are `go`, `plus-low`, `plus`, `plus-high`, `pro-5x`, and
-`pro-20x`.
+The valid plan names are `go`, `low`, `default`, and `high`; `default` is
+recommended. Persisted `plus-low`, `plus`, and `plus-high` migrate to
+`low`, `default`, and `high`. Removed `pro-5x` and `pro-20x` values are
+classified and require an explicit replacement.
 
 The service tier is an independent setting selected with `--tier`. It changes
 service handling without changing the plan, route, authority, or proof
@@ -64,11 +77,12 @@ same-name third-party marketplace is not trusted.
 
 ## Paths and ownership
 
-`CODEX_HOME` defaults to `~/.codex`; `--codex-home` supplies an absolute,
-isolated test or user path. Paths are traversal-free and never broadened to a
-workspace root. HolyCodex owns only its configuration and the native plugin
-state created for that installation. Codex owns the rest of its plugin and
-configuration state.
+Codex home is resolved internally for interactive installation. The explicit
+`--codex-home` option is reserved for non-interactive isolation, diagnostics,
+or recovery and supplies an absolute path. Paths are traversal-free and never
+broadened to a workspace root. HolyCodex owns only its configuration and the
+native plugin state created for that installation. Codex owns the rest of its
+plugin and configuration state.
 
 ## Managed writes
 

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, expect, test } from "bun:test";
+
 import * as Either from "effect/Either";
-import { describe, expect, test } from "vite-plus/test";
 
 import {
   CliFailureEnvelopeSchema,
@@ -23,6 +24,11 @@ import {
   ROLE_DEFINITIONS,
   ROUTE_KEYS,
   ROUTE_EFFORT_OVERRIDES,
+  ROOT_ORCHESTRATION_POLICY,
+  SURGICAL_MUTATION_RULE,
+  rootDelegationRequired,
+  rootDirectExecutionAllowed,
+  RootDirectExecutionExceptionSchema,
   RouteKeySchema,
   RunIdentityInputSchema,
   SPECIALIST_OUTCOME_VERSION,
@@ -45,13 +51,14 @@ import {
   parseSchemaEpochId,
   parseSpecialistOutcome,
   specialistOutcomeFromCapabilityResult,
+  taskPermissionsFor,
 } from "./index";
 import { decodeUnknown } from "./schema";
 
-const planNames = ["go", "plus-low", "plus", "plus-high", "pro-5x", "pro-20x"] as const;
+const planNames = ["go", "low", "default", "high"] as const;
 const expectedRouteEffortsByPlan = [
   {
-    plan: "plus-low",
+    plan: "low",
     efforts: [
       "medium",
       "high",
@@ -67,7 +74,7 @@ const expectedRouteEffortsByPlan = [
     ],
   },
   {
-    plan: "plus",
+    plan: "default",
     efforts: [
       "medium",
       "high",
@@ -83,7 +90,7 @@ const expectedRouteEffortsByPlan = [
     ],
   },
   {
-    plan: "plus-high",
+    plan: "high",
     efforts: [
       "medium",
       "xhigh",
@@ -97,32 +104,12 @@ const expectedRouteEffortsByPlan = [
       "max",
       "xhigh",
     ],
-  },
-  {
-    plan: "pro-5x",
-    efforts: [
-      "high",
-      "xhigh",
-      "high",
-      "xhigh",
-      "high",
-      "max",
-      "max",
-      "xhigh",
-      "xhigh",
-      "max",
-      "xhigh",
-    ],
-  },
-  {
-    plan: "pro-20x",
-    efforts: ["high", "xhigh", "high", "max", "xhigh", "max", "max", "xhigh", "max", "max", "max"],
   },
 ] as const;
 
 describe("core plan catalog", () => {
   test("contains every plan with routing model and reasoning policy", () => {
-    expect(PLAN_CATALOG.map((plan) => plan.name)).toEqual(planNames);
+    expect(PLAN_CATALOG.map((plan) => plan.name)).toEqual([...planNames]);
     expect(PLAN_CATALOG[0]).toMatchObject({
       name: "go",
       root: { model: "Terra", effort: "high" },
@@ -132,8 +119,6 @@ describe("core plan catalog", () => {
       { model: "Sol", effort: "low" },
       { model: "Sol", effort: "medium" },
       { model: "Sol", effort: "high" },
-      { model: "Sol", effort: "high" },
-      { model: "Sol", effort: "xhigh" },
     ]);
     for (const plan of PLAN_CATALOG) {
       expect(plan).not.toHaveProperty("budget");
@@ -144,7 +129,7 @@ describe("core plan catalog", () => {
     expect(ROUTE_KEYS).toHaveLength(11);
     expect(new Set(ROUTE_KEYS).size).toBe(11);
     for (const plan of PLAN_CATALOG) {
-      expect(plan.routes.map((route) => route.key)).toEqual(ROUTE_KEYS);
+      expect(plan.routes.map((route) => route.key)).toEqual([...ROUTE_KEYS]);
       expect(plan.routes.every((route) => route.model === "Luna")).toBe(true);
     }
 
@@ -158,7 +143,7 @@ describe("core plan catalog", () => {
       if (!plan.ok) {
         continue;
       }
-      expect(plan.value.routes.map((route) => route.effort)).toEqual(expected.efforts);
+      expect(plan.value.routes.map((route) => route.effort)).toEqual([...expected.efforts]);
     }
   });
 
@@ -167,7 +152,7 @@ describe("core plan catalog", () => {
       ROLE_DEFINITIONS.flatMap((definition) =>
         definition.tasks.map((task) => `${definition.role}:${task.name}`),
       ),
-    ).toEqual(ROUTE_KEYS);
+    ).toEqual([...ROUTE_KEYS]);
     expect(ROLE_DEFINITIONS.map((definition) => definition.permissions.write)).toEqual([
       false,
       false,
@@ -177,6 +162,10 @@ describe("core plan catalog", () => {
     for (const definition of ROLE_DEFINITIONS) {
       expect(definition).not.toHaveProperty("skills");
       expect(definition).not.toHaveProperty("skill_profile");
+    }
+    for (const definition of ROLE_DEFINITIONS.filter((candidate) => candidate.permissions.write)) {
+      expect(definition.authority).toContain("delegated Assignment");
+      expect(definition.authority).toContain("Git/VCS");
     }
   });
 
@@ -188,15 +177,36 @@ describe("core plan catalog", () => {
     expect(NATIVE_AGENT_TYPES).not.toContain("Worker.research" as never);
   });
 
+  test("grants network only to the exact-ref operations task", () => {
+    expect(taskPermissionsFor({ role: "Worker", task: "operations" })).toEqual({
+      network: true,
+      write: true,
+      networkScope: "exact_ref_or_sha",
+    });
+    for (const task of ["mechanical", "implementation", "integration"] as const) {
+      expect(taskPermissionsFor({ role: "Worker", task })).toEqual({
+        network: false,
+        write: true,
+        networkScope: "disabled",
+      });
+    }
+    expect(taskPermissionsFor({ role: "Librarian", task: "lookup" })).toEqual({
+      network: true,
+      write: false,
+      networkScope: "current_sources",
+    });
+  });
+
   test("keeps plan route parity in the single effort policy source", () => {
     for (const plan of PLAN_CATALOG.slice(1)) {
       const override = ROUTE_EFFORT_OVERRIDES.find((candidate) => candidate.plan === plan.name);
       expect(override).toBeDefined();
+      if (!override) continue;
       expect(plan.routes.map((route) => route.model)).toEqual(
         Array(ROUTE_KEYS.length).fill("Luna"),
       );
       expect(plan.routes.map((route) => route.effort)).toEqual(
-        ROUTE_KEYS.map((key) => override?.efforts[key]),
+        ROUTE_KEYS.map((key) => override.efforts[key]),
       );
       expect(plan.defaultServiceTier).toBe("standard");
     }
@@ -229,7 +239,50 @@ describe("core plan catalog", () => {
     expect(Either.isRight(decodeUnknown(LegacyPlanNameSchema, "Go"))).toBe(true);
     expect(Either.isRight(decodeUnknown(PlanNameMigrationSchema, "Go"))).toBe(true);
     expect(migratePlanName("Go")).toBe("go");
-    expect(migratePlanName("plus")).toBe("plus");
+    expect(migratePlanName("plus-low")).toBe("low");
+    expect(migratePlanName("plus")).toBe("default");
+    expect(migratePlanName("plus-high")).toBe("high");
+    expect(() => migratePlanName("pro-5x")).toThrow(/requires an explicit replacement/u);
+  });
+
+  test("enforces Root delegation with only the approved direct exceptions", () => {
+    expect(ROOT_ORCHESTRATION_POLICY).toMatchObject({
+      requiresDelegation: true,
+      trivialWorkRequiresDelegation: true,
+      materialDecisionsRemainRootOwned: true,
+      lifecycleRemainsRootOwned: true,
+      integrationAndCompletionRemainRootOwned: true,
+      codeReviewRequiredForImplementation: true,
+      codeReviewRequiredBeforeVcs: true,
+      externalVerificationMustBeTerminal: true,
+      postVcsFlow: "discover_topology_observe_repair_repeat",
+    });
+    expect(ROOT_ORCHESTRATION_POLICY.directExecutionExceptions).toEqual([
+      "git_vcs",
+      "computer_use",
+    ]);
+    expect(Either.isRight(decodeUnknown(RootDirectExecutionExceptionSchema, "git_vcs"))).toBe(true);
+    expect(Either.isLeft(decodeUnknown(RootDirectExecutionExceptionSchema, "shell"))).toBe(true);
+    expect(rootDirectExecutionAllowed("git_vcs")).toBe(true);
+    expect(rootDirectExecutionAllowed("computer_use")).toBe(false);
+    expect(rootDirectExecutionAllowed("computer_use", true)).toBe(true);
+    expect(rootDelegationRequired()).toBe(true);
+    expect(rootDelegationRequired("git_vcs")).toBe(false);
+    expect(rootDelegationRequired("computer_use")).toBe(true);
+    expect(rootDelegationRequired("computer_use", true)).toBe(false);
+    expect(ROOT_ORCHESTRATION_POLICY.requestUserInputGates).toEqual([
+      "plan_approval",
+      "remote_origin_server_vcs_mutation",
+      "ambiguity_or_missing_material_input",
+    ]);
+    expect(ROOT_ORCHESTRATION_POLICY.surgicalMutationRule).toBe(SURGICAL_MUTATION_RULE);
+    expect(SURGICAL_MUTATION_RULE).toContain("smallest complete edit set");
+    expect(ROOT_ORCHESTRATION_POLICY.specialistOutcomes).toEqual([
+      "completed",
+      "blocked",
+      "needs_root_input",
+      "failed",
+    ]);
   });
 });
 
@@ -281,7 +334,7 @@ describe("core route and boundary schemas", () => {
       expect(invalidPlan.error.code).toBe("invalid_plan");
     }
 
-    const invalidRoute = lookupRoute("plus", "Worker:lookup");
+    const invalidRoute = lookupRoute("default", "Worker:lookup");
     expect(invalidRoute.ok).toBe(false);
     if (!invalidRoute.ok) {
       expect(invalidRoute.error.code).toBe("invalid_route");
@@ -302,20 +355,20 @@ describe("core route and boundary schemas", () => {
   });
 
   test("accepts and rejects external plan selections and identities", () => {
-    expect(Either.isRight(decodeUnknown(PlanNameSchema, "pro-20x"))).toBe(true);
-    expect(Either.isLeft(decodeUnknown(PlanNameSchema, "pro"))).toBe(true);
+    expect(Either.isRight(decodeUnknown(PlanNameSchema, "default"))).toBe(true);
+    expect(Either.isLeft(decodeUnknown(PlanNameSchema, "pro-20x"))).toBe(true);
     expect(Either.isRight(decodeUnknown(EffortSchema, "xhigh"))).toBe(true);
     expect(Either.isRight(decodeUnknown(EffortSchema, "max"))).toBe(true);
     expect(
-      Either.isRight(decodeUnknown(PlanSelectionSchema, { plan: "plus", service_tier: "fast" })),
+      Either.isRight(decodeUnknown(PlanSelectionSchema, { plan: "default", service_tier: "fast" })),
     ).toBe(true);
     expect(
       Either.isRight(
-        decodeUnknown(PlanSelectionSchema, { plan: "plus", service_tier: "fast-all" }),
+        decodeUnknown(PlanSelectionSchema, { plan: "default", service_tier: "fast-all" }),
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(decodeUnknown(PlanSelectionSchema, { plan: "plus", service_tier: "Turbo" })),
+      Either.isLeft(decodeUnknown(PlanSelectionSchema, { plan: "default", service_tier: "Turbo" })),
     ).toBe(true);
 
     const digest = "a".repeat(64);
@@ -373,7 +426,7 @@ describe("core route and boundary schemas", () => {
       suggested_followup: null,
       suggested_luna_effort: "high",
       suggested_specialist: "Reviewer",
-      verification: ["vp test"],
+      verification: ["bun test"],
       verification_passed: true,
     };
     expect(Either.isRight(decodeUnknown(SpecialistOutcomeSchema, outcome))).toBe(true);

@@ -43,7 +43,8 @@ async function resolveExecutablePath(options: CodexExecutableDiscoveryOptions): 
   if (options.executablePath !== undefined) {
     candidates.push(resolve(options.cwd ?? process.cwd(), options.executablePath));
   } else {
-    const pathValue = options.pathValue ?? process.env["PATH"] ?? "";
+    const pathValue =
+      options.pathValue ?? options.environment?.["PATH"] ?? process.env["PATH"] ?? "";
     const names = process.platform === "win32" ? ["codex.exe", "codex.cmd", "codex"] : ["codex"];
     for (const entry of pathValue.split(delimiter).filter((item) => item.length > 0)) {
       for (const name of names) {

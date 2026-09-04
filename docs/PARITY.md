@@ -25,9 +25,11 @@ their readback.
 
 | Surface                                                                 | Owner                                                                  | Independent proof                             | Status           |
 | ----------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------- | ---------------- |
-| Bun, `mise`, TypeScript, and Vite+ toolchain                            | [DEVELOPMENT.md](DEVELOPMENT.md)                                       | Validation gate and lockfile checks           | proven           |
+| Bun, `mise`, OXC, and TypeScript toolchain                              | [DEVELOPMENT.md](DEVELOPMENT.md)                                       | Validation gate and lockfile checks           | proven           |
 | Effect Schema boundary validation                                       | [ARCHITECTURE.md](ARCHITECTURE.md), [DEPENDENCIES.md](DEPENDENCIES.md) | Source and boundary tests                     | proven           |
 | Eleven canonical native Role.task identities and route-only plans       | [BEHAVIOR.md](BEHAVIOR.md)                                             | Core catalog, registration, and routing tests | proven           |
+| Root orchestration and Assignment-backed delegation                     | [BEHAVIOR.md](BEHAVIOR.md), [STATE.md](STATE.md)                       | Core policy and plugin contract tests         | proven           |
+| Repo-local Intent/Plan/Assignment persistence                           | [STATE.md](STATE.md)                                                   | Agent store and CLI tests                     | proven           |
 | Independent service tiers                                               | [BEHAVIOR.md](BEHAVIOR.md), [CONFIGURATION.md](CONFIGURATION.md)       | Configuration boundary tests                  | proven           |
 | CLI install, remove, version, JSON, and exit behavior                   | [CLI.md](CLI.md)                                                       | CLI boundary tests                            | proven           |
 | Native Codex plugin management, owned state, and transactional recovery | [INSTALLATION.md](INSTALLATION.md), [STATE.md](STATE.md)               | Isolated install/removal/doctor verification  | proven           |

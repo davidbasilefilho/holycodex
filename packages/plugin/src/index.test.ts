@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-
-import { describe, expect, test } from "vite-plus/test";
 
 import {
   PluginError,
@@ -35,6 +34,13 @@ describe("plugin source assets", () => {
     expect(source.manifest.name).toBe("holycodex");
     expect(source.files.map((file) => file.path)).toContain(sourceManifestPath);
     expect(source.files.map((file) => file.path)).toContain("skills/plan/SKILL.md");
+    expect(source.files.map((file) => file.path)).toContain("skills/operations/SKILL.md");
+    const defaultPrompt = source.manifest.interface.defaultPrompt.join("\n");
+    expect(defaultPrompt).toContain("delegate every task");
+    expect(defaultPrompt).toContain("--computer-use");
+    expect(defaultPrompt).toContain("Reviewer.code");
+    expect(defaultPrompt).toContain("request_user_input");
+    expect(defaultPrompt).toContain("surgical-mutation rule");
   });
 
   test("keeps skill frontmatter, metadata, invocation, and server declarations in policy", async () => {
@@ -71,6 +77,62 @@ describe("plugin source assets", () => {
       expect(metadata).toMatch(/allow_implicit_invocation: (true|false)/u);
       expect(`${body}\n${metadata}`.toLowerCase()).not.toContain("mcp");
       expect(`${body}\n${metadata}`).not.toContain(["0", "15", "0"].join("."));
+    }
+  });
+
+  test("hardens Root orchestration and semantic state ownership", async () => {
+    const requiredSkills = [
+      "plan",
+      "plan-review",
+      "programming",
+      "debugging",
+      "code-review",
+      "operations",
+    ];
+    for (const skill of requiredSkills) {
+      const body = await readFile(join(pluginSourceRoot, "skills", skill, "SKILL.md"), "utf8");
+      expect(body).toContain("holycodex-agent");
+      expect(body).toMatch(/delegat(?:e|ed|ion)/iu);
+      expect(body).toMatch(/completed.*blocked.*needs_root_input.*failed/isu);
+    }
+
+    const plan = await readFile(join(pluginSourceRoot, "skills", "plan", "SKILL.md"), "utf8");
+    expect(plan).toContain("trivial work");
+    expect(plan).toContain("Git/VCS");
+    expect(plan).toContain("Computer Use");
+    expect(plan).toContain("Do not edit TOON files manually");
+
+    const handoff = await readFile(join(pluginSourceRoot, "skills", "handoff", "SKILL.md"), "utf8");
+    expect(handoff).toContain("projection/export only");
+    expect(handoff).toContain("no second source of truth");
+    expect(handoff).not.toContain("write one redacted handoff");
+
+    const commit = await readFile(join(pluginSourceRoot, "skills", "commit", "SKILL.md"), "utf8");
+    expect(commit).toContain("only unconditional direct execution exception");
+    expect(commit).toContain("surgical-mutation rule");
+    expect(commit).toContain("Reviewer.code fixed-point");
+    expect(commit).toContain("request_user_input");
+  });
+
+  test("keeps every write-capable skill Assignment-bounded and outcome-oriented", async () => {
+    const writeSkills = [
+      "code-review",
+      "compress",
+      "debugging",
+      "operations",
+      "programming",
+      "refactor",
+      "rules",
+      "stop-slop",
+    ];
+    for (const skill of writeSkills) {
+      const body = await readFile(join(pluginSourceRoot, "skills", skill, "SKILL.md"), "utf8");
+      expect(body).toMatch(/Owner: (?:Worker|Reviewer)/u);
+      expect(body).toContain("delegated Assignment");
+      expect(body).toContain("surgical-mutation rule");
+      expect(body).toContain("TOON files manually");
+      expect(body).toMatch(/completed.*blocked.*needs_root_input.*failed/isu);
+      expect(body).toMatch(/holycodex-agent assignment\s+result/u);
     }
   });
 });

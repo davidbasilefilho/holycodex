@@ -1,13 +1,14 @@
 {
   "name": "holycodex",
-  "version": "0.16.3",
+  "version": "0.16.4",
   "private": false,
   "repository": {
     "type": "git",
     "url": "https://github.com/davidbasilefilho/holycodex.git"
   },
   "bin": {
-    "holycodex": "./dist/index.js"
+    "holycodex": "./dist/index.js",
+    "holycodex-agent": "./dist/agent.js"
   },
   "files": [
     "dist",
@@ -21,6 +22,8 @@
     "access": "public"
   },
   "dependencies": {
+    "@opentui/core": "catalog:",
+    "@toon-format/toon": "catalog:",
     "effect": "catalog:"
   },
   "devDependencies": {

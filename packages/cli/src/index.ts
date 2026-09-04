@@ -16,9 +16,16 @@ export {
   CapabilityStateRecordSchema,
   CapabilityInstallStateSchema,
   InstallRequestSchema,
+  InstallOptionsSchema,
   InstallRecordSchema,
   InstallerError,
+  validateInstallOptions,
 } from "./installer.ts";
+export {
+  renderInstallWizardReview,
+  runOpenTuiInstallWizard,
+  toInstallOptions,
+} from "./installer-wizard.ts";
 export { doctorHolyCodex, removeHolyCodex } from "./maintenance.ts";
 export {
   publicManifestPath,
@@ -42,6 +49,7 @@ export {
   rollbackNativeAgentInstall,
   removeManagedNativeAgents,
   renderNativeAgent,
+  rootDeveloperInstructions,
 } from "./native-agents.ts";
 export type {
   NativeAgentInstallResult,
@@ -77,7 +85,8 @@ export type {
   InstallTransactionStep,
   ParsedCommand,
   RemoveResult,
+  InstallWizardResult,
 } from "./types.ts";
-export type { InstallRequest } from "./installer.ts";
+export type { InstallOptions, InstallRequest } from "./installer.ts";
 
 if (import.meta.main) process.exitCode = await runBinary();

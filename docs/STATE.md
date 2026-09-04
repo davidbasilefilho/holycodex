@@ -1,9 +1,37 @@
 # State
 
-This document owns the HolyCodex-managed installation record and migration
-boundary. Observable command behavior remains in [BEHAVIOR.md](BEHAVIOR.md),
-path and ownership rules remain in [INSTALLATION.md](INSTALLATION.md), and
-trust rules remain in [SECURITY.md](SECURITY.md).
+This document owns the two state boundaries and their migration rules.
+Observable command behavior remains in [BEHAVIOR.md](BEHAVIOR.md), path and
+ownership rules remain in [INSTALLATION.md](INSTALLATION.md), and trust rules
+remain in [SECURITY.md](SECURITY.md).
+
+## Repo-local work state
+
+Repo-local work state is separate from HolyCodex installation state and is
+ignored by default:
+
+```text
+.holycodex/{slug}-{short-id}/
+├── intent.toon
+├── plan.toon                 # optional current Plan
+├── plan.old-001.toon         # immutable archived revisions
+└── assignments/{id}.toon
+```
+
+`intent.toon` is the canonical compact global Intent. `plan.toon` is optional
+and answers how the Intent will be achieved. Each Assignment contains its
+bounded scope, owner, status, invocation results, evidence, local blocker,
+and remaining risk. Global blockers belong to Intent; no standalone blocker,
+Decision, transcript, or handoff files exist. The `holycodex-agent` CLI is the
+only normal mutation interface; it validates TOON with Effect Schema, writes
+atomically, archives plans before revision, guards lifecycle and revisions,
+and provides deterministic current-Intent discovery/resume.
+
+The current lifecycle is `scoping → ready → executing → verifying → reviewing
+→ complete`, with explicit `blocked`, `needs_root_input`, and `abandoned`
+paths. Completion is predicate-checked and cannot bypass unresolved
+Assignments, blockers, proof, review, acceptance, or Root readiness. A handoff
+is only a redacted projection of current Intent state.
 
 ## Store layout and schema epoch
 
@@ -26,7 +54,7 @@ There is no managed Root agent file. Preparing and conflicted records remain
 diagnosable until install recovery or an ownership-safe removal resolves them;
 they are not reported as active success.
 
-Every persisted record is validated at load and write time. The current record
+Every persisted installation record is validated at load and write time. The current record
 epoch is `state-0.16`. Unknown epochs, malformed values, invalid digests, and
 foreign owners fail closed rather than being treated as a compatible record.
 

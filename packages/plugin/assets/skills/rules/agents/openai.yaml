@@ -1,6 +1,6 @@
 interface:
   display_name: "Rules"
   short_description: "Trace one repository rule discovery or application failure."
-  default_prompt: "When Root assigns a rule failure, inspect the owning rule seam and return exact behavior, limits, and failure evidence."
+  default_prompt: "When Root assigns a bounded rule Assignment, apply the repository surgical-mutation rule, inspect the owning seam, and return completed, blocked, needs_root_input, or failed evidence for holycodex-agent."
 policy:
   allow_implicit_invocation: true

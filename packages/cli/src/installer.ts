@@ -29,6 +29,7 @@ import {
   domainSeparatedSha256,
   lookupPlan,
   migratePlanName,
+  type LegacyPlanName,
   pluginIdsForOptionalCapabilities,
   resolveOptionalCapabilitySelections,
   ServiceTierSchema,
@@ -63,6 +64,7 @@ import {
   decodeSchema,
   InstallRecordMigrationSchema,
   InstallRecordSchema,
+  InstallOptionsSchema,
   InstallRequestSchema,
   InstallTransactionSchema,
   JsonObjectSchema,
@@ -91,6 +93,7 @@ export {
   CapabilityStateRecordSchema,
   InstallRequestSchema,
   InstallRecordSchema,
+  InstallOptionsSchema,
   InstallTransactionSchema,
 } from "./schema.ts";
 
@@ -102,6 +105,18 @@ export interface InstallRequest {
   readonly tier?: ServiceTier | undefined;
   readonly optional?: ExplicitOptionalSelections | undefined;
   readonly officialPlugins?: readonly string[] | undefined;
+}
+
+/** Alias for the validated install selections domain used by every CLI surface. */
+export type InstallOptions = InstallRequest;
+
+/** Validate install selections before handing them to the installation effect. */
+export function validateInstallOptions(input: unknown): InstallOptions {
+  const parsed = decodeSchema(InstallOptionsSchema, input);
+  if (parsed === undefined) {
+    throw new InstallerError("install_failed", "The installation options are invalid.");
+  }
+  return parsed as InstallOptions;
 }
 
 type PreparingTransaction = Omit<InstallRecord, "status" | "step"> & {
@@ -574,7 +589,17 @@ export async function readActiveInstallRecord(
       { path: paths.activeRecord },
     );
   }
-  const migratedPlan = migratePlanName(legacy.plan);
+  let migratedPlan: PlanName;
+  try {
+    migratedPlan = migratePlanName(legacy.plan);
+  } catch (error: unknown) {
+    throw new InstallerError(
+      "state_corrupt",
+      `The persisted plan ${legacy.plan} was removed and requires an explicit replacement.`,
+      error,
+      { path: paths.activeRecord, plan: legacy.plan },
+    );
+  }
   const migrated = {
     ...legacy,
     plan: migratedPlan,
@@ -596,6 +621,7 @@ export async function readActiveInstallRecord(
       ...(legacy.owned_plugins === undefined ? {} : { owned_plugins: legacy.owned_plugins }),
     }),
   } as InstallRecord;
+  await writeAtomicJson(paths.activeRecord, asJsonValue(migrated));
   return migrated;
 }
 
@@ -1092,10 +1118,9 @@ export async function verifyEffectiveInstall(
       typeof roleDoc["model_reasoning_effort"] !== "string" ||
       typeof roleDoc["service_tier"] !== "string" ||
       typeof roleDoc["developer_instructions"] !== "string" ||
-      roleDoc["sandbox_mode"] !==
-        (agent.rolePolicy.permissions.write ? "workspace-write" : "read-only") ||
+      roleDoc["sandbox_mode"] !== (agent.permissions.write ? "workspace-write" : "read-only") ||
       roleDoc["approval_policy"] !== "never" ||
-      roleDoc["web_search"] !== (agent.rolePolicy.permissions.network ? "live" : "disabled") ||
+      roleDoc["web_search"] !== (agent.permissions.network ? "live" : "disabled") ||
       roleDoc["tool_output_token_limit"] !== undefined ||
       readTomlPath(roleDoc, "agents.enabled") !== false ||
       readTomlPath(roleDoc, "features.multi_agent_v2") !== false ||
@@ -1245,7 +1270,7 @@ function findPlugin(
 }
 
 function choosePlan(requested: PlanName | undefined, previous: PlanName | undefined): PlanName {
-  const value = requested ?? previous ?? "plus";
+  const value = requested ?? previous ?? "default";
   if (!lookupPlan(value).ok) throw new InstallerError("install_failed", "Unknown plan.");
   return value;
 }
@@ -1298,7 +1323,7 @@ type InstallRecordDigestInput = {
   readonly owner: "holycodex";
   readonly install_id: string;
   readonly version: string;
-  readonly plan: PlanName | "Go";
+  readonly plan: PlanName | LegacyPlanName;
   readonly tier: ServiceTier;
   readonly optional_selections: OptionalSelections;
   readonly explicit_optional_selections: ExplicitOptionalSelections;
@@ -1324,7 +1349,7 @@ async function recordDigestMatchesRaw(record: {
   readonly owner: "holycodex";
   readonly install_id: string;
   readonly version: string;
-  readonly plan: PlanName | "Go";
+  readonly plan: PlanName | LegacyPlanName;
   readonly tier: ServiceTier;
   readonly optional_selections: OptionalSelections;
   readonly explicit_optional_selections: ExplicitOptionalSelections;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect, test } from "bun:test";
 
 import { verifyGeneratedArtifact } from "./generated-artifact";
 

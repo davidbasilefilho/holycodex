@@ -14,6 +14,7 @@ are build inputs and must keep one-way dependencies.
 packages/cli ── core + codex + plugin
 packages/codex ── core
 packages/plugin ── core
+packages/agent ── core
 ```
 
 `core` owns immutable domain values, Effect Schema boundary schemas, errors,
@@ -21,7 +22,8 @@ plan names, route policy, capability metadata, and identity encodings.
 `codex` owns the typed boundary to Codex native plugin management and native
 subagent operations. `plugin` owns independently authored installed assets and
 their manifests. `cli` composes installation, removal, configuration, version,
-and presentation into the published Bun ESM artifact.
+and presentation into the published Bun ESM artifact. The `agent` package owns
+the deterministic model-facing Intent/Plan/Assignment command surface.
 
 The native runtime has one parent and eleven leaves. Root is the parent Codex
 session configured in `config.toml`. Each canonical `{Role}.{task}` leaf has
@@ -31,12 +33,13 @@ legacy state, not a second supported model.
 
 ## Ownership and interfaces
 
-| Concern                                 | Owner    | Stable interface                       |
-| --------------------------------------- | -------- | -------------------------------------- |
-| Domain, plans, routes, and identities   | `core`   | Effect Schema values and typed records |
-| Codex installation and native subagents | `codex`  | validated native Codex ports           |
-| Installed agent assets                  | `plugin` | generated immutable payload            |
-| Commands and configuration              | `cli`    | user-facing commands and envelopes     |
+| Concern                                 | Owner          | Stable interface                       |
+| --------------------------------------- | -------------- | -------------------------------------- |
+| Domain, plans, routes, and identities   | `core`         | Effect Schema values and typed records |
+| Codex installation and native subagents | `codex`        | validated native Codex ports           |
+| Installed agent assets                  | `plugin`       | generated immutable payload            |
+| Commands and installation configuration | `cli`          | public human CLI and envelopes         |
+| Intent, Plan, and Assignment state      | `agent`/`core` | semantic agent CLI / domain + store    |
 
 Only the owning package decides its concern. Callers consume explicit exports;
 cross-package filesystem imports and cycles are invalid. Every external,
@@ -53,25 +56,44 @@ Effect Schema validation → Root policy and scope decision
    │                         │
    │                         └─ denied → structured failure, no effect
    ▼
-validated plan, tier, and optional selections
+validated plan, tier, optional selections, and repo-local Intent
    │
    ▼
 Codex native plugin management → native subagent assets and readback
    │
    ▼
-atomic HolyCodex configuration → validated CLI response
+Root creates bounded Assignments → native specialists return evidence
+   │
+   ▼
+Root integrates, performs VCS, delegates exact-ref terminal CI/release checks
+→ validated CLI/state response
 ```
 
 Plans select native routing only. Service tiers are independent settings and
 must not rewrite route policy or authority. Optional Work, frontend,
 Security, and Computer Use selections are explicit and independently denied
-when unavailable. Native subagents receive bounded assignments; Root retains
-scope, policy, integration, and final judgment.
+when unavailable. Native subagents receive bounded Assignments; Root retains
+scope, policy, material choices, lifecycle, integration, VCS, and final
+judgment. Root MUST delegate every task, including trivial work. The only
+direct Root execution exceptions are Git/VCS and Computer Use when selected at
+installation. The typed orchestration policy in `core` is machine-testable.
+After implementation or a major codebase change, `Reviewer.code` must reach a
+fixed point before completion or any VCS operation. Root requests user input
+before plan approval, remote/origin/server VCS mutations, or when material
+ambiguity blocks safe progress.
+
+Repo-local work state is separate from Codex-home installation state. The
+`agent` CLI persists ignored `.holycodex/{slug}-{short-id}/` Intent, optional
+Plan revisions, and Assignment files through semantic operations. Handoff is a
+redacted projection of this state, never another source of truth.
 
 Role profiles carry semantic authority and native capability controls. Task
 skills carry branch-specific workflow, and delegation prompts carry only the
-facts of one assignment. This keeps a hard invariant in runtime configuration
-and each semantic instruction in one layer.
+facts of one Assignment. The surgical-mutation rule in `AGENTS.md` is the
+single instruction-level source for write minimization; Root and every
+write-capable profile/skill receive that rule as a projection, without weaker
+variants. The typed `core` export is the runtime projection used to generate
+those instructions. This keeps each semantic instruction in one layer.
 
 Installation preflights selected capabilities and runtime compatibility, then
 journals native mutations and verifies readback before publishing managed
@@ -84,7 +106,8 @@ unrequested capability.
 ## Repository shape and checks
 
 Keep tests beside the package seam they prove. Use Bun and `mise` for the
-pinned toolchain, Vite+ for project checks, and TypeScript 7 for implementation.
+toolchain and `bun:test` for tests; OXC owns formatting and linting, while
+TypeScript owns typechecking, and TypeScript remains strict.
 Use no reverse imports, ownership-hiding compatibility layers, or duplicate
 policy implementations. Add SPDX `Apache-2.0` headers to authored code;
 Markdown remains unheaded. Inspect the final diff and run checks appropriate to

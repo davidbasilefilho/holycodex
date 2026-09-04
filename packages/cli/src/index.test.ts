@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { describe, expect, test } from "vite-plus/test";
 
 import {
   assertRootText,
@@ -138,7 +137,7 @@ describe("native installation and removal", () => {
         {},
         { paths: { codexHome }, officialPluginManager: manager },
       );
-      expect(install.record.plan).toBe("plus");
+      expect(install.record.plan).toBe("default");
       expect(install.record.tier).toBe("standard");
       expect(install.record.optional_selections).toMatchObject({
         work: false,
@@ -152,7 +151,7 @@ describe("native installation and removal", () => {
       ]);
       expect(install.record.managed_artifacts).toHaveLength(11);
       expect(install.record.managed_artifacts.map((artifact) => artifact.path)).toEqual(
-        projectNativeAgents("plus").map((agent) => `holycodex/agents/${agent.name}.toml`),
+        projectNativeAgents("default").map((agent) => `holycodex/agents/${agent.name}.toml`),
       );
       expect(install.record.status).toBe("active");
       expect(
@@ -168,7 +167,7 @@ describe("native installation and removal", () => {
       expect(config).toContain("experimental_mode = true");
       expect(config).toContain("Apply writing-for-agents before dispatch");
       expect(config).not.toContain("Interactive GUI, browser, and Computer Use execution");
-      for (const agent of projectNativeAgents("plus")) {
+      for (const agent of projectNativeAgents("default")) {
         expect(config).toContain(`[agents.${JSON.stringify(agent.name)}]`);
         expect(config).toContain(`holycodex/agents/${agent.name}.toml`);
       }
@@ -218,7 +217,7 @@ describe("native installation and removal", () => {
       expect(install.record.official_plugins).toContain("computer-use@openai-bundled");
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
       expect(config).toContain("Interactive GUI, browser, and Computer Use execution is Root-only");
-      for (const agent of projectNativeAgents("plus")) {
+      for (const agent of projectNativeAgents("default")) {
         const leaf = await readFile(
           join(codexHome, "holycodex", "agents", `${agent.name}.toml`),
           "utf8",
@@ -665,18 +664,18 @@ describe("native installation and removal", () => {
   test("projects service tiers independently of the selected plan", () => {
     expect(projectNativeAgents("go")).toHaveLength(11);
 
-    const standardRoot = projectRootAgent("plus", "standard");
-    const standardLeaf = renderNativeAgent(projectNativeAgents("plus", "standard")[0]!);
+    const standardRoot = projectRootAgent("default", "standard");
+    const standardLeaf = renderNativeAgent(projectNativeAgents("default", "standard")[0]!);
     expect(standardRoot.serviceTier).toBe("default");
     expect(standardLeaf).toContain('service_tier = "default"');
 
-    const fastRoot = projectRootAgent("plus", "fast");
-    const fastLeaf = renderNativeAgent(projectNativeAgents("plus", "fast")[0]!);
+    const fastRoot = projectRootAgent("default", "fast");
+    const fastLeaf = renderNativeAgent(projectNativeAgents("default", "fast")[0]!);
     expect(fastRoot.serviceTier).toBe("default");
     expect(fastLeaf).toContain('service_tier = "fast"');
 
-    const fastAllRoot = projectRootAgent("plus", "fast-all");
-    const fastAllLeaf = renderNativeAgent(projectNativeAgents("plus", "fast-all")[0]!);
+    const fastAllRoot = projectRootAgent("default", "fast-all");
+    const fastAllLeaf = renderNativeAgent(projectNativeAgents("default", "fast-all")[0]!);
     expect(fastAllRoot.serviceTier).toBe("fast");
     expect(fastAllLeaf).toContain('service_tier = "fast"');
   });
@@ -721,6 +720,7 @@ describe("native installation and removal", () => {
 
       const migrated = await readActiveInstallRecord(paths);
       expect(migrated?.plan).toBe("go");
+      expect(JSON.parse(await readFile(paths.activeRecord, "utf8"))).toMatchObject({ plan: "go" });
       expect(migrated?.digest).toBe(
         await installRecordDigest({
           owner: legacyRecord.owner,
@@ -1278,7 +1278,7 @@ describe("native installation and removal", () => {
     });
     expect(exitCode).toBe(0);
     expect(stdout).toContain("--frontend");
-    expect(stdout).toContain("Default plan: plus");
+    expect(stdout).toContain("Default plan: default");
     expect(stderr).toBe("");
   });
 });

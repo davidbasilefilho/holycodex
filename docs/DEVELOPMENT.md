@@ -7,19 +7,23 @@ behavior is in [BEHAVIOR.md](BEHAVIOR.md), and evidence limits are in
 
 ## Toolchain
 
-`mise.toml` selects the pinned Bun line and project tools. Use Bun as the only
-local runtime, package manager, script runner, and test runner:
+`mise.toml` selects the Bun compatibility line and project tools. Use Bun as
+the local runtime, package manager, script runner, native test runner, build
+tool, and pack tool:
 
 ```sh
 mise install
 mise exec -- bun install --frozen-lockfile
-mise exec -- bun run check:fix
-mise exec -- bun run test -- --run
+mise exec -- bun run check
+mise exec -- bun test
+mise exec -- bun run build
+mise exec -- bun pm pack
 ```
 
-Vite+ owns formatting, linting, type checking, and test orchestration. The
-lockfile and manifests must agree before handoff. Authored TypeScript uses
-strict settings and Bun-native APIs where available. Effect Schema from
+OXC owns formatting and linting; TypeScript owns type checking. Bun owns test
+execution, packaging, and builds. The lockfile and manifests must agree before
+handoff. Authored TypeScript uses strict settings and Bun-native APIs where
+available. Effect Schema from
 `effect/Schema` validates every external, persisted, CLI, Codex, and
 specialist boundary.
 
@@ -49,11 +53,30 @@ and repair through local/development checks before trying stable again.
 Run the checks proportional to the changed seam and inspect the final diff:
 
 ```sh
-mise exec -- vp check --fix
-mise exec -- vp test --run
+mise exec -- bun run check
+mise exec -- bun test
+mise exec -- bun run fmt:check
+mise exec -- bun run lint
+mise exec -- bun run typecheck
 mise exec -- bun run validate
 git diff --check
 ```
+
+Root MUST delegate every task, including trivial work, through a bounded
+Assignment and native specialist. Only Git/VCS is always direct Root work;
+Computer Use is direct only when selected at installation. Root delegates
+implementation, tests, review, and CI/release observation, then integrates
+evidence and performs the VCS step. Discover the repository's actual
+development/release topology from its own configuration; pending checks are
+not green. A passing `Reviewer.code` fixed-point review is mandatory after
+implementation or a major codebase change and before completion or any VCS
+operation. Root uses `request_user_input` before plan approval, remote/origin/
+server VCS mutations, and whenever ambiguity or missing material input blocks
+safe progress; persist the resulting `needs_root_input` state.
+
+Apply the repository surgical-mutation rule to Root and write-capable agents:
+minimize the edit/write surface and operation count while remaining careful,
+complete, and evidence-driven.
 
 Documentation checks validate local links, required owning topics, and the
 canonical version sources. Tests that touch installation use temporary,

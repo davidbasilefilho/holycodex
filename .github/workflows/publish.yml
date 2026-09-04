@@ -47,7 +47,7 @@ jobs:
           fetch-depth: 0
 
       - name: Activate mise and install the pinned toolchain
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac
         with:
           install: true
           cache: false
@@ -118,7 +118,7 @@ jobs:
           fetch-depth: 0
 
       - name: Activate mise and install the pinned toolchain
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac
         with:
           install: true
           cache: false
@@ -147,11 +147,11 @@ jobs:
 
       - name: Publish the development artifact under dev
         if: steps.npm_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'dev'
-        run: mise exec -- bunx npm@11.5.1 publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag dev
+        run: mise exec -- bunx npm@12 publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag dev
 
       - name: Publish the stable artifact under latest
         if: steps.npm_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'stable'
-        run: mise exec -- bunx npm@11.5.1 publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag latest
+        run: mise exec -- bunx npm@12 publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag latest
 
   publish_github:
     name: publish exact GitHub release
@@ -172,7 +172,7 @@ jobs:
           fetch-depth: 0
 
       - name: Activate mise and install the pinned toolchain
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac
         with:
           install: true
           cache: false

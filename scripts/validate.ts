@@ -26,10 +26,10 @@ export async function runValidation(): Promise<ValidationResult> {
   assert(bun.stdout.trim().startsWith("1.4."), "validation requires mise-resolved Bun 1.4");
   steps.push("bun 1.4");
 
-  await runStep(["vp", "run", "fmt", "--check"], "format", steps);
-  await runStep(["vp", "run", "lint"], "lint", steps);
-  await runStep(["vp", "run", "check", "--no-fmt", "--no-lint"], "typescript", steps);
-  await runStep(["vp", "run", "test", "--run"], "tests", steps);
+  await runStep(["bun", "run", "fmt:check"], "format", steps);
+  await runStep(["bun", "run", "lint"], "lint", steps);
+  await runStep(["bun", "run", "typecheck"], "typescript", steps);
+  await runStep(["bun", "test"], "tests", steps);
   await runStep(["bun", "scripts/package-build.ts"], "package build", steps);
 
   const proof = await runRepositoryProof();

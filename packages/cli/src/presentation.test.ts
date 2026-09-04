@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, expect, test } from "bun:test";
+
 import { CLI_SCHEMA_VERSION } from "@holycodex/core";
-import { describe, expect, test } from "vite-plus/test";
 
 import { renderHelp, renderHuman, runCli, runBinary, type CommandResult } from "./index.ts";
 

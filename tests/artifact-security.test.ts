@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, expect, test } from "bun:test";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
-import { describe, expect, test } from "vite-plus/test";
 
 import {
   assertBuildUploadEntries,
@@ -50,6 +49,9 @@ describe("artifact and diagnostic security boundaries", () => {
     expect(isSensitiveArtifactPath("terraform/production.tfstate")).toBe(true);
     expect(() => assertBuildUploadEntries(["assets/plugin/.aws/credentials"])).toThrow(
       "sensitive file path",
+    );
+    expect(() => assertBuildUploadEntries(["assets/plugin/skills/../../escape"])).toThrow(
+      "unsafe file path",
     );
     expect(() => assertPublicPackageEntries(["dist/index.js", "dist/.env.local"])).toThrow(
       "sensitive file path",
@@ -116,5 +118,10 @@ describe("artifact and diagnostic security boundaries", () => {
         "sensitive file path",
       );
     });
+  });
+
+  test("keeps both public and model-facing executables in the package allowlists", () => {
+    expect(() => assertBuildUploadEntries(["index.js", "agent.js"])).not.toThrow();
+    expect(() => assertPublicPackageEntries(["dist/index.js", "dist/agent.js"])).not.toThrow();
   });
 });

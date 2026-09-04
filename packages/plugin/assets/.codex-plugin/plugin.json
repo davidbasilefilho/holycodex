@@ -16,8 +16,12 @@
     "developerName": "David Basile Filho",
     "category": "Developer Tools",
     "capabilities": ["Skills", "Code Intelligence"],
-    "defaultPrompt": ["Use HolyCodex to implement and verify this task."]
+    "defaultPrompt": [
+      "Use HolyCodex as Root: delegate every task, including trivial work, through a bounded Assignment and native specialist; retain intent, material decisions, lifecycle, integration, approvals, VCS, and completion.",
+      "Direct Root execution is limited to Git/VCS, plus Computer Use only when installed with --computer-use. Require Reviewer.code fixed-point review before completion or VCS, then delegate exact-ref/SHA terminal CI or release observation and repeat repair until green.",
+      "Use request_user_input before plan approval, remote/origin/server VCS mutation, or whenever material ambiguity blocks safe progress; apply the repository surgical-mutation rule and persist needs_root_input."
+    ]
   },
   "name": "holycodex",
-  "version": "0.16.3"
+  "version": "0.16.4"
 }

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, expect, test } from "bun:test";
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
-import { describe, expect, test } from "vite-plus/test";
 
 import {
   assertReleaseVersion,
@@ -56,12 +56,14 @@ describe("release version authority", () => {
       devDependencies?: Readonly<Record<string, string>>;
     };
     const sharedDependencies = [
+      "@opentui/core",
+      "@toon-format/toon",
       "@types/bun",
       "@types/node",
       "effect",
+      "oxfmt",
+      "oxlint",
       "typescript",
-      "vite-plus",
-      "vitest",
     ] as const;
     const catalog = rootManifest.catalog ?? {};
     for (const dependency of sharedDependencies) {
@@ -87,12 +89,28 @@ describe("release version authority", () => {
     }
   });
 
+  test("keeps ordinary dependencies on compatibility ranges while the lockfile resolves versions", async () => {
+    const rootManifest = JSON.parse(await readFile(`${workspaceRoot}/package.json`, "utf8")) as {
+      catalog?: Readonly<Record<string, string>>;
+    };
+    const catalog = rootManifest.catalog ?? {};
+    for (const [name, range] of Object.entries(catalog)) {
+      expect(range, `${name} must use a compatibility range`).toMatch(
+        /^(?:\^[1-9]\d*\.\d+\.\d+|~0\.\d+\.\d+)$/u,
+      );
+    }
+    const lockfile = await readFile(`${workspaceRoot}/bun.lock`, "utf8");
+    expect(lockfile).toMatch(/"oxfmt": \["oxfmt@\d+\.\d+\.\d+"/u);
+    expect(lockfile).not.toMatch(/\n\s+"vitest": \[/u);
+    expect(lockfile).not.toMatch(/\n\s+"vite-plus": \[/u);
+  });
+
   test("rejects stale HolyCodex release literals outside owned version domains", async () => {
     const manifest = await readCanonicalManifest();
     const rootManifest = JSON.parse(await readFile(`${workspaceRoot}/package.json`, "utf8")) as {
       catalog?: Readonly<Record<string, string>>;
     };
-    const dependencyVersions = new Set(Object.values(rootManifest.catalog ?? {}));
+    const dependencyRanges = new Set(Object.values(rootManifest.catalog ?? {}));
     const violations: string[] = [];
     for (const relativePath of await listFiles(workspaceRoot)) {
       if (relativePath === "tests/version-authority.test.ts") continue;
@@ -105,7 +123,7 @@ describe("release version authority", () => {
           literal === manifest.version
         )
           continue;
-        if (isOwnedNonHolyCodexVersion(relativePath, literal, dependencyVersions)) continue;
+        if (isOwnedNonHolyCodexVersion(relativePath, literal, dependencyRanges)) continue;
         violations.push(`${relativePath}: ${literal}`);
       }
     }
@@ -151,6 +169,7 @@ function isGeneratedOrPackageManagerPath(relativePath: string): boolean {
   const generatedPrefixes = [
     ".git/",
     ".cache/",
+    ".holycodex/",
     ".codex-test-home/",
     ".codex-test-state/",
     ".task-cache/",
@@ -201,9 +220,14 @@ function countLiteral(content: string, literal: string): number {
 function isOwnedNonHolyCodexVersion(
   relativePath: string,
   literal: string,
-  dependencyVersions: ReadonlySet<string>,
+  dependencyRanges: ReadonlySet<string>,
 ): boolean {
-  if (dependencyVersions.has(literal)) return true;
+  if (
+    dependencyRanges.has(literal) ||
+    dependencyRanges.has(`^${literal}`) ||
+    dependencyRanges.has(`~${literal}`)
+  )
+    return true;
   if (literal === "0.0.0" && relativePath === "packages/cli/src/maintenance.ts") return true;
   if (relativePath === "scripts/generate-codex-bindings.test.ts") return true;
   if (literal === "0.1.0") {

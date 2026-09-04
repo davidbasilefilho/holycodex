@@ -1,6 +1,6 @@
 interface:
   display_name: "Code review"
   short_description: "Review one implementation result to a fixed point."
-  default_prompt: "After implementation, inspect the assigned result once, repair reviewer-owned defects to a fixed point, and return evidence for Root's readiness judgment."
+  default_prompt: "After implementation, inspect the delegated Assignment result once, apply the repository surgical-mutation rule, repair reviewer-owned defects to a fixed point, and return structured evidence for Root's readiness judgment."
 policy:
   allow_implicit_invocation: true

@@ -7,6 +7,13 @@ Owner: Worker or Reviewer within the assigned prose surface. Boundary: edit
 only the assigned text, preserve meaning and product voice, and use the linked
 references for phrase, structure, and example branches when needed.
 
+The prose edit is one delegated Assignment. Read its scope and constraints
+through the semantic agent interface; do not edit TOON files manually. Apply the
+repository's surgical-mutation rule: make the smallest complete edit set within
+the authorized boundary, touch no unrelated paths, avoid speculative rewrites,
+and perform no redundant writes. Preserve unrelated work and stop for Root
+input before expanding scope.
+
 # Stop Slop
 
 Remove predictable AI writing patterns from prose.
@@ -30,8 +37,11 @@ claims, throat-clearing, binary contrasts, meta-joiners, em dashes, and repeated
 rhythm. Use [examples](references/examples.md) to calibrate edits.
 
 Completion: the assigned prose is direct, specific, constraint-equivalent,
-and reviewed against the relevant references; any deliberate voice tradeoff
-is recorded.
+and reviewed against the relevant references; any deliberate voice tradeoff is
+recorded. Return one outcome from `completed`, `blocked`, `needs_root_input`, or
+`failed` with changed paths, proof, and remaining risk. Root records the result
+through `holycodex-agent assignment result`; do not mutate global Intent
+lifecycle or perform Git/VCS.
 
 ## License
 

@@ -4,24 +4,38 @@ import * as Schema from "effect/Schema";
 
 import { freezeDeep } from "./common.ts";
 
-export const PlanNameSchema = Schema.Literal(
-  "go",
+export const PlanNameSchema = Schema.Literal("go", "low", "default", "high");
+export type PlanName = typeof PlanNameSchema.Type;
+
+/** Historical plan spelling accepted only while migrating persisted state. */
+export const LegacyPlanNameSchema = Schema.Literal(
+  "Go",
   "plus-low",
   "plus",
   "plus-high",
   "pro-5x",
   "pro-20x",
 );
-export type PlanName = typeof PlanNameSchema.Type;
-
-/** Historical plan spelling accepted only while migrating persisted state. */
-export const LegacyPlanNameSchema = Schema.Literal("Go");
 export type LegacyPlanName = typeof LegacyPlanNameSchema.Type;
 export const PlanNameMigrationSchema = Schema.Union(PlanNameSchema, LegacyPlanNameSchema);
 export type PlanNameMigrationInput = typeof PlanNameMigrationSchema.Type;
 
 export function migratePlanName(input: PlanNameMigrationInput): PlanName {
-  return input === "Go" ? "go" : input;
+  switch (input) {
+    case "Go":
+      return "go";
+    case "plus-low":
+      return "low";
+    case "plus":
+      return "default";
+    case "plus-high":
+      return "high";
+    case "pro-5x":
+    case "pro-20x":
+      throw new Error(`Legacy plan ${input} was removed and requires an explicit replacement.`);
+    default:
+      return input;
+  }
 }
 
 export const ServiceTierSchema = Schema.Literal("standard", "fast", "fast-all");
@@ -29,6 +43,10 @@ export type ServiceTier = typeof ServiceTierSchema.Type;
 
 export const EffortSchema = Schema.Literal("low", "medium", "high", "xhigh", "max");
 export type Effort = typeof EffortSchema.Type;
+
+/** Canonical mutation-minimization rule projected into Root and write-capable profiles. */
+export const SURGICAL_MUTATION_RULE =
+  "Make the smallest complete edit set within the authorized boundary, touch no unrelated paths, avoid speculative refactors or formatting churn, and perform no redundant writes or operations; preserve unrelated work and stop for Root input before expanding scope.";
 
 export const ROLE_DEFINITIONS = [
   {
@@ -48,7 +66,8 @@ export const ROLE_DEFINITIONS = [
       },
     ],
     capability: "repository-read",
-    authority: "Read only the assigned repository scope; Git/VCS and decisions remain Root-only.",
+    authority:
+      "Read only the delegated Assignment repository scope; Git/VCS, lifecycle, and decisions remain Root-only.",
     evidence: "Return exact paths, symbols, callers, tests, and constraints.",
     completion: "Account for every in-scope caller and constraint.",
     permissions: { network: false, write: false },
@@ -71,7 +90,7 @@ export const ROLE_DEFINITIONS = [
     ],
     capability: "current-research",
     authority:
-      "Research only the assigned current sources without repository mutation; Git/VCS and decisions remain Root-only.",
+      "Research only the delegated Assignment current sources without repository mutation; Git/VCS, lifecycle, and decisions remain Root-only.",
     evidence: "Return sourced facts, dates, and explicit uncertainty.",
     completion: "Resolve the assigned external fact or report the exact evidence gap.",
     permissions: { network: true, write: false },
@@ -106,9 +125,11 @@ export const ROLE_DEFINITIONS = [
       },
     ],
     capability: "bounded-write",
-    authority: "Change only the assigned seam; Git/VCS and material choices remain Root-only.",
+    authority:
+      "Change only the delegated Assignment seam; Intent lifecycle, Git/VCS, and material choices remain Root-only.",
     evidence: "Return changed files, verification results, and remaining risk.",
-    completion: "Finish the assigned seam with proportional proof or an exact blocker.",
+    completion:
+      "Finish the delegated Assignment with proportional proof or an exact blocker and return a compact structured outcome.",
     permissions: { network: false, write: true },
   },
   {
@@ -135,9 +156,10 @@ export const ROLE_DEFINITIONS = [
     ],
     capability: "bounded-review",
     authority:
-      "Inspect and repair only reviewer-owned defects; Git/VCS and material choices remain Root-only.",
+      "Inspect and repair only reviewer-owned defects within the delegated Assignment; Intent lifecycle, Git/VCS, and material choices remain Root-only.",
     evidence: "Return findings, repaired paths, verification, and residual risk.",
-    completion: "Reach a fixed point or report each reproducible blocker.",
+    completion:
+      "Reach a fixed point or report each reproducible blocker as a compact structured outcome.",
     permissions: { network: false, write: true },
   },
 ] as const;
@@ -266,6 +288,36 @@ export function lookupRoleDefinition(role: Role): RoleDefinition {
   return definition;
 }
 
+/** Effective least-privilege permissions for one concrete specialist task. */
+export interface SpecialistTaskPermissions {
+  readonly network: boolean;
+  readonly write: boolean;
+  /** Restricts enabled network access to the declared source boundary. */
+  readonly networkScope: "disabled" | "current_sources" | "exact_ref_or_sha";
+}
+
+/**
+ * Resolve permissions for one concrete specialist task.
+ *
+ * Role defaults intentionally do not grant Worker network access. The sole exception is
+ * Worker.operations, whose network is limited to observing a Root-supplied exact ref/SHA for
+ * repository CI or release state.
+ */
+export function taskPermissionsFor(route: RoleTask): SpecialistTaskPermissions {
+  const role = lookupRoleDefinition(route.role);
+  const networkScope =
+    route.role === "Worker" && route.task === "operations"
+      ? "exact_ref_or_sha"
+      : role.permissions.network
+        ? "current_sources"
+        : "disabled";
+  return Object.freeze({
+    network: networkScope !== "disabled",
+    write: role.permissions.write,
+    networkScope,
+  });
+}
+
 export interface RouteDefinition {
   readonly key: RouteKey;
   readonly role: Role;
@@ -290,3 +342,53 @@ export const PlanSelectionSchema = Schema.Struct({
   service_tier: Schema.optional(ServiceTierSchema),
 });
 export type PlanSelection = typeof PlanSelectionSchema.Type;
+
+/** Direct execution exceptions that do not require a delegated Assignment. */
+export const RootDirectExecutionExceptionSchema = Schema.Literal("git_vcs", "computer_use");
+export type RootDirectExecutionException = typeof RootDirectExecutionExceptionSchema.Type;
+
+/**
+ * Durable Root orchestration contract shared by runtime projections and proofs. Every task is
+ * delegated, including trivial work, except for Git/VCS and Computer Use when that capability was
+ * selected during installation.
+ */
+export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
+  requiresDelegation: true,
+  trivialWorkRequiresDelegation: true,
+  directExecutionExceptions: Object.freeze(["git_vcs", "computer_use"] as const),
+  requestUserInputGates: Object.freeze([
+    "plan_approval",
+    "remote_origin_server_vcs_mutation",
+    "ambiguity_or_missing_material_input",
+  ] as const),
+  surgicalMutationRule: SURGICAL_MUTATION_RULE,
+  specialistOutcomes: Object.freeze([
+    "completed",
+    "blocked",
+    "needs_root_input",
+    "failed",
+  ] as const),
+  materialDecisionsRemainRootOwned: true,
+  lifecycleRemainsRootOwned: true,
+  integrationAndCompletionRemainRootOwned: true,
+  codeReviewRequiredForImplementation: true,
+  codeReviewRequiredBeforeVcs: true,
+  externalVerificationMustBeTerminal: true,
+  postVcsFlow: "discover_topology_observe_repair_repeat" as const,
+});
+
+/** Returns whether Root may execute a named exception directly. */
+export function rootDirectExecutionAllowed(
+  exception: RootDirectExecutionException,
+  computerUseEnabled = false,
+): boolean {
+  return exception === "git_vcs" || (exception === "computer_use" && computerUseEnabled);
+}
+
+/** Returns whether a unit of work must be represented by a delegated Assignment. */
+export function rootDelegationRequired(
+  exception?: RootDirectExecutionException,
+  computerUseEnabled = false,
+): boolean {
+  return exception === undefined || !rootDirectExecutionAllowed(exception, computerUseEnabled);
+}

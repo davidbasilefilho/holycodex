@@ -28,15 +28,31 @@ installation, and removal is:
 bunx holycodex remove
 ```
 
-Plans choose routing only. `go`, `plus-low`, `plus`, `plus-high`, `pro-5x`,
-and `pro-20x` select the native routes; the default is `plus`. Service tiers
-(`standard`, `fast`, and `fast-all`) control service handling independently.
-They do not change authority or the required proof.
+Plans choose routing only. The live plans are `go`, `low`, `default`, and
+`high`; `default` is recommended. Service tiers (`standard`, `fast`, and
+`fast-all`) control service handling independently. They do not change
+authority or required proof. Persisted `plus-low`, `plus`, and `plus-high`
+values migrate to `low`, `default`, and `high`; removed `pro-5x` and `pro-20x`
+values are classified and require an explicit replacement.
 
 Frontend and Security plugins are selected by default. Work and Computer Use
 are opt-in. A selected capability must install and verify successfully or the
 installation fails. Use `--json` when another program needs the complete
 structured state; human output stays concise.
+
+The public `holycodex` CLI is for installation, diagnosis, removal, and
+versioning. Root's model-facing state surface is the separate deterministic
+`holycodex-agent` CLI. It reads and mutates repo-local ignored Intent, Plan,
+and Assignment state under `.holycodex/` using semantic operations; it has no
+TUI, prompts, or ANSI output. Handoff is only a redacted projection of that
+state, never a second record.
+
+Root MUST delegate every task, including trivial work, through a bounded
+Assignment and native specialist. Root retains intent, acceptance, material
+decisions, lifecycle, integration, approvals, and completion. Direct Root
+execution is limited to Git/VCS, plus Computer Use when explicitly selected at
+install. Post-integration CI and release verification are delegated to the
+operations specialist against the exact ref/SHA; pending is not success.
 
 The native surface has eleven canonical leaves: `Explorer.lookup`,
 `Explorer.trace`, `Librarian.lookup`, `Librarian.research`,

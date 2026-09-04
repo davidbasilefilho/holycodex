@@ -5,6 +5,8 @@ import type { LiveOfficialPluginListEnvelope } from "@holycodex/codex";
 import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
 import type { CliEnvelope, JsonObject, PlanName, ServiceTier } from "@holycodex/core";
 
+import type { InstallRequest } from "./installer.ts";
+
 export type OptionalSelections = Readonly<{
   readonly computer_use: boolean;
   readonly work: boolean;
@@ -189,9 +191,16 @@ export interface CliIo {
   readonly stdoutIsTTY?: boolean;
   readonly stderrIsTTY?: boolean;
   readonly confirm?: (message: string) => Promise<boolean>;
+  /** Injectable interactive installer boundary used by tests and embedders. */
+  readonly installWizard?: (initial: InstallRequest) => Promise<InstallWizardResult>;
   readonly writeStdout?: (text: string) => void;
   readonly writeStderr?: (text: string) => void;
 }
+
+/** Result of the public interactive install wizard. */
+export type InstallWizardResult =
+  | Readonly<{ readonly action: "install"; readonly request: InstallRequest }>
+  | Readonly<{ readonly action: "cancel" }>;
 
 /** Controls the human renderer without affecting the machine JSON envelope. */
 export interface HumanRenderOptions {

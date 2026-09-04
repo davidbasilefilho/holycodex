@@ -24,11 +24,19 @@ export function assertAllowedArtifactEntries(
   label: string,
 ): void {
   for (const entry of entries) {
-    if (isSensitiveArtifactPath(entry)) {
+    const normalized = entry.replaceAll("\\", "/");
+    if (
+      normalized.length === 0 ||
+      normalized.startsWith("/") ||
+      normalized.split("/").some((part) => part === ".." || part.length === 0)
+    ) {
+      throw new Error(`${label} contains an unsafe file path: ${entry}`);
+    }
+    if (isSensitiveArtifactPath(normalized)) {
       throw new Error(`${label} contains a sensitive file path: ${entry}`);
     }
     const allowed = allowlist.some((candidate) =>
-      typeof candidate === "string" ? entry === candidate : candidate.test(entry),
+      typeof candidate === "string" ? normalized === candidate : candidate.test(normalized),
     );
     if (!allowed) {
       throw new Error(`${label} contains an undeclared file: ${entry}`);
@@ -121,6 +129,7 @@ export const PUBLIC_PACKAGE_ENTRY_ALLOWLIST = [
   "package.json",
   "README.md",
   "dist/index.js",
+  "dist/agent.js",
   "dist/assets/plugin/plugin.json",
   /^dist\/assets\/plugin\/skills\//u,
 ] as const;
@@ -131,6 +140,7 @@ export function assertPublicPackageEntries(entries: readonly string[]): void {
 
 export const BUILD_UPLOAD_ENTRY_ALLOWLIST = [
   "index.js",
+  "agent.js",
   "assets/plugin/plugin.json",
   /^assets\/plugin\/skills\//u,
 ] as const;

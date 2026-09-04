@@ -520,10 +520,9 @@ async function doctorNativeRoles(
         roleDocument["tool_output_token_limit"] !== undefined ||
         roleDocument["service_tier"] !== (tier === "standard" ? "default" : "fast") ||
         roleDocument["sandbox_mode"] !==
-          (agent.rolePolicy.permissions.write ? "workspace-write" : "read-only") ||
+          (agent.permissions.write ? "workspace-write" : "read-only") ||
         roleDocument["approval_policy"] !== "never" ||
-        roleDocument["web_search"] !==
-          (agent.rolePolicy.permissions.network ? "live" : "disabled") ||
+        roleDocument["web_search"] !== (agent.permissions.network ? "live" : "disabled") ||
         readTomlPath(roleDocument, "agents.enabled") !== false ||
         readTomlPath(roleDocument, "features.multi_agent_v2") !== false ||
         readTomlPath(roleDocument, "features.multi_agent") !== false ||
@@ -594,7 +593,7 @@ function emptyRemovalState(): InstallRecord {
     install_id: "remove-conflict",
     version: "0.0.0",
     digest: "0".repeat(64),
-    plan: "plus",
+    plan: "default",
     tier: "standard",
     optional_selections: {
       computer_use: false,

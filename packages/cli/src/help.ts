@@ -25,12 +25,11 @@ Usage:
   holycodex install [options]
 
 Plans control routing only:
-  go       Root gpt-5.6-terra/high; leaves use plus-low Luna route efforts.
-  plus-low Root gpt-5.6-sol/low; leaves use plus-low Luna route efforts.
-  plus    Root gpt-5.6-sol/medium; leaves use plus Luna route efforts.
-  plus-high, pro-5x Root gpt-5.6-sol/high; each keeps its Luna route efforts.
-  pro-20x Root gpt-5.6-sol/xhigh; leaves use pro-20x Luna route efforts.
-  Default plan: plus.
+  go      Root gpt-5.6-terra/high; leaves use low Luna route efforts.
+  low     Root gpt-5.6-sol/low; leaves use low Luna route efforts.
+  default Root gpt-5.6-sol/medium; recommended default routing.
+  high    Root gpt-5.6-sol/high; higher specialist route efforts.
+  Default plan: default.
 
 Tier is independent service handling (CLI values are lowercase only):
   standard  Standard service handling (default).
@@ -45,6 +44,8 @@ ${INSTALL_OPTION_CATALOG.map((option) => `  ${option.usage.padEnd(48)} ${option.
 
 Capability defaults: Work false, Frontend true (mapped to build-web-apps),
 Security true, and Computer Use false. --add-plugin may be repeated.
+On an interactive TTY, install opens one wizard and final review with Install,
+Change options / Redo, and Cancel. The wizard never asks for CODEX_HOME.
 `;
 
 const REMOVE_HELP = `Remove HolyCodex-owned state through Codex native plugin management.

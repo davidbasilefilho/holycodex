@@ -13,6 +13,7 @@ import { runChecked, runCommand } from "./process.ts";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageManifestPaths = [
+  "packages/agent/package.json",
   "packages/core/package.json",
   "packages/codex/package.json",
   "packages/plugin/package.json",
@@ -24,6 +25,7 @@ const ManifestSchema = Schema.Struct({
   private: Schema.optional(Schema.Boolean),
   version: Schema.optional(Schema.String),
   packageManager: Schema.optional(Schema.String),
+  catalog: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
   scripts: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
   dependencies: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
   devDependencies: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
@@ -55,12 +57,12 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
   await ensureCodexGenerated();
   const rootManifest = await readManifest("package.json");
   const mise = await readText("mise.toml");
-  const vite = await readText("vite.config.ts");
   const lockfile = await readText("bun.lock");
+  const packageBuild = await readText("scripts/package-build.ts");
   const notices = await readText("THIRD-PARTY-NOTICES.md");
   const workflowFiles = await listFiles(".github/workflows");
 
-  assert(rootManifest.packageManager === "bun@1.4.0", "root packageManager must resolve Bun 1.4.0");
+  assert(rootManifest.packageManager === "bun@1.4.1", "root packageManager must resolve Bun 1.4.1");
   assert(mise.includes('bun = "1.4"'), "mise must select the Bun 1.4 line");
   assert(mise.includes('node = "26"'), "mise must select the Node 26 line");
   assert(
@@ -69,8 +71,28 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
   );
   assert(!rootManifest.scripts?.["publish"], "the root scripts must not declare publication");
   assert(!rootManifest.scripts?.["deploy"], "the root scripts must not declare deployment");
-  assert(!vite.includes("arktype"), "the pack configuration must not retain ArkType externals");
+  assert(
+    !Object.values(rootManifest.scripts ?? {}).some((script) => /\b(?:vp|vitest)\b/iu.test(script)),
+    "root scripts must not invoke Vite+ or Vitest",
+  );
+  for (const [dependency, range] of Object.entries(rootManifest.catalog ?? {})) {
+    assert(
+      /^(?:\^[1-9]\d*\.\d+\.\d+|~0\.\d+\.\d+)$/u.test(range),
+      `${dependency} must use a compatibility-line range`,
+    );
+  }
+  assert(packageBuild.includes("Bun.build"), "package build must use Bun.build");
+  assert(packageBuild.includes('"@opentui/core"'), "package build must externalize OpenTUI");
+  assert(
+    packageBuild.includes("packages/agent/src/index.ts"),
+    "package build must include agent CLI",
+  );
   assert(!lockfile.includes("arktype"), "the lockfile must not retain ArkType packages");
+  assert(!/\n\s+"vitest": \[/u.test(lockfile), "the lockfile must not retain Vitest");
+  assert(
+    !/\n\s+"vite-plus": \[/u.test(lockfile),
+    "the lockfile must not retain Vite+ as a package",
+  );
 
   const manifests = await Promise.all(packageManifestPaths.map((path) => readManifest(path)));
   for (const manifest of manifests) {
@@ -115,7 +137,6 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
     .filter((path) => authoredCodeExtensions.has(extension(path)))
     .filter(
       (path) =>
-        path === "vite.config.ts" ||
         path.startsWith("scripts/") ||
         path.startsWith("tests/") ||
         (path.startsWith("packages/") && path.includes("/src/")) ||
@@ -169,8 +190,9 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
         `${path} must reuse the repository validation gate`,
       );
       assert(
-        workflow.includes("bunx npm@11.5.1 publish"),
-        `${path} must publish through the pinned trusted-publishing npm CLI`,
+        workflow.includes("bunx npm@12 publish") &&
+          !/bunx npm@\d+\.\d+(?:\.\d+)?\s+publish/u.test(workflow),
+        `${path} must publish through the current-major trusted-publishing npm CLI`,
       );
       assert(!workflow.includes("bun publish"), `${path} must not publish through Bun`);
       assert(workflow.includes("--tag dev"), `${path} must publish development versions under dev`);
@@ -275,13 +297,7 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
           reference.startsWith("jdx/mise-action@"),
         `${path} uses an unapproved third-party action ${reference}`,
       );
-      if (
-        reference.startsWith("actions/checkout@") ||
-        reference.startsWith("actions/upload-artifact@") ||
-        reference.startsWith("actions/download-artifact@")
-      ) {
-        assert(/@[0-9a-f]{40}$/u.test(reference), `${path} must pin checkout to an immutable SHA`);
-      }
+      assert(/@[0-9a-f]{40}$/u.test(reference), `${path} must pin actions to an immutable SHA`);
     }
   }
 
@@ -313,6 +329,7 @@ async function verifyIgnoreContract(): Promise<void> {
     ".tmp/session/output.json",
     ".marketplace/marketplace.json",
     "release-artifacts/holycodex.tgz",
+    ".holycodex/example-intent/intent.toon",
     ".env.local",
     ".npmrc",
     ".pypirc",
@@ -535,6 +552,8 @@ function shouldSkipDirectory(path: string): boolean {
     path.startsWith("coverage/") ||
     path.startsWith("tmp/") ||
     path.startsWith("temp/") ||
+    path === ".holycodex" ||
+    path.startsWith(".holycodex/") ||
     path.startsWith(".vite/") ||
     path.startsWith(".vp/")
   );
@@ -545,7 +564,9 @@ function isGeneratedOrTransient(path: string): boolean {
     path === "bun.lock" ||
     path.startsWith("node_modules/") ||
     path.startsWith("packages/codex/generated/") ||
-    /^(?:dist|coverage|tmp|temp|scratch|out|build|\.git|\.vite|\.vp|\.cache)\//u.test(path)
+    /^(?:dist|coverage|tmp|temp|scratch|out|build|\.git|\.vite|\.vp|\.cache|\.holycodex)\//u.test(
+      path,
+    )
   );
 }
 

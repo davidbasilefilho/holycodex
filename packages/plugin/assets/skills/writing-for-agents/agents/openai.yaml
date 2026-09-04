@@ -1,6 +1,6 @@
 interface:
   display_name: "Writing for agents"
   short_description: "Design compact, independently actionable agent instructions."
-  default_prompt: "When Root prepares a delegation or agent-facing instruction, ensure this skill is loaded and applied in the current context, then write or review a compact contract with behavior, authority, evidence, escalation, and completion."
+  default_prompt: "When Root prepares a delegation or agent-facing instruction, ensure this skill is loaded and applied in the current context, then write or review a compact contract with behavior, authority, evidence, escalation, completion, and the repository surgical-mutation rule."
 policy:
   allow_implicit_invocation: true

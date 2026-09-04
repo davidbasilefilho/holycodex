@@ -9,8 +9,8 @@ export const INSTALL_OPTION_CATALOG = Object.freeze([
   {
     name: "plan",
     kind: "value",
-    usage: "--plan <go|plus-low|plus|plus-high|pro-5x|pro-20x>",
-    description: "Select routing (default: plus).",
+    usage: "--plan <go|low|default|high>",
+    description: "Select routing (default: default).",
   },
   {
     name: "tier",
@@ -183,6 +183,21 @@ function validateCommand(
   }
   const plan = options["plan"];
   if (typeof plan === "string" && !lookupPlan(plan).ok) {
+    const replacement = LEGACY_PLAN_REPLACEMENTS[plan];
+    if (replacement !== undefined) {
+      throw new ArgumentError(
+        "invalid_argument",
+        `Legacy plan ${plan} was removed; use --plan ${replacement}.`,
+        { plan, replacement },
+      );
+    }
+    if (plan === "pro-5x" || plan === "pro-20x") {
+      throw new ArgumentError(
+        "invalid_argument",
+        `Legacy plan ${plan} was removed and requires an explicit replacement using --plan <go|low|default|high>.`,
+        { plan },
+      );
+    }
     throw new ArgumentError("invalid_argument", "The plan is not supported.", { plan });
   }
   const tier = options["tier"];
@@ -229,6 +244,13 @@ function validateCommand(
     );
   }
 }
+
+const LEGACY_PLAN_REPLACEMENTS: Readonly<Record<string, "go" | "low" | "default" | "high">> = {
+  Go: "go",
+  "plus-low": "low",
+  plus: "default",
+  "plus-high": "high",
+};
 
 function commandOptions(command: string): ReadonlySet<string> {
   switch (command) {

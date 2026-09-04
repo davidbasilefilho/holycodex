@@ -7,13 +7,15 @@
   "type": "module",
   "scripts": {
     "generate:codex": "bun scripts/generate-codex-bindings.ts",
-    "check": "bun run generate:codex && vp check",
-    "check:fix": "vp check --fix",
-    "fmt": "vp fmt",
-    "lint": "vp lint",
-    "lint:fix": "vp lint --fix",
+    "check": "bun run generate:codex && bun run fmt:check && bun run lint && bun run typecheck",
+    "check:fix": "bun run fmt && bun run lint:fix && bun run typecheck",
+    "fmt": "oxfmt .",
+    "fmt:check": "oxfmt --check .",
+    "lint": "oxlint --type-aware --type-check --deny-warnings .",
+    "lint:fix": "oxlint --type-aware --type-check --fix .",
+    "typecheck": "tsc --noEmit",
     "build": "bun run generate:codex && bun scripts/package-build.ts",
-    "test": "bun run generate:codex && vp test",
+    "test": "bun run generate:codex && bun test",
     "validate": "bun scripts/validate.ts",
     "version:patch": "bun scripts/version.ts patch",
     "version:minor": "bun scripts/version.ts minor",
@@ -23,16 +25,21 @@
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "effect": "catalog:",
-    "typescript": "catalog:",
-    "vite-plus": "catalog:"
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:",
+    "typescript": "catalog:"
   },
-  "packageManager": "bun@1.4.0",
+  "packageManager": "bun@1.4.1",
   "catalog": {
-    "@types/bun": "1.4.0",
-    "@types/node": "26.2.0",
-    "effect": "3.22.1",
-    "typescript": "7.0.2",
-    "vite-plus": "0.2.9",
-    "vitest": "4.1.10"
+    "@opentui/core": "~0.5.10",
+    "@toon-format/toon": "^4.1.1",
+    "@types/bun": "^1.4.1",
+    "@types/node": "^26.4.1",
+    "effect": "^3.22.1",
+    "oxfmt": "~0.66.0",
+    "oxlint": "^1.81.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "typescript": "^7.0.2"
   }
 }

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
-import { describe, expect, test } from "vite-plus/test";
 
 const PackageScriptName = Schema.String.pipe(Schema.maxLength(256));
 const PackageScriptCommand = Schema.String.pipe(Schema.maxLength(4096));
@@ -17,7 +17,12 @@ const PackageManifest = Schema.Struct({
   version: Schema.optional(Schema.String),
   dependencies: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
   devDependencies: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
-  bin: Schema.optional(Schema.Struct({ holycodex: Schema.optional(Schema.String) })),
+  bin: Schema.optional(
+    Schema.Struct({
+      holycodex: Schema.optional(Schema.String),
+      "holycodex-agent": Schema.optional(Schema.String),
+    }),
+  ),
   exports: Schema.optional(Schema.Struct({ ".": Schema.optional(Schema.String) })),
   files: Schema.optional(Schema.Array(Schema.String)),
   repository: Schema.optional(Schema.Struct({ type: Schema.Literal("git"), url: Schema.String })),
@@ -27,6 +32,7 @@ const PackageManifest = Schema.Struct({
 type PackageManifest = typeof PackageManifest.Type;
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packagePaths = {
+  "@holycodex/agent": "packages/agent/package.json",
   "@holycodex/core": "packages/core/package.json",
   "@holycodex/codex": "packages/codex/package.json",
   "@holycodex/plugin": "packages/plugin/package.json",
@@ -34,6 +40,7 @@ const packagePaths = {
 } as const;
 
 const expectedDependencies: Record<string, readonly string[]> = {
+  "@holycodex/agent": ["@holycodex/core"],
   "@holycodex/core": [],
   "@holycodex/codex": ["@holycodex/core"],
   "@holycodex/plugin": ["@holycodex/core"],
@@ -57,6 +64,7 @@ describe("workspace package graph", () => {
         expect(manifest.version).toMatch(/^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u);
         expect(Object.values(manifest.dependencies ?? {})).not.toContain("workspace:*");
         expect(manifest.bin?.holycodex).toBe("./dist/index.js");
+        expect(manifest.bin?.["holycodex-agent"]).toBe("./dist/agent.js");
         expect(manifest.exports?.["."]).toBe("./dist/index.js");
         expect(manifest.files).toContain("dist");
         expect(manifest.repository?.url).toBe("https://github.com/davidbasilefilho/holycodex.git");

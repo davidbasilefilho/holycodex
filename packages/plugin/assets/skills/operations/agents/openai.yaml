@@ -1,0 +1,6 @@
+interface:
+  display_name: "Operations"
+  short_description: "Observe exact-ref CI or release state to terminal evidence."
+  default_prompt: "Observe the assigned exact ref and SHA, discover the repository topology, report completed terminal CI or release evidence (pending is never success), return blocked or needs_root_input when unavailable, never mutate external state, and apply the repository surgical-mutation rule to any authorized local write."
+policy:
+  allow_implicit_invocation: false

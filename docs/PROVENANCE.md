@@ -36,7 +36,7 @@ parity with an unadmitted source.
 | Public version           | `packages/cli/package.json` `version`, synchronized to the plugin manifest                                                   | `P-01`, `P-03` |
 | Bun                      | `1.4.x`, resolved by `mise` and the lockfile                                                                                 | `P-01`, `P-03` |
 | TypeScript               | `7.0.2`                                                                                                                      | `P-01`, `P-03` |
-| Vite+                    | `0.2.9`                                                                                                                      | `P-01`, `P-03` |
+| OXC tooling              | `oxfmt`/`oxlint` compatibility lines resolved by Bun lockfile                                                                | `P-01`, `P-03` |
 | Effect                   | `3.22.1` with `effect/Schema`                                                                                                | `P-01`, `P-03` |
 | Codex protocol artifact  | Stable Codex CLI resolved by the `mise.toml` `latest` channel; inventory and digest recorded by the generated artifact proof | `P-02`, `P-03` |
 
@@ -53,11 +53,16 @@ re-verified by the generated artifact proof.
 
 ## Validation limits
 
-The local validation gate proves formatting, linting, type checking, tests,
-package build, plugin asset integrity, dependency attribution, isolated
-installation/removal, and diff hygiene. Checked-in CI adds supported-platform
-proof. `Worker.operations` may observe a triggering origin change only from
-the exact ref and SHA; observation does not prove an external mutation.
+The local validation gate proves formatting, linting, type checking, Bun tests,
+Bun package build/pack, plugin asset integrity, dependency attribution,
+isolated installation/removal, and diff hygiene. Checked-in CI adds
+supported-platform proof. `Worker.operations` may observe a triggering origin
+change only from the exact ref and SHA; observation does not prove an external
+mutation. Root delegates every task and retains integration/completion
+authority.
+A passing `Reviewer.code` fixed point is required before completion or VCS.
+Remote CI/release evidence is delegated against the exact ref and SHA and
+must be terminal.
 
 Local proof does not establish legal advice, security certification,
 performance, availability, compatibility with an unrecorded provider, or

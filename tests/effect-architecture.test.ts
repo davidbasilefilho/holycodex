@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-
-import { describe, expect, test } from "vite-plus/test";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = resolve(workspaceRoot, "packages");
@@ -15,6 +14,7 @@ const promiseAdapterAllowlist = new Set([
   "packages/cli/src/binary.ts",
   "packages/cli/src/commands.ts",
   "packages/cli/src/installer.ts",
+  "packages/cli/src/installer-wizard.ts",
   "packages/cli/src/maintenance.ts",
   "packages/cli/src/manifest.ts",
   "packages/cli/src/native-agents.ts",
@@ -28,7 +28,9 @@ const promiseAdapterAllowlist = new Set([
   "packages/codex/src/official-plugins.ts",
   "packages/codex/src/runtime-config.ts",
   "packages/codex/src/transport.ts",
+  "packages/agent/src/index.ts",
   "packages/core/src/canonical.ts",
+  "packages/core/src/work-state.ts",
   "packages/plugin/src/assembly.ts",
   "packages/plugin/src/planning.ts",
   "packages/plugin/src/schemas.ts",
@@ -41,6 +43,7 @@ const ioAdapterAllowlist = new Set([
   "packages/cli/src/installer.ts",
   "packages/cli/src/lock.ts",
   "packages/cli/src/maintenance.ts",
+  "packages/cli/src/installer-wizard.ts",
   "packages/cli/src/manifest.ts",
   "packages/cli/src/migration.ts",
   "packages/cli/src/native-agents.ts",
@@ -52,8 +55,10 @@ const ioAdapterAllowlist = new Set([
   "packages/codex/src/generated-artifact.ts",
   "packages/codex/src/official-plugins.ts",
   "packages/codex/src/transport.ts",
+  "packages/agent/src/index.ts",
   "packages/plugin/src/assembly.ts",
   "packages/plugin/src/source.ts",
+  "packages/core/src/work-state.ts",
 ]);
 
 describe("Effect architecture boundaries", () => {

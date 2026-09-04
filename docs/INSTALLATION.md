@@ -26,11 +26,15 @@ Configure routing, service handling, and optional plugins explicitly:
 
 ```sh
 bunx holycodex install --yes \
-  --plan plus --tier standard \
+  --plan default --tier standard \
   --work --frontend --security --computer-use
 ```
 
-The plan controls native subagent routing only. The tier is independent.
+The live plans are `go`, `low`, `default`, and `high`; `default` is the
+recommended routing. Persisted `plus-low`, `plus`, and `plus-high` values
+migrate to `low`, `default`, and `high`. Removed `pro-5x` and `pro-20x` values
+are classified as legacy and require an explicit replacement. The plan
+controls native subagent routing only. The tier is independent.
 Optional plugins are Work, frontend tooling, Security, and Computer Use. The
 CLI preflights the selected capabilities and runtime compatibility, invokes
 only the required native Codex marketplaces/providers, verifies readback, and
@@ -54,7 +58,9 @@ Official OpenAI plugin identities may be observed as either
 allowlist covers build-web-apps and codex-security; arbitrary same-name
 third-party providers remain untrusted.
 
-Use `--codex-home <absolute-path>` for an isolated installation. The CLI keeps
+Interactive install resolves Codex home internally and does not ask for a
+`CODEX_HOME` path. Use `--codex-home <absolute-path>` only for explicit
+non-interactive isolation, diagnostics, or recovery. The CLI keeps
 the selected plan, tier, optional plugin state, version, and configuration
 digest; Codex remains the owner of plugin files and marketplace state.
 

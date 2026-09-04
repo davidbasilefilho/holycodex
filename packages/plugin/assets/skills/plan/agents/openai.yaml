@@ -1,6 +1,6 @@
 interface:
   display_name: "Plan"
   short_description: "Resolve material scope and architecture choices before work."
-  default_prompt: "When Root faces an unresolved material choice, produce an implementation-ready plan covering scope, route, risk, and proof."
+  default_prompt: "When Root faces an unresolved material choice, persist an implementation-ready Plan through holycodex-agent, covering scope, route, risk, proof, and delegated Assignments; ask for material input and apply the repository surgical-mutation rule."
 policy:
   allow_implicit_invocation: true

@@ -1,6 +1,6 @@
 interface:
   display_name: "Refactor"
   short_description: "Restructure one decided seam while preserving its contract."
-  default_prompt: "When Root assigns a seam refactor, preserve behavior and interfaces, inspect the changed files, and return focused proof."
+  default_prompt: "When Root assigns a bounded refactor Assignment, apply the repository surgical-mutation rule, preserve behavior and interfaces, inspect changed files, prove the seam, and return completed, blocked, needs_root_input, or failed evidence for holycodex-agent."
 policy:
   allow_implicit_invocation: true

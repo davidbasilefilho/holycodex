@@ -1,6 +1,6 @@
 interface:
   display_name: "Debugging"
   short_description: "Reproduce and repair one observable defect."
-  default_prompt: "When Root assigns a reproducible defect, reproduce it, isolate its cause, make the narrow repair, and prove the regression is gone."
+  default_prompt: "When Root assigns a bounded defect Assignment, apply the repository surgical-mutation rule, reproduce it, isolate its cause, make the narrow repair, prove the regression is gone, and return a structured outcome for holycodex-agent."
 policy:
   allow_implicit_invocation: true

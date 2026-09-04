@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
-import { describe, expect, test } from "vite-plus/test";
 
 import { runFreshClone } from "../scripts/fresh-clone.ts";
 import { verifyGeneratedArtifactPortable } from "../scripts/repository-proof.ts";
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
 const RootManifestSchema = Schema.Struct({
-  packageManager: Schema.Literal("bun@1.4.0"),
+  packageManager: Schema.Literal("bun@1.4.1"),
   scripts: Schema.Record({ key: Schema.String, value: Schema.String }),
 });
 
@@ -30,10 +30,10 @@ describe("repository validation machinery", () => {
     expect(manifest.right.scripts["validate"]).toBe("bun scripts/validate.ts");
     const validation = await readFile(resolve(workspaceRoot, "scripts/validate.ts"), "utf8");
     const order = [
-      /runStep\(\["vp", "run", "fmt"/u,
-      /runStep\(\["vp", "run", "lint"/u,
-      /runStep\(\["vp", "run", "check"/u,
-      /runStep\(\["vp", "run", "test"/u,
+      /runStep\(\["bun", "run", "fmt:check"/u,
+      /runStep\(\["bun", "run", "lint"/u,
+      /runStep\(\["bun", "run", "typecheck"/u,
+      /runStep\(\["bun", "test"/u,
       /runStep\(\["bun", "scripts\/package-build\.ts"/u,
       /runRepositoryProof/u,
       /runPackageVerification/u,
@@ -45,7 +45,7 @@ describe("repository validation machinery", () => {
       expect(index).toBeGreaterThan(previous);
       previous = index;
     }
-    expect(validation).not.toMatch(/runStep\(\["vp", "(?:fmt|lint|check|test)"/u);
+    expect(validation).not.toMatch(/\["vp"/u);
   });
 
   test("keeps CI reusable, least-privilege, cross-platform, and exact-SHA based", async () => {
@@ -68,6 +68,7 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("release-metadata.json");
     expect(workflow).toContain("actions/upload-artifact@");
     expect(workflow).toContain("actions/download-artifact@");
+    expect(workflow).toMatch(/jdx\/mise-action@[0-9a-f]{40}/u);
     expect(workflow).not.toMatch(
       /packages\/cli\/dist\/assets\/plugin\/(?:agents|compaction|rules)\//u,
     );
@@ -101,7 +102,7 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("GITHUB_RUN_ATTEMPT");
     expect(workflow).toContain("release-version.ts dev");
     expect(workflow).toContain("release-version.ts stable");
-    expect(workflow).toContain("bunx npm@11.5.1 publish");
+    expect(workflow).toContain("bunx npm@12 publish");
     expect(await readFile(resolve(workspaceRoot, "mise.toml"), "utf8")).toContain('node = "26"');
     expect(workflow).not.toContain("bun publish");
     expect(workflow).toContain("actions/download-artifact@");
@@ -130,7 +131,7 @@ describe("repository validation machinery", () => {
     expect(publishNpm).toContain("absent|matching");
     expect(publishNpm).toContain("contents: read");
     expect(publishNpm).toContain("id-token: write");
-    expect(publishNpm).toContain("mise exec -- bunx npm@11.5.1 publish");
+    expect(publishNpm).toContain("mise exec -- bunx npm@12 publish");
     expect(publishNpm).not.toContain("NPM_TOKEN");
     expect(publishNpm).not.toContain("NPM_CONFIG_TOKEN");
     expect(publishGithub).toContain("needs: [prepare, validation, publish_npm]");
@@ -144,11 +145,11 @@ describe("repository validation machinery", () => {
     );
     const stableNpm = workflow.slice(workflow.indexOf("Publish the stable artifact under latest"));
     expect(devNpm).toContain("--tag dev");
-    expect(devNpm).toContain("bunx npm@11.5.1 publish");
+    expect(devNpm).toContain("bunx npm@12 publish");
     expect(devNpm).not.toContain("bun publish");
     expect(devNpm).not.toContain("--tag latest");
     expect(stableNpm).toContain("--tag latest");
-    expect(stableNpm).toContain("bunx npm@11.5.1 publish");
+    expect(stableNpm).toContain("bunx npm@12 publish");
     expect(stableNpm).not.toContain("bun publish");
 
     const devRelease = workflow.slice(
