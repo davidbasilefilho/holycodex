@@ -96,7 +96,7 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("source_sha: ${{ needs.prepare.outputs.source_sha }}");
     expect(workflow).toContain("needs: [prepare, validation]");
     expect(workflow).toContain("needs.validation.outputs.artifact_name");
-    expect(workflow).toContain('git rev-parse "$GITHUB_REF"');
+    expect(workflow).toContain('git rev-parse "${GITHUB_REF}^{commit}"');
     expect(workflow).toContain("GITHUB_RUN_NUMBER");
     expect(workflow).toContain("GITHUB_RUN_ATTEMPT");
     expect(workflow).toContain("release-version.ts dev");

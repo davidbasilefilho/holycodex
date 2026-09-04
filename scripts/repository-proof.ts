@@ -186,7 +186,10 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
       assert(workflow.includes("--generate-notes"), `${path} must generate release notes`);
       assert(workflow.includes("check-npm"), `${path} must prove npm retry identity`);
       assert(workflow.includes("check-github"), `${path} must prove GitHub retry identity`);
-      assert(workflow.includes('git rev-parse "$GITHUB_REF"'), `${path} must verify tag ancestry`);
+      assert(
+        workflow.includes('git rev-parse "${GITHUB_REF}^{commit}"'),
+        `${path} must verify tag ancestry`,
+      );
       assert(
         workflow.includes("needs: [prepare, validation]"),
         `${path} must gate publication jobs`,

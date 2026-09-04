@@ -77,7 +77,7 @@ jobs:
             VERSION="$(mise exec -- bun scripts/release-version.ts dev "$GITHUB_RUN_NUMBER" "$GITHUB_RUN_ATTEMPT")"
           elif [ "$CHANNEL" = "stable" ]; then
             test "$GITHUB_REF_TYPE" = "tag"
-            test "$(git rev-parse "$GITHUB_REF")" = "$GITHUB_SHA"
+            test "$(git rev-parse "${GITHUB_REF}^{commit}")" = "$GITHUB_SHA"
             VERSION="$(mise exec -- bun scripts/release-version.ts stable "$GITHUB_REF_NAME")"
           else
             echo "Unsupported release channel: $CHANNEL" >&2
