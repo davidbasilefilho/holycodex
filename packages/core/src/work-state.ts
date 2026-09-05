@@ -34,6 +34,12 @@ const Digest = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
 const Revision = Schema.Int.pipe(Schema.greaterThanOrEqualTo(1));
 const DateText = Schema.String.pipe(Schema.filter((value) => !Number.isNaN(Date.parse(value))));
 const StringList = Schema.Array(NonEmpty);
+const LockOwnerSchema = Schema.Struct({
+  pid: Schema.Int.pipe(Schema.greaterThan(0)),
+  token: NonEmpty,
+});
+type LockOwner = typeof LockOwnerSchema.Type;
+const LOCK_STALE_MS = 120_000;
 
 /** Canonical non-Root specialist owner for a bounded Assignment. */
 export const AssignmentOwnerSchema = Schema.Struct({
@@ -1454,8 +1460,12 @@ async function withLock<A>(lockPath: string, operation: () => Promise<A>): Promi
             "The work-state lock must be a real directory.",
             { path: lockPath },
           );
-        const lock = lockEntry;
-        if (Date.now() - lock.mtimeMs > 120_000) {
+        const ownerState = await readLockOwner(lockPath);
+        if (ownerState.kind === "owned" && !isProcessAlive(ownerState.owner.pid)) {
+          await rm(lockPath, { recursive: true, force: true });
+          continue;
+        }
+        if (ownerState.kind === "missing" && Date.now() - lockEntry.mtimeMs > LOCK_STALE_MS) {
           await rm(lockPath, { recursive: true, force: true });
           continue;
         }
@@ -1471,11 +1481,78 @@ async function withLock<A>(lockPath: string, operation: () => Promise<A>): Promi
     throw new IntentStoreError("stale_write", "Another mutation is still in progress.", {
       lock: lockPath,
     });
+  const ownerPath = join(lockPath, ".owner");
+  const ownerToken = crypto.randomUUID();
+  let owner: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    await assertNoSymlinkAncestors(ownerPath);
+    owner = await open(ownerPath, "wx", 0o600);
+    await owner.writeFile(`${JSON.stringify({ pid: process.pid, token: ownerToken })}\n`, "utf8");
+    await owner.sync();
+  } catch (error: unknown) {
+    if (owner !== undefined) {
+      try {
+        await owner.close();
+      } catch {
+        // Preserve the acquisition failure; the marker remains for safe recovery.
+      }
+    }
+    if (isFsCode(error, "EEXIST"))
+      throw new IntentStoreError("stale_write", "Another mutation is still in progress.", {
+        lock: lockPath,
+      });
+    throw storeIo(error);
+  }
+  if (owner === undefined) throw storeIo(new Error("The work-state lock owner was not opened."));
   try {
     return await operation();
   } finally {
-    await rm(lockPath, { recursive: true, force: true });
+    try {
+      await owner.close();
+    } finally {
+      await removeOwnedLock(lockPath, ownerToken);
+    }
   }
+}
+
+type LockOwnerState =
+  | { readonly kind: "missing" }
+  | { readonly kind: "owned"; readonly owner: LockOwner }
+  | { readonly kind: "unknown" };
+
+async function readLockOwner(lockPath: string): Promise<LockOwnerState> {
+  const ownerPath = join(lockPath, ".owner");
+  try {
+    const entry = await lstat(ownerPath);
+    if (entry.isSymbolicLink() || !entry.isFile()) return { kind: "unknown" };
+    const text = await readFile(ownerPath, "utf8");
+    let value: unknown;
+    try {
+      value = JSON.parse(text);
+    } catch {
+      return { kind: "unknown" };
+    }
+    const decoded = decodeUnknown(LockOwnerSchema, value);
+    return Either.isRight(decoded) ? { kind: "owned", owner: decoded.right } : { kind: "unknown" };
+  } catch (error: unknown) {
+    if (isFsCode(error, "ENOENT")) return { kind: "missing" };
+    throw storeIo(error);
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error: unknown) {
+    return isFsCode(error, "EPERM");
+  }
+}
+
+async function removeOwnedLock(lockPath: string, ownerToken: string): Promise<void> {
+  const ownerState = await readLockOwner(lockPath);
+  if (ownerState.kind !== "owned" || ownerState.owner.token !== ownerToken) return;
+  await rm(lockPath, { recursive: true, force: true });
 }
 async function nextArchivePath(directory: string): Promise<string> {
   const indexes = (await readdir(directory))

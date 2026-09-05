@@ -1,7 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -235,6 +244,25 @@ describe("IntentStore", () => {
     expect(
       (results.find((result) => result.status === "rejected") as PromiseRejectedResult).reason.code,
     ).toBe("stale_write");
+  });
+
+  test("reclaims a lock whose recorded owner process is gone", async () => {
+    const { root, store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Dead lock",
+      goal: "Recover work state",
+      acceptanceCriteria: ["readable"],
+    });
+    const lockPath = join(root, ".holycodex", ".intent-store");
+    await mkdir(lockPath);
+    await writeFile(
+      join(lockPath, ".owner"),
+      JSON.stringify({ pid: Number.MAX_SAFE_INTEGER, token: "dead-owner" }),
+      "utf8",
+    );
+
+    await expect(store.selectCurrent(intent.id)).resolves.toEqual(intent);
+    await expect(readdir(join(root, ".holycodex"))).resolves.not.toContain(".intent-store");
   });
 
   test("enforces readiness, blockers, review re-entry, abandonment, and completion predicates", async () => {
