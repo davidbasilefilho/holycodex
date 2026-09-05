@@ -6,14 +6,14 @@ import { join, relative } from "node:path";
 import {
   ROLE_DEFINITIONS,
   ROOT_ORCHESTRATION_POLICY,
-  lookupPlan,
+  lookupProfile,
   nativeAgentTypeFor,
   taskDescriptionFor,
   taskInstructionFor,
   taskPermissionsFor,
   type ServiceTier,
   type NativeAgentType,
-  type PlanName,
+  type ProfileName,
   type RoleTask,
 } from "@holycodex/core";
 
@@ -35,7 +35,7 @@ export type NativeAgentProjection = Readonly<{
 export type RootAgentProjection = Readonly<{
   name: "root";
   description: string;
-  model: "gpt-5.6-terra" | "gpt-5.6-sol";
+  model: "gpt-6-astra";
   effort: string;
   serviceTier: "default" | "fast";
 }>;
@@ -67,14 +67,14 @@ export interface NativeAgentRemovalResult {
   readonly preserved: readonly string[];
 }
 
-/** Project every canonical specialist profile for a plan and service tier. */
+/** Project every canonical specialist profile and service tier. */
 export function projectNativeAgents(
-  planName: PlanName,
+  profileName: ProfileName,
   tier: ServiceTier = "standard",
 ): readonly NativeAgentProjection[] {
-  const plan = lookupPlan(planName);
-  if (!plan.ok) return [];
-  return plan.value.routes.map((route) => {
+  const profile = lookupProfile(profileName);
+  if (!profile.ok) return [];
+  return profile.value.routes.map((route) => {
     const roleTask = { role: route.role, task: route.task } as RoleTask;
     return {
       name: nativeAgentTypeFor(roleTask),
@@ -89,18 +89,18 @@ export function projectNativeAgents(
   });
 }
 
-/** Project the parent Root model configuration for a plan and service tier. */
+/** Project the parent Root model configuration for a profile and service tier. */
 export function projectRootAgent(
-  planName: PlanName,
+  profileName: ProfileName,
   tier: ServiceTier = "standard",
 ): RootAgentProjection {
-  const plan = lookupPlan(planName);
-  if (!plan.ok) throw new Error("Unknown plan.");
+  const profile = lookupProfile(profileName);
+  if (!profile.ok) throw new Error("Unknown profile.");
   return {
     name: "root",
     description: "Root-directed HolyCodex control agent.",
-    model: plan.value.root.model === "Terra" ? "gpt-5.6-terra" : "gpt-5.6-sol",
-    effort: plan.value.root.effort,
+    model: profile.value.root.model,
+    effort: profile.value.root.effort,
     serviceTier: tier === "fast-all" ? "fast" : "default",
   };
 }
@@ -117,13 +117,14 @@ export function rootDeveloperInstructions(computerUse = false): string {
     throw new Error("The Root orchestration policy is incomplete.");
   }
   const instructions = [
-    "You are the HolyCodex Root orchestrator.",
-    "MUST orchestrate and delegate every task, including trivial work, through a bounded Assignment to the native Explorer, Librarian, Worker, or Reviewer agents; do not implement, debug, research, or review the underlying work directly.",
+    "You are the HolyCodex Root orchestrator and final integration owner. Treat these generated Root instructions as the authoritative global behavior contract, AGENTS.md as repository rules, and installed skills as branch procedures.",
+    "MUST orchestrate and delegate every task, including trivial work, through a bounded Assignment to the native Explorer, Librarian, Worker, or Reviewer agents; do not implement, debug, research, test, review, or operate CI for the underlying work directly. Git/VCS is always Root-only and may be performed directly; Computer Use is a direct exception only when this installation selected --computer-use.",
     surgicalMutationInstruction(),
-    "Own the persistent Intent, user goal and acceptance criteria, architecture and material product or policy choices, lifecycle transitions, assignment integration, contradictory-evidence resolution, external effects, and final readiness. Use holycodex-agent semantic operations for Intent, Plan, and Assignment state; never manually edit TOON or create handoff, Decision, or standalone blocker files.",
-    "Git/VCS is always Root-only and may be performed directly. Use request_user_input before plan approval, before any remote/origin/server VCS mutation, before externally consequential publication or release, or whenever ambiguity or missing material input blocks safe progress, and persist the resulting needs_root_input state.",
-    "Apply writing-for-agents before dispatch and before every dispatch. Inspect returned structured outcomes and evidence before integration. Reviewer.code fixed-point review is mandatory after implementation or any major codebase change and must pass before completion or any VCS operation.",
-    "After integration, follow the repository's discovered workflow: commit the finished change as Root, push when its topology requires a remote, and delegate Worker.operations to observe CI for the exact ref/SHA to terminal evidence; pending or running is never success. If the gate is green and a release boundary exists, perform that release action as Root and delegate terminal release observation. If any gate fails, delegate a bounded fix and repeat implementation, fixed-point review, VCS, and exact-ref observation until green. Discover the repository's actual gate and provider topology; never assume a branch or server separation.",
+    "Own the persistent Intent, user goal and acceptance criteria, architecture and material product or policy choices, lifecycle transitions, assignment integration, contradictory-evidence resolution, external effects, and final readiness. Use holycodex-agent semantic operations for Intent, Plan, and Assignment state; never manually edit TOON or create handoff, Decision, or standalone blocker files. Keep model_verbosity = low.",
+    "Bias toward action. Before request_user_input, finish all authorized read-only, reversible, preparatory, and independent work that can reduce uncertainty. Request input only for a material choice or explicit approval boundary: before plan approval, before installation profile approval, before remote/origin/server VCS mutation, before public publication or release, or when ambiguity/missing material input blocks safe progress. Persist the resulting needs_root_input state.",
+    "Load writing-for-agents fully before the first dispatch and apply it before every dispatch. Reuse that contract while the current context contains a complete usable load; reload only when it no longer does. Dispatch independent, non-overlapping Assignments concurrently when that improves latency or evidence coverage, preserve dependency order, and never run parallel writes against the same mutable seam. Leaves return compact structured outcomes and evidence; they cannot delegate, message peers, mutate global Intent lifecycle, perform Git/VCS, or decide material product or architecture choices.",
+    "Run proportional proof: start with the smallest relevant check, then broaden only for a new change, failure, or unresolved evidence gap. A review fixed point means no actionable finding remains within scope; do not repeat broader testing without a reason. Inspect every specialist outcome and evidence before integration. Reviewer.code fixed-point review is mandatory after implementation or any major codebase change and must pass before completion or any VCS operation.",
+    "After integration, follow the repository's discovered workflow: commit the finished change as Root, push when its topology requires a remote, and delegate Worker.operations to observe CI for the exact ref/SHA to terminal evidence; pending or running is never success. If the development gate is terminal green and release is requested and approved, perform that release action as Root and delegate terminal release observation. If any gate fails, delegate a bounded fix and repeat implementation, fixed-point review, VCS, and exact-ref observation until green. Discover the repository's actual gate and provider topology; never assume a branch or server separation.",
   ];
   if (computerUse) {
     instructions.push(
@@ -140,14 +141,14 @@ export function rootDeveloperInstructions(computerUse = false): string {
 /** Publish canonical native profiles while preserving foreign or modified files. */
 export async function installNativeAgents(
   codexHome: string,
-  plan: PlanName,
+  profile: ProfileName,
   previous: readonly ManagedArtifact[] = [],
   tier: ServiceTier = "standard",
 ): Promise<NativeAgentInstallResult> {
   const root = join(codexHome, "holycodex", "agents");
   const preserved: string[] = [];
   const rollback: NativeAgentRollbackEntry[] = [];
-  const projections = projectNativeAgents(plan, tier).map((agent) => ({
+  const projections = projectNativeAgents(profile, tier).map((agent) => ({
     path: join(root, `${agent.name}.toml`),
     contents: renderNativeAgent(agent),
   }));
@@ -352,26 +353,37 @@ export function renderNativeAgent(agent: NativeAgentProjection): string {
   ].join("\n");
 }
 
-function renderLegacyRootAgent(agent: RootAgentProjection): string {
+function renderHistoricalRootAgent(
+  model: "gpt-5.6-terra" | "gpt-5.6-sol",
+  effort: string,
+  serviceTier: "default" | "fast",
+): string {
   return [
-    `name = ${JSON.stringify(agent.name)}`,
-    `description = ${JSON.stringify(agent.description)}`,
-    `model = ${JSON.stringify(agent.model)}`,
-    `model_reasoning_effort = ${JSON.stringify(agent.effort)}`,
-    `service_tier = ${JSON.stringify(agent.serviceTier)}`,
+    'name = "root"',
+    'description = "Root-directed HolyCodex control agent."',
+    `model = ${JSON.stringify(model)}`,
+    `model_reasoning_effort = ${JSON.stringify(effort)}`,
+    `service_tier = ${JSON.stringify(serviceTier)}`,
     'model_verbosity = "low"',
     "",
   ].join("\n");
 }
 
-// Previous releases wrote only this exact root-role layout. Keep the
-// allowlist closed over the plan/tier projections those releases could emit;
+// Previous releases wrote only these exact root-role layouts. Keep the
+// allowlist closed over their historical Terra/Sol profile and tier output;
 // a user-owned root role with even a small shape/content difference is not
 // ours to remove.
 const LEGACY_ROOT_ROLE_CONTENTS = new Set(
-  (["go", "low", "default", "high"] as const).flatMap((plan) =>
-    (["standard", "fast", "fast-all"] as const).map((tier) =>
-      renderLegacyRootAgent(projectRootAgent(plan, tier)),
+  (
+    [
+      { model: "gpt-5.6-terra", effort: "high" },
+      { model: "gpt-5.6-sol", effort: "low" },
+      { model: "gpt-5.6-sol", effort: "medium" },
+      { model: "gpt-5.6-sol", effort: "high" },
+    ] as const
+  ).flatMap(({ model, effort }) =>
+    (["default", "fast"] as const).map((serviceTier) =>
+      renderHistoricalRootAgent(model, effort, serviceTier),
     ),
   ),
 );

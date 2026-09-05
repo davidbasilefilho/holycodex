@@ -9,10 +9,8 @@ references for phrase, structure, and example branches when needed.
 
 The prose edit is one delegated Assignment. Read its scope and constraints
 through the semantic agent interface; do not edit TOON files manually. Apply the
-repository's surgical-mutation rule: make the smallest complete edit set within
-the authorized boundary, touch no unrelated paths, avoid speculative rewrites,
-and perform no redundant writes. Preserve unrelated work and stop for Root
-input before expanding scope.
+repository surgical-mutation rule from `AGENTS.md`. Preserve unrelated work
+and stop for Root input before expanding scope.
 
 # Stop Slop
 

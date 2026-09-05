@@ -13,8 +13,7 @@ redesign. Root creates/starts the Assignment and records the result through
 `holycodex-agent assignment result`; the Worker must not mutate Intent state or
 edit TOON files manually.
 
-Apply the repository surgical-mutation rule: minimize edit/write surface and
-operation count while remaining careful, complete, and evidence-driven.
+Apply the repository surgical-mutation rule from `AGENTS.md`.
 
 Discover and use the repository-specific formatter, linter, typecheck, and
 validation commands before and after the repair. Start with the smallest

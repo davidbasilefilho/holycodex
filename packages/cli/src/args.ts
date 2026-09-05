@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { lookupPlan } from "@holycodex/core";
+import { lookupProfile } from "@holycodex/core";
 
 import type { ParsedCommand } from "./types.ts";
 
 export const INSTALL_OPTION_CATALOG = Object.freeze([
   { name: "yes", kind: "boolean", usage: "--yes", description: "Confirm installation." },
   {
-    name: "plan",
+    name: "profile",
     kind: "value",
-    usage: "--plan <go|low|default|high>",
+    usage: "--profile <low|default|high>",
     description: "Select routing (default: default).",
   },
   {
@@ -51,7 +51,7 @@ export const INSTALL_OPTION_CATALOG = Object.freeze([
   { name: "json", kind: "boolean", usage: "--json", description: "Emit one JSON envelope." },
 ] as const);
 
-const VALUE_OPTIONS = new Set(["codex-home", "plan", "tier", "add-plugin"]);
+const VALUE_OPTIONS = new Set(["codex-home", "profile", "tier", "add-plugin"]);
 const BOOLEAN_OPTIONS = new Set([
   "yes",
   "json",
@@ -116,6 +116,13 @@ export function parseArgv(argv: readonly string[]): ParsedCommand {
     const rawName = equalsIndex >= 0 ? withoutPrefix.slice(0, equalsIndex) : withoutPrefix;
     const inlineValue = equalsIndex >= 0 ? withoutPrefix.slice(equalsIndex + 1) : undefined;
     const name = rawName.replaceAll("_", "-");
+    if (name === "plan") {
+      throw new ArgumentError(
+        "invalid_argument",
+        "The --plan option was removed; use --profile <low|default|high>.",
+        { option: "--plan", replacement: "--profile" },
+      );
+    }
     if (!VALUE_OPTIONS.has(name) && !BOOLEAN_OPTIONS.has(name)) {
       throw new ArgumentError("invalid_argument", "Unknown option.", { option: `--${rawName}` });
     }
@@ -181,24 +188,24 @@ function validateCommand(
   if (positionals.length < expected.min || positionals.length > expected.max) {
     throw new ArgumentError("invalid_argument", `Invalid positional arguments for ${command}.`);
   }
-  const plan = options["plan"];
-  if (typeof plan === "string" && !lookupPlan(plan).ok) {
-    const replacement = LEGACY_PLAN_REPLACEMENTS[plan];
+  const profile = options["profile"];
+  if (typeof profile === "string" && !lookupProfile(profile).ok) {
+    const replacement = LEGACY_PROFILE_REPLACEMENTS[profile];
     if (replacement !== undefined) {
       throw new ArgumentError(
         "invalid_argument",
-        `Legacy plan ${plan} was removed; use --plan ${replacement}.`,
-        { plan, replacement },
+        `Legacy profile ${profile} was removed; use --profile ${replacement}.`,
+        { profile, replacement },
       );
     }
-    if (plan === "pro-5x" || plan === "pro-20x") {
+    if (profile === "go" || profile === "Go" || profile === "pro-5x" || profile === "pro-20x") {
       throw new ArgumentError(
         "invalid_argument",
-        `Legacy plan ${plan} was removed and requires an explicit replacement using --plan <go|low|default|high>.`,
-        { plan },
+        `Legacy profile ${profile} was removed and requires an explicit replacement using --profile <low|default|high>.`,
+        { profile },
       );
     }
-    throw new ArgumentError("invalid_argument", "The plan is not supported.", { plan });
+    throw new ArgumentError("invalid_argument", "The profile is not supported.", { profile });
   }
   const tier = options["tier"];
   if (typeof tier === "string" && tier !== "standard" && tier !== "fast" && tier !== "fast-all") {
@@ -224,7 +231,7 @@ function validateCommand(
     command !== "install" &&
     Object.keys(options).some((key) =>
       [
-        "plan",
+        "profile",
         "tier",
         "work",
         "no-work",
@@ -245,8 +252,7 @@ function validateCommand(
   }
 }
 
-const LEGACY_PLAN_REPLACEMENTS: Readonly<Record<string, "go" | "low" | "default" | "high">> = {
-  Go: "go",
+const LEGACY_PROFILE_REPLACEMENTS: Readonly<Record<string, "low" | "default" | "high">> = {
   "plus-low": "low",
   plus: "default",
   "plus-high": "high",

@@ -13,27 +13,27 @@ commands are `bunx holycodex install` and `bunx holycodex remove`.
 
 ## Commands
 
-| Command                                                          | Required behavior                                                                                                                                               |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `holycodex install [options]`                                    | Validate input, configure the selected plan, tier, and optional plugins through Codex native plugin management, verify readback, and write owned configuration. |
-| `holycodex doctor [--json]`                                      | Compare effective Root config, canonical leaf registrations/files, selected capabilities, ownership, and transaction state.                                     |
-| `holycodex remove [--yes] [--json]`                              | Verify ownership, remove HolyCodex's native plugin state, and remove its owned configuration without touching unrelated state.                                  |
-| `holycodex version [<0.x.y\|patch\|minor>] [--dry-run] [--json]` | Read or update the canonical package version.                                                                                                                   |
-| `holycodex --help`                                               | Print the current command and option syntax.                                                                                                                    |
+| Command                                                          | Required behavior                                                                                                                                                  |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `holycodex install [options]`                                    | Validate input, configure the selected profile, tier, and optional plugins through Codex native plugin management, verify readback, and write owned configuration. |
+| `holycodex doctor [--json]`                                      | Compare effective Root config, canonical leaf registrations/files, selected capabilities, ownership, and transaction state.                                        |
+| `holycodex remove [--yes] [--json]`                              | Verify ownership, remove HolyCodex's native plugin state, and remove its owned configuration without touching unrelated state.                                     |
+| `holycodex version [<0.x.y\|patch\|minor>] [--dry-run] [--json]` | Read or update the canonical package version.                                                                                                                      |
+| `holycodex --help`                                               | Print the current command and option syntax.                                                                                                                       |
 
-Installation options are `--yes`, `--plan <name>`,
+Installation options are `--yes`, `--profile <name>`,
 `--tier <name>`, `--work`, `--frontend`, `--security`, `--computer-use`, and
 `--add-plugin <id>`, and `--json`. Each option is explicit; conflicting or
 malformed values fail before any effect.
 
-Plans select native subagent routing only. The tier is an independent service
-setting. A selected capability and every additional plugin must install and
-verify as installed and enabled; otherwise installation returns
+Profiles select native subagent routing only. The tier is an independent
+service setting. A selected capability and every additional plugin must install
+and verify as installed and enabled; otherwise installation returns
 `capability_denied` or a classified installation failure without claiming
 success. The default selections are Frontend and Security; Work and Computer
 Use remain disabled unless selected.
 
-Root's selected model, reasoning effort, service tier, compact developer
+Root's selected Astra model, reasoning effort, service tier, compact developer
 instructions, required feature flags, and eleven canonical leaf registrations
 are managed in `config.toml`. The parent session is Root; HolyCodex never
 creates or registers `agents/root.toml`. Native leaf profiles encode
@@ -41,6 +41,11 @@ creates or registers `agents/root.toml`. Native leaf profiles encode
 sets leaves to `fast`; `fast-all` sets both Root and leaves to `fast`. Leaf
 TOMLs omit `tool_output_token_limit` and use native sandbox, approval, network,
 and delegation-feature controls.
+
+Live profile routing uses `gpt-6-astra` for Root/session and `gpt-5.6-luna`
+for every specialist. The exact per-task effort matrix is owned by
+[BEHAVIOR.md](BEHAVIOR.md); Astra never receives `xhigh` or `max` as a Root
+effort. Sol, Terra, and Go are migration-only historical values.
 
 With `--computer-use`, the official Computer Use capability is installed and
 Root receives the conditional Root-only interactive execution directive. The
@@ -51,10 +56,13 @@ Official OpenAI plugin health accepts the allowlisted `openai-curated` and
 `openai-curated-remote` identities for build-web-apps and codex-security. An
 arbitrary same-name plugin from another marketplace is not accepted.
 
-Valid plan names are `go`, `low`, `default`, and `high`; `default` is
-recommended. Persisted `plus-low`, `plus`, and `plus-high` values migrate to
-`low`, `default`, and `high`. Removed `pro-5x` and `pro-20x` values are
-classified as legacy and require an explicit replacement.
+Valid profile names are `low`, `default`, and `high`; `default` is
+recommended. Existing serialized `plan` fields migrate losslessly to
+`profile`. Legacy `plus-low`, `plus`, and `plus-high` values migrate to
+`low`, `default`, and `high`. Legacy `go` is recognized and requires an
+explicit replacement; removed `pro-5x` and `pro-20x` values are classified as
+legacy and require an explicit replacement. These values are migration-only,
+not live profiles.
 Valid tier names are `standard`, `fast`, and `fast-all`; select them through
 `--tier`.
 
@@ -83,7 +91,8 @@ and Computer Use when selected during install. Root owns intent, material
 decisions, lifecycle, integration, approvals, and final completion. A passing
 `Reviewer.code` fixed-point review is mandatory after implementation or a
 major codebase change and before completion or any VCS operation. Root uses
-`request_user_input` before plan approval, remote/origin/server VCS mutations,
+`request_user_input` before workflow Plan approval, installation profile
+approval, remote/origin/server VCS mutations, public publication or release,
 and whenever ambiguity or missing material input blocks progress; record
 `needs_root_input` in the relevant Intent or Plan. After terminal development
 green, an authorized release uses the repository's own mechanism and is
@@ -131,7 +140,7 @@ Root or user resolution; it is not blindly repeated.
 ## Human output
 
 Without `--json`, install, remove, and doctor report concise semantic results.
-Install reports the version, plan, tier, selected capabilities, preserved
+Install reports the version, profile, tier, selected capabilities, preserved
 state, and actionable warnings. Remove reports owned state removed or
 preserved. Doctor reports health and checks that need attention. Human output
 does not print the internal installation record. Progress is written to stderr

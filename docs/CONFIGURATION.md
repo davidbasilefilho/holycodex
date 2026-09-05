@@ -1,6 +1,6 @@
 # Configuration
 
-This document owns configuration precedence, plan and tier selection, optional
+This document owns configuration precedence, profile and tier selection, optional
 plugins, explicit paths, managed ownership, and compare-before-write behavior.
 Runtime semantics remain in [BEHAVIOR.md](BEHAVIOR.md), CLI syntax remains in
 [CLI.md](CLI.md), and secret exclusions remain in [SECURITY.md](SECURITY.md).
@@ -37,28 +37,39 @@ workflow, while a delegation prompt supplies assignment facts. Runtime flags
 enforce hard capability boundaries where Codex supports them; prose does not
 stand in for a missing native control.
 
+HolyCodex does not manage `features.context_management.experimental_mode`.
+Codex/Astra owns that behavior. Upgrade and removal relinquish only the last
+HolyCodex-managed value when it is unchanged; user edits and unrelated context
+configuration are preserved. Intent, Plan, and Assignment persistence remains
+independent repo-local work state.
+
 Root MUST delegate every task, including trivial work, through a bounded
 Assignment. Direct Root execution is limited to Git/VCS and Computer Use when
 selected at installation. A passing `Reviewer.code` fixed-point review is
 required after implementation or a major codebase change and before completion
-or VCS. Root uses `request_user_input` for plan approval, remote/origin/server
-VCS mutations, and ambiguity or missing material input; persist
-`needs_root_input` when blocked.
+or VCS. Root uses `request_user_input` for workflow Plan approval, installation
+profile approval, remote/origin/server VCS mutations, public publication or
+release, and ambiguity or missing material input; persist `needs_root_input`
+when blocked.
 
-## Plans, tiers, and optional plugins
+## Profiles, tiers, and optional plugins
 
-The plan catalog owns valid plan names and native routes. A plan controls
-routing only. `go` keeps Terra/high for Root and uses the low Luna leaf route
-matrix; `low`, `default`, and `high` select specialist route effort. A plan
+The profile catalog owns valid product profile names and native routes. A
+profile controls routing only. Every live profile uses Root/session model
+`gpt-6-astra` at its profile effort and specialist model `gpt-5.6-luna`; the
+specialist task effort matrix is owned by [BEHAVIOR.md](BEHAVIOR.md). A profile
 does not select a service tier or grant authority.
 
-The valid plan names are `go`, `low`, `default`, and `high`; `default` is
-recommended. Persisted `plus-low`, `plus`, and `plus-high` migrate to
-`low`, `default`, and `high`. Removed `pro-5x` and `pro-20x` values are
-classified and require an explicit replacement.
+The valid profile names are `low`, `default`, and `high`; `default` is
+recommended. New installation input uses `--profile`. Existing serialized
+`plan` fields migrate losslessly to `profile`. Legacy `plus-low`, `plus`, and
+`plus-high` migrate to `low`, `default`, and `high`; legacy `go` is recognized
+and requires an explicit replacement. Removed `pro-5x` and `pro-20x` values
+also require an explicit replacement. Historical names are never silently
+reinterpreted as another live profile.
 
 The service tier is an independent setting selected with `--tier`. It changes
-service handling without changing the plan, route, authority, or proof
+service handling without changing the profile, route, authority, or proof
 requirements. The valid tier names are `standard`, `fast`, and `fast-all`.
 
 Optional plugins are explicit booleans for `work`, `frontend`, `security`, and

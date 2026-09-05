@@ -51,7 +51,7 @@
       "proof": "packages/core/src/index.test.ts"
     },
     {
-      "id": "plan-role-route",
+      "id": "profile-role-route",
       "classification": "PRESERVED",
       "owner": "docs/BEHAVIOR.md",
       "proof": "packages/core/src/index.test.ts"

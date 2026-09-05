@@ -5,16 +5,16 @@ import * as Either from "effect/Either";
 import { freezeDeep } from "./common.ts";
 import { CoreError, type CoreResult, failure, inputError, success } from "./errors.ts";
 import {
-  PlanNameSchema,
-  PlanSelectionSchema,
+  ProfileNameSchema,
+  ProfileSelectionSchema,
   ROLE_DEFINITIONS,
   RoleTaskSchema,
   ROUTE_KEYS,
   RouteKeySchema,
   type Effort,
-  type PlanDefinition,
-  type PlanName,
-  type PlanSelection,
+  type ProfileDefinition,
+  type ProfileName,
+  type ProfileSelection,
   type Role,
   type RouteDefinition,
   type RouteKey,
@@ -23,11 +23,13 @@ import {
 } from "./routes.ts";
 import { decodeUnknown } from "./schema.ts";
 
-export function parsePlanSelection(input: unknown): CoreResult<PlanSelection> {
-  const parsed = decodeUnknown(PlanSelectionSchema, input);
-  if (Either.isLeft(parsed)) {
-    return failure(inputError("plan selection", parsed.left));
-  }
+export const ASTRA_MODEL_ID = "gpt-6-astra" as const;
+export const LUNA_MODEL_ID = "gpt-5.6-luna" as const;
+
+/** Decode the canonical product profile selection used by routing. */
+export function parseProfileSelection(input: unknown): CoreResult<ProfileSelection> {
+  const parsed = decodeUnknown(ProfileSelectionSchema, input);
+  if (Either.isLeft(parsed)) return failure(inputError("profile selection", parsed.left));
   return success(parsed.right);
 }
 
@@ -36,7 +38,7 @@ function route(role: Role, task: TaskForRole<Role>, effort: Effort): RouteDefini
     key: `${role}:${task}` as RouteKey,
     role,
     task,
-    model: "Luna",
+    model: LUNA_MODEL_ID,
     effort,
   };
 }
@@ -50,10 +52,11 @@ const effortRank: Readonly<Record<Effort, number>> = {
   max: 4,
 };
 
+/** Single source of truth for the specialist effort matrix for live profiles. */
 export const ROUTE_EFFORT_OVERRIDES = [
   {
-    plan: "low",
-    rationale: "Preserve the approved low route effort policy.",
+    profile: "low",
+    rationale: "The low profile keeps bounded specialist work economical.",
     efforts: {
       "Explorer:lookup": "medium",
       "Explorer:trace": "high",
@@ -61,33 +64,16 @@ export const ROUTE_EFFORT_OVERRIDES = [
       "Librarian:research": "high",
       "Worker:mechanical": "high",
       "Worker:implementation": "high",
-      "Worker:integration": "xhigh",
+      "Worker:integration": "max",
       "Worker:operations": "high",
       "Reviewer:plan": "high",
-      "Reviewer:code": "xhigh",
+      "Reviewer:code": "max",
       "Reviewer:artifact": "high",
     } satisfies Readonly<Record<RouteKey, Effort>>,
   },
   {
-    plan: "default",
-    rationale: "Preserve the approved default route effort policy.",
-    efforts: {
-      "Explorer:lookup": "medium",
-      "Explorer:trace": "high",
-      "Librarian:lookup": "medium",
-      "Librarian:research": "high",
-      "Worker:mechanical": "high",
-      "Worker:implementation": "xhigh",
-      "Worker:integration": "xhigh",
-      "Worker:operations": "high",
-      "Reviewer:plan": "high",
-      "Reviewer:code": "xhigh",
-      "Reviewer:artifact": "high",
-    } satisfies Readonly<Record<RouteKey, Effort>>,
-  },
-  {
-    plan: "high",
-    rationale: "Preserve the approved high route effort policy.",
+    profile: "default",
+    rationale: "The default profile is the recommended balanced route.",
     efforts: {
       "Explorer:lookup": "medium",
       "Explorer:trace": "xhigh",
@@ -96,26 +82,40 @@ export const ROUTE_EFFORT_OVERRIDES = [
       "Worker:mechanical": "high",
       "Worker:implementation": "xhigh",
       "Worker:integration": "max",
-      "Worker:operations": "xhigh",
+      "Worker:operations": "high",
       "Reviewer:plan": "xhigh",
       "Reviewer:code": "max",
       "Reviewer:artifact": "xhigh",
     } satisfies Readonly<Record<RouteKey, Effort>>,
   },
+  {
+    profile: "high",
+    rationale: "The high profile maximizes specialist reasoning where specified.",
+    efforts: {
+      "Explorer:lookup": "medium",
+      "Explorer:trace": "max",
+      "Librarian:lookup": "medium",
+      "Librarian:research": "max",
+      "Worker:mechanical": "xhigh",
+      "Worker:implementation": "max",
+      "Worker:integration": "max",
+      "Worker:operations": "xhigh",
+      "Reviewer:plan": "max",
+      "Reviewer:code": "max",
+      "Reviewer:artifact": "max",
+    } satisfies Readonly<Record<RouteKey, Effort>>,
+  },
 ] as const;
 freezeDeep(ROUTE_EFFORT_OVERRIDES);
 
-type SpecialistPlanName = Exclude<PlanName, "go">;
-const effortOverridesByPlan = new Map<SpecialistPlanName, (typeof ROUTE_EFFORT_OVERRIDES)[number]>(
-  ROUTE_EFFORT_OVERRIDES.map((override) => [override.plan, override] as const),
+const effortOverridesByProfile = new Map<ProfileName, (typeof ROUTE_EFFORT_OVERRIDES)[number]>(
+  ROUTE_EFFORT_OVERRIDES.map((override) => [override.profile, override] as const),
 );
 
-function routesForPlan(plan: SpecialistPlanName): readonly RouteDefinition[] {
-  const override = effortOverridesByPlan.get(plan);
+function routesForProfile(profile: ProfileName): readonly RouteDefinition[] {
+  const override = effortOverridesByProfile.get(profile);
   if (override === undefined) {
-    throw new CoreError("catalog_invalid", "A specialist plan has no route effort policy.", {
-      plan,
-    });
+    throw new CoreError("catalog_invalid", "A profile has no route effort policy.", { profile });
   }
   return ROLE_DEFINITIONS.flatMap((definition) =>
     definition.tasks.map((task) => {
@@ -123,7 +123,7 @@ function routesForPlan(plan: SpecialistPlanName): readonly RouteDefinition[] {
       const effort = override.efforts[key];
       if (effort === undefined) {
         throw new CoreError("catalog_invalid", "A route effort policy is incomplete.", {
-          plan,
+          profile,
           route: key,
         });
       }
@@ -132,78 +132,50 @@ function routesForPlan(plan: SpecialistPlanName): readonly RouteDefinition[] {
   );
 }
 
-function specialistPlan(
-  input: Readonly<{
-    readonly name: SpecialistPlanName;
-    readonly root: PlanDefinition["root"];
-  }>,
-): PlanDefinition {
+function createProfile(
+  input: Readonly<{ readonly name: ProfileName; readonly effort: Effort }>,
+): ProfileDefinition {
   return {
-    ...input,
-    specialistModel: "Luna",
+    name: input.name,
+    root: { model: "gpt-6-astra", effort: input.effort },
+    specialistModel: "gpt-5.6-luna",
     defaultServiceTier: "standard",
-    routes: routesForPlan(input.name),
+    routes: routesForProfile(input.name),
   };
 }
 
-const planDefinitions: PlanDefinition[] = [
-  {
-    name: "go",
-    root: { model: "Terra", effort: "high" },
-    specialistModel: "Luna",
-    defaultServiceTier: "standard",
-    routes: routesForPlan("low"),
-  },
-  specialistPlan({
-    name: "low",
-    root: { model: "Sol", effort: "low" },
-  }),
-  specialistPlan({
-    name: "default",
-    root: { model: "Sol", effort: "medium" },
-  }),
-  specialistPlan({
-    name: "high",
-    root: { model: "Sol", effort: "high" },
-  }),
+const profileDefinitions: ProfileDefinition[] = [
+  createProfile({ name: "low", effort: "low" }),
+  createProfile({ name: "default", effort: "medium" }),
+  createProfile({ name: "high", effort: "high" }),
 ];
 
-function validateCatalog(definitions: readonly PlanDefinition[]): void {
-  const expectedPlans: readonly PlanName[] = ["go", "low", "default", "high"];
-  if (definitions.length !== expectedPlans.length) {
-    throw new CoreError("catalog_invalid", "The plan catalog has an invalid size.");
+function validateCatalog(definitions: readonly ProfileDefinition[]): void {
+  const expectedProfiles: readonly ProfileName[] = ["low", "default", "high"];
+  if (definitions.length !== expectedProfiles.length) {
+    throw new CoreError("catalog_invalid", "The profile catalog has an invalid size.");
   }
 
-  for (let index = 0; index < expectedPlans.length; index += 1) {
+  for (let index = 0; index < expectedProfiles.length; index += 1) {
     const definition = definitions[index];
-    const expectedPlan = expectedPlans[index];
-    if (!definition || definition.name !== expectedPlan) {
-      throw new CoreError("catalog_invalid", "The plan catalog order is invalid.", { index });
+    const expectedProfile = expectedProfiles[index];
+    if (!definition || definition.name !== expectedProfile) {
+      throw new CoreError("catalog_invalid", "The profile catalog order is invalid.", { index });
     }
-    const expectedRoot =
-      definition.name === "go"
-        ? { model: "Terra", effort: "high" }
-        : definition.name === "low"
-          ? { model: "Sol", effort: "low" }
-          : definition.name === "default"
-            ? { model: "Sol", effort: "medium" }
-            : { model: "Sol", effort: "high" };
+    const expectedEffort =
+      expectedProfile === "low" ? "low" : expectedProfile === "default" ? "medium" : "high";
     if (
-      definition.root.model !== expectedRoot.model ||
-      definition.root.effort !== expectedRoot.effort
+      definition.root.model !== "gpt-6-astra" ||
+      definition.root.effort !== expectedEffort ||
+      definition.specialistModel !== "gpt-5.6-luna"
     ) {
-      throw new CoreError("catalog_invalid", "A plan has an invalid Root route.", {
-        plan: definition.name,
-      });
-    }
-    if (definition.specialistModel !== "Luna" || definition.defaultServiceTier !== "standard") {
-      throw new CoreError("catalog_invalid", "A plan has an invalid specialist policy.", {
-        plan: definition.name,
+      throw new CoreError("catalog_invalid", "A profile has an invalid model route.", {
+        profile: definition.name,
       });
     }
     if (definition.routes.length !== ROUTE_KEYS.length) {
-      throw new CoreError("catalog_invalid", "A specialist plan is incomplete.", {
-        plan: definition.name,
+      throw new CoreError("catalog_invalid", "A profile is incomplete.", {
+        profile: definition.name,
       });
     }
     const seenRoutes = new Set<RouteKey>();
@@ -211,45 +183,28 @@ function validateCatalog(definitions: readonly PlanDefinition[]): void {
       if (
         seenRoutes.has(routeDefinition.key) ||
         !routeKeys.has(routeDefinition.key) ||
-        routeDefinition.model !== "Luna" ||
+        routeDefinition.model !== "gpt-5.6-luna" ||
         `${routeDefinition.role}:${routeDefinition.task}` !== routeDefinition.key
       ) {
-        throw new CoreError("catalog_invalid", "A plan contains an invalid route.", {
-          plan: definition.name,
+        throw new CoreError("catalog_invalid", "A profile contains an invalid route.", {
+          profile: definition.name,
         });
       }
       seenRoutes.add(routeDefinition.key);
     }
     if (seenRoutes.size !== ROUTE_KEYS.length) {
-      throw new CoreError("catalog_invalid", "A plan is missing a specialist route.", {
-        plan: definition.name,
+      throw new CoreError("catalog_invalid", "A profile is missing a specialist route.", {
+        profile: definition.name,
       });
     }
   }
 
-  const goRoutes = definitions[0]?.routes;
-  const lowRoutes = definitions[1]?.routes;
-  if (
-    !goRoutes ||
-    !lowRoutes ||
-    goRoutes.length !== lowRoutes.length ||
-    goRoutes.some(
-      (routeDefinition, index) =>
-        routeDefinition.key !== lowRoutes[index]?.key ||
-        routeDefinition.model !== lowRoutes[index]?.model ||
-        routeDefinition.effort !== lowRoutes[index]?.effort,
-    )
-  ) {
-    throw new CoreError("catalog_invalid", "go must use the low specialist route matrix.");
-  }
-
-  const specialistPlans = definitions;
   for (let routeIndex = 0; routeIndex < ROUTE_KEYS.length; routeIndex += 1) {
     let previousRank = -1;
-    for (const definition of specialistPlans) {
+    for (const definition of definitions) {
       const routeDefinition = definition.routes[routeIndex];
       if (!routeDefinition || effortRank[routeDefinition.effort] < previousRank) {
-        throw new CoreError("catalog_invalid", "Plan route effort is not monotonic.", {
+        throw new CoreError("catalog_invalid", "Profile route effort is not monotonic.", {
           route: ROUTE_KEYS[routeIndex] ?? "unknown",
         });
       }
@@ -258,37 +213,36 @@ function validateCatalog(definitions: readonly PlanDefinition[]): void {
   }
 }
 
-validateCatalog(planDefinitions);
-freezeDeep(planDefinitions);
-export const PLAN_CATALOG: readonly PlanDefinition[] = planDefinitions;
+validateCatalog(profileDefinitions);
+freezeDeep(profileDefinitions);
+export const PROFILE_CATALOG: readonly ProfileDefinition[] = profileDefinitions;
 
-const plansByName = new Map<PlanName, PlanDefinition>();
-const routesByPlan = new Map<PlanName, ReadonlyMap<RouteKey, RouteDefinition>>();
-for (const definition of PLAN_CATALOG) {
-  plansByName.set(definition.name, definition);
+const profilesByName = new Map<ProfileName, ProfileDefinition>();
+const routesByProfile = new Map<ProfileName, ReadonlyMap<RouteKey, RouteDefinition>>();
+for (const definition of PROFILE_CATALOG) {
+  profilesByName.set(definition.name, definition);
   const routes = new Map<RouteKey, RouteDefinition>();
-  for (const routeDefinition of definition.routes) {
-    routes.set(routeDefinition.key, routeDefinition);
-  }
-  routesByPlan.set(definition.name, routes);
+  for (const routeDefinition of definition.routes) routes.set(routeDefinition.key, routeDefinition);
+  routesByProfile.set(definition.name, routes);
 }
 
-export function lookupPlan(input: unknown): CoreResult<PlanDefinition> {
-  const parsed = decodeUnknown(PlanNameSchema, input);
+/** Look up one current product profile. Legacy values are rejected here by design. */
+export function lookupProfile(input: unknown): CoreResult<ProfileDefinition> {
+  const parsed = decodeUnknown(ProfileNameSchema, input);
   if (Either.isLeft(parsed)) {
     return failure(
       new CoreError(
-        "invalid_plan",
-        "Unknown plan selection.",
-        { field: "plan" },
+        "invalid_profile",
+        "Unknown profile selection.",
+        { field: "profile" },
         { cause: parsed.left },
       ),
     );
   }
-  const definition = plansByName.get(parsed.right);
+  const definition = profilesByName.get(parsed.right);
   if (!definition) {
     return failure(
-      new CoreError("invalid_plan", "Unknown plan selection.", { plan: parsed.right }),
+      new CoreError("invalid_profile", "Unknown profile selection.", { profile: parsed.right }),
     );
   }
   return success(definition);
@@ -296,44 +250,36 @@ export function lookupPlan(input: unknown): CoreResult<PlanDefinition> {
 
 function parseRouteKey(input: unknown): CoreResult<RouteKey> {
   const parsedKey = decodeUnknown(RouteKeySchema, input);
-  if (Either.isRight(parsedKey)) {
-    return success(parsedKey.right);
-  }
-
+  if (Either.isRight(parsedKey)) return success(parsedKey.right);
   const parsedRoleTask = decodeUnknown(RoleTaskSchema, input);
   if (Either.isRight(parsedRoleTask)) {
     const key = `${parsedRoleTask.right.role}:${parsedRoleTask.right.task}`;
-    if (routeKeys.has(key as RouteKey)) {
-      return success(key as RouteKey);
-    }
+    if (routeKeys.has(key as RouteKey)) return success(key as RouteKey);
   }
   return failure(
     new CoreError(
       "invalid_route",
       "Unknown specialist route.",
       { field: "route" },
-      {
-        cause: parsedKey.left,
-      },
+      { cause: parsedKey.left },
     ),
   );
 }
 
-export function lookupRoute(planInput: unknown, routeInput: unknown): CoreResult<RouteDefinition> {
-  const planResult = lookupPlan(planInput);
-  if (!planResult.ok) {
-    return planResult;
-  }
-
+/** Resolve a specialist route for a current product profile. */
+export function lookupRoute(
+  profileInput: unknown,
+  routeInput: unknown,
+): CoreResult<RouteDefinition> {
+  const profileResult = lookupProfile(profileInput);
+  if (!profileResult.ok) return profileResult;
   const routeResult = parseRouteKey(routeInput);
-  if (!routeResult.ok) {
-    return routeResult;
-  }
-  const routeDefinition = routesByPlan.get(planResult.value.name)?.get(routeResult.value);
+  if (!routeResult.ok) return routeResult;
+  const routeDefinition = routesByProfile.get(profileResult.value.name)?.get(routeResult.value);
   if (!routeDefinition) {
     return failure(
-      new CoreError("invalid_route", "The route is not available for the selected plan.", {
-        plan: planResult.value.name,
+      new CoreError("invalid_route", "The route is not available for the selected profile.", {
+        profile: profileResult.value.name,
         route: routeResult.value,
       }),
     );
@@ -341,20 +287,17 @@ export function lookupRoute(planInput: unknown, routeInput: unknown): CoreResult
   return success(routeDefinition);
 }
 
-export function resolvePlanSelection(input: unknown): CoreResult<{
-  readonly plan: PlanDefinition;
+/** Resolve a validated product profile and independent service tier. */
+export function resolveProfileSelection(input: unknown): CoreResult<{
+  readonly profile: ProfileDefinition;
   readonly serviceTier: ServiceTier;
 }> {
-  const selection = parsePlanSelection(input);
-  if (!selection.ok) {
-    return selection;
-  }
-  const plan = lookupPlan(selection.value.plan);
-  if (!plan.ok) {
-    return plan;
-  }
+  const selection = parseProfileSelection(input);
+  if (!selection.ok) return selection;
+  const profileResult = lookupProfile(selection.value.profile);
+  if (!profileResult.ok) return profileResult;
   return success({
-    plan: plan.value,
-    serviceTier: selection.value.service_tier ?? plan.value.defaultServiceTier,
+    profile: profileResult.value,
+    serviceTier: selection.value.service_tier ?? profileResult.value.defaultServiceTier,
   });
 }

@@ -8,7 +8,7 @@ export type CoreErrorCode =
   | "invalid_canonical_value"
   | "invalid_digest_domain"
   | "invalid_input"
-  | "invalid_plan"
+  | "invalid_profile"
   | "invalid_route"
   | "invalid_schema_epoch";
 

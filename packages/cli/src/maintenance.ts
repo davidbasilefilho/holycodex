@@ -5,6 +5,7 @@ import { rm, rmdir } from "node:fs/promises";
 import {
   cleanupManagedRuntimeConfig,
   compareManagedConfigKey,
+  migrateLegacyManagedRuntimeConfig,
   readTomlPath,
   resolveAgentConfigPath,
   resolveOfficialPluginEntry,
@@ -95,7 +96,7 @@ export async function doctorHolyCodex(
       checks["configuration"] = failedCheck(["configuration_missing"]);
     } else if (await recordDigestMatches(active)) {
       checks["configuration"] = healthyCheck({
-        plan: active.plan,
+        profile: active.profile,
         tier: active.tier,
         install_id: active.install_id,
       });
@@ -108,7 +109,7 @@ export async function doctorHolyCodex(
 
   if (active) {
     checks["runtime_config"] = await doctorRuntimeConfig(paths, active);
-    checks["native_roles"] = await doctorNativeRoles(paths, active.plan, active.tier);
+    checks["native_roles"] = await doctorNativeRoles(paths, active.profile, active.tier);
     const failedCapability = Object.entries(active.capability_state ?? {}).find(
       ([, value]) => value.selected && value.status !== "healthy",
     );
@@ -220,17 +221,32 @@ export async function removeHolyCodex(
   }
 
   const configBefore = await optionalTextFile(paths.configFile);
-  const configBeforeDocument = parseConfig(configBefore);
-  if (recovery?.managed_config) {
-    const cleanup = await cleanupManagedRuntimeConfig(
+  let configBeforeDocument = parseConfig(configBefore);
+  let recoveryManagedConfig = recovery?.managed_config;
+  if (recoveryManagedConfig) {
+    const migrated = await migrateLegacyManagedRuntimeConfig(
       configBeforeDocument,
-      recovery.managed_config,
-      { schema: recovery.managed_config.schema, installId: recovery.managed_config.installId },
+      recoveryManagedConfig,
+      { schema: recoveryManagedConfig.schema, installId: recoveryManagedConfig.installId },
     );
+    if (migrated.unresolvedKeys.length > 0) {
+      preserved.push(paths.configFile);
+      reasons.push("managed_config_changed");
+      await writeConflictState(paths, recovery ?? emptyRemovalState());
+      return { removed, preserved, reasons };
+    }
+    configBeforeDocument = migrated.document;
+    recoveryManagedConfig = migrated.state;
+  }
+  if (recoveryManagedConfig) {
+    const cleanup = await cleanupManagedRuntimeConfig(configBeforeDocument, recoveryManagedConfig, {
+      schema: recoveryManagedConfig.schema,
+      installId: recoveryManagedConfig.installId,
+    });
     if (cleanup.preservedKeys.length > 0 || cleanup.unresolvedKeys.length > 0) {
       preserved.push(paths.configFile);
       reasons.push("managed_config_changed");
-      await writeConflictState(paths, recovery);
+      await writeConflictState(paths, recovery ?? emptyRemovalState());
       return { removed, preserved, reasons };
     }
   }
@@ -328,8 +344,8 @@ export async function removeHolyCodex(
     | { readonly document: TomlDocument; readonly state?: ManagedRuntimeConfigState }
     | undefined;
   try {
-    let document = parseConfig(await optionalTextFile(paths.configFile));
-    let managedState = recovery?.managed_config;
+    let document = configBeforeDocument;
+    let managedState = recoveryManagedConfig;
     if (managedState) {
       const cleanup = await cleanupManagedRuntimeConfig(document, managedState, {
         schema: managedState.schema,
@@ -456,7 +472,7 @@ async function doctorRuntimeConfig(
   try {
     const document = parseConfig(await optionalTextFile(paths.configFile));
     const expected = desiredRootConfig(
-      active.plan,
+      active.profile,
       active.tier,
       active.optional_selections.computer_use,
     );
@@ -484,13 +500,13 @@ async function doctorRuntimeConfig(
 
 async function doctorNativeRoles(
   paths: ResolvedInstallerPaths,
-  plan: InstallRecord["plan"],
+  profile: InstallRecord["profile"],
   tier: InstallRecord["tier"],
 ): Promise<DoctorCheck> {
   try {
     const document = parseConfig(await optionalTextFile(paths.configFile));
     const failures: string[] = [];
-    for (const agent of projectNativeAgents(plan, tier)) {
+    for (const agent of projectNativeAgents(profile, tier)) {
       const ref = readTomlPath(document, `agents."${agent.name}".config_file`);
       const expected = `${paths.roleRoot}/${agent.name}.toml`.replaceAll("\\", "/");
       if (
@@ -540,7 +556,7 @@ async function doctorNativeRoles(
     return failures.length === 0
       ? healthyCheck({
           role_root: paths.roleRoot,
-          agent_types: projectNativeAgents(plan, tier).map((agent) => agent.name),
+          agent_types: projectNativeAgents(profile, tier).map((agent) => agent.name),
         })
       : failedCheck(["native_role_disagreement"], { roles: failures });
   } catch (error: unknown) {
@@ -593,7 +609,7 @@ function emptyRemovalState(): InstallRecord {
     install_id: "remove-conflict",
     version: "0.0.0",
     digest: "0".repeat(64),
-    plan: "default",
+    profile: "default",
     tier: "standard",
     optional_selections: {
       computer_use: false,

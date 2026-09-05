@@ -48,6 +48,34 @@ describe("documentation invariants", () => {
     expect(cli).toContain("--frontend");
     expect(cli).toContain("capability_denied");
   });
+
+  test("keeps the product profile migration and Astra routing explicit", async () => {
+    const [readme, cliReadme, cli, behavior, configuration, installation] = await Promise.all([
+      readFile(resolve(workspaceRoot, "README.md"), "utf8"),
+      readFile(resolve(workspaceRoot, "packages/cli/README.md"), "utf8"),
+      readFile(resolve(workspaceRoot, "docs/CLI.md"), "utf8"),
+      readFile(resolve(workspaceRoot, "docs/BEHAVIOR.md"), "utf8"),
+      readFile(resolve(workspaceRoot, "docs/CONFIGURATION.md"), "utf8"),
+      readFile(resolve(workspaceRoot, "docs/INSTALLATION.md"), "utf8"),
+    ]);
+    for (const content of [readme, cliReadme, behavior, configuration, installation]) {
+      expect(content).toContain("gpt-6-astra");
+      expect(content).toContain("gpt-5.6-luna");
+      expect(content).not.toContain("The live plans are");
+    }
+    expect(readme).toContain("--profile <low|default|high>");
+    expect(cliReadme).toContain("--profile");
+    expect(cli).toContain("--profile <name>");
+    expect(cli).not.toContain("--plan <name>");
+    expect(behavior).toMatch(/The live profiles are\s+`low`, `default`, and `high`/u);
+    expect(behavior).toContain("installation profile approval");
+    expect(behavior).toContain("features.context_management.experimental_mode");
+    expect(configuration).toContain(
+      "does not manage `features.context_management.experimental_mode`",
+    );
+    expect(configuration).toMatch(/installation\s+profile approval/u);
+    expect(installation).toContain("Legacy `go`");
+  });
 });
 
 async function listMarkdownFiles(directory: string, prefix = ""): Promise<readonly string[]> {

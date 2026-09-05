@@ -9,17 +9,24 @@ bunx holycodex doctor
 bunx holycodex remove
 ```
 
-Use `--yes` when no interactive terminal is available. `--plan` selects native
-Root and specialist routing only. `--tier` independently selects service
-handling (`standard`, `fast`, or `fast-all`). The canonical plans are `go`,
-`low`, `default`, and `high` (`default` is recommended). Legacy `plus-low`,
-`plus`, and `plus-high` configuration is migrated; removed Pro plans fail with
-an explicit replacement requirement.
+Use `--yes` when no interactive terminal is available. `--profile` selects
+native Root and specialist routing only. `--tier` independently selects
+service handling (`standard`, `fast`, or `fast-all`). The live profiles are
+`low`, `default`, and `high` (`default` is recommended). Existing serialized
+`plan` state migrates to `profile`; legacy `go` state is reported as requiring
+an explicit replacement. Legacy `plus-low`, `plus`, and `plus-high`
+configuration migrates to `low`, `default`, and `high`; removed Pro profiles
+fail with an explicit replacement requirement.
+
+Live routing uses `gpt-6-astra` for Root/session and `gpt-5.6-luna` for every
+specialist. The exact per-task effort matrix is documented in
+[BEHAVIOR.md](../../docs/BEHAVIOR.md); Sol, Terra, and Go are migration-only
+historical values.
 
 Frontend and Security are selected by default; Work and Computer Use are
 opt-in. Selected capabilities must install and verify or installation fails.
 Use `--json` for one validated machine-readable envelope. Human output reports
-the version, plan, tier, selected capabilities, and actionable warnings without
+the version, profile, tier, selected capabilities, and actionable warnings without
 printing the internal installation record.
 
 The development entry point is:

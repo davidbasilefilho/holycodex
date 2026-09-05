@@ -6,10 +6,10 @@ import {
   type CliEnvelope,
   type JsonObject,
   type JsonValue,
-  type PlanName,
+  type ProfileName,
   type ServiceTier,
 } from "@holycodex/core";
-import { lookupPlan } from "@holycodex/core";
+import { lookupProfile } from "@holycodex/core";
 
 import { ArgumentError, parseArgv } from "./args.ts";
 import { colorEnabled, helpRequested, helpText, helpTopic } from "./help.ts";
@@ -120,12 +120,12 @@ async function resolveInstallRequest(
 }
 
 function installRequestFromParsed(parsed: ParsedCommand): InstallRequest {
-  const plan = optionPlan(parsed);
+  const profile = optionProfile(parsed);
   const tier = optionTier(parsed);
   const optional = optionalSelections(parsed);
   const officialPlugins = optionStrings(parsed, "add-plugin");
   return validateInstallOptions({
-    ...(plan === undefined ? {} : { plan }),
+    ...(profile === undefined ? {} : { profile }),
     ...(tier === undefined ? {} : { tier }),
     ...(optional === undefined ? {} : { optional }),
     ...(officialPlugins.length === 0 ? {} : { officialPlugins }),
@@ -178,10 +178,10 @@ function optionalSelections(parsed: ParsedCommand) {
   return Object.keys(result).length === 0 ? undefined : result;
 }
 
-function optionPlan(parsed: ParsedCommand): PlanName | undefined {
-  const value = parsed.options["plan"];
+function optionProfile(parsed: ParsedCommand): ProfileName | undefined {
+  const value = parsed.options["profile"];
   if (typeof value !== "string") return undefined;
-  const result = lookupPlan(value);
+  const result = lookupProfile(value);
   return result.ok ? result.value.name : undefined;
 }
 
@@ -390,7 +390,7 @@ function renderVersion(data: JsonValue): string {
 function renderInstall(data: JsonValue, color: boolean): string {
   const record = objectValue(data, "record");
   const version = stringValue(record, "version") ?? "unknown";
-  const plan = stringValue(record, "plan") ?? "unknown";
+  const profile = stringValue(record, "profile") ?? "unknown";
   const tier = stringValue(record, "tier") ?? "unknown";
   const selections = objectValue(record, "optional_selections");
   const capabilityState = objectValue(record, "capability_state");
@@ -410,7 +410,7 @@ function renderInstall(data: JsonValue, color: boolean): string {
   const lines = [
     `${paint("✔", "green", color)} ${paint("install", "heading", color)}`,
     `  ${paint("version", "option", color)}: ${version}`,
-    `  ${paint("plan", "option", color)}: ${plan}`,
+    `  ${paint("profile", "option", color)}: ${profile}`,
     `  ${paint("tier", "option", color)}: ${tier}`,
     `  ${paint("capabilities", "option", color)}: ${capabilitySummary}`,
     `  ${paint("preserved", "option", color)}: ${preservedSummary}`,

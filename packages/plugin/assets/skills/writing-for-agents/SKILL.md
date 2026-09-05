@@ -1,6 +1,6 @@
 ---
 name: writing-for-agents
-description: Use when Root prepares or reviews a subagent delegation, handoff, profile, skill, prompt, or agent-facing instruction; write a low-context independent contract. Before each dispatch ensure this skill is loaded and applied; reuse it until compaction, a new context, or an incomplete/unavailable load.
+description: Use when Root prepares or reviews a subagent delegation, handoff, profile, skill, prompt, or agent-facing instruction; write a low-context independent contract. Load it before the first dispatch, then reuse it while the current context contains a complete usable load.
 ---
 
 # Writing for agents
@@ -19,8 +19,18 @@ must be able to act, prove, and stop without reconstructing intent.
 
 Before any Root subagent dispatch, ensure this skill is fully loaded and applied
 in the current context. Reuse the loaded instructions for later dispatches
-while they remain complete; reload after compaction, a new context, or an
-incomplete/unavailable load.
+while they remain complete and available; reload only when the current context
+no longer contains a complete usable load.
+
+## Dispatch contract
+
+Root owns dispatch. Every specialist invocation is a bounded Assignment whose
+objective, exact scope, exclusions, dependencies, acceptance criteria, proof
+route, and return format are explicit. Independent, non-overlapping
+Assignments may run concurrently; dependent work and writes to the same
+mutable seam remain ordered. Leaves execute only their Assignment: they do not
+delegate, message peers, mutate global Intent lifecycle, perform Git/VCS, or
+make material product or architecture decisions.
 
 ## Information design
 

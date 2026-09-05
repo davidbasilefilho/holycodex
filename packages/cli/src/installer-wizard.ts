@@ -3,14 +3,14 @@
 import {
   DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
   type OptionalCapabilityName,
-  type PlanName,
+  type ProfileName,
   type ServiceTier,
 } from "@holycodex/core";
 
 import { validateInstallOptions, type InstallOptions, type InstallRequest } from "./installer.ts";
 import type { InstallWizardResult } from "./types.ts";
 
-const PLAN_NAMES: readonly PlanName[] = ["go", "low", "default", "high"];
+const PROFILE_NAMES: readonly ProfileName[] = ["low", "default", "high"];
 const SERVICE_TIERS: readonly ServiceTier[] = ["standard", "fast", "fast-all"];
 const CAPABILITY_NAMES: readonly OptionalCapabilityName[] = [
   "work",
@@ -20,7 +20,7 @@ const CAPABILITY_NAMES: readonly OptionalCapabilityName[] = [
 ];
 
 type WizardState = {
-  plan: PlanName;
+  profile: ProfileName;
   tier: ServiceTier;
   optional: Record<OptionalCapabilityName, boolean>;
   plugins: string[];
@@ -155,12 +155,12 @@ export function toInstallOptions(state: Readonly<WizardState>): InstallOptions {
   const request: InstallRequest =
     state.plugins.length > 0
       ? {
-          plan: state.plan,
+          profile: state.profile,
           tier: state.tier,
           optional: { ...state.optional },
           officialPlugins: [...state.plugins],
         }
-      : { plan: state.plan, tier: state.tier, optional: { ...state.optional } };
+      : { profile: state.profile, tier: state.tier, optional: { ...state.optional } };
   return validateInstallOptions(request);
 }
 
@@ -182,7 +182,7 @@ function stateFromRequest(request: InstallRequest): WizardState {
     ...request.optional,
   };
   return {
-    plan: request.plan ?? "default",
+    profile: request.profile ?? "default",
     tier: request.tier ?? "standard",
     optional: {
       computer_use: optional.computer_use ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.computer_use,
@@ -197,7 +197,7 @@ function stateFromRequest(request: InstallRequest): WizardState {
 
 function cycleSelection(state: WizardState, cursor: number, direction: -1 | 1): void {
   if (cursor === 0) {
-    state.plan = cycle(PLAN_NAMES, state.plan, direction);
+    state.profile = cycle(PROFILE_NAMES, state.profile, direction);
   } else if (cursor === 1) {
     state.tier = cycle(SERVICE_TIERS, state.tier, direction);
   } else if (cursor >= 2 && cursor < CAPABILITY_NAMES.length + 2) {
@@ -232,7 +232,7 @@ function renderWizard(state: Readonly<WizardState>, cursor: number): string {
     "Use ↑/↓ (or j/k) to move, ←/→ to change, Enter to continue, Esc to cancel.",
     "",
     ...[
-      ["Plan", state.plan],
+      ["Profile", state.profile],
       ["Service tier", state.tier],
       ...CAPABILITY_NAMES.map(
         (name) => [capabilityLabel(name), enabled(state.optional[name])] as const,
@@ -248,7 +248,7 @@ function renderReview(state: Readonly<WizardState>, selected: number): string {
   const lines = [
     "Review configuration",
     "",
-    `Plan: ${state.plan}`,
+    `Profile: ${state.profile}`,
     `Service tier: ${state.tier}`,
     `Work: ${enabled(state.optional.work)}`,
     `Frontend: ${enabled(state.optional.frontend)}`,

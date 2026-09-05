@@ -36,11 +36,13 @@ describe("plugin source assets", () => {
     expect(source.files.map((file) => file.path)).toContain("skills/plan/SKILL.md");
     expect(source.files.map((file) => file.path)).toContain("skills/operations/SKILL.md");
     const defaultPrompt = source.manifest.interface.defaultPrompt.join("\n");
-    expect(defaultPrompt).toContain("delegate every task");
-    expect(defaultPrompt).toContain("--computer-use");
-    expect(defaultPrompt).toContain("Reviewer.code");
-    expect(defaultPrompt).toContain("request_user_input");
-    expect(defaultPrompt).toContain("surgical-mutation rule");
+    expect(defaultPrompt).toContain("Activate HolyCodex");
+    expect(defaultPrompt).toContain("generated Root developer instructions");
+    expect(defaultPrompt).toContain("holycodex-agent");
+    expect(defaultPrompt).not.toContain("delegate every task");
+    expect(defaultPrompt).not.toContain("Reviewer.code");
+    expect(defaultPrompt).not.toContain("request_user_input");
+    expect(defaultPrompt).not.toContain("surgical-mutation rule");
   });
 
   test("keeps skill frontmatter, metadata, invocation, and server declarations in policy", async () => {
@@ -65,6 +67,8 @@ describe("plugin source assets", () => {
       if (skill === "writing-for-agents") {
         expect(body).toContain("SKILL-MECHANICS.md");
         expect(body).toContain("context pointer");
+        expect(body).toContain("reload only when the current context");
+        expect(body).not.toContain("reload after compaction");
         expect(body).toContain("Owner:");
         expect(body).toContain("Boundary:");
         expect(body).toContain("Completion:");
@@ -98,8 +102,8 @@ describe("plugin source assets", () => {
 
     const plan = await readFile(join(pluginSourceRoot, "skills", "plan", "SKILL.md"), "utf8");
     expect(plan).toContain("trivial work");
-    expect(plan).toContain("Git/VCS");
-    expect(plan).toContain("Computer Use");
+    expect(plan).toContain("delegated plan/review assignments");
+    expect(plan).toContain("request_user_input");
     expect(plan).toContain("Do not edit TOON files manually");
 
     const handoff = await readFile(join(pluginSourceRoot, "skills", "handoff", "SKILL.md"), "utf8");
@@ -130,7 +134,7 @@ describe("plugin source assets", () => {
       expect(body).toMatch(/Owner: (?:Worker|Reviewer)/u);
       expect(body).toContain("delegated Assignment");
       expect(body).toContain("surgical-mutation rule");
-      expect(body).toContain("TOON files manually");
+      expect(body).toMatch(/TOON files\s+manually/u);
       expect(body).toMatch(/completed.*blocked.*needs_root_input.*failed/isu);
       expect(body).toMatch(/holycodex-agent assignment\s+result/u);
     }

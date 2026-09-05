@@ -48,11 +48,17 @@ Root-only; leaves cannot delegate, message peers, or mutate global Intent
 lifecycle.
 
 Root uses `request_user_input` before seeking plan approval, before any
-remote/origin/server VCS mutation, and whenever ambiguity or missing material
-input blocks safe progress; persist the corresponding `needs_root_input`
-outcome on the Intent or Plan. A mandatory Reviewer.code fixed-point review
-must pass after implementation or a major codebase change and before
-completion or any VCS operation.
+installation profile or plan approval, before any remote/origin/server VCS
+mutation or public publication/release, and whenever ambiguity or missing
+material input blocks safe progress. Before asking, finish authorized
+read-only, reversible, preparatory, and independent work that can reduce
+uncertainty; persist the corresponding `needs_root_input` outcome on the
+Intent or Plan. Dispatch independent non-overlapping Assignments concurrently
+when useful, while preserving dependencies and serializing writes to one
+mutable seam. A mandatory Reviewer.code fixed-point review must pass after
+implementation or a major codebase change and before completion or any VCS
+operation. A review fixed point means no actionable finding remains in scope;
+do not repeat broader testing without a new change, failure, or evidence gap.
 
 ## State and command surfaces
 

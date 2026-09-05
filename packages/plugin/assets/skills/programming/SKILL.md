@@ -9,8 +9,7 @@ Implement the decided seam inside the assigned files, and do not expand its
 scope. Inspect the callers and tests needed to preserve behavior and typed
 boundaries, then add focused proof at the least brittle observable boundary.
 
-Apply the repository surgical-mutation rule: minimize edit/write surface and
-operation count while remaining careful, complete, and evidence-driven.
+Apply the repository surgical-mutation rule from `AGENTS.md`.
 
 Return exactly one compact specialist outcome: `completed`, `blocked`,
 `needs_root_input`, or `failed`, with changed paths, checks and results,

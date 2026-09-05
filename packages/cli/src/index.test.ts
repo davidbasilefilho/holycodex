@@ -137,7 +137,7 @@ describe("native installation and removal", () => {
         {},
         { paths: { codexHome }, officialPluginManager: manager },
       );
-      expect(install.record.plan).toBe("default");
+      expect(install.record.profile).toBe("default");
       expect(install.record.tier).toBe("standard");
       expect(install.record.optional_selections).toMatchObject({
         work: false,
@@ -161,11 +161,11 @@ describe("native installation and removal", () => {
         ),
       ).toContain('model_reasoning_summary = "none"');
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
-      expect(config).toContain('model = "gpt-5.6-sol"');
+      expect(config).toContain('model = "gpt-6-astra"');
       expect(config).toContain("default_mode_request_user_input = true");
       expect(config).toContain("multi_agent_v2 = true");
-      expect(config).toContain("experimental_mode = true");
-      expect(config).toContain("Apply writing-for-agents before dispatch");
+      expect(config).not.toContain("experimental_mode = true");
+      expect(config).toContain("Load writing-for-agents fully before the first dispatch");
       expect(config).not.toContain("Interactive GUI, browser, and Computer Use execution");
       for (const agent of projectNativeAgents("default")) {
         expect(config).toContain(`[agents.${JSON.stringify(agent.name)}]`);
@@ -531,7 +531,7 @@ describe("native installation and removal", () => {
     try {
       await mkdir(join(codexHome, "agents"), { recursive: true });
       const contents =
-        'name = "root"\ndescription = "My personal Root role."\nmodel = "gpt-5.6-sol"\n';
+        'name = "root"\ndescription = "My personal Root role."\nmodel = "gpt-6-astra"\n';
       await writeFile(userRoot, contents);
       const manager = fakeManager();
       const install = await installHolyCodex(
@@ -661,9 +661,8 @@ describe("native installation and removal", () => {
     }
   });
 
-  test("projects service tiers independently of the selected plan", () => {
-    expect(projectNativeAgents("go")).toHaveLength(11);
-
+  test("projects service tiers independently of the selected profile", () => {
+    expect(projectNativeAgents("low")).toHaveLength(11);
     const standardRoot = projectRootAgent("default", "standard");
     const standardLeaf = renderNativeAgent(projectNativeAgents("default", "standard")[0]!);
     expect(standardRoot.serviceTier).toBe("default");
@@ -680,7 +679,7 @@ describe("native installation and removal", () => {
     expect(fastAllLeaf).toContain('service_tier = "fast"');
   });
 
-  test("migrates a validated legacy Go record and recomputes its digest", async () => {
+  test("rejects a validated legacy Go record with an explicit replacement", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
     const codexHome = join(root, "codex");
     try {
@@ -693,7 +692,7 @@ describe("native installation and removal", () => {
         schema_epoch: initial.record.schema_epoch,
         install_id: initial.record.install_id,
         version: initial.record.version,
-        plan: "Go" as const,
+        plan: "go" as const,
         tier: initial.record.tier,
         optional_selections: initial.record.optional_selections,
         explicit_optional_selections: initial.record.explicit_optional_selections,
@@ -718,33 +717,19 @@ describe("native installation and removal", () => {
       const paths = resolveInstallerPaths({ paths: { codexHome } });
       await writeFile(paths.activeRecord, `${JSON.stringify(legacyRecord)}\n`);
 
-      const migrated = await readActiveInstallRecord(paths);
-      expect(migrated?.plan).toBe("go");
-      expect(JSON.parse(await readFile(paths.activeRecord, "utf8"))).toMatchObject({ plan: "go" });
-      expect(migrated?.digest).toBe(
-        await installRecordDigest({
-          owner: legacyRecord.owner,
-          install_id: legacyRecord.install_id,
-          version: legacyRecord.version,
-          plan: "go",
-          tier: legacyRecord.tier,
-          optional_selections: legacyRecord.optional_selections,
-          explicit_optional_selections: legacyRecord.explicit_optional_selections,
-          official_plugins: legacyRecord.official_plugins ?? [],
-          capability_state: legacyRecord.capability_state ?? null,
-          managed_artifacts: legacyRecord.managed_artifacts,
-        }),
-      );
+      await expect(readActiveInstallRecord(paths)).rejects.toMatchObject({
+        code: "state_corrupt",
+        message: expect.stringContaining("explicit replacement"),
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  test("manages context experimental mode across reinstall, doctor, and remove", async () => {
+  test("relinquishes context experimental mode ownership across reinstall, doctor, and remove", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-context-"));
     const codexHome = join(root, "codex");
     const config = join(codexHome, "config.toml");
-    const contextKey = "features.context_management.experimental_mode";
     const manager = fakeManager();
     try {
       await mkdir(codexHome, { recursive: true });
@@ -756,25 +741,19 @@ describe("native installation and removal", () => {
         {},
         { paths: { codexHome }, officialPluginManager: manager },
       );
-      expect(await readFile(config, "utf8")).toContain("experimental_mode = true");
-      expect(initial.record.managed_config?.managed[contextKey]?.originalValue).toEqual({
-        kind: "boolean",
-        value: false,
-      });
-      expect(initial.record.managed_config?.managed[contextKey]?.lastManagedValue).toEqual({
-        kind: "boolean",
-        value: true,
-      });
+      expect(await readFile(config, "utf8")).toContain("experimental_mode = false");
+      expect(initial.record.managed_config?.managed).not.toHaveProperty(
+        "features.context_management.experimental_mode",
+      );
 
       const reinstalled = await installHolyCodex(
         { tier: "fast" },
         { paths: { codexHome }, officialPluginManager: manager },
       );
-      expect(reinstalled.record.managed_config?.managed[contextKey]?.originalValue).toEqual({
-        kind: "boolean",
-        value: false,
-      });
-      expect(await readFile(config, "utf8")).toContain("experimental_mode = true");
+      expect(reinstalled.record.managed_config?.managed).not.toHaveProperty(
+        "features.context_management.experimental_mode",
+      );
+      expect(await readFile(config, "utf8")).toContain("experimental_mode = false");
       expect(
         (
           await doctorHolyCodex({
@@ -784,35 +763,6 @@ describe("native installation and removal", () => {
         ).healthy,
       ).toBe(true);
 
-      await writeFile(
-        config,
-        (await readFile(config, "utf8")).replace(
-          "experimental_mode = true",
-          "experimental_mode = false",
-        ),
-      );
-      const drifted = await doctorHolyCodex({
-        paths: { codexHome },
-        officialPluginManager: manager,
-      });
-      expect(drifted.healthy).toBe(false);
-      expect(drifted.checks["runtime_config"]?.reasons).toContain("changed_holycodex_config");
-
-      const conflict = await removeHolyCodex({
-        paths: { codexHome },
-        officialPluginManager: manager,
-      });
-      expect(conflict.preserved).toContain(config);
-      expect(conflict.reasons).toContain("managed_config_changed");
-      await expect(readFile(join(codexHome, "holycodex", "conflicted.json"))).resolves.toBeTruthy();
-
-      await writeFile(
-        config,
-        (await readFile(config, "utf8")).replace(
-          "experimental_mode = false",
-          "experimental_mode = true",
-        ),
-      );
       const removed = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
@@ -850,7 +800,7 @@ describe("native installation and removal", () => {
       );
       let current = await readFile(config, "utf8");
       expect(current).toContain('external_plugin = "keep"');
-      expect(current).toContain('model = "gpt-5.6-sol"');
+      expect(current).toContain('model = "gpt-6-astra"');
 
       const reinstalled = await installHolyCodex(
         { tier: "fast-all" },
@@ -867,7 +817,7 @@ describe("native installation and removal", () => {
           owner: reinstalled.record.owner,
           install_id: reinstalled.record.install_id,
           version: reinstalled.record.version,
-          plan: reinstalled.record.plan,
+          profile: reinstalled.record.profile,
           tier: reinstalled.record.tier,
           optional_selections: reinstalled.record.optional_selections,
           explicit_optional_selections: reinstalled.record.explicit_optional_selections,
@@ -1278,7 +1228,7 @@ describe("native installation and removal", () => {
     });
     expect(exitCode).toBe(0);
     expect(stdout).toContain("--frontend");
-    expect(stdout).toContain("Default plan: default");
+    expect(stdout).toContain("Default profile: default");
     expect(stderr).toBe("");
   });
 });

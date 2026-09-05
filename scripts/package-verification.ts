@@ -286,6 +286,20 @@ export async function verifyPublicPackage(
     codexEnvironment,
   );
   assert(installEnvelope.ok, "packed package install failed");
+  const activeRecord = decode(
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+    JSON.parse(await readFile(join(stateRoot, "active.json"), "utf8")),
+    "the active installation record",
+  );
+  assert(
+    activeRecord["profile"] === "default" && activeRecord["plan"] === undefined,
+    "the active installation record must use the current profile field",
+  );
+  const managedConfigText = await readFile(join(codexHome, "config.toml"), "utf8");
+  assert(
+    managedConfigText.includes("gpt-6-astra") && !/\b(?:Sol|Terra)\b/u.test(managedConfigText),
+    "the managed Codex configuration must use Astra and no live Sol/Terra route",
+  );
 
   const pluginListEnvelope = parseCodexPluginList(
     (
@@ -503,19 +517,44 @@ async function runInstalledAgentHelp(
   cwd: string,
   commands: string[],
 ): Promise<void> {
-  const command = ["bun", entry, "-h"];
-  commands.push(command.join(" "));
-  const result = await runCommand(command, {
-    cwd,
-    env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
-  });
-  assert(
-    result.exitCode === 0,
-    `agent CLI help failed with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS))}`,
-  );
-  assert(result.stderr.length === 0, "agent CLI help wrote diagnostics to stderr");
-  assert(!result.stdout.includes("\u001b"), "agent CLI help emitted ANSI");
-  assert(result.stdout.includes("holycodex-agent"), "agent CLI help omitted its command name");
+  const helpPaths: readonly (readonly string[])[] = [
+    [],
+    ["intent"],
+    ["intent", "create"],
+    ["intent", "list"],
+    ["intent", "current"],
+    ["intent", "read"],
+    ["intent", "select"],
+    ["intent", "transition"],
+    ["intent", "evidence"],
+    ["intent", "complete"],
+    ["intent", "abandon"],
+    ["plan"],
+    ["plan", "read"],
+    ["plan", "revise"],
+    ["assignment"],
+    ["assignment", "create"],
+    ["assignment", "list"],
+    ["assignment", "read"],
+    ["assignment", "start"],
+    ["assignment", "result"],
+  ];
+  const environment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS);
+  for (const path of helpPaths) {
+    for (const option of ["-h", "--help"] as const) {
+      const args = [...path, option];
+      const command = ["bun", entry, ...args];
+      commands.push(command.join(" "));
+      const result = await runCommand(command, { cwd, env: environment });
+      assert(
+        result.exitCode === 0,
+        `agent CLI help failed for ${args.join(" ")} with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
+      );
+      assert(result.stderr.length === 0, "agent CLI help wrote diagnostics to stderr");
+      assert(!result.stdout.includes("\u001b"), "agent CLI help emitted ANSI");
+      assert(result.stdout.includes("holycodex-agent"), "agent CLI help omitted its command name");
+    }
+  }
 }
 
 async function runInstalledOpenTuiProbe(

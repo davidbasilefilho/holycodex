@@ -3,7 +3,7 @@
 ## What?
 
 HolyCodex is a Codex plugin and CLI for sessions that need dependable
-delegation. It installs native specialist profiles, applies a routing plan,
+delegation. It installs native specialist profiles, applies a routing profile,
 and keeps the selected capabilities and service tier in one owned state.
 
 ## Why?
@@ -28,12 +28,15 @@ installation, and removal is:
 bunx holycodex remove
 ```
 
-Plans choose routing only. The live plans are `go`, `low`, `default`, and
+Profiles choose routing only. The live profiles are `low`, `default`, and
 `high`; `default` is recommended. Service tiers (`standard`, `fast`, and
 `fast-all`) control service handling independently. They do not change
-authority or required proof. Persisted `plus-low`, `plus`, and `plus-high`
-values migrate to `low`, `default`, and `high`; removed `pro-5x` and `pro-20x`
-values are classified and require an explicit replacement.
+authority or required proof. Use `--profile <low|default|high>` for new
+installations. Existing serialized `plan` fields are migrated losslessly to
+`profile`; legacy `go` is recognized and requires an explicit replacement,
+while `plus-low`, `plus`, and `plus-high` migrate to `low`, `default`, and
+`high`. Removed `pro-5x` and `pro-20x` values remain migration-only and
+require an explicit replacement.
 
 Frontend and Security plugins are selected by default. Work and Computer Use
 are opt-in. A selected capability must install and verify successfully or the
@@ -53,6 +56,12 @@ decisions, lifecycle, integration, approvals, and completion. Direct Root
 execution is limited to Git/VCS, plus Computer Use when explicitly selected at
 install. Post-integration CI and release verification are delegated to the
 operations specialist against the exact ref/SHA; pending is not success.
+
+The live root/session route uses `gpt-6-astra` at low, medium, or high
+reasoning for the selected profile. All eleven specialists use
+`gpt-5.6-luna`; their per-task efforts are defined in
+[BEHAVIOR.md](docs/BEHAVIOR.md). Sol, Terra, and Go are retained only in
+explicit migration or cleanup handling for old installations.
 
 The native surface has eleven canonical leaves: `Explorer.lookup`,
 `Explorer.trace`, `Librarian.lookup`, `Librarian.research`,

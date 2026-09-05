@@ -74,10 +74,11 @@ version, channel, source SHA, and artifact identity match exactly.
 ## Approval and branch gates
 
 Commit, push, CI dispatch, and publication are separate externally visible
-effects. Root uses `request_user_input` before plan approval and immediately
-before each remote/origin/server VCS mutation or publication; confirm the exact
-files, version, ref, and SHA, and record the result. If ambiguity or missing
-material input blocks progress, persist `needs_root_input` and ask the user.
+effects. Root uses `request_user_input` before workflow Plan approval,
+installation profile approval, and immediately before each remote/origin/server
+VCS mutation or publication; confirm the exact files, version, ref, and SHA,
+and record the result. If ambiguity or missing material input blocks progress,
+persist `needs_root_input` and ask the user.
 Publication fails closed when identity, validation, artifact, or registry
 checks disagree. A passing `Reviewer.code` fixed-point review is required
 after implementation or a major codebase change and before any VCS operation.

@@ -9,6 +9,7 @@ import {
   createManagedRuntimeConfigState,
   deleteTomlPath,
   mergeManagedRuntimeConfig,
+  migrateLegacyManagedRuntimeConfig,
   readTomlPath,
   resolveAgentConfigPath,
   resolveOfficialPluginEntry,
@@ -27,16 +28,16 @@ import {
   canonicalJsonUtf8,
   canonicalOfficialPluginId,
   domainSeparatedSha256,
-  lookupPlan,
-  migratePlanName,
-  type LegacyPlanName,
+  lookupProfile,
+  migrateProfileName,
+  type LegacyProfileName,
   pluginIdsForOptionalCapabilities,
   resolveOptionalCapabilitySelections,
   ServiceTierSchema,
   type JsonObject,
   type OptionalCapabilityName,
   type OptionalCapabilitySelections,
-  type PlanName,
+  type ProfileName,
   type ServiceTier,
 } from "@holycodex/core";
 
@@ -101,7 +102,7 @@ export const HOLYCODEX_MARKETPLACE = "davidbasilefilho/holycodex";
 export const HOLYCODEX_PLUGIN = "holycodex@holycodex";
 
 export interface InstallRequest {
-  readonly plan?: PlanName | undefined;
+  readonly profile?: ProfileName | undefined;
   readonly tier?: ServiceTier | undefined;
   readonly optional?: ExplicitOptionalSelections | undefined;
   readonly officialPlugins?: readonly string[] | undefined;
@@ -160,7 +161,7 @@ export async function installHolyCodex(
     }
     return await installHolyCodex(
       {
-        plan: request.plan ?? interrupted.plan,
+        profile: request.profile ?? interrupted.profile,
         tier: request.tier ?? interrupted.tier,
         optional: {
           computer_use:
@@ -184,7 +185,7 @@ export async function installHolyCodex(
       { path: paths.activeRecord },
     );
   }
-  const plan = choosePlan(request.plan, previous?.plan);
+  const profile = chooseProfile(request.profile, previous?.profile);
   const tier = chooseTier(request.tier, previous?.tier);
   const optional = chooseOptional(request.optional, previous?.optional_selections);
   const explicitOptional = mergeExplicitOptionalSelections(
@@ -289,7 +290,7 @@ export async function installHolyCodex(
   const configDocument = migratedRuntime.document;
   const currentManagedConfig = migratedRuntime.state;
   rejectPreExistingDeveloperInstructions(configDocument, currentManagedConfig);
-  const desiredConfig = desiredRootConfig(plan, tier, optional.computer_use);
+  const desiredConfig = desiredRootConfig(profile, tier, optional.computer_use);
   const mergedConfig = await mergeManagedRuntimeConfig(
     configDocument,
     currentManagedConfig,
@@ -323,7 +324,7 @@ export async function installHolyCodex(
     install_id: installId,
     version,
     digest: previous?.digest ?? "0".repeat(64),
-    plan,
+    profile,
     tier,
     optional_selections: optional,
     explicit_optional_selections: explicitOptional,
@@ -357,7 +358,7 @@ export async function installHolyCodex(
   let publishedConfigState = mergedConfig.state;
   try {
     await ensureOwnedDirectory(paths.roleRoot);
-    native = await installNativeAgents(paths.codexHome, plan, previous?.managed_artifacts, tier);
+    native = await installNativeAgents(paths.codexHome, profile, previous?.managed_artifacts, tier);
     transactionForRecovery = {
       ...transaction,
       step: "roles_prepared",
@@ -449,7 +450,7 @@ export async function installHolyCodex(
     await writeTransaction(paths.preparingRecord, transactionForRecovery);
     await verifyEffectiveInstall(
       paths,
-      plan,
+      profile,
       tier,
       optional.computer_use,
       publishedConfigState,
@@ -460,7 +461,7 @@ export async function installHolyCodex(
       owner: "holycodex",
       install_id: installId,
       version,
-      plan,
+      profile,
       tier,
       optional_selections: optional,
       explicit_optional_selections: explicitOptional,
@@ -483,7 +484,7 @@ export async function installHolyCodex(
       install_id: installId,
       version,
       digest,
-      plan,
+      profile,
       tier,
       optional_selections: optional,
       explicit_optional_selections: explicitOptional,
@@ -589,25 +590,46 @@ export async function readActiveInstallRecord(
       { path: paths.activeRecord },
     );
   }
-  let migratedPlan: PlanName;
+  const persistedProfile =
+    "profile" in legacy && legacy.profile !== undefined
+      ? legacy.profile
+      : "plan" in legacy
+        ? legacy.plan
+        : undefined;
+  if (persistedProfile === undefined) {
+    throw new InstallerError(
+      "state_corrupt",
+      "The persisted installation has neither profile nor legacy plan state.",
+      undefined,
+      { path: paths.activeRecord },
+    );
+  }
+  let migratedProfile: ProfileName;
   try {
-    migratedPlan = migratePlanName(legacy.plan);
+    migratedProfile = migrateProfileName(persistedProfile);
   } catch (error: unknown) {
     throw new InstallerError(
       "state_corrupt",
-      `The persisted plan ${legacy.plan} was removed and requires an explicit replacement.`,
+      `The persisted profile ${persistedProfile} was removed and requires an explicit replacement.`,
       error,
-      { path: paths.activeRecord, plan: legacy.plan },
+      { path: paths.activeRecord, profile: persistedProfile },
     );
   }
+  const legacyWithoutPlan =
+    "plan" in legacy
+      ? (Object.fromEntries(Object.entries(legacy).filter(([key]) => key !== "plan")) as Omit<
+          typeof legacy,
+          "plan"
+        >)
+      : legacy;
   const migrated = {
-    ...legacy,
-    plan: migratedPlan,
+    ...legacyWithoutPlan,
+    profile: migratedProfile,
     digest: await installRecordDigest({
       owner: legacy.owner,
       install_id: legacy.install_id,
       version: legacy.version,
-      plan: migratedPlan,
+      profile: migratedProfile,
       tier: legacy.tier,
       optional_selections: legacy.optional_selections,
       explicit_optional_selections: legacy.explicit_optional_selections,
@@ -890,11 +912,11 @@ function isTomlTable(value: TomlValue | undefined): value is TomlTable {
 
 /** Build the complete managed Root and canonical-agent runtime projection. */
 export function desiredRootConfig(
-  plan: PlanName,
+  profile: ProfileName,
   tier: ServiceTier,
   computerUse = false,
 ): Partial<Record<ManagedConfigKeyPath, string | boolean>> {
-  const root = projectRootAgent(plan, tier);
+  const root = projectRootAgent(profile, tier);
   const desired: Partial<Record<ManagedConfigKeyPath, string | boolean>> = {
     model: root.model,
     model_reasoning_effort: root.effort,
@@ -904,7 +926,6 @@ export function desiredRootConfig(
     suppress_unstable_features_warning: true,
     "features.default_mode_request_user_input": true,
     "features.multi_agent_v2": true,
-    "features.context_management.experimental_mode": true,
   };
   for (const agentType of NATIVE_AGENT_TYPES) {
     desired[`agents."${agentType}".config_file`] = `holycodex/agents/${agentType}.toml`;
@@ -946,6 +967,20 @@ async function migrateKnownLegacyRoleRegistrations(
   state: ManagedRuntimeConfigState,
   previous: InstallRecord | undefined,
 ): Promise<Readonly<{ document: TomlDocument; state: ManagedRuntimeConfigState }>> {
+  const relinquished = await migrateLegacyManagedRuntimeConfig(document, state, {
+    schema: state.schema,
+    installId: state.installId,
+  });
+  if (relinquished.unresolvedKeys.length > 0) {
+    throw new InstallerError(
+      "state_corrupt",
+      "Removed HolyCodex-managed configuration could not be migrated safely.",
+      undefined,
+      { keys: relinquished.unresolvedKeys.join(",") },
+    );
+  }
+  document = relinquished.document;
+  state = relinquished.state;
   const legacyKeys = [
     "agents.explorer.config_file",
     "agents.librarian.config_file",
@@ -1064,7 +1099,7 @@ async function restoreConfig(path: string, before: string | undefined): Promise<
 /** Verify effective Root configuration and every canonical native specialist profile. */
 export async function verifyEffectiveInstall(
   paths: ResolvedInstallerPaths,
-  plan: PlanName,
+  profile: ProfileName,
   tier: ServiceTier,
   computerUse: boolean,
   state: ManagedRuntimeConfigState,
@@ -1072,7 +1107,7 @@ export async function verifyEffectiveInstall(
 ): Promise<void> {
   const text = await optionalTextFile(paths.configFile);
   const document = parseConfig(text);
-  const expected = desiredRootConfig(plan, tier, computerUse);
+  const expected = desiredRootConfig(profile, tier, computerUse);
   for (const [keyPath, expectedValue] of Object.entries(expected)) {
     const actual = readTomlPath(document, keyPath);
     if (keyPath === "developer_instructions") {
@@ -1093,7 +1128,7 @@ export async function verifyEffectiveInstall(
       );
     }
   }
-  const projected = projectNativeAgents(plan, tier);
+  const projected = projectNativeAgents(profile, tier);
   for (const agent of projected) {
     const keyPath = `agents."${agent.name}".config_file` as const;
     const ref = readTomlPath(document, keyPath);
@@ -1269,9 +1304,12 @@ function findPlugin(
   );
 }
 
-function choosePlan(requested: PlanName | undefined, previous: PlanName | undefined): PlanName {
+function chooseProfile(
+  requested: ProfileName | undefined,
+  previous: ProfileName | undefined,
+): ProfileName {
   const value = requested ?? previous ?? "default";
-  if (!lookupPlan(value).ok) throw new InstallerError("install_failed", "Unknown plan.");
+  if (!lookupProfile(value).ok) throw new InstallerError("install_failed", "Unknown profile.");
   return value;
 }
 
@@ -1323,7 +1361,9 @@ type InstallRecordDigestInput = {
   readonly owner: "holycodex";
   readonly install_id: string;
   readonly version: string;
-  readonly plan: PlanName | LegacyPlanName;
+  readonly profile?: ProfileName | LegacyProfileName;
+  /** Legacy persisted product field; never emitted for current records. */
+  readonly plan?: ProfileName | LegacyProfileName;
   readonly tier: ServiceTier;
   readonly optional_selections: OptionalSelections;
   readonly explicit_optional_selections: ExplicitOptionalSelections;
@@ -1338,7 +1378,9 @@ type InstallRecordDigestInput = {
 };
 
 export async function installRecordDigest(value: InstallRecordDigestInput): Promise<string> {
-  return await domainSeparatedSha256("install-record", [canonicalJsonUtf8(asJsonValue(value))]);
+  const { profile, plan, ...rest } = value;
+  const payload = plan === undefined ? { ...rest, profile } : { ...rest, plan };
+  return await domainSeparatedSha256("install-record", [canonicalJsonUtf8(asJsonValue(payload))]);
 }
 
 export async function recordDigestMatches(record: InstallRecord): Promise<boolean> {
@@ -1349,7 +1391,8 @@ async function recordDigestMatchesRaw(record: {
   readonly owner: "holycodex";
   readonly install_id: string;
   readonly version: string;
-  readonly plan: PlanName | LegacyPlanName;
+  readonly profile?: ProfileName | LegacyProfileName;
+  readonly plan?: ProfileName | LegacyProfileName;
   readonly tier: ServiceTier;
   readonly optional_selections: OptionalSelections;
   readonly explicit_optional_selections: ExplicitOptionalSelections;
@@ -1367,7 +1410,8 @@ async function recordDigestMatchesRaw(record: {
     owner: record.owner,
     install_id: record.install_id,
     version: record.version,
-    plan: record.plan,
+    ...(record.profile === undefined ? {} : { profile: record.profile }),
+    ...(record.plan === undefined ? {} : { plan: record.plan }),
     tier: record.tier,
     optional_selections: record.optional_selections,
     explicit_optional_selections: record.explicit_optional_selections,

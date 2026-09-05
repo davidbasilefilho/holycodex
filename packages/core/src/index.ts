@@ -84,12 +84,12 @@ export type {
 export {
   EffortSchema,
   ExplorerTaskSchema,
-  LegacyPlanNameSchema,
+  LegacyProfileNameSchema,
   LibrarianTaskSchema,
-  migratePlanName,
-  PlanNameSchema,
-  PlanNameMigrationSchema,
-  PlanSelectionSchema,
+  migrateProfileName,
+  ProfileNameSchema,
+  ProfileNameMigrationSchema,
+  ProfileSelectionSchema,
   RootDirectExecutionExceptionSchema,
   ROOT_ORCHESTRATION_POLICY,
   SURGICAL_MUTATION_RULE,
@@ -114,11 +114,11 @@ export {
 export type {
   Effort,
   ExplorerTask,
-  LegacyPlanName,
+  LegacyProfileName,
+  ProfileNameMigrationInput,
+  ProfileName,
+  ProfileSelection,
   LibrarianTask,
-  PlanNameMigrationInput,
-  PlanName,
-  PlanSelection,
   RootDirectExecutionException,
   NativeAgentType,
   Role,
@@ -132,7 +132,7 @@ export type {
   SpecialistTaskPermissions,
   WorkerTask,
 } from "./routes.ts";
-export type { PlanDefinition, RouteDefinition } from "./routes.ts";
+export type { ProfileDefinition, RouteDefinition } from "./routes.ts";
 
 export {
   CliEnvelopeSchema,
@@ -170,12 +170,14 @@ export type {
 } from "./envelopes.ts";
 
 export {
-  lookupPlan,
+  ASTRA_MODEL_ID,
+  LUNA_MODEL_ID,
+  lookupProfile,
   lookupRoute,
-  parsePlanSelection,
-  PLAN_CATALOG,
+  parseProfileSelection,
+  PROFILE_CATALOG,
   ROUTE_EFFORT_OVERRIDES,
-  resolvePlanSelection,
+  resolveProfileSelection,
 } from "./catalog.ts";
 
 export {

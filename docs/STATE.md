@@ -42,7 +42,8 @@ HolyCodex stores one owned configuration beneath the selected Codex home:
 └── holycodex/active.json
 ```
 
-The record contains the schema epoch, version, digest, selected plan, service
+The record contains the schema epoch, version, digest, selected product
+profile, service
 tier, optional plugin selections, install identity, managed Root configuration,
 canonical leaf artifacts, plugin snapshots, and transaction status. Codex owns
 its native plugin files and marketplace state; HolyCodex does not copy or
@@ -79,3 +80,13 @@ canonical `{Role}.{task}` identity without reviving role-only registrations,
 validate every input and output with Effect Schema, preserve identity and
 provenance, and write atomically. There is no implicit downgrade or
 best-effort conversion.
+
+The installation record migration from product `plan` to `profile` is separate
+from the workflow Plan stored in `plan.toon`. A legacy serialized `plan` field
+is copied to `profile` without changing its meaning. `plus-low`, `plus`, and
+`plus-high` migrate to `low`, `default`, and `high`; legacy `go` and removed
+Pro values are recognized explicitly and require an operator-selected
+replacement. No historical value is silently mapped to `low`. HolyCodex also
+relinquishes ownership of `features.context_management.experimental_mode` only
+when the recorded value is unchanged, preserving user edits and unrelated
+Codex context configuration.

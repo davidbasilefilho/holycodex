@@ -8,11 +8,8 @@ rule loader and preserve deduplication, limits, caching, trust boundaries, and
 rule ownership. Read the Assignment through the semantic agent interface; do
 not edit TOON files manually.
 
-Apply the repository's surgical-mutation rule to any repair: make the smallest
-complete edit set within the authorized boundary, touch no unrelated paths,
-avoid speculative refactors or formatting churn, and perform no redundant
-writes or operations. Preserve unrelated work and stop for Root input before
-expanding scope.
+Apply the repository surgical-mutation rule from `AGENTS.md` to any repair.
+Preserve unrelated work and stop for Root input before expanding scope.
 
 Completion: the rule path, policy, observed failure, and verification evidence
 are explicit, or the exact blocker is returned. Return one outcome from

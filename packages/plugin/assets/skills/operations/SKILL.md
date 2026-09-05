@@ -15,11 +15,9 @@ cancel, approve, merge, push, tag, publish, deploy, or otherwise mutate
 external state. Pending or running is never success; report terminal green,
 terminal failure, or an exact unavailable/ambiguous blocker.
 
-Apply the repository's surgical-mutation rule to any local write: make the
-smallest complete edit set within the authorized boundary, touch no unrelated
-paths, avoid speculative changes or redundant operations, and stop for Root
-input before expanding scope. Do not edit TOON files manually or create
-standalone handoff, Decision, or blocker files.
+Apply the repository surgical-mutation rule from `AGENTS.md` to any local
+write, and stop for Root input before expanding scope. Do not edit TOON files manually;
+do not create standalone handoff, Decision, or blocker files.
 
 Return one outcome from `completed`, `blocked`, `needs_root_input`, or
 `failed`, with discovered topology, exact ref/SHA, check or release results,

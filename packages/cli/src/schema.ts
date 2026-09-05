@@ -3,8 +3,8 @@
 import { ManagedRuntimeConfigStateSchema } from "@holycodex/codex";
 import {
   decodeUnknown,
-  PlanNameSchema,
-  PlanNameMigrationSchema,
+  ProfileNameSchema,
+  ProfileNameMigrationSchema,
   ServiceTierSchema,
   STATE_SCHEMA_EPOCH,
   type JsonObject,
@@ -51,7 +51,7 @@ export const ExplicitOptionalSelectionsSchema = Schema.Struct({
   security: Schema.optional(Schema.Boolean),
 });
 export const InstallRequestSchema = Schema.Struct({
-  plan: Schema.optional(PlanNameSchema),
+  profile: Schema.optional(ProfileNameSchema),
   tier: Schema.optional(ServiceTierSchema),
   optional: Schema.optional(ExplicitOptionalSelectionsSchema),
   officialPlugins: Schema.optional(Schema.Array(OfficialPluginIdSchema)),
@@ -124,7 +124,7 @@ const InstallRecordFields = {
   install_id: IdentifierSchema,
   version: VersionSchema,
   digest: DigestSchema,
-  plan: PlanNameSchema,
+  profile: ProfileNameSchema,
   tier: ServiceTierSchema,
   optional_selections: OptionalSelectionsSchema,
   explicit_optional_selections: ExplicitOptionalSelectionsSchema,
@@ -155,10 +155,20 @@ const InstallRecordFields = {
   owned_plugins: Schema.optional(Schema.Array(OfficialPluginIdSchema)),
 } as const;
 export const InstallRecordSchema = Schema.Struct(InstallRecordFields);
-export const InstallRecordMigrationSchema = Schema.Struct({
-  ...InstallRecordFields,
-  plan: PlanNameMigrationSchema,
-});
+const LegacyInstallRecordBaseFields = (({ profile: _profile, ...fields }) => fields)(
+  InstallRecordFields,
+);
+/** Accept one pre-profile record shape only at the migration boundary. */
+export const InstallRecordMigrationSchema = Schema.Union(
+  Schema.Struct({
+    ...InstallRecordFields,
+    profile: ProfileNameMigrationSchema,
+  }),
+  Schema.Struct({
+    ...LegacyInstallRecordBaseFields,
+    plan: ProfileNameMigrationSchema,
+  }),
+);
 
 export const InstallTransactionStatusSchema = Schema.Literal("preparing", "conflicted");
 export const InstallTransactionStepSchema = Schema.Literal(

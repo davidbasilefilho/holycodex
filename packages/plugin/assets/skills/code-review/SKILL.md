@@ -15,7 +15,7 @@ do not edit TOON files manually.
 
 This fixed-point review is mandatory after implementation or a major codebase
 change and must pass before Intent completion or any VCS operation. Apply the
-repository surgical-mutation rule to reviewer repairs.
+repository surgical-mutation rule from `AGENTS.md` to reviewer repairs.
 
 Inspect the assigned diff, callers, contracts, tests, compatibility, and
 artifact. Repair defects inside the review surface, verify each repair, and

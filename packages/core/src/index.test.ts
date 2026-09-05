@@ -13,13 +13,13 @@ import {
   DEFAULT_CAPABILITY_SELECTIONS,
   DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
   EffortSchema,
-  LegacyPlanNameSchema,
-  PLAN_CATALOG,
+  LegacyProfileNameSchema,
+  PROFILE_CATALOG,
   NATIVE_AGENT_TYPES,
-  migratePlanName,
-  PlanNameMigrationSchema,
-  PlanNameSchema,
-  PlanSelectionSchema,
+  migrateProfileName,
+  ProfileNameMigrationSchema,
+  ProfileNameSchema,
+  ProfileSelectionSchema,
   RoleTaskSchema,
   ROLE_DEFINITIONS,
   ROUTE_KEYS,
@@ -41,7 +41,7 @@ import {
   canonicalJsonUtf8,
   composeDigestInput,
   domainSeparatedSha256,
-  lookupPlan,
+  lookupProfile,
   lookupRoute,
   parseCliEnvelope,
   parseCapabilityResultV2,
@@ -55,10 +55,10 @@ import {
 } from "./index";
 import { decodeUnknown } from "./schema";
 
-const planNames = ["go", "low", "default", "high"] as const;
-const expectedRouteEffortsByPlan = [
+const profileNames = ["low", "default", "high"] as const;
+const expectedRouteEffortsByProfile = [
   {
-    plan: "low",
+    profile: "low",
     efforts: [
       "medium",
       "high",
@@ -66,31 +66,15 @@ const expectedRouteEffortsByPlan = [
       "high",
       "high",
       "high",
-      "xhigh",
+      "max",
       "high",
       "high",
-      "xhigh",
-      "high",
-    ],
-  },
-  {
-    plan: "default",
-    efforts: [
-      "medium",
-      "high",
-      "medium",
-      "high",
-      "high",
-      "xhigh",
-      "xhigh",
-      "high",
-      "high",
-      "xhigh",
+      "max",
       "high",
     ],
   },
   {
-    plan: "high",
+    profile: "default",
     efforts: [
       "medium",
       "xhigh",
@@ -99,51 +83,72 @@ const expectedRouteEffortsByPlan = [
       "high",
       "xhigh",
       "max",
-      "xhigh",
+      "high",
       "xhigh",
       "max",
       "xhigh",
+    ],
+  },
+  {
+    profile: "high",
+    efforts: [
+      "medium",
+      "max",
+      "medium",
+      "max",
+      "xhigh",
+      "max",
+      "max",
+      "xhigh",
+      "max",
+      "max",
+      "max",
     ],
   },
 ] as const;
 
-describe("core plan catalog", () => {
-  test("contains every plan with routing model and reasoning policy", () => {
-    expect(PLAN_CATALOG.map((plan) => plan.name)).toEqual([...planNames]);
-    expect(PLAN_CATALOG[0]).toMatchObject({
-      name: "go",
-      root: { model: "Terra", effort: "high" },
-    });
-    expect(PLAN_CATALOG.map((plan) => plan.root)).toEqual([
-      { model: "Terra", effort: "high" },
-      { model: "Sol", effort: "low" },
-      { model: "Sol", effort: "medium" },
-      { model: "Sol", effort: "high" },
+describe("core profile catalog", () => {
+  test("contains every profile with Astra routing and reasoning policy", () => {
+    expect(PROFILE_CATALOG.map((profile) => profile.name)).toEqual([...profileNames]);
+    expect(PROFILE_CATALOG.map((profile) => profile.root)).toEqual([
+      { model: "gpt-6-astra", effort: "low" },
+      { model: "gpt-6-astra", effort: "medium" },
+      { model: "gpt-6-astra", effort: "high" },
     ]);
-    for (const plan of PLAN_CATALOG) {
-      expect(plan).not.toHaveProperty("budget");
+    for (const profile of PROFILE_CATALOG) {
+      expect(profile).not.toHaveProperty("budget");
     }
   });
 
   test("contains all eleven route slots and exact parity-floor efforts", () => {
     expect(ROUTE_KEYS).toHaveLength(11);
     expect(new Set(ROUTE_KEYS).size).toBe(11);
-    for (const plan of PLAN_CATALOG) {
-      expect(plan.routes.map((route) => route.key)).toEqual([...ROUTE_KEYS]);
-      expect(plan.routes.every((route) => route.model === "Luna")).toBe(true);
+    for (const profile of PROFILE_CATALOG) {
+      expect(profile.routes.map((route) => route.key)).toEqual([...ROUTE_KEYS]);
+      expect(profile.routes.every((route) => route.model === "gpt-5.6-luna")).toBe(true);
     }
 
-    expect(PLAN_CATALOG[0]?.routes.map((route) => route.effort)).toEqual(
-      PLAN_CATALOG[1]?.routes.map((route) => route.effort),
-    );
+    expect(PROFILE_CATALOG[0]?.routes.map((route) => route.effort)).toEqual([
+      "medium",
+      "high",
+      "medium",
+      "high",
+      "high",
+      "high",
+      "max",
+      "high",
+      "high",
+      "max",
+      "high",
+    ]);
 
-    for (const expected of expectedRouteEffortsByPlan) {
-      const plan = lookupPlan(expected.plan);
-      expect(plan.ok).toBe(true);
-      if (!plan.ok) {
+    for (const expected of expectedRouteEffortsByProfile) {
+      const profile = lookupProfile(expected.profile);
+      expect(profile.ok).toBe(true);
+      if (!profile.ok) {
         continue;
       }
-      expect(plan.value.routes.map((route) => route.effort)).toEqual([...expected.efforts]);
+      expect(profile.value.routes.map((route) => route.effort)).toEqual([...expected.efforts]);
     }
   });
 
@@ -197,18 +202,20 @@ describe("core plan catalog", () => {
     });
   });
 
-  test("keeps plan route parity in the single effort policy source", () => {
-    for (const plan of PLAN_CATALOG.slice(1)) {
-      const override = ROUTE_EFFORT_OVERRIDES.find((candidate) => candidate.plan === plan.name);
+  test("keeps profile route parity in the single effort policy source", () => {
+    for (const profile of PROFILE_CATALOG) {
+      const override = ROUTE_EFFORT_OVERRIDES.find(
+        (candidate) => candidate.profile === profile.name,
+      );
       expect(override).toBeDefined();
       if (!override) continue;
-      expect(plan.routes.map((route) => route.model)).toEqual(
-        Array(ROUTE_KEYS.length).fill("Luna"),
+      expect(profile.routes.map((route) => route.model)).toEqual(
+        Array(ROUTE_KEYS.length).fill("gpt-5.6-luna"),
       );
-      expect(plan.routes.map((route) => route.effort)).toEqual(
+      expect(profile.routes.map((route) => route.effort)).toEqual(
         ROUTE_KEYS.map((key) => override.efforts[key]),
       );
-      expect(plan.defaultServiceTier).toBe("standard");
+      expect(profile.defaultServiceTier).toBe("standard");
     }
   });
 
@@ -231,18 +238,18 @@ describe("core plan catalog", () => {
     }
   });
 
-  test("keeps public plan lookup canonical while migrating known legacy state", () => {
-    expect(Either.isRight(decodeUnknown(PlanNameSchema, "go"))).toBe(true);
-    expect(Either.isLeft(decodeUnknown(PlanNameSchema, "Go"))).toBe(true);
-    expect(lookupPlan("go").ok).toBe(true);
-    expect(lookupPlan("Go").ok).toBe(false);
-    expect(Either.isRight(decodeUnknown(LegacyPlanNameSchema, "Go"))).toBe(true);
-    expect(Either.isRight(decodeUnknown(PlanNameMigrationSchema, "Go"))).toBe(true);
-    expect(migratePlanName("Go")).toBe("go");
-    expect(migratePlanName("plus-low")).toBe("low");
-    expect(migratePlanName("plus")).toBe("default");
-    expect(migratePlanName("plus-high")).toBe("high");
-    expect(() => migratePlanName("pro-5x")).toThrow(/requires an explicit replacement/u);
+  test("keeps public profile lookup canonical while classifying legacy state", () => {
+    expect(Either.isRight(decodeUnknown(ProfileNameSchema, "default"))).toBe(true);
+    expect(Either.isLeft(decodeUnknown(ProfileNameSchema, "go"))).toBe(true);
+    expect(lookupProfile("default").ok).toBe(true);
+    expect(lookupProfile("go").ok).toBe(false);
+    expect(Either.isRight(decodeUnknown(LegacyProfileNameSchema, "Go"))).toBe(true);
+    expect(Either.isRight(decodeUnknown(ProfileNameMigrationSchema, "Go"))).toBe(true);
+    expect(() => migrateProfileName("Go")).toThrow(/requires an explicit replacement/u);
+    expect(migrateProfileName("plus-low")).toBe("low");
+    expect(migrateProfileName("plus")).toBe("default");
+    expect(migrateProfileName("plus-high")).toBe("high");
+    expect(() => migrateProfileName("pro-5x")).toThrow(/requires an explicit replacement/u);
   });
 
   test("enforces Root delegation with only the approved direct exceptions", () => {
@@ -272,7 +279,9 @@ describe("core plan catalog", () => {
     expect(rootDelegationRequired("computer_use", true)).toBe(false);
     expect(ROOT_ORCHESTRATION_POLICY.requestUserInputGates).toEqual([
       "plan_approval",
+      "installation_profile_approval",
       "remote_origin_server_vcs_mutation",
+      "public_publication_or_release",
       "ambiguity_or_missing_material_input",
     ]);
     expect(ROOT_ORCHESTRATION_POLICY.surgicalMutationRule).toBe(SURGICAL_MUTATION_RULE);
@@ -321,17 +330,17 @@ describe("core route and boundary schemas", () => {
 
   test("preserves stable error codes, safe details, and causes", () => {
     const cause = new Error("schema detail");
-    const error = new CoreError("invalid_input", "Invalid input.", { field: "plan" }, { cause });
+    const error = new CoreError("invalid_input", "Invalid input.", { field: "profile" }, { cause });
     expect(error.code).toBe("invalid_input");
-    expect(error.details).toEqual({ field: "plan" });
+    expect(error.details).toEqual({ field: "profile" });
     expect(error.cause).toBe(cause);
   });
 
-  test("rejects invalid plans, routes, and role/task combinations", () => {
-    const invalidPlan = lookupPlan("turbo");
-    expect(invalidPlan.ok).toBe(false);
-    if (!invalidPlan.ok) {
-      expect(invalidPlan.error.code).toBe("invalid_plan");
+  test("rejects invalid profiles, routes, and role/task combinations", () => {
+    const invalidProfile = lookupProfile("turbo");
+    expect(invalidProfile.ok).toBe(false);
+    if (!invalidProfile.ok) {
+      expect(invalidProfile.error.code).toBe("invalid_profile");
     }
 
     const invalidRoute = lookupRoute("default", "Worker:lookup");
@@ -340,9 +349,8 @@ describe("core route and boundary schemas", () => {
       expect(invalidRoute.error.code).toBe("invalid_route");
     }
 
-    const goRoute = lookupRoute("go", "Worker:implementation");
-    expect(goRoute.ok).toBe(true);
-    if (goRoute.ok) expect(goRoute.value.effort).toBe("high");
+    const removedGoRoute = lookupRoute("go", "Worker:implementation");
+    expect(removedGoRoute.ok).toBe(false);
 
     expect(
       Either.isRight(decodeUnknown(RoleTaskSchema, { role: "Worker", task: "implementation" })),
@@ -354,21 +362,25 @@ describe("core route and boundary schemas", () => {
     expect(Either.isLeft(decodeUnknown(RouteKeySchema, "Reviewer:research"))).toBe(true);
   });
 
-  test("accepts and rejects external plan selections and identities", () => {
-    expect(Either.isRight(decodeUnknown(PlanNameSchema, "default"))).toBe(true);
-    expect(Either.isLeft(decodeUnknown(PlanNameSchema, "pro-20x"))).toBe(true);
+  test("accepts and rejects external profile selections and identities", () => {
+    expect(Either.isRight(decodeUnknown(ProfileNameSchema, "default"))).toBe(true);
+    expect(Either.isLeft(decodeUnknown(ProfileNameSchema, "pro-20x"))).toBe(true);
     expect(Either.isRight(decodeUnknown(EffortSchema, "xhigh"))).toBe(true);
     expect(Either.isRight(decodeUnknown(EffortSchema, "max"))).toBe(true);
     expect(
-      Either.isRight(decodeUnknown(PlanSelectionSchema, { plan: "default", service_tier: "fast" })),
-    ).toBe(true);
-    expect(
       Either.isRight(
-        decodeUnknown(PlanSelectionSchema, { plan: "default", service_tier: "fast-all" }),
+        decodeUnknown(ProfileSelectionSchema, { profile: "default", service_tier: "fast" }),
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(decodeUnknown(PlanSelectionSchema, { plan: "default", service_tier: "Turbo" })),
+      Either.isRight(
+        decodeUnknown(ProfileSelectionSchema, { profile: "default", service_tier: "fast-all" }),
+      ),
+    ).toBe(true);
+    expect(
+      Either.isLeft(
+        decodeUnknown(ProfileSelectionSchema, { profile: "default", service_tier: "Turbo" }),
+      ),
     ).toBe(true);
 
     const digest = "a".repeat(64);

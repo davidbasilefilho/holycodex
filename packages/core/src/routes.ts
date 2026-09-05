@@ -4,11 +4,13 @@ import * as Schema from "effect/Schema";
 
 import { freezeDeep } from "./common.ts";
 
-export const PlanNameSchema = Schema.Literal("go", "low", "default", "high");
-export type PlanName = typeof PlanNameSchema.Type;
+/** Canonical user-facing routing profiles. */
+export const ProfileNameSchema = Schema.Literal("low", "default", "high");
+export type ProfileName = typeof ProfileNameSchema.Type;
 
-/** Historical plan spelling accepted only while migrating persisted state. */
-export const LegacyPlanNameSchema = Schema.Literal(
+/** Historical product plan/profile spellings accepted only during migration. */
+export const LegacyProfileNameSchema = Schema.Literal(
+  "go",
   "Go",
   "plus-low",
   "plus",
@@ -16,14 +18,16 @@ export const LegacyPlanNameSchema = Schema.Literal(
   "pro-5x",
   "pro-20x",
 );
-export type LegacyPlanName = typeof LegacyPlanNameSchema.Type;
-export const PlanNameMigrationSchema = Schema.Union(PlanNameSchema, LegacyPlanNameSchema);
-export type PlanNameMigrationInput = typeof PlanNameMigrationSchema.Type;
+export type LegacyProfileName = typeof LegacyProfileNameSchema.Type;
+export const ProfileNameMigrationSchema = Schema.Union(ProfileNameSchema, LegacyProfileNameSchema);
+export type ProfileNameMigrationInput = typeof ProfileNameMigrationSchema.Type;
 
-export function migratePlanName(input: PlanNameMigrationInput): PlanName {
+/** Migrate persisted product profile names without silently choosing for removed values. */
+export function migrateProfileName(input: ProfileNameMigrationInput): ProfileName {
   switch (input) {
+    case "go":
     case "Go":
-      return "go";
+      throw new Error(`Legacy profile ${input} was removed and requires an explicit replacement.`);
     case "plus-low":
       return "low";
     case "plus":
@@ -32,7 +36,7 @@ export function migratePlanName(input: PlanNameMigrationInput): PlanName {
       return "high";
     case "pro-5x":
     case "pro-20x":
-      throw new Error(`Legacy plan ${input} was removed and requires an explicit replacement.`);
+      throw new Error(`Legacy profile ${input} was removed and requires an explicit replacement.`);
     default:
       return input;
   }
@@ -322,26 +326,26 @@ export interface RouteDefinition {
   readonly key: RouteKey;
   readonly role: Role;
   readonly task: TaskSlot;
-  readonly model: "Luna";
+  readonly model: "gpt-5.6-luna";
   readonly effort: Effort;
 }
 
-export interface PlanDefinition {
-  readonly name: PlanName;
+export interface ProfileDefinition {
+  readonly name: ProfileName;
   readonly root: {
-    readonly model: "Terra" | "Sol";
+    readonly model: "gpt-6-astra";
     readonly effort: Effort;
   };
-  readonly specialistModel: "Luna";
+  readonly specialistModel: "gpt-5.6-luna";
   readonly defaultServiceTier: ServiceTier;
   readonly routes: readonly RouteDefinition[];
 }
 
-export const PlanSelectionSchema = Schema.Struct({
-  plan: PlanNameSchema,
+export const ProfileSelectionSchema = Schema.Struct({
+  profile: ProfileNameSchema,
   service_tier: Schema.optional(ServiceTierSchema),
 });
-export type PlanSelection = typeof PlanSelectionSchema.Type;
+export type ProfileSelection = typeof ProfileSelectionSchema.Type;
 
 /** Direct execution exceptions that do not require a delegated Assignment. */
 export const RootDirectExecutionExceptionSchema = Schema.Literal("git_vcs", "computer_use");
@@ -358,7 +362,9 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   directExecutionExceptions: Object.freeze(["git_vcs", "computer_use"] as const),
   requestUserInputGates: Object.freeze([
     "plan_approval",
+    "installation_profile_approval",
     "remote_origin_server_vcs_mutation",
+    "public_publication_or_release",
     "ambiguity_or_missing_material_input",
   ] as const),
   surgicalMutationRule: SURGICAL_MUTATION_RULE,

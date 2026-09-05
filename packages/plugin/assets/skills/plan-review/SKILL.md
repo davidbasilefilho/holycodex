@@ -12,8 +12,9 @@ Read the current Plan with `holycodex-agent plan read`; never edit TOON files
 directly. A revision is a semantic `plan revise` operation that archives the
 prior canonical Plan before replacement.
 
-Apply the repository surgical-mutation rule to any repair. If a material
-choice is unresolved, return `needs_root_input` rather than deciding it.
+Apply the repository surgical-mutation rule from `AGENTS.md` to any repair. If
+a material choice is unresolved, return `needs_root_input` rather than deciding
+it.
 
 Return `completed`, `blocked`, `needs_root_input`, or `failed` with findings,
 proof, and remaining risk; Root records that outcome on the Assignment.

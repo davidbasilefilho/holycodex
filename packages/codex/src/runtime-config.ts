@@ -176,7 +176,6 @@ export const ROOT_CONFIG_KEY_PATHS = [
   "suppress_unstable_features_warning",
   "features.default_mode_request_user_input",
   "features.multi_agent_v2",
-  "features.context_management.experimental_mode",
 ] as const;
 export type RootConfigKeyPath = (typeof ROOT_CONFIG_KEY_PATHS)[number];
 
@@ -193,6 +192,13 @@ export type ManagedConfigKeyPath =
   | AgentConfigKeyPath
   | LegacyAgentConfigKeyPath;
 
+/** A managed key retained only to migrate state written by older HolyCodex releases. */
+export const LEGACY_MANAGED_CONFIG_KEY_PATHS = [
+  "features.context_management.experimental_mode",
+] as const;
+export type LegacyManagedConfigKeyPath = (typeof LEGACY_MANAGED_CONFIG_KEY_PATHS)[number];
+export type ManagedConfigStateKeyPath = ManagedConfigKeyPath | LegacyManagedConfigKeyPath;
+
 export const ManagedConfigKeyPathSchema = Schema.declare(
   (value: unknown): value is ManagedConfigKeyPath => isManagedConfigKeyPath(value),
 );
@@ -204,7 +210,17 @@ export function isManagedConfigKeyPath(value: unknown): value is ManagedConfigKe
   return NATIVE_AGENT_TYPES.some((agentType) => value === `agents."${agentType}".config_file`);
 }
 
+/** Recognize only historical HolyCodex ownership that must be migrated safely. */
+export function isLegacyManagedConfigKeyPath(value: unknown): value is LegacyManagedConfigKeyPath {
+  return (LEGACY_MANAGED_CONFIG_KEY_PATHS as readonly string[]).includes(value as string);
+}
+
+function isManagedConfigStateKeyPath(value: unknown): value is ManagedConfigStateKeyPath {
+  return isManagedConfigKeyPath(value) || isLegacyManagedConfigKeyPath(value);
+}
+
 type ManagedEnum =
+  | "gpt-6-astra"
   | "gpt-5.6-terra"
   | "gpt-5.6-sol"
   | "gpt-5.6-luna"
@@ -233,7 +249,7 @@ export interface ManagedRuntimeConfigEntry {
   readonly owner: "holycodex";
   readonly schema: string;
   readonly installId: string;
-  readonly keyPath: ManagedConfigKeyPath;
+  readonly keyPath: ManagedConfigStateKeyPath;
   readonly originalValue: ManagedConfigOriginalValue;
   readonly lastManagedValue: ManagedConfigSafeValue;
 }
@@ -262,6 +278,7 @@ function isSafeMetadataText(value: unknown): value is string {
 
 function isManagedEnum(value: unknown): value is ManagedEnum {
   return (
+    value === "gpt-6-astra" ||
     value === "gpt-5.6-terra" ||
     value === "gpt-5.6-sol" ||
     value === "gpt-5.6-luna" ||
@@ -306,7 +323,10 @@ function isManagedConfigSafeValue(value: unknown): value is ManagedConfigSafeVal
   }
 }
 
-function isSafeValueForKey(keyPath: ManagedConfigKeyPath, value: ManagedConfigSafeValue): boolean {
+function isSafeValueForKey(
+  keyPath: ManagedConfigStateKeyPath,
+  value: ManagedConfigSafeValue,
+): boolean {
   switch (configKeyKind(keyPath)) {
     case "boolean":
       return value.kind === "boolean";
@@ -318,6 +338,7 @@ function isSafeValueForKey(keyPath: ManagedConfigKeyPath, value: ManagedConfigSa
       if (value.kind !== "enum") return false;
       if (keyPath === "model") {
         return (
+          value.value === "gpt-6-astra" ||
           value.value === "gpt-5.6-terra" ||
           value.value === "gpt-5.6-sol" ||
           value.value === "gpt-5.6-luna"
@@ -360,7 +381,7 @@ function isManagedRuntimeConfigEntry(value: unknown): value is ManagedRuntimeCon
     typeof value["schema"] === "string" &&
     isSafeMetadataText(value["schema"]) &&
     isSafeMetadataText(value["installId"]) &&
-    isManagedConfigKeyPath(value["keyPath"]) &&
+    isManagedConfigStateKeyPath(value["keyPath"]) &&
     isManagedConfigOriginalValue(value["originalValue"]) &&
     isManagedConfigSafeValue(value["lastManagedValue"]) &&
     isSafeValueForKey(value["keyPath"], value["lastManagedValue"]) &&
@@ -382,7 +403,9 @@ export function isManagedRuntimeConfigState(value: unknown): value is ManagedRun
   }
   return Object.entries(value["managed"]).every(
     ([key, entry]) =>
-      isManagedConfigKeyPath(key) && isManagedRuntimeConfigEntry(entry) && entry.keyPath === key,
+      isManagedConfigStateKeyPath(key) &&
+      isManagedRuntimeConfigEntry(entry) &&
+      entry.keyPath === key,
   );
 }
 
@@ -445,7 +468,7 @@ export function resolveAgentConfigPath(declaringConfigPath: string, configFile: 
 }
 
 function configKeyKind(
-  keyPath: ManagedConfigKeyPath,
+  keyPath: ManagedConfigStateKeyPath,
 ): "enum" | "boolean" | "relative_path" | "digest" {
   if (keyPath === "developer_instructions") return "digest";
   if (keyPath.endsWith(".config_file")) return "relative_path";
@@ -470,10 +493,10 @@ function isExpectedValueForKey(keyPath: ManagedConfigKeyPath, value: TomlValue):
 
 /** Convert one live TOML value into the only representation allowed in state. */
 export async function summarizeManagedConfigValue(
-  keyPath: ManagedConfigKeyPath,
+  keyPath: ManagedConfigStateKeyPath,
   value: TomlValue,
 ): Promise<ManagedConfigSafeValue> {
-  if (!isManagedConfigKeyPath(keyPath) || !isTomlValue(value)) {
+  if (!isManagedConfigStateKeyPath(keyPath) || !isTomlValue(value)) {
     throw invalidData("managed config value", { keyPath });
   }
   const kind = configKeyKind(keyPath);
@@ -583,9 +606,9 @@ export async function mergeManagedRuntimeConfig(
 export interface ManagedRuntimeConfigCleanup {
   readonly document: TomlDocument;
   readonly state: ManagedRuntimeConfigState;
-  readonly restoredKeys: readonly ManagedConfigKeyPath[];
-  readonly preservedKeys: readonly ManagedConfigKeyPath[];
-  readonly unresolvedKeys: readonly ManagedConfigKeyPath[];
+  readonly restoredKeys: readonly ManagedConfigStateKeyPath[];
+  readonly preservedKeys: readonly ManagedConfigStateKeyPath[];
+  readonly unresolvedKeys: readonly ManagedConfigStateKeyPath[];
 }
 
 /** Restore only unchanged managed values; user drift and digest-only originals stay put. */
@@ -599,11 +622,11 @@ export async function cleanupManagedRuntimeConfig(
   }
   let output = cloneTomlTable(document);
   const remaining: Record<string, ManagedRuntimeConfigEntry> = { ...current.managed };
-  const restoredKeys: ManagedConfigKeyPath[] = [];
-  const preservedKeys: ManagedConfigKeyPath[] = [];
-  const unresolvedKeys: ManagedConfigKeyPath[] = [];
+  const restoredKeys: ManagedConfigStateKeyPath[] = [];
+  const preservedKeys: ManagedConfigStateKeyPath[] = [];
+  const unresolvedKeys: ManagedConfigStateKeyPath[] = [];
   for (const [rawKeyPath, entry] of Object.entries(current.managed)) {
-    if (!isManagedConfigKeyPath(rawKeyPath)) {
+    if (!isManagedConfigStateKeyPath(rawKeyPath)) {
       throw invalidData("managed config key", rawKeyPath);
     }
     const keyPath = rawKeyPath;
@@ -612,6 +635,9 @@ export async function cleanupManagedRuntimeConfig(
       entry.schema !== metadata.schema ||
       entry.installId !== metadata.installId
     ) {
+      if (entry.schema !== metadata.schema || entry.installId !== metadata.installId) {
+        unresolvedKeys.push(keyPath);
+      }
       continue;
     }
     const live = readTomlPath(output, keyPath);
@@ -646,6 +672,80 @@ export async function cleanupManagedRuntimeConfig(
     preservedKeys,
     unresolvedKeys,
   };
+}
+
+export interface ManagedRuntimeConfigLegacyMigration {
+  readonly document: TomlDocument;
+  readonly state: ManagedRuntimeConfigState;
+  readonly restoredKeys: readonly LegacyManagedConfigKeyPath[];
+  readonly preservedKeys: readonly LegacyManagedConfigKeyPath[];
+  readonly unresolvedKeys: readonly LegacyManagedConfigKeyPath[];
+}
+
+/**
+ * Relinquish HolyCodex ownership of removed configuration keys.
+ *
+ * A legacy value is restored only when the live value still matches the last value HolyCodex wrote.
+ * User edits remain untouched and their legacy state entry is dropped so future installs no longer
+ * claim that key.
+ */
+export async function migrateLegacyManagedRuntimeConfig(
+  document: TomlDocument,
+  current: ManagedRuntimeConfigState,
+  metadata: Readonly<{ readonly schema: string; readonly installId: string }>,
+): Promise<ManagedRuntimeConfigLegacyMigration> {
+  if (
+    !isTomlTable(document) ||
+    !isManagedRuntimeConfigState(current) ||
+    !isSafeMetadataText(metadata.schema) ||
+    !isSafeMetadataText(metadata.installId)
+  ) {
+    throw invalidData("managed runtime config", {});
+  }
+  let output = cloneTomlTable(document);
+  const remaining: Record<string, ManagedRuntimeConfigEntry> = { ...current.managed };
+  const restoredKeys: LegacyManagedConfigKeyPath[] = [];
+  const preservedKeys: LegacyManagedConfigKeyPath[] = [];
+  const unresolvedKeys: LegacyManagedConfigKeyPath[] = [];
+  for (const [rawKeyPath, entry] of Object.entries(current.managed)) {
+    if (!isLegacyManagedConfigKeyPath(rawKeyPath)) continue;
+    const keyPath = rawKeyPath;
+    if (entry.schema !== metadata.schema || entry.installId !== metadata.installId) {
+      preservedKeys.push(keyPath);
+      unresolvedKeys.push(keyPath);
+      continue;
+    }
+    const live = readTomlPath(output, keyPath);
+    const unchanged =
+      live !== undefined &&
+      JSON.stringify(await summarizeManagedConfigValue(keyPath, live)) ===
+        JSON.stringify(entry.lastManagedValue);
+    if (!unchanged) {
+      preservedKeys.push(keyPath);
+      delete remaining[keyPath];
+      continue;
+    }
+    if (entry.originalValue.kind === "absent") {
+      output = deleteTomlPath(output, keyPath);
+      restoredKeys.push(keyPath);
+      delete remaining[keyPath];
+      continue;
+    }
+    const original = safeValueToToml(entry.originalValue);
+    if (original === undefined) {
+      unresolvedKeys.push(keyPath);
+      preservedKeys.push(keyPath);
+      continue;
+    }
+    output = writeTomlPath(output, keyPath, original);
+    restoredKeys.push(keyPath);
+    delete remaining[keyPath];
+  }
+  const state = { ...current, managed: remaining };
+  if (!isManagedRuntimeConfigState(state)) {
+    throw invalidData("managed runtime config state", {});
+  }
+  return { document: output, state, restoredKeys, preservedKeys, unresolvedKeys };
 }
 
 export interface ManagedConfigDrift {

@@ -18,21 +18,21 @@ import {
 } from "./index.ts";
 
 describe("public install wizard contract", () => {
-  test("classifies removed plan spellings without treating them as live plans", () => {
+  test("classifies removed plan flags and spellings without treating them as live profiles", () => {
     expect(() => parseArgv(["install", "--plan", "Go"])).toThrow(
-      "Legacy plan Go was removed; use --plan go.",
+      "The --plan option was removed; use --profile",
     );
     expect(() => parseArgv(["install", "--plan", "plus"])).toThrow(
-      "Legacy plan plus was removed; use --plan default.",
+      "The --plan option was removed; use --profile",
     );
     expect(() => parseArgv(["install", "--plan", "pro-5x"])).toThrow(
-      "requires an explicit replacement",
+      "The --plan option was removed; use --profile",
     );
   });
 
   test("renders one final review containing exactly the semantic install choices", () => {
     const review = renderInstallWizardReview({
-      plan: "default",
+      profile: "default",
       tier: "fast-all",
       optional: {
         work: true,
@@ -44,7 +44,7 @@ describe("public install wizard contract", () => {
     });
 
     expect(review).toContain("Review configuration");
-    expect(review).toContain("Plan: default");
+    expect(review).toContain("Profile: default");
     expect(review).toContain("Service tier: fast-all");
     expect(review).toContain("Work: enabled");
     expect(review).toContain("Frontend: disabled");
@@ -59,13 +59,13 @@ describe("public install wizard contract", () => {
 
   test("uses the same Effect-validated request shape as flags", () => {
     const initial: InstallRequest = {
-      plan: "high",
+      profile: "high",
       tier: "standard",
       optional: { work: true, frontend: true, security: false, computer_use: false },
       officialPlugins: ["one@marketplace", "one@marketplace"],
     };
     const options = toInstallOptions({
-      plan: initial.plan!,
+      profile: initial.profile!,
       tier: initial.tier!,
       optional: {
         work: initial.optional?.work ?? false,
@@ -77,7 +77,7 @@ describe("public install wizard contract", () => {
       pluginInput: initial.officialPlugins!.join(", "),
     });
     expect(options).toEqual({
-      plan: "high",
+      profile: "high",
       tier: "standard",
       optional: { work: true, frontend: true, security: false, computer_use: false },
       officialPlugins: ["one@marketplace", "one@marketplace"],
@@ -94,6 +94,17 @@ describe("generated Root orchestration policy", () => {
     expect(withoutComputerUse).toContain("delegate GUI, browser, and Computer Use execution");
     expect(withoutComputerUse).toContain("before plan approval");
     expect(withoutComputerUse).toContain("remote/origin/server VCS mutation");
+    expect(withoutComputerUse).toContain("Bias toward action");
+    expect(withoutComputerUse).toContain(
+      "finish all authorized read-only, reversible, preparatory, and independent work",
+    );
+    expect(withoutComputerUse).toContain("installation profile approval");
+    expect(withoutComputerUse).toContain(
+      "Dispatch independent, non-overlapping Assignments concurrently",
+    );
+    expect(withoutComputerUse).toContain("reload only when it no longer does");
+    expect(withoutComputerUse).toContain("model_verbosity = low");
+    expect(withoutComputerUse).toContain("no actionable finding remains within scope");
     expect(withoutComputerUse).toContain("Reviewer.code fixed-point review is mandatory");
     expect(withoutComputerUse).toContain("exact ref/SHA");
     expect(withoutComputerUse).not.toContain("Computer Use execution is Root-only");
@@ -148,7 +159,7 @@ describe("interactive command boundary", () => {
     };
     let initial: InstallRequest | undefined;
     try {
-      const result = await runCli(["install", "--plan", "low", "--work", "--no-security"], {
+      const result = await runCli(["install", "--profile", "low", "--work", "--no-security"], {
         io: {
           stdoutIsTTY: true,
           stderrIsTTY: true,
@@ -158,7 +169,7 @@ describe("interactive command boundary", () => {
               action: "install",
               request: {
                 ...request,
-                plan: "low",
+                profile: "low",
                 tier: "fast",
                 optional: {
                   work: true,
@@ -175,13 +186,13 @@ describe("interactive command boundary", () => {
         installer: { paths: { codexHome: join(root, "codex") }, officialPluginManager: manager },
       });
       expect(initial).toEqual({
-        plan: "low",
+        profile: "low",
         optional: { work: true, security: false },
       });
       expect(result.exitCode).toBe(0);
       expect(result.envelope).toMatchObject({ ok: true, command: "install" });
       if (result.envelope.ok) {
-        expect(result.envelope.data).toMatchObject({ record: { plan: "low", tier: "fast" } });
+        expect(result.envelope.data).toMatchObject({ record: { profile: "low", tier: "fast" } });
       }
     } finally {
       await rm(root, { recursive: true, force: true });

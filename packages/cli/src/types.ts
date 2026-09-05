@@ -3,7 +3,7 @@
 import type { ManagedRuntimeConfigState } from "@holycodex/codex";
 import type { LiveOfficialPluginListEnvelope } from "@holycodex/codex";
 import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
-import type { CliEnvelope, JsonObject, PlanName, ServiceTier } from "@holycodex/core";
+import type { CliEnvelope, JsonObject, ProfileName, ServiceTier } from "@holycodex/core";
 
 import type { InstallRequest } from "./installer.ts";
 
@@ -60,7 +60,7 @@ export interface InstallRecord {
   readonly install_id: string;
   readonly version: string;
   readonly digest: string;
-  readonly plan: PlanName;
+  readonly profile: ProfileName;
   readonly tier: ServiceTier;
   readonly optional_selections: OptionalSelections;
   readonly explicit_optional_selections: ExplicitOptionalSelections;

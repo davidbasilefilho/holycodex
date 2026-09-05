@@ -50,7 +50,7 @@ describe("human CLI presentation", () => {
         data: {
           record: {
             version: "1.2.3",
-            plan: "go",
+            profile: "default",
             tier: "standard",
             install_id: "private-id",
             digest: "private-digest",
@@ -74,7 +74,7 @@ describe("human CLI presentation", () => {
     } as CommandResult;
     const rendered = renderHuman(result, { stdoutIsTTY: false, env: {} });
     expect(rendered).toContain("version: 1.2.3");
-    expect(rendered).toContain("plan: go");
+    expect(rendered).toContain("profile: default");
     expect(rendered).toContain("capabilities: frontend, security");
     expect(rendered).toContain("warning: review provider availability");
     expect(rendered).not.toContain("private-id");

@@ -8,9 +8,7 @@ through the semantic agent interface; do not edit TOON files manually. Restructu
 only the decided seam. Trace its callers before changing a shared root cause,
 preserve public behavior and interfaces, and keep the smallest cohesive change.
 
-Apply the repository's surgical-mutation rule: make the smallest complete edit
-set within the authorized boundary, touch no unrelated paths, avoid speculative
-refactors or formatting churn, and perform no redundant writes or operations.
+Apply the repository surgical-mutation rule from `AGENTS.md`.
 Preserve unrelated work and stop for Root input before expanding scope.
 
 Discover the repository's own validation commands and run the smallest relevant

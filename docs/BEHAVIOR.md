@@ -61,12 +61,13 @@ release gates, one pipeline, or no formal separation; do not assume GitHub or
 a branch topology. With one or no distinct release gate, record that topology
 and use only the repository's available terminal evidence.
 
-Root uses `request_user_input` before seeking plan approval, before any
-remote/origin/server VCS mutation, and whenever ambiguity or missing material
-input blocks safe progress; persist the resulting `needs_root_input` state on
-the Intent or Plan. A passing `Reviewer.code` fixed-point review is mandatory
-after implementation or a major codebase change and before completion or any
-VCS operation.
+Root uses `request_user_input` before seeking workflow Plan approval, before
+installation profile approval, before any remote/origin/server VCS mutation or
+public publication/release, and whenever ambiguity or missing material input
+blocks safe progress; persist the resulting `needs_root_input` state on the
+Intent or Plan. A passing `Reviewer.code` fixed-point review is mandatory after
+implementation or a major codebase change and before completion or any VCS
+operation.
 
 The surgical-mutation rule in `AGENTS.md` is the single instruction-level
 source for Root and write-capable specialist mutations: make the smallest
@@ -74,23 +75,43 @@ complete edit set within the authorized boundary, preserve unrelated work, and
 stop for Root input before expanding scope. Generated role profiles and task
 skills project that rule; they must not create a weaker or competing variant.
 
-## Plans and tiers
+## Profiles and tiers
 
-The plan catalog controls routing only. `go` keeps Terra/high for Root and uses
-the low Luna leaf route matrix; `low`, `default`, and `high` select the
-corresponding specialist route effort. A plan never grants authority, changes
-scope, or supplies a completion decision.
+The product profile catalog controls routing only. The live profiles are
+`low`, `default`, and `high`; `default` is recommended. Every profile keeps
+the native multi-agent surface and routes the Root/session agent to the exact
+model `gpt-6-astra` at the profile's low, medium, or high reasoning effort.
+Every specialist uses the exact model `gpt-5.6-luna` with this route matrix:
 
-The valid plan names are `go`, `low`, `default`, and `high`; `default` is the
-recommended plan. Persisted `plus-low`, `plus`, and `plus-high` values migrate
-to `low`, `default`, and `high`. Removed `pro-5x` and `pro-20x` values are
-classified and require an explicit replacement; they are not live plans.
+| Route                 | `low`         | `default`      | `high`        |
+| --------------------- | ------------- | -------------- | ------------- |
+| Root/session agent    | Astra / low   | Astra / medium | Astra / high  |
+| Explorer.lookup       | Luna / medium | Luna / medium  | Luna / medium |
+| Explorer.trace        | Luna / high   | Luna / xhigh   | Luna / max    |
+| Librarian.lookup      | Luna / medium | Luna / medium  | Luna / medium |
+| Librarian.research    | Luna / high   | Luna / xhigh   | Luna / max    |
+| Worker.mechanical     | Luna / high   | Luna / high    | Luna / xhigh  |
+| Worker.implementation | Luna / high   | Luna / xhigh   | Luna / max    |
+| Worker.integration    | Luna / max    | Luna / max     | Luna / max    |
+| Worker.operations     | Luna / high   | Luna / high    | Luna / xhigh  |
+| Reviewer.plan         | Luna / high   | Luna / xhigh   | Luna / max    |
+| Reviewer.code         | Luna / max    | Luna / max     | Luna / max    |
+| Reviewer.artifact     | Luna / high   | Luna / xhigh   | Luna / max    |
+
+The root/session route has no Astra `xhigh` or `max` effort. Sol and Terra are
+not live routing targets. Historical Sol/Terra values and the removed Go
+product value may appear only in narrowly scoped migration, rollback, or
+cleanup handling for previously managed state. Legacy serialized `plan`
+fields migrate losslessly to `profile`; `plus-low`, `plus`, and `plus-high`
+migrate to `low`, `default`, and `high`. Legacy `go` and removed `pro-5x` or
+`pro-20x` values are rejected with an explicit replacement requirement and are
+never silently mapped to another profile.
 
 The service tier is selected independently. It changes service handling only;
-it does not change the plan, route, authority, trust boundary, or required
-proof. The valid tier names are `standard`, `fast`, and `fast-all`. A missing required capability or
-contradictory material evidence returns a structured denial to Root and is
-never treated as success.
+it does not change the profile, route, authority, trust boundary, or required
+proof. The valid tier names are `standard`, `fast`, and `fast-all`. A missing
+required capability or contradictory material evidence returns a structured
+denial to Root and is never treated as success.
 
 ## Native capabilities
 
@@ -124,7 +145,7 @@ projection of current state.
 ## Installation state
 
 `install` preflights the selected capabilities, required providers, and runtime
-compatibility before mutation. It then applies the selected plan, tier, and
+compatibility before mutation. It then applies the selected profile, tier, and
 optional plugins through Codex native plugin management, records progress in a
 recoverable transaction, verifies the resulting state, and atomically records
 the HolyCodex-owned configuration. An unrelated or unavailable provider is not
@@ -145,10 +166,16 @@ permission, an unavailable required capability, failed verification, or
 uncertain external state produces a structured failure and does not claim
 success.
 
+HolyCodex does not manage `features.context_management.experimental_mode`.
+Codex/Astra owns conversation context behavior. Upgrade and cleanup relinquish
+only an unchanged value previously owned by HolyCodex; user edits and
+unrelated context configuration are preserved. Repo-local Intent, workflow
+Plan, and Assignment state remain independent of context management.
+
 ## Acceptance and provenance
 
 An implementation is behaviorally complete when Root authority, native role
-types, route-only plans, independent tiers, optional capability denial,
+types, route-only profiles, independent tiers, optional capability denial,
 installation ownership, secret exclusions, and fail-closed results are
 observable and unambiguous. Each claim must have one owner and trace to the
 evidence limits in [PROVENANCE.md](PROVENANCE.md).

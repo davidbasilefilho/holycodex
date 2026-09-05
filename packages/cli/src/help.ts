@@ -24,12 +24,11 @@ const INSTALL_HELP = `Install HolyCodex through Codex native plugin management.
 Usage:
   holycodex install [options]
 
-Plans control routing only:
-  go      Root gpt-5.6-terra/high; leaves use low Luna route efforts.
-  low     Root gpt-5.6-sol/low; leaves use low Luna route efforts.
-  default Root gpt-5.6-sol/medium; recommended default routing.
-  high    Root gpt-5.6-sol/high; higher specialist route efforts.
-  Default plan: default.
+Profiles control routing only:
+  low     Root gpt-6-astra/low; specialists use the low Luna matrix.
+  default Root gpt-6-astra/medium; recommended default routing.
+  high    Root gpt-6-astra/high; specialists use the high Luna matrix.
+  Default profile: default.
 
 Tier is independent service handling (CLI values are lowercase only):
   standard  Standard service handling (default).
@@ -94,7 +93,7 @@ export function renderHelp(topic?: string, options: HumanRenderOptions = {}): st
     .map((line) => {
       if (line === "HolyCodex") return paint(line, "heading", color);
       if (
-        /^(?:Usage|Options|Plans control routing only|Tier is independent service handling|Capability defaults).*:$/u.test(
+        /^(?:Usage|Options|Profiles control routing only|Tier is independent service handling|Capability defaults).*:$/u.test(
           line,
         )
       ) {

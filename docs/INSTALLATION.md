@@ -26,15 +26,18 @@ Configure routing, service handling, and optional plugins explicitly:
 
 ```sh
 bunx holycodex install --yes \
-  --plan default --tier standard \
+  --profile default --tier standard \
   --work --frontend --security --computer-use
 ```
 
-The live plans are `go`, `low`, `default`, and `high`; `default` is the
-recommended routing. Persisted `plus-low`, `plus`, and `plus-high` values
-migrate to `low`, `default`, and `high`. Removed `pro-5x` and `pro-20x` values
-are classified as legacy and require an explicit replacement. The plan
-controls native subagent routing only. The tier is independent.
+The live profiles are `low`, `default`, and `high`; `default` is the
+recommended routing. New input uses `--profile`; the former routing flag is
+not part of the current user surface. Existing serialized `plan` fields
+migrate losslessly to `profile`. Persisted `plus-low`, `plus`, and `plus-high` values
+migrate to `low`, `default`, and `high`. Legacy `go`, `pro-5x`, and `pro-20x`
+values are recognized as removed and require an explicit replacement; they are
+never silently reinterpreted. The profile controls native subagent routing
+only. The tier is independent.
 Optional plugins are Work, frontend tooling, Security, and Computer Use. The
 CLI preflights the selected capabilities and runtime compatibility, invokes
 only the required native Codex marketplaces/providers, verifies readback, and
@@ -53,6 +56,12 @@ enabled, and Root receives the conditional directive that interactive GUI,
 browser, and Computer Use execution is Root-only. Without that option, the
 directive is absent and leaves retain the native capability restriction.
 
+The live root/session model is `gpt-6-astra` at low, medium, or high
+reasoning for the selected profile. Specialists use `gpt-5.6-luna` with the
+task effort matrix in [BEHAVIOR.md](BEHAVIOR.md). HolyCodex does not manage
+`features.context_management.experimental_mode`; Codex/Astra owns that setting
+and migration preserves user edits.
+
 Official OpenAI plugin identities may be observed as either
 `openai-curated` or the recognized `openai-curated-remote` marketplace. The
 allowlist covers build-web-apps and codex-security; arbitrary same-name
@@ -61,7 +70,7 @@ third-party providers remain untrusted.
 Interactive install resolves Codex home internally and does not ask for a
 `CODEX_HOME` path. Use `--codex-home <absolute-path>` only for explicit
 non-interactive isolation, diagnostics, or recovery. The CLI keeps
-the selected plan, tier, optional plugin state, version, and configuration
+the selected profile, tier, optional plugin state, version, and configuration
 digest; Codex remains the owner of plugin files and marketplace state.
 
 ## Remove

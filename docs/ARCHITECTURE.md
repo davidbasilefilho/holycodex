@@ -18,7 +18,9 @@ packages/agent ── core
 ```
 
 `core` owns immutable domain values, Effect Schema boundary schemas, errors,
-plan names, route policy, capability metadata, and identity encodings.
+product profile names, route policy, capability metadata, and identity
+encodings. The `agent` package owns workflow Plan state separately; that Plan
+is not the installation routing Profile.
 `codex` owns the typed boundary to Codex native plugin management and native
 subagent operations. `plugin` owns independently authored installed assets and
 their manifests. `cli` composes installation, removal, configuration, version,
@@ -33,13 +35,13 @@ legacy state, not a second supported model.
 
 ## Ownership and interfaces
 
-| Concern                                 | Owner          | Stable interface                       |
-| --------------------------------------- | -------------- | -------------------------------------- |
-| Domain, plans, routes, and identities   | `core`         | Effect Schema values and typed records |
-| Codex installation and native subagents | `codex`        | validated native Codex ports           |
-| Installed agent assets                  | `plugin`       | generated immutable payload            |
-| Commands and installation configuration | `cli`          | public human CLI and envelopes         |
-| Intent, Plan, and Assignment state      | `agent`/`core` | semantic agent CLI / domain + store    |
+| Concern                                  | Owner          | Stable interface                       |
+| ---------------------------------------- | -------------- | -------------------------------------- |
+| Domain, profiles, routes, and identities | `core`         | Effect Schema values and typed records |
+| Codex installation and native subagents  | `codex`        | validated native Codex ports           |
+| Installed agent assets                   | `plugin`       | generated immutable payload            |
+| Commands and installation configuration  | `cli`          | public human CLI and envelopes         |
+| Intent, Plan, and Assignment state       | `agent`/`core` | semantic agent CLI / domain + store    |
 
 Only the owning package decides its concern. Callers consume explicit exports;
 cross-package filesystem imports and cycles are invalid. Every external,
@@ -56,7 +58,7 @@ Effect Schema validation → Root policy and scope decision
    │                         │
    │                         └─ denied → structured failure, no effect
    ▼
-validated plan, tier, optional selections, and repo-local Intent
+validated profile, tier, optional selections, and repo-local Intent
    │
    ▼
 Codex native plugin management → native subagent assets and readback
@@ -69,7 +71,7 @@ Root integrates, performs VCS, delegates exact-ref terminal CI/release checks
 → validated CLI/state response
 ```
 
-Plans select native routing only. Service tiers are independent settings and
+Profiles select native routing only. Service tiers are independent settings and
 must not rewrite route policy or authority. Optional Work, frontend,
 Security, and Computer Use selections are explicit and independently denied
 when unavailable. Native subagents receive bounded Assignments; Root retains
@@ -79,7 +81,7 @@ direct Root execution exceptions are Git/VCS and Computer Use when selected at
 installation. The typed orchestration policy in `core` is machine-testable.
 After implementation or a major codebase change, `Reviewer.code` must reach a
 fixed point before completion or any VCS operation. Root requests user input
-before plan approval, remote/origin/server VCS mutations, or when material
+before workflow Plan approval, remote/origin/server VCS mutations, or when material
 ambiguity blocks safe progress.
 
 Repo-local work state is separate from Codex-home installation state. The
@@ -102,6 +104,14 @@ the declared HolyCodex-owned configuration and the Codex native plugin state
 required by that installation. Removal verifies ownership before deleting the
 same scope. Neither command rewrites unrelated Codex settings or installs an
 unrequested capability.
+
+The live root/session route is `gpt-6-astra` with low, medium, or high
+reasoning for the `low`, `default`, and `high` product profiles. Every
+specialist route uses `gpt-5.6-luna` with the task-specific effort matrix in
+the behavioral contract. Sol, Terra, and Go remain only in migration/cleanup
+paths for previously managed state. HolyCodex does not own
+`features.context_management.experimental_mode`; Codex/Astra owns context
+management while repo-local Intent/Plan/Assignment state remains independent.
 
 ## Repository shape and checks
 

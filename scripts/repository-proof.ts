@@ -60,6 +60,10 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
   const lockfile = await readText("bun.lock");
   const packageBuild = await readText("scripts/package-build.ts");
   const notices = await readText("THIRD-PARTY-NOTICES.md");
+  const cliContract = await readText("docs/CLI.md");
+  const behaviorContract = await readText("docs/BEHAVIOR.md");
+  const configurationContract = await readText("docs/CONFIGURATION.md");
+  const installationContract = await readText("docs/INSTALLATION.md");
   const workflowFiles = await listFiles(".github/workflows");
 
   assert(rootManifest.packageManager === "bun@1.4.1", "root packageManager must resolve Bun 1.4.1");
@@ -92,6 +96,27 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
   assert(
     !/\n\s+"vite-plus": \[/u.test(lockfile),
     "the lockfile must not retain Vite+ as a package",
+  );
+  assert(cliContract.includes("--profile <name>"), "the public CLI must expose --profile");
+  assert(!cliContract.includes("--plan <name>"), "the public CLI must not expose --plan");
+  assert(
+    /The live profiles are\s+`low`, `default`, and `high`/u.test(behaviorContract),
+    "behavior must define only the live low/default/high profiles",
+  );
+  assert(
+    behaviorContract.includes("gpt-6-astra") && behaviorContract.includes("gpt-5.6-luna"),
+    "behavior must record the canonical Astra/Luna routes",
+  );
+  assert(
+    configurationContract.includes(
+      "does not manage `features.context_management.experimental_mode`",
+    ),
+    "configuration must leave context management to Codex/Astra",
+  );
+  assert(
+    installationContract.includes("Existing serialized `plan` fields") &&
+      installationContract.includes("Legacy `go`"),
+    "installation docs must define deterministic legacy profile migration",
   );
 
   const manifests = await Promise.all(packageManifestPaths.map((path) => readManifest(path)));
