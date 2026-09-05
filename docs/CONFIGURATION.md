@@ -38,10 +38,10 @@ enforce hard capability boundaries where Codex supports them; prose does not
 stand in for a missing native control.
 
 HolyCodex does not manage `features.context_management.experimental_mode`.
-Codex/Astra owns that behavior. Upgrade and removal relinquish only the last
-HolyCodex-managed value when it is unchanged; user edits and unrelated context
-configuration are preserved. Intent, Plan, and Assignment persistence remains
-independent repo-local work state.
+Codex/Astra owns that behavior. Upgrade and removal relinquish the obsolete
+HolyCodex ownership record while preserving the existing value exactly,
+including an unchanged value previously written by HolyCodex. Intent, Plan,
+and Assignment persistence remains independent repo-local work state.
 
 Root MUST delegate every task, including trivial work, through a bounded
 Assignment. Direct Root execution is limited to Git/VCS and Computer Use when

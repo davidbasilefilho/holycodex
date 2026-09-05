@@ -611,7 +611,7 @@ export interface ManagedRuntimeConfigCleanup {
   readonly unresolvedKeys: readonly ManagedConfigStateKeyPath[];
 }
 
-/** Restore only unchanged managed values; user drift and digest-only originals stay put. */
+/** Restore only unchanged managed values; relinquished legacy keys stay untouched. */
 export async function cleanupManagedRuntimeConfig(
   document: TomlDocument,
   current: ManagedRuntimeConfigState,
@@ -630,6 +630,19 @@ export async function cleanupManagedRuntimeConfig(
       throw invalidData("managed config key", rawKeyPath);
     }
     const keyPath = rawKeyPath;
+    // Context management is owned by Codex/Astra now.  Keep the value exactly
+    // as observed, even when it still matches HolyCodex's last write, and
+    // relinquish only the local ownership record.
+    if (isLegacyManagedConfigKeyPath(keyPath)) {
+      if (entry.schema !== metadata.schema || entry.installId !== metadata.installId) {
+        preservedKeys.push(keyPath);
+        unresolvedKeys.push(keyPath);
+        continue;
+      }
+      preservedKeys.push(keyPath);
+      delete remaining[keyPath];
+      continue;
+    }
     if (
       entry.owner !== "holycodex" ||
       entry.schema !== metadata.schema ||
@@ -685,9 +698,9 @@ export interface ManagedRuntimeConfigLegacyMigration {
 /**
  * Relinquish HolyCodex ownership of removed configuration keys.
  *
- * A legacy value is restored only when the live value still matches the last value HolyCodex wrote.
- * User edits remain untouched and their legacy state entry is dropped so future installs no longer
- * claim that key.
+ * Legacy values are preserved exactly while HolyCodex drops its ownership record. This deliberately
+ * does not restore, remove, or replace the value: Codex/Astra owns the setting and may have changed
+ * it independently.
  */
 export async function migrateLegacyManagedRuntimeConfig(
   document: TomlDocument,
@@ -702,7 +715,7 @@ export async function migrateLegacyManagedRuntimeConfig(
   ) {
     throw invalidData("managed runtime config", {});
   }
-  let output = cloneTomlTable(document);
+  const output = cloneTomlTable(document);
   const remaining: Record<string, ManagedRuntimeConfigEntry> = { ...current.managed };
   const restoredKeys: LegacyManagedConfigKeyPath[] = [];
   const preservedKeys: LegacyManagedConfigKeyPath[] = [];
@@ -715,30 +728,7 @@ export async function migrateLegacyManagedRuntimeConfig(
       unresolvedKeys.push(keyPath);
       continue;
     }
-    const live = readTomlPath(output, keyPath);
-    const unchanged =
-      live !== undefined &&
-      JSON.stringify(await summarizeManagedConfigValue(keyPath, live)) ===
-        JSON.stringify(entry.lastManagedValue);
-    if (!unchanged) {
-      preservedKeys.push(keyPath);
-      delete remaining[keyPath];
-      continue;
-    }
-    if (entry.originalValue.kind === "absent") {
-      output = deleteTomlPath(output, keyPath);
-      restoredKeys.push(keyPath);
-      delete remaining[keyPath];
-      continue;
-    }
-    const original = safeValueToToml(entry.originalValue);
-    if (original === undefined) {
-      unresolvedKeys.push(keyPath);
-      preservedKeys.push(keyPath);
-      continue;
-    }
-    output = writeTomlPath(output, keyPath, original);
-    restoredKeys.push(keyPath);
+    preservedKeys.push(keyPath);
     delete remaining[keyPath];
   }
   const state = { ...current, managed: remaining };

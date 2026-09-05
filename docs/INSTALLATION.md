@@ -60,7 +60,8 @@ The live root/session model is `gpt-6-astra` at low, medium, or high
 reasoning for the selected profile. Specialists use `gpt-5.6-luna` with the
 task effort matrix in [BEHAVIOR.md](BEHAVIOR.md). HolyCodex does not manage
 `features.context_management.experimental_mode`; Codex/Astra owns that setting
-and migration preserves user edits.
+and upgrade/removal relinquish HolyCodex's recorded ownership while preserving
+the existing value exactly, including values last written by HolyCodex.
 
 Official OpenAI plugin identities may be observed as either
 `openai-curated` or the recognized `openai-curated-remote` marketplace. The
@@ -84,9 +85,11 @@ bunx holycodex remove --yes
 Removal verifies ownership before deleting the managed configuration and the
 corresponding native HolyCodex plugin state. It also removes HolyCodex-owned
 role registrations and restores managed configuration values where the
-installation recorded a prior state. It never removes unrelated Codex plugins
-or settings. An uncertain native result is reported and is not blindly
-repeated.
+installation recorded a prior state. The legacy
+`features.context_management.experimental_mode` value is preserved exactly
+while its obsolete ownership record is relinquished. It never removes
+unrelated Codex plugins or settings. An uncertain native result is reported
+and is not blindly repeated.
 
 ## Doctor
 

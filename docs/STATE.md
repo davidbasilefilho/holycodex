@@ -87,6 +87,8 @@ is copied to `profile` without changing its meaning. `plus-low`, `plus`, and
 `plus-high` migrate to `low`, `default`, and `high`; legacy `go` and removed
 Pro values are recognized explicitly and require an operator-selected
 replacement. No historical value is silently mapped to `low`. HolyCodex also
-relinquishes ownership of `features.context_management.experimental_mode` only
-when the recorded value is unchanged, preserving user edits and unrelated
-Codex context configuration.
+relinquishes its obsolete ownership record for
+`features.context_management.experimental_mode` while preserving the existing
+value exactly. This includes unchanged values previously written by HolyCodex;
+future installs stop claiming the setting without restoring, removing, or
+replacing it.

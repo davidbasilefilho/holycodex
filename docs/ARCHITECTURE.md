@@ -111,7 +111,10 @@ specialist route uses `gpt-5.6-luna` with the task-specific effort matrix in
 the behavioral contract. Sol, Terra, and Go remain only in migration/cleanup
 paths for previously managed state. HolyCodex does not own
 `features.context_management.experimental_mode`; Codex/Astra owns context
-management while repo-local Intent/Plan/Assignment state remains independent.
+management. Migration and removal relinquish the obsolete HolyCodex ownership
+record while preserving the existing value exactly, including an unchanged
+value previously written by HolyCodex. Repo-local Intent/Plan/Assignment state
+remains independent.
 
 ## Repository shape and checks
 

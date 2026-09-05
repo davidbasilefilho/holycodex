@@ -168,9 +168,10 @@ success.
 
 HolyCodex does not manage `features.context_management.experimental_mode`.
 Codex/Astra owns conversation context behavior. Upgrade and cleanup relinquish
-only an unchanged value previously owned by HolyCodex; user edits and
-unrelated context configuration are preserved. Repo-local Intent, workflow
-Plan, and Assignment state remain independent of context management.
+the obsolete HolyCodex ownership record while preserving the existing value
+exactly, including an unchanged value previously written by HolyCodex. Repo-
+local Intent, workflow Plan, and Assignment state remain independent of context
+management.
 
 ## Acceptance and provenance
 
