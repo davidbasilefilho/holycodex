@@ -40,6 +40,7 @@ const LockOwnerSchema = Schema.Struct({
 });
 type LockOwner = typeof LockOwnerSchema.Type;
 const LOCK_STALE_MS = 120_000;
+const WINDOWS_PID_MAX = 0xffff_ffff;
 
 /** Canonical non-Root specialist owner for a bounded Assignment. */
 export const AssignmentOwnerSchema = Schema.Struct({
@@ -1571,6 +1572,10 @@ async function isProcessAlive(pid: number): Promise<boolean> {
 }
 
 async function isWindowsProcessAlive(pid: number): Promise<boolean> {
+  // Windows process identifiers are DWORDs. Values outside that domain make
+  // tasklist reject the filter; they cannot identify a live owner and should
+  // be reclaimable instead of being mistaken for an unavailable probe.
+  if (!Number.isSafeInteger(pid) || pid > WINDOWS_PID_MAX) return false;
   try {
     const { stdout } = await execFileAsync(
       "tasklist.exe",
