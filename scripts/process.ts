@@ -16,6 +16,9 @@ const CommandResultSchema = Schema.Struct({
 
 export type CommandResult = typeof CommandResultSchema.Type;
 
+/** Controls whether a failed subprocess exposes bounded or complete redacted diagnostics. */
+export type FailureDiagnosticMode = "compact" | "full";
+
 const DEFAULT_OUTPUT_LIMIT = 256 * 1024;
 const DIAGNOSTIC_LIMIT = 4096;
 const DIAGNOSTIC_ELLIPSIS = "\n...[diagnostic truncated]...\n";
@@ -151,6 +154,7 @@ export async function runChecked(
     readonly cwd?: string;
     readonly env?: Readonly<Record<string, string | undefined>>;
     readonly maxOutputBytes?: number;
+    readonly failureDiagnostics?: FailureDiagnosticMode;
   }> = {},
 ): Promise<CommandResult> {
   const environment =
@@ -159,6 +163,12 @@ export async function runChecked(
       : definedEnvironment(options.env);
   const result = await runCommand(command, { ...options, env: environment });
   if (result.exitCode !== 0) {
+    if (options.failureDiagnostics === "full") {
+      const diagnostic = redactUnboundedDiagnostics(formatCommandOutput(result), environment);
+      if (diagnostic.length > 0) {
+        console.error(`[holycodex] full subprocess diagnostics:\n${diagnostic}`);
+      }
+    }
     throw new Error(
       `${redactDiagnostics(command.join(" "), environment)} failed with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
     );
@@ -210,6 +220,13 @@ export function redactDiagnostics(
   value: string,
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
+  return boundDiagnostic(redactUnboundedDiagnostics(value, environment));
+}
+
+function redactUnboundedDiagnostics(
+  value: string,
+  environment: Readonly<Record<string, string | undefined>>,
+): string {
   let redacted = value;
   const sensitiveValues = Object.entries(environment)
     .filter(
@@ -232,7 +249,13 @@ export function redactDiagnostics(
       "$1[REDACTED]",
     )
     .replaceAll(/\b(?:gh[pousr]_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+)\b/gu, "[REDACTED]");
-  return boundDiagnostic(redacted);
+  return redacted;
+}
+
+function formatCommandOutput(result: CommandResult): string {
+  if (result.stdout.length === 0) return result.stderr;
+  if (result.stderr.length === 0) return result.stdout;
+  return `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`;
 }
 
 /** Keeps both the command failure header and terminal diagnostics observable within the bound. */

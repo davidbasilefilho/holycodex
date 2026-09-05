@@ -5,7 +5,6 @@ import { rm, rmdir } from "node:fs/promises";
 import {
   cleanupManagedRuntimeConfig,
   compareManagedConfigKey,
-  migrateLegacyManagedRuntimeConfig,
   readTomlPath,
   resolveAgentConfigPath,
   resolveOfficialPluginEntry,
@@ -223,21 +222,6 @@ export async function removeHolyCodex(
   const configBefore = await optionalTextFile(paths.configFile);
   let configBeforeDocument = parseConfig(configBefore);
   let recoveryManagedConfig = recovery?.managed_config;
-  if (recoveryManagedConfig) {
-    const migrated = await migrateLegacyManagedRuntimeConfig(
-      configBeforeDocument,
-      recoveryManagedConfig,
-      { schema: recoveryManagedConfig.schema, installId: recoveryManagedConfig.installId },
-    );
-    if (migrated.unresolvedKeys.length > 0) {
-      preserved.push(paths.configFile);
-      reasons.push("managed_config_changed");
-      await writeConflictState(paths, recovery ?? emptyRemovalState());
-      return { removed, preserved, reasons };
-    }
-    configBeforeDocument = migrated.document;
-    recoveryManagedConfig = migrated.state;
-  }
   if (recoveryManagedConfig) {
     const cleanup = await cleanupManagedRuntimeConfig(configBeforeDocument, recoveryManagedConfig, {
       schema: recoveryManagedConfig.schema,

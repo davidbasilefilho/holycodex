@@ -234,7 +234,17 @@ describe("IntentStore", () => {
       "partial",
       "utf8",
     );
-    expect(await store.recover()).toContain(`${directory}/.holycodex-write-crash.tmp`);
+    await writeFile(
+      join(root, ".holycodex", directory, "assignments", ".holycodex-write-nested.tmp"),
+      "partial",
+      "utf8",
+    );
+    expect(await store.recover()).toEqual(
+      expect.arrayContaining([
+        `${directory}/.holycodex-write-crash.tmp`,
+        `${directory}/assignments/.holycodex-write-nested.tmp`,
+      ]),
+    );
     const results = await Promise.allSettled([
       store.transitionIntent(intent.id, "ready", intent.revision),
       store.transitionIntent(intent.id, "ready", intent.revision),

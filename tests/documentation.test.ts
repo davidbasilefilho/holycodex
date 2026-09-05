@@ -70,9 +70,7 @@ describe("documentation invariants", () => {
     expect(behavior).toMatch(/The live profiles are\s+`low`, `default`, and `high`/u);
     expect(behavior).toContain("installation profile approval");
     expect(behavior).toContain("features.context_management.experimental_mode");
-    expect(configuration).toContain(
-      "does not manage `features.context_management.experimental_mode`",
-    );
+    expect(configuration).toContain("manages `features.context_management.experimental_mode`");
     expect(configuration).toMatch(/installation\s+profile approval/u);
     expect(installation).toContain("Legacy `go`");
   });

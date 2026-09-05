@@ -63,11 +63,10 @@ an explicit denial or classified failure.
     never success. Root delegates any failure fix and repeats the cycle, and
     must discover the repository's topology rather than assume a provider or
     branch scheme.
-12. HolyCodex does not manage `features.context_management.experimental_mode`.
-    Codex/Astra owns conversation context behavior. Migration and cleanup
-    relinquish the obsolete HolyCodex ownership record while preserving the
-    existing value exactly, including an unchanged value previously written by
-    HolyCodex. User edits and unrelated context configuration remain untouched.
+12. HolyCodex manages `features.context_management.experimental_mode` and sets
+    it to `true` because Codex does not enable it by default. Cleanup restores
+    the recorded prior value only when unchanged; user edits and unrelated
+    context configuration remain untouched.
 
 ## State and secret exclusions
 

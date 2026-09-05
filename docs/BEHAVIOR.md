@@ -166,12 +166,11 @@ permission, an unavailable required capability, failed verification, or
 uncertain external state produces a structured failure and does not claim
 success.
 
-HolyCodex does not manage `features.context_management.experimental_mode`.
-Codex/Astra owns conversation context behavior. Upgrade and cleanup relinquish
-the obsolete HolyCodex ownership record while preserving the existing value
-exactly, including an unchanged value previously written by HolyCodex. Repo-
-local Intent, workflow Plan, and Assignment state remain independent of context
-management.
+HolyCodex manages `features.context_management.experimental_mode` and sets it
+to `true` because Codex does not enable it by default. The normal managed-key
+ownership rules preserve user edits and restore the recorded prior value during
+cleanup. Repo-local Intent, workflow Plan, and Assignment state remain
+independent of context management.
 
 ## Acceptance and provenance
 

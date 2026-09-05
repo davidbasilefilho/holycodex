@@ -108,10 +108,9 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
     "behavior must record the canonical Astra/Luna routes",
   );
   assert(
-    configurationContract.includes(
-      "does not manage `features.context_management.experimental_mode`",
-    ),
-    "configuration must leave context management to Codex/Astra",
+    configurationContract.includes("manages `features.context_management.experimental_mode`") &&
+      configurationContract.includes("writes\n`true`"),
+    "configuration must explicitly manage context experimental mode",
   );
   assert(
     installationContract.includes("Existing serialized `plan` fields") &&

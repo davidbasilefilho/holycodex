@@ -9,7 +9,6 @@ import {
   createManagedRuntimeConfigState,
   deleteTomlPath,
   mergeManagedRuntimeConfig,
-  migrateLegacyManagedRuntimeConfig,
   readTomlPath,
   resolveAgentConfigPath,
   resolveOfficialPluginEntry,
@@ -926,6 +925,7 @@ export function desiredRootConfig(
     suppress_unstable_features_warning: true,
     "features.default_mode_request_user_input": true,
     "features.multi_agent_v2": true,
+    "features.context_management.experimental_mode": true,
   };
   for (const agentType of NATIVE_AGENT_TYPES) {
     desired[`agents."${agentType}".config_file`] = `holycodex/agents/${agentType}.toml`;
@@ -967,20 +967,6 @@ async function migrateKnownLegacyRoleRegistrations(
   state: ManagedRuntimeConfigState,
   previous: InstallRecord | undefined,
 ): Promise<Readonly<{ document: TomlDocument; state: ManagedRuntimeConfigState }>> {
-  const relinquished = await migrateLegacyManagedRuntimeConfig(document, state, {
-    schema: state.schema,
-    installId: state.installId,
-  });
-  if (relinquished.unresolvedKeys.length > 0) {
-    throw new InstallerError(
-      "state_corrupt",
-      "Removed HolyCodex-managed configuration could not be migrated safely.",
-      undefined,
-      { keys: relinquished.unresolvedKeys.join(",") },
-    );
-  }
-  document = relinquished.document;
-  state = relinquished.state;
   const legacyKeys = [
     "agents.explorer.config_file",
     "agents.librarian.config_file",

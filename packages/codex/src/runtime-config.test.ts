@@ -7,10 +7,8 @@ import {
   compareManagedConfigKey,
   createManagedRuntimeConfigState,
   isManagedRuntimeConfigState,
-  isLegacyManagedConfigKeyPath,
   isManagedConfigKeyPath,
   mergeManagedRuntimeConfig,
-  migrateLegacyManagedRuntimeConfig,
   normalizeRelativeConfigPath,
   readTomlPath,
   resolveAgentConfigPath,
@@ -119,134 +117,44 @@ describe("typed runtime configuration", () => {
     expect(cleanup.restoredKeys).toEqual([]);
   });
 
-  test("does not manage context experimental mode in the live key set", async () => {
+  test("manages context experimental mode as a required Root setting", async () => {
     const keyPath = "features.context_management.experimental_mode" as const;
-    expect(isManagedConfigKeyPath(keyPath)).toBe(false);
-    expect(isLegacyManagedConfigKeyPath(keyPath)).toBe(true);
-    await expect(
-      mergeManagedRuntimeConfig(
-        {},
-        createManagedRuntimeConfigState(metadata),
-        { [keyPath]: true } as unknown as Partial<Record<string, string | boolean>>,
-        metadata,
-      ),
-    ).rejects.toMatchObject({ code: "invalid_external_data" });
-  });
-
-  test("relinquishes legacy context ownership without changing the value", async () => {
-    const keyPath = "features.context_management.experimental_mode" as const;
-    const state = {
-      ...createManagedRuntimeConfigState(metadata),
-      managed: {
-        [keyPath]: {
-          owner: "holycodex" as const,
-          schema: metadata.schema,
-          installId: metadata.installId,
-          keyPath,
-          originalValue: { kind: "absent" as const },
-          lastManagedValue: { kind: "boolean" as const, value: true },
-        },
-      },
-    };
-    expect(isManagedRuntimeConfigState(state)).toBe(true);
-
-    const unchanged = await migrateLegacyManagedRuntimeConfig(
-      { features: { context_management: { experimental_mode: true, unrelated: "keep" } } },
-      state,
-      metadata,
-    );
-    expect(readTomlPath(unchanged.document, keyPath)).toBe(true);
-    expect(readTomlPath(unchanged.document, "features.context_management.unrelated")).toBe("keep");
-    expect(unchanged.state.managed[keyPath]).toBeUndefined();
-    expect(unchanged.restoredKeys).toEqual([]);
-    expect(unchanged.preservedKeys).toEqual([keyPath]);
-
-    const preserved = await migrateLegacyManagedRuntimeConfig(
+    expect(isManagedConfigKeyPath(keyPath)).toBe(true);
+    const merged = await mergeManagedRuntimeConfig(
       { features: { context_management: { experimental_mode: false, unrelated: "keep" } } },
-      state,
+      createManagedRuntimeConfigState(metadata),
+      { [keyPath]: true },
       metadata,
     );
-    expect(readTomlPath(preserved.document, keyPath)).toBe(false);
-    expect(readTomlPath(preserved.document, "features.context_management.unrelated")).toBe("keep");
-    expect(preserved.state.managed[keyPath]).toBeUndefined();
-    expect(preserved.restoredKeys).toEqual([]);
-    expect(preserved.preservedKeys).toEqual([keyPath]);
-  });
-
-  test("preserves a missing legacy value while dropping stale ownership", async () => {
-    const keyPath = "features.context_management.experimental_mode" as const;
-    const state = {
-      ...createManagedRuntimeConfigState(metadata),
-      managed: {
-        [keyPath]: {
-          owner: "holycodex" as const,
-          schema: metadata.schema,
-          installId: metadata.installId,
-          keyPath,
-          originalValue: { kind: "absent" as const },
-          lastManagedValue: { kind: "boolean" as const, value: true },
-        },
-      },
-    };
-    const migrated = await migrateLegacyManagedRuntimeConfig({}, state, metadata);
-    expect(migrated.document).toEqual({});
-    expect(migrated.state.managed[keyPath]).toBeUndefined();
-    expect(migrated.restoredKeys).toEqual([]);
-    expect(migrated.preservedKeys).toEqual([keyPath]);
-  });
-
-  test("cleanup never removes legacy context configuration", async () => {
-    const keyPath = "features.context_management.experimental_mode" as const;
-    const state = {
-      ...createManagedRuntimeConfigState(metadata),
-      managed: {
-        [keyPath]: {
-          owner: "holycodex" as const,
-          schema: metadata.schema,
-          installId: metadata.installId,
-          keyPath,
-          originalValue: { kind: "absent" as const },
-          lastManagedValue: { kind: "boolean" as const, value: true },
-        },
-      },
-    };
-    const cleaned = await cleanupManagedRuntimeConfig(
-      { features: { context_management: { experimental_mode: true } } },
-      state,
-      metadata,
-    );
-    expect(readTomlPath(cleaned.document, keyPath)).toBe(true);
-    expect(cleaned.state.managed[keyPath]).toBeUndefined();
-    expect(cleaned.restoredKeys).toEqual([]);
-    expect(cleaned.preservedKeys).toEqual([keyPath]);
-  });
-
-  test("reports legacy ownership from another installation as unresolved", async () => {
-    const keyPath = "features.context_management.experimental_mode" as const;
-    const state = {
-      ...createManagedRuntimeConfigState(metadata),
-      managed: {
-        [keyPath]: {
-          owner: "holycodex" as const,
-          schema: metadata.schema,
-          installId: "different-install",
-          keyPath,
-          originalValue: { kind: "absent" as const },
-          lastManagedValue: { kind: "boolean" as const, value: true },
-        },
-      },
-    };
-    const migrated = await migrateLegacyManagedRuntimeConfig(
-      { features: { context_management: { experimental_mode: true, unrelated: "keep" } } },
-      state,
-      metadata,
-    );
-    expect(migrated.document).toEqual({
-      features: { context_management: { experimental_mode: true, unrelated: "keep" } },
+    expect(readTomlPath(merged.document, keyPath)).toBe(true);
+    expect(readTomlPath(merged.document, "features.context_management.unrelated")).toBe("keep");
+    expect(merged.state.managed[keyPath]?.originalValue).toEqual({
+      kind: "boolean",
+      value: false,
     });
-    expect(migrated.unresolvedKeys).toEqual([keyPath]);
-    expect(migrated.preservedKeys).toEqual([keyPath]);
-    expect(migrated.state.managed[keyPath]).toBeDefined();
+    expect(merged.state.managed[keyPath]?.lastManagedValue).toEqual({
+      kind: "boolean",
+      value: true,
+    });
+  });
+
+  test("restores the prior context setting on removal and preserves user drift", async () => {
+    const keyPath = "features.context_management.experimental_mode" as const;
+    const initial = await mergeManagedRuntimeConfig(
+      { features: { context_management: { experimental_mode: false } } },
+      createManagedRuntimeConfigState(metadata),
+      { [keyPath]: true },
+      metadata,
+    );
+    const cleaned = await cleanupManagedRuntimeConfig(initial.document, initial.state, metadata);
+    expect(readTomlPath(cleaned.document, keyPath)).toBe(false);
+    expect(cleaned.restoredKeys).toEqual([keyPath]);
+
+    const edited = writeTomlPath(initial.document, keyPath, false);
+    const preserved = await cleanupManagedRuntimeConfig(edited, initial.state, metadata);
+    expect(readTomlPath(preserved.document, keyPath)).toBe(false);
+    expect(preserved.preservedKeys).toEqual([keyPath]);
+    expect(preserved.restoredKeys).toEqual([]);
   });
 
   test("restores typed originals, removes additions, and keeps digest-only originals secret-safe", async () => {

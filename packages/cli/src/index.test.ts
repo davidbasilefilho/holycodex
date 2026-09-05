@@ -164,7 +164,7 @@ describe("native installation and removal", () => {
       expect(config).toContain('model = "gpt-6-astra"');
       expect(config).toContain("default_mode_request_user_input = true");
       expect(config).toContain("multi_agent_v2 = true");
-      expect(config).not.toContain("experimental_mode = true");
+      expect(config).toContain("experimental_mode = true");
       expect(config).toContain("Load writing-for-agents fully before the first dispatch");
       expect(config).not.toContain("Interactive GUI, browser, and Computer Use execution");
       for (const agent of projectNativeAgents("default")) {
@@ -726,7 +726,7 @@ describe("native installation and removal", () => {
     }
   });
 
-  test("relinquishes context experimental mode ownership across reinstall, doctor, and remove", async () => {
+  test("manages context experimental mode across reinstall, doctor, and remove", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-context-"));
     const codexHome = join(root, "codex");
     const config = join(codexHome, "config.toml");
@@ -741,19 +741,23 @@ describe("native installation and removal", () => {
         {},
         { paths: { codexHome }, officialPluginManager: manager },
       );
-      expect(await readFile(config, "utf8")).toContain("experimental_mode = false");
-      expect(initial.record.managed_config?.managed).not.toHaveProperty(
-        "features.context_management.experimental_mode",
-      );
+      expect(await readFile(config, "utf8")).toContain("experimental_mode = true");
+      expect(
+        initial.record.managed_config?.managed["features.context_management.experimental_mode"],
+      ).toBeDefined();
+      expect(
+        initial.record.managed_config?.managed["features.context_management.experimental_mode"]
+          ?.originalValue,
+      ).toEqual({ kind: "boolean", value: false });
 
       const reinstalled = await installHolyCodex(
         { tier: "fast" },
         { paths: { codexHome }, officialPluginManager: manager },
       );
-      expect(reinstalled.record.managed_config?.managed).not.toHaveProperty(
-        "features.context_management.experimental_mode",
-      );
-      expect(await readFile(config, "utf8")).toContain("experimental_mode = false");
+      expect(
+        reinstalled.record.managed_config?.managed["features.context_management.experimental_mode"],
+      ).toBeDefined();
+      expect(await readFile(config, "utf8")).toContain("experimental_mode = true");
       expect(
         (
           await doctorHolyCodex({

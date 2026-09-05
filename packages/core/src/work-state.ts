@@ -410,7 +410,10 @@ export class IntentStore {
         continue;
       await assertNoSymlinkAncestors(temporaryPath);
       await rm(temporaryPath, { force: true });
-      removed.push(entry);
+      // `fs.readdir({ recursive: true })` uses the host separator. Keep the
+      // recovery contract stable across Windows and POSIX hosts while the
+      // native path above remains suitable for filesystem I/O.
+      removed.push(entry.replaceAll("\\", "/"));
     }
     return removed.sort();
   }
@@ -1461,7 +1464,7 @@ async function withLock<A>(lockPath: string, operation: () => Promise<A>): Promi
             { path: lockPath },
           );
         const ownerState = await readLockOwner(lockPath);
-        if (ownerState.kind === "owned" && !isProcessAlive(ownerState.owner.pid)) {
+        if (ownerState.kind === "owned" && !(await isProcessAlive(ownerState.owner.pid))) {
           await rm(lockPath, { recursive: true, force: true });
           continue;
         }
@@ -1540,12 +1543,49 @@ async function readLockOwner(lockPath: string): Promise<LockOwnerState> {
   }
 }
 
-function isProcessAlive(pid: number): boolean {
+async function isProcessAlive(pid: number): Promise<boolean> {
+  // A process cannot disappear while this call is executing, and explicitly
+  // recognizing our own PID avoids platform-specific process-probe quirks.
+  if (pid === process.pid) return true;
+  if (process.platform === "win32") return await isWindowsProcessAlive(pid);
+  // If a future/unknown platform does not document `kill(pid, 0)`, fail
+  // closed: an unverified owner must be treated as alive and retained.
+  const supportedPlatforms = [
+    "aix",
+    "android",
+    "darwin",
+    "freebsd",
+    "haiku",
+    "linux",
+    "openbsd",
+    "sunos",
+    "win32",
+  ] as const;
+  if (!(supportedPlatforms as readonly string[]).includes(process.platform)) return true;
   try {
     process.kill(pid, 0);
     return true;
   } catch (error: unknown) {
     return isFsCode(error, "EPERM");
+  }
+}
+
+async function isWindowsProcessAlive(pid: number): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync(
+      "tasklist.exe",
+      ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"],
+      { encoding: "utf8", windowsHide: true },
+    );
+    // CSV output keeps the PID in the second field even when process names or
+    // localized diagnostics contain spaces. A failed or unavailable probe is
+    // retained as alive so a contender never removes an owner it cannot verify
+    // as dead.
+    return stdout
+      .split(/\r?\n/u)
+      .some((line) => /^"[^"]*","(\d+)",/u.exec(line)?.[1] === String(pid));
+  } catch {
+    return true;
   }
 }
 

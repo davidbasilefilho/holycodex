@@ -86,6 +86,32 @@ describe("artifact and diagnostic security boundaries", () => {
     expect(result.stderr).toBe("");
   });
 
+  test("can expose complete redacted failure diagnostics for CI", async () => {
+    const secret = "HC_FULL_DIAGNOSTIC_SECRET";
+    const failureOutput = `${"x".repeat(6_000)}${secret} terminal failure`;
+    const script = `process.stderr.write(${JSON.stringify(failureOutput)}); process.exit(3)`;
+    const logged: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      logged.push(args.map((arg) => String(arg)).join(" "));
+    };
+    try {
+      await expect(
+        runChecked([process.execPath, "-e", script], {
+          env: { TOKEN: secret },
+          failureDiagnostics: "full",
+        }),
+      ).rejects.toThrow("failed with exit 3");
+    } finally {
+      console.error = originalError;
+    }
+    const diagnostic = logged.join("\n");
+    expect(diagnostic.length).toBeGreaterThan(6_000);
+    expect(diagnostic).toContain("terminal failure");
+    expect(diagnostic).not.toContain(secret);
+    expect(diagnostic).toContain("[REDACTED]");
+  });
+
   test("rejects sensitive package paths at the upload boundary", () => {
     expect(isSensitiveArtifactPath("dist/.env.local")).toBe(true);
     expect(isSensitiveArtifactPath("dist/.npmrc")).toBe(true);

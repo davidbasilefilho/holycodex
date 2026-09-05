@@ -58,6 +58,7 @@ async function runStep(command: readonly string[], label: string, steps: string[
   await runChecked(command, {
     cwd: workspaceRoot,
     env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
+    failureDiagnostics: process.env["CI"] === "1" ? "full" : "compact",
   });
   steps.push(label);
 }

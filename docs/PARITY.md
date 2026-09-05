@@ -31,7 +31,7 @@ their readback.
 | Root orchestration and Assignment-backed delegation                     | [BEHAVIOR.md](BEHAVIOR.md), [STATE.md](STATE.md)                       | Core policy and plugin contract tests         | proven           |
 | Repo-local Intent/Plan/Assignment persistence                           | [STATE.md](STATE.md)                                                   | Agent store and CLI tests                     | proven           |
 | Product profile migration and Astra/Luna routing                        | [CONFIGURATION.md](CONFIGURATION.md), [BEHAVIOR.md](BEHAVIOR.md)       | CLI and routing boundary tests                | proven           |
-| Codex-owned context-management setting                                  | [CONFIGURATION.md](CONFIGURATION.md), [STATE.md](STATE.md)             | Maintenance and migration tests               | proven           |
+| HolyCodex-managed context-management setting                            | [CONFIGURATION.md](CONFIGURATION.md), [STATE.md](STATE.md)             | Maintenance and migration tests               | proven           |
 | Independent service tiers                                               | [BEHAVIOR.md](BEHAVIOR.md), [CONFIGURATION.md](CONFIGURATION.md)       | Configuration boundary tests                  | proven           |
 | CLI install, remove, version, JSON, and exit behavior                   | [CLI.md](CLI.md)                                                       | CLI boundary tests                            | proven           |
 | Native Codex plugin management, owned state, and transactional recovery | [INSTALLATION.md](INSTALLATION.md), [STATE.md](STATE.md)               | Isolated install/removal/doctor verification  | proven           |

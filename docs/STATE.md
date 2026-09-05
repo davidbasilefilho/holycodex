@@ -86,9 +86,8 @@ from the workflow Plan stored in `plan.toon`. A legacy serialized `plan` field
 is copied to `profile` without changing its meaning. `plus-low`, `plus`, and
 `plus-high` migrate to `low`, `default`, and `high`; legacy `go` and removed
 Pro values are recognized explicitly and require an operator-selected
-replacement. No historical value is silently mapped to `low`. HolyCodex also
-relinquishes its obsolete ownership record for
-`features.context_management.experimental_mode` while preserving the existing
-value exactly. This includes unchanged values previously written by HolyCodex;
-future installs stop claiming the setting without restoring, removing, or
-replacing it.
+replacement. No historical value is silently mapped to `low`. HolyCodex
+manages `features.context_management.experimental_mode` as a required Root
+setting and writes `true` because Codex does not enable it by default. Upgrade
+retains that managed key. Removal restores the recorded prior value when
+unchanged and preserves user drift.

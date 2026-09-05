@@ -37,10 +37,10 @@ workflow, while a delegation prompt supplies assignment facts. Runtime flags
 enforce hard capability boundaries where Codex supports them; prose does not
 stand in for a missing native control.
 
-HolyCodex does not manage `features.context_management.experimental_mode`.
-Codex/Astra owns that behavior. Upgrade and removal relinquish the obsolete
-HolyCodex ownership record while preserving the existing value exactly,
-including an unchanged value previously written by HolyCodex. Intent, Plan,
+HolyCodex manages `features.context_management.experimental_mode` and writes
+`true` because Codex does not enable it by default. Upgrade preserves the
+managed key and removal restores the recorded prior value when the live value
+is unchanged; a user edit is preserved and reported as drift. Intent, Plan,
 and Assignment persistence remains independent repo-local work state.
 
 Root MUST delegate every task, including trivial work, through a bounded
