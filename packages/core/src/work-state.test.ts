@@ -674,6 +674,100 @@ describe("IntentStore", () => {
       integrated.revision,
     );
     expect(operations.status).toBe("pending");
+    const operationsRunning = await store.startAssignment(
+      integrated.id,
+      operations.id,
+      operations.revision,
+    );
+    const operationsResult = await store.recordAssignmentResult(
+      integrated.id,
+      operations.id,
+      operationsRunning.revision,
+      {
+        outcome: "completed",
+        summary: "Exact integrated SHA observed",
+        evidence: [{ kind: "ci", value: `observed ${commit}`, result: "passed" }],
+      },
+    );
+    expect(operationsResult.intent.state).toBe("reviewing");
+    expect(operationsResult.intent.verification.status).toBe("passed");
+    expect(operationsResult.intent.review.status).toBe("accepted");
+    expect(operationsResult.intent.baseline.integrated_commit).toBe(commit);
+    const readyToComplete = await store.recordIntentEvidence(
+      integrated.id,
+      operationsResult.intent.revision,
+      { acceptanceMet: true, rootReadiness: true },
+    );
+    const completed = await store.completeIntent(integrated.id, readyToComplete.revision);
+    expect("completed" in completed ? completed.completed : completed.state === "complete").toBe(
+      true,
+    );
+  });
+
+  test("returns failed operations to executing while preserving the integrated commit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-operations-failure-"));
+    await git(root, "init", "-q");
+    await git(root, "config", "user.email", "test@example.com");
+    await git(root, "config", "user.name", "Test");
+    await writeFile(join(root, ".gitignore"), ".holycodex/\n", "utf8");
+    await git(root, "add", ".gitignore");
+    await git(root, "commit", "-q", "-m", "initial");
+    const store = new IntentStore(root, { repositorySnapshot: () => readRepositorySnapshot(root) });
+    let intent = await store.createIntent({
+      title: "Operations recovery",
+      goal: "Return failed exact-SHA observation to repair",
+      acceptanceCriteria: ["recoverable"],
+    });
+    intent = await store.transitionIntent(intent.id, "ready", intent.revision);
+    intent = await store.transitionIntent(intent.id, "executing", intent.revision);
+    intent = await store.transitionIntent(intent.id, "verifying", intent.revision);
+    intent = await store.recordIntentEvidence(intent.id, intent.revision, {
+      verification: "passed",
+      evidence: [{ kind: "behavior", value: "clean exact-SHA baseline", result: "passed" }],
+    });
+    intent = await store.transitionIntent(intent.id, "reviewing", intent.revision);
+    intent = await store.recordIntentEvidence(intent.id, intent.revision, { review: "accepted" });
+    await git(root, "commit", "--allow-empty", "-q", "-m", "integrated");
+    const integrated = await store.recordVcsIntegration(intent.id, intent.revision, {
+      commit: await git(root, "rev-parse", "HEAD"),
+    });
+    const operations = await store.createAssignment(
+      integrated.id,
+      {
+        objective: "Observe the integrated commit",
+        owner: { role: "Worker", task: "operations" },
+        scope: ["."],
+        acceptanceCriteria: ["report failure"],
+      },
+      integrated.revision,
+    );
+    const running = await store.startAssignment(integrated.id, operations.id, operations.revision);
+    const failed = await store.recordAssignmentResult(
+      integrated.id,
+      operations.id,
+      running.revision,
+      { outcome: "failed", summary: "CI observation failed" },
+    );
+    expect(failed.intent.state).toBe("executing");
+    expect(failed.intent.verification.status).toBe("missing");
+    expect(failed.intent.review.status).toBe("missing");
+    expect(failed.intent.acceptance_met).toBe(false);
+    expect(failed.intent.root_readiness).toBe(false);
+    expect(failed.intent.baseline.integrated_commit).toBe(integrated.baseline.integrated_commit);
+    const retry = await store.startAssignment(
+      integrated.id,
+      operations.id,
+      failed.assignment.revision,
+    );
+    const recovered = await store.recordAssignmentResult(
+      integrated.id,
+      operations.id,
+      retry.revision,
+      { outcome: "completed", summary: "CI observation recovered" },
+    );
+    expect(recovered.intent.state).toBe("executing");
+    expect(recovered.intent.verification.status).toBe("missing");
+    expect(recovered.intent.review.status).toBe("missing");
   });
 
   test("accepts declared task evolution while rejecting unexplained repository drift", async () => {

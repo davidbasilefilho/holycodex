@@ -1232,12 +1232,37 @@ export class IntentStore {
         remaining_risk: [...(validated.remainingRisk ?? [])],
       });
       await atomicWriteToon(join(directory, "assignments", `${validatedId}.toon`), revised);
+      const operations =
+        assignment.owner.role === "Worker" && assignment.owner.task === "operations";
+      const preserveIntegratedCommit =
+        intent.baseline.integrated_commit !== undefined &&
+        intent.baseline.integrated_commit === intent.baseline.expected_head &&
+        snapshot.head === intent.baseline.expected_head &&
+        snapshot.changedPaths.length === 0;
+      const failedOperations = operations && validated.outcome === "failed";
+      const successfulOperations =
+        operations &&
+        validated.outcome === "completed" &&
+        preserveIntegratedCommit &&
+        intent.state === "reviewing" &&
+        (!intent.verification.required || intent.verification.status === "passed") &&
+        (!intent.review.required || intent.review.status === "accepted");
       const revisedIntent = reviseIntent(intent, this.#now, {
-        baseline: baselineFromSnapshot(snapshot, timestamp, intent.baseline.initial_head),
-        verification: resetGate(intent.verification),
-        review: resetGate(intent.review),
-        acceptance_met: false,
-        root_readiness: false,
+        baseline: baselineFromSnapshot(
+          snapshot,
+          timestamp,
+          intent.baseline.initial_head,
+          preserveIntegratedCommit ? intent.baseline.integrated_commit : undefined,
+        ),
+        ...(successfulOperations
+          ? {}
+          : {
+              state: failedOperations ? "executing" : intent.state,
+              verification: resetGate(intent.verification),
+              review: resetGate(intent.review),
+              acceptance_met: false,
+              root_readiness: false,
+            }),
       });
       await atomicWriteToon(join(directory, "intent.toon"), revisedIntent);
       return { assignment: revised, intent: revisedIntent };

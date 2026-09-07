@@ -115,7 +115,9 @@ An already executing Assignment must receive its result before another start.
 
 Input requires outcome and summary; supports compact invocation metadata, evidence, blocker,
 and remainingRisk. Result must match the active invocation (legacy executing records may finish
-without metadata). Effect: appends one invocation and accepts only declared repository evolution.
+without metadata). Operations success preserves accepted Intent gates for Root CI/acceptance;
+operations failure returns the Intent to executing for repair. Effect: appends one invocation
+and accepts only declared repository evolution.
 `,
 };
 
