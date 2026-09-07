@@ -80,6 +80,13 @@ export function assertReleaseVersion(
   }
 }
 
+/** Extracts and validates the stable three-part base from a release version. */
+export function baseVersionFromRelease(version: string): string {
+  const release = decode(ReleaseVersionSchema, version, "the release version");
+  const base = release.split(/[+-]/u, 1)[0] ?? "";
+  return decode(BaseVersionSchema, base, "the release base version");
+}
+
 function decode<A>(schema: Schema.Schema<A>, value: unknown, label: string): A {
   const parsed = Schema.decodeUnknownEither(schema)(value);
   if (Either.isLeft(parsed)) {

@@ -29,6 +29,7 @@ import {
 import {
   assertReleaseVersion,
   BaseVersionSchema,
+  baseVersionFromRelease,
   ReleaseChannelSchema,
   ReleaseVersionSchema,
   SourceShaSchema,
@@ -546,7 +547,7 @@ export async function verifyPublicPackage(
   );
   await rewriteActiveRecord(activeRecordPath, installedModule, (record) => ({
     ...record,
-    version,
+    version: packed.baseVersion,
   }));
 
   for (const [name, status] of [
@@ -871,21 +872,20 @@ function rewriteForLegacyContext(
 }
 
 function previousPatchVersion(version: string): string {
-  const parts = version.split(".").map(Number);
-  const patch = parts[2];
-  if (parts.length !== 3 || parts.some((part) => !Number.isInteger(part)) || patch === undefined) {
+  const [major, minor, patch] = baseVersionFromRelease(version).split(".");
+  if (major === undefined || minor === undefined || patch === undefined) {
     throw new Error("the canonical package version is not a three-part number");
   }
-  return `${parts[0]}.${parts[1]}.${Math.max(0, patch - 1)}`;
+  const patchNumber = BigInt(patch);
+  return `${major}.${minor}.${patchNumber > 0n ? patchNumber - 1n : 0n}`;
 }
 
 function nextPatchVersion(version: string): string {
-  const parts = version.split(".").map(Number);
-  const patch = parts[2];
-  if (parts.length !== 3 || parts.some((part) => !Number.isInteger(part)) || patch === undefined) {
+  const [major, minor, patch] = baseVersionFromRelease(version).split(".");
+  if (major === undefined || minor === undefined || patch === undefined) {
     throw new Error("the canonical package version is not a three-part number");
   }
-  return `${parts[0]}.${parts[1]}.${patch + 1}`;
+  return `${major}.${minor}.${BigInt(patch) + 1n}`;
 }
 
 async function runInstalledExecutable(

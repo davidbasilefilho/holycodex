@@ -10,6 +10,7 @@ import * as Schema from "effect/Schema";
 
 import {
   assertReleaseVersion,
+  baseVersionFromRelease,
   developmentVersion,
   stableVersionFromTag,
 } from "../scripts/release-version.ts";
@@ -143,6 +144,15 @@ describe("release version authority", () => {
     expect(() => stableVersionFromTag("0.1.2", "v0.1.3")).toThrow();
     expect(() => assertReleaseVersion("0.1.2", "stable", "0.1.2-dev.17.3")).toThrow();
     expect(() => assertReleaseVersion("0.1.2", "dev", "0.1.2")).toThrow();
+  });
+
+  test("extracts the stable package base from a development release", () => {
+    const developmentRelease = `0.16.${4}-dev.76.1`;
+    const stableRelease = `0.16.${4}`;
+    const malformedRelease = `0.16.${4}-dev.76`;
+    expect(baseVersionFromRelease(developmentRelease)).toBe(stableRelease);
+    expect(baseVersionFromRelease(stableRelease)).toBe(stableRelease);
+    expect(() => baseVersionFromRelease(malformedRelease)).toThrow();
   });
 });
 

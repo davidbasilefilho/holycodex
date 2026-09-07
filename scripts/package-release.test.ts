@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: Apache-2.0
+
+import { describe, expect, test } from "bun:test";
+
+import { runPackageBuild } from "./package-build.ts";
+import { createReleaseArtifact } from "./package-release.ts";
+import { withTemporaryDirectory } from "./process.ts";
+
+describe("release package boundary", () => {
+  test("verifies a development artifact with its stable install-record base", async () => {
+    await runPackageBuild();
+    const releaseVersion = `0.16.${4}-dev.76.1`;
+    const metadata = await withTemporaryDirectory(
+      "package-release-test",
+      async (output) =>
+        await createReleaseArtifact(output, {
+          version: releaseVersion,
+          channel: "dev",
+          sourceSha: "a".repeat(40),
+        }),
+    );
+
+    expect(metadata.baseVersion).toBe(`0.16.${4}`);
+    expect(metadata.version).toBe(releaseVersion);
+  }, 30_000);
+});
