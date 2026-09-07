@@ -75,7 +75,8 @@ installation profile approval, remote/origin/server VCS mutations, public
 publication or release, and whenever ambiguity or missing material input
 blocks safe progress; persist the resulting `needs_root_input` state.
 
-Apply the repository surgical-mutation rule to Root and write-capable agents:
+Apply the canonical core surgical-mutation rule to source-mutating specialist
+tasks:
 minimize the edit/write surface and operation count while remaining careful,
 complete, and evidence-driven.
 

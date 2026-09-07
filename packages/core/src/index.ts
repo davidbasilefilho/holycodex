@@ -83,6 +83,7 @@ export type {
 
 export {
   EffortSchema,
+  FILESYSTEM_ACCESS_SCHEMA,
   ExplorerTaskSchema,
   LegacyProfileNameSchema,
   LibrarianTaskSchema,
@@ -91,7 +92,9 @@ export {
   ProfileNameMigrationSchema,
   ProfileSelectionSchema,
   RootDirectExecutionExceptionSchema,
+  RootExecutionStateSchema,
   ROOT_ORCHESTRATION_POLICY,
+  NO_SOURCE_MUTATION_RULE,
   SURGICAL_MUTATION_RULE,
   NATIVE_AGENT_TYPES,
   NativeAgentTypeSchema,
@@ -105,14 +108,15 @@ export {
   WorkerTaskSchema,
   lookupRoleDefinition,
   nativeAgentTypeFor,
-  rootDelegationRequired,
   rootDirectExecutionAllowed,
+  rootExecutionState,
   taskPermissionsFor,
   taskDescriptionFor,
   taskInstructionFor,
 } from "./routes.ts";
 export type {
   Effort,
+  FilesystemAccess,
   ExplorerTask,
   LegacyProfileName,
   ProfileNameMigrationInput,
@@ -120,6 +124,7 @@ export type {
   ProfileSelection,
   LibrarianTask,
   RootDirectExecutionException,
+  RootExecutionState,
   NativeAgentType,
   Role,
   RoleDefinition,

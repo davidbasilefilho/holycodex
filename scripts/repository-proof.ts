@@ -8,6 +8,7 @@ import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 
 import { canonicalJsonUtf8, domainSeparatedSha256 } from "../packages/core/src/canonical.ts";
+import { NATIVE_AGENT_TYPES } from "../packages/core/src/routes.ts";
 import { ensureCodexGenerated } from "./generate-codex-bindings.ts";
 import { runChecked, runCommand } from "./process.ts";
 
@@ -64,6 +65,7 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
   const behaviorContract = await readText("docs/BEHAVIOR.md");
   const configurationContract = await readText("docs/CONFIGURATION.md");
   const installationContract = await readText("docs/INSTALLATION.md");
+  const readme = await readText("README.md");
   const packageVerification = await readText("scripts/package-verification.ts");
   const workflowFiles = await listFiles(".github/workflows");
 
@@ -119,12 +121,33 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
       behaviorContract.includes("features.context_management` and sets"),
     "behavior must define validation and scalar context-management contracts",
   );
+  for (const agentType of NATIVE_AGENT_TYPES) {
+    assert(
+      behaviorContract.includes(`\`${agentType}\``),
+      `behavior must document canonical route ${agentType}`,
+    );
+    assert(
+      readme.includes(`\`${agentType}\``),
+      `README must document canonical route ${agentType}`,
+    );
+    assert(
+      installationContract.includes(`\`${agentType}\``),
+      `installation must document canonical route ${agentType}`,
+    );
+  }
+  assert(
+    !/eleven canonical|eleven leaf/iu.test(
+      `${behaviorContract}\n${installationContract}\n${cliContract}`,
+    ),
+    "route prose must not retain stale canonical leaf counts",
+  );
   assert(
     cliContract.includes("holycodex upgrade") && cliContract.includes("--dry-run"),
     "CLI contract must define in-place upgrade and dry-run",
   );
   assert(
     packageVerification.includes("context_management = true") &&
+      packageVerification.includes("NATIVE_AGENT_TYPES") &&
       packageVerification.includes("upgrade") &&
       packageVerification.includes("non_tty_confirmation_required"),
     "package proof must exercise scalar configuration, upgrade, and confirmation boundaries",

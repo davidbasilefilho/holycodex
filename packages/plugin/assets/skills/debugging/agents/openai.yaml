@@ -3,4 +3,4 @@ interface:
   short_description: "Reproduce and repair one observable defect."
   default_prompt: "Open the debugging workflow for this invocation."
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

@@ -27,7 +27,8 @@ their manifests. `cli` composes installation, removal, configuration, version,
 and presentation into the published Bun ESM artifact. The `agent` package owns
 the deterministic model-facing Intent/Plan/Assignment command surface.
 
-The native runtime has one parent and eleven leaves. Root is the parent Codex
+The native runtime has one parent and one leaf for every canonical route.
+Root is the parent Codex
 session configured in `config.toml`. Each canonical `{Role}.{task}` leaf has
 one managed TOML under `holycodex/agents/` and one matching
 `agents."{Role}.{task}"` registration. A role-only file or registration is
@@ -89,13 +90,14 @@ Repo-local work state is separate from Codex-home installation state. The
 Plan revisions, and Assignment files through semantic operations. Handoff is a
 redacted projection of this state, never another source of truth.
 
-Role profiles carry semantic authority and native capability controls. Task
-skills carry branch-specific workflow, and delegation prompts carry only the
-facts of one Assignment. The surgical-mutation rule in `AGENTS.md` is the
-single instruction-level source for write minimization; Root and every
-write-capable profile/skill receive that rule as a projection, without weaker
-variants. The typed `core` export is the runtime projection used to generate
-those instructions. This keeps each semantic instruction in one layer.
+Concrete `Role.task` policies carry semantic authority and native capability
+controls. Task skills carry branch-specific workflow, and delegation prompts
+carry only the facts of one Assignment. The canonical core
+surgical-mutation rule is the single instruction-level source for write
+minimization; every source-mutating native profile receives that rule as a
+projection, without weaker variants. Task skills supply procedure only. The
+typed `core` export is the runtime projection used to generate those
+instructions. This keeps each semantic instruction in one layer.
 
 Installation preflights selected capabilities and runtime compatibility, then
 journals native mutations and verifies readback before publishing managed
@@ -110,8 +112,9 @@ reasoning for the `low`, `default`, and `high` product profiles. Every
 specialist route uses `gpt-5.6-luna` with the task-specific effort matrix in
 the behavioral contract. Sol, Terra, and Go remain only in migration/cleanup
 paths for previously managed state. HolyCodex owns the scalar
-`features.context_management` projection and sets it to `true` because Codex
-does not enable it by default. Upgrade migrates owned historical
+`features.context_management` projection and sets it to `true` for Root and
+every generated Luna leaf because Codex does not enable it by default. Upgrade
+migrates owned historical
 `.experimental_mode` state to the scalar key. Standard managed-key ownership
 preserves a user edit and restores the recorded prior value during removal.
 Repo-local Intent/Plan/Assignment state remains independent.

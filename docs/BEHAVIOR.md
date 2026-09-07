@@ -14,33 +14,40 @@ contradictions. Specialists execute literal bounded assignments and return
 evidence for Root's judgment.
 
 `Worker.validation` runs the smallest relevant local checks for a delegated
-seam, classifies failures, and returns evidence without redesigning the
-solution or replacing required code review.
+seam, including builds, caches, generated test state, and other workspace
+proof work when needed. It may write that generated or cached state, but it
+cannot change the implementation under validation, redesign the solution, or
+replace required code review. `Worker.debugging` reproduces a defect, captures
+the evidence-backed root cause, makes the narrow repair, and proves the
+regression is gone; material redesign returns to Root.
 
 The native specialist inventory is fixed. Each identity below has one
 HolyCodex-owned TOML at `<CODEX_HOME>/holycodex/agents/<Role.task>.toml` and
 one Codex registration at `agents."<Role.task>"` in `config.toml`:
 
-| Canonical identity      | Capability boundary                                  |
-| ----------------------- | ---------------------------------------------------- |
-| `Explorer.lookup`       | Read-only repository fact finding                    |
-| `Explorer.trace`        | Read-only repository path tracing                    |
-| `Librarian.lookup`      | Current-fact lookup with no repository mutation      |
-| `Librarian.research`    | Current sourced research with no repository mutation |
-| `Worker.mechanical`     | Bounded deterministic implementation                 |
-| `Worker.implementation` | Bounded behavior implementation                      |
-| `Worker.integration`    | Bounded seam integration                             |
-| `Worker.operations`     | Exact-ref/SHA-bounded CI or release observation      |
-| `Reviewer.plan`         | Bounded plan inspection                              |
-| `Reviewer.code`         | Bounded code inspection and repair                   |
-| `Reviewer.artifact`     | Bounded artifact inspection and repair               |
+| Canonical identity      | Capability boundary                                    |
+| ----------------------- | ------------------------------------------------------ |
+| `Explorer.lookup`       | Read-only repository fact finding                      |
+| `Explorer.trace`        | Read-only repository path tracing                      |
+| `Librarian.lookup`      | Current-fact lookup with no repository mutation        |
+| `Librarian.research`    | Current sourced research with no repository mutation   |
+| `Worker.mechanical`     | Bounded deterministic implementation                   |
+| `Worker.implementation` | Bounded behavior implementation                        |
+| `Worker.integration`    | Bounded seam integration                               |
+| `Worker.operations`     | Exact-ref/SHA-bounded CI or release observation        |
+| `Worker.validation`     | Local behavioral proof with no implementation mutation |
+| `Worker.debugging`      | Reproducible defect repair and regression proof        |
+| `Reviewer.plan`         | Bounded plan inspection                                |
+| `Reviewer.code`         | Bounded code inspection and repair                     |
+| `Reviewer.artifact`     | Bounded artifact inspection and repair                 |
 
 The canonical identity is `{Role}.{task}` throughout domain values, files,
 registrations, installation ownership, migration, removal, and diagnostics.
 Root is the parent Codex session configured in `config.toml`; it is never a
 spawnable leaf and HolyCodex never creates or registers `agents/root.toml`.
-The role profile owns authority and capability boundaries; the task skill owns
-branch-specific procedure; a delegation prompt supplies assignment facts.
+The concrete `Role.task` policy owns authority and capability boundaries; the
+task skill owns branch-specific procedure; a delegation prompt supplies
+assignment facts.
 Native leaf profiles disable delegation features, so leaves do not spawn or
 message peers.
 
@@ -73,11 +80,12 @@ Intent or Plan. A passing `Reviewer.code` fixed-point review is mandatory after
 implementation or a major codebase change and before completion or any VCS
 operation.
 
-The surgical-mutation rule in `AGENTS.md` is the single instruction-level
-source for Root and write-capable specialist mutations: make the smallest
-complete edit set within the authorized boundary, preserve unrelated work, and
-stop for Root input before expanding scope. Generated role profiles and task
-skills project that rule; they must not create a weaker or competing variant.
+The canonical core `SURGICAL_MUTATION_RULE` is the single instruction-level
+source for source-mutating specialist tasks: make the smallest complete edit
+set within the authorized boundary, preserve unrelated work, and stop for Root
+input before expanding scope. Generated role profiles project that rule only
+for source-mutating tasks; task skills supply procedure. Read-only and
+observational tasks receive a literal no-source-mutation boundary.
 
 ## Profiles and tiers
 
@@ -98,6 +106,8 @@ Every specialist uses the exact model `gpt-5.6-luna` with this route matrix:
 | Worker.implementation | Luna / high   | Luna / xhigh   | Luna / max    |
 | Worker.integration    | Luna / max    | Luna / max     | Luna / max    |
 | Worker.operations     | Luna / high   | Luna / high    | Luna / xhigh  |
+| Worker.validation     | Luna / medium | Luna / high    | Luna / xhigh  |
+| Worker.debugging      | Luna / high   | Luna / xhigh   | Luna / max    |
 | Reviewer.plan         | Luna / high   | Luna / xhigh   | Luna / max    |
 | Reviewer.code         | Luna / max    | Luna / max     | Luna / max    |
 | Reviewer.artifact     | Luna / high   | Luna / xhigh   | Luna / max    |
@@ -135,7 +145,10 @@ Doctor reports the observed official identity. If verification cannot confirm
 the selected capability, installation fails with a classified denial or
 integrity error and does not claim success. The default selections are
 frontend and Security; Work and Computer Use are disabled unless selected.
-No unapproved fallback is installed or used.
+GUI, browser, and Computer Use are Root/session-only. When Computer Use is
+selected, Root may execute it directly; otherwise it is unavailable and is
+never represented as delegateable work or a delegation fallback. No
+unapproved fallback is installed or used.
 
 ## Intent work state
 
@@ -159,7 +172,7 @@ state. `remove` verifies ownership and removes that configuration and the
 corresponding native HolyCodex plugin state without touching unrelated Codex
 state.
 
-`doctor` compares effective `config.toml`, all eleven canonical registrations
+`doctor` compares effective `config.toml`, all canonical registrations
 and files, selected capability health, ownership, stale HolyCodex legacy Root
 files, and any preparing or conflicted transaction. It reports the observed
 official plugin identity and actionable drift details rather than treating an
@@ -171,7 +184,8 @@ uncertain external state produces a structured failure and does not claim
 success.
 
 HolyCodex manages the canonical scalar `features.context_management` and sets
-it to `true` because Codex does not enable it by default. Upgrade migrates
+it to `true` for Root and every generated Luna leaf because Codex does not
+enable it by default. Upgrade migrates
 owned historical `features.context_management.experimental_mode` state to the
 scalar key, retaining unrelated settings only when the ownership evidence is
 safe. The normal managed-key ownership rules preserve user edits and restore

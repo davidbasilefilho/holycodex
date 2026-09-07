@@ -36,7 +36,7 @@ success. The default selections are Frontend and Security; Work and Computer
 Use remain disabled unless selected.
 
 Root's selected Astra model, reasoning effort, service tier, compact developer
-instructions, required feature flags, and eleven canonical leaf registrations
+instructions, required feature flags, and every canonical leaf registration
 are managed in `config.toml`. The parent session is Root; HolyCodex never
 creates or registers `agents/root.toml`. Native leaf profiles encode
 `standard` as `service_tier = "default"`; `fast` keeps Root on `default` and
@@ -51,8 +51,9 @@ effort. Sol, Terra, and Go are migration-only historical values.
 
 With `--computer-use`, the official Computer Use capability is installed and
 Root receives the conditional Root-only interactive execution directive. The
-directive is absent without that option, and native configuration withholds
-the capability from leaves where supported.
+directive is absent without that option and the capability is unavailable; it
+is never represented as delegateable work or a delegation fallback. Native
+configuration withholds GUI, browser, and Computer Use from every leaf.
 
 Official OpenAI plugin health accepts the allowlisted `openai-curated` and
 `openai-curated-remote` identities for build-web-apps and codex-security. An

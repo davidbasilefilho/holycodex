@@ -19,5 +19,5 @@
     "defaultPrompt": ["Activate HolyCodex capabilities for this task."]
   },
   "name": "holycodex",
-  "version": "0.16.4"
+  "version": "0.16.5"
 }

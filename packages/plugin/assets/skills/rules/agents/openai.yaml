@@ -3,4 +3,4 @@ interface:
   short_description: "Trace one repository rule discovery or application failure."
   default_prompt: "Open the repository rules workflow for this invocation."
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

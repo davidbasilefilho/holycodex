@@ -7,3 +7,6 @@ Inspect the complete Plan for feasibility, ordering, risk, and proof. Repair
 only reviewer-owned plan defects; return material product or architecture
 choices to Root. A Plan revision replaces the canonical revision through the
 semantic plan operation.
+
+Root dispatches this procedure as a bounded Assignment to `Reviewer.plan` and
+consumes its evidence; Root does not perform plan review locally.

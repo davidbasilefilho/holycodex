@@ -49,6 +49,7 @@ import {
   isKnownLegacyRootRoleContent,
   projectNativeAgents,
   projectRootAgent,
+  nativeAgentSandboxMode,
   removeManagedNativeAgents,
   rollbackNativeAgentInstall,
   rootDeveloperInstructions,
@@ -1305,13 +1306,14 @@ export async function verifyEffectiveInstall(
       typeof roleDoc["model_reasoning_effort"] !== "string" ||
       typeof roleDoc["service_tier"] !== "string" ||
       typeof roleDoc["developer_instructions"] !== "string" ||
-      roleDoc["sandbox_mode"] !== (agent.permissions.write ? "workspace-write" : "read-only") ||
+      roleDoc["sandbox_mode"] !== nativeAgentSandboxMode(agent) ||
       roleDoc["approval_policy"] !== "never" ||
       roleDoc["web_search"] !== (agent.permissions.network ? "live" : "disabled") ||
       roleDoc["tool_output_token_limit"] !== undefined ||
       readTomlPath(roleDoc, "agents.enabled") !== false ||
       readTomlPath(roleDoc, "features.multi_agent_v2") !== false ||
       readTomlPath(roleDoc, "features.multi_agent") !== false ||
+      readTomlPath(roleDoc, "features.context_management") !== true ||
       readTomlPath(roleDoc, "features.computer_use") !== false ||
       readTomlPath(roleDoc, "features.browser_use") !== false ||
       readTomlPath(roleDoc, "features.in_app_browser") !== false

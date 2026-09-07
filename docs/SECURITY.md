@@ -30,13 +30,15 @@ an explicit denial or classified failure.
    selected at install. Native subagents cannot turn their mechanics into
    permission.
 3. Native role profiles enforce the supported capability boundary: Explorer is
-   repository read-only; Librarian is current-research read-only with live
-   web access; Worker is bounded workspace-write with network disabled for
-   mechanical, implementation, and integration tasks, while only
-   `Worker.operations` receives the minimum live access needed to observe
-   Root-supplied exact-ref/SHA CI or release state; and Reviewer is bounded
-   inspection/repair without network access. Native leaf delegation features
-   are disabled, so leaves cannot spawn or message peers.
+   repository read-only; Librarian is current-research read-only with live web
+   access; Worker task permissions are specific, with source mutation only on
+   authorized implementation routes, observational `Worker.operations` limited
+   to Root-supplied exact-ref/SHA network evidence, `Worker.validation` allowed
+   to write proof artifacts and caches without changing the implementation
+   under validation, and `Worker.debugging` limited to bounded defect repair;
+   `Reviewer.plan` is observational and source-read-only, while other review
+   tasks receive only their declared repair authority. Native leaf delegation
+   features are disabled, so leaves cannot spawn or message peers.
 4. Explorer, Librarian, Worker, and Reviewer receive literal bounded
    Assignments. Their outputs remain untrusted until Root validates and
    integrates them. Reviewers cannot silently expand a changed surface.
@@ -56,8 +58,9 @@ an explicit denial or classified failure.
    denied.
 10. Computer Use is enabled only when selected. Its interactive GUI, browser,
     and Computer Use execution directive is conditional on Root and the
-    capability is withheld from leaves by native configuration where supported;
-    the directive is absent when the capability is disabled.
+    capability is withheld from leaves by native configuration; the capability
+    is unavailable, never delegateable, and has no delegation fallback when
+    disabled.
 11. After integration, Root performs the VCS action and delegates exact-ref/SHA
     terminal CI or release observation. The observer is read-only; pending is
     never success. Root delegates any failure fix and repeats the cycle, and

@@ -48,9 +48,16 @@ export type ServiceTier = typeof ServiceTierSchema.Type;
 export const EffortSchema = Schema.Literal("low", "medium", "high", "xhigh", "max");
 export type Effort = typeof EffortSchema.Type;
 
-/** Canonical mutation-minimization rule projected into Root and write-capable profiles. */
+/** Canonical mutation-minimization rule projected into source-mutating task profiles. */
 export const SURGICAL_MUTATION_RULE =
   "Make the smallest complete edit set within the authorized boundary, touch no unrelated paths, avoid speculative refactors or formatting churn, and perform no redundant writes or operations; preserve unrelated work and stop for Root input before expanding scope.";
+
+/** Literal boundary for specialist tasks that may inspect or prove work but cannot mutate source. */
+export const NO_SOURCE_MUTATION_RULE =
+  "Do not modify repository source or the implementation under validation; observation, analysis, and proof artifacts only.";
+
+export const FILESYSTEM_ACCESS_SCHEMA = Schema.Literal("read-only", "workspace-write");
+export type FilesystemAccess = typeof FILESYSTEM_ACCESS_SCHEMA.Type;
 
 export const ROLE_DEFINITIONS = [
   {
@@ -59,12 +66,14 @@ export const ROLE_DEFINITIONS = [
       {
         name: "lookup",
         description: "Repository fact lookup specialist.",
-        instruction: "Locate the exact requested repository fact.",
+        instruction: `Locate the exact requested repository fact. ${NO_SOURCE_MUTATION_RULE}`,
+        permissions: { network: false, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "trace",
         description: "Repository execution and reference tracing specialist.",
-        instruction: "Trace the complete in-scope execution or reference path.",
+        instruction: `Trace the complete in-scope execution or reference path. ${NO_SOURCE_MUTATION_RULE}`,
+        permissions: { network: false, filesystem: "read-only", sourceMutation: false },
       },
     ],
     capability: "repository-read",
@@ -72,7 +81,8 @@ export const ROLE_DEFINITIONS = [
       "Read only the delegated Assignment repository scope; Git/VCS, lifecycle, and decisions remain Root-only.",
     evidence: "Return exact paths, symbols, callers, tests, and constraints.",
     completion: "Account for every in-scope caller and constraint.",
-    permissions: { network: false, write: false },
+    // Role defaults are deliberately non-mutating; task permissions below are authoritative.
+    permissions: { network: false, filesystem: "read-only", sourceMutation: false },
   },
   {
     role: "Librarian",
@@ -80,12 +90,14 @@ export const ROLE_DEFINITIONS = [
       {
         name: "lookup",
         description: "Authoritative external fact lookup specialist.",
-        instruction: "Locate the exact requested authoritative external fact.",
+        instruction: `Locate the exact requested authoritative external fact. ${NO_SOURCE_MUTATION_RULE}`,
+        permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "research",
         description: "Current authoritative-source research specialist.",
-        instruction: "Synthesize the assigned current sources with citations.",
+        instruction: `Synthesize the assigned current sources with citations. ${NO_SOURCE_MUTATION_RULE}`,
+        permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
     ],
     capability: "current-research",
@@ -93,7 +105,8 @@ export const ROLE_DEFINITIONS = [
       "Research only the delegated Assignment current sources without repository mutation; Git/VCS, lifecycle, and decisions remain Root-only.",
     evidence: "Return sourced facts, dates, and explicit uncertainty.",
     completion: "Resolve the assigned external fact or report the exact evidence gap.",
-    permissions: { network: true, write: false },
+    // Role defaults are deliberately non-mutating; task permissions below are authoritative.
+    permissions: { network: false, filesystem: "read-only", sourceMutation: false },
   },
   {
     role: "Worker",
@@ -102,36 +115,48 @@ export const ROLE_DEFINITIONS = [
         name: "mechanical",
         description: "Deterministic bounded-edit specialist.",
         instruction: "Apply only deterministic, already-decided edits.",
+        permissions: { network: false, filesystem: "workspace-write", sourceMutation: true },
       },
       {
         name: "implementation",
         description: "Bounded behavior implementation specialist.",
         instruction: "Implement and verify the bounded behavior seam.",
+        permissions: { network: false, filesystem: "workspace-write", sourceMutation: true },
       },
       {
         name: "integration",
         description: "Decided seam integration specialist.",
         instruction: "Integrate the decided seams and verify them together.",
+        permissions: { network: false, filesystem: "workspace-write", sourceMutation: true },
       },
       {
         name: "operations",
         description: "Exact-ref or SHA terminal operations observer.",
-        instruction: "Observe the assigned post-VCS external gate.",
+        instruction: `Observe the assigned post-VCS external gate at the supplied exact ref or SHA. ${NO_SOURCE_MUTATION_RULE}`,
+        permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "validation",
         description: "Independent local behavioral validation specialist.",
+        instruction: `When independent proof is useful, run the smallest relevant local checks for the delegated seam, classify failures, and report evidence without redesigning the solution or replacing code review. ${NO_SOURCE_MUTATION_RULE}`,
+        permissions: { network: false, filesystem: "workspace-write", sourceMutation: false },
+      },
+      {
+        name: "debugging",
+        description: "Reproducible bounded defect-repair specialist.",
         instruction:
-          "When independent proof is useful, run the smallest relevant local checks for the delegated seam, classify failures, and report evidence without redesigning the solution or replacing code review.",
+          "Establish the failure reproducibly, identify the evidence-backed root cause, make the narrow bounded repair, and prove the regression is gone; return material redesigns to Root.",
+        permissions: { network: false, filesystem: "workspace-write", sourceMutation: true },
       },
     ],
-    capability: "bounded-write",
+    capability: "task-scoped-assignment",
     authority:
-      "Change only the delegated Assignment seam; Intent lifecycle, Git/VCS, and material choices remain Root-only.",
+      "Concrete task permissions govern observation, proof writes, or source repair within the delegated Assignment; no role-level source-mutation authority is granted. Intent lifecycle, Git/VCS, and material choices remain Root-only.",
     evidence: "Return changed files, verification results, and remaining risk.",
     completion:
       "Finish the delegated Assignment with proportional proof or an exact blocker and return a compact structured outcome.",
-    permissions: { network: false, write: true },
+    // Role defaults are deliberately non-mutating; task permissions below are authoritative.
+    permissions: { network: false, filesystem: "read-only", sourceMutation: false },
   },
   {
     role: "Reviewer",
@@ -139,26 +164,31 @@ export const ROLE_DEFINITIONS = [
       {
         name: "plan",
         description: "Adversarial implementation-plan review specialist.",
-        instruction: "Review the complete plan to a fixed point.",
+        instruction: `Review the complete plan to a fixed point. ${NO_SOURCE_MUTATION_RULE}`,
+        permissions: { network: false, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "code",
         description: "Adversarial implemented-code review specialist.",
-        instruction: "Review and repair the implemented code to a fixed point.",
+        instruction:
+          "Review and repair the implemented code to a fixed point. The acceptance contract covers correctness, safety, compatibility, mergeability, clarity, simplicity, cohesion, idiomaticity, appropriate abstraction, accidental complexity, duplication, unnecessary files or file splitting, speculative abstraction, test quality, and generated-artifact hygiene. Prefer simple cohesive code over clever or over-engineered code.",
+        permissions: { network: false, filesystem: "workspace-write", sourceMutation: true },
       },
       {
         name: "artifact",
         description: "Adversarial produced-artifact review specialist.",
         instruction: "Review and repair the produced artifact to a fixed point.",
+        permissions: { network: false, filesystem: "workspace-write", sourceMutation: true },
       },
     ],
-    capability: "bounded-review",
+    capability: "task-scoped-review",
     authority:
-      "Inspect and repair only reviewer-owned defects within the delegated Assignment; Intent lifecycle, Git/VCS, and material choices remain Root-only.",
+      "Concrete task permissions govern observational review or bounded repair within the delegated Assignment; no role-level source-mutation authority is granted. Intent lifecycle, Git/VCS, and material choices remain Root-only.",
     evidence: "Return findings, repaired paths, verification, and residual risk.",
     completion:
       "Reach a fixed point or report each reproducible blocker as a compact structured outcome.",
-    permissions: { network: false, write: true },
+    // Role defaults are deliberately non-mutating; task permissions below are authoritative.
+    permissions: { network: false, filesystem: "read-only", sourceMutation: false },
   },
 ] as const;
 freezeDeep(ROLE_DEFINITIONS);
@@ -289,7 +319,10 @@ export function lookupRoleDefinition(role: Role): RoleDefinition {
 /** Effective least-privilege permissions for one concrete specialist task. */
 export interface SpecialistTaskPermissions {
   readonly network: boolean;
-  readonly write: boolean;
+  /** Native sandbox/filesystem access; this does not imply source-mutation authority. */
+  readonly filesystem: FilesystemAccess;
+  /** Whether this concrete task may change repository source or implementation files. */
+  readonly sourceMutation: boolean;
   /** Restricts enabled network access to the declared source boundary. */
   readonly networkScope: "disabled" | "current_sources" | "exact_ref_or_sha";
 }
@@ -303,15 +336,18 @@ export interface SpecialistTaskPermissions {
  */
 export function taskPermissionsFor(route: RoleTask): SpecialistTaskPermissions {
   const role = lookupRoleDefinition(route.role);
+  const task = role.tasks.find((candidate) => candidate.name === route.task);
+  if (task === undefined) throw new Error("Unknown specialist task policy.");
   const networkScope =
     route.role === "Worker" && route.task === "operations"
       ? "exact_ref_or_sha"
-      : role.permissions.network
+      : task.permissions.network
         ? "current_sources"
         : "disabled";
   return Object.freeze({
-    network: networkScope !== "disabled",
-    write: role.permissions.write,
+    network: task.permissions.network,
+    filesystem: task.permissions.filesystem,
+    sourceMutation: task.permissions.sourceMutation,
     networkScope,
   });
 }
@@ -344,6 +380,10 @@ export type ProfileSelection = typeof ProfileSelectionSchema.Type;
 /** Direct execution exceptions that do not require a delegated Assignment. */
 export const RootDirectExecutionExceptionSchema = Schema.Literal("git_vcs", "computer_use");
 export type RootDirectExecutionException = typeof RootDirectExecutionExceptionSchema.Type;
+
+/** Effective authority for a Root work unit, including unavailable capabilities. */
+export const RootExecutionStateSchema = Schema.Literal("delegated", "root_direct", "unavailable");
+export type RootExecutionState = typeof RootExecutionStateSchema.Type;
 
 /**
  * Durable Root orchestration contract shared by runtime projections and proofs. Every task is
@@ -382,13 +422,24 @@ export function rootDirectExecutionAllowed(
   exception: RootDirectExecutionException,
   computerUseEnabled = false,
 ): boolean {
-  return exception === "git_vcs" || (exception === "computer_use" && computerUseEnabled);
+  // This predicate only answers the direct case; `false` also covers unavailable.
+  return rootExecutionState(exception, computerUseEnabled) === "root_direct";
 }
 
-/** Returns whether a unit of work must be represented by a delegated Assignment. */
-export function rootDelegationRequired(
+/**
+ * Resolve direct, delegated, and unavailable states without conflating disabled capability with
+ * delegation.
+ */
+export function rootExecutionState(
   exception?: RootDirectExecutionException,
   computerUseEnabled = false,
-): boolean {
-  return exception === undefined || !rootDirectExecutionAllowed(exception, computerUseEnabled);
+): RootExecutionState {
+  switch (exception) {
+    case "git_vcs":
+      return "root_direct";
+    case "computer_use":
+      return computerUseEnabled ? "root_direct" : "unavailable";
+    default:
+      return "delegated";
+  }
 }

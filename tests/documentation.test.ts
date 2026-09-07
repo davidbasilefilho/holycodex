@@ -5,6 +5,8 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { NATIVE_AGENT_TYPES } from "../packages/core/src/routes.ts";
+
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 describe("documentation invariants", () => {
   test("keeps every local Markdown link resolvable", async () => {
@@ -74,7 +76,48 @@ describe("documentation invariants", () => {
     expect(configuration).toMatch(/installation\s+profile approval/u);
     expect(installation).toContain("Legacy `go`");
   });
+
+  test("keeps the prose specialist inventory aligned with canonical routes", async () => {
+    const [behavior, readme, installation] = await Promise.all([
+      readFile(resolve(workspaceRoot, "docs/BEHAVIOR.md"), "utf8"),
+      readFile(resolve(workspaceRoot, "README.md"), "utf8"),
+      readFile(resolve(workspaceRoot, "docs/INSTALLATION.md"), "utf8"),
+    ]);
+    const inventoryStart = behavior.indexOf("| Canonical identity");
+    const inventoryEnd = behavior.indexOf("The canonical identity is", inventoryStart);
+    expect(inventoryStart).toBeGreaterThanOrEqual(0);
+    expect(inventoryEnd).toBeGreaterThan(inventoryStart);
+    const inventory = behavior.slice(inventoryStart, inventoryEnd);
+    const documented = [...inventory.matchAll(/^\| `([^`]+)`/gmu)].map((match) => match[1]);
+    expect(new Set(documented)).toEqual(new Set(NATIVE_AGENT_TYPES));
+    expect(documented).toHaveLength(NATIVE_AGENT_TYPES.length);
+    expect(extractRouteInventory(readme, "The native surface", "Root is")).toEqual(
+      new Set(NATIVE_AGENT_TYPES),
+    );
+    expect(
+      extractRouteInventory(installation, "HolyCodex installs one native leaf", "Root is"),
+    ).toEqual(new Set(NATIVE_AGENT_TYPES));
+    expect(readme).not.toMatch(/eleven canonical/u);
+    expect(installation).not.toMatch(/eleven (?:canonical )?leaf/u);
+  });
 });
+
+function extractRouteInventory(
+  content: string,
+  startMarker: string,
+  endMarker: string,
+): Set<string> {
+  const start = content.indexOf(startMarker);
+  const end = content.indexOf(endMarker, start + startMarker.length);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const section = content.slice(start, end);
+  return new Set(
+    [...section.matchAll(/`((?:Explorer|Librarian|Worker|Reviewer)\.[a-z]+)`/gu)].map(
+      (match) => match[1]!,
+    ),
+  );
+}
 
 async function listMarkdownFiles(directory: string, prefix = ""): Promise<readonly string[]> {
   const files: string[] = [];

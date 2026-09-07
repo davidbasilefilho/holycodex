@@ -7,8 +7,9 @@ settings, or maintain a second activation registry.
 HolyCodex installs one native leaf for each canonical identity:
 `Explorer.lookup`, `Explorer.trace`, `Librarian.lookup`,
 `Librarian.research`, `Worker.mechanical`, `Worker.implementation`,
-`Worker.integration`, `Worker.operations`, `Reviewer.plan`, `Reviewer.code`,
-and `Reviewer.artifact`. Each leaf has one TOML under
+`Worker.integration`, `Worker.operations`, `Worker.validation`,
+`Worker.debugging`, `Reviewer.plan`, `Reviewer.code`, and `Reviewer.artifact`.
+Each leaf has one TOML under
 `<CODEX_HOME>/holycodex/agents/` and one `config.toml` registration. Root is
 the parent session configured in `config.toml`; `agents/root.toml` is never
 created or registered. Migration and removal may delete only a known,
@@ -50,17 +51,20 @@ selected set. Failed installs leave a recoverable transaction; retrying
 reconciles it before publishing new state.
 
 Root's selected model, reasoning effort, service tier, developer instructions,
-required feature flags, and the eleven leaf registrations converge in
+required feature flags, and every canonical leaf registration converge in
 `<CODEX_HOME>/config.toml`. With `--computer-use`, the official capability is
 enabled, and Root receives the conditional directive that interactive GUI,
 browser, and Computer Use execution is Root-only. Without that option, the
-directive is absent and leaves retain the native capability restriction.
+directive is absent and the capability is unavailable; it is never represented
+as delegateable work or a delegation fallback. Leaves never receive GUI,
+browser, or Computer Use access.
 
 The live root/session model is `gpt-6-astra` at low, medium, or high
 reasoning for the selected profile. Specialists use `gpt-5.6-luna` with the
 task effort matrix in [BEHAVIOR.md](BEHAVIOR.md). HolyCodex manages the
-canonical scalar `features.context_management` and sets it to `true` because
-Codex does not enable it by default. Upgrade migrates owned historical
+canonical scalar `features.context_management` and sets it to `true` for Root
+and every generated Luna leaf because Codex does not enable it by default.
+Upgrade migrates owned historical
 `features.context_management.experimental_mode` state to the scalar key;
 removal restores the recorded prior value when unchanged.
 

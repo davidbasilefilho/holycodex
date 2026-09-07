@@ -50,7 +50,8 @@ its native plugin files and marketplace state; HolyCodex does not copy or
 reinterpret those files.
 
 The managed runtime projection is Root in `config.toml` plus one
-`{Role}.{task}` TOML and registration for each of the eleven canonical leaves.
+`{Role}.{task}` TOML and registration for each canonical leaf in
+`NATIVE_AGENT_TYPES`.
 There is no managed Root agent file. Preparing and conflicted records remain
 diagnosable until install recovery or an ownership-safe removal resolves them;
 they are not reported as active success.

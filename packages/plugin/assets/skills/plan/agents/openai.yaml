@@ -3,4 +3,4 @@ interface:
   short_description: "Resolve material scope and architecture choices before work."
   default_prompt: "Open the planning workflow for this invocation."
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

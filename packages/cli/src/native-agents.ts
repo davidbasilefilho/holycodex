@@ -5,7 +5,9 @@ import { join, relative } from "node:path";
 
 import {
   ROLE_DEFINITIONS,
+  NATIVE_AGENT_TYPES,
   ROOT_ORCHESTRATION_POLICY,
+  SURGICAL_MUTATION_RULE,
   lookupProfile,
   nativeAgentTypeFor,
   taskDescriptionFor,
@@ -41,7 +43,7 @@ export type RootAgentProjection = Readonly<{
 }>;
 
 const LUNA_BASELINE_POLICY =
-  "You are a HolyCodex GPT-5.6 Luna specialist executing one active bounded Assignment. Follow its exact boundary, exclusions, acceptance criteria, and evidence requirements. Make the smallest complete edit set within that boundary, preserve unrelated work, and perform no redundant writes. Do not delegate, message peers, mutate global Intent lifecycle, make material decisions, or perform Git/VCS. Return exactly one compact outcome (`completed`, `blocked`, `needs_root_input`, or `failed`) with changed paths, checks, observable evidence, blockers, and remaining risk.";
+  "You are a HolyCodex GPT-5.6 Luna specialist executing one active bounded Assignment. Follow its exact boundary, exclusions, acceptance criteria, and evidence requirements. Preserve unrelated work and perform no redundant operations. Do not delegate, message peers, mutate global Intent lifecycle, make material decisions, or perform Git/VCS. Repository source mutation is governed only by the concrete task contract; workspace writes for caches, generated test state, and proof outputs do not grant source-mutation authority. Return exactly one compact outcome (`completed`, `blocked`, `needs_root_input`, or `failed`) with changed paths, checks, observable evidence, blockers, and remaining risk.";
 
 export interface NativeAgentInstallResult {
   readonly managed_artifacts: readonly ManagedArtifact[];
@@ -111,9 +113,8 @@ export function rootDeveloperInstructions(computerUse = false): string {
   }
   const instructions = [
     "You are the HolyCodex Root/session orchestrator running gpt-6-astra. Own the user goal, acceptance, material product or architecture choices, lifecycle, integration, external effects, and final completion.",
-    "Represent every specialist work unit, including trivial work, with one active bounded Assignment and dispatch it to the native Explorer, Librarian, Worker, or Reviewer route. Small work may use one Assignment. Git/VCS is Root-only; Computer Use is Root-only only when --computer-use was selected. Do the underlying implementation, research, testing, review, and CI observation through specialists.",
+    "Represent every specialist work unit, including repository discovery, source inspection, fact finding, and trivial work, with one active bounded Assignment. For repository implementation, research, testing, review, CI observation, or inspecting source/tests/docs/generated artifacts, Root's first action is to create and start that Assignment and dispatch the native Explorer, Librarian, Worker, or Reviewer route before inspecting anything itself. Root may inspect only returned evidence for integration acceptance. Small work may use one Assignment. Git/VCS, GUI, and browser execution are Root-only. Do the underlying repository implementation, research, testing, review, and CI observation through specialists.",
     "Use holycodex-agent semantic operations for Intent, optional Plan, and Assignment state. Never edit TOON state or create standalone handoff, Decision, or blocker files.",
-    `Surgical mutation rule: ${ROOT_ORCHESTRATION_POLICY.surgicalMutationRule}`,
     "Infer routine safe choices and keep moving. Finish authorized read-only, reversible, preparatory, and independent work before asking. Use request_user_input only for a material unresolved choice, an explicit approval boundary such as plan approval, installation profile approval, remote/origin/server VCS mutation, or public publication/release, or a genuine blocker that can change the outcome, and persist the resulting needs_root_input state.",
     "Dispatch independent non-overlapping Assignments concurrently when useful, keep dependent phases ordered, and serialize writes to one mutable seam. Use writing-for-agents to author compact Luna contracts without repeating effective receiver instructions.",
     "For complex work, make each phase a coherent dependency, decision, or integration boundary. Resolve only choices needed by the current phase, persist its Plan and Assignment evidence, and advance after acceptance; do not ask later-phase questions prematurely.",
@@ -122,11 +123,11 @@ export function rootDeveloperInstructions(computerUse = false): string {
   ];
   if (computerUse) {
     instructions.push(
-      "Interactive GUI, browser, and Computer Use execution is Root-only and must not be delegated.",
+      "Computer Use is selected and is directly executable by Root/session only; it must not be delegated.",
     );
   } else {
     instructions.push(
-      "Computer Use is not selected for this installation; delegate GUI, browser, and Computer Use execution to an appropriate bounded specialist.",
+      "Computer Use is unavailable for this installation and cannot be delegated. GUI and browser execution remain Root/session-only.",
     );
   }
   return instructions.join("\n");
@@ -310,7 +311,14 @@ export async function removeManagedNativeAgents(
 
 /** Render one canonical native specialist profile as Codex TOML. */
 export function renderNativeAgent(agent: NativeAgentProjection): string {
-  const instructions = [LUNA_BASELINE_POLICY, agent.taskInstruction].join("\n");
+  const instructions = [
+    LUNA_BASELINE_POLICY,
+    agent.taskInstruction,
+    ...(agent.permissions.sourceMutation
+      ? [`Surgical mutation rule: ${SURGICAL_MUTATION_RULE}`]
+      : []),
+  ].join("\n");
+  const sandboxMode = nativeAgentSandboxMode(agent);
   return [
     `name = ${JSON.stringify(agent.name)}`,
     `description = ${JSON.stringify(agent.description)}`,
@@ -319,7 +327,7 @@ export function renderNativeAgent(agent: NativeAgentProjection): string {
     `service_tier = ${JSON.stringify(agent.serviceTier)}`,
     'model_reasoning_summary = "none"',
     'model_verbosity = "low"',
-    `sandbox_mode = ${JSON.stringify(agent.permissions.write ? "workspace-write" : "read-only")}`,
+    `sandbox_mode = ${JSON.stringify(sandboxMode)}`,
     'approval_policy = "never"',
     `web_search = ${JSON.stringify(agent.permissions.network ? "live" : "disabled")}`,
     `developer_instructions = ${JSON.stringify(instructions)}`,
@@ -329,6 +337,7 @@ export function renderNativeAgent(agent: NativeAgentProjection): string {
     "interrupt_message = false",
     "",
     "[features]",
+    "context_management = true",
     "multi_agent_v2 = false",
     "multi_agent = false",
     "computer_use = false",
@@ -336,6 +345,13 @@ export function renderNativeAgent(agent: NativeAgentProjection): string {
     "in_app_browser = false",
     "",
   ].join("\n");
+}
+
+/** Return the Codex sandbox mode for a concrete task, including proof-only writable tasks. */
+export function nativeAgentSandboxMode(
+  agent: NativeAgentProjection,
+): "workspace-write" | "read-only" {
+  return agent.permissions.filesystem === "workspace-write" ? "workspace-write" : "read-only";
 }
 
 function renderHistoricalRootAgent(
@@ -384,15 +400,19 @@ function isKnownLegacyNativePath(
   relativePath: string,
 ): boolean {
   if (relativePath === "agents/root.toml") return true;
-  if (/^holycodex\/agents\/(?:explorer|librarian|worker|reviewer)\.toml$/u.test(relativePath)) {
+  if (
+    ROLE_DEFINITIONS.some(
+      (definition) => relativePath === `holycodex/agents/${definition.role.toLowerCase()}.toml`,
+    )
+  ) {
     return true;
   }
-  return (
-    pathWithin(join(codexHome, "agents"), absolute) &&
-    /^(?:Explorer|Librarian|Worker|Reviewer)\.(?:lookup|trace|research|mechanical|implementation|integration|operations|plan|code|artifact)\.toml$/u.test(
-      relativePath.slice("agents/".length),
-    )
-  );
+  if (!pathWithin(join(codexHome, "agents"), absolute)) return false;
+  return NATIVE_AGENT_TYPES.some((agentType) => {
+    const [role, task] = agentType.split(".");
+    const legacyName = `${role![0]!.toUpperCase()}${role!.slice(1)}.${task}.toml`;
+    return relativePath === `agents/${legacyName}`;
+  });
 }
 
 async function removeLegacyRootIfOwned(path: string): Promise<"removed" | "preserved" | "absent"> {

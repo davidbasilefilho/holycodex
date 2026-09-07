@@ -21,24 +21,28 @@ and cannot write configuration.
 ## Native runtime projection
 
 The managed projection writes Root's selected model, reasoning effort, service
-tier, compact `developer_instructions`, required feature flags, and all eleven
-canonical `agents."{Role}.{task}".config_file` registrations into
+tier, compact `developer_instructions`, required feature flags, and every
+canonical `agents."{Role}.{task}".config_file` registration into
 `<CODEX_HOME>/config.toml`. Root is the parent session in that file; no
 `agents/root.toml` is generated or registered. Leaf TOMLs live under
 `<CODEX_HOME>/holycodex/agents/` and use native controls for their model,
 reasoning effort, service tier, sandbox, approval, network, and delegation
-features. Worker network access is disabled for mechanical, implementation, and
-integration tasks; only `Worker.operations` uses live access, and its task
-contract requires a Root-supplied exact ref/SHA. Generated leaves do not set
+features. Task permissions are specific: observational `Worker.operations` has
+exact-ref/SHA network access without repository/source mutation;
+`Reviewer.plan` is observational and source-read-only; `Worker.validation` may
+write caches, build output, and generated test state while retaining no
+authority to change the implementation under validation; and
+`Worker.debugging` is the bounded repair route. Generated leaves do not set
 `tool_output_token_limit`.
 
-The role profile is the authority source. A task skill supplies branch-specific
-workflow, while a delegation prompt supplies assignment facts. Runtime flags
-enforce hard capability boundaries where Codex supports them; prose does not
-stand in for a missing native control.
+The concrete `Role.task` policy is the authority source. A task skill supplies
+branch-specific workflow, while a delegation prompt supplies assignment facts.
+Runtime flags enforce hard capability boundaries where Codex supports them;
+prose does not stand in for a missing native control.
 
 HolyCodex manages the canonical scalar `features.context_management` and
-writes `true` because Codex does not enable it by default. Upgrade migrates
+writes `true` for Root and every generated Luna leaf because Codex does not
+enable it by default. Upgrade migrates
 owned historical `features.context_management.experimental_mode` state to the
 scalar key, preserving unrelated settings; removal restores the recorded prior
 value when the live value is unchanged, while a user edit is preserved and

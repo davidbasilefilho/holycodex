@@ -108,6 +108,25 @@ describe("plugin source assets", () => {
     expect(commit).toContain("exact ref");
     expect(commit).toContain("Reviewer.code fixed-point");
     expect(commit).toContain("request_user_input");
+
+    const programming = await readFile(
+      join(pluginSourceRoot, "skills", "programming", "SKILL.md"),
+      "utf8",
+    );
+    const debugging = await readFile(
+      join(pluginSourceRoot, "skills", "debugging", "SKILL.md"),
+      "utf8",
+    );
+    const review = await readFile(
+      join(pluginSourceRoot, "skills", "code-review", "SKILL.md"),
+      "utf8",
+    );
+    expect(programming).toContain("Worker.implementation");
+    expect(programming).toContain("Root does not implement or test");
+    expect(debugging).toContain("Worker.debugging");
+    expect(debugging).toContain("Root does not reproduce, repair, or test");
+    expect(review).toContain("Reviewer.code");
+    expect(review).toContain("Root does not perform code review or");
   });
 
   test("keeps every write-capable skill Assignment-bounded and outcome-oriented", async () => {

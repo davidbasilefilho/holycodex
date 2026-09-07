@@ -3,4 +3,4 @@ interface:
   short_description: "Implement one decided seam with proportional proof."
   default_prompt: "Open the bounded programming workflow for this invocation."
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

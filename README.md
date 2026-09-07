@@ -61,19 +61,21 @@ Root MUST delegate every task, including trivial work, through a bounded
 Assignment and native specialist. Root retains intent, acceptance, material
 decisions, lifecycle, integration, approvals, and completion. Direct Root
 execution is limited to Git/VCS, plus Computer Use when explicitly selected at
-install. Post-integration CI and release verification are delegated to the
-operations specialist against the exact ref/SHA; pending is not success.
+install. Root delegates repository inspection, implementation, testing,
+review, research, and CI observation through bounded Assignments. Post-
+integration CI and release verification use the operations specialist against
+the exact ref/SHA; pending is not success.
 
 The live root/session route uses `gpt-6-astra` at low, medium, or high
-reasoning for the selected profile. All eleven specialists use
+reasoning for the selected profile. All canonical specialists use
 `gpt-5.6-luna`; their per-task efforts are defined in
 [BEHAVIOR.md](docs/BEHAVIOR.md). Sol, Terra, and Go are retained only in
 explicit migration or cleanup handling for old installations.
 
-The native surface has eleven canonical leaves: `Explorer.lookup`,
+The native surface has one canonical leaf for every route: `Explorer.lookup`,
 `Explorer.trace`, `Librarian.lookup`, `Librarian.research`,
 `Worker.mechanical`, `Worker.implementation`, `Worker.integration`,
-`Worker.operations`, `Reviewer.plan`, `Reviewer.code`, and
+`Worker.operations`, `Worker.validation`, `Worker.debugging`, `Reviewer.plan`, `Reviewer.code`, and
 `Reviewer.artifact`. Each has one TOML and one `config.toml` registration.
 Root is the parent Codex session configured in `config.toml`; HolyCodex never
 creates `agents/root.toml`.

@@ -235,6 +235,10 @@ describe("native installation and removal", () => {
       expect(config).toContain("multi_agent_v2 = true");
       expect(config).toContain("context_management = true");
       expect(config).toContain("You are the HolyCodex Root/session orchestrator");
+      expect(config).toContain(
+        "Computer Use is unavailable for this installation and cannot be delegated",
+      );
+      expect(config).not.toContain("delegate GUI");
       expect(config).not.toContain("Interactive GUI, browser, and Computer Use execution");
       for (const agent of projectNativeAgents("default")) {
         expect(config).toContain(`[agents.${JSON.stringify(agent.name)}]`);
@@ -291,7 +295,9 @@ describe("native installation and removal", () => {
       );
       expect(install.record.official_plugins).toContain("computer-use@openai-bundled");
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
-      expect(config).toContain("Interactive GUI, browser, and Computer Use execution is Root-only");
+      expect(config).toContain(
+        "Computer Use is selected and is directly executable by Root/session only",
+      );
       for (const agent of projectNativeAgents("default")) {
         const leaf = await readFile(
           join(codexHome, "holycodex", "agents", `${agent.name}.toml`),
@@ -919,6 +925,80 @@ describe("native installation and removal", () => {
       expect(upgraded.status).toBe("upgraded");
       expect(upgraded.record?.profile).toBe(initial.record.profile);
       expect(upgraded.record?.tier).toBe(initial.record.tier);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("migrates a pre-debugging native install to every current leaf and preserves ownership", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-upgrade-debugging-"));
+    const codexHome = join(root, "codex");
+    const manager = fakeManager();
+    try {
+      const initial = await installHolyCodex(
+        { optional: { frontend: false, security: false } },
+        { paths: { codexHome }, officialPluginManager: manager },
+      );
+      const paths = resolveInstallerPaths({ paths: { codexHome } });
+      const debugType = "Worker.debugging";
+      const debugArtifact = `holycodex/agents/${debugType}.toml`;
+      const configPath = join(codexHome, "config.toml");
+      const config = await readFile(configPath, "utf8");
+      await writeFile(
+        configPath,
+        config.replace(
+          /\n\[agents\."Worker\.debugging"\]\nconfig_file = "holycodex\/agents\/Worker\.debugging\.toml"\n/u,
+          "\n",
+        ),
+      );
+      await rm(join(codexHome, debugArtifact), { force: true });
+      const managedConfig = initial.record.managed_config!;
+      const managed = Object.fromEntries(
+        Object.entries(managedConfig.managed).filter(
+          ([key]) => key !== `agents."${debugType}".config_file`,
+        ),
+      );
+      const oldRecord = {
+        ...initial.record,
+        version: "0.1.0",
+        managed_artifacts: initial.record.managed_artifacts.filter(
+          (artifact) => artifact.path !== debugArtifact,
+        ),
+        managed_config: { ...managedConfig, managed },
+      };
+      oldRecord.digest = await installRecordDigest({
+        owner: oldRecord.owner,
+        install_id: oldRecord.install_id,
+        version: oldRecord.version,
+        profile: oldRecord.profile,
+        tier: oldRecord.tier,
+        optional_selections: oldRecord.optional_selections,
+        explicit_optional_selections: oldRecord.explicit_optional_selections,
+        official_plugins: oldRecord.official_plugins ?? [],
+        capability_state: oldRecord.capability_state ?? null,
+        managed_artifacts: oldRecord.managed_artifacts,
+        managed_config: oldRecord.managed_config,
+        plugin_config: oldRecord.plugin_config,
+        provider_config: oldRecord.provider_config,
+        plugin_snapshot: oldRecord.plugin_snapshot,
+        owned_plugins: oldRecord.owned_plugins,
+      });
+      await writeFile(paths.activeRecord, `${JSON.stringify(oldRecord)}\n`);
+
+      const upgraded = await upgradeHolyCodex(
+        { paths: { codexHome }, officialPluginManager: manager },
+        {},
+      );
+      expect(upgraded.status).toBe("upgraded");
+      expect(upgraded.record?.managed_artifacts.map((artifact) => artifact.path)).toContain(
+        debugArtifact,
+      );
+      expect(projectNativeAgents("default")).toHaveLength(ROUTE_KEYS.length);
+      const debugging = await readFile(join(codexHome, `${debugArtifact}`), "utf8");
+      expect(debugging).toContain("context_management = true");
+      expect(
+        (await doctorHolyCodex({ paths: { codexHome }, officialPluginManager: manager })).healthy,
+      ).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

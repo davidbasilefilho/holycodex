@@ -33,6 +33,7 @@ import {
   isKnownLegacyRootRoleContent,
   projectNativeAgents,
   renderNativeAgent,
+  nativeAgentSandboxMode,
   removeManagedNativeAgents,
 } from "./native-agents.ts";
 import { CodexOfficialPluginManager } from "./official-manager.ts";
@@ -663,13 +664,13 @@ async function doctorNativeRoles(
         roleDocument["model_verbosity"] !== "low" ||
         roleDocument["tool_output_token_limit"] !== undefined ||
         roleDocument["service_tier"] !== (tier === "standard" ? "default" : "fast") ||
-        roleDocument["sandbox_mode"] !==
-          (agent.permissions.write ? "workspace-write" : "read-only") ||
+        roleDocument["sandbox_mode"] !== nativeAgentSandboxMode(agent) ||
         roleDocument["approval_policy"] !== "never" ||
         roleDocument["web_search"] !== (agent.permissions.network ? "live" : "disabled") ||
         readTomlPath(roleDocument, "agents.enabled") !== false ||
         readTomlPath(roleDocument, "features.multi_agent_v2") !== false ||
         readTomlPath(roleDocument, "features.multi_agent") !== false ||
+        readTomlPath(roleDocument, "features.context_management") !== true ||
         readTomlPath(roleDocument, "features.computer_use") !== false ||
         readTomlPath(roleDocument, "features.browser_use") !== false ||
         readTomlPath(roleDocument, "features.in_app_browser") !== false

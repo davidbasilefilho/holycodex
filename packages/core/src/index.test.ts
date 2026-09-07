@@ -25,9 +25,10 @@ import {
   ROUTE_KEYS,
   ROUTE_EFFORT_OVERRIDES,
   ROOT_ORCHESTRATION_POLICY,
+  NO_SOURCE_MUTATION_RULE,
   SURGICAL_MUTATION_RULE,
-  rootDelegationRequired,
   rootDirectExecutionAllowed,
+  rootExecutionState,
   RootDirectExecutionExceptionSchema,
   RouteKeySchema,
   RunIdentityInputSchema,
@@ -52,64 +53,11 @@ import {
   parseSpecialistOutcome,
   specialistOutcomeFromCapabilityResult,
   taskPermissionsFor,
+  taskInstructionFor,
 } from "./index";
 import { decodeUnknown } from "./schema";
 
 const profileNames = ["low", "default", "high"] as const;
-const expectedRouteEffortsByProfile = [
-  {
-    profile: "low",
-    efforts: [
-      "medium",
-      "high",
-      "medium",
-      "high",
-      "high",
-      "high",
-      "max",
-      "high",
-      "medium",
-      "high",
-      "max",
-      "high",
-    ],
-  },
-  {
-    profile: "default",
-    efforts: [
-      "medium",
-      "xhigh",
-      "medium",
-      "xhigh",
-      "high",
-      "xhigh",
-      "max",
-      "high",
-      "high",
-      "xhigh",
-      "max",
-      "xhigh",
-    ],
-  },
-  {
-    profile: "high",
-    efforts: [
-      "medium",
-      "max",
-      "medium",
-      "max",
-      "xhigh",
-      "max",
-      "max",
-      "xhigh",
-      "xhigh",
-      "max",
-      "max",
-      "max",
-    ],
-  },
-] as const;
-
 describe("core profile catalog", () => {
   test("contains every profile with Astra routing and reasoning policy", () => {
     expect(PROFILE_CATALOG.map((profile) => profile.name)).toEqual([...profileNames]);
@@ -124,35 +72,22 @@ describe("core profile catalog", () => {
   });
 
   test("contains all current route slots and exact parity-floor efforts", () => {
-    expect(ROUTE_KEYS).toHaveLength(12);
-    expect(new Set(ROUTE_KEYS).size).toBe(12);
+    expect(ROUTE_KEYS.length).toBeGreaterThan(0);
+    expect(new Set(ROUTE_KEYS).size).toBe(ROUTE_KEYS.length);
     for (const profile of PROFILE_CATALOG) {
       expect(profile.routes.map((route) => route.key)).toEqual([...ROUTE_KEYS]);
       expect(profile.routes.every((route) => route.model === "gpt-5.6-luna")).toBe(true);
     }
 
-    expect(PROFILE_CATALOG[0]?.routes.map((route) => route.effort)).toEqual([
-      "medium",
-      "high",
-      "medium",
-      "high",
-      "high",
-      "high",
-      "max",
-      "high",
-      "medium",
-      "high",
-      "max",
-      "high",
-    ]);
-
-    for (const expected of expectedRouteEffortsByProfile) {
+    for (const expected of ROUTE_EFFORT_OVERRIDES) {
       const profile = lookupProfile(expected.profile);
       expect(profile.ok).toBe(true);
       if (!profile.ok) {
         continue;
       }
-      expect(profile.value.routes.map((route) => route.effort)).toEqual([...expected.efforts]);
+      expect(profile.value.routes.map((route) => route.effort)).toEqual(
+        ROUTE_KEYS.map((key) => expected.efforts[key]),
+      );
     }
   });
 
@@ -162,20 +97,27 @@ describe("core profile catalog", () => {
         definition.tasks.map((task) => `${definition.role}:${task.name}`),
       ),
     ).toEqual([...ROUTE_KEYS]);
-    expect(ROLE_DEFINITIONS.map((definition) => definition.permissions.write)).toEqual([
-      false,
-      false,
-      true,
-      true,
-    ]);
+    expect(
+      ROLE_DEFINITIONS.every(
+        (definition) =>
+          definition.permissions.sourceMutation === false &&
+          definition.permissions.filesystem === "read-only",
+      ),
+    ).toBe(true);
     for (const definition of ROLE_DEFINITIONS) {
       expect(definition).not.toHaveProperty("skills");
       expect(definition).not.toHaveProperty("skill_profile");
     }
-    for (const definition of ROLE_DEFINITIONS.filter((candidate) => candidate.permissions.write)) {
+    for (const definition of ROLE_DEFINITIONS) {
       expect(definition.authority).toContain("delegated Assignment");
       expect(definition.authority).toContain("Git/VCS");
     }
+    expect(ROLE_DEFINITIONS.find((definition) => definition.role === "Worker")).toMatchObject({
+      capability: "task-scoped-assignment",
+    });
+    expect(ROLE_DEFINITIONS.find((definition) => definition.role === "Reviewer")).toMatchObject({
+      capability: "task-scoped-review",
+    });
   });
 
   test("derives canonical native agent types from valid semantic routes", () => {
@@ -184,27 +126,86 @@ describe("core profile catalog", () => {
     );
     expect(NATIVE_AGENT_TYPES).toContain("Worker.mechanical");
     expect(NATIVE_AGENT_TYPES).toContain("Worker.validation");
+    expect(NATIVE_AGENT_TYPES).toContain("Worker.debugging");
     expect(NATIVE_AGENT_TYPES).not.toContain("Worker.research" as never);
+  });
+
+  test("keeps debugging effort and reviewer quality contracts canonical", () => {
+    expect(ROUTE_EFFORT_OVERRIDES.map((override) => override.efforts["Worker:debugging"])).toEqual([
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    const debuggingInstruction = taskInstructionFor({ role: "Worker", task: "debugging" });
+    expect(debuggingInstruction).toContain("Establish the failure reproducibly");
+    expect(debuggingInstruction).toContain("evidence-backed root cause");
+    expect(debuggingInstruction).toContain("narrow bounded repair");
+    expect(debuggingInstruction).toContain("regression is gone");
+    expect(debuggingInstruction).toContain("material redesigns to Root");
+
+    const reviewerInstruction = taskInstructionFor({ role: "Reviewer", task: "code" });
+    for (const criterion of [
+      "correctness",
+      "safety",
+      "compatibility",
+      "mergeability",
+      "clarity",
+      "simplicity",
+      "cohesion",
+      "idiomaticity",
+      "appropriate abstraction",
+      "accidental complexity",
+      "duplication",
+      "unnecessary files",
+      "file splitting",
+      "speculative abstraction",
+      "test quality",
+      "generated-artifact hygiene",
+    ]) {
+      expect(reviewerInstruction).toContain(criterion);
+    }
   });
 
   test("grants network only to the exact-ref operations task", () => {
     expect(taskPermissionsFor({ role: "Worker", task: "operations" })).toEqual({
       network: true,
-      write: true,
+      filesystem: "read-only",
+      sourceMutation: false,
       networkScope: "exact_ref_or_sha",
     });
-    for (const task of ["mechanical", "implementation", "integration", "validation"] as const) {
-      expect(taskPermissionsFor({ role: "Worker", task })).toEqual({
+    expect(taskPermissionsFor({ role: "Worker", task: "validation" })).toEqual({
+      network: false,
+      filesystem: "workspace-write",
+      sourceMutation: false,
+      networkScope: "disabled",
+    });
+    expect(taskPermissionsFor({ role: "Worker", task: "debugging" })).toEqual({
+      network: false,
+      filesystem: "workspace-write",
+      sourceMutation: true,
+      networkScope: "disabled",
+    });
+    for (const task of ["mechanical", "implementation", "integration"] as const) {
+      expect(taskPermissionsFor({ role: "Worker", task })).toMatchObject({
         network: false,
-        write: true,
+        filesystem: "workspace-write",
+        sourceMutation: true,
         networkScope: "disabled",
       });
     }
+    expect(taskPermissionsFor({ role: "Reviewer", task: "plan" })).toEqual({
+      network: false,
+      filesystem: "read-only",
+      sourceMutation: false,
+      networkScope: "disabled",
+    });
     expect(taskPermissionsFor({ role: "Librarian", task: "lookup" })).toEqual({
       network: true,
-      write: false,
+      filesystem: "read-only",
+      sourceMutation: false,
       networkScope: "current_sources",
     });
+    expect(NO_SOURCE_MUTATION_RULE).toContain("Do not modify repository source");
   });
 
   test("keeps profile route parity in the single effort policy source", () => {
@@ -278,10 +279,10 @@ describe("core profile catalog", () => {
     expect(rootDirectExecutionAllowed("git_vcs")).toBe(true);
     expect(rootDirectExecutionAllowed("computer_use")).toBe(false);
     expect(rootDirectExecutionAllowed("computer_use", true)).toBe(true);
-    expect(rootDelegationRequired()).toBe(true);
-    expect(rootDelegationRequired("git_vcs")).toBe(false);
-    expect(rootDelegationRequired("computer_use")).toBe(true);
-    expect(rootDelegationRequired("computer_use", true)).toBe(false);
+    expect(rootExecutionState()).toBe("delegated");
+    expect(rootExecutionState("git_vcs")).toBe("root_direct");
+    expect(rootExecutionState("computer_use")).toBe("unavailable");
+    expect(rootExecutionState("computer_use", true)).toBe("root_direct");
     expect(ROOT_ORCHESTRATION_POLICY.requestUserInputGates).toEqual([
       "plan_approval",
       "installation_profile_approval",

@@ -8,3 +8,7 @@ scope, owners, seams, data and control flow, policy, recovery, compatibility,
 acceptance evidence, and a bounded proof route. Keep planning proportional:
 trivial work can proceed without a Plan. Persist the canonical revision through
 the semantic Plan operation.
+
+Root owns material choices and dispatches this procedure through the native
+`Reviewer.plan` route when adversarial plan review is needed; the skill never
+authorizes Root to inspect or implement the repository locally.

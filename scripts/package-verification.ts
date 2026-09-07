@@ -10,6 +10,7 @@ import * as Schema from "effect/Schema";
 
 import { AppServerClient, BunStdioTransport } from "../packages/codex/src/index.ts";
 import { CliEnvelopeSchema } from "../packages/core/src/envelopes.ts";
+import { NATIVE_AGENT_TYPES } from "../packages/core/src/routes.ts";
 import {
   assertBuildUploadEntries,
   assertPublicPackageEntries,
@@ -528,6 +529,12 @@ export async function verifyPublicPackage(
       migratedConfig.includes('unrelated = "keep"'),
     "legacy upgrade must migrate the scalar context setting and preserve unrelated config",
   );
+  await assertCodexAppServerReadback(
+    codexFixture.executable,
+    codexEnvironment,
+    codexHome,
+    resolvedCodexCliVersion,
+  );
 
   await rewriteActiveRecord(activeRecordPath, installedModule, (record) => ({
     ...record,
@@ -1029,20 +1036,7 @@ async function assertCodexAppServerReadback(
       "Codex App Server config readback omitted role registrations",
     );
     const agentTable = agents as Record<string, unknown>;
-    const agentTypes = [
-      "Explorer.lookup",
-      "Explorer.trace",
-      "Librarian.lookup",
-      "Librarian.research",
-      "Worker.mechanical",
-      "Worker.implementation",
-      "Worker.integration",
-      "Worker.operations",
-      "Reviewer.plan",
-      "Reviewer.code",
-      "Reviewer.artifact",
-    ] as const;
-    for (const agentType of agentTypes) {
+    for (const agentType of NATIVE_AGENT_TYPES) {
       const registration = agentTable[agentType];
       assert(
         typeof registration === "object" &&
@@ -1245,20 +1239,8 @@ async function configRead() {
   if (!text.includes("multi_agent_v2 = true")) fail("Codex config omitted multi-agent mode");
   if (!text.includes("context_management = true")) fail("Codex config omitted scalar context management");
   if (text.includes("experimental_mode")) fail("Codex config retained legacy context management");
-  const config = { features: { multi_agent_v2: true }, agents: {} };
-  const agentTypes = [
-    "Explorer.lookup",
-    "Explorer.trace",
-    "Librarian.lookup",
-    "Librarian.research",
-    "Worker.mechanical",
-    "Worker.implementation",
-    "Worker.integration",
-    "Worker.operations",
-    "Reviewer.plan",
-    "Reviewer.code",
-    "Reviewer.artifact",
-  ];
+  const config = { features: { multi_agent_v2: true, context_management: true }, agents: {} };
+  const agentTypes = AGENT_TYPES_PLACEHOLDER;
   for (const agentType of agentTypes) {
     const reference = "config_file = \"holycodex/agents/" + agentType + ".toml\"";
     if (!text.includes(reference)) fail("Codex config omitted the " + agentType + " registration");
@@ -1266,6 +1248,14 @@ async function configRead() {
     const roleText = await readFile(join(HOME, "holycodex", "agents", roleFile), "utf8");
     if (!roleText.includes('model = "gpt-5.6-luna"')) {
       fail("Codex role file omitted the Luna specialist model");
+    }
+    if (!roleText.includes("context_management = true")) {
+      fail("Codex role file omitted scalar context management");
+    }
+    for (const feature of ["computer_use = false", "browser_use = false", "in_app_browser = false"]) {
+      if (!roleText.includes(feature)) {
+        fail("Codex role file enabled a Root-only interactive capability");
+      }
     }
     if (roleText.includes("tool_output_token_limit")) {
       fail("Codex role file contains the removed tool_output_token_limit");
@@ -1345,7 +1335,9 @@ main().catch((error) => {
   process.exitCode = 2;
 });
 `;
-  return source.replace('"CODEX_VERSION_PLACEHOLDER"', JSON.stringify(codexCliVersion));
+  return source
+    .replace('"CODEX_VERSION_PLACEHOLDER"', JSON.stringify(codexCliVersion))
+    .replace("AGENT_TYPES_PLACEHOLDER", JSON.stringify(NATIVE_AGENT_TYPES));
 }
 
 async function readPublicManifest(): Promise<PublicManifest> {
