@@ -8,6 +8,7 @@ const TOP_LEVEL_HELP = `HolyCodex
 Usage:
   holycodex install [options]
   holycodex remove [options]
+  holycodex upgrade [options]
   holycodex doctor [options]
   holycodex version [<0.x.y|patch|minor>] [options]
 
@@ -45,6 +46,8 @@ Capability defaults: Work false, Frontend true (mapped to build-web-apps),
 Security true, and Computer Use false. --add-plugin may be repeated.
 On an interactive TTY, install opens one wizard and final review with Install,
 Change options / Redo, and Cancel. The wizard never asks for CODEX_HOME.
+Additional plugin IDs in the wizard are separated by whitespace; --add-plugin
+remains repeatable on the command line.
 `;
 
 const REMOVE_HELP = `Remove HolyCodex-owned state through Codex native plugin management.
@@ -60,6 +63,16 @@ const DOCTOR_HELP = `Inspect HolyCodex-owned configuration and native plugin sta
 
 Usage:
   holycodex doctor [--json] [--codex-home <absolute-path>]
+`;
+
+const UPGRADE_HELP = `Migrate an existing HolyCodex installation in place.
+
+Usage:
+  holycodex upgrade [--dry-run] [--yes] [--json] [--codex-home <absolute-path>]
+
+Upgrade preserves your selected profile, service tier, capabilities, additional
+plugins, and unrelated Codex configuration while applying the running version.
+Use --dry-run to preview changes. It does not download or install a new binary.
 `;
 
 const VERSION_HELP = `Read or update the canonical public package version.
@@ -78,6 +91,8 @@ export function helpText(topic?: string): string {
       return REMOVE_HELP;
     case "doctor":
       return DOCTOR_HELP;
+    case "upgrade":
+      return UPGRADE_HELP;
     case "version":
       return VERSION_HELP;
     default:

@@ -87,7 +87,8 @@ is copied to `profile` without changing its meaning. `plus-low`, `plus`, and
 `plus-high` migrate to `low`, `default`, and `high`; legacy `go` and removed
 Pro values are recognized explicitly and require an operator-selected
 replacement. No historical value is silently mapped to `low`. HolyCodex
-manages `features.context_management.experimental_mode` as a required Root
+manages the canonical scalar `features.context_management` as a required Root
 setting and writes `true` because Codex does not enable it by default. Upgrade
-retains that managed key. Removal restores the recorded prior value when
-unchanged and preserves user drift.
+migrates owned historical `.experimental_mode` state to that scalar key.
+Removal restores the recorded prior value when unchanged and preserves user
+drift.

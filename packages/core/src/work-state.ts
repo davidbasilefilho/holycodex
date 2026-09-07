@@ -31,6 +31,7 @@ export const TOON_COMPATIBILITY = "toon-4" as const;
 const NonEmpty = Schema.String.pipe(Schema.filter((value) => value.trim().length > 0));
 const Identifier = Schema.String.pipe(Schema.pattern(/^[a-z0-9][a-z0-9-]{0,95}$/u));
 const Digest = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
+const CommitSha = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{40}$/u));
 const Revision = Schema.Int.pipe(Schema.greaterThanOrEqualTo(1));
 const DateText = Schema.String.pipe(Schema.filter((value) => !Number.isNaN(Date.parse(value))));
 const StringList = Schema.Array(NonEmpty);
@@ -70,6 +71,7 @@ export const RepositoryBaselineSchema = Schema.Struct({
   expected_head: NonEmpty,
   expected_changes: StringList,
   expected_status_digest: Digest,
+  integrated_commit: Schema.optional(CommitSha),
   updated_at: DateText,
 });
 export type RepositoryBaseline = typeof RepositoryBaselineSchema.Type;
@@ -183,6 +185,9 @@ export const AssignmentSchema = Schema.Struct({
   status: AssignmentStatusSchema,
   revision: Revision,
   invocations: Schema.Array(InvocationSchema),
+  /** Invocation correlation for work currently in flight; absent on legacy records. */
+  active_invocation_id: Schema.optional(NonEmpty),
+  active_started_at: Schema.optional(DateText),
   evidence: Schema.Array(EvidenceSchema),
   blocker: Schema.optional(NonEmpty),
   remaining_risk: StringList,
@@ -309,6 +314,16 @@ export interface CreateAssignmentInput {
   readonly acceptanceCriteria: readonly string[];
 }
 
+/** Root-owned contract correction used to reconcile an honest Assignment scope. */
+export interface ReviseAssignmentScopeInput {
+  readonly scope: readonly string[];
+}
+
+/** Exact Root-owned VCS commit used to advance the repository baseline. */
+export interface VcsIntegrationInput {
+  readonly commit: string;
+}
+
 /** Runtime schema for the input accepted by {@link IntentStore.createAssignment}. */
 export const CreateAssignmentInputSchema = Schema.Struct({
   id: Schema.optional(NonEmpty),
@@ -319,6 +334,14 @@ export const CreateAssignmentInputSchema = Schema.Struct({
   exclusions: Schema.optional(Schema.Array(NonEmpty)),
   dependencies: Schema.optional(Schema.Array(NonEmpty)),
   acceptanceCriteria: Schema.Array(NonEmpty).pipe(Schema.minItems(1)),
+});
+/** Runtime schema for the Root-owned Assignment scope reconciliation operation. */
+export const ReviseAssignmentScopeInputSchema = Schema.Struct({
+  scope: Schema.Array(NonEmpty).pipe(Schema.minItems(1)),
+});
+/** Runtime schema for exact commit integration at the Root-owned VCS boundary. */
+export const VcsIntegrationInputSchema = Schema.Struct({
+  commit: CommitSha,
 });
 /** Compact terminal outcome and evidence returned by one Assignment invocation. */
 export interface AssignmentResultInput {
@@ -663,6 +686,16 @@ export class IntentStore {
           "Verification evidence is only accepted while the Intent is verifying.",
           { state: intent.state },
         );
+      const verificationEvidence = [...intent.verification.evidence, ...(validated.evidence ?? [])];
+      if (
+        validated.verification === "passed" &&
+        !hasMeaningfulVerificationEvidence(verificationEvidence)
+      )
+        throw new IntentStoreError(
+          "invalid_input",
+          "Verification cannot pass without meaningful successful check or behavioral evidence.",
+          { required_evidence: ["check", "behavior", "ci"] },
+        );
       if (validated.review !== undefined && intent.state !== "reviewing")
         throw new IntentStoreError(
           "invalid_transition",
@@ -702,6 +735,94 @@ export class IntentStore {
           ? {}
           : { root_readiness: validated.rootReadiness }),
         ...(validated.clearBlockers ? { blockers: [] } : {}),
+      });
+      await atomicWriteToon(join(directory, "intent.toon"), revised);
+      return revised;
+    });
+  }
+
+  /** Records Root-owned integration of the exact reviewed change set into a commit. */
+  async recordVcsIntegration(
+    reference: string,
+    expectedRevision: number,
+    input: VcsIntegrationInput,
+  ): Promise<Intent> {
+    const validated = parseSchema(VcsIntegrationInputSchema, input);
+    const directory = await this.#locate(reference);
+    return await this.#withIntentLock(directory, async () => {
+      const intent = await this.#readIntentPath(join(directory, "intent.toon"));
+      assertRevision(intent.revision, expectedRevision);
+      assertIntentMutable(intent);
+      if (intent.state !== "reviewing")
+        throw new IntentStoreError(
+          "invalid_transition",
+          "VCS integration is only accepted after review while the Intent is reviewing.",
+          { state: intent.state },
+        );
+      if (intent.review.required && intent.review.status !== "accepted")
+        throw new IntentStoreError(
+          "not_ready",
+          "VCS integration requires accepted review evidence.",
+          { review_status: intent.review.status },
+        );
+      const snapshot = await this.#snapshot();
+      if (
+        snapshot.root !== intent.baseline.root ||
+        snapshot.gitCommonDir !== intent.baseline.git_common_dir
+      )
+        throw new IntentStoreError(
+          "repository_drift",
+          "VCS integration repository identity does not match the Intent baseline.",
+          { expected_root: intent.baseline.root, actual_root: snapshot.root },
+        );
+      if (snapshot.head !== validated.commit)
+        throw new IntentStoreError(
+          "repository_drift",
+          "VCS integration requires the requested commit to be the current HEAD.",
+          { expected_head: validated.commit, actual_head: snapshot.head },
+        );
+      if (snapshot.changedPaths.length)
+        throw new IntentStoreError(
+          "repository_drift",
+          "VCS integration requires a clean worktree.",
+          { changed_paths: [...snapshot.changedPaths].sort() },
+        );
+      const commit = await readExactCommit(this.repositoryRoot, validated.commit);
+      if (commit.parents[0] !== intent.baseline.expected_head)
+        throw new IntentStoreError(
+          "repository_drift",
+          "VCS integration commit parent does not match the recorded baseline HEAD.",
+          {
+            expected_parent: intent.baseline.expected_head,
+            actual_parents: commit.parents,
+          },
+        );
+      const changedPaths = await readCommitChangedPaths(
+        this.repositoryRoot,
+        intent.baseline.expected_head,
+        validated.commit,
+      );
+      const expectedPaths = [...new Set(intent.baseline.expected_changes)].sort();
+      if (changedPaths.join("\0") !== expectedPaths.join("\0"))
+        throw new IntentStoreError(
+          "repository_drift",
+          "VCS integration commit tree does not match the recorded expected change set.",
+          { expected_changes: expectedPaths, actual_changes: changedPaths },
+        );
+      const timestamp = this.#now().toISOString();
+      const evidence: IntentEvidence = {
+        kind: "repository_fact",
+        value: `Root VCS integration recorded at ${validated.commit}; ${String(changedPaths.length)} expected path(s) committed.`,
+        result: "observed",
+      };
+      const revised = reviseIntent(intent, this.#now, {
+        baseline: baselineFromSnapshot(
+          snapshot,
+          timestamp,
+          intent.baseline.initial_head,
+          validated.commit,
+        ),
+        evidence: [...intent.evidence, evidence],
       });
       await atomicWriteToon(join(directory, "intent.toon"), revised);
       return revised;
@@ -815,6 +936,16 @@ export class IntentStore {
       assertRevision(intent.revision, expectedIntentRevision);
       assertIntentMutable(intent);
       await this.#assertNoDrift(intent);
+      if (
+        validated.owner.role === "Worker" &&
+        validated.owner.task === "operations" &&
+        intent.baseline.integrated_commit !== intent.baseline.expected_head
+      )
+        throw new IntentStoreError(
+          "not_ready",
+          "Worker.operations requires a successfully integrated exact commit.",
+          { expected_head: intent.baseline.expected_head },
+        );
       const id =
         validated.id ??
         `assignment-${sha256([intent.id, validated.objective, ...validated.scope].join("\0")).slice(0, 10)}`;
@@ -846,6 +977,34 @@ export class IntentStore {
       await mkdir(dirname(path), { recursive: true });
       await atomicWriteToon(path, assignment);
       return assignment;
+    });
+  }
+
+  /** Reconciles an Assignment's bounded repository scope without changing its lifecycle. */
+  async reviseAssignmentScope(
+    reference: string,
+    assignmentId: string,
+    input: ReviseAssignmentScopeInput,
+    expectedRevision: number,
+  ): Promise<Assignment> {
+    const validated = parseSchema(ReviseAssignmentScopeInputSchema, input);
+    const validatedId = parseSchema(Identifier, assignmentId);
+    const directory = await this.#locate(reference);
+    return await this.#withIntentLock(directory, async () => {
+      const intent = await this.#readIntentPath(join(directory, "intent.toon"));
+      assertIntentMutable(intent);
+      const assignment = await this.readAssignment(reference, validatedId);
+      assertRevision(assignment.revision, expectedRevision);
+      if (assignment.status === "completed")
+        throw new IntentStoreError(
+          "invalid_transition",
+          "A completed Assignment cannot have its scope revised.",
+        );
+      const revised = reviseAssignment(assignment, this.#now, {
+        scope: [...validated.scope],
+      });
+      await atomicWriteToon(join(directory, "assignments", `${validatedId}.toon`), revised);
+      return revised;
     });
   }
 
@@ -913,9 +1072,24 @@ export class IntentStore {
           "invalid_transition",
           "A completed Assignment cannot be restarted.",
         );
+      if (assignment.status === "executing")
+        throw new IntentStoreError(
+          "invalid_transition",
+          "Assignment is already executing; record its active invocation result first.",
+          {
+            assignment_id: assignment.id,
+            ...(assignment.active_invocation_id
+              ? { invocation_id: assignment.active_invocation_id }
+              : {}),
+          },
+        );
+      const startedAt = this.#now().toISOString();
+      const invocationId = nextInvocationId(assignment);
       const revised = reviseAssignment(assignment, this.#now, {
         status: "executing",
         blocker: undefined,
+        active_invocation_id: invocationId,
+        active_started_at: startedAt,
       });
       await atomicWriteToon(join(directory, "assignments", `${validatedId}.toon`), revised);
       return revised;
@@ -937,10 +1111,25 @@ export class IntentStore {
       assertIntentMutable(intent);
       const assignment = await this.readAssignment(reference, validatedId);
       assertRevision(assignment.revision, expectedRevision);
-      if (!["executing", "blocked", "needs_root_input", "failed"].includes(assignment.status))
+      if (assignment.status !== "executing")
         throw new IntentStoreError(
           "invalid_transition",
-          `Assignment result is invalid from ${assignment.status}.`,
+          `Assignment result requires an executing Assignment; current status is ${assignment.status}.`,
+          { assignment_id: assignment.id, status: assignment.status },
+        );
+      if (
+        assignment.active_invocation_id !== undefined &&
+        validated.invocationId !== undefined &&
+        assignment.active_invocation_id !== validated.invocationId
+      )
+        throw new IntentStoreError(
+          "invalid_transition",
+          "Assignment result does not match the active invocation.",
+          {
+            assignment_id: assignment.id,
+            expected_invocation_id: assignment.active_invocation_id,
+            actual_invocation_id: validated.invocationId,
+          },
         );
       if (
         (validated.outcome === "blocked" || validated.outcome === "needs_root_input") &&
@@ -961,8 +1150,28 @@ export class IntentStore {
           "Assignment evidence declares paths outside its bounded scope.",
           { assignment_id: assignment.id, out_of_scope_paths: outOfScope.sort() },
         );
-      const allowed = new Set([...intent.baseline.expected_changes, ...declared]);
+      const assignments = await this.listAssignments(reference);
+      const concurrent = assignments.filter(
+        (value) => value.id !== assignment.id && value.status === "executing",
+      );
+      const concurrentPaths = snapshot.changedPaths.filter((path) =>
+        concurrent.some((value) =>
+          value.scope.some((scope) => pathWithinAssignmentScope(path, scope)),
+        ),
+      );
+      const allowed = new Set([
+        ...intent.baseline.expected_changes,
+        ...declared,
+        ...concurrentPaths,
+      ]);
       const unexpected = snapshot.changedPaths.filter((path) => !allowed.has(path));
+      const baselineChanges = new Set(intent.baseline.expected_changes);
+      const undeclaredCurrentScope = snapshot.changedPaths.filter(
+        (path) =>
+          assignment.scope.some((scope) => pathWithinAssignmentScope(path, scope)) &&
+          !baselineChanges.has(path) &&
+          !declared.has(path),
+      );
       const identityChanged =
         snapshot.root !== intent.baseline.root ||
         snapshot.gitCommonDir !== intent.baseline.git_common_dir;
@@ -971,13 +1180,17 @@ export class IntentStore {
       const observedDeclaration = [...declared].some((path) =>
         snapshot.changedPaths.includes(path),
       );
+      const observedConcurrentPath = concurrentPaths.length > 0;
       // Root-owned integration may advance HEAD before a result is recorded,
       // but only an explicitly declared Assignment evolution may explain it.
       if (
         identityChanged ||
         unexpected.length ||
-        (statusChanged && !observedDeclaration) ||
-        (snapshot.head !== intent.baseline.expected_head && !observedDeclaration)
+        undeclaredCurrentScope.length ||
+        (statusChanged && !observedDeclaration && !observedConcurrentPath) ||
+        (snapshot.head !== intent.baseline.expected_head &&
+          !observedDeclaration &&
+          !observedConcurrentPath)
       ) {
         throw new IntentStoreError(
           "repository_drift",
@@ -985,14 +1198,16 @@ export class IntentStore {
           {
             expected_head: intent.baseline.expected_head,
             actual_head: snapshot.head,
-            unexpected_paths: unexpected,
+            unexpected_paths: [...new Set([...unexpected, ...undeclaredCurrentScope])].sort(),
+            concurrent_assignments: concurrent.map((value) => value.id).sort(),
           },
         );
       }
       const timestamp = this.#now().toISOString();
+      // Legacy executing records predate active invocation metadata. Preserve
+      // their ability to finish while correlating all newly started work.
       const invocationId =
-        validated.invocationId ??
-        `invocation-${String(assignment.invocations.length + 1).padStart(3, "0")}`;
+        assignment.active_invocation_id ?? validated.invocationId ?? nextInvocationId(assignment);
       if (assignment.invocations.some((value) => value.id === invocationId))
         throw new IntentStoreError("already_exists", "Assignment invocation already exists.", {
           invocation_id: invocationId,
@@ -1000,7 +1215,7 @@ export class IntentStore {
       const invocation = parseSchema(InvocationSchema, {
         id: invocationId,
         outcome: validated.outcome,
-        started_at: validated.startedAt ?? timestamp,
+        started_at: assignment.active_started_at ?? validated.startedAt ?? timestamp,
         finished_at: timestamp,
         summary: validated.summary,
         evidence,
@@ -1010,6 +1225,8 @@ export class IntentStore {
       const revised = reviseAssignment(assignment, this.#now, {
         status: validated.outcome,
         invocations: [...assignment.invocations, invocation],
+        active_invocation_id: undefined,
+        active_started_at: undefined,
         evidence: [...assignment.evidence, ...evidence],
         blocker: validated.blocker,
         remaining_risk: [...(validated.remainingRisk ?? [])],
@@ -1171,7 +1388,7 @@ export async function readRepositorySnapshot(repositoryRoot: string): Promise<Re
     try {
       return (
         await execFileAsync("git", ["-C", root, ...args], { encoding: "utf8" })
-      ).stdout.trim();
+      ).stdout.trimEnd();
     } catch (error: unknown) {
       throw new IntentStoreError(
         "io_failure",
@@ -1195,6 +1412,54 @@ export async function readRepositorySnapshot(repositoryRoot: string): Promise<Re
     changedPaths,
     statusDigest: sha256(status),
   };
+}
+
+interface ExactCommit {
+  readonly hash: string;
+  readonly parents: readonly string[];
+}
+
+async function readExactCommit(repositoryRoot: string, commit: string): Promise<ExactCommit> {
+  try {
+    const output = (
+      await execFileAsync("git", ["-C", repositoryRoot, "show", "-s", "--format=%H%n%P", commit], {
+        encoding: "utf8",
+      })
+    ).stdout.trim();
+    const [hash, parents = ""] = output.split("\n");
+    if (hash !== commit)
+      throw new Error(`Resolved commit ${hash ?? ""} does not match requested ${commit}.`);
+    return { hash, parents: parents ? parents.split(/\s+/u) : [] };
+  } catch (error: unknown) {
+    throw new IntentStoreError(
+      "repository_drift",
+      "VCS integration commit could not be inspected.",
+      { commit, message: error instanceof Error ? error.message : String(error) },
+    );
+  }
+}
+
+async function readCommitChangedPaths(
+  repositoryRoot: string,
+  parent: string,
+  commit: string,
+): Promise<readonly string[]> {
+  try {
+    const output = (
+      await execFileAsync(
+        "git",
+        ["-C", repositoryRoot, "diff", "--name-only", "--no-ext-diff", parent, commit],
+        { encoding: "utf8" },
+      )
+    ).stdout.trim();
+    return output ? output.split("\n").map(normalizeRepositoryPath).filter(Boolean).sort() : [];
+  } catch (error: unknown) {
+    throw new IntentStoreError(
+      "repository_drift",
+      "VCS integration commit tree could not be inspected.",
+      { parent, commit, message: error instanceof Error ? error.message : String(error) },
+    );
+  }
 }
 
 async function runGitOptional(root: string, ...args: string[]): Promise<string | undefined> {
@@ -1229,6 +1494,7 @@ function baselineFromSnapshot(
   snapshot: RepositorySnapshot,
   timestamp: string,
   initialHead = snapshot.head,
+  integratedCommit?: string,
 ): RepositoryBaseline {
   return {
     root: snapshot.root,
@@ -1239,11 +1505,28 @@ function baselineFromSnapshot(
     expected_status_digest: /^[a-f0-9]{64}$/u.test(snapshot.statusDigest)
       ? snapshot.statusDigest
       : sha256(snapshot.statusDigest),
+    ...(integratedCommit === undefined ? {} : { integrated_commit: integratedCommit }),
     updated_at: timestamp,
   };
 }
 function normalizeStatusDigest(value: string): string {
   return /^[a-f0-9]{64}$/u.test(value) ? value : sha256(value);
+}
+function hasMeaningfulVerificationEvidence(evidence: readonly IntentEvidence[]): boolean {
+  return evidence.some(
+    (item) =>
+      ["check", "behavior", "ci"].includes(item.kind) &&
+      ["passed", "observed"].includes(item.result ?? ""),
+  );
+}
+function nextInvocationId(assignment: Assignment): string {
+  let sequence = assignment.invocations.length + 1;
+  let id = `invocation-${String(sequence).padStart(3, "0")}`;
+  while (assignment.invocations.some((value) => value.id === id)) {
+    sequence += 1;
+    id = `invocation-${String(sequence).padStart(3, "0")}`;
+  }
+  return id;
 }
 function reviseIntent(intent: Intent, now: () => Date, patch: Partial<Intent>): Intent {
   return parseSchema(

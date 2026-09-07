@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import {
   parseArgv,
+  parsePluginInput,
   renderInstallWizardReview,
   rootDeveloperInstructions,
   projectNativeAgents,
@@ -18,6 +19,14 @@ import {
 } from "./index.ts";
 
 describe("public install wizard contract", () => {
+  test("parses additional plugin IDs as trimmed whitespace-separated values", () => {
+    expect(parsePluginInput("  alpha@marketplace\t beta@marketplace  alpha@marketplace ")).toEqual([
+      "alpha@marketplace",
+      "beta@marketplace",
+    ]);
+    expect(() => parsePluginInput("bad,id")).toThrow();
+  });
+
   test("classifies removed plan flags and spellings without treating them as live profiles", () => {
     expect(() => parseArgv(["install", "--plan", "Go"])).toThrow(
       "The --plan option was removed; use --profile",
@@ -55,6 +64,16 @@ describe("public install wizard contract", () => {
     expect(review).toContain("Change options / Redo");
     expect(review).toContain("Cancel");
     expect(review).not.toContain("CODEX_HOME");
+    expect(review).toContain("CAPABILITIES");
+    expect(review).toContain("↑/↓ choose");
+    expect(
+      Math.max(
+        ...review
+          .trimEnd()
+          .split("\n")
+          .map((line) => line.length),
+      ),
+    ).toBeLessThanOrEqual(78);
   });
 
   test("uses the same Effect-validated request shape as flags", () => {
@@ -88,39 +107,33 @@ describe("public install wizard contract", () => {
 describe("generated Root orchestration policy", () => {
   test("requires delegation while preserving the conditional Computer Use exception", () => {
     const withoutComputerUse = rootDeveloperInstructions(false);
-    expect(withoutComputerUse).toContain("MUST orchestrate and delegate every task");
-    expect(withoutComputerUse).toContain("Git/VCS is always Root-only");
-    expect(withoutComputerUse).toContain("Computer Use is not selected");
-    expect(withoutComputerUse).toContain("delegate GUI, browser, and Computer Use execution");
-    expect(withoutComputerUse).toContain("before plan approval");
-    expect(withoutComputerUse).toContain("remote/origin/server VCS mutation");
-    expect(withoutComputerUse).toContain("Bias toward action");
-    expect(withoutComputerUse).toContain(
-      "finish all authorized read-only, reversible, preparatory, and independent work",
-    );
-    expect(withoutComputerUse).toContain("installation profile approval");
-    expect(withoutComputerUse).toContain(
-      "Dispatch independent, non-overlapping Assignments concurrently",
-    );
-    expect(withoutComputerUse).toContain("reload only when it no longer does");
-    expect(withoutComputerUse).toContain("model_verbosity = low");
-    expect(withoutComputerUse).toContain("no actionable finding remains within scope");
-    expect(withoutComputerUse).toContain("Reviewer.code fixed-point review is mandatory");
-    expect(withoutComputerUse).toContain("exact ref/SHA");
-    expect(withoutComputerUse).not.toContain("Computer Use execution is Root-only");
+    expect(withoutComputerUse).toMatch(/gpt-6-astra/iu);
+    expect(withoutComputerUse).toMatch(/every specialist work unit/iu);
+    expect(withoutComputerUse).toMatch(/Git\/VCS.*Root-only/iu);
+    expect(withoutComputerUse).toMatch(/Computer Use is not selected/iu);
+    expect(withoutComputerUse).toMatch(/delegate GUI.*Computer Use/iu);
+    expect(withoutComputerUse).toMatch(/routine safe choices/iu);
+    expect(withoutComputerUse).toMatch(/authorized.*read-only.*preparatory/iu);
+    expect(withoutComputerUse).toMatch(/installation profile approval/iu);
+    expect(withoutComputerUse).toMatch(/independent.*Assignments.*concurrently/iu);
+    expect(withoutComputerUse).toMatch(/later-phase questions/iu);
+    expect(withoutComputerUse).not.toMatch(/reload|load writing-for-agents/iu);
+    expect(withoutComputerUse).toMatch(/Worker\.validation/iu);
+    expect(withoutComputerUse).toMatch(/Reviewer\.code.*fixed-point/iu);
+    expect(withoutComputerUse).toMatch(/exact ref or SHA/iu);
+    expect(withoutComputerUse).not.toMatch(/Computer Use execution is Root-only/iu);
 
     const withComputerUse = rootDeveloperInstructions(true);
-    expect(withComputerUse).toContain("MUST orchestrate and delegate every task");
-    expect(withComputerUse).toContain(
-      "Interactive GUI, browser, and Computer Use execution is Root-only and must not be delegated.",
-    );
-    expect(withComputerUse).not.toContain("Computer Use is not selected");
+    expect(withComputerUse).toMatch(/every specialist work unit/iu);
+    expect(withComputerUse).toMatch(/GUI.*Computer Use.*Root-only/iu);
+    expect(withComputerUse).not.toMatch(/Computer Use is not selected/iu);
 
     const leaf = renderNativeAgent(projectNativeAgents("default")[0]!);
-    expect(leaf).toContain("Surgical mutation rule:");
-    expect(leaf).toContain("Do not delegate, message peers, mutate global Intent lifecycle");
-    expect(leaf).toContain("`completed`, `blocked`, `needs_root_input`, or `failed`");
-    expect(leaf).toContain("Every Assignment must state its exact boundary");
+    expect(leaf).toMatch(/gpt-5\.6-luna/iu);
+    expect(leaf).toMatch(/smallest complete edit set/iu);
+    expect(leaf).toMatch(/Do not delegate.*Intent lifecycle/iu);
+    expect(leaf).toMatch(/completed.*blocked.*needs_root_input.*failed/isu);
+    expect(leaf).toMatch(/exact boundary.*exclusions.*acceptance criteria/iu);
 
     for (const agent of projectNativeAgents("default")) {
       const rendered = renderNativeAgent(agent);
@@ -207,10 +220,10 @@ describe("interactive command boundary", () => {
         installWizard: async () => ({ action: "cancel" }),
       },
     });
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(0);
     expect(result.envelope).toMatchObject({
-      ok: false,
-      error: { code: "install_cancelled" },
+      ok: true,
+      data: { cancelled: true },
     });
   });
 

@@ -12,6 +12,8 @@ import {
   readTomlPath,
   resolveAgentConfigPath,
   resolveOfficialPluginEntry,
+  summarizeManagedConfigValue,
+  writeTomlPath,
   TomlDocumentSchema,
   type ManagedConfigKeyPath,
   type ManagedRuntimeConfigState,
@@ -86,6 +88,7 @@ import type {
   PluginConfigSnapshot,
   ProviderPluginConfigSnapshot,
   InstallTransactionStep,
+  InstallProgressEvent,
 } from "./types.ts";
 
 export {
@@ -140,6 +143,11 @@ export async function installHolyCodex(
     throw new InstallerError("install_failed", "The installation options are invalid.");
   }
   const paths = resolveInstallerPaths(options, environment);
+  reportProgress(options, {
+    stage: "validation",
+    status: "started",
+    message: "Validating Codex target",
+  });
   await ensureOwnedDirectory(paths.stateRoot);
   const preparing = await optionalJsonFile(paths.preparingRecord, InstallTransactionSchema);
   const conflicted = await optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema);
@@ -251,6 +259,11 @@ export async function installHolyCodex(
       );
     }
   }
+  reportProgress(options, {
+    stage: "validation",
+    status: "completed",
+    message: "Codex target validated",
+  });
 
   const installId = previous?.install_id ?? crypto.randomUUID().replaceAll("-", "");
   const version = await readCanonicalBaseVersion();
@@ -286,16 +299,31 @@ export async function installHolyCodex(
     unmanagedConfigState,
     previous,
   );
-  const configDocument = migratedRuntime.document;
-  const currentManagedConfig = migratedRuntime.state;
+  const migratedContext = await migrateLegacyContextManagement(
+    migratedRuntime.document,
+    migratedRuntime.state,
+  );
+  const configDocument = migratedContext.document;
+  const currentManagedConfig = migratedContext.state;
   rejectPreExistingDeveloperInstructions(configDocument, currentManagedConfig);
   const desiredConfig = desiredRootConfig(profile, tier, optional.computer_use);
-  const mergedConfig = await mergeManagedRuntimeConfig(
-    configDocument,
-    currentManagedConfig,
-    desiredConfig,
-    { schema: STATE_SCHEMA_EPOCH, installId },
-  );
+  let mergedConfig: Awaited<ReturnType<typeof mergeManagedRuntimeConfig>>;
+  try {
+    mergedConfig = await mergeManagedRuntimeConfig(
+      configDocument,
+      currentManagedConfig,
+      desiredConfig,
+      { schema: STATE_SCHEMA_EPOCH, installId },
+    );
+  } catch (error: unknown) {
+    if (error instanceof InstallerError) throw error;
+    throw new InstallerError(
+      "state_corrupt",
+      "The existing Codex configuration has an incompatible shape for HolyCodex settings.",
+      error,
+      { recovery: "Converge the conflicting Codex setting, then retry." },
+    );
+  }
   if (mergedConfig.driftedKeys.length > 0) {
     throw new InstallerError(
       "state_corrupt",
@@ -356,6 +384,11 @@ export async function installHolyCodex(
   let configRollbackBaseline = configBefore;
   let publishedConfigState = mergedConfig.state;
   try {
+    reportProgress(options, {
+      stage: "roles",
+      status: "started",
+      message: "Installing subagent roles",
+    });
     await ensureOwnedDirectory(paths.roleRoot);
     native = await installNativeAgents(paths.codexHome, profile, previous?.managed_artifacts, tier);
     transactionForRecovery = {
@@ -364,6 +397,16 @@ export async function installHolyCodex(
       managed_artifacts: native.managed_artifacts,
     };
     await writeTransaction(paths.preparingRecord, transactionForRecovery);
+    reportProgress(options, {
+      stage: "roles",
+      status: "completed",
+      message: "Subagent roles installed",
+    });
+    reportProgress(options, {
+      stage: "plugins",
+      status: "started",
+      message: "Installing selected capabilities",
+    });
     pluginEffectsStarted = true;
     await manager.addMarketplace!(HOLYCODEX_MARKETPLACE);
     const nativeManager = {
@@ -396,12 +439,28 @@ export async function installHolyCodex(
     );
     transactionForRecovery = { ...transactionForRecovery, step: "plugins_installed" };
     await writeTransaction(paths.preparingRecord, transactionForRecovery);
+    reportProgress(options, {
+      stage: "plugins",
+      status: "completed",
+      message: "Selected capabilities installed",
+    });
     const configAfterPlugins = await optionalTextFile(paths.configFile);
     configRollbackBaseline = configAfterPlugins;
     const postPluginDocument = parseConfig(configAfterPlugins);
-    const pluginConfigAfter = await snapshotHolyCodexPluginConfig(postPluginDocument);
-    const currentProviderConfigAfter = await snapshotProviderPluginConfig(
+    const postPluginRuntime = await migrateKnownLegacyRoleRegistrations(
       postPluginDocument,
+      unmanagedConfigState,
+      previous,
+    );
+    const postPluginContext = await migrateLegacyContextManagement(
+      postPluginRuntime.document,
+      postPluginRuntime.state,
+    );
+    const stablePostPluginDocument = postPluginContext.document;
+    const stableManagedConfig = postPluginContext.state;
+    const pluginConfigAfter = await snapshotHolyCodexPluginConfig(stablePostPluginDocument);
+    const currentProviderConfigAfter = await snapshotProviderPluginConfig(
+      stablePostPluginDocument,
       providerConfigPluginIds,
     );
     const providerConfig = currentProviderConfigAfter.map((entry) => ({
@@ -412,14 +471,14 @@ export async function installHolyCodex(
       after: entry.before,
     }));
     await assertPostPluginConfigStable(
-      postPluginDocument,
+      stablePostPluginDocument,
       configDocument,
-      currentManagedConfig,
+      stableManagedConfig,
       desiredConfig,
     );
     const postPluginConfig = await mergeManagedRuntimeConfig(
-      postPluginDocument,
-      currentManagedConfig,
+      stablePostPluginDocument,
+      stableManagedConfig,
       desiredConfig,
       { schema: STATE_SCHEMA_EPOCH, installId },
     );
@@ -432,6 +491,11 @@ export async function installHolyCodex(
       );
     }
     pluginConfigBaselineValidated = true;
+    reportProgress(options, {
+      stage: "config",
+      status: "started",
+      message: "Configuring Root",
+    });
     publishedConfigState = postPluginConfig.state;
     transactionForRecovery = {
       ...transactionForRecovery,
@@ -447,6 +511,16 @@ export async function installHolyCodex(
     configPublished = true;
     transactionForRecovery = { ...transactionForRecovery, step: "config_published" };
     await writeTransaction(paths.preparingRecord, transactionForRecovery);
+    reportProgress(options, {
+      stage: "config",
+      status: "completed",
+      message: "Root configuration published",
+    });
+    reportProgress(options, {
+      stage: "verification",
+      status: "started",
+      message: "Verifying installation",
+    });
     await verifyEffectiveInstall(
       paths,
       profile,
@@ -455,6 +529,11 @@ export async function installHolyCodex(
       publishedConfigState,
       native.preserved,
     );
+    reportProgress(options, {
+      stage: "verification",
+      status: "completed",
+      message: "Installation verified",
+    });
     const capabilityState = capabilityStateFor(optional);
     const digest = await installRecordDigest({
       owner: "holycodex",
@@ -509,6 +588,11 @@ export async function installHolyCodex(
     await writeAtomicJson(paths.activeRecord, asJsonValue(record));
     await removeTransaction(paths.preparingRecord);
     await removeTransaction(paths.conflictedRecord);
+    reportProgress(options, {
+      stage: "complete",
+      status: "completed",
+      message: "HolyCodex installation complete",
+    });
     return {
       record,
       optional_plugins: providerPlugins,
@@ -925,7 +1009,7 @@ export function desiredRootConfig(
     suppress_unstable_features_warning: true,
     "features.default_mode_request_user_input": true,
     "features.multi_agent_v2": true,
-    "features.context_management.experimental_mode": true,
+    "features.context_management": true,
   };
   for (const agentType of NATIVE_AGENT_TYPES) {
     desired[`agents."${agentType}".config_file`] = `holycodex/agents/${agentType}.toml`;
@@ -1023,6 +1107,88 @@ async function migrateKnownLegacyRoleRegistrations(
     }
   }
   return { document: output, state: migratedState };
+}
+
+/** Migrate the pre-0.17 nested context-management key when ownership is recorded. */
+async function migrateLegacyContextManagement(
+  document: TomlDocument,
+  state: ManagedRuntimeConfigState,
+): Promise<Readonly<{ document: TomlDocument; state: ManagedRuntimeConfigState }>> {
+  const legacyKey = "features.context_management.experimental_mode" as const;
+  const currentKey = "features.context_management" as const;
+  const entry = state.managed[legacyKey];
+  if (entry === undefined) return { document, state };
+  const oldValue = readTomlPath(document, legacyKey);
+  const contextContainer = readTomlPath(document, currentKey);
+  const currentValue = isTomlTable(contextContainer) ? undefined : contextContainer;
+  if (
+    isTomlTable(contextContainer) &&
+    Object.keys(contextContainer).some((key) => key !== "experimental_mode")
+  ) {
+    throw new InstallerError(
+      "state_corrupt",
+      "The legacy context-management table contains unrelated settings and cannot be migrated without changing user configuration.",
+      undefined,
+      { key: currentKey, recovery: "Move unrelated settings, then retry the upgrade." },
+    );
+  }
+  if (oldValue !== undefined) {
+    const liveSummary = await summarizeManagedConfigValue(legacyKey, oldValue);
+    if (JSON.stringify(liveSummary) !== JSON.stringify(entry.lastManagedValue)) {
+      throw new InstallerError(
+        "state_corrupt",
+        "The legacy context-management setting changed and cannot be migrated safely.",
+        undefined,
+        { key: legacyKey },
+      );
+    }
+    if (currentValue !== undefined && JSON.stringify(currentValue) !== JSON.stringify(oldValue)) {
+      throw new InstallerError(
+        "state_corrupt",
+        "Both legacy and canonical context-management settings are present with different values.",
+        undefined,
+        { keys: `${legacyKey},${currentKey}` },
+      );
+    }
+  }
+  if (oldValue === undefined && currentValue !== undefined) {
+    const canonicalSummary = await summarizeManagedConfigValue(currentKey, currentValue);
+    if (JSON.stringify(canonicalSummary) !== JSON.stringify(entry.lastManagedValue)) {
+      throw new InstallerError(
+        "state_corrupt",
+        "The canonical context-management setting changed and cannot be migrated safely.",
+        undefined,
+        { key: currentKey },
+      );
+    }
+  }
+  if (oldValue === undefined && currentValue === undefined) {
+    throw new InstallerError(
+      "state_corrupt",
+      "The owned legacy context-management setting is missing and cannot be migrated safely.",
+      undefined,
+      { key: legacyKey },
+    );
+  }
+  let output = document;
+  if (oldValue !== undefined) {
+    output = deleteTomlPath(output, legacyKey);
+    if (currentValue === undefined) output = writeTomlPath(output, currentKey, oldValue);
+  }
+  const canonicalValue = readTomlPath(output, currentKey);
+  if (canonicalValue === undefined)
+    throw new InstallerError(
+      "state_corrupt",
+      "The canonical context-management setting is missing.",
+    );
+  const managed = { ...state.managed };
+  managed[currentKey] = {
+    ...entry,
+    keyPath: currentKey,
+    lastManagedValue: await summarizeManagedConfigValue(currentKey, canonicalValue),
+  };
+  delete managed[legacyKey];
+  return { document: output, state: { ...state, managed } };
 }
 
 function rejectPreExistingDeveloperInstructions(
@@ -1417,8 +1583,23 @@ function safeMessage(error: unknown): string {
   return error instanceof Error ? error.message.slice(0, 256) : "operation failed";
 }
 
+function reportProgress(options: InstallerOptions, event: InstallProgressEvent): void {
+  try {
+    options.onProgress?.(event);
+  } catch {
+    // Progress rendering is observational and must never change install semantics.
+  }
+}
+
 export class InstallerError extends Error {
-  readonly code: "install_failed" | "capability_denied" | "permission_denied" | "state_corrupt";
+  readonly code:
+    | "install_failed"
+    | "capability_denied"
+    | "permission_denied"
+    | "state_corrupt"
+    | "not_installed"
+    | "upgrade_failed"
+    | "upgrade_downgrade";
   readonly causeValue: unknown;
   readonly details: JsonObject;
 
@@ -1428,7 +1609,7 @@ export class InstallerError extends Error {
     causeValue?: unknown,
     details: JsonObject = {},
   ) {
-    super(message);
+    super(message, causeValue === undefined ? undefined : { cause: causeValue });
     this.name = "InstallerError";
     this.code = code;
     this.causeValue = causeValue;

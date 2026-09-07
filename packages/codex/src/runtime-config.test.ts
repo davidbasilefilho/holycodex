@@ -138,6 +138,21 @@ describe("typed runtime configuration", () => {
     });
   });
 
+  test("manages scalar context management without changing unrelated feature settings", async () => {
+    const keyPath = "features.context_management" as const;
+    const merged = await mergeManagedRuntimeConfig(
+      { features: { context_management: false, unrelated: "keep" } },
+      createManagedRuntimeConfigState(metadata),
+      { [keyPath]: true },
+      metadata,
+    );
+    expect(readTomlPath(merged.document, keyPath)).toBe(true);
+    expect(readTomlPath(merged.document, "features.unrelated")).toBe("keep");
+    const cleaned = await cleanupManagedRuntimeConfig(merged.document, merged.state, metadata);
+    expect(readTomlPath(cleaned.document, keyPath)).toBe(false);
+    expect(readTomlPath(cleaned.document, "features.unrelated")).toBe("keep");
+  });
+
   test("restores the prior context setting on removal and preserves user drift", async () => {
     const keyPath = "features.context_management.experimental_mode" as const;
     const initial = await mergeManagedRuntimeConfig(

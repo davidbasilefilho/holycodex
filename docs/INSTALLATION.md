@@ -58,9 +58,10 @@ directive is absent and leaves retain the native capability restriction.
 
 The live root/session model is `gpt-6-astra` at low, medium, or high
 reasoning for the selected profile. Specialists use `gpt-5.6-luna` with the
-task effort matrix in [BEHAVIOR.md](BEHAVIOR.md). HolyCodex manages
-`features.context_management.experimental_mode` and sets it to `true` because
-Codex does not enable it by default. Upgrade preserves the managed key and
+task effort matrix in [BEHAVIOR.md](BEHAVIOR.md). HolyCodex manages the
+canonical scalar `features.context_management` and sets it to `true` because
+Codex does not enable it by default. Upgrade migrates owned historical
+`features.context_management.experimental_mode` state to the scalar key;
 removal restores the recorded prior value when unchanged.
 
 Official OpenAI plugin identities may be observed as either

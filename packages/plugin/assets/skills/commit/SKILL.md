@@ -3,21 +3,15 @@ name: commit
 description: Use when Root owns a local commit after exact scope and proof are settled; verify scope, create the minimal commit, and report identity.
 ---
 
-Owner: Root. This is the only unconditional direct execution exception:
-perform all Git/VCS inspection and mutation. Verify the exact diff scope,
-required local proof, temporary/generated-artifact cleanup, and ignore coverage
-before staging. Preserve unrelated work and ensure environment secrets,
-credentials, and private release material are absent from the staged file list.
-Do not use this exception for implementation, testing, review, or release
-verification; delegate those as Assignments and persist their outcomes through
-`holycodex-agent assignment result`.
+Root uses this workflow after exact scope and local proof are settled. Verify
+the diff, generated-artifact cleanup, ignore coverage, and staged secret
+exclusions before creating the local commit.
 
 Require a passing Reviewer.code fixed-point result after implementation or a
-major codebase change before this VCS exception is used. Apply the repository
-surgical-mutation rule to VCS operations and staging.
+major codebase change before this VCS exception is used.
 
-After integration, Root commits/pushes the exact approved ref, then delegates
-terminal CI observation to `Worker.operations` with the exact ref and SHA.
+After integration, Root commits the exact approved ref and gives its exact ref
+and SHA to `Worker.operations` for terminal CI observation.
 Discover the repository's actual development/release topology first; never
 assume GitHub, branch names, or that pending is success. Delegate fixes for
 failures, then repeat integration, commit, push, and observation until the

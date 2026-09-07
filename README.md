@@ -22,10 +22,12 @@ bunx holycodex install
 ```
 
 Use `--yes` for a non-interactive install. `doctor` inspects the effective
-installation, and removal is:
+installation, `upgrade` migrates an existing installation in place, and
+removal is:
 
 ```sh
 bunx holycodex remove
+bunx holycodex upgrade
 ```
 
 Profiles choose routing only. The live profiles are `low`, `default`, and
@@ -42,6 +44,11 @@ Frontend and Security plugins are selected by default. Work and Computer Use
 are opt-in. A selected capability must install and verify successfully or the
 installation fails. Use `--json` when another program needs the complete
 structured state; human output stays concise.
+
+HolyCodex manages the scalar `features.context_management = true` in the Root
+configuration. Upgrade migrates owned historical
+`features.context_management.experimental_mode` state and removal restores the
+recorded prior value when it is unchanged.
 
 The public `holycodex` CLI is for installation, diagnosis, removal, and
 versioning. Root's model-facing state surface is the separate deterministic

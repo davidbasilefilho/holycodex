@@ -11,6 +11,7 @@ import {
   type ManagedConfigKeyPath,
   type ManagedRuntimeConfigState,
   type TomlDocument,
+  type LiveOfficialPluginListEnvelope,
 } from "@holycodex/codex";
 import { pluginIdsForOptionalCapabilities } from "@holycodex/core";
 
@@ -24,8 +25,10 @@ import {
   recordDigestMatches,
   serializeConfig,
   InstallerError,
+  installHolyCodex,
 } from "./installer.ts";
 import { asJsonValue } from "./json.ts";
+import { readCanonicalBaseVersion } from "./manifest.ts";
 import {
   isKnownLegacyRootRoleContent,
   projectNativeAgents,
@@ -47,6 +50,9 @@ import type {
   InstallerOptions,
   InstallRecord,
   RemoveResult,
+  InstallProgressEvent,
+  UpgradeRequest,
+  UpgradeResult,
 } from "./types.ts";
 
 export async function doctorHolyCodex(
@@ -209,6 +215,11 @@ export async function removeHolyCodex(
   // touched by an interrupted reinstall instead of silently leaving those
   // newly-owned effects behind while consulting stale active state.
   const recovery = conflicted ?? preparing ?? active;
+  reportProgress(options, {
+    stage: "removal",
+    status: "started",
+    message: "Removing HolyCodex-owned state",
+  });
   const ownedPlugins = new Set(ownedPluginsForRemoval(recovery));
   const removed: string[] = [];
   const preserved: string[] = [];
@@ -216,6 +227,14 @@ export async function removeHolyCodex(
   if (active && !(await recordDigestMatches(active))) {
     preserved.push(paths.activeRecord);
     reasons.push("configuration_changed");
+    return { removed, preserved, reasons };
+  }
+  if (recovery === undefined) {
+    reportProgress(options, {
+      stage: "removal",
+      status: "completed",
+      message: "Nothing to remove",
+    });
     return { removed, preserved, reasons };
   }
 
@@ -293,8 +312,9 @@ export async function removeHolyCodex(
   for (const pluginId of ownedPlugins) {
     try {
       const before = await manager.list();
-      const observed = resolveOfficialPluginEntry(before, pluginId);
-      const removalId = observed?.entry.installed ? observed.entry.pluginId : pluginId;
+      const observed = resolveOwnedPluginEntry(before, pluginId);
+      if (observed?.entry.installed !== true) continue;
+      const removalId = observed.entry.pluginId;
       await manager.remove(removalId);
       const live = await manager.list();
       const resolvedRemaining = resolveOfficialPluginEntry(live, pluginId)?.entry;
@@ -398,8 +418,7 @@ export async function removeHolyCodex(
       await rm(paths.activeRecord, { force: false });
       removed.push(paths.activeRecord);
     } catch (error: unknown) {
-      if (isFsCode(error, "ENOENT")) removed.push(paths.activeRecord);
-      else {
+      if (!isFsCode(error, "ENOENT")) {
         preserved.push(paths.activeRecord);
         reasons.push("state_remove_failed");
         await writeConflictState(paths, recovery ?? active);
@@ -445,7 +464,132 @@ export async function removeHolyCodex(
       }
     }
   }
+  reportProgress(options, {
+    stage: "removal",
+    status: "completed",
+    message: "HolyCodex removal complete",
+  });
   return { removed, preserved, reasons };
+}
+
+/** Migrate an existing installation in place using the running HolyCodex binary. */
+export async function upgradeHolyCodex(
+  options: InstallerOptions = {},
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+  request: UpgradeRequest = {},
+): Promise<UpgradeResult> {
+  const paths = resolveInstallerPaths(options, environment);
+  const [active, preparing, conflicted] = await Promise.all([
+    readActiveInstallRecord(paths),
+    optionalJsonFile(paths.preparingRecord, InstallTransactionSchema),
+    optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema),
+  ]);
+  const source = conflicted ?? preparing ?? active;
+  if (source === undefined) {
+    throw new InstallerError(
+      "not_installed",
+      "HolyCodex is not installed in the selected Codex home.",
+      undefined,
+      { recovery: "Run `holycodex install --yes` first." },
+    );
+  }
+  if (active !== undefined && !(await recordDigestMatches(active))) {
+    throw new InstallerError(
+      "state_corrupt",
+      "The existing HolyCodex configuration has changed and cannot be upgraded safely.",
+      undefined,
+      { path: paths.activeRecord },
+    );
+  }
+  let targetVersion: string;
+  try {
+    targetVersion = await readCanonicalBaseVersion();
+  } catch (error: unknown) {
+    throw new InstallerError(
+      "upgrade_failed",
+      "The running HolyCodex version is unavailable.",
+      error,
+    );
+  }
+  const ordering = compareVersions(targetVersion, source.version);
+  if (ordering < 0) {
+    throw new InstallerError(
+      "upgrade_downgrade",
+      `The running HolyCodex version ${targetVersion} is older than the installed version ${source.version}.`,
+      undefined,
+      { installed_version: source.version, running_version: targetVersion },
+    );
+  }
+  const legacyContext =
+    source.managed_config?.managed["features.context_management.experimental_mode"] !== undefined;
+  const changes = [
+    ...(ordering > 0 ? ["version"] : []),
+    ...(legacyContext ? ["context-management configuration migration"] : []),
+    ...(ordering > 0 || legacyContext
+      ? ["Root/session configuration", "Luna role definitions"]
+      : []),
+    ...((conflicted ?? preparing) ? ["interrupted transaction recovery"] : []),
+  ];
+  if (changes.length === 0) {
+    return {
+      status: request.dryRun === true ? "dry_run" : "current",
+      from_version: source.version,
+      to_version: targetVersion,
+      changes: [],
+      record: active,
+      preserved: [],
+      warnings: [],
+    };
+  }
+  if (request.dryRun === true) {
+    return {
+      status: "dry_run",
+      from_version: source.version,
+      to_version: targetVersion,
+      changes,
+      record: active,
+      preserved: [],
+      warnings: [],
+    };
+  }
+  try {
+    const result = await installHolyCodex(
+      {
+        profile: source.profile,
+        tier: source.tier,
+        optional: source.explicit_optional_selections,
+        officialPlugins: source.official_plugins,
+      },
+      options,
+      environment,
+    );
+    return {
+      status: "upgraded",
+      from_version: source.version,
+      to_version: targetVersion,
+      changes,
+      record: result.record,
+      preserved: result.preserved,
+      warnings: result.warnings,
+    };
+  } catch (error: unknown) {
+    if (error instanceof InstallerError) throw error;
+    throw new InstallerError(
+      "upgrade_failed",
+      `HolyCodex upgrade failed: ${safeMessage(error)}`,
+      error,
+    );
+  }
+}
+
+function compareVersions(left: string, right: string): -1 | 0 | 1 {
+  const a = left.split(".").map(Number);
+  const b = right.split(".").map(Number);
+  for (let index = 0; index < 3; index += 1) {
+    if ((a[index] ?? 0) < (b[index] ?? 0)) return -1;
+    if ((a[index] ?? 0) > (b[index] ?? 0)) return 1;
+  }
+  return 0;
 }
 
 async function doctorRuntimeConfig(
@@ -611,11 +755,28 @@ function emptyRemovalState(): InstallRecord {
 function ownedPluginsForRemoval(state: PersistedInstallState | undefined): readonly string[] {
   if (state?.owned_plugins !== undefined) return [...new Set(state.owned_plugins)];
   const inferred = (state?.plugin_snapshot ?? [])
+    .filter((snapshot) => snapshot.status === "missing" || snapshot.status === "available")
+    .map((snapshot) => snapshot.plugin_id);
+  const configOwned =
+    state?.plugin_config?.before.preference.presence === "absent" &&
+    state.plugin_config.after.preference.presence === "present"
+      ? [HOLYCODEX_PLUGIN]
+      : [];
+  const providerOwned = (state?.provider_config ?? [])
     .filter(
-      (snapshot) => snapshot.plugin_id !== HOLYCODEX_PLUGIN && snapshot.status !== "installed",
+      (snapshot) => snapshot.before.presence === "absent" && snapshot.after.presence === "present",
     )
     .map((snapshot) => snapshot.plugin_id);
-  return [...new Set([HOLYCODEX_PLUGIN, ...inferred])];
+  return [...new Set([...inferred, ...configOwned, ...providerOwned])];
+}
+
+function resolveOwnedPluginEntry(live: LiveOfficialPluginListEnvelope, pluginId: string) {
+  const resolved = resolveOfficialPluginEntry(live, pluginId);
+  if (resolved !== undefined) return resolved;
+  const entry = [...live.installed, ...live.available].find(
+    (candidate) => candidate.pluginId === pluginId,
+  );
+  return entry === undefined ? undefined : { entry };
 }
 
 function healthyCheck(details: Record<string, unknown>): DoctorCheck {
@@ -636,4 +797,12 @@ async function removeTransaction(path: string): Promise<void> {
 
 function safeMessage(error: unknown): string {
   return error instanceof Error ? error.message.slice(0, 256) : "operation failed";
+}
+
+function reportProgress(options: InstallerOptions, event: InstallProgressEvent): void {
+  try {
+    options.onProgress?.(event);
+  } catch {
+    // Progress rendering is observational and must never change removal semantics.
+  }
 }

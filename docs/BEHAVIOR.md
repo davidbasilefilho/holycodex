@@ -13,6 +13,10 @@ resolution, and final readiness. Root accepts specialist evidence and resolves
 contradictions. Specialists execute literal bounded assignments and return
 evidence for Root's judgment.
 
+`Worker.validation` runs the smallest relevant local checks for a delegated
+seam, classifies failures, and returns evidence without redesigning the
+solution or replacing required code review.
+
 The native specialist inventory is fixed. Each identity below has one
 HolyCodex-owned TOML at `<CODEX_HOME>/holycodex/agents/<Role.task>.toml` and
 one Codex registration at `agents."<Role.task>"` in `config.toml`:
@@ -166,11 +170,13 @@ permission, an unavailable required capability, failed verification, or
 uncertain external state produces a structured failure and does not claim
 success.
 
-HolyCodex manages `features.context_management.experimental_mode` and sets it
-to `true` because Codex does not enable it by default. The normal managed-key
-ownership rules preserve user edits and restore the recorded prior value during
-cleanup. Repo-local Intent, workflow Plan, and Assignment state remain
-independent of context management.
+HolyCodex manages the canonical scalar `features.context_management` and sets
+it to `true` because Codex does not enable it by default. Upgrade migrates
+owned historical `features.context_management.experimental_mode` state to the
+scalar key, retaining unrelated settings only when the ownership evidence is
+safe. The normal managed-key ownership rules preserve user edits and restore
+the recorded prior value during cleanup. Repo-local Intent, workflow Plan, and
+Assignment state remain independent of context management.
 
 ## Acceptance and provenance
 

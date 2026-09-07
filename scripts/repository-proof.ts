@@ -64,6 +64,7 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
   const behaviorContract = await readText("docs/BEHAVIOR.md");
   const configurationContract = await readText("docs/CONFIGURATION.md");
   const installationContract = await readText("docs/INSTALLATION.md");
+  const packageVerification = await readText("scripts/package-verification.ts");
   const workflowFiles = await listFiles(".github/workflows");
 
   assert(rootManifest.packageManager === "bun@1.4.1", "root packageManager must resolve Bun 1.4.1");
@@ -108,9 +109,25 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
     "behavior must record the canonical Astra/Luna routes",
   );
   assert(
-    configurationContract.includes("manages `features.context_management.experimental_mode`") &&
-      configurationContract.includes("writes\n`true`"),
-    "configuration must explicitly manage context experimental mode",
+    configurationContract.includes("manages the canonical scalar `features.context_management`") &&
+      configurationContract.includes("features.context_management.experimental_mode") &&
+      configurationContract.includes("Upgrade migrates"),
+    "configuration must define scalar context-management ownership and migration",
+  );
+  assert(
+    behaviorContract.includes("Worker.validation") &&
+      behaviorContract.includes("features.context_management` and sets"),
+    "behavior must define validation and scalar context-management contracts",
+  );
+  assert(
+    cliContract.includes("holycodex upgrade") && cliContract.includes("--dry-run"),
+    "CLI contract must define in-place upgrade and dry-run",
+  );
+  assert(
+    packageVerification.includes("context_management = true") &&
+      packageVerification.includes("upgrade") &&
+      packageVerification.includes("non_tty_confirmation_required"),
+    "package proof must exercise scalar configuration, upgrade, and confirmation boundaries",
   );
   assert(
     installationContract.includes("Existing serialized `plan` fields") &&

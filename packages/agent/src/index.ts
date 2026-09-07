@@ -9,6 +9,8 @@ import {
   IntentStore,
   IntentStoreError,
   PlanInputSchema,
+  ReviseAssignmentScopeInputSchema,
+  VcsIntegrationInputSchema,
 } from "@holycodex/core";
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
@@ -90,6 +92,12 @@ async function execute(
         revision(options),
         decodeJson(IntentEvidenceInputSchema, required(options, "input")),
       );
+    if (subcommand === "integrate")
+      return await store.recordVcsIntegration(
+        requiredValue(intent, "intent"),
+        revision(options),
+        decodeJson(VcsIntegrationInputSchema, required(options, "input")),
+      );
     if (subcommand === "abandon")
       return await store.abandonIntent(requiredValue(intent, "intent"), revision(options));
     if (subcommand === "complete") {
@@ -117,6 +125,13 @@ async function execute(
       return await store.createAssignment(
         requiredValue(intent, "intent"),
         decodeJson(CreateAssignmentInputSchema, required(options, "input")),
+        revision(options),
+      );
+    if (subcommand === "revise")
+      return await store.reviseAssignmentScope(
+        requiredValue(intent, "intent"),
+        required(options, "assignment"),
+        decodeJson(ReviseAssignmentScopeInputSchema, required(options, "input")),
         revision(options),
       );
     if (subcommand === "list") return await store.listAssignments(requiredValue(intent, "intent"));
@@ -177,11 +192,13 @@ function allowedOptions(command: string, subcommand: string): ReadonlySet<string
     "intent select": ["intent"],
     "intent transition": ["intent", "revision", "state", "blocker"],
     "intent evidence": ["intent", "revision", "input"],
+    "intent integrate": ["intent", "revision", "input"],
     "intent complete": ["intent", "revision"],
     "intent abandon": ["intent", "revision"],
     "plan read": ["intent"],
     "plan revise": ["intent", "revision", "plan-revision", "input"],
     "assignment create": ["intent", "revision", "input"],
+    "assignment revise": ["intent", "assignment", "revision", "input"],
     "assignment list": ["intent"],
     "assignment read": ["intent", "assignment"],
     "assignment start": ["intent", "assignment", "revision"],

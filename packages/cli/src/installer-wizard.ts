@@ -105,6 +105,7 @@ export async function runOpenTuiInstallWizard(
 
         if (cursor === CAPABILITY_NAMES.length + 2) {
           if (name === "backspace") state.pluginInput = state.pluginInput.slice(0, -1);
+          else if (name === "space") state.pluginInput += " ";
           else if (name === "return" || name === "enter" || name === "linefeed") {
             state.plugins = parsePluginInput(state.pluginInput);
             reviewing = true;
@@ -134,7 +135,7 @@ export async function runOpenTuiInstallWizard(
         } else if (name === "return" || name === "enter" || name === "linefeed") {
           if (cursor < CAPABILITY_NAMES.length + 2) cursor += 1;
         }
-        if (cursor === CAPABILITY_NAMES.length + 2) state.pluginInput = state.plugins.join(", ");
+        if (cursor === CAPABILITY_NAMES.length + 2) state.pluginInput = state.plugins.join(" ");
         refresh();
       } catch (error: unknown) {
         fail(error);
@@ -191,7 +192,7 @@ function stateFromRequest(request: InstallRequest): WizardState {
       security: optional.security ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.security,
     },
     plugins: [...(request.officialPlugins ?? [])],
-    pluginInput: (request.officialPlugins ?? []).join(", "),
+    pluginInput: (request.officialPlugins ?? []).join(" "),
   };
 }
 
@@ -215,30 +216,52 @@ function cycle<T extends string>(values: readonly T[], current: T, direction: -1
   return values[(index + direction + values.length) % values.length] ?? values[0]!;
 }
 
-function parsePluginInput(input: string): string[] {
-  return [
+/** Parse and validate whitespace-separated additional plugin identifiers. */
+export function parsePluginInput(input: string): string[] {
+  const plugins = [
     ...new Set(
       input
-        .split(",")
+        .split(/\s+/u)
         .map((value) => value.trim())
         .filter(Boolean),
     ),
   ];
+  if (plugins.length === 0) return [];
+  // Keep the wizard's parser aligned with the shared domain boundary. This catches malformed
+  // identifiers before the review screen while preserving the CLI's repeatable flag semantics.
+  validateInstallOptions({ officialPlugins: plugins });
+  return plugins;
 }
 
 function renderWizard(state: Readonly<WizardState>, cursor: number): string {
+  const focused =
+    cursor < 2
+      ? cursor === 0
+        ? "Choose the routing profile for the Root session."
+        : "Choose how quickly services handle work."
+      : cursor < CAPABILITY_NAMES.length + 2
+        ? capabilityDescription(CAPABILITY_NAMES[cursor - 2]!)
+        : "Optional plugin IDs separated by spaces. Enter continues to review.";
   const lines = [
-    "HolyCodex install wizard",
-    "Use ↑/↓ (or j/k) to move, ←/→ to change, Enter to continue, Esc to cancel.",
+    "HolyCodex  ·  install",
+    "↑/↓ move   ←/→ change   Space toggle   Enter review   Esc cancel",
     "",
-    ...[
-      ["Profile", state.profile],
-      ["Service tier", state.tier],
-      ...CAPABILITY_NAMES.map(
-        (name) => [capabilityLabel(name), enabled(state.optional[name])] as const,
-      ),
-    ].map(([label, value], index) => `${index === cursor ? "›" : " "} ${label}: ${value}`),
-    `${cursor === CAPABILITY_NAMES.length + 2 ? "›" : " "} Additional plugins (comma-separated, optional): ${state.pluginInput || "none"}`,
+    "PROFILE",
+    `${cursor === 0 ? "❯" : " "} Profile       ${state.profile}`,
+    `${cursor === 1 ? "❯" : " "} Service tier  ${state.tier}`,
+    "",
+    "OPTIONAL CAPABILITIES",
+    ...CAPABILITY_NAMES.map(
+      (name, index) =>
+        `${cursor === index + 2 ? "❯" : " "} ${capabilityLabel(name).padEnd(14)} ${state.optional[name] ? "[x] enabled" : "[ ] disabled"}`,
+    ),
+    "",
+    "ADDITIONAL PLUGINS",
+    ...wrapWizardLine(
+      `${cursor === CAPABILITY_NAMES.length + 2 ? "❯" : " "} ${state.pluginInput || "(none)"}`,
+    ),
+    "",
+    focused,
   ];
   return `${lines.join("\n")}\n`;
 }
@@ -246,21 +269,51 @@ function renderWizard(state: Readonly<WizardState>, cursor: number): string {
 function renderReview(state: Readonly<WizardState>, selected: number): string {
   const actions = ["Install", "Change options / Redo", "Cancel"];
   const lines = [
+    "HolyCodex  ·  review",
     "Review configuration",
+    "↑/↓ choose   Enter confirm   Esc cancel",
     "",
     `Profile: ${state.profile}`,
     `Service tier: ${state.tier}`,
-    `Work: ${enabled(state.optional.work)}`,
-    `Frontend: ${enabled(state.optional.frontend)}`,
-    `Security: ${enabled(state.optional.security)}`,
-    `Computer Use: ${enabled(state.optional.computer_use)}`,
-    `Additional plugins: ${state.plugins.length === 0 ? "none" : state.plugins.join(", ")}`,
+    "",
+    "CAPABILITIES",
+    ...CAPABILITY_NAMES.map(
+      (name) => `  ${capabilityLabel(name)}: ${enabled(state.optional[name])}`,
+    ),
+    ...wrapWizardLine(
+      `  Additional plugins: ${state.plugins.length === 0 ? "none" : state.plugins.join(" ")}`,
+    ),
     "",
     ...actions.map((action, index) => `${index === selected ? "›" : " "} ${action}`),
-    "",
-    "Enter selects the highlighted action. Esc cancels.",
   ];
   return `${lines.join("\n")}\n`;
+}
+
+function capabilityDescription(name: OptionalCapabilityName): string {
+  switch (name) {
+    case "work":
+      return "Work plugins for documents, spreadsheets, and presentations.";
+    case "frontend":
+      return "Frontend tools for building and testing web experiences.";
+    case "security":
+      return "Security review and vulnerability analysis tools.";
+    case "computer_use":
+      return "Computer Use tools for interactive GUI and browser tasks.";
+  }
+}
+
+function wrapWizardLine(line: string, width = 76): string[] {
+  if (line.length <= width) return [line];
+  const lines: string[] = [];
+  let remaining = line;
+  while (remaining.length > width) {
+    const split = remaining.lastIndexOf(" ", width);
+    const boundary = split > 0 ? split : width;
+    lines.push(remaining.slice(0, boundary));
+    remaining = remaining.slice(split > 0 ? boundary + 1 : boundary);
+  }
+  if (remaining.length > 0) lines.push(remaining);
+  return lines;
 }
 
 function capabilityLabel(name: OptionalCapabilityName): string {

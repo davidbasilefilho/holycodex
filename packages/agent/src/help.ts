@@ -6,9 +6,9 @@ Deterministic model-facing work-state API. JSON responses use holycodex-agent-re
 All mutations require --revision and are atomic. No command prompts or emits ANSI.
 
 Commands:
-  intent      create, list, current, read, select, transition, evidence, complete, abandon
+  intent      create, list, current, read, select, transition, evidence, integrate, complete, abandon
   plan        read, revise
-  assignment  create, list, read, start, result
+  assignment  create, list, read, revise, start, result
 
 Use -h or --help at any command depth. Failures are classified and exit nonzero.
 `;
@@ -17,7 +17,7 @@ const HELP: Readonly<Record<string, string>> = {
   intent: `Usage: holycodex-agent intent <command> [options]
 
 Intent owns the durable global goal, lifecycle, baseline, blockers, gates, and readiness.
-Commands: create, list, current, read, select, transition, evidence, complete, abandon.
+Commands: create, list, current, read, select, transition, evidence, integrate, complete, abandon.
 Reads emit validated JSON. Mutations are atomic; stale revisions and invalid transitions fail.
 `,
   "intent create": `Usage: holycodex-agent intent create --input <json> [--repo <path>]
@@ -54,6 +54,13 @@ blocked/needs_root_input require --blocker. Use intent complete for completion.
 Input may record evidence, verification, review, acceptanceMet, rootReadiness, clearBlockers.
 Effect: atomically updates Root-owned global proof. Review rejection returns to executing.
 `,
+  "intent integrate": `Usage: holycodex-agent intent integrate --intent <ref> --revision <n> --input <json> [--repo <path>]
+
+Input: {"commit":40-character commit SHA}. Effect: records Root-owned integration only when
+the reviewed Intent is current at that exact commit, its direct parent is the baseline HEAD,
+its tree matches the expected change set, and the worktree is clean. The baseline then advances
+to the clean commit so a subsequent exact-SHA Assignment can be created.
+`,
   "intent complete": `Usage: holycodex-agent intent complete --intent <ref> --revision <n> [--repo <path>]
 
 Output: completed Intent or completion_refused with machine-readable reasons.
@@ -77,7 +84,7 @@ Input requires approach and may include scope, assignments, dependencies, archit
 assumptions, openQuestions, verification, and recovery. Effect: archives plan.old-NNN.toon
 immutably before atomic replacement. Fails on stale Intent or Plan revision.
 `,
-  assignment: `Usage: holycodex-agent assignment <create|list|read|start|result> [options]
+  assignment: `Usage: holycodex-agent assignment <create|list|read|revise|start|result> [options]
 
 Assignments are bounded specialist contracts. Their results never own global lifecycle state.
 `,
@@ -94,14 +101,21 @@ Output: validated Assignments sorted by id. No mutation.
 
 Output: one validated Assignment. No mutation.
 `,
+  "assignment revise": `Usage: holycodex-agent assignment revise --intent <ref> --assignment <id> --revision <n> --input <json> [--repo <path>]
+
+Input requires a non-empty scope array. Effect: Root-owned reconciliation of an unfinished
+Assignment's bounded repository scope; lifecycle and invocation state are preserved.
+`,
   "assignment start": `Usage: holycodex-agent assignment start --intent <ref> --assignment <id> --revision <n> [--repo <path>]
 
-Effect: marks a pending/blocked/failed Assignment executing. Completed work cannot restart.
+Effect: marks a pending/blocked/failed Assignment executing and records its active invocation.
+An already executing Assignment must receive its result before another start.
 `,
   "assignment result": `Usage: holycodex-agent assignment result --intent <ref> --assignment <id> --revision <n> --input <json> [--repo <path>]
 
 Input requires outcome and summary; supports compact invocation metadata, evidence, blocker,
-and remainingRisk. Effect: appends one invocation and accepts only declared repository evolution.
+and remainingRisk. Result must match the active invocation (legacy executing records may finish
+without metadata). Effect: appends one invocation and accepts only declared repository evolution.
 `,
 };
 

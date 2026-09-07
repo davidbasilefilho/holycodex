@@ -7,6 +7,7 @@ inspecting, and removing HolyCodex through Codex's native plugin management.
 bunx holycodex install
 bunx holycodex doctor
 bunx holycodex remove
+bunx holycodex upgrade
 ```
 
 Use `--yes` when no interactive terminal is available. `--profile` selects
@@ -25,6 +26,10 @@ historical values.
 
 Frontend and Security are selected by default; Work and Computer Use are
 opt-in. Selected capabilities must install and verify or installation fails.
+The interactive installer accepts additional plugin IDs separated by whitespace;
+the repeatable `--add-plugin <id>` option remains available for scripts.
+`upgrade` migrates an existing installation in place; use `--dry-run` to preview
+changes without mutating it.
 Use `--json` for one validated machine-readable envelope. Human output reports
 the version, profile, tier, selected capabilities, and actionable warnings without
 printing the internal installation record.

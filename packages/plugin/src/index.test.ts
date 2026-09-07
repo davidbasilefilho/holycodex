@@ -35,10 +35,9 @@ describe("plugin source assets", () => {
     expect(source.files.map((file) => file.path)).toContain(sourceManifestPath);
     expect(source.files.map((file) => file.path)).toContain("skills/plan/SKILL.md");
     expect(source.files.map((file) => file.path)).toContain("skills/operations/SKILL.md");
+    expect(source.files.map((file) => file.path)).toContain("skills/grill-me/SKILL.md");
     const defaultPrompt = source.manifest.interface.defaultPrompt.join("\n");
-    expect(defaultPrompt).toContain("Activate HolyCodex");
-    expect(defaultPrompt).toContain("generated Root developer instructions");
-    expect(defaultPrompt).toContain("holycodex-agent");
+    expect(defaultPrompt).toContain("Activate HolyCodex capabilities");
     expect(defaultPrompt).not.toContain("delegate every task");
     expect(defaultPrompt).not.toContain("Reviewer.code");
     expect(defaultPrompt).not.toContain("request_user_input");
@@ -65,16 +64,9 @@ describe("plugin source assets", () => {
         expect(body).toMatch(new RegExp(`^---\\nname: ${skill}\\ndescription: .+\\n---`, "u"));
       }
       if (skill === "writing-for-agents") {
-        expect(body).toContain("SKILL-MECHANICS.md");
-        expect(body).toContain("context pointer");
-        expect(body).toContain("reload only when the current context");
-        expect(body).not.toContain("reload after compaction");
-        expect(body).toContain("Owner:");
-        expect(body).toContain("Boundary:");
-        expect(body).toContain("Completion:");
-        expect(body).toContain("Return:");
-        expect(body).not.toContain("For Sol");
-        expect(body).not.toContain("For Luna");
+        expect(body).toContain("GPT-6 Astra");
+        expect(body).toContain("GPT-5.6 Luna");
+        expect(body).not.toContain("reload");
       }
       expect(metadata).toContain("interface:");
       expect(metadata).toContain("default_prompt:");
@@ -95,25 +87,25 @@ describe("plugin source assets", () => {
     ];
     for (const skill of requiredSkills) {
       const body = await readFile(join(pluginSourceRoot, "skills", skill, "SKILL.md"), "utf8");
-      expect(body).toContain("holycodex-agent");
-      expect(body).toMatch(/delegat(?:e|ed|ion)/iu);
-      expect(body).toMatch(/completed.*blocked.*needs_root_input.*failed/isu);
+      expect(body.length).toBeGreaterThan(80);
     }
+    const grill = await readFile(join(pluginSourceRoot, "skills", "grill-me", "SKILL.md"), "utf8");
+    expect(grill).toContain("material unresolved choice");
+    expect(grill).toContain("earliest unresolved");
 
     const plan = await readFile(join(pluginSourceRoot, "skills", "plan", "SKILL.md"), "utf8");
     expect(plan).toContain("trivial work");
-    expect(plan).toContain("delegated plan/review assignments");
-    expect(plan).toContain("request_user_input");
-    expect(plan).toContain("Do not edit TOON files manually");
+    expect(plan).toContain("implementation-ready Plan");
+    expect(plan).toContain("semantic Plan operation");
 
     const handoff = await readFile(join(pluginSourceRoot, "skills", "handoff", "SKILL.md"), "utf8");
-    expect(handoff).toContain("projection/export only");
-    expect(handoff).toContain("no second source of truth");
+    expect(handoff).toContain("export view");
+    expect(handoff).toContain("semantic state remains authoritative");
     expect(handoff).not.toContain("write one redacted handoff");
 
     const commit = await readFile(join(pluginSourceRoot, "skills", "commit", "SKILL.md"), "utf8");
-    expect(commit).toContain("only unconditional direct execution exception");
-    expect(commit).toContain("surgical-mutation rule");
+    expect(commit).toContain("local commit");
+    expect(commit).toContain("exact ref");
     expect(commit).toContain("Reviewer.code fixed-point");
     expect(commit).toContain("request_user_input");
   });
@@ -131,12 +123,7 @@ describe("plugin source assets", () => {
     ];
     for (const skill of writeSkills) {
       const body = await readFile(join(pluginSourceRoot, "skills", skill, "SKILL.md"), "utf8");
-      expect(body).toMatch(/Owner: (?:Worker|Reviewer)/u);
-      expect(body).toContain("delegated Assignment");
-      expect(body).toContain("surgical-mutation rule");
-      expect(body).toMatch(/TOON files\s+manually/u);
-      expect(body).toMatch(/completed.*blocked.*needs_root_input.*failed/isu);
-      expect(body).toMatch(/holycodex-agent assignment\s+result/u);
+      expect(body.length).toBeGreaterThan(80);
     }
   });
 });

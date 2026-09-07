@@ -1,6 +1,6 @@
 interface:
   display_name: "Plan review"
   short_description: "Review one complete plan to a fixed point."
-  default_prompt: "When Root has a complete Plan, inspect it once, apply only surgical reviewer-owned repairs to a fixed point, and return a structured Assignment result for holycodex-agent."
+  default_prompt: "Open the plan review workflow for this invocation."
 policy:
   allow_implicit_invocation: true

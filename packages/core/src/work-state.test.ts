@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "bun:test";
+import { execFile } from "node:child_process";
 import {
   mkdir,
   mkdtemp,
@@ -13,10 +14,13 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import { decode, encode } from "@toon-format/toon";
 
-import { IntentStore, type RepositorySnapshot } from "./work-state.ts";
+import { IntentStore, readRepositorySnapshot, type RepositorySnapshot } from "./work-state.ts";
+
+const execFileAsync = promisify(execFile);
 
 function snapshot(
   root: string,
@@ -46,6 +50,14 @@ async function fixture() {
       current = value;
     },
   };
+}
+
+async function git(root: string, ...args: readonly string[]): Promise<string> {
+  return (
+    await execFileAsync("git", ["-C", root, ...args], {
+      encoding: "utf8",
+    })
+  ).stdout.trim();
 }
 
 describe("IntentStore", () => {
@@ -308,6 +320,7 @@ describe("IntentStore", () => {
     ).rejects.toMatchObject({ code: "invalid_transition" });
     intent = await store.recordIntentEvidence(intent.id, intent.revision, {
       verification: "passed",
+      evidence: [{ kind: "behavior", value: "lifecycle predicates", result: "passed" }],
     });
     intent = await store.transitionIntent(intent.id, "reviewing", intent.revision);
     intent = await store.recordIntentEvidence(intent.id, intent.revision, { review: "rejected" });
@@ -413,6 +426,7 @@ describe("IntentStore", () => {
     intent = await store.transitionIntent(intent.id, "verifying", intent.revision);
     intent = await store.recordIntentEvidence(intent.id, intent.revision, {
       verification: "passed",
+      evidence: [{ kind: "check", value: "focused lifecycle test", result: "passed" }],
     });
     intent = await store.transitionIntent(intent.id, "reviewing", intent.revision);
     intent = await store.recordIntentEvidence(intent.id, intent.revision, {
@@ -424,6 +438,242 @@ describe("IntentStore", () => {
     expect("completed" in completed ? completed.completed : completed.state === "complete").toBe(
       true,
     );
+  });
+
+  test("requires meaningful verification evidence and correlates Assignment results to starts", async () => {
+    const { store } = await fixture();
+    let intent = await store.createIntent({
+      title: "Evidence and correlation",
+      goal: "Require attributable execution proof",
+      acceptanceCriteria: ["safe"],
+    });
+    intent = await store.transitionIntent(intent.id, "ready", intent.revision);
+    intent = await store.transitionIntent(intent.id, "executing", intent.revision);
+    intent = await store.transitionIntent(intent.id, "verifying", intent.revision);
+    await expect(
+      store.recordIntentEvidence(intent.id, intent.revision, { verification: "passed" }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    intent = await store.recordIntentEvidence(intent.id, intent.revision, {
+      verification: "passed",
+      evidence: [{ kind: "behavior", value: "observable result", result: "observed" }],
+    });
+
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Bounded execution",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    expect(running.status).toBe("executing");
+    expect(running.active_invocation_id).toBe("invocation-001");
+    await expect(
+      store.startAssignment(intent.id, assignment.id, running.revision),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+    await expect(
+      store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
+        invocationId: "invocation-999",
+        outcome: "completed",
+        summary: "mismatched result",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+    const result = await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
+      outcome: "completed",
+      summary: "correlated result",
+    });
+    expect(result.assignment.status).toBe("completed");
+    expect(result.assignment.active_invocation_id).toBeUndefined();
+    expect(result.assignment.invocations[0]?.id).toBe("invocation-001");
+  });
+
+  test("supports Root scope reconciliation for an unfinished Assignment", async () => {
+    const { store, root, setSnapshot } = await fixture();
+    const intent = await store.createIntent({
+      title: "Scope reconciliation",
+      goal: "Correct a bounded path after implementation expands its proof surface",
+      acceptanceCriteria: ["safe"],
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Implement and prove a state seam",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core/src/work-state.ts"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    const revised = await store.reviseAssignmentScope(
+      intent.id,
+      assignment.id,
+      { scope: ["packages/core/src/work-state.ts", "packages/core/src/work-state.test.ts"] },
+      running.revision,
+    );
+    expect(revised.status).toBe("executing");
+    expect(revised.active_invocation_id).toBe(running.active_invocation_id);
+    setSnapshot(snapshot(root, "a".repeat(40), ["packages/core/src/work-state.test.ts"]));
+    const result = await store.recordAssignmentResult(intent.id, assignment.id, revised.revision, {
+      outcome: "completed",
+      summary: "Scope correction recorded",
+      evidence: [
+        {
+          kind: "changed_path",
+          value: "packages/core/src/work-state.test.ts",
+          result: "observed",
+        },
+      ],
+    });
+    expect(result.assignment.status).toBe("completed");
+  });
+
+  test("attributes concurrent active Assignment paths without accepting unrelated drift", async () => {
+    const { store, root, setSnapshot } = await fixture();
+    const intent = await store.createIntent({
+      title: "Concurrent assignments",
+      goal: "Keep independent work attributable",
+      acceptanceCriteria: ["safe"],
+    });
+    const first = await store.createAssignment(
+      intent.id,
+      {
+        objective: "First independent seam",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/first"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const second = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Second independent seam",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/second"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const firstRunning = await store.startAssignment(intent.id, first.id, first.revision);
+    const secondRunning = await store.startAssignment(intent.id, second.id, second.revision);
+    setSnapshot(snapshot(root, "a".repeat(40), ["packages/second/result.ts"]));
+    const firstResult = await store.recordAssignmentResult(
+      intent.id,
+      first.id,
+      firstRunning.revision,
+      { outcome: "completed", summary: "First seam complete" },
+    );
+    expect(firstResult.assignment.status).toBe("completed");
+
+    setSnapshot(
+      snapshot(root, "a".repeat(40), ["packages/second/result.ts", "packages/unrelated.ts"]),
+    );
+    await expect(
+      store.recordAssignmentResult(intent.id, second.id, secondRunning.revision, {
+        outcome: "completed",
+        summary: "Second seam complete",
+        evidence: [
+          { kind: "changed_path", value: "packages/second/result.ts", result: "observed" },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "repository_drift" });
+  });
+
+  test("preserves the leading status column when reading modified paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-status-"));
+    await execFileAsync("git", ["init", "-q", root]);
+    await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
+    await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
+    await writeFile(join(root, "AGENTS.md"), "initial\n", "utf8");
+    await execFileAsync("git", ["-C", root, "add", "AGENTS.md"]);
+    await execFileAsync("git", ["-C", root, "commit", "-q", "-m", "initial"]);
+    await writeFile(join(root, "AGENTS.md"), "modified\n", "utf8");
+    await expect(readRepositorySnapshot(root)).resolves.toMatchObject({
+      changedPaths: ["AGENTS.md"],
+    });
+  });
+
+  test("records exact Root VCS integration before an operations Assignment", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-vcs-integration-"));
+    await git(root, "init", "-q");
+    await git(root, "config", "user.email", "test@example.com");
+    await git(root, "config", "user.name", "Test");
+    await writeFile(join(root, ".gitignore"), ".holycodex/\n", "utf8");
+    await writeFile(join(root, "implementation.txt"), "before\n", "utf8");
+    await git(root, "add", ".gitignore", "implementation.txt");
+    await git(root, "commit", "-q", "-m", "initial");
+    const parent = await git(root, "rev-parse", "HEAD");
+    await writeFile(join(root, "implementation.txt"), "after\n", "utf8");
+    const store = new IntentStore(root, { repositorySnapshot: () => readRepositorySnapshot(root) });
+    let intent = await store.createIntent({
+      title: "VCS integration",
+      goal: "Record the reviewed commit before operations work",
+      acceptanceCriteria: ["exact commit"],
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Implement the reviewed change",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["implementation.txt"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    intent = (
+      await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
+        outcome: "completed",
+        summary: "Implementation complete",
+        evidence: [{ kind: "changed_path", value: "implementation.txt", result: "observed" }],
+      })
+    ).intent;
+    intent = await store.transitionIntent(intent.id, "ready", intent.revision);
+    intent = await store.transitionIntent(intent.id, "executing", intent.revision);
+    intent = await store.transitionIntent(intent.id, "verifying", intent.revision);
+    intent = await store.recordIntentEvidence(intent.id, intent.revision, {
+      verification: "passed",
+      evidence: [{ kind: "behavior", value: "reviewed implementation", result: "passed" }],
+    });
+    intent = await store.transitionIntent(intent.id, "reviewing", intent.revision);
+    intent = await store.recordIntentEvidence(intent.id, intent.revision, {
+      review: "accepted",
+    });
+    await expect(
+      store.createAssignment(
+        intent.id,
+        {
+          objective: "Observe CI before integration",
+          owner: { role: "Worker", task: "operations" },
+          scope: ["."],
+          acceptanceCriteria: ["exact SHA evidence"],
+        },
+        intent.revision,
+      ),
+    ).rejects.toMatchObject({ code: "not_ready" });
+    await git(root, "add", "implementation.txt");
+    await git(root, "commit", "-q", "-m", "implement reviewed change");
+    const commit = await git(root, "rev-parse", "HEAD");
+    expect(commit).not.toBe(parent);
+    const integrated = await store.recordVcsIntegration(intent.id, intent.revision, { commit });
+    expect(integrated.baseline.expected_head).toBe(commit);
+    expect(integrated.baseline.expected_changes).toEqual([]);
+    expect(integrated.evidence.at(-1)?.value).toContain(commit);
+    const operations = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Observe exact integrated SHA",
+        owner: { role: "Worker", task: "operations" },
+        scope: ["."],
+        acceptanceCriteria: ["exact SHA evidence"],
+      },
+      integrated.revision,
+    );
+    expect(operations.status).toBe("pending");
   });
 
   test("accepts declared task evolution while rejecting unexplained repository drift", async () => {

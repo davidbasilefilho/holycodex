@@ -109,11 +109,12 @@ The live root/session route is `gpt-6-astra` with low, medium, or high
 reasoning for the `low`, `default`, and `high` product profiles. Every
 specialist route uses `gpt-5.6-luna` with the task-specific effort matrix in
 the behavioral contract. Sol, Terra, and Go remain only in migration/cleanup
-paths for previously managed state. HolyCodex owns the
-`features.context_management.experimental_mode` projection and sets it to
-`true` because Codex does not enable it by default. Standard managed-key
-ownership preserves a user edit and restores the recorded prior value during
-removal. Repo-local Intent/Plan/Assignment state remains independent.
+paths for previously managed state. HolyCodex owns the scalar
+`features.context_management` projection and sets it to `true` because Codex
+does not enable it by default. Upgrade migrates owned historical
+`.experimental_mode` state to the scalar key. Standard managed-key ownership
+preserves a user edit and restores the recorded prior value during removal.
+Repo-local Intent/Plan/Assignment state remains independent.
 
 ## Repository shape and checks
 

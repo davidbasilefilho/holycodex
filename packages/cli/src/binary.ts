@@ -11,7 +11,9 @@ export interface BinaryIo {
   readonly stdin?: AsyncIterable<string>;
   readonly stdoutIsTTY?: boolean;
   readonly stderrIsTTY?: boolean;
-  readonly confirm?: (message: string) => Promise<boolean>;
+  readonly confirm?: (
+    message: string,
+  ) => Promise<boolean | "confirmed" | "cancelled" | "unavailable">;
   /** Optional injectable wizard used by embedders and tests. */
   readonly installWizard?: (initial: InstallRequest) => Promise<InstallWizardResult>;
   readonly writeStdout: (text: string) => void;

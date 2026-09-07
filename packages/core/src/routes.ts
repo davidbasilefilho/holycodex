@@ -58,14 +58,12 @@ export const ROLE_DEFINITIONS = [
     tasks: [
       {
         name: "lookup",
-        description:
-          "Use when Root needs one exact repository fact; locate it and return the exact path, symbol, or value.",
+        description: "Repository fact lookup specialist.",
         instruction: "Locate the exact requested repository fact.",
       },
       {
         name: "trace",
-        description:
-          "Use when Root needs a complete in-scope execution or reference path; trace every relevant caller and constraint, then return the path and evidence.",
+        description: "Repository execution and reference tracing specialist.",
         instruction: "Trace the complete in-scope execution or reference path.",
       },
     ],
@@ -81,14 +79,12 @@ export const ROLE_DEFINITIONS = [
     tasks: [
       {
         name: "lookup",
-        description:
-          "Use when Root needs one exact current external fact; locate it in the assigned authoritative source and return the citation.",
+        description: "Authoritative external fact lookup specialist.",
         instruction: "Locate the exact requested authoritative external fact.",
       },
       {
         name: "research",
-        description:
-          "Use when Root needs a sourced current synthesis; combine the assigned authoritative sources with citations and return the evidence and uncertainty.",
+        description: "Current authoritative-source research specialist.",
         instruction: "Synthesize the assigned current sources with citations.",
       },
     ],
@@ -104,28 +100,29 @@ export const ROLE_DEFINITIONS = [
     tasks: [
       {
         name: "mechanical",
-        description:
-          "Use when Root has decided deterministic edits; apply only those edits, verify the result, and return changed paths and evidence.",
+        description: "Deterministic bounded-edit specialist.",
         instruction: "Apply only deterministic, already-decided edits.",
       },
       {
         name: "implementation",
-        description:
-          "Use when Root has decided a bounded behavior seam; implement and verify that seam, then return changed paths and evidence.",
+        description: "Bounded behavior implementation specialist.",
         instruction: "Implement and verify the bounded behavior seam.",
       },
       {
         name: "integration",
-        description:
-          "Use when Root has decided seams that must be combined; integrate and verify them together, then return the result and residual risk.",
+        description: "Decided seam integration specialist.",
         instruction: "Integrate the decided seams and verify them together.",
       },
       {
         name: "operations",
-        description:
-          "Use after Root approves an exact ref or SHA; observe required CI and release state to terminal evidence and return it, never treating pending as success.",
+        description: "Exact-ref or SHA terminal operations observer.",
+        instruction: "Observe the assigned post-VCS external gate.",
+      },
+      {
+        name: "validation",
+        description: "Independent local behavioral validation specialist.",
         instruction:
-          "After Root approves an exact ref or SHA, observe required CI and release state through terminal evidence; pending or running state is never success.",
+          "When independent proof is useful, run the smallest relevant local checks for the delegated seam, classify failures, and report evidence without redesigning the solution or replacing code review.",
       },
     ],
     capability: "bounded-write",
@@ -141,20 +138,17 @@ export const ROLE_DEFINITIONS = [
     tasks: [
       {
         name: "plan",
-        description:
-          "Use when Root needs a complete plan adversarially checked; review it to a fixed point and return findings, proof, and residual risk.",
+        description: "Adversarial implementation-plan review specialist.",
         instruction: "Review the complete plan to a fixed point.",
       },
       {
         name: "code",
-        description:
-          "Use when Root needs implemented code adversarially checked; review and repair it to a fixed point, returning findings, proof, and residual risk.",
+        description: "Adversarial implemented-code review specialist.",
         instruction: "Review and repair the implemented code to a fixed point.",
       },
       {
         name: "artifact",
-        description:
-          "Use when Root needs a produced artifact inspected; review and repair it to a fixed point, returning findings, proof, and residual risk.",
+        description: "Adversarial produced-artifact review specialist.",
         instruction: "Review and repair the produced artifact to a fixed point.",
       },
     ],

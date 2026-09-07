@@ -9,7 +9,8 @@ confirmation behavior. Observable product behavior is in
 The executable is `holycodex`. The published entry point is invoked with
 `bunx`; development uses `mise exec -- bun packages/cli/src/index.ts ...`.
 Bun is the repository runtime/toolchain. The canonical install and removal
-commands are `bunx holycodex install` and `bunx holycodex remove`.
+commands are `bunx holycodex install`, `bunx holycodex remove`, and
+`bunx holycodex upgrade`.
 
 ## Commands
 
@@ -18,12 +19,13 @@ commands are `bunx holycodex install` and `bunx holycodex remove`.
 | `holycodex install [options]`                                    | Validate input, configure the selected profile, tier, and optional plugins through Codex native plugin management, verify readback, and write owned configuration. |
 | `holycodex doctor [--json]`                                      | Compare effective Root config, canonical leaf registrations/files, selected capabilities, ownership, and transaction state.                                        |
 | `holycodex remove [--yes] [--json]`                              | Verify ownership, remove HolyCodex's native plugin state, and remove its owned configuration without touching unrelated state.                                     |
+| `holycodex upgrade [--dry-run] [--yes] [--json]`                 | Migrate an existing installation in place using the running binary while preserving selected and user-owned state.                                                 |
 | `holycodex version [<0.x.y\|patch\|minor>] [--dry-run] [--json]` | Read or update the canonical package version.                                                                                                                      |
 | `holycodex --help`                                               | Print the current command and option syntax.                                                                                                                       |
 
 Installation options are `--yes`, `--profile <name>`,
 `--tier <name>`, `--work`, `--frontend`, `--security`, `--computer-use`, and
-`--add-plugin <id>`, and `--json`. Each option is explicit; conflicting or
+`--add-plugin <id>`, and `--json`. Interactive plugin entry accepts whitespace-separated IDs. Each option is explicit; conflicting or
 malformed values fail before any effect.
 
 Profiles select native subagent routing only. The tier is an independent

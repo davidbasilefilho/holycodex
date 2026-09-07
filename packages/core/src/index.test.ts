@@ -68,6 +68,7 @@ const expectedRouteEffortsByProfile = [
       "high",
       "max",
       "high",
+      "medium",
       "high",
       "max",
       "high",
@@ -84,6 +85,7 @@ const expectedRouteEffortsByProfile = [
       "xhigh",
       "max",
       "high",
+      "high",
       "xhigh",
       "max",
       "xhigh",
@@ -99,6 +101,7 @@ const expectedRouteEffortsByProfile = [
       "xhigh",
       "max",
       "max",
+      "xhigh",
       "xhigh",
       "max",
       "max",
@@ -120,9 +123,9 @@ describe("core profile catalog", () => {
     }
   });
 
-  test("contains all eleven route slots and exact parity-floor efforts", () => {
-    expect(ROUTE_KEYS).toHaveLength(11);
-    expect(new Set(ROUTE_KEYS).size).toBe(11);
+  test("contains all current route slots and exact parity-floor efforts", () => {
+    expect(ROUTE_KEYS).toHaveLength(12);
+    expect(new Set(ROUTE_KEYS).size).toBe(12);
     for (const profile of PROFILE_CATALOG) {
       expect(profile.routes.map((route) => route.key)).toEqual([...ROUTE_KEYS]);
       expect(profile.routes.every((route) => route.model === "gpt-5.6-luna")).toBe(true);
@@ -137,6 +140,7 @@ describe("core profile catalog", () => {
       "high",
       "max",
       "high",
+      "medium",
       "high",
       "max",
       "high",
@@ -179,6 +183,7 @@ describe("core profile catalog", () => {
       "Worker.implementation",
     );
     expect(NATIVE_AGENT_TYPES).toContain("Worker.mechanical");
+    expect(NATIVE_AGENT_TYPES).toContain("Worker.validation");
     expect(NATIVE_AGENT_TYPES).not.toContain("Worker.research" as never);
   });
 
@@ -188,7 +193,7 @@ describe("core profile catalog", () => {
       write: true,
       networkScope: "exact_ref_or_sha",
     });
-    for (const task of ["mechanical", "implementation", "integration"] as const) {
+    for (const task of ["mechanical", "implementation", "integration", "validation"] as const) {
       expect(taskPermissionsFor({ role: "Worker", task })).toEqual({
         network: false,
         write: true,

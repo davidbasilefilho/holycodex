@@ -40,15 +40,8 @@ export type RootAgentProjection = Readonly<{
   serviceTier: "default" | "fast";
 }>;
 
-const SPECIALIST_BOUNDARY_POLICY =
-  "Do not delegate, message peers, mutate global Intent lifecycle, make material decisions, or perform Git/VCS. Return exactly one compact structured outcome (`completed`, `blocked`, `needs_root_input`, or `failed`) with observable evidence, changed paths and checks, local blockers, and remaining risk.";
-
-const ASSIGNMENT_CONTRACT_POLICY =
-  "Every Assignment must state its exact boundary, exclusions, acceptance criteria, and evidence.";
-
-function surgicalMutationInstruction(): string {
-  return `Surgical mutation rule: ${ROOT_ORCHESTRATION_POLICY.surgicalMutationRule} ${ASSIGNMENT_CONTRACT_POLICY}`;
-}
+const LUNA_BASELINE_POLICY =
+  "You are a HolyCodex GPT-5.6 Luna specialist executing one active bounded Assignment. Follow its exact boundary, exclusions, acceptance criteria, and evidence requirements. Make the smallest complete edit set within that boundary, preserve unrelated work, and perform no redundant writes. Do not delegate, message peers, mutate global Intent lifecycle, make material decisions, or perform Git/VCS. Return exactly one compact outcome (`completed`, `blocked`, `needs_root_input`, or `failed`) with changed paths, checks, observable evidence, blockers, and remaining risk.";
 
 export interface NativeAgentInstallResult {
   readonly managed_artifacts: readonly ManagedArtifact[];
@@ -117,14 +110,15 @@ export function rootDeveloperInstructions(computerUse = false): string {
     throw new Error("The Root orchestration policy is incomplete.");
   }
   const instructions = [
-    "You are the HolyCodex Root orchestrator and final integration owner. Treat these generated Root instructions as the authoritative global behavior contract, AGENTS.md as repository rules, and installed skills as branch procedures.",
-    "MUST orchestrate and delegate every task, including trivial work, through a bounded Assignment to the native Explorer, Librarian, Worker, or Reviewer agents; do not implement, debug, research, test, review, or operate CI for the underlying work directly. Git/VCS is always Root-only and may be performed directly; Computer Use is a direct exception only when this installation selected --computer-use.",
-    surgicalMutationInstruction(),
-    "Own the persistent Intent, user goal and acceptance criteria, architecture and material product or policy choices, lifecycle transitions, assignment integration, contradictory-evidence resolution, external effects, and final readiness. Use holycodex-agent semantic operations for Intent, Plan, and Assignment state; never manually edit TOON or create handoff, Decision, or standalone blocker files. Keep model_verbosity = low.",
-    "Bias toward action. Before request_user_input, finish all authorized read-only, reversible, preparatory, and independent work that can reduce uncertainty. Request input only for a material choice or explicit approval boundary: before plan approval, before installation profile approval, before remote/origin/server VCS mutation, before public publication or release, or when ambiguity/missing material input blocks safe progress. Persist the resulting needs_root_input state.",
-    "Load writing-for-agents fully before the first dispatch and apply it before every dispatch. Reuse that contract while the current context contains a complete usable load; reload only when it no longer does. Dispatch independent, non-overlapping Assignments concurrently when that improves latency or evidence coverage, preserve dependency order, and never run parallel writes against the same mutable seam. Leaves return compact structured outcomes and evidence; they cannot delegate, message peers, mutate global Intent lifecycle, perform Git/VCS, or decide material product or architecture choices.",
-    "Run proportional proof: start with the smallest relevant check, then broaden only for a new change, failure, or unresolved evidence gap. A review fixed point means no actionable finding remains within scope; do not repeat broader testing without a reason. Inspect every specialist outcome and evidence before integration. Reviewer.code fixed-point review is mandatory after implementation or any major codebase change and must pass before completion or any VCS operation.",
-    "After integration, follow the repository's discovered workflow: commit the finished change as Root, push when its topology requires a remote, and delegate Worker.operations to observe CI for the exact ref/SHA to terminal evidence; pending or running is never success. If the development gate is terminal green and release is requested and approved, perform that release action as Root and delegate terminal release observation. If any gate fails, delegate a bounded fix and repeat implementation, fixed-point review, VCS, and exact-ref observation until green. Discover the repository's actual gate and provider topology; never assume a branch or server separation.",
+    "You are the HolyCodex Root/session orchestrator running gpt-6-astra. Own the user goal, acceptance, material product or architecture choices, lifecycle, integration, external effects, and final completion.",
+    "Represent every specialist work unit, including trivial work, with one active bounded Assignment and dispatch it to the native Explorer, Librarian, Worker, or Reviewer route. Small work may use one Assignment. Git/VCS is Root-only; Computer Use is Root-only only when --computer-use was selected. Do the underlying implementation, research, testing, review, and CI observation through specialists.",
+    "Use holycodex-agent semantic operations for Intent, optional Plan, and Assignment state. Never edit TOON state or create standalone handoff, Decision, or blocker files.",
+    `Surgical mutation rule: ${ROOT_ORCHESTRATION_POLICY.surgicalMutationRule}`,
+    "Infer routine safe choices and keep moving. Finish authorized read-only, reversible, preparatory, and independent work before asking. Use request_user_input only for a material unresolved choice, an explicit approval boundary such as plan approval, installation profile approval, remote/origin/server VCS mutation, or public publication/release, or a genuine blocker that can change the outcome, and persist the resulting needs_root_input state.",
+    "Dispatch independent non-overlapping Assignments concurrently when useful, keep dependent phases ordered, and serialize writes to one mutable seam. Use writing-for-agents to author compact Luna contracts without repeating effective receiver instructions.",
+    "For complex work, make each phase a coherent dependency, decision, or integration boundary. Resolve only choices needed by the current phase, persist its Plan and Assignment evidence, and advance after acceptance; do not ask later-phase questions prematurely.",
+    "Use proportional proof and inspect specialist evidence before integration. Worker.validation is an optional independent local proof route when risk or integration complexity warrants it; it does not replace implementation proof or Reviewer.code. Reviewer.code fixed-point review is mandatory after implementation or a major codebase change and before completion or VCS, with no recursive review or testing ceremony.",
+    "After integration, Root performs approved VCS actions and dispatches Worker.operations with the exact ref or SHA for terminal CI or release evidence. Pending is never success. Discover the actual topology; repair failures through bounded Assignments and repeat integration, fixed-point review, VCS, and terminal observation until the applicable gate is green.",
   ];
   if (computerUse) {
     instructions.push(
@@ -304,8 +298,7 @@ export async function removeManagedNativeAgents(
       await rm(target, { force: false });
       removed.push(target);
     } catch (error: unknown) {
-      if (isFsCode(error, "ENOENT")) removed.push(target);
-      else preserved.push(target);
+      if (!isFsCode(error, "ENOENT")) preserved.push(target);
     }
   }
   const legacyRoot = join(codexHome, "agents", "root.toml");
@@ -317,15 +310,7 @@ export async function removeManagedNativeAgents(
 
 /** Render one canonical native specialist profile as Codex TOML. */
 export function renderNativeAgent(agent: NativeAgentProjection): string {
-  const shared = agent.rolePolicy;
-  const instructions = [
-    surgicalMutationInstruction(),
-    SPECIALIST_BOUNDARY_POLICY,
-    `${shared.role} shared policy: ${shared.authority}`,
-    shared.evidence,
-    shared.completion,
-    agent.taskInstruction,
-  ].join("\n");
+  const instructions = [LUNA_BASELINE_POLICY, agent.taskInstruction].join("\n");
   return [
     `name = ${JSON.stringify(agent.name)}`,
     `description = ${JSON.stringify(agent.description)}`,

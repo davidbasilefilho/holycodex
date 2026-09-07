@@ -69,8 +69,8 @@ describe("documentation invariants", () => {
     expect(cli).not.toContain("--plan <name>");
     expect(behavior).toMatch(/The live profiles are\s+`low`, `default`, and `high`/u);
     expect(behavior).toContain("installation profile approval");
-    expect(behavior).toContain("features.context_management.experimental_mode");
-    expect(configuration).toContain("manages `features.context_management.experimental_mode`");
+    expect(behavior).toContain("features.context_management` and sets");
+    expect(configuration).toContain("manages the canonical scalar `features.context_management`");
     expect(configuration).toMatch(/installation\s+profile approval/u);
     expect(installation).toContain("Legacy `go`");
   });

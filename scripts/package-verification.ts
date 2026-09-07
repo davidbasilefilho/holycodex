@@ -2,6 +2,7 @@
 
 import { access, chmod, cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { delimiter, dirname, join, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 
 import * as Either from "effect/Either";
@@ -64,6 +65,7 @@ const EXPECTED_CODEX_PROVIDER_PLUGINS = [
   "codex-security@openai-curated",
 ] as const;
 const CODEX_HOLYCODEX_PLUGIN = "holycodex@holycodex" as const;
+const ADDITIONAL_FIXTURE_PLUGIN = "additional@fixture" as const;
 
 type CodexPluginListEntry = Readonly<{
   readonly pluginId: string;
@@ -76,6 +78,10 @@ type CodexPluginList = Readonly<{
 }>;
 
 type PublicManifest = typeof PublicManifestSchema.Type;
+type InstalledCliModule = Readonly<{
+  readonly runCli: (argv: readonly string[], context?: unknown) => Promise<unknown>;
+  readonly installRecordDigest: (value: Record<string, unknown>) => Promise<string>;
+}>;
 
 export interface PackageReleaseOptions {
   readonly version: string;
@@ -190,7 +196,11 @@ export async function verifyPublicPackage(
     join(installedPackageRoot, "dist/assets/plugin/plugin.json"),
     "the installed plugin payload source",
   );
-  for (const relativePath of ["skills/plan/SKILL.md"]) {
+  for (const relativePath of [
+    "skills/plan/SKILL.md",
+    "skills/grill-me/SKILL.md",
+    "skills/writing-for-agents/SKILL.md",
+  ]) {
     await requireFile(
       join(installedPackageRoot, "dist/assets/plugin", relativePath),
       `the installed plugin asset ${relativePath}`,
@@ -212,7 +222,8 @@ export async function verifyPublicPackage(
   await runInstalledOpenTuiProbe(installedRoot, commands, bunEnvironment);
   const stateRoot = join(codexHome, "holycodex");
   await mkdir(codexHome, { recursive: true });
-  const unrelatedConfig = 'approval_policy = "on-request"\n';
+  const unrelatedConfig =
+    '[features]\ncontext_management = true\nunrelated = "keep"\n\napproval_policy = "on-request"\n';
   await writeFile(join(codexHome, "config.toml"), unrelatedConfig, {
     encoding: "utf8",
     mode: 0o600,
@@ -249,6 +260,7 @@ export async function verifyPublicPackage(
     TMP: bunTempRoot,
     TMPDIR: bunTempRoot,
   });
+  const installedModule = (await import(pathToFileURL(installedEntry).href)) as InstalledCliModule;
   const versionEnvelope = await runCli(
     installedEntry,
     ["version", "--json"],
@@ -280,25 +292,44 @@ export async function verifyPublicPackage(
 
   const installEnvelope = await runCli(
     installedEntry,
-    ["install", "--yes", "--json", "--codex-home", codexHome],
+    [
+      "install",
+      "--yes",
+      "--json",
+      "--profile",
+      "high",
+      "--tier",
+      "fast-all",
+      "--add-plugin",
+      ADDITIONAL_FIXTURE_PLUGIN,
+      "--codex-home",
+      codexHome,
+    ],
     installedRoot,
     commands,
     codexEnvironment,
   );
   assert(installEnvelope.ok, "packed package install failed");
+  const activeRecordPath = join(stateRoot, "active.json");
   const activeRecord = decode(
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-    JSON.parse(await readFile(join(stateRoot, "active.json"), "utf8")),
+    JSON.parse(await readFile(activeRecordPath, "utf8")),
     "the active installation record",
   );
   assert(
-    activeRecord["profile"] === "default" && activeRecord["plan"] === undefined,
+    activeRecord["profile"] === "high" &&
+      activeRecord["tier"] === "fast-all" &&
+      activeRecord["plan"] === undefined &&
+      arrayProperty(activeRecord, "official_plugins")?.includes(ADDITIONAL_FIXTURE_PLUGIN) === true,
     "the active installation record must use the current profile field",
   );
   const managedConfigText = await readFile(join(codexHome, "config.toml"), "utf8");
   assert(
-    managedConfigText.includes("gpt-6-astra") && !/\b(?:Sol|Terra)\b/u.test(managedConfigText),
-    "the managed Codex configuration must use Astra and no live Sol/Terra route",
+    managedConfigText.includes("gpt-6-astra") &&
+      managedConfigText.includes("context_management = true") &&
+      !managedConfigText.includes("experimental_mode") &&
+      !/\b(?:Sol|Terra)\b/u.test(managedConfigText),
+    "the managed Codex configuration must use Astra and canonical scalar context management",
   );
 
   const pluginListEnvelope = parseCodexPluginList(
@@ -319,8 +350,17 @@ export async function verifyPublicPackage(
     pluginListEnvelope.installed.some((entry) => entry.pluginId === CODEX_HOLYCODEX_PLUGIN),
     "Codex plugin list did not report HolyCodex",
   );
+  assert(
+    pluginListEnvelope.installed.some((entry) => entry.pluginId === ADDITIONAL_FIXTURE_PLUGIN),
+    "Codex plugin list did not report the explicitly selected additional plugin",
+  );
   const installedPluginRoot = join(codexHome, "plugins/holycodex");
-  for (const relativePath of [".codex-plugin/plugin.json", "skills/plan/SKILL.md"]) {
+  for (const relativePath of [
+    ".codex-plugin/plugin.json",
+    "skills/plan/SKILL.md",
+    "skills/grill-me/SKILL.md",
+    "skills/writing-for-agents/SKILL.md",
+  ]) {
     await requireFile(
       join(installedPluginRoot, relativePath),
       `installed Codex plugin asset ${relativePath}`,
@@ -334,6 +374,14 @@ export async function verifyPublicPackage(
   assert(
     installedPluginManifest.version === packed.baseVersion,
     "installed Codex plugin manifest version is not canonical",
+  );
+  const writingForAgents = await readFile(
+    join(installedPluginRoot, "skills/writing-for-agents/SKILL.md"),
+    "utf8",
+  );
+  assert(
+    !/load before first dispatch|reload when lost|reuse while/iu.test(writingForAgents),
+    "writing-for-agents must not contain obsolete context-residency rituals",
   );
   await assertCodexAppServerReadback(
     codexFixture.executable,
@@ -364,6 +412,210 @@ export async function verifyPublicPackage(
     assert(doctorData["healthy"] === true, "packed package doctor did not report healthy");
   }
 
+  const currentUpgrade = await runCli(
+    installedEntry,
+    ["upgrade", "--yes", "--json", "--codex-home", codexHome],
+    installedRoot,
+    commands,
+    codexEnvironment,
+  );
+  assert(currentUpgrade.ok, "packed package current upgrade command failed");
+  if (currentUpgrade.ok) {
+    assert(
+      hasProperty(currentUpgrade.data, "status") && currentUpgrade.data["status"] === "current",
+      "already-current upgrade must report current",
+    );
+  }
+
+  const beforeCancellationConfig = await readFile(join(codexHome, "config.toml"), "utf8");
+  const beforeCancellationRecord = await readFile(activeRecordPath, "utf8");
+  const cancelled = (await installedModule.runCli(["remove", "--codex-home", codexHome], {
+    env: codexEnvironment,
+    io: {
+      stdoutIsTTY: true,
+      stderrIsTTY: true,
+      confirm: async () => "cancelled",
+    },
+  })) as { readonly envelope: typeof CliEnvelopeSchema.Type; readonly exitCode: number };
+  assert(cancelled.exitCode === 0, "interactive remove cancellation must succeed");
+  assert(cancelled.envelope.ok, "interactive remove cancellation must return success");
+  if (cancelled.envelope.ok) {
+    assert(
+      hasProperty(cancelled.envelope.data, "cancelled") &&
+        cancelled.envelope.data["cancelled"] === true,
+      "interactive remove cancellation must be explicit",
+    );
+  }
+  assert(
+    (await readFile(join(codexHome, "config.toml"), "utf8")) === beforeCancellationConfig &&
+      (await readFile(activeRecordPath, "utf8")) === beforeCancellationRecord,
+    "interactive remove cancellation must not mutate the installation",
+  );
+
+  await rewriteActiveRecord(activeRecordPath, installedModule, (record) =>
+    rewriteForLegacyContext(record, previousPatchVersion(version)),
+  );
+  const currentConfigForLegacy = await readFile(join(codexHome, "config.toml"), "utf8");
+  const legacyConfig = currentConfigForLegacy
+    .replace("context_management = true\n", "")
+    .replace(
+      '[agents."Explorer.lookup"]',
+      '[features.context_management]\nexperimental_mode = true\n\n[agents."Explorer.lookup"]',
+    );
+  assert(
+    legacyConfig !== currentConfigForLegacy,
+    "legacy fixture could not locate the canonical context-management setting",
+  );
+  await writeFile(join(codexHome, "config.toml"), legacyConfig, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  const dryRunBeforeConfig = await readFile(join(codexHome, "config.toml"), "utf8");
+  const dryRunBeforeRecord = await readFile(activeRecordPath, "utf8");
+  const dryRun = await runCli(
+    installedEntry,
+    ["upgrade", "--yes", "--dry-run", "--json", "--codex-home", codexHome],
+    installedRoot,
+    commands,
+    codexEnvironment,
+  );
+  assert(dryRun.ok, "packed package upgrade dry-run failed");
+  if (dryRun.ok) {
+    assert(
+      hasProperty(dryRun.data, "status") && dryRun.data["status"] === "dry_run",
+      "upgrade dry-run must report dry_run",
+    );
+    assert(
+      hasProperty(dryRun.data, "changes") &&
+        arrayProperty(dryRun.data, "changes")?.includes(
+          "context-management configuration migration",
+        ) === true,
+      "upgrade dry-run must report legacy context migration",
+    );
+  }
+  assert(
+    (await readFile(join(codexHome, "config.toml"), "utf8")) === dryRunBeforeConfig &&
+      (await readFile(activeRecordPath, "utf8")) === dryRunBeforeRecord,
+    "upgrade dry-run must not mutate state",
+  );
+  const upgraded = await runCli(
+    installedEntry,
+    ["upgrade", "--yes", "--json", "--codex-home", codexHome],
+    installedRoot,
+    commands,
+    codexEnvironment,
+  );
+  assert(upgraded.ok, "packed package legacy upgrade failed");
+  if (upgraded.ok) {
+    assert(
+      hasProperty(upgraded.data, "status") && upgraded.data["status"] === "upgraded",
+      "legacy upgrade must report upgraded",
+    );
+    const upgradedRecord = objectProperty(upgraded.data, "record");
+    assert(
+      upgradedRecord?.["profile"] === "high" &&
+        upgradedRecord["tier"] === "fast-all" &&
+        arrayProperty(upgradedRecord, "official_plugins")?.includes(ADDITIONAL_FIXTURE_PLUGIN) ===
+          true,
+      "upgrade must preserve profile, tier, and additional plugin selection",
+    );
+  }
+  const migratedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
+  assert(
+    migratedConfig.includes("context_management = true") &&
+      !migratedConfig.includes("experimental_mode") &&
+      migratedConfig.includes('unrelated = "keep"'),
+    "legacy upgrade must migrate the scalar context setting and preserve unrelated config",
+  );
+
+  await rewriteActiveRecord(activeRecordPath, installedModule, (record) => ({
+    ...record,
+    version: nextPatchVersion(version),
+  }));
+  const downgrade = await runCliResult(
+    installedEntry,
+    ["upgrade", "--yes", "--json", "--codex-home", codexHome],
+    installedRoot,
+    commands,
+    codexEnvironment,
+  );
+  assert(downgrade.exitCode !== 0, "downgrade upgrade must fail");
+  assert(
+    !downgrade.envelope.ok && downgrade.envelope.error.code === "upgrade_downgrade",
+    "downgrade upgrade must return a semantic refusal",
+  );
+  await rewriteActiveRecord(activeRecordPath, installedModule, (record) => ({
+    ...record,
+    version,
+  }));
+
+  for (const [name, status] of [
+    ["preparing", "preparing"],
+    ["conflicted", "conflicted"],
+  ] as const) {
+    const current = JSON.parse(await readFile(activeRecordPath, "utf8")) as Record<string, unknown>;
+    await writeJson(join(stateRoot, `${name}.json`), {
+      ...current,
+      status,
+      step: status === "preparing" ? "validated" : "conflicted",
+    });
+    const recovered = await runCli(
+      installedEntry,
+      ["upgrade", "--yes", "--json", "--codex-home", codexHome],
+      installedRoot,
+      commands,
+      codexEnvironment,
+    );
+    assert(recovered.ok, `${name} transaction recovery failed`);
+    assert(
+      !(await exists(join(stateRoot, `${name}.json`))),
+      `${name} transaction state must be cleared after recovery`,
+    );
+  }
+
+  const notInstalledHome = join(temporaryRoot, "not-installed-codex-home");
+  const notInstalled = await runCliResult(
+    installedEntry,
+    ["upgrade", "--yes", "--json", "--codex-home", notInstalledHome],
+    installedRoot,
+    commands,
+    { ...codexEnvironment, CODEX_HOME: notInstalledHome },
+  );
+  assert(
+    !notInstalled.envelope.ok && notInstalled.envelope.error.code === "not_installed",
+    "upgrade without an installation must return not_installed",
+  );
+
+  const incompatibleHome = join(temporaryRoot, "incompatible-codex-home");
+  await mkdir(incompatibleHome, { recursive: true });
+  await writeFile(
+    join(incompatibleHome, "config.toml"),
+    '[features.context_management]\nexperimental_mode = false\nunrelated = "keep"\n',
+    { encoding: "utf8", mode: 0o600 },
+  );
+  const incompatibleEvents: string[] = [];
+  const incompatible = (await installedModule.runCli(
+    ["install", "--yes", "--codex-home", incompatibleHome],
+    {
+      env: { ...codexEnvironment, CODEX_HOME: incompatibleHome },
+      io: {
+        stdoutIsTTY: true,
+        stderrIsTTY: true,
+        writeStderr: (message: string) => incompatibleEvents.push(message),
+      },
+    },
+  )) as { readonly envelope: typeof CliEnvelopeSchema.Type; readonly exitCode: number };
+  assert(incompatible.exitCode !== 0, "incompatible config install must fail");
+  assert(
+    !incompatible.envelope.ok && incompatible.envelope.error.code === "state_corrupt",
+    "incompatible config install must return a semantic error",
+  );
+  assert(
+    incompatibleEvents.some((message) => message.includes("Validating Codex target")) &&
+      !incompatibleEvents.some((message) => message.includes("Installing subagent roles")),
+    "failed install progress must stop at the real validation boundary",
+  );
+
   const removeEnvelope = await runCli(
     installedEntry,
     ["remove", "--yes", "--json", "--codex-home", codexHome],
@@ -377,8 +629,11 @@ export async function verifyPublicPackage(
     !(await exists(join(stateRoot, "conflicted.json"))),
     "remove left the conflicted install record",
   );
+  const removedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
   assert(
-    (await readFile(join(codexHome, "config.toml"), "utf8")) === unrelatedConfig,
+    removedConfig.includes("context_management = true") &&
+      removedConfig.includes('unrelated = "keep"') &&
+      removedConfig.includes('approval_policy = "on-request"'),
     "remove did not restore unrelated Codex configuration",
   );
   const afterRemove = parseCodexPluginList(
@@ -392,6 +647,45 @@ export async function verifyPublicPackage(
   assert(
     !afterRemove.installed.some((entry) => entry.pluginId === CODEX_HOLYCODEX_PLUGIN),
     "Codex plugin list retained HolyCodex after removal",
+  );
+  assert(
+    !afterRemove.installed.some((entry) => entry.pluginId === ADDITIONAL_FIXTURE_PLUGIN),
+    "remove retained the explicitly selected additional plugin",
+  );
+  const repeatedRemove = await runCli(
+    installedEntry,
+    ["remove", "--yes", "--json", "--codex-home", codexHome],
+    installedRoot,
+    commands,
+    codexEnvironment,
+  );
+  assert(repeatedRemove.ok, "repeated remove command failed");
+  if (repeatedRemove.ok) {
+    assert(
+      hasProperty(repeatedRemove.data, "removed") &&
+        Array.isArray(repeatedRemove.data["removed"]) &&
+        repeatedRemove.data["removed"].length === 0,
+      "repeated remove must report zero removed items",
+    );
+  }
+  const repeatedRemovedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
+  assert(
+    repeatedRemovedConfig.includes("context_management = true") &&
+      repeatedRemovedConfig.includes('unrelated = "keep"') &&
+      repeatedRemovedConfig.includes('approval_policy = "on-request"'),
+    "repeated remove must preserve unrelated Codex configuration",
+  );
+  const nonTtyRemove = await runCliResult(
+    installedEntry,
+    ["remove", "--json", "--codex-home", codexHome],
+    installedRoot,
+    commands,
+    codexEnvironment,
+  );
+  assert(
+    !nonTtyRemove.envelope.ok &&
+      nonTtyRemove.envelope.error.code === "non_tty_confirmation_required",
+    "non-TTY remove without --yes must return the confirmation error",
   );
   return {
     packageVersion: version,
@@ -485,14 +779,113 @@ async function runCli(
     DEFAULT_COMMAND_ENVIRONMENT_KEYS,
   ),
 ): Promise<typeof CliEnvelopeSchema.Type> {
+  const result = await runCliResult(entry, args, cwd, commands, environment);
+  assert(
+    result.exitCode === 0,
+    `CLI command ${["bun", entry, ...args].join(" ")} failed with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
+  );
+  return result.envelope;
+}
+
+async function runCliResult(
+  entry: string,
+  args: readonly string[],
+  cwd: string,
+  commands: string[],
+  environment: Readonly<Record<string, string | undefined>> = allowlistedEnvironment(
+    DEFAULT_COMMAND_ENVIRONMENT_KEYS,
+  ),
+): Promise<{
+  readonly envelope: typeof CliEnvelopeSchema.Type;
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}> {
   const command = ["bun", entry, ...args];
   commands.push(command.join(" "));
   const result = await runCommand(command, { cwd, env: environment });
-  assert(
-    result.exitCode === 0,
-    `CLI command failed with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
+  return {
+    envelope: parseEnvelope(result.stdout),
+    exitCode: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
+}
+
+async function rewriteActiveRecord(
+  path: string,
+  installedModule: InstalledCliModule,
+  rewrite: (record: Record<string, unknown>) => Record<string, unknown>,
+): Promise<void> {
+  const current = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+  const rewritten = rewrite(current);
+  const digestKeys = [
+    "owner",
+    "install_id",
+    "version",
+    "profile",
+    "plan",
+    "tier",
+    "optional_selections",
+    "explicit_optional_selections",
+    "official_plugins",
+    "capability_state",
+    "managed_artifacts",
+    "managed_config",
+    "plugin_config",
+    "provider_config",
+    "plugin_snapshot",
+    "owned_plugins",
+  ] as const;
+  const digestInput = Object.fromEntries(
+    digestKeys.flatMap((key) => (key in rewritten ? [[key, rewritten[key]] as const] : [])),
   );
-  return parseEnvelope(result.stdout);
+  await writeJson(path, {
+    ...rewritten,
+    digest: await installedModule.installRecordDigest(digestInput),
+  });
+}
+
+function rewriteForLegacyContext(
+  record: Record<string, unknown>,
+  version: string,
+): Record<string, unknown> {
+  const managedConfig = objectProperty(record, "managed_config");
+  const managed = objectProperty(managedConfig, "managed");
+  const scalar = objectProperty(managed, "features.context_management");
+  if (managedConfig === undefined || managed === undefined || scalar === undefined) {
+    throw new Error("the active record does not contain scalar context-management ownership");
+  }
+  const legacy = {
+    ...scalar,
+    keyPath: "features.context_management.experimental_mode",
+  };
+  const nextManaged = { ...managed };
+  delete nextManaged["features.context_management"];
+  nextManaged["features.context_management.experimental_mode"] = legacy;
+  return {
+    ...record,
+    version,
+    managed_config: { ...managedConfig, managed: nextManaged },
+  };
+}
+
+function previousPatchVersion(version: string): string {
+  const parts = version.split(".").map(Number);
+  const patch = parts[2];
+  if (parts.length !== 3 || parts.some((part) => !Number.isInteger(part)) || patch === undefined) {
+    throw new Error("the canonical package version is not a three-part number");
+  }
+  return `${parts[0]}.${parts[1]}.${Math.max(0, patch - 1)}`;
+}
+
+function nextPatchVersion(version: string): string {
+  const parts = version.split(".").map(Number);
+  const patch = parts[2];
+  if (parts.length !== 3 || parts.some((part) => !Number.isInteger(part)) || patch === undefined) {
+    throw new Error("the canonical package version is not a three-part number");
+  }
+  return `${parts[0]}.${parts[1]}.${patch + 1}`;
 }
 
 async function runInstalledExecutable(
@@ -711,6 +1104,7 @@ const HOME = process.env.CODEX_HOME;
 const HOLY = "holycodex@holycodex";
 const MARKETPLACE = "davidbasilefilho/holycodex";
 const PROVIDERS = ["build-web-apps@openai-curated", "codex-security@openai-curated"];
+const ADDITIONAL = "additional@fixture";
 const STATE_PATH = HOME === undefined ? "" : join(HOME, "fixture-codex-state.json");
 const SNAPSHOT_ROOT = HOME === undefined ? "" : join(HOME, "plugins", "openai-plugins");
 const SNAPSHOT_PATH = join(SNAPSHOT_ROOT, "marketplace.json");
@@ -738,7 +1132,7 @@ async function readState() {
     ) {
       fail("fixture state is invalid");
     }
-    const known = new Set([HOLY, ...PROVIDERS]);
+    const known = new Set([HOLY, ...PROVIDERS, ADDITIONAL]);
     if (parsed.installed.some((id) => !known.has(id))) fail("fixture state contains an unknown plugin");
     return { marketplaces: [...new Set(parsed.marketplaces)], installed: [...new Set(parsed.installed)] };
   } catch (error) {
@@ -798,7 +1192,11 @@ function pluginEntry(pluginId, installed) {
 
 async function listPlugins() {
   const state = await readState();
-  const visible = [...PROVIDERS, ...(state.marketplaces.includes(MARKETPLACE) ? [HOLY] : [])];
+  const visible = [
+    ...PROVIDERS,
+    ADDITIONAL,
+    ...(state.marketplaces.includes(MARKETPLACE) ? [HOLY] : []),
+  ];
   return {
     installed: state.installed.map((pluginId) => pluginEntry(pluginId, true)),
     available: visible
@@ -809,7 +1207,9 @@ async function listPlugins() {
 
 async function addPlugin(pluginId) {
   const state = await readState();
-  if (pluginId !== HOLY && !PROVIDERS.includes(pluginId)) fail("fixture rejected an unselected plugin");
+  if (pluginId !== HOLY && !PROVIDERS.includes(pluginId) && pluginId !== ADDITIONAL) {
+    fail("fixture rejected an unselected plugin");
+  }
   if (pluginId === HOLY) {
     if (!state.marketplaces.includes(MARKETPLACE)) fail("HolyCodex marketplace was not registered");
     const source = join(HOME, "fixture-plugin-source");
@@ -820,7 +1220,10 @@ async function addPlugin(pluginId) {
     await rm(destination, { recursive: true, force: true });
     await mkdir(join(HOME, "plugins"), { recursive: true, mode: 0o700 });
     await cp(source, destination, { recursive: true, dereference: true });
-  } else if (!(await hasOfficialProvider(pluginId.slice(0, pluginId.lastIndexOf("@"))))) {
+  } else if (
+    pluginId !== ADDITIONAL &&
+    !(await hasOfficialProvider(pluginId.slice(0, pluginId.lastIndexOf("@"))))
+  ) {
     fail("selected official provider is absent from Codex startup snapshot");
   }
   if (!state.installed.includes(pluginId)) state.installed.push(pluginId);
@@ -840,6 +1243,8 @@ async function removePlugin(pluginId) {
 async function configRead() {
   const text = await readFile(join(HOME, "config.toml"), "utf8");
   if (!text.includes("multi_agent_v2 = true")) fail("Codex config omitted multi-agent mode");
+  if (!text.includes("context_management = true")) fail("Codex config omitted scalar context management");
+  if (text.includes("experimental_mode")) fail("Codex config retained legacy context management");
   const config = { features: { multi_agent_v2: true }, agents: {} };
   const agentTypes = [
     "Explorer.lookup",
@@ -859,6 +1264,9 @@ async function configRead() {
     if (!text.includes(reference)) fail("Codex config omitted the " + agentType + " registration");
     const roleFile = agentType + ".toml";
     const roleText = await readFile(join(HOME, "holycodex", "agents", roleFile), "utf8");
+    if (!roleText.includes('model = "gpt-5.6-luna"')) {
+      fail("Codex role file omitted the Luna specialist model");
+    }
     if (roleText.includes("tool_output_token_limit")) {
       fail("Codex role file contains the removed tool_output_token_limit");
     }
@@ -1077,6 +1485,19 @@ function assert(condition: boolean, message: string): asserts condition {
 
 function hasProperty(value: unknown, key: string): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) && key in value;
+}
+
+function objectProperty(value: unknown, key: string): Record<string, unknown> | undefined {
+  if (!hasProperty(value, key)) return undefined;
+  const child = value[key];
+  return typeof child === "object" && child !== null && !Array.isArray(child)
+    ? (child as Record<string, unknown>)
+    : undefined;
+}
+
+function arrayProperty(value: unknown, key: string): readonly unknown[] | undefined {
+  if (!hasProperty(value, key)) return undefined;
+  return Array.isArray(value[key]) ? value[key] : undefined;
 }
 
 if (import.meta.main) {

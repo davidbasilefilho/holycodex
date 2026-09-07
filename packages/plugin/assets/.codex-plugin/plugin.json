@@ -16,9 +16,7 @@
     "developerName": "David Basile Filho",
     "category": "Developer Tools",
     "capabilities": ["Skills", "Code Intelligence"],
-    "defaultPrompt": [
-      "Activate HolyCodex for this task. Read the generated Root developer instructions and repository AGENTS.md, apply installed skills as branch procedures, and use holycodex-agent semantic operations for durable Intent, Plan, and Assignment state."
-    ]
+    "defaultPrompt": ["Activate HolyCodex capabilities for this task."]
   },
   "name": "holycodex",
   "version": "0.16.4"

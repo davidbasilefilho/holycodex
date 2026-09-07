@@ -18,6 +18,7 @@ const generatedRoot = join(workspaceRoot, "packages/codex/generated");
 const generatedTypescriptRoot = join(generatedRoot, "typescript");
 const provenancePath = join(generatedRoot, "provenance.json");
 const miseConfigPath = join(workspaceRoot, "mise.toml");
+const CODEX_TOOL = "npm:@openai/codex";
 const STABLE_VERSION = /^\d+\.\d+\.\d+$/u;
 const CODEX_VERSION_OUTPUT = /^codex-cli (\d+\.\d+\.\d+)$/u;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
@@ -67,7 +68,7 @@ export function assertLatestStableMatch(latestVersion: string, installedVersion:
   assertStableVersion(installedVersion, "the installed Codex CLI version");
   if (latestVersion !== installedVersion) {
     throw new Error(
-      `The installed Codex version ${installedVersion} is stale; mise stable metadata resolves ${latestVersion}. Run "mise install codex@latest" and retry.`,
+      `The installed Codex version ${installedVersion} is stale; mise stable metadata resolves ${latestVersion}. Run "mise install ${CODEX_TOOL}@latest" and retry.`,
     );
   }
 }
@@ -209,8 +210,8 @@ async function resolveCodexTool(): Promise<{
 async function assertMiseLatestCodexConfig(): Promise<void> {
   try {
     const config = await readFile(miseConfigPath, "utf8");
-    if (!/^\s*codex\s*=\s*["']latest["']\s*$/mu.test(config)) {
-      throw new Error('mise.toml must resolve codex from the "latest" stable channel');
+    if (!/^\s*"npm:@openai\/codex"\s*=\s*["']latest["']\s*$/mu.test(config)) {
+      throw new Error(`mise.toml must resolve ${CODEX_TOOL} from the "latest" stable channel`);
     }
   } catch (error: unknown) {
     throw new Error(`The stable Codex mise channel is unavailable (${safeError(error)}).`);
@@ -219,7 +220,7 @@ async function assertMiseLatestCodexConfig(): Promise<void> {
 
 async function resolveLatestMiseCodexVersion(): Promise<string> {
   try {
-    const result = await runChecked(["mise", "latest", "codex"], {
+    const result = await runChecked(["mise", "latest", CODEX_TOOL], {
       cwd: workspaceRoot,
       env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
       maxOutputBytes: 16 * 1024,

@@ -37,6 +37,7 @@ describe("holycodex-agent", () => {
       ["intent", "select"],
       ["intent", "transition"],
       ["intent", "evidence"],
+      ["intent", "integrate"],
       ["intent", "complete"],
       ["intent", "abandon"],
       ["plan"],
@@ -46,6 +47,7 @@ describe("holycodex-agent", () => {
       ["assignment", "create"],
       ["assignment", "list"],
       ["assignment", "read"],
+      ["assignment", "revise"],
       ["assignment", "start"],
       ["assignment", "result"],
     ];

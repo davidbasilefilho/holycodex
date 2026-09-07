@@ -63,10 +63,11 @@ an explicit denial or classified failure.
     never success. Root delegates any failure fix and repeats the cycle, and
     must discover the repository's topology rather than assume a provider or
     branch scheme.
-12. HolyCodex manages `features.context_management.experimental_mode` and sets
-    it to `true` because Codex does not enable it by default. Cleanup restores
-    the recorded prior value only when unchanged; user edits and unrelated
-    context configuration remain untouched.
+12. HolyCodex manages the scalar `features.context_management` and sets it to
+    `true` because Codex does not enable it by default. Upgrade migrates owned
+    historical `.experimental_mode` state only with matching ownership
+    evidence. Cleanup restores the recorded prior value only when unchanged;
+    user edits and unrelated context configuration remain untouched.
 
 ## State and secret exclusions
 

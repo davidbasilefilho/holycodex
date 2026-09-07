@@ -21,12 +21,18 @@ import {
   type InstallRequest,
 } from "./installer.ts";
 import { asJsonValue } from "./json.ts";
-import { doctorHolyCodex, removeHolyCodex } from "./maintenance.ts";
+import { doctorHolyCodex, removeHolyCodex, upgradeHolyCodex } from "./maintenance.ts";
 import { readCanonicalVersion, updateCanonicalVersion, ManifestError } from "./manifest.ts";
 import { OfficialPluginManagerError } from "./official-manager.ts";
 import { PathBoundaryError } from "./paths.ts";
 import { StorageError } from "./storage.ts";
-import type { CliContext, CommandResult, HumanRenderOptions, ParsedCommand } from "./types.ts";
+import type {
+  CliContext,
+  CommandResult,
+  HumanRenderOptions,
+  InstallProgressEvent,
+  ParsedCommand,
+} from "./types.ts";
 
 export async function runCli(
   argv: readonly string[],
@@ -68,6 +74,8 @@ export async function executeCommand(
       return asJsonValue(await doctorHolyCodex(installerOptions(parsed, context), context.env));
     case "remove":
       return asJsonValue(await executeRemove(parsed, context));
+    case "upgrade":
+      return asJsonValue(await executeUpgrade(parsed, context));
     case "version":
       return asJsonValue(await executeVersion(parsed, context));
     case "help":
@@ -78,17 +86,10 @@ export async function executeCommand(
 }
 
 async function executeInstall(parsed: ParsedCommand, context: CliContext) {
-  const json = parsed.options["json"] === true;
   const initialRequest = installRequestFromParsed(parsed);
   const request = await resolveInstallRequest(parsed, context, initialRequest);
-  emitProgress(context, json, "Validating Codex target");
-  emitProgress(context, json, "Installing HolyCodex");
-  emitProgress(context, json, "Installing selected capabilities");
-  emitProgress(context, json, "Configuring Root");
-  emitProgress(context, json, "Installing subagent roles");
+  if ("cancelled" in request) return request;
   const result = await installHolyCodex(request, installerOptions(parsed, context), context.env);
-  emitProgress(context, json, "Verifying installation");
-  emitProgress(context, json, "HolyCodex installation complete");
   return result;
 }
 
@@ -97,7 +98,7 @@ async function resolveInstallRequest(
   parsed: ParsedCommand,
   context: CliContext,
   initial: InstallRequest,
-): Promise<InstallRequest> {
+): Promise<InstallRequest | { readonly cancelled: true }> {
   const interactive =
     parsed.options["json"] !== true &&
     parsed.options["yes"] !== true &&
@@ -106,11 +107,17 @@ async function resolveInstallRequest(
   if (interactive) {
     const result = await (context.io?.installWizard ?? runOpenTuiInstallWizard)(initial);
     if (result.action === "cancel") {
-      throw new CliCommandError("install_cancelled", "Installation cancelled.");
+      return { cancelled: true };
     }
     return validateInstallOptions(result.request);
   }
-  if (!(await confirmation(parsed, context, "Install HolyCodex into the selected Codex home?"))) {
+  const confirmationResult = await confirmation(
+    parsed,
+    context,
+    "Install HolyCodex into the selected Codex home?",
+  );
+  if (confirmationResult === "cancelled") return { cancelled: true };
+  if (confirmationResult === "unavailable") {
     throw new CliCommandError(
       "non_tty_confirmation_required",
       "Install requires --yes in non-interactive mode.",
@@ -133,18 +140,43 @@ function installRequestFromParsed(parsed: ParsedCommand): InstallRequest {
 }
 
 async function executeRemove(parsed: ParsedCommand, context: CliContext) {
-  const json = parsed.options["json"] === true;
-  if (!(await confirmation(parsed, context, "Remove HolyCodex-owned Codex state?"))) {
+  const confirmationResult = await confirmation(
+    parsed,
+    context,
+    "Remove HolyCodex-owned Codex state?",
+  );
+  if (confirmationResult === "cancelled") {
+    return { cancelled: true, removed: [], preserved: [], reasons: ["cancelled"] };
+  }
+  if (confirmationResult === "unavailable") {
     throw new CliCommandError(
       "non_tty_confirmation_required",
       "Remove requires --yes in non-interactive mode.",
     );
   }
-  emitProgress(context, json, "Validating HolyCodex ownership");
   const result = await removeHolyCodex(installerOptions(parsed, context), context.env);
-  emitProgress(context, json, "Removing HolyCodex-owned state");
-  emitProgress(context, json, "HolyCodex removal complete");
   return result;
+}
+
+async function executeUpgrade(parsed: ParsedCommand, context: CliContext) {
+  const dryRun = parsed.options["dry-run"] === true;
+  if (!dryRun) {
+    const confirmationResult = await confirmation(
+      parsed,
+      context,
+      "Upgrade the existing HolyCodex installation in place?",
+    );
+    if (confirmationResult === "cancelled") {
+      return { cancelled: true, status: "cancelled", changes: [] };
+    }
+    if (confirmationResult === "unavailable") {
+      throw new CliCommandError(
+        "non_tty_confirmation_required",
+        "Upgrade requires --yes in non-interactive mode.",
+      );
+    }
+  }
+  return await upgradeHolyCodex(installerOptions(parsed, context), context.env, { dryRun });
 }
 
 async function executeVersion(parsed: ParsedCommand, _context: CliContext) {
@@ -157,14 +189,25 @@ async function confirmation(
   parsed: ParsedCommand,
   context: CliContext,
   message: string,
-): Promise<boolean> {
-  if (parsed.options["yes"] === true) return true;
-  if (parsed.options["json"] === true || context.io?.stdoutIsTTY !== true) return false;
+): Promise<ConfirmationResult> {
+  if (parsed.options["yes"] === true) return "confirmed";
+  if (
+    parsed.options["json"] === true ||
+    context.io?.stdoutIsTTY !== true ||
+    context.io?.stderrIsTTY !== true
+  )
+    return "unavailable";
   return await confirmIfAvailable(context, message);
 }
 
-async function confirmIfAvailable(context: CliContext, message: string): Promise<boolean> {
-  return context.io?.confirm ? await context.io.confirm(message) : false;
+async function confirmIfAvailable(
+  context: CliContext,
+  message: string,
+): Promise<ConfirmationResult> {
+  if (context.io?.confirm === undefined) return "unavailable";
+  const result = await context.io.confirm(message);
+  if (result === "confirmed" || result === "cancelled" || result === "unavailable") return result;
+  return result ? "confirmed" : "cancelled";
 }
 
 function optionalSelections(parsed: ParsedCommand) {
@@ -199,12 +242,19 @@ function optionStrings(parsed: ParsedCommand, key: string): readonly string[] {
 
 function installerOptions(parsed: ParsedCommand, context: CliContext) {
   const base = context.installer ?? {};
+  const json = parsed.options["json"] === true;
+  const onProgress = (event: InstallProgressEvent): void => {
+    base.onProgress?.(event);
+    context.onProgress?.(event);
+    emitProgress(context, json, event.message);
+  };
   const codexHome = parsed.options["codex-home"];
   if (typeof codexHome !== "string")
-    return { ...base, ...(context.now ? { now: context.now } : {}) };
+    return { ...base, onProgress, ...(context.now ? { now: context.now } : {}) };
   return {
     ...base,
     paths: { ...base.paths, codexHome },
+    onProgress,
     ...(context.now ? { now: context.now } : {}),
   };
 }
@@ -349,12 +399,15 @@ function emitProgress(context: CliContext, json: boolean, message: string): void
   );
 }
 
+type ConfirmationResult = "confirmed" | "cancelled" | "unavailable";
+
 export function renderHuman(result: CommandResult, options: HumanRenderOptions = {}): string {
   const color = colorEnabled(options);
   if (result.envelope.ok) {
     if (result.envelope.command === "version") return renderVersion(result.envelope.data);
     if (result.envelope.command === "install") return renderInstall(result.envelope.data, color);
     if (result.envelope.command === "remove") return renderRemove(result.envelope.data, color);
+    if (result.envelope.command === "upgrade") return renderUpgrade(result.envelope.data, color);
     if (result.envelope.command === "doctor") return renderDoctor(result.envelope.data, color);
     return `${paint("✔", "green", color)} ${paint(result.envelope.command, "heading", color)}\n${renderData(result.envelope.data, color)}`;
   }
@@ -388,6 +441,9 @@ function renderVersion(data: JsonValue): string {
 }
 
 function renderInstall(data: JsonValue, color: boolean): string {
+  if (dataValue(data, "cancelled") === true) {
+    return `${paint("↩", "cyan", color)} ${paint("install", "heading", color)} cancelled\n`;
+  }
   const record = objectValue(data, "record");
   const version = stringValue(record, "version") ?? "unknown";
   const profile = stringValue(record, "profile") ?? "unknown";
@@ -420,6 +476,9 @@ function renderInstall(data: JsonValue, color: boolean): string {
 }
 
 function renderRemove(data: JsonValue, color: boolean): string {
+  if (dataValue(data, "cancelled") === true) {
+    return `${paint("↩", "cyan", color)} ${paint("remove", "heading", color)} cancelled\n`;
+  }
   const removed = arrayValue(data, "removed");
   const preserved = arrayValue(data, "preserved");
   const reasons = arrayValue(data, "reasons");
@@ -432,6 +491,23 @@ function renderRemove(data: JsonValue, color: boolean): string {
     `  ${paint("removed", "option", color)}: ${removed.length} owned item${removed.length === 1 ? "" : "s"}`,
     `  ${paint("preserved", "option", color)}: ${preservedSummary}`,
     ...reasons.map((reason) => `  ${paint("reason", "option", color)}: ${humanizeReason(reason)}`),
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function renderUpgrade(data: JsonValue, color: boolean): string {
+  if (dataValue(data, "cancelled") === true) {
+    return `${paint("↩", "cyan", color)} ${paint("upgrade", "heading", color)} cancelled\n`;
+  }
+  const status = stringValue(isJsonObject(data) ? data : undefined, "status") ?? "completed";
+  const from = stringValue(isJsonObject(data) ? data : undefined, "from_version");
+  const to = stringValue(isJsonObject(data) ? data : undefined, "to_version");
+  const changes = arrayValue(data, "changes");
+  const version = from !== undefined && to !== undefined ? ` (${from} → ${to})` : "";
+  const lines = [
+    `${paint("✔", "green", color)} ${paint("upgrade", "heading", color)}${version}`,
+    `  ${paint("status", "option", color)}: ${status}`,
+    `  ${paint("changes", "option", color)}: ${changes.length === 0 ? "none" : changes.map(humanizeReason).join(", ")}`,
   ];
   return `${lines.join("\n")}\n`;
 }

@@ -37,11 +37,13 @@ workflow, while a delegation prompt supplies assignment facts. Runtime flags
 enforce hard capability boundaries where Codex supports them; prose does not
 stand in for a missing native control.
 
-HolyCodex manages `features.context_management.experimental_mode` and writes
-`true` because Codex does not enable it by default. Upgrade preserves the
-managed key and removal restores the recorded prior value when the live value
-is unchanged; a user edit is preserved and reported as drift. Intent, Plan,
-and Assignment persistence remains independent repo-local work state.
+HolyCodex manages the canonical scalar `features.context_management` and
+writes `true` because Codex does not enable it by default. Upgrade migrates
+owned historical `features.context_management.experimental_mode` state to the
+scalar key, preserving unrelated settings; removal restores the recorded prior
+value when the live value is unchanged, while a user edit is preserved and
+reported as drift. Intent, Plan, and Assignment persistence remains independent
+repo-local work state.
 
 Root MUST delegate every task, including trivial work, through a bounded
 Assignment. Direct Root execution is limited to Git/VCS and Computer Use when

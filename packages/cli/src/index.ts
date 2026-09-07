@@ -23,10 +23,11 @@ export {
 } from "./installer.ts";
 export {
   renderInstallWizardReview,
+  parsePluginInput,
   runOpenTuiInstallWizard,
   toInstallOptions,
 } from "./installer-wizard.ts";
-export { doctorHolyCodex, removeHolyCodex } from "./maintenance.ts";
+export { doctorHolyCodex, removeHolyCodex, upgradeHolyCodex } from "./maintenance.ts";
 export {
   publicManifestPath,
   readCanonicalBaseVersion,
@@ -70,6 +71,7 @@ export type {
   InstallRecord,
   InstallResult,
   InstallerOptions,
+  InstallProgressEvent,
   InstallerPaths,
   ManagedArtifact,
   OfficialPluginManager,
@@ -83,9 +85,13 @@ export type {
   ProviderPluginConfigSnapshot,
   InstallTransactionStatus,
   InstallTransactionStep,
+  InstallProgressStage,
   ParsedCommand,
   RemoveResult,
+  UpgradeRequest,
+  UpgradeResult,
   InstallWizardResult,
+  ConfirmationResult,
 } from "./types.ts";
 export type { InstallOptions, InstallRequest } from "./installer.ts";
 

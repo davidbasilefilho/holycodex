@@ -159,11 +159,27 @@ export interface InstallerOptions {
   readonly sourceRoot?: string;
   readonly officialPluginManager?: OfficialPluginManager;
   readonly now?: () => Date;
+  /** Receives lifecycle progress only when an installer stage actually starts or completes. */
+  readonly onProgress?: (event: InstallProgressEvent) => void;
 }
 
 export interface InstallResult {
   readonly record: InstallRecord;
   readonly optional_plugins: readonly string[];
+  readonly preserved: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+export interface UpgradeRequest {
+  readonly dryRun?: boolean | undefined;
+}
+
+export interface UpgradeResult {
+  readonly status: "upgraded" | "current" | "dry_run";
+  readonly from_version: string;
+  readonly to_version: string;
+  readonly changes: readonly string[];
+  readonly record?: InstallRecord | undefined;
   readonly preserved: readonly string[];
   readonly warnings: readonly string[];
 }
@@ -190,7 +206,7 @@ export interface CliIo {
   readonly stdin?: AsyncIterable<string>;
   readonly stdoutIsTTY?: boolean;
   readonly stderrIsTTY?: boolean;
-  readonly confirm?: (message: string) => Promise<boolean>;
+  readonly confirm?: (message: string) => Promise<boolean | ConfirmationResult>;
   /** Injectable interactive installer boundary used by tests and embedders. */
   readonly installWizard?: (initial: InstallRequest) => Promise<InstallWizardResult>;
   readonly writeStdout?: (text: string) => void;
@@ -201,6 +217,8 @@ export interface CliIo {
 export type InstallWizardResult =
   | Readonly<{ readonly action: "install"; readonly request: InstallRequest }>
   | Readonly<{ readonly action: "cancel" }>;
+
+export type ConfirmationResult = "confirmed" | "cancelled" | "unavailable";
 
 /** Controls the human renderer without affecting the machine JSON envelope. */
 export interface HumanRenderOptions {
@@ -216,6 +234,23 @@ export interface CliContext {
   readonly io?: CliIo;
   readonly installer?: InstallerOptions;
   readonly now?: () => Date;
+  /** Observe lifecycle boundaries after the corresponding operation begins or completes. */
+  readonly onProgress?: (event: InstallProgressEvent) => void;
+}
+
+export type InstallProgressStage =
+  | "validation"
+  | "roles"
+  | "plugins"
+  | "config"
+  | "verification"
+  | "complete"
+  | "removal";
+
+export interface InstallProgressEvent {
+  readonly stage: InstallProgressStage;
+  readonly status: "started" | "completed";
+  readonly message: string;
 }
 
 export interface CommandResult {
