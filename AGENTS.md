@@ -1,5 +1,7 @@
 # HolyCodex repository guide
 
+Read HOLYCODEX_BIBLE.md.
+
 ## Toolchain
 
 - Bun owns runtime, package management, scripts, tests, builds, generated
