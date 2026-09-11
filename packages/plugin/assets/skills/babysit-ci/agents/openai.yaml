@@ -1,0 +1,6 @@
+interface:
+  display_name: "Babysit CI"
+  short_description: "Follow repository CI and release gates to completion."
+  default_prompt: "Use babysit-ci for this CI or release lifecycle."
+policy:
+  allow_implicit_invocation: true

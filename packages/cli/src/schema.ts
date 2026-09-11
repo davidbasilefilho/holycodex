@@ -39,14 +39,12 @@ export const ManagedArtifactSchema = Schema.Struct({
 
 export const OptionalSelectionsSchema = Schema.Struct({
   computer_use: Schema.Boolean,
-  work: Schema.Boolean,
   frontend: Schema.Boolean,
   security: Schema.Boolean,
   coding: Schema.Literal(true),
 });
 export const ExplicitOptionalSelectionsSchema = Schema.Struct({
   computer_use: Schema.optional(Schema.Boolean),
-  work: Schema.optional(Schema.Boolean),
   frontend: Schema.optional(Schema.Boolean),
   security: Schema.optional(Schema.Boolean),
 });
@@ -75,9 +73,42 @@ export const CapabilityInstallStateSchema = Schema.Struct({
 });
 export const CapabilityStateRecordSchema = Schema.Struct({
   computer_use: CapabilityInstallStateSchema,
-  work: CapabilityInstallStateSchema,
   frontend: CapabilityInstallStateSchema,
   security: CapabilityInstallStateSchema,
+});
+
+const LegacyOptionalSelectionsSchema = Schema.Struct({
+  ...OptionalSelectionsSchema.fields,
+  work: Schema.Boolean,
+});
+const LegacyExplicitOptionalSelectionsSchema = Schema.Struct({
+  ...ExplicitOptionalSelectionsSchema.fields,
+  work: Schema.optional(Schema.Boolean),
+});
+const LegacyCapabilityStateRecordSchema = Schema.Struct({
+  ...CapabilityStateRecordSchema.fields,
+  work: CapabilityInstallStateSchema,
+});
+
+const GitBashStateSchema = Schema.Union(
+  Schema.Struct({ status: Schema.Literal("not_applicable") }),
+  Schema.Struct({ status: Schema.Literal("missing") }),
+  Schema.Struct({
+    status: Schema.Literal("healthy"),
+    path: Schema.String,
+    installed: Schema.Boolean,
+  }),
+);
+const Context7ToolStateSchema = Schema.Struct({
+  manager: Schema.Literal("bun", "npm", "pnpm"),
+  launcher: Schema.Literal("bunx", "npx", "pnpm dlx"),
+  version: VersionSchema,
+  executable: Schema.String,
+  ownership: Schema.Literal("user", "holycodex"),
+});
+export const InstallerToolingStateSchema = Schema.Struct({
+  git_bash: GitBashStateSchema,
+  context7: Context7ToolStateSchema,
 });
 
 const PluginConfigEntrySnapshotSchema = Schema.Struct({
@@ -153,16 +184,30 @@ const InstallRecordFields = {
   plugin_config: Schema.optional(PluginConfigSnapshotSchema),
   provider_config: Schema.optional(Schema.Array(ProviderPluginConfigSnapshotSchema)),
   owned_plugins: Schema.optional(Schema.Array(OfficialPluginIdSchema)),
+  tooling: Schema.optional(InstallerToolingStateSchema),
 } as const;
 export const InstallRecordSchema = Schema.Struct(InstallRecordFields);
 const LegacyInstallRecordBaseFields = (({ profile: _profile, ...fields }) => fields)(
   InstallRecordFields,
 );
+const LegacyInstallRecordFields = {
+  ...InstallRecordFields,
+  optional_selections: LegacyOptionalSelectionsSchema,
+  explicit_optional_selections: LegacyExplicitOptionalSelectionsSchema,
+  capability_state: Schema.optional(LegacyCapabilityStateRecordSchema),
+} as const;
+const LegacyInstallRecordWithoutProfile = (({ profile: _profile, ...fields }) => fields)(
+  LegacyInstallRecordFields,
+);
 /** Accept one pre-profile record shape only at the migration boundary. */
 export const InstallRecordMigrationSchema = Schema.Union(
   Schema.Struct({
-    ...InstallRecordFields,
+    ...LegacyInstallRecordFields,
     profile: ProfileNameMigrationSchema,
+  }),
+  Schema.Struct({
+    ...LegacyInstallRecordWithoutProfile,
+    plan: ProfileNameMigrationSchema,
   }),
   Schema.Struct({
     ...LegacyInstallRecordBaseFields,

@@ -11,6 +11,10 @@
 - Keep dependencies on the existing package graph. Do not add Jest, Vitest,
   Zod, another package manager, bundler, or linter for overlapping capability.
 
+## Coding guidelines
+
+- Use JSDoc for all exposed/public/exported functions and APIs
+
 ## Repository architecture
 
 - `packages/core` owns typed profiles, routes, envelopes, errors, and persisted
@@ -28,6 +32,7 @@
 - The repository checks are `bun test`, `bun run check`, and `bun run validate`.
 - Preserve package ownership and dependency direction. Use JSDoc for exported
   APIs.
+- Type-checking is done by `oxlint` and `oxlint-tsgolint` via lint and check package scripts. Do not use `tsc` for type checking.
 - Keep the lockfile deterministic. Normal semver dependencies follow the
   current major compatibility line; zerover dependencies stay on their
   current minor line. Exact pins require a concrete technical, security, or

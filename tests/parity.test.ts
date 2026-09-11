@@ -94,9 +94,9 @@ describe("0.16 foundation parity contract", () => {
       readCoreSources(resolve(workspaceRoot, "packages/core/src")),
     ]);
 
-    expect(rootManifest).toContain('"effect": "^3.22.1"');
+    expect(rootManifest).toContain('"effect": "^3.22.2"');
     expect(rootManifest).not.toContain('"arktype"');
-    expect(rootManifest).toContain('"packageManager": "bun@1.4.1"');
+    expect(rootManifest).toContain('"packageManager": "bun@1.4.2"');
     expect(mise).toContain('bun = "1.4"');
     expect(coreManifest).toContain('"effect": "catalog:"');
     expect(coreManifest).not.toContain("arktype");

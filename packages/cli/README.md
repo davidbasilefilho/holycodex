@@ -19,12 +19,15 @@ an explicit replacement. Legacy `plus-low`, `plus`, and `plus-high`
 configuration migrates to `low`, `default`, and `high`; removed Pro profiles
 fail with an explicit replacement requirement.
 
-Live routing uses `gpt-6-astra` for Root/session and `gpt-5.6-luna` for every
-specialist. The exact per-task effort matrix is documented in
-[BEHAVIOR.md](../../docs/BEHAVIOR.md); Sol, Terra, and Go are migration-only
-historical values.
+Profiles select configured Root and specialist route identities and the
+per-task effort matrix documented in [BEHAVIOR.md](../../docs/BEHAVIOR.md).
+Every generated instruction targets GPT-6-family behavior regardless of a
+temporary routing model ID. Historical values are migration-only.
+The current Root route is `gpt-6-astra`; native specialist route files use the
+configured `gpt-5.6-luna` identity. Routing identity remains separate from
+instruction behavior.
 
-Frontend and Security are selected by default; Work and Computer Use are
+Frontend and Security are selected by default; Computer Use is
 opt-in. Selected capabilities must install and verify or installation fails.
 The interactive installer accepts additional plugin IDs separated by whitespace;
 the repeatable `--add-plugin <id>` option remains available for scripts.

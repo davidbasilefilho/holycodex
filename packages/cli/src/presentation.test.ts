@@ -57,7 +57,6 @@ describe("human CLI presentation", () => {
             optional_selections: {
               frontend: true,
               security: true,
-              work: false,
               computer_use: false,
             },
             capability_state: {

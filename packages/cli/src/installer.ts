@@ -46,6 +46,7 @@ import { asJsonValue } from "./json.ts";
 import { readCanonicalBaseVersion } from "./manifest.ts";
 import {
   installNativeAgents,
+  inspectNativeAgentConflicts,
   isKnownLegacyRootRoleContent,
   projectNativeAgents,
   projectRootAgent,
@@ -74,6 +75,13 @@ import {
 } from "./schema.ts";
 import { optionalJsonFile, optionalTextFile, writeAtomicJson, writeAtomicText } from "./storage.ts";
 import { parseToml, stringifyToml } from "./toml.ts";
+import {
+  createInstallerRuntime,
+  ensureContext7,
+  ensureGitBash,
+  ToolingError,
+  WINDOWS_GIT_BASH,
+} from "./tooling.ts";
 import type {
   CapabilityInstallState,
   CapabilityStateRecord,
@@ -90,6 +98,9 @@ import type {
   ProviderPluginConfigSnapshot,
   InstallTransactionStep,
   InstallProgressEvent,
+  GitBashState,
+  Context7ToolState,
+  ManagedConflict,
 } from "./types.ts";
 
 export {
@@ -134,6 +145,13 @@ type PreparingTransaction = Omit<InstallRecord, "status" | "step"> & {
 const HOLYCODEX_MARKETPLACE_URL = "https://github.com/davidbasilefilho/holycodex.git" as const;
 const HOLYCODEX_PLUGIN_CONFIG_KEY = "holycodex@holycodex";
 const HOLYCODEX_MARKETPLACE_CONFIG_KEY = "holycodex";
+const LEGACY_WORK_PLUGIN_NAMES = new Set([
+  "documents",
+  "pdf",
+  "presentations",
+  "spreadsheets",
+  "template-creator",
+]);
 
 export async function installHolyCodex(
   request: InstallRequest = {},
@@ -149,7 +167,6 @@ export async function installHolyCodex(
     status: "started",
     message: "Validating Codex target",
   });
-  await ensureOwnedDirectory(paths.stateRoot);
   const preparing = await optionalJsonFile(paths.preparingRecord, InstallTransactionSchema);
   const conflicted = await optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema);
   const interrupted = conflicted ?? preparing;
@@ -174,7 +191,6 @@ export async function installHolyCodex(
         optional: {
           computer_use:
             request.optional?.computer_use ?? interrupted.optional_selections.computer_use,
-          work: request.optional?.work ?? interrupted.optional_selections.work,
           frontend: request.optional?.frontend ?? interrupted.optional_selections.frontend,
           security: request.optional?.security ?? interrupted.optional_selections.security,
         },
@@ -201,6 +217,10 @@ export async function installHolyCodex(
     request.optional,
   );
   const additionalPlugins = request.officialPlugins ?? additionalPluginsFromPrevious(previous);
+  const runtime = options.runtime ?? createInstallerRuntime(environment);
+  const discoveredGitBash = await ensureGitBash(runtime, false);
+  let gitBash: GitBashState = discoveredGitBash;
+  let context7: Context7ToolState;
   const providerPlugins = [
     ...new Set(
       pluginIdsForOptionalCapabilities(toCoreSelections(optional), additionalPlugins).map(
@@ -245,21 +265,6 @@ export async function installHolyCodex(
     const entry = findPlugin(preflightLive, pluginId);
     return !(entry?.installed && entry.enabled);
   });
-  if (
-    manager.ensureOfficialMarketplace !== undefined &&
-    unresolvedOfficialProviderPlugins.length > 0
-  ) {
-    try {
-      await manager.ensureOfficialMarketplace(unresolvedOfficialProviderPlugins);
-    } catch (error: unknown) {
-      throw new InstallerError(
-        "capability_denied",
-        `The selected official Codex provider marketplace is unavailable: ${safeMessage(error)}`,
-        error,
-        { recovery: "Check Codex network and marketplace policy, then retry." },
-      );
-    }
-  }
   reportProgress(options, {
     stage: "validation",
     status: "completed",
@@ -271,8 +276,25 @@ export async function installHolyCodex(
   const installedAt = (options.now?.() ?? new Date()).toISOString();
   const configBefore = await optionalTextFile(paths.configFile);
   const configInputDocument = parseConfig(configBefore);
-  const pluginConfigBefore =
-    previous?.plugin_config?.before ?? (await snapshotHolyCodexPluginConfig(configInputDocument));
+  const currentHolyCodexPluginConfig = await snapshotHolyCodexPluginConfig(configInputDocument);
+  const pluginConfigBefore = previous?.plugin_config?.before ?? currentHolyCodexPluginConfig;
+  if (previous?.plugin_config !== undefined) {
+    const conflicts = (["preference", "marketplace"] as const).filter((name) => {
+      const current = currentHolyCodexPluginConfig[name].digest;
+      return (
+        current !== previous.plugin_config?.after[name].digest &&
+        current !== previous.plugin_config?.before[name].digest
+      );
+    });
+    await resolveOwnedConflicts(
+      options,
+      conflicts.map((name) => ({
+        path: paths.configFile,
+        key: name === "preference" ? 'plugins."holycodex@holycodex"' : "marketplaces.holycodex",
+        action: "replace" as const,
+      })),
+    );
+  }
   const providerConfigPluginIds = [
     ...new Set([
       ...providerPlugins,
@@ -284,6 +306,28 @@ export async function installHolyCodex(
     configInputDocument,
     providerConfigPluginIds,
   );
+  if (previous?.provider_config !== undefined) {
+    const previousOwned = new Set(previous.owned_plugins ?? []);
+    const conflicts = currentProviderConfig.filter((current) => {
+      if (!previousOwned.has(current.plugin_id)) return false;
+      const prior = previous.provider_config?.find(
+        (candidate) => candidate.plugin_id === current.plugin_id,
+      );
+      return (
+        prior !== undefined &&
+        current.before.digest !== prior.after.digest &&
+        current.before.digest !== prior.before.digest
+      );
+    });
+    await resolveOwnedConflicts(
+      options,
+      conflicts.map((entry) => ({
+        path: paths.configFile,
+        key: `plugins."${entry.plugin_id}"`,
+        action: "replace" as const,
+      })),
+    );
+  }
   const providerConfigBefore = currentProviderConfig.map((entry) => {
     const previousEntry = previous?.provider_config?.find(
       (candidate) => candidate.plugin_id === entry.plugin_id,
@@ -307,7 +351,17 @@ export async function installHolyCodex(
   const configDocument = migratedContext.document;
   const currentManagedConfig = migratedContext.state;
   rejectPreExistingDeveloperInstructions(configDocument, currentManagedConfig);
-  const desiredConfig = desiredRootConfig(profile, tier, optional.computer_use);
+  const desiredConfig = desiredRootConfig(profile, tier, {
+    computerUse: optional.computer_use,
+    frontend: optional.frontend,
+    security: optional.security,
+    ...(runtime.platform === "win32"
+      ? {
+          windowsGitBashExecutable:
+            discoveredGitBash.status === "healthy" ? discoveredGitBash.path : WINDOWS_GIT_BASH,
+        }
+      : {}),
+  });
   let mergedConfig: Awaited<ReturnType<typeof mergeManagedRuntimeConfig>>;
   try {
     mergedConfig = await mergeManagedRuntimeConfig(
@@ -326,12 +380,116 @@ export async function installHolyCodex(
     );
   }
   if (mergedConfig.driftedKeys.length > 0) {
-    throw new InstallerError(
-      "state_corrupt",
-      "HolyCodex-owned Codex settings changed and cannot be replaced safely.",
-      undefined,
-      { keys: mergedConfig.driftedKeys.join(",") },
+    await resolveOwnedConflicts(
+      options,
+      mergedConfig.driftedKeys.map((key) => ({ path: paths.configFile, key, action: "replace" })),
     );
+    let acceptedDocument = configDocument;
+    const acceptedManaged = { ...currentManagedConfig.managed };
+    for (const key of mergedConfig.driftedKeys) {
+      const existing = acceptedManaged[key];
+      const desiredValue = desiredConfig[key];
+      if (existing === undefined || desiredValue === undefined) {
+        throw new InstallerError(
+          "state_corrupt",
+          "The managed conflict cannot be verified.",
+          undefined,
+          {
+            path: paths.configFile,
+            key,
+          },
+        );
+      }
+      let live = readTomlPath(acceptedDocument, key);
+      if (live === undefined) {
+        acceptedDocument = writeTomlPath(acceptedDocument, key, desiredValue);
+        live = desiredValue;
+      }
+      acceptedManaged[key] = {
+        ...existing,
+        lastManagedValue: await summarizeManagedConfigValue(key, live),
+      };
+    }
+    mergedConfig = await mergeManagedRuntimeConfig(
+      acceptedDocument,
+      { ...currentManagedConfig, managed: acceptedManaged },
+      desiredConfig,
+      { schema: STATE_SCHEMA_EPOCH, installId },
+    );
+    if (mergedConfig.driftedKeys.length > 0) {
+      throw new InstallerError("state_corrupt", "The accepted managed conflicts did not converge.");
+    }
+  }
+  let nativeConflicts: readonly ManagedConflict[];
+  try {
+    nativeConflicts = await inspectNativeAgentConflicts(
+      paths.codexHome,
+      profile,
+      previous?.managed_artifacts,
+      tier,
+      runtime.platform === "win32"
+        ? discoveredGitBash.status === "healthy"
+          ? discoveredGitBash.path
+          : WINDOWS_GIT_BASH
+        : undefined,
+    );
+  } catch (error: unknown) {
+    throw new InstallerError("install_failed", safeMessage(error), error);
+  }
+  const acceptedNativeConflicts = await resolveOwnedConflicts(options, nativeConflicts, true);
+  const preMutationTransaction: PreparingTransaction = {
+    owner: "holycodex",
+    schema_epoch: STATE_SCHEMA_EPOCH,
+    install_id: installId,
+    version,
+    digest: previous?.digest ?? "0".repeat(64),
+    profile,
+    tier,
+    optional_selections: optional,
+    explicit_optional_selections: explicitOptional,
+    official_plugins: providerPlugins,
+    capability_state: capabilityStateFor(optional),
+    managed_artifacts: previous?.managed_artifacts ?? [],
+    installed_at: installedAt,
+    status: "preparing",
+    step: "validated",
+    managed_config: mergedConfig.state,
+    plugin_snapshot: [],
+    plugin_config: {
+      plugin_id: HOLYCODEX_PLUGIN as "holycodex@holycodex",
+      before: pluginConfigBefore,
+      after: pluginConfigBefore,
+    },
+    provider_config: providerConfigBefore,
+    owned_plugins: [...new Set(previous?.owned_plugins ?? [])],
+    ...(previous?.tooling === undefined ? {} : { tooling: previous.tooling }),
+  };
+  await ensureOwnedDirectory(paths.stateRoot);
+  await writeTransaction(paths.preparingRecord, preMutationTransaction);
+  try {
+    gitBash = await ensureGitBash(runtime, true);
+    context7 = await ensureContext7(runtime, true, previous?.tooling?.context7);
+  } catch (error: unknown) {
+    if (error instanceof ToolingError) {
+      throw new InstallerError("capability_denied", error.message, error, error.details);
+    }
+    throw error;
+  }
+  const tooling = { git_bash: gitBash, context7 } as const;
+  if (
+    manager.ensureOfficialMarketplace !== undefined &&
+    unresolvedOfficialProviderPlugins.length > 0
+  ) {
+    try {
+      await manager.ensureOfficialMarketplace(unresolvedOfficialProviderPlugins);
+    } catch (error: unknown) {
+      throw new InstallerError(
+        "capability_denied",
+        `The selected official Codex provider marketplace is unavailable: ${safeMessage(error)}`,
+        error,
+        { recovery: "Check Codex network and marketplace policy, then retry." },
+      );
+    }
   }
 
   let pluginSnapshot: readonly PluginSnapshot[];
@@ -346,31 +504,10 @@ export async function installHolyCodex(
       error,
     );
   }
-  const transaction = {
-    owner: "holycodex" as const,
-    schema_epoch: STATE_SCHEMA_EPOCH,
-    install_id: installId,
-    version,
-    digest: previous?.digest ?? "0".repeat(64),
-    profile,
-    tier,
-    optional_selections: optional,
-    explicit_optional_selections: explicitOptional,
-    official_plugins: providerPlugins,
-    capability_state: capabilityStateFor(optional),
-    managed_artifacts: previous?.managed_artifacts ?? [],
-    installed_at: installedAt,
-    status: "preparing" as const,
-    step: "validated" as const,
-    managed_config: mergedConfig.state,
+  const transaction: PreparingTransaction = {
+    ...preMutationTransaction,
     plugin_snapshot: pluginSnapshot,
-    plugin_config: {
-      plugin_id: HOLYCODEX_PLUGIN as "holycodex@holycodex",
-      before: pluginConfigBefore,
-      after: pluginConfigBefore,
-    },
-    provider_config: providerConfigBefore,
-    owned_plugins: [...new Set(previous?.owned_plugins ?? [])],
+    tooling,
   };
   await writeTransaction(paths.preparingRecord, transaction);
 
@@ -391,7 +528,15 @@ export async function installHolyCodex(
       message: "Installing subagent roles",
     });
     await ensureOwnedDirectory(paths.roleRoot);
-    native = await installNativeAgents(paths.codexHome, profile, previous?.managed_artifacts, tier);
+    native = await installNativeAgents(
+      paths.codexHome,
+      profile,
+      previous?.managed_artifacts,
+      tier,
+      gitBash.status === "healthy" ? gitBash.path : undefined,
+      nativeConflicts.length === 0 ? options.resolveConflict : undefined,
+      acceptedNativeConflicts,
+    );
     transactionForRecovery = {
       ...transaction,
       step: "roles_prepared",
@@ -526,7 +671,12 @@ export async function installHolyCodex(
       paths,
       profile,
       tier,
-      optional.computer_use,
+      {
+        computerUse: optional.computer_use,
+        frontend: optional.frontend,
+        security: optional.security,
+        ...(gitBash.status === "healthy" ? { windowsGitBashExecutable: gitBash.path } : {}),
+      },
       publishedConfigState,
       native.preserved,
     );
@@ -556,6 +706,7 @@ export async function installHolyCodex(
       provider_config: providerConfig,
       plugin_snapshot: pluginSnapshot,
       owned_plugins: [...ownedPlugins],
+      tooling,
     });
     const record: InstallRecord = {
       owner: "holycodex",
@@ -582,6 +733,7 @@ export async function installHolyCodex(
       },
       provider_config: providerConfig,
       owned_plugins: [...ownedPlugins],
+      tooling,
     };
     if (decodeSchema(InstallRecordSchema, record) === undefined) {
       throw new InstallerError("state_corrupt", "The HolyCodex configuration is invalid.");
@@ -660,7 +812,13 @@ export async function readActiveInstallRecord(
 ): Promise<InstallRecord | undefined> {
   const raw = await optionalJsonFile(paths.activeRecord, JsonObjectSchema);
   if (raw === undefined) return undefined;
-  const current = decodeSchema(InstallRecordSchema, raw);
+  const rawSelections = raw["optional_selections"];
+  const hasLegacyWork =
+    typeof rawSelections === "object" &&
+    rawSelections !== null &&
+    !Array.isArray(rawSelections) &&
+    Object.prototype.hasOwnProperty.call(rawSelections, "work");
+  const current = hasLegacyWork ? undefined : decodeSchema(InstallRecordSchema, raw);
   if (current !== undefined) return current;
   const legacy = decodeSchema(InstallRecordMigrationSchema, raw);
   if (legacy === undefined) {
@@ -706,28 +864,72 @@ export async function readActiveInstallRecord(
           "plan"
         >)
       : legacy;
+  const optionalSelections: OptionalSelections = {
+    computer_use: legacy.optional_selections.computer_use,
+    frontend: legacy.optional_selections.frontend,
+    security: legacy.optional_selections.security,
+    coding: true,
+  };
+  const explicitOptionalSelections: ExplicitOptionalSelections = {
+    ...(legacy.explicit_optional_selections.computer_use === undefined
+      ? {}
+      : { computer_use: legacy.explicit_optional_selections.computer_use }),
+    ...(legacy.explicit_optional_selections.frontend === undefined
+      ? {}
+      : { frontend: legacy.explicit_optional_selections.frontend }),
+    ...(legacy.explicit_optional_selections.security === undefined
+      ? {}
+      : { security: legacy.explicit_optional_selections.security }),
+  };
+  const capabilityState =
+    legacy.capability_state === undefined ? undefined : capabilityStateFor(optionalSelections);
+  const officialPlugins = (legacy.official_plugins ?? []).filter((id) => !isLegacyWorkPlugin(id));
+  const ownedPlugins = legacy.owned_plugins?.filter((id) => !isLegacyWorkPlugin(id));
+  const providerConfig = legacy.provider_config?.filter(
+    (entry) => !isLegacyWorkPlugin(entry.plugin_id),
+  );
+  const pluginSnapshot = legacy.plugin_snapshot?.filter(
+    (entry) => !isLegacyWorkPlugin(entry.plugin_id),
+  );
+  const {
+    optional_selections: _legacyOptional,
+    explicit_optional_selections: _legacyExplicit,
+    capability_state: _legacyCapabilityState,
+    official_plugins: _legacyOfficialPlugins,
+    owned_plugins: _legacyOwnedPlugins,
+    provider_config: _legacyProviderConfig,
+    plugin_snapshot: _legacyPluginSnapshot,
+    ...legacyBase
+  } = legacyWithoutPlan;
   const migrated = {
-    ...legacyWithoutPlan,
+    ...legacyBase,
     profile: migratedProfile,
+    optional_selections: optionalSelections,
+    explicit_optional_selections: explicitOptionalSelections,
+    official_plugins: officialPlugins,
+    ...(capabilityState === undefined ? {} : { capability_state: capabilityState }),
+    ...(ownedPlugins === undefined ? {} : { owned_plugins: ownedPlugins }),
+    ...(providerConfig === undefined ? {} : { provider_config: providerConfig }),
+    ...(pluginSnapshot === undefined ? {} : { plugin_snapshot: pluginSnapshot }),
     digest: await installRecordDigest({
       owner: legacy.owner,
       install_id: legacy.install_id,
       version: legacy.version,
       profile: migratedProfile,
       tier: legacy.tier,
-      optional_selections: legacy.optional_selections,
-      explicit_optional_selections: legacy.explicit_optional_selections,
-      official_plugins: legacy.official_plugins ?? [],
-      capability_state: legacy.capability_state ?? null,
+      optional_selections: optionalSelections,
+      explicit_optional_selections: explicitOptionalSelections,
+      official_plugins: officialPlugins,
+      capability_state: capabilityState ?? null,
       managed_artifacts: legacy.managed_artifacts,
       ...(legacy.managed_config === undefined ? {} : { managed_config: legacy.managed_config }),
       ...(legacy.plugin_config === undefined ? {} : { plugin_config: legacy.plugin_config }),
-      ...(legacy.provider_config === undefined ? {} : { provider_config: legacy.provider_config }),
-      ...(legacy.plugin_snapshot === undefined ? {} : { plugin_snapshot: legacy.plugin_snapshot }),
-      ...(legacy.owned_plugins === undefined ? {} : { owned_plugins: legacy.owned_plugins }),
+      ...(providerConfig === undefined ? {} : { provider_config: providerConfig }),
+      ...(pluginSnapshot === undefined ? {} : { plugin_snapshot: pluginSnapshot }),
+      ...(ownedPlugins === undefined ? {} : { owned_plugins: ownedPlugins }),
+      ...(legacy.tooling === undefined ? {} : { tooling: legacy.tooling }),
     }),
   } as InstallRecord;
-  await writeAtomicJson(paths.activeRecord, asJsonValue(migrated));
   return migrated;
 }
 
@@ -736,7 +938,6 @@ export { removeManagedNativeAgents };
 function toCoreSelections(value: OptionalSelections): OptionalCapabilitySelections {
   return {
     computer_use: value.computer_use,
-    work: value.work,
     frontend: value.frontend,
     security: value.security,
   };
@@ -998,7 +1199,14 @@ function isTomlTable(value: TomlValue | undefined): value is TomlTable {
 export function desiredRootConfig(
   profile: ProfileName,
   tier: ServiceTier,
-  computerUse = false,
+  capabilities:
+    | boolean
+    | Readonly<{
+        computerUse?: boolean;
+        frontend?: boolean;
+        security?: boolean;
+        windowsGitBashExecutable?: string;
+      }> = false,
 ): Partial<Record<ManagedConfigKeyPath, string | boolean>> {
   const root = projectRootAgent(profile, tier);
   const desired: Partial<Record<ManagedConfigKeyPath, string | boolean>> = {
@@ -1006,10 +1214,11 @@ export function desiredRootConfig(
     model_reasoning_effort: root.effort,
     service_tier: root.serviceTier,
     model_verbosity: "low",
-    developer_instructions: rootDeveloperInstructions(computerUse),
+    developer_instructions: rootDeveloperInstructions(capabilities),
     suppress_unstable_features_warning: true,
     "features.default_mode_request_user_input": true,
-    "features.multi_agent_v2": true,
+    "features.multi_agent": true,
+    "features.multi_agent_v2": false,
     "features.context_management": true,
   };
   for (const agentType of NATIVE_AGENT_TYPES) {
@@ -1254,18 +1463,24 @@ export async function verifyEffectiveInstall(
   paths: ResolvedInstallerPaths,
   profile: ProfileName,
   tier: ServiceTier,
-  computerUse: boolean,
+  capabilities: Readonly<{
+    computerUse: boolean;
+    frontend: boolean;
+    security: boolean;
+    windowsGitBashExecutable?: string;
+  }>,
   state: ManagedRuntimeConfigState,
   preservedArtifacts: readonly string[] = [],
 ): Promise<void> {
   const text = await optionalTextFile(paths.configFile);
   const document = parseConfig(text);
-  const expected = desiredRootConfig(profile, tier, computerUse);
+  const expected = desiredRootConfig(profile, tier, capabilities);
   for (const [keyPath, expectedValue] of Object.entries(expected)) {
     const actual = readTomlPath(document, keyPath);
     if (keyPath === "developer_instructions") {
       if (
         typeof actual !== "string" ||
+        actual !== expectedValue ||
         (await summarizeConfigValue(keyPath, actual)) !==
           state.managed[keyPath]?.lastManagedValue.value
       ) {
@@ -1338,7 +1553,7 @@ function mergeExplicitOptionalSelections(
   requested: ExplicitOptionalSelections | undefined,
 ): ExplicitOptionalSelections {
   const merged: Record<string, boolean> = {};
-  for (const name of ["computer_use", "work", "frontend", "security"] as const) {
+  for (const name of ["computer_use", "frontend", "security"] as const) {
     const value = requested?.[name] ?? previous?.[name];
     if (value !== undefined) merged[name] = value;
   }
@@ -1346,7 +1561,7 @@ function mergeExplicitOptionalSelections(
 }
 
 function optionalCapabilityForPlugin(pluginId: string): OptionalCapabilityName | undefined {
-  return (["computer_use", "work", "frontend", "security"] as const).find((name) =>
+  return (["computer_use", "frontend", "security"] as const).find((name) =>
     CAPABILITY_REGISTRY[name].pluginIds.includes(pluginId),
   );
 }
@@ -1355,9 +1570,15 @@ function additionalPluginsFromPrevious(
   previous: Pick<InstallRecord, "official_plugins" | "optional_selections"> | undefined,
 ): readonly string[] {
   return (previous?.official_plugins ?? []).filter((pluginId) => {
+    if (isLegacyWorkPlugin(pluginId)) return false;
     const capability = optionalCapabilityForPlugin(pluginId);
     return capability === undefined || previous?.optional_selections[capability] !== true;
   });
+}
+
+function isLegacyWorkPlugin(pluginId: string): boolean {
+  const name = pluginId.slice(0, pluginId.lastIndexOf("@"));
+  return LEGACY_WORK_PLUGIN_NAMES.has(name);
 }
 
 async function installAndVerify(
@@ -1486,7 +1707,6 @@ function chooseOptional(
   const selected = resolveOptionalCapabilitySelections(requested, fallback);
   return {
     computer_use: selected.computer_use,
-    work: selected.work,
     frontend: selected.frontend,
     security: selected.security,
     coding: true,
@@ -1497,7 +1717,7 @@ function capabilityStateFor(
   selections: OptionalSelections,
   failures: ReadonlyMap<OptionalCapabilityName, "missing" | "uncertain"> = new Map(),
 ): CapabilityStateRecord {
-  const names = ["computer_use", "work", "frontend", "security"] as const;
+  const names = ["computer_use", "frontend", "security"] as const;
   return Object.fromEntries(
     names.map((name) => {
       const selected = selections[name];
@@ -1519,16 +1739,21 @@ type InstallRecordDigestInput = {
   /** Legacy persisted product field; never emitted for current records. */
   readonly plan?: ProfileName | LegacyProfileName;
   readonly tier: ServiceTier;
-  readonly optional_selections: OptionalSelections;
-  readonly explicit_optional_selections: ExplicitOptionalSelections;
+  readonly optional_selections: OptionalSelections &
+    Readonly<{ readonly work?: boolean | undefined }>;
+  readonly explicit_optional_selections: ExplicitOptionalSelections &
+    Readonly<{ readonly work?: boolean | undefined }>;
   readonly official_plugins: readonly string[];
-  readonly capability_state: CapabilityStateRecord | null;
+  readonly capability_state:
+    | (CapabilityStateRecord & Readonly<{ readonly work?: CapabilityInstallState | undefined }>)
+    | null;
   readonly managed_artifacts: readonly { readonly path: string; readonly digest: string }[];
   readonly managed_config?: ManagedRuntimeConfigState | undefined;
   readonly plugin_config?: PluginConfigSnapshot | undefined;
   readonly provider_config?: readonly ProviderPluginConfigSnapshot[] | undefined;
   readonly plugin_snapshot?: readonly PluginSnapshot[] | undefined;
   readonly owned_plugins?: readonly string[] | undefined;
+  readonly tooling?: InstallRecord["tooling"] | undefined;
 };
 
 export async function installRecordDigest(value: InstallRecordDigestInput): Promise<string> {
@@ -1548,16 +1773,21 @@ async function recordDigestMatchesRaw(record: {
   readonly profile?: ProfileName | LegacyProfileName;
   readonly plan?: ProfileName | LegacyProfileName;
   readonly tier: ServiceTier;
-  readonly optional_selections: OptionalSelections;
-  readonly explicit_optional_selections: ExplicitOptionalSelections;
+  readonly optional_selections: OptionalSelections &
+    Readonly<{ readonly work?: boolean | undefined }>;
+  readonly explicit_optional_selections: ExplicitOptionalSelections &
+    Readonly<{ readonly work?: boolean | undefined }>;
   readonly official_plugins?: readonly string[] | undefined;
-  readonly capability_state?: CapabilityStateRecord | undefined;
+  readonly capability_state?:
+    | (CapabilityStateRecord & Readonly<{ readonly work?: CapabilityInstallState | undefined }>)
+    | undefined;
   readonly managed_artifacts: readonly { readonly path: string; readonly digest: string }[];
   readonly managed_config?: ManagedRuntimeConfigState | undefined;
   readonly plugin_config?: PluginConfigSnapshot | undefined;
   readonly provider_config?: readonly ProviderPluginConfigSnapshot[] | undefined;
   readonly plugin_snapshot?: readonly PluginSnapshot[] | undefined;
   readonly owned_plugins?: readonly string[] | undefined;
+  readonly tooling?: InstallRecord["tooling"] | undefined;
   readonly digest: string;
 }): Promise<boolean> {
   const digest = await installRecordDigest({
@@ -1577,12 +1807,47 @@ async function recordDigestMatchesRaw(record: {
     ...(record.provider_config === undefined ? {} : { provider_config: record.provider_config }),
     ...(record.plugin_snapshot === undefined ? {} : { plugin_snapshot: record.plugin_snapshot }),
     ...(record.owned_plugins === undefined ? {} : { owned_plugins: record.owned_plugins }),
+    ...(record.tooling === undefined ? {} : { tooling: record.tooling }),
   });
   return digest === record.digest;
 }
 
 function safeMessage(error: unknown): string {
   return error instanceof Error ? error.message.slice(0, 256) : "operation failed";
+}
+
+async function resolveOwnedConflicts(
+  options: InstallerOptions,
+  conflicts: readonly {
+    readonly path: string;
+    readonly key?: string | undefined;
+    readonly action: "replace" | "remove";
+  }[],
+  preserveDeclined = false,
+): Promise<readonly ManagedConflict[]> {
+  const accepted: ManagedConflict[] = [];
+  for (const conflict of conflicts) {
+    const resolution = await options.resolveConflict?.(conflict);
+    if (resolution === "accept") {
+      accepted.push(conflict);
+      continue;
+    }
+    if (resolution === "decline" && preserveDeclined) continue;
+    throw new InstallerError(
+      "confirmation_required",
+      resolution === "cancel"
+        ? "Conflict resolution was cancelled."
+        : "HolyCodex-owned changes require confirmation before replacement.",
+      undefined,
+      {
+        path: conflict.path,
+        ...(conflict.key === undefined ? {} : { key: conflict.key }),
+        action: conflict.action,
+        resolution: resolution ?? "unavailable",
+      },
+    );
+  }
+  return accepted;
 }
 
 function reportProgress(options: InstallerOptions, event: InstallProgressEvent): void {
@@ -1599,6 +1864,7 @@ export class InstallerError extends Error {
     | "capability_denied"
     | "permission_denied"
     | "state_corrupt"
+    | "confirmation_required"
     | "not_installed"
     | "upgrade_failed"
     | "upgrade_downgrade";

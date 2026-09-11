@@ -56,6 +56,10 @@ export const SURGICAL_MUTATION_RULE =
 export const NO_SOURCE_MUTATION_RULE =
   "Do not modify repository source or the implementation under validation; observation, analysis, and proof artifacts only.";
 
+/** Explicit fork policy for ordinary concrete specialist spawns. */
+export const ForkTurnsSchema = Schema.Literal("none");
+export type ForkTurns = typeof ForkTurnsSchema.Type;
+
 export const FILESYSTEM_ACCESS_SCHEMA = Schema.Literal("read-only", "workspace-write");
 export type FilesystemAccess = typeof FILESYSTEM_ACCESS_SCHEMA.Type;
 
@@ -90,13 +94,13 @@ export const ROLE_DEFINITIONS = [
       {
         name: "lookup",
         description: "Authoritative external fact lookup specialist.",
-        instruction: `Locate the exact requested authoritative external fact. ${NO_SOURCE_MUTATION_RULE}`,
+        instruction: `Locate the exact requested authoritative external fact. For current library, framework, SDK, API, CLI, or cloud-service facts, resolve the library identity and query Context7 narrowly before model memory or generic web sources. Return a typed Context7 evidence state in the context7 field with supporting version/source evidence; fall back only for an allowed evidence state or when the required version is absent, and prefer authoritative first-party documentation when sources conflict. ${NO_SOURCE_MUTATION_RULE}`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "research",
         description: "Current authoritative-source research specialist.",
-        instruction: `Synthesize the assigned current sources with citations. ${NO_SOURCE_MUTATION_RULE}`,
+        instruction: `Synthesize the assigned current sources with citations. For current library, framework, SDK, API, CLI, or cloud-service facts, resolve the library identity and query Context7 narrowly before model memory or generic web sources. Return a typed Context7 evidence state in the context7 field with supporting version/source evidence; fall back only for an allowed evidence state or when the required version is absent, and prefer authoritative first-party documentation when sources conflict. ${NO_SOURCE_MUTATION_RULE}`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
     ],
@@ -286,6 +290,15 @@ export const NativeAgentTypeSchema = Schema.declare(
     typeof value === "string" && nativeAgentTypeSet.has(value),
 );
 
+/** Generic built-in agent names that must never receive HolyCodex specialist Assignments. */
+export const GENERIC_BUILTIN_AGENT_TYPES = Object.freeze([
+  "worker",
+  "explorer",
+  "reviewer",
+  "librarian",
+] as const);
+export type GenericBuiltinAgentType = (typeof GENERIC_BUILTIN_AGENT_TYPES)[number];
+
 export function nativeAgentTypeFor(route: RoleTask): NativeAgentType {
   const value = `${route.role}.${route.task}`;
   if (!nativeAgentTypeSet.has(value)) throw new Error("Unknown native specialist agent type.");
@@ -377,13 +390,169 @@ export const ProfileSelectionSchema = Schema.Struct({
 });
 export type ProfileSelection = typeof ProfileSelectionSchema.Type;
 
-/** Direct execution exceptions that do not require a delegated Assignment. */
-export const RootDirectExecutionExceptionSchema = Schema.Literal("git_vcs", "computer_use");
+/**
+ * Root-only actions that do not receive a specialist Assignment.
+ *
+ * Direct execution remains subject to the applicable approval and capability boundary.
+ */
+export const ROOT_DIRECT_EXECUTION_EXCEPTIONS = Object.freeze([
+  "user_interaction",
+  "intent",
+  "material_decisions",
+  "orchestration_lifecycle",
+  "integration_acceptance",
+  "completion",
+  "git_vcs",
+  "external_effects",
+  "gui_browser",
+  "computer_use",
+] as const);
+export const RootDirectExecutionExceptionSchema = Schema.Literal(
+  ...ROOT_DIRECT_EXECUTION_EXCEPTIONS,
+);
 export type RootDirectExecutionException = typeof RootDirectExecutionExceptionSchema.Type;
 
 /** Effective authority for a Root work unit, including unavailable capabilities. */
 export const RootExecutionStateSchema = Schema.Literal("delegated", "root_direct", "unavailable");
 export type RootExecutionState = typeof RootExecutionStateSchema.Type;
+
+/** Root-owned authority that cannot be transferred to a specialist Assignment. */
+export const RootOwnedAuthoritySchema = Schema.Literal(...ROOT_DIRECT_EXECUTION_EXCEPTIONS);
+export type RootOwnedAuthority = typeof RootOwnedAuthoritySchema.Type;
+
+/** Context7 evidence required from Librarian routes for current technical documentation. */
+export const Context7EvidenceStateSchema = Schema.Literal(
+  "used",
+  "no_coverage",
+  "unavailable",
+  "auth_or_quota_failure",
+  "source_conflict",
+);
+export type Context7EvidenceState = typeof Context7EvidenceStateSchema.Type;
+
+/** Canonical proportional proof rule for GPT-6-family instruction projections. */
+export const TESTING_POLICY = Object.freeze({
+  rule: "Run meaningful proof appropriate to changed behavior plus repository-required checks.",
+  avoidImplementationMirrorTestsForLowImpactReversibleChanges: true,
+  broadenOrRepeatOnlyAfter: Object.freeze([
+    "source_change",
+    "proof_failure",
+    "unresolved_material_concern",
+  ] as const),
+  mandatoryRepositoryGatesRemainRequired: true,
+  reviewerCodeRemainsRequired: true,
+});
+
+/** Context7-first current-documentation policy owned by Librarian routes. */
+export const LIBRARIAN_CONTEXT7_POLICY = Object.freeze({
+  requiredFor: Object.freeze([
+    "library",
+    "framework",
+    "sdk",
+    "api",
+    "cli",
+    "cloud_service",
+  ] as const),
+  resolveIdentityBeforeQuery: true,
+  queryNarrowly: true,
+  evidenceStates: Object.freeze([
+    "used",
+    "no_coverage",
+    "unavailable",
+    "auth_or_quota_failure",
+    "source_conflict",
+  ] as const satisfies readonly Context7EvidenceState[]),
+  fallbackRequiresEvidenceStateOrMissingVersion: true,
+  authoritativeFirstPartyResolvesConflicts: true,
+  materialDecisionsRemainRootOwned: true,
+});
+
+/** Assignment fields used to decide whether a Librarian result needs Context7 proof. */
+export interface Context7AssignmentSemantics {
+  readonly role: Role;
+  readonly task: string;
+  readonly objective: string;
+  readonly scope: readonly string[];
+  readonly constraints: readonly string[];
+  readonly exclusions: readonly string[];
+  readonly dependencies: readonly string[];
+  readonly acceptanceCriteria: readonly string[];
+}
+
+const CONTEXT7_TECHNICAL_SUBJECT_PATTERN =
+  /\b(?:libraries?|frameworks?|sdks?|apis?|clis?|cloud[ _-]?services?|packages?|dependencies?|technical|documentation|docs?|context7)\b/iu;
+const CONTEXT7_NONCURRENT_SUBJECT_PATTERN = /\b(?:historical|history|legacy|archived?|past)\b/iu;
+
+/**
+ * Returns whether a concrete Assignment's own contract requires typed Context7 evidence.
+ *
+ * Librarian routes remain valid for other external facts; only technical subjects in a
+ * non-historical contract require the Context7 proof at the receiving boundary.
+ */
+export function context7RequiredForAssignment(input: Context7AssignmentSemantics): boolean {
+  if (input.role !== "Librarian" || (input.task !== "lookup" && input.task !== "research")) {
+    return false;
+  }
+  const contract = [
+    input.objective,
+    ...input.scope,
+    ...input.constraints,
+    ...input.exclusions,
+    ...input.dependencies,
+    ...input.acceptanceCriteria,
+  ].join(" ");
+  return (
+    CONTEXT7_TECHNICAL_SUBJECT_PATTERN.test(contract) &&
+    !CONTEXT7_NONCURRENT_SUBJECT_PATTERN.test(contract)
+  );
+}
+
+/** Root's required acceptance loop for selected, user-visible frontend work. */
+export const FRONTEND_WORKFLOW_POLICY = Object.freeze({
+  repositoryAndUserRequirementsPrecedePluginDefaults: true,
+  specialistsOwnInspectionImplementationAndRepair: true,
+  rootOwnsLiveVisualAndInteractionAcceptance: true,
+  sourceChangesInvalidateRenderEvidence: true,
+  specialistReportsCannotSubstituteForRootAcceptance: true,
+  logicOnlyChangesRequireVisualAcceptance: false,
+  fixedPoint: Object.freeze([
+    "specialist_implements",
+    "root_renders_opens_and_interacts",
+    "root_judges_current_result",
+    "root_delegates_discrepancies",
+    "specialist_repairs",
+    "root_rerenders_and_retests",
+  ] as const),
+});
+
+/** Credential boundary for Root-only browser, GUI, and Computer Use activity. */
+export const CREDENTIAL_INTERACTION_POLICY = Object.freeze({
+  interactiveCapabilitiesRemainRootOwned: true,
+  credentialEntryAndSubmissionRemainUserOwned: true,
+  useDefaultBrowserWithComputerUse: true,
+  agentsMustNeverHandleCredentials: true,
+  authenticationSequence: Object.freeze([
+    "root_navigates_to_authentication",
+    "root_hands_control_to_user",
+    "user_enters_and_submits_credentials",
+    "root_waits_for_completion",
+    "root_resumes_authenticated_session",
+  ] as const),
+  missingAuthorizedPathIsCapabilityBlocker: true,
+});
+
+/** Proportional security gates and their fixed-point relationship with code review. */
+export const SECURITY_WORKFLOW_POLICY = Object.freeze({
+  threatModelForMaterialTrustBoundaryChanges: true,
+  securityDiffScanRequiredForSecuritySensitiveDiffs: true,
+  fullScanOnlyForAuditNewExposedSurfaceOrSystemicConcern: true,
+  validateSupportedFindingsBeforeBlocking: true,
+  introducedOrWorsenedValidatedVulnerabilityBlocksVcs: true,
+  preExistingUnrelatedFindingsDoNotExpandScope: true,
+  securityEditsInvalidateCodeReview: true,
+  securitySensitiveCodeReviewEditsInvalidateSecurityReview: true,
+  materialDecisionsRemainRootOwned: true,
+});
 
 /**
  * Durable Root orchestration contract shared by runtime projections and proofs. Every task is
@@ -392,8 +561,31 @@ export type RootExecutionState = typeof RootExecutionStateSchema.Type;
  */
 export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   requiresDelegation: true,
+  assignmentStartAndDispatchPrecedeDelegableExecution: true,
   trivialWorkRequiresDelegation: true,
-  directExecutionExceptions: Object.freeze(["git_vcs", "computer_use"] as const),
+  preparatoryAndExploratoryWorkRequiresDelegation: true,
+  genericDirectWorkFallback: false,
+  concreteSpecialistDispatchRequired: true,
+  registeredSpecialistAgentTypes: NATIVE_AGENT_TYPES,
+  roleFamiliesAreLabelsOnly: true,
+  forbiddenGenericAgentTypes: GENERIC_BUILTIN_AGENT_TYPES,
+  missingConcreteRouteIsBlocker: true,
+  delegableActions: Object.freeze([
+    "repository_discovery",
+    "file_source_test_doc_inspection",
+    "fact_finding",
+    "research",
+    "implementation",
+    "debugging",
+    "testing",
+    "validation",
+    "frontend_work",
+    "security_work",
+    "review",
+    "ci_release_observation",
+  ] as const),
+  directExecutionExceptions: ROOT_DIRECT_EXECUTION_EXCEPTIONS,
+  rootOwnedAuthority: ROOT_DIRECT_EXECUTION_EXCEPTIONS satisfies readonly RootOwnedAuthority[],
   requestUserInputGates: Object.freeze([
     "plan_approval",
     "installation_profile_approval",
@@ -402,6 +594,24 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
     "ambiguity_or_missing_material_input",
   ] as const),
   surgicalMutationRule: SURGICAL_MUTATION_RULE,
+  /** Ordinary specialist spawns are explicit, concrete, and preserve route configuration. */
+  normalSpawnForkTurns: "none" as ForkTurns,
+  normalSpawnRequiresExplicitForkTurns: true,
+  normalSpawnUsesConcreteRegisteredAgentType: true,
+  assignmentContextIsTaskSpecificOnly: true,
+  configuredRouteModelAndEffortPreserved: true,
+  /** Routine coordination stays quiet until a terminal result or material Root decision exists. */
+  normalProgressMessages: false,
+  normalHeartbeatMessages: false,
+  normalIntermediateEvidence: false,
+  earlyCommunicationRequiresMaterialRootDecision: true,
+  outOfBoundaryRequiresNewAssignment: true,
+  /** Root waits and batches lifecycle work instead of polling or coordinating status-only loops. */
+  longestPracticalEventWait: true,
+  busyPollingForbidden: true,
+  statusOnlyCoordinationLoopsForbidden: true,
+  batchIndependentLifecycleActions: true,
+  releaseLeavesAfterAcceptedOutcome: true,
   specialistOutcomes: Object.freeze([
     "completed",
     "blocked",
@@ -411,6 +621,10 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   materialDecisionsRemainRootOwned: true,
   lifecycleRemainsRootOwned: true,
   integrationAndCompletionRemainRootOwned: true,
+  routineSafeReversibleInScopeDecisionsProceedAutonomously: true,
+  userInstructionsOverrideSkillGuidelinesExceptHardInvariants: true,
+  authorizedWorkContinuesThroughRequestedTerminalState: true,
+  testingPolicy: TESTING_POLICY,
   codeReviewRequiredForImplementation: true,
   codeReviewRequiredBeforeVcs: true,
   externalVerificationMustBeTerminal: true,
@@ -435,10 +649,18 @@ export function rootExecutionState(
   computerUseEnabled = false,
 ): RootExecutionState {
   switch (exception) {
-    case "git_vcs":
-      return "root_direct";
     case "computer_use":
       return computerUseEnabled ? "root_direct" : "unavailable";
+    case "user_interaction":
+    case "intent":
+    case "material_decisions":
+    case "orchestration_lifecycle":
+    case "integration_acceptance":
+    case "completion":
+    case "git_vcs":
+    case "external_effects":
+    case "gui_browser":
+      return "root_direct";
     default:
       return "delegated";
   }

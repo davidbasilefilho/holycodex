@@ -2,15 +2,10 @@
 
 import * as Schema from "effect/Schema";
 
-export const CapabilityNameSchema = Schema.Literal("computer_use", "work", "frontend", "security");
+export const CapabilityNameSchema = Schema.Literal("computer_use", "frontend", "security");
 export type CapabilityName = typeof CapabilityNameSchema.Type;
 
-export const OptionalCapabilityNameSchema = Schema.Literal(
-  "computer_use",
-  "work",
-  "frontend",
-  "security",
-);
+export const OptionalCapabilityNameSchema = Schema.Literal("computer_use", "frontend", "security");
 export type OptionalCapabilityName = typeof OptionalCapabilityNameSchema.Type;
 
 export const CapabilityProviderStatusSchema = Schema.Literal(
@@ -116,7 +111,6 @@ function isOfficialOpenAiCuratedPluginName(
 export type CapabilityDefaults = Readonly<{
   readonly coding: true;
   readonly computer_use: boolean;
-  readonly work: boolean;
   readonly frontend: boolean;
   readonly security: boolean;
 }>;
@@ -124,7 +118,6 @@ export type CapabilityDefaults = Readonly<{
 export const DEFAULT_CAPABILITY_SELECTIONS: CapabilityDefaults = Object.freeze({
   coding: true,
   computer_use: false,
-  work: false,
   frontend: true,
   security: true,
 });
@@ -135,40 +128,49 @@ export type CapabilityDefinition = Readonly<{
   readonly defaultSelected: boolean;
   readonly migrationKey: OptionalCapabilityName;
   readonly semanticSkillIds: readonly string[];
+  readonly applicability: readonly CapabilityApplicability[];
   readonly ownership: "shared-preserve";
 }>;
 
+/** One canonical semantic skill mapping for a selected capability. */
+export type CapabilityApplicability = Readonly<{
+  readonly skillId: string;
+  readonly appliesWhen: string;
+}>;
+
+/** Canonical frontend skill selection rules projected into Root instructions. */
+export const CAPABILITY_APPLICABILITY = Object.freeze({
+  frontend: Object.freeze([
+    {
+      skillId: "build-web-apps:frontend-app-builder",
+      appliesWhen: "a new visually-driven UI or meaningful redesign",
+    },
+    {
+      skillId: "build-web-apps:frontend-testing-debugging",
+      appliesWhen: "a rendered UI or interaction defect",
+    },
+    {
+      skillId: "build-web-apps:react-best-practices",
+      appliesWhen: "a relevant React or Next implementation or review",
+    },
+  ] as const),
+  security: Object.freeze([] as const),
+  computer_use: Object.freeze([] as const),
+} satisfies Readonly<Record<OptionalCapabilityName, readonly CapabilityApplicability[]>>);
+
+/** Canonical frontend applicability mappings. */
+export const FRONTEND_CAPABILITY_APPLICABILITY = CAPABILITY_APPLICABILITY.frontend;
+
 const registry: Record<OptionalCapabilityName, CapabilityDefinition> = {
-  work: {
-    name: "work",
-    pluginIds: [
-      "documents@openai-primary-runtime",
-      "pdf@openai-primary-runtime",
-      "presentations@openai-primary-runtime",
-      "spreadsheets@openai-primary-runtime",
-      "template-creator@openai-primary-runtime",
-    ],
-    defaultSelected: DEFAULT_CAPABILITY_SELECTIONS.work,
-    migrationKey: "work",
-    semanticSkillIds: [
-      "documents:documents",
-      "pdf:pdf",
-      "presentations:Presentations",
-      "spreadsheets:Spreadsheets",
-      "template-creator:template-creator",
-    ],
-    ownership: "shared-preserve",
-  },
   frontend: {
     name: "frontend",
     pluginIds: ["build-web-apps@openai-curated"],
     defaultSelected: DEFAULT_CAPABILITY_SELECTIONS.frontend,
     migrationKey: "frontend",
-    semanticSkillIds: [
-      "build-web-apps:frontend-app-builder",
-      "build-web-apps:frontend-testing-debugging",
-      "build-web-apps:react-best-practices",
-    ],
+    semanticSkillIds: Object.freeze(
+      CAPABILITY_APPLICABILITY.frontend.map(({ skillId }) => skillId),
+    ),
+    applicability: CAPABILITY_APPLICABILITY.frontend,
     ownership: "shared-preserve",
   },
   security: {
@@ -181,6 +183,7 @@ const registry: Record<OptionalCapabilityName, CapabilityDefinition> = {
       "codex-security:security-diff-scan",
       "codex-security:threat-model",
     ],
+    applicability: CAPABILITY_APPLICABILITY.security,
     ownership: "shared-preserve",
   },
   computer_use: {
@@ -189,6 +192,7 @@ const registry: Record<OptionalCapabilityName, CapabilityDefinition> = {
     defaultSelected: DEFAULT_CAPABILITY_SELECTIONS.computer_use,
     migrationKey: "computer_use",
     semanticSkillIds: ["computer-use:computer-use"],
+    applicability: CAPABILITY_APPLICABILITY.computer_use,
     ownership: "shared-preserve",
   },
 };
@@ -198,17 +202,21 @@ export const CAPABILITY_REGISTRY: Readonly<Record<OptionalCapabilityName, Capabi
 
 export const OPTIONAL_CAPABILITY_NAMES: readonly OptionalCapabilityName[] = Object.freeze([
   "computer_use",
-  "work",
   "frontend",
   "security",
 ]);
 
 export type OptionalCapabilitySelections = Readonly<{
   readonly computer_use: boolean;
-  readonly work: boolean;
   readonly frontend: boolean;
   readonly security: boolean;
 }>;
+
+/** Canonical always-present workflow skills projected by the HolyCodex plugin. */
+export const CORE_SEMANTIC_SKILL_IDS = Object.freeze([
+  "writing-instructions",
+  "babysit-ci",
+] as const);
 
 export type ExplicitOptionalCapabilitySelections = Readonly<
   Partial<Record<OptionalCapabilityName, boolean | undefined>>
@@ -216,7 +224,6 @@ export type ExplicitOptionalCapabilitySelections = Readonly<
 
 export const DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS: OptionalCapabilitySelections = Object.freeze({
   computer_use: DEFAULT_CAPABILITY_SELECTIONS.computer_use,
-  work: DEFAULT_CAPABILITY_SELECTIONS.work,
   frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
   security: DEFAULT_CAPABILITY_SELECTIONS.security,
 });
@@ -224,9 +231,10 @@ export const DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS: OptionalCapabilitySelection
 export function migrateOptionalCapabilitySelections(
   input: Readonly<Record<string, unknown>> | undefined,
 ): OptionalCapabilitySelections {
+  // Legacy `work` is deliberately ignored. Shared document providers are no longer managed by a
+  // live capability and remain user-owned during migration/removal.
   return {
     computer_use: input?.[CAPABILITY_REGISTRY.computer_use.migrationKey] === true,
-    work: input?.[CAPABILITY_REGISTRY.work.migrationKey] === true,
     frontend: input?.[CAPABILITY_REGISTRY.frontend.migrationKey] === true,
     security: input?.[CAPABILITY_REGISTRY.security.migrationKey] === true,
   };
@@ -239,7 +247,6 @@ export function resolveOptionalCapabilitySelections(
   const fallback = previous ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS;
   return {
     computer_use: requested?.computer_use ?? fallback.computer_use,
-    work: requested?.work ?? fallback.work,
     frontend: requested?.frontend ?? fallback.frontend,
     security: requested?.security ?? fallback.security,
   };

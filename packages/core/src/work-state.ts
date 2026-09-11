@@ -20,7 +20,8 @@ import { decode as decodeToon, encode as encodeToon } from "@toon-format/toon";
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 
-import { ROLE_DEFINITIONS } from "./routes.ts";
+import { Context7EvidenceSchema, type Context7Evidence } from "./envelopes.ts";
+import { context7RequiredForAssignment, ROLE_DEFINITIONS } from "./routes.ts";
 import { decodeUnknown } from "./schema.ts";
 
 export const INTENT_SCHEMA_VERSION = "holycodex-intent-1" as const;
@@ -166,6 +167,7 @@ export const InvocationSchema = Schema.Struct({
   finished_at: DateText,
   summary: NonEmpty,
   evidence: Schema.Array(EvidenceSchema),
+  context7: Schema.optional(Context7EvidenceSchema),
   blocker: Schema.optional(NonEmpty),
   remaining_risk: StringList,
 });
@@ -350,6 +352,7 @@ export interface AssignmentResultInput {
   readonly startedAt?: string | undefined;
   readonly summary: string;
   readonly evidence?: readonly IntentEvidence[] | undefined;
+  readonly context7?: Context7Evidence | undefined;
   readonly blocker?: string | undefined;
   readonly remainingRisk?: readonly string[] | undefined;
 }
@@ -360,6 +363,7 @@ export const AssignmentResultInputSchema = Schema.Struct({
   startedAt: Schema.optional(NonEmpty),
   summary: NonEmpty,
   evidence: Schema.optional(Schema.Array(EvidenceSchema)),
+  context7: Schema.optional(Context7EvidenceSchema),
   blocker: Schema.optional(NonEmpty),
   remainingRisk: Schema.optional(Schema.Array(NonEmpty)),
 });
@@ -1136,6 +1140,24 @@ export class IntentStore {
         !validated.blocker?.trim()
       )
         throw invalidInput("Blocked results require a local blocker.");
+      if (
+        context7RequiredForAssignment({
+          role: assignment.owner.role,
+          task: assignment.owner.task,
+          objective: assignment.objective,
+          scope: assignment.scope,
+          constraints: assignment.constraints,
+          exclusions: assignment.exclusions,
+          dependencies: assignment.dependencies,
+          acceptanceCriteria: assignment.acceptance_criteria,
+        }) &&
+        validated.context7 === undefined
+      )
+        throw new IntentStoreError(
+          "invalid_input",
+          "This Librarian Assignment result requires typed Context7 evidence.",
+          { assignment_id: assignment.id, required_evidence: "context7" },
+        );
       const snapshot = await this.#snapshot();
       const evidence = [...(validated.evidence ?? [])];
       const declared = new Set(
@@ -1219,6 +1241,7 @@ export class IntentStore {
         finished_at: timestamp,
         summary: validated.summary,
         evidence,
+        ...(validated.context7 === undefined ? {} : { context7: validated.context7 }),
         ...(validated.blocker ? { blocker: validated.blocker } : {}),
         remaining_risk: [...(validated.remainingRisk ?? [])],
       });

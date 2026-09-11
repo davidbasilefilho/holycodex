@@ -26,9 +26,9 @@ Usage:
   holycodex install [options]
 
 Profiles control routing only:
-  low     Root gpt-6-astra/low; specialists use the low Luna matrix.
+  low     Root gpt-6-astra/low; specialists use the low route matrix.
   default Root gpt-6-astra/medium; recommended default routing.
-  high    Root gpt-6-astra/high; specialists use the high Luna matrix.
+  high    Root gpt-6-astra/high; specialists use the high route matrix.
   Default profile: default.
 
 Tier is independent service handling (CLI values are lowercase only):
@@ -38,12 +38,12 @@ Tier is independent service handling (CLI values are lowercase only):
 
 Options:
 ${INSTALL_OPTION_CATALOG.map((option) => `  ${option.usage.padEnd(48)} ${option.description}`).join("\n")}
-  --no-work / --no-frontend / --no-security /
-  --no-computer-use                         Disable the corresponding plugin.
+  --no-frontend / --no-security / --no-computer-use
+                                                Disable the corresponding plugin.
   --codex-home <absolute-path>              Use an isolated Codex home.
 
-Capability defaults: Work false, Frontend true (mapped to build-web-apps),
-Security true, and Computer Use false. --add-plugin may be repeated.
+Capability defaults: Frontend true (mapped to build-web-apps), Security true,
+and Computer Use false. --add-plugin may be repeated.
 On an interactive TTY, install opens one wizard and final review with Install,
 Change options / Redo, and Cancel. The wizard never asks for CODEX_HOME.
 Additional plugin IDs in the wizard are separated by whitespace; --add-plugin
@@ -106,17 +106,17 @@ export function renderHelp(topic?: string, options: HumanRenderOptions = {}): st
   return helpText(topic)
     .split("\n")
     .map((line) => {
-      if (line === "HolyCodex") return paint(line, "heading", color);
+      if (line === "HolyCodex") return paintTerminal(line, "heading", color);
       if (
         /^(?:Usage|Options|Profiles control routing only|Tier is independent service handling|Capability defaults).*:$/u.test(
           line,
         )
       ) {
-        return paint(line, "heading", color);
+        return paintTerminal(line, "heading", color);
       }
       return line
-        .replace(/--[a-z][a-z0-9-]*/gu, (option) => paint(option, "option", color))
-        .replace(/<[^>]+>/gu, (argument) => paint(argument, "argument", color));
+        .replace(/--[a-z][a-z0-9-]*/gu, (option) => paintTerminal(option, "option", color))
+        .replace(/<[^>]+>/gu, (argument) => paintTerminal(argument, "argument", color));
     })
     .join("\n");
 }
@@ -143,10 +143,36 @@ export function colorEnabled(options: HumanRenderOptions): boolean {
   return tty === true;
 }
 
-type HelpColor = "heading" | "option" | "argument";
+export type TerminalSemanticTone =
+  | "heading"
+  | "option"
+  | "argument"
+  | "focus"
+  | "enabled"
+  | "disabled"
+  | "success"
+  | "warning"
+  | "error"
+  | "hint";
 
-function paint(value: string, color: HelpColor, enabled: boolean): string {
+/** Apply a shared semantic terminal tone when color is enabled. */
+export function paintTerminal(
+  value: string,
+  color: TerminalSemanticTone,
+  enabled: boolean,
+): string {
   if (!enabled) return value;
-  const codes: Record<HelpColor, string> = { heading: "1", option: "36", argument: "2" };
+  const codes: Record<TerminalSemanticTone, string> = {
+    heading: "1",
+    option: "36",
+    argument: "2",
+    focus: "1;36",
+    enabled: "32",
+    disabled: "2",
+    success: "32",
+    warning: "33",
+    error: "31",
+    hint: "2",
+  };
   return `\u001b[${codes[color]}m${value}\u001b[0m`;
 }

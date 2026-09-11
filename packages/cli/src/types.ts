@@ -9,7 +9,6 @@ import type { InstallRequest } from "./installer.ts";
 
 export type OptionalSelections = Readonly<{
   readonly computer_use: boolean;
-  readonly work: boolean;
   readonly frontend: boolean;
   readonly security: boolean;
   readonly coding: true;
@@ -18,7 +17,6 @@ export type OptionalSelections = Readonly<{
 export type ExplicitOptionalSelections = Readonly<
   Partial<{
     readonly computer_use: boolean | undefined;
-    readonly work: boolean | undefined;
     readonly frontend: boolean | undefined;
     readonly security: boolean | undefined;
   }>
@@ -76,6 +74,7 @@ export interface InstallRecord {
   readonly plugin_config?: PluginConfigSnapshot | undefined;
   readonly provider_config?: readonly ProviderPluginConfigSnapshot[] | undefined;
   readonly owned_plugins?: readonly string[] | undefined;
+  readonly tooling?: InstallerToolingState | undefined;
 }
 
 export interface PluginSnapshot {
@@ -149,16 +148,84 @@ export interface CapabilityInstallState {
 
 export type CapabilityStateRecord = Readonly<{
   readonly computer_use: CapabilityInstallState;
-  readonly work: CapabilityInstallState;
   readonly frontend: CapabilityInstallState;
   readonly security: CapabilityInstallState;
 }>;
+
+export type InstallerPlatform = NodeJS.Platform;
+
+export interface InstallerProcessResult {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+export type InstallerProcessRunner = (
+  executable: string,
+  args: readonly string[],
+) => Promise<InstallerProcessResult>;
+
+export interface InstallerFileSystem {
+  readonly access: (path: string) => Promise<void>;
+  readonly readText: (path: string) => Promise<string>;
+  readonly realpath: (path: string) => Promise<string>;
+}
+
+export interface InstallerRuntime {
+  readonly platform: InstallerPlatform;
+  readonly environment: Readonly<Record<string, string | undefined>>;
+  readonly processPath: string;
+  readonly run: InstallerProcessRunner;
+  /** Injectable filesystem boundary for package and executable verification. */
+  readonly files?: InstallerFileSystem;
+}
+
+export type Context7Manager = Readonly<{
+  readonly launcher: "bunx" | "npx" | "pnpm dlx";
+  readonly family: "bun" | "npm" | "pnpm";
+  readonly executable: "bun" | "npm" | "pnpm";
+}>;
+
+export type GitBashState =
+  | Readonly<{ readonly status: "not_applicable" }>
+  | Readonly<{ readonly status: "missing" }>
+  | Readonly<{
+      readonly status: "healthy";
+      readonly path: string;
+      readonly installed: boolean;
+    }>;
+
+export type Context7ToolState = Readonly<{
+  readonly manager: Context7Manager["family"];
+  readonly launcher: Context7Manager["launcher"];
+  readonly version: string;
+  readonly executable: string;
+  readonly ownership: "user" | "holycodex";
+}>;
+
+export type InstallerToolingState = Readonly<{
+  readonly git_bash: GitBashState;
+  readonly context7: Context7ToolState;
+}>;
+
+export type ManagedConflict = Readonly<{
+  readonly path: string;
+  readonly key?: string | undefined;
+  readonly action: "replace" | "remove";
+}>;
+
+export type ConflictResolution = "accept" | "decline" | "cancel";
+export type ConflictResolver = (conflict: ManagedConflict) => Promise<ConflictResolution>;
 
 export interface InstallerOptions {
   readonly paths?: Partial<InstallerPaths>;
   readonly sourceRoot?: string;
   readonly officialPluginManager?: OfficialPluginManager;
   readonly now?: () => Date;
+  /** Injectable platform/process boundary for prerequisite discovery and repair. */
+  readonly runtime?: InstallerRuntime;
+  /** Resolve modifications to state whose HolyCodex ownership is proven by persisted metadata. */
+  readonly resolveConflict?: ConflictResolver;
   /** Receives lifecycle progress only when an installer stage actually starts or completes. */
   readonly onProgress?: (event: InstallProgressEvent) => void;
 }
@@ -182,6 +249,7 @@ export interface UpgradeResult {
   readonly record?: InstallRecord | undefined;
   readonly preserved: readonly string[];
   readonly warnings: readonly string[];
+  readonly conflicts?: readonly ManagedConflict[] | undefined;
 }
 
 export interface DoctorCheck {

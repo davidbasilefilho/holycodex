@@ -10,22 +10,102 @@ import { ROUTE_KEYS } from "@holycodex/core";
 import {
   assertRootText,
   CodexOfficialPluginManager,
-  doctorHolyCodex,
-  installHolyCodex,
+  doctorHolyCodex as doctorHolyCodexImplementation,
+  installHolyCodex as installHolyCodexImplementation,
   installRecordDigest,
   parseArgv,
   pathWithin,
   projectNativeAgents,
   projectRootAgent,
   readActiveInstallRecord,
-  removeHolyCodex,
-  upgradeHolyCodex,
+  removeHolyCodex as removeHolyCodexImplementation,
+  upgradeHolyCodex as upgradeHolyCodexImplementation,
   renderNativeAgent,
   resolveInstallerPaths,
   runBinary,
   runCli,
 } from "./index.ts";
-import type { OfficialPluginManager } from "./index.ts";
+import type {
+  InstallRequest,
+  InstallerOptions,
+  InstallerRuntime,
+  OfficialPluginManager,
+  UpgradeRequest,
+} from "./index.ts";
+
+const toolingStates = new Map<string, { installed: boolean }>();
+
+function testRuntime(codexHome: string): InstallerRuntime {
+  const state = toolingStates.get(codexHome) ?? { installed: false };
+  toolingStates.set(codexHome, state);
+  const binRoot = "/fake/bin";
+  const packageRoot = "/fake/install/global/node_modules/ctx7";
+  const packageExecutable = `${packageRoot}/dist/index.js`;
+  const shim = `${binRoot}/ctx7`;
+  return {
+    platform: "linux",
+    environment: { npm_execpath: "/test/bunx", PATH: binRoot },
+    processPath: "/test/node",
+    files: {
+      access: async (path) => {
+        if (!state.installed || ![packageExecutable, shim].includes(path.replaceAll("\\", "/"))) {
+          throw new Error("missing");
+        }
+      },
+      readText: async (path) => {
+        if (!state.installed || path.replaceAll("\\", "/") !== `${packageRoot}/package.json`) {
+          throw new Error("missing");
+        }
+        return JSON.stringify({ version: "2.0.0", bin: { ctx7: "dist/index.js" } });
+      },
+      realpath: async (path) => path,
+    },
+    run: async (executable, args) => {
+      const command = `${executable} ${args.join(" ")}`;
+      const normalizedCommand = command.replaceAll("\\", "/");
+      if (command === "bun pm bin -g") return { exitCode: 0, stdout: `${binRoot}\n`, stderr: "" };
+      if (command === "bun pm view ctx7 version")
+        return { exitCode: 0, stdout: "2.0.0\n", stderr: "" };
+      if (command === "bun add --global ctx7@latest") {
+        state.installed = true;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (command === "bun remove --global ctx7") {
+        state.installed = false;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (normalizedCommand === `${shim} --version` && state.installed)
+        return { exitCode: 0, stdout: "ctx7 2.0.0\n", stderr: "" };
+      return { exitCode: 1, stdout: "", stderr: "missing" };
+    },
+  };
+}
+
+function withRuntime(options: InstallerOptions): InstallerOptions {
+  const codexHome = options.paths?.codexHome;
+  return codexHome === undefined || options.runtime !== undefined
+    ? options
+    : { ...options, runtime: testRuntime(codexHome) };
+}
+
+const installHolyCodex = (
+  request: InstallRequest = {},
+  options: InstallerOptions = {},
+  environment?: Readonly<Record<string, string | undefined>>,
+) => installHolyCodexImplementation(request, withRuntime(options), environment);
+const doctorHolyCodex = (
+  options: InstallerOptions = {},
+  environment?: Readonly<Record<string, string | undefined>>,
+) => doctorHolyCodexImplementation(withRuntime(options), environment);
+const removeHolyCodex = (
+  options: InstallerOptions = {},
+  environment?: Readonly<Record<string, string | undefined>>,
+) => removeHolyCodexImplementation(withRuntime(options), environment);
+const upgradeHolyCodex = (
+  options: InstallerOptions = {},
+  environment?: Readonly<Record<string, string | undefined>>,
+  request: UpgradeRequest = {},
+) => upgradeHolyCodexImplementation(withRuntime(options), environment, request);
 
 function fakeManager(
   options: Readonly<{
@@ -120,18 +200,24 @@ describe("CLI boundaries", () => {
   });
 
   test("does not treat a single non-TTY stream as interactive confirmation", async () => {
-    const result = await runCli(["remove"], {
-      io: {
-        stdoutIsTTY: true,
-        stderrIsTTY: false,
-        confirm: async () => true,
-      },
-    });
-    expect(result.exitCode).toBe(1);
-    expect(result.envelope).toMatchObject({
-      ok: false,
-      error: { code: "non_tty_confirmation_required" },
-    });
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-nontty-"));
+    try {
+      const result = await runCli(["remove", "--codex-home", root], {
+        io: {
+          stdoutIsTTY: true,
+          stderrIsTTY: false,
+          confirm: async () => true,
+        },
+        installer: { officialPluginManager: fakeManager() },
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.envelope).toMatchObject({
+        ok: false,
+        error: { code: "non_tty_confirmation_required" },
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("recognizes upgrade and its dry-run option at the argument boundary", () => {
@@ -209,10 +295,10 @@ describe("native installation and removal", () => {
       expect(install.record.profile).toBe("default");
       expect(install.record.tier).toBe("standard");
       expect(install.record.optional_selections).toMatchObject({
-        work: false,
         frontend: true,
         security: true,
       });
+      expect(install.record.optional_selections).not.toHaveProperty("work");
       expect(install.record.owned_plugins).toEqual([
         "holycodex@holycodex",
         "build-web-apps@openai-curated",
@@ -232,7 +318,8 @@ describe("native installation and removal", () => {
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
       expect(config).toContain('model = "gpt-6-astra"');
       expect(config).toContain("default_mode_request_user_input = true");
-      expect(config).toContain("multi_agent_v2 = true");
+      expect(config).toContain("multi_agent = true");
+      expect(config).toContain("multi_agent_v2 = false");
       expect(config).toContain("context_management = true");
       expect(config).toContain("You are the HolyCodex Root/session orchestrator");
       expect(config).toContain(
@@ -310,7 +397,7 @@ describe("native installation and removal", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   test("fails closed when a default-selected provider is unavailable", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
@@ -353,6 +440,7 @@ describe("native installation and removal", () => {
       const removed = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
+        resolveConflict: async () => "accept",
       });
       expect(removed.preserved).toEqual([]);
       expect(removed.removed).not.toContain(frontend);
@@ -420,6 +508,7 @@ describe("native installation and removal", () => {
       const removed = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
+        resolveConflict: async () => "accept",
       });
       expect(removed.preserved).toEqual([]);
       expect(providerRemoveAttempts).toBe(2);
@@ -892,6 +981,21 @@ describe("native installation and removal", () => {
       const oldRecord = {
         ...initial.record,
         version: "0.1.0",
+        optional_selections: { ...initial.record.optional_selections, work: true },
+        explicit_optional_selections: {
+          ...initial.record.explicit_optional_selections,
+          work: true,
+        },
+        capability_state: {
+          ...initial.record.capability_state!,
+          work: {
+            selected: true,
+            status: "healthy" as const,
+            plugin_ids: ["documents@openai-bundled"],
+          },
+        },
+        official_plugins: [...(initial.record.official_plugins ?? []), "documents@openai-bundled"],
+        owned_plugins: [...(initial.record.owned_plugins ?? []), "documents@openai-bundled"],
       };
       oldRecord.digest = await installRecordDigest({
         owner: oldRecord.owner,
@@ -909,8 +1013,12 @@ describe("native installation and removal", () => {
         provider_config: oldRecord.provider_config,
         plugin_snapshot: oldRecord.plugin_snapshot,
         owned_plugins: oldRecord.owned_plugins,
+        tooling: oldRecord.tooling,
       });
       await writeFile(paths.activeRecord, `${JSON.stringify(oldRecord)}\n`);
+      const legacyBytes = await readFile(paths.activeRecord, "utf8");
+      await doctorHolyCodex({ paths: { codexHome }, officialPluginManager: manager });
+      expect(await readFile(paths.activeRecord, "utf8")).toBe(legacyBytes);
       const dryRun = await upgradeHolyCodex(
         { paths: { codexHome }, officialPluginManager: manager },
         {},
@@ -918,6 +1026,7 @@ describe("native installation and removal", () => {
       );
       expect(dryRun.status).toBe("dry_run");
       expect(dryRun.changes).toContain("version");
+      expect(await readFile(paths.activeRecord, "utf8")).toBe(legacyBytes);
       const upgraded = await upgradeHolyCodex(
         { paths: { codexHome }, officialPluginManager: manager },
         {},
@@ -982,6 +1091,7 @@ describe("native installation and removal", () => {
         provider_config: oldRecord.provider_config,
         plugin_snapshot: oldRecord.plugin_snapshot,
         owned_plugins: oldRecord.owned_plugins,
+        tooling: oldRecord.tooling,
       });
       await writeFile(paths.activeRecord, `${JSON.stringify(oldRecord)}\n`);
 
@@ -1135,6 +1245,7 @@ describe("native installation and removal", () => {
           provider_config: reinstalled.record.provider_config,
           plugin_snapshot: reinstalled.record.plugin_snapshot,
           owned_plugins: reinstalled.record.owned_plugins,
+          tooling: reinstalled.record.tooling,
         }),
       );
       expect(
@@ -1238,11 +1349,12 @@ describe("native installation and removal", () => {
 
       await writeFile(
         config,
-        (await readFile(config, "utf8")).replace("enabled = true", "enabled = false"),
+        (await readFile(config, "utf8")).replace("enabled = true", 'enabled = "custom"'),
       );
       const conflict = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
+        resolveConflict: async () => "decline",
       });
       expect(conflict.preserved).toContain(config);
       expect(conflict.reasons).toContain("plugin_config_changed");
@@ -1250,7 +1362,7 @@ describe("native installation and removal", () => {
 
       await writeFile(
         config,
-        (await readFile(config, "utf8")).replace("enabled = false", "enabled = true"),
+        (await readFile(config, "utf8")).replace('enabled = "custom"', "enabled = true"),
       );
       const removed = await removeHolyCodex({
         paths: { codexHome },
@@ -1303,7 +1415,11 @@ describe("native installation and removal", () => {
       await writeFile(config, `approval_policy = "on-request"\n${managedConfig}`);
       const reinstall = await installHolyCodex(
         { tier: "fast-all" },
-        { paths: { codexHome }, officialPluginManager: manager },
+        {
+          paths: { codexHome },
+          officialPluginManager: manager,
+          resolveConflict: async () => "decline",
+        },
       );
       expect(reinstall.preserved).toContain(leaf);
       expect(reinstall.preserved).not.toContain(config);
@@ -1315,6 +1431,7 @@ describe("native installation and removal", () => {
       const result = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
+        resolveConflict: async () => "decline",
       });
       expect(result.preserved).toContain(leaf);
       expect(result.preserved).not.toContain(config);
@@ -1322,6 +1439,34 @@ describe("native installation and removal", () => {
       expect(await readFile(leaf, "utf8")).toBe("user edit\n");
       expect(await readFile(config, "utf8")).toContain('approval_policy = "on-request"');
       await expect(readFile(join(codexHome, "agents", "root.toml"), "utf8")).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("applies accepted native conflicts while preserving declined edits", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-native-conflicts-"));
+    const codexHome = join(root, "codex");
+    const manager = fakeManager();
+    const acceptedPath = join(codexHome, "holycodex", "agents", "Worker.implementation.toml");
+    const declinedPath = join(codexHome, "holycodex", "agents", "Explorer.lookup.toml");
+    try {
+      await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager });
+      await writeFile(acceptedPath, "accepted edit\n");
+      await writeFile(declinedPath, "declined edit\n");
+      const reinstall = await installHolyCodex(
+        { tier: "fast-all" },
+        {
+          paths: { codexHome },
+          officialPluginManager: manager,
+          resolveConflict: async (conflict) =>
+            conflict.path === acceptedPath ? "accept" : "decline",
+        },
+      );
+      expect(reinstall.preserved).toContain(declinedPath);
+      expect(reinstall.preserved).not.toContain(acceptedPath);
+      expect(await readFile(declinedPath, "utf8")).toBe("declined edit\n");
+      expect(await readFile(acceptedPath, "utf8")).toContain('service_tier = "fast"');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

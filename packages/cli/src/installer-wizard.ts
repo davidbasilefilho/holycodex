@@ -7,25 +7,38 @@ import {
   type ServiceTier,
 } from "@holycodex/core";
 
+import { colorEnabled, paintTerminal } from "./help.ts";
 import { validateInstallOptions, type InstallOptions, type InstallRequest } from "./installer.ts";
+import type { HumanRenderOptions } from "./types.ts";
 import type { InstallWizardResult } from "./types.ts";
 
 const PROFILE_NAMES: readonly ProfileName[] = ["low", "default", "high"];
 const SERVICE_TIERS: readonly ServiceTier[] = ["standard", "fast", "fast-all"];
 const CAPABILITY_NAMES: readonly OptionalCapabilityName[] = [
-  "work",
   "frontend",
   "security",
   "computer_use",
 ];
 
-type WizardState = {
+export type WizardState = {
   profile: ProfileName;
   tier: ServiceTier;
   optional: Record<OptionalCapabilityName, boolean>;
   plugins: string[];
   pluginInput: string;
+  pluginCursor: number;
 };
+
+export type WizardKey = Readonly<{
+  name: string;
+  ctrl?: boolean;
+  meta?: boolean;
+}>;
+
+export type WizardConfigurationTransition = Readonly<{
+  cursor: number;
+  action: "render" | "review" | "cancel";
+}>;
 
 /**
  * Run the public interactive install wizard using OpenTUI's imperative API.
@@ -44,7 +57,8 @@ export async function runOpenTuiInstallWizard(
     exitOnCtrlC: true,
     clearOnShutdown: true,
   });
-  const text = new opentui.TextRenderable(renderer, { content: renderWizard(state, 0) });
+  const color = colorEnabled({ stdoutIsTTY: true, env: process.env, stream: "stdout" });
+  const text = new opentui.TextRenderable(renderer, { content: renderWizard(state, 0, color) });
   renderer.root.add(text);
 
   return await new Promise<InstallWizardResult>((resolve, reject) => {
@@ -70,22 +84,25 @@ export async function runOpenTuiInstallWizard(
     };
 
     const refresh = (): void => {
-      text.content = reviewing ? renderReview(state, reviewChoice) : renderWizard(state, cursor);
+      text.content = reviewing
+        ? renderReview(state, reviewChoice, color)
+        : renderWizard(state, cursor, color);
       renderer.requestRender();
     };
 
-    const onKey = (key: {
-      readonly name: string;
-      readonly ctrl?: boolean;
-      readonly meta?: boolean;
-    }): void => {
+    const onKey = (key: WizardKey): void => {
       try {
         const name = key.name.toLowerCase();
-        if (name === "escape" || (key.ctrl === true && name === "c")) {
+        if (key.ctrl === true && name === "c") {
           settle({ action: "cancel" });
           return;
         }
         if (reviewing) {
+          if (name === "escape") {
+            reviewing = false;
+            refresh();
+            return;
+          }
           if (name === "up" || name === "k") reviewChoice = (reviewChoice + 2) % 3;
           else if (name === "down" || name === "j") reviewChoice = (reviewChoice + 1) % 3;
           else if (name === "return" || name === "enter" || name === "linefeed") {
@@ -103,39 +120,16 @@ export async function runOpenTuiInstallWizard(
           return;
         }
 
-        if (cursor === CAPABILITY_NAMES.length + 2) {
-          if (name === "backspace") state.pluginInput = state.pluginInput.slice(0, -1);
-          else if (name === "space") state.pluginInput += " ";
-          else if (name === "return" || name === "enter" || name === "linefeed") {
-            state.plugins = parsePluginInput(state.pluginInput);
-            reviewing = true;
-            reviewChoice = 0;
-          } else if (
-            !key.ctrl &&
-            !key.meta &&
-            key.name.length === 1 &&
-            !isControlCharacter(key.name)
-          ) {
-            state.pluginInput += key.name;
-          }
-          refresh();
+        const transition = applyWizardConfigurationKey(state, cursor, key);
+        cursor = transition.cursor;
+        if (transition.action === "cancel") {
+          settle({ action: "cancel" });
           return;
         }
-
-        if (name === "up" || name === "k") {
-          cursor = Math.max(0, cursor - 1);
-        } else if (name === "down" || name === "j") {
-          cursor = Math.min(CAPABILITY_NAMES.length + 2, cursor + 1);
-        } else if (name === "space" && cursor >= 2) {
-          toggleCapability(state, cursor - 2);
-        } else if (name === "left" || name === "h") {
-          cycleSelection(state, cursor, -1);
-        } else if (name === "right" || name === "l") {
-          cycleSelection(state, cursor, 1);
-        } else if (name === "return" || name === "enter" || name === "linefeed") {
-          if (cursor < CAPABILITY_NAMES.length + 2) cursor += 1;
+        if (transition.action === "review") {
+          reviewing = true;
+          reviewChoice = 0;
         }
-        if (cursor === CAPABILITY_NAMES.length + 2) state.pluginInput = state.plugins.join(" ");
         refresh();
       } catch (error: unknown) {
         fail(error);
@@ -149,6 +143,45 @@ export async function runOpenTuiInstallWizard(
       fail(error);
     }
   });
+}
+
+/** Apply one configuration-screen key using the shared install TUI keyboard contract. */
+export function applyWizardConfigurationKey(
+  state: WizardState,
+  cursor: number,
+  key: WizardKey,
+): WizardConfigurationTransition {
+  const name = key.name.toLowerCase();
+  const pluginField = CAPABILITY_NAMES.length + 2;
+  if (name === "escape" || (key.ctrl === true && name === "c")) {
+    return { cursor, action: "cancel" };
+  }
+  if (name === "up" || name === "k") return { cursor: Math.max(0, cursor - 1), action: "render" };
+  if (name === "down" || name === "j") {
+    return { cursor: Math.min(pluginField, cursor + 1), action: "render" };
+  }
+  if (name === "return" || name === "enter" || name === "linefeed") {
+    state.plugins = parsePluginInput(state.pluginInput);
+    return { cursor, action: "review" };
+  }
+  if (cursor === pluginField) {
+    if (name === "backspace") deletePluginCharacter(state, -1);
+    else if (name === "delete") deletePluginCharacter(state, 1);
+    else if (name === "left") state.pluginCursor = Math.max(0, state.pluginCursor - 1);
+    else if (name === "right") {
+      state.pluginCursor = Math.min(state.pluginInput.length, state.pluginCursor + 1);
+    } else if (name === "home") state.pluginCursor = 0;
+    else if (name === "end") state.pluginCursor = state.pluginInput.length;
+    else if (name === "space") insertPluginText(state, " ");
+    else if (!key.ctrl && !key.meta && key.name.length === 1 && !isControlCharacter(key.name)) {
+      insertPluginText(state, key.name);
+    }
+    return { cursor, action: "render" };
+  }
+  if (name === "space" && cursor >= 2) toggleCapability(state, cursor - 2);
+  else if (name === "left") cycleSelection(state, cursor, -1);
+  else if (name === "right") cycleSelection(state, cursor, 1);
+  return { cursor, action: "render" };
 }
 
 /** Create the complete validated install options represented by wizard state. */
@@ -169,15 +202,18 @@ export function toInstallOptions(state: Readonly<WizardState>): InstallOptions {
 export function renderInstallWizardReview(
   request: InstallRequest,
   selectedAction: "install" | "change" | "cancel" = "install",
+  options: HumanRenderOptions = {},
 ): string {
   const state = stateFromRequest(validateInstallOptions(request));
   return renderReview(
     state,
     selectedAction === "install" ? 0 : selectedAction === "change" ? 1 : 2,
+    colorEnabled({ ...options, stream: "stdout" }),
   );
 }
 
-function stateFromRequest(request: InstallRequest): WizardState {
+/** Build editable wizard state from the validated install boundary. */
+export function stateFromRequest(request: InstallRequest): WizardState {
   const optional = {
     ...DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
     ...request.optional,
@@ -187,12 +223,12 @@ function stateFromRequest(request: InstallRequest): WizardState {
     tier: request.tier ?? "standard",
     optional: {
       computer_use: optional.computer_use ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.computer_use,
-      work: optional.work ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.work,
       frontend: optional.frontend ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.frontend,
       security: optional.security ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.security,
     },
     plugins: [...(request.officialPlugins ?? [])],
     pluginInput: (request.officialPlugins ?? []).join(" "),
+    pluginCursor: (request.officialPlugins ?? []).join(" ").length,
   };
 }
 
@@ -201,14 +237,28 @@ function cycleSelection(state: WizardState, cursor: number, direction: -1 | 1): 
     state.profile = cycle(PROFILE_NAMES, state.profile, direction);
   } else if (cursor === 1) {
     state.tier = cycle(SERVICE_TIERS, state.tier, direction);
-  } else if (cursor >= 2 && cursor < CAPABILITY_NAMES.length + 2) {
-    toggleCapability(state, cursor - 2);
   }
 }
 
 function toggleCapability(state: WizardState, index: number): void {
   const name = CAPABILITY_NAMES[index];
   if (name !== undefined) state.optional[name] = !state.optional[name];
+}
+
+function insertPluginText(state: WizardState, value: string): void {
+  state.pluginInput = `${state.pluginInput.slice(0, state.pluginCursor)}${value}${state.pluginInput.slice(state.pluginCursor)}`;
+  state.pluginCursor += value.length;
+}
+
+function deletePluginCharacter(state: WizardState, direction: -1 | 1): void {
+  if (direction === -1) {
+    if (state.pluginCursor === 0) return;
+    state.pluginInput = `${state.pluginInput.slice(0, state.pluginCursor - 1)}${state.pluginInput.slice(state.pluginCursor)}`;
+    state.pluginCursor -= 1;
+    return;
+  }
+  if (state.pluginCursor >= state.pluginInput.length) return;
+  state.pluginInput = `${state.pluginInput.slice(0, state.pluginCursor)}${state.pluginInput.slice(state.pluginCursor + 1)}`;
 }
 
 function cycle<T extends string>(values: readonly T[], current: T, direction: -1 | 1): T {
@@ -233,7 +283,7 @@ export function parsePluginInput(input: string): string[] {
   return plugins;
 }
 
-function renderWizard(state: Readonly<WizardState>, cursor: number): string {
+function renderWizard(state: Readonly<WizardState>, cursor: number, color: boolean): string {
   const focused =
     cursor < 2
       ? cursor === 0
@@ -243,56 +293,85 @@ function renderWizard(state: Readonly<WizardState>, cursor: number): string {
         ? capabilityDescription(CAPABILITY_NAMES[cursor - 2]!)
         : "Optional plugin IDs separated by spaces. Enter continues to review.";
   const lines = [
-    "HolyCodex  ·  install",
-    "↑/↓ move   ←/→ change   Space toggle   Enter review   Esc cancel",
-    "",
-    "PROFILE",
-    `${cursor === 0 ? "❯" : " "} Profile       ${state.profile}`,
-    `${cursor === 1 ? "❯" : " "} Service tier  ${state.tier}`,
-    "",
-    "OPTIONAL CAPABILITIES",
-    ...CAPABILITY_NAMES.map(
-      (name, index) =>
-        `${cursor === index + 2 ? "❯" : " "} ${capabilityLabel(name).padEnd(14)} ${state.optional[name] ? "[x] enabled" : "[ ] disabled"}`,
+    paintTerminal("HolyCodex  ·  install", "heading", color),
+    paintTerminal(
+      "↑/↓ focus   ←/→ change choice   Space toggle   Enter review   Esc cancel",
+      "hint",
+      color,
     ),
     "",
-    "ADDITIONAL PLUGINS",
+    paintTerminal("PROFILE", "heading", color),
+    renderWizardChoice("Profile", state.profile, cursor === 0, color),
+    renderWizardChoice("Service tier", state.tier, cursor === 1, color),
+    "",
+    paintTerminal("OPTIONAL CAPABILITIES", "heading", color),
+    ...CAPABILITY_NAMES.map((name, index) =>
+      renderWizardCapability(name, state.optional[name], cursor === index + 2, color),
+    ),
+    "",
+    paintTerminal("ADDITIONAL PLUGINS", "heading", color),
     ...wrapWizardLine(
       `${cursor === CAPABILITY_NAMES.length + 2 ? "❯" : " "} ${state.pluginInput || "(none)"}`,
     ),
     "",
-    focused,
+    paintTerminal(focused, "hint", color),
   ];
   return `${lines.join("\n")}\n`;
 }
 
-function renderReview(state: Readonly<WizardState>, selected: number): string {
+function renderWizardChoice(
+  label: string,
+  value: string,
+  focused: boolean,
+  color: boolean,
+): string {
+  const line = `${focused ? "❯" : " "} ${label.padEnd(13)} ${value}`;
+  return paintTerminal(line, focused ? "focus" : "argument", color);
+}
+
+function renderWizardCapability(
+  name: OptionalCapabilityName,
+  value: boolean,
+  focused: boolean,
+  color: boolean,
+): string {
+  const marker = value ? "[x] enabled" : "[ ] disabled";
+  const line = `${focused ? "❯" : " "} ${capabilityLabel(name).padEnd(14)} ${marker}`;
+  return paintTerminal(line, focused ? "focus" : value ? "enabled" : "disabled", color);
+}
+
+function renderReview(state: Readonly<WizardState>, selected: number, color = false): string {
   const actions = ["Install", "Change options / Redo", "Cancel"];
   const lines = [
-    "HolyCodex  ·  review",
-    "Review configuration",
-    "↑/↓ choose   Enter confirm   Esc cancel",
+    paintTerminal("HolyCodex  ·  review", "heading", color),
+    paintTerminal("Review configuration", "heading", color),
+    paintTerminal("↑/↓ choose   Enter confirm   Esc back", "hint", color),
     "",
     `Profile: ${state.profile}`,
     `Service tier: ${state.tier}`,
     "",
-    "CAPABILITIES",
+    paintTerminal("CAPABILITIES", "heading", color),
     ...CAPABILITY_NAMES.map(
-      (name) => `  ${capabilityLabel(name)}: ${enabled(state.optional[name])}`,
+      (name) =>
+        `  ${capabilityLabel(name)}: ${paintTerminal(enabled(state.optional[name]), state.optional[name] ? "enabled" : "disabled", color)}`,
     ),
     ...wrapWizardLine(
       `  Additional plugins: ${state.plugins.length === 0 ? "none" : state.plugins.join(" ")}`,
     ),
     "",
-    ...actions.map((action, index) => `${index === selected ? "›" : " "} ${action}`),
+    ...actions.map((action, index) =>
+      paintTerminal(
+        `${index === selected ? "›" : " "} ${action}`,
+        index === selected ? "focus" : index === 0 ? "success" : index === 1 ? "warning" : "error",
+        color,
+      ),
+    ),
   ];
   return `${lines.join("\n")}\n`;
 }
 
 function capabilityDescription(name: OptionalCapabilityName): string {
   switch (name) {
-    case "work":
-      return "Work plugins for documents, spreadsheets, and presentations.";
     case "frontend":
       return "Frontend tools for building and testing web experiences.";
     case "security":

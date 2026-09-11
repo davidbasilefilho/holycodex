@@ -24,7 +24,7 @@ commands are `bunx holycodex install`, `bunx holycodex remove`, and
 | `holycodex --help`                                               | Print the current command and option syntax.                                                                                                                       |
 
 Installation options are `--yes`, `--profile <name>`,
-`--tier <name>`, `--work`, `--frontend`, `--security`, `--computer-use`, and
+`--tier <name>`, `--frontend`, `--security`, `--computer-use`, and
 `--add-plugin <id>`, and `--json`. Interactive plugin entry accepts whitespace-separated IDs. Each option is explicit; conflicting or
 malformed values fail before any effect.
 
@@ -32,8 +32,8 @@ Profiles select native subagent routing only. The tier is an independent
 service setting. A selected capability and every additional plugin must install
 and verify as installed and enabled; otherwise installation returns
 `capability_denied` or a classified installation failure without claiming
-success. The default selections are Frontend and Security; Work and Computer
-Use remain disabled unless selected.
+success. The default selections are Frontend and Security; Computer Use
+remains disabled unless selected.
 
 Root's selected Astra model, reasoning effort, service tier, compact developer
 instructions, required feature flags, and every canonical leaf registration
@@ -44,10 +44,10 @@ sets leaves to `fast`; `fast-all` sets both Root and leaves to `fast`. Leaf
 TOMLs omit `tool_output_token_limit` and use native sandbox, approval, network,
 and delegation-feature controls.
 
-Live profile routing uses `gpt-6-astra` for Root/session and `gpt-5.6-luna`
-for every specialist. The exact per-task effort matrix is owned by
-[BEHAVIOR.md](BEHAVIOR.md); Astra never receives `xhigh` or `max` as a Root
-effort. Sol, Terra, and Go are migration-only historical values.
+Live profiles select configured Root and specialist route identities and the
+per-task effort matrix owned by [BEHAVIOR.md](BEHAVIOR.md). All generated
+instructions target GPT-6-family behavior; temporary route IDs are not
+instruction semantics. Historical route and profile values are migration-only.
 
 With `--computer-use`, the official Computer Use capability is installed and
 Root receives the conditional Root-only interactive execution directive. The
@@ -88,19 +88,11 @@ output, effects, and important failure conditions. Semantic operations validate
 all request and persisted values and return deterministic error codes. Agents
 must not rename or edit TOON files directly.
 
-Root MUST delegate every task, including trivial work, through a bounded
-Assignment and native specialist. Direct Root execution is limited to Git/VCS
-and Computer Use when selected during install. Root owns intent, material
-decisions, lifecycle, integration, approvals, and final completion. A passing
-`Reviewer.code` fixed-point review is mandatory after implementation or a
-major codebase change and before completion or any VCS operation. Root uses
-`request_user_input` before workflow Plan approval, installation profile
-approval, remote/origin/server VCS mutations, public publication or release,
-and whenever ambiguity or missing material input blocks progress; record
-`needs_root_input` in the relevant Intent or Plan. After terminal development
-green, an authorized release uses the repository's own mechanism and is
-followed by delegated exact-ref release observation; if no separate release
-gate exists, use the discovered single gate and do not infer one.
+Root's delegation, authority, review, and release boundaries are defined in
+[BEHAVIOR.md](BEHAVIOR.md). Workflow Plan approval and installation profile
+approval remain distinct from routing choices. Unresolved material input is
+recorded as `needs_root_input` in the relevant Intent or Plan; existing user
+authorization is retained.
 
 ## Response envelopes
 
@@ -140,6 +132,13 @@ JSON mode is always non-interactive. A nonzero exit never means that an
 external effect succeeded. An uncertain effect is reported and preserved for
 Root or user resolution; it is not blindly repeated.
 
+Upgrade and removal report modified, provably owned state as resolvable
+conflicts. Interactive resolution exposes the path or key and proposed action:
+accept, decline/preserve, or cancel. `--yes` accepts owned replacement/removal;
+JSON or non-TTY without it returns structured confirmation-required state.
+`--dry-run` reports conflicts and planned resolution without mutation. Foreign
+or unverifiable state is never offered for destructive resolution.
+
 ## Human output
 
 Without `--json`, install, remove, and doctor report concise semantic results.
@@ -159,3 +158,10 @@ Help colors headings, options, and arguments on interactive non-CI terminals.
 `NO_COLOR`, CI environments, and non-TTY output receive plain text. JSON mode
 always emits one validated envelope and never includes ANSI, prompts, progress,
 or secrets.
+
+Interactive forms use ↑/↓ for navigable items, Space for focused toggles, and
+←/→ for choices. Enter submits or accepts the form, including proceeding from
+install configuration to review; it never advances focus. Esc cancels or goes
+back at the current boundary. Text fields retain normal editing controls.
+Color distinguishes focus, state, status, sections, and hints alongside text
+indicators; `NO_COLOR` and non-TTY output remain ANSI-free.

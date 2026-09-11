@@ -63,11 +63,8 @@ describe("plugin source assets", () => {
       } else {
         expect(body).toMatch(new RegExp(`^---\\nname: ${skill}\\ndescription: .+\\n---`, "u"));
       }
-      if (skill === "writing-for-agents") {
-        expect(body).toContain("GPT-6 Astra");
-        expect(body).toContain("GPT-5.6 Luna");
-        expect(body).not.toContain("reload");
-      }
+      expect(`${body}\n${metadata}`).not.toMatch(/GPT-5\.6|\b(?:Luna|Sol|Terra)\b/u);
+      expect(`${body}\n${metadata}`).not.toContain("writing-for-agents");
       expect(metadata).toContain("interface:");
       expect(metadata).toContain("default_prompt:");
       expect(metadata).toMatch(/allow_implicit_invocation: (true|false)/u);
@@ -76,7 +73,25 @@ describe("plugin source assets", () => {
     }
   });
 
-  test("hardens Root orchestration and semantic state ownership", async () => {
+  test("ships canonical instruction and CI workflows without the retired alias", async () => {
+    const source = await validateSource(pluginSourceRoot);
+    const paths = source.files.map((file) => file.path);
+    expect(paths).toContain("skills/writing-instructions/SKILL.md");
+    expect(paths).toContain("skills/writing-instructions/LICENSE");
+    expect(paths).toContain("skills/babysit-ci/SKILL.md");
+    expect(paths.some((path) => path.startsWith("skills/writing-for-agents/"))).toBe(false);
+
+    const instructionSkill = await readFile(
+      join(pluginSourceRoot, "skills/writing-instructions/SKILL.md"),
+      "utf8",
+    );
+    expect(instructionSkill).toContain("GPT-6 → GPT-6");
+    expect(instructionSkill).toContain("effective context");
+    expect(instructionSkill).toContain("one authoritative owner");
+    expect(instructionSkill).toContain("requested terminal state");
+  });
+
+  test("keeps conditional workflows available for canonical routes", async () => {
     const requiredSkills = [
       "plan",
       "plan-review",
@@ -84,6 +99,7 @@ describe("plugin source assets", () => {
       "debugging",
       "code-review",
       "operations",
+      "babysit-ci",
     ];
     for (const skill of requiredSkills) {
       const body = await readFile(join(pluginSourceRoot, "skills", skill, "SKILL.md"), "utf8");
@@ -105,9 +121,8 @@ describe("plugin source assets", () => {
 
     const commit = await readFile(join(pluginSourceRoot, "skills", "commit", "SKILL.md"), "utf8");
     expect(commit).toContain("local commit");
-    expect(commit).toContain("exact ref");
     expect(commit).toContain("Reviewer.code fixed-point");
-    expect(commit).toContain("request_user_input");
+    expect(commit).toContain("../babysit-ci/SKILL.md");
 
     const programming = await readFile(
       join(pluginSourceRoot, "skills", "programming", "SKILL.md"),

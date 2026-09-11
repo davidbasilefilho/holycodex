@@ -21,7 +21,12 @@ import {
   type InstallRequest,
 } from "./installer.ts";
 import { asJsonValue } from "./json.ts";
-import { doctorHolyCodex, removeHolyCodex, upgradeHolyCodex } from "./maintenance.ts";
+import {
+  doctorHolyCodex,
+  inspectRemovalConflicts,
+  removeHolyCodex,
+  upgradeHolyCodex,
+} from "./maintenance.ts";
 import { readCanonicalVersion, updateCanonicalVersion, ManifestError } from "./manifest.ts";
 import { OfficialPluginManagerError } from "./official-manager.ts";
 import { PathBoundaryError } from "./paths.ts";
@@ -31,6 +36,7 @@ import type {
   CommandResult,
   HumanRenderOptions,
   InstallProgressEvent,
+  InstallerOptions,
   ParsedCommand,
 } from "./types.ts";
 
@@ -149,6 +155,21 @@ async function executeRemove(parsed: ParsedCommand, context: CliContext) {
     return { cancelled: true, removed: [], preserved: [], reasons: ["cancelled"] };
   }
   if (confirmationResult === "unavailable") {
+    const conflict = (
+      await inspectRemovalConflicts(installerOptions(parsed, context), context.env)
+    )[0];
+    if (conflict !== undefined) {
+      throw new InstallerError(
+        "confirmation_required",
+        "Modified HolyCodex-owned state requires confirmation before removal.",
+        undefined,
+        {
+          path: conflict.path,
+          ...(conflict.key === undefined ? {} : { key: conflict.key }),
+          action: conflict.action,
+        },
+      );
+    }
     throw new CliCommandError(
       "non_tty_confirmation_required",
       "Remove requires --yes in non-interactive mode.",
@@ -170,6 +191,22 @@ async function executeUpgrade(parsed: ParsedCommand, context: CliContext) {
       return { cancelled: true, status: "cancelled", changes: [] };
     }
     if (confirmationResult === "unavailable") {
+      const preview = await upgradeHolyCodex(installerOptions(parsed, context), context.env, {
+        dryRun: true,
+      });
+      const conflict = preview.conflicts?.[0];
+      if (conflict !== undefined) {
+        throw new InstallerError(
+          "confirmation_required",
+          "Modified HolyCodex-owned state requires confirmation before upgrade.",
+          undefined,
+          {
+            path: conflict.path,
+            ...(conflict.key === undefined ? {} : { key: conflict.key }),
+            action: conflict.action,
+          },
+        );
+      }
       throw new CliCommandError(
         "non_tty_confirmation_required",
         "Upgrade requires --yes in non-interactive mode.",
@@ -212,7 +249,7 @@ async function confirmIfAvailable(
 
 function optionalSelections(parsed: ParsedCommand) {
   const result: Record<string, boolean> = {};
-  for (const key of ["computer_use", "work", "frontend", "security"] as const) {
+  for (const key of ["computer_use", "frontend", "security"] as const) {
     const positive = key.replaceAll("_", "-");
     if (parsed.options[positive] === true) result[key] = true;
     else if (parsed.options[positive] === false) result[key] = false;
@@ -248,13 +285,31 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
     context.onProgress?.(event);
     emitProgress(context, json, event.message);
   };
+  const resolveConflict: NonNullable<InstallerOptions["resolveConflict"]> =
+    base.resolveConflict ??
+    (parsed.options["yes"] === true
+      ? async () => "accept" as const
+      : async (conflict) => {
+          const target =
+            conflict.key === undefined ? conflict.path : `${conflict.path} (${conflict.key})`;
+          const result = await confirmIfAvailable(
+            context,
+            `${conflict.action === "remove" ? "Remove" : "Replace"} modified HolyCodex-owned state at ${target}?`,
+          );
+          return result === "confirmed"
+            ? ("accept" as const)
+            : result === "cancelled"
+              ? ("decline" as const)
+              : ("cancel" as const);
+        });
   const codexHome = parsed.options["codex-home"];
   if (typeof codexHome !== "string")
-    return { ...base, onProgress, ...(context.now ? { now: context.now } : {}) };
+    return { ...base, onProgress, resolveConflict, ...(context.now ? { now: context.now } : {}) };
   return {
     ...base,
     paths: { ...base.paths, codexHome },
     onProgress,
+    resolveConflict,
     ...(context.now ? { now: context.now } : {}),
   };
 }
@@ -330,7 +385,13 @@ function mapError(
     };
   if (error instanceof InstallerError) {
     const exitCode =
-      error.code === "capability_denied" ? 2 : error.code === "state_corrupt" ? 4 : 3;
+      error.code === "confirmation_required"
+        ? 1
+        : error.code === "capability_denied"
+          ? 2
+          : error.code === "state_corrupt"
+            ? 4
+            : 3;
     return {
       code: error.code,
       message: sanitizeMessage(error.message),
@@ -450,7 +511,7 @@ function renderInstall(data: JsonValue, color: boolean): string {
   const tier = stringValue(record, "tier") ?? "unknown";
   const selections = objectValue(record, "optional_selections");
   const capabilityState = objectValue(record, "capability_state");
-  const capabilities = ["frontend", "security", "work", "computer_use"]
+  const capabilities = ["frontend", "security", "computer_use"]
     .filter((name) => selections?.[name] === true)
     .map((name) => {
       const status = stringValue(objectValue(capabilityState, name), "status");

@@ -113,8 +113,8 @@ An already executing Assignment must receive its result before another start.
 `,
   "assignment result": `Usage: holycodex-agent assignment result --intent <ref> --assignment <id> --revision <n> --input <json> [--repo <path>]
 
-Input requires outcome and summary; supports compact invocation metadata, evidence, blocker,
-and remainingRisk. Result must match the active invocation (legacy executing records may finish
+Input requires outcome and summary; supports compact invocation metadata, typed Context7 proof,
+evidence, blocker, and remainingRisk. Result must match the active invocation (legacy executing records may finish
 without metadata). Operations success preserves accepted Intent gates for Root CI/acceptance;
 operations failure returns the Intent to executing for repair. Effect: appends one invocation
 and accepts only declared repository evolution.

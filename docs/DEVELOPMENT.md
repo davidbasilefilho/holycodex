@@ -50,6 +50,12 @@ and repair through local/development checks before trying stable again.
 
 ## Checks and test isolation
 
+Use meaningful proof appropriate to the changed behavior plus the repository
+checks below. A low-impact reversible change does not need a test that merely
+mirrors its implementation. Once relevant proof passes, broaden or repeat only
+after another source change, a proof failure, or an unresolved material concern.
+This rule does not weaken mandatory repository gates or `Reviewer.code`.
+
 Run the checks proportional to the changed seam and inspect the final diff:
 
 ```sh

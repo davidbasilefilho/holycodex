@@ -40,8 +40,13 @@ while `plus-low`, `plus`, and `plus-high` migrate to `low`, `default`, and
 `high`. Removed `pro-5x` and `pro-20x` values remain migration-only and
 require an explicit replacement.
 
-Frontend and Security plugins are selected by default. Work and Computer Use
-are opt-in. A selected capability must install and verify successfully or the
+The current Root route is `gpt-6-astra`, while native specialist route files
+use the configured `gpt-5.6-luna` identity with their per-task effort matrix.
+Those routing identities are separate from the GPT-6-family behavior required
+by live skills and generated instructions.
+
+Frontend and Security plugins are selected by default. Computer Use is opt-in.
+A selected capability must install and verify successfully or the
 installation fails. Use `--json` when another program needs the complete
 structured state; human output stays concise.
 
@@ -57,20 +62,26 @@ and Assignment state under `.holycodex/` using semantic operations; it has no
 TUI, prompts, or ANSI output. Handoff is only a redacted projection of that
 state, never a second record.
 
-Root MUST delegate every task, including trivial work, through a bounded
-Assignment and native specialist. Root retains intent, acceptance, material
-decisions, lifecycle, integration, approvals, and completion. Direct Root
-execution is limited to Git/VCS, plus Computer Use when explicitly selected at
-install. Root delegates repository inspection, implementation, testing,
-review, research, and CI observation through bounded Assignments. Post-
-integration CI and release verification use the operations specialist against
-the exact ref/SHA; pending is not success.
+Root delegates every delegable action through a bounded Assignment and native
+specialist before inspection or execution, including trivial and preparatory
+work. Root owns user interaction, Intent, material decisions, orchestration,
+lifecycle, integration acceptance, completion, Git/VCS, external effects, and
+authorized GUI/browser/Computer Use. Independent Assignments can run in parallel;
+dependent work and shared write seams are serialized. Post-integration CI and
+release verification follow babysit-ci against the exact ref/SHA; pending is
+not success.
 
-The live root/session route uses `gpt-6-astra` at low, medium, or high
-reasoning for the selected profile. All canonical specialists use
-`gpt-5.6-luna`; their per-task efforts are defined in
-[BEHAVIOR.md](docs/BEHAVIOR.md). Sol, Terra, and Go are retained only in
-explicit migration or cleanup handling for old installations.
+Profiles select the configured Root and specialist route identities and their
+reasoning effort. Routing identity is separate from instruction behavior: all
+live skills and generated instructions target GPT-6-family behavior.
+HolyCodex's `writing-instructions` skill owns model-facing instruction changes.
+Historical route and profile values remain only in explicit migration or
+cleanup handling for old installations.
+
+Windows installations require verified Git for Windows Bash. Context7 is
+required on every platform and installed as ctx7@latest through the same
+package-manager family that launched HolyCodex. See
+[installation](docs/INSTALLATION.md) for setup, ownership, and repair behavior.
 
 The native surface has one canonical leaf for every route: `Explorer.lookup`,
 `Explorer.trace`, `Librarian.lookup`, `Librarian.research`,

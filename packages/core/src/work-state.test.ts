@@ -21,6 +21,9 @@ import { decode, encode } from "@toon-format/toon";
 import { IntentStore, readRepositorySnapshot, type RepositorySnapshot } from "./work-state.ts";
 
 const execFileAsync = promisify(execFile);
+// Windows directory junctions are reparse-point symlinks and do not require
+// the elevated privilege that native directory/file symlinks require.
+const directorySymlinkType = process.platform === "win32" ? "junction" : "dir";
 
 function snapshot(
   root: string,
@@ -153,7 +156,7 @@ describe("IntentStore", () => {
   test("rejects symlinked repository-local state and current pointers", async () => {
     const { root, store } = await fixture();
     const outside = await mkdtemp(join(tmpdir(), "holycodex-work-state-outside-"));
-    await symlink(outside, join(root, ".holycodex"), "dir");
+    await symlink(outside, join(root, ".holycodex"), directorySymlinkType);
     await expect(store.listIntents()).rejects.toMatchObject({ code: "schema_invalid" });
 
     const safe = await fixture();
@@ -164,7 +167,7 @@ describe("IntentStore", () => {
     });
     const current = join(safe.root, ".holycodex", "current");
     await unlink(current);
-    await symlink(join(outside, "current"), current, "file");
+    await symlink(join(outside, "current"), current, directorySymlinkType);
     await expect(safe.store.currentIntent()).rejects.toMatchObject({ code: "schema_invalid" });
     expect(intent.id).toMatch(/^intent-/u);
   });
@@ -192,7 +195,7 @@ describe("IntentStore", () => {
     const assignments = join(root, ".holycodex", directory, "assignments");
     const outside = await mkdtemp(join(tmpdir(), "holycodex-assignment-outside-"));
     await rm(assignments, { recursive: true, force: true });
-    await symlink(outside, assignments, "dir");
+    await symlink(outside, assignments, directorySymlinkType);
     await expect(store.readAssignment(intent.id, assignment.id)).rejects.toMatchObject({
       code: "schema_invalid",
     });
@@ -438,6 +441,95 @@ describe("IntentStore", () => {
     expect("completed" in completed ? completed.completed : completed.state === "complete").toBe(
       true,
     );
+  });
+
+  test("requires typed Context7 evidence only for applicable Librarian results", async () => {
+    const { store } = await fixture();
+    let intent = await store.createIntent({
+      title: "Context7 evidence",
+      goal: "Keep current technical research attributable",
+      acceptanceCriteria: ["evidence"],
+    });
+    const missing = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Resolve the current React API documentation",
+        owner: { role: "Librarian", task: "lookup" },
+        scope: ["research"],
+        acceptanceCriteria: ["Return source evidence"],
+      },
+      intent.revision,
+    );
+    const missingRunning = await store.startAssignment(intent.id, missing.id, missing.revision);
+    await expect(
+      store.recordAssignmentResult(intent.id, missing.id, missingRunning.revision, {
+        outcome: "completed",
+        summary: "Missing typed proof",
+      }),
+    ).rejects.toMatchObject({
+      code: "invalid_input",
+      details: { assignment_id: missing.id, required_evidence: "context7" },
+    });
+
+    const evidenceStates = [
+      "used",
+      "no_coverage",
+      "unavailable",
+      "auth_or_quota_failure",
+      "source_conflict",
+    ] as const;
+    for (const state of evidenceStates) {
+      const assignment = await store.createAssignment(
+        intent.id,
+        {
+          id: `context7-${state.replaceAll("_", "-")}`,
+          objective: "Resolve the current React API documentation",
+          owner: { role: "Librarian", task: "research" },
+          scope: ["research"],
+          acceptanceCriteria: ["Return source evidence"],
+        },
+        intent.revision,
+      );
+      const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+      const result = await store.recordAssignmentResult(
+        intent.id,
+        assignment.id,
+        running.revision,
+        {
+          outcome: "completed",
+          summary: `Recorded ${state} proof`,
+          context7: { state, evidence: [`Context7 ${state} evidence`] },
+        },
+      );
+      expect(result.assignment.invocations[0]?.context7).toEqual({
+        state,
+        evidence: [`Context7 ${state} evidence`],
+      });
+      intent = result.intent;
+    }
+
+    const unrelated = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Find a historical fact about an author",
+        owner: { role: "Librarian", task: "lookup" },
+        scope: ["research"],
+        acceptanceCriteria: ["Return the fact"],
+      },
+      intent.revision,
+    );
+    const unrelatedRunning = await store.startAssignment(
+      intent.id,
+      unrelated.id,
+      unrelated.revision,
+    );
+    const unrelatedResult = await store.recordAssignmentResult(
+      intent.id,
+      unrelated.id,
+      unrelatedRunning.revision,
+      { outcome: "completed", summary: "Historical fact recorded" },
+    );
+    expect(unrelatedResult.assignment.invocations[0]?.context7).toBeUndefined();
   });
 
   test("requires meaningful verification evidence and correlates Assignment results to starts", async () => {

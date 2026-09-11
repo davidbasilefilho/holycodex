@@ -13,7 +13,7 @@ import { verifyGeneratedArtifactPortable } from "../scripts/repository-proof.ts"
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
 const RootManifestSchema = Schema.Struct({
-  packageManager: Schema.Literal("bun@1.4.1"),
+  packageManager: Schema.Literal("bun@1.4.2"),
   scripts: Schema.Record({ key: Schema.String, value: Schema.String }),
 });
 
@@ -32,7 +32,6 @@ describe("repository validation machinery", () => {
     const order = [
       /runStep\(\["bun", "run", "fmt:check"/u,
       /runStep\(\["bun", "run", "lint"/u,
-      /runStep\(\["bun", "run", "typecheck"/u,
       /runStep\(\["bun", "test"/u,
       /runStep\(\["bun", "scripts\/package-build\.ts"/u,
       /runRepositoryProof/u,

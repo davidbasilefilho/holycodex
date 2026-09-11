@@ -27,6 +27,13 @@ parity with an unadmitted source.
 | `P-03` | Local implementation and repository-native proof | Implemented behavior, generated plugin assets, and local validation evidence                 |
 | `D-01` | Authored contract decisions                      | New observable choices required for a coherent implementation; not historical facts          |
 
+The GPT-6 model guidance and supplied Provencher article are behavioral inputs
+for HolyCodex's GPT-6 instruction contracts. The historical Matt Pocock
+`writing-for-agents` source remains attributed under its original name and
+license; its current local form was consulted only as a documentation-writing
+reference. It does not govern skills, `developer_instructions`, Root policy,
+specialist contracts, Role.task instructions, or other model-facing behavior.
+
 ## Recorded identities
 
 | Identity                 | Recorded value                                                                                                               | Evidence       |
@@ -37,7 +44,7 @@ parity with an unadmitted source.
 | Bun                      | `1.4.x`, resolved by `mise` and the lockfile                                                                                 | `P-01`, `P-03` |
 | TypeScript               | `7.0.2`                                                                                                                      | `P-01`, `P-03` |
 | OXC tooling              | `oxfmt`/`oxlint` compatibility lines resolved by Bun lockfile                                                                | `P-01`, `P-03` |
-| Effect                   | `3.22.1` with `effect/Schema`                                                                                                | `P-01`, `P-03` |
+| Effect                   | `3.22.2` with `effect/Schema`                                                                                                | `P-01`, `P-03` |
 | Codex protocol artifact  | Stable Codex CLI resolved by the `mise.toml` `latest` channel; inventory and digest recorded by the generated artifact proof | `P-02`, `P-03` |
 
 The manifest, lockfile, generated assets, and version script are the

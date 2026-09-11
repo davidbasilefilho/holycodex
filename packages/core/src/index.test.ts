@@ -9,10 +9,16 @@ import {
   CliSuccessEnvelopeSchema,
   CapabilityResultV2Schema,
   CAPABILITY_REGISTRY,
+  CORE_SEMANTIC_SKILL_IDS,
+  CREDENTIAL_INTERACTION_POLICY,
+  Context7EvidenceSchema,
+  Context7EvidenceStateSchema,
   CoreError,
   DEFAULT_CAPABILITY_SELECTIONS,
   DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
   EffortSchema,
+  ForkTurnsSchema,
+  GENERIC_BUILTIN_AGENT_TYPES,
   LegacyProfileNameSchema,
   PROFILE_CATALOG,
   NATIVE_AGENT_TYPES,
@@ -25,8 +31,12 @@ import {
   ROUTE_KEYS,
   ROUTE_EFFORT_OVERRIDES,
   ROOT_ORCHESTRATION_POLICY,
+  FRONTEND_WORKFLOW_POLICY,
+  LIBRARIAN_CONTEXT7_POLICY,
   NO_SOURCE_MUTATION_RULE,
   SURGICAL_MUTATION_RULE,
+  SECURITY_WORKFLOW_POLICY,
+  TESTING_POLICY,
   rootDirectExecutionAllowed,
   rootExecutionState,
   RootDirectExecutionExceptionSchema,
@@ -40,6 +50,7 @@ import {
   canonicalIdentityUtf8,
   canonicalJson,
   canonicalJsonUtf8,
+  context7RequiredForAssignment,
   composeDigestInput,
   domainSeparatedSha256,
   lookupProfile,
@@ -229,19 +240,20 @@ describe("core profile catalog", () => {
     expect(DEFAULT_CAPABILITY_SELECTIONS).toMatchObject({
       coding: true,
       computer_use: false,
-      work: false,
       frontend: true,
       security: true,
     });
     expect(DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS).toEqual({
       computer_use: DEFAULT_CAPABILITY_SELECTIONS.computer_use,
-      work: DEFAULT_CAPABILITY_SELECTIONS.work,
       frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
       security: DEFAULT_CAPABILITY_SELECTIONS.security,
     });
-    for (const name of ["computer_use", "work", "frontend", "security"] as const) {
+    for (const name of ["computer_use", "frontend", "security"] as const) {
       expect(CAPABILITY_REGISTRY[name].defaultSelected).toBe(DEFAULT_CAPABILITY_SELECTIONS[name]);
     }
+    expect(DEFAULT_CAPABILITY_SELECTIONS).not.toHaveProperty("work");
+    expect(CAPABILITY_REGISTRY).not.toHaveProperty("work");
+    expect(CORE_SEMANTIC_SKILL_IDS).toEqual(["writing-instructions", "babysit-ci"]);
   });
 
   test("keeps public profile lookup canonical while classifying legacy state", () => {
@@ -261,7 +273,10 @@ describe("core profile catalog", () => {
   test("enforces Root delegation with only the approved direct exceptions", () => {
     expect(ROOT_ORCHESTRATION_POLICY).toMatchObject({
       requiresDelegation: true,
+      assignmentStartAndDispatchPrecedeDelegableExecution: true,
       trivialWorkRequiresDelegation: true,
+      preparatoryAndExploratoryWorkRequiresDelegation: true,
+      genericDirectWorkFallback: false,
       materialDecisionsRemainRootOwned: true,
       lifecycleRemainsRootOwned: true,
       integrationAndCompletionRemainRootOwned: true,
@@ -269,14 +284,52 @@ describe("core profile catalog", () => {
       codeReviewRequiredBeforeVcs: true,
       externalVerificationMustBeTerminal: true,
       postVcsFlow: "discover_topology_observe_repair_repeat",
+      routineSafeReversibleInScopeDecisionsProceedAutonomously: true,
+      userInstructionsOverrideSkillGuidelinesExceptHardInvariants: true,
+      authorizedWorkContinuesThroughRequestedTerminalState: true,
     });
-    expect(ROOT_ORCHESTRATION_POLICY.directExecutionExceptions).toEqual([
+    const rootOnlyActions = [
+      "user_interaction",
+      "intent",
+      "material_decisions",
+      "orchestration_lifecycle",
+      "integration_acceptance",
+      "completion",
       "git_vcs",
+      "external_effects",
+      "gui_browser",
       "computer_use",
+    ] as const;
+    expect(ROOT_ORCHESTRATION_POLICY.directExecutionExceptions).toEqual(rootOnlyActions);
+    expect(ROOT_ORCHESTRATION_POLICY.delegableActions).toEqual([
+      "repository_discovery",
+      "file_source_test_doc_inspection",
+      "fact_finding",
+      "research",
+      "implementation",
+      "debugging",
+      "testing",
+      "validation",
+      "frontend_work",
+      "security_work",
+      "review",
+      "ci_release_observation",
     ]);
+    expect(ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority).toBe(
+      ROOT_ORCHESTRATION_POLICY.directExecutionExceptions,
+    );
+    expect(ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority).toEqual(rootOnlyActions);
     expect(Either.isRight(decodeUnknown(RootDirectExecutionExceptionSchema, "git_vcs"))).toBe(true);
     expect(Either.isLeft(decodeUnknown(RootDirectExecutionExceptionSchema, "shell"))).toBe(true);
     expect(rootDirectExecutionAllowed("git_vcs")).toBe(true);
+    expect(rootDirectExecutionAllowed("user_interaction")).toBe(true);
+    expect(rootDirectExecutionAllowed("intent")).toBe(true);
+    expect(rootDirectExecutionAllowed("material_decisions")).toBe(true);
+    expect(rootDirectExecutionAllowed("orchestration_lifecycle")).toBe(true);
+    expect(rootDirectExecutionAllowed("integration_acceptance")).toBe(true);
+    expect(rootDirectExecutionAllowed("completion")).toBe(true);
+    expect(rootDirectExecutionAllowed("external_effects")).toBe(true);
+    expect(rootDirectExecutionAllowed("gui_browser")).toBe(true);
     expect(rootDirectExecutionAllowed("computer_use")).toBe(false);
     expect(rootDirectExecutionAllowed("computer_use", true)).toBe(true);
     expect(rootExecutionState()).toBe("delegated");
@@ -298,6 +351,117 @@ describe("core profile catalog", () => {
       "needs_root_input",
       "failed",
     ]);
+    expect(ROOT_ORCHESTRATION_POLICY.testingPolicy).toBe(TESTING_POLICY);
+    expect(TESTING_POLICY.broadenOrRepeatOnlyAfter).toEqual([
+      "source_change",
+      "proof_failure",
+      "unresolved_material_concern",
+    ]);
+  });
+
+  test("requires concrete registered specialist dispatch targets", () => {
+    expect(ROOT_ORCHESTRATION_POLICY.concreteSpecialistDispatchRequired).toBe(true);
+    expect(ROOT_ORCHESTRATION_POLICY.roleFamiliesAreLabelsOnly).toBe(true);
+    expect(ROOT_ORCHESTRATION_POLICY.missingConcreteRouteIsBlocker).toBe(true);
+    expect(ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes).toBe(NATIVE_AGENT_TYPES);
+    expect(ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes).toEqual(
+      ROLE_DEFINITIONS.flatMap((definition) =>
+        definition.tasks.map((task) => `${definition.role}.${task.name}`),
+      ) as typeof NATIVE_AGENT_TYPES,
+    );
+    expect(ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes).toBe(GENERIC_BUILTIN_AGENT_TYPES);
+    expect(ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes).toEqual([
+      "worker",
+      "explorer",
+      "reviewer",
+      "librarian",
+    ]);
+  });
+
+  test("keeps efficient specialist dispatch and terminal communication canonical", () => {
+    expect(Either.isRight(decodeUnknown(ForkTurnsSchema, "none"))).toBe(true);
+    expect(Either.isLeft(decodeUnknown(ForkTurnsSchema, "all"))).toBe(true);
+    expect(ROOT_ORCHESTRATION_POLICY).toMatchObject({
+      normalSpawnForkTurns: "none",
+      normalSpawnRequiresExplicitForkTurns: true,
+      normalSpawnUsesConcreteRegisteredAgentType: true,
+      assignmentContextIsTaskSpecificOnly: true,
+      configuredRouteModelAndEffortPreserved: true,
+      normalProgressMessages: false,
+      normalHeartbeatMessages: false,
+      normalIntermediateEvidence: false,
+      earlyCommunicationRequiresMaterialRootDecision: true,
+      outOfBoundaryRequiresNewAssignment: true,
+      longestPracticalEventWait: true,
+      busyPollingForbidden: true,
+      statusOnlyCoordinationLoopsForbidden: true,
+      batchIndependentLifecycleActions: true,
+      releaseLeavesAfterAcceptedOutcome: true,
+    });
+  });
+
+  test("keeps Context7, frontend, credential, and security policies typed and canonical", () => {
+    for (const state of LIBRARIAN_CONTEXT7_POLICY.evidenceStates) {
+      expect(Either.isRight(decodeUnknown(Context7EvidenceStateSchema, state))).toBe(true);
+      expect(
+        Either.isRight(
+          decodeUnknown(Context7EvidenceSchema, {
+            state,
+            evidence: [`Context7 ${state} evidence`],
+          }),
+        ),
+      ).toBe(true);
+    }
+    expect(
+      Either.isLeft(decodeUnknown(Context7EvidenceSchema, { state: "used", evidence: [] })),
+    ).toBe(true);
+    expect(
+      Either.isRight(
+        decodeUnknown(Context7EvidenceSchema, {
+          state: "used",
+          evidence: ["ctx7 package docs, version 4.2"],
+          library: "example",
+          version: "4.2",
+        }),
+      ),
+    ).toBe(true);
+    expect(LIBRARIAN_CONTEXT7_POLICY.resolveIdentityBeforeQuery).toBe(true);
+    expect(FRONTEND_WORKFLOW_POLICY.sourceChangesInvalidateRenderEvidence).toBe(true);
+    expect(FRONTEND_WORKFLOW_POLICY.rootOwnsLiveVisualAndInteractionAcceptance).toBe(true);
+    expect(CREDENTIAL_INTERACTION_POLICY.credentialEntryAndSubmissionRemainUserOwned).toBe(true);
+    expect(CREDENTIAL_INTERACTION_POLICY.agentsMustNeverHandleCredentials).toBe(true);
+    expect(SECURITY_WORKFLOW_POLICY.securityDiffScanRequiredForSecuritySensitiveDiffs).toBe(true);
+    expect(SECURITY_WORKFLOW_POLICY.securityEditsInvalidateCodeReview).toBe(true);
+    expect(SECURITY_WORKFLOW_POLICY.securitySensitiveCodeReviewEditsInvalidateSecurityReview).toBe(
+      true,
+    );
+  });
+
+  test("ties Context7 requirements to Librarian Assignment semantics", () => {
+    const technical = {
+      role: "Librarian" as const,
+      task: "lookup",
+      objective: "Resolve the current React API documentation",
+      scope: [],
+      constraints: [],
+      exclusions: [],
+      dependencies: [],
+      acceptanceCriteria: ["Return the version and source evidence"],
+    };
+    expect(context7RequiredForAssignment(technical)).toBe(true);
+    expect(
+      context7RequiredForAssignment({
+        ...technical,
+        objective: "Find a historical fact about an author",
+      }),
+    ).toBe(false);
+    expect(
+      context7RequiredForAssignment({
+        ...technical,
+        role: "Explorer",
+        objective: "Trace the current API implementation in the repository",
+      }),
+    ).toBe(false);
   });
 });
 
@@ -308,6 +472,23 @@ describe("core route and boundary schemas", () => {
       "build-web-apps:frontend-testing-debugging",
       "build-web-apps:react-best-practices",
     ]);
+    expect(CAPABILITY_REGISTRY.frontend.applicability).toEqual([
+      {
+        skillId: "build-web-apps:frontend-app-builder",
+        appliesWhen: "a new visually-driven UI or meaningful redesign",
+      },
+      {
+        skillId: "build-web-apps:frontend-testing-debugging",
+        appliesWhen: "a rendered UI or interaction defect",
+      },
+      {
+        skillId: "build-web-apps:react-best-practices",
+        appliesWhen: "a relevant React or Next implementation or review",
+      },
+    ]);
+    expect(CAPABILITY_REGISTRY.frontend.semanticSkillIds).toEqual(
+      CAPABILITY_REGISTRY.frontend.applicability.map(({ skillId }) => skillId),
+    );
     const result = {
       protocol_version: SPECIALIST_OUTCOME_VERSION,
       capability: "frontend",
@@ -474,6 +655,15 @@ describe("core route and boundary schemas", () => {
     for (const outcome of outcomes) {
       expect(parseSpecialistOutcomeV2(outcome).ok).toBe(true);
     }
+    expect(
+      parseSpecialistOutcomeV2({
+        ...common,
+        route: { role: "Librarian", task: "lookup" },
+        context7: { state: "used", evidence: ["React 19 Context7 documentation"] },
+        status: "completed",
+        summary: "Current technical fact resolved.",
+      }).ok,
+    ).toBe(true);
     expect(
       parseSpecialistOutcomeV2({
         ...common,

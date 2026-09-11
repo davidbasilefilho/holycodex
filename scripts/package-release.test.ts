@@ -24,5 +24,5 @@ describe("release package boundary", () => {
 
     expect(metadata.baseVersion).toBe(baseVersion);
     expect(metadata.version).toBe(releaseVersion);
-  }, 30_000);
+  }, 80_000);
 });

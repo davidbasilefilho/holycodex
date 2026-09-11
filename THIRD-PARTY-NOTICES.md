@@ -31,9 +31,12 @@ recorded in [PROVENANCE.md](docs/PROVENANCE.md).
 
 ## Vendored plugin skills
 
-The installed plugin contains adapted MIT-licensed material from Matt Pocock's
-`writing-for-agents` skill and Hardik Pandya's `stop-slop` skill. Each skill
-directory retains its upstream license and attribution; admitted source
-revisions are recorded in [PROVENANCE.md](docs/PROVENANCE.md).
+HolyCodex's `writing-instructions` directory retains the MIT license from its
+historical origin in Matt Pocock's `writing-for-agents`; the original upstream
+project has not been renamed. Its current GPT-6 instruction contract is
+HolyCodex-authored. Matt Pocock's current skill is used only as a documentation
+writing reference, not to design HolyCodex model-facing instructions.
+Hardik Pandya's adapted `stop-slop` skill retains its upstream MIT license.
+Evidence and reference scope are recorded in [PROVENANCE.md](docs/PROVENANCE.md).
 
 HolyCodex-authored material is licensed under [Apache-2.0](LICENSE).

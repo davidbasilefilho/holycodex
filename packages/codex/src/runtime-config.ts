@@ -175,6 +175,7 @@ export const ROOT_CONFIG_KEY_PATHS = [
   "developer_instructions",
   "suppress_unstable_features_warning",
   "features.default_mode_request_user_input",
+  "features.multi_agent",
   "features.multi_agent_v2",
   "features.context_management",
   // Compatibility key retained only so older persisted state can be migrated safely.
@@ -468,6 +469,7 @@ function configKeyKind(
   if (
     keyPath === "suppress_unstable_features_warning" ||
     keyPath === "features.default_mode_request_user_input" ||
+    keyPath === "features.multi_agent" ||
     keyPath === "features.multi_agent_v2" ||
     keyPath === "features.context_management" ||
     keyPath === "features.context_management.experimental_mode"

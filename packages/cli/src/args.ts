@@ -19,12 +19,6 @@ export const INSTALL_OPTION_CATALOG = Object.freeze([
     description: "Select service handling (default: standard).",
   },
   {
-    name: "work",
-    kind: "boolean",
-    usage: "--work / --no-work",
-    description: "Work plugins (default: false).",
-  },
-  {
     name: "frontend",
     kind: "boolean",
     usage: "--frontend / --no-frontend",
@@ -59,8 +53,6 @@ const BOOLEAN_OPTIONS = new Set([
   "dry-run",
   "computer-use",
   "no-computer-use",
-  "work",
-  "no-work",
   "frontend",
   "no-frontend",
   "security",
@@ -214,7 +206,6 @@ function validateCommand(
   }
   for (const [positive, negative] of [
     ["computer-use", "no-computer-use"],
-    ["work", "no-work"],
     ["frontend", "no-frontend"],
     ["security", "no-security"],
   ] as const) {
@@ -234,8 +225,6 @@ function validateCommand(
       [
         "profile",
         "tier",
-        "work",
-        "no-work",
         "frontend",
         "no-frontend",
         "security",
@@ -264,7 +253,6 @@ function commandOptions(command: string): ReadonlySet<string> {
     case "install":
       return new Set([
         ...INSTALL_OPTION_CATALOG.map((option) => option.name),
-        "no-work",
         "no-frontend",
         "no-security",
         "no-computer-use",

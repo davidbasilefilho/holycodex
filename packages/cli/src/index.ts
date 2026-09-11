@@ -23,10 +23,13 @@ export {
 } from "./installer.ts";
 export {
   renderInstallWizardReview,
+  applyWizardConfigurationKey,
   parsePluginInput,
   runOpenTuiInstallWizard,
+  stateFromRequest,
   toInstallOptions,
 } from "./installer-wizard.ts";
+export type { WizardConfigurationTransition, WizardKey, WizardState } from "./installer-wizard.ts";
 export { doctorHolyCodex, removeHolyCodex, upgradeHolyCodex } from "./maintenance.ts";
 export {
   publicManifestPath,
@@ -42,6 +45,17 @@ export {
   STATE_SCHEMA,
 } from "./paths.ts";
 export { CodexOfficialPluginManager, OfficialPluginManagerError } from "./official-manager.ts";
+export {
+  CONTEXT7_SPEC,
+  WINDOWS_GIT_BASH,
+  ToolingError,
+  context7InstallCommand,
+  createInstallerRuntime,
+  detectContext7Manager,
+  ensureContext7,
+  ensureGitBash,
+  removeOwnedContext7,
+} from "./tooling.ts";
 export type { OfficialPluginCommandRunner } from "./official-manager.ts";
 export {
   projectNativeAgents,
@@ -51,11 +65,14 @@ export {
   removeManagedNativeAgents,
   renderNativeAgent,
   rootDeveloperInstructions,
+  windowsGitBashShellDirective,
 } from "./native-agents.ts";
 export type {
   NativeAgentInstallResult,
   NativeAgentRemovalResult,
   NativeAgentRollbackEntry,
+  NativeAgentInstructionOptions,
+  RootDeveloperInstructionOptions,
 } from "./native-agents.ts";
 export type {
   CapabilityInstallState,
@@ -73,6 +90,17 @@ export type {
   InstallerOptions,
   InstallProgressEvent,
   InstallerPaths,
+  InstallerRuntime,
+  InstallerProcessRunner,
+  InstallerProcessResult,
+  InstallerPlatform,
+  InstallerToolingState,
+  GitBashState,
+  Context7Manager,
+  Context7ToolState,
+  ManagedConflict,
+  ConflictResolution,
+  ConflictResolver,
   ManagedArtifact,
   OfficialPluginManager,
   OfficialPluginStatus,

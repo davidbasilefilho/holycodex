@@ -9,6 +9,7 @@ export { decodeUnknown } from "./schema.ts";
 
 export {
   CAPABILITY_REGISTRY,
+  CAPABILITY_APPLICABILITY,
   CapabilityNameSchema,
   CapabilityHealthSchema,
   CapabilityProviderStatusSchema,
@@ -16,6 +17,8 @@ export {
   OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES,
   DEFAULT_CAPABILITY_SELECTIONS,
   DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
+  CORE_SEMANTIC_SKILL_IDS,
+  FRONTEND_CAPABILITY_APPLICABILITY,
   OPTIONAL_CAPABILITY_NAMES,
   OptionalCapabilityNameSchema,
   canonicalOfficialPluginId,
@@ -28,6 +31,7 @@ export {
 } from "./capabilities.ts";
 export type {
   CapabilityName,
+  CapabilityApplicability,
   CapabilityDefaults,
   CapabilityDefinition,
   CapabilityHealth,
@@ -83,7 +87,12 @@ export type {
 
 export {
   EffortSchema,
+  ForkTurnsSchema,
+  context7RequiredForAssignment,
+  Context7EvidenceStateSchema,
+  CREDENTIAL_INTERACTION_POLICY,
   FILESYSTEM_ACCESS_SCHEMA,
+  GENERIC_BUILTIN_AGENT_TYPES,
   ExplorerTaskSchema,
   LegacyProfileNameSchema,
   LibrarianTaskSchema,
@@ -93,7 +102,12 @@ export {
   ProfileSelectionSchema,
   RootDirectExecutionExceptionSchema,
   RootExecutionStateSchema,
+  RootOwnedAuthoritySchema,
   ROOT_ORCHESTRATION_POLICY,
+  FRONTEND_WORKFLOW_POLICY,
+  LIBRARIAN_CONTEXT7_POLICY,
+  SECURITY_WORKFLOW_POLICY,
+  TESTING_POLICY,
   NO_SOURCE_MUTATION_RULE,
   SURGICAL_MUTATION_RULE,
   NATIVE_AGENT_TYPES,
@@ -116,7 +130,11 @@ export {
 } from "./routes.ts";
 export type {
   Effort,
+  ForkTurns,
+  Context7AssignmentSemantics,
+  Context7EvidenceState,
   FilesystemAccess,
+  GenericBuiltinAgentType,
   ExplorerTask,
   LegacyProfileName,
   ProfileNameMigrationInput,
@@ -125,6 +143,7 @@ export type {
   LibrarianTask,
   RootDirectExecutionException,
   RootExecutionState,
+  RootOwnedAuthority,
   NativeAgentType,
   Role,
   RoleDefinition,
@@ -146,6 +165,7 @@ export {
   SPECIALIST_OUTCOME_VERSION,
   SpecialistOutcomeV2BaseSchema,
   CapabilityResultV2Schema,
+  Context7EvidenceSchema,
   normalizeSpecialistOutcome,
   parseCapabilityResultV2,
   parseCliEnvelope,
@@ -164,6 +184,7 @@ export type {
   SpecialistOutcome,
   SpecialistOutcomeV2,
   CapabilityResultV2,
+  Context7Evidence,
   SpecialistOutcomeV2Base,
   SpecialistOutcomeV2ForRole,
   ExplorerOutcome,

@@ -51,6 +51,26 @@ assignment facts.
 Native leaf profiles disable delegation features, so leaves do not spawn or
 message peers.
 
+The Root orchestration contract requires normal specialist spawns to pass the
+explicit `fork_turns = "none"` value and the exact registered `Role.task`
+identity. Role families are labels only. Root waits for terminal outcomes, emits
+no routine progress or busy-polling coordination, and sends out-of-boundary work
+back as a new bounded Assignment. Root's managed configuration enables
+`multi_agent = true`, disables `multi_agent_v2`, and enables
+`context_management`; generated leaves set `agents.enabled = false`,
+`multi_agent = false`, `multi_agent_v2 = false`, and
+`context_management = true`. Generated configuration and readback tests prove
+this V1 arrangement only; session metadata reports V2, so HolyCodex does not
+claim live V1 runtime proof or owned fork enforcement.
+
+The current Root route uses `gpt-6-astra`, and native specialist route files use
+the configured `gpt-5.6-luna` identity with the effort matrix below. These are
+routing identities; live skills and generated instructions target GPT-6-family
+behavior. Root dispatches the exact registered concrete `Role.task` identity
+selected from this inventory. Explorer, Librarian, Worker, and Reviewer are
+role-family labels only; generic built-in `worker`, `explorer`, `reviewer`, and
+`librarian` agent types are forbidden for HolyCodex specialist Assignments.
+
 Root uses `request_user_input` only when fresh information or approval is
 genuinely required, including a material scope or product choice or an
 externally consequential, destructive, or remote effect. Root MUST orchestrate
@@ -91,31 +111,32 @@ observational tasks receive a literal no-source-mutation boundary.
 
 The product profile catalog controls routing only. The live profiles are
 `low`, `default`, and `high`; `default` is recommended. Every profile keeps
-the native multi-agent surface and routes the Root/session agent to the exact
-model `gpt-6-astra` at the profile's low, medium, or high reasoning effort.
-Every specialist uses the exact model `gpt-5.6-luna` with this route matrix:
+the native multi-agent surface and selects configured Root and specialist
+route identities with this reasoning-effort matrix:
 
-| Route                 | `low`         | `default`      | `high`        |
-| --------------------- | ------------- | -------------- | ------------- |
-| Root/session agent    | Astra / low   | Astra / medium | Astra / high  |
-| Explorer.lookup       | Luna / medium | Luna / medium  | Luna / medium |
-| Explorer.trace        | Luna / high   | Luna / xhigh   | Luna / max    |
-| Librarian.lookup      | Luna / medium | Luna / medium  | Luna / medium |
-| Librarian.research    | Luna / high   | Luna / xhigh   | Luna / max    |
-| Worker.mechanical     | Luna / high   | Luna / high    | Luna / xhigh  |
-| Worker.implementation | Luna / high   | Luna / xhigh   | Luna / max    |
-| Worker.integration    | Luna / max    | Luna / max     | Luna / max    |
-| Worker.operations     | Luna / high   | Luna / high    | Luna / xhigh  |
-| Worker.validation     | Luna / medium | Luna / high    | Luna / xhigh  |
-| Worker.debugging      | Luna / high   | Luna / xhigh   | Luna / max    |
-| Reviewer.plan         | Luna / high   | Luna / xhigh   | Luna / max    |
-| Reviewer.code         | Luna / max    | Luna / max     | Luna / max    |
-| Reviewer.artifact     | Luna / high   | Luna / xhigh   | Luna / max    |
+| Route                 | `low`  | `default` | `high` |
+| --------------------- | ------ | --------- | ------ |
+| Root/session agent    | low    | medium    | high   |
+| Explorer.lookup       | medium | medium    | medium |
+| Explorer.trace        | high   | xhigh     | max    |
+| Librarian.lookup      | medium | medium    | medium |
+| Librarian.research    | high   | xhigh     | max    |
+| Worker.mechanical     | high   | high      | xhigh  |
+| Worker.implementation | high   | xhigh     | max    |
+| Worker.integration    | max    | max       | max    |
+| Worker.operations     | high   | high      | xhigh  |
+| Worker.validation     | medium | high      | xhigh  |
+| Worker.debugging      | high   | xhigh     | max    |
+| Reviewer.plan         | high   | xhigh     | max    |
+| Reviewer.code         | max    | max       | max    |
+| Reviewer.artifact     | high   | xhigh     | max    |
 
-The root/session route has no Astra `xhigh` or `max` effort. Sol and Terra are
-not live routing targets. Historical Sol/Terra values and the removed Go
-product value may appear only in narrowly scoped migration, rollback, or
-cleanup handling for previously managed state. Legacy serialized `plan`
+The Root/session route has no `xhigh` or `max` effort. All live skills and
+generated Root, specialist, and Role.task instructions target GPT-6-family
+behavior. Temporary routing model IDs are an independent implementation
+setting and do not create a compatibility instruction layer. Historical route
+values and the removed Go product value may appear only in narrowly scoped
+migration, rollback, or cleanup handling for previously managed state. Legacy serialized `plan`
 fields migrate losslessly to `profile`; `plus-low`, `plus`, and `plus-high`
 migrate to `low`, `default`, and `high`. Legacy `go` and removed `pro-5x` or
 `pro-20x` values are rejected with an explicit replacement requirement and are
@@ -133,7 +154,7 @@ Coding and repository work use Bun, TypeScript, and the repository's typed
 boundaries. Effect Schema from `effect/Schema` validates every external,
 persisted, CLI, Codex, and specialist value before business logic sees it.
 
-Optional Work, frontend, Security, and Computer Use plugins are independently
+Optional frontend, Security, and Computer Use plugins are independently
 selected. Selection does not claim availability or grant authority. Every
 selected capability and additional plugin must be installed and enabled by
 native plugin management. Official OpenAI curated identities are matched by
@@ -144,11 +165,44 @@ An arbitrary same-name plugin from another marketplace is not equivalent.
 Doctor reports the observed official identity. If verification cannot confirm
 the selected capability, installation fails with a classified denial or
 integrity error and does not claim success. The default selections are
-frontend and Security; Work and Computer Use are disabled unless selected.
+frontend and Security; Computer Use is disabled unless selected.
 GUI, browser, and Computer Use are Root/session-only. When Computer Use is
 selected, Root may execute it directly; otherwise it is unavailable and is
 never represented as delegateable work or a delegation fallback. No
 unapproved fallback is installed or used.
+
+Frontend selection adds workflow behavior. The core capability registry maps a
+new visually-driven UI or meaningful redesign to
+`build-web-apps:frontend-app-builder`, a rendered UI or interaction defect to
+`build-web-apps:frontend-testing-debugging`, and a relevant React or Next
+implementation or review to `build-web-apps:react-best-practices`. Repository
+stack, existing design system, and explicit user requirements govern over
+generic plugin defaults. Specialists inspect, implement, and repair. Root
+renders, opens, and interacts with the current result, delegates concrete
+discrepancies, and repeats until it accepts the requested result. Any source
+change invalidates earlier render evidence. Logic-only changes do not require
+visual ceremony.
+
+Security selection adds proportional gates. Changes to trust boundaries,
+authentication, authorization, privileged actions, sensitive-data flow,
+external integrations, process/sandbox boundaries, or exposed surfaces use a
+threat model. Security-sensitive diffs require a security diff scan before
+VCS. A full scan is reserved for explicit audits, substantial exposed
+surfaces, or systemic concern. Security repairs invalidate prior code review,
+and code-review repairs to security-sensitive code invalidate prior security
+evidence; both gates repeat until green together. A validated vulnerability
+introduced or worsened by the change blocks VCS and release until repaired or
+the user accepts the risk.
+
+Librarian routes use Context7 first for current library, framework, SDK, API,
+CLI, and cloud-service facts. They resolve the library identity, query narrowly,
+and return `used`, `no_coverage`, `unavailable`, `auth_or_quota_failure`, or
+`source_conflict` with evidence. Fallback requires one of those states or the
+absence of the required version; authoritative first-party documentation wins
+conflicts. A Librarian Assignment whose own contract names a non-historical
+technical subject must include that typed Context7 evidence when its result is
+received; unrelated external fact lookups and non-Librarian Assignments do not
+inherit that requirement. Root retains material decisions.
 
 ## Intent work state
 
@@ -184,7 +238,7 @@ uncertain external state produces a structured failure and does not claim
 success.
 
 HolyCodex manages the canonical scalar `features.context_management` and sets
-it to `true` for Root and every generated Luna leaf because Codex does not
+it to `true` for Root and every generated leaf because Codex does not
 enable it by default. Upgrade migrates
 owned historical `features.context_management.experimental_mode` state to the
 scalar key, retaining unrelated settings only when the ownership evidence is

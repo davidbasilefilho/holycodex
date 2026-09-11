@@ -1,12 +1,13 @@
 ---
 name: context7-cli
-description: Use when a current library, framework, SDK, or API fact needs authoritative documentation.
+description: Use when querying current technical documentation with Context7 CLI.
 ---
 
-Use current authoritative documentation before relying on memory. Return the
-requested versions, behavior, dates, conflicts, and coverage limits with
-source locators. Do not turn an external fact into an architecture decision.
+Resolve the requested library identity with the installed ctx7 CLI, then query
+narrowly for the requested version and fact. Use the CLI's current help for
+command syntax. Return the resolved identity, version, relevant source locator,
+and the evidence state required by the canonical Librarian policy.
 
-Root dispatches this procedure to `Librarian.lookup` or `Librarian.research`
-through a bounded Assignment; Root does not perform current-source research
-locally.
+That policy owns Context7-first enforcement, allowed fallback reasons, and
+decision authority. Tool documentation supplies facts; Root owns material
+product, architecture, dependency, compatibility, and implementation decisions.

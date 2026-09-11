@@ -69,7 +69,7 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
   const packageVerification = await readText("scripts/package-verification.ts");
   const workflowFiles = await listFiles(".github/workflows");
 
-  assert(rootManifest.packageManager === "bun@1.4.1", "root packageManager must resolve Bun 1.4.1");
+  assert(rootManifest.packageManager === "bun@1.4.2", "root packageManager must resolve Bun 1.4.2");
   assert(mise.includes('bun = "1.4"'), "mise must select the Bun 1.4 line");
   assert(mise.includes('node = "26"'), "mise must select the Node 26 line");
   assert(

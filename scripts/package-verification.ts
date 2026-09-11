@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { access, chmod, cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, chmod, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { delimiter, dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
@@ -68,6 +68,20 @@ const EXPECTED_CODEX_PROVIDER_PLUGINS = [
 ] as const;
 const CODEX_HOLYCODEX_PLUGIN = "holycodex@holycodex" as const;
 const ADDITIONAL_FIXTURE_PLUGIN = "additional@fixture" as const;
+const LEGACY_WORK_PROVIDER_PLUGINS = [
+  "documents@openai-primary-runtime",
+  "pdf@openai-primary-runtime",
+  "presentations@openai-primary-runtime",
+  "spreadsheets@openai-primary-runtime",
+  "template-creator@openai-primary-runtime",
+] as const;
+// These identities authenticate the immutable published previous-stable package used by the
+// upgrade proof. Its exact version is derived from the current canonical patch version below.
+const PREVIOUS_STABLE_SOURCE_SHA = "ecdb8a89722edba1aace54ce83845d808311bea1";
+const PREVIOUS_STABLE_CLI_SHA256 =
+  "73610e9757c38877c321c220d8fcd360869bd0cc5e792a1b340e39fa28460ccf";
+const PREVIOUS_STABLE_AGENT_SHA256 =
+  "ebe55ea27c6c87d4e0f9cbda9d75fc65905277edb81e279b2ae538e160cbb090";
 
 type CodexPluginListEntry = Readonly<{
   readonly pluginId: string;
@@ -181,9 +195,15 @@ export async function verifyPublicPackage(
     TEMP: bunTempRoot,
     TMP: bunTempRoot,
     TMPDIR: bunTempRoot,
+    npm_execpath: process.execPath,
+    npm_command: "exec",
+    npm_config_user_agent: `bun/${Bun.version}`,
   });
   await mkdir(bunInstallRoot, { recursive: true });
   await mkdir(bunTempRoot, { recursive: true });
+  bunEnvironment["PATH"] = [join(bunInstallRoot, "bin"), bunEnvironment["PATH"]]
+    .filter((value): value is string => value !== undefined && value.length > 0)
+    .join(delimiter);
   await runChecked(["bun", "install", "--no-save", "--ignore-scripts", "--no-progress"], {
     cwd: installedRoot,
     env: bunEnvironment,
@@ -201,7 +221,8 @@ export async function verifyPublicPackage(
   for (const relativePath of [
     "skills/plan/SKILL.md",
     "skills/grill-me/SKILL.md",
-    "skills/writing-for-agents/SKILL.md",
+    "skills/writing-instructions/SKILL.md",
+    "skills/babysit-ci/SKILL.md",
   ]) {
     await requireFile(
       join(installedPackageRoot, "dist/assets/plugin", relativePath),
@@ -221,7 +242,7 @@ export async function verifyPublicPackage(
   );
   const codexHome = join(temporaryRoot, "codex-home");
   const commands: string[] = [];
-  await runInstalledOpenTuiProbe(installedRoot, commands, bunEnvironment);
+  await runInstalledOpenTuiProbe(installedRoot, installedEntry, commands, bunEnvironment);
   const stateRoot = join(codexHome, "holycodex");
   await mkdir(codexHome, { recursive: true });
   const unrelatedConfig =
@@ -261,8 +282,21 @@ export async function verifyPublicPackage(
     TEMP: bunTempRoot,
     TMP: bunTempRoot,
     TMPDIR: bunTempRoot,
+    npm_execpath: process.execPath,
+    npm_command: "exec",
+    npm_config_user_agent: `bun/${Bun.version}`,
   });
   const installedModule = (await import(pathToFileURL(installedEntry).href)) as InstalledCliModule;
+  await verifyPreviousStableUpgrade({
+    temporaryRoot,
+    currentVersion: version,
+    currentInstalledRoot: installedRoot,
+    currentInstalledPackageRoot: installedPackageRoot,
+    currentEntry: installedEntry,
+    codexCliVersion: resolvedCodexCliVersion,
+    bunEnvironment,
+    commands,
+  });
   const versionEnvelope = await runCli(
     installedEntry,
     ["version", "--json"],
@@ -325,6 +359,36 @@ export async function verifyPublicPackage(
       arrayProperty(activeRecord, "official_plugins")?.includes(ADDITIONAL_FIXTURE_PLUGIN) === true,
     "the active installation record must use the current profile field",
   );
+  const selections = objectProperty(activeRecord, "optional_selections");
+  assert(
+    selections?.["computer_use"] === false &&
+      selections["frontend"] === true &&
+      selections["security"] === true &&
+      selections["coding"] === true &&
+      !Object.prototype.hasOwnProperty.call(selections, "work"),
+    "the packed install record must retain the current optional capability selections",
+  );
+  const capabilityState = objectProperty(activeRecord, "capability_state");
+  for (const [name, selected, status] of [
+    ["computer_use", false, "disabled"],
+    ["frontend", true, "healthy"],
+    ["security", true, "healthy"],
+  ] as const) {
+    const state = objectProperty(capabilityState, name);
+    assert(
+      state?.["selected"] === selected &&
+        state["status"] === status &&
+        Array.isArray(state["plugin_ids"]),
+      `the packed install record must include the ${name} capability state`,
+    );
+  }
+  await assertPersistedContext7(
+    activeRecord,
+    installedRoot,
+    bunEnvironment,
+    commands,
+    "packed install",
+  );
   const managedConfigText = await readFile(join(codexHome, "config.toml"), "utf8");
   assert(
     managedConfigText.includes("gpt-6-astra") &&
@@ -333,6 +397,32 @@ export async function verifyPublicPackage(
       !/\b(?:Sol|Terra)\b/u.test(managedConfigText),
     "the managed Codex configuration must use Astra and canonical scalar context management",
   );
+  assert(
+    managedConfigText.includes("exact concrete registered Role.task agent_type") &&
+      managedConfigText.includes(
+        "role families Explorer, Librarian, Worker, and Reviewer are labels only",
+      ) &&
+      managedConfigText.includes(
+        "Generic built-in agent_type values worker, explorer, reviewer, librarian are forbidden",
+      ),
+    "the packed Root configuration must require exact registered specialist dispatch",
+  );
+  if (process.platform === "win32") {
+    const tooling = objectProperty(activeRecord, "tooling");
+    const gitBash = objectProperty(tooling, "git_bash");
+    assert(
+      gitBash?.["status"] === "healthy" &&
+        typeof gitBash["path"] === "string" &&
+        /[\\/]bash\.exe$/iu.test(gitBash["path"]),
+      "the packed Windows install record must retain a verified Git Bash executable",
+    );
+    assert(
+      managedConfigText.includes(
+        "On Windows, execute every shell action through the verified Git-for-Windows Bash executable",
+      ),
+      "the packed Windows Root configuration must project the verified Git Bash boundary",
+    );
+  }
 
   const pluginListEnvelope = parseCodexPluginList(
     (
@@ -361,7 +451,8 @@ export async function verifyPublicPackage(
     ".codex-plugin/plugin.json",
     "skills/plan/SKILL.md",
     "skills/grill-me/SKILL.md",
-    "skills/writing-for-agents/SKILL.md",
+    "skills/writing-instructions/SKILL.md",
+    "skills/babysit-ci/SKILL.md",
   ]) {
     await requireFile(
       join(installedPluginRoot, relativePath),
@@ -377,13 +468,19 @@ export async function verifyPublicPackage(
     installedPluginManifest.version === packed.baseVersion,
     "installed Codex plugin manifest version is not canonical",
   );
-  const writingForAgents = await readFile(
-    join(installedPluginRoot, "skills/writing-for-agents/SKILL.md"),
+  const writingInstructions = await readFile(
+    join(installedPluginRoot, "skills/writing-instructions/SKILL.md"),
     "utf8",
   );
   assert(
-    !/load before first dispatch|reload when lost|reuse while/iu.test(writingForAgents),
-    "writing-for-agents must not contain obsolete context-residency rituals",
+    !/GPT-5\.6|\b(?:Luna|Sol|Terra)\b|writing-for-agents|load before first dispatch|reload when lost|reuse while/iu.test(
+      writingInstructions,
+    ),
+    "writing-instructions must target GPT-6 without obsolete context-residency rituals",
+  );
+  assert(
+    !(await exists(join(installedPluginRoot, "skills/writing-for-agents"))),
+    "the retired instruction skill alias must not ship",
   );
   await assertCodexAppServerReadback(
     codexFixture.executable,
@@ -778,6 +875,248 @@ export async function runPackageVerification(): Promise<PackageVerificationResul
   });
 }
 
+async function verifyPreviousStableUpgrade(options: {
+  readonly temporaryRoot: string;
+  readonly currentVersion: string;
+  readonly currentInstalledRoot: string;
+  readonly currentInstalledPackageRoot: string;
+  readonly currentEntry: string;
+  readonly codexCliVersion: string;
+  readonly bunEnvironment: Readonly<Record<string, string | undefined>>;
+  readonly commands: string[];
+}): Promise<void> {
+  const previousVersion = previousPatchVersion(options.currentVersion);
+  const previousInstalledRoot = join(options.temporaryRoot, "previous-installed");
+  await mkdir(previousInstalledRoot, { recursive: true });
+  await writeJson(join(previousInstalledRoot, "package.json"), {
+    name: "holycodex-previous-stable-verification",
+    private: true,
+    type: "module",
+    dependencies: { holycodex: previousVersion },
+  });
+  const installCommand = ["bun", "install", "--ignore-scripts", "--no-progress"];
+  options.commands.push(`${installCommand.join(" ")} (${previousVersion})`);
+  await runChecked(installCommand, {
+    cwd: previousInstalledRoot,
+    env: options.bunEnvironment,
+  });
+
+  const previousPackageRoot = join(previousInstalledRoot, "node_modules/holycodex");
+  const previousManifest = await readInstalledManifest(join(previousPackageRoot, "package.json"));
+  assert(previousManifest.version === previousVersion, "the previous package version is not exact");
+  assert(
+    previousManifest.release?.channel === "stable" &&
+      previousManifest.release.sourceSha === PREVIOUS_STABLE_SOURCE_SHA,
+    "the previous package does not have the expected stable source identity",
+  );
+  const previousEntry = join(previousPackageRoot, "dist/index.js");
+  const previousAgentEntry = join(previousPackageRoot, "dist/agent.js");
+  assert(
+    (await sha256File(previousEntry)) === PREVIOUS_STABLE_CLI_SHA256,
+    "the previous stable CLI bytes do not match the published fixture identity",
+  );
+  assert(
+    (await sha256File(previousAgentEntry)) === PREVIOUS_STABLE_AGENT_SHA256,
+    "the previous stable agent bytes do not match the published fixture identity",
+  );
+
+  const proofRoot = join(options.temporaryRoot, "previous-upgrade-proof");
+  const codexHome = join(proofRoot, "codex-home");
+  await mkdir(codexHome, { recursive: true });
+  await writeFile(
+    join(codexHome, "config.toml"),
+    '[features]\nunrelated = "keep"\n\napproval_policy = "on-request"\n',
+    { encoding: "utf8", mode: 0o600 },
+  );
+  const fixturePluginSource = join(codexHome, "fixture-plugin-source");
+  await stageFixturePlugin(previousPackageRoot, fixturePluginSource);
+  const codexFixture = await createCodexFixture(codexHome, options.codexCliVersion);
+  const environment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
+    CODEX_HOME: codexHome,
+    PATH: [
+      codexFixture.binDirectory,
+      join(workspaceRoot, "node_modules/.bin"),
+      options.bunEnvironment["PATH"],
+    ]
+      .filter((value): value is string => value !== undefined && value.length > 0)
+      .join(delimiter),
+    BUN_INSTALL: options.bunEnvironment["BUN_INSTALL"],
+    BUN_TMPDIR: options.bunEnvironment["BUN_TMPDIR"],
+    TEMP: options.bunEnvironment["TEMP"],
+    TMP: options.bunEnvironment["TMP"],
+    TMPDIR: options.bunEnvironment["TMPDIR"],
+    npm_execpath: process.execPath,
+    npm_command: "exec",
+    npm_config_user_agent: `bun/${Bun.version}`,
+  });
+
+  const previousInstall = await runCli(
+    previousEntry,
+    [
+      "install",
+      "--yes",
+      "--json",
+      "--profile",
+      "high",
+      "--tier",
+      "fast-all",
+      "--work",
+      "--add-plugin",
+      ADDITIONAL_FIXTURE_PLUGIN,
+      "--codex-home",
+      codexHome,
+    ],
+    previousInstalledRoot,
+    options.commands,
+    environment,
+  );
+  assert(previousInstall.ok, "the previous stable package install failed");
+  const activeRecordPath = join(codexHome, "holycodex/active.json");
+  const previousRecord = JSON.parse(await readFile(activeRecordPath, "utf8")) as Record<
+    string,
+    unknown
+  >;
+  assert(previousRecord["version"] === previousVersion, "the previous install record is not exact");
+  assert(
+    objectProperty(previousRecord, "optional_selections")?.["work"] === true,
+    "the previous package did not install the legacy Work capability",
+  );
+
+  await rm(fixturePluginSource, { recursive: true, force: true });
+  await stageFixturePlugin(options.currentInstalledPackageRoot, fixturePluginSource);
+  const beforeDryRun = await snapshotDirectoryBytes(codexHome);
+  const dryRun = await runCli(
+    options.currentEntry,
+    ["upgrade", "--yes", "--dry-run", "--json", "--codex-home", codexHome],
+    options.currentInstalledRoot,
+    options.commands,
+    environment,
+  );
+  assert(dryRun.ok, "the real previous-stable upgrade dry-run failed");
+  if (dryRun.ok) {
+    assert(
+      hasProperty(dryRun.data, "status") && dryRun.data["status"] === "dry_run",
+      "the real previous-stable upgrade dry-run did not report dry_run",
+    );
+  }
+  assert(
+    JSON.stringify(await snapshotDirectoryBytes(codexHome)) === JSON.stringify(beforeDryRun),
+    "the real previous-stable upgrade dry-run changed isolated Codex-home bytes",
+  );
+
+  const upgraded = await runCli(
+    options.currentEntry,
+    ["upgrade", "--yes", "--json", "--codex-home", codexHome],
+    options.currentInstalledRoot,
+    options.commands,
+    environment,
+  );
+  assert(upgraded.ok, "the real previous-stable package upgrade failed");
+  const upgradedRecord = JSON.parse(await readFile(activeRecordPath, "utf8")) as Record<
+    string,
+    unknown
+  >;
+  assert(
+    upgradedRecord["version"] === options.currentVersion,
+    "upgrade did not reach current version",
+  );
+  for (const key of [
+    "optional_selections",
+    "explicit_optional_selections",
+    "capability_state",
+  ] as const) {
+    assert(
+      !Object.prototype.hasOwnProperty.call(objectProperty(upgradedRecord, key) ?? {}, "work"),
+      `upgrade retained legacy Work state in ${key}`,
+    );
+  }
+  for (const key of ["official_plugins", "owned_plugins"] as const) {
+    const plugins = arrayProperty(upgradedRecord, key) ?? [];
+    assert(
+      LEGACY_WORK_PROVIDER_PLUGINS.every((pluginId) => !plugins.includes(pluginId)),
+      `upgrade retained legacy Work ownership in ${key}`,
+    );
+  }
+  const tooling = objectProperty(upgradedRecord, "tooling");
+  const context7 = objectProperty(tooling, "context7");
+  assert(
+    context7?.["manager"] === "bun" && context7["launcher"] === "bunx",
+    "upgrade did not persist the injected Bun launcher identity for Context7",
+  );
+  await assertPersistedContext7(
+    upgradedRecord,
+    options.currentInstalledRoot,
+    environment,
+    options.commands,
+    "previous stable upgrade",
+  );
+  const upgradedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
+  assert(
+    upgradedConfig.includes("context_management = true") &&
+      upgradedConfig.includes('unrelated = "keep"'),
+    "upgrade did not publish canonical configuration while preserving unrelated config",
+  );
+  const pluginList = parseCodexPluginList(
+    (
+      await runChecked([codexFixture.executable, "plugin", "list", "--json"], {
+        cwd: workspaceRoot,
+        env: environment,
+      })
+    ).stdout,
+  );
+  assert(
+    LEGACY_WORK_PROVIDER_PLUGINS.every((pluginId) =>
+      pluginList.installed.some((entry) => entry.pluginId === pluginId),
+    ),
+    "upgrade removed shared plugins formerly selected through Work",
+  );
+  const installedPluginManifest = await readInstalledManifest(
+    join(codexHome, "plugins/holycodex/.codex-plugin/plugin.json"),
+  );
+  assert(
+    installedPluginManifest.version === options.currentVersion,
+    "upgrade did not publish the current HolyCodex plugin payload",
+  );
+  await assertCodexAppServerReadback(
+    codexFixture.executable,
+    environment,
+    codexHome,
+    options.codexCliVersion,
+  );
+  const doctor = await runCli(
+    options.currentEntry,
+    ["doctor", "--json", "--codex-home", codexHome],
+    options.currentInstalledRoot,
+    options.commands,
+    environment,
+  );
+  assert(
+    doctor.ok && hasProperty(doctor.data, "healthy") && doctor.data["healthy"] === true,
+    "the real previous-stable upgrade did not end doctor-healthy",
+  );
+}
+
+async function stageFixturePlugin(packageRoot: string, destination: string): Promise<void> {
+  await cp(join(packageRoot, "dist/assets/plugin"), destination, {
+    recursive: true,
+    dereference: true,
+  });
+  await mkdir(join(destination, ".codex-plugin"), { recursive: true });
+  await cp(join(destination, "plugin.json"), join(destination, ".codex-plugin/plugin.json"));
+}
+
+async function snapshotDirectoryBytes(
+  root: string,
+): Promise<readonly (readonly [string, string])[]> {
+  const entries = await listPackageEntries(root);
+  return await Promise.all(
+    entries.map(
+      async (entry) =>
+        [entry, Buffer.from(await readFile(join(root, entry))).toString("base64")] as const,
+    ),
+  );
+}
+
 async function runCli(
   entry: string,
   args: readonly string[],
@@ -959,17 +1298,192 @@ async function runInstalledAgentHelp(
 
 async function runInstalledOpenTuiProbe(
   cwd: string,
+  entry: string,
   commands: string[],
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<void> {
-  const command = ["bun", "-e", 'await import("@opentui/core");'];
+  const command = [process.execPath, "-e", 'await import("@opentui/core");'];
   commands.push(command.join(" "));
   const result = await runCommand(command, { cwd, env });
+
   assert(
     result.exitCode === 0,
     `installed OpenTUI runtime could not resolve: ${redactDiagnostics(result.stderr || result.stdout, env)}`,
   );
   assert(result.stderr.length === 0, "installed OpenTUI runtime wrote diagnostics to stderr");
+
+  const interactive = await runInstalledOpenTuiBehaviorProbe(cwd, entry, env);
+  assert(interactive.exitCode === 0, "installed OpenTUI wizard behavior probe failed");
+  assert(
+    interactive.stderr.length === 0,
+    `installed OpenTUI wizard behavior probe wrote diagnostics: ${interactive.stderr.slice(0, 512)}`,
+  );
+
+  const probeMarker = "__HOLYCODEX_OPENTUI_PROBE__";
+  const markerIndex = interactive.stdout.lastIndexOf(probeMarker);
+  assert(markerIndex >= 0, "installed OpenTUI wizard behavior probe omitted its result");
+
+  const probePayload = interactive.stdout
+    .slice(markerIndex + probeMarker.length)
+    .split(/\r?\n/u, 1)[0];
+  assert(
+    probePayload !== undefined && probePayload.length > 0,
+    "installed OpenTUI wizard behavior probe emitted an empty result",
+  );
+
+  const probe = JSON.parse(probePayload) as Record<string, unknown>;
+  assert(probe["result"] === "cancel", "installed OpenTUI wizard did not support cancellation");
+  assert(probe["review"] === true, "installed OpenTUI wizard did not reach review after Enter");
+  assert(
+    probe["tier"] === "fast",
+    "installed OpenTUI wizard arrows did not change the service tier",
+  );
+  assert(
+    probe["frontend"] === "disabled",
+    "installed OpenTUI wizard Space did not toggle Frontend",
+  );
+  assert(probe["noColor"] === true, "installed OpenTUI wizard ignored NO_COLOR");
+}
+
+async function runInstalledOpenTuiBehaviorProbe(
+  cwd: string,
+  entry: string,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<{ readonly exitCode: number; readonly stdout: string; readonly stderr: string }> {
+  const source = String.raw`
+import { PassThrough, Writable } from "node:stream";
+const realStdout = process.stdout;
+const input = new PassThrough();
+input.isTTY = true;
+input.setRawMode = () => input;
+const outputChunks = [];
+const output = new Writable({ write(chunk, _encoding, callback) { outputChunks.push(Buffer.from(chunk)); callback(); } });
+output.isTTY = true;
+output.columns = 100;
+output.rows = 30;
+Object.defineProperty(process, "stdin", { value: input });
+Object.defineProperty(process, "stdout", { value: output });
+const { runOpenTuiInstallWizard } = await import(${JSON.stringify(entry)});
+const wizard = runOpenTuiInstallWizard({});
+
+setTimeout(() => input.push("\x1b[B"), 200);
+setTimeout(() => input.push("\x1b[C"), 300);
+setTimeout(() => input.push("\x1b[B"), 400);
+setTimeout(() => input.push(" "), 500);
+setTimeout(() => input.push("\r"), 600);
+setTimeout(() => input.push("\x1b[B"), 700);
+setTimeout(() => input.push("\x1b[B"), 800);
+setTimeout(() => input.push("\r"), 900);
+
+setTimeout(() => input.push("\x1b[B"), 1_200);
+setTimeout(() => input.push("\x1b[B"), 1_300);
+setTimeout(() => input.push("\r"), 1_400);
+
+const result = await wizard;
+const rendered = Buffer.concat(outputChunks).toString("utf8");
+realStdout.write(
+  "__HOLYCODEX_OPENTUI_PROBE__" +
+    JSON.stringify({
+      result: result.action,
+      review: rendered.includes("Review configuration"),
+      tier: rendered.includes("Service tier: fast"),
+      frontend: rendered.includes("Frontend") && rendered.includes("disabled"),
+      noColor: !/\x1b\[(?:1|2|36|1;36|32|33|31)m/u.test(rendered),
+    }) +
+    "\n",
+);
+`;
+  const command = [process.execPath, "-e", source];
+  const result = Bun.spawn(command, {
+    cwd,
+    env: { ...env, NO_COLOR: "1" },
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (!(result.stdout instanceof ReadableStream) || !(result.stderr instanceof ReadableStream)) {
+    throw new Error("the OpenTUI behavior probe did not expose bounded output streams");
+  }
+  const [stdout, stderr, exitCode] = await Promise.all([
+    readBoundedStream(result.stdout, 256 * 1024),
+    readBoundedStream(result.stderr, 256 * 1024),
+    result.exited,
+  ]);
+  return { exitCode, stdout, stderr };
+}
+
+async function readBoundedStream(
+  stream: ReadableStream<Uint8Array>,
+  limit: number,
+): Promise<string> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > limit) throw new Error("OpenTUI behavior probe output exceeded its limit");
+      chunks.push(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+async function assertPersistedContext7(
+  record: Record<string, unknown>,
+  cwd: string,
+  environment: Readonly<Record<string, string | undefined>>,
+  commands: string[],
+  label: string,
+): Promise<void> {
+  assert(record["owner"] === "holycodex", `${label} record has the wrong installation owner`);
+  const context7 = objectProperty(objectProperty(record, "tooling"), "context7");
+  assert(context7 !== undefined, `${label} did not persist Context7 tooling state`);
+  assert(
+    context7["manager"] === "bun" && context7["launcher"] === "bunx",
+    `${label} did not persist the Bun Context7 manager and launcher`,
+  );
+  assert(
+    context7["ownership"] === "holycodex",
+    `${label} did not persist HolyCodex Context7 ownership`,
+  );
+  assert(
+    typeof context7["version"] === "string" &&
+      /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u.test(context7["version"]),
+    `${label} did not persist a resolved Context7 version`,
+  );
+  assert(
+    typeof context7["executable"] === "string" && context7["executable"].length > 0,
+    `${label} did not persist the resolved Context7 executable`,
+  );
+  const version = context7["version"];
+  const executable = context7["executable"];
+  assert(typeof version === "string", `${label} Context7 version was lost during verification`);
+  assert(
+    typeof executable === "string",
+    `${label} Context7 executable was lost during verification`,
+  );
+  const command = [executable, "--version"];
+  commands.push(command.join(" "));
+  const result = await runCommand(command, { cwd, env: environment });
+  assert(
+    result.exitCode === 0 && result.stderr.length === 0,
+    `${label} Context7 executable could not be invoked: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
+  );
+  assert(
+    result.stdout.includes(version),
+    `${label} Context7 executable version does not match persisted state`,
+  );
 }
 
 async function createCodexFixture(
@@ -1097,7 +1611,15 @@ import { join } from "node:path";
 const HOME = process.env.CODEX_HOME;
 const HOLY = "holycodex@holycodex";
 const MARKETPLACE = "davidbasilefilho/holycodex";
-const PROVIDERS = ["build-web-apps@openai-curated", "codex-security@openai-curated"];
+const PROVIDERS = [
+  "build-web-apps@openai-curated",
+  "codex-security@openai-curated",
+  "documents@openai-primary-runtime",
+  "pdf@openai-primary-runtime",
+  "presentations@openai-primary-runtime",
+  "spreadsheets@openai-primary-runtime",
+  "template-creator@openai-primary-runtime",
+];
 const ADDITIONAL = "additional@fixture";
 const STATE_PATH = HOME === undefined ? "" : join(HOME, "fixture-codex-state.json");
 const SNAPSHOT_ROOT = HOME === undefined ? "" : join(HOME, "plugins", "openai-plugins");
@@ -1149,10 +1671,10 @@ async function writeOfficialSnapshot() {
     JSON.stringify({
       name: "openai-curated",
       source: "https://github.com/openai/plugins.git",
-      plugins: [
-        { name: "build-web-apps", source: "build-web-apps" },
-        { name: "codex-security", source: "codex-security" },
-      ],
+      plugins: PROVIDERS.map((pluginId) => {
+        const name = pluginId.slice(0, pluginId.lastIndexOf("@"));
+        return { name, source: name };
+      }),
     }) + "\n",
     { encoding: "utf8", mode: 0o600 },
   );
@@ -1236,10 +1758,30 @@ async function removePlugin(pluginId) {
 
 async function configRead() {
   const text = await readFile(join(HOME, "config.toml"), "utf8");
-  if (!text.includes("multi_agent_v2 = true")) fail("Codex config omitted multi-agent mode");
+  if (!text.includes("multi_agent = true") || !text.includes("multi_agent_v2 = false")) {
+    fail("Codex config omitted the canonical Root multi-agent mode");
+  }
   if (!text.includes("context_management = true")) fail("Codex config omitted scalar context management");
   if (text.includes("experimental_mode")) fail("Codex config retained legacy context management");
-  const config = { features: { multi_agent_v2: true, context_management: true }, agents: {} };
+  const rootRouting = "exact concrete registered Role.task agent_type";
+  if (!text.includes(rootRouting)) fail("Codex config omitted exact specialist dispatch policy");
+  if (
+    !text.includes("role families Explorer, Librarian, Worker, and Reviewer are labels only") ||
+    !text.includes(
+      "Generic built-in agent_type values worker, explorer, reviewer, librarian are forbidden",
+    )
+  ) {
+    fail("Codex config retained ambiguous specialist dispatch policy");
+  }
+  const windowsShell =
+    "On Windows, execute every shell action through the verified Git-for-Windows Bash executable";
+  if (process.platform === "win32" && !text.includes(windowsShell)) {
+    fail("Codex config omitted the Windows Git Bash boundary");
+  }
+  const config = {
+    features: { multi_agent: true, multi_agent_v2: false, context_management: true },
+    agents: {},
+  };
   const agentTypes = AGENT_TYPES_PLACEHOLDER;
   for (const agentType of agentTypes) {
     const reference = "config_file = \"holycodex/agents/" + agentType + ".toml\"";
@@ -1247,9 +1789,13 @@ async function configRead() {
     const roleFile = agentType + ".toml";
     const roleText = await readFile(join(HOME, "holycodex", "agents", roleFile), "utf8");
     if (!roleText.includes('model = "gpt-5.6-luna"')) {
-      fail("Codex role file omitted the Luna specialist model");
+      fail("Codex role file omitted the configured specialist routing model");
     }
-    if (!roleText.includes("context_management = true")) {
+    if (
+      !roleText.includes("multi_agent = false") ||
+      !roleText.includes("multi_agent_v2 = false") ||
+      !roleText.includes("context_management = true")
+    ) {
       fail("Codex role file omitted scalar context management");
     }
     for (const feature of ["computer_use = false", "browser_use = false", "in_app_browser = false"]) {
@@ -1259,6 +1805,9 @@ async function configRead() {
     }
     if (roleText.includes("tool_output_token_limit")) {
       fail("Codex role file contains the removed tool_output_token_limit");
+    }
+    if (process.platform === "win32" && !roleText.includes(windowsShell)) {
+      fail("Codex role file omitted the Windows Git Bash boundary");
     }
     config.agents[agentType] = { config_file: "holycodex/agents/" + roleFile };
   }

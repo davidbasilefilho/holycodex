@@ -53,7 +53,7 @@ an explicit denial or classified failure.
 8. Installation is an explicit mutation boundary. It validates input, writes
    only the declared HolyCodex scope, records version and provenance metadata,
    and invokes only the requested native Codex plugin operations.
-9. Work, frontend, Security, and Computer Use plugins are capability
+9. Frontend, Security, and Computer Use plugins are capability
    boundaries. Availability is not authority; a denied capability remains
    denied.
 10. Computer Use is enabled only when selected. Its interactive GUI, browser,
@@ -61,6 +61,13 @@ an explicit denial or classified failure.
     capability is withheld from leaves by native configuration; the capability
     is unavailable, never delegateable, and has no delegation fallback when
     disabled.
+    When an interactive web task requires authentication, Root opens the
+    authentication screen in the user's default browser through Computer Use,
+    gives control to the user, and resumes only after the user personally enters
+    and submits passwords, passkeys, MFA codes, API secrets, payment credentials,
+    or equivalent secrets. Agents do not request those values in chat or type,
+    paste, retrieve, infer, expose, store, or submit them. Without an authorized
+    Computer Use/default-browser path, authentication is a capability blocker.
 11. After integration, Root performs the VCS action and delegates exact-ref/SHA
     terminal CI or release observation. The observer is read-only; pending is
     never success. Root delegates any failure fix and repeats the cycle, and

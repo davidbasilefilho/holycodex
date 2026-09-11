@@ -238,7 +238,11 @@ function isOwnedNonHolyCodexVersion(
     dependencyRanges.has(`~${literal}`)
   )
     return true;
-  if (literal === "0.0.0" && relativePath === "packages/cli/src/maintenance.ts") return true;
+  if (
+    literal === "0.0.0" &&
+    ["packages/cli/src/maintenance.ts", "packages/cli/src/tooling.test.ts"].includes(relativePath)
+  )
+    return true;
   if (relativePath === "scripts/generate-codex-bindings.test.ts") return true;
   if (literal === "0.1.0") {
     return ["packages/plugin/src/index.test.ts", "packages/cli/src/index.test.ts"].includes(

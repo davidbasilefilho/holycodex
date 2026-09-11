@@ -23,23 +23,23 @@ their readback.
 
 ## Required surface inventory
 
-| Surface                                                                   | Owner                                                                  | Independent proof                             | Status           |
-| ------------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------- | ---------------- |
-| Bun, `mise`, OXC, and TypeScript toolchain                                | [DEVELOPMENT.md](DEVELOPMENT.md)                                       | Validation gate and lockfile checks           | proven           |
-| Effect Schema boundary validation                                         | [ARCHITECTURE.md](ARCHITECTURE.md), [DEPENDENCIES.md](DEPENDENCIES.md) | Source and boundary tests                     | proven           |
-| Canonical native Role.task identities and route-only profiles             | [BEHAVIOR.md](BEHAVIOR.md)                                             | Core catalog, registration, and routing tests | proven           |
-| Root orchestration and Assignment-backed delegation                       | [BEHAVIOR.md](BEHAVIOR.md), [STATE.md](STATE.md)                       | Core policy and plugin contract tests         | proven           |
-| Repo-local Intent/Plan/Assignment persistence                             | [STATE.md](STATE.md)                                                   | Agent store and CLI tests                     | proven           |
-| Product profile migration and Astra/Luna routing                          | [CONFIGURATION.md](CONFIGURATION.md), [BEHAVIOR.md](BEHAVIOR.md)       | CLI and routing boundary tests                | proven           |
-| HolyCodex-managed context-management setting for Root and every Luna leaf | [CONFIGURATION.md](CONFIGURATION.md), [STATE.md](STATE.md)             | Maintenance, readback, and migration tests    | proven           |
-| Task-specific observation, proof, and source-mutation authority           | [BEHAVIOR.md](BEHAVIOR.md), [SECURITY.md](SECURITY.md)                 | Permission projection and native TOML tests   | proven           |
-| Independent service tiers                                                 | [BEHAVIOR.md](BEHAVIOR.md), [CONFIGURATION.md](CONFIGURATION.md)       | Configuration boundary tests                  | proven           |
-| CLI install, remove, version, JSON, and exit behavior                     | [CLI.md](CLI.md)                                                       | CLI boundary tests                            | proven           |
-| Native Codex plugin management, owned state, and transactional recovery   | [INSTALLATION.md](INSTALLATION.md), [STATE.md](STATE.md)               | Isolated install/removal/doctor verification  | proven           |
-| Work, frontend, Security, and Computer Use selections                     | [BEHAVIOR.md](BEHAVIOR.md), [SECURITY.md](SECURITY.md)                 | Denial and typed-port tests                   | capability-gated |
-| Secret exclusion and fail-closed behavior                                 | [SECURITY.md](SECURITY.md)                                             | Security and redaction tests                  | proven           |
-| Evidence admissibility and provenance                                     | [PROVENANCE.md](PROVENANCE.md)                                         | Repository proof and changed-file inspection  | proven           |
-| Exact release artifact and publication gates                              | [RELEASING.md](RELEASING.md)                                           | CI artifact digest and release checks         | proven           |
+| Surface                                                                 | Owner                                                                  | Independent proof                             | Status           |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------- | ---------------- |
+| Bun, `mise`, OXC, and TypeScript toolchain                              | [DEVELOPMENT.md](DEVELOPMENT.md)                                       | Validation gate and lockfile checks           | proven           |
+| Effect Schema boundary validation                                       | [ARCHITECTURE.md](ARCHITECTURE.md), [DEPENDENCIES.md](DEPENDENCIES.md) | Source and boundary tests                     | proven           |
+| Canonical native Role.task identities and route-only profiles           | [BEHAVIOR.md](BEHAVIOR.md)                                             | Core catalog, registration, and routing tests | proven           |
+| Root orchestration and Assignment-backed delegation                     | [BEHAVIOR.md](BEHAVIOR.md), [STATE.md](STATE.md)                       | Core policy and plugin contract tests         | proven           |
+| Repo-local Intent/Plan/Assignment persistence                           | [STATE.md](STATE.md)                                                   | Agent store and CLI tests                     | proven           |
+| Product profile migration and configured Root/specialist routing        | [CONFIGURATION.md](CONFIGURATION.md), [BEHAVIOR.md](BEHAVIOR.md)       | CLI and routing boundary tests                | proven           |
+| HolyCodex-managed context-management setting for Root and every leaf    | [CONFIGURATION.md](CONFIGURATION.md), [STATE.md](STATE.md)             | Maintenance, readback, and migration tests    | proven           |
+| Task-specific observation, proof, and source-mutation authority         | [BEHAVIOR.md](BEHAVIOR.md), [SECURITY.md](SECURITY.md)                 | Permission projection and native TOML tests   | proven           |
+| Independent service tiers                                               | [BEHAVIOR.md](BEHAVIOR.md), [CONFIGURATION.md](CONFIGURATION.md)       | Configuration boundary tests                  | proven           |
+| CLI install, remove, version, JSON, and exit behavior                   | [CLI.md](CLI.md)                                                       | CLI boundary tests                            | proven           |
+| Native Codex plugin management, owned state, and transactional recovery | [INSTALLATION.md](INSTALLATION.md), [STATE.md](STATE.md)               | Isolated install/removal/doctor verification  | proven           |
+| Frontend, Security, and Computer Use selections                         | [BEHAVIOR.md](BEHAVIOR.md), [SECURITY.md](SECURITY.md)                 | Denial and typed-port tests                   | capability-gated |
+| Secret exclusion and fail-closed behavior                               | [SECURITY.md](SECURITY.md)                                             | Security and redaction tests                  | proven           |
+| Evidence admissibility and provenance                                   | [PROVENANCE.md](PROVENANCE.md)                                         | Repository proof and changed-file inspection  | proven           |
+| Exact release artifact and publication gates                            | [RELEASING.md](RELEASING.md)                                           | CI artifact digest and release checks         | proven           |
 
 Every row has one owner. A change updates that owner and its proof instead of
 copying a claim into another document.

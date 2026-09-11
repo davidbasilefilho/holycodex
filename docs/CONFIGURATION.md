@@ -40,8 +40,15 @@ branch-specific workflow, while a delegation prompt supplies assignment facts.
 Runtime flags enforce hard capability boundaries where Codex supports them;
 prose does not stand in for a missing native control.
 
+The current Root route is `gpt-6-astra`; native specialist route files use the
+configured `gpt-5.6-luna` identity. Root dispatches the exact registered
+concrete `Role.task` selected from the canonical route inventory. The role
+families Explorer, Librarian, Worker, and Reviewer are labels only, and generic
+built-in `worker`, `explorer`, `reviewer`, and `librarian` types are forbidden
+for HolyCodex specialist Assignments.
+
 HolyCodex manages the canonical scalar `features.context_management` and
-writes `true` for Root and every generated Luna leaf because Codex does not
+writes `true` for Root and every generated leaf because Codex does not
 enable it by default. Upgrade migrates
 owned historical `features.context_management.experimental_mode` state to the
 scalar key, preserving unrelated settings; removal restores the recorded prior
@@ -61,10 +68,11 @@ when blocked.
 ## Profiles, tiers, and optional plugins
 
 The profile catalog owns valid product profile names and native routes. A
-profile controls routing only. Every live profile uses Root/session model
-`gpt-6-astra` at its profile effort and specialist model `gpt-5.6-luna`; the
-specialist task effort matrix is owned by [BEHAVIOR.md](BEHAVIOR.md). A profile
-does not select a service tier or grant authority.
+profile controls routing only. It selects configured Root and specialist route
+identities and the task effort matrix owned by [BEHAVIOR.md](BEHAVIOR.md). The
+generated instructions for every route target GPT-6-family behavior regardless
+of a temporary routing model ID. A profile does not select a service tier or
+grant authority.
 
 The valid profile names are `low`, `default`, and `high`; `default` is
 recommended. New installation input uses `--profile`. Existing serialized
@@ -78,8 +86,8 @@ The service tier is an independent setting selected with `--tier`. It changes
 service handling without changing the profile, route, authority, or proof
 requirements. The valid tier names are `standard`, `fast`, and `fast-all`.
 
-Optional plugins are explicit booleans for `work`, `frontend`, `security`, and
-`computer_use`. On a first install, Work and Computer Use default to false while
+Optional plugins are explicit booleans for `frontend`, `security`, and
+`computer_use`. On a first install, Computer Use defaults to false while
 frontend and Security default to true; an omitted selection otherwise inherits
 the existing managed configuration. Availability never grants authority.
 Explicitly selected or additionally requested plugins return a structured

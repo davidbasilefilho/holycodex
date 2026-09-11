@@ -8,7 +8,13 @@ import { CapabilityNameSchema } from "./capabilities.ts";
 import { CLI_SCHEMA_VERSION, isObject, type JsonObject, type JsonValue } from "./common.ts";
 import { type CoreResult, failure, inputError, success } from "./errors.ts";
 import { identifierTextSchema } from "./identifiers.ts";
-import { RoleSchema, RoleTaskSchema, type Role, type RoleTask } from "./routes.ts";
+import {
+  Context7EvidenceStateSchema,
+  RoleSchema,
+  RoleTaskSchema,
+  type Role,
+  type RoleTask,
+} from "./routes.ts";
 import { decodeUnknown } from "./schema.ts";
 
 export const SpecialistStatusSchema = Schema.Literal("blocked", "completed", "failed", "partial");
@@ -60,10 +66,20 @@ export type SpecialistOutcome = typeof SpecialistOutcomeSchema.Type;
 export const SPECIALIST_OUTCOME_VERSION = "holycodex-specialist-outcome-2";
 const OutcomeTextSchema = Schema.String.pipe(Schema.minLength(1));
 
+/** Typed Context7 proof returned by a Librarian Assignment for current technical facts. */
+export const Context7EvidenceSchema = Schema.Struct({
+  state: Context7EvidenceStateSchema,
+  evidence: Schema.Array(OutcomeTextSchema).pipe(Schema.minItems(1)),
+  library: Schema.optional(OutcomeTextSchema),
+  version: Schema.optional(OutcomeTextSchema),
+});
+export type Context7Evidence = typeof Context7EvidenceSchema.Type;
+
 const SpecialistOutcomeV2BaseFields = {
   protocol_version: Schema.Literal(SPECIALIST_OUTCOME_VERSION),
   route: RoleTaskSchema,
   evidence: Schema.Array(OutcomeTextSchema),
+  context7: Schema.optional(Context7EvidenceSchema),
 } as const;
 export const SpecialistOutcomeV2BaseSchema = Schema.Struct(SpecialistOutcomeV2BaseFields);
 export type SpecialistOutcomeV2Base = typeof SpecialistOutcomeV2BaseSchema.Type;
@@ -116,6 +132,7 @@ const CapabilityResultV2BaseFields = {
   capability: CapabilityNameSchema,
   route: Schema.Union(RoleTaskSchema, Schema.Null),
   evidence: Schema.Array(OutcomeTextSchema),
+  context7: Schema.optional(Context7EvidenceSchema),
   data: JsonValueSchema,
 } as const;
 const CapabilityResultV2CompletedSchema = Schema.Struct({
@@ -175,6 +192,7 @@ export function specialistOutcomeFromCapabilityResult(
     protocol_version: SPECIALIST_OUTCOME_VERSION,
     route: expectedRoute,
     evidence: result.evidence,
+    ...(result.context7 === undefined ? {} : { context7: result.context7 }),
   } as const;
   switch (result.status) {
     case "completed":

@@ -73,7 +73,7 @@ Root integrates, performs VCS, delegates exact-ref terminal CI/release checks
 ```
 
 Profiles select native routing only. Service tiers are independent settings and
-must not rewrite route policy or authority. Optional Work, frontend,
+must not rewrite route policy or authority. Optional frontend,
 Security, and Computer Use selections are explicit and independently denied
 when unavailable. Native subagents receive bounded Assignments; Root retains
 scope, policy, material choices, lifecycle, integration, VCS, and final
@@ -97,7 +97,13 @@ surgical-mutation rule is the single instruction-level source for write
 minimization; every source-mutating native profile receives that rule as a
 projection, without weaker variants. Task skills supply procedure only. The
 typed `core` export is the runtime projection used to generate those
-instructions. This keeps each semantic instruction in one layer.
+instructions. The core capability registry owns conditional frontend skill
+applicability, and `cli` renders those mappings into Root instructions without
+copying a second policy. This keeps each semantic instruction in one layer.
+The shared typed Context7 evidence contract stays optional for generic outcomes;
+the `core` work-state receiving boundary requires it only for a Librarian
+Assignment whose own contract names a non-historical technical subject and
+persists it with that invocation.
 
 Installation preflights selected capabilities and runtime compatibility, then
 journals native mutations and verifies readback before publishing managed
@@ -107,17 +113,24 @@ required by that installation. Removal verifies ownership before deleting the
 same scope. Neither command rewrites unrelated Codex settings or installs an
 unrequested capability.
 
-The live root/session route is `gpt-6-astra` with low, medium, or high
-reasoning for the `low`, `default`, and `high` product profiles. Every
-specialist route uses `gpt-5.6-luna` with the task-specific effort matrix in
-the behavioral contract. Sol, Terra, and Go remain only in migration/cleanup
-paths for previously managed state. HolyCodex owns the scalar
-`features.context_management` projection and sets it to `true` for Root and
-every generated Luna leaf because Codex does not enable it by default. Upgrade
+The `low`, `default`, and `high` product profiles select configured Root and
+specialist route identities and task-specific reasoning effort. Routing model
+IDs do not define instruction behavior: every live skill and generated Root or
+specialist instruction targets the GPT-6 family. Historical routing values
+remain only in migration/cleanup paths for previously managed state. HolyCodex
+owns the scalar `features.context_management` projection and sets it to `true`
+for Root and every generated leaf because Codex does not enable it by default. Upgrade
 migrates owned historical
 `.experimental_mode` state to the scalar key. Standard managed-key ownership
 preserves a user edit and restores the recorded prior value during removal.
-Repo-local Intent/Plan/Assignment state remains independent.
+Repo-local Intent/Plan/Assignment state remains independent. Codex's generated
+protocol includes a compact RPC, but no verified HolyCodex-owned early
+compaction or rotation seam exists. HolyCodex adds no threshold, persistence, or
+telemetry loop for that RPC. A bounded `Explorer.trace` dispatch has been
+verified with the `gpt-5.6-luna`/`high` route and the installed baseline retained;
+session metadata reports V2, so this does not claim live V1 proof or
+HolyCodex-owned fork enforcement. Generated configuration and readback tests
+prove the V1 arrangement only.
 
 ## Repository shape and checks
 

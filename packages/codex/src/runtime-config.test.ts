@@ -244,4 +244,27 @@ describe("typed runtime configuration", () => {
       value: "holycodex/agents/Worker.implementation.toml",
     });
   });
+
+  test("manages Root V1 multi-agent mode while disabling V2", async () => {
+    const v1 = "features.multi_agent" as const;
+    const v2 = "features.multi_agent_v2" as const;
+    expect(isManagedConfigKeyPath(v1)).toBe(true);
+    expect(isManagedConfigKeyPath(v2)).toBe(true);
+    const merged = await mergeManagedRuntimeConfig(
+      {},
+      createManagedRuntimeConfigState(metadata),
+      { [v1]: true, [v2]: false },
+      metadata,
+    );
+    expect(readTomlPath(merged.document, v1)).toBe(true);
+    expect(readTomlPath(merged.document, v2)).toBe(false);
+    expect(merged.state.managed[v1]?.lastManagedValue).toEqual({
+      kind: "boolean",
+      value: true,
+    });
+    expect(merged.state.managed[v2]?.lastManagedValue).toEqual({
+      kind: "boolean",
+      value: false,
+    });
+  });
 });
