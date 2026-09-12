@@ -53,9 +53,15 @@ message peers.
 
 The Root orchestration contract requires normal specialist spawns to pass the
 explicit `fork_turns = "none"` value and the exact registered `Role.task`
-identity. Role families are labels only. Root waits for terminal outcomes, emits
-no routine progress or busy-polling coordination, and sends out-of-boundary work
-back as a new bounded Assignment. Root's managed configuration enables
+identity. Role families are labels only. Root gives the user only useful or
+important information: it does not output after every tool use or subagent
+update, emit routine status-only chatter or heartbeat messages, or follow a
+fixed update cadence. Material updates include significant findings or
+decisions, consequential blockers or input needs, and release milestones.
+Native Astra Default questions remain available, including while independent
+work proceeds. Root waits for terminal outcomes when no such update or question
+is needed and sends out-of-boundary work back as a new bounded Assignment.
+Root's managed configuration enables
 `multi_agent = true`, disables `multi_agent_v2`, and enables
 `context_management`; generated leaves set `agents.enabled = false`,
 `multi_agent = false`, `multi_agent_v2 = false`, and

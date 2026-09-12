@@ -142,6 +142,7 @@ async function digestFile(path: string): Promise<Sha256Digest> {
   return validated.value;
 }
 
+/** Discover, version, and digest the Codex executable selected by the caller's options. */
 export async function discoverCodexExecutable(
   options: CodexExecutableDiscoveryOptions = {},
 ): Promise<CodexExecutableIdentity> {
@@ -265,6 +266,7 @@ export interface SchemaGenerationProvenance {
   readonly outputs: readonly SchemaOutputProvenance[];
 }
 
+/** Generate Codex TypeScript schemas into a verified empty output directory. */
 export async function generateCodexSchemas(
   options: SchemaGenerationOptions,
 ): Promise<SchemaGenerationProvenance> {

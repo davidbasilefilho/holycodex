@@ -390,7 +390,10 @@ describe("core profile catalog", () => {
       normalProgressMessages: false,
       normalHeartbeatMessages: false,
       normalIntermediateEvidence: false,
-      earlyCommunicationRequiresMaterialRootDecision: true,
+      userUpdatesUsefulOrImportantOnly: true,
+      routinePerToolOrSubagentNarrationForbidden: true,
+      routineStatusOnlyChatterForbidden: true,
+      fixedCadenceUserUpdatesForbidden: true,
       outOfBoundaryRequiresNewAssignment: true,
       longestPracticalEventWait: true,
       busyPollingForbidden: true,
@@ -398,6 +401,11 @@ describe("core profile catalog", () => {
       batchIndependentLifecycleActions: true,
       releaseLeavesAfterAcceptedOutcome: true,
     });
+    expect(ROOT_ORCHESTRATION_POLICY.materialUserUpdateKinds).toEqual([
+      "significant_findings_or_decisions",
+      "consequential_blockers_or_input_needs",
+      "release_milestones",
+    ]);
   });
 
   test("keeps Context7, frontend, credential, and security policies typed and canonical", () => {

@@ -113,6 +113,7 @@ function fakeManager(
     readonly missingAdds?: ReadonlySet<string>;
     readonly initial?: Readonly<Record<string, "installed" | "disabled" | "available">>;
     readonly failRemoves?: ReadonlySet<string>;
+    readonly addCalls?: string[];
   }> = {},
 ) {
   const states = new Map<string, { installed: boolean; enabled: boolean }>();
@@ -130,6 +131,7 @@ function fakeManager(
     }),
     addMarketplace: async () => undefined,
     add: async (pluginId) => {
+      options.addCalls?.push(pluginId);
       if (options.failAdds?.has(pluginId)) throw new Error(`${pluginId} unavailable`);
       if (options.missingAdds?.has(pluginId)) return;
       states.set(pluginId, { installed: true, enabled: true });
@@ -971,12 +973,14 @@ describe("native installation and removal", () => {
   test("upgrades an older installation in place and supports dry-run", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-upgrade-"));
     const codexHome = join(root, "codex");
-    const manager = fakeManager();
+    const addCalls: string[] = [];
+    const manager = fakeManager({ addCalls });
     try {
       const initial = await installHolyCodex(
         { tier: "fast", optional: { frontend: false, security: false } },
         { paths: { codexHome }, officialPluginManager: manager },
       );
+      addCalls.length = 0;
       const paths = resolveInstallerPaths({ paths: { codexHome } });
       const oldRecord = {
         ...initial.record,
@@ -1027,6 +1031,7 @@ describe("native installation and removal", () => {
       expect(dryRun.status).toBe("dry_run");
       expect(dryRun.changes).toContain("version");
       expect(await readFile(paths.activeRecord, "utf8")).toBe(legacyBytes);
+      expect(addCalls).toEqual([]);
       const upgraded = await upgradeHolyCodex(
         { paths: { codexHome }, officialPluginManager: manager },
         {},
@@ -1034,6 +1039,7 @@ describe("native installation and removal", () => {
       expect(upgraded.status).toBe("upgraded");
       expect(upgraded.record?.profile).toBe(initial.record.profile);
       expect(upgraded.record?.tier).toBe(initial.record.tier);
+      expect(addCalls).toEqual(["holycodex@holycodex"]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1659,6 +1665,48 @@ describe("native installation and removal", () => {
           })
         ).healthy,
       ).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("uses active ownership when an older transaction is left behind", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-stale-transaction-"));
+    const codexHome = join(root, "codex");
+    const userPlugin = "user-plugin@local";
+    const frontend = "build-web-apps@openai-curated";
+    const manager = fakeManager({ initial: { [userPlugin]: "installed" } });
+    try {
+      const initial = await installHolyCodex(
+        { optional: { frontend: false, security: false } },
+        { paths: { codexHome }, officialPluginManager: manager },
+      );
+      await installHolyCodex(
+        { optional: { frontend: true, security: false } },
+        { paths: { codexHome }, officialPluginManager: manager },
+      );
+      // A process crash after publishing the newer active record and before
+      // deleting the transaction leaves this older, valid journal behind.
+      await writeFile(
+        join(codexHome, "holycodex", "preparing.json"),
+        `${JSON.stringify({
+          ...initial.record,
+          status: "preparing",
+          step: "config_published",
+        })}\n`,
+      );
+
+      const removed = await removeHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+      });
+
+      expect(removed.removed).toContain("holycodex@holycodex");
+      expect(removed.removed).not.toContain(userPlugin);
+      expect(removed.removed).toContain(frontend);
+      await expect(manager.list?.()).resolves.toMatchObject({
+        installed: [expect.objectContaining({ pluginId: userPlugin })],
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

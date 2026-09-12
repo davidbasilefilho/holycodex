@@ -40,6 +40,7 @@ import type {
   ParsedCommand,
 } from "./types.ts";
 
+/** Parse and execute CLI arguments, returning a validated envelope and exit code. */
 export async function runCli(
   argv: readonly string[],
   context: CliContext = {},
@@ -69,6 +70,7 @@ export async function runCli(
   }
 }
 
+/** Dispatch a parsed command to its installer, maintenance, or version operation. */
 export async function executeCommand(
   parsed: ParsedCommand,
   context: CliContext,
@@ -462,6 +464,7 @@ function emitProgress(context: CliContext, json: boolean, message: string): void
 
 type ConfirmationResult = "confirmed" | "cancelled" | "unavailable";
 
+/** Render a command result as human-readable terminal output. */
 export function renderHuman(result: CommandResult, options: HumanRenderOptions = {}): string {
   const color = colorEnabled(options);
   if (result.envelope.ok) {
@@ -483,6 +486,7 @@ export function renderHuman(result: CommandResult, options: HumanRenderOptions =
   ].join("\n");
 }
 
+/** Render a progress message using the terminal's configured semantic color. */
 export function renderProgress(
   message: string,
   options: Pick<HumanRenderOptions, "stderrIsTTY" | "env"> = {},

@@ -34,18 +34,22 @@ function createIdentifier<T extends string>(
   return success(parsed.right);
 }
 
+/** Validate an unknown value as a bounded run identifier. */
 export function createRunId(value: unknown): CoreResult<RunId> {
   return createIdentifier(RunIdSchema, value, "run_id");
 }
 
+/** Validate an unknown value as a bounded project identifier. */
 export function createProjectId(value: unknown): CoreResult<ProjectId> {
   return createIdentifier(ProjectIdSchema, value, "project_id");
 }
 
+/** Validate an unknown value as a bounded trust identifier. */
 export function createTrustId(value: unknown): CoreResult<TrustId> {
   return createIdentifier(TrustIdSchema, value, "trust_id");
 }
 
+/** Validate an unknown value as a lowercase 64-character SHA-256 digest. */
 export function createSha256Digest(value: unknown): CoreResult<Sha256Digest> {
   const parsed = decodeUnknown(Sha256DigestSchema, value);
   if (Either.isLeft(parsed)) {
@@ -80,6 +84,7 @@ export type IdentityRecord = RunIdentityInput | TrustIdentityInput | ProjectIden
 export const SchemaEpochIdSchema = Schema.String.pipe(Schema.pattern(/^state-[0-9]+\.[0-9]+$/u));
 export type SchemaEpochId = typeof SchemaEpochIdSchema.Type;
 
+/** Decode an unknown value as one of the supported run, trust, or project identities. */
 export function parseIdentityInput(input: unknown): CoreResult<IdentityRecord> {
   const run = decodeUnknown(RunIdentityInputSchema, input);
   if (Either.isRight(run)) {
@@ -99,6 +104,7 @@ export function parseIdentityInput(input: unknown): CoreResult<IdentityRecord> {
   return failure(inputError("identity input", project.left));
 }
 
+/** Validate an unknown value as a state schema epoch identifier. */
 export function parseSchemaEpochId(input: unknown): CoreResult<SchemaEpochId> {
   const parsed = decodeUnknown(SchemaEpochIdSchema, input);
   if (Either.isLeft(parsed)) {

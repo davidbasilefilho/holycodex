@@ -16,6 +16,7 @@ import { comparePathText, readSourceFile, resolveStagingRoot } from "./source.ts
 import type { AssembledPayload, AssemblyPlan, PayloadManifest } from "./types.ts";
 import { canonicalJsonBytes, sha256, verifyPayload } from "./verification.ts";
 
+/** Assemble, stage, and verify a deterministic plugin payload from an assembly request. */
 export async function assemblePayload(input: unknown): Promise<AssembledPayload> {
   const request = parseAssemblyRequest(input);
   const plan = await planAssembly(request);

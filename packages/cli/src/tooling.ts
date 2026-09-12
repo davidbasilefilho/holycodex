@@ -2,8 +2,10 @@
 
 import { execFile } from "node:child_process";
 import { access, readFile, realpath } from "node:fs/promises";
-import { dirname, join, posix, resolve, win32 } from "node:path";
+import { posix, win32 } from "node:path";
 import { promisify } from "node:util";
+
+import { canonicalJsonUtf8, domainSeparatedSha256 } from "@holycodex/core";
 
 import type {
   Context7Manager,
@@ -17,6 +19,16 @@ import type {
 
 export const WINDOWS_GIT_BASH = "C:\\Program Files\\Git\\bin\\bash.exe";
 export const CONTEXT7_SPEC = "ctx7@latest";
+
+type Context7StateWithIdentity = Context7ToolState & {
+  readonly identity?: string | undefined;
+};
+
+type Context7Inspection = Readonly<{
+  readonly version: string;
+  readonly executable: string;
+  readonly identity: string;
+}>;
 
 const execFileAsync = promisify(execFile);
 const nodeFiles: InstallerFileSystem = {
@@ -173,13 +185,31 @@ export async function ensureContext7(
       { installed: after.version, latest },
     );
   }
-  return {
+  const ownership = context7Ownership(previous, manager, before);
+  const state: Context7StateWithIdentity = {
     manager: manager.family,
     launcher: manager.launcher,
     version: after.version,
     executable: after.executable,
-    ownership: previous?.ownership ?? (before === undefined ? "holycodex" : "user"),
+    ownership,
+    identity: after.identity,
   };
+  // Context7ToolState gains the optional identity field at the record boundary while 0.16.x
+  // records remain readable without it.
+  return state as Context7ToolState;
+}
+
+function context7Ownership(
+  previous: Context7ToolState | undefined,
+  manager: Context7Manager,
+  before: Context7Inspection | undefined,
+): Context7ToolState["ownership"] {
+  if (before === undefined) return "holycodex";
+  if (previous?.ownership !== "holycodex") return "user";
+  if (previous.manager !== manager.family) return "user";
+  const previousIdentity = (previous as Context7StateWithIdentity).identity;
+  if (!isContext7Identity(previousIdentity) || previousIdentity !== before.identity) return "user";
+  return "holycodex";
 }
 
 /** Remove Context7 only when this installation recorded ownership and the launcher family agrees. */
@@ -190,7 +220,7 @@ export async function removeOwnedContext7(
   if (previous?.ownership !== "holycodex") return false;
   const manager = detectContext7Manager(runtime.environment);
   if (manager === undefined || manager.family !== previous.manager) return false;
-  let current: { readonly version: string; readonly executable: string } | undefined;
+  let current: Context7Inspection | undefined;
   try {
     current = await inspectContext7(runtime, manager);
   } catch (error) {
@@ -200,7 +230,9 @@ export async function removeOwnedContext7(
   if (
     current === undefined ||
     current.version !== previous.version ||
-    !samePath(current.executable, previous.executable, runtime.platform)
+    !samePath(current.executable, previous.executable, runtime.platform) ||
+    !isContext7Identity((previous as Context7StateWithIdentity).identity) ||
+    current.identity !== (previous as Context7StateWithIdentity).identity
   ) {
     return false;
   }
@@ -228,6 +260,7 @@ export async function removeOwnedContext7(
   return true;
 }
 
+/** Return the package-manager command used to install the required Context7 version. */
 export function context7InstallCommand(family: Context7Manager["family"]): {
   readonly executable: string;
   readonly args: readonly string[];
@@ -257,18 +290,22 @@ function context7RemoveCommand(family: Context7Manager["family"]): {
 }
 
 async function discoverGitBash(runtime: InstallerRuntime): Promise<string | undefined> {
-  if (await verifyGitBash(runtime.run, WINDOWS_GIT_BASH)) return WINDOWS_GIT_BASH;
+  if (await verifyGitBash(runtime.run, WINDOWS_GIT_BASH, runtime.platform)) return WINDOWS_GIT_BASH;
   for (const directory of (runtime.environment["PATH"] ?? "").split(";")) {
     if (directory.length === 0) continue;
-    const candidate = join(directory, "bash.exe");
-    if (await verifyGitBash(runtime.run, candidate)) return candidate;
+    const candidate = pathFor(runtime.platform).join(directory, "bash.exe");
+    if (await verifyGitBash(runtime.run, candidate, runtime.platform)) return candidate;
   }
   return undefined;
 }
 
-async function verifyGitBash(run: InstallerProcessRunner, candidate: string): Promise<boolean> {
-  const gitPath = gitForBash(candidate);
-  const [bash, platform, git] = await Promise.all([
+async function verifyGitBash(
+  run: InstallerProcessRunner,
+  candidate: string,
+  platform: InstallerPlatform,
+): Promise<boolean> {
+  const gitPath = gitForBash(candidate, platform);
+  const [bash, platformResult, git] = await Promise.all([
     run(candidate, ["--version"]),
     run(candidate, ["--noprofile", "--norc", "-c", "uname -s"]),
     run(gitPath, ["--version"]),
@@ -276,8 +313,8 @@ async function verifyGitBash(run: InstallerProcessRunner, candidate: string): Pr
   return (
     bash.exitCode === 0 &&
     /gnu bash/iu.test(bash.stdout) &&
-    platform.exitCode === 0 &&
-    /^mingw(?:32|64|)/iu.test(platform.stdout.trim()) &&
+    platformResult.exitCode === 0 &&
+    /^mingw(?:32|64|)/iu.test(platformResult.stdout.trim()) &&
     git.exitCode === 0 &&
     /^git version \d/iu.test(git.stdout.trim())
   );
@@ -286,7 +323,7 @@ async function verifyGitBash(run: InstallerProcessRunner, candidate: string): Pr
 async function inspectContext7(
   runtime: InstallerRuntime,
   manager: Context7Manager,
-): Promise<{ readonly version: string; readonly executable: string } | undefined> {
+): Promise<Context7Inspection | undefined> {
   const files = runtime.files ?? nodeFiles;
   const binResult = await runtime.run(
     manager.executable,
@@ -329,10 +366,12 @@ async function inspectContext7(
         : undefined;
   if (bin === undefined) return undefined;
   const executable = pathFor(runtime.platform).resolve(packageRoot, bin);
+  let canonicalPackageRoot: string;
+  let canonicalExecutable: string;
   try {
     await files.access(executable);
-    const canonicalPackageRoot = await files.realpath(packageRoot);
-    const canonicalExecutable = await files.realpath(executable);
+    canonicalPackageRoot = await files.realpath(packageRoot);
+    canonicalExecutable = await files.realpath(executable);
     if (!normalize(canonicalExecutable).startsWith(`${normalize(canonicalPackageRoot)}/`))
       return undefined;
   } catch {
@@ -364,7 +403,39 @@ async function inspectContext7(
   const version = await runtime.run(shim, ["--version"]);
   if (version.exitCode !== 0 || parseVersion(version.stdout) !== packageJson.version)
     return undefined;
-  return { version: packageJson.version, executable: shim };
+  return {
+    version: packageJson.version,
+    executable: shim,
+    identity: await context7InstallationIdentity(
+      manager,
+      canonicalPackageRoot,
+      canonicalExecutable,
+      canonicalShim,
+      packageJson,
+    ),
+  };
+}
+
+async function context7InstallationIdentity(
+  manager: Context7Manager,
+  packageRoot: string,
+  packageExecutable: string,
+  shim: string,
+  packageJson: Readonly<{ readonly version?: unknown; readonly bin?: unknown }>,
+): Promise<string> {
+  return await domainSeparatedSha256("context7-installation", [
+    canonicalJsonUtf8({
+      manager: manager.family,
+      package_root: normalize(packageRoot),
+      package_executable: normalize(packageExecutable),
+      shim: normalize(shim),
+      package: packageJson,
+    }),
+  ]);
+}
+
+function isContext7Identity(value: string | undefined): value is string {
+  return value !== undefined && /^[0-9a-f]{64}$/u.test(value);
 }
 
 async function resolvePathExecutable(
@@ -443,10 +514,13 @@ async function latestContext7Version(
   return parseVersion(result.stdout);
 }
 
-function gitForBash(candidate: string): string {
-  const bin = dirname(candidate);
-  const root = normalize(bin).endsWith("/usr/bin") ? resolve(bin, "..", "..") : resolve(bin, "..");
-  return resolve(root, "cmd", "git.exe");
+function gitForBash(candidate: string, platform: InstallerPlatform): string {
+  const pathApi = pathFor(platform);
+  const bin = pathApi.dirname(candidate);
+  const root = normalize(bin).endsWith("/usr/bin")
+    ? pathApi.resolve(bin, "..", "..")
+    : pathApi.resolve(bin, "..");
+  return pathApi.resolve(root, "cmd", "git.exe");
 }
 
 function isExecutable(path: string, name: string): boolean {

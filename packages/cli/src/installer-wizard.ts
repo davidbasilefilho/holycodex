@@ -40,6 +40,12 @@ export type WizardConfigurationTransition = Readonly<{
   action: "render" | "review" | "cancel";
 }>;
 
+/** Streams used by the OpenTUI renderer, primarily for embedded interactive callers. */
+export type OpenTuiInstallWizardOptions = Readonly<{
+  stdin?: NodeJS.ReadStream;
+  stdout?: NodeJS.WriteStream;
+}>;
+
 /**
  * Run the public interactive install wizard using OpenTUI's imperative API.
  *
@@ -49,11 +55,13 @@ export type WizardConfigurationTransition = Readonly<{
  */
 export async function runOpenTuiInstallWizard(
   initial: InstallRequest = {},
+  rendererOptions: OpenTuiInstallWizardOptions = {},
 ): Promise<InstallWizardResult> {
   const validatedInitial = validateInstallOptions(initial);
   const opentui = await import("@opentui/core");
   const state = stateFromRequest(validatedInitial);
   const renderer = await opentui.createCliRenderer({
+    ...rendererOptions,
     exitOnCtrlC: true,
     clearOnShutdown: true,
   });

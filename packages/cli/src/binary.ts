@@ -20,6 +20,7 @@ export interface BinaryIo {
   readonly writeStderr: (text: string) => void;
 }
 
+/** Run the CLI binary against injected or process-backed I/O and return its exit code. */
 export async function runBinary(
   argv: readonly string[] = Bun.argv.slice(2),
   binaryIo: BinaryIo = processIo(),

@@ -9,6 +9,7 @@ export function encodeModelWire(value: unknown): string {
   return encode(value);
 }
 
+/** Decode strict TOON model output into the core JSON value boundary. */
 export function decodeModelWire(value: string): JsonValue {
   return decode(value, { strict: true });
 }

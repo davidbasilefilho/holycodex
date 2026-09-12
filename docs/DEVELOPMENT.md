@@ -20,10 +20,10 @@ mise exec -- bun run build
 mise exec -- bun pm pack
 ```
 
-OXC owns formatting and linting; TypeScript owns type checking. Bun owns test
-execution, packaging, and builds. The lockfile and manifests must agree before
-handoff. Authored TypeScript uses strict settings and Bun-native APIs where
-available. Effect Schema from
+OXC owns formatting, linting, and the repository's type-aware checks through
+`oxlint` and `oxlint-tsgolint`. Bun owns test execution, packaging, and builds.
+The lockfile and manifests must agree before handoff. Authored TypeScript uses
+strict settings and Bun-native APIs where available. Effect Schema from
 `effect/Schema` validates every external, persisted, CLI, Codex, and
 specialist boundary.
 
@@ -63,7 +63,6 @@ mise exec -- bun run check
 mise exec -- bun test
 mise exec -- bun run fmt:check
 mise exec -- bun run lint
-mise exec -- bun run typecheck
 mise exec -- bun run validate
 git diff --check
 ```

@@ -289,7 +289,7 @@ export async function verifyPublicPackage(
   const installedModule = (await import(pathToFileURL(installedEntry).href)) as InstalledCliModule;
   await verifyPreviousStableUpgrade({
     temporaryRoot,
-    currentVersion: version,
+    currentVersion: packed.baseVersion,
     currentInstalledRoot: installedRoot,
     currentInstalledPackageRoot: installedPackageRoot,
     currentEntry: installedEntry,
@@ -888,6 +888,27 @@ async function verifyPreviousStableUpgrade(options: {
   const previousVersion = previousPatchVersion(options.currentVersion);
   const previousInstalledRoot = join(options.temporaryRoot, "previous-installed");
   await mkdir(previousInstalledRoot, { recursive: true });
+  const previousBunStateRoot = join(options.temporaryRoot, "previous-bun-state");
+  const previousBunInstallRoot = join(previousBunStateRoot, "install");
+  const previousBunTempRoot = join(previousBunStateRoot, "tmp");
+  const previousBunEnvironment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
+    BUN_INSTALL: previousBunInstallRoot,
+    BUN_TMPDIR: previousBunTempRoot,
+    TEMP: previousBunTempRoot,
+    TMP: previousBunTempRoot,
+    TMPDIR: previousBunTempRoot,
+    npm_execpath: process.execPath,
+    npm_command: "exec",
+    npm_config_user_agent: `bun/${Bun.version}`,
+  });
+  await mkdir(previousBunInstallRoot, { recursive: true });
+  await mkdir(previousBunTempRoot, { recursive: true });
+  previousBunEnvironment["PATH"] = [
+    join(previousBunInstallRoot, "bin"),
+    options.bunEnvironment["PATH"],
+  ]
+    .filter((value): value is string => value !== undefined && value.length > 0)
+    .join(delimiter);
   await writeJson(join(previousInstalledRoot, "package.json"), {
     name: "holycodex-previous-stable-verification",
     private: true,
@@ -898,7 +919,7 @@ async function verifyPreviousStableUpgrade(options: {
   options.commands.push(`${installCommand.join(" ")} (${previousVersion})`);
   await runChecked(installCommand, {
     cwd: previousInstalledRoot,
-    env: options.bunEnvironment,
+    env: previousBunEnvironment,
   });
 
   const previousPackageRoot = join(previousInstalledRoot, "node_modules/holycodex");
@@ -936,15 +957,15 @@ async function verifyPreviousStableUpgrade(options: {
     PATH: [
       codexFixture.binDirectory,
       join(workspaceRoot, "node_modules/.bin"),
-      options.bunEnvironment["PATH"],
+      previousBunEnvironment["PATH"],
     ]
       .filter((value): value is string => value !== undefined && value.length > 0)
       .join(delimiter),
-    BUN_INSTALL: options.bunEnvironment["BUN_INSTALL"],
-    BUN_TMPDIR: options.bunEnvironment["BUN_TMPDIR"],
-    TEMP: options.bunEnvironment["TEMP"],
-    TMP: options.bunEnvironment["TMP"],
-    TMPDIR: options.bunEnvironment["TMPDIR"],
+    BUN_INSTALL: previousBunEnvironment["BUN_INSTALL"],
+    BUN_TMPDIR: previousBunEnvironment["BUN_TMPDIR"],
+    TEMP: previousBunEnvironment["TEMP"],
+    TMP: previousBunEnvironment["TMP"],
+    TMPDIR: previousBunEnvironment["TMPDIR"],
     npm_execpath: process.execPath,
     npm_command: "exec",
     npm_config_user_agent: `bun/${Bun.version}`,
@@ -1070,8 +1091,12 @@ async function verifyPreviousStableUpgrade(options: {
     ),
     "upgrade removed shared plugins formerly selected through Work",
   );
-  const installedPluginManifest = await readInstalledManifest(
-    join(codexHome, "plugins/holycodex/.codex-plugin/plugin.json"),
+  const installedPluginManifest = decode(
+    InstalledPluginManifestSchema,
+    JSON.parse(
+      await readFile(join(codexHome, "plugins/holycodex/.codex-plugin/plugin.json"), "utf8"),
+    ),
+    "installed Codex plugin manifest",
   );
   assert(
     installedPluginManifest.version === options.currentVersion,
@@ -1183,6 +1208,7 @@ async function rewriteActiveRecord(
     "provider_config",
     "plugin_snapshot",
     "owned_plugins",
+    "tooling",
   ] as const;
   const digestInput = Object.fromEntries(
     digestKeys.flatMap((key) => (key in rewritten ? [[key, rewritten[key]] as const] : [])),
@@ -1342,6 +1368,7 @@ async function runInstalledOpenTuiProbe(
     probe["frontend"] === "disabled",
     "installed OpenTUI wizard Space did not toggle Frontend",
   );
+  assert(probe["hints"] === true, "installed OpenTUI wizard omitted its navigation hints");
   assert(probe["noColor"] === true, "installed OpenTUI wizard ignored NO_COLOR");
 }
 
@@ -1357,37 +1384,212 @@ const input = new PassThrough();
 input.isTTY = true;
 input.setRawMode = () => input;
 const outputChunks = [];
-const output = new Writable({ write(chunk, _encoding, callback) { outputChunks.push(Buffer.from(chunk)); callback(); } });
+let outputVersion = 0;
+let outputWaiter;
+const output = new Writable({
+  write(chunk, _encoding, callback) {
+    const bytes = Buffer.from(chunk);
+    outputChunks.push(bytes);
+    consumeOutput(bytes);
+    outputVersion += 1;
+    outputWaiter?.();
+    outputWaiter = undefined;
+    callback();
+  },
+});
 output.isTTY = true;
 output.columns = 100;
 output.rows = 30;
-Object.defineProperty(process, "stdin", { value: input });
-Object.defineProperty(process, "stdout", { value: output });
 const { runOpenTuiInstallWizard } = await import(${JSON.stringify(entry)});
-const wizard = runOpenTuiInstallWizard({});
+const screen = Array.from({ length: output.rows }, () => Array(output.columns).fill(" "));
+let screenRow = 0;
+let screenColumn = 0;
+let savedScreenRow = 0;
+let savedScreenColumn = 0;
+let parserState = "text";
+let sequence = "";
+const decoder = new TextDecoder();
+const consumeOutput = (chunk) => {
+  for (const character of decoder.decode(chunk, { stream: true })) {
+    if (parserState === "text") {
+      if (character === "\x1b") parserState = "escape";
+      else if (character === "\r") screenColumn = 0;
+      else if (character === "\n") screenRow = Math.min(screen.length - 1, screenRow + 1);
+      else if (character === "\b") screenColumn = Math.max(0, screenColumn - 1);
+      else if (character >= " " && character !== "\x7f") {
+        if (screenRow >= 0 && screenRow < screen.length && screenColumn < output.columns) {
+          screen[screenRow]![screenColumn] = character;
+        }
+        screenColumn += 1;
+        if (screenColumn >= output.columns) {
+          screenColumn = 0;
+          screenRow = Math.min(screen.length - 1, screenRow + 1);
+        }
+      }
+      continue;
+    }
+    if (parserState === "escape") {
+      if (character === "[") {
+        parserState = "csi";
+        sequence = "";
+      } else if (character === "]") {
+        parserState = "osc";
+      } else if (character === "P") {
+        parserState = "dcs";
+      } else if (character === "7") {
+        savedScreenRow = screenRow;
+        savedScreenColumn = screenColumn;
+        parserState = "text";
+      } else if (character === "8") {
+        screenRow = savedScreenRow;
+        screenColumn = savedScreenColumn;
+        parserState = "text";
+      } else {
+        parserState = "text";
+      }
+      continue;
+    }
+    if (parserState === "osc" || parserState === "dcs") {
+      if (character === "\x07") {
+        parserState = "text";
+      } else if (character === "\x1b") {
+        parserState = parserState === "osc" ? "osc-escape" : "dcs-escape";
+      }
+      continue;
+    }
+    if (parserState === "osc-escape" || parserState === "dcs-escape") {
+      parserState = "text";
+      continue;
+    }
+    sequence += character;
+    if (character < "@" || character > "~") continue;
+    const parameters = sequence.slice(0, -1).replace(/^[>?]/u, "").split(";");
+    const value = (index) => {
+      const parsed = Number.parseInt(parameters[index] ?? "", 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+    };
+    switch (character) {
+      case "A":
+        screenRow = Math.max(0, screenRow - value(0));
+        break;
+      case "B":
+      case "e":
+        screenRow = Math.min(screen.length - 1, screenRow + value(0));
+        break;
+      case "C":
+      case "a":
+        screenColumn = Math.min(output.columns - 1, screenColumn + value(0));
+        break;
+      case "D":
+        screenColumn = Math.max(0, screenColumn - value(0));
+        break;
+      case "E":
+        screenRow = Math.min(screen.length - 1, screenRow + value(0));
+        screenColumn = 0;
+        break;
+      case "F":
+        screenRow = Math.max(0, screenRow - value(0));
+        screenColumn = 0;
+        break;
+      case "G":
+      case "\`":
+        screenColumn = Math.min(output.columns - 1, value(0) - 1);
+        break;
+      case "H":
+      case "f":
+        screenRow = Math.min(screen.length - 1, value(0) - 1);
+        screenColumn = Math.min(output.columns - 1, value(1) - 1);
+        break;
+      case "d":
+        screenRow = Math.min(screen.length - 1, value(0) - 1);
+        break;
+      case "J": {
+        const mode = Number.parseInt(parameters[0] ?? "0", 10);
+        if (mode === 2 || mode === 3) {
+          for (const line of screen) line.fill(" ");
+        } else if (mode === 0) {
+          screen[screenRow]!.fill(" ", screenColumn);
+          for (let index = screenRow + 1; index < screen.length; index += 1) {
+            screen[index]!.fill(" ");
+          }
+        }
+        break;
+      }
+      case "K":
+        screen[screenRow]!.fill(" ", screenColumn);
+        break;
+      case "s":
+        savedScreenRow = screenRow;
+        savedScreenColumn = screenColumn;
+        break;
+      case "u":
+        screenRow = savedScreenRow;
+        screenColumn = savedScreenColumn;
+        break;
+    }
+    parserState = "text";
+    sequence = "";
+  }
+};
+const visibleOutput = () => screen.map((line) => line.join("")).join("\n");
+const currentOutput = () => Buffer.concat(outputChunks).toString("utf8");
+const configurationHint =
+  "↑/↓ focus   ←/→ change choice   Space toggle   Enter review   Esc cancel";
+const reviewHint = "↑/↓ choose   Enter confirm   Esc back";
+const waitForOutput = async (afterVersion) => {
+  while (outputVersion <= afterVersion) {
+    await new Promise((resolve) => {
+      outputWaiter = resolve;
+      if (outputVersion > afterVersion) {
+        outputWaiter = undefined;
+        resolve();
+      }
+    });
+  }
+};
+const waitForText = async (text) => {
+  while (!currentOutput().includes(text)) {
+    await waitForOutput(outputVersion);
+  }
+};
+const pushUntilVisible = async (key, predicate) => {
+  input.push(key);
+  while (!predicate()) {
+    await waitForOutput(outputVersion);
+  }
+};
+const wizard = runOpenTuiInstallWizard({}, { stdin: input, stdout: output });
 
-setTimeout(() => input.push("\x1b[B"), 200);
-setTimeout(() => input.push("\x1b[C"), 300);
-setTimeout(() => input.push("\x1b[B"), 400);
-setTimeout(() => input.push(" "), 500);
-setTimeout(() => input.push("\r"), 600);
-setTimeout(() => input.push("\x1b[B"), 700);
-setTimeout(() => input.push("\x1b[B"), 800);
-setTimeout(() => input.push("\r"), 900);
-
-setTimeout(() => input.push("\x1b[B"), 1_200);
-setTimeout(() => input.push("\x1b[B"), 1_300);
-setTimeout(() => input.push("\r"), 1_400);
+await waitForText("HolyCodex  ·  install");
+await waitForText(configurationHint);
+await pushUntilVisible("\x1b[B", () => visibleOutput().includes("❯ Service tier"));
+await pushUntilVisible("\x1b[C", () => /Service tier\s+fast/u.test(visibleOutput()));
+await pushUntilVisible("\x1b[B", () => visibleOutput().includes("❯ Frontend"));
+await pushUntilVisible(" ", () => /Frontend\s+\[ \] disabled/u.test(visibleOutput()));
+await pushUntilVisible(
+  "\r",
+  () => visibleOutput().includes("Review configuration") && visibleOutput().includes(reviewHint),
+);
+await pushUntilVisible("\x1b", () => visibleOutput().includes("❯ Frontend"));
+await pushUntilVisible(
+  "\r",
+  () => visibleOutput().includes("Review configuration") && visibleOutput().includes(reviewHint),
+);
+await pushUntilVisible("\x1b[B", () => visibleOutput().includes("› Change options / Redo"));
+await pushUntilVisible("\x1b[B", () => visibleOutput().includes("› Cancel"));
+input.push("\r");
 
 const result = await wizard;
-const rendered = Buffer.concat(outputChunks).toString("utf8");
+const rendered = currentOutput();
+const visible = visibleOutput();
 realStdout.write(
   "__HOLYCODEX_OPENTUI_PROBE__" +
     JSON.stringify({
       result: result.action,
-      review: rendered.includes("Review configuration"),
-      tier: rendered.includes("Service tier: fast"),
-      frontend: rendered.includes("Frontend") && rendered.includes("disabled"),
+      review: visible.includes("Review configuration"),
+      tier: visible.match(/Service tier:\s+(\S+)/u)?.[1],
+      frontend: visible.match(/Frontend:\s+(\S+)/u)?.[1],
+      hints: currentOutput().includes(configurationHint) && visible.includes(reviewHint),
       noColor: !/\x1b\[(?:1|2|36|1;36|32|33|31)m/u.test(rendered),
     }) +
     "\n",

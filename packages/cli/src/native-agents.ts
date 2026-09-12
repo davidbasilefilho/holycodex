@@ -264,7 +264,17 @@ export function rootDeveloperInstructions(
     ROOT_ORCHESTRATION_POLICY.normalProgressMessages ||
     ROOT_ORCHESTRATION_POLICY.normalHeartbeatMessages ||
     ROOT_ORCHESTRATION_POLICY.normalIntermediateEvidence ||
-    !ROOT_ORCHESTRATION_POLICY.earlyCommunicationRequiresMaterialRootDecision ||
+    !ROOT_ORCHESTRATION_POLICY.userUpdatesUsefulOrImportantOnly ||
+    !ROOT_ORCHESTRATION_POLICY.routinePerToolOrSubagentNarrationForbidden ||
+    !ROOT_ORCHESTRATION_POLICY.routineStatusOnlyChatterForbidden ||
+    !ROOT_ORCHESTRATION_POLICY.fixedCadenceUserUpdatesForbidden ||
+    !ROOT_ORCHESTRATION_POLICY.materialUserUpdateKinds.includes(
+      "significant_findings_or_decisions",
+    ) ||
+    !ROOT_ORCHESTRATION_POLICY.materialUserUpdateKinds.includes(
+      "consequential_blockers_or_input_needs",
+    ) ||
+    !ROOT_ORCHESTRATION_POLICY.materialUserUpdateKinds.includes("release_milestones") ||
     !ROOT_ORCHESTRATION_POLICY.outOfBoundaryRequiresNewAssignment ||
     !ROOT_ORCHESTRATION_POLICY.longestPracticalEventWait ||
     !ROOT_ORCHESTRATION_POLICY.busyPollingForbidden ||
@@ -284,7 +294,7 @@ export function rootDeveloperInstructions(
     "Explicit user instructions override skill guidelines on conflict except genuine HolyCodex hard safety, authority, capability, and lifecycle invariants. Infer routine safe, reversible, in-scope choices and carry authorized read-only, reversible, preparatory, and independent work through implementation, inspection, repair, meaningful proof, required CI, and every requested terminal state. Ask only for a material unresolved choice, a genuine approval boundary such as installation profile approval or remote/public external mutation, user-owned credential entry, or a blocker that can change the outcome; persist needs_root_input when applicable. Out-of-boundary work returns to Root for a new bounded Assignment.",
     "Dispatch independent non-overlapping Assignments concurrently, keep dependent phases ordered, and serialize writes to one mutable seam. Use writing-instructions for GPT-6 model-facing contracts, add only the missing semantic delta for the receiver's effective context, and keep each meaning with one authoritative owner.",
     "Make each phase a coherent dependency, decision, or integration boundary. Resolve choices needed by the current phase, persist Plan and Assignment evidence, and advance after acceptance; do not ask later-phase questions prematurely.",
-    "Normal operation emits no progress, heartbeat, or intermediate evidence messages. Communicate early only when a material Root-owned decision is required to proceed; otherwise wait for terminal specialist outcomes and persisted lifecycle state.",
+    "Give the user only useful or important information. Do not output after every tool use or subagent update, emit routine status-only chatter or heartbeat messages, or follow a fixed update cadence. Material updates include significant findings or decisions, consequential blockers or input needs, and release milestones. Preserve native Astra Default questions, including asking while independent work proceeds; this rule adds no question protocol.",
     "Use the longest practical event wait and never busy-poll or run status-only coordination loops. Batch independent lifecycle actions and stop or release specialist leaves once their accepted terminal outcomes are recorded.",
     `${TESTING_POLICY.rule} Do not add tests for low-impact reversible changes when they merely mirror implementation details. Once relevant proof passes, broaden or repeat it only after another source change, a failure, or an unresolved material concern. Mandatory repository gates and Reviewer.code remain required. Inspect specialist evidence before integration; Worker.validation supplies independent local proof without replacing implementation proof or Reviewer.code. Reviewer.code fixed-point review is mandatory after implementation or a major codebase change and before completion or VCS.`,
     `For current technical documentation, Librarian.lookup and Librarian.research resolve the library identity and use Context7 before model memory or generic web, query narrowly, and return one typed evidence state (${LIBRARIAN_CONTEXT7_POLICY.evidenceStates.join(" | ")}) in the context7 field with version/source evidence. Fallback is allowed only for one of those states or an absent required version; authoritative first-party documentation resolves conflicts. Context7 supplies facts while Root owns material product, architecture, dependency, compatibility, and implementation decisions.`,

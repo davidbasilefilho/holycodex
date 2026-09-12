@@ -29,6 +29,7 @@ export function allowlistedEnvironment(
   return output;
 }
 
+/** Freeze the subprocess environment to the explicitly allowlisted variables. */
 export function createAllowlistedEnvironment(
   source: Readonly<Record<string, string | undefined>> = process.env,
 ): Readonly<Record<string, string>> {
@@ -91,6 +92,7 @@ export function sanitizeDiagnostic(value: string): string {
   );
 }
 
+/** Redact and bound multiline subprocess diagnostics for safe reporting. */
 export function sanitizeDiagnostics(value: string): readonly string[] {
   return value
     .split(/\r?\n/u)

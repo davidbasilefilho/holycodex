@@ -93,6 +93,7 @@ export type GeneratedMultiAgentV2LifecycleStatus = GeneratedV2LifecycleRequest e
 export const GENERATED_MULTI_AGENT_V2_LIFECYCLE_STATUS: GeneratedMultiAgentV2LifecycleStatus =
   "unverified";
 
+/** Report whether the generated wire surface exposes a V2 multi-agent lifecycle request. */
 export function generatedMultiAgentV2LifecycleStatus(): GeneratedMultiAgentV2LifecycleStatus {
   return GENERATED_MULTI_AGENT_V2_LIFECYCLE_STATUS;
 }

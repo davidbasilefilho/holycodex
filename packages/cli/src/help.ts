@@ -83,6 +83,7 @@ Usage:
   holycodex -v
 `;
 
+/** Return the static help text for a supported topic or the top-level CLI. */
 export function helpText(topic?: string): string {
   switch (topic) {
     case "install":
@@ -121,12 +122,14 @@ export function renderHelp(topic?: string, options: HumanRenderOptions = {}): st
     .join("\n");
 }
 
+/** Check whether CLI arguments request help output. */
 export function helpRequested(argv: readonly string[]): boolean {
   return argv.some(
     (argument) => argument === "-h" || argument === "--help" || argument === "--help=true",
   );
 }
 
+/** Extract the help topic implied by CLI arguments, when one is present. */
 export function helpTopic(argv: readonly string[]): string | undefined {
   const words = argv.filter((argument) => !argument.startsWith("-"));
   if (words[0] === "help") return words[1];

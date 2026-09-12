@@ -39,14 +39,17 @@ export async function readPublicManifest(
   return parsed;
 }
 
+/** Read the canonical public package version from the validated manifest. */
 export async function readCanonicalVersion(path = publicManifestPath): Promise<string> {
   return (await readPublicManifest(path))["version"];
 }
 
+/** Read the canonical version without an optional development suffix. */
 export async function readCanonicalBaseVersion(path = publicManifestPath): Promise<string> {
   return (await readCanonicalVersion(path)).split("-", 1)[0] ?? "";
 }
 
+/** Resolve and optionally persist a canonical package version update. */
 export async function updateCanonicalVersion(
   target: string,
   dryRun: boolean,

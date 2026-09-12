@@ -115,14 +115,17 @@ function canonicalize(value: unknown, path: string, ancestors: Set<object>): str
   }
 }
 
+/** Canonicalize a JSON-compatible value with sorted object keys and strict structure checks. */
 export function canonicalJson(value: unknown): string {
   return canonicalize(value, "$", new Set<object>());
 }
 
+/** Encode the canonical JSON representation of a value as UTF-8 bytes. */
 export function canonicalJsonUtf8(value: unknown): Uint8Array {
   return new TextEncoder().encode(canonicalJson(value));
 }
 
+/** Validate an identity record and encode its canonical JSON representation as UTF-8. */
 export function canonicalIdentityUtf8(input: unknown): Uint8Array {
   const parsed = parseIdentityInput(input);
   if (!parsed.ok) {
@@ -131,6 +134,7 @@ export function canonicalIdentityUtf8(input: unknown): Uint8Array {
   return canonicalJsonUtf8(parsed.value);
 }
 
+/** Frame a domain and ordered byte parts into the deterministic SHA-256 input format. */
 export function composeDigestInput(domain: string, parts: readonly Uint8Array[]): Uint8Array {
   if (domain.length === 0 || domain.includes("\u0000")) {
     throw new CoreError("invalid_digest_domain", "Digest domains must be non-empty and NUL-free.", {
@@ -174,6 +178,7 @@ function bytesToHex(bytes: Uint8Array): string {
   return result;
 }
 
+/** Hash framed byte parts under a validated HolyCodex digest domain. */
 export async function domainSeparatedSha256(
   domain: string,
   parts: readonly Uint8Array[],

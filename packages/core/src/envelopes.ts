@@ -169,6 +169,7 @@ export const CapabilityResultV2Schema = Schema.Union(
 );
 export type CapabilityResultV2 = typeof CapabilityResultV2Schema.Type;
 
+/** Decode an unknown value as a typed V2 capability result envelope. */
 export function parseCapabilityResultV2(input: unknown): CoreResult<CapabilityResultV2> {
   const parsed = decodeUnknown(CapabilityResultV2Schema, input);
   if (Either.isLeft(parsed)) {
@@ -177,6 +178,7 @@ export function parseCapabilityResultV2(input: unknown): CoreResult<CapabilityRe
   return success(parsed.right);
 }
 
+/** Adapt a capability result into a specialist outcome for the expected route. */
 export function specialistOutcomeFromCapabilityResult(
   result: CapabilityResultV2,
   expectedCapability: typeof CapabilityNameSchema.Type,
@@ -259,6 +261,7 @@ export function parseSpecialistOutcome(input: unknown): CoreResult<SpecialistOut
   return success(parsed.right);
 }
 
+/** Decode an unknown value as a typed V2 specialist outcome envelope. */
 export function parseSpecialistOutcomeV2(input: unknown): CoreResult<SpecialistOutcomeV2> {
   const parsed = decodeUnknown(SpecialistOutcomeV2Schema, input);
   if (Either.isLeft(parsed)) {
@@ -332,6 +335,7 @@ function normalizeLegacyOutcome(
   }
 }
 
+/** Decode a V2 outcome or normalize a compatible legacy outcome for the expected route. */
 export function normalizeSpecialistOutcome(
   input: unknown,
   expectedRoute: RoleTask,
@@ -354,6 +358,7 @@ export function normalizeSpecialistOutcome(
   return failure(inputError("specialist outcome", legacy.left));
 }
 
+/** Decode an unknown value as the validated CLI success or failure envelope. */
 export function parseCliEnvelope(input: unknown): CoreResult<CliEnvelope> {
   const parsed = decodeUnknown(CliEnvelopeSchema, input);
   if (Either.isLeft(parsed)) {

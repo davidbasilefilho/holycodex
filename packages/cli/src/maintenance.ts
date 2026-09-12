@@ -27,6 +27,7 @@ import {
   serializeConfig,
   InstallerError,
   installHolyCodex,
+  isTransactionBoundToActive,
 } from "./installer.ts";
 import { asJsonValue } from "./json.ts";
 import { readCanonicalBaseVersion } from "./manifest.ts";
@@ -66,6 +67,7 @@ import type {
   ManagedConflict,
 } from "./types.ts";
 
+/** Inspect HolyCodex paths, records, runtime configuration, plugins, and tooling health. */
 export async function doctorHolyCodex(
   options: InstallerOptions = {},
   environment: Readonly<Record<string, string | undefined>> = process.env,
@@ -244,11 +246,6 @@ export async function inspectRemovalConflicts(
   await assertNoSymlinkTree(paths.codexHome);
   await assertNoSymlinkTree(paths.stateRoot);
   const active = await readActiveInstallRecord(paths);
-  const [preparing, conflicted] = await Promise.all([
-    optionalJsonFile(paths.preparingRecord, InstallTransactionSchema),
-    optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema),
-  ]);
-  const recovery = conflicted ?? preparing ?? active;
   if (active !== undefined && !(await recordDigestMatches(active))) {
     throw new InstallerError(
       "state_corrupt",
@@ -257,6 +254,11 @@ export async function inspectRemovalConflicts(
       { path: paths.activeRecord },
     );
   }
+  const [preparing, conflicted] = await Promise.all([
+    optionalJsonFile(paths.preparingRecord, InstallTransactionSchema),
+    optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema),
+  ]);
+  const recovery = selectRecoveryState(active, preparing, conflicted);
   if (recovery === undefined) return [];
   const document = parseConfig(await optionalTextFile(paths.configFile));
   const conflicts: (ManagedConflict & { readonly action: "remove" })[] = [];
@@ -299,6 +301,7 @@ export async function inspectRemovalConflicts(
   return [...new Map(conflicts.map((conflict) => [conflictIdentity(conflict), conflict])).values()];
 }
 
+/** Remove HolyCodex-owned state while preserving unrelated or user-modified data. */
 export async function removeHolyCodex(
   options: InstallerOptions = {},
   environment: Readonly<Record<string, string | undefined>> = process.env,
@@ -307,15 +310,19 @@ export async function removeHolyCodex(
   await assertNoSymlinkTree(paths.codexHome);
   await assertNoSymlinkTree(paths.stateRoot);
   const active = await readActiveInstallRecord(paths);
+  if (active && !(await recordDigestMatches(active))) {
+    throw new InstallerError(
+      "state_corrupt",
+      "The HolyCodex ownership record has an invalid digest and cannot authorize removal.",
+      undefined,
+      { path: paths.activeRecord },
+    );
+  }
   const [preparing, conflicted] = await Promise.all([
     optionalJsonFile(paths.preparingRecord, InstallTransactionSchema),
     optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema),
   ]);
-  // A conflicted or preparing transaction is newer than the last active
-  // record.  Prefer it so removal can account for plugins/configuration
-  // touched by an interrupted reinstall instead of silently leaving those
-  // newly-owned effects behind while consulting stale active state.
-  const recovery = conflicted ?? preparing ?? active;
+  const recovery = selectRecoveryState(active, preparing, conflicted);
   reportProgress(options, {
     stage: "removal",
     status: "started",
@@ -325,14 +332,6 @@ export async function removeHolyCodex(
   const removed: string[] = [];
   const preserved: string[] = [];
   const reasons: string[] = [];
-  if (active && !(await recordDigestMatches(active))) {
-    throw new InstallerError(
-      "state_corrupt",
-      "The HolyCodex ownership record has an invalid digest and cannot authorize removal.",
-      undefined,
-      { path: paths.activeRecord },
-    );
-  }
   if (recovery === undefined) {
     reportProgress(options, {
       stage: "removal",
@@ -659,21 +658,22 @@ export async function upgradeHolyCodex(
     optionalJsonFile(paths.preparingRecord, InstallTransactionSchema),
     optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema),
   ]);
-  const source = conflicted ?? preparing ?? active;
-  if (source === undefined) {
-    throw new InstallerError(
-      "not_installed",
-      "HolyCodex is not installed in the selected Codex home.",
-      undefined,
-      { recovery: "Run `holycodex install --yes` first." },
-    );
-  }
   if (active !== undefined && !(await recordDigestMatches(active))) {
     throw new InstallerError(
       "state_corrupt",
       "The existing HolyCodex configuration has changed and cannot be upgraded safely.",
       undefined,
       { path: paths.activeRecord },
+    );
+  }
+  const transaction = selectRecoveryTransaction(active, preparing, conflicted);
+  const source = transaction ?? active;
+  if (source === undefined) {
+    throw new InstallerError(
+      "not_installed",
+      "HolyCodex is not installed in the selected Codex home.",
+      undefined,
+      { recovery: "Run `holycodex install --yes` first." },
     );
   }
   let targetVersion: string;
@@ -760,7 +760,7 @@ export async function upgradeHolyCodex(
     ...(ordering > 0 || legacyContext
       ? ["Root/session configuration", "specialist role definitions"]
       : []),
-    ...((conflicted ?? preparing) ? ["interrupted transaction recovery"] : []),
+    ...(transaction ? ["interrupted transaction recovery"] : []),
     ...(toolingDrift ? ["shared tooling reconciliation"] : []),
     ...dryRunConflictInventory.map(
       (conflict) =>
@@ -1016,6 +1016,26 @@ type PersistedInstallState = Omit<InstallRecord, "status" | "step"> & {
     | "conflicted"
     | undefined;
 };
+
+function selectRecoveryTransaction(
+  active: InstallRecord | undefined,
+  preparing: PersistedInstallState | undefined,
+  conflicted: PersistedInstallState | undefined,
+): PersistedInstallState | undefined {
+  return [conflicted, preparing].find(
+    (transaction) =>
+      transaction !== undefined &&
+      (active === undefined || isTransactionBoundToActive(transaction, active)),
+  );
+}
+
+function selectRecoveryState(
+  active: InstallRecord | undefined,
+  preparing: PersistedInstallState | undefined,
+  conflicted: PersistedInstallState | undefined,
+): PersistedInstallState | InstallRecord | undefined {
+  return selectRecoveryTransaction(active, preparing, conflicted) ?? active;
+}
 
 function emptyRemovalState(): InstallRecord {
   return {

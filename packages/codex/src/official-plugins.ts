@@ -906,6 +906,7 @@ function containsMcpDeclaration(value: unknown): boolean {
   return false;
 }
 
+/** Decode an official plugin manifest and reject payloads containing MCP declarations. */
 export function parseOfficialPluginManifest(input: unknown): CodexResult<OfficialPluginManifest> {
   if (containsMcpDeclaration(input)) {
     return failure(
@@ -918,6 +919,7 @@ export function parseOfficialPluginManifest(input: unknown): CodexResult<Officia
   return success(checked(OfficialPluginManifestSchema, input, "official plugin manifest"));
 }
 
+/** Validate an official plugin manifest and mark it as not explicitly selected. */
 export function verifyOfficialPluginManifest(input: unknown): OfficialPluginVerification {
   const parsed = parseOfficialPluginManifest(input);
   if (!parsed.ok) {
@@ -926,6 +928,7 @@ export function verifyOfficialPluginManifest(input: unknown): OfficialPluginVeri
   return { manifest: parsed.value, explicitlySelected: false };
 }
 
+/** Read and validate an official plugin manifest from a regular plugin root file. */
 export async function verifyOfficialPluginManifestFile(
   pluginRoot: string,
 ): Promise<OfficialPluginVerification> {
@@ -981,6 +984,7 @@ export const OfficialPluginSelectionSchema = Schema.Struct({
 });
 export type OfficialPluginSelection = typeof OfficialPluginSelectionSchema.Type;
 
+/** Validate explicit official plugin selections and return their corresponding manifests. */
 export function selectOfficialPlugins(
   available: readonly OfficialPluginManifest[],
   selections: readonly OfficialPluginSelection[],
@@ -1069,6 +1073,7 @@ export function isRecognizedOfficialPluginName(name: string): boolean {
   return (OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES as readonly string[]).includes(name);
 }
 
+/** Decode the Codex plugin list response used to reconcile official providers. */
 export function parseLiveOfficialPluginList(
   input: unknown,
 ): CodexResult<LiveOfficialPluginListEnvelope> {
@@ -1134,6 +1139,7 @@ export class OfficialPluginAdapterError extends Error {
   }
 }
 
+/** Create the command-backed adapter for listing, installing, and removing Codex plugins. */
 export function createOfficialPluginAdapter(
   options: OfficialPluginAdapterOptions,
 ): OfficialPluginAdapter {

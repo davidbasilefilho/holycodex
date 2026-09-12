@@ -142,6 +142,22 @@ type PreparingTransaction = Omit<InstallRecord, "status" | "step"> & {
   readonly owned_plugins: readonly string[];
 };
 
+/**
+ * Return whether a persisted transaction belongs to the active installation baseline it is allowed
+ * to reconcile.
+ *
+ * Transactions deliberately carry the active record's installation identity and digest while
+ * effects are being applied. This relation lets recovery ignore a stale transaction left after a
+ * newer active record was published; it does not attempt to authenticate same-user filesystem
+ * state.
+ */
+export function isTransactionBoundToActive(
+  transaction: Readonly<Pick<InstallRecord, "install_id" | "digest">>,
+  active: Readonly<Pick<InstallRecord, "install_id" | "digest">>,
+): boolean {
+  return transaction.install_id === active.install_id && transaction.digest === active.digest;
+}
+
 const HOLYCODEX_MARKETPLACE_URL = "https://github.com/davidbasilefilho/holycodex.git" as const;
 const HOLYCODEX_PLUGIN_CONFIG_KEY = "holycodex@holycodex";
 const HOLYCODEX_MARKETPLACE_CONFIG_KEY = "holycodex";
@@ -153,6 +169,7 @@ const LEGACY_WORK_PLUGIN_NAMES = new Set([
   "template-creator",
 ]);
 
+/** Install or reconcile HolyCodex state, plugins, native agents, and managed configuration. */
 export async function installHolyCodex(
   request: InstallRequest = {},
   options: InstallerOptions = {},
@@ -167,9 +184,22 @@ export async function installHolyCodex(
     status: "started",
     message: "Validating Codex target",
   });
+  const previous = await readActiveInstallRecord(paths);
+  if (previous !== undefined && !(await recordDigestMatches(previous))) {
+    throw new InstallerError(
+      "state_corrupt",
+      "The existing HolyCodex configuration has changed and cannot be replaced.",
+      undefined,
+      { path: paths.activeRecord },
+    );
+  }
   const preparing = await optionalJsonFile(paths.preparingRecord, InstallTransactionSchema);
   const conflicted = await optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema);
-  const interrupted = conflicted ?? preparing;
+  const interrupted = [conflicted, preparing].find(
+    (transaction) =>
+      transaction !== undefined &&
+      (previous === undefined || isTransactionBoundToActive(transaction, previous)),
+  );
   if (interrupted !== undefined) {
     const { removeHolyCodex } = await import("./maintenance.ts");
     const recovery = await removeHolyCodex(options, environment);
@@ -198,15 +228,6 @@ export async function installHolyCodex(
       },
       options,
       environment,
-    );
-  }
-  const previous = await readActiveInstallRecord(paths);
-  if (previous !== undefined && !(await recordDigestMatches(previous))) {
-    throw new InstallerError(
-      "state_corrupt",
-      "The existing HolyCodex configuration has changed and cannot be replaced.",
-      undefined,
-      { path: paths.activeRecord },
     );
   }
   const profile = chooseProfile(request.profile, previous?.profile);
@@ -273,6 +294,12 @@ export async function installHolyCodex(
 
   const installId = previous?.install_id ?? crypto.randomUUID().replaceAll("-", "");
   const version = await readCanonicalBaseVersion();
+  const refreshPluginIds =
+    previous !== undefined &&
+    previous.version !== version &&
+    previous.owned_plugins?.includes(HOLYCODEX_PLUGIN) === true
+      ? new Set([HOLYCODEX_PLUGIN])
+      : new Set<string>();
   const installedAt = (options.now?.() ?? new Date()).toISOString();
   const configBefore = await optionalTextFile(paths.configFile);
   const configInputDocument = parseConfig(configBefore);
@@ -562,6 +589,7 @@ export async function installHolyCodex(
     await installAndVerify(
       nativeManager,
       [HOLYCODEX_PLUGIN, ...providerPlugins],
+      refreshPluginIds,
       (id, mutation) => {
         if (mutation === "new") {
           addedPlugins.add(id);
@@ -807,6 +835,7 @@ export async function installHolyCodex(
   }
 }
 
+/** Read and, when needed, migrate the active install record after validating its digest. */
 export async function readActiveInstallRecord(
   paths: ResolvedInstallerPaths,
 ): Promise<InstallRecord | undefined> {
@@ -1584,9 +1613,11 @@ function isLegacyWorkPlugin(pluginId: string): boolean {
 async function installAndVerify(
   manager: Required<Pick<OfficialPluginManager, "list" | "add">>,
   ids: readonly string[],
+  refreshIds: ReadonlySet<string> = new Set(),
   onMutation?: (id: string, mutation: "new" | "uncertain") => void,
 ): Promise<void> {
   for (const id of ids) {
+    const refresh = refreshIds.has(id);
     let before;
     try {
       before = findPlugin(await manager.list(), id);
@@ -1596,14 +1627,14 @@ async function installAndVerify(
     if (before?.installed && !before.enabled) {
       throw new PluginVerificationError("uncertain", `${id} is disabled`);
     }
-    const addAttempted = !(before?.installed && before.enabled);
-    if (!(before?.installed && before.enabled)) {
+    const addAttempted = refresh || !(before?.installed && before.enabled);
+    if (addAttempted) {
       try {
         await manager.add(id);
       } catch (error: unknown) {
         try {
           const afterFailure = findPlugin(await manager.list(), id);
-          if (!samePluginState(before, afterFailure)) onMutation?.(id, "uncertain");
+          if (refresh || !samePluginState(before, afterFailure)) onMutation?.(id, "uncertain");
         } catch {
           onMutation?.(id, "uncertain");
         }
@@ -1618,12 +1649,14 @@ async function installAndVerify(
       throw wrapPluginManagerError("list", error, id);
     }
     if (!after?.installed) {
-      if (addAttempted && !samePluginState(before, after)) onMutation?.(id, "uncertain");
+      if (addAttempted && (refresh || !samePluginState(before, after))) {
+        onMutation?.(id, "uncertain");
+      }
       throw new PluginVerificationError("missing", `${id} is not installed after add`);
     }
-    if (addAttempted && after.enabled) onMutation?.(id, "new");
+    if (addAttempted && after.enabled) onMutation?.(id, refresh ? "uncertain" : "new");
     if (!after.enabled) {
-      if (addAttempted) onMutation?.(id, "new");
+      if (addAttempted) onMutation?.(id, refresh ? "uncertain" : "new");
       throw new PluginVerificationError("uncertain", `${id} is disabled after add`);
     }
   }
@@ -1756,6 +1789,7 @@ type InstallRecordDigestInput = {
   readonly tooling?: InstallRecord["tooling"] | undefined;
 };
 
+/** Compute the domain-separated digest that authenticates an install ownership record. */
 export async function installRecordDigest(value: InstallRecordDigestInput): Promise<string> {
   const { profile, plan, ...rest } = value;
   const payload = plan === undefined ? { ...rest, profile } : { ...rest, plan };

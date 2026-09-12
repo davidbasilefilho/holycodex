@@ -31,6 +31,7 @@ import {
 } from "./source.ts";
 import type { PayloadIdentity, VerifiedPayload } from "./types.ts";
 
+/** Verify staged plugin metadata, files, canonical bytes, and aggregate identity. */
 export async function verifyPayload(input: unknown): Promise<VerifiedPayload> {
   const stagingDirectory = parsePayloadLocation(input);
   const root = await resolveStagingRoot(stagingDirectory);

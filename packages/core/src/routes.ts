@@ -299,12 +299,14 @@ export const GENERIC_BUILTIN_AGENT_TYPES = Object.freeze([
 ] as const);
 export type GenericBuiltinAgentType = (typeof GENERIC_BUILTIN_AGENT_TYPES)[number];
 
+/** Resolve a concrete route to its native Codex agent type. */
 export function nativeAgentTypeFor(route: RoleTask): NativeAgentType {
   const value = `${route.role}.${route.task}`;
   if (!nativeAgentTypeSet.has(value)) throw new Error("Unknown native specialist agent type.");
   return value as NativeAgentType;
 }
 
+/** Return the model-facing instruction assigned to a concrete specialist route. */
 export function taskInstructionFor(route: RoleTask): string {
   const task = roleDefinitionsByName
     .get(route.role)
@@ -313,6 +315,7 @@ export function taskInstructionFor(route: RoleTask): string {
   return task.instruction;
 }
 
+/** Return the human-facing description assigned to a concrete specialist route. */
 export function taskDescriptionFor(route: RoleTask): string {
   const task = roleDefinitionsByName
     .get(route.role)
@@ -321,6 +324,7 @@ export function taskDescriptionFor(route: RoleTask): string {
   return task.description;
 }
 
+/** Look up the complete task policy for a specialist role. */
 export function lookupRoleDefinition(role: Role): RoleDefinition {
   const definition = roleDefinitionsByName.get(role);
   if (definition === undefined) {
@@ -600,11 +604,19 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   normalSpawnUsesConcreteRegisteredAgentType: true,
   assignmentContextIsTaskSpecificOnly: true,
   configuredRouteModelAndEffortPreserved: true,
-  /** Routine coordination stays quiet until a terminal result or material Root decision exists. */
+  /** Root user updates contain useful or important information only. */
   normalProgressMessages: false,
   normalHeartbeatMessages: false,
   normalIntermediateEvidence: false,
-  earlyCommunicationRequiresMaterialRootDecision: true,
+  userUpdatesUsefulOrImportantOnly: true,
+  routinePerToolOrSubagentNarrationForbidden: true,
+  routineStatusOnlyChatterForbidden: true,
+  fixedCadenceUserUpdatesForbidden: true,
+  materialUserUpdateKinds: Object.freeze([
+    "significant_findings_or_decisions",
+    "consequential_blockers_or_input_needs",
+    "release_milestones",
+  ] as const),
   outOfBoundaryRequiresNewAssignment: true,
   /** Root waits and batches lifecycle work instead of polling or coordinating status-only loops. */
   longestPracticalEventWait: true,

@@ -201,6 +201,8 @@ export type Context7ToolState = Readonly<{
   readonly version: string;
   readonly executable: string;
   readonly ownership: "user" | "holycodex";
+  /** Digest of the verified manager, package, and executable provenance. */
+  readonly identity?: string | undefined;
 }>;
 
 export type InstallerToolingState = Readonly<{

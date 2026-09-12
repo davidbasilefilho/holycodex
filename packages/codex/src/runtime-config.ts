@@ -202,6 +202,7 @@ export const ManagedConfigKeyPathSchema = Schema.declare(
   (value: unknown): value is ManagedConfigKeyPath => isManagedConfigKeyPath(value),
 );
 
+/** Check whether a value names a root or native-agent config path managed by HolyCodex. */
 export function isManagedConfigKeyPath(value: unknown): value is ManagedConfigKeyPath {
   if (typeof value !== "string") return false;
   if ((ROOT_CONFIG_KEY_PATHS as readonly string[]).includes(value)) return true;
@@ -384,6 +385,7 @@ function isManagedRuntimeConfigEntry(value: unknown): value is ManagedRuntimeCon
   );
 }
 
+/** Check whether a value is a structurally valid managed runtime config state. */
 export function isManagedRuntimeConfigState(value: unknown): value is ManagedRuntimeConfigState {
   if (
     !isPlainObject(value) ||
@@ -403,6 +405,7 @@ export function isManagedRuntimeConfigState(value: unknown): value is ManagedRun
   );
 }
 
+/** Create empty managed runtime config state for an install identity. */
 export function createManagedRuntimeConfigState(
   metadata: Readonly<{ readonly schema: string; readonly installId: string }>,
 ): ManagedRuntimeConfigState {
@@ -428,6 +431,7 @@ function isRelativeConfigPath(value: string): boolean {
   );
 }
 
+/** Normalize a safe relative agent config path to slash-separated form. */
 export function normalizeRelativeConfigPath(value: string): string {
   if (!isRelativeConfigPath(value)) throw invalidData("relative config path", "[redacted]");
   return value

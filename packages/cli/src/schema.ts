@@ -105,6 +105,7 @@ const Context7ToolStateSchema = Schema.Struct({
   version: VersionSchema,
   executable: Schema.String,
   ownership: Schema.Literal("user", "holycodex"),
+  identity: Schema.optional(DigestSchema),
 });
 export const InstallerToolingStateSchema = Schema.Struct({
   git_bash: GitBashStateSchema,

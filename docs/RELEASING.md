@@ -36,7 +36,7 @@ Run the local gate from the exact checkout:
 
 1. Validate manifests, lockfile, generated assets, documentation links,
    version authority, provenance, and third-party notices.
-2. Run OXC/TypeScript checks and the full Bun test suite.
+2. Run `bun run lint` for OXC's type-aware checks and the full Bun test suite.
 3. Build/bundle the package with Bun and verify dependency, license, and
    architecture rules.
 4. Pack the public artifact with `bun pm pack` and exercise isolated install

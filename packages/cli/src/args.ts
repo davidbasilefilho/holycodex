@@ -71,6 +71,7 @@ export class ArgumentError extends Error {
   }
 }
 
+/** Parse CLI tokens into a validated command, positional arguments, and normalized options. */
 export function parseArgv(argv: readonly string[]): ParsedCommand {
   if (argv.length === 0) throw new ArgumentError("unknown_command", "A command is required.");
   if (argv.includes("-h") || argv.includes("--help") || argv.includes("--help=true")) {

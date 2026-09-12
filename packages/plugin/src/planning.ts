@@ -23,6 +23,7 @@ import { compareFiles, readSourceFile, resolveSourceRoot, walkSource } from "./s
 import type { AssemblyPlan, SourceFile, SourceValidation } from "./types.ts";
 import { canonicalJsonBytes, createIdentity, digestPayload, sha256 } from "./verification.ts";
 
+/** Validate a plugin source tree against its manifest and file size bounds. */
 export async function validateSource(input: unknown = pluginSourceRoot): Promise<SourceValidation> {
   const sourceRoot = parseDirectoryText(input, "sourceRoot");
   const root = await resolveSourceRoot(sourceRoot);
@@ -84,6 +85,7 @@ export async function validateSource(input: unknown = pluginSourceRoot): Promise
   return { sourceRoot: root, manifest, files };
 }
 
+/** Build the deterministic file, digest, identity, and staging plan for a plugin payload. */
 export async function planAssembly(input: unknown): Promise<AssemblyPlan> {
   const request = parseAssemblyRequest(input);
   const source = await validateSource(request.sourceRoot);

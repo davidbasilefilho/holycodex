@@ -23,6 +23,7 @@ export interface ResolvedInstallerPaths extends InstallerPaths {
   readonly configFile: string;
 }
 
+/** Resolve the Codex home and all HolyCodex-owned state paths. */
 export function resolveInstallerPaths(
   options: InstallerOptions = {},
   environment: Readonly<Record<string, string | undefined>> = process.env,
@@ -55,6 +56,7 @@ export class PathBoundaryError extends Error {
   }
 }
 
+/** Validate and normalize an absolute managed-root path within the platform boundary rules. */
 export function assertRootText(
   value: string,
   label: string,
@@ -126,6 +128,7 @@ export async function assertNoSymlinkTree(path: string): Promise<void> {
   await assertNoSymlink(path);
 }
 
+/** Return whether a child path is strictly contained within a root path. */
 export function pathWithin(
   root: string,
   child: string,

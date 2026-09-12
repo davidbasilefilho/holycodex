@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "bun:test";
-import { dirname, join, resolve } from "node:path";
+import { win32 } from "node:path";
 
 import {
   WINDOWS_GIT_BASH,
@@ -20,13 +20,15 @@ import type {
   InstallerRuntime,
 } from "./types.ts";
 
+type Context7StateWithIdentity = Context7ToolState & { readonly identity?: string | undefined };
+
 const success = (stdout = ""): InstallerProcessResult => ({ exitCode: 0, stdout, stderr: "" });
 const failure = (stderr = "failed"): InstallerProcessResult => ({
   exitCode: 1,
   stdout: "",
   stderr,
 });
-const normalized = (path: string): string => resolve(path).replaceAll("\\", "/").toLowerCase();
+const normalized = (path: string): string => win32.resolve(path).toLowerCase();
 
 describe("installer tooling", () => {
   test("accepts only bunx, npx, and pnpm dlx launcher metadata", () => {
@@ -168,15 +170,77 @@ describe("installer tooling", () => {
 
   test("records a new install as HolyCodex-owned and preserves prior user origin on repair", async () => {
     const fresh = context7Runtime({ family: "npm", latest: "2.0.0" });
-    await expect(ensureContext7(fresh.runtime, true)).resolves.toMatchObject({
+    const freshState = await ensureContext7(fresh.runtime, true);
+    expect(freshState).toMatchObject({
       version: "2.0.0",
       ownership: "holycodex",
     });
+    expect((freshState as Context7StateWithIdentity).identity).toMatch(/^[0-9a-f]{64}$/u);
 
-    const repaired = context7Runtime({ family: "npm", latest: "2.0.0" });
+    const repaired = context7Runtime({ family: "npm", installed: "2.0.0", latest: "2.0.0" });
     await expect(
-      ensureContext7(repaired.runtime, true, context7State(fresh.shim, "user")),
+      ensureContext7(repaired.runtime, true, context7State(freshState.executable, "user", "npm")),
     ).resolves.toMatchObject({ ownership: "user" });
+  });
+
+  test("retains ownership through a same-manager update with matching provenance", async () => {
+    const original = context7Runtime({ family: "bun", latest: "1.0.0" });
+    const previous = await ensureContext7(original.runtime, true);
+    expect(previous.ownership).toBe("holycodex");
+
+    const updated = context7Runtime({ family: "bun", installed: "1.0.0", latest: "2.0.0" });
+    await expect(ensureContext7(updated.runtime, true, previous)).resolves.toMatchObject({
+      version: "2.0.0",
+      ownership: "holycodex",
+    });
+    expect(updated.installs()).toBe(1);
+  });
+
+  test("drops ownership after manager migration or same-version replacement", async () => {
+    const original = context7Runtime({ family: "bun", latest: "2.0.0" });
+    const previous = await ensureContext7(original.runtime, true);
+    expect(previous.ownership).toBe("holycodex");
+
+    const migrated = context7Runtime({ family: "npm", installed: "2.0.0", latest: "2.0.0" });
+    await expect(ensureContext7(migrated.runtime, true, previous)).resolves.toMatchObject({
+      ownership: "user",
+    });
+    await expect(removeOwnedContext7(migrated.runtime, previous)).resolves.toBe(false);
+    expect(migrated.removes()).toBe(0);
+
+    const replaced = context7Runtime({
+      family: "bun",
+      installed: "2.0.0",
+      latest: "2.0.0",
+      packageRevision: "replacement",
+    });
+    await expect(ensureContext7(replaced.runtime, true, previous)).resolves.toMatchObject({
+      ownership: "user",
+    });
+    await expect(removeOwnedContext7(replaced.runtime, previous)).resolves.toBe(false);
+    expect(replaced.removes()).toBe(0);
+
+    const relocated = context7Runtime({
+      family: "bun",
+      installed: "2.0.0",
+      latest: "2.0.0",
+      root: "C:\\Users\\different",
+    });
+    await expect(ensureContext7(relocated.runtime, true, previous)).resolves.toMatchObject({
+      ownership: "user",
+    });
+    await expect(removeOwnedContext7(relocated.runtime, previous)).resolves.toBe(false);
+    expect(relocated.removes()).toBe(0);
+  });
+
+  test("fails closed for legacy 0.16.x ownership records without provenance", async () => {
+    const fixture = context7Runtime({ family: "bun", installed: "2.0.0", latest: "2.0.0" });
+    const legacy = context7State(fixture.shim, "holycodex");
+    await expect(ensureContext7(fixture.runtime, true, legacy)).resolves.toMatchObject({
+      ownership: "user",
+    });
+    await expect(removeOwnedContext7(fixture.runtime, legacy)).resolves.toBe(false);
+    expect(fixture.removes()).toBe(0);
   });
 
   test("doctor detects missing and outdated manager-owned Context7 state", async () => {
@@ -244,10 +308,12 @@ describe("installer tooling", () => {
   });
 
   test("removes only a matching recorded HolyCodex installation", async () => {
+    const provenance = context7Runtime({ family: "bun", latest: "2.0.0" });
+    const ownedState = await ensureContext7(provenance.runtime, true);
+    expect(ownedState.ownership).toBe("holycodex");
+
     const owned = context7Runtime({ family: "bun", installed: "2.0.0", latest: "2.0.0" });
-    await expect(
-      removeOwnedContext7(owned.runtime, context7State(owned.shim, "holycodex")),
-    ).resolves.toBe(true);
+    await expect(removeOwnedContext7(owned.runtime, ownedState)).resolves.toBe(true);
     expect(owned.removes()).toBe(1);
 
     const user = context7Runtime({ family: "bun", installed: "2.0.0", latest: "2.0.0" });
@@ -257,9 +323,7 @@ describe("installer tooling", () => {
     expect(user.removes()).toBe(0);
 
     const drifted = context7Runtime({ family: "bun", installed: "3.0.0", latest: "3.0.0" });
-    await expect(
-      removeOwnedContext7(drifted.runtime, context7State(drifted.shim, "holycodex")),
-    ).resolves.toBe(false);
+    await expect(removeOwnedContext7(drifted.runtime, ownedState)).resolves.toBe(false);
     expect(drifted.removes()).toBe(0);
   });
 
@@ -270,9 +334,9 @@ describe("installer tooling", () => {
       latest: "2.0.0",
       shadowed: true,
     });
-    await expect(
-      removeOwnedContext7(shadowed.runtime, context7State(shadowed.shim, "holycodex")),
-    ).resolves.toBe(false);
+    const provenance = context7Runtime({ family: "bun", latest: "2.0.0" });
+    const ownedState = await ensureContext7(provenance.runtime, true);
+    await expect(removeOwnedContext7(shadowed.runtime, ownedState)).resolves.toBe(false);
 
     const failed = context7Runtime({
       family: "bun",
@@ -280,9 +344,7 @@ describe("installer tooling", () => {
       latest: "2.0.0",
       removeFails: true,
     });
-    await expect(
-      removeOwnedContext7(failed.runtime, context7State(failed.shim, "holycodex")),
-    ).rejects.toMatchObject({
+    await expect(removeOwnedContext7(failed.runtime, ownedState)).rejects.toMatchObject({
       code: "context7_remove_failed",
       details: { stderr: "remove failed" },
     });
@@ -293,9 +355,9 @@ describe("installer tooling", () => {
       latest: "2.0.0",
       removeLeavesPackage: true,
     });
-    await expect(
-      removeOwnedContext7(stale.runtime, context7State(stale.shim, "holycodex")),
-    ).rejects.toMatchObject({ code: "context7_remove_failed" });
+    await expect(removeOwnedContext7(stale.runtime, ownedState)).rejects.toMatchObject({
+      code: "context7_remove_failed",
+    });
   });
 
   test("rejects unknown launcher metadata before inspecting shared tooling", async () => {
@@ -368,6 +430,8 @@ type ContextFixtureOptions = Readonly<{
   shimVersion?: string;
   shadowed?: boolean;
   outsidePackageBin?: boolean;
+  packageRevision?: string;
+  root?: string;
 }>;
 
 function context7Runtime(options: ContextFixtureOptions): {
@@ -381,23 +445,25 @@ function context7Runtime(options: ContextFixtureOptions): {
   const manager = managerFor(options.family);
   const calls: string[] = [];
   let current = options.installed;
+  const packageRevision = options.packageRevision ?? "original";
+  const root = options.root ?? "C:\\Users\\test";
   let installCount = 0;
   let removeCount = 0;
   let shimRunCount = 0;
   const binRoot =
     options.family === "bun"
-      ? "C:\\Users\\test\\.bun\\bin"
+      ? win32.join(root, ".bun", "bin")
       : options.family === "npm"
-        ? "C:\\Users\\test\\npm"
-        : "C:\\Users\\test\\pnpm\\bin";
+        ? win32.join(root, "npm")
+        : win32.join(root, "pnpm", "bin");
   const packageRoot =
     options.family === "bun"
-      ? join(dirname(binRoot), "install", "global", "node_modules", "ctx7")
+      ? win32.join(win32.dirname(binRoot), "install", "global", "node_modules", "ctx7")
       : options.family === "npm"
-        ? join(binRoot, "node_modules", "ctx7")
-        : "C:\\Users\\test\\pnpm\\global\\node_modules\\ctx7";
-  const packageExecutable = join(packageRoot, "dist", "index.js");
-  const shim = join(binRoot, options.family === "bun" ? "ctx7.exe" : "ctx7.cmd");
+        ? win32.join(binRoot, "node_modules", "ctx7")
+        : win32.join(root, "pnpm", "global", "node_modules", "ctx7");
+  const packageExecutable = win32.join(packageRoot, "dist", "index.js");
+  const shim = win32.join(binRoot, options.family === "bun" ? "ctx7.exe" : "ctx7.cmd");
   const shadow = "C:\\Shadow\\ctx7.cmd";
   const environment = {
     ...manager.environment,
@@ -417,12 +483,16 @@ function context7Runtime(options: ContextFixtureOptions): {
     },
     readText: async (path) => {
       if (
-        normalized(path) !== normalized(join(packageRoot, "package.json")) ||
+        normalized(path) !== normalized(win32.join(packageRoot, "package.json")) ||
         current === undefined
       ) {
         throw new Error("ENOENT");
       }
-      return JSON.stringify({ version: current, bin: { ctx7: "dist/index.js" } });
+      return JSON.stringify({
+        version: current,
+        bin: { ctx7: "dist/index.js" },
+        revision: packageRevision,
+      });
     },
     realpath: async (path) => {
       if (normalized(path) === normalized(packageExecutable) && options.outsidePackageBin) {
@@ -523,10 +593,12 @@ function managerFor(family: Context7Manager["family"]): {
 function context7State(
   executable: string,
   ownership: Context7ToolState["ownership"],
+  manager: Context7Manager["family"] = "bun",
 ): Context7ToolState {
+  const launcher = manager === "bun" ? "bunx" : manager === "npm" ? "npx" : "pnpm dlx";
   return {
-    manager: "bun",
-    launcher: "bunx",
+    manager,
+    launcher,
     version: "2.0.0",
     executable,
     ownership,

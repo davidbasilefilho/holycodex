@@ -228,6 +228,7 @@ export const DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS: OptionalCapabilitySelection
   security: DEFAULT_CAPABILITY_SELECTIONS.security,
 });
 
+/** Migrate persisted capability flags, ignoring legacy capabilities that are no longer managed. */
 export function migrateOptionalCapabilitySelections(
   input: Readonly<Record<string, unknown>> | undefined,
 ): OptionalCapabilitySelections {
@@ -240,6 +241,7 @@ export function migrateOptionalCapabilitySelections(
   };
 }
 
+/** Resolve requested capability flags against previous selections and canonical defaults. */
 export function resolveOptionalCapabilitySelections(
   requested: ExplicitOptionalCapabilitySelections | undefined,
   previous: OptionalCapabilitySelections | undefined,
@@ -252,6 +254,7 @@ export function resolveOptionalCapabilitySelections(
   };
 }
 
+/** Collect selected capability plugin ids, then append unique additional plugin ids in order. */
 export function pluginIdsForOptionalCapabilities(
   selections: OptionalCapabilitySelections,
   additionalPluginIds: readonly string[] = [],
@@ -276,6 +279,7 @@ export function pluginIdsForOptionalCapabilities(
   return ids;
 }
 
+/** Map a selected capability's provider status to its user-facing health state. */
 export function capabilityHealth(
   selected: boolean,
   providerStatus: CapabilityProviderStatus | undefined,

@@ -1,4 +1,4 @@
-# The HolyCodex Bible
+# THE HOLYCODEX BIBLE
 
 HolyCodex exists to produce good work with the least necessary complexity, context, and cost.
 
@@ -88,11 +88,11 @@ A specialist report should be compact but sufficient for judgment: outcome, chan
 
 ### Caching
 
-Prefer cache hits over cache creation for its own sake. Cached reads are much cheaper than new cache writes under explicit cache pricing, so reusable stable context has more economic value than repeatedly rewritten context.
+Caching serves two distinct goals. First, reduce total model work: token use, context growth, continuations, and repeated evidence. Second, optimize `cached_input_rate = cached_input_tokens / total_input_tokens` across request groups, rather than maximize absolute cached volume. Repeated stable context should approach 100% cached and 0% uncached wherever technically practical.
 
-Keep stable policy stable. Give each instruction one canonical owner, preserve stable prompt prefixes, and put task-specific deltas after reusable instructions instead of duplicating or reshuffling global policy for every Assignment. OpenAI's Codex prompt-caching guidance likewise notes that cache hits require exact prefix matches and recommends static instructions before variable task content.
+Preserve byte-stable reusable prefixes and deterministic ordering. Give each instruction one canonical owner, avoid duplication, and place task-variable content after stable context where the architecture permits. Assess weak request groups where evidence is available; aggregate results can mask avoidable cache misses.
 
-Economics must never weaken correctness, authority boundaries, or required proof. Spend more context when the additional evidence can materially change Root's decision; otherwise do not send it.
+A high cache rate does not justify unnecessarily large context, and a small context does not justify avoidable cache misses. Correctness, authority boundaries, and required proof outrank caching.
 
 ## V. THE HOLYCODEX REPOSITORY
 

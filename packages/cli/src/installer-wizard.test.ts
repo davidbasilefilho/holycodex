@@ -224,8 +224,15 @@ describe("generated Root orchestration policy", () => {
     );
     expect(withoutComputerUse).toMatch(/configured model and reasoning effort/iu);
     expect(withoutComputerUse).toMatch(/self-contained.*task-specific semantic context/isu);
-    expect(withoutComputerUse).toMatch(/no progress.*heartbeat.*intermediate evidence/isu);
-    expect(withoutComputerUse).toMatch(/material Root-owned decision.*proceed/isu);
+    expect(withoutComputerUse).toMatch(/only useful or important information/isu);
+    expect(withoutComputerUse).toMatch(/after every tool use or subagent update/isu);
+    expect(withoutComputerUse).toMatch(/routine status-only chatter.*heartbeat/isu);
+    expect(withoutComputerUse).toMatch(/fixed update cadence/isu);
+    expect(withoutComputerUse).toMatch(/significant findings or decisions/isu);
+    expect(withoutComputerUse).toMatch(/consequential blockers or input needs/isu);
+    expect(withoutComputerUse).toMatch(/release milestones/isu);
+    expect(withoutComputerUse).toMatch(/native Astra Default questions.*independent work/isu);
+    expect(withoutComputerUse).toMatch(/no question protocol/isu);
     expect(withoutComputerUse).toMatch(/out-of-boundary.*new bounded Assignment/isu);
     expect(withoutComputerUse).toMatch(/longest practical event wait/iu);
     expect(withoutComputerUse).toMatch(/never busy-poll.*status-only coordination loops/isu);
