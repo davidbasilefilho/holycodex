@@ -125,6 +125,7 @@ const DEFAULT_CLIENT_INFO: InitializeParams = {
 
 const SUPPORTED_METHODS = new Set<string>(GENERATED_SUPPORTED_CLIENT_METHODS);
 
+/** Deterministic JSON-RPC client for the Codex app server protocol. */
 export class AppServerClient {
   private readonly transport: AsyncLineTransport;
   private readonly maxLineBytes: number;
@@ -170,20 +171,24 @@ export class AppServerClient {
     }
   }
 
+  /** Return whether the App Server handshake has completed. */
   get isInitialized(): boolean {
     return this.initialized;
   }
 
+  /** Register a listener for App Server notifications. */
   onNotification(listener: (notification: CodexNotification) => void): () => void {
     this.notificationListeners.add(listener);
     return () => this.notificationListeners.delete(listener);
   }
 
+  /** Register a handler for App Server requests. */
   onServerRequest(handler: ServerRequestHandler): () => void {
     this.serverRequestHandlers.add(handler);
     return () => this.serverRequestHandlers.delete(handler);
   }
 
+  /** Initialize the App Server connection and negotiate capabilities. */
   async initialize(params: InitializeParams = DEFAULT_CLIENT_INFO): Promise<InitializeResult> {
     if (this.initializePromise) {
       return this.initializePromise;
@@ -201,29 +206,35 @@ export class AppServerClient {
     return this.initializePromise;
   }
 
+  /** Start a new conversation thread. */
   async startThread(params: ThreadStartParams = {}): Promise<ThreadStartResult> {
     return this.action("thread/start", ThreadStartParamsSchema, params, ThreadStartResultSchema);
   }
 
+  /** Resume an existing conversation thread. */
   async resumeThread(params: ThreadResumeParams | string): Promise<ThreadResumeResult> {
     const input = typeof params === "string" ? { threadId: params } : params;
     return this.action("thread/resume", ThreadResumeParamsSchema, input, ThreadResumeResultSchema);
   }
 
+  /** Read an existing conversation thread. */
   async readThread(params: ThreadReadParams | string): Promise<ThreadReadResult> {
     const input = typeof params === "string" ? { threadId: params } : params;
     return this.action("thread/read", ThreadReadParamsSchema, input, ThreadReadResultSchema);
   }
 
+  /** List conversation threads visible to the App Server. */
   async listThreads(params: ThreadListParams = {}): Promise<ThreadListResult> {
     return this.action("thread/list", ThreadListParamsSchema, params, ThreadListResultSchema);
   }
 
+  /** Fork an existing conversation thread. */
   async forkThread(params: ThreadForkParams | string): Promise<ThreadForkResult> {
     const input = typeof params === "string" ? { threadId: params } : params;
     return this.action("thread/fork", ThreadForkParamsSchema, input, ThreadForkResultSchema);
   }
 
+  /** Stop receiving updates for a conversation thread. */
   async unsubscribeThread(
     params: ThreadUnsubscribeParams | string,
   ): Promise<ThreadUnsubscribeResult> {
@@ -236,14 +247,17 @@ export class AppServerClient {
     );
   }
 
+  /** Start a model turn in a conversation thread. */
   async startTurn(params: TurnStartParams): Promise<TurnStartResult> {
     return this.action("turn/start", TurnStartParamsSchema, params, TurnStartResultSchema);
   }
 
+  /** Steer an active model turn. */
   async steerTurn(params: TurnSteerParams): Promise<TurnSteerResult> {
     return this.action("turn/steer", TurnSteerParamsSchema, params, TurnSteerResultSchema);
   }
 
+  /** Interrupt an active model turn. */
   async interruptTurn(
     params: TurnInterruptParams | string,
     turnId?: string,
@@ -257,10 +271,12 @@ export class AppServerClient {
     );
   }
 
+  /** List models available from the App Server. */
   async listModels(params: ModelListParams = {}): Promise<ModelListResult> {
     return this.action("model/list", ModelListParamsSchema, params, ModelListResultSchema);
   }
 
+  /** Read capabilities reported by a model provider. */
   async readModelProviderCapabilities(
     params: ModelProviderCapabilitiesParams = {},
   ): Promise<ModelProviderCapabilitiesResult> {
@@ -272,10 +288,12 @@ export class AppServerClient {
     );
   }
 
+  /** Read the active App Server configuration. */
   async readConfig(params: ConfigReadParams = {}): Promise<ConfigReadResult> {
     return this.action("config/read", ConfigReadParamsSchema, params, ConfigReadResultSchema);
   }
 
+  /** List permission profiles available to the App Server. */
   async listPermissionProfiles(
     params: PermissionProfileListParams = {},
   ): Promise<PermissionProfileListResult> {
@@ -287,6 +305,7 @@ export class AppServerClient {
     );
   }
 
+  /** Call a supported App Server method by name. */
   async call(method: string, params: JsonValue = {}): Promise<JsonValue> {
     if (method === "initialize") {
       const result = await this.initialize(
@@ -303,6 +322,7 @@ export class AppServerClient {
     return this.request(request.method, request.params === undefined ? {} : request.params);
   }
 
+  /** Close the App Server connection. */
   async close(): Promise<void> {
     await this.closeWithError(new CodexError("closed", "The App Server client is closed."));
   }

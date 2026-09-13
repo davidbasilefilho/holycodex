@@ -198,4 +198,5 @@ function toCryptoBuffer(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
   return copy;
 }
 
+/** Hash framed byte parts under a validated HolyCodex digest domain. */
 export const sha256DomainDigest = domainSeparatedSha256;

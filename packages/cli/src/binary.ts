@@ -39,7 +39,7 @@ export async function runBinary(
     },
   };
   const result = await runCli(argv, context);
-  if ((helpRequested(argv) || argv[0] === "help") && !jsonRequested(argv)) {
+  if ((argv.length === 0 || helpRequested(argv) || argv[0] === "help") && !jsonRequested(argv)) {
     context.io?.writeStdout?.(
       renderHelp(helpTopic(argv), {
         stdoutIsTTY: context.io?.stdoutIsTTY,

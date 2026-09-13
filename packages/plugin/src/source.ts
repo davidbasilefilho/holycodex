@@ -10,6 +10,7 @@ import {
 } from "./constants.ts";
 import { pluginError } from "./errors.ts";
 
+/** Normalize a relative asset path and reject absolute paths or traversal. */
 export function normalizeRelativePath(input: string): string {
   if (input.length === 0 || input.includes("\u0000") || isAbsolute(input)) {
     throw pluginError("path_invalid", "Asset paths must be non-empty relative paths.");
@@ -36,6 +37,7 @@ export function normalizeRelativePath(input: string): string {
   return normalized;
 }
 
+/** Reject generated, cache, and secret-like paths from plugin assets. */
 export function assertSafePath(path: string): void {
   const normalized = normalizeRelativePath(path);
   const parts = normalized.split("/");
@@ -54,6 +56,7 @@ export function assertSafePath(path: string): void {
   }
 }
 
+/** Resolve and validate the real directory containing plugin source assets. */
 export async function resolveSourceRoot(sourceRoot: string): Promise<string> {
   const requested = resolve(sourceRoot);
   let stats;
@@ -69,6 +72,7 @@ export async function resolveSourceRoot(sourceRoot: string): Promise<string> {
   return await realpath(requested);
 }
 
+/** Resolve and validate the real directory used to stage a plugin payload. */
 export async function resolveStagingRoot(stagingDirectory: string): Promise<string> {
   const requested = resolve(stagingDirectory);
   let stats;
@@ -105,6 +109,7 @@ async function assertNoSymlinkAncestors(
   }
 }
 
+/** Enumerate regular files in a plugin source tree into a relative path list. */
 export async function walkSource(root: string, prefix: string, output: string[]): Promise<void> {
   const directory = prefix ? join(root, prefix) : root;
   let entries;
@@ -138,6 +143,7 @@ export async function walkSource(root: string, prefix: string, output: string[])
   }
 }
 
+/** Enumerate regular files in a staged payload tree into a relative path list. */
 export async function walkPayload(root: string, prefix: string, output: string[]): Promise<void> {
   const directory = prefix ? join(root, prefix) : root;
   let entries;
@@ -170,6 +176,7 @@ export async function walkPayload(root: string, prefix: string, output: string[]
   }
 }
 
+/** Read a regular plugin source file as bytes after validating its relative path. */
 export async function readSourceFile(root: string, path: string): Promise<Uint8Array> {
   const normalized = normalizeRelativePath(path);
   const filePath = join(root, normalized);
@@ -189,6 +196,7 @@ export async function readSourceFile(root: string, path: string): Promise<Uint8A
   return new Uint8Array(await readFile(filePath));
 }
 
+/** Read a regular staged payload file as bytes after validating its relative path. */
 export async function readPayloadFile(root: string, path: string): Promise<Uint8Array> {
   const normalized = normalizeRelativePath(path);
   const filePath = join(root, normalized);
@@ -208,6 +216,7 @@ export async function readPayloadFile(root: string, path: string): Promise<Uint8
   return new Uint8Array(await readFile(filePath));
 }
 
+/** Compare source-like file records by their relative paths. */
 export function compareFiles(
   left: Pick<SourceFileLike, "path">,
   right: Pick<SourceFileLike, "path">,
@@ -215,6 +224,7 @@ export function compareFiles(
   return comparePathText(left.path, right.path);
 }
 
+/** Compare two relative paths using deterministic lexical ordering. */
 export function comparePathText(left: string, right: string): number {
   if (left < right) {
     return -1;

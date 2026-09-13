@@ -2,6 +2,7 @@
 
 import { canonicalJson, type JsonValue } from "@holycodex/core";
 
+/** Validate and return a value that can be emitted as canonical JSON. */
 export function asJsonValue(value: unknown): JsonValue {
   if (!isJsonValue(value)) {
     throw new Error("The value is not JSON serializable.");
@@ -10,6 +11,7 @@ export function asJsonValue(value: unknown): JsonValue {
   return value;
 }
 
+/** Return whether a value is a finite, acyclic JSON value. */
 export function isJsonValue(value: unknown, seen = new Set<object>()): value is JsonValue {
   if (value === null || typeof value === "string" || typeof value === "boolean") {
     return true;

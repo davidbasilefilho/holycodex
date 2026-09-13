@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +21,7 @@ import {
   projectNativeAgents,
   projectRootAgent,
   renderNativeAgent,
+  runOpenTuiInstallWizard,
   windowsGitBashShellDirective,
   runCli,
   toInstallOptions,
@@ -163,6 +164,57 @@ describe("public install wizard contract", () => {
       }),
     ).not.toContain("\u001b[");
   });
+
+  test("keeps OpenTUI screens free of terminal escape sequences", async () => {
+    const rendered: string[] = [];
+    let keypress: ((key: { readonly name: string }) => void) | undefined;
+    const renderer = {
+      root: { add: (_value: unknown): void => undefined },
+      keyInput: {
+        on: (_event: string, listener: (key: { readonly name: string }) => void): void => {
+          keypress = listener;
+        },
+        off: (): void => {
+          keypress = undefined;
+        },
+      },
+      requestRender: (): void => undefined,
+      start: (): void => {
+        keypress?.({ name: "enter" });
+        keypress?.({ name: "enter" });
+      },
+      destroy: (): void => undefined,
+    };
+    let content = "";
+    class FakeTextRenderable {
+      constructor(_renderer: unknown, options: { readonly content: string }) {
+        content = options.content;
+        rendered.push(options.content);
+      }
+
+      get content(): string {
+        return content;
+      }
+
+      set content(value: string) {
+        content = value;
+        rendered.push(value);
+      }
+    }
+    await mock.module("@opentui/core", () => ({
+      createCliRenderer: async (): Promise<typeof renderer> => renderer,
+      TextRenderable: FakeTextRenderable,
+    }));
+    try {
+      await expect(runOpenTuiInstallWizard()).resolves.toMatchObject({ action: "install" });
+      expect(rendered).toHaveLength(2);
+      expect(rendered[0]).toContain("HolyCodex  ·  install");
+      expect(rendered[1]).toContain("Review configuration");
+      expect(rendered.every((screen) => !screen.includes("\u001b["))).toBe(true);
+    } finally {
+      mock.restore();
+    }
+  });
 });
 
 describe("generated Root orchestration policy", () => {
@@ -235,9 +287,24 @@ describe("generated Root orchestration policy", () => {
     expect(withoutComputerUse).toMatch(/no question protocol/isu);
     expect(withoutComputerUse).toMatch(/out-of-boundary.*new bounded Assignment/isu);
     expect(withoutComputerUse).toMatch(/longest practical event wait/iu);
+    expect(withoutComputerUse).toMatch(
+      /collaboration\.wait_agent.*timeout_ms=3600000.*active V1 runtime maximum/isu,
+    );
+    expect(withoutComputerUse).toMatch(/early specialist completion wakes.*collective mailbox/isu);
+    expect(withoutComputerUse).toMatch(/maximum wait expires.*same maximum wait again/isu);
+    expect(withoutComputerUse).toMatch(/short waits.*list or status polling.*message loops/isu);
     expect(withoutComputerUse).toMatch(/never busy-poll.*status-only coordination loops/isu);
     expect(withoutComputerUse).toMatch(/batch independent lifecycle actions/iu);
     expect(withoutComputerUse).toMatch(/release specialist leaves/iu);
+    expect(withoutComputerUse).toMatch(/concise, structured, and evidence-first/iu);
+    expect(withoutComputerUse).toMatch(
+      /large transcripts or artifacts only for material decisions/iu,
+    );
+    expect(withoutComputerUse).toMatch(/reuse stable facts.*do not duplicate policy/isu);
+    expect(withoutComputerUse).toMatch(/stable bounded component scopes are canonical/iu);
+    expect(withoutComputerUse).toMatch(
+      /lifecycle worker owns deterministic Intent.*Assignment API/isu,
+    );
     for (const agentType of NATIVE_AGENT_TYPES) {
       expect(withoutComputerUse).toContain(agentType);
     }

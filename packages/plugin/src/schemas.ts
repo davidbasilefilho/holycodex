@@ -112,11 +112,13 @@ const AssemblyRequestSchema = Schema.Struct({
 });
 export type AssemblyRequest = typeof AssemblyRequestSchema.Type;
 
+/** Decode unknown input with an Effect Schema and return undefined on rejection. */
 export function decodeSchema<T>(schema: Schema.Schema<T>, input: unknown): T | undefined {
   const parsed = decodeUnknown(schema, input);
   return Either.isRight(parsed) ? parsed.right : undefined;
 }
 
+/** Parse and validate an assembly request at the plugin boundary. */
 export function parseAssemblyRequest(input: unknown): AssemblyRequest {
   const parsed = decodeSchema(AssemblyRequestSchema, input);
   if (parsed === undefined) {
@@ -127,6 +129,7 @@ export function parseAssemblyRequest(input: unknown): AssemblyRequest {
   return parsed;
 }
 
+/** Parse a non-empty directory path supplied through an unknown boundary value. */
 export function parseDirectoryText(input: unknown, field: string): string {
   const parsed = decodeSchema(Schema.String.pipe(Schema.filter(isUsableDirectoryText)), input);
   if (parsed === undefined) {
@@ -135,6 +138,7 @@ export function parseDirectoryText(input: unknown, field: string): string {
   return parsed;
 }
 
+/** Parse a staged payload location from a string or request-shaped value. */
 export function parsePayloadLocation(input: unknown): string {
   const direct = decodeSchema(Schema.String.pipe(Schema.filter(isUsableDirectoryText)), input);
   if (direct !== undefined) {
@@ -152,6 +156,7 @@ export function parsePayloadLocation(input: unknown): string {
   return parsed.stagingDirectory;
 }
 
+/** Read and validate the checked-in source plugin manifest. */
 export async function readSourceManifest(root: string): Promise<SourceManifest> {
   const bytes = await readSourceFile(root, SOURCE_MANIFEST_PATH);
   let input: unknown;
@@ -192,6 +197,7 @@ export async function readSourceManifest(root: string): Promise<SourceManifest> 
   return parsed;
 }
 
+/** Read and validate the generated plugin manifest from a staged payload. */
 export async function readGeneratedManifest(root: string): Promise<GeneratedManifest> {
   const bytes = await readPayloadFile(root, SOURCE_MANIFEST_PATH);
   let input: unknown;
@@ -221,6 +227,7 @@ export async function readGeneratedManifest(root: string): Promise<GeneratedMani
   return parsed;
 }
 
+/** Read and validate the payload file manifest from a staging directory. */
 export async function readPayloadManifest(root: string): Promise<PayloadManifest> {
   const bytes = await readPayloadFile(root, PAYLOAD_MANIFEST_PATH);
   let input: unknown;
@@ -248,6 +255,7 @@ export async function readPayloadManifest(root: string): Promise<PayloadManifest
   return parsed;
 }
 
+/** Validate manifest declarations that control the plugin asset tree. */
 export function validateManifestDeclarations(manifest: SourceManifest | GeneratedManifest): void {
   if (
     manifest.skills !== "skills" &&
@@ -258,6 +266,7 @@ export function validateManifestDeclarations(manifest: SourceManifest | Generate
   }
 }
 
+/** Return the manifest and declared skill paths accepted for a source tree. */
 export function declaredSourcePaths(
   _manifest: SourceManifest | GeneratedManifest,
   candidates: readonly string[] = [],
@@ -289,6 +298,7 @@ function isPayloadAssetPath(path: string): boolean {
   return path.startsWith("skills/");
 }
 
+/** Return whether a directory input is non-empty and free of NUL characters. */
 export function isUsableDirectoryText(value: string): boolean {
   return value.length > 0 && !value.includes("\u0000");
 }

@@ -641,7 +641,10 @@ export async function removeHolyCodex(
   reportProgress(options, {
     stage: "removal",
     status: "completed",
-    message: "HolyCodex removal complete",
+    message:
+      preserved.length === 0 && reasons.length === 0
+        ? "HolyCodex removal complete"
+        : "HolyCodex removal preserved state for review",
   });
   return { removed, preserved, reasons };
 }

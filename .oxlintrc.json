@@ -1,7 +1,11 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "ignorePatterns": ["packages/codex/generated/**"],
+  "jsPlugins": ["./scripts/jsdoc-enforcement.mjs"],
   "plugins": ["typescript", "eslint", "import", "jsdoc", "oxc", "unicorn"],
+  "rules": {
+    "holycodex/require-jsdoc": "error"
+  },
   "options": {
     "typeAware": true,
     "typeCheck": true

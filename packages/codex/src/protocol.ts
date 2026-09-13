@@ -495,6 +495,7 @@ export const CodexNotificationSchema = Schema.declare(
     typeof value["method"] === "string",
 );
 
+/** Classify a server request method by its interaction category. */
 export function classifyServerRequest(method: string): ServerRequestCategory {
   if (GENERATED_PERMISSION_REQUEST_METHODS.some((candidate) => candidate === method)) {
     return "permissions";

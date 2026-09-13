@@ -7,11 +7,16 @@ import { fileURLToPath } from "node:url";
 import type { JsonObject } from "@holycodex/core";
 import * as Schema from "effect/Schema";
 
-import { decodeSchema, isJsonObject, VersionSchema } from "./schema.ts";
+import { decodeSchema, isJsonObject } from "./schema.ts";
 import { writeAtomicJson } from "./storage.ts";
 
+const CanonicalVersionSchema = Schema.String.pipe(
+  Schema.pattern(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u),
+);
 const PublicVersionSchema = Schema.String.pipe(
-  Schema.pattern(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-dev\.[1-9]\d*\.[1-9]\d*)?$/u),
+  Schema.pattern(
+    /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*)|-dev\.[1-9]\d*\.[1-9]\d*)?$/u,
+  ),
 );
 const PublicManifestSchema = Schema.declare(
   (
@@ -28,6 +33,7 @@ export const publicManifestPath = resolve(
   "../package.json",
 );
 
+/** Read and validate the public package manifest at the supplied path. */
 export async function readPublicManifest(
   path = publicManifestPath,
 ): Promise<PublicManifest & JsonObject> {
@@ -44,7 +50,7 @@ export async function readCanonicalVersion(path = publicManifestPath): Promise<s
   return (await readPublicManifest(path))["version"];
 }
 
-/** Read the canonical version without an optional development suffix. */
+/** Read the canonical version without an optional release suffix. */
 export async function readCanonicalBaseVersion(path = publicManifestPath): Promise<string> {
   return (await readCanonicalVersion(path)).split("-", 1)[0] ?? "";
 }
@@ -64,19 +70,21 @@ export async function updateCanonicalVersion(
   return { previous, next };
 }
 
+/** Resolve an explicit version or the next patch or minor version. */
 export function resolveVersion(target: string, current: string): string {
   if (target !== "patch" && target !== "minor") {
-    if (decodeSchema(VersionSchema, target) === undefined) {
+    if (decodeSchema(CanonicalVersionSchema, target) === undefined) {
       throw new ManifestError("version_invalid", "The version target is invalid.");
     }
     return target;
   }
-  const parts = current.split(".");
+  const parts = (current.split("-", 1)[0] ?? "").split(".");
   const minor = Number(parts[1]);
   const patch = Number(parts[2]);
   return target === "minor" ? `0.${minor + 1}.0` : `0.${minor}.${patch + 1}`;
 }
 
+/** Structured failure raised while reading or validating an install manifest. */
 export class ManifestError extends Error {
   readonly code: "manifest_invalid" | "version_invalid";
 

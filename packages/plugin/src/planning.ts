@@ -120,6 +120,7 @@ export async function planAssembly(input: unknown): Promise<AssemblyPlan> {
   };
 }
 
+/** Create the generated manifest for a validated source tree and target version. */
 export function createGeneratedManifest(
   source: SourceValidation["manifest"],
   version: string,
@@ -146,6 +147,7 @@ export function createGeneratedManifest(
   return parsed;
 }
 
+/** Reject a payload file list that exceeds per-file or aggregate size limits. */
 export function assertFileBounds(files: readonly SourceFile[]): void {
   let totalSize = 0;
   for (const file of files) {

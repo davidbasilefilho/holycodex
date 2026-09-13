@@ -20,6 +20,7 @@ export const DEFAULT_MAX_DIAGNOSTIC_BYTES = 64 * 1024;
 
 type SafeObject = Record<string, JsonValue>;
 
+/** Return whether a value is a plain object with an ordinary or null prototype. */
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
@@ -28,6 +29,7 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
   return prototype === Object.prototype || prototype === null;
 }
 
+/** Return whether a value can be represented as JSON. */
 export function isJsonValue(value: unknown): value is JsonValue {
   try {
     canonicalJson(value);
@@ -85,6 +87,7 @@ export type CodexFailureKind =
   | "turn"
   | "validation";
 
+/** Map a Codex error code to its stable failure category. */
 export function failureKind(code: CodexErrorCode): CodexFailureKind {
   switch (code) {
     case "invalid_external_data":
@@ -118,6 +121,7 @@ export function failureKind(code: CodexErrorCode): CodexFailureKind {
   }
 }
 
+/** Structured failure raised while communicating with the Codex app server. */
 export class CodexError extends Error {
   readonly code: CodexErrorCode;
   readonly kind: CodexFailureKind;
@@ -145,14 +149,17 @@ export type CodexResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: CodexError };
 
+/** Wrap a Codex error in a failed result. */
 export function failure<T>(error: CodexError): CodexResult<T> {
   return { ok: false, error };
 }
 
+/** Wrap a value in a successful result. */
 export function success<T>(value: T): CodexResult<T> {
   return { ok: true, value };
 }
 
+/** Remove control characters and bound diagnostic text to a safe length. */
 export function sanitizeText(value: string, maxLength = 512): string {
   let withoutControls = "";
   for (const character of value) {
@@ -169,6 +176,7 @@ export function sanitizeText(value: string, maxLength = 512): string {
   return withoutControls.replace(/\s+/gu, " ").trim().slice(0, maxLength);
 }
 
+/** Recursively sanitize unknown metadata into bounded JSON-safe data. */
 export function sanitizeMetadata(value: unknown, depth = 0): JsonValue {
   if (depth > 3) {
     return "[truncated]";
@@ -198,11 +206,13 @@ export function sanitizeMetadata(value: unknown, depth = 0): JsonValue {
   return "[redacted]";
 }
 
+/** Return a JSON object containing safe details for an unknown value. */
 export function safeDetails(value: unknown): JsonObject {
   const sanitized = sanitizeMetadata(value);
   return isPlainObject(sanitized) ? sanitized : { value: sanitized };
 }
 
+/** Create a structured error for invalid external data. */
 export function invalidData(label: string, input: unknown, cause?: unknown): CodexError {
   return new CodexError(
     "invalid_external_data",
@@ -212,6 +222,7 @@ export function invalidData(label: string, input: unknown, cause?: unknown): Cod
   );
 }
 
+/** Decode input with a schema or throw a structured invalid-data error. */
 export function checked<T>(schema: Schema.Schema<T>, input: unknown, label: string): T {
   const parsed = decodeUnknown(schema, input);
   if (Either.isLeft(parsed)) {
@@ -220,6 +231,7 @@ export function checked<T>(schema: Schema.Schema<T>, input: unknown, label: stri
   return parsed.right;
 }
 
+/** Return whether input conforms to a schema. */
 export function isValid<T>(schema: Schema.Schema<T>, input: unknown): input is T {
   try {
     checked(schema, input, "value");

@@ -30,6 +30,7 @@ export interface FreshCloneResult {
   readonly validation: "skipped" | "passed";
 }
 
+/** Clone and validate a repository according to the requested safety mode. */
 export async function runFreshClone(options: FreshCloneOptions): Promise<FreshCloneResult> {
   if (options.fixture) {
     assert(!options.network, "fixture mode cannot use network");

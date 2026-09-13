@@ -11,8 +11,13 @@ const workspaceRoot = resolve(import.meta.dirname, "..");
 export const BaseVersionSchema = Schema.String.pipe(
   Schema.pattern(/^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u),
 );
+export const CanonicalVersionSchema = Schema.String.pipe(
+  Schema.pattern(/^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u),
+);
 export const ReleaseVersionSchema = Schema.String.pipe(
-  Schema.pattern(/^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-dev\.[1-9]\d*\.[1-9]\d*)?$/u),
+  Schema.pattern(
+    /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*)|-dev\.[1-9]\d*\.[1-9]\d*)?$/u,
+  ),
 );
 export const ReleaseChannelSchema = Schema.Literal("dev", "stable");
 export const SourceShaSchema = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{40}$/u));
@@ -20,16 +25,19 @@ export const Sha256Schema = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u)
 
 const CanonicalManifestSchema = Schema.Struct({
   name: Schema.Literal("holycodex"),
-  version: BaseVersionSchema,
+  version: CanonicalVersionSchema,
 });
 const PositiveIntegerTextSchema = Schema.String.pipe(
   Schema.pattern(/^[1-9]\d*$/u),
   Schema.maxLength(15),
 );
-const StableTagSchema = Schema.String.pipe(Schema.pattern(/^v0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u));
+const StableTagSchema = Schema.String.pipe(
+  Schema.pattern(/^v0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u),
+);
 
 export type ReleaseChannel = typeof ReleaseChannelSchema.Type;
 
+/** Read and validate the canonical public package version. */
 export async function readCanonicalVersion(): Promise<string> {
   const raw: unknown = JSON.parse(
     await readFile(resolve(workspaceRoot, "packages/cli/package.json"), "utf8"),
@@ -43,37 +51,42 @@ export async function readCanonicalVersion(): Promise<string> {
   return parsed.right.version;
 }
 
+/** Build and validate a development version from a base and run number. */
 export function developmentVersion(
   baseVersion: string,
   runNumber: string,
   runAttempt: string,
 ): string {
-  const base = decode(BaseVersionSchema, baseVersion, "the canonical base version");
+  const canonical = decode(CanonicalVersionSchema, baseVersion, "the canonical version");
+  const base = canonical.split("-", 1)[0] ?? "";
   const number = decode(PositiveIntegerTextSchema, runNumber, "the GitHub run number");
   const attempt = decode(PositiveIntegerTextSchema, runAttempt, "the GitHub run attempt");
   return `${base}-dev.${number}.${attempt}`;
 }
 
+/** Build and validate a stable release version from a tag. */
 export function stableVersionFromTag(baseVersion: string, tagName: string): string {
-  const base = decode(BaseVersionSchema, baseVersion, "the canonical base version");
+  const canonical = decode(CanonicalVersionSchema, baseVersion, "the canonical version");
   const tag = decode(StableTagSchema, tagName, "the stable release tag");
   const version = tag.slice(1);
-  if (version !== base) {
-    throw new Error(`Stable tag ${tag} must match canonical version ${base}.`);
+  if (version !== canonical) {
+    throw new Error(`Stable tag ${tag} must match canonical version ${canonical}.`);
   }
   return version;
 }
 
+/** Assert that a release version matches its channel and canonical base. */
 export function assertReleaseVersion(
   baseVersion: string,
   channel: ReleaseChannel,
   version: string,
 ): void {
-  const base = decode(BaseVersionSchema, baseVersion, "the canonical base version");
+  const canonical = decode(CanonicalVersionSchema, baseVersion, "the canonical version");
+  const base = canonical.split("-", 1)[0] ?? "";
   const selectedChannel = decode(ReleaseChannelSchema, channel, "the release channel");
   const candidate = decode(ReleaseVersionSchema, version, "the release version");
-  if (selectedChannel === "stable" && candidate !== base) {
-    throw new Error(`Stable version ${candidate} must equal canonical version ${base}.`);
+  if (selectedChannel === "stable" && candidate !== canonical) {
+    throw new Error(`Stable version ${candidate} must equal canonical version ${canonical}.`);
   }
   if (selectedChannel === "dev" && !candidate.startsWith(`${base}-dev.`)) {
     throw new Error(`Development version ${candidate} must derive from canonical version ${base}.`);
@@ -107,7 +120,7 @@ if (import.meta.main) {
     )(rawArguments);
     if (Either.isLeft(parsed)) {
       throw new Error(
-        "Usage: bun scripts/release-version.ts <dev run-number run-attempt|stable vX.Y.Z>",
+        "Usage: bun scripts/release-version.ts <dev run-number run-attempt|stable vX.Y.Z[-n]>",
       );
     }
     const canonicalVersion = await readCanonicalVersion();

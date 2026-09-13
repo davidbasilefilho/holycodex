@@ -16,7 +16,7 @@ that value synchronized with
 ```sh
 mise exec -- bun run version:patch
 mise exec -- bun run version:minor
-mise exec -- bun run version:set 0.x.y
+mise exec -- bun run version:set 0.x.y[-n]
 ```
 
 Patch increments the patch component. Minor increments the minor component and
@@ -62,10 +62,13 @@ of inventing a second verification path.
 
 `.github/workflows/publish.yml` publishes both channels. A push to `main`
 produces a development package under the `dev` tag. A stable release accepts
-only an exact non-prerelease `vX.Y.Z` tag whose tag object resolves to the
-checked-out SHA and whose version matches the canonical CLI manifest. It
-publishes the validated artifact under the stable tag and creates the matching
-GitHub release.
+only an exact `vX.Y.Z` or numeric-suffix `vX.Y.Z-n` tag whose tag object
+resolves to the checked-out SHA and whose version matches the canonical CLI
+manifest. Numeric-suffix releases stay on the stable channel, publish the
+validated artifact under npm's `latest` tag, and are marked as GitHub
+prereleases because npm semver classifies the suffix as a prerelease. Generated
+`-dev.run.attempt` tags are excluded from the release trigger and remain on
+the development channel.
 
 Every publish job verifies the artifact metadata and SHA-256 before an external
 write. Existing registry or release records are accepted only when their

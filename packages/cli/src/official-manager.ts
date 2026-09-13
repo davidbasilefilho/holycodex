@@ -17,6 +17,7 @@ import type { OfficialPluginManager, OfficialPluginStatus } from "./types.ts";
 
 export type { OfficialPluginCommandRunner } from "@holycodex/codex";
 
+/** Official plugin manager backed by the Codex command-line interface. */
 export class CodexOfficialPluginManager implements OfficialPluginManager {
   private readonly adapter: OfficialPluginAdapterShape;
   private observedIdentities: Readonly<Record<string, string>> = {};
@@ -30,6 +31,7 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
     }
   }
 
+  /** Discover a Codex executable and create an official plugin manager for it. */
   static async discover(
     environment: Readonly<Record<string, string | undefined>> = process.env,
   ): Promise<CodexOfficialPluginManager> {
@@ -42,6 +44,7 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
     return new CodexOfficialPluginManager(adapter);
   }
 
+  /** List installed and available official Codex plugins. */
   async list(): Promise<LiveOfficialPluginListEnvelope> {
     try {
       return await this.adapter.list();
@@ -50,6 +53,7 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
     }
   }
 
+  /** Add an official Codex plugin by its identifier. */
   async add(pluginId: string): Promise<void> {
     try {
       await this.adapter.add(pluginId);
@@ -58,6 +62,7 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
     }
   }
 
+  /** Ensure Codex-owned provider marketplaces required by selected plugins are available. */
   async ensureOfficialMarketplace(selectedPluginIds: readonly string[]): Promise<void> {
     if (this.adapter.ensureOfficialMarketplace === undefined) return;
     try {
@@ -67,6 +72,7 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
     }
   }
 
+  /** Remove an official Codex plugin by its identifier. */
   async remove(pluginId: string): Promise<void> {
     try {
       await this.adapter.remove(pluginId);
@@ -75,6 +81,7 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
     }
   }
 
+  /** Add an official plugin marketplace by source. */
   async addMarketplace(source: string): Promise<void> {
     try {
       await this.adapter.addMarketplace(source);
@@ -83,6 +90,7 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
     }
   }
 
+  /** Resolve the installed state of selected official plugins. */
   async status(
     selected: readonly string[],
   ): Promise<Readonly<Record<string, OfficialPluginStatus>>> {
@@ -183,6 +191,7 @@ function wrapManagerError(
   );
 }
 
+/** Structured failure raised by the official plugin manager boundary. */
 export class OfficialPluginManagerError extends Error {
   readonly code:
     | "list_failed"

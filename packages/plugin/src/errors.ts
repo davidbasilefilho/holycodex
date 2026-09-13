@@ -11,6 +11,7 @@ export type PluginErrorCode =
   | "digest_invalid"
   | "crypto_unavailable";
 
+/** Structured failure raised while validating or processing plugin assets. */
 export class PluginError extends Error {
   readonly code: PluginErrorCode;
   readonly details: SafeDetails;
@@ -30,6 +31,7 @@ export class PluginError extends Error {
   }
 }
 
+/** Create a typed plugin error with safe diagnostic details and an optional cause. */
 export function pluginError(
   code: PluginErrorCode,
   message: string,

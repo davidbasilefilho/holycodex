@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 export const packageName = "@holycodex/plugin" as const;
 
-export const VERSION_PATTERN = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
+export const VERSION_PATTERN = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u;
 export const EPOCH_PATTERN = /^[a-z][a-z0-9._:-]{0,63}$/u;
 export const PLUGIN_NAME_PATTERN = /^[a-z][a-z0-9._-]{1,63}$/u;
 export const SKILL_NAME_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;

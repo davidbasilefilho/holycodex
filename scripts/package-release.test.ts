@@ -5,12 +5,13 @@ import { describe, expect, test } from "bun:test";
 import { runPackageBuild } from "./package-build.ts";
 import { createReleaseArtifact } from "./package-release.ts";
 import { withTemporaryDirectory } from "./process.ts";
-import { readCanonicalVersion } from "./release-version.ts";
+import { baseVersionFromRelease, readCanonicalVersion } from "./release-version.ts";
 
 describe("release package boundary", () => {
   test("verifies a development artifact with its stable install-record base", async () => {
     await runPackageBuild();
-    const baseVersion = await readCanonicalVersion();
+    const canonicalVersion = await readCanonicalVersion();
+    const baseVersion = baseVersionFromRelease(canonicalVersion);
     const releaseVersion = `${baseVersion}-dev.76.1`;
     const metadata = await withTemporaryDirectory(
       "package-release-test",

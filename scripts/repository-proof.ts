@@ -54,6 +54,7 @@ export interface RepositoryProof {
   readonly generatedArtifactFiles: number;
 }
 
+/** Run repository architecture, workflow, and generated-artifact proof checks. */
 export async function runRepositoryProof(): Promise<RepositoryProof> {
   await ensureCodexGenerated();
   const rootManifest = await readManifest("package.json");
@@ -247,7 +248,10 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
       assert(workflow.includes("main"), `${path} must include the main development channel`);
       assert(workflow.includes("tags:"), `${path} must include the stable tag channel`);
       assert(workflow.includes('"v*.*.*"'), `${path} must filter stable version tags`);
-      assert(workflow.includes('"!v*.*.*-*"'), `${path} must exclude prerelease tags`);
+      assert(
+        workflow.includes('"!v*.*.*-dev.*"'),
+        `${path} must exclude generated development tags`,
+      );
       assert(workflow.includes("workflow_dispatch:"), `${path} must preserve dispatch control`);
       assert(
         workflow.includes("./.github/workflows/validation.yml"),
@@ -454,6 +458,7 @@ const GeneratedProvenanceSchema = Schema.Struct({
   }),
 });
 
+/** Verify that generated Codex artifacts remain portable across supported runtimes. */
 export async function verifyGeneratedArtifactPortable(
   artifactRoot: string = generatedArtifactRoot,
 ): Promise<{

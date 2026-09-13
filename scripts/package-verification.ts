@@ -29,8 +29,8 @@ import {
 } from "./process.ts";
 import {
   assertReleaseVersion,
-  BaseVersionSchema,
   baseVersionFromRelease,
+  CanonicalVersionSchema,
   ReleaseChannelSchema,
   ReleaseVersionSchema,
   SourceShaSchema,
@@ -77,11 +77,11 @@ const LEGACY_WORK_PROVIDER_PLUGINS = [
 ] as const;
 // These identities authenticate the immutable published previous-stable package used by the
 // upgrade proof. Its exact version is derived from the current canonical patch version below.
-const PREVIOUS_STABLE_SOURCE_SHA = "ecdb8a89722edba1aace54ce83845d808311bea1";
+const PREVIOUS_STABLE_SOURCE_SHA = "b7fa7491244b17d03b5a8a6f3541b9637b5878d7";
 const PREVIOUS_STABLE_CLI_SHA256 =
-  "73610e9757c38877c321c220d8fcd360869bd0cc5e792a1b340e39fa28460ccf";
+  "988b9bdd1bb2f9e3792b3d3ef6b88da75d6c502e9bfd620622919f99c0d917c9";
 const PREVIOUS_STABLE_AGENT_SHA256 =
-  "ebe55ea27c6c87d4e0f9cbda9d75fc65905277edb81e279b2ae538e160cbb090";
+  "caf3d633a507c4faf86f3cce34fb4e8ab0a162af88e4b975e26956dda2dc0887";
 
 type CodexPluginListEntry = Readonly<{
   readonly pluginId: string;
@@ -114,6 +114,7 @@ export interface PackageVerificationResult {
 }
 
 export interface PackedPublicPackage {
+  readonly canonicalVersion: string;
   readonly baseVersion: string;
   readonly packageVersion: string;
   readonly tarball: string;
@@ -122,16 +123,22 @@ export interface PackedPublicPackage {
   readonly entries: readonly string[];
 }
 
+/** Pack the public package into a verified tarball in a temporary directory. */
 export async function packPublicPackage(
   temporaryRoot: string,
   options?: PackageReleaseOptions,
 ): Promise<PackedPublicPackage> {
   const manifest = await readPublicManifest();
-  const baseVersion = decode(BaseVersionSchema, manifest.version, "the canonical package version");
-  const version = options?.version ?? baseVersion;
+  const canonicalVersion = decode(
+    CanonicalVersionSchema,
+    manifest.version,
+    "the canonical package version",
+  );
+  const baseVersion = baseVersionFromRelease(canonicalVersion);
+  const version = options?.version ?? canonicalVersion;
   const release = options === undefined ? undefined : createReleaseStamp(options);
   if (options !== undefined && release !== undefined) {
-    assertReleaseVersion(baseVersion, release.channel, version);
+    assertReleaseVersion(canonicalVersion, release.channel, version);
   }
 
   await requireFile(join(cliRoot, "dist/index.js"), "the packed CLI entry point");
@@ -164,9 +171,18 @@ export async function packPublicPackage(
   await assertSafeArtifactFile(tarballPath, tarball, "the package tarball");
   await assertPackedEntries(tarballPath, entries);
   const tarballSha256 = await sha256File(tarballPath);
-  return { baseVersion, packageVersion: version, tarball, tarballPath, tarballSha256, entries };
+  return {
+    canonicalVersion,
+    baseVersion,
+    packageVersion: version,
+    tarball,
+    tarballPath,
+    tarballSha256,
+    entries,
+  };
 }
 
+/** Install and exercise a packed public package in an isolated environment. */
 export async function verifyPublicPackage(
   packed: PackedPublicPackage,
   codexCliVersion?: string,
@@ -289,6 +305,7 @@ export async function verifyPublicPackage(
   const installedModule = (await import(pathToFileURL(installedEntry).href)) as InstalledCliModule;
   await verifyPreviousStableUpgrade({
     temporaryRoot,
+    currentCanonicalVersion: packed.canonicalVersion,
     currentVersion: packed.baseVersion,
     currentInstalledRoot: installedRoot,
     currentInstalledPackageRoot: installedPackageRoot,
@@ -465,7 +482,7 @@ export async function verifyPublicPackage(
     "installed Codex plugin manifest",
   );
   assert(
-    installedPluginManifest.version === packed.baseVersion,
+    installedPluginManifest.version === packed.canonicalVersion,
     "installed Codex plugin manifest version is not canonical",
   );
   const writingInstructions = await readFile(
@@ -801,6 +818,7 @@ export async function verifyPublicPackage(
   };
 }
 
+/** Assert that a package tarball contains exactly the expected entries. */
 export async function assertPackedEntries(
   tarballPath: string,
   expectedEntries: readonly string[],
@@ -859,6 +877,7 @@ function readTarSize(decoder: TextDecoder, bytes: Uint8Array): number {
   return size;
 }
 
+/** Compute the SHA-256 digest of a regular file. */
 export async function sha256File(path: string): Promise<string> {
   const bytes = await readFile(path);
   const copy = new Uint8Array(bytes.byteLength);
@@ -867,6 +886,7 @@ export async function sha256File(path: string): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/** Pack and verify the public package using the current generated Codex bindings. */
 export async function runPackageVerification(): Promise<PackageVerificationResult> {
   return await withTemporaryDirectory("holycodex-package-verification", async (temporaryRoot) => {
     const generated = await ensureCodexGenerated();
@@ -877,6 +897,7 @@ export async function runPackageVerification(): Promise<PackageVerificationResul
 
 async function verifyPreviousStableUpgrade(options: {
   readonly temporaryRoot: string;
+  readonly currentCanonicalVersion: string;
   readonly currentVersion: string;
   readonly currentInstalledRoot: string;
   readonly currentInstalledPackageRoot: string;
@@ -981,7 +1002,7 @@ async function verifyPreviousStableUpgrade(options: {
       "high",
       "--tier",
       "fast-all",
-      "--work",
+      ...LEGACY_WORK_PROVIDER_PLUGINS.flatMap((pluginId) => ["--add-plugin", pluginId]),
       "--add-plugin",
       ADDITIONAL_FIXTURE_PLUGIN,
       "--codex-home",
@@ -993,6 +1014,8 @@ async function verifyPreviousStableUpgrade(options: {
   );
   assert(previousInstall.ok, "the previous stable package install failed");
   const activeRecordPath = join(codexHome, "holycodex/active.json");
+  const previousModule = (await import(pathToFileURL(previousEntry).href)) as InstalledCliModule;
+  await rewriteActiveRecord(activeRecordPath, previousModule, rewriteForLegacyWork);
   const previousRecord = JSON.parse(await readFile(activeRecordPath, "utf8")) as Record<
     string,
     unknown
@@ -1099,7 +1122,7 @@ async function verifyPreviousStableUpgrade(options: {
     "installed Codex plugin manifest",
   );
   assert(
-    installedPluginManifest.version === options.currentVersion,
+    installedPluginManifest.version === options.currentCanonicalVersion,
     "upgrade did not publish the current HolyCodex plugin payload",
   );
   await assertCodexAppServerReadback(
@@ -1240,6 +1263,29 @@ function rewriteForLegacyContext(
     ...record,
     version,
     managed_config: { ...managedConfig, managed: nextManaged },
+  };
+}
+
+function rewriteForLegacyWork(record: Record<string, unknown>): Record<string, unknown> {
+  const optionalSelections = objectProperty(record, "optional_selections");
+  const explicitOptionalSelections = objectProperty(record, "explicit_optional_selections");
+  const capabilityState = objectProperty(record, "capability_state");
+  const officialPlugins = arrayProperty(record, "official_plugins") ?? [];
+  const ownedPlugins = arrayProperty(record, "owned_plugins") ?? [];
+  return {
+    ...record,
+    optional_selections: { ...optionalSelections, work: true },
+    explicit_optional_selections: { ...explicitOptionalSelections, work: true },
+    capability_state: {
+      ...capabilityState,
+      work: {
+        selected: true,
+        status: "healthy",
+        plugin_ids: [...LEGACY_WORK_PROVIDER_PLUGINS],
+      },
+    },
+    official_plugins: [...new Set([...officialPlugins, ...LEGACY_WORK_PROVIDER_PLUGINS])],
+    owned_plugins: [...new Set([...ownedPlugins, ...LEGACY_WORK_PROVIDER_PLUGINS])],
   };
 }
 

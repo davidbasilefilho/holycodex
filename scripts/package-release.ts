@@ -21,6 +21,7 @@ import {
 import {
   assertReleaseVersion,
   BaseVersionSchema,
+  baseVersionFromRelease,
   readCanonicalVersion,
   ReleaseChannelSchema,
   ReleaseVersionSchema,
@@ -75,6 +76,7 @@ const ArgumentsSchema = Schema.Array(Schema.String);
 
 type ArtifactMetadata = typeof ArtifactMetadataSchema.Type;
 
+/** Build, package, and verify a release artifact for the requested version. */
 export async function createReleaseArtifact(
   outputDirectory: string,
   options: PackageReleaseOptions,
@@ -106,6 +108,7 @@ export async function createReleaseArtifact(
   });
 }
 
+/** Verify release metadata, tarball identity, and packaged entries. */
 export async function verifyReleaseArtifact(
   outputDirectory: string,
   version: string,
@@ -119,7 +122,10 @@ export async function verifyReleaseArtifact(
   await assertReleaseOutputDirectory(output, metadata.tarball);
   const canonicalVersion = await readCanonicalVersion();
   assertReleaseVersion(canonicalVersion, channel, version);
-  assert(metadata.baseVersion === canonicalVersion, "the artifact base version is not canonical");
+  assert(
+    metadata.baseVersion === baseVersionFromRelease(canonicalVersion),
+    "the artifact base version is not canonical",
+  );
   assert(metadata.version === version, "the artifact version does not match the release version");
   assert(metadata.channel === channel, "the artifact channel does not match the release channel");
   assert(metadata.sourceSha === sourceSha, "the artifact source SHA does not match the checkout");
@@ -140,6 +146,7 @@ export async function verifyReleaseArtifact(
   return metadata;
 }
 
+/** Check whether the matching release artifact is already published on npm. */
 export async function checkNpmPublication(
   outputDirectory: string,
   version: string,
@@ -188,6 +195,7 @@ export async function checkNpmPublication(
   return "matching";
 }
 
+/** Check whether the matching release artifact is already published on GitHub. */
 export async function checkGitHubPublication(
   outputDirectory: string,
   version: string,
@@ -234,7 +242,7 @@ export async function checkGitHubPublication(
   assert(release.tagName === tag, "the existing GitHub release has a different tag");
   assert(!release.isDraft, "the existing GitHub release is still a draft");
   assert(
-    release.isPrerelease === (channel === "dev"),
+    release.isPrerelease === (channel === "dev" || version.includes("-")),
     "the existing GitHub release has the wrong prerelease state",
   );
   const marker = parseReleaseMarker(release.body);
@@ -285,6 +293,7 @@ export async function checkGitHubPublication(
   return "matching";
 }
 
+/** Write release notes into the release output directory after validation. */
 export async function writeReleaseNotes(outputDirectory: string, notesPath: string): Promise<void> {
   const metadata = await readArtifactMetadata(resolve(outputDirectory));
   const marker = JSON.stringify({

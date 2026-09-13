@@ -2,6 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
@@ -9,6 +10,7 @@ import {
   readdir,
   rm,
   symlink,
+  utimes,
   unlink,
   writeFile,
 } from "node:fs/promises";
@@ -115,6 +117,52 @@ describe("IntentStore", () => {
         strict: true,
       }),
     ).toMatchObject({ id: intent.id });
+  });
+
+  test("falls back only when the current Intent selection is genuinely absent", async () => {
+    const { root, store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Absent selection",
+      goal: "Retain deterministic fallback",
+      acceptanceCriteria: ["readable"],
+    });
+    await unlink(join(root, ".holycodex", "current"));
+    await expect(store.currentIntent()).resolves.toEqual(intent);
+  });
+
+  test("rejects existing empty or whitespace-only current pointers", async () => {
+    for (const pointer of ["", " \t\n"]) {
+      const { root, store } = await fixture();
+      await store.createIntent({
+        title: "Invalid selection",
+        goal: "Reject malformed current pointers",
+        acceptanceCriteria: ["readable"],
+      });
+      await writeFile(join(root, ".holycodex", "current"), pointer, "utf8");
+      await expect(store.currentIntent()).rejects.toMatchObject({ code: "schema_invalid" });
+    }
+  });
+
+  test("reports a missing selected Intent record instead of falling back", async () => {
+    const { root, store } = await fixture();
+    const selected = await store.createIntent({
+      title: "Missing selected record",
+      goal: "Preserve pointer corruption evidence",
+      acceptanceCriteria: ["readable"],
+    });
+    await store.createIntent({
+      title: "Other active Intent",
+      goal: "Remain available for explicit selection",
+      acceptanceCriteria: ["readable"],
+    });
+    await store.selectCurrent(selected.id);
+    const directory = (await readFile(join(root, ".holycodex", "current"), "utf8")).trim();
+    const record = join(root, ".holycodex", directory, "intent.toon");
+    await unlink(record);
+    await expect(store.currentIntent()).rejects.toMatchObject({
+      code: "not_found",
+      details: { path: record },
+    });
   });
 
   test("rejects malformed persisted TOON and migrates the supported legacy schema", async () => {
@@ -675,6 +723,74 @@ describe("IntentStore", () => {
     ).rejects.toMatchObject({ code: "repository_drift" });
   });
 
+  test("allows concurrent paths within the current Assignment scope without misattribution", async () => {
+    const { store, root, setSnapshot } = await fixture();
+    const intent = await store.createIntent({
+      title: "Overlapping assignments",
+      goal: "Persist independent work without shared evidence bookkeeping",
+      acceptanceCriteria: ["safe"],
+    });
+    const primary = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Record the primary package change",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const parallel = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Record the nested package change",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const primaryRunning = await store.startAssignment(intent.id, primary.id, primary.revision);
+    const parallelRunning = await store.startAssignment(intent.id, parallel.id, parallel.revision);
+    const primaryPath = "packages/primary/result.ts";
+    const parallelPath = "packages/core/parallel/result.ts";
+    setSnapshot(snapshot(root, "a".repeat(40), [primaryPath, parallelPath, "docs/unrelated.ts"]));
+
+    await expect(
+      store.recordAssignmentResult(intent.id, primary.id, primaryRunning.revision, {
+        outcome: "completed",
+        summary: "Reject unrelated drift",
+        evidence: [{ kind: "changed_path", value: primaryPath, result: "observed" }],
+      }),
+    ).rejects.toMatchObject({
+      code: "repository_drift",
+      details: { unexpected_paths: ["docs/unrelated.ts"] },
+    });
+
+    setSnapshot(snapshot(root, "a".repeat(40), [primaryPath, parallelPath]));
+
+    const result = await store.recordAssignmentResult(
+      intent.id,
+      primary.id,
+      primaryRunning.revision,
+      {
+        outcome: "completed",
+        summary: "Primary package change recorded",
+        evidence: [{ kind: "changed_path", value: primaryPath, result: "observed" }],
+      },
+    );
+
+    expect(result.assignment.status).toBe("completed");
+    expect(result.assignment.invocations[0]?.evidence).toEqual([
+      { kind: "changed_path", value: primaryPath, result: "observed" },
+    ]);
+    await expect(store.readAssignment(intent.id, parallel.id)).resolves.toMatchObject({
+      revision: parallelRunning.revision,
+      status: "executing",
+      invocations: [],
+    });
+  });
+
   test("preserves the leading status column when reading modified paths", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-status-"));
     await execFileAsync("git", ["init", "-q", root]);
@@ -684,22 +800,239 @@ describe("IntentStore", () => {
     await execFileAsync("git", ["-C", root, "add", "AGENTS.md"]);
     await execFileAsync("git", ["-C", root, "commit", "-q", "-m", "initial"]);
     await writeFile(join(root, "AGENTS.md"), "modified\n", "utf8");
+    const legacyStatus = (
+      await execFileAsync(
+        "git",
+        ["-C", root, "status", "--porcelain=v1", "--untracked-files=all"],
+        { encoding: "utf8" },
+      )
+    ).stdout.trimEnd();
     await expect(readRepositorySnapshot(root)).resolves.toMatchObject({
       changedPaths: ["AGENTS.md"],
+      statusDigest: createHash("sha256").update(legacyStatus).digest("hex"),
     });
   });
 
-  test("records exact Root VCS integration before an operations Assignment", async () => {
+  test("reads NUL-delimited status paths for portable names and rename destinations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-status-nul-"));
+    await execFileAsync("git", ["init", "-q", root]);
+    await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
+    await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
+    const renamedFrom = "old path é.txt";
+    const renamedTo = "new path 中.txt";
+    const modified = "modified path ü.txt";
+    const untracked = "untracked path.txt";
+    await writeFile(join(root, renamedFrom), "rename me\n", "utf8");
+    await writeFile(join(root, modified), "before\n", "utf8");
+    await execFileAsync("git", ["-C", root, "add", "."]);
+    await execFileAsync("git", ["-C", root, "commit", "-q", "-m", "initial"]);
+    await execFileAsync("git", ["-C", root, "mv", renamedFrom, renamedTo]);
+    await writeFile(join(root, modified), "after\n", "utf8");
+    await writeFile(join(root, untracked), "new\n", "utf8");
+
+    await expect(readRepositorySnapshot(root)).resolves.toMatchObject({
+      changedPaths: [modified, renamedTo, untracked].sort(),
+    });
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "reads NUL-delimited status paths with POSIX control and quote names",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "holycodex-status-nul-posix-"));
+      await execFileAsync("git", ["init", "-q", root]);
+      await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
+      await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
+      const renamedFrom = 'old\tpath "é.txt';
+      const renamedTo = 'new -> path "é.txt';
+      const modified = 'modified\tpath\n"ü.txt';
+      const untracked = 'untracked -> path "中.txt';
+      await writeFile(join(root, renamedFrom), "rename me\n", "utf8");
+      await writeFile(join(root, modified), "before\n", "utf8");
+      await execFileAsync("git", ["-C", root, "add", "."]);
+      await execFileAsync("git", ["-C", root, "commit", "-q", "-m", "initial"]);
+      await execFileAsync("git", ["-C", root, "mv", renamedFrom, renamedTo]);
+      await writeFile(join(root, modified), "after\n", "utf8");
+      await writeFile(join(root, untracked), "new\n", "utf8");
+
+      await expect(readRepositorySnapshot(root)).resolves.toMatchObject({
+        changedPaths: [modified, renamedTo, untracked].sort(),
+      });
+    },
+  );
+
+  test("accepts old C-quoted Unicode and space paths in a persisted baseline", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-legacy-baseline-"));
+    await execFileAsync("git", ["init", "-q", root]);
+    await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
+    await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
+    await execFileAsync("git", ["-C", root, "config", "core.quotePath", "true"]);
+    const special = "\uFEFFspecial é path.txt";
+    await writeFile(join(root, ".gitignore"), ".holycodex/\n", "utf8");
+    await writeFile(join(root, special), "before\n", "utf8");
+    await execFileAsync("git", ["-C", root, "add", "."]);
+    await execFileAsync("git", ["-C", root, "commit", "-q", "-m", "initial"]);
+    await writeFile(join(root, special), "after\n", "utf8");
+    const legacyStatus = (
+      await execFileAsync(
+        "git",
+        ["-C", root, "status", "--porcelain=v1", "--untracked-files=all"],
+        { encoding: "utf8" },
+      )
+    ).stdout.trimEnd();
+    const legacyPath = legacyStatus.slice(3);
+    expect(legacyPath).not.toBe(special);
+    const store = new IntentStore(root, { repositorySnapshot: () => readRepositorySnapshot(root) });
+    const intent = await store.createIntent({
+      title: "Legacy baseline",
+      goal: "Read old path encodings exactly",
+      acceptanceCriteria: ["readable"],
+    });
+    const directory = (await readdir(join(root, ".holycodex"))).find(
+      (entry) => entry !== "current",
+    )!;
+    const path = join(root, ".holycodex", directory, "intent.toon");
+    const persisted = decode(await readFile(path, "utf8"), { strict: true }) as {
+      baseline: { expected_changes: string[] };
+    };
+    persisted.baseline.expected_changes = [legacyPath];
+    await writeFile(path, `${encode(persisted)}\n`, "utf8");
+
+    const ready = await store.transitionIntent(intent.id, "ready", intent.revision);
+    await expect(
+      store.transitionIntent(intent.id, "executing", ready.revision),
+    ).resolves.toMatchObject({
+      state: "executing",
+    });
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "accepts old C-quoted POSIX control and quote paths in a persisted baseline",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "holycodex-legacy-baseline-posix-"));
+      await execFileAsync("git", ["init", "-q", root]);
+      await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
+      await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
+      const special = 'special\tpath\n"é.txt';
+      await writeFile(join(root, ".gitignore"), ".holycodex/\n", "utf8");
+      await writeFile(join(root, special), "before\n", "utf8");
+      await execFileAsync("git", ["-C", root, "add", "."]);
+      await execFileAsync("git", ["-C", root, "commit", "-q", "-m", "initial"]);
+      await writeFile(join(root, special), "after\n", "utf8");
+      const legacyStatus = (
+        await execFileAsync(
+          "git",
+          ["-C", root, "status", "--porcelain=v1", "--untracked-files=all"],
+          { encoding: "utf8" },
+        )
+      ).stdout.trimEnd();
+      const legacyPath = legacyStatus.slice(3);
+      expect(legacyPath).not.toBe(special);
+      const store = new IntentStore(root, {
+        repositorySnapshot: () => readRepositorySnapshot(root),
+      });
+      const intent = await store.createIntent({
+        title: "Legacy POSIX baseline",
+        goal: "Read old POSIX path encodings exactly",
+        acceptanceCriteria: ["readable"],
+      });
+      const directory = (await readdir(join(root, ".holycodex"))).find(
+        (entry) => entry !== "current",
+      )!;
+      const path = join(root, ".holycodex", directory, "intent.toon");
+      const persisted = decode(await readFile(path, "utf8"), { strict: true }) as {
+        baseline: { expected_changes: string[] };
+      };
+      persisted.baseline.expected_changes = [legacyPath];
+      await writeFile(path, `${encode(persisted)}\n`, "utf8");
+
+      const ready = await store.transitionIntent(intent.id, "ready", intent.revision);
+      await expect(
+        store.transitionIntent(intent.id, "executing", ready.revision),
+      ).resolves.toMatchObject({
+        state: "executing",
+      });
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "integrates commits with POSIX special paths exactly",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "holycodex-special-commit-"));
+      await execFileAsync("git", ["init", "-q", root]);
+      await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
+      await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
+      const special = ' leading "é ->\tpath\n.txt ';
+      await writeFile(join(root, ".gitignore"), ".holycodex/\n", "utf8");
+      await writeFile(join(root, special), "before\n", "utf8");
+      await execFileAsync("git", ["-C", root, "add", "."]);
+      await execFileAsync("git", ["-C", root, "commit", "-q", "-m", "initial"]);
+      const parent = (
+        await execFileAsync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" })
+      ).stdout.trim();
+      const store = new IntentStore(root, {
+        repositorySnapshot: () => readRepositorySnapshot(root),
+      });
+      let intent = await store.createIntent({
+        title: "Special commit path",
+        goal: "Integrate a reviewed special path exactly",
+        acceptanceCriteria: ["exact path"],
+      });
+      const assignment = await store.createAssignment(
+        intent.id,
+        {
+          objective: "Modify the special path",
+          owner: { role: "Worker", task: "implementation" },
+          scope: [special],
+          acceptanceCriteria: ["proof"],
+        },
+        intent.revision,
+      );
+      const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+      await writeFile(join(root, special), "after\n", "utf8");
+      intent = (
+        await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
+          outcome: "completed",
+          summary: "Special path modified",
+          evidence: [{ kind: "changed_path", value: special, result: "observed" }],
+        })
+      ).intent;
+      intent = await store.transitionIntent(intent.id, "ready", intent.revision);
+      intent = await store.transitionIntent(intent.id, "executing", intent.revision);
+      intent = await store.transitionIntent(intent.id, "verifying", intent.revision);
+      intent = await store.recordIntentEvidence(intent.id, intent.revision, {
+        verification: "passed",
+        evidence: [{ kind: "check", value: "special path integration proof", result: "passed" }],
+      });
+      intent = await store.transitionIntent(intent.id, "reviewing", intent.revision);
+      intent = await store.recordIntentEvidence(intent.id, intent.revision, {
+        review: "accepted",
+      });
+      await execFileAsync("git", ["-C", root, "add", "--", special]);
+      await execFileAsync("git", ["-C", root, "commit", "-q", "-m", "special path"]);
+      const commit = (
+        await execFileAsync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" })
+      ).stdout.trim();
+      expect(commit).not.toBe(parent);
+      await expect(
+        store.recordVcsIntegration(intent.id, intent.revision, { commit }),
+      ).resolves.toMatchObject({
+        baseline: { expected_head: commit, expected_changes: [] },
+      });
+    },
+  );
+
+  test("records exact Root VCS integration for portable Unicode and space paths", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-vcs-integration-"));
     await git(root, "init", "-q");
     await git(root, "config", "user.email", "test@example.com");
     await git(root, "config", "user.name", "Test");
+    const implementationPath = "implementation é path.txt";
     await writeFile(join(root, ".gitignore"), ".holycodex/\n", "utf8");
-    await writeFile(join(root, "implementation.txt"), "before\n", "utf8");
-    await git(root, "add", ".gitignore", "implementation.txt");
+    await writeFile(join(root, implementationPath), "before\n", "utf8");
+    await git(root, "add", ".gitignore", implementationPath);
     await git(root, "commit", "-q", "-m", "initial");
     const parent = await git(root, "rev-parse", "HEAD");
-    await writeFile(join(root, "implementation.txt"), "after\n", "utf8");
+    await writeFile(join(root, implementationPath), "after\n", "utf8");
     const store = new IntentStore(root, { repositorySnapshot: () => readRepositorySnapshot(root) });
     let intent = await store.createIntent({
       title: "VCS integration",
@@ -711,7 +1044,7 @@ describe("IntentStore", () => {
       {
         objective: "Implement the reviewed change",
         owner: { role: "Worker", task: "implementation" },
-        scope: ["implementation.txt"],
+        scope: [implementationPath],
         acceptanceCriteria: ["proof"],
       },
       intent.revision,
@@ -721,7 +1054,7 @@ describe("IntentStore", () => {
       await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
         outcome: "completed",
         summary: "Implementation complete",
-        evidence: [{ kind: "changed_path", value: "implementation.txt", result: "observed" }],
+        evidence: [{ kind: "changed_path", value: implementationPath, result: "observed" }],
       })
     ).intent;
     intent = await store.transitionIntent(intent.id, "ready", intent.revision);
@@ -747,7 +1080,7 @@ describe("IntentStore", () => {
         intent.revision,
       ),
     ).rejects.toMatchObject({ code: "not_ready" });
-    await git(root, "add", "implementation.txt");
+    await git(root, "add", implementationPath);
     await git(root, "commit", "-q", "-m", "implement reviewed change");
     const commit = await git(root, "rev-parse", "HEAD");
     expect(commit).not.toBe(parent);
@@ -901,6 +1234,313 @@ describe("IntentStore", () => {
       evidence: [{ kind: "changed_path", value: "packages/core/src/work-state.ts" }],
     });
     expect(result.assignment.status).toBe("completed");
+  });
+
+  test("admits scoped dirty ingress and bounded scope expansion across start and result", async () => {
+    const { store, root, setSnapshot } = await fixture();
+    const intent = await store.createIntent({
+      title: "Scoped ingress",
+      goal: "Allow declared task files to enter the lifecycle",
+      acceptanceCriteria: ["bounded"],
+    });
+    const changedPath = "packages/core/src/new-task.ts";
+    const siblingTest = "packages/core/src/new-task.test.ts";
+    setSnapshot({
+      ...snapshot(root, "a".repeat(40), [changedPath]),
+      statusDigest: "c".repeat(64),
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Implement the declared task",
+        owner: { role: "Worker", task: "implementation" },
+        scope: [changedPath],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    await expect(
+      store.createAssignment(
+        intent.id,
+        {
+          objective: "Escape the declared component",
+          owner: { role: "Worker", task: "implementation" },
+          scope: ["packages/agent/src/index.ts"],
+          acceptanceCriteria: ["proof"],
+        },
+        intent.revision,
+      ),
+    ).rejects.toMatchObject({ code: "repository_drift" });
+
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision, {
+      scope: [changedPath, siblingTest],
+    });
+    expect(running.scope).toEqual([changedPath, siblingTest].sort());
+    await expect(
+      store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
+        outcome: "completed",
+        summary: "Declared task complete",
+        scope: [changedPath],
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    const result = await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
+      outcome: "completed",
+      summary: "Declared task complete",
+      scope: [changedPath, siblingTest],
+      evidence: [{ kind: "changed_path", value: changedPath, result: "observed" }],
+    });
+    expect(result.assignment.scope).toEqual([changedPath, siblingTest].sort());
+    expect(result.assignment.status).toBe("completed");
+  });
+
+  test("preserves Root gates for a successful read-only Assignment result", async () => {
+    const { store, root } = await fixture();
+    let intent = await store.createIntent({
+      title: "Read-only result",
+      goal: "Keep Root proof while recording specialist bookkeeping",
+      acceptanceCriteria: ["preserve gates"],
+    });
+    intent = await store.transitionIntent(intent.id, "ready", intent.revision);
+    intent = await store.transitionIntent(intent.id, "executing", intent.revision);
+    intent = await store.transitionIntent(intent.id, "verifying", intent.revision);
+    intent = await store.recordIntentEvidence(intent.id, intent.revision, {
+      verification: "passed",
+      evidence: [{ kind: "check", value: "read-only setup", result: "passed" }],
+    });
+    intent = await store.transitionIntent(intent.id, "reviewing", intent.revision);
+    intent = await store.recordIntentEvidence(intent.id, intent.revision, {
+      review: "accepted",
+      acceptanceMet: true,
+      rootReadiness: true,
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Record the already observed state",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["recorded"],
+      },
+      intent.revision,
+    );
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    const result = await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
+      outcome: "completed",
+      summary: "No repository evolution",
+    });
+    expect(result.assignment.revision).toBe(running.revision + 1);
+    expect(result.intent.revision).toBe(intent.revision + 1);
+    expect(result.intent.state).toBe("reviewing");
+    expect(result.intent.verification.status).toBe("passed");
+    expect(result.intent.review.status).toBe("accepted");
+    expect(result.intent.acceptance_met).toBe(true);
+    expect(result.intent.root_readiness).toBe(true);
+    const directory = (await readdir(join(root, ".holycodex"))).find(
+      (entry) => entry !== "current",
+    )!;
+    expect(await readdir(join(root, ".holycodex", directory))).not.toContain(
+      ".holycodex-transaction.toon",
+    );
+  });
+
+  test("recovers prepared and committed Assignment plus Intent transactions before reads", async () => {
+    const { root, store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Transaction recovery",
+      goal: "Recover paired lifecycle records after interruption",
+      acceptanceCriteria: ["recoverable"],
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Exercise durable recovery",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["recoverable"],
+      },
+      intent.revision,
+    );
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    const directoryName = (await readdir(join(root, ".holycodex"))).find(
+      (entry) => entry !== "current",
+    )!;
+    const directory = join(root, ".holycodex", directoryName);
+    const assignmentPath = join(directory, "assignments", `${assignment.id}.toon`);
+    const intentPath = join(directory, "intent.toon");
+    const journalPath = join(directory, ".holycodex-transaction.toon");
+    const nextAssignment = { ...running, revision: running.revision + 10 };
+    const nextIntent = { ...intent, revision: intent.revision + 10 };
+    const previousAssignmentText = `${encode(running)}\n`;
+    const previousIntentText = `${encode(intent)}\n`;
+    const nextAssignmentText = `${encode(nextAssignment)}\n`;
+    const nextIntentText = `${encode(nextIntent)}\n`;
+    const journal = (state: "prepared" | "committed") =>
+      `${encode({
+        schema_version: "holycodex-work-state-transaction-1",
+        state,
+        files: [
+          {
+            path: `assignments/${assignment.id}.toon`,
+            previous: previousAssignmentText,
+            next: nextAssignmentText,
+          },
+          { path: "intent.toon", previous: previousIntentText, next: nextIntentText },
+        ],
+      })}\n`;
+
+    await writeFile(assignmentPath, nextAssignmentText, "utf8");
+    await writeFile(journalPath, journal("prepared"), "utf8");
+    await expect(store.readAssignment(intent.id, assignment.id)).resolves.toMatchObject({
+      revision: running.revision,
+    });
+    await expect(readFile(journalPath, "utf8")).rejects.toThrow();
+    await expect(readFile(assignmentPath, "utf8")).resolves.toBe(previousAssignmentText);
+    await expect(readFile(intentPath, "utf8")).resolves.toBe(previousIntentText);
+
+    await writeFile(assignmentPath, previousAssignmentText, "utf8");
+    await writeFile(intentPath, previousIntentText, "utf8");
+    await writeFile(journalPath, journal("committed"), "utf8");
+    await expect(store.currentIntent()).resolves.toMatchObject({ revision: nextIntent.revision });
+    await expect(store.readAssignment(intent.id, assignment.id)).resolves.toMatchObject({
+      revision: nextAssignment.revision,
+    });
+    await expect(readFile(assignmentPath, "utf8")).resolves.toBe(nextAssignmentText);
+    await expect(readFile(intentPath, "utf8")).resolves.toBe(nextIntentText);
+  });
+
+  test("replays a committed transaction before listing through a stale intent lock", async () => {
+    const { root, store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Stale journal listing",
+      goal: "List only after committed lifecycle recovery",
+      acceptanceCriteria: ["consistent"],
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Exercise stale lock replay",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["consistent"],
+      },
+      intent.revision,
+    );
+    const directoryName = (await readdir(join(root, ".holycodex"))).find(
+      (entry) => entry !== "current",
+    )!;
+    const directory = join(root, ".holycodex", directoryName);
+    const journalPath = join(directory, ".holycodex-transaction.toon");
+    const startedAt = "2026-01-01T00:00:01.000Z";
+    const nextAssignment = {
+      ...assignment,
+      status: "executing" as const,
+      revision: assignment.revision + 1,
+      active_invocation_id: "invocation-001",
+      active_started_at: startedAt,
+      updated_at: startedAt,
+    };
+    const nextIntent = {
+      ...intent,
+      state: "executing" as const,
+      revision: intent.revision + 1,
+      updated_at: startedAt,
+    };
+    await writeFile(
+      journalPath,
+      `${encode({
+        schema_version: "holycodex-work-state-transaction-1",
+        state: "committed",
+        files: [
+          {
+            path: `assignments/${assignment.id}.toon`,
+            previous: `${encode(assignment)}\n`,
+            next: `${encode(nextAssignment)}\n`,
+          },
+          {
+            path: "intent.toon",
+            previous: `${encode(intent)}\n`,
+            next: `${encode(nextIntent)}\n`,
+          },
+        ],
+      })}\n`,
+      "utf8",
+    );
+    const lockPath = join(directory, ".intent-store");
+    await mkdir(lockPath);
+    const staleTime = new Date(Date.now() - 2 * 120_000);
+    await utimes(lockPath, staleTime, staleTime);
+
+    await expect(store.listIntents()).resolves.toEqual([expect.objectContaining(nextIntent)]);
+    await expect(store.readAssignment(intent.id, assignment.id)).resolves.toMatchObject(
+      nextAssignment,
+    );
+    await expect(readFile(journalPath, "utf8")).rejects.toThrow();
+  });
+
+  test("waits for an active writer before recovering or listing an Intent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-work-state-race-"));
+    let blockSnapshot = false;
+    let snapshotStartedResolve!: () => void;
+    let releaseSnapshot!: () => void;
+    const snapshotStarted = new Promise<void>((resolve) => {
+      snapshotStartedResolve = resolve;
+    });
+    const snapshotRelease = new Promise<void>((resolve) => {
+      releaseSnapshot = resolve;
+    });
+    const store = new IntentStore(root, {
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+      repositorySnapshot: async () => {
+        if (blockSnapshot) {
+          blockSnapshot = false;
+          snapshotStartedResolve();
+          await snapshotRelease;
+        }
+        return snapshot(root);
+      },
+    });
+    const intent = await store.createIntent({
+      title: "Writer lock race",
+      goal: "Keep reads behind an active lifecycle writer",
+      acceptanceCriteria: ["serialized"],
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Hold the Intent writer lock",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["serialized"],
+      },
+      intent.revision,
+    );
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    blockSnapshot = true;
+    const resultPromise = store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
+      outcome: "completed",
+      summary: "Writer finished",
+    });
+    await snapshotStarted;
+
+    const recoverPromise = store.recover();
+    const listPromise = store.listIntents();
+    const [recoverSettled, listSettled] = await Promise.all([
+      Promise.race([
+        recoverPromise.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 20)),
+      ]),
+      Promise.race([
+        listPromise.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 20)),
+      ]),
+    ]);
+    expect(recoverSettled).toBe(false);
+    expect(listSettled).toBe(false);
+
+    releaseSnapshot();
+    const [result, , listed] = await Promise.all([resultPromise, recoverPromise, listPromise]);
+    expect(listed).toEqual([expect.objectContaining(result.intent)]);
+    expect(listed[0]?.revision).toBe(result.intent.revision);
   });
 
   test("rejects assignment evidence outside scope and repository identity drift", async () => {

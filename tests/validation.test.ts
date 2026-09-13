@@ -90,7 +90,7 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("- main");
     expect(workflow).toContain("tags:");
     expect(workflow).toContain('"v*.*.*"');
-    expect(workflow).toContain('"!v*.*.*-*"');
+    expect(workflow).toContain('"!v*.*.*-dev.*"');
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).toContain(".github/workflows/validation.yml");
     expect(workflow).toContain("source_sha: ${{ needs.prepare.outputs.source_sha }}");
@@ -161,7 +161,8 @@ describe("repository validation machinery", () => {
     expect(devRelease).toContain("--prerelease");
     expect(devRelease).not.toContain("--verify-tag");
     expect(stableRelease).toContain("--verify-tag");
-    expect(stableRelease).not.toContain("--prerelease");
+    expect(stableRelease).toContain("--prerelease");
+    expect(stableRelease).toContain('[[ "$RELEASE_VERSION" == *-* ]]');
     for (const checkout of workflow.split("uses: actions/checkout@").slice(1)) {
       expect(checkout).toContain("ref:");
     }

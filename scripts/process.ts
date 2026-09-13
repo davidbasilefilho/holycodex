@@ -70,6 +70,7 @@ const ENVIRONMENT_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const SENSITIVE_ENVIRONMENT_KEY_PATTERN =
   /(?:^|_)(?:ACCESS[_-]?KEY|API[_-]?KEY|AUTH(?:ORIZATION)?|CERT(?:IFICATE)?|COOKIE|CREDENTIALS?|PASSWORD|PASSWD|PRIVATE[_-]?KEY|SECRET|TOKEN)(?:$|_)/iu;
 
+/** Return whether an environment key conventionally carries sensitive data. */
 export function isSensitiveEnvironmentKey(key: string): boolean {
   return SENSITIVE_ENVIRONMENT_KEY_PATTERN.test(key);
 }
@@ -107,6 +108,7 @@ export function allowlistedEnvironment(
   return result;
 }
 
+/** Run a subprocess with bounded output and an allowlisted environment. */
 export async function runCommand(
   command: readonly string[],
   options: Readonly<{
@@ -148,6 +150,7 @@ export async function runCommand(
   return parsed.right;
 }
 
+/** Run a subprocess and throw a redacted error when it exits unsuccessfully. */
 export async function runChecked(
   command: readonly string[],
   options: Readonly<{
@@ -176,6 +179,7 @@ export async function runChecked(
   return result;
 }
 
+/** Run an operation inside a temporary directory and remove it afterward. */
 export async function withTemporaryDirectory<T>(
   prefix: string,
   operation: (directory: string) => Promise<T>,
@@ -197,6 +201,7 @@ export async function withTemporaryDirectory<T>(
   }
 }
 
+/** Assert that a path remains below the system temporary directory. */
 export function assertTemporaryPath(path: string, label: string): string {
   const resolved = resolve(path);
   const root = resolve(tmpdir());
@@ -212,10 +217,12 @@ export function assertTemporaryPath(path: string, label: string): string {
   return resolved;
 }
 
+/** Write one JSON value with a terminal newline and restrictive file mode. */
 export async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value)}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
+/** Redact sensitive values from diagnostics and bound the resulting text. */
 export function redactDiagnostics(
   value: string,
   environment: Readonly<Record<string, string | undefined>> = process.env,

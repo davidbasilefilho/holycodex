@@ -65,7 +65,8 @@ export async function runOpenTuiInstallWizard(
     exitOnCtrlC: true,
     clearOnShutdown: true,
   });
-  const color = colorEnabled({ stdoutIsTTY: true, env: process.env, stream: "stdout" });
+  // OpenTUI treats string content as literal text, so terminal SGR escapes render visibly.
+  const color = false;
   const text = new opentui.TextRenderable(renderer, { content: renderWizard(state, 0, color) });
   renderer.root.add(text);
 

@@ -43,6 +43,7 @@ export function resolveInstallerPaths(
   };
 }
 
+/** Structured failure raised when a managed path violates boundary rules. */
 export class PathBoundaryError extends Error {
   readonly code: "invalid_path" | "unsafe_root_alias" | "path_symlink" | "broad_path";
 
@@ -91,6 +92,7 @@ function hasControlCharacter(value: string): boolean {
   return false;
 }
 
+/** Create a managed directory after confirming that its path contains no symlink. */
 export async function ensureOwnedDirectory(path: string): Promise<void> {
   assertRootText(path, "owned path");
   // Check before mkdir as well as after it. Otherwise a symlinked ancestor
@@ -101,6 +103,7 @@ export async function ensureOwnedDirectory(path: string): Promise<void> {
   await assertNoSymlink(path);
 }
 
+/** Reject a path whose existing components contain a symbolic link. */
 export async function assertNoSymlink(path: string): Promise<void> {
   const absolute = resolve(path);
   let current = absolute;
@@ -124,6 +127,7 @@ export async function assertNoSymlink(path: string): Promise<void> {
   }
 }
 
+/** Validate that an existing managed path and its ancestors contain no symlink. */
 export async function assertNoSymlinkTree(path: string): Promise<void> {
   await assertNoSymlink(path);
 }
@@ -153,6 +157,7 @@ function normalizePlatformPath(value: string, platform: "posix" | "win32"): stri
   return value;
 }
 
+/** Return whether an unknown filesystem error carries the requested error code. */
 export function isFsCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }

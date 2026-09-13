@@ -16,6 +16,7 @@ import {
   writeTomlPath,
   TomlDocumentSchema,
   type ManagedConfigKeyPath,
+  type ManagedConfigWriteValue,
   type ManagedRuntimeConfigState,
   type TomlDocument,
   type TomlTable,
@@ -972,6 +973,7 @@ function toCoreSelections(value: OptionalSelections): OptionalCapabilitySelectio
   };
 }
 
+/** Parse Codex configuration text through the validated TOML document boundary. */
 export function parseConfig(text: string | undefined): TomlDocument {
   if (text === undefined || text.trim().length === 0) return {};
   try {
@@ -985,6 +987,7 @@ export function parseConfig(text: string | undefined): TomlDocument {
   }
 }
 
+/** Serialize a validated TOML document for writing to Codex configuration. */
 export function serializeConfig(document: TomlDocument): string {
   try {
     const bun = (globalThis as { Bun?: { TOML?: { stringify: (value: TomlDocument) => string } } })
@@ -1002,6 +1005,7 @@ export function serializeConfig(document: TomlDocument): string {
 
 type PluginConfigEntryName = "preference" | "marketplace";
 
+/** Capture the pre-install configuration entries owned by the HolyCodex plugin. */
 export async function snapshotHolyCodexPluginConfig(
   document: TomlDocument,
 ): Promise<PluginConfigSnapshot["before"]> {
@@ -1046,6 +1050,7 @@ export interface ProviderPluginConfigCleanupResult {
   readonly preserved: readonly string[];
 }
 
+/** Restore or remove HolyCodex configuration entries when their values are unchanged. */
 export async function cleanupHolyCodexPluginConfig(
   document: TomlDocument,
   snapshot: PluginConfigSnapshot,
@@ -1084,6 +1089,7 @@ export async function cleanupHolyCodexPluginConfig(
   return { document: output, restored, removed, preserved };
 }
 
+/** Restore or remove provider plugin entries when their values are unchanged. */
 export async function cleanupProviderPluginConfig(
   document: TomlDocument,
   snapshots: readonly ProviderPluginConfigSnapshot[],
@@ -1236,10 +1242,11 @@ export function desiredRootConfig(
         security?: boolean;
         windowsGitBashExecutable?: string;
       }> = false,
-): Partial<Record<ManagedConfigKeyPath, string | boolean>> {
+): Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> {
   const root = projectRootAgent(profile, tier);
-  const desired: Partial<Record<ManagedConfigKeyPath, string | boolean>> = {
+  const desired: Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> = {
     model: root.model,
+    model_auto_compact_token_limit: 64_000,
     model_reasoning_effort: root.effort,
     service_tier: root.serviceTier,
     model_verbosity: "low",
@@ -1260,7 +1267,7 @@ async function assertPostPluginConfigStable(
   live: TomlDocument,
   preflight: TomlDocument,
   current: ManagedRuntimeConfigState,
-  desired: Readonly<Partial<Record<ManagedConfigKeyPath, string | boolean>>>,
+  desired: Readonly<Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>>,
 ): Promise<void> {
   const drifted: ManagedConfigKeyPath[] = [];
   for (const rawKeyPath of Object.keys(desired)) {
@@ -1796,6 +1803,7 @@ export async function installRecordDigest(value: InstallRecordDigestInput): Prom
   return await domainSeparatedSha256("install-record", [canonicalJsonUtf8(asJsonValue(payload))]);
 }
 
+/** Check whether an install record still matches its authenticated digest. */
 export async function recordDigestMatches(record: InstallRecord): Promise<boolean> {
   return await recordDigestMatchesRaw(record);
 }
@@ -1892,6 +1900,7 @@ function reportProgress(options: InstallerOptions, event: InstallProgressEvent):
   }
 }
 
+/** Structured failure raised while installing or upgrading HolyCodex. */
 export class InstallerError extends Error {
   readonly code:
     | "install_failed"

@@ -10,7 +10,7 @@ Usage:
   holycodex remove [options]
   holycodex upgrade [options]
   holycodex doctor [options]
-  holycodex version [<0.x.y|patch|minor>] [options]
+  holycodex version [<0.x.y[-n]|patch|minor>] [options]
 
 Options:
   --help, -h       Show this help.
@@ -78,7 +78,7 @@ Use --dry-run to preview changes. It does not download or install a new binary.
 const VERSION_HELP = `Read or update the canonical public package version.
 
 Usage:
-  holycodex version [<0.x.y|patch|minor>] [--dry-run] [--json]
+  holycodex version [<0.x.y[-n]|patch|minor>] [--dry-run] [--json]
   holycodex --version
   holycodex -v
 `;
@@ -137,6 +137,7 @@ export function helpTopic(argv: readonly string[]): string | undefined {
   return words[0];
 }
 
+/** Return whether human-readable output should include terminal color escapes. */
 export function colorEnabled(options: HumanRenderOptions): boolean {
   const env = options.env ?? {};
   if (env["NO_COLOR"] !== undefined || env["TERM"] === "dumb") return false;

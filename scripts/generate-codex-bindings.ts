@@ -63,6 +63,7 @@ export interface GeneratedCacheIdentity {
   readonly codexCliDigest: string;
 }
 
+/** Reject a Codex installation that does not match stable channel metadata. */
 export function assertLatestStableMatch(latestVersion: string, installedVersion: string): void {
   assertStableVersion(latestVersion, "mise stable Codex metadata");
   assertStableVersion(installedVersion, "the installed Codex CLI version");
@@ -73,6 +74,7 @@ export function assertLatestStableMatch(latestVersion: string, installedVersion:
   }
 }
 
+/** Return whether cached generated output matches the resolved Codex identity. */
 export function canReuseGeneratedOutput(
   cached: GeneratedCacheIdentity,
   resolved: GeneratedCacheIdentity,

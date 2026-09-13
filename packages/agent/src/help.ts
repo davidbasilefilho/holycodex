@@ -91,7 +91,8 @@ Assignments are bounded specialist contracts. Their results never own global lif
   "assignment create": `Usage: holycodex-agent assignment create --intent <ref> --revision <n> --input <json> [--repo <path>]
 
 Input requires objective, owner, scope, and acceptanceCriteria. Effect: creates one atomic
-assignments/{id}.toon after repository drift validation.
+assignments/{id}.toon after repository drift validation; explicitly scoped dirty paths may be
+admitted when they are inside the declared scope.
 `,
   "assignment list": `Usage: holycodex-agent assignment list --intent <ref> [--repo <path>]
 
@@ -106,18 +107,19 @@ Output: one validated Assignment. No mutation.
 Input requires a non-empty scope array. Effect: Root-owned reconciliation of an unfinished
 Assignment's bounded repository scope; lifecycle and invocation state are preserved.
 `,
-  "assignment start": `Usage: holycodex-agent assignment start --intent <ref> --assignment <id> --revision <n> [--repo <path>]
+  "assignment start": `Usage: holycodex-agent assignment start --intent <ref> --assignment <id> --revision <n> [--input <json>] [--repo <path>]
 
 Effect: marks a pending/blocked/failed Assignment executing and records its active invocation.
-An already executing Assignment must receive its result before another start.
+Optional input is {"scope":string[]} for an explicit bounded superset expansion. An already
+executing Assignment must receive its result before another start.
 `,
   "assignment result": `Usage: holycodex-agent assignment result --intent <ref> --assignment <id> --revision <n> --input <json> [--repo <path>]
 
-Input requires outcome and summary; supports compact invocation metadata, typed Context7 proof,
-evidence, blocker, and remainingRisk. Result must match the active invocation (legacy executing records may finish
-without metadata). Operations success preserves accepted Intent gates for Root CI/acceptance;
-operations failure returns the Intent to executing for repair. Effect: appends one invocation
-and accepts only declared repository evolution.
+Input requires outcome and summary; supports compact invocation metadata, an explicit bounded
+scope superset, typed Context7 proof, evidence, blocker, and remainingRisk. Result must match the
+active invocation (legacy executing records may finish without metadata). The operation atomically
+persists the Assignment and Intent revisions and returns both current records. Worker evidence
+cannot set Root gates; actual repository evolution or failure invalidates prior gates.
 `,
 };
 

@@ -12,6 +12,7 @@ import { decodeSchema, JsonObjectSchema } from "./schema.ts";
 const IGNORED_SYNC_CODES = new Set(["EBADF", "EINVAL", "ENOSYS", "ENOTSUP", "EISDIR"]);
 const JsonObjectBoundarySchema = JsonObjectSchema;
 
+/** Flush a regular file when the host filesystem supports file synchronization. */
 export async function syncFile(path: string): Promise<void> {
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
@@ -26,6 +27,7 @@ export async function syncFile(path: string): Promise<void> {
   }
 }
 
+/** Flush a directory when the host filesystem supports directory synchronization. */
 export async function syncDirectory(path: string): Promise<void> {
   await syncFile(path).catch((error: unknown) => {
     if (!hasIgnoredSyncCode(error)) {
@@ -34,10 +36,12 @@ export async function syncDirectory(path: string): Promise<void> {
   });
 }
 
+/** Write a JSON value through a synced temporary file and atomic rename. */
 export async function writeAtomicJson(path: string, value: JsonValue): Promise<void> {
   await writeAtomicText(path, `${canonicalJson(value)}\n`);
 }
 
+/** Write text through a synced temporary file and atomic rename. */
 export async function writeAtomicText(path: string, value: string): Promise<void> {
   const directory = dirname(path);
   await ensureOwnedDirectory(directory);
@@ -54,6 +58,7 @@ export async function writeAtomicText(path: string, value: string): Promise<void
   }
 }
 
+/** Read, parse, and validate a regular JSON file. */
 export async function readJsonFile<T>(path: string, schema: Schema.Schema<T>): Promise<T> {
   const entry = await lstat(path);
   if (!entry.isFile() || entry.isSymbolicLink()) {
@@ -72,11 +77,13 @@ export async function readJsonFile<T>(path: string, schema: Schema.Schema<T>): P
   return parsed;
 }
 
+/** Read and validate a JSON object from a regular file. */
 export async function readJsonObject(path: string): Promise<JsonObject> {
   const value = await readJsonFile(path, JsonObjectBoundarySchema);
   return value;
 }
 
+/** Read a regular text file, returning undefined when it does not exist. */
 export async function optionalTextFile(path: string): Promise<string | undefined> {
   try {
     const entry = await lstat(path);
@@ -90,6 +97,7 @@ export async function optionalTextFile(path: string): Promise<string | undefined
   }
 }
 
+/** Read and validate an optional JSON file, returning undefined when absent. */
 export async function optionalJsonFile<T>(
   path: string,
   schema: Schema.Schema<T>,
@@ -104,6 +112,7 @@ export async function optionalJsonFile<T>(
   }
 }
 
+/** Return whether a path exists as a regular file rather than a symlink. */
 export async function existsRegular(path: string): Promise<boolean> {
   try {
     const entry = await lstat(path);
@@ -116,6 +125,7 @@ export async function existsRegular(path: string): Promise<boolean> {
   }
 }
 
+/** Require a path to be an existing regular directory without symlink components. */
 export async function assertRegularDirectory(path: string): Promise<void> {
   await assertNoSymlink(path);
   const entry = await lstat(path);
@@ -124,6 +134,7 @@ export async function assertRegularDirectory(path: string): Promise<void> {
   }
 }
 
+/** Structured failure raised while reading or writing managed state. */
 export class StorageError extends Error {
   readonly code: "state_corrupt" | "storage_failure";
   readonly causeValue: unknown;

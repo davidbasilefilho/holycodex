@@ -387,6 +387,13 @@ describe("core profile catalog", () => {
       normalSpawnUsesConcreteRegisteredAgentType: true,
       assignmentContextIsTaskSpecificOnly: true,
       configuredRouteModelAndEffortPreserved: true,
+      routineWaitTool: "collaboration.wait_agent",
+      routineWaitMaximumTimeoutMs: 3_600_000,
+      routineWaitUsesMaximumRuntimeTimeout: true,
+      earlySpecialistCompletionWakesWait: true,
+      collectiveMailboxIncludesRelevantAgents: true,
+      idleTimeoutRepeatsMaximumWait: true,
+      shortRoutineWaitsForbidden: true,
       normalProgressMessages: false,
       normalHeartbeatMessages: false,
       normalIntermediateEvidence: false,
@@ -400,7 +407,26 @@ describe("core profile catalog", () => {
       statusOnlyCoordinationLoopsForbidden: true,
       batchIndependentLifecycleActions: true,
       releaseLeavesAfterAcceptedOutcome: true,
+      evidenceFirstConciseStructuredReports: true,
+      stableFactsReused: true,
+      duplicatePolicyForbidden: true,
+      stableBoundedComponentScopesAreCanonical: true,
+      lifecycleWorkerOwnsDeterministicApi: true,
     });
+    expect(ROOT_ORCHESTRATION_POLICY.specialistReportFields).toEqual([
+      "changed paths",
+      "checks",
+      "observable evidence",
+      "blockers",
+      "Root decisions needed",
+      "remaining risk",
+    ]);
+    expect(ROOT_ORCHESTRATION_POLICY.rootLargeReadsOnlyFor).toEqual([
+      "material decisions",
+      "conflicts",
+      "failures",
+      "findings",
+    ]);
     expect(ROOT_ORCHESTRATION_POLICY.materialUserUpdateKinds).toEqual([
       "significant_findings_or_decisions",
       "consequential_blockers_or_input_needs",

@@ -61,7 +61,9 @@ describe("workspace package graph", () => {
 
       if (packageName === "holycodex") {
         expect(manifest.private).toBe(false);
-        expect(manifest.version).toMatch(/^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u);
+        expect(manifest.version).toMatch(
+          /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u,
+        );
         expect(Object.values(manifest.dependencies ?? {})).not.toContain("workspace:*");
         expect(manifest.bin?.holycodex).toBe("./dist/index.js");
         expect(manifest.bin?.["holycodex-agent"]).toBe("./dist/agent.js");

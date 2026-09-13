@@ -7,7 +7,9 @@ Resolve the current material choices into an implementation-ready Plan with
 scope, owners, seams, data and control flow, policy, recovery, compatibility,
 acceptance evidence, and a bounded proof route. Keep planning proportional:
 trivial work can proceed without a Plan. Persist the canonical revision through
-the semantic Plan operation.
+the semantic Plan operation. Stable bounded component scopes are the canonical
+ownership boundary; the lifecycle worker owns deterministic Intent, Plan, and
+Assignment API decisions.
 
 Root owns material choices and dispatches this procedure through the native
 `Reviewer.plan` route when adversarial plan review is needed; the skill never

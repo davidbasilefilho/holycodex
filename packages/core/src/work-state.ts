@@ -198,6 +198,21 @@ export const AssignmentSchema = Schema.Struct({
 });
 export type Assignment = typeof AssignmentSchema.Type;
 
+const WORK_STATE_TRANSACTION_FILE = ".holycodex-transaction.toon";
+const WORK_STATE_TRANSACTION_SCHEMA_VERSION = "holycodex-work-state-transaction-1" as const;
+const WorkStateTransactionSchema = Schema.Struct({
+  schema_version: Schema.Literal(WORK_STATE_TRANSACTION_SCHEMA_VERSION),
+  state: Schema.Literal("prepared", "committed"),
+  files: Schema.Array(
+    Schema.Struct({
+      path: NonEmpty,
+      previous: Schema.String,
+      next: Schema.String,
+    }),
+  ).pipe(Schema.minItems(1)),
+});
+type WorkStateTransaction = typeof WorkStateTransactionSchema.Type;
+
 const LegacyIntentSchema = Schema.Struct({
   schema_version: Schema.Literal("holycodex-intent-0"),
   id: Identifier,
@@ -321,6 +336,11 @@ export interface ReviseAssignmentScopeInput {
   readonly scope: readonly string[];
 }
 
+/** Optional Root-approved scope expansion applied while starting an Assignment. */
+export interface AssignmentStartInput {
+  readonly scope?: readonly string[] | undefined;
+}
+
 /** Exact Root-owned VCS commit used to advance the repository baseline. */
 export interface VcsIntegrationInput {
   readonly commit: string;
@@ -341,6 +361,10 @@ export const CreateAssignmentInputSchema = Schema.Struct({
 export const ReviseAssignmentScopeInputSchema = Schema.Struct({
   scope: Schema.Array(NonEmpty).pipe(Schema.minItems(1)),
 });
+/** Runtime schema for bounded scope expansion at Assignment start. */
+export const AssignmentStartInputSchema = Schema.Struct({
+  scope: Schema.optional(Schema.Array(NonEmpty).pipe(Schema.minItems(1))),
+});
 /** Runtime schema for exact commit integration at the Root-owned VCS boundary. */
 export const VcsIntegrationInputSchema = Schema.Struct({
   commit: CommitSha,
@@ -351,6 +375,8 @@ export interface AssignmentResultInput {
   readonly outcome: AssignmentOutcome;
   readonly startedAt?: string | undefined;
   readonly summary: string;
+  /** Optional Root-approved superset scope persisted with the terminal result. */
+  readonly scope?: readonly string[] | undefined;
   readonly evidence?: readonly IntentEvidence[] | undefined;
   readonly context7?: Context7Evidence | undefined;
   readonly blocker?: string | undefined;
@@ -362,6 +388,7 @@ export const AssignmentResultInputSchema = Schema.Struct({
   outcome: AssignmentOutcomeSchema,
   startedAt: Schema.optional(NonEmpty),
   summary: NonEmpty,
+  scope: Schema.optional(Schema.Array(NonEmpty).pipe(Schema.minItems(1))),
   evidence: Schema.optional(Schema.Array(EvidenceSchema)),
   context7: Schema.optional(Context7EvidenceSchema),
   blocker: Schema.optional(NonEmpty),
@@ -414,13 +441,19 @@ export class IntentStore {
   async recover(): Promise<readonly string[]> {
     await this.#ensureStateRoot();
     if (!(await exists(this.stateRoot))) return [];
-    return await withLock(join(this.stateRoot, ".intent-store"), async () => this.#recoverTemps());
+    return await withLock(join(this.stateRoot, ".intent-store"), async () => {
+      const removed = await this.#recoverTemps(this.stateRoot);
+      const recovered = await this.#recoverTransactions();
+      return [...removed, ...recovered].sort();
+    });
   }
 
-  async #recoverTemps(): Promise<readonly string[]> {
+  async #recoverTemps(directory: string, recursive = false): Promise<readonly string[]> {
     let entries: string[];
     try {
-      entries = await readdir(this.stateRoot, { recursive: true });
+      entries = recursive
+        ? await readdir(directory, { recursive: true })
+        : await readdir(directory);
     } catch (error: unknown) {
       if (isFsCode(error, "ENOENT")) return [];
       throw storeIo(error);
@@ -429,21 +462,102 @@ export class IntentStore {
     for (const entry of entries) {
       const name = basename(entry);
       if (!name.startsWith(".holycodex-write-") || !name.endsWith(".tmp")) continue;
-      const temporaryPath = join(this.stateRoot, entry);
-      const temporaryDirectory = dirname(temporaryPath);
-      if (
-        temporaryDirectory !== this.stateRoot &&
-        (await exists(join(temporaryDirectory, ".intent-store")))
-      )
-        continue;
+      const temporaryPath = join(directory, entry);
       await assertNoSymlinkAncestors(temporaryPath);
       await rm(temporaryPath, { force: true });
       // `fs.readdir({ recursive: true })` uses the host separator. Keep the
       // recovery contract stable across Windows and POSIX hosts while the
       // native path above remains suitable for filesystem I/O.
-      removed.push(entry.replaceAll("\\", "/"));
+      removed.push(relative(this.stateRoot, temporaryPath).replaceAll("\\", "/"));
     }
     return removed.sort();
+  }
+
+  async #recoverTransactions(): Promise<readonly string[]> {
+    let entries: string[];
+    try {
+      entries = await readdir(this.stateRoot);
+    } catch (error: unknown) {
+      if (isFsCode(error, "ENOENT")) return [];
+      throw storeIo(error);
+    }
+    const recovered: string[] = [];
+    for (const entry of entries) {
+      if (entry === ".intent-store") continue;
+      const transactionDirectory = join(this.stateRoot, entry);
+      if (!(await isDirectory(transactionDirectory))) continue;
+      await withLock(join(transactionDirectory, ".intent-store"), async () => {
+        recovered.push(...(await this.#recoverIntentDirectory(transactionDirectory)));
+      });
+    }
+    return recovered.sort();
+  }
+
+  async #recoverIntentDirectory(directory: string): Promise<readonly string[]> {
+    const recovered: string[] = [];
+    const transactionPath = join(directory, WORK_STATE_TRANSACTION_FILE);
+    if (await this.#recoverIntentTransaction(directory))
+      recovered.push(relative(this.stateRoot, transactionPath).replaceAll("\\", "/"));
+    recovered.push(...(await this.#recoverTemps(directory, true)));
+    return recovered;
+  }
+
+  async #recoverIntentTransaction(directory: string): Promise<boolean> {
+    const path = join(directory, WORK_STATE_TRANSACTION_FILE);
+    await assertNoSymlinkAncestors(path);
+    let entry;
+    try {
+      entry = await lstat(path);
+    } catch (error: unknown) {
+      if (isFsCode(error, "ENOENT")) return false;
+      throw storeIo(error);
+    }
+    if (entry.isSymbolicLink() || !entry.isFile())
+      throw new IntentStoreError(
+        "schema_invalid",
+        "The work-state transaction journal must be a regular file.",
+        { path },
+      );
+    const transaction = await readValidatedToon(path, WorkStateTransactionSchema);
+    const intentFiles = transaction.files.filter(
+      (file) => canonicalRepositoryPath(file.path) === "intent.toon",
+    );
+    const assignmentFiles = transaction.files.filter((file) => {
+      const canonical = canonicalRepositoryPath(file.path);
+      return (
+        canonical !== undefined && /^assignments\/[a-z0-9][a-z0-9-]{0,95}\.toon$/u.test(canonical)
+      );
+    });
+    if (transaction.files.length !== 2 || intentFiles.length !== 1 || assignmentFiles.length !== 1)
+      throw new IntentStoreError(
+        "schema_invalid",
+        "The work-state transaction must pair one Assignment with its Intent.",
+        { path },
+      );
+    const seen = new Set<string>();
+    const targets = transaction.files.map((file) => {
+      const target = transactionTarget(directory, file.path);
+      if (seen.has(target))
+        throw new IntentStoreError(
+          "schema_invalid",
+          "The work-state transaction has duplicate targets.",
+          {
+            path,
+            target: file.path,
+          },
+        );
+      seen.add(target);
+      return target;
+    });
+    for (const target of targets) await assertNoSymlinkAncestors(target);
+    for (const [index, file] of transaction.files.entries())
+      await atomicWriteText(
+        targets[index]!,
+        transaction.state === "committed" ? file.next : file.previous,
+      );
+    await rm(path, { force: true });
+    await syncDirectory(directory);
+    return true;
   }
 
   async #ensureStateRoot(): Promise<void> {
@@ -518,22 +632,29 @@ export class IntentStore {
   /** Lists every validated Intent in deterministic identifier order. */
   async listIntents(): Promise<readonly Intent[]> {
     await this.#ensureStateRoot();
-    await this.recover();
-    let entries: string[];
-    try {
-      entries = await readdir(this.stateRoot);
-    } catch (error: unknown) {
-      if (isFsCode(error, "ENOENT")) return [];
-      throw storeIo(error);
-    }
-    const values: Intent[] = [];
-    for (const entry of entries.sort()) {
-      const directory = join(this.stateRoot, entry);
-      if (!(await isDirectory(directory))) continue;
-      const path = join(directory, "intent.toon");
-      if (await isFile(path)) values.push(await this.#readIntentPath(path));
-    }
-    return values.sort((a, b) => a.id.localeCompare(b.id));
+    if (!(await exists(this.stateRoot))) return [];
+    return await withLock(join(this.stateRoot, ".intent-store"), async () => {
+      await this.#recoverTemps(this.stateRoot);
+      let entries: string[];
+      try {
+        entries = await readdir(this.stateRoot);
+      } catch (error: unknown) {
+        if (isFsCode(error, "ENOENT")) return [];
+        throw storeIo(error);
+      }
+      const values: Intent[] = [];
+      for (const entry of entries.sort()) {
+        if (entry === ".intent-store") continue;
+        const directory = join(this.stateRoot, entry);
+        if (!(await isDirectory(directory))) continue;
+        await withLock(join(directory, ".intent-store"), async () => {
+          await this.#recoverIntentDirectory(directory);
+          const path = join(directory, "intent.toon");
+          if (await isFile(path)) values.push(await this.#readIntentPath(path));
+        });
+      }
+      return values.sort((a, b) => a.id.localeCompare(b.id));
+    });
   }
 
   /** Reads one Intent by identifier, directory name, or unique slug. */
@@ -547,36 +668,40 @@ export class IntentStore {
   /** Resolves the selected current Intent without guessing among multiple active Intents. */
   async currentIntent(): Promise<Intent> {
     await this.#ensureStateRoot();
-    try {
-      const pointer = join(this.stateRoot, "current");
-      const pointerEntry = await lstat(pointer).catch((error: unknown) => {
-        if (isFsCode(error, "ENOENT")) return undefined;
-        throw storeIo(error);
-      });
-      if (pointerEntry?.isSymbolicLink() || (pointerEntry && !pointerEntry.isFile()))
+    await this.recover();
+    const pointer = join(this.stateRoot, "current");
+    const pointerEntry = await lstat(pointer).catch((error: unknown) => {
+      if (isFsCode(error, "ENOENT")) return undefined;
+      throw storeIo(error);
+    });
+    if (pointerEntry?.isSymbolicLink() || (pointerEntry && !pointerEntry.isFile()))
+      throw new IntentStoreError(
+        "schema_invalid",
+        "The current Intent pointer must be a regular file.",
+      );
+    const directory = pointerEntry ? (await readFile(pointer, "utf8")).trim() : "";
+    if (pointerEntry && !directory)
+      throw new IntentStoreError(
+        "schema_invalid",
+        "The current Intent pointer must select a work-state directory.",
+      );
+    if (directory) {
+      const selected = resolve(this.stateRoot, directory);
+      if (!isWithin(this.stateRoot, selected))
         throw new IntentStoreError(
           "schema_invalid",
-          "The current Intent pointer must be a regular file.",
+          "The current Intent pointer escapes repository-local state.",
+          { directory },
         );
-      const directory = pointerEntry ? (await readFile(pointer, "utf8")).trim() : "";
-      if (directory) {
-        const selected = resolve(this.stateRoot, directory);
-        if (!isWithin(this.stateRoot, selected))
-          throw new IntentStoreError(
-            "schema_invalid",
-            "The current Intent pointer escapes repository-local state.",
-            { directory },
-          );
-        if (!(await isDirectory(selected)))
-          throw new IntentStoreError(
-            "schema_invalid",
-            "The current Intent pointer does not select a work-state directory.",
-            { directory },
-          );
-        return await this.#readIntentPath(join(selected, "intent.toon"));
-      }
-    } catch (error: unknown) {
-      if (!isFsCode(error, "ENOENT")) throw storeIo(error);
+      if (!(await isDirectory(selected)))
+        throw new IntentStoreError(
+          "schema_invalid",
+          "The current Intent pointer does not select a work-state directory.",
+          { directory },
+        );
+      return await this.#withIntentLock(selected, async () =>
+        this.#readIntentPath(join(selected, "intent.toon")),
+      );
     }
     const active = (await this.listIntents()).filter(
       (value) => value.state !== "complete" && value.state !== "abandoned",
@@ -638,7 +763,7 @@ export class IntentStore {
       assertIntentMutable(intent);
       await this.#assertNoDrift(intent);
       if (intent.active_plan_revision !== undefined) await this.readPlan(reference);
-      const assignments = await this.listAssignments(reference);
+      const assignments = await this.#listAssignments(directory, intent);
       const reasons: string[] = [];
       if (intent.state !== "reviewing") reasons.push("intent_not_reviewing");
       if (intent.plan_required && intent.active_plan_revision === undefined)
@@ -806,7 +931,11 @@ export class IntentStore {
         intent.baseline.expected_head,
         validated.commit,
       );
-      const expectedPaths = [...new Set(intent.baseline.expected_changes)].sort();
+      const expectedPaths = [
+        ...new Set(
+          reconcilePersistedRepositoryPaths(intent.baseline.expected_changes, changedPaths),
+        ),
+      ].sort();
       if (changedPaths.join("\0") !== expectedPaths.join("\0"))
         throw new IntentStoreError(
           "repository_drift",
@@ -934,12 +1063,13 @@ export class IntentStore {
       validated.acceptanceCriteria.length === 0
     )
       throw invalidInput("Assignment objective, scope, and acceptance criteria are required.");
+    const scope = canonicalScope(validated.scope);
     const directory = await this.#locate(reference);
     return await this.#withIntentLock(directory, async () => {
       const intent = await this.#readIntentPath(join(directory, "intent.toon"));
       assertRevision(intent.revision, expectedIntentRevision);
       assertIntentMutable(intent);
-      await this.#assertNoDrift(intent);
+      await this.#assertNoDrift(intent, scope);
       if (
         validated.owner.role === "Worker" &&
         validated.owner.task === "operations" &&
@@ -952,7 +1082,7 @@ export class IntentStore {
         );
       const id =
         validated.id ??
-        `assignment-${sha256([intent.id, validated.objective, ...validated.scope].join("\0")).slice(0, 10)}`;
+        `assignment-${sha256([intent.id, validated.objective, ...scope].join("\0")).slice(0, 10)}`;
       if (!/^[a-z0-9][a-z0-9-]{0,95}$/u.test(id)) throw invalidInput("Assignment id is invalid.");
       const path = join(directory, "assignments", `${id}.toon`);
       if (await exists(path))
@@ -965,7 +1095,7 @@ export class IntentStore {
         id,
         objective: validated.objective.trim(),
         owner: validated.owner,
-        scope: [...validated.scope],
+        scope,
         constraints: [...(validated.constraints ?? [])],
         exclusions: [...(validated.exclusions ?? [])],
         dependencies: [...(validated.dependencies ?? [])],
@@ -992,12 +1122,13 @@ export class IntentStore {
     expectedRevision: number,
   ): Promise<Assignment> {
     const validated = parseSchema(ReviseAssignmentScopeInputSchema, input);
+    const scope = canonicalScope(validated.scope);
     const validatedId = parseSchema(Identifier, assignmentId);
     const directory = await this.#locate(reference);
     return await this.#withIntentLock(directory, async () => {
       const intent = await this.#readIntentPath(join(directory, "intent.toon"));
       assertIntentMutable(intent);
-      const assignment = await this.readAssignment(reference, validatedId);
+      const assignment = await this.#readAssignment(directory, intent, validatedId);
       assertRevision(assignment.revision, expectedRevision);
       if (assignment.status === "completed")
         throw new IntentStoreError(
@@ -1005,7 +1136,7 @@ export class IntentStore {
           "A completed Assignment cannot have its scope revised.",
         );
       const revised = reviseAssignment(assignment, this.#now, {
-        scope: [...validated.scope],
+        scope,
       });
       await atomicWriteToon(join(directory, "assignments", `${validatedId}.toon`), revised);
       return revised;
@@ -1016,23 +1147,38 @@ export class IntentStore {
   async readAssignment(reference: string, assignmentId: string): Promise<Assignment> {
     const validatedId = parseSchema(Identifier, assignmentId);
     const directory = await this.#locate(reference);
-    const intent = await this.#readIntentPath(join(directory, "intent.toon"));
+    return await this.#withIntentLock(directory, async () => {
+      const intent = await this.#readIntentPath(join(directory, "intent.toon"));
+      return await this.#readAssignment(directory, intent, validatedId);
+    });
+  }
+
+  async #readAssignment(
+    directory: string,
+    intent: Intent,
+    assignmentId: string,
+  ): Promise<Assignment> {
     const assignmentsRoot = join(directory, "assignments");
     await assertDirectory(assignmentsRoot, true);
-    const path = join(assignmentsRoot, `${validatedId}.toon`);
+    const path = join(assignmentsRoot, `${assignmentId}.toon`);
     if (!(await isFile(path)))
       throw new IntentStoreError("not_found", "Assignment was not found.", {
-        assignment_id: validatedId,
+        assignment_id: assignmentId,
       });
     const assignment = await readValidatedToon(path, AssignmentSchema);
-    assertAssignmentIdentity(assignment, intent.id, validatedId, path);
+    assertAssignmentIdentity(assignment, intent.id, assignmentId, path);
     return assignment;
   }
 
   /** Lists validated Assignments in deterministic identifier order. */
   async listAssignments(reference: string): Promise<readonly Assignment[]> {
     const directory = await this.#locate(reference);
-    const intent = await this.#readIntentPath(join(directory, "intent.toon"));
+    return await this.#withIntentLock(directory, async () =>
+      this.#listAssignments(directory, await this.#readIntentPath(join(directory, "intent.toon"))),
+    );
+  }
+
+  async #listAssignments(directory: string, intent: Intent): Promise<readonly Assignment[]> {
     const root = join(directory, "assignments");
     if (!(await assertDirectory(root, true))) return [];
     let entries: string[];
@@ -1062,15 +1208,18 @@ export class IntentStore {
     reference: string,
     assignmentId: string,
     expectedRevision: number,
+    input: AssignmentStartInput = {},
   ): Promise<Assignment> {
+    const validatedInput = parseSchema(AssignmentStartInputSchema, input);
     const validatedId = parseSchema(Identifier, assignmentId);
     const directory = await this.#locate(reference);
     return await this.#withIntentLock(directory, async () => {
       const intent = await this.#readIntentPath(join(directory, "intent.toon"));
       assertIntentMutable(intent);
-      await this.#assertNoDrift(intent);
-      const assignment = await this.readAssignment(reference, validatedId);
+      const assignment = await this.#readAssignment(directory, intent, validatedId);
       assertRevision(assignment.revision, expectedRevision);
+      const scope = expandAssignmentScope(assignment.scope, validatedInput.scope);
+      await this.#assertNoDrift(intent, scope);
       if (assignment.status === "completed")
         throw new IntentStoreError(
           "invalid_transition",
@@ -1091,6 +1240,7 @@ export class IntentStore {
       const invocationId = nextInvocationId(assignment);
       const revised = reviseAssignment(assignment, this.#now, {
         status: "executing",
+        scope,
         blocker: undefined,
         active_invocation_id: invocationId,
         active_started_at: startedAt,
@@ -1113,7 +1263,7 @@ export class IntentStore {
     return await this.#withIntentLock(directory, async () => {
       const intent = await this.#readIntentPath(join(directory, "intent.toon"));
       assertIntentMutable(intent);
-      const assignment = await this.readAssignment(reference, validatedId);
+      const assignment = await this.#readAssignment(directory, intent, validatedId);
       assertRevision(assignment.revision, expectedRevision);
       if (assignment.status !== "executing")
         throw new IntentStoreError(
@@ -1158,13 +1308,18 @@ export class IntentStore {
           "This Librarian Assignment result requires typed Context7 evidence.",
           { assignment_id: assignment.id, required_evidence: "context7" },
         );
+      const effectiveScope = expandAssignmentScope(assignment.scope, validated.scope);
       const snapshot = await this.#snapshot();
+      const baselineExpectedChanges = reconcilePersistedRepositoryPaths(
+        intent.baseline.expected_changes,
+        snapshot.changedPaths,
+      );
       const evidence = [...(validated.evidence ?? [])];
       const declared = new Set(
         evidence.filter((item) => item.kind === "changed_path").map((item) => item.value),
       );
       const outOfScope = [...declared].filter(
-        (path) => !assignment.scope.some((scope) => pathWithinAssignmentScope(path, scope)),
+        (path) => !effectiveScope.some((scope) => pathWithinAssignmentScope(path, scope)),
       );
       if (outOfScope.length)
         throw new IntentStoreError(
@@ -1172,7 +1327,7 @@ export class IntentStore {
           "Assignment evidence declares paths outside its bounded scope.",
           { assignment_id: assignment.id, out_of_scope_paths: outOfScope.sort() },
         );
-      const assignments = await this.listAssignments(reference);
+      const assignments = await this.#listAssignments(directory, intent);
       const concurrent = assignments.filter(
         (value) => value.id !== assignment.id && value.status === "executing",
       );
@@ -1181,24 +1336,27 @@ export class IntentStore {
           value.scope.some((scope) => pathWithinAssignmentScope(path, scope)),
         ),
       );
-      const allowed = new Set([
-        ...intent.baseline.expected_changes,
-        ...declared,
-        ...concurrentPaths,
-      ]);
+      const concurrentPathSet = new Set(concurrentPaths);
+      const allowed = new Set([...baselineExpectedChanges, ...declared, ...concurrentPaths]);
       const unexpected = snapshot.changedPaths.filter((path) => !allowed.has(path));
-      const baselineChanges = new Set(intent.baseline.expected_changes);
+      const baselineChanges = new Set(baselineExpectedChanges);
       const undeclaredCurrentScope = snapshot.changedPaths.filter(
         (path) =>
-          assignment.scope.some((scope) => pathWithinAssignmentScope(path, scope)) &&
+          effectiveScope.some((scope) => pathWithinAssignmentScope(path, scope)) &&
           !baselineChanges.has(path) &&
-          !declared.has(path),
+          !declared.has(path) &&
+          !concurrentPathSet.has(path),
       );
       const identityChanged =
         snapshot.root !== intent.baseline.root ||
         snapshot.gitCommonDir !== intent.baseline.git_common_dir;
       const statusChanged =
         normalizeStatusDigest(snapshot.statusDigest) !== intent.baseline.expected_status_digest;
+      const actualRelevantEvolution =
+        snapshot.head !== intent.baseline.expected_head ||
+        statusChanged ||
+        [...new Set(baselineExpectedChanges)].sort().join("\0") !==
+          [...new Set(snapshot.changedPaths)].sort().join("\0");
       const observedDeclaration = [...declared].some((path) =>
         snapshot.changedPaths.includes(path),
       );
@@ -1247,6 +1405,7 @@ export class IntentStore {
       });
       const revised = reviseAssignment(assignment, this.#now, {
         status: validated.outcome,
+        scope: effectiveScope,
         invocations: [...assignment.invocations, invocation],
         active_invocation_id: undefined,
         active_started_at: undefined,
@@ -1254,7 +1413,6 @@ export class IntentStore {
         blocker: validated.blocker,
         remaining_risk: [...(validated.remainingRisk ?? [])],
       });
-      await atomicWriteToon(join(directory, "assignments", `${validatedId}.toon`), revised);
       const operations =
         assignment.owner.role === "Worker" && assignment.owner.task === "operations";
       const preserveIntegratedCommit =
@@ -1270,6 +1428,7 @@ export class IntentStore {
         intent.state === "reviewing" &&
         (!intent.verification.required || intent.verification.status === "passed") &&
         (!intent.review.required || intent.review.status === "accepted");
+      const invalidateGates = actualRelevantEvolution || validated.outcome === "failed";
       const revisedIntent = reviseIntent(intent, this.#now, {
         baseline: baselineFromSnapshot(
           snapshot,
@@ -1277,7 +1436,7 @@ export class IntentStore {
           intent.baseline.initial_head,
           preserveIntegratedCommit ? intent.baseline.integrated_commit : undefined,
         ),
-        ...(successfulOperations
+        ...(successfulOperations || !invalidateGates
           ? {}
           : {
               state: failedOperations ? "executing" : intent.state,
@@ -1287,7 +1446,14 @@ export class IntentStore {
               root_readiness: false,
             }),
       });
-      await atomicWriteToon(join(directory, "intent.toon"), revisedIntent);
+      await this.#commitAssignmentAndIntent(
+        directory,
+        validatedId,
+        assignment,
+        revised,
+        intent,
+        revisedIntent,
+      );
       return { assignment: revised, intent: revisedIntent };
     });
   }
@@ -1350,7 +1516,54 @@ export class IntentStore {
   }
 
   async #withIntentLock<A>(directory: string, operation: () => Promise<A>): Promise<A> {
-    return await withLock(join(directory, ".intent-store"), operation);
+    return await withLock(join(directory, ".intent-store"), async () => {
+      await this.#recoverIntentDirectory(directory);
+      return await operation();
+    });
+  }
+
+  async #commitAssignmentAndIntent(
+    directory: string,
+    assignmentId: string,
+    previousAssignment: Assignment,
+    nextAssignment: Assignment,
+    previousIntent: Intent,
+    nextIntent: Intent,
+  ): Promise<void> {
+    const assignmentPath = join(directory, "assignments", `${assignmentId}.toon`);
+    const intentPath = join(directory, "intent.toon");
+    const transactionPath = join(directory, WORK_STATE_TRANSACTION_FILE);
+    const transaction: WorkStateTransaction = parseSchema(WorkStateTransactionSchema, {
+      schema_version: WORK_STATE_TRANSACTION_SCHEMA_VERSION,
+      state: "prepared",
+      files: [
+        {
+          path: `assignments/${assignmentId}.toon`,
+          previous: `${encodeToon(previousAssignment)}\n`,
+          next: `${encodeToon(nextAssignment)}\n`,
+        },
+        {
+          path: "intent.toon",
+          previous: `${encodeToon(previousIntent)}\n`,
+          next: `${encodeToon(nextIntent)}\n`,
+        },
+      ],
+    });
+    await atomicWriteToon(transactionPath, transaction);
+    try {
+      await atomicWriteText(assignmentPath, transaction.files[0]!.next);
+      await atomicWriteText(intentPath, transaction.files[1]!.next);
+      await atomicWriteToon(transactionPath, { ...transaction, state: "committed" });
+    } catch (error: unknown) {
+      try {
+        await this.#recoverIntentTransaction(directory);
+      } catch (recoveryError: unknown) {
+        throw storeIo(recoveryError);
+      }
+      throw error;
+    }
+    await rm(transactionPath, { force: true });
+    await syncDirectory(directory);
   }
 
   async #abandonDirectory(directory: string, intent: Intent): Promise<Intent> {
@@ -1361,16 +1574,27 @@ export class IntentStore {
     return abandoned;
   }
 
-  async #assertNoDrift(intent: Intent): Promise<void> {
+  async #assertNoDrift(intent: Intent, allowedScope?: readonly string[]): Promise<void> {
     const snapshot = await this.#snapshot();
-    const expected = [...intent.baseline.expected_changes].sort();
+    const expected = [
+      ...reconcilePersistedRepositoryPaths(intent.baseline.expected_changes, snapshot.changedPaths),
+    ].sort();
     const actual = [...snapshot.changedPaths].sort();
+    const allowed = new Set(
+      allowedScope === undefined
+        ? []
+        : actual.filter((path) =>
+            allowedScope.some((scope) => pathWithinAssignmentScope(path, scope)),
+          ),
+    );
+    const expectedWithAllowed = [...new Set([...expected, ...allowed])].sort();
     if (
       snapshot.root !== intent.baseline.root ||
       snapshot.gitCommonDir !== intent.baseline.git_common_dir ||
       snapshot.head !== intent.baseline.expected_head ||
-      normalizeStatusDigest(snapshot.statusDigest) !== intent.baseline.expected_status_digest ||
-      expected.join("\0") !== actual.join("\0")
+      expectedWithAllowed.join("\0") !== actual.join("\0") ||
+      (normalizeStatusDigest(snapshot.statusDigest) !== intent.baseline.expected_status_digest &&
+        allowed.size === 0)
     ) {
       throw new IntentStoreError(
         "repository_drift",
@@ -1378,7 +1602,7 @@ export class IntentStore {
         {
           expected_head: intent.baseline.expected_head,
           actual_head: snapshot.head,
-          expected_changes: expected,
+          expected_changes: expectedWithAllowed,
           actual_changes: actual,
         },
       );
@@ -1447,18 +1671,23 @@ export async function readRepositorySnapshot(repositoryRoot: string): Promise<Re
   };
   const common = await runGit("rev-parse", "--git-common-dir");
   const head = (await runGitOptional(root, "rev-parse", "--verify", "HEAD")) ?? "unborn";
-  const status = await runGit("status", "--porcelain=v1", "--untracked-files=all");
-  const changedPaths = status
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => line.slice(3).split(" -> ").at(-1)!)
-    .sort();
+  const status = await runGit("status", "--porcelain=v1", "-z", "--untracked-files=all");
+  const legacyStatus = await runGit("status", "--porcelain=v1", "--untracked-files=all");
+  const records = status.split("\0");
+  const changedPaths: string[] = [];
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]!;
+    if (!record) continue;
+    changedPaths.push(record.slice(3));
+    if (record.slice(0, 2).includes("R") || record.slice(0, 2).includes("C")) index += 1;
+  }
+  changedPaths.sort();
   return {
     root,
     gitCommonDir: resolve(root, common),
     head,
     changedPaths,
-    statusDigest: sha256(status),
+    statusDigest: sha256(legacyStatus),
   };
 }
 
@@ -1496,11 +1725,11 @@ async function readCommitChangedPaths(
     const output = (
       await execFileAsync(
         "git",
-        ["-C", repositoryRoot, "diff", "--name-only", "--no-ext-diff", parent, commit],
+        ["-C", repositoryRoot, "diff", "--name-only", "-z", "--no-ext-diff", parent, commit],
         { encoding: "utf8" },
       )
-    ).stdout.trim();
-    return output ? output.split("\n").map(normalizeRepositoryPath).filter(Boolean).sort() : [];
+    ).stdout;
+    return output.split("\0").filter(Boolean).sort();
   } catch (error: unknown) {
     throw new IntentStoreError(
       "repository_drift",
@@ -1617,28 +1846,138 @@ function slugify(input: string): string {
     .replace(/-$/u, "");
   return slug || "intent";
 }
+function canonicalScope(values: readonly string[]): readonly string[] {
+  const canonical = values.map((value) => {
+    const path = canonicalRepositoryPath(value);
+    if (path === undefined)
+      throw invalidInput("Assignment scope must contain canonical repository-relative paths.");
+    return path;
+  });
+  return [...new Set(canonical)].sort();
+}
+function expandAssignmentScope(
+  current: readonly string[],
+  requested: readonly string[] | undefined,
+): readonly string[] {
+  const existing = canonicalScope(current);
+  if (requested === undefined) return existing;
+  const expanded = canonicalScope(requested);
+  if (existing.some((path) => !expanded.includes(path)))
+    throw invalidInput("Assignment scope expansion must preserve the existing scope.");
+  const unauthorized = expanded.filter(
+    (candidate) => !existing.some((scope) => assignmentScopeAuthorityContains(candidate, scope)),
+  );
+  if (unauthorized.length)
+    throw invalidInput("Assignment scope expansion exceeds the declared component authority.");
+  return expanded;
+}
+function assignmentScopeAuthorityContains(candidate: string, declaredScope: string): boolean {
+  if (pathWithinAssignmentScope(candidate, declaredScope)) return true;
+  const normalizedScope = canonicalRepositoryPath(declaredScope);
+  if (normalizedScope === undefined || normalizedScope === ".") return false;
+  const segments = normalizedScope.split("/");
+  const leaf = segments.at(-1);
+  if (leaf === undefined || !leaf.includes(".")) return false;
+  const parent = segments.slice(0, -1).join("/") || ".";
+  return candidate !== parent && pathWithinAssignmentScope(candidate, parent);
+}
 function pathWithinAssignmentScope(path: string, scope: string): boolean {
-  const normalizedPath = normalizeRepositoryPath(path);
-  const normalizedScope = normalizeRepositoryPath(scope).replace(/\/+$/u, "");
-  if (
-    !normalizedPath ||
-    !normalizedScope ||
-    normalizedPath.startsWith("/") ||
-    normalizedScope.startsWith("/") ||
-    /^[a-z]:\//u.test(normalizedPath) ||
-    /^[a-z]:\//u.test(normalizedScope) ||
-    normalizedPath.split("/").includes("..") ||
-    normalizedScope.split("/").includes("..")
-  )
-    return false;
+  const normalizedPath = canonicalRepositoryPath(path);
+  const normalizedScope = canonicalRepositoryPath(scope);
+  if (normalizedPath === undefined || normalizedScope === undefined) return false;
   return (
     normalizedScope === "." ||
     normalizedPath === normalizedScope ||
     normalizedPath.startsWith(`${normalizedScope}/`)
   );
 }
-function normalizeRepositoryPath(value: string): string {
-  return value.trim().replaceAll("\\", "/").replace(/^\.\//u, "");
+function canonicalRepositoryPath(value: string): string | undefined {
+  const normalized = value.replaceAll("\\", "/");
+  if (!normalized || normalized.startsWith("/") || /^[a-z]:/iu.test(normalized)) return undefined;
+  const segments = normalized.split("/");
+  if (segments.some((segment) => segment === "..")) return undefined;
+  const meaningful = segments.filter((segment) => segment !== "" && segment !== ".");
+  return meaningful.length === 0 ? "." : meaningful.join("/");
+}
+function transactionTarget(directory: string, path: string): string {
+  const canonical = canonicalRepositoryPath(path);
+  if (
+    canonical === undefined ||
+    (canonical !== "intent.toon" &&
+      !/^assignments\/[a-z0-9][a-z0-9-]{0,95}\.toon$/u.test(canonical))
+  )
+    throw new IntentStoreError(
+      "schema_invalid",
+      "The work-state transaction target is outside the supported Intent records.",
+      { path },
+    );
+  const target = resolve(directory, canonical);
+  if (!isWithin(resolve(directory), target))
+    throw new IntentStoreError(
+      "schema_invalid",
+      "The work-state transaction target escapes the Intent directory.",
+      { path },
+    );
+  return target;
+}
+function reconcilePersistedRepositoryPaths(
+  persisted: readonly string[],
+  actual: readonly string[],
+): readonly string[] {
+  const actualPaths = new Set(actual);
+  return persisted.map((path) => {
+    if (actualPaths.has(path)) return path;
+    const decoded = decodeGitCQuotedPath(path);
+    return decoded !== undefined && actualPaths.has(decoded) ? decoded : path;
+  });
+}
+const GIT_C_QUOTED_ESCAPES: Readonly<Record<string, number>> = {
+  a: 0x07,
+  b: 0x08,
+  t: 0x09,
+  n: 0x0a,
+  v: 0x0b,
+  f: 0x0c,
+  r: 0x0d,
+  "\\": 0x5c,
+  '"': 0x22,
+};
+function decodeGitCQuotedPath(value: string): string | undefined {
+  if (value.length < 2 || value[0] !== '"' || value[value.length - 1] !== '"') return undefined;
+  const bytes: number[] = [];
+  const encoder = new TextEncoder();
+  const body = value.slice(1, -1);
+  for (let index = 0; index < body.length;) {
+    const codePoint = body.codePointAt(index);
+    if (codePoint === undefined) return undefined;
+    if (codePoint !== 0x5c) {
+      if (codePoint === 0x22 || codePoint < 0x20 || codePoint === 0x7f) return undefined;
+      const character = String.fromCodePoint(codePoint);
+      bytes.push(...encoder.encode(character));
+      index += character.length;
+      continue;
+    }
+    const escape = body[index + 1];
+    if (escape === undefined) return undefined;
+    const escaped = GIT_C_QUOTED_ESCAPES[escape];
+    if (escaped !== undefined) {
+      bytes.push(escaped);
+      index += 2;
+      continue;
+    }
+    if (escape < "0" || escape > "7") return undefined;
+    let end = index + 2;
+    while (end < body.length && end < index + 4 && body[end]! >= "0" && body[end]! <= "7") end += 1;
+    bytes.push(Number.parseInt(body.slice(index + 1, end), 8));
+    index = end;
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      Uint8Array.from(bytes),
+    );
+  } catch {
+    return undefined;
+  }
 }
 function sha256(input: string): string {
   return createHash("sha256").update(input).digest("hex");

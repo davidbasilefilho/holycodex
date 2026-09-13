@@ -152,6 +152,35 @@ function fakeManager(
 }
 
 describe("CLI boundaries", () => {
+  test("prints top-level help and succeeds without arguments", async () => {
+    const cli = await runCli([], {
+      io: { stdoutIsTTY: false, stderrIsTTY: false },
+    });
+    expect(cli.exitCode).toBe(0);
+    expect(cli.envelope).toMatchObject({
+      ok: true,
+      command: "help",
+      data: { help: expect.stringContaining("Usage:") },
+    });
+
+    let stdout = "";
+    let stderr = "";
+    const exitCode = await runBinary([], {
+      stdoutIsTTY: false,
+      stderrIsTTY: false,
+      writeStdout: (value) => {
+        stdout += value;
+      },
+      writeStderr: (value) => {
+        stderr += value;
+      },
+    });
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Usage:");
+    expect(stdout).toContain("holycodex install");
+    expect(stderr).toBe("");
+  });
+
   test("accepts only the current command and option surface", () => {
     expect(parseArgv(["install", "--tier", "standard", "--frontend"]).options["tier"]).toBe(
       "standard",
@@ -319,6 +348,7 @@ describe("native installation and removal", () => {
       ).toContain('model_reasoning_summary = "none"');
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
       expect(config).toContain('model = "gpt-6-astra"');
+      expect(config).toContain("model_auto_compact_token_limit = 64000");
       expect(config).toContain("default_mode_request_user_input = true");
       expect(config).toContain("multi_agent = true");
       expect(config).toContain("multi_agent_v2 = false");
@@ -949,6 +979,38 @@ describe("native installation and removal", () => {
     }
   });
 
+  test("owns and restores the Root auto-compaction threshold without adding it to leaves", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-auto-compact-"));
+    const codexHome = join(root, "codex");
+    const config = join(codexHome, "config.toml");
+    const manager = fakeManager();
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(config, "model_auto_compact_token_limit = 32000\nunrelated = true\n");
+      const initial = await installHolyCodex(
+        {},
+        { paths: { codexHome }, officialPluginManager: manager },
+      );
+      expect(await readFile(config, "utf8")).toContain("model_auto_compact_token_limit = 64000");
+      expect(
+        initial.record.managed_config?.managed["model_auto_compact_token_limit"]?.originalValue,
+      ).toEqual({ kind: "number", value: 32000 });
+      const leaf = await readFile(
+        join(codexHome, "holycodex", "agents", "Worker.implementation.toml"),
+        "utf8",
+      );
+      expect(leaf).not.toContain("model_auto_compact_token_limit");
+
+      await removeHolyCodex({ paths: { codexHome }, officialPluginManager: manager });
+      const removed = await readFile(config, "utf8");
+      expect(removed).toContain("model_auto_compact_token_limit = 32000");
+      expect(removed).toContain("unrelated = true");
+      expect(removed).not.toContain("model_auto_compact_token_limit = 64000");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("accepts an existing scalar context-management setting", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-context-scalar-"));
     const codexHome = join(root, "codex");
@@ -1445,6 +1507,45 @@ describe("native installation and removal", () => {
       expect(await readFile(leaf, "utf8")).toBe("user edit\n");
       expect(await readFile(config, "utf8")).toContain('approval_policy = "on-request"');
       await expect(readFile(join(codexHome, "agents", "root.toml"), "utf8")).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("does not report removal complete when interrupted recovery preserves state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-recovery-progress-"));
+    const codexHome = join(root, "codex");
+    const config = join(codexHome, "config.toml");
+    const preservedState = join(codexHome, "holycodex", "user-state.json");
+    const manager = fakeManager();
+    try {
+      await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager });
+      await writeFile(
+        config,
+        (await readFile(config, "utf8")).replace('model = "gpt-6-astra"', 'model = "user-model"'),
+      );
+      const declined = await removeHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+        resolveConflict: async () => "decline",
+      });
+      expect(declined.reasons).toContain("managed_config_changed");
+      await writeFile(preservedState, "keep this user file\n");
+
+      const progress: string[] = [];
+      const recovery = await runCli(["install", "--yes", "--json", "--codex-home", codexHome], {
+        io: { stdoutIsTTY: false, stderrIsTTY: false },
+        installer: { officialPluginManager: manager, runtime: testRuntime(codexHome) },
+        onProgress: (event) => progress.push(event.message),
+      });
+      expect(recovery.exitCode).toBe(4);
+      expect(recovery.envelope).toMatchObject({
+        ok: false,
+        error: { code: "state_corrupt" },
+      });
+      expect(progress).toContain("HolyCodex removal preserved state for review");
+      expect(progress).not.toContain("HolyCodex removal complete");
+      await expect(readFile(preservedState, "utf8")).resolves.toBe("keep this user file\n");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

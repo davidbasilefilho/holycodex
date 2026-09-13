@@ -12,6 +12,7 @@ export type CoreErrorCode =
   | "invalid_route"
   | "invalid_schema_epoch";
 
+/** Structured failure raised by a core domain boundary. */
 export class CoreError extends Error {
   readonly code: CoreErrorCode;
   readonly details: SafeDetails;
@@ -35,14 +36,17 @@ export type CoreResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: CoreError };
 
+/** Wrap a value in a successful core result. */
 export function success<T>(value: T): CoreResult<T> {
   return { ok: true, value };
 }
 
+/** Wrap a core error in a failed result. */
 export function failure<T>(error: CoreError): CoreResult<T> {
   return { ok: false, error };
 }
 
+/** Create a structured invalid-input error for a field. */
 export function inputError(field: string, cause?: unknown): CoreError {
   return new CoreError(
     "invalid_input",

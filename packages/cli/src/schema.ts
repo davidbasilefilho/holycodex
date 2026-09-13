@@ -232,15 +232,18 @@ export const InstallTransactionSchema = Schema.Struct({
   step: InstallTransactionStepSchema,
 });
 
+/** Decode unknown input with an Effect schema, returning undefined on validation failure. */
 export function decodeSchema<T>(schema: Schema.Schema<T>, input: unknown): T | undefined {
   const parsed = decodeUnknown(schema, input);
   return Either.isRight(parsed) ? parsed.right : undefined;
 }
 
+/** Return whether a value is a string accepted by the JavaScript date parser. */
 export function isDateText(value: unknown): value is string {
   return typeof value === "string" && !Number.isNaN(Date.parse(value));
 }
 
+/** Return whether a value is a JSON object accepted by the CLI boundary schema. */
 export function isJsonObject(value: unknown): value is JsonObject {
   return decodeSchema(JsonObjectSchema, value) !== undefined;
 }

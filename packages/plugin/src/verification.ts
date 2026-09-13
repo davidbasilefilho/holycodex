@@ -139,6 +139,7 @@ export async function verifyPayload(input: unknown): Promise<VerifiedPayload> {
   };
 }
 
+/** Validate and construct the immutable payload identity record. */
 export function createIdentity(
   version: string,
   digest: Sha256Digest,
@@ -153,6 +154,7 @@ export function createIdentity(
   return parsed;
 }
 
+/** Hash ordered payload metadata and bytes while detecting source changes. */
 export async function digestPayload(
   version: string,
   epoch: string,
@@ -173,10 +175,12 @@ export async function digestPayload(
   return sha256DomainDigest("plugin-payload", parts);
 }
 
+/** Encode a value as canonical JSON bytes with a terminal newline. */
 export function canonicalJsonBytes(value: unknown): Uint8Array {
   return new TextEncoder().encode(`${canonicalJson(value)}\n`);
 }
 
+/** Compute a standards-based SHA-256 digest and validate its encoded result. */
 export async function sha256(bytes: Uint8Array): Promise<Sha256Digest> {
   const subtle = globalThis.crypto?.subtle;
   if (!subtle) {

@@ -30,6 +30,7 @@ export function parseToml(text: string): TomlDocument {
   return document;
 }
 
+/** Serialize a validated TOML document using the supported fallback subset. */
 export function stringifyToml(document: TomlDocument): string {
   const lines: string[] = [];
   writeTable(document, [], lines);

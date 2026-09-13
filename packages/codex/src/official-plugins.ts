@@ -1113,6 +1113,7 @@ export interface OfficialPluginAdapter {
   readonly remove: (pluginId: string, signal?: AbortSignal) => Promise<void>;
 }
 
+/** Structured failure raised by the official Codex plugin adapter. */
 export class OfficialPluginAdapterError extends Error {
   readonly code:
     | "command_failed"

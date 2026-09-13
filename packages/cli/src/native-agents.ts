@@ -64,7 +64,7 @@ const SPECIALIST_BASELINE_POLICY = [
   "You are a HolyCodex GPT-6-family specialist executing one active bounded Assignment. Follow its exact boundary, exclusions, acceptance criteria, and evidence requirements. Preserve unrelated work. Do not delegate, message peers, mutate global Intent lifecycle, make material decisions, perform external effects, or perform Git/VCS. Repository source mutation is governed only by the concrete task contract; workspace writes for caches, generated test state, and proof outputs do not grant source-mutation authority. Continue through implementation, repair, and proportional proof until the Assignment is completed or exactly blocked.",
   "Do not emit normal progress, heartbeat, or intermediate evidence messages. Communicate only the terminal outcome, or surface the material Root-owned decision required to proceed.",
   "Do not expand beyond the Assignment boundary; report out-of-boundary work to Root for a new bounded Assignment.",
-  `Return one compact structured outcome (${ROOT_ORCHESTRATION_POLICY.specialistOutcomes.map((outcome) => `\`${outcome}\``).join(", ")}) with changed paths, checks, observable evidence, blockers, Root decisions needed, and remaining risk.`,
+  `Return one compact, evidence-first structured outcome (${ROOT_ORCHESTRATION_POLICY.specialistOutcomes.map((outcome) => `\`${outcome}\``).join(", ")}) with ${ROOT_ORCHESTRATION_POLICY.specialistReportFields.join(", ")}.`,
 ].join(" ");
 
 const ROOT_AUTHORITY_LABELS = {
@@ -281,6 +281,21 @@ export function rootDeveloperInstructions(
     !ROOT_ORCHESTRATION_POLICY.statusOnlyCoordinationLoopsForbidden ||
     !ROOT_ORCHESTRATION_POLICY.batchIndependentLifecycleActions ||
     !ROOT_ORCHESTRATION_POLICY.releaseLeavesAfterAcceptedOutcome ||
+    ROOT_ORCHESTRATION_POLICY.routineWaitTool !== "collaboration.wait_agent" ||
+    !Number.isSafeInteger(ROOT_ORCHESTRATION_POLICY.routineWaitMaximumTimeoutMs) ||
+    ROOT_ORCHESTRATION_POLICY.routineWaitMaximumTimeoutMs <= 0 ||
+    !ROOT_ORCHESTRATION_POLICY.routineWaitUsesMaximumRuntimeTimeout ||
+    !ROOT_ORCHESTRATION_POLICY.earlySpecialistCompletionWakesWait ||
+    !ROOT_ORCHESTRATION_POLICY.collectiveMailboxIncludesRelevantAgents ||
+    !ROOT_ORCHESTRATION_POLICY.idleTimeoutRepeatsMaximumWait ||
+    !ROOT_ORCHESTRATION_POLICY.shortRoutineWaitsForbidden ||
+    !ROOT_ORCHESTRATION_POLICY.evidenceFirstConciseStructuredReports ||
+    (ROOT_ORCHESTRATION_POLICY.specialistReportFields as readonly string[]).length === 0 ||
+    (ROOT_ORCHESTRATION_POLICY.rootLargeReadsOnlyFor as readonly string[]).length === 0 ||
+    !ROOT_ORCHESTRATION_POLICY.stableFactsReused ||
+    !ROOT_ORCHESTRATION_POLICY.duplicatePolicyForbidden ||
+    !ROOT_ORCHESTRATION_POLICY.stableBoundedComponentScopesAreCanonical ||
+    !ROOT_ORCHESTRATION_POLICY.lifecycleWorkerOwnsDeterministicApi ||
     ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes !== NATIVE_AGENT_TYPES ||
     ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes !== GENERIC_BUILTIN_AGENT_TYPES
   ) {
@@ -295,7 +310,8 @@ export function rootDeveloperInstructions(
     "Dispatch independent non-overlapping Assignments concurrently, keep dependent phases ordered, and serialize writes to one mutable seam. Use writing-instructions for GPT-6 model-facing contracts, add only the missing semantic delta for the receiver's effective context, and keep each meaning with one authoritative owner.",
     "Make each phase a coherent dependency, decision, or integration boundary. Resolve choices needed by the current phase, persist Plan and Assignment evidence, and advance after acceptance; do not ask later-phase questions prematurely.",
     "Give the user only useful or important information. Do not output after every tool use or subagent update, emit routine status-only chatter or heartbeat messages, or follow a fixed update cadence. Material updates include significant findings or decisions, consequential blockers or input needs, and release milestones. Preserve native Astra Default questions, including asking while independent work proceeds; this rule adds no question protocol.",
-    "Use the longest practical event wait and never busy-poll or run status-only coordination loops. Batch independent lifecycle actions and stop or release specialist leaves once their accepted terminal outcomes are recorded.",
+    `Use the longest practical event wait for every routine Root wait: call ${ROOT_ORCHESTRATION_POLICY.routineWaitTool} with timeout_ms=${ROOT_ORCHESTRATION_POLICY.routineWaitMaximumTimeoutMs} (the active V1 runtime maximum). Early specialist completion wakes the wait; the collective mailbox already includes all relevant agents. If the maximum wait expires while idle, call the same maximum wait again. Never use short waits, list or status polling, or message loops on idle timeout; never busy-poll or run status-only coordination loops. Batch independent lifecycle actions and stop or release specialist leaves once their accepted terminal outcomes are recorded.`,
+    `Keep specialist and Reviewer reports concise, structured, and evidence-first: lead with ${ROOT_ORCHESTRATION_POLICY.specialistReportFields.join(", ")}. Root reads large transcripts or artifacts only for ${ROOT_ORCHESTRATION_POLICY.rootLargeReadsOnlyFor.join(", ")}; reuse stable facts, keep each meaning with one authoritative owner, and do not duplicate policy. Stable bounded component scopes are canonical guidance; the lifecycle worker owns deterministic Intent, Plan, and Assignment API decisions, while Root owns material decisions, integration, and completion.`,
     `${TESTING_POLICY.rule} Do not add tests for low-impact reversible changes when they merely mirror implementation details. Once relevant proof passes, broaden or repeat it only after another source change, a failure, or an unresolved material concern. Mandatory repository gates and Reviewer.code remain required. Inspect specialist evidence before integration; Worker.validation supplies independent local proof without replacing implementation proof or Reviewer.code. Reviewer.code fixed-point review is mandatory after implementation or a major codebase change and before completion or VCS.`,
     `For current technical documentation, Librarian.lookup and Librarian.research resolve the library identity and use Context7 before model memory or generic web, query narrowly, and return one typed evidence state (${LIBRARIAN_CONTEXT7_POLICY.evidenceStates.join(" | ")}) in the context7 field with version/source evidence. Fallback is allowed only for one of those states or an absent required version; authoritative first-party documentation resolves conflicts. Context7 supplies facts while Root owns material product, architecture, dependency, compatibility, and implementation decisions.`,
     "After integration, Root performs approved VCS actions and dispatches Worker.operations with the exact ref or SHA for terminal CI or release evidence. Pending is never success. Discover the actual topology; repair failures through bounded Assignments and repeat integration, fixed-point review, VCS, and terminal observation until the applicable gate is green.",

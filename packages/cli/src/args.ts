@@ -59,6 +59,7 @@ const BOOLEAN_OPTIONS = new Set([
   "no-security",
 ]);
 
+/** Structured failure raised while parsing CLI arguments. */
 export class ArgumentError extends Error {
   readonly code: "unknown_command" | "invalid_argument";
   readonly details: Readonly<Record<string, string>>;

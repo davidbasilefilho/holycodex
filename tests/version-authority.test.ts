@@ -18,9 +18,9 @@ import {
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const canonicalManifestPath = "packages/cli/package.json";
 const generatedPluginManifestPath = "packages/plugin/assets/.codex-plugin/plugin.json";
-const VersionText = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
+const VersionText = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u;
 const RELEASE_LITERAL =
-  /(?<![0-9A-Za-z])0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-dev\.\d+\.\d+)?(?![0-9A-Za-z])/gu;
+  /(?<![0-9A-Za-z])0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*)|-dev\.\d+\.\d+)?(?![0-9A-Za-z])/gu;
 const CliManifest = Schema.Struct({
   name: Schema.Literal("holycodex"),
   version: Schema.String.pipe(Schema.pattern(VersionText)),
@@ -133,24 +133,34 @@ describe("release version authority", () => {
 
   test("derives collision-safe development versions without changing the base version", () => {
     const version = developmentVersion("0.1.2", "17", "3");
+    const suffixedVersion = developmentVersion("0.1.2-1", "17", "3");
 
     expect(version).toBe("0.1.2-dev.17.3");
+    expect(suffixedVersion).toBe("0.1.2-dev.17.3");
     expect(version).not.toBe("0.1.2-dev.17.2");
     expect(() => developmentVersion("0.1.2", "0", "1")).toThrow();
   });
 
   test("requires stable tags to match the canonical version and rejects prerelease mixing", () => {
     expect(stableVersionFromTag("0.1.2", "v0.1.2")).toBe("0.1.2");
+    expect(stableVersionFromTag("0.1.2-1", "v0.1.2-1")).toBe("0.1.2-1");
     expect(() => stableVersionFromTag("0.1.2", "v0.1.3")).toThrow();
+    expect(() => stableVersionFromTag("0.1.2-1", "v0.1.2")).toThrow();
+    expect(() => stableVersionFromTag("0.1.2-1", "v0.1.2-01")).toThrow();
     expect(() => assertReleaseVersion("0.1.2", "stable", "0.1.2-dev.17.3")).toThrow();
     expect(() => assertReleaseVersion("0.1.2", "dev", "0.1.2")).toThrow();
+    expect(() => assertReleaseVersion("0.1.2-1", "stable", "0.1.2-1")).not.toThrow();
+    expect(() => assertReleaseVersion("0.1.2-1", "stable", "0.1.2")).toThrow();
+    expect(() => assertReleaseVersion("0.1.2-1", "dev", "0.1.2-dev.17.3")).not.toThrow();
   });
 
   test("extracts the stable package base from a development release", () => {
     const developmentRelease = `0.16.${4}-dev.76.1`;
+    const numericRelease = `0.16.${4}-1`;
     const stableRelease = `0.16.${4}`;
     const malformedRelease = `0.16.${4}-dev.76`;
     expect(baseVersionFromRelease(developmentRelease)).toBe(stableRelease);
+    expect(baseVersionFromRelease(numericRelease)).toBe(stableRelease);
     expect(baseVersionFromRelease(stableRelease)).toBe(stableRelease);
     expect(() => baseVersionFromRelease(malformedRelease)).toThrow();
   });

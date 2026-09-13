@@ -14,14 +14,14 @@ commands are `bunx holycodex install`, `bunx holycodex remove`, and
 
 ## Commands
 
-| Command                                                          | Required behavior                                                                                                                                                  |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `holycodex install [options]`                                    | Validate input, configure the selected profile, tier, and optional plugins through Codex native plugin management, verify readback, and write owned configuration. |
-| `holycodex doctor [--json]`                                      | Compare effective Root config, canonical leaf registrations/files, selected capabilities, ownership, and transaction state.                                        |
-| `holycodex remove [--yes] [--json]`                              | Verify ownership, remove HolyCodex's native plugin state, and remove its owned configuration without touching unrelated state.                                     |
-| `holycodex upgrade [--dry-run] [--yes] [--json]`                 | Migrate an existing installation in place using the running binary while preserving selected and user-owned state.                                                 |
-| `holycodex version [<0.x.y\|patch\|minor>] [--dry-run] [--json]` | Read or update the canonical package version.                                                                                                                      |
-| `holycodex --help`                                               | Print the current command and option syntax.                                                                                                                       |
+| Command                                                              | Required behavior                                                                                                                                                  |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `holycodex install [options]`                                        | Validate input, configure the selected profile, tier, and optional plugins through Codex native plugin management, verify readback, and write owned configuration. |
+| `holycodex doctor [--json]`                                          | Compare effective Root config, canonical leaf registrations/files, selected capabilities, ownership, and transaction state.                                        |
+| `holycodex remove [--yes] [--json]`                                  | Verify ownership, remove HolyCodex's native plugin state, and remove its owned configuration without touching unrelated state.                                     |
+| `holycodex upgrade [--dry-run] [--yes] [--json]`                     | Migrate an existing installation in place using the running binary while preserving selected and user-owned state.                                                 |
+| `holycodex version [<0.x.y[-n]\|patch\|minor>] [--dry-run] [--json]` | Read or update the canonical package version.                                                                                                                      |
+| `holycodex --help`                                                   | Print the current command and option syntax.                                                                                                                       |
 
 Installation options are `--yes`, `--profile <name>`,
 `--tier <name>`, `--frontend`, `--security`, `--computer-use`, and

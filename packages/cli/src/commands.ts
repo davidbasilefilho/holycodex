@@ -45,7 +45,7 @@ export async function runCli(
   argv: readonly string[],
   context: CliContext = {},
 ): Promise<CommandResult> {
-  if (helpRequested(argv) || argv[0] === "help") {
+  if (argv.length === 0 || helpRequested(argv) || argv[0] === "help") {
     const topic =
       argv[0] === "help"
         ? argv.slice(1).filter((value) => !value.startsWith("-"))[0]
@@ -672,6 +672,7 @@ function paint(value: string, color: Color, enabled: boolean): string {
   return `\u001b[${codes[color]}m${value}\u001b[0m`;
 }
 
+/** Structured failure returned by a CLI command boundary. */
 export class CliCommandError extends Error {
   readonly code:
     | "invalid_argument"

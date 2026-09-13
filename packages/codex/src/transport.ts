@@ -15,6 +15,7 @@ export interface AsyncLineTransport {
   close(): Promise<void>;
 }
 
+/** Select the environment variables allowed for a Codex subprocess. */
 export function allowlistedEnvironment(
   source: Readonly<Record<string, string | undefined>> = process.env,
 ): Record<string, string> {
@@ -36,6 +37,7 @@ export function createAllowlistedEnvironment(
   return Object.freeze(allowlistedEnvironment(source));
 }
 
+/** Read a byte stream while enforcing a maximum output size. */
 export async function readBoundedStream(
   stream: ReadableStream<Uint8Array>,
   maxBytes: number,
@@ -67,6 +69,7 @@ export async function readBoundedStream(
   return output;
 }
 
+/** Decode bytes as strict UTF-8 and report malformed transport data. */
 export function decodeUtf8(bytes: Uint8Array, label: string): string {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -80,6 +83,7 @@ export function decodeUtf8(bytes: Uint8Array, label: string): string {
   }
 }
 
+/** Redact credentials and bound a single diagnostic line. */
 export function sanitizeDiagnostic(value: string): string {
   return sanitizeText(
     value
@@ -110,6 +114,7 @@ export interface BunStdioTransportOptions {
   readonly signal?: AbortSignal;
 }
 
+/** Line transport that connects to a Codex process through Bun stdio streams. */
 export class BunStdioTransport implements AsyncLineTransport {
   private readonly process: Bun.Subprocess;
   private readonly stdin: NonNullable<Exclude<Bun.Subprocess["stdin"], number>>;
@@ -161,10 +166,12 @@ export class BunStdioTransport implements AsyncLineTransport {
     }
   }
 
+  /** Return sanitized diagnostics captured from the subprocess. */
   get diagnostics(): readonly string[] {
     return [...this.stderrDiagnostics];
   }
 
+  /** Read the next protocol line from the subprocess. */
   async readLine(): Promise<string | null> {
     if (this.closed && this.stdoutBuffer.byteLength === 0) {
       return null;
@@ -231,6 +238,7 @@ export class BunStdioTransport implements AsyncLineTransport {
     }
   }
 
+  /** Write one protocol line to the subprocess. */
   async writeLine(line: string): Promise<void> {
     if (this.closed) {
       throw new CodexError("closed", "The App Server transport is closed.");
@@ -256,6 +264,7 @@ export class BunStdioTransport implements AsyncLineTransport {
     }
   }
 
+  /** Close the subprocess and release its transport resources. */
   async close(): Promise<void> {
     if (this.closed) {
       return;

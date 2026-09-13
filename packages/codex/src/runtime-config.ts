@@ -169,6 +169,7 @@ export function deleteTomlPath(document: TomlDocument, keyPath: string): TomlDoc
 
 export const ROOT_CONFIG_KEY_PATHS = [
   "model",
+  "model_auto_compact_token_limit",
   "model_reasoning_effort",
   "service_tier",
   "model_verbosity",
@@ -228,6 +229,7 @@ type ManagedEnum =
 
 export type ManagedConfigSafeValue =
   | { readonly kind: "enum"; readonly value: ManagedEnum }
+  | { readonly kind: "number"; readonly value: number }
   | { readonly kind: "boolean"; readonly value: boolean }
   | { readonly kind: "relative_path"; readonly value: string }
   | { readonly kind: "digest"; readonly value: Sha256Digest };
@@ -263,7 +265,7 @@ export const ManagedRuntimeConfigStateSchema = Schema.declare(
   (value: unknown): value is ManagedRuntimeConfigState => isManagedRuntimeConfigState(value),
 );
 
-export type ManagedConfigWriteValue = string | boolean;
+export type ManagedConfigWriteValue = string | number | boolean;
 
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 
@@ -291,6 +293,10 @@ function isDigest(value: unknown): value is Sha256Digest {
   return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
 }
 
+function isSafeManagedConfigNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
 function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
   const allowed = new Set(keys);
   return Object.keys(value).every((key) => allowed.has(key));
@@ -307,6 +313,8 @@ function isManagedConfigSafeValue(value: unknown): value is ManagedConfigSafeVal
   switch (value["kind"]) {
     case "enum":
       return isManagedEnum(value["value"]);
+    case "number":
+      return isSafeManagedConfigNumber(value["value"]);
     case "boolean":
       return typeof value["value"] === "boolean";
     case "relative_path":
@@ -323,6 +331,8 @@ function isSafeValueForKey(
   value: ManagedConfigSafeValue,
 ): boolean {
   switch (configKeyKind(keyPath)) {
+    case "number":
+      return value.kind === "number";
     case "boolean":
       return value.kind === "boolean";
     case "relative_path":
@@ -467,9 +477,10 @@ export function resolveAgentConfigPath(declaringConfigPath: string, configFile: 
 
 function configKeyKind(
   keyPath: ManagedConfigStateKeyPath,
-): "enum" | "boolean" | "relative_path" | "digest" {
+): "enum" | "number" | "boolean" | "relative_path" | "digest" {
   if (keyPath === "developer_instructions") return "digest";
   if (keyPath.endsWith(".config_file")) return "relative_path";
+  if (keyPath === "model_auto_compact_token_limit") return "number";
   if (
     keyPath === "suppress_unstable_features_warning" ||
     keyPath === "features.default_mode_request_user_input" ||
@@ -485,6 +496,7 @@ function configKeyKind(
 
 function isExpectedValueForKey(keyPath: ManagedConfigKeyPath, value: TomlValue): boolean {
   const kind = configKeyKind(keyPath);
+  if (kind === "number") return isSafeManagedConfigNumber(value);
   if (kind === "boolean") return typeof value === "boolean";
   if (kind === "relative_path") return typeof value === "string" && isRelativeConfigPath(value);
   if (kind === "digest") return typeof value === "string";
@@ -500,6 +512,7 @@ export async function summarizeManagedConfigValue(
     throw invalidData("managed config value", { keyPath });
   }
   const kind = configKeyKind(keyPath);
+  if (kind === "number" && isSafeManagedConfigNumber(value)) return { kind, value };
   if (kind === "boolean" && typeof value === "boolean") return { kind, value };
   if (kind === "relative_path" && typeof value === "string" && isRelativeConfigPath(value)) {
     return { kind, value: normalizeRelativeConfigPath(value) };
@@ -515,8 +528,13 @@ export async function summarizeManagedConfigValue(
   };
 }
 
-function safeValueToToml(value: ManagedConfigSafeValue): string | boolean | undefined {
-  if (value.kind === "enum" || value.kind === "boolean" || value.kind === "relative_path") {
+function safeValueToToml(value: ManagedConfigSafeValue): string | number | boolean | undefined {
+  if (
+    value.kind === "enum" ||
+    value.kind === "number" ||
+    value.kind === "boolean" ||
+    value.kind === "relative_path"
+  ) {
     return value.value;
   }
   return undefined;
@@ -552,7 +570,9 @@ export async function mergeManagedRuntimeConfig(
   for (const [rawKeyPath, nextValue] of Object.entries(desired)) {
     if (
       !isManagedConfigKeyPath(rawKeyPath) ||
-      (typeof nextValue !== "string" && typeof nextValue !== "boolean")
+      (typeof nextValue !== "string" &&
+        typeof nextValue !== "number" &&
+        typeof nextValue !== "boolean")
     ) {
       throw invalidData("managed config key", rawKeyPath);
     }
@@ -709,6 +729,7 @@ export async function compareManagedConfigKey(
   };
 }
 
+/** Validate and return managed runtime configuration state. */
 export function assertManagedRuntimeConfigState(value: unknown): ManagedRuntimeConfigState {
   if (!isManagedRuntimeConfigState(value)) throw invalidData("managed runtime config state", {});
   return value;

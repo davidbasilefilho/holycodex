@@ -3,8 +3,9 @@
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 
-const VersionText = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
-const VersionTargetText = /^(?:patch|minor|0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/;
+const VersionText = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u;
+const VersionTargetText =
+  /^(?:patch|minor|0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?)$/u;
 const strictParseOptions = { onExcessProperty: "error" } as const;
 const manifestParseOptions = { onExcessProperty: "preserve" } as const;
 const VersionArgumentsSchema = Schema.Struct({
@@ -24,12 +25,12 @@ const dryRun = rawArguments.includes("--dry-run");
 const positionalArguments = rawArguments.filter((argument) => argument !== "--dry-run");
 
 if (positionalArguments.length !== 1) {
-  throw new Error("Usage: bun scripts/version.ts <0.x.y|patch|minor> [--dry-run]");
+  throw new Error("Usage: bun scripts/version.ts <0.x.y[-n]|patch|minor> [--dry-run]");
 }
 
 const targetArgument = positionalArguments[0];
 if (targetArgument === undefined) {
-  throw new Error("Usage: bun scripts/version.ts <0.x.y|patch|minor> [--dry-run]");
+  throw new Error("Usage: bun scripts/version.ts <0.x.y[-n]|patch|minor> [--dry-run]");
 }
 const parsedArguments = Schema.decodeUnknownEither(
   VersionArgumentsSchema,
@@ -41,7 +42,7 @@ const parsedArguments = Schema.decodeUnknownEither(
 
 if (Either.isLeft(parsedArguments)) {
   throw new Error(
-    `${parsedArguments.left.message}\nUsage: bun scripts/version.ts <0.x.y|patch|minor> [--dry-run]`,
+    `${parsedArguments.left.message}\nUsage: bun scripts/version.ts <0.x.y[-n]|patch|minor> [--dry-run]`,
   );
 }
 
@@ -91,7 +92,7 @@ function resolveVersion(
     return arguments_.target;
   }
 
-  const [, minorText, patchText] = current.split(".");
+  const [, minorText, patchText] = (current.split("-", 1)[0] ?? "").split(".");
   const minor = Number(minorText);
   const patch = Number(patchText);
   const nextMinor = arguments_.target === "minor" ? minor + 1 : minor;

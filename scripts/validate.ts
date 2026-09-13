@@ -15,6 +15,7 @@ export interface ValidationResult {
   readonly packageVersion: string;
 }
 
+/** Run the complete local formatting, lint, test, build, and proof gate. */
 export async function runValidation(): Promise<ValidationResult> {
   await ensureCodexGenerated();
   const steps: string[] = [];

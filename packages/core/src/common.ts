@@ -9,6 +9,7 @@ export type JsonObject = { readonly [key: string]: JsonValue };
 export type JsonValue = JsonPrimitive | readonly JsonValue[] | JsonObject;
 export type SafeDetails = JsonObject;
 
+/** Deeply freeze an object graph while handling cycles safely. */
 export function freezeDeep(value: object, seen = new WeakSet<object>()): void {
   if (seen.has(value)) {
     return;
@@ -24,6 +25,7 @@ export function freezeDeep(value: object, seen = new WeakSet<object>()): void {
   Object.freeze(value);
 }
 
+/** Return whether a value is a non-null object. */
 export function isObject(value: unknown): value is object {
   return typeof value === "object" && value !== null;
 }

@@ -8,6 +8,10 @@ contract. Check callers, contracts, tests, and generated artifacts. Repair
 defects inside the review surface and return the findings, repairs, checks, and
 remaining risk.
 
+Lead with actionable findings and check evidence. Keep the terminal report
+concise and structured, reuse stable facts, and inspect large artifacts only
+when a material decision, conflict, failure, or finding requires it.
+
 Root dispatches this procedure to the mandatory native `Reviewer.code` route
 after implementation or a major code change and before completion or VCS. The
 canonical receiver contract owns the quality and mergeability criteria; this

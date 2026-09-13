@@ -13,11 +13,13 @@ import { isSensitiveEnvironmentKey } from "./process.ts";
 const SENSITIVE_PATH_PART_PATTERN =
   /^(?:\.env(?:\..*)?|.*[._-]env(?:\..*)?|\.npmrc(?:\..*)?|\.pypirc(?:\..*)?|\.aws(?:\..*)?|\.ssh(?:\..*)?|\.kube(?:\..*)?|\.terraform(?:\..*)?|(?:auth|authorization|credential|credentials|secret|secrets|token|tokens)(?:\..*)?|.*\.tfstate(?:\..*)?|.*\.(?:auth|cert|cer|cookie|credential|credentials|der|jks|key|keystore|pem|pfx|p12|secret|secrets|token|tokens))$/iu;
 
+/** Return whether an artifact path contains a secret-like component. */
 export function isSensitiveArtifactPath(path: string): boolean {
   const normalized = path.replaceAll("\\", "/");
   return normalized.split("/").some((part) => SENSITIVE_PATH_PART_PATTERN.test(part));
 }
 
+/** Enforce path safety and an explicit allowlist for artifact entries. */
 export function assertAllowedArtifactEntries(
   entries: readonly string[],
   allowlist: readonly (string | RegExp)[],
@@ -134,6 +136,7 @@ export const PUBLIC_PACKAGE_ENTRY_ALLOWLIST = [
   /^dist\/assets\/plugin\/skills\//u,
 ] as const;
 
+/** Enforce the files allowed in the public package archive. */
 export function assertPublicPackageEntries(entries: readonly string[]): void {
   assertAllowedArtifactEntries(entries, PUBLIC_PACKAGE_ENTRY_ALLOWLIST, "the public package");
 }
@@ -145,15 +148,18 @@ export const BUILD_UPLOAD_ENTRY_ALLOWLIST = [
   /^assets\/plugin\/skills\//u,
 ] as const;
 
+/** Enforce the files allowed in the build upload directory. */
 export function assertBuildUploadEntries(entries: readonly string[]): void {
   assertAllowedArtifactEntries(entries, BUILD_UPLOAD_ENTRY_ALLOWLIST, "the build upload");
 }
 
+/** Validate the complete build upload directory against its allowlist. */
 export async function assertBuildUploadDirectory(root: string): Promise<void> {
   const entries = await listSafeArtifactEntries(root, "the build output");
   assertBuildUploadEntries(entries);
 }
 
+/** Validate a release output directory and its expected tarball metadata. */
 export async function assertReleaseOutputDirectory(
   root: string,
   expectedTarball: string,

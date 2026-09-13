@@ -2,6 +2,7 @@
 
 import {
   AssignmentResultInputSchema,
+  AssignmentStartInputSchema,
   CreateAssignmentInputSchema,
   CreateIntentInputSchema,
   IntentStateSchema,
@@ -145,6 +146,9 @@ async function execute(
         requiredValue(intent, "intent"),
         required(options, "assignment"),
         revision(options),
+        options["input"] === undefined
+          ? {}
+          : decodeJson(AssignmentStartInputSchema, options["input"]),
       );
     if (subcommand === "result")
       return await store.recordAssignmentResult(
@@ -201,7 +205,7 @@ function allowedOptions(command: string, subcommand: string): ReadonlySet<string
     "assignment revise": ["intent", "assignment", "revision", "input"],
     "assignment list": ["intent"],
     "assignment read": ["intent", "assignment"],
-    "assignment start": ["intent", "assignment", "revision"],
+    "assignment start": ["intent", "assignment", "revision", "input"],
     "assignment result": ["intent", "assignment", "revision", "input"],
   };
   return new Set([...common, ...(options[`${command} ${subcommand}`] ?? [])]);
