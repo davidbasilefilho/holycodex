@@ -2,7 +2,9 @@
 
 import { ManagedRuntimeConfigStateSchema } from "@holycodex/codex";
 import {
+  CanonicalVersionSchema,
   decodeUnknown,
+  OptionalCapabilityNameSchema,
   ProfileNameSchema,
   ProfileNameMigrationSchema,
   ServiceTierSchema,
@@ -19,8 +21,11 @@ export const JsonObjectSchema = Schema.declare(
     typeof value === "object" && value !== null && !Array.isArray(value) && isJsonValue(value),
 );
 export const JsonValueSchema = Schema.declare(isJsonValue);
-export const VersionSchema = Schema.String.pipe(
-  Schema.pattern(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u),
+/** The persisted and detected package version, including a release suffix. */
+export const VersionSchema = CanonicalVersionSchema;
+/** Versions reported by external tools such as Context7 may use their own semver line. */
+const ToolVersionSchema = Schema.String.pipe(
+  Schema.pattern(/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u),
 );
 export const DigestSchema = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u));
 export const IdentifierSchema = Schema.String.pipe(
@@ -56,6 +61,15 @@ export const InstallRequestSchema = Schema.Struct({
 });
 /** Canonical validated domain schema shared by CLI flags and the TTY wizard. */
 export const InstallOptionsSchema = InstallRequestSchema;
+
+/** Schema for the small, user-owned install options file. */
+export const PersistedInstallOptionsSchema = Schema.Struct({
+  schema_version: Schema.Literal(1),
+  profile: ProfileNameSchema,
+  tier: ServiceTierSchema,
+  capabilities: Schema.Array(OptionalCapabilityNameSchema),
+  additional_plugins: Schema.Array(OfficialPluginIdSchema),
+});
 
 export const CapabilityInstallStateSchema = Schema.Struct({
   selected: Schema.Boolean,
@@ -102,7 +116,7 @@ const GitBashStateSchema = Schema.Union(
 const Context7ToolStateSchema = Schema.Struct({
   manager: Schema.Literal("bun", "npm", "pnpm"),
   launcher: Schema.Literal("bunx", "npx", "pnpm dlx"),
-  version: VersionSchema,
+  version: ToolVersionSchema,
   executable: Schema.String,
   ownership: Schema.Literal("user", "holycodex"),
   identity: Schema.optional(DigestSchema),

@@ -3,18 +3,17 @@
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 
-const VersionText = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u;
-const VersionTargetText =
-  /^(?:patch|minor|0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?)$/u;
+import { CanonicalVersionSchema, resolveCanonicalVersion } from "../packages/core/src/version.ts";
+
 const strictParseOptions = { onExcessProperty: "error" } as const;
 const manifestParseOptions = { onExcessProperty: "preserve" } as const;
 const VersionArgumentsSchema = Schema.Struct({
-  target: Schema.String.pipe(Schema.pattern(VersionTargetText)),
+  target: Schema.Union(Schema.Literal("patch", "minor"), CanonicalVersionSchema),
   dryRun: Schema.Boolean,
 });
 const CliManifestSchema = Schema.Struct({
   name: Schema.Literal("holycodex"),
-  version: Schema.String.pipe(Schema.pattern(VersionText)),
+  version: CanonicalVersionSchema,
 });
 
 type VersionArguments = typeof VersionArgumentsSchema.Type;
@@ -88,15 +87,5 @@ function resolveVersion(
   arguments_: VersionArguments,
   current: CliManifest["version"],
 ): CliManifest["version"] {
-  if (arguments_.target !== "patch" && arguments_.target !== "minor") {
-    return arguments_.target;
-  }
-
-  const [, minorText, patchText] = (current.split("-", 1)[0] ?? "").split(".");
-  const minor = Number(minorText);
-  const patch = Number(patchText);
-  const nextMinor = arguments_.target === "minor" ? minor + 1 : minor;
-  const nextPatch = arguments_.target === "minor" ? 0 : patch + 1;
-
-  return `0.${nextMinor}.${nextPatch}`;
+  return resolveCanonicalVersion(arguments_.target, current);
 }

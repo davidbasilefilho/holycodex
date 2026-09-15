@@ -152,7 +152,15 @@ export async function inspectNativeAgentConflicts(
       (await sha256(current)) !== previousArtifact.digest &&
       current !== projection.contents
     ) {
-      conflicts.push({ path: projection.path, action: "replace" });
+      conflicts.push(
+        nativeConflict(
+          projection.path,
+          "replace",
+          { present: true, digest: await sha256(current) },
+          { present: true, digest: await sha256(projection.contents) },
+          "The managed native role file changed outside the previous HolyCodex transaction.",
+        ),
+      );
     }
   }
   for (const artifact of previous) {
@@ -165,7 +173,15 @@ export async function inspectNativeAgentConflicts(
     }
     const current = await readRegularFile(absolute);
     if (current !== undefined && (await sha256(current)) !== artifact.digest) {
-      conflicts.push({ path: absolute, action: "remove" });
+      conflicts.push(
+        nativeConflict(
+          absolute,
+          "remove",
+          { present: true, digest: await sha256(current) },
+          { present: false },
+          "The managed legacy role file changed and would be removed during reconciliation.",
+        ),
+      );
     }
   }
   return conflicts;
@@ -191,7 +207,16 @@ export async function inspectNativeAgentRemovalConflicts(
     }
     const current = await readRegularFile(target);
     if (current !== undefined && (await sha256(current)) !== artifact.digest) {
-      conflicts.push({ path: target, action: "remove" });
+      conflicts.push({
+        ...nativeConflict(
+          target,
+          "remove",
+          { present: true, digest: await sha256(current) },
+          { present: false },
+          "The managed native artifact changed outside HolyCodex and would be removed.",
+        ),
+        action: "remove",
+      });
     }
   }
   return conflicts;
@@ -399,7 +424,13 @@ export async function installNativeAgents(
     if (current !== undefined && previousArtifact !== undefined) {
       const digest = await sha256(current);
       if (digest !== previousArtifact.digest && current !== projection.contents) {
-        const conflict = { path: projection.path, action: "replace" as const, key: undefined };
+        const conflict = nativeConflict(
+          projection.path,
+          "replace",
+          { present: true, digest },
+          { present: true, digest: await sha256(projection.contents) },
+          "The managed native role file changed outside the previous HolyCodex transaction.",
+        );
         const preResolved = preResolvedConflicts.some(
           (candidate) =>
             candidate.path === conflict.path &&
@@ -750,4 +781,25 @@ async function sha256(value: Uint8Array | string): Promise<string> {
   const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value;
   const digest = await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function nativeConflict(
+  path: string,
+  action: "replace" | "remove",
+  existing: unknown,
+  desired: unknown,
+  explanation: string,
+): ManagedConflict {
+  return {
+    identity: `role-asset:${path}:${action}`,
+    category: "role-asset",
+    target: path,
+    existing,
+    desired,
+    defaultDecision: "replace",
+    validDecisions: ["keep", "replace", "cancel"],
+    explanation,
+    path,
+    action,
+  };
 }

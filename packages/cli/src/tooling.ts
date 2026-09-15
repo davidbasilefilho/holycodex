@@ -140,6 +140,176 @@ export async function ensureContext7(
   mutate: boolean,
   previous?: Context7ToolState,
 ): Promise<Context7ToolState> {
+  if (isBunRuntime(runtime)) {
+    return ensureBunGlobalContext7(runtime, mutate, previous);
+  }
+  // Injected runtimes from legacy callers may not expose a Bun launcher path. Keep
+  // that compatibility path isolated; the production runtime always takes the exact Bun
+  // global path above and never resolves a generic PATH executable or registry version.
+  return ensureContext7ViaLauncher(runtime, mutate, previous);
+}
+
+/** Verify that the exact package-manager global installation can be inspected before mutation. */
+export async function preflightContext7(runtime: InstallerRuntime): Promise<void> {
+  if (isBunRuntime(runtime)) {
+    await preflightBunGlobalContext7(runtime);
+    return;
+  }
+  const manager = detectContext7Manager(runtime.environment);
+  if (manager === undefined) {
+    throw new ToolingError(
+      "context7_manager_unknown",
+      "HolyCodex must be launched with bunx, npx, or pnpm dlx so Context7 can use the same package manager.",
+    );
+  }
+  const result = await runtime.run(
+    manager.executable,
+    manager.family === "npm"
+      ? ["prefix", "--global"]
+      : manager.family === "pnpm"
+        ? ["bin", "--global"]
+        : ["pm", "bin", "-g"],
+  );
+  if (result.exitCode !== 0 || result.stdout.trim().length === 0) {
+    throw new ToolingError(
+      "context7_unavailable",
+      `The ${manager.family} global installation could not be inspected before managed changes.`,
+      { stderr: result.stderr.slice(0, 512) },
+    );
+  }
+}
+
+async function preflightBunGlobalContext7(runtime: InstallerRuntime): Promise<void> {
+  const files = runtime.files ?? nodeFiles;
+  const binResult = await runtime.run(runtime.processPath, ["pm", "bin", "-g"]);
+  if (binResult.exitCode !== 0 || binResult.stdout.trim().length === 0) {
+    // Bun creates its global project on the first `bun add -g`. Until then the
+    // location query reports the missing project even though the exact global
+    // installation remains the managed mutation's responsibility.
+    if (isMissingBunGlobalProject(binResult.stderr)) return;
+    throw new ToolingError(
+      "context7_unavailable",
+      "Bun's managed global installation could not be located before managed changes.",
+      { stderr: binResult.stderr.slice(0, 512) },
+    );
+  }
+
+  const pathApi = pathFor(runtime.platform);
+  const binRoot = binResult.stdout.trim();
+  const projectRoot = pathApi.join(pathApi.dirname(binRoot), "install", "global");
+  const packageRoot = pathApi.join(projectRoot, "node_modules", "ctx7");
+  const packageJsonPath = pathApi.join(packageRoot, "package.json");
+  const shim = pathApi.join(binRoot, runtime.platform === "win32" ? "ctx7.exe" : "ctx7");
+
+  try {
+    await files.access(binRoot);
+    await files.access(projectRoot);
+  } catch (error: unknown) {
+    throw new ToolingError(
+      "context7_unavailable",
+      "Bun's managed global location or project is unavailable before managed changes.",
+      { reason: safeToolingErrorMessage(error) },
+    );
+  }
+
+  let packageJsonText: string;
+  try {
+    await files.access(packageRoot);
+  } catch (error: unknown) {
+    // An absent package is the one expected pre-mutation state: Bun will create
+    // it with the transactional `bun add -g ctx7@latest` below.
+    if (isMissingFile(error)) return;
+    throw new ToolingError(
+      "context7_unavailable",
+      "Bun's managed ctx7 package could not be inspected before managed changes.",
+      { reason: safeToolingErrorMessage(error) },
+    );
+  }
+  try {
+    packageJsonText = await files.readText(packageJsonPath);
+  } catch (error: unknown) {
+    throw new ToolingError(
+      "context7_unavailable",
+      "Bun's managed ctx7 package metadata could not be inspected before managed changes.",
+      { reason: safeToolingErrorMessage(error) },
+    );
+  }
+
+  let packageJson: { readonly version?: unknown; readonly bin?: unknown };
+  try {
+    packageJson = JSON.parse(packageJsonText) as typeof packageJson;
+  } catch (error: unknown) {
+    throw new ToolingError(
+      "context7_unavailable",
+      "Bun's managed ctx7 package metadata is invalid before managed changes.",
+      { reason: safeToolingErrorMessage(error) },
+    );
+  }
+  if (
+    typeof packageJson.version !== "string" ||
+    parseVersion(packageJson.version) !== packageJson.version
+  ) {
+    throw new ToolingError(
+      "context7_unavailable",
+      "Bun's managed ctx7 package has no exact semver version before managed changes.",
+    );
+  }
+  const bin = context7PackageBin(packageJson);
+  if (bin === undefined) {
+    throw new ToolingError(
+      "context7_unavailable",
+      "Bun's managed ctx7 package does not declare its executable before managed changes.",
+    );
+  }
+  const packageExecutable = pathApi.resolve(packageRoot, bin);
+  let canonicalPackageRoot: string;
+  let canonicalExecutable: string;
+  try {
+    await files.access(packageExecutable);
+    canonicalPackageRoot = await files.realpath(packageRoot);
+    canonicalExecutable = await files.realpath(packageExecutable);
+  } catch (error: unknown) {
+    throw new ToolingError(
+      "context7_unavailable",
+      "Bun's managed ctx7 executable is unavailable before managed changes.",
+      { reason: safeToolingErrorMessage(error) },
+    );
+  }
+  if (
+    !samePath(canonicalPackageRoot, packageRoot, runtime.platform) ||
+    !normalize(canonicalExecutable).startsWith(`${normalize(canonicalPackageRoot)}/`)
+  ) {
+    throw new ToolingError(
+      "context7_unavailable",
+      "Bun's managed ctx7 executable is outside its package before managed changes.",
+    );
+  }
+
+  try {
+    await files.access(shim);
+    await files.realpath(shim);
+  } catch (error: unknown) {
+    throw new ToolingError(
+      "context7_unavailable",
+      "Bun's managed ctx7 shim is unavailable before managed changes.",
+      { reason: safeToolingErrorMessage(error) },
+    );
+  }
+  const version = await runtime.run(shim, ["--version"]);
+  if (version.exitCode !== 0 || parseVersion(version.stdout) !== packageJson.version) {
+    throw new ToolingError(
+      "context7_unavailable",
+      "Bun's managed ctx7 shim does not report the package version before managed changes.",
+      { stderr: version.stderr.slice(0, 512) },
+    );
+  }
+}
+
+async function ensureContext7ViaLauncher(
+  runtime: InstallerRuntime,
+  mutate: boolean,
+  previous?: Context7ToolState,
+): Promise<Context7ToolState> {
   const manager = detectContext7Manager(runtime.environment);
   if (manager === undefined) {
     throw new ToolingError(
@@ -199,6 +369,120 @@ export async function ensureContext7(
   return state as Context7ToolState;
 }
 
+/** Reconcile the exact Bun-global ctx7 package and verify its own executable. */
+async function ensureBunGlobalContext7(
+  runtime: InstallerRuntime,
+  mutate: boolean,
+  previous?: Context7ToolState,
+): Promise<Context7ToolState> {
+  const manager: Context7Manager = { launcher: "bunx", family: "bun", executable: "bun" };
+  const before = await inspectBunGlobalContext7(runtime);
+  if (mutate) {
+    const result = await runtime.run(runtime.processPath, ["add", "-g", CONTEXT7_SPEC]);
+    if (result.exitCode !== 0) {
+      throw new ToolingError(
+        "context7_install_failed",
+        `Bun could not install ${CONTEXT7_SPEC} in its global installation.`,
+        { stderr: result.stderr.slice(0, 512) },
+      );
+    }
+  } else if (before === undefined) {
+    throw new ToolingError(
+      "context7_unavailable",
+      `${CONTEXT7_SPEC} is not present in Bun's exact global installation.`,
+    );
+  }
+  const after = await inspectBunGlobalContext7(runtime);
+  if (after === undefined) {
+    throw new ToolingError(
+      "context7_verification_failed",
+      `${CONTEXT7_SPEC} could not be verified in Bun's exact global installation.`,
+    );
+  }
+  const ownership = context7Ownership(previous, manager, before);
+  const state: Context7StateWithIdentity = {
+    manager: "bun",
+    launcher: "bunx",
+    version: after.version,
+    executable: after.executable,
+    ownership,
+    identity: after.identity,
+  };
+  return state as Context7ToolState;
+}
+
+async function inspectBunGlobalContext7(
+  runtime: InstallerRuntime,
+): Promise<Context7Inspection | undefined> {
+  const files = runtime.files ?? nodeFiles;
+  const binResult = await runtime.run(runtime.processPath, ["pm", "bin", "-g"]);
+  if (binResult.exitCode !== 0) return undefined;
+  const binRoot = binResult.stdout.trim();
+  if (binRoot.length === 0) return undefined;
+  const pathApi = pathFor(runtime.platform);
+  const packageRoot = pathApi.join(
+    pathApi.dirname(binRoot),
+    "install",
+    "global",
+    "node_modules",
+    "ctx7",
+  );
+  let packageJson: { readonly version?: unknown; readonly bin?: unknown };
+  try {
+    packageJson = JSON.parse(
+      await files.readText(pathApi.join(packageRoot, "package.json")),
+    ) as typeof packageJson;
+  } catch {
+    return undefined;
+  }
+  if (
+    typeof packageJson.version !== "string" ||
+    parseVersion(packageJson.version) !== packageJson.version
+  )
+    return undefined;
+  const bin = context7PackageBin(packageJson);
+  if (bin === undefined) return undefined;
+  const packageExecutable = pathApi.resolve(packageRoot, bin);
+  const shim = pathApi.join(binRoot, runtime.platform === "win32" ? "ctx7.exe" : "ctx7");
+  let canonicalPackageRoot: string;
+  let canonicalExecutable: string;
+  let canonicalShim: string;
+  try {
+    await files.access(packageRoot);
+    await files.access(packageExecutable);
+    await files.access(shim);
+    canonicalPackageRoot = await files.realpath(packageRoot);
+    canonicalExecutable = await files.realpath(packageExecutable);
+    canonicalShim = await files.realpath(shim);
+  } catch {
+    return undefined;
+  }
+  if (
+    !samePath(canonicalPackageRoot, packageRoot, runtime.platform) ||
+    !normalize(canonicalExecutable).startsWith(`${normalize(canonicalPackageRoot)}/`)
+  )
+    return undefined;
+  const version = await runtime.run(shim, ["--version"]);
+  if (version.exitCode !== 0 || parseVersion(version.stdout) !== packageJson.version)
+    return undefined;
+  return {
+    version: packageJson.version,
+    executable: shim,
+    identity: await context7InstallationIdentity(
+      { launcher: "bunx", family: "bun", executable: "bun" },
+      canonicalPackageRoot,
+      canonicalExecutable,
+      canonicalShim,
+      packageJson,
+    ),
+  };
+}
+
+function isBunRuntime(runtime: InstallerRuntime): boolean {
+  const basename = pathFor(runtime.platform).basename(runtime.processPath).toLowerCase();
+  return basename === "bun" || basename === "bun.exe";
+}
+
 function context7Ownership(
   previous: Context7ToolState | undefined,
   manager: Context7Manager,
@@ -214,6 +498,49 @@ function context7Ownership(
 
 /** Remove Context7 only when this installation recorded ownership and the launcher family agrees. */
 export async function removeOwnedContext7(
+  runtime: InstallerRuntime,
+  previous: Context7ToolState | undefined,
+): Promise<boolean> {
+  if (isBunRuntime(runtime)) return removeOwnedBunGlobalContext7(runtime, previous);
+  return removeOwnedContext7ViaLauncher(runtime, previous);
+}
+
+async function removeOwnedBunGlobalContext7(
+  runtime: InstallerRuntime,
+  previous: Context7ToolState | undefined,
+): Promise<boolean> {
+  if (previous?.ownership !== "holycodex" || previous.manager !== "bun") return false;
+  let current: Context7Inspection | undefined;
+  try {
+    current = await inspectBunGlobalContext7(runtime);
+  } catch {
+    return false;
+  }
+  if (
+    current === undefined ||
+    current.version !== previous.version ||
+    !samePath(current.executable, previous.executable, runtime.platform) ||
+    !isContext7Identity((previous as Context7StateWithIdentity).identity) ||
+    current.identity !== (previous as Context7StateWithIdentity).identity
+  ) {
+    return false;
+  }
+  const result = await runtime.run(runtime.processPath, ["remove", "-g", "ctx7"]);
+  if (result.exitCode !== 0) {
+    throw new ToolingError("context7_remove_failed", "Bun could not remove ctx7.", {
+      stderr: result.stderr.slice(0, 512),
+    });
+  }
+  if ((await inspectBunGlobalContext7(runtime)) !== undefined) {
+    throw new ToolingError(
+      "context7_remove_failed",
+      "Bun reported success, but the recorded ctx7 installation is still present.",
+    );
+  }
+  return true;
+}
+
+async function removeOwnedContext7ViaLauncher(
   runtime: InstallerRuntime,
   previous: Context7ToolState | undefined,
 ): Promise<boolean> {
@@ -267,7 +594,7 @@ export function context7InstallCommand(family: Context7Manager["family"]): {
 } {
   switch (family) {
     case "bun":
-      return { executable: "bun", args: ["add", "--global", CONTEXT7_SPEC] };
+      return { executable: "bun", args: ["add", "-g", CONTEXT7_SPEC] };
     case "npm":
       return { executable: "npm", args: ["install", "--global", CONTEXT7_SPEC] };
     case "pnpm":
@@ -489,6 +816,33 @@ async function canonicalPath(files: InstallerFileSystem, path: string): Promise<
 
 function parseVersion(output: string): string | undefined {
   return output.match(/\b(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\b/u)?.[1];
+}
+
+function context7PackageBin(packageJson: Readonly<{ readonly bin?: unknown }>): string | undefined {
+  return typeof packageJson.bin === "string"
+    ? packageJson.bin
+    : isRecord(packageJson.bin) && typeof packageJson.bin["ctx7"] === "string"
+      ? packageJson.bin["ctx7"]
+      : undefined;
+}
+
+function safeToolingErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message.slice(0, 512);
+  if (typeof error === "string") return error.slice(0, 512);
+  return "unknown error";
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (
+    (isRecord(error) && error["code"] === "ENOENT") ||
+    /\b(?:e?noent|not found|does not exist|missing)\b/iu.test(safeToolingErrorMessage(error))
+  );
+}
+
+function isMissingBunGlobalProject(stderr: string): boolean {
+  return /(?:no package\.json(?: was)? found|couldn['’]?t find (?:a )?package\.json|could not find (?:a )?package\.json|package\.json (?:is )?missing)/iu.test(
+    stderr,
+  );
 }
 
 async function pnpmPackageRoot(

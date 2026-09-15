@@ -17,24 +17,51 @@ export {
   CapabilityInstallStateSchema,
   InstallRequestSchema,
   InstallOptionsSchema,
+  PersistedInstallOptionsSchema,
   InstallRecordSchema,
   InstallerError,
   validateInstallOptions,
+  readInstallOptions,
+  writeInstallOptions,
+  installRequestFromPersistedOptions,
+  persistedOptionsForInstall,
 } from "./installer.ts";
 export {
   renderInstallWizardReview,
   applyWizardConfigurationKey,
   parsePluginInput,
   runOpenTuiInstallWizard,
+  runOpenTuiConflictResolver,
+  runOpenTuiUpgradeChoiceScreen,
+  runOpenTuiInstallReview,
   stateFromRequest,
+  stateFromConflicts,
+  applyConflictScreenKey,
+  applyUpgradeChoiceKey,
+  applyInstallReviewKey,
+  renderConflictScreen,
+  renderUpgradeChoiceScreen,
+  renderInstallReview,
   toInstallOptions,
 } from "./installer-wizard.ts";
-export type { WizardConfigurationTransition, WizardKey, WizardState } from "./installer-wizard.ts";
+export type {
+  ConflictScreenResult,
+  ConflictScreenState,
+  InstallReviewScreenState,
+  InstallReviewScreenTransition,
+  UpgradeScreenState,
+  UpgradeScreenTransition,
+  WizardConfigurationTransition,
+  WizardKey,
+  WizardState,
+} from "./installer-wizard.ts";
 export { doctorHolyCodex, removeHolyCodex, upgradeHolyCodex } from "./maintenance.ts";
 export {
   publicManifestPath,
   readCanonicalBaseVersion,
   readCanonicalVersion,
+  readInstallationVersion,
+  readPublicVersion,
   updateCanonicalVersion,
 } from "./manifest.ts";
 export {
@@ -54,6 +81,7 @@ export {
   detectContext7Manager,
   ensureContext7,
   ensureGitBash,
+  preflightContext7,
   removeOwnedContext7,
 } from "./tooling.ts";
 export type { OfficialPluginCommandRunner } from "./official-manager.ts";
@@ -101,6 +129,13 @@ export type {
   ManagedConflict,
   ConflictResolution,
   ConflictResolver,
+  ConflictDecision,
+  ConflictBatchResolver,
+  InstallReview,
+  InstallReviewAction,
+  InstallReviewResult,
+  InstallReviewResolver,
+  InstallReviewTool,
   ManagedArtifact,
   OfficialPluginManager,
   OfficialPluginStatus,

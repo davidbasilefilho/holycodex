@@ -60,6 +60,16 @@ export const NO_SOURCE_MUTATION_RULE =
 export const ForkTurnsSchema = Schema.Literal("none");
 export type ForkTurns = typeof ForkTurnsSchema.Type;
 
+/** Canonical Root orchestration phases for one bounded Intent. */
+export const ROOT_ORCHESTRATION_PHASE_ORDER = Object.freeze([
+  "implementation",
+  "review",
+  "validation",
+  "integration",
+  "vcs",
+] as const);
+export type RootOrchestrationPhase = (typeof ROOT_ORCHESTRATION_PHASE_ORDER)[number];
+
 export const FILESYSTEM_ACCESS_SCHEMA = Schema.Literal("read-only", "workspace-write");
 export type FilesystemAccess = typeof FILESYSTEM_ACCESS_SCHEMA.Type;
 
@@ -598,6 +608,43 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
     "ambiguity_or_missing_material_input",
   ] as const),
   surgicalMutationRule: SURGICAL_MUTATION_RULE,
+  phaseOrder: ROOT_ORCHESTRATION_PHASE_ORDER,
+  phaseGates: Object.freeze({
+    implementationLeavesTerminalBeforeReviewerCode: true,
+    reviewerCodeFixedPointBeforeWorkerValidation: true,
+    workerValidationBeforeRootIntegration: true,
+    rootIntegrationBeforeVcs: true,
+  }),
+  initialDispatch: Object.freeze({
+    independentAssignments: true,
+    substantiveIndependentConcurrency: true,
+    routinePostdispatchSteering: false,
+    collectiveWaits: true,
+    evidenceReusedAcrossPhases: true,
+  }),
+  atomicLifecycleTransitions: Object.freeze({
+    relatedAssignmentAndIntentWrites: true,
+    oneLockOneCommit: true,
+    staleRevisionChecksRetained: true,
+    repositoryDriftChecksRetained: true,
+  }),
+  supersession: Object.freeze({
+    explicitOnly: true,
+    unfinishedPredecessorOnly: true,
+    validatedRelatedReplacement: true,
+    reasonAndProvenanceRequired: true,
+    supersededExcludedFromCompletionBlockers: true,
+  }),
+  specialistTerminalResultPersistence: Object.freeze({
+    ownActiveInvocationCapabilityRequired: true,
+    ownAssignmentOnly: true,
+    terminalOutcomeOnly: true,
+    rootOwnedIntentLifecycle: true,
+    rootOwnedAcceptanceReviewAndCiGates: true,
+    rootOwnedVcsAndExternalEffects: true,
+    sharedRuntimeCallerIdentityUnavailable: true,
+    legacyResultCompatibilityPreserved: true,
+  }),
   /** Ordinary specialist spawns are explicit, concrete, and preserve route configuration. */
   normalSpawnForkTurns: "none" as ForkTurns,
   normalSpawnRequiresExplicitForkTurns: true,

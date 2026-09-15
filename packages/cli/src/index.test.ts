@@ -39,16 +39,21 @@ function testRuntime(codexHome: string): InstallerRuntime {
   const state = toolingStates.get(codexHome) ?? { installed: false };
   toolingStates.set(codexHome, state);
   const binRoot = "/fake/bin";
+  const projectRoot = "/fake/install/global";
   const packageRoot = "/fake/install/global/node_modules/ctx7";
   const packageExecutable = `${packageRoot}/dist/index.js`;
   const shim = `${binRoot}/ctx7`;
   return {
     platform: "linux",
-    environment: { npm_execpath: "/test/bunx", PATH: binRoot },
-    processPath: "/test/node",
+    environment: { PATH: binRoot },
+    processPath: "bun",
     files: {
       access: async (path) => {
-        if (!state.installed || ![packageExecutable, shim].includes(path.replaceAll("\\", "/"))) {
+        const normalizedPath = path.replaceAll("\\", "/");
+        if (
+          ![binRoot, projectRoot].includes(normalizedPath) &&
+          (!state.installed || ![packageRoot, packageExecutable, shim].includes(normalizedPath))
+        ) {
           throw new Error("missing");
         }
       },
@@ -64,13 +69,11 @@ function testRuntime(codexHome: string): InstallerRuntime {
       const command = `${executable} ${args.join(" ")}`;
       const normalizedCommand = command.replaceAll("\\", "/");
       if (command === "bun pm bin -g") return { exitCode: 0, stdout: `${binRoot}\n`, stderr: "" };
-      if (command === "bun pm view ctx7 version")
-        return { exitCode: 0, stdout: "2.0.0\n", stderr: "" };
-      if (command === "bun add --global ctx7@latest") {
+      if (command === "bun add -g ctx7@latest") {
         state.installed = true;
         return { exitCode: 0, stdout: "", stderr: "" };
       }
-      if (command === "bun remove --global ctx7") {
+      if (command === "bun remove -g ctx7") {
         state.installed = false;
         return { exitCode: 0, stdout: "", stderr: "" };
       }
@@ -543,8 +546,11 @@ describe("native installation and removal", () => {
         resolveConflict: async () => "accept",
       });
       expect(removed.preserved).toEqual([]);
+      expect(removed.removed).toContain(provider);
       expect(providerRemoveAttempts).toBe(2);
-      await expect(manager.list?.()).resolves.toMatchObject({ installed: [] });
+      await expect(manager.list?.()).resolves.toMatchObject({
+        installed: [],
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1787,7 +1793,8 @@ describe("native installation and removal", () => {
         { paths: { codexHome }, officialPluginManager: manager },
       );
       // A process crash after publishing the newer active record and before
-      // deleting the transaction leaves this older, valid journal behind.
+      // deleting the transaction leaves this stale journal behind. Removal
+      // uses the newer active record as the ownership authority.
       await writeFile(
         join(codexHome, "holycodex", "preparing.json"),
         `${JSON.stringify({
@@ -1801,10 +1808,10 @@ describe("native installation and removal", () => {
         paths: { codexHome },
         officialPluginManager: manager,
       });
-
-      expect(removed.removed).toContain("holycodex@holycodex");
-      expect(removed.removed).not.toContain(userPlugin);
+      expect(removed.preserved).toEqual([]);
       expect(removed.removed).toContain(frontend);
+      await expect(readFile(join(codexHome, "holycodex", "active.json"))).rejects.toThrow();
+      await expect(readFile(join(codexHome, "holycodex", "preparing.json"))).rejects.toThrow();
       await expect(manager.list?.()).resolves.toMatchObject({
         installed: [expect.objectContaining({ pluginId: userPlugin })],
       });

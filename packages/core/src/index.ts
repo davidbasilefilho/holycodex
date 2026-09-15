@@ -6,6 +6,22 @@ export { decodeModelWire, encodeModelWire } from "./model-wire.ts";
 export { CoreError } from "./errors.ts";
 export type { CoreErrorCode, CoreResult } from "./errors.ts";
 export { decodeUnknown } from "./schema.ts";
+export {
+  BaseVersionSchema,
+  CANONICAL_VERSION_PATTERN,
+  CanonicalVersionSchema,
+  DevelopmentVersionSchema,
+  ReleaseVersionSchema,
+  canonicalBaseVersion,
+  isCanonicalVersion,
+  resolveCanonicalVersion,
+} from "./version.ts";
+export type {
+  BaseVersion,
+  CanonicalVersion,
+  DevelopmentVersion,
+  ReleaseVersion,
+} from "./version.ts";
 
 export {
   CAPABILITY_REGISTRY,
@@ -103,6 +119,7 @@ export {
   RootDirectExecutionExceptionSchema,
   RootExecutionStateSchema,
   RootOwnedAuthoritySchema,
+  ROOT_ORCHESTRATION_PHASE_ORDER,
   ROOT_ORCHESTRATION_POLICY,
   FRONTEND_WORKFLOW_POLICY,
   LIBRARIAN_CONTEXT7_POLICY,
@@ -144,6 +161,7 @@ export type {
   RootDirectExecutionException,
   RootExecutionState,
   RootOwnedAuthority,
+  RootOrchestrationPhase,
   NativeAgentType,
   Role,
   RoleDefinition,
@@ -218,12 +236,14 @@ export {
 export {
   ASSIGNMENT_SCHEMA_VERSION,
   AssignmentOwnerSchema,
+  AssignmentInvocationCapabilitySchema,
   AssignmentResultInputSchema,
   AssignmentStartInputSchema,
   AssignmentOutcomeSchema,
   InvocationSchema,
   CreateAssignmentInputSchema,
   ReviseAssignmentScopeInputSchema,
+  SupersedeAssignmentInputSchema,
   VcsIntegrationInputSchema,
   CreateIntentInputSchema,
   AssignmentSchema,
@@ -246,6 +266,7 @@ export type {
   Assignment,
   AssignmentOwner,
   AssignmentInvocation,
+  AssignmentInvocationCapability,
   AssignmentOutcome,
   AssignmentResultInput,
   AssignmentStartInput,
@@ -253,6 +274,7 @@ export type {
   CompletionRefusal,
   CreateAssignmentInput,
   ReviseAssignmentScopeInput,
+  SupersedeAssignmentInput,
   VcsIntegrationInput,
   CreateIntentInput,
   Intent,

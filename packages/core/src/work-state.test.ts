@@ -630,6 +630,138 @@ describe("IntentStore", () => {
     expect(result.assignment.invocations[0]?.id).toBe("invocation-001");
   });
 
+  test("requires the active invocation capability for specialist terminal results", async () => {
+    const { store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Invocation capability",
+      goal: "Keep specialist result writes attributable to their active invocation",
+      acceptanceCriteria: ["proof"],
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Record an attributable specialist result",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    const invocationId = running.active_invocation_id;
+    const capability = running.active_invocation_capability;
+    expect(invocationId).toBe("invocation-001");
+    expect(capability).toMatch(/^[a-f0-9]{64}$/u);
+    if (invocationId === undefined || capability === undefined)
+      throw new Error("startAssignment did not issue invocation authorization");
+
+    await expect(
+      store.recordSpecialistAssignmentResult(intent.id, assignment.id, running.revision, {
+        invocationId,
+        outcome: "completed",
+        summary: "Missing capability",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(
+      store.recordSpecialistAssignmentResult(intent.id, assignment.id, running.revision, {
+        invocationId,
+        capability: "f".repeat(64),
+        outcome: "completed",
+        summary: "Wrong capability",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+
+    const result = await store.recordSpecialistAssignmentResult(
+      intent.id,
+      assignment.id,
+      running.revision,
+      {
+        invocationId,
+        capability,
+        outcome: "completed",
+        summary: "Capability-bound result",
+      },
+    );
+    expect(result.assignment.status).toBe("completed");
+    expect(result.assignment.active_invocation_id).toBeUndefined();
+    expect(result.assignment.active_invocation_capability).toBeUndefined();
+  });
+
+  test("atomically supersedes one unfinished related Assignment and removes its blocker", async () => {
+    const { store, root } = await fixture();
+    const intent = await store.createIntent({
+      title: "Assignment supersession",
+      goal: "Replace a bounded unfinished task without losing its provenance",
+      acceptanceCriteria: ["proof"],
+    });
+    const predecessor = await store.createAssignment(
+      intent.id,
+      {
+        id: "predecessor",
+        objective: "Implement the first lifecycle seam",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core/src/work-state.ts"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const replacement = await store.createAssignment(
+      intent.id,
+      {
+        id: "replacement",
+        objective: "Implement the corrected lifecycle seam",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core/src/work-state.ts", "packages/core/src/work-state.test.ts"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+
+    const result = await store.supersedeAssignment(
+      intent.id,
+      predecessor.id,
+      predecessor.revision,
+      {
+        replacementId: replacement.id,
+        replacementRevision: replacement.revision,
+        reason: "The implementation seam moved with its proof surface.",
+        provenance: "Root scope reconciliation",
+      },
+    );
+
+    expect(result.assignment.status).toBe("superseded");
+    expect(result.assignment.superseded_by).toBe(replacement.id);
+    expect(result.assignment.supersession_reason).toBe(
+      "The implementation seam moved with its proof surface.",
+    );
+    expect(result.assignment.supersession_provenance).toBe("Root scope reconciliation");
+    expect(result.replacement.status).toBe("pending");
+    expect(result.replacement.supersedes).toBe(predecessor.id);
+    expect(result.replacement.revision).toBe(replacement.revision + 1);
+    expect(result.intent.revision).toBe(intent.revision + 1);
+    expect(result.intent.evidence.at(-1)?.value).toContain(
+      `${predecessor.id} superseded by ${replacement.id}`,
+    );
+    expect(await store.listAssignments(intent.id)).toEqual([result.assignment, result.replacement]);
+    const directory = (await readdir(join(root, ".holycodex"))).find(
+      (entry) => entry !== "current",
+    )!;
+    expect(await readdir(join(root, ".holycodex", directory))).not.toContain(
+      ".holycodex-transaction.toon",
+    );
+    await expect(
+      store.startAssignment(intent.id, result.assignment.id, result.assignment.revision),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+    await expect(
+      store.reviseAssignmentScope(
+        intent.id,
+        result.assignment.id,
+        { scope: result.assignment.scope },
+        result.assignment.revision,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+  });
+
   test("supports Root scope reconciliation for an unfinished Assignment", async () => {
     const { store, root, setSnapshot } = await fixture();
     const intent = await store.createIntent({

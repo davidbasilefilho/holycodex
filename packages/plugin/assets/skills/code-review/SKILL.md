@@ -17,3 +17,8 @@ after implementation or a major code change and before completion or VCS. The
 canonical receiver contract owns the quality and mergeability criteria; this
 skill supplies only the review procedure. Root does not perform code review or
 repair locally.
+
+The canonical phase barrier is implementation leaves terminal, then the
+`Reviewer.code` fixed point, then `Worker.validation`, then Root integration and
+VCS. Reuse the Assignment evidence across those phases and return control to
+Root for acceptance, CI gates, and repository mutation.

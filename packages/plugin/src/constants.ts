@@ -3,9 +3,11 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { CANONICAL_VERSION_PATTERN } from "@holycodex/core";
+
 export const packageName = "@holycodex/plugin" as const;
 
-export const VERSION_PATTERN = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u;
+export const VERSION_PATTERN = CANONICAL_VERSION_PATTERN;
 export const EPOCH_PATTERN = /^[a-z][a-z0-9._:-]{0,63}$/u;
 export const PLUGIN_NAME_PATTERN = /^[a-z][a-z0-9._-]{1,63}$/u;
 export const SKILL_NAME_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;

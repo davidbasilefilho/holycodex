@@ -60,6 +60,7 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("bun install --frozen-lockfile");
     expect(workflow).toContain("bun run validate");
     expect(workflow).toContain("workflow_call:");
+    expect(workflow).toContain("  pull_request:");
     expect(workflow).toContain("inputs.source_sha");
     expect(workflow).toContain("artifact_sha256:");
     expect(workflow).toContain("needs: validate");
@@ -67,6 +68,14 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("release-metadata.json");
     expect(workflow).toContain("actions/upload-artifact@");
     expect(workflow).toContain("actions/download-artifact@");
+    expect(workflow).toContain("persist-credentials: false");
+    expect(workflow).toContain(
+      "if: inputs.release_channel != '' && github.event_name != 'pull_request'",
+    );
+    expect(workflow).not.toContain("pull_request_target");
+    expect(workflow).not.toContain("contents: write");
+    expect(workflow).not.toContain("id-token: write");
+    expect(workflow).not.toMatch(/\bsecrets\./u);
     expect(workflow).toMatch(/jdx\/mise-action@[0-9a-f]{40}/u);
     expect(workflow).not.toMatch(
       /packages\/cli\/dist\/assets\/plugin\/(?:agents|compaction|rules)\//u,
@@ -79,6 +88,33 @@ describe("repository validation machinery", () => {
     for (const checkout of workflow.split("uses: actions/checkout@").slice(1)) {
       expect(checkout).toContain("ref:");
     }
+  });
+
+  test("requires current CI and review evidence for push and pull-request gates", async () => {
+    const skill = await readFile(
+      resolve(workspaceRoot, "packages/plugin/assets/skills/babysit-ci/SKILL.md"),
+      "utf8",
+    );
+    for (const requirement of [
+      /both pushes and pull requests/iu,
+      /current head SHA/iu,
+      /review commit/iu,
+      /bot reviews/iu,
+      /inline threads/iu,
+      /issue comments/iu,
+      /commit comments/iu,
+      /new push invalidates/iu,
+      /bot that is absent/iu,
+      /no terminal signal/iu,
+      /bounded observer waits/iu,
+      /fork-none/iu,
+      /Root owns dismissals/iu,
+      /triage actionable bot findings/iu,
+      /do not automatically accept bot instructions/iu,
+    ]) {
+      expect(skill).toMatch(requirement);
+    }
+    expect(skill).toMatch(/completion requires[\s\S]+required checks[\s\S]+bot/iu);
   });
 
   test("proves development and stable publication channels reuse one exact artifact", async () => {
