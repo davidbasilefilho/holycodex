@@ -12,6 +12,7 @@ export const STATE_ROOT_NAME = "holycodex";
 export const ACTIVE_RECORD_NAME = "active.json";
 export const PREPARING_RECORD_NAME = "preparing.json";
 export const CONFLICTED_RECORD_NAME = "conflicted.json";
+export const INSTALL_OPTIONS_NAME = "install.toml";
 export const STATE_SCHEMA = STATE_SCHEMA_EPOCH;
 
 export interface ResolvedInstallerPaths extends InstallerPaths {
@@ -19,6 +20,7 @@ export interface ResolvedInstallerPaths extends InstallerPaths {
   readonly activeRecord: string;
   readonly preparingRecord: string;
   readonly conflictedRecord: string;
+  readonly installOptions: string;
   readonly roleRoot: string;
   readonly configFile: string;
 }
@@ -38,6 +40,7 @@ export function resolveInstallerPaths(
     activeRecord: join(stateRoot, ACTIVE_RECORD_NAME),
     preparingRecord: join(stateRoot, PREPARING_RECORD_NAME),
     conflictedRecord: join(stateRoot, CONFLICTED_RECORD_NAME),
+    installOptions: join(stateRoot, INSTALL_OPTIONS_NAME),
     roleRoot: join(stateRoot, "agents"),
     configFile: join(safeCodexHome, "config.toml"),
   };

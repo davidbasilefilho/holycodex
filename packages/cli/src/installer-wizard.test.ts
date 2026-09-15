@@ -15,22 +15,137 @@ import {
 import {
   parseArgv,
   parsePluginInput,
+  applyInstallReviewKey,
   applyWizardConfigurationKey,
+  renderInstallReview,
   renderInstallWizardReview,
   rootDeveloperInstructions,
   projectNativeAgents,
   projectRootAgent,
   renderNativeAgent,
+  runOpenTuiConflictResolver,
+  runOpenTuiInstallReview,
   runOpenTuiInstallWizard,
+  runOpenTuiUpgradeChoiceScreen,
+  readInstallationVersion,
   windowsGitBashShellDirective,
   runCli,
   toInstallOptions,
   stateFromRequest,
   type InstallOptions,
+  type InstallReview,
+  type InstallReviewScreenState,
   type InstallRequest,
+  type ManagedConflict,
 } from "./index.ts";
 
+const CURRENT_VERSION = await readInstallationVersion();
+const [CURRENT_MAJOR, CURRENT_MINOR, CURRENT_PATCH] = CURRENT_VERSION.split("-", 1)[0]!.split(".");
+const PREVIOUS_VERSION = `${CURRENT_MAJOR}.${CURRENT_MINOR}.${Number(CURRENT_PATCH) - 1}`;
+
 const ANSI_SGR_PATTERN = new RegExp(`${String.fromCodePoint(0x1b)}\\[[0-9;]*m`, "gu");
+
+type FakeChunk = Readonly<{ text: string; styles?: readonly string[] }>;
+class FakeStyledText {
+  readonly chunks: readonly FakeChunk[];
+
+  constructor(chunks: readonly FakeChunk[]) {
+    this.chunks = chunks;
+  }
+}
+
+type FakeContent = string | FakeStyledText;
+
+function fakePlainText(content: FakeContent): string {
+  return typeof content === "string" ? content : content.chunks.map((chunk) => chunk.text).join("");
+}
+
+function fakeStyledChunks(content: FakeContent): readonly FakeChunk[] {
+  return typeof content === "string"
+    ? []
+    : content.chunks.filter((chunk) => chunk.styles !== undefined);
+}
+
+function fakeRenderer(
+  keys: readonly { readonly name: string; readonly ctrl?: boolean; readonly shift?: boolean }[],
+): {
+  readonly root: { readonly add: (_value: unknown) => void };
+  readonly keyInput: {
+    readonly on: (
+      _event: string,
+      listener: (key: {
+        readonly name: string;
+        readonly ctrl?: boolean;
+        readonly shift?: boolean;
+      }) => void,
+    ) => void;
+    readonly off: () => void;
+  };
+  readonly requestRender: () => void;
+  readonly start: () => void;
+  readonly destroy: () => void;
+} {
+  let keypress:
+    | ((key: { readonly name: string; readonly ctrl?: boolean; readonly shift?: boolean }) => void)
+    | undefined;
+  return {
+    root: { add: (_value: unknown): void => undefined },
+    keyInput: {
+      on: (_event, listener): void => {
+        keypress = listener;
+      },
+      off: (): void => {
+        keypress = undefined;
+      },
+    },
+    requestRender: (): void => undefined,
+    start: (): void => {
+      for (const key of keys) keypress?.(key);
+    },
+    destroy: (): void => undefined,
+  };
+}
+
+function fakeOpenTuiModule(
+  renderer: ReturnType<typeof fakeRenderer>,
+  rendered: FakeContent[],
+): Record<string, unknown> {
+  const style =
+    (name: string) =>
+    (input: string | FakeChunk): FakeChunk => {
+      const chunk = typeof input === "string" ? { text: input } : input;
+      return { ...chunk, styles: [...(chunk.styles ?? []), name] };
+    };
+  class FakeTextRenderable {
+    private value: FakeContent;
+
+    constructor(_renderer: unknown, options: { readonly content: FakeContent }) {
+      this.value = options.content;
+      rendered.push(options.content);
+    }
+
+    get content(): FakeContent {
+      return this.value;
+    }
+
+    set content(value: FakeContent) {
+      this.value = value;
+      rendered.push(value);
+    }
+  }
+  return {
+    createCliRenderer: async (): Promise<ReturnType<typeof fakeRenderer>> => renderer,
+    TextRenderable: FakeTextRenderable,
+    StyledText: FakeStyledText,
+    stringToStyledText: (text: string): FakeStyledText => new FakeStyledText([{ text }]),
+    bold: style("bold"),
+    cyan: style("cyan"),
+    dim: style("dim"),
+    green: style("green"),
+    red: style("red"),
+    yellow: style("yellow"),
+  };
+}
 
 describe("public install wizard contract", () => {
   test("parses additional plugin IDs as trimmed whitespace-separated values", () => {
@@ -165,52 +280,376 @@ describe("public install wizard contract", () => {
     ).not.toContain("\u001b[");
   });
 
-  test("keeps OpenTUI screens free of terminal escape sequences", async () => {
-    const rendered: string[] = [];
-    let keypress: ((key: { readonly name: string }) => void) | undefined;
-    const renderer = {
-      root: { add: (_value: unknown): void => undefined },
-      keyInput: {
-        on: (_event: string, listener: (key: { readonly name: string }) => void): void => {
-          keypress = listener;
+  test("renders operation actions and only offers conflict resolution when needed", () => {
+    const review: InstallReview = {
+      operation: "install",
+      toVersion: CURRENT_VERSION,
+      profile: "high",
+      tier: "fast-all",
+      capabilities: { computer_use: true, frontend: false, security: true },
+      additionalPlugins: ["example@marketplace"],
+      conflicts: [
+        {
+          identity: "config:model",
+          category: "config-key",
+          target: "model",
+          path: "config.toml",
+          key: "model",
+          action: "replace",
+          defaultDecision: "keep",
+          decision: "replace",
+          validDecisions: ["keep", "replace"],
         },
-        off: (): void => {
-          keypress = undefined;
+        {
+          identity: "role:Worker",
+          category: "role-asset",
+          target: "Worker",
+          path: "Worker.implementation.toml",
+          action: "replace",
+          defaultDecision: "replace",
+          decision: "keep",
+          validDecisions: ["keep", "replace"],
         },
-      },
-      requestRender: (): void => undefined,
-      start: (): void => {
-        keypress?.({ name: "enter" });
-        keypress?.({ name: "enter" });
-      },
-      destroy: (): void => undefined,
+      ],
+      conflictCounts: { "config-key": 1, "role-asset": 1 },
+      tools: [{ name: "Context7", status: "ready", detail: "bunx" }],
     };
-    let content = "";
-    class FakeTextRenderable {
-      constructor(_renderer: unknown, options: { readonly content: string }) {
-        content = options.content;
-        rendered.push(options.content);
-      }
+    const install = renderInstallReview(review);
+    expect(install).toContain("HolyCodex · install review");
+    expect(install).toContain("Install");
+    expect(install).toContain("Resolve conflicts");
+    expect(install).toContain("Config Key: 1");
+    expect(install).toContain("Role Asset: 1");
+    expect(install).toContain("DECISIONS (2)");
+    expect(install).toContain("Keep: 1");
+    expect(install).toContain("Replace: 1");
+    expect(install).toContain("Context7: Install/update managed Bun copy");
+    expect(install).not.toContain("Context7: ready (bunx)");
+    const colored = renderInstallReview(review, 0, { stdoutIsTTY: true, env: {} });
+    expect(colored).toContain("\u001b[");
+    expect(colored.replace(ANSI_SGR_PATTERN, "")).toContain("Profile: high");
+    expect(
+      renderInstallReview(review, 0, {
+        stdoutIsTTY: true,
+        env: { NO_COLOR: "1" },
+      }),
+    ).not.toContain("\u001b[");
 
-      get content(): string {
-        return content;
-      }
+    const upgrade = renderInstallReview({
+      ...review,
+      operation: "upgrade",
+      fromVersion: PREVIOUS_VERSION,
+    });
+    expect(upgrade).toContain("HolyCodex · upgrade review");
+    expect(upgrade).toContain("Upgrade");
+    expect(upgrade).not.toContain("Apply");
 
-      set content(value: string) {
-        content = value;
-        rendered.push(value);
-      }
-    }
-    await mock.module("@opentui/core", () => ({
-      createCliRenderer: async (): Promise<typeof renderer> => renderer,
-      TextRenderable: FakeTextRenderable,
-    }));
+    const withoutConflicts = renderInstallReview({ ...review, conflicts: [], conflictCounts: {} });
+    expect(withoutConflicts).not.toContain("Resolve conflicts");
+  });
+
+  test("keeps final review navigation and Esc cancellation deterministic", () => {
+    const review: InstallReview = {
+      operation: "upgrade",
+      fromVersion: PREVIOUS_VERSION,
+      toVersion: CURRENT_VERSION,
+      profile: "default",
+      tier: "standard",
+      capabilities: { computer_use: false, frontend: true, security: false },
+      additionalPlugins: [],
+      conflicts: [{ identity: "managed", path: "managed.json", action: "replace" }],
+      conflictCounts: { "managed-state": 1 },
+      tools: [],
+    };
+    const state: InstallReviewScreenState = { review, selected: 0 };
+    expect(applyInstallReviewKey(state, { name: "down" })).toEqual({
+      selected: 1,
+      action: "render",
+    });
+    expect(applyInstallReviewKey({ ...state, selected: 1 }, { name: "down" })).toEqual({
+      selected: 2,
+      action: "render",
+    });
+    expect(applyInstallReviewKey({ ...state, selected: 2 }, { name: "enter" })).toEqual({
+      selected: 2,
+      action: "choose",
+    });
+    expect(applyInstallReviewKey({ ...state, selected: 0 }, { name: "up" })).toEqual({
+      selected: 3,
+      action: "render",
+    });
+    expect(applyInstallReviewKey(state, { name: "escape" })).toEqual({
+      selected: 0,
+      action: "cancel",
+    });
+    expect(applyInstallReviewKey(state, { name: "c", ctrl: true })).toEqual({
+      selected: 0,
+      action: "cancel",
+    });
+  });
+
+  test("keeps native OpenTUI content semantic and free of terminal escape sequences", async () => {
+    const rendered: FakeContent[] = [];
+    const renderer = fakeRenderer([{ name: "enter" }, { name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(renderer, rendered));
     try {
-      await expect(runOpenTuiInstallWizard()).resolves.toMatchObject({ action: "install" });
+      await expect(
+        runOpenTuiInstallWizard({}, { stdoutIsTTY: false, env: {} }),
+      ).resolves.toMatchObject({ action: "install" });
       expect(rendered).toHaveLength(2);
-      expect(rendered[0]).toContain("HolyCodex  ·  install");
-      expect(rendered[1]).toContain("Review configuration");
-      expect(rendered.every((screen) => !screen.includes("\u001b["))).toBe(true);
+      expect(fakePlainText(rendered[0]!)).toContain("HolyCodex  ·  install");
+      expect(fakePlainText(rendered[1]!)).toContain("Review configuration");
+      expect(rendered.every((screen) => screen instanceof FakeStyledText)).toBe(true);
+      expect(rendered.every((screen) => fakeStyledChunks(screen).length === 0)).toBe(true);
+      expect(
+        rendered.every((screen) => !fakePlainText(screen).includes(String.fromCodePoint(0x1b))),
+      ).toBe(true);
+    } finally {
+      mock.restore();
+    }
+
+    const upgradeRendered: FakeContent[] = [];
+    const upgradeRenderer = fakeRenderer([{ name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(upgradeRenderer, upgradeRendered));
+    try {
+      await expect(
+        runOpenTuiUpgradeChoiceScreen(
+          { profile: "default", tier: "standard", optional: { frontend: true } },
+          PREVIOUS_VERSION,
+          CURRENT_VERSION,
+          { stdoutIsTTY: true, env: {} },
+        ),
+      ).resolves.toEqual({ action: "keep" });
+      const styledUpgrade = fakeStyledChunks(upgradeRendered[0]!);
+      expect(styledUpgrade.some((chunk) => chunk.text === "HolyCodex  ·  upgrade")).toBe(true);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("applies canonical native color policy and semantic styles across screens", async () => {
+    const review: InstallReview = {
+      operation: "install",
+      toVersion: CURRENT_VERSION,
+      profile: "default",
+      tier: "standard",
+      capabilities: { computer_use: false, frontend: true, security: false },
+      additionalPlugins: [],
+      conflicts: [],
+      conflictCounts: {},
+      tools: [],
+    };
+    const conflict: ManagedConflict = {
+      identity: "managed",
+      category: "managed-state",
+      path: "managed.json",
+      action: "replace",
+      existing: "old",
+      desired: "new",
+    };
+    const rendered: FakeContent[] = [];
+    const renderer = fakeRenderer([{ name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(renderer, rendered));
+    try {
+      await expect(
+        runOpenTuiInstallReview(review, { stdoutIsTTY: true, env: {} }),
+      ).resolves.toEqual({ action: "apply" });
+      const styledReview = fakeStyledChunks(rendered[0]!);
+      expect(styledReview.some((chunk) => chunk.text === "HolyCodex · install review")).toBe(true);
+      expect(
+        styledReview.some(
+          (chunk) => chunk.text === "enabled" && chunk.styles?.includes("green") === true,
+        ),
+      ).toBe(true);
+    } finally {
+      mock.restore();
+    }
+
+    const monoRendered: FakeContent[] = [];
+    const monoRenderer = fakeRenderer([{ name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(monoRenderer, monoRendered));
+    try {
+      await expect(
+        runOpenTuiInstallReview(review, {
+          stdoutIsTTY: true,
+          env: { NO_COLOR: "1", FORCE_COLOR: "1" },
+        }),
+      ).resolves.toEqual({ action: "apply" });
+      expect(monoRendered.every((screen) => fakeStyledChunks(screen).length === 0)).toBe(true);
+    } finally {
+      mock.restore();
+    }
+
+    const sharedRendered: FakeContent[] = [];
+    const sharedRenderer = fakeRenderer([{ name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(sharedRenderer, sharedRendered));
+    try {
+      await expect(
+        runOpenTuiConflictResolver([conflict], { stdoutIsTTY: true, env: {} }),
+      ).resolves.toMatchObject({ action: "continue" });
+      const styledConflict = fakeStyledChunks(sharedRendered[0]!);
+      expect(styledConflict.some((chunk) => chunk.text === "HolyCodex · resolve conflicts")).toBe(
+        true,
+      );
+      expect(
+        styledConflict.some(
+          (chunk) => chunk.text === "replace" && chunk.styles?.includes("yellow") === true,
+        ),
+      ).toBe(true);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("handles normalized shifted conflict decisions while lowercase k navigates", async () => {
+    const conflicts: ManagedConflict[] = [
+      {
+        identity: "config:model",
+        category: "config-key",
+        target: "model",
+        path: "config.toml",
+        action: "replace",
+        existing: "old-model",
+        desired: "new-model",
+      },
+      {
+        identity: "role:Worker",
+        category: "role-asset",
+        target: "Worker",
+        path: "Worker.implementation.toml",
+        action: "replace",
+        existing: "old-worker",
+        desired: "new-worker",
+      },
+      {
+        identity: "managed:state",
+        category: "managed-state",
+        target: "managed.json",
+        path: "managed.json",
+        action: "replace",
+        existing: "old-state",
+        desired: "new-state",
+      },
+      {
+        identity: "config:cache",
+        category: "config-key",
+        target: "cache",
+        path: "config.toml",
+        action: "replace",
+        existing: "old-cache",
+        desired: "new-cache",
+      },
+      {
+        identity: "role:Reviewer",
+        category: "role-asset",
+        target: "Reviewer",
+        path: "Reviewer.implementation.toml",
+        action: "replace",
+        existing: "old-reviewer",
+        desired: "new-reviewer",
+      },
+      {
+        identity: "managed:lock",
+        category: "managed-state",
+        target: "managed.lock",
+        path: "managed.lock",
+        action: "replace",
+        existing: "old-lock",
+        desired: "new-lock",
+        explanation: "The managed lock is regenerated during install.",
+      },
+    ];
+    const defaults = Object.fromEntries(conflicts.map(({ identity }) => [identity, "replace"]));
+
+    const navigationRendered: FakeContent[] = [];
+    const navigationRenderer = fakeRenderer([{ name: "down" }, { name: "k" }, { name: "enter" }]);
+    await mock.module("@opentui/core", () =>
+      fakeOpenTuiModule(navigationRenderer, navigationRendered),
+    );
+    try {
+      await expect(
+        runOpenTuiConflictResolver(conflicts, { stdoutIsTTY: true, env: {} }),
+      ).resolves.toEqual({ action: "continue", decisions: defaults });
+      expect(fakePlainText(navigationRendered[1]!)).toContain("Focused conflict: Worker");
+      expect(fakePlainText(navigationRendered[2]!)).toContain("Focused conflict: model");
+      expect(
+        navigationRendered.every((screen) => fakePlainText(screen).split("\n").length - 1 <= 24),
+      ).toBe(true);
+    } finally {
+      mock.restore();
+    }
+
+    const keepRendered: FakeContent[] = [];
+    const keepRenderer = fakeRenderer([{ name: "k", shift: true }, { name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(keepRenderer, keepRendered));
+    try {
+      await expect(
+        runOpenTuiConflictResolver(conflicts, { stdoutIsTTY: true, env: {} }),
+      ).resolves.toEqual({
+        action: "continue",
+        decisions: Object.fromEntries(conflicts.map(({ identity }) => [identity, "keep"])),
+      });
+    } finally {
+      mock.restore();
+    }
+
+    const replaceRendered: FakeContent[] = [];
+    const replaceRenderer = fakeRenderer([{ name: "a", shift: true }, { name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(replaceRenderer, replaceRendered));
+    try {
+      await expect(
+        runOpenTuiConflictResolver(
+          conflicts.map((conflict) => ({ ...conflict, defaultDecision: "keep" })),
+          { stdoutIsTTY: true, env: {} },
+        ),
+      ).resolves.toEqual({
+        action: "continue",
+        decisions: Object.fromEntries(conflicts.map(({ identity }) => [identity, "replace"])),
+      });
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("keeps final native review controls visible at 80 columns by 24 rows", async () => {
+    const rendered: FakeContent[] = [];
+    const renderer = fakeRenderer([
+      { name: "down" },
+      { name: "down" },
+      { name: "down" },
+      { name: "enter" },
+    ]);
+    const review: InstallReview = {
+      operation: "install",
+      toVersion: CURRENT_VERSION,
+      profile: "high",
+      tier: "fast-all",
+      capabilities: { computer_use: true, frontend: true, security: true },
+      additionalPlugins: ["example@marketplace"],
+      conflicts: [
+        { identity: "config", category: "config-key", path: "config.toml", action: "replace" },
+      ],
+      conflictCounts: { "config-key": 1 },
+      tools: [{ name: "Context7", status: "ready" }],
+    };
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(renderer, rendered));
+    try {
+      await expect(
+        runOpenTuiInstallReview(review, {
+          width: 80,
+          height: 24,
+          stdoutIsTTY: false,
+          env: {},
+        }),
+      ).resolves.toEqual({ action: "cancel" });
+      expect(rendered.length).toBe(4);
+      for (const screen of rendered) {
+        const plain = fakePlainText(screen);
+        expect(plain.split("\n").length - 1).toBeLessThanOrEqual(24);
+        expect(plain).toContain("Review the complete preflight plan");
+        expect(plain).toContain("↑/↓ or j/k choose");
+        expect(plain).toContain("Resolve conflicts");
+      }
     } finally {
       mock.restore();
     }

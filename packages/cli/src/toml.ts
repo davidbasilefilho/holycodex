@@ -70,7 +70,9 @@ function parseValue(source: string): TomlValue {
   if (source.startsWith("[")) {
     if (!source.endsWith("]")) throw new Error("TOML array is invalid.");
     const inner = source.slice(1, -1).trim();
-    return inner.length === 0 ? [] : splitTopLevel(inner, ",").map(parseValue);
+    return inner.length === 0
+      ? []
+      : splitTopLevel(inner, ",").map((item) => parseValue(item.trim()));
   }
   if (source.startsWith("{")) {
     if (!source.endsWith("}")) throw new Error("TOML inline table is invalid.");

@@ -26,11 +26,18 @@ import {
   recordDigestMatches,
   serializeConfig,
   InstallerError,
+  assertInstallTransactionState,
+  assertRemovalTransactionState,
+  diagnoseInstallTransactions,
   installHolyCodex,
+  installRequestFromPersistedOptions,
+  type InstallRequest,
   isTransactionBoundToActive,
+  readInstallOptions,
+  validateInstallOptions,
 } from "./installer.ts";
 import { asJsonValue } from "./json.ts";
-import { readCanonicalBaseVersion } from "./manifest.ts";
+import { readInstallationVersion } from "./manifest.ts";
 import {
   isKnownLegacyRootRoleContent,
   inspectNativeAgentConflicts,
@@ -102,11 +109,30 @@ export async function doctorHolyCodex(
       return undefined;
     }),
   ]);
-  if (preparing !== undefined && checks["transaction"]?.status !== "failed") {
-    checks["transaction"] = failedCheck(["incomplete_install_state"]);
-  }
-  if (conflicted !== undefined && checks["transaction"]?.status !== "failed") {
-    checks["transaction"] = failedCheck(["conflicted_state"]);
+  if (
+    checks["transaction"]?.status !== "failed" &&
+    (preparing !== undefined || conflicted !== undefined)
+  ) {
+    const diagnoses = diagnoseInstallTransactions(active, preparing, conflicted);
+    const reasons = [
+      ...new Set(
+        diagnoses.map((diagnosis) => {
+          if (diagnosis.relation === "stale") return "stale_transaction_state";
+          if (diagnosis.relation === "incompatible") return "incompatible_transaction_state";
+          return diagnosis.status === "preparing" ? "incomplete_install_state" : "conflicted_state";
+        }),
+      ),
+    ];
+    checks["transaction"] = failedCheck(reasons, {
+      recovery: diagnoses.map((diagnosis) => diagnosis.recovery).join(","),
+      transactions: diagnoses
+        .map(
+          (diagnosis) =>
+            `${diagnosis.status}:${diagnosis.relation}:${diagnosis.install_id}:${diagnosis.digest}`,
+        )
+        .join(","),
+      active: active === undefined ? "absent" : `${active.install_id}:${active.digest}`,
+    });
   }
 
   if (!checks["configuration"]) {
@@ -258,6 +284,7 @@ export async function inspectRemovalConflicts(
     optionalJsonFile(paths.preparingRecord, InstallTransactionSchema),
     optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema),
   ]);
+  assertRemovalTransactionState(active, preparing, conflicted);
   const recovery = selectRecoveryState(active, preparing, conflicted);
   if (recovery === undefined) return [];
   const document = parseConfig(await optionalTextFile(paths.configFile));
@@ -322,6 +349,7 @@ export async function removeHolyCodex(
     optionalJsonFile(paths.preparingRecord, InstallTransactionSchema),
     optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema),
   ]);
+  assertRemovalTransactionState(active, preparing, conflicted);
   const recovery = selectRecoveryState(active, preparing, conflicted);
   reportProgress(options, {
     stage: "removal",
@@ -601,6 +629,17 @@ export async function removeHolyCodex(
     }
   }
   if (preserved.length === 0) {
+    try {
+      await rm(paths.installOptions, { force: false });
+      removed.push(paths.installOptions);
+    } catch (error: unknown) {
+      if (!isFsCode(error, "ENOENT")) {
+        preserved.push(paths.installOptions);
+        reasons.push("state_remove_failed");
+      }
+    }
+  }
+  if (preserved.length === 0) {
     for (const [path, present] of [
       [paths.preparingRecord, preparing !== undefined],
       [paths.conflictedRecord, conflicted !== undefined],
@@ -669,6 +708,7 @@ export async function upgradeHolyCodex(
       { path: paths.activeRecord },
     );
   }
+  assertInstallTransactionState(active, preparing, conflicted);
   const transaction = selectRecoveryTransaction(active, preparing, conflicted);
   const source = transaction ?? active;
   if (source === undefined) {
@@ -679,9 +719,35 @@ export async function upgradeHolyCodex(
       { recovery: "Run `holycodex install --yes` first." },
     );
   }
+  const persistedOptions = await readInstallOptions(paths);
+  const sourceOptions =
+    persistedOptions === undefined
+      ? {
+          profile: source.profile,
+          tier: source.tier,
+          optional: {
+            computer_use: source.optional_selections.computer_use,
+            frontend: source.optional_selections.frontend,
+            security: source.optional_selections.security,
+          },
+          officialPlugins: additionalPluginsFromRecord(source),
+        }
+      : installRequestFromPersistedOptions(persistedOptions);
+  const selectedOptions =
+    request.options === undefined ? sourceOptions : validateInstallOptions(request.options);
+  const effectiveOptions = {
+    profile: selectedOptions.profile ?? sourceOptions.profile,
+    tier: selectedOptions.tier ?? sourceOptions.tier,
+    optional: {
+      ...sourceOptions.optional,
+      ...selectedOptions.optional,
+    },
+    officialPlugins: selectedOptions.officialPlugins ?? sourceOptions.officialPlugins,
+  };
+  const optionsChanged = !sameInstallOptions(effectiveOptions, sourceOptions);
   let targetVersion: string;
   try {
-    targetVersion = await readCanonicalBaseVersion();
+    targetVersion = await readInstallationVersion();
   } catch (error: unknown) {
     throw new InstallerError(
       "upgrade_failed",
@@ -759,6 +825,7 @@ export async function upgradeHolyCodex(
   }
   const changes = [
     ...(ordering > 0 ? ["version"] : []),
+    ...(optionsChanged ? ["installation options"] : []),
     ...(legacyContext ? ["context-management configuration migration"] : []),
     ...(ordering > 0 || legacyContext
       ? ["Root/session configuration", "specialist role definitions"]
@@ -797,10 +864,7 @@ export async function upgradeHolyCodex(
   try {
     const result = await installHolyCodex(
       {
-        profile: source.profile,
-        tier: source.tier,
-        optional: source.explicit_optional_selections,
-        officialPlugins: source.official_plugins,
+        ...selectedOptions,
       },
       options,
       environment,
@@ -825,12 +889,59 @@ export async function upgradeHolyCodex(
 }
 
 function compareVersions(left: string, right: string): -1 | 0 | 1 {
-  const a = left.split(".").map(Number);
-  const b = right.split(".").map(Number);
+  const a = versionParts(left);
+  const b = versionParts(right);
   for (let index = 0; index < 3; index += 1) {
     if ((a[index] ?? 0) < (b[index] ?? 0)) return -1;
     if ((a[index] ?? 0) > (b[index] ?? 0)) return 1;
   }
+  const aSuffix = releaseSuffix(left);
+  const bSuffix = releaseSuffix(right);
+  if (aSuffix < bSuffix) return -1;
+  if (aSuffix > bSuffix) return 1;
+  return 0;
+}
+
+function additionalPluginsFromRecord(
+  record: Pick<InstallRecord, "official_plugins" | "optional_selections">,
+): readonly string[] {
+  const capabilityPlugins = new Set(pluginIdsForOptionalCapabilities(record.optional_selections));
+  return (record.official_plugins ?? []).filter((pluginId) => !capabilityPlugins.has(pluginId));
+}
+
+function sameInstallOptions(left: InstallRequest, right: InstallRequest): boolean {
+  const leftOptional = left.optional ?? {};
+  const rightOptional = right.optional ?? {};
+  const leftPlugins = [...new Set(left.officialPlugins ?? [])];
+  const rightPlugins = [...new Set(right.officialPlugins ?? [])];
+  return (
+    left.profile === right.profile &&
+    left.tier === right.tier &&
+    leftOptional.computer_use === rightOptional.computer_use &&
+    leftOptional.frontend === rightOptional.frontend &&
+    leftOptional.security === rightOptional.security &&
+    leftPlugins.length === rightPlugins.length &&
+    leftPlugins.every((pluginId, index) => pluginId === rightPlugins[index])
+  );
+}
+
+function versionParts(value: string): readonly number[] {
+  const base = value.split("-", 1)[0] ?? value;
+  return base
+    .split(".")
+    .slice(0, 3)
+    .map((part) => {
+      const parsed = Number(part);
+      return Number.isSafeInteger(parsed) ? parsed : 0;
+    });
+}
+
+function releaseSuffix(value: string): number {
+  const suffix = value.split("-", 2)[1];
+  if (suffix === undefined) return 0;
+  const numeric = Number(suffix);
+  if (Number.isSafeInteger(numeric)) return numeric;
+  if (suffix.startsWith("dev.")) return -1;
   return 0;
 }
 

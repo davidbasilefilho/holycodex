@@ -14,3 +14,8 @@ Assignment API decisions.
 Root owns material choices and dispatches this procedure through the native
 `Reviewer.plan` route when adversarial plan review is needed; the skill never
 authorizes Root to inspect or implement the repository locally.
+
+Use the canonical Root orchestration policy for phase order and lifecycle
+bookkeeping. If an unfinished Assignment must be replaced, invoke the semantic
+Assignment supersession operation with a related replacement, an explicit reason,
+and provenance; do not hide the predecessor or create parallel bookkeeping.

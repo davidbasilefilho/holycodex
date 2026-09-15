@@ -10,6 +10,7 @@ import {
   detectContext7Manager,
   ensureContext7,
   ensureGitBash,
+  preflightContext7,
   removeOwnedContext7,
 } from "./tooling.ts";
 import type {
@@ -67,7 +68,7 @@ describe("installer tooling", () => {
   test("maps ctx7@latest to every supported manager family", () => {
     expect(context7InstallCommand("bun")).toEqual({
       executable: "bun",
-      args: ["add", "--global", "ctx7@latest"],
+      args: ["add", "-g", "ctx7@latest"],
     });
     expect(context7InstallCommand("npm")).toEqual({
       executable: "npm",
@@ -80,12 +81,146 @@ describe("installer tooling", () => {
   });
 
   test("uses Bun's Windows executable shim and documented global bin command", async () => {
-    const fixture = context7Runtime({ family: "bun", installed: "2.0.0", latest: "2.0.0" });
+    const fixture = context7Runtime({
+      family: "bun",
+      processPath: "bun",
+      installed: "2.0.0",
+      latest: "2.0.0",
+      latestFails: true,
+    });
     await expect(ensureContext7(fixture.runtime, true)).resolves.toMatchObject({
       executable: fixture.shim,
     });
     expect(fixture.shim.endsWith("\\ctx7.exe")).toBe(true);
     expect(fixture.calls.filter((call) => call === "bun pm bin -g")).toHaveLength(2);
+  });
+
+  test("preflights an installed Bun global package through its exact executable", async () => {
+    const fixture = context7Runtime({
+      family: "bun",
+      processPath: "bun",
+      installed: "2.0.0",
+      latest: "2.0.0",
+      latestFails: true,
+    });
+    await expect(preflightContext7(fixture.runtime)).resolves.toBeUndefined();
+    expect(fixture.installs()).toBe(0);
+    expect(fixture.calls).toEqual(["bun pm bin -g", `${fixture.shim} --version`]);
+    expect(fixture.calls.some((call) => call.includes("pm view ctx7 version"))).toBe(false);
+  });
+
+  test("leaves a missing Bun ctx7 package for transactional installation", async () => {
+    const fixture = context7Runtime({
+      family: "bun",
+      processPath: "bun",
+      latest: "2.0.0",
+      latestFails: true,
+    });
+    await expect(preflightContext7(fixture.runtime)).resolves.toBeUndefined();
+    expect(fixture.installs()).toBe(0);
+
+    await expect(ensureContext7(fixture.runtime, true)).resolves.toMatchObject({
+      manager: "bun",
+      version: "2.0.0",
+      executable: fixture.shim,
+    });
+    expect(fixture.installs()).toBe(1);
+    expect(fixture.calls).toContain("bun add -g ctx7@latest");
+    expect(fixture.calls.some((call) => call.includes("pm view ctx7 version"))).toBe(false);
+  });
+
+  test("defers a Bun package installation failure until the transaction", async () => {
+    const fixture = context7Runtime({
+      family: "bun",
+      processPath: "bun",
+      latest: "2.0.0",
+      latestFails: true,
+      installFails: true,
+    });
+    await expect(preflightContext7(fixture.runtime)).resolves.toBeUndefined();
+    await expect(ensureContext7(fixture.runtime, true)).rejects.toMatchObject({
+      code: "context7_install_failed",
+      details: { stderr: "install failed" },
+    });
+    expect(fixture.installs()).toBe(1);
+    expect(fixture.calls).toContain("bun add -g ctx7@latest");
+    expect(fixture.calls.some((call) => call.includes("pm view ctx7 version"))).toBe(false);
+  });
+
+  test("does not let a foreign PATH shadow affect the exact Bun global branch", async () => {
+    const fixture = context7Runtime({
+      family: "bun",
+      processPath: "bun",
+      installed: "2.0.0",
+      latest: "2.0.0",
+      shadowed: true,
+    });
+    await expect(preflightContext7(fixture.runtime)).resolves.toBeUndefined();
+    await expect(ensureContext7(fixture.runtime, false)).resolves.toMatchObject({
+      executable: fixture.shim,
+      version: "2.0.0",
+    });
+    expect(fixture.installs()).toBe(0);
+    expect(fixture.calls.some((call) => call.includes("Shadow"))).toBe(false);
+    expect(fixture.calls.some((call) => call.includes("pm view ctx7 version"))).toBe(false);
+  });
+
+  test("keeps a foreign Bun launcher shadow failure nonmutating", async () => {
+    const fixture = context7Runtime({
+      family: "bun",
+      installed: "2.0.0",
+      latest: "2.0.0",
+      shadowed: true,
+    });
+    await expect(preflightContext7(fixture.runtime)).resolves.toBeUndefined();
+    await expect(ensureContext7(fixture.runtime, true)).rejects.toMatchObject({
+      code: "context7_shadowed",
+    });
+    expect(fixture.installs()).toBe(0);
+    expect(fixture.calls.some((call) => call.includes("add -g ctx7@latest"))).toBe(false);
+  });
+
+  test("reports discoverable Bun preflight failures before mutation", async () => {
+    for (const option of [
+      { globalBinFails: true },
+      { globalBinEmpty: true },
+      { projectMissing: true },
+      { missingShim: true },
+      { brokenShim: true },
+      { shimVersion: "9.9.9" },
+      { outsidePackageBin: true },
+    ]) {
+      const fixture = context7Runtime({
+        family: "bun",
+        processPath: "bun",
+        installed: "2.0.0",
+        latest: "2.0.0",
+        ...option,
+      });
+      await expect(preflightContext7(fixture.runtime)).rejects.toMatchObject({
+        code: "context7_unavailable",
+      });
+      expect(fixture.installs()).toBe(0);
+      expect(fixture.calls.some((call) => call.includes("add -g ctx7@latest"))).toBe(false);
+      expect(fixture.calls.some((call) => call.includes("pm view ctx7 version"))).toBe(false);
+    }
+  });
+
+  test("allows Bun to create its missing global project during the transaction", async () => {
+    const fixture = context7Runtime({
+      family: "bun",
+      processPath: "bun",
+      latest: "2.0.0",
+      missingProjectInitially: true,
+    });
+    await expect(preflightContext7(fixture.runtime)).resolves.toBeUndefined();
+    expect(fixture.installs()).toBe(0);
+    await expect(ensureContext7(fixture.runtime, true)).resolves.toMatchObject({
+      version: "2.0.0",
+      executable: fixture.shim,
+    });
+    expect(fixture.installs()).toBe(1);
+    expect(fixture.calls).toContain("bun add -g ctx7@latest");
   });
 
   test("checks the canonical Git Bash path before PATH", async () => {
@@ -419,12 +554,17 @@ function gitRuntime(options: {
 
 type ContextFixtureOptions = Readonly<{
   family: Context7Manager["family"];
+  processPath?: string;
   installed?: string;
   latest?: string;
   latestFails?: boolean;
   installFails?: boolean;
   removeFails?: boolean;
   removeLeavesPackage?: boolean;
+  globalBinFails?: boolean;
+  globalBinEmpty?: boolean;
+  projectMissing?: boolean;
+  missingProjectInitially?: boolean;
   missingShim?: boolean;
   brokenShim?: boolean;
   shimVersion?: string;
@@ -464,7 +604,10 @@ function context7Runtime(options: ContextFixtureOptions): {
         : win32.join(root, "pnpm", "global", "node_modules", "ctx7");
   const packageExecutable = win32.join(packageRoot, "dist", "index.js");
   const shim = win32.join(binRoot, options.family === "bun" ? "ctx7.exe" : "ctx7.cmd");
+  const projectRoot =
+    options.family === "bun" ? win32.join(win32.dirname(binRoot), "install", "global") : undefined;
   const shadow = "C:\\Shadow\\ctx7.cmd";
+  let projectAvailable = options.missingProjectInitially !== true;
   const environment = {
     ...manager.environment,
     PATH: options.shadowed ? `C:\\Shadow;${binRoot}` : binRoot,
@@ -472,6 +615,12 @@ function context7Runtime(options: ContextFixtureOptions): {
   const present = (path: string): boolean => {
     const value = normalized(path);
     return (
+      (options.family === "bun" && value === normalized(binRoot)) ||
+      (projectRoot !== undefined &&
+        projectAvailable &&
+        !options.projectMissing &&
+        value === normalized(projectRoot)) ||
+      (current !== undefined && value === normalized(packageRoot)) ||
       (current !== undefined && value === normalized(packageExecutable)) ||
       (current !== undefined && !options.missingShim && value === normalized(shim)) ||
       (options.shadowed === true && value === normalized(shadow))
@@ -498,7 +647,7 @@ function context7Runtime(options: ContextFixtureOptions): {
       if (normalized(path) === normalized(packageExecutable) && options.outsidePackageBin) {
         return "C:\\Outside\\index.js";
       }
-      if (normalized(path) === normalized(packageRoot)) return packageRoot;
+      if (normalized(path) === normalized(packageRoot) && present(path)) return packageRoot;
       if (!present(path)) throw new Error("ENOENT");
       return path;
     },
@@ -506,13 +655,20 @@ function context7Runtime(options: ContextFixtureOptions): {
   const runtime: InstallerRuntime = {
     platform: "win32",
     environment,
-    processPath: "node",
+    processPath: options.processPath ?? "node",
     files,
     run: async (executable, args) => {
       calls.push(`${executable} ${args.join(" ")}`);
       if (executable === manager.executable) {
         const words = args.join(" ");
-        if (words === manager.binCommand) return success(binRoot);
+        if (words === manager.binCommand) {
+          if (options.globalBinFails) return failure("bun global location unavailable");
+          if (options.globalBinEmpty) return success();
+          if (options.missingProjectInitially && !projectAvailable) {
+            return failure("No package.json was found for Bun's global project");
+          }
+          return success(binRoot);
+        }
         if (words === "root --global")
           return success("C:\\Users\\test\\pnpm\\global\\node_modules");
         if (words === manager.latestCommand) {
@@ -524,6 +680,7 @@ function context7Runtime(options: ContextFixtureOptions): {
           installCount += 1;
           if (options.installFails) return failure("install failed");
           current = options.latest ?? "2.0.0";
+          if (options.missingProjectInitially) projectAvailable = true;
           return success();
         }
         if (words === manager.removeCommand) {
@@ -566,7 +723,7 @@ function managerFor(family: Context7Manager["family"]): {
         environment: { npm_execpath: "C:/bun/bin/bunx.exe" },
         binCommand: "pm bin -g",
         latestCommand: "pm view ctx7 version",
-        installCommand: "add --global ctx7@latest",
+        installCommand: "add -g ctx7@latest",
         removeCommand: "remove --global ctx7",
       };
     case "npm":

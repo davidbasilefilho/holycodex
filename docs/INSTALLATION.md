@@ -26,15 +26,14 @@ directly. Failure returns an actionable capability error. Existing Git for
 Windows state is shared user/system state and is not replaced, reconfigured,
 or removed merely because HolyCodex uses it.
 
-Context7 is required for current technical documentation. HolyCodex derives
-the package-manager family from launcher metadata and reconciles `ctx7@latest`
-through that same family: `bunx` uses `bun add --global ctx7@latest`, `npx`
-uses `npm install --global ctx7@latest`, and `pnpm dlx` uses
-`pnpm add --global ctx7@latest`. Unknown managers fail explicitly. Verification
-checks manager ownership, the resolved executable, and `ctx7 --version`, and
-rejects a shadowing binary. Upgrade repairs version drift; doctor checks it.
-Removal uninstalls Context7 only when HolyCodex recorded that it created the
-same manager-owned installation. HolyCodex never runs `ctx7 setup`.
+Context7 is required for current technical documentation. The supported
+launcher is Bun, and HolyCodex derives Bun's global bin directory with
+`bun pm bin -g`, installs with `bun add -g ctx7@latest`, and verifies the
+package root, package-owned executable, shim, and exact version. A `ctx7`
+found through a generic `PATH`, mise, npm, pnpm, or another Bun installation
+is ignored and left untouched; mise configuration is never edited. An
+unavailable Bun global installation is reported during preflight before any
+managed configuration is changed. HolyCodex never runs `ctx7 setup`.
 
 ## Install
 
@@ -102,8 +101,29 @@ third-party providers remain untrusted.
 Interactive install resolves Codex home internally and does not ask for a
 `CODEX_HOME` path. Use `--codex-home <absolute-path>` only for explicit
 non-interactive isolation, diagnostics, or recovery. The CLI keeps
-the selected profile, tier, optional plugin state, version, and configuration
-digest; Codex remains the owner of plugin files and marketplace state.
+the selected profile, tier, optional capabilities, and additional plugin IDs
+in `$CODEX_HOME/holycodex/install.toml`. That file contains only
+`schema_version = 1`, the profile, canonical service tier, capabilities, and
+additional plugins; ownership, transaction, derived state, and configuration
+contents remain outside it. Writes replace the file atomically, so a failed
+install or upgrade preserves the previous options file and unrelated user
+state.
+
+Install and upgrade collect options, load the current managed state, and run
+a complete preflight before applying changes. Interactive conflict review
+groups only actual managed conflicts and then shows one final review with the
+selected options, conflict count, and planned tool operations. The approved
+transaction applies without another prompt. `Keep installed options` on the
+upgrade screen reuses the saved choices; `Change options` opens the normal
+wizard with those choices prefilled. Going back keeps the current selections.
+
+Legacy installations without `install.toml` are reconstructed from safe
+managed-state evidence. Only choices that cannot be inferred are requested;
+missing legacy options alone are not an error. A successful migration writes
+the new options file. `--json` never opens a terminal UI and reports unresolved
+choices as an error. Non-TTY runs need complete explicit options (or `--yes`)
+and never prompt. `--yes` accepts safe managed replacements while preserving
+foreign tools, plugins, and configuration.
 
 ## Remove
 

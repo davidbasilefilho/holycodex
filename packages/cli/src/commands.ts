@@ -2,6 +2,7 @@
 
 import {
   CLI_SCHEMA_VERSION,
+  pluginIdsForOptionalCapabilities,
   parseCliEnvelope,
   type CliEnvelope,
   type JsonObject,
@@ -13,10 +14,18 @@ import { lookupProfile } from "@holycodex/core";
 
 import { ArgumentError, parseArgv } from "./args.ts";
 import { colorEnabled, helpRequested, helpText, helpTopic } from "./help.ts";
-import { runOpenTuiInstallWizard } from "./installer-wizard.ts";
 import {
+  runOpenTuiConflictResolver,
+  runOpenTuiInstallReview,
+  runOpenTuiInstallWizard,
+  runOpenTuiUpgradeChoiceScreen,
+} from "./installer-wizard.ts";
+import {
+  installRequestFromPersistedOptions,
   installHolyCodex,
   InstallerError,
+  readActiveInstallRecord,
+  readInstallOptions,
   validateInstallOptions,
   type InstallRequest,
 } from "./installer.ts";
@@ -27,16 +36,25 @@ import {
   removeHolyCodex,
   upgradeHolyCodex,
 } from "./maintenance.ts";
-import { readCanonicalVersion, updateCanonicalVersion, ManifestError } from "./manifest.ts";
+import {
+  readInstallationVersion,
+  readPublicVersion,
+  updateCanonicalVersion,
+  ManifestError,
+} from "./manifest.ts";
 import { OfficialPluginManagerError } from "./official-manager.ts";
-import { PathBoundaryError } from "./paths.ts";
+import { PathBoundaryError, resolveInstallerPaths } from "./paths.ts";
 import { StorageError } from "./storage.ts";
 import type {
   CliContext,
   CommandResult,
+  ConflictDecision,
   HumanRenderOptions,
   InstallProgressEvent,
+  InstallReview,
+  InstallReviewResult,
   InstallerOptions,
+  ManagedConflict,
   ParsedCommand,
 } from "./types.ts";
 
@@ -183,44 +201,115 @@ async function executeRemove(parsed: ParsedCommand, context: CliContext) {
 
 async function executeUpgrade(parsed: ParsedCommand, context: CliContext) {
   const dryRun = parsed.options["dry-run"] === true;
+  const interactive =
+    !dryRun &&
+    parsed.options["json"] !== true &&
+    parsed.options["yes"] !== true &&
+    context.io?.stdoutIsTTY === true &&
+    context.io?.stderrIsTTY === true;
+  let upgradeOptions: InstallRequest | undefined;
   if (!dryRun) {
-    const confirmationResult = await confirmation(
-      parsed,
-      context,
-      "Upgrade the existing HolyCodex installation in place?",
-    );
-    if (confirmationResult === "cancelled") {
-      return { cancelled: true, status: "cancelled", changes: [] };
-    }
-    if (confirmationResult === "unavailable") {
-      const preview = await upgradeHolyCodex(installerOptions(parsed, context), context.env, {
-        dryRun: true,
-      });
-      const conflict = preview.conflicts?.[0];
-      if (conflict !== undefined) {
-        throw new InstallerError(
-          "confirmation_required",
-          "Modified HolyCodex-owned state requires confirmation before upgrade.",
-          undefined,
-          {
-            path: conflict.path,
-            ...(conflict.key === undefined ? {} : { key: conflict.key }),
-            action: conflict.action,
-          },
+    if (interactive && context.io?.confirm === undefined) {
+      const current = await upgradeSelectionState(parsed, context);
+      const choice = await (context.io?.upgradeWizard ?? runOpenTuiUpgradeChoiceScreen)(
+        current.request,
+        current.fromVersion,
+        await readPublicVersion(),
+      );
+      if (choice.action === "cancel") {
+        return { cancelled: true, status: "cancelled", changes: [] };
+      }
+      if (choice.action === "keep") {
+        upgradeOptions = current.request;
+      } else {
+        const changed = await (context.io?.installWizard ?? runOpenTuiInstallWizard)(
+          current.request,
+        );
+        if (changed.action === "cancel") {
+          return { cancelled: true, status: "cancelled", changes: [] };
+        }
+        upgradeOptions = validateInstallOptions(changed.request);
+      }
+    } else {
+      const confirmationResult = await confirmation(
+        parsed,
+        context,
+        "Upgrade the existing HolyCodex installation in place?",
+      );
+      if (confirmationResult === "cancelled") {
+        return { cancelled: true, status: "cancelled", changes: [] };
+      }
+      if (confirmationResult === "unavailable") {
+        const preview = await upgradeHolyCodex(installerOptions(parsed, context), context.env, {
+          dryRun: true,
+        });
+        const conflict = preview.conflicts?.[0];
+        if (conflict !== undefined) {
+          throw new InstallerError(
+            "confirmation_required",
+            "Modified HolyCodex-owned state requires confirmation before upgrade.",
+            undefined,
+            {
+              path: conflict.path,
+              ...(conflict.key === undefined ? {} : { key: conflict.key }),
+              action: conflict.action,
+            },
+          );
+        }
+        throw new CliCommandError(
+          "non_tty_confirmation_required",
+          "Upgrade requires --yes in non-interactive mode.",
         );
       }
-      throw new CliCommandError(
-        "non_tty_confirmation_required",
-        "Upgrade requires --yes in non-interactive mode.",
-      );
     }
   }
-  return await upgradeHolyCodex(installerOptions(parsed, context), context.env, { dryRun });
+  return await upgradeHolyCodex(installerOptions(parsed, context), context.env, {
+    dryRun,
+    ...(upgradeOptions === undefined ? {} : { options: upgradeOptions }),
+  });
+}
+
+async function upgradeSelectionState(
+  parsed: ParsedCommand,
+  context: CliContext,
+): Promise<Readonly<{ request: InstallRequest; fromVersion: string }>> {
+  const paths = resolveInstallerPaths(installerOptions(parsed, context), context.env);
+  const [persisted, active] = await Promise.all([
+    readInstallOptions(paths),
+    readActiveInstallRecord(paths),
+  ]);
+  const capabilityPlugins =
+    active === undefined
+      ? new Set<string>()
+      : new Set(
+          pluginIdsForOptionalCapabilities({
+            computer_use: active.optional_selections.computer_use,
+            frontend: active.optional_selections.frontend,
+            security: active.optional_selections.security,
+          }),
+        );
+  const request =
+    persisted === undefined
+      ? active === undefined
+        ? {}
+        : validateInstallOptions({
+            profile: active.profile,
+            tier: active.tier,
+            optional: active.explicit_optional_selections,
+            officialPlugins: (active.official_plugins ?? []).filter(
+              (pluginId) => !capabilityPlugins.has(pluginId),
+            ),
+          })
+      : validateInstallOptions(installRequestFromPersistedOptions(persisted));
+  return {
+    request,
+    fromVersion: active?.version ?? (await readInstallationVersion()),
+  };
 }
 
 async function executeVersion(parsed: ParsedCommand, _context: CliContext) {
   const target = parsed.positionals[0];
-  if (!target) return { version: await readCanonicalVersion() };
+  if (!target) return { version: await readPublicVersion() };
   return await updateCanonicalVersion(target, parsed.options["dry-run"] === true);
 }
 
@@ -282,10 +371,27 @@ function optionStrings(parsed: ParsedCommand, key: string): readonly string[] {
 function installerOptions(parsed: ParsedCommand, context: CliContext) {
   const base = context.installer ?? {};
   const json = parsed.options["json"] === true;
+  const interactiveReview =
+    !json &&
+    parsed.options["yes"] !== true &&
+    context.io?.stdoutIsTTY === true &&
+    context.io?.stderrIsTTY === true;
   const onProgress = (event: InstallProgressEvent): void => {
     base.onProgress?.(event);
     context.onProgress?.(event);
     emitProgress(context, json, event.message);
+  };
+  const selectedConflictDecisions = new Map<string, ConflictDecision>();
+  const recordConflictDecisions = (
+    conflicts: readonly ManagedConflict[],
+    decisions: Readonly<Record<string, ConflictDecision>>,
+  ): Readonly<Record<string, ConflictDecision>> => {
+    for (const conflict of conflicts) {
+      const identity = conflictIdentity(conflict);
+      const decision = decisions[identity];
+      if (decision !== undefined) selectedConflictDecisions.set(identity, decision);
+    }
+    return decisions;
   };
   const resolveConflict: NonNullable<InstallerOptions["resolveConflict"]> =
     base.resolveConflict ??
@@ -304,15 +410,112 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
               ? ("decline" as const)
               : ("cancel" as const);
         });
+  const configuredResolveConflicts: NonNullable<InstallerOptions["resolveConflicts"]> =
+    base.resolveConflicts ??
+    (parsed.options["yes"] === true
+      ? async (conflicts) =>
+          Object.fromEntries(
+            conflicts.map((conflict) => [conflict.identity ?? conflict.path, "replace"]),
+          )
+      : async (conflicts) => {
+          if (
+            parsed.options["json"] === true ||
+            context.io?.stdoutIsTTY !== true ||
+            context.io?.stderrIsTTY !== true
+          ) {
+            throw new InstallerError(
+              "confirmation_required",
+              "Managed conflicts require an interactive review or --yes.",
+            );
+          }
+          const result = await runOpenTuiConflictResolver(conflicts);
+          if (result.action !== "continue")
+            throw new InstallerError(
+              "confirmation_required",
+              result.action === "cancel"
+                ? "Conflict review was cancelled."
+                : "Conflict review was reopened.",
+            );
+          return result.decisions;
+        });
+  const resolveConflicts: NonNullable<InstallerOptions["resolveConflicts"]> = async (conflicts) =>
+    recordConflictDecisions(conflicts, await configuredResolveConflicts(conflicts));
+  const configuredReview = base.reviewInstall ?? context.io?.installReview;
+  const review =
+    configuredReview ??
+    (parsed.options["yes"] === true
+      ? async (): Promise<InstallReviewResult> => ({ action: "apply" })
+      : interactiveReview
+        ? async (plan: InstallReview): Promise<InstallReviewResult> =>
+            await runOpenTuiInstallReview(plan)
+        : undefined);
+  const reviewInstall =
+    review === undefined
+      ? undefined
+      : async (plan: InstallReview): Promise<InstallReviewResult> => {
+          const reviewedPlan = withSelectedConflictDecisions(plan, selectedConflictDecisions);
+          const result = await review(reviewedPlan);
+          if (result.action !== "change") return result;
+          if (result.request !== undefined) {
+            return { action: "change", request: validateInstallOptions(result.request) };
+          }
+          if (!interactiveReview) {
+            throw new InstallerError(
+              "confirmation_required",
+              "Changing install options requires an interactive review.",
+            );
+          }
+          const changed = await (context.io?.installWizard ?? runOpenTuiInstallWizard)(
+            installRequestFromReview(reviewedPlan),
+          );
+          if (changed.action === "cancel") return { action: "cancel" };
+          return { action: "change", request: validateInstallOptions(changed.request) };
+        };
   const codexHome = parsed.options["codex-home"];
   if (typeof codexHome !== "string")
-    return { ...base, onProgress, resolveConflict, ...(context.now ? { now: context.now } : {}) };
+    return {
+      ...base,
+      onProgress,
+      resolveConflict,
+      resolveConflicts,
+      ...(reviewInstall === undefined ? {} : { reviewInstall }),
+      ...(context.now ? { now: context.now } : {}),
+    };
   return {
     ...base,
     paths: { ...base.paths, codexHome },
     onProgress,
     resolveConflict,
+    resolveConflicts,
+    ...(reviewInstall === undefined ? {} : { reviewInstall }),
     ...(context.now ? { now: context.now } : {}),
+  };
+}
+
+function installRequestFromReview(plan: InstallReview): InstallRequest {
+  return validateInstallOptions({
+    profile: plan.profile,
+    tier: plan.tier,
+    optional: plan.capabilities,
+    officialPlugins: plan.additionalPlugins,
+  });
+}
+
+function conflictIdentity(conflict: ManagedConflict): string {
+  return conflict.identity ?? conflict.path;
+}
+
+function withSelectedConflictDecisions(
+  plan: InstallReview,
+  selected: ReadonlyMap<string, ConflictDecision>,
+): InstallReview {
+  if (selected.size === 0 || plan.conflicts.length === 0) return plan;
+  return {
+    ...plan,
+    conflicts: plan.conflicts.map((conflict) => {
+      const decision = selected.get(conflictIdentity(conflict));
+      return decision === undefined ? conflict : { ...conflict, decision };
+    }),
   };
 }
 

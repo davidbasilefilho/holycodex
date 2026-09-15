@@ -306,7 +306,9 @@ export async function verifyPublicPackage(
   await verifyPreviousStableUpgrade({
     temporaryRoot,
     currentCanonicalVersion: packed.canonicalVersion,
-    currentVersion: packed.baseVersion,
+    currentVersion: packed.packageVersion.startsWith(`${packed.baseVersion}-dev.`)
+      ? packed.baseVersion
+      : packed.packageVersion,
     currentInstalledRoot: installedRoot,
     currentInstalledPackageRoot: installedPackageRoot,
     currentEntry: installedEntry,

@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "bun:test";
+import { execFile as execFileCallback } from "node:child_process";
 import { mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import { runAgentBinary } from "./index.ts";
+
+const execFileAsync = promisify(execFileCallback);
 
 function io(cwd: string) {
   let stdout = "";
@@ -22,6 +26,22 @@ function io(cwd: string) {
       },
     },
   };
+}
+
+async function initRepository(root: string): Promise<void> {
+  await execFileAsync("git", ["init", "-q", root]);
+  await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
+  await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
+  await Bun.write(join(root, ".gitignore"), ".holycodex/\n");
+  await Bun.write(join(root, "README.md"), "initial\n");
+  await execFileAsync("git", ["-C", root, "add", ".gitignore", "README.md"]);
+  await execFileAsync("git", ["-C", root, "commit", "-q", "-m", "initial"]);
+}
+
+async function runAgent(cwd: string, argv: readonly string[]) {
+  const captured = io(cwd);
+  const exitCode = await runAgentBinary([...argv, "--repo", cwd], captured.io);
+  return { exitCode, ...captured.value() };
 }
 
 describe("holycodex-agent", () => {
@@ -48,6 +68,7 @@ describe("holycodex-agent", () => {
       ["assignment", "list"],
       ["assignment", "read"],
       ["assignment", "revise"],
+      ["assignment", "supersede"],
       ["assignment", "start"],
       ["assignment", "result"],
     ];
@@ -84,6 +105,113 @@ describe("holycodex-agent", () => {
       schema_version: "holycodex-agent-response-1",
       ok: false,
       error: { code: "invalid_input" },
+    });
+  });
+
+  test("requires the active invocation capability for semantic specialist results", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "holycodex-agent-capability-"));
+    await initRepository(cwd);
+
+    const createdIntent = await runAgent(cwd, [
+      "intent",
+      "create",
+      "--input",
+      JSON.stringify({
+        title: "Specialist result authorization",
+        goal: "Keep model-facing terminal writes attributable",
+        acceptanceCriteria: ["proof"],
+      }),
+    ]);
+    expect(createdIntent.exitCode).toBe(0);
+    const intent = JSON.parse(createdIntent.stdout).data as {
+      readonly id: string;
+      readonly revision: number;
+    };
+
+    const createdAssignment = await runAgent(cwd, [
+      "assignment",
+      "create",
+      "--intent",
+      intent.id,
+      "--revision",
+      String(intent.revision),
+      "--input",
+      JSON.stringify({
+        id: "capability-bound",
+        objective: "Record an attributable terminal result",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["README.md"],
+        acceptanceCriteria: ["proof"],
+      }),
+    ]);
+    expect(createdAssignment.exitCode).toBe(0);
+    const assignment = JSON.parse(createdAssignment.stdout).data as {
+      readonly id: string;
+      readonly revision: number;
+    };
+
+    const started = await runAgent(cwd, [
+      "assignment",
+      "start",
+      "--intent",
+      intent.id,
+      "--assignment",
+      assignment.id,
+      "--revision",
+      String(assignment.revision),
+    ]);
+    expect(started.exitCode).toBe(0);
+    const running = JSON.parse(started.stdout).data as {
+      readonly revision: number;
+      readonly active_invocation_id?: string;
+      readonly active_invocation_capability?: string;
+    };
+    expect(running.active_invocation_id).toBeDefined();
+    expect(running.active_invocation_capability).toMatch(/^[a-f0-9]{64}$/u);
+
+    const missingCapability = await runAgent(cwd, [
+      "assignment",
+      "result",
+      "--intent",
+      intent.id,
+      "--assignment",
+      assignment.id,
+      "--revision",
+      String(running.revision),
+      "--input",
+      JSON.stringify({
+        invocationId: running.active_invocation_id,
+        outcome: "completed",
+        summary: "Missing capability",
+      }),
+    ]);
+    expect(missingCapability.exitCode).toBe(2);
+    expect(JSON.parse(missingCapability.stderr)).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input" },
+    });
+
+    const completed = await runAgent(cwd, [
+      "assignment",
+      "result",
+      "--intent",
+      intent.id,
+      "--assignment",
+      assignment.id,
+      "--revision",
+      String(running.revision),
+      "--input",
+      JSON.stringify({
+        invocationId: running.active_invocation_id,
+        capability: running.active_invocation_capability,
+        outcome: "completed",
+        summary: "Capability-bound result",
+      }),
+    ]);
+    expect(completed.exitCode).toBe(0);
+    expect(JSON.parse(completed.stdout)).toMatchObject({
+      ok: true,
+      data: { assignment: { status: "completed" } },
     });
   });
 });
