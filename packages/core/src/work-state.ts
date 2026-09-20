@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   lstat,
   mkdir,
@@ -1434,13 +1434,7 @@ export class IntentStore {
         );
       const startedAt = this.#now().toISOString();
       const invocationId = nextInvocationId(assignment);
-      const capability = invocationCapability(
-        intent.id,
-        assignment.id,
-        assignment.revision + 1,
-        invocationId,
-        startedAt,
-      );
+      const capability = invocationCapability();
       const revised = reviseAssignment(assignment, this.#now, {
         status: "executing",
         scope,
@@ -2070,14 +2064,8 @@ function hasMeaningfulVerificationEvidence(evidence: readonly IntentEvidence[]):
       ["passed", "observed"].includes(item.result ?? ""),
   );
 }
-function invocationCapability(
-  intentId: string,
-  assignmentId: string,
-  revision: number,
-  invocationId: string,
-  startedAt: string,
-): AssignmentInvocationCapability {
-  return sha256([intentId, assignmentId, String(revision), invocationId, startedAt].join("\0"));
+function invocationCapability(): AssignmentInvocationCapability {
+  return randomBytes(32).toString("hex");
 }
 
 function nextInvocationId(assignment: Assignment): string {

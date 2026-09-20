@@ -1137,7 +1137,22 @@ export async function installHolyCodex(
       providerConfigConflicts,
       resolvedConflicts.decisions,
     );
-    const stablePostPluginDocument = postPluginResolution.document;
+    let stablePostPluginDocument = postPluginResolution.document;
+    if (configBeforeMutationDocument === undefined) {
+      throw new InstallerError(
+        "state_corrupt",
+        "The pre-mutation configuration baseline is missing.",
+      );
+    }
+    for (const conflict of managedConfigConflicts) {
+      const keyPath = conflict.key as ManagedConfigKeyPath | undefined;
+      if (keyPath === undefined) continue;
+      const acceptedValue = readTomlPath(configBeforeMutationDocument, keyPath);
+      stablePostPluginDocument =
+        acceptedValue === undefined
+          ? deleteTomlPath(stablePostPluginDocument, keyPath)
+          : writeTomlPath(stablePostPluginDocument, keyPath, acceptedValue);
+    }
     pluginConfigBefore = postPluginResolution.pluginConfigBefore;
     providerConfigBefore = postPluginResolution.providerConfigBefore;
     const pluginConfigAfter = await snapshotHolyCodexPluginConfig(stablePostPluginDocument);
@@ -1163,12 +1178,6 @@ export async function installHolyCodex(
     };
     const postPluginBaselineManaged: Record<string, ManagedRuntimeConfigState["managed"][string]> =
       {};
-    if (configBeforeMutationDocument === undefined) {
-      throw new InstallerError(
-        "state_corrupt",
-        "The pre-mutation configuration baseline is missing.",
-      );
-    }
     for (const [rawKeyPath, entry] of Object.entries(resolvedManagedConfig)) {
       const keyPath = rawKeyPath as ManagedConfigKeyPath;
       const value = readTomlPath(configBeforeMutationDocument, keyPath);
@@ -1306,8 +1315,8 @@ export async function installHolyCodex(
     if (decodeSchema(InstallRecordSchema, record) === undefined) {
       throw new InstallerError("state_corrupt", "The HolyCodex configuration is invalid.");
     }
-    await writeAtomicJson(paths.activeRecord, asJsonValue(record));
     activeRecordWriteStarted = true;
+    await writeAtomicJson(paths.activeRecord, asJsonValue(record));
     installOptionsWriteStarted = true;
     await writeInstallOptions(
       paths,
@@ -1757,6 +1766,29 @@ export async function cleanupProviderPluginConfig(
     restored.push(snapshot.plugin_id);
   }
   return { document: output, restored, removed, preserved };
+}
+
+async function restoreUnsupportedPluginConfigEntry(
+  document: TomlDocument,
+  baseline: TomlDocument,
+  parent: "plugins" | "marketplaces",
+  key: string,
+  before: PluginConfigEntrySnapshot | ProviderPluginConfigSnapshot["before"],
+  after: PluginConfigEntrySnapshot | ProviderPluginConfigSnapshot["after"],
+): Promise<{ readonly document: TomlDocument; readonly restored: boolean }> {
+  if (before.presence !== "present" || before.safe_value !== undefined) {
+    return { document, restored: false };
+  }
+  const current = await snapshotPluginConfigEntry(document, parent, key);
+  if (current.digest === before.digest || current.digest !== after.digest) {
+    return { document, restored: false };
+  }
+  const value = readPluginConfigEntry(baseline, parent, key);
+  if (value === undefined) return { document, restored: false };
+  return {
+    document: writePluginConfigEntry(document, parent, key, value),
+    restored: true,
+  };
 }
 
 async function snapshotPluginConfigEntry(
@@ -2283,12 +2315,46 @@ async function rollbackConfigTransaction(
           allowBeforeState: true,
         });
   if (providerCleanup !== undefined) document = providerCleanup.document;
+  let unsupportedConfigRestored = 0;
+  if (transaction.plugin_config !== undefined) {
+    for (const [name, parent, key] of [
+      ["preference", "plugins", HOLYCODEX_PLUGIN_CONFIG_KEY],
+      ["marketplace", "marketplaces", HOLYCODEX_MARKETPLACE_CONFIG_KEY],
+    ] as const) {
+      const restoration = await restoreUnsupportedPluginConfigEntry(
+        document,
+        baseline,
+        parent,
+        key,
+        transaction.plugin_config.before[name],
+        transaction.plugin_config.after[name],
+      );
+      document = restoration.document;
+      if (restoration.restored) unsupportedConfigRestored += 1;
+    }
+  }
+  if (transaction.provider_config !== undefined) {
+    for (const snapshot of transaction.provider_config) {
+      if (!ownedPlugins.has(snapshot.plugin_id)) continue;
+      const restoration = await restoreUnsupportedPluginConfigEntry(
+        document,
+        baseline,
+        "plugins",
+        snapshot.plugin_id,
+        snapshot.before,
+        snapshot.after,
+      );
+      document = restoration.document;
+      if (restoration.restored) unsupportedConfigRestored += 1;
+    }
+  }
   const changed =
     managedCleanup.restoredKeys.length > 0 ||
     (pluginCleanup !== undefined &&
       (pluginCleanup.restored.length > 0 || pluginCleanup.removed.length > 0)) ||
     (providerCleanup !== undefined &&
-      (providerCleanup.restored.length > 0 || providerCleanup.removed.length > 0));
+      (providerCleanup.restored.length > 0 || providerCleanup.removed.length > 0)) ||
+    unsupportedConfigRestored > 0;
   if (!changed) return;
   await writeAtomicText(path, serializeConfig(document));
 }

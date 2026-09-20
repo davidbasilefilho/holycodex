@@ -452,6 +452,53 @@ describe("installer preflight", () => {
     }
   }, 30_000);
 
+  test("restores a kept managed setting after native plugin health reinstalls", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-kept-health-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const events: string[] = [];
+    let rewriteOnAdd = false;
+    try {
+      const manager = configWritingManager(paths, events, false, undefined, async (pluginId) => {
+        if (rewriteOnAdd && pluginId === "holycodex@holycodex") {
+          await writeTestConfigValue(paths, "model", "gpt-6-health");
+        }
+      });
+      const runtime = testRuntime(codexHome);
+      await installHolyCodex(request, {
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+      });
+      rewriteOnAdd = true;
+      await manager.remove?.("holycodex@holycodex");
+      await writeTestConfigValue(paths, "model", "gpt-5.6-terra");
+      await writeTestConfigValue(paths, "features.context_management", false);
+      await writeTestConfigValue(paths, "unrelated", "keep");
+
+      await installHolyCodex(request, {
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+        resolveConflicts: async (conflicts) =>
+          Object.fromEntries(
+            conflicts.map((conflict) => [
+              conflict.identity!,
+              conflict.key === "features.context_management" ? "replace" : "keep",
+            ]),
+          ),
+        reviewInstall: async () => ({ action: "apply" }),
+      });
+
+      const finalConfig = await readFile(paths.configFile, "utf8");
+      expect(finalConfig).toContain('model = "gpt-5.6-terra"');
+      expect(finalConfig).toContain("context_management = true");
+      expect(finalConfig).toContain('unrelated = "keep"');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("reopens conflict resolution before returning to final review and apply", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-resolve-"));
     const codexHome = join(root, "codex");
@@ -519,6 +566,44 @@ describe("installer preflight", () => {
       expect(await readFile(paths.configFile, "utf8")).not.toBe(configBefore);
       await expect(readFile(paths.preparingRecord)).rejects.toThrow();
       await expect(readFile(paths.conflictedRecord)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("restores unsupported plugin fields after a failed transaction", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-rollback-custom-"));
+    const codexHome = join(root, "codex");
+    const events: string[] = [];
+    try {
+      await installBaseline(codexHome);
+      const paths = resolveInstallerPaths({ paths: { codexHome } });
+      await writeTestConfigValue(paths, 'plugins."holycodex@holycodex"', {
+        enabled: true,
+        custom_field: "preserve",
+      });
+      const manager = configWritingManager(paths, events, true, undefined, async (pluginId) => {
+        if (pluginId === "holycodex@holycodex") {
+          await writeTestConfigValue(paths, "unrelated", "keep");
+        }
+      });
+
+      await expect(
+        installHolyCodex(request, {
+          paths: { codexHome },
+          officialPluginManager: manager,
+          runtime: testRuntime(codexHome),
+          resolveConflicts: async (conflicts) =>
+            Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"])),
+        }),
+      ).rejects.toMatchObject({ code: "capability_denied" });
+
+      const rolledBack = parseConfig(await readFile(paths.configFile, "utf8"));
+      expect(readTestConfigEntry(rolledBack, "plugins", "holycodex@holycodex")).toEqual({
+        enabled: true,
+        custom_field: "preserve",
+      });
+      expect(rolledBack["unrelated"]).toBe("keep");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

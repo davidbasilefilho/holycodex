@@ -650,10 +650,19 @@ describe("IntentStore", () => {
     const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
     const invocationId = running.active_invocation_id;
     const capability = running.active_invocation_capability;
+    const startedAt = running.active_started_at;
     expect(invocationId).toBe("invocation-001");
     expect(capability).toMatch(/^[a-f0-9]{64}$/u);
-    if (invocationId === undefined || capability === undefined)
+    expect(startedAt).toBeDefined();
+    if (invocationId === undefined || capability === undefined || startedAt === undefined)
       throw new Error("startAssignment did not issue invocation authorization");
+    expect(capability).not.toBe(
+      createHash("sha256")
+        .update(
+          [intent.id, assignment.id, String(running.revision), invocationId, startedAt].join("\0"),
+        )
+        .digest("hex"),
+    );
 
     await expect(
       store.recordSpecialistAssignmentResult(intent.id, assignment.id, running.revision, {

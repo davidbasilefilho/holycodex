@@ -81,6 +81,7 @@ function testRuntime(codexHome: string): InstallerRuntime {
 function fakeManager(
   options: Readonly<{
     readonly initial?: Readonly<Record<string, "installed" | "disabled" | "available">>;
+    readonly onAdd?: (pluginId: string) => Promise<void>;
   }> = {},
 ): OfficialPluginManager {
   const states = new Map<string, { installed: boolean; enabled: boolean }>();
@@ -98,6 +99,7 @@ function fakeManager(
     }),
     addMarketplace: async () => undefined,
     add: async (pluginId) => {
+      await options.onAdd?.(pluginId);
       states.set(pluginId, { installed: true, enabled: true });
     },
     remove: async (pluginId) => {
@@ -255,6 +257,62 @@ describe("command install and upgrade review flow", () => {
       expect(confirmationCalls).toBe(0);
       expect(reviewOperation).toBe("upgrade");
       expect(reviewRequest).toEqual(upgradeChoice);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("restores kept managed settings after an upgrade health reinstall", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-kept-health-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    let rewriteOnAdd = false;
+    const manager = fakeManager({
+      onAdd: async (pluginId) => {
+        if (rewriteOnAdd && pluginId === "holycodex@holycodex") {
+          const current = await readFile(paths.configFile, "utf8");
+          await writeFile(
+            paths.configFile,
+            current.replace('model = "gpt-5.6-terra"', 'model = "gpt-6-health"'),
+          );
+        }
+      },
+    });
+    try {
+      await seedInstall(
+        root,
+        { optional: { frontend: false, security: false, computer_use: false } },
+        manager,
+      );
+      await makeLegacy(codexHome);
+      await writeFile(
+        paths.configFile,
+        (await readFile(paths.configFile, "utf8"))
+          .replace('model = "gpt-6-astra"', 'model = "gpt-5.6-terra"')
+          .replace("context_management = true", 'context_management = false\nunrelated = "keep"'),
+      );
+      rewriteOnAdd = true;
+
+      await installHolyCodex(
+        { optional: { frontend: false, security: false, computer_use: false } },
+        {
+          ...installerOptions(codexHome, manager),
+          resolveConflicts: async (conflicts) =>
+            Object.fromEntries(
+              conflicts.map((conflict) => [
+                conflict.identity!,
+                conflict.key === "features.context_management" ? "replace" : "keep",
+              ]),
+            ),
+          reviewInstall: async () => ({ action: "apply" }),
+        },
+        fakeEnvironment,
+      );
+
+      const finalConfig = await readFile(paths.configFile, "utf8");
+      expect(finalConfig).toContain('model = "gpt-5.6-terra"');
+      expect(finalConfig).toContain("context_management = true");
+      expect(finalConfig).toContain('unrelated = "keep"');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

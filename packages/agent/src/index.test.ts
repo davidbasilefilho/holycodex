@@ -339,10 +339,10 @@ describe("holycodex-agent", () => {
         summary: "Legacy capability-free result",
       }),
     ]);
-    expect(legacyResult.exitCode).toBe(0);
-    expect(JSON.parse(legacyResult.stdout)).toMatchObject({
-      ok: true,
-      data: { assignment: { status: "completed" } },
+    expect(legacyResult.exitCode).toBe(2);
+    expect(JSON.parse(legacyResult.stderr)).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input" },
     });
   });
 });
