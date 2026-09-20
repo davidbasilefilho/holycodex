@@ -10,6 +10,7 @@ import * as Schema from "effect/Schema";
 
 import {
   CanonicalVersionSchema,
+  compareReleaseVersions,
   isCanonicalVersion,
   resolveCanonicalVersion,
 } from "../packages/core/src/version.ts";
@@ -158,10 +159,33 @@ describe("release version authority", () => {
     }
   });
 
+  test("orders release components exactly and preserves suffix precedence", () => {
+    const huge = "9".repeat(80);
+
+    expect(compareReleaseVersions("0.1.2", "0.1.2-0")).toBe(-1);
+    expect(compareReleaseVersions("0.1.2-0", "0.1.2-1")).toBe(-1);
+    expect(compareReleaseVersions("0.1.2-dev.1.1", "0.1.2")).toBe(-1);
+    expect(compareReleaseVersions("0.1.2-dev.1.1", "0.1.2-dev.2.1")).toBe(-1);
+    expect(compareReleaseVersions(`0.1.2-${huge}`, "0.1.2-1")).toBe(1);
+    expect(compareReleaseVersions(`0.${huge}.0`, "0.1.2-1")).toBe(1);
+  });
+
   test("resolves patch and minor updates from a suffixed canonical version", () => {
     expect(resolveCanonicalVersion("patch", "0.1.2-1")).toBe("0.1.3");
     expect(resolveCanonicalVersion("minor", "0.1.2-1")).toBe("0.2.0");
     expect(resolveCanonicalVersion("0.1.2-17", "0.1.2-1")).toBe("0.1.2-17");
+  });
+
+  test("increments arbitrarily large canonical components with schema-valid text", () => {
+    const huge = "9".repeat(80);
+    const next = `1${"0".repeat(80)}`;
+    const patch = resolveCanonicalVersion("patch", `0.1.${huge}`);
+    const minor = resolveCanonicalVersion("minor", `0.${huge}.7`);
+
+    expect(patch).toBe(`0.1.${next}`);
+    expect(minor).toBe(`0.${next}.0`);
+    expect(isCanonicalVersion(patch)).toBe(true);
+    expect(isCanonicalVersion(minor)).toBe(true);
   });
 
   test("requires stable tags to match the canonical version and rejects prerelease mixing", () => {

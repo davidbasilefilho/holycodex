@@ -163,6 +163,13 @@ async function execute(
       const reference = requiredValue(intent, "intent");
       const assignment = required(options, "assignment");
       const expectedRevision = revision(options);
+      const current = await store.readAssignment(reference, assignment);
+      if (
+        current.status === "executing" &&
+        current.active_invocation_id === undefined &&
+        current.active_invocation_capability === undefined
+      )
+        return await store.recordAssignmentResult(reference, assignment, expectedRevision, result);
       return await store.recordSpecialistAssignmentResult(
         reference,
         assignment,

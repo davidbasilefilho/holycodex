@@ -209,7 +209,7 @@ async function executeUpgrade(parsed: ParsedCommand, context: CliContext) {
     context.io?.stderrIsTTY === true;
   let upgradeOptions: InstallRequest | undefined;
   if (!dryRun) {
-    if (interactive && context.io?.confirm === undefined) {
+    if (interactive) {
       const current = await upgradeSelectionState(parsed, context);
       const choice = await (context.io?.upgradeWizard ?? runOpenTuiUpgradeChoiceScreen)(
         current.request,
@@ -429,14 +429,19 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
             );
           }
           const result = await runOpenTuiConflictResolver(conflicts);
-          if (result.action !== "continue")
-            throw new InstallerError(
-              "confirmation_required",
-              result.action === "cancel"
-                ? "Conflict review was cancelled."
-                : "Conflict review was reopened.",
+          if (result.action === "back") {
+            return Object.fromEntries(
+              conflicts.map((conflict) => {
+                const identity = conflictIdentity(conflict);
+                const selected = selectedConflictDecisions.get(identity);
+                return [identity, selected ?? defaultConflictDecision(conflict)];
+              }),
             );
-          return result.decisions;
+          }
+          if (result.action === "cancel")
+            throw new InstallerError("confirmation_required", "Conflict review was cancelled.");
+          if (result.action === "continue") return result.decisions;
+          throw new InstallerError("confirmation_required", "Conflict review was reopened.");
         });
   const resolveConflicts: NonNullable<InstallerOptions["resolveConflicts"]> = async (conflicts) =>
     recordConflictDecisions(conflicts, await configuredResolveConflicts(conflicts));
@@ -503,6 +508,19 @@ function installRequestFromReview(plan: InstallReview): InstallRequest {
 
 function conflictIdentity(conflict: ManagedConflict): string {
   return conflict.identity ?? conflict.path;
+}
+
+function defaultConflictDecision(conflict: ManagedConflict): ConflictDecision {
+  const preferred = conflict.defaultDecision ?? "replace";
+  if (preferred === "keep" || preferred === "replace" || preferred === "cancel") {
+    if (conflict.validDecisions === undefined || conflict.validDecisions.includes(preferred)) {
+      return preferred;
+    }
+  }
+  return (
+    conflict.validDecisions?.find((decision) => decision === "keep" || decision === "replace") ??
+    "keep"
+  );
 }
 
 function withSelectedConflictDecisions(

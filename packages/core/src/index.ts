@@ -13,6 +13,7 @@ export {
   DevelopmentVersionSchema,
   ReleaseVersionSchema,
   canonicalBaseVersion,
+  compareReleaseVersions,
   isCanonicalVersion,
   resolveCanonicalVersion,
 } from "./version.ts";

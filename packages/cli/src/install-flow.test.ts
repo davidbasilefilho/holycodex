@@ -216,6 +216,7 @@ describe("command install and upgrade review flow", () => {
       );
       await makeLegacy(codexHome);
       let upgradeChoice: InstallRequest | undefined;
+      let confirmationCalls = 0;
       let reviewOperation: string | undefined;
       let reviewRequest: InstallRequest | undefined;
       const result = await runCli(
@@ -223,6 +224,10 @@ describe("command install and upgrade review flow", () => {
         commandContext(codexHome, manager, {
           stdoutIsTTY: true,
           stderrIsTTY: true,
+          confirm: async () => {
+            confirmationCalls += 1;
+            return true;
+          },
           upgradeWizard: async (current) => {
             upgradeChoice = current;
             return { action: "keep" };
@@ -247,6 +252,7 @@ describe("command install and upgrade review flow", () => {
         optional: { frontend: false, security: false, computer_use: false },
         officialPlugins: [additionalPlugin],
       });
+      expect(confirmationCalls).toBe(0);
       expect(reviewOperation).toBe("upgrade");
       expect(reviewRequest).toEqual(upgradeChoice);
     } finally {
@@ -313,6 +319,67 @@ describe("command install and upgrade review flow", () => {
         optional: { frontend: true, security: false, computer_use: false },
         officialPlugins: [additionalPlugin],
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("keeps non-interactive upgrade modes out of both prompts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-upgrade-modes-"));
+    const manager = fakeManager();
+    try {
+      const { codexHome } = await seedInstall(
+        root,
+        { optional: { frontend: false, security: false, computer_use: false } },
+        manager,
+      );
+      await makeLegacy(codexHome);
+      let confirmationCalls = 0;
+      let wizardCalls = 0;
+      const io = {
+        stdoutIsTTY: true,
+        stderrIsTTY: true,
+        confirm: async () => {
+          confirmationCalls += 1;
+          return true;
+        },
+        upgradeWizard: async () => {
+          wizardCalls += 1;
+          return { action: "cancel" as const };
+        },
+      };
+
+      const json = await runCli(["upgrade", "--json", "--codex-home", codexHome], {
+        env: fakeEnvironment,
+        io,
+        installer: installerOptions(codexHome, manager),
+      });
+      expect(json.exitCode).toBe(1);
+      expect(json.envelope).toMatchObject({
+        ok: false,
+        error: { code: "non_tty_confirmation_required" },
+      });
+
+      const nonTty = await runCli(["upgrade", "--codex-home", codexHome], {
+        env: fakeEnvironment,
+        io: { ...io, stdoutIsTTY: false, stderrIsTTY: false },
+        installer: installerOptions(codexHome, manager),
+      });
+      expect(nonTty.exitCode).toBe(1);
+      expect(nonTty.envelope).toMatchObject({
+        ok: false,
+        error: { code: "non_tty_confirmation_required" },
+      });
+
+      const yes = await runCli(["upgrade", "--yes", "--codex-home", codexHome], {
+        env: fakeEnvironment,
+        io,
+        installer: installerOptions(codexHome, manager),
+      });
+      expect(yes.exitCode).toBe(0);
+      expect(yes.envelope).toMatchObject({ ok: true, command: "upgrade" });
+      expect(confirmationCalls).toBe(0);
+      expect(wizardCalls).toBe(0);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

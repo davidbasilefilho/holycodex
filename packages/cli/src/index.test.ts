@@ -260,15 +260,21 @@ describe("CLI boundaries", () => {
   });
 
   test("treats an interactive upgrade decline as successful cancellation", async () => {
-    const result = await runCli(["upgrade"], {
-      io: {
-        stdoutIsTTY: true,
-        stderrIsTTY: true,
-        confirm: async () => false,
-      },
-    });
-    expect(result.exitCode).toBe(0);
-    expect(result.envelope).toMatchObject({ ok: true, data: { cancelled: true } });
+    const codexHome = await mkdtemp(join(tmpdir(), "holycodex-cli-upgrade-decline-"));
+    try {
+      const result = await runCli(["upgrade", "--codex-home", codexHome], {
+        io: {
+          stdoutIsTTY: true,
+          stderrIsTTY: true,
+          upgradeWizard: async () => ({ action: "cancel" as const }),
+          confirm: async () => false,
+        },
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.envelope).toMatchObject({ ok: true, data: { cancelled: true } });
+    } finally {
+      await rm(codexHome, { recursive: true, force: true });
+    }
   });
 
   test("reports missing Codex as a capability denial before installation", async () => {
@@ -1110,6 +1116,49 @@ describe("native installation and removal", () => {
       expect(addCalls).toEqual(["holycodex@holycodex"]);
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects higher installed versions with exact decimal ordering", async () => {
+    const huge = "9".repeat(80);
+    const currentBase = ["0", "16", "7"].join(".");
+    for (const [index, version] of [`${currentBase}-${huge}`, `0.${huge}.0`].entries()) {
+      const root = await mkdtemp(join(tmpdir(), `holycodex-cli-upgrade-order-${index}-`));
+      const codexHome = join(root, "codex");
+      try {
+        const manager = fakeManager();
+        const initial = await installHolyCodex(
+          {},
+          { paths: { codexHome }, officialPluginManager: manager },
+        );
+        const paths = resolveInstallerPaths({ paths: { codexHome } });
+        const oldRecord = { ...initial.record, version };
+        oldRecord.digest = await installRecordDigest({
+          owner: oldRecord.owner,
+          install_id: oldRecord.install_id,
+          version: oldRecord.version,
+          profile: oldRecord.profile,
+          tier: oldRecord.tier,
+          optional_selections: oldRecord.optional_selections,
+          explicit_optional_selections: oldRecord.explicit_optional_selections,
+          official_plugins: oldRecord.official_plugins ?? [],
+          capability_state: oldRecord.capability_state ?? null,
+          managed_artifacts: oldRecord.managed_artifacts,
+          managed_config: oldRecord.managed_config,
+          plugin_config: oldRecord.plugin_config,
+          provider_config: oldRecord.provider_config,
+          plugin_snapshot: oldRecord.plugin_snapshot,
+          owned_plugins: oldRecord.owned_plugins,
+          tooling: oldRecord.tooling,
+        });
+        await writeFile(paths.activeRecord, `${JSON.stringify(oldRecord)}\n`);
+
+        await expect(
+          upgradeHolyCodex({ paths: { codexHome }, officialPluginManager: manager }),
+        ).rejects.toMatchObject({ code: "upgrade_downgrade" });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
     }
   });
 

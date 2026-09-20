@@ -5,7 +5,16 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { doctorHolyCodex, installHolyCodex, resolveInstallerPaths } from "./index.ts";
+import { writeTomlPath } from "@holycodex/codex";
+import type { TomlDocument, TomlValue } from "@holycodex/codex";
+
+import {
+  doctorHolyCodex,
+  installHolyCodex,
+  readActiveInstallRecord,
+  removeHolyCodex,
+  resolveInstallerPaths,
+} from "./index.ts";
 import type {
   InstallRequest,
   InstallReview,
@@ -13,7 +22,12 @@ import type {
   ManagedConflict,
   OfficialPluginManager,
 } from "./index.ts";
-import { assertInstallTransactionState, diagnoseInstallTransactions } from "./installer.ts";
+import {
+  assertInstallTransactionState,
+  diagnoseInstallTransactions,
+  parseConfig,
+  serializeConfig,
+} from "./installer.ts";
 
 const toolingStates = new Map<string, { installed: boolean }>();
 
@@ -91,6 +105,90 @@ function testManager(events: string[] = []): OfficialPluginManager {
     },
   };
   return manager;
+}
+
+type TestPaths = ReturnType<typeof resolveInstallerPaths>;
+
+function readTestTomlTable(value: TomlValue | undefined): TomlDocument {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  return value as TomlDocument;
+}
+
+function readTestConfigEntry(
+  document: TomlDocument,
+  parent: "plugins" | "marketplaces",
+  key: string,
+): TomlValue | undefined {
+  return readTestTomlTable(document[parent])[key];
+}
+
+async function writeTestConfigValue(
+  paths: TestPaths,
+  keyPath: string,
+  value: TomlValue,
+): Promise<void> {
+  const current = await readFile(paths.configFile, "utf8").catch(() => undefined);
+  const quotedPluginKey = /^plugins\."(.*)"$/u.exec(keyPath)?.[1];
+  const document = parseConfig(current);
+  const pluginTable = readTestTomlTable(document["plugins"]);
+  const next =
+    quotedPluginKey === undefined
+      ? writeTomlPath(document, keyPath, value)
+      : writeTomlPath(document, "plugins", {
+          ...pluginTable,
+          [quotedPluginKey]: value,
+        });
+  await writeFile(paths.configFile, serializeConfig(next));
+}
+
+function configWritingManager(
+  paths: TestPaths,
+  events: string[] = [],
+  failHolyCodexOnce = false,
+  failPluginId?: string,
+  beforeAdd?: (pluginId: string) => Promise<void>,
+): OfficialPluginManager {
+  const states = new Map<string, { installed: boolean; enabled: boolean }>();
+  let failNextHolyCodexAdd = failHolyCodexOnce;
+  let failNextPluginAdd = failPluginId;
+  return {
+    list: async () => ({
+      installed: [...states]
+        .filter(([, state]) => state.installed)
+        .map(([pluginId, state]) => ({ pluginId, ...state })),
+      available: [...states]
+        .filter(([, state]) => !state.installed)
+        .map(([pluginId, state]) => ({ pluginId, ...state })),
+    }),
+    addMarketplace: async (source) => {
+      events.push(`marketplace:${source}`);
+      await writeTestConfigValue(paths, "marketplaces.holycodex", {
+        source_type: "git",
+        source:
+          source === "davidbasilefilho/holycodex"
+            ? "https://github.com/davidbasilefilho/holycodex.git"
+            : source,
+      });
+    },
+    add: async (pluginId) => {
+      events.push(`add:${pluginId}`);
+      await beforeAdd?.(pluginId);
+      states.set(pluginId, { installed: true, enabled: true });
+      await writeTestConfigValue(paths, `plugins."${pluginId}"`, { enabled: true });
+      if (pluginId === "holycodex@holycodex" && failNextHolyCodexAdd) {
+        failNextHolyCodexAdd = false;
+        throw new Error("plugin install failed");
+      }
+      if (pluginId === failNextPluginAdd) {
+        failNextPluginAdd = undefined;
+        throw new Error("plugin install failed");
+      }
+    },
+    remove: async (pluginId) => {
+      events.push(`remove:${pluginId}`);
+      states.delete(pluginId);
+    },
+  };
 }
 
 const request: InstallRequest = {
@@ -404,7 +502,7 @@ describe("installer preflight", () => {
         addMarketplace: async () => {
           await writeFile(
             paths.configFile,
-            `${await readFile(paths.configFile, "utf8")}user mutation\n`,
+            `${await readFile(paths.configFile, "utf8")}\nunrelated = "user mutation"\n`,
           );
           throw new Error("marketplace unavailable");
         },
@@ -417,11 +515,222 @@ describe("installer preflight", () => {
           runtime,
         }),
       ).rejects.toMatchObject({ code: "install_failed" });
-      expect(await readFile(paths.configFile, "utf8")).toBe(configBefore);
+      expect(await readFile(paths.configFile, "utf8")).toContain('unrelated = "user mutation"');
+      expect(await readFile(paths.configFile, "utf8")).not.toBe(configBefore);
       await expect(readFile(paths.preparingRecord)).rejects.toThrow();
       await expect(readFile(paths.conflictedRecord)).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("publishes conflicted recovery after fresh-install plugin rollback", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-fresh-recovery-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const events: string[] = [];
+    const manager = configWritingManager(paths, events, true);
+    const runtime = testRuntime(codexHome);
+    const frontendRequest: InstallRequest = {
+      optional: { frontend: true, security: false },
+    };
+    try {
+      await expect(
+        installHolyCodex(frontendRequest, {
+          paths: { codexHome },
+          officialPluginManager: manager,
+          runtime,
+        }),
+      ).rejects.toMatchObject({ code: "capability_denied" });
+
+      const rolledBackConfig = parseConfig(await readFile(paths.configFile, "utf8"));
+      expect(
+        readTestConfigEntry(rolledBackConfig, "plugins", "holycodex@holycodex"),
+      ).toBeUndefined();
+      expect(readTestConfigEntry(rolledBackConfig, "marketplaces", "holycodex")).toBeUndefined();
+      expect(
+        readTestConfigEntry(rolledBackConfig, "plugins", "build-web-apps@openai-curated"),
+      ).toBeUndefined();
+      expect(await readActiveInstallRecord(paths)).toBeUndefined();
+      expect(await readFile(paths.conflictedRecord, "utf8")).toContain('"status":"conflicted"');
+      await expect(readFile(paths.preparingRecord)).rejects.toThrow();
+
+      const removal = await removeHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+        resolveConflict: async () => "accept",
+      });
+      expect(removal.reasons).toEqual([]);
+      expect(events).toContain("remove:holycodex@holycodex");
+      await expect(readFile(paths.conflictedRecord)).rejects.toThrow();
+      await expect(readFile(paths.preparingRecord)).rejects.toThrow();
+
+      const retry = await installHolyCodex(frontendRequest, {
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+      });
+      expect(retry.record.status).toBe("active");
+      expect(await readActiveInstallRecord(paths)).toEqual(retry.record);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("persists plugin ownership before a mid-loop failure and recovers it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-mid-plugin-recovery-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const events: string[] = [];
+    const observedOwnedPlugins: string[][] = [];
+    const providerPlugin = "build-web-apps@openai-curated";
+    const manager = configWritingManager(paths, events, false, providerPlugin, async (pluginId) => {
+      if (pluginId !== providerPlugin) return;
+      const preparing = JSON.parse(await readFile(paths.preparingRecord, "utf8")) as {
+        owned_plugins?: string[];
+      };
+      observedOwnedPlugins.push(preparing.owned_plugins ?? []);
+    });
+    const runtime = testRuntime(codexHome);
+    const frontendRequest: InstallRequest = {
+      optional: { frontend: true, security: false },
+    };
+    try {
+      await expect(
+        installHolyCodex(frontendRequest, {
+          paths: { codexHome },
+          officialPluginManager: manager,
+          runtime,
+        }),
+      ).rejects.toMatchObject({ code: "capability_denied" });
+
+      expect(observedOwnedPlugins).toEqual([["holycodex@holycodex"]]);
+      const conflicted = JSON.parse(await readFile(paths.conflictedRecord, "utf8")) as {
+        owned_plugins?: string[];
+      };
+      expect(conflicted.owned_plugins).toEqual(["holycodex@holycodex", providerPlugin]);
+
+      const removal = await removeHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+        resolveConflict: async () => "accept",
+      });
+      expect(removal.reasons).toEqual([]);
+      expect(events).toContain(`remove:${providerPlugin}`);
+      await expect(readFile(paths.conflictedRecord)).rejects.toThrow();
+      await expect(readFile(paths.preparingRecord)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("applies plugin and provider conflict decisions to config and snapshots", async () => {
+    for (const decision of ["keep", "replace"] as const) {
+      const root = await mkdtemp(
+        join(tmpdir(), `holycodex-preflight-plugin-conflict-${decision}-`),
+      );
+      const codexHome = join(root, "codex");
+      const paths = resolveInstallerPaths({ paths: { codexHome } });
+      const manager = configWritingManager(paths);
+      const runtime = testRuntime(codexHome);
+      const frontendRequest: InstallRequest = {
+        optional: { frontend: true, security: false },
+      };
+      try {
+        await installHolyCodex(frontendRequest, {
+          paths: { codexHome },
+          officialPluginManager: manager,
+          runtime,
+        });
+        await writeTestConfigValue(paths, 'plugins."holycodex@holycodex"', { enabled: false });
+        await writeTestConfigValue(paths, "marketplaces.holycodex", {
+          source_type: "git",
+          source: "https://example.test/custom-holycodex.git",
+        });
+        await writeTestConfigValue(paths, 'plugins."build-web-apps@openai-curated"', {
+          enabled: false,
+        });
+        const conflictKeys: string[] = [];
+        const result = await installHolyCodex(frontendRequest, {
+          paths: { codexHome },
+          officialPluginManager: manager,
+          runtime,
+          resolveConflicts: async (conflicts) => {
+            conflictKeys.push(...conflicts.map((conflict) => conflict.key ?? ""));
+            return Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, decision]));
+          },
+        });
+
+        expect(conflictKeys).toEqual(
+          expect.arrayContaining([
+            'plugins."holycodex@holycodex"',
+            "marketplaces.holycodex",
+            'plugins."build-web-apps@openai-curated"',
+          ]),
+        );
+        const serialized = await readFile(paths.configFile, "utf8");
+        const finalConfig = parseConfig(serialized);
+        const expectedEnabled = decision === "replace";
+        expect(readTestConfigEntry(finalConfig, "plugins", "holycodex@holycodex")).toEqual({
+          enabled: expectedEnabled,
+        });
+        expect(
+          readTestConfigEntry(finalConfig, "plugins", "build-web-apps@openai-curated"),
+        ).toEqual({
+          enabled: expectedEnabled,
+        });
+        expect(readTestConfigEntry(finalConfig, "marketplaces", "holycodex")).toEqual(
+          decision === "replace"
+            ? {
+                source_type: "git",
+                source: "https://github.com/davidbasilefilho/holycodex.git",
+              }
+            : {
+                source_type: "git",
+                source: "https://example.test/custom-holycodex.git",
+              },
+        );
+        expect(serialized).toContain(
+          decision === "replace"
+            ? "https://github.com/davidbasilefilho/holycodex.git"
+            : "https://example.test/custom-holycodex.git",
+        );
+
+        const pluginConfig = result.record.plugin_config;
+        const providerConfig = result.record.provider_config?.find(
+          (entry) => entry.plugin_id === "build-web-apps@openai-curated",
+        );
+        if (pluginConfig === undefined || providerConfig === undefined) {
+          throw new Error("The persisted plugin/provider config snapshots are missing.");
+        }
+        expect(pluginConfig.before.preference.safe_value).toEqual(
+          decision === "replace" ? undefined : { kind: "boolean", value: false },
+        );
+        expect(pluginConfig.after.preference.safe_value).toEqual({
+          kind: "boolean",
+          value: expectedEnabled,
+        });
+        if (decision === "keep") {
+          expect(pluginConfig.before.marketplace.digest).toBe(
+            pluginConfig.after.marketplace.digest,
+          );
+        } else {
+          expect(pluginConfig.before.marketplace.digest).not.toBe(
+            pluginConfig.after.marketplace.digest,
+          );
+        }
+        expect(providerConfig.before.safe_value).toEqual(
+          decision === "replace" ? undefined : { kind: "boolean", value: false },
+        );
+        expect(providerConfig.after.safe_value).toEqual({
+          kind: "boolean",
+          value: expectedEnabled,
+        });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
     }
   }, 30_000);
 });

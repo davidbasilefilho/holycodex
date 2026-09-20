@@ -58,6 +58,21 @@ export type DevelopmentVersion = typeof DevelopmentVersionSchema.Type;
 export const ReleaseVersionSchema = Schema.Union(CanonicalVersionSchema, DevelopmentVersionSchema);
 export type ReleaseVersion = typeof ReleaseVersionSchema.Type;
 
+type ReleaseSuffix =
+  | Readonly<{
+      readonly kind: "development";
+      readonly runNumber: string;
+      readonly runAttempt: string;
+    }>
+  | Readonly<{ readonly kind: "base" }>
+  | Readonly<{ readonly kind: "numeric"; readonly value: string }>;
+
+type ReleaseVersionParts = Readonly<{
+  readonly minor: string;
+  readonly patch: string;
+  readonly suffix: ReleaseSuffix;
+}>;
+
 /** Remove a canonical version's optional numeric release suffix. */
 export function canonicalBaseVersion(value: string): BaseVersion {
   const canonical = decodeCanonicalVersion(value);
@@ -71,6 +86,17 @@ export function canonicalBaseVersion(value: string): BaseVersion {
   return base;
 }
 
+/** Compare two canonical or development release versions using exact decimal ordering. */
+export function compareReleaseVersions(left: ReleaseVersion, right: ReleaseVersion): -1 | 0 | 1 {
+  const leftParts = releaseVersionParts(left);
+  const rightParts = releaseVersionParts(right);
+  const minorOrdering = compareDecimalText(leftParts.minor, rightParts.minor);
+  if (minorOrdering !== 0) return minorOrdering;
+  const patchOrdering = compareDecimalText(leftParts.patch, rightParts.patch);
+  if (patchOrdering !== 0) return patchOrdering;
+  return compareReleaseSuffixes(leftParts.suffix, rightParts.suffix);
+}
+
 /** Resolve an explicit canonical version or the next patch or minor version. */
 export function resolveCanonicalVersion(target: string, current: string): CanonicalVersion {
   const currentBase = canonicalBaseVersion(current);
@@ -82,7 +108,62 @@ export function resolveCanonicalVersion(target: string, current: string): Canoni
   }
 
   const [, minorText, patchText] = currentBase.split(".");
-  const minor = Number(minorText);
-  const patch = Number(patchText);
-  return target === "minor" ? `0.${minor + 1}.0` : `0.${minor}.${patch + 1}`;
+  if (minorText === undefined || patchText === undefined) {
+    throw new Error(`The canonical version ${current} has an invalid base version.`);
+  }
+  const minor = BigInt(minorText);
+  const patch = BigInt(patchText);
+  return target === "minor" ? `0.${minor + 1n}.0` : `0.${minor}.${patch + 1n}`;
+}
+
+function releaseVersionParts(value: ReleaseVersion): ReleaseVersionParts {
+  const [base, suffix] = value.split("-", 2);
+  const baseParts = base?.split(".");
+  const minor = baseParts?.[1];
+  const patch = baseParts?.[2];
+  if (minor === undefined || patch === undefined) {
+    throw new Error(`The release version ${value} has an invalid base version.`);
+  }
+  if (suffix === undefined) return { minor, patch, suffix: { kind: "base" } };
+  if (suffix.startsWith("dev.")) {
+    const [, runNumber, runAttempt] = suffix.split(".");
+    if (runNumber === undefined || runAttempt === undefined) {
+      throw new Error(`The development version ${value} has an invalid release suffix.`);
+    }
+    return {
+      minor,
+      patch,
+      suffix: { kind: "development", runNumber, runAttempt },
+    };
+  }
+  return { minor, patch, suffix: { kind: "numeric", value: suffix } };
+}
+
+function compareDecimalText(left: string, right: string): -1 | 0 | 1 {
+  const leftNumber = BigInt(left);
+  const rightNumber = BigInt(right);
+  if (leftNumber < rightNumber) return -1;
+  if (leftNumber > rightNumber) return 1;
+  return 0;
+}
+
+function compareReleaseSuffixes(left: ReleaseSuffix, right: ReleaseSuffix): -1 | 0 | 1 {
+  const leftRank = releaseSuffixRank(left);
+  const rightRank = releaseSuffixRank(right);
+  if (leftRank < rightRank) return -1;
+  if (leftRank > rightRank) return 1;
+  if (left.kind === "numeric" && right.kind === "numeric") {
+    return compareDecimalText(left.value, right.value);
+  }
+  if (left.kind === "development" && right.kind === "development") {
+    const runOrdering = compareDecimalText(left.runNumber, right.runNumber);
+    return runOrdering === 0 ? compareDecimalText(left.runAttempt, right.runAttempt) : runOrdering;
+  }
+  return 0;
+}
+
+function releaseSuffixRank(suffix: ReleaseSuffix): 0 | 1 | 2 {
+  if (suffix.kind === "development") return 0;
+  if (suffix.kind === "base") return 1;
+  return 2;
 }

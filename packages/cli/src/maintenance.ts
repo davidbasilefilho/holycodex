@@ -14,7 +14,7 @@ import {
   type TomlDocument,
   type LiveOfficialPluginListEnvelope,
 } from "@holycodex/codex";
-import { pluginIdsForOptionalCapabilities } from "@holycodex/core";
+import { compareReleaseVersions, pluginIdsForOptionalCapabilities } from "@holycodex/core";
 
 import {
   HOLYCODEX_PLUGIN,
@@ -755,7 +755,7 @@ export async function upgradeHolyCodex(
       error,
     );
   }
-  const ordering = compareVersions(targetVersion, source.version);
+  const ordering = compareReleaseVersions(targetVersion, source.version);
   if (ordering < 0) {
     throw new InstallerError(
       "upgrade_downgrade",
@@ -888,20 +888,6 @@ export async function upgradeHolyCodex(
   }
 }
 
-function compareVersions(left: string, right: string): -1 | 0 | 1 {
-  const a = versionParts(left);
-  const b = versionParts(right);
-  for (let index = 0; index < 3; index += 1) {
-    if ((a[index] ?? 0) < (b[index] ?? 0)) return -1;
-    if ((a[index] ?? 0) > (b[index] ?? 0)) return 1;
-  }
-  const aSuffix = releaseSuffix(left);
-  const bSuffix = releaseSuffix(right);
-  if (aSuffix < bSuffix) return -1;
-  if (aSuffix > bSuffix) return 1;
-  return 0;
-}
-
 function additionalPluginsFromRecord(
   record: Pick<InstallRecord, "official_plugins" | "optional_selections">,
 ): readonly string[] {
@@ -923,26 +909,6 @@ function sameInstallOptions(left: InstallRequest, right: InstallRequest): boolea
     leftPlugins.length === rightPlugins.length &&
     leftPlugins.every((pluginId, index) => pluginId === rightPlugins[index])
   );
-}
-
-function versionParts(value: string): readonly number[] {
-  const base = value.split("-", 1)[0] ?? value;
-  return base
-    .split(".")
-    .slice(0, 3)
-    .map((part) => {
-      const parsed = Number(part);
-      return Number.isSafeInteger(parsed) ? parsed : 0;
-    });
-}
-
-function releaseSuffix(value: string): number {
-  const suffix = value.split("-", 2)[1];
-  if (suffix === undefined) return 0;
-  const numeric = Number(suffix);
-  if (Number.isSafeInteger(numeric)) return numeric;
-  if (suffix.startsWith("dev.")) return -1;
-  return 0;
 }
 
 async function resolveRemovalConflicts(
