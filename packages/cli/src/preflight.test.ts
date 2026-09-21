@@ -24,6 +24,7 @@ import type {
 } from "./index.ts";
 import {
   assertInstallTransactionState,
+  assertRemovalTransactionState,
   diagnoseInstallTransactions,
   parseConfig,
   serializeConfig,
@@ -239,6 +240,28 @@ describe("installer preflight", () => {
     );
     expect(incompatible.every((diagnosis) => diagnosis.relation === "incompatible")).toBe(true);
     expect(incompatible.every((diagnosis) => diagnosis.recovery === "inspect")).toBe(true);
+
+    const recoverable = diagnoseInstallTransactions(
+      undefined,
+      { install_id: "same", digest: "same" },
+      { install_id: "same", digest: "same" },
+    );
+    expect(recoverable.every((diagnosis) => diagnosis.relation === "orphaned")).toBe(true);
+    expect(recoverable.every((diagnosis) => diagnosis.recovery === "reconcile")).toBe(true);
+    expect(() =>
+      assertInstallTransactionState(
+        undefined,
+        { install_id: "same", digest: "same" },
+        { install_id: "same", digest: "same" },
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertRemovalTransactionState(
+        undefined,
+        { install_id: "same", digest: "same" },
+        { install_id: "same", digest: "same" },
+      ),
+    ).not.toThrow();
   });
 
   test("reports stale state before mutation and exposes recovery in doctor", async () => {

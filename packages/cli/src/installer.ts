@@ -284,14 +284,17 @@ export function diagnoseInstallTransactions(
       entry.record !== undefined,
   );
   const multiple = transactions.length > 1;
+  const matchingJournals =
+    multiple &&
+    transactions.every(({ record }) => isTransactionBoundToActive(record, transactions[0]!.record));
   return transactions.map(({ status, record }) => {
     const relation =
       active === undefined
-        ? multiple
+        ? multiple && !matchingJournals
           ? "incompatible"
           : "orphaned"
         : isTransactionBoundToActive(record, active)
-          ? multiple
+          ? multiple && !matchingJournals
             ? "incompatible"
             : "bound"
           : "stale";
@@ -668,12 +671,34 @@ export async function installHolyCodex(
         }
       : {}),
   });
+  const previousDesiredConfig =
+    previous === undefined
+      ? undefined
+      : desiredRootConfig(previous.profile, previous.tier, {
+          computerUse: previous.optional_selections.computer_use,
+          frontend: previous.optional_selections.frontend,
+          security: previous.optional_selections.security,
+          ...(runtime.platform === "win32"
+            ? {
+                windowsGitBashExecutable:
+                  previous.tooling?.git_bash.status === "healthy"
+                    ? previous.tooling.git_bash.path
+                    : WINDOWS_GIT_BASH,
+              }
+            : {}),
+        });
+  const desiredConfigWithPersistedManagedValues = await preserveManagedConfigDecisions(
+    configDocument,
+    currentManagedConfig,
+    desiredConfig,
+    previousDesiredConfig,
+  );
   let mergedConfig: Awaited<ReturnType<typeof mergeManagedRuntimeConfig>>;
   try {
     mergedConfig = await mergeManagedRuntimeConfig(
       configDocument,
       currentManagedConfig,
-      desiredConfig,
+      desiredConfigWithPersistedManagedValues,
       { schema: STATE_SCHEMA_EPOCH, installId },
     );
   } catch (error: unknown) {
@@ -734,7 +759,7 @@ export async function installHolyCodex(
   );
   let acceptedNativeConflicts: readonly ManagedConflict[] = [];
   let resolvedDesiredConfig: Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> = {
-    ...desiredConfig,
+    ...desiredConfigWithPersistedManagedValues,
   };
   let resolvedManagedConfig = currentManagedConfig.managed;
   const applyResolvedConflictDecisions = async (): Promise<void> => {
@@ -758,7 +783,7 @@ export async function installHolyCodex(
     providerConfigBefore = acceptedPluginConfig.providerConfigBefore;
     const acceptedManaged = { ...currentManagedConfig.managed };
     const effectiveDesiredConfig: Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> = {
-      ...desiredConfig,
+      ...desiredConfigWithPersistedManagedValues,
     };
     for (const conflict of managedConfigConflicts) {
       const key = conflict.key;
@@ -792,7 +817,6 @@ export async function installHolyCodex(
         };
       } else if (live === undefined) {
         delete effectiveDesiredConfig[configKey];
-        delete acceptedManaged[configKey];
       } else {
         effectiveDesiredConfig[configKey] = live as ManagedConfigWriteValue;
         acceptedManaged[configKey] = {
@@ -816,12 +840,8 @@ export async function installHolyCodex(
       const key = conflict.key as ManagedConfigKeyPath | undefined;
       if (key === undefined) continue;
       const live = readTomlPath(configDocument, key);
-      if (live === undefined) {
-        delete stabilityManaged[key];
-        continue;
-      }
       const existing = stabilityManaged[key];
-      if (existing !== undefined) {
+      if (existing !== undefined && live !== undefined) {
         stabilityManaged[key] = {
           ...existing,
           lastManagedValue: await summarizeManagedConfigValue(key, live),
@@ -1181,12 +1201,11 @@ export async function installHolyCodex(
     for (const [rawKeyPath, entry] of Object.entries(resolvedManagedConfig)) {
       const keyPath = rawKeyPath as ManagedConfigKeyPath;
       const value = readTomlPath(configBeforeMutationDocument, keyPath);
-      if (value === undefined) {
-        continue;
-      }
       postPluginBaselineManaged[keyPath] = {
         ...entry,
-        lastManagedValue: await summarizeManagedConfigValue(keyPath, value),
+        ...(value === undefined
+          ? {}
+          : { lastManagedValue: await summarizeManagedConfigValue(keyPath, value) }),
       };
     }
     const postPluginBaseline: ManagedRuntimeConfigState = {
@@ -2012,6 +2031,35 @@ function preserveConfigConflictEntry(
   }
   const value = readTomlPath(preservationDocument, key);
   return value === undefined ? deleteTomlPath(document, key) : writeTomlPath(document, key, value);
+}
+
+async function preserveManagedConfigDecisions(
+  document: TomlDocument,
+  current: ManagedRuntimeConfigState,
+  desired: Readonly<Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>>,
+  previousDesired:
+    | Readonly<Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>>
+    | undefined,
+): Promise<Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>> {
+  const effective = { ...desired };
+  if (previousDesired === undefined) return effective;
+  for (const rawKeyPath of Object.keys(desired)) {
+    const keyPath = rawKeyPath as ManagedConfigKeyPath;
+    const existing = current.managed[keyPath];
+    const previousValue = previousDesired[keyPath];
+    if (existing === undefined || previousValue === undefined) continue;
+    const previousSummary = await summarizeManagedConfigValue(keyPath, previousValue);
+    if (JSON.stringify(previousSummary) === JSON.stringify(existing.lastManagedValue)) continue;
+    const live = readTomlPath(document, keyPath);
+    if (typeof live !== "string" && typeof live !== "number" && typeof live !== "boolean") {
+      continue;
+    }
+    const liveSummary = await summarizeManagedConfigValue(keyPath, live);
+    if (JSON.stringify(liveSummary) === JSON.stringify(existing.lastManagedValue)) {
+      effective[keyPath] = live;
+    }
+  }
+  return effective;
 }
 
 /** Build the complete managed Root and canonical-agent runtime projection. */

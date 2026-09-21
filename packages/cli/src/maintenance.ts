@@ -968,13 +968,13 @@ async function doctorRuntimeConfig(
         : {}),
     });
     const drift: string[] = [];
-    for (const [keyPath, value] of Object.entries(expected)) {
+    for (const keyPath of Object.keys(expected)) {
       const comparison = await compareManagedConfigKey(
         document,
         active.managed_config,
         keyPath as ManagedConfigKeyPath,
       );
-      if (comparison.status !== "unchanged" || readTomlPath(document, keyPath) !== value) {
+      if (comparison.status !== "unchanged") {
         drift.push(keyPath);
       }
     }

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import {
   installHolyCodex,
   installRecordDigest,
+  doctorHolyCodex,
   readActiveInstallRecord,
   readInstallationVersion,
   resolveInstallerPaths,
@@ -313,6 +314,54 @@ describe("command install and upgrade review flow", () => {
       expect(finalConfig).toContain('model = "gpt-5.6-terra"');
       expect(finalConfig).toContain("context_management = true");
       expect(finalConfig).toContain('unrelated = "keep"');
+
+      rewriteOnAdd = false;
+      await installHolyCodex(
+        { optional: { frontend: false, security: false, computer_use: false } },
+        {
+          ...installerOptions(codexHome, manager),
+          reviewInstall: async () => ({ action: "apply" }),
+        },
+        fakeEnvironment,
+      );
+      const reinstalledConfig = await readFile(paths.configFile, "utf8");
+      expect(reinstalledConfig).toContain('model = "gpt-5.6-terra"');
+      expect(reinstalledConfig).toContain("context_management = true");
+      expect(reinstalledConfig).toContain('unrelated = "keep"');
+      expect(
+        (
+          await doctorHolyCodex({
+            paths: { codexHome },
+            officialPluginManager: manager,
+            runtime: testRuntime(codexHome),
+          })
+        ).healthy,
+      ).toBe(true);
+
+      await writeFile(paths.configFile, reinstalledConfig.replace('model = "gpt-5.6-terra"\n', ""));
+      await installHolyCodex(
+        { optional: { frontend: false, security: false, computer_use: false } },
+        {
+          ...installerOptions(codexHome, manager),
+          resolveConflicts: async (conflicts) =>
+            Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"])),
+          reviewInstall: async () => ({ action: "apply" }),
+        },
+        fakeEnvironment,
+      );
+      const missingConfig = await readFile(paths.configFile, "utf8");
+      expect(missingConfig).not.toContain("model = ");
+      expect(
+        (await readActiveInstallRecord(paths))?.managed_config?.managed["model"],
+      ).toBeDefined();
+      const missingDoctor = await doctorHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime: testRuntime(codexHome),
+      });
+      expect(missingDoctor.healthy).toBe(false);
+      expect(missingDoctor.checks["runtime_config"]?.reasons).toContain("changed_holycodex_config");
+      expect(missingDoctor.checks["runtime_config"]?.details["keys"]).toContain("model");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

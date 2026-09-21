@@ -312,17 +312,65 @@ describe("holycodex-agent", () => {
         summary: "Invocation identity without capability",
       }),
     ]);
-    expect(missingCapability.exitCode).toBe(2);
-    expect(JSON.parse(missingCapability.stderr)).toMatchObject({
-      ok: false,
-      error: { code: "invalid_input" },
+    expect(missingCapability.exitCode).toBe(0);
+    expect(JSON.parse(missingCapability.stdout)).toMatchObject({
+      ok: true,
+      data: { assignment: { status: "completed" } },
     });
 
-    const idAndCapabilityFreeText = (await readFile(assignmentPath, "utf8")).replace(
-      /^active_invocation_id:.*\r?\n?/mu,
-      "",
+    const legacyResultData = JSON.parse(missingCapability.stdout).data as {
+      readonly intent: { readonly revision: number };
+    };
+    const legacyWithoutIdentityCreated = await runAgent(cwd, [
+      "assignment",
+      "create",
+      "--intent",
+      intent.id,
+      "--revision",
+      String(legacyResultData.intent.revision),
+      "--input",
+      JSON.stringify({
+        id: "legacy-result-without-identity",
+        objective: "Complete an executing legacy record without invocation identity",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["README.md"],
+        acceptanceCriteria: ["proof"],
+      }),
+    ]);
+    expect(legacyWithoutIdentityCreated.exitCode).toBe(0);
+    const legacyWithoutIdentity = JSON.parse(legacyWithoutIdentityCreated.stdout).data as {
+      readonly id: string;
+      readonly revision: number;
+    };
+    const legacyWithoutIdentityStarted = await runAgent(cwd, [
+      "assignment",
+      "start",
+      "--intent",
+      intent.id,
+      "--assignment",
+      legacyWithoutIdentity.id,
+      "--revision",
+      String(legacyWithoutIdentity.revision),
+    ]);
+    expect(legacyWithoutIdentityStarted.exitCode).toBe(0);
+    const runningLegacyWithoutIdentity = JSON.parse(legacyWithoutIdentityStarted.stdout).data as {
+      readonly revision: number;
+      readonly active_invocation_id?: string;
+      readonly active_invocation_capability?: string;
+    };
+    expect(runningLegacyWithoutIdentity.active_invocation_id).toBeDefined();
+    expect(runningLegacyWithoutIdentity.active_invocation_capability).toMatch(/^[a-f0-9]{64}$/u);
+    const legacyWithoutIdentityPath = join(
+      cwd,
+      ".holycodex",
+      intentDirectory,
+      "assignments",
+      `${legacyWithoutIdentity.id}.toon`,
     );
-    await writeFile(assignmentPath, idAndCapabilityFreeText, "utf8");
+    const idAndCapabilityFreeText = (await readFile(legacyWithoutIdentityPath, "utf8"))
+      .replace(/^active_invocation_id:.*\r?\n?/mu, "")
+      .replace(/^active_invocation_capability:.*\r?\n?/mu, "");
+    await writeFile(legacyWithoutIdentityPath, idAndCapabilityFreeText, "utf8");
 
     const legacyResult = await runAgent(cwd, [
       "assignment",
@@ -330,19 +378,19 @@ describe("holycodex-agent", () => {
       "--intent",
       intent.id,
       "--assignment",
-      legacyAssignment.id,
+      legacyWithoutIdentity.id,
       "--revision",
-      String(runningLegacy.revision),
+      String(runningLegacyWithoutIdentity.revision),
       "--input",
       JSON.stringify({
         outcome: "completed",
         summary: "Legacy capability-free result",
       }),
     ]);
-    expect(legacyResult.exitCode).toBe(2);
-    expect(JSON.parse(legacyResult.stderr)).toMatchObject({
-      ok: false,
-      error: { code: "invalid_input" },
+    expect(legacyResult.exitCode).toBe(0);
+    expect(JSON.parse(legacyResult.stdout)).toMatchObject({
+      ok: true,
+      data: { assignment: { status: "completed" } },
     });
   });
 });

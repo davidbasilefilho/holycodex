@@ -696,6 +696,62 @@ describe("IntentStore", () => {
     expect(result.assignment.active_invocation_capability).toBeUndefined();
   });
 
+  test("recovers a legacy executing Assignment without a persisted capability", async () => {
+    const { root, store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Legacy invocation recovery",
+      goal: "Finish work started before invocation capabilities existed",
+      acceptanceCriteria: ["proof"],
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Complete a legacy executing Assignment",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    const invocationId = running.active_invocation_id;
+    if (invocationId === undefined) throw new Error("startAssignment did not issue an invocation");
+
+    const directory = (await readdir(join(root, ".holycodex"))).find(
+      (entry) => entry !== "current",
+    );
+    if (directory === undefined) throw new Error("Intent directory was not created");
+    const assignmentPath = join(
+      root,
+      ".holycodex",
+      directory,
+      "assignments",
+      `${assignment.id}.toon`,
+    );
+    const persisted = await readFile(assignmentPath, "utf8");
+    await writeFile(
+      assignmentPath,
+      persisted.replace(/^active_invocation_capability:.*\r?\n?/mu, ""),
+      "utf8",
+    );
+
+    await expect(
+      store.recordSpecialistAssignmentResult(intent.id, assignment.id, running.revision, {
+        invocationId,
+        outcome: "completed",
+        summary: "Capability-free specialist result",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+
+    const result = await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
+      invocationId,
+      outcome: "completed",
+      summary: "Recovered legacy result",
+    });
+    expect(result.assignment.status).toBe("completed");
+    expect(result.assignment.invocations[0]?.id).toBe(invocationId);
+  });
+
   test("atomically supersedes one unfinished related Assignment and removes its blocker", async () => {
     const { store, root } = await fixture();
     const intent = await store.createIntent({
