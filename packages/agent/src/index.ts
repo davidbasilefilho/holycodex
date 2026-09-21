@@ -167,6 +167,8 @@ async function execute(
       const activeAssignment = await store.readAssignment(reference, assignment);
       if (
         activeAssignment.status === "executing" &&
+        activeAssignment.active_invocation_id === undefined &&
+        activeAssignment.active_started_at === undefined &&
         activeAssignment.active_invocation_capability === undefined
       ) {
         return await store.recordAssignmentResult(reference, assignment, expectedRevision, result);

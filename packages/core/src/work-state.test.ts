@@ -731,7 +731,10 @@ describe("IntentStore", () => {
     const persisted = await readFile(assignmentPath, "utf8");
     await writeFile(
       assignmentPath,
-      persisted.replace(/^active_invocation_capability:.*\r?\n?/mu, ""),
+      persisted
+        .replace(/^active_invocation_id:.*\r?\n?/mu, "")
+        .replace(/^active_started_at:.*\r?\n?/mu, "")
+        .replace(/^active_invocation_capability:.*\r?\n?/mu, ""),
       "utf8",
     );
 
@@ -744,12 +747,11 @@ describe("IntentStore", () => {
     ).rejects.toMatchObject({ code: "invalid_input" });
 
     const result = await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
-      invocationId,
       outcome: "completed",
       summary: "Recovered legacy result",
     });
     expect(result.assignment.status).toBe("completed");
-    expect(result.assignment.invocations[0]?.id).toBe(invocationId);
+    expect(result.assignment.invocations[0]?.id).toBe("invocation-001");
   });
 
   test("atomically supersedes one unfinished related Assignment and removes its blocker", async () => {

@@ -156,12 +156,13 @@ function installRequestFromParsed(parsed: ParsedCommand): InstallRequest {
   const profile = optionProfile(parsed);
   const tier = optionTier(parsed);
   const optional = optionalSelections(parsed);
-  const officialPlugins = optionStrings(parsed, "add-plugin");
+  const officialPlugins =
+    parsed.options["add-plugin"] === undefined ? undefined : optionStrings(parsed, "add-plugin");
   return validateInstallOptions({
     ...(profile === undefined ? {} : { profile }),
     ...(tier === undefined ? {} : { tier }),
     ...(optional === undefined ? {} : { optional }),
-    ...(officialPlugins.length === 0 ? {} : { officialPlugins }),
+    ...(officialPlugins === undefined ? {} : { officialPlugins }),
   });
 }
 
@@ -222,13 +223,17 @@ async function executeUpgrade(parsed: ParsedCommand, context: CliContext) {
       if (choice.action === "keep") {
         upgradeOptions = current.request;
       } else {
-        const changed = await (context.io?.installWizard ?? runOpenTuiInstallWizard)(
-          current.request,
-        );
-        if (changed.action === "cancel") {
-          return { cancelled: true, status: "cancelled", changes: [] };
+        if (choice.request !== undefined) {
+          upgradeOptions = validateInstallOptions(choice.request);
+        } else {
+          const changed = await (context.io?.installWizard ?? runOpenTuiInstallWizard)(
+            current.request,
+          );
+          if (changed.action === "cancel") {
+            return { cancelled: true, status: "cancelled", changes: [] };
+          }
+          upgradeOptions = validateInstallOptions(changed.request);
         }
-        upgradeOptions = validateInstallOptions(changed.request);
       }
     } else {
       const confirmationResult = await confirmation(

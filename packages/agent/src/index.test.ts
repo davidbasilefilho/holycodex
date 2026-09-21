@@ -297,6 +297,61 @@ describe("holycodex-agent", () => {
       "utf8",
     );
 
+    const modernMissingCapability = await runAgent(cwd, [
+      "assignment",
+      "result",
+      "--intent",
+      intent.id,
+      "--assignment",
+      legacyAssignment.id,
+      "--revision",
+      String(runningLegacy.revision),
+      "--input",
+      JSON.stringify({
+        invocationId: runningLegacy.active_invocation_id,
+        outcome: "completed",
+        summary: "Missing persisted capability",
+      }),
+    ]);
+    expect(modernMissingCapability.exitCode).toBe(2);
+    expect(JSON.parse(modernMissingCapability.stderr)).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input" },
+    });
+
+    const legacyWithoutIdentityText = (await readFile(assignmentPath, "utf8")).replace(
+      /^active_invocation_id:.*\r?\n?/mu,
+      "",
+    );
+    await writeFile(assignmentPath, legacyWithoutIdentityText, "utf8");
+
+    const tamperedModern = await runAgent(cwd, [
+      "assignment",
+      "result",
+      "--intent",
+      intent.id,
+      "--assignment",
+      legacyAssignment.id,
+      "--revision",
+      String(runningLegacy.revision),
+      "--input",
+      JSON.stringify({
+        outcome: "completed",
+        summary: "Tampered modern result",
+      }),
+    ]);
+    expect(tamperedModern.exitCode).toBe(2);
+    expect(JSON.parse(tamperedModern.stderr)).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input" },
+    });
+
+    const legacyTextWithoutInvocationProvenance = (await readFile(assignmentPath, "utf8")).replace(
+      /^active_started_at:.*\r?\n?/mu,
+      "",
+    );
+    await writeFile(assignmentPath, legacyTextWithoutInvocationProvenance, "utf8");
+
     const missingCapability = await runAgent(cwd, [
       "assignment",
       "result",
@@ -309,7 +364,7 @@ describe("holycodex-agent", () => {
       "--input",
       JSON.stringify({
         outcome: "completed",
-        summary: "Invocation identity without capability",
+        summary: "Legacy capability-free result",
       }),
     ]);
     expect(missingCapability.exitCode).toBe(0);
@@ -369,6 +424,7 @@ describe("holycodex-agent", () => {
     );
     const idAndCapabilityFreeText = (await readFile(legacyWithoutIdentityPath, "utf8"))
       .replace(/^active_invocation_id:.*\r?\n?/mu, "")
+      .replace(/^active_started_at:.*\r?\n?/mu, "")
       .replace(/^active_invocation_capability:.*\r?\n?/mu, "");
     await writeFile(legacyWithoutIdentityPath, idAndCapabilityFreeText, "utf8");
 

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  executeCommand,
   installHolyCodex,
   installRecordDigest,
   doctorHolyCodex,
@@ -24,6 +25,7 @@ import type {
   InstallerRuntime,
   CliIo,
   OfficialPluginManager,
+  ParsedCommand,
 } from "./index.ts";
 
 const fakeEnvironment = { PATH: "/fake/bin" } as const;
@@ -170,6 +172,34 @@ function commandContext(codexHome: string, manager: OfficialPluginManager, io: C
 }
 
 describe("command install and upgrade review flow", () => {
+  test("keeps an explicitly empty parsed plugin selection empty", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-empty-plugins-"));
+    const codexHome = join(root, "codex");
+    let initialRequest: InstallRequest | undefined;
+    try {
+      const parsed: ParsedCommand = {
+        command: "install",
+        positionals: [],
+        options: { "add-plugin": [], "codex-home": codexHome },
+      };
+      const result = await executeCommand(
+        parsed,
+        commandContext(codexHome, fakeManager(), {
+          stdoutIsTTY: true,
+          stderrIsTTY: true,
+          installWizard: async (current) => {
+            initialRequest = current;
+            return { action: "cancel" };
+          },
+        }),
+      );
+      expect(initialRequest).toEqual({ officialPlugins: [] });
+      expect(result).toEqual({ cancelled: true });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("keeps JSON and non-TTY mutations out of the review UI while --yes applies", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-gates-"));
     const codexHome = join(root, "codex");
@@ -315,7 +345,7 @@ describe("command install and upgrade review flow", () => {
       expect(finalConfig).toContain("context_management = true");
       expect(finalConfig).toContain('unrelated = "keep"');
 
-      rewriteOnAdd = false;
+      await manager.remove?.("holycodex@holycodex");
       await installHolyCodex(
         { optional: { frontend: false, security: false, computer_use: false } },
         {
@@ -426,6 +456,58 @@ describe("command install and upgrade review flow", () => {
         optional: { frontend: true, security: false, computer_use: false },
         officialPlugins: [additionalPlugin],
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("honors an upgrade choice request without reopening the install wizard", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-upgrade-request-"));
+    const manager = fakeManager({ initial: { [additionalPlugin]: "available" } });
+    try {
+      const { codexHome } = await seedInstall(
+        root,
+        {
+          profile: "high",
+          tier: "fast",
+          optional: { frontend: false, security: false, computer_use: false },
+          officialPlugins: [additionalPlugin],
+        },
+        manager,
+      );
+      await makeLegacy(codexHome);
+      const request: InstallRequest = {
+        profile: "low",
+        tier: "standard",
+        optional: { frontend: true, security: false, computer_use: false },
+        officialPlugins: [],
+      };
+      let installWizardCalls = 0;
+      let reviewRequest: InstallRequest | undefined;
+      const result = await runCli(
+        ["upgrade", "--codex-home", codexHome],
+        commandContext(codexHome, manager, {
+          stdoutIsTTY: true,
+          stderrIsTTY: true,
+          upgradeWizard: async () => ({ action: "change", request }),
+          installWizard: async (current) => {
+            installWizardCalls += 1;
+            return { action: "install", request: current };
+          },
+          installReview: async (review) => {
+            reviewRequest = {
+              profile: review.profile,
+              tier: review.tier,
+              optional: review.capabilities,
+              officialPlugins: review.additionalPlugins,
+            };
+            return { action: "apply" };
+          },
+        }),
+      );
+      expect(result.exitCode).toBe(0);
+      expect(installWizardCalls).toBe(0);
+      expect(reviewRequest).toEqual(request);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

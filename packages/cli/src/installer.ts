@@ -1164,9 +1164,8 @@ export async function installHolyCodex(
         "The pre-mutation configuration baseline is missing.",
       );
     }
-    for (const conflict of managedConfigConflicts) {
-      const keyPath = conflict.key as ManagedConfigKeyPath | undefined;
-      if (keyPath === undefined) continue;
+    for (const rawKeyPath of Object.keys(resolvedManagedConfig)) {
+      const keyPath = rawKeyPath as ManagedConfigKeyPath;
       const acceptedValue = readTomlPath(configBeforeMutationDocument, keyPath);
       stablePostPluginDocument =
         acceptedValue === undefined

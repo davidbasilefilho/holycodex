@@ -927,15 +927,12 @@ export function applyWizardConfigurationKey(
 
 /** Create the complete validated install options represented by wizard state. */
 export function toInstallOptions(state: Readonly<WizardState>): InstallOptions {
-  const request: InstallRequest =
-    state.plugins.length > 0
-      ? {
-          profile: state.profile,
-          tier: state.tier,
-          optional: { ...state.optional },
-          officialPlugins: [...state.plugins],
-        }
-      : { profile: state.profile, tier: state.tier, optional: { ...state.optional } };
+  const request: InstallRequest = {
+    profile: state.profile,
+    tier: state.tier,
+    optional: { ...state.optional },
+    officialPlugins: [...state.plugins],
+  };
   return validateInstallOptions(request);
 }
 
