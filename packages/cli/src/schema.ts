@@ -2,7 +2,7 @@
 
 import { ManagedRuntimeConfigStateSchema } from "@holycodex/codex";
 import {
-  CanonicalVersionSchema,
+  ReleaseVersionSchema,
   decodeUnknown,
   OptionalCapabilityNameSchema,
   ProfileNameSchema,
@@ -22,7 +22,7 @@ export const JsonObjectSchema = Schema.declare(
 );
 export const JsonValueSchema = Schema.declare(isJsonValue);
 /** The persisted and detected package version, including a release suffix. */
-export const VersionSchema = CanonicalVersionSchema;
+export const VersionSchema = ReleaseVersionSchema;
 /** Versions reported by external tools such as Context7 may use their own semver line. */
 const ToolVersionSchema = Schema.String.pipe(
   Schema.pattern(/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u),

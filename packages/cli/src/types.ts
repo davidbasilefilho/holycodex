@@ -4,7 +4,7 @@ import type { ManagedRuntimeConfigState } from "@holycodex/codex";
 import type { LiveOfficialPluginListEnvelope } from "@holycodex/codex";
 import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
 import type {
-  CanonicalVersion,
+  ReleaseVersion,
   CliEnvelope,
   JsonObject,
   OptionalCapabilityName,
@@ -63,7 +63,7 @@ export interface InstallRecord {
   readonly owner: "holycodex";
   readonly schema_epoch: typeof STATE_SCHEMA_EPOCH;
   readonly install_id: string;
-  readonly version: CanonicalVersion;
+  readonly version: ReleaseVersion;
   readonly digest: string;
   readonly profile: ProfileName;
   readonly tier: ServiceTier;
@@ -254,8 +254,8 @@ export type InstallReviewTool = Readonly<{
 /** The complete, read-only plan presented immediately before a managed transaction. */
 export type InstallReview = Readonly<{
   readonly operation: "install" | "upgrade";
-  readonly fromVersion?: string | undefined;
-  readonly toVersion: string;
+  readonly fromVersion?: ReleaseVersion | undefined;
+  readonly toVersion: ReleaseVersion;
   readonly profile: ProfileName;
   readonly tier: ServiceTier;
   readonly capabilities: Readonly<Record<OptionalCapabilityName, boolean>>;
@@ -310,8 +310,8 @@ export interface UpgradeRequest {
 
 export interface UpgradeResult {
   readonly status: "upgraded" | "current" | "dry_run";
-  readonly from_version: string;
-  readonly to_version: string;
+  readonly from_version: ReleaseVersion;
+  readonly to_version: ReleaseVersion;
   readonly changes: readonly string[];
   readonly record?: InstallRecord | undefined;
   readonly preserved: readonly string[];
@@ -347,8 +347,8 @@ export interface CliIo {
   /** Injectable native upgrade choice boundary used by tests and embedders. */
   readonly upgradeWizard?: (
     current: InstallRequest,
-    fromVersion: string,
-    toVersion: string,
+    fromVersion: ReleaseVersion,
+    toVersion: ReleaseVersion,
   ) => Promise<UpgradeWizardResult>;
   /** Injectable final install or upgrade review boundary used by tests and embedders. */
   readonly installReview?: InstallReviewResolver;

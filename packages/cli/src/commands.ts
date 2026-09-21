@@ -8,6 +8,7 @@ import {
   type JsonObject,
   type JsonValue,
   type ProfileName,
+  type ReleaseVersion,
   type ServiceTier,
 } from "@holycodex/core";
 import { lookupProfile } from "@holycodex/core";
@@ -277,7 +278,7 @@ async function executeUpgrade(parsed: ParsedCommand, context: CliContext) {
 async function upgradeSelectionState(
   parsed: ParsedCommand,
   context: CliContext,
-): Promise<Readonly<{ request: InstallRequest; fromVersion: string }>> {
+): Promise<Readonly<{ request: InstallRequest; fromVersion: ReleaseVersion }>> {
   const paths = resolveInstallerPaths(installerOptions(parsed, context), context.env);
   const [persisted, active] = await Promise.all([
     readInstallOptions(paths),
@@ -300,7 +301,15 @@ async function upgradeSelectionState(
         : validateInstallOptions({
             profile: active.profile,
             tier: active.tier,
-            optional: active.explicit_optional_selections,
+            optional: {
+              computer_use:
+                active.explicit_optional_selections.computer_use ??
+                active.optional_selections.computer_use,
+              frontend:
+                active.explicit_optional_selections.frontend ?? active.optional_selections.frontend,
+              security:
+                active.explicit_optional_selections.security ?? active.optional_selections.security,
+            },
             officialPlugins: (active.official_plugins ?? []).filter(
               (pluginId) => !capabilityPlugins.has(pluginId),
             ),

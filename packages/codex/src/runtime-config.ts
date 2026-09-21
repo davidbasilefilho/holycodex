@@ -169,7 +169,6 @@ export function deleteTomlPath(document: TomlDocument, keyPath: string): TomlDoc
 
 export const ROOT_CONFIG_KEY_PATHS = [
   "model",
-  "model_auto_compact_token_limit",
   "model_reasoning_effort",
   "service_tier",
   "model_verbosity",
@@ -184,6 +183,13 @@ export const ROOT_CONFIG_KEY_PATHS = [
 ] as const;
 export type RootConfigKeyPath = (typeof ROOT_CONFIG_KEY_PATHS)[number];
 
+/**
+ * Configuration keys accepted only long enough to clean up state written by older releases. These
+ * keys are never part of a new desired configuration.
+ */
+export const LEGACY_ROOT_CONFIG_KEY_PATHS = ["model_auto_compact_token_limit"] as const;
+export type LegacyRootConfigKeyPath = (typeof LEGACY_ROOT_CONFIG_KEY_PATHS)[number];
+
 export const HOLYCODEX_AGENT_TYPES = NATIVE_AGENT_TYPES;
 export type HolyCodexAgentType = NativeAgentType;
 export type AgentConfigKeyPath = `agents."${HolyCodexAgentType}".config_file`;
@@ -197,7 +203,7 @@ export type ManagedConfigKeyPath =
   | AgentConfigKeyPath
   | LegacyAgentConfigKeyPath;
 
-export type ManagedConfigStateKeyPath = ManagedConfigKeyPath;
+export type ManagedConfigStateKeyPath = ManagedConfigKeyPath | LegacyRootConfigKeyPath;
 
 export const ManagedConfigKeyPathSchema = Schema.declare(
   (value: unknown): value is ManagedConfigKeyPath => isManagedConfigKeyPath(value),
@@ -212,7 +218,10 @@ export function isManagedConfigKeyPath(value: unknown): value is ManagedConfigKe
 }
 
 function isManagedConfigStateKeyPath(value: unknown): value is ManagedConfigStateKeyPath {
-  return isManagedConfigKeyPath(value);
+  return (
+    isManagedConfigKeyPath(value) ||
+    (LEGACY_ROOT_CONFIG_KEY_PATHS as readonly string[]).includes(value as string)
+  );
 }
 
 type ManagedEnum =
@@ -480,6 +489,7 @@ function configKeyKind(
 ): "enum" | "number" | "boolean" | "relative_path" | "digest" {
   if (keyPath === "developer_instructions") return "digest";
   if (keyPath.endsWith(".config_file")) return "relative_path";
+  // Retained solely so persisted prior-release ownership can be validated and removed safely.
   if (keyPath === "model_auto_compact_token_limit") return "number";
   if (
     keyPath === "suppress_unstable_features_warning" ||

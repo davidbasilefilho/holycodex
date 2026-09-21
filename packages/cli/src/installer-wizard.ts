@@ -4,6 +4,7 @@ import {
   DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
   type OptionalCapabilityName,
   type ProfileName,
+  type ReleaseVersion,
   type ServiceTier,
 } from "@holycodex/core";
 
@@ -66,8 +67,8 @@ export type ConflictScreenResult =
 /** State rendered by the initial upgrade choice screen. */
 export type UpgradeScreenState = Readonly<{
   current: InstallRequest;
-  fromVersion: string;
-  toVersion: string;
+  fromVersion: ReleaseVersion;
+  toVersion: ReleaseVersion;
   selected: number;
 }>;
 
@@ -100,7 +101,7 @@ export type InstallReviewScreenState = Readonly<{
 /** Result of applying one key to the final install or upgrade review. */
 export type InstallReviewScreenTransition = Readonly<{
   selected: number;
-  action: "render" | "choose" | "cancel";
+  action: "render" | "choose" | "back" | "cancel";
 }>;
 
 type OpenTuiModule = typeof import("@opentui/core");
@@ -480,8 +481,8 @@ export async function runOpenTuiConflictResolver(
 /** Render the initial native upgrade choice, including installed and target versions. */
 export function renderUpgradeChoiceScreen(
   current: InstallRequest,
-  fromVersion: string,
-  toVersion: string,
+  fromVersion: ReleaseVersion,
+  toVersion: ReleaseVersion,
   selected = 0,
   options: HumanRenderOptions = {},
 ): string {
@@ -553,8 +554,8 @@ export function applyUpgradeChoiceKey(
 /** Run the initial native OpenTUI upgrade choice screen. */
 export async function runOpenTuiUpgradeChoiceScreen(
   current: InstallRequest,
-  fromVersion: string,
-  toVersion: string,
+  fromVersion: ReleaseVersion,
+  toVersion: ReleaseVersion,
   rendererOptions: OpenTuiInstallWizardOptions = {},
 ): Promise<UpgradeWizardResult> {
   const opentui = await import("@opentui/core");
@@ -723,7 +724,10 @@ export function applyInstallReviewKey(
 ): InstallReviewScreenTransition {
   const actions = installReviewActions(state.review);
   const name = key.name.toLowerCase();
-  if (name === "escape" || (key.ctrl === true && name === "c")) {
+  if (name === "escape") {
+    return { selected: state.selected, action: "back" };
+  }
+  if (key.ctrl === true && name === "c") {
     return { selected: state.selected, action: "cancel" };
   }
   if (name === "up" || name === "k") {
@@ -785,6 +789,8 @@ export async function runOpenTuiInstallReview(
         selected = transition.selected;
         if (transition.action === "cancel") {
           settle({ action: "cancel" });
+        } else if (transition.action === "back") {
+          settle({ action: "change" });
         } else if (transition.action === "choose") {
           const action = installReviewActions(review)[selected]!;
           settle({ action });

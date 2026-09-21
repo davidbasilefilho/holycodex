@@ -91,50 +91,6 @@ describe("typed runtime configuration", () => {
     }
   });
 
-  test("manages the supported Root auto-compaction threshold with typed ownership", async () => {
-    const keyPath = "model_auto_compact_token_limit" as const;
-    expect(isManagedConfigKeyPath(keyPath)).toBe(true);
-    const initial = await mergeManagedRuntimeConfig(
-      { [keyPath]: 32_000, unrelated: "keep" },
-      createManagedRuntimeConfigState(metadata),
-      { [keyPath]: 64_000 },
-      metadata,
-    );
-    expect(readTomlPath(initial.document, keyPath)).toBe(64_000);
-    expect(initial.state.managed[keyPath]?.originalValue).toEqual({
-      kind: "number",
-      value: 32_000,
-    });
-    expect(initial.state.managed[keyPath]?.lastManagedValue).toEqual({
-      kind: "number",
-      value: 64_000,
-    });
-    expect((await compareManagedConfigKey(initial.document, initial.state, keyPath)).status).toBe(
-      "unchanged",
-    );
-
-    const cleaned = await cleanupManagedRuntimeConfig(initial.document, initial.state, metadata);
-    expect(readTomlPath(cleaned.document, keyPath)).toBe(32_000);
-    expect(cleaned.document["unrelated"]).toBe("keep");
-    expect(cleaned.restoredKeys).toEqual([keyPath]);
-
-    const edited = writeTomlPath(initial.document, keyPath, 128_000);
-    const preserved = await cleanupManagedRuntimeConfig(edited, initial.state, metadata);
-    expect(readTomlPath(preserved.document, keyPath)).toBe(128_000);
-    expect(preserved.preservedKeys).toEqual([keyPath]);
-    expect(preserved.restoredKeys).toEqual([]);
-  });
-
-  test("rejects unsafe auto-compaction threshold writes at the runtime boundary", async () => {
-    const keyPath = "model_auto_compact_token_limit" as const;
-    const state = createManagedRuntimeConfigState(metadata);
-    for (const value of [64_000.5, -1, "64000"] as const) {
-      await expect(
-        mergeManagedRuntimeConfig({}, state, { [keyPath]: value }, metadata),
-      ).rejects.toMatchObject({ code: "invalid_external_data" });
-    }
-  });
-
   test("accepts Astra as the live root model and reports stale ownership metadata", async () => {
     const initial = await mergeManagedRuntimeConfig(
       {},

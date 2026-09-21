@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { rm } from "node:fs/promises";
+import { appendFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -8,6 +8,7 @@ import {
   compareManagedConfigKey,
   createManagedRuntimeConfigState,
   deleteTomlPath,
+  LEGACY_ROOT_CONFIG_KEY_PATHS,
   mergeManagedRuntimeConfig,
   readTomlPath,
   resolveAgentConfigPath,
@@ -41,6 +42,7 @@ import {
   type OptionalCapabilityName,
   type OptionalCapabilitySelections,
   type ProfileName,
+  type ReleaseVersion,
   type ServiceTier,
 } from "@holycodex/core";
 
@@ -387,6 +389,7 @@ const LEGACY_WORK_PLUGIN_NAMES = new Set([
   "spreadsheets",
   "template-creator",
 ]);
+const LEGACY_AUTO_COMPACT_KEY = LEGACY_ROOT_CONFIG_KEY_PATHS[0]!;
 
 /** Install or reconcile HolyCodex state, plugins, native agents, and managed configuration. */
 export async function installHolyCodex(
@@ -483,6 +486,10 @@ export async function installHolyCodex(
     additionalPluginsFromPrevious(previous);
   const runtime = options.runtime ?? createInstallerRuntime(environment);
   const discoveredGitBash = await ensureGitBash(runtime, false);
+  const debugInstaller = async (message: string): Promise<void> => {
+    if (environment["HOLYCODEX_DEBUG_INSTALLER"] !== "1") return;
+    await appendFile(join(paths.codexHome, ".holycodex-debug.log"), `${message}\n`, "utf8");
+  };
   let context7PreflightReady = false;
   try {
     await preflightContext7(runtime);
@@ -554,6 +561,19 @@ export async function installHolyCodex(
     previous.owned_plugins?.includes(HOLYCODEX_PLUGIN) === true
       ? new Set([HOLYCODEX_PLUGIN])
       : new Set<string>();
+  const previousOwnedPlugins = new Set(previous?.owned_plugins ?? []);
+  const desiredOwnedPlugins = new Set([HOLYCODEX_PLUGIN, ...providerPlugins]);
+  const omittedOwnedPlugins = [...previousOwnedPlugins].filter(
+    (pluginId) => !desiredOwnedPlugins.has(pluginId),
+  );
+  if (omittedOwnedPlugins.length > 0 && manager.remove === undefined) {
+    throw new InstallerError(
+      "install_failed",
+      "Native Codex cannot remove previously managed plugins omitted from the new selection.",
+      undefined,
+      { plugins: omittedOwnedPlugins.join(",") },
+    );
+  }
   const installedAt = (options.now?.() ?? new Date()).toISOString();
   const configBefore = await optionalTextFile(paths.configFile);
   const configInputDocument = parseConfig(configBefore);
@@ -657,8 +677,12 @@ export async function installHolyCodex(
     migratedRuntime.document,
     migratedRuntime.state,
   );
-  const configDocument = migratedContext.document;
-  const currentManagedConfig = migratedContext.state;
+  const migratedAutoCompact = await migrateLegacyAutoCompactConfig(
+    migratedContext.document,
+    migratedContext.state,
+  );
+  const configDocument = migratedAutoCompact.document;
+  const currentManagedConfig = migratedAutoCompact.state;
   rejectPreExistingDeveloperInstructions(configDocument, currentManagedConfig);
   const desiredConfig = desiredRootConfig(profile, tier, {
     computerUse: optional.computer_use,
@@ -671,22 +695,22 @@ export async function installHolyCodex(
         }
       : {}),
   });
-  const previousDesiredConfig =
-    previous === undefined
-      ? undefined
-      : desiredRootConfig(previous.profile, previous.tier, {
-          computerUse: previous.optional_selections.computer_use,
-          frontend: previous.optional_selections.frontend,
-          security: previous.optional_selections.security,
-          ...(runtime.platform === "win32"
-            ? {
-                windowsGitBashExecutable:
-                  previous.tooling?.git_bash.status === "healthy"
-                    ? previous.tooling.git_bash.path
-                    : WINDOWS_GIT_BASH,
-              }
-            : {}),
-        });
+  await debugInstaller(
+    `desired platform=${runtime.platform} gitBash=${discoveredGitBash.status} desiredShell=${String(typeof desiredConfig.developer_instructions === "string" && desiredConfig.developer_instructions.includes("On Windows, use Git for Windows Bash"))} desiredTail=${JSON.stringify(typeof desiredConfig.developer_instructions === "string" ? desiredConfig.developer_instructions.slice(-500) : desiredConfig.developer_instructions)} previous=${previous?.version ?? "none"}`,
+  );
+  let previousDesiredConfig:
+    | Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>
+    | undefined;
+  if (previous !== undefined) {
+    previousDesiredConfig = desiredRootConfig(previous.profile, previous.tier, {
+      computerUse: previous.optional_selections.computer_use,
+      frontend: previous.optional_selections.frontend,
+      security: previous.optional_selections.security,
+    });
+    // Developer instructions contain host-boundary policy that must follow the
+    // current runtime, even when an older record treated its value as managed.
+    delete previousDesiredConfig.developer_instructions;
+  }
   const desiredConfigWithPersistedManagedValues = await preserveManagedConfigDecisions(
     configDocument,
     currentManagedConfig,
@@ -835,6 +859,9 @@ export async function installHolyCodex(
       throw new InstallerError("state_corrupt", "The accepted managed conflicts did not converge.");
     }
     resolvedDesiredConfig = effectiveDesiredConfig;
+    await debugInstaller(
+      `resolvedShell=${String(typeof resolvedDesiredConfig.developer_instructions === "string" && resolvedDesiredConfig.developer_instructions.includes("On Windows, use Git for Windows Bash"))} resolvedTail=${JSON.stringify(typeof resolvedDesiredConfig.developer_instructions === "string" ? resolvedDesiredConfig.developer_instructions.slice(-500) : resolvedDesiredConfig.developer_instructions)}`,
+    );
     const stabilityManaged = { ...currentManagedConfig.managed };
     for (const conflict of managedConfigConflicts) {
       const key = conflict.key as ManagedConfigKeyPath | undefined;
@@ -851,13 +878,23 @@ export async function installHolyCodex(
     resolvedManagedConfig = stabilityManaged;
   };
   await applyResolvedConflictDecisions();
-  const reviewConflicts = allConflicts.map(structureConflict);
-  const reviewConflictCounts = Object.fromEntries(
-    ["config-key", "native-plugin", "role-asset"].flatMap((category) => {
-      const count = reviewConflicts.filter((conflict) => conflict.category === category).length;
-      return count === 0 ? [] : [[category, count] as const];
-    }),
-  );
+  const projectReviewConflicts = (): readonly ManagedConflict[] =>
+    allConflicts.map((conflict) => {
+      const projected = structureConflict(conflict);
+      const decision = resolvedConflicts.decisions.get(projected.identity!);
+      return decision === undefined ? projected : { ...projected, decision };
+    });
+  const projectReviewConflictCounts = (
+    conflicts: readonly ManagedConflict[],
+  ): Readonly<Record<string, number>> =>
+    Object.fromEntries(
+      ["config-key", "native-plugin", "role-asset"].flatMap((category) => {
+        const count = conflicts.filter((conflict) => conflict.category === category).length;
+        return count === 0 ? [] : [[category, count] as const];
+      }),
+    );
+  let reviewConflicts = projectReviewConflicts();
+  let reviewConflictCounts = projectReviewConflictCounts(reviewConflicts);
   const reviewTools = installReviewTools(
     discoveredGitBash,
     context7PreflightReady,
@@ -898,6 +935,8 @@ export async function installHolyCodex(
           true,
         );
         await applyResolvedConflictDecisions();
+        reviewConflicts = projectReviewConflicts();
+        reviewConflictCounts = projectReviewConflictCounts(reviewConflicts);
         continue;
       }
       if (review.action === "change") {
@@ -936,7 +975,7 @@ export async function installHolyCodex(
       after: pluginConfigBefore,
     },
     provider_config: providerConfigBefore,
-    owned_plugins: [...new Set(previous?.owned_plugins ?? [])],
+    owned_plugins: [...previousOwnedPlugins],
     ...(previous?.tooling === undefined ? {} : { tooling: previous.tooling }),
   };
   await ensureOwnedDirectory(paths.stateRoot);
@@ -970,7 +1009,7 @@ export async function installHolyCodex(
   let pluginSnapshot: readonly PluginSnapshot[];
   try {
     pluginSnapshot = await snapshotPlugins({ list: () => manager.list!() }, [
-      ...new Set([HOLYCODEX_PLUGIN, ...providerPlugins, ...(previous?.owned_plugins ?? [])]),
+      ...new Set([HOLYCODEX_PLUGIN, ...providerPlugins, ...previousOwnedPlugins]),
     ]);
   } catch (error: unknown) {
     throw new InstallerError(
@@ -989,7 +1028,10 @@ export async function installHolyCodex(
   let native: NativeAgentInstallResult | undefined;
   let configPublished = false;
   const addedPlugins = new Set<string>();
-  const ownedPlugins = new Set(previous?.owned_plugins ?? []);
+  const removedPlugins = new Set<string>();
+  const uncertainPluginRemovals = new Set<string>();
+  const ownedPlugins = new Set(previousOwnedPlugins);
+  const rollbackOwnedPlugins = new Set(previousOwnedPlugins);
   const uncertainPluginMutations = new Set<string>();
   let transactionForRecovery: PreparingTransaction = transaction;
   let pluginEffectsStarted = false;
@@ -1007,7 +1049,11 @@ export async function installHolyCodex(
       configBeforeMutationRuntime.document,
       configBeforeMutationRuntime.state,
     );
-    configBeforeMutationDocument = configBeforeMutationContext.document;
+    const configBeforeMutationAutoCompact = await migrateLegacyAutoCompactConfig(
+      configBeforeMutationContext.document,
+      configBeforeMutationContext.state,
+    );
+    configBeforeMutationDocument = configBeforeMutationAutoCompact.document;
     await assertPostPluginConfigStable(
       configBeforeMutationDocument,
       configDocument,
@@ -1097,6 +1143,29 @@ export async function installHolyCodex(
       provider_config: providerRecoveryConfig,
     };
     await writeTransaction(paths.preparingRecord, transactionForRecovery);
+    if (omittedOwnedPlugins.length > 0) {
+      const removalManager = {
+        list: () => manager.list!(),
+        remove: (id: string) => manager.remove!(id),
+      };
+      await removeAndVerify(removalManager, omittedOwnedPlugins, async (id, mutation) => {
+        if (mutation === "removed") {
+          removedPlugins.add(id);
+          ownedPlugins.delete(id);
+        } else if (mutation === "absent") {
+          ownedPlugins.delete(id);
+        } else {
+          // A failed remove whose post-state cannot be proven remains owned
+          // so conflicted recovery can retry it safely.
+          uncertainPluginRemovals.add(id);
+        }
+        transactionForRecovery = {
+          ...transactionForRecovery,
+          owned_plugins: [...ownedPlugins],
+        };
+        await writeTransaction(paths.preparingRecord, transactionForRecovery);
+      });
+    }
     await manager.addMarketplace!(HOLYCODEX_MARKETPLACE);
     const nativeManager = {
       list: () => manager.list!(),
@@ -1110,6 +1179,7 @@ export async function installHolyCodex(
         if (mutation === "new") {
           addedPlugins.add(id);
           ownedPlugins.add(id);
+          rollbackOwnedPlugins.add(id);
           transactionForRecovery = {
             ...transactionForRecovery,
             owned_plugins: [...ownedPlugins],
@@ -1120,6 +1190,7 @@ export async function installHolyCodex(
           // the next remove/retry must reconcile that effect explicitly.
           uncertainPluginMutations.add(id);
           ownedPlugins.add(id);
+          rollbackOwnedPlugins.add(id);
           transactionForRecovery = {
             ...transactionForRecovery,
             owned_plugins: [...ownedPlugins],
@@ -1146,8 +1217,12 @@ export async function installHolyCodex(
       postPluginRuntime.document,
       postPluginRuntime.state,
     );
-    const postPluginResolution = await applyPluginConfigConflictDecisions(
+    const postPluginAutoCompact = await migrateLegacyAutoCompactConfig(
       postPluginContext.document,
+      postPluginContext.state,
+    );
+    const postPluginResolution = await applyPluginConfigConflictDecisions(
+      postPluginAutoCompact.document,
       configDocument,
       initialPluginConfigBefore,
       initialProviderConfigBefore,
@@ -1231,6 +1306,13 @@ export async function installHolyCodex(
         { keys: postPluginConfig.driftedKeys.join(",") },
       );
     }
+    const publishedDeveloperInstructions = readTomlPath(
+      postPluginConfig.document,
+      "developer_instructions",
+    );
+    await debugInstaller(
+      `publishedCandidate shell=${String(typeof publishedDeveloperInstructions === "string" && publishedDeveloperInstructions.includes("On Windows, use Git for Windows Bash"))} publishedTail=${JSON.stringify(typeof publishedDeveloperInstructions === "string" ? publishedDeveloperInstructions.slice(-500) : publishedDeveloperInstructions)} resolvedShell=${String(typeof resolvedDesiredConfig.developer_instructions === "string" && resolvedDesiredConfig.developer_instructions.includes("On Windows, use Git for Windows Bash"))}`,
+    );
     reportProgress(options, {
       stage: "config",
       status: "started",
@@ -1249,6 +1331,10 @@ export async function installHolyCodex(
     };
     await writeAtomicText(paths.configFile, serializeConfig(postPluginConfig.document));
     configPublished = true;
+    const publishedConfigText = await optionalTextFile(paths.configFile);
+    await debugInstaller(
+      `afterWrite shell=${String(publishedConfigText?.includes("On Windows, use Git for Windows Bash"))} textTail=${JSON.stringify(publishedConfigText?.slice(-500) ?? "")}`,
+    );
     transactionForRecovery = { ...transactionForRecovery, step: "config_published" };
     await writeTransaction(paths.preparingRecord, transactionForRecovery);
     reportProgress(options, {
@@ -1388,7 +1474,7 @@ export async function installHolyCodex(
             paths.configFile,
             transactionForRecovery,
             configBeforeMutationDocument,
-            ownedPlugins,
+            rollbackOwnedPlugins,
           );
         }
       } catch {
@@ -1412,6 +1498,38 @@ export async function installHolyCodex(
       try {
         await manager.remove?.(pluginId);
       } catch {
+        rollbackFailures.push(`plugin:${pluginId}`);
+      }
+    }
+    for (const pluginId of new Set([...removedPlugins, ...uncertainPluginRemovals])) {
+      try {
+        await restoreRemovedPlugin(
+          {
+            list: () => manager.list!(),
+            add: (id: string) => manager.add!(id),
+          },
+          pluginId,
+        );
+        removedPlugins.delete(pluginId);
+        uncertainPluginRemovals.delete(pluginId);
+        ownedPlugins.add(pluginId);
+        transactionForRecovery = {
+          ...transactionForRecovery,
+          owned_plugins: [...ownedPlugins],
+        };
+        await writeTransaction(paths.preparingRecord, transactionForRecovery);
+      } catch {
+        // Keep ownership in the recovery journal when restoring a removed
+        // plugin cannot be proven complete.
+        ownedPlugins.add(pluginId);
+        uncertainPluginRemovals.add(pluginId);
+        transactionForRecovery = {
+          ...transactionForRecovery,
+          owned_plugins: [...ownedPlugins],
+        };
+        await writeTransaction(paths.preparingRecord, transactionForRecovery).catch(
+          () => undefined,
+        );
         rollbackFailures.push(`plugin:${pluginId}`);
       }
     }
@@ -2077,7 +2195,6 @@ export function desiredRootConfig(
   const root = projectRootAgent(profile, tier);
   const desired: Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> = {
     model: root.model,
-    model_auto_compact_token_limit: 64_000,
     model_reasoning_effort: root.effort,
     service_tier: root.serviceTier,
     model_verbosity: "low",
@@ -2188,6 +2305,24 @@ async function migrateKnownLegacyRoleRegistrations(
     }
   }
   return { document: output, state: migratedState };
+}
+
+/** Remove the former auto-compaction override while preserving any user drift. */
+async function migrateLegacyAutoCompactConfig(
+  document: TomlDocument,
+  state: ManagedRuntimeConfigState,
+): Promise<Readonly<{ document: TomlDocument; state: ManagedRuntimeConfigState }>> {
+  const entry = state.managed[LEGACY_AUTO_COMPACT_KEY];
+  if (entry === undefined) return { document, state };
+  const cleanup = await cleanupManagedRuntimeConfig(
+    document,
+    { ...state, managed: { [LEGACY_AUTO_COMPACT_KEY]: entry } },
+    { schema: state.schema, installId: state.installId },
+  );
+  const managed = Object.fromEntries(
+    Object.entries(state.managed).filter(([keyPath]) => keyPath !== LEGACY_AUTO_COMPACT_KEY),
+  );
+  return { document: cleanup.document, state: { ...state, managed } };
 }
 
 /** Migrate the pre-0.17 nested context-management key when ownership is recorded. */
@@ -2585,6 +2720,83 @@ async function installAndVerify(
   }
 }
 
+async function removeAndVerify(
+  manager: Required<Pick<OfficialPluginManager, "list" | "remove">>,
+  ids: readonly string[],
+  onMutation?: (id: string, mutation: "absent" | "removed" | "uncertain") => void | Promise<void>,
+): Promise<void> {
+  for (const id of ids) {
+    let before;
+    try {
+      before = findPlugin(await manager.list(), id);
+    } catch (error: unknown) {
+      await onMutation?.(id, "uncertain");
+      throw wrapPluginManagerError("list", error, id);
+    }
+    if (!(before?.installed ?? false)) {
+      await onMutation?.(id, "absent");
+      continue;
+    }
+    try {
+      await manager.remove(id);
+    } catch (error: unknown) {
+      try {
+        const afterFailure = findPlugin(await manager.list(), id);
+        if (!(afterFailure?.installed ?? false)) {
+          await onMutation?.(id, "removed");
+        } else {
+          await onMutation?.(id, "uncertain");
+        }
+      } catch {
+        await onMutation?.(id, "uncertain");
+      }
+      throw wrapPluginManagerError("remove", error, id);
+    }
+    let after;
+    try {
+      after = findPlugin(await manager.list(), id);
+    } catch (error: unknown) {
+      await onMutation?.(id, "uncertain");
+      throw wrapPluginManagerError("list", error, id);
+    }
+    if (after?.installed) {
+      await onMutation?.(id, "uncertain");
+      throw new PluginVerificationError("uncertain", `${id} is still installed after remove`);
+    }
+    await onMutation?.(id, "removed");
+  }
+}
+
+async function restoreRemovedPlugin(
+  manager: Required<Pick<OfficialPluginManager, "list" | "add">>,
+  id: string,
+): Promise<void> {
+  let before;
+  try {
+    before = findPlugin(await manager.list(), id);
+  } catch (error: unknown) {
+    throw wrapPluginManagerError("list", error, id);
+  }
+  if (before?.installed && before.enabled) return;
+  try {
+    await manager.add(id);
+  } catch (error: unknown) {
+    throw wrapPluginManagerError("add", error, id);
+  }
+  let after;
+  try {
+    after = findPlugin(await manager.list(), id);
+  } catch (error: unknown) {
+    throw wrapPluginManagerError("list", error, id);
+  }
+  if (!after?.installed) {
+    throw new PluginVerificationError("missing", `${id} is not installed after restore`);
+  }
+  if (!after.enabled) {
+    throw new PluginVerificationError("uncertain", `${id} is disabled after restore`);
+  }
+}
+
 function samePluginState(
   left: ReturnType<typeof findPlugin>,
   right: ReturnType<typeof findPlugin>,
@@ -2598,16 +2810,18 @@ function samePluginState(
 }
 
 function wrapPluginManagerError(
-  operation: "list" | "add",
+  operation: "list" | "add" | "remove",
   error: unknown,
   pluginId: string,
 ): OfficialPluginManagerError {
   if (error instanceof OfficialPluginManagerError) return error;
   return new OfficialPluginManagerError(
-    operation === "list" ? "list_failed" : "add_failed",
+    operation === "list" ? "list_failed" : operation === "remove" ? "remove_failed" : "add_failed",
     operation === "list"
       ? `Codex could not read the status of ${pluginId}.`
-      : `Codex could not add ${pluginId}.`,
+      : operation === "remove"
+        ? `Codex could not remove ${pluginId}.`
+        : `Codex could not add ${pluginId}.`,
     error,
     { plugin_id: pluginId },
   );
@@ -2690,7 +2904,7 @@ function capabilityStateFor(
 type InstallRecordDigestInput = {
   readonly owner: "holycodex";
   readonly install_id: string;
-  readonly version: string;
+  readonly version: ReleaseVersion;
   readonly profile?: ProfileName | LegacyProfileName;
   /** Legacy persisted product field; never emitted for current records. */
   readonly plan?: ProfileName | LegacyProfileName;
@@ -2727,7 +2941,7 @@ export async function recordDigestMatches(record: InstallRecord): Promise<boolea
 async function recordDigestMatchesRaw(record: {
   readonly owner: "holycodex";
   readonly install_id: string;
-  readonly version: string;
+  readonly version: ReleaseVersion;
   readonly profile?: ProfileName | LegacyProfileName;
   readonly plan?: ProfileName | LegacyProfileName;
   readonly tier: ServiceTier;

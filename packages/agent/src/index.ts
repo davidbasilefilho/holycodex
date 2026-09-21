@@ -164,12 +164,9 @@ async function execute(
       const assignment = required(options, "assignment");
       const expectedRevision = revision(options);
 
-      const activeAssignment = await store.readAssignment(reference, assignment);
       if (
-        activeAssignment.status === "executing" &&
-        activeAssignment.active_invocation_id === undefined &&
-        activeAssignment.active_started_at === undefined &&
-        activeAssignment.active_invocation_capability === undefined
+        result.capability === undefined &&
+        (await store.isLegacyExecutingAssignment(reference, assignment))
       ) {
         return await store.recordAssignmentResult(reference, assignment, expectedRevision, result);
       }

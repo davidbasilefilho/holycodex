@@ -156,6 +156,9 @@ describe("core profile catalog", () => {
     expect(debuggingInstruction).toContain("material redesigns to Root");
 
     const reviewerInstruction = taskInstructionFor({ role: "Reviewer", task: "code" });
+    expect(reviewerInstruction).toContain(
+      "Use one batched evidence sweep, reason over it, make targeted follow-ups only, and batch related repairs and verification.",
+    );
     for (const criterion of [
       "correctness",
       "safety",

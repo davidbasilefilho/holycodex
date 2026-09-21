@@ -77,13 +77,11 @@ worker owns deterministic Intent, Plan, and Assignment API decisions; Root
 retains material decisions, integration, and completion.
 Root's managed configuration enables
 `multi_agent = true`, disables `multi_agent_v2`, and enables
-`context_management` and the supported Root-only
-`model_auto_compact_token_limit = 64000`; generated leaves set `agents.enabled = false`,
+`context_management`; generated leaves set `agents.enabled = false`,
 `multi_agent = false`, `multi_agent_v2 = false`, and
 `context_management = true`. Generated configuration and readback tests prove
 this V1 arrangement only; session metadata reports V2, so HolyCodex does not
-claim live V1 runtime proof, owned fork enforcement, or application of the
-threshold to an already-running session.
+claim live V1 runtime proof or owned fork enforcement.
 
 The current Root route uses `gpt-6-astra`, and native specialist route files use
 the configured `gpt-5.6-luna` identity with the effort matrix below. These are
@@ -265,8 +263,7 @@ enable it by default. Upgrade migrates
 owned historical `features.context_management.experimental_mode` state to the
 scalar key, retaining unrelated settings only when the ownership evidence is
 safe. The normal managed-key ownership rules preserve user edits and restore
-the recorded prior value during cleanup, including the Root auto-compaction
-threshold; a user edit is preserved as drift. Repo-local Intent, workflow
+the recorded prior value during cleanup; a user edit is preserved as drift. Repo-local Intent, workflow
 Plan, and Assignment state remain independent of context management.
 
 ## Acceptance and provenance

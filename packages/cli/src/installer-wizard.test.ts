@@ -348,7 +348,7 @@ describe("public install wizard contract", () => {
     expect(withoutConflicts).not.toContain("Resolve conflicts");
   });
 
-  test("keeps final review navigation and Esc cancellation deterministic", () => {
+  test("keeps final review navigation and Esc back distinct from cancellation", () => {
     const review: InstallReview = {
       operation: "upgrade",
       fromVersion: PREVIOUS_VERSION,
@@ -380,7 +380,7 @@ describe("public install wizard contract", () => {
     });
     expect(applyInstallReviewKey(state, { name: "escape" })).toEqual({
       selected: 0,
-      action: "cancel",
+      action: "back",
     });
     expect(applyInstallReviewKey(state, { name: "c", ctrl: true })).toEqual({
       selected: 0,
@@ -788,11 +788,19 @@ describe("generated Root orchestration policy", () => {
     expect(leaf).toMatch(/no.*progress.*heartbeat.*intermediate evidence/isu);
     expect(leaf).toMatch(/out-of-boundary.*new bounded Assignment/isu);
     expect(leaf).toMatch(/exact boundary.*exclusions.*acceptance criteria/iu);
+    expect(leaf).toContain(
+      "Batch independent evidence acquisition, reuse stable evidence, and avoid inspect→reason→inspect micro-loops.",
+    );
 
     for (const agent of projectNativeAgents("default")) {
       expect(agent.model).toBe("gpt-5.6-luna");
       const rendered = renderNativeAgent(agent);
       expect(rendered).toContain("context_management = true");
+      if (agent.name === "Reviewer.code") {
+        expect(rendered).toContain(
+          "Use one batched evidence sweep, reason over it, make targeted follow-ups only, and batch related repairs and verification.",
+        );
+      }
       if (agent.name === "Worker.operations") {
         expect(agent.permissions.networkScope).toBe("exact_ref_or_sha");
         expect(agent.permissions.sourceMutation).toBe(false);
@@ -828,14 +836,12 @@ describe("generated Root orchestration policy", () => {
     const windowsLeaf = renderNativeAgent(projectNativeAgents("default")[0]!, {
       windowsGitBashExecutable: windowsExecutable,
     });
+    const windowsDirective = windowsGitBashShellDirective(windowsExecutable);
     expect(windowsRoot).toContain(windowsExecutable);
-    expect(windowsRoot).toMatch(/Resolve C:\\Program Files\\Git\\bin\\bash\.exe first/iu);
-    expect(windowsRoot).toMatch(/bash on PATH only if that path is unavailable/iu);
-    expect(windowsRoot).toMatch(/PowerShell.*cmd\.exe.*WSL Bash.*Cygwin/isu);
-    expect(windowsLeaf).toContain("On Windows, execute every shell action");
-    expect(windowsLeaf).toContain(windowsExecutable.replaceAll("\\", "\\\\"));
-    expect(windowsLeaf).toContain("bash on PATH only if that path is unavailable");
-    expect(rootDeveloperInstructions(false)).not.toContain(windowsGitBashShellDirective("bash"));
+    expect(windowsRoot).toContain(windowsDirective);
+    expect(windowsLeaf).toContain(windowsDirective.replaceAll("\\", "\\\\"));
+    expect(windowsGitBashShellDirective("another-bash.exe")).toBe(windowsDirective);
+    expect(rootDeveloperInstructions(false)).not.toContain(windowsDirective);
   });
 });
 

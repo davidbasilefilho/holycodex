@@ -357,7 +357,7 @@ describe("native installation and removal", () => {
       ).toContain('model_reasoning_summary = "none"');
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
       expect(config).toContain('model = "gpt-6-astra"');
-      expect(config).toContain("model_auto_compact_token_limit = 64000");
+      expect(config).not.toContain("model_auto_compact_token_limit");
       expect(config).toContain("default_mode_request_user_input = true");
       expect(config).toContain("multi_agent = true");
       expect(config).toContain("multi_agent_v2 = false");
@@ -991,8 +991,8 @@ describe("native installation and removal", () => {
     }
   });
 
-  test("owns and restores the Root auto-compaction threshold without adding it to leaves", async () => {
-    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-auto-compact-"));
+  test("leaves pre-existing auto-compaction settings untouched on fresh install", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-auto-compact-fresh-"));
     const codexHome = join(root, "codex");
     const config = join(codexHome, "config.toml");
     const manager = fakeManager();
@@ -1003,23 +1003,122 @@ describe("native installation and removal", () => {
         {},
         { paths: { codexHome }, officialPluginManager: manager },
       );
-      expect(await readFile(config, "utf8")).toContain("model_auto_compact_token_limit = 64000");
+      const installed = await readFile(config, "utf8");
+      expect(installed).toContain("model_auto_compact_token_limit = 32000");
+      expect(installed).toContain("unrelated = true");
       expect(
-        initial.record.managed_config?.managed["model_auto_compact_token_limit"]?.originalValue,
-      ).toEqual({ kind: "number", value: 32000 });
-      const leaf = await readFile(
-        join(codexHome, "holycodex", "agents", "Worker.implementation.toml"),
-        "utf8",
-      );
-      expect(leaf).not.toContain("model_auto_compact_token_limit");
-
-      await removeHolyCodex({ paths: { codexHome }, officialPluginManager: manager });
-      const removed = await readFile(config, "utf8");
-      expect(removed).toContain("model_auto_compact_token_limit = 32000");
-      expect(removed).toContain("unrelated = true");
-      expect(removed).not.toContain("model_auto_compact_token_limit = 64000");
+        initial.record.managed_config?.managed["model_auto_compact_token_limit"],
+      ).toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("cleans the removed auto-compaction override from both previous release forms", async () => {
+    for (const [index, versionSuffix] of [undefined, "1"].entries()) {
+      for (const originalValue of [32000, undefined] as const) {
+        const root = await mkdtemp(join(tmpdir(), `holycodex-cli-auto-compact-upgrade-${index}-`));
+        const codexHome = join(root, "codex");
+        const config = join(codexHome, "config.toml");
+        const manager = fakeManager();
+        try {
+          const initial = await installHolyCodex(
+            {},
+            { paths: { codexHome }, officialPluginManager: manager },
+          );
+          const baseVersion = initial.record.version.split("-", 1)[0]!;
+          const version =
+            versionSuffix === undefined ? baseVersion : `${baseVersion}-${versionSuffix}`;
+          const paths = resolveInstallerPaths({ paths: { codexHome } });
+          const managedConfig = initial.record.managed_config!;
+          const legacyEntry = {
+            owner: "holycodex" as const,
+            schema: managedConfig.schema,
+            installId: managedConfig.installId,
+            keyPath: "model_auto_compact_token_limit" as const,
+            originalValue:
+              originalValue === undefined
+                ? ({ kind: "absent" } as const)
+                : ({ kind: "number", value: originalValue } as const),
+            lastManagedValue: { kind: "number" as const, value: 64000 },
+          };
+          const oldRecord = {
+            ...initial.record,
+            version,
+            managed_config: {
+              ...managedConfig,
+              managed: {
+                ...managedConfig.managed,
+                model_auto_compact_token_limit: legacyEntry,
+              },
+            },
+          };
+          oldRecord.digest = await installRecordDigest({
+            owner: oldRecord.owner,
+            install_id: oldRecord.install_id,
+            version: oldRecord.version,
+            profile: oldRecord.profile,
+            tier: oldRecord.tier,
+            optional_selections: oldRecord.optional_selections,
+            explicit_optional_selections: oldRecord.explicit_optional_selections,
+            official_plugins: oldRecord.official_plugins ?? [],
+            capability_state: oldRecord.capability_state ?? null,
+            managed_artifacts: oldRecord.managed_artifacts,
+            managed_config: oldRecord.managed_config,
+            plugin_config: oldRecord.plugin_config,
+            provider_config: oldRecord.provider_config,
+            plugin_snapshot: oldRecord.plugin_snapshot,
+            owned_plugins: oldRecord.owned_plugins,
+            tooling: oldRecord.tooling,
+          });
+          await writeFile(paths.activeRecord, `${JSON.stringify(oldRecord)}\n`);
+          const currentConfig = await readFile(config, "utf8");
+          const firstTable = currentConfig.indexOf("\n[");
+          await writeFile(
+            config,
+            `${currentConfig.slice(0, firstTable)}\nmodel_auto_compact_token_limit = 64000\nunrelated = true${currentConfig.slice(firstTable)}`,
+          );
+
+          const upgraded = await upgradeHolyCodex(
+            { paths: { codexHome }, officialPluginManager: manager },
+            {},
+          );
+          expect(upgraded.status).toBe("upgraded");
+          const upgradedConfig = await readFile(config, "utf8");
+          if (originalValue === undefined) {
+            expect(upgradedConfig).not.toContain("model_auto_compact_token_limit");
+          } else {
+            expect(upgradedConfig).toContain("model_auto_compact_token_limit = 32000");
+          }
+          expect(upgradedConfig).toContain("unrelated = true");
+          expect(
+            upgraded.record?.managed_config?.managed["model_auto_compact_token_limit"],
+          ).toBeUndefined();
+
+          const driftedConfig = upgradedConfig.includes("model_auto_compact_token_limit")
+            ? upgradedConfig.replace(
+                /model_auto_compact_token_limit = (?:32000|64000)\n/u,
+                "model_auto_compact_token_limit = 128000\n",
+              )
+            : upgradedConfig.replace(
+                /\n\[features\]/u,
+                "\nmodel_auto_compact_token_limit = 128000\n\n[features]",
+              );
+          await writeFile(config, driftedConfig);
+          const reinstalled = await installHolyCodex(
+            {},
+            { paths: { codexHome }, officialPluginManager: manager },
+          );
+          expect(await readFile(config, "utf8")).toContain(
+            "model_auto_compact_token_limit = 128000",
+          );
+          expect(
+            reinstalled.record.managed_config?.managed["model_auto_compact_token_limit"],
+          ).toBeUndefined();
+        } finally {
+          await rm(root, { recursive: true, force: true });
+        }
+      }
     }
   });
 

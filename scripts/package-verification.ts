@@ -8,7 +8,9 @@ import { gunzipSync } from "node:zlib";
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 
-import { AppServerClient, BunStdioTransport } from "../packages/codex/src/index.ts";
+import { parseConfig } from "../packages/cli/src/installer.ts";
+import { windowsGitBashShellDirective } from "../packages/cli/src/native-agents.ts";
+import { AppServerClient, BunStdioTransport, readTomlPath } from "../packages/codex/src/index.ts";
 import { CliEnvelopeSchema } from "../packages/core/src/envelopes.ts";
 import { NATIVE_AGENT_TYPES } from "../packages/core/src/routes.ts";
 import {
@@ -68,6 +70,7 @@ const EXPECTED_CODEX_PROVIDER_PLUGINS = [
 ] as const;
 const CODEX_HOLYCODEX_PLUGIN = "holycodex@holycodex" as const;
 const ADDITIONAL_FIXTURE_PLUGIN = "additional@fixture" as const;
+const windowsShell = windowsGitBashShellDirective();
 const LEGACY_WORK_PROVIDER_PLUGINS = [
   "documents@openai-primary-runtime",
   "pdf@openai-primary-runtime",
@@ -306,9 +309,7 @@ export async function verifyPublicPackage(
   await verifyPreviousStableUpgrade({
     temporaryRoot,
     currentCanonicalVersion: packed.canonicalVersion,
-    currentVersion: packed.packageVersion.startsWith(`${packed.baseVersion}-dev.`)
-      ? packed.baseVersion
-      : packed.packageVersion,
+    currentVersion: packed.packageVersion,
     currentInstalledRoot: installedRoot,
     currentInstalledPackageRoot: installedPackageRoot,
     currentEntry: installedEntry,
@@ -435,10 +436,10 @@ export async function verifyPublicPackage(
         /[\\/]bash\.exe$/iu.test(gitBash["path"]),
       "the packed Windows install record must retain a verified Git Bash executable",
     );
+    const managedConfig = parseConfig(managedConfigText);
+    const developerInstructions = readTomlPath(managedConfig, "developer_instructions");
     assert(
-      managedConfigText.includes(
-        "On Windows, execute every shell action through the verified Git-for-Windows Bash executable",
-      ),
+      typeof developerInstructions === "string" && developerInstructions.includes(windowsShell),
       "the packed Windows Root configuration must project the verified Git Bash boundary",
     );
   }
@@ -992,6 +993,7 @@ async function verifyPreviousStableUpgrade(options: {
     npm_execpath: process.execPath,
     npm_command: "exec",
     npm_config_user_agent: `bun/${Bun.version}`,
+    HOLYCODEX_DEBUG_INSTALLER: "1",
   });
 
   const previousInstall = await runCli(
@@ -1815,6 +1817,25 @@ async function assertCodexAppServerReadback(
         `Codex App Server config readback unexpectedly materialized ${agentType} metadata`,
       );
     }
+  } catch (error: unknown) {
+    const diagnostics = transport.diagnostics.join("; ");
+    const configText = await readFile(join(codexHome, "config.toml"), "utf8").catch(() => "");
+    const shellIndex = configText.indexOf("developer_instructions");
+    const configSnippet = configText
+      .slice(shellIndex < 0 ? 0 : shellIndex, shellIndex < 0 ? 512 : shellIndex + 1024)
+      .replaceAll(/\s+/gu, " ");
+    const configProbe = `configShell=${configText.includes(windowsShell)} configDeveloper=${configText.includes("developer_instructions")} configSnippet=${configSnippet}`;
+    const installerDebug = await readFile(join(codexHome, ".holycodex-debug.log"), "utf8").catch(
+      () => "",
+    );
+    if (diagnostics.length > 0) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)} (${diagnostics}; ${configProbe}; ${installerDebug})`,
+      );
+    }
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)} (${configProbe}; ${installerDebug})`,
+    );
   } finally {
     await client.close();
   }
@@ -2023,9 +2044,10 @@ async function configRead() {
   ) {
     fail("Codex config retained ambiguous specialist dispatch policy");
   }
-  const windowsShell =
-    "On Windows, execute every shell action through the verified Git-for-Windows Bash executable";
-  if (process.platform === "win32" && !text.includes(windowsShell)) {
+  if (
+    process.platform === "win32" &&
+    !text.includes(WINDOWS_SHELL_PLACEHOLDER.replaceAll("\\\\", "\\\\\\\\"))
+  ) {
     fail("Codex config omitted the Windows Git Bash boundary");
   }
   const config = {
@@ -2056,7 +2078,10 @@ async function configRead() {
     if (roleText.includes("tool_output_token_limit")) {
       fail("Codex role file contains the removed tool_output_token_limit");
     }
-    if (process.platform === "win32" && !roleText.includes(windowsShell)) {
+    if (
+      process.platform === "win32" &&
+      !roleText.includes(WINDOWS_SHELL_PLACEHOLDER.replaceAll("\\", "\\\\"))
+    ) {
       fail("Codex role file omitted the Windows Git Bash boundary");
     }
     config.agents[agentType] = { config_file: "holycodex/agents/" + roleFile };
@@ -2136,6 +2161,7 @@ main().catch((error) => {
 `;
   return source
     .replace('"CODEX_VERSION_PLACEHOLDER"', JSON.stringify(codexCliVersion))
+    .replaceAll("WINDOWS_SHELL_PLACEHOLDER", JSON.stringify(windowsShell))
     .replace("AGENT_TYPES_PLACEHOLDER", JSON.stringify(NATIVE_AGENT_TYPES));
 }
 

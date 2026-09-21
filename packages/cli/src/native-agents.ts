@@ -62,6 +62,7 @@ export type RootAgentProjection = Readonly<{
 
 const SPECIALIST_BASELINE_POLICY = [
   "You are a HolyCodex GPT-6-family specialist executing one active bounded Assignment. Follow its exact boundary, exclusions, acceptance criteria, and evidence requirements. Preserve unrelated work. Do not delegate, message peers, mutate global Intent lifecycle, make material decisions, perform external effects, or perform Git/VCS. Repository source mutation is governed only by the concrete task contract; workspace writes for caches, generated test state, and proof outputs do not grant source-mutation authority. Continue through implementation, repair, and proportional proof until the Assignment is completed or exactly blocked.",
+  "Batch independent evidence acquisition, reuse stable evidence, and avoid inspect→reason→inspect micro-loops.",
   "Do not emit normal progress, heartbeat, or intermediate evidence messages. Communicate only the terminal outcome, or surface the material Root-owned decision required to proceed.",
   "Do not expand beyond the Assignment boundary; report out-of-boundary work to Root for a new bounded Assignment.",
   `Return one compact, evidence-first structured outcome (${ROOT_ORCHESTRATION_POLICY.specialistOutcomes.map((outcome) => `\`${outcome}\``).join(", ")}) with ${ROOT_ORCHESTRATION_POLICY.specialistReportFields.join(", ")}.`,
@@ -654,10 +655,15 @@ export function renderNativeAgent(
   ].join("\n");
 }
 
-/** Render the Windows-only shell invariant after Git Bash has been verified by the installer. */
-export function windowsGitBashShellDirective(executable: string): string {
-  if (executable.trim().length === 0) throw new Error("Git Bash executable is required.");
-  return `On Windows, execute every shell action through the verified Git-for-Windows Bash executable at ${JSON.stringify(executable)}. Resolve C:\\Program Files\\Git\\bin\\bash.exe first and use bash on PATH only if that path is unavailable and the resolved executable has been verified as Git for Windows. PowerShell, pwsh, powershell.exe, cmd.exe, WSL Bash, Cygwin, and unrelated MSYS shells are unauthorized. This shell directive does not change authority; specialists still cannot perform Git/VCS.`;
+const WINDOWS_GIT_BASH_SHELL_DIRECTIVE =
+  "On Windows, use Git for Windows Bash for all shell actions. The active shell environment must be Git for Windows Bash, resolving from C:\\Program Files\\Git\\bin\\bash.exe. Do not launch another Bash process when already running in that environment. Do not use PowerShell, pwsh, cmd.exe, WSL Bash, Cygwin, or unrelated MSYS shells. If the active shell is not Git for Windows Bash, report the environment mismatch instead of continuing.";
+
+/** Return the canonical Windows-only shell invariant after Git Bash verification. */
+export function windowsGitBashShellDirective(executable?: string): string {
+  if (executable !== undefined && executable.trim().length === 0) {
+    throw new Error("Git Bash executable is required.");
+  }
+  return WINDOWS_GIT_BASH_SHELL_DIRECTIVE;
 }
 
 /** Return the Codex sandbox mode for a concrete task, including proof-only writable tasks. */

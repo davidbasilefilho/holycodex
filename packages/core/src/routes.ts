@@ -185,7 +185,7 @@ export const ROLE_DEFINITIONS = [
         name: "code",
         description: "Adversarial implemented-code review specialist.",
         instruction:
-          "Review and repair the implemented code to a fixed point. The acceptance contract covers correctness, safety, compatibility, mergeability, clarity, simplicity, cohesion, idiomaticity, appropriate abstraction, accidental complexity, duplication, unnecessary files or file splitting, speculative abstraction, test quality, and generated-artifact hygiene. Prefer simple cohesive code over clever or over-engineered code.",
+          "Review and repair the implemented code to a fixed point. Use one batched evidence sweep, reason over it, make targeted follow-ups only, and batch related repairs and verification. The acceptance contract covers correctness, safety, compatibility, mergeability, clarity, simplicity, cohesion, idiomaticity, appropriate abstraction, accidental complexity, duplication, unnecessary files or file splitting, speculative abstraction, test quality, and generated-artifact hygiene. Prefer simple cohesive code over clever or over-engineered code.",
         permissions: { network: false, filesystem: "workspace-write", sourceMutation: true },
       },
       {

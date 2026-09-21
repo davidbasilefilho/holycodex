@@ -432,7 +432,7 @@ describe("IntentStore", () => {
       },
       intent.revision,
     );
-    let running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
     setSnapshot(snapshot(root, "a".repeat(40), ["packages/core/src/work-state.ts"]));
     const result = await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
       outcome: "completed",
@@ -444,8 +444,8 @@ describe("IntentStore", () => {
     expect(result.assignment.status).toBe("completed");
     expect(result.assignment.invocations).toHaveLength(1);
     expect(result.assignment.evidence[0]?.kind).toBe("changed_path");
-    running = await store.readAssignment(intent.id, assignment.id);
-    expect(running.status).toBe("completed");
+    const completed = await store.readAssignment(intent.id, assignment.id);
+    expect(completed.status).toBe("completed");
   });
 
   test("requires delegated proof before allowing completion", async () => {
@@ -649,13 +649,18 @@ describe("IntentStore", () => {
     );
     const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
     const invocationId = running.active_invocation_id;
-    const capability = running.active_invocation_capability;
+    const capability = running.capability;
     const startedAt = running.active_started_at;
     expect(invocationId).toBe("invocation-001");
     expect(capability).toMatch(/^[a-f0-9]{64}$/u);
     expect(startedAt).toBeDefined();
     if (invocationId === undefined || capability === undefined || startedAt === undefined)
       throw new Error("startAssignment did not issue invocation authorization");
+    const reread = await store.readAssignment(intent.id, assignment.id);
+    expect(reread).not.toHaveProperty("active_invocation_capability");
+    expect(
+      (await store.listAssignments(intent.id)).find(({ id }) => id === assignment.id),
+    ).not.toHaveProperty("active_invocation_capability");
     expect(capability).not.toBe(
       createHash("sha256")
         .update(
@@ -680,6 +685,35 @@ describe("IntentStore", () => {
       }),
     ).rejects.toMatchObject({ code: "invalid_transition" });
 
+    const sibling = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Record another attributable specialist result",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/agent"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const siblingRunning = await store.startAssignment(intent.id, sibling.id, sibling.revision);
+    const siblingInvocationId = siblingRunning.active_invocation_id;
+    if (siblingInvocationId === undefined)
+      throw new Error("sibling startAssignment did not issue an invocation");
+    await expect(
+      store.recordSpecialistAssignmentResult(intent.id, sibling.id, siblingRunning.revision, {
+        invocationId: siblingInvocationId,
+        capability,
+        outcome: "completed",
+        summary: "Capability from another Assignment",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+    await store.recordSpecialistAssignmentResult(intent.id, sibling.id, siblingRunning.revision, {
+      invocationId: siblingInvocationId,
+      capability: siblingRunning.capability,
+      outcome: "completed",
+      summary: "Sibling capability-bound result",
+    });
+
     const result = await store.recordSpecialistAssignmentResult(
       intent.id,
       assignment.id,
@@ -693,7 +727,7 @@ describe("IntentStore", () => {
     );
     expect(result.assignment.status).toBe("completed");
     expect(result.assignment.active_invocation_id).toBeUndefined();
-    expect(result.assignment.active_invocation_capability).toBeUndefined();
+    expect(result.assignment).not.toHaveProperty("active_invocation_capability");
   });
 
   test("recovers a legacy executing Assignment without a persisted capability", async () => {
@@ -731,20 +765,9 @@ describe("IntentStore", () => {
     const persisted = await readFile(assignmentPath, "utf8");
     await writeFile(
       assignmentPath,
-      persisted
-        .replace(/^active_invocation_id:.*\r?\n?/mu, "")
-        .replace(/^active_started_at:.*\r?\n?/mu, "")
-        .replace(/^active_invocation_capability:.*\r?\n?/mu, ""),
+      persisted.replace(/^active_invocation_capability:.*\r?\n?/mu, ""),
       "utf8",
     );
-
-    await expect(
-      store.recordSpecialistAssignmentResult(intent.id, assignment.id, running.revision, {
-        invocationId,
-        outcome: "completed",
-        summary: "Capability-free specialist result",
-      }),
-    ).rejects.toMatchObject({ code: "invalid_input" });
 
     const result = await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
       outcome: "completed",
@@ -1567,9 +1590,14 @@ describe("IntentStore", () => {
     const assignmentPath = join(directory, "assignments", `${assignment.id}.toon`);
     const intentPath = join(directory, "intent.toon");
     const journalPath = join(directory, ".holycodex-transaction.toon");
-    const nextAssignment = { ...running, revision: running.revision + 10 };
+    const previousAssignmentText = await readFile(assignmentPath, "utf8");
+    const { capability: _capability, ...persistedRunning } = running;
+    const nextAssignment = {
+      ...persistedRunning,
+      active_invocation_capability: "a".repeat(64),
+      revision: running.revision + 10,
+    };
     const nextIntent = { ...intent, revision: intent.revision + 10 };
-    const previousAssignmentText = `${encode(running)}\n`;
     const previousIntentText = `${encode(intent)}\n`;
     const nextAssignmentText = `${encode(nextAssignment)}\n`;
     const nextIntentText = `${encode(nextIntent)}\n`;

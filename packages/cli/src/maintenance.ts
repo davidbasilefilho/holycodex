@@ -6,6 +6,8 @@ import {
   cleanupManagedRuntimeConfig,
   compareManagedConfigKey,
   deleteTomlPath,
+  isManagedConfigKeyPath,
+  LEGACY_ROOT_CONFIG_KEY_PATHS,
   readTomlPath,
   resolveAgentConfigPath,
   resolveOfficialPluginEntry,
@@ -14,7 +16,11 @@ import {
   type TomlDocument,
   type LiveOfficialPluginListEnvelope,
 } from "@holycodex/codex";
-import { compareReleaseVersions, pluginIdsForOptionalCapabilities } from "@holycodex/core";
+import {
+  compareReleaseVersions,
+  pluginIdsForOptionalCapabilities,
+  type ReleaseVersion,
+} from "@holycodex/core";
 
 import {
   HOLYCODEX_PLUGIN,
@@ -745,7 +751,7 @@ export async function upgradeHolyCodex(
     officialPlugins: selectedOptions.officialPlugins ?? sourceOptions.officialPlugins,
   };
   const optionsChanged = !sameInstallOptions(effectiveOptions, sourceOptions);
-  let targetVersion: string;
+  let targetVersion: ReleaseVersion;
   try {
     targetVersion = await readInstallationVersion();
   } catch (error: unknown) {
@@ -766,11 +772,14 @@ export async function upgradeHolyCodex(
   }
   const legacyContext =
     source.managed_config?.managed["features.context_management.experimental_mode"] !== undefined;
+  const legacyAutoCompact =
+    source.managed_config?.managed[LEGACY_ROOT_CONFIG_KEY_PATHS[0]!] !== undefined;
   const dryRunConflictInventory: ManagedConflict[] = [];
   if (request.dryRun === true) {
     const document = parseConfig(await optionalTextFile(paths.configFile));
     if (source.managed_config !== undefined) {
       for (const key of Object.keys(source.managed_config.managed) as ManagedConfigKeyPath[]) {
+        if (!isManagedConfigKeyPath(key)) continue;
         const comparison = await compareManagedConfigKey(document, source.managed_config, key);
         if (comparison.status !== "unchanged") {
           dryRunConflictInventory.push({ path: paths.configFile, key, action: "replace" });
@@ -827,7 +836,8 @@ export async function upgradeHolyCodex(
     ...(ordering > 0 ? ["version"] : []),
     ...(optionsChanged ? ["installation options"] : []),
     ...(legacyContext ? ["context-management configuration migration"] : []),
-    ...(ordering > 0 || legacyContext
+    ...(legacyAutoCompact ? ["auto-compaction configuration cleanup"] : []),
+    ...(ordering > 0 || legacyContext || legacyAutoCompact
       ? ["Root/session configuration", "specialist role definitions"]
       : []),
     ...(transaction ? ["interrupted transaction recovery"] : []),

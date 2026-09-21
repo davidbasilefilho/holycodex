@@ -141,6 +141,9 @@ describe("plugin source assets", () => {
     expect(debugging).toContain("Worker.debugging");
     expect(debugging).toContain("Root does not reproduce, repair, or test");
     expect(review).toContain("Reviewer.code");
+    expect(review).toContain(
+      "Use one batched evidence sweep, reason over it, make targeted follow-ups only,\nand batch related repairs and verification.",
+    );
     expect(review).toContain("Root does not perform code review or");
   });
 

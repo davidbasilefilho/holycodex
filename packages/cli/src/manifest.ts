@@ -22,7 +22,10 @@ import { writeAtomicJson } from "./storage.ts";
 const PublicManifestSchema = Schema.declare(
   (
     value: unknown,
-  ): value is JsonObject & { readonly name: "holycodex"; readonly version: string } =>
+  ): value is JsonObject & {
+    readonly name: "holycodex";
+    readonly version: ReleaseVersion;
+  } =>
     isJsonObject(value) &&
     value["name"] === "holycodex" &&
     decodeSchema(ReleaseVersionSchema, value["version"]) !== undefined,
@@ -83,12 +86,9 @@ export async function readCanonicalBaseVersion(path = publicManifestPath): Promi
   return canonical;
 }
 
-/** Read the version recorded for an installation, normalizing development builds to their base. */
-export async function readInstallationVersion(
-  path = publicManifestPath,
-): Promise<CanonicalVersion> {
-  const version = await readPublicVersion(path);
-  return decodeSchema(CanonicalVersionSchema, version) ?? (await readCanonicalBaseVersion(path));
+/** Read the exact release version recorded for an installation. */
+export async function readInstallationVersion(path = publicManifestPath): Promise<ReleaseVersion> {
+  return await readPublicVersion(path);
 }
 
 /** Resolve and optionally persist a canonical package version update. */
