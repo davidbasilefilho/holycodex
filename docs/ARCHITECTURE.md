@@ -81,9 +81,9 @@ judgment. Root MUST delegate every task, including trivial work. The only
 direct Root execution exceptions are Git/VCS and Computer Use when selected at
 installation. The typed orchestration policy in `core` is machine-testable.
 After implementation or a major codebase change, `Reviewer.code` must reach a
-fixed point before completion or any VCS operation. Root requests user input
-before workflow Plan approval, remote/origin/server VCS mutations, or when material
-ambiguity blocks safe progress.
+fixed point before completion or any VCS operation. Root obtains required Plan
+approval and checks existing authorization before remote VCS mutations. It
+requests input when authorization or material information is missing.
 
 Repo-local work state is separate from Codex-home installation state. The
 `agent` CLI persists ignored `.holycodex/{slug}-{short-id}/` Intent, optional

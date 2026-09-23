@@ -77,7 +77,8 @@ Assignment state; it does not replace the public human CLI.
 ```text
 holycodex-agent intent   create|list|current|read|select|transition|evidence|complete|abandon
 holycodex-agent plan     read|revise
-holycodex-agent assignment create|list|read|start|result
+holycodex-agent assignment create|list|read|revise|supersede|start|recover|result
+holycodex-agent state diagnose --intent <ref> [--repo <path>]
 ```
 
 Every command and nested subcommand accepts equivalent `-h` and `--help`,
@@ -85,6 +86,13 @@ exits 0 without mandatory arguments or side effects, and documents its input,
 output, effects, and important failure conditions. Semantic operations validate
 all request and persisted values and return deterministic error codes. Agents
 must not rename or edit TOON files directly.
+
+`state diagnose` inspects the referenced Intent, its active Plan and
+Assignments, and the repository baseline. It returns `intent_id` and
+deterministic issues with a code, subject, and repair guidance for broken
+`assignment-*` references, inconsistent relationships, unfinished work, missing
+completion evidence, or repository drift. It does not recover transactions,
+acquire locks, or change persisted records.
 
 Root's delegation, authority, review, and release boundaries are defined in
 [BEHAVIOR.md](BEHAVIOR.md). Workflow Plan approval and installation profile

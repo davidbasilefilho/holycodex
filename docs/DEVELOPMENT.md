@@ -75,10 +75,10 @@ evidence and performs the VCS step. Discover the repository's actual
 development/release topology from its own configuration; pending checks are
 not green. A passing `Reviewer.code` fixed-point review is mandatory after
 implementation or a major codebase change and before completion or any VCS
-operation. Root uses `request_user_input` before workflow Plan approval,
-installation profile approval, remote/origin/server VCS mutations, public
-publication or release, and whenever ambiguity or missing material input
-blocks safe progress; persist the resulting `needs_root_input` state.
+operation. Root obtains workflow Plan and installation profile approval when
+required and checks existing authorization before remote VCS mutation or public
+release. It asks only when authorization or material input is missing and
+persists the resulting `needs_root_input` state.
 
 Apply the canonical core surgical-mutation rule to source-mutating specialist
 tasks:
