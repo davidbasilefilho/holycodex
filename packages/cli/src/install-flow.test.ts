@@ -12,6 +12,7 @@ import {
   installHolyCodex,
   installRecordDigest,
   doctorHolyCodex,
+  removeHolyCodex,
   readActiveInstallRecord,
   readInstallationVersion,
   resolveInstallerPaths,
@@ -312,6 +313,81 @@ describe("command install and upgrade review flow", () => {
       };
       expect(recovery.tooling?.context7?.ownership).toBe("holycodex");
       expect(recovery.managed_config?.managed).not.toHaveProperty("model");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("prepublish recovery retains prior ownership for kept managed-config drift", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-managed-recovery-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const initial = await seedInstall(
+      root,
+      { optional: { frontend: false, security: false, computer_use: false } },
+      fakeManager(),
+    );
+    const config = await readFile(paths.configFile, "utf8");
+    const customModel = 'model = "gpt-6-luna"';
+    const modelEntry = /^model = .*$/mu.exec(config)?.[0];
+    expect(modelEntry).toBeDefined();
+    await writeFile(paths.configFile, config.replace(modelEntry!, customModel));
+
+    const manager = fakeManager();
+    let failNextReadback = false;
+    let readbackFailures = 0;
+    let addCalls = 0;
+    const interruptedManager: OfficialPluginManager = {
+      ...manager,
+      list: async () => {
+        if (failNextReadback) {
+          failNextReadback = false;
+          readbackFailures += 1;
+          throw new Error("injected plugin readback failure");
+        }
+        return await manager.list!();
+      },
+      add: async (pluginId) => {
+        addCalls += 1;
+        await manager.add!(pluginId);
+        if (pluginId === "holycodex@holycodex") failNextReadback = true;
+      },
+    };
+
+    try {
+      await expect(
+        installHolyCodex(
+          {},
+          {
+            ...installerOptions(codexHome, interruptedManager),
+            resolveConflicts: async (conflicts) =>
+              Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"])),
+            reviewInstall: async () => ({ action: "apply" }),
+          },
+          fakeEnvironment,
+        ),
+      ).rejects.toMatchObject({ code: "capability_denied" });
+
+      expect(addCalls).toBeGreaterThan(0);
+      expect(readbackFailures).toBe(1);
+
+      const recovery = JSON.parse(await readFile(paths.conflictedRecord, "utf8")) as {
+        readonly managed_config: {
+          readonly managed: Readonly<Record<string, { readonly lastManagedValue: unknown }>>;
+        };
+      };
+      expect(recovery.managed_config.managed["model"]?.lastManagedValue).toEqual(
+        initial.result.record.managed_config?.managed["model"]?.lastManagedValue,
+      );
+
+      await removeHolyCodex(
+        {
+          ...installerOptions(codexHome, interruptedManager),
+          resolveConflict: async () => "decline",
+        },
+        fakeEnvironment,
+      );
+      expect(await readFile(paths.configFile, "utf8")).toContain(customModel);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

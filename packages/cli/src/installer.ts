@@ -1003,7 +1003,10 @@ export async function installHolyCodex(
     installed_at: installedAt,
     status: "preparing",
     step: "validated",
-    managed_config: { ...currentManagedConfig, managed: resolvedManagedConfig },
+    // Until config publication, recovery must use the ownership record already
+    // committed for the live configuration. Conflict decisions are projections
+    // and must not make user-kept values look HolyCodex-owned in this journal.
+    managed_config: unmanagedConfigState,
     plugin_snapshot: [],
     plugin_config: {
       plugin_id: HOLYCODEX_PLUGIN as "holycodex@holycodex",

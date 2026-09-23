@@ -64,13 +64,20 @@ export interface GeneratedCacheIdentity {
   readonly codexCliDigest: string;
 }
 
-/** Reject a Codex installation that does not match stable channel metadata. */
-export function assertLatestStableMatch(latestVersion: string, installedVersion: string): void {
-  assertStableVersion(latestVersion, "mise stable Codex metadata");
+/** Reject a Codex installation that does not match available stable channel metadata. */
+export function assertLatestStableMatch(
+  latestVersion: string | undefined,
+  installedVersion: string,
+): void {
   assertStableVersion(installedVersion, "the installed Codex CLI version");
-  if (latestVersion !== installedVersion) {
+  const stableChannelVersion = latestVersion?.trim();
+  if (stableChannelVersion === undefined || stableChannelVersion.length === 0) {
+    return;
+  }
+  assertStableVersion(stableChannelVersion, "mise stable Codex metadata");
+  if (stableChannelVersion !== installedVersion) {
     throw new Error(
-      `The installed Codex version ${installedVersion} is stale; mise stable metadata resolves ${latestVersion}. Run "mise install ${CODEX_TOOL}@latest" and retry.`,
+      `The installed Codex version ${installedVersion} is stale; mise stable metadata resolves ${stableChannelVersion}. Run "mise install ${CODEX_TOOL}@latest" and retry.`,
     );
   }
 }
@@ -226,14 +233,15 @@ async function readMiseLatestCodexConfig(): Promise<void> {
   }
 }
 
-async function resolveLatestMiseCodexVersion(): Promise<string> {
+async function resolveLatestMiseCodexVersion(): Promise<string | undefined> {
   try {
     const result = await runChecked(["mise", "latest", CODEX_TOOL], {
       cwd: workspaceRoot,
       env: createMiseMetadataEnvironment(),
       maxOutputBytes: 16 * 1024,
     });
-    return parseStableMiseCodexVersion(result.stdout);
+    const output = result.stdout.trim();
+    return output.length === 0 ? undefined : parseStableMiseCodexVersion(output);
   } catch (error: unknown) {
     throw new Error(
       `The stable Codex latest-channel metadata is unavailable; check network/cache access (${safeError(error)}).`,

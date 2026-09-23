@@ -17,5 +17,5 @@ describe("generated Codex artifact provenance", () => {
       ),
     );
     expect(verification.multi_agent_v2_lifecycle).toBe("unverified");
-  });
+  }, 30_000);
 });

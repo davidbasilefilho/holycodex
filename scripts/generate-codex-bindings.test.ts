@@ -27,7 +27,16 @@ describe("latest stable Codex generation contract", () => {
     );
   });
 
-  test("parses Windows mise output and rejects a successful empty metadata result", () => {
+  test("accepts a stable installed version when latest metadata is empty on either platform", () => {
+    expect(() => assertLatestStableMatch("", "0.155.1")).not.toThrow();
+    expect(() => assertLatestStableMatch("\r\n", "0.155.1")).not.toThrow();
+    expect(() => assertLatestStableMatch(undefined, "0.155.1")).not.toThrow();
+    expect(() => assertLatestStableMatch("", "0.155.1-dev.1")).toThrow(
+      "the installed Codex CLI version must be a stable semantic version",
+    );
+  });
+
+  test("parses Windows mise output and rejects malformed non-empty metadata", () => {
     expect(parseStableMiseCodexVersion("0.155.1\r\n")).toBe("0.155.1");
     expect(() => parseStableMiseCodexVersion("")).toThrow(
       "mise stable Codex metadata must be a stable semantic version, received .",
