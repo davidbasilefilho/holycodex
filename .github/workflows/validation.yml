@@ -6,6 +6,7 @@ on:
   push:
     branches-ignore:
       - main
+      - release/**
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -19,9 +20,8 @@ on:
         default: ""
         type: string
       release_version:
-        description: Optional version resolved by the caller
-        required: false
-        default: ""
+        description: Version resolved by the caller when packaging a release
+        required: true
         type: string
     outputs:
       artifact_name:
@@ -125,33 +125,13 @@ jobs:
           name: holycodex-build-${{ github.run_id }}-${{ github.run_attempt }}
           path: packages/cli/dist
 
-      - name: Resolve and verify the channel version
-        id: version
-        env:
-          REQUESTED_VERSION: ${{ inputs.release_version }}
-          RUN_NUMBER: ${{ github.run_number }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: |
-          set -euo pipefail
-          if [ "$RELEASE_CHANNEL" = "dev" ]; then
-            VERSION="$(mise exec -- bun scripts/release-version.ts dev "$RUN_NUMBER" "$RUN_ATTEMPT")"
-          elif [ "$RELEASE_CHANNEL" = "stable" ]; then
-            VERSION="$(mise exec -- bun scripts/release-version.ts stable "$GITHUB_REF_NAME")"
-          else
-            echo "Unsupported release channel: $RELEASE_CHANNEL" >&2
-            exit 1
-          fi
-          if [ -n "$REQUESTED_VERSION" ]; then
-            test "$REQUESTED_VERSION" = "$VERSION"
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Pack and verify the exact release artifact once
         id: package
         env:
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
           set -euo pipefail
+          test -n "$RELEASE_VERSION"
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           test -z "$(git status --porcelain)"
           mkdir -p "$RUNNER_TEMP/release"
@@ -167,7 +147,7 @@ jobs:
         with:
           name: ${{ steps.package.outputs.artifact_name }}
           path: |
-            ${{ runner.temp }}/release/holycodex-${{ steps.version.outputs.version }}.tgz
+            ${{ runner.temp }}/release/holycodex-${{ inputs.release_version }}.tgz
             ${{ runner.temp }}/release/release-metadata.json
           if-no-files-found: error
           retention-days: 14

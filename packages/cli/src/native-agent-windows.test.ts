@@ -304,26 +304,26 @@ describe("Windows native-agent instructions", () => {
       security: false,
       rootModel: lowRoot.model,
     });
-    expect(astra).toMatch(/fork_turns: "none".*never omit.*all.*default/isu);
-    expect(sol).toMatch(/fork_turns: "none".*never omit.*all.*default/isu);
-    expect(lowSol).toMatch(/fork_turns: "none".*never omit.*all.*default/isu);
-    expect(astra).toContain("bounded Assignment");
-    expect(astra).toContain("exact concrete registered Role.task agent_type");
-    expect(astra).toContain("holycodex-agent semantic operations");
-    expect(astra).toContain("routine safe, reversible, in-scope choices");
-    expect(astra).toContain("Reviewer.code before VCS");
-    expect(astra).toContain("longest practical event wait");
-    expect(astra).toMatch(
-      /collaboration\.wait_agent.*timeout_ms=1200000.*20 minutes.*cache lifetime/isu,
-    );
-    expect(astra).toMatch(/early specialist completion wakes.*collective mailbox/isu);
-    expect(astra).toMatch(/maximum wait expires.*same maximum wait again/isu);
-    expect(astra).toMatch(/short waits.*list or status polling.*message loops/isu);
-
     for (const instructions of [lowSol, sol, astra]) {
-      expect(instructions).toMatch(
-        /implementation completes.*Reviewer\.code reaches a fixed point.*Worker\.validation runs.*Root integrates and handles VCS.*Reviewer\.code repair invalidates earlier validation, so rerun Worker\.validation/isu,
+      expect(instructions).toContain('fork_turns: "none"');
+      expect(instructions).toContain("Never perform delegable work yourself");
+      expect(instructions).toContain("bounded Assignment");
+      expect(instructions).toContain("Before each spawn, derive the exact Role.task target");
+      expect(instructions).toContain(
+        "Verify the Codex registration resolves to the canonical role file",
       );
+      expect(instructions).toContain("pass that exact target, model, and effort");
+      expect(instructions).toContain("Recheck resumed threads");
+      expect(instructions).toContain("if it cannot be verified or refreshed");
+      expect(instructions).toContain("holycodex-agent semantic operations");
+      expect(instructions).toContain("Reviewer.code fixed point");
+      expect(instructions).toContain("Worker.validation");
+      expect(instructions).toContain("collaboration.wait_agent");
     }
+    expect(astra).toBe(sol);
+
+    const leaf = renderNativeAgent(projectNativeAgents("default")[0]!);
+    expect(leaf).toContain("Do not message Root or peers during execution");
+    expect(leaf).toContain("Return only one compact, evidence-first terminal outcome");
   });
 });

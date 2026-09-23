@@ -26,6 +26,7 @@ import { parseConfig } from "./installer.ts";
 const CURRENT_VERSION = await readInstallationVersion();
 const [CURRENT_MAJOR, CURRENT_MINOR, CURRENT_PATCH] = CURRENT_VERSION.split("-", 1)[0]!.split(".");
 const LEGACY_VERSION = `${CURRENT_MAJOR}.${CURRENT_MINOR}.${Number(CURRENT_PATCH) - 1}`;
+const PRE_ROUTE_MIGRATION_VERSION = `${CURRENT_MAJOR}.${CURRENT_MINOR}.${Number(CURRENT_PATCH) - 2}`;
 import type {
   InstallRequest,
   InstallerOptions,
@@ -187,7 +188,11 @@ async function setLegacyRootModel(codexHome: string, model: string): Promise<voi
       model: { ...modelEntry, lastManagedValue: await summarizeManagedConfigValue("model", model) },
     },
   };
-  const legacy = { ...current, version: LEGACY_VERSION, managed_config: managedConfig };
+  const legacy = {
+    ...current,
+    version: PRE_ROUTE_MIGRATION_VERSION,
+    managed_config: managedConfig,
+  };
   const digest = await installRecordDigest({
     owner: legacy.owner,
     install_id: legacy.install_id,
@@ -573,15 +578,12 @@ describe("command install and upgrade review flow", () => {
           rootModel: "gpt-6-astra",
         }),
       );
-      expect(astraInstructions).toContain("longest practical event wait");
-      expect(astraInstructions).toMatch(
-        /collaboration\.wait_agent.*timeout_ms=1200000.*20 minutes.*cache lifetime/isu,
-      );
-      expect(astraInstructions).toMatch(/early specialist completion wakes.*collective mailbox/isu);
-      expect(astraInstructions).toMatch(/maximum wait expires.*same maximum wait again/isu);
+      expect(astraInstructions).toContain("Never perform delegable work yourself");
+      expect(astraInstructions).toContain("collaboration.wait_agent at timeout_ms=1200000");
+      expect(astraInstructions).toContain("repeat after an idle timeout");
       expect(lowConfig["developer_instructions"]).toBe(solInstructions);
       expect(defaultConfig["developer_instructions"]).toBe(solInstructions);
-      expect(solInstructions).toContain("longest practical event wait");
+      expect(solInstructions).toBe(astraInstructions);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

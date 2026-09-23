@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: Apache-2.0
+
+name: Prepare verified release artifact
+description: Install the pinned toolchain and verify the validated release tarball.
+inputs:
+  artifact_name:
+    required: true
+    description: Exact artifact uploaded by validation
+  version:
+    required: true
+    description: Resolved release version
+  channel:
+    required: true
+    description: Resolved release channel
+  source_sha:
+    required: true
+    description: Validated source SHA
+  sha256:
+    required: true
+    description: Validated tarball SHA-256
+runs:
+  using: composite
+  steps:
+    - name: Activate mise and install the pinned toolchain
+      uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac
+      with:
+        install: true
+        cache: false
+
+    - name: Install the frozen workspace
+      shell: bash
+      run: mise exec -- bun install --frozen-lockfile
+
+    - name: Download the validated artifact
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: ${{ runner.temp }}/release
+
+    - name: Verify its identity
+      shell: bash
+      env:
+        RELEASE_VERSION: ${{ inputs.version }}
+        RELEASE_CHANNEL: ${{ inputs.channel }}
+        SOURCE_SHA: ${{ inputs.source_sha }}
+        EXPECTED_SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+        mise exec -- bun scripts/package-release.ts verify \
+          "$RUNNER_TEMP/release" "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$SOURCE_SHA" "$EXPECTED_SHA256"

@@ -26,14 +26,10 @@ directly. Failure returns an actionable capability error. Existing Git for
 Windows state is shared user/system state and is not replaced, reconfigured,
 or removed merely because HolyCodex uses it.
 
-Context7 is required for current technical documentation. The supported
-launcher is Bun, and HolyCodex derives Bun's global bin directory with
-`bun pm bin -g`, installs with `bun add -g ctx7@latest`, and verifies the
-package root, package-owned executable, shim, and exact version. A `ctx7`
-found through a generic `PATH`, mise, npm, pnpm, or another Bun installation
-is ignored and left untouched; mise configuration is never edited. An
-unavailable Bun global installation is reported during preflight before any
-managed configuration is changed. HolyCodex never runs `ctx7 setup`.
+Context7 is optional. HolyCodex accepts a usable `ctx7` on the effective
+`PATH`. If none is available, it attempts to install `ctx7@latest` with Bun.
+Registry, installation, or managed verification failure produces a warning
+and does not prevent HolyCodex installation. HolyCodex never runs `ctx7 setup`.
 
 ## Install
 
@@ -151,3 +147,5 @@ and leaf TOML, stale owned legacy Root files, selected capability health, and
 preparing or conflicted transactions. It reports a resolved allowlisted
 official identity (for example `openai-curated-remote`) as healthy instead of
 requiring the canonical marketplace spelling.
+It does not install, update, or repair optional tooling. Missing Context7 is
+reported separately from core Codex target health.

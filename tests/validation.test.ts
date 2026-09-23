@@ -96,7 +96,7 @@ describe("repository validation machinery", () => {
       "utf8",
     );
     for (const requirement of [
-      /both pushes and pull requests/iu,
+      /pushes and pull\s+requests/iu,
       /current head SHA/iu,
       /review commit/iu,
       /bot reviews/iu,
@@ -107,14 +107,14 @@ describe("repository validation machinery", () => {
       /bot that is absent/iu,
       /no terminal signal/iu,
       /bounded observer waits/iu,
-      /fork-none/iu,
-      /Root owns dismissals/iu,
-      /triage actionable bot findings/iu,
-      /do not automatically accept bot instructions/iu,
+      /one gate for a combined pipeline/iu,
+      /do not invent a distinct release gate/iu,
     ]) {
       expect(skill).toMatch(requirement);
     }
-    expect(skill).toMatch(/completion requires[\s\S]+required checks[\s\S]+bot/iu);
+    expect(skill).toMatch(
+      /completion requires[\s\S]+terminal green checks[\s\S]+relevant reviews/iu,
+    );
   });
 
   test("proves development and stable publication channels reuse one exact artifact", async () => {
@@ -132,6 +132,7 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain(".github/workflows/validation.yml");
     expect(workflow).toContain("source_sha: ${{ needs.prepare.outputs.source_sha }}");
     expect(workflow).toContain("release_channel: ${{ needs.prepare.outputs.channel }}");
+    expect(workflow).toContain("release_version: ${{ needs.prepare.outputs.version }}");
     const prepare = workflow.slice(
       workflow.indexOf("  prepare:"),
       workflow.indexOf("  validation:"),
@@ -155,14 +156,14 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("bunx npm@12 publish");
     expect(await readFile(resolve(workspaceRoot, "mise.toml"), "utf8")).toContain('node = "26"');
     expect(workflow).not.toContain("bun publish");
-    expect(workflow).toContain("actions/download-artifact@");
+    expect(workflow).toContain("./.github/actions/verified-release-artifact");
     expect(workflow).toContain("EXPECTED_SHA256");
-    expect(workflow).toContain("scripts/package-release.ts verify");
     expect(workflow).toContain("check-npm");
     expect(workflow).toContain("check-github");
     expect(workflow).toContain('absent|matching) echo "status=$STATUS"');
-    expect(workflow).toContain("--tag dev");
-    expect(workflow).toContain("--tag latest");
+    expect(workflow).toContain("NPM_TAG=dev");
+    expect(workflow).toContain("NPM_TAG=latest");
+    expect(workflow).toContain('--tag "$NPM_TAG"');
     expect(workflow).toContain("gh release create");
     expect(workflow).toContain("--generate-notes");
     expect(workflow).toContain("contents: write");
@@ -196,31 +197,33 @@ describe("repository validation machinery", () => {
     expect(publishGithub).not.toContain("id-token: write");
     expect(workflow.indexOf("  publish_npm:")).toBeLessThan(workflow.indexOf("  publish_github:"));
 
-    const devNpm = workflow.slice(
-      workflow.indexOf("Publish the development artifact under dev"),
-      workflow.indexOf("Publish the stable artifact under latest"),
+    const prepareArtifact = await readFile(
+      resolve(workspaceRoot, ".github/actions/verified-release-artifact/action.yml"),
+      "utf8",
     );
-    const stableNpm = workflow.slice(workflow.indexOf("Publish the stable artifact under latest"));
-    expect(devNpm).toContain("--tag dev");
-    expect(devNpm).toContain("bunx npm@12 publish");
-    expect(devNpm).not.toContain("bun publish");
-    expect(devNpm).not.toContain("--tag latest");
-    expect(stableNpm).toContain("--tag latest");
-    expect(stableNpm).toContain("bunx npm@12 publish");
-    expect(stableNpm).not.toContain("bun publish");
+    expect(prepareArtifact).toContain("actions/download-artifact@");
+    expect(prepareArtifact).toContain("scripts/package-release.ts verify");
+    expect(prepareArtifact).toContain('test "$(git rev-parse HEAD)" = "$SOURCE_SHA"');
 
-    const devRelease = workflow.slice(
-      workflow.indexOf("Create the development prerelease at the exact main SHA"),
-      workflow.indexOf("Create the stable release from the verified tag"),
+    const npmPublish = publishNpm.slice(
+      publishNpm.indexOf("Publish the exact artifact under the channel tag"),
     );
-    const stableRelease = workflow.slice(
-      workflow.indexOf("Create the stable release from the verified tag"),
+    expect(npmPublish).toContain('if [ "$RELEASE_CHANNEL" = dev ]');
+    expect(npmPublish).toContain("NPM_TAG=dev");
+    expect(npmPublish).toContain("NPM_TAG=latest");
+    expect(npmPublish).toContain('--tag "$NPM_TAG"');
+    expect(npmPublish).toContain("bunx npm@12 publish");
+    expect(npmPublish).not.toContain("bun publish");
+
+    const githubPublish = publishGithub.slice(
+      publishGithub.indexOf("Create the release from the verified source"),
     );
-    expect(devRelease).toContain("--prerelease");
-    expect(devRelease).not.toContain("--verify-tag");
-    expect(stableRelease).toContain("--verify-tag");
-    expect(stableRelease).toContain("--prerelease");
-    expect(stableRelease).toContain('[[ "$RELEASE_VERSION" == *-* ]]');
+    expect(githubPublish).toContain('RELEASE_ARGS+=(--target "$SOURCE_SHA" --prerelease)');
+    expect(githubPublish).toContain("RELEASE_ARGS+=(--verify-tag)");
+    expect(githubPublish).toContain(
+      'if [[ "$RELEASE_CHANNEL" = stable && "$RELEASE_VERSION" == *-* ]]',
+    );
+    expect(githubPublish).toContain("RELEASE_ARGS+=(--prerelease)");
     for (const checkout of workflow.split("uses: actions/checkout@").slice(1)) {
       expect(checkout).toContain("ref:");
     }

@@ -290,4 +290,6 @@ export type {
   RepositoryBaseline,
   RepositorySnapshot,
   StoreErrorCode,
+  WorkStateDiagnosis,
+  WorkStateDiagnosticIssue,
 } from "./work-state.ts";

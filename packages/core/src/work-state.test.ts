@@ -66,6 +66,93 @@ async function git(root: string, ...args: readonly string[]): Promise<string> {
 }
 
 describe("IntentStore", () => {
+  test("diagnoses unresolved and inconsistent state without changing persisted records", async () => {
+    const { root, store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Diagnose work",
+      goal: "Complete bounded work",
+      acceptanceCriteria: ["proof"],
+      planRequired: true,
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        id: "assignment-example",
+        objective: "Implement behavior",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const stateRoot = join(root, ".holycodex");
+    const directory = (await readdir(stateRoot)).find((entry) => entry !== "current")!;
+    const assignmentPath = join(stateRoot, directory, "assignments", `${assignment.id}.toon`);
+    const persisted = decode(await readFile(assignmentPath, "utf8"), { strict: true }) as Record<
+      string,
+      unknown
+    >;
+    await writeFile(
+      assignmentPath,
+      `${encode({ ...persisted, status: "executing", dependencies: ["assignment-missing"] })}\n`,
+    );
+    const before = await readFile(assignmentPath, "utf8");
+    const transactionPath = join(stateRoot, directory, ".holycodex-transaction.toon");
+    const temporaryPath = join(stateRoot, directory, ".holycodex-write-diagnose.tmp");
+    await writeFile(transactionPath, "pending transaction\n");
+    await writeFile(temporaryPath, "interrupted write\n");
+    const transactionBefore = await readFile(transactionPath, "utf8");
+    const temporaryBefore = await readFile(temporaryPath, "utf8");
+    const diagnosis = await store.diagnose(intent.id);
+    expect(diagnosis.intent_id).toBe(intent.id);
+    expect(diagnosis.issues.map((issue) => issue.code)).toEqual([
+      "assignment_unresolved",
+      "missing_active_invocation",
+      "stale_dependency",
+      "pending_transaction",
+      "required_plan_missing",
+    ]);
+    expect(await readFile(assignmentPath, "utf8")).toBe(before);
+    expect(await readFile(transactionPath, "utf8")).toBe(transactionBefore);
+    expect(await readFile(temporaryPath, "utf8")).toBe(temporaryBefore);
+    expect(await readdir(join(stateRoot, directory))).not.toContain(".intent-store");
+  });
+  test("diagnoses missing completion proof and repository drift", async () => {
+    const { root, store, setSnapshot } = await fixture();
+    const intent = await store.createIntent({
+      title: "Diagnose completion",
+      goal: "Require observable proof",
+      acceptanceCriteria: ["proof"],
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        id: "assignment-proof",
+        objective: "Complete without recorded evidence",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const started = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    await store.recordSpecialistAssignmentResult(intent.id, assignment.id, started.revision, {
+      invocationId: started.active_invocation_id,
+      capability: started.capability,
+      outcome: "completed",
+      summary: "Completed without proof evidence.",
+    });
+    setSnapshot(snapshot(root, "c".repeat(40)));
+
+    const diagnosis = await store.diagnose(intent.id);
+    expect(diagnosis.issues).toContainEqual(
+      expect.objectContaining({
+        code: "completion_evidence_missing",
+        subject: "assignment:assignment-proof",
+      }),
+    );
+    expect(diagnosis.issues).toContainEqual(expect.objectContaining({ code: "repository_drift" }));
+  });
   test("limits Assignment ownership to canonical specialist role/task pairs", async () => {
     const { store } = await fixture();
     const intent = await store.createIntent({
@@ -196,6 +283,9 @@ describe("IntentStore", () => {
       }) + "\n",
       "utf8",
     );
+    const legacyBeforeDiagnosis = await readFile(path, "utf8");
+    await expect(store.diagnose(intent.id)).resolves.toMatchObject({ intent_id: intent.id });
+    expect(await readFile(path, "utf8")).toBe(legacyBeforeDiagnosis);
     const migrated = await store.readIntent(intent.id);
     expect(migrated.schema_version).toBe("holycodex-intent-1");
     expect(migrated.toon_compatibility).toBe("toon-4");
@@ -206,6 +296,9 @@ describe("IntentStore", () => {
     const outside = await mkdtemp(join(tmpdir(), "holycodex-work-state-outside-"));
     await symlink(outside, join(root, ".holycodex"), directorySymlinkType);
     await expect(store.listIntents()).rejects.toMatchObject({ code: "schema_invalid" });
+    await expect(store.diagnose("intent-anything")).rejects.toMatchObject({
+      code: "schema_invalid",
+    });
 
     const safe = await fixture();
     const intent = await safe.store.createIntent({
@@ -246,6 +339,9 @@ describe("IntentStore", () => {
     await symlink(outside, assignments, directorySymlinkType);
     await expect(store.readAssignment(intent.id, assignment.id)).rejects.toMatchObject({
       code: "schema_invalid",
+    });
+    await expect(store.diagnose(intent.id)).resolves.toMatchObject({
+      issues: [{ code: "assignment_directory_invalid" }],
     });
 
     const safe = await fixture();

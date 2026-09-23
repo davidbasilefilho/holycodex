@@ -134,19 +134,53 @@ export async function ensureGitBash(
   return { status: "healthy", path: repaired, installed: true };
 }
 
-/** Reconcile ctx7@latest through the same package-manager family that launched HolyCodex. */
+/** Use a working PATH ctx7, installing a managed copy only when needed. */
 export async function ensureContext7(
   runtime: InstallerRuntime,
   mutate: boolean,
   previous?: Context7ToolState,
 ): Promise<Context7ToolState> {
+  const available = await inspectPathContext7(runtime);
+  if (available !== undefined) {
+    const manager =
+      detectContext7Manager(runtime.environment) ??
+      ({
+        launcher: "bunx",
+        family: "bun",
+        executable: "bun",
+      } as const);
+    const retainedOwnership =
+      previous?.ownership === "holycodex" &&
+      typeof previous.identity === "string" &&
+      samePath(previous.executable, available.executable, runtime.platform);
+    return {
+      manager: manager.family,
+      launcher: manager.launcher,
+      version: available.version,
+      executable: available.executable,
+      ownership: retainedOwnership ? "holycodex" : "user",
+      ...(retainedOwnership ? { identity: previous.identity } : {}),
+    };
+  }
   if (isBunRuntime(runtime)) {
     return ensureBunGlobalContext7(runtime, mutate, previous);
   }
-  // Injected runtimes from legacy callers may not expose a Bun launcher path. Keep
-  // that compatibility path isolated; the production runtime always takes the exact Bun
-  // global path above and never resolves a generic PATH executable or registry version.
+  // Injected runtimes from legacy launchers can use their own global package manager.
   return ensureContext7ViaLauncher(runtime, mutate, previous);
+}
+
+async function inspectPathContext7(
+  runtime: InstallerRuntime,
+): Promise<Pick<Context7Inspection, "version" | "executable"> | undefined> {
+  const executable = await resolvePathExecutable(
+    runtime.environment,
+    runtime.platform,
+    runtime.files ?? nodeFiles,
+  );
+  if (executable === undefined) return undefined;
+  const result = await runtime.run(executable, ["--version"]);
+  const version = result.exitCode === 0 ? parseVersion(result.stdout) : undefined;
+  return version === undefined ? undefined : { version, executable };
 }
 
 /** Verify that the exact package-manager global installation can be inspected before mutation. */
@@ -740,7 +774,6 @@ async function inspectContext7(
       },
     );
   }
-  if (shadow === undefined) return undefined;
   const version = await runtime.run(shim, ["--version"]);
   if (version.exitCode !== 0 || parseVersion(version.stdout) !== packageJson.version)
     return undefined;

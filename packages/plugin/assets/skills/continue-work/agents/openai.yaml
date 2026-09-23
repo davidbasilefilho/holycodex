@@ -1,0 +1,6 @@
+interface:
+  display_name: "Continue work"
+  short_description: "Resume the current HolyCodex work from durable state."
+  default_prompt: "Continue the current HolyCodex work."
+policy:
+  allow_implicit_invocation: true

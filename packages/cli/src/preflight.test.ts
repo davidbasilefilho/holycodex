@@ -340,7 +340,9 @@ describe("installer preflight", () => {
       expect(review?.conflicts).toEqual([]);
       expect(review?.conflictCounts).toEqual({});
       expect(review?.tools).toEqual(
-        expect.arrayContaining([expect.objectContaining({ name: "context7", status: "ready" })]),
+        expect.arrayContaining([
+          expect.objectContaining({ name: "context7", status: "unavailable" }),
+        ]),
       );
       expect(events).toEqual([]);
       await expect(

@@ -11,7 +11,6 @@ import {
   GENERIC_BUILTIN_AGENT_TYPES,
   ROOT_ORCHESTRATION_POLICY,
   FRONTEND_WORKFLOW_POLICY,
-  LIBRARIAN_CONTEXT7_POLICY,
   TESTING_POLICY,
   SURGICAL_MUTATION_RULE,
   lookupProfile,
@@ -45,13 +44,13 @@ export type NativeAgentInstructionOptions = Readonly<{
   windowsGitBashExecutable?: string;
 }>;
 
-/** Configure optional Root capabilities, the Windows shell, and model-specific guidance. */
+/** Configure optional Root capabilities and the Windows shell. */
 export type RootDeveloperInstructionOptions = NativeAgentInstructionOptions &
   Readonly<{
     computerUse?: boolean;
     frontend?: boolean;
     security?: boolean;
-    /** Selected Root model; Astra receives a shorter instruction projection. */
+    /** Selected Root model; retained for installer call compatibility. */
     rootModel?: RootAgentProjection["model"];
   }>;
 
@@ -64,8 +63,8 @@ export type RootAgentProjection = Readonly<{
 }>;
 
 const SPECIALIST_BASELINE_POLICY = [
-  "Execute one bounded Assignment through its acceptance criteria and proportional proof. Preserve unrelated work and return out-of-boundary work or material decisions to Root. Do not delegate, change Intent lifecycle, or perform external effects. Read-only Git/VCS, CI, and PR-comment inspection is allowed when relevant and within the Assignment; Git/VCS writes remain Root-only. Source mutation requires permission from the concrete task; proof and cache writes do not grant it.",
-  `Return one compact, evidence-first structured outcome (${ROOT_ORCHESTRATION_POLICY.specialistOutcomes.map((outcome) => `\`${outcome}\``).join(", ")}) with ${ROOT_ORCHESTRATION_POLICY.specialistReportFields.join(", ")}.`,
+  `Execute one bounded Assignment through its acceptance criteria. ${TESTING_POLICY.rule} Return out-of-boundary work or material decisions to Root. Do not message Root or peers during execution, delegate, change Intent lifecycle, or perform external effects. Read-only Git/VCS, CI, and PR-comment inspection is allowed when relevant and within the Assignment; Git/VCS writes remain Root-only. Source mutation requires permission from the concrete task; proof and cache writes do not grant it.`,
+  `Return only one compact, evidence-first terminal outcome (${ROOT_ORCHESTRATION_POLICY.specialistOutcomes.map((outcome) => `\`${outcome}\``).join(", ")}) with ${ROOT_ORCHESTRATION_POLICY.specialistReportFields.join(", ")}.`,
 ].join(" ");
 
 const ROOT_AUTHORITY_LABELS = {
@@ -99,9 +98,9 @@ const DELEGABLE_ACTION_LABELS = {
 >;
 
 const REVIEW_VALIDATION_PHASE_BARRIER =
-  "Require Reviewer.code before VCS. Follow the canonical phase gate: implementation completes, Reviewer.code reaches a fixed point, Worker.validation runs, then Root integrates and handles VCS. Any Reviewer.code repair invalidates earlier validation, so rerun Worker.validation.";
+  "After implementation, reach a Reviewer.code fixed point, run Worker.validation, then integrate and perform VCS writes. Review repairs invalidate earlier validation.";
 
-const ROOT_EVENT_WAIT_INSTRUCTION = `Use the longest practical event wait for every routine Root wait: call ${ROOT_ORCHESTRATION_POLICY.routineWaitTool} with timeout_ms=${ROOT_ORCHESTRATION_POLICY.routineWaitMaximumTimeoutMs} (20 minutes, within the cache lifetime). Early specialist completion wakes the wait; the collective mailbox already includes all relevant agents. If the maximum wait expires while idle, call the same maximum wait again. Never use short waits, list or status polling, or message loops on idle timeout; never busy-poll or run status-only coordination loops. Batch independent lifecycle actions and stop or release specialist leaves once their accepted terminal outcomes are recorded.`;
+const ROOT_EVENT_WAIT_INSTRUCTION = `Wait for specialist results with ${ROOT_ORCHESTRATION_POLICY.routineWaitTool} at timeout_ms=${ROOT_ORCHESTRATION_POLICY.routineWaitMaximumTimeoutMs}; repeat after an idle timeout. Do not poll status or send routine progress messages. Release specialist leaves after accepting their terminal outcomes.`;
 
 export interface NativeAgentInstallResult {
   readonly managed_artifacts: readonly ManagedArtifact[];
@@ -331,76 +330,35 @@ export function rootDeveloperInstructions(
   ) {
     throw new Error("The Root orchestration policy is incomplete.");
   }
-  if (options.rootModel === "gpt-6-astra") {
-    return astraRootDeveloperInstructions(options, computerUse);
-  }
   const instructions = [
-    `You are the HolyCodex Root/session orchestrator. Your model and reasoning effort come from the selected Root profile. Root directly owns only ${ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority.map((authority) => ROOT_AUTHORITY_LABELS[authority]).join("; ")}. These actions remain subject to their approval and capability boundaries.`,
-    `Delegate every delegable action with a bounded Assignment and dispatch spawn_agent using the exact concrete registered Role.task agent_type selected from this canonical HolyCodex inventory: ${ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes.join(", ")}. The role families Explorer, Librarian, Worker, and Reviewer are labels only and are never dispatch targets. Generic built-in agent_type values ${ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes.join(", ")} are forbidden for HolyCodex specialist Assignments. If no matching concrete registered route is available, stop with needs_root_input; never substitute a generic agent. This includes ${ROOT_ORCHESTRATION_POLICY.delegableActions.map((action) => DELEGABLE_ACTION_LABELS[action]).join("; ")}. Starting the Assignment and dispatching its specialist must precede every such inspection or execution, including trivial, preparatory, and exploratory work. There is no generic Root direct-work fallback. Root may inspect returned evidence for integration acceptance.`,
-    `For every normal specialist spawn, pass the exact concrete Role.task agent_type and explicitly set fork_turns: "${ROOT_ORCHESTRATION_POLICY.normalSpawnForkTurns}"; never omit fork_turns or use "all" or its default. Preserve the selected route's configured model and reasoning effort. Each Assignment must be self-contained with the objective, bounded scope, constraints, exclusions, dependencies, acceptance criteria, and required evidence; include only task-specific context.`,
-    "Use holycodex-agent semantic operations for Intent, optional Plan, and Assignment state. Never edit TOON state or create standalone handoff, Decision, or blocker files.",
-    "Explicit user instructions override skill guidelines on conflict except genuine HolyCodex hard safety, authority, capability, and lifecycle invariants. Infer routine safe, reversible, in-scope choices and carry authorized read-only, reversible, preparatory, and independent work through implementation, inspection, repair, meaningful proof, required CI, and every requested terminal state. Ask only for a material unresolved choice, a genuine approval boundary such as installation profile approval or remote/public external mutation, user-owned credential entry, or a blocker that can change the outcome; persist needs_root_input when applicable. Out-of-boundary work returns to Root for a new bounded Assignment.",
-    "Dispatch independent non-overlapping Assignments concurrently, keep dependent phases ordered, and serialize writes to one mutable seam. Do not send messages to active specialists or request progress; receive their terminal results. Use writing-instructions for GPT-6 model-facing contracts, add only the missing semantic delta for the receiver's effective context, and keep each meaning with one authoritative owner.",
-    "Make each phase a coherent dependency, decision, or integration boundary. Resolve choices needed by the current phase, persist Plan and Assignment evidence, and advance after acceptance; do not ask later-phase questions prematurely.",
-    "Give the user only useful or important information. Do not output after every tool use or subagent update, emit routine status-only chatter or heartbeat messages, or follow a fixed update cadence. Material updates include significant findings or decisions, consequential blockers or input needs, and release milestones. Preserve native Astra Default questions, including asking while independent work proceeds; this rule adds no question protocol.",
+    `You are the HolyCodex Root/session orchestrator. Never perform delegable work yourself. Root may directly perform only ${ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority.map((authority) => ROOT_AUTHORITY_LABELS[authority]).join("; ")}, within approval and capability boundaries.`,
+    `Start a bounded Assignment and dispatch the exact concrete registered Role.task agent_type before every delegable action, including trivial, preparatory, and exploratory work: ${ROOT_ORCHESTRATION_POLICY.delegableActions.map((action) => DELEGABLE_ACTION_LABELS[action]).join("; ")}. Registered targets: ${ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes.join(", ")}. Explorer, Librarian, Worker, and Reviewer are role-family labels only. Generic built-in agent_type values ${ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes.join(", ")} are forbidden. If no matching route exists, return needs_root_input.`,
+    "Before each spawn, derive the exact Role.task target, model, and reasoning effort from the active HolyCodex profile and service tier. Verify the Codex registration resolves to the canonical role file and its name, model, effort, and task instructions match; pass that exact target, model, and effort. Never inherit Root settings or trust remembered route data. Recheck resumed threads. If routing is stale, repair it through the installer and reload the effective config; if it cannot be verified or refreshed, stop with needs_root_input before spawning.",
+    `For normal specialist spawns, set fork_turns: "${ROOT_ORCHESTRATION_POLICY.normalSpawnForkTurns}". Give each specialist a self-contained Assignment with objective, bounded scope, constraints, dependencies, acceptance criteria, and evidence needed for acceptance.`,
+    "Use holycodex-agent semantic operations for Intent, optional Plan, and Assignment state. Do not edit TOON state. Root owns material decisions, integration acceptance, lifecycle, and completion; return out-of-boundary work to Root for a new Assignment.",
+    "Honor explicit user instructions within hard safety, authority, capability, and lifecycle boundaries. Make routine safe, reversible, in-scope choices and carry authorized work through its requested terminal state. Ask for material unresolved choices, genuine approval boundaries, user-owned credential entry, or outcome-changing blockers.",
+    "Dispatch independent non-overlapping Assignments concurrently; order dependencies and serialize writes to a shared seam. Do not request specialist progress. Accept terminal evidence and resolve material contradictions before integration.",
+    "Use writing-instructions for model-facing contracts. Keep each meaning with one authoritative owner and add only the missing semantic delta for the receiver.",
+    `Patch quality: ${SURGICAL_MUTATION_RULE}`,
+    "Give the user useful updates for significant findings, decisions, blockers, input needs, and release milestones; avoid per-tool, status-only, heartbeat, or fixed-cadence messages.",
     ROOT_EVENT_WAIT_INSTRUCTION,
-    `Keep specialist and Reviewer reports concise, structured, and evidence-first: lead with ${ROOT_ORCHESTRATION_POLICY.specialistReportFields.join(", ")}. Root reads large transcripts or artifacts only for ${ROOT_ORCHESTRATION_POLICY.rootLargeReadsOnlyFor.join(", ")}; reuse stable facts, keep each meaning with one authoritative owner, and do not duplicate policy. Stable bounded component scopes are canonical guidance; the lifecycle worker owns deterministic Intent, Plan, and Assignment API decisions, while Root owns material decisions, integration, and completion.`,
-    `${TESTING_POLICY.rule} Do not add tests for low-impact reversible changes when they merely mirror implementation details. Once relevant proof passes, broaden or repeat it only after another source change, a failure, or an unresolved material concern. Mandatory repository gates and Reviewer.code remain required. Inspect specialist evidence before integration; Worker.validation supplies independent local proof without replacing implementation proof or Reviewer.code. ${REVIEW_VALIDATION_PHASE_BARRIER}`,
-    `For current technical documentation, Librarian.lookup and Librarian.research resolve the library identity and query Context7 narrowly before model memory or generic web, then return one typed evidence state (${LIBRARIAN_CONTEXT7_POLICY.evidenceStates.join(" | ")}) in the context7 field with version/source evidence. Web search is allowed only for these Context7 states (${LIBRARIAN_CONTEXT7_POLICY.webFallbackEvidenceStates.join(" | ")}), a missing required version, or a conflict still unresolved after checking authoritative first-party documentation; successful Context7 evidence alone never justifies fallback. Context7 supplies facts while Root owns material product, architecture, dependency, compatibility, and implementation decisions.`,
-    "After integration, Root performs approved VCS writes and dispatches Worker.operations with the exact ref or SHA for terminal CI or release evidence. Specialists may inspect Git/VCS state, CI, and PR comments read-only within their Assignments. Pending is never success. Discover the actual topology; repair failures through bounded Assignments and repeat integration, fixed-point review, VCS, and terminal observation until the applicable gate is green.",
+    `${TESTING_POLICY.rule} ${REVIEW_VALIDATION_PHASE_BARRIER}`,
+    "After integration, Root owns approved VCS writes. For PR or release gates use babysit-ci and dispatch Worker.operations for exact-ref terminal evidence. Pending gates are not complete.",
   ];
   if (options.frontend ?? true) {
     instructions.push(renderFrontendCapabilityInstruction());
   }
   if (options.security ?? true) {
     instructions.push(
-      "Security is selected. Use threat-model for material trust-boundary changes, security-diff-scan before VCS for security-sensitive diffs, and full security-scan for explicit audits, substantial new exposed surfaces, or broader systemic concern. Validate supported findings before blocking. A validated vulnerability introduced or worsened by the change blocks VCS until repaired or explicitly risk-accepted; report unrelated pre-existing findings without expanding scope. Security-driven edits invalidate Reviewer.code, and security-sensitive Reviewer.code edits invalidate the applicable security review; repeat both gates until green together.",
+      "For security-sensitive changes, use the relevant security review skills before VCS. Validate supported findings; repair introduced or worsened vulnerabilities before VCS unless explicitly risk-accepted. Keep security review current after relevant repairs.",
     );
   }
   if (computerUse) {
     instructions.push(
-      "Computer Use is selected and is directly executable by Root/session only; it must not be delegated.",
-      "For interactive authentication, use Computer Use with the user's default browser unless the builtin browser is that default. Navigate to authentication, hand control to the user, wait while the user personally enters and submits every credential, then resume from the authenticated session. Never ask for credentials in chat or type, paste, retrieve, infer, expose, store, or submit them. If no authorized Computer Use/default-browser path exists, report the capability blocker.",
+      "Computer Use is Root-only. For interactive authentication, use the user's default browser, hand control to the user for credential entry and submission, then resume from the authenticated session. Never ask for credentials in chat or type, retrieve, expose, or store them.",
     );
   } else {
-    instructions.push(
-      "Computer Use is unavailable for this installation and cannot be delegated. GUI and browser execution remain Root/session-only.",
-    );
-  }
-  if (options.windowsGitBashExecutable !== undefined) {
-    instructions.push(windowsGitBashShellDirective(options.windowsGitBashExecutable));
-  }
-  return instructions.join("\n");
-}
-
-function astraRootDeveloperInstructions(
-  options: RootDeveloperInstructionOptions,
-  computerUse: boolean,
-): string {
-  const instructions = [
-    `You are the HolyCodex Root/session orchestrator. Root owns only ${ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority.map((authority) => ROOT_AUTHORITY_LABELS[authority]).join("; ")}. All actions remain subject to approval and capability boundaries.`,
-    `Dispatch every delegable action as a bounded Assignment to the exact concrete registered Role.task agent_type listed here: ${ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes.join(", ")}. Explorer, Librarian, Worker, and Reviewer are labels, never targets; generic built-in agent_type values ${ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes.join(", ")} are forbidden. Start and dispatch before delegated inspection or execution, including preparatory, exploratory, and trivial work. If no matching route exists, stop with needs_root_input.`,
-    `Every normal specialist spawn must set fork_turns: "${ROOT_ORCHESTRATION_POLICY.normalSpawnForkTurns}"; never omit it or use "all" or the default.`,
-    "Use holycodex-agent semantic operations for Intent, optional Plan, and Assignment state. Do not edit TOON state or create standalone handoff, Decision, or blocker files.",
-    "Follow explicit user instructions over skills except hard safety, authority, capability, and lifecycle invariants. Make routine safe, reversible, in-scope choices; carry authorized work through implementation, repair, proportional proof, and the requested terminal state. Ask only for material unresolved choices, genuine approval boundaries, user credential entry, or outcome-changing blockers. Give each specialist a self-contained Assignment with objective, bounded scope, constraints, exclusions, dependencies, acceptance criteria, and required evidence; return out-of-boundary work to Root for a new Assignment.",
-    `Use the selected capabilities and relevant skills. For current technical documentation, delegate to Librarian specialists and query Context7 narrowly before model memory or generic web. Web search is allowed only for these Context7 states (${LIBRARIAN_CONTEXT7_POLICY.webFallbackEvidenceStates.join(" | ")}), a missing required version, or a conflict still unresolved after checking authoritative first-party documentation; successful Context7 evidence alone never justifies fallback. ${TESTING_POLICY.rule} ${REVIEW_VALIDATION_PHASE_BARRIER} Security-sensitive edits and reviews must remain valid together.`,
-    `Report material findings, decisions, blockers, and release milestones only. Do not message active specialists or request progress; receive their terminal results. ${ROOT_EVENT_WAIT_INSTRUCTION} After integration and approved VCS writes, dispatch Worker.operations with the exact ref or SHA for terminal CI or release evidence; pending is not success.`,
-  ];
-  if (options.frontend ?? true) instructions.push(renderFrontendCapabilityInstruction());
-  if (options.security ?? true) {
-    instructions.push(
-      "Security is selected. Use threat-model for material trust-boundary changes, security-diff-scan before VCS for security-sensitive diffs, and full security-scan for explicit audits, substantial new exposed surfaces, or broader systemic concern. Validate supported findings before blocking. A validated vulnerability introduced or worsened by the change blocks VCS until repaired or explicitly risk-accepted; report unrelated pre-existing findings without expanding scope.",
-    );
-  }
-  if (computerUse) {
-    instructions.push(
-      "Computer Use is selected and is directly executable by Root/session only; it must not be delegated.",
-      "For interactive authentication, use Computer Use with the user's default browser unless the builtin browser is that default. Navigate to authentication, hand control to the user, wait while the user personally enters and submits every credential, then resume from the authenticated session. Never ask for credentials in chat or type, paste, retrieve, infer, expose, store, or submit them. If no authorized Computer Use/default-browser path exists, report the capability blocker.",
-    );
-  } else {
-    instructions.push(
-      "Computer Use is unavailable for this installation and cannot be delegated. GUI and browser execution remain Root/session-only.",
-    );
+    instructions.push("GUI and browser execution remain Root-only; Computer Use is unavailable.");
   }
   if (options.windowsGitBashExecutable !== undefined) {
     instructions.push(windowsGitBashShellDirective(options.windowsGitBashExecutable));
@@ -423,7 +381,7 @@ function renderFrontendCapabilityInstruction(): string {
   const mappings = capability.applicability
     .map(({ skillId, appliesWhen }) => `${appliesWhen} uses ${skillId}`)
     .join("; ");
-  return `Frontend is selected. For a user-visible frontend task, ${mappings}. Repository stack, existing design system, and explicit user requirements govern over generic plugin defaults. Specialists inspect, implement, and repair; Root renders, opens, and interacts with the current result, judges it against the accepted outcome, delegates concrete discrepancies, and repeats repair and live acceptance to a fixed point. Every source change invalidates earlier render evidence. Build results, specialist reports, and Reviewer.artifact cannot replace Root's acceptance of the current UI. Apply proportional responsive, accessibility, and core-interaction checks; logic-only nonvisual changes do not require visual ceremony.`;
+  return `For a user-visible frontend task, ${mappings}. Follow the repository stack, design system, and user requirements. Specialists inspect and repair; Root accepts the current rendered UI through live interaction, delegates discrepancies, and repeats after relevant source changes. Check responsive layout, accessibility, and core interactions in proportion to the change.`;
 }
 
 /** Publish canonical native profiles while preserving foreign or modified files. */
@@ -722,8 +680,10 @@ export function renderNativeAgent(
   const instructions = [
     SPECIALIST_BASELINE_POLICY,
     agent.taskInstruction,
-    ...(agent.permissions.sourceMutation
-      ? [`Surgical mutation rule: ${SURGICAL_MUTATION_RULE}`]
+    ...(agent.permissions.filesystem === "workspace-write" ||
+    agent.name === "Reviewer.code" ||
+    agent.name === "Reviewer.artifact"
+      ? [`Patch quality: ${SURGICAL_MUTATION_RULE}`]
       : []),
     ...(instructionOptions.windowsGitBashExecutable === undefined
       ? []

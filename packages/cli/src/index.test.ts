@@ -468,7 +468,7 @@ describe("native installation and removal", () => {
       expect(config).toContain("network_access = true");
       expect(config).toContain("You are the HolyCodex Root/session orchestrator");
       expect(config).toContain(
-        "Computer Use is unavailable for this installation and cannot be delegated",
+        "GUI and browser execution remain Root-only; Computer Use is unavailable",
       );
       expect(config).not.toContain("delegate GUI");
       expect(config).not.toContain("Interactive GUI, browser, and Computer Use execution");
@@ -529,9 +529,7 @@ describe("native installation and removal", () => {
       );
       expect(install.record.official_plugins).toContain("computer-use@openai-bundled");
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
-      expect(config).toContain(
-        "Computer Use is selected and is directly executable by Root/session only",
-      );
+      expect(config).toContain("Computer Use is Root-only");
       for (const agent of projectNativeAgents("default")) {
         const leaf = await readFile(
           join(codexHome, "holycodex", "agents", `${agent.name}.toml`),
@@ -1908,6 +1906,80 @@ describe("native installation and removal", () => {
     }
   });
 
+  test("doctor does not change prerequisite discovery between unchanged installs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-observational-doctor-"));
+    const codexHome = join(root, "codex");
+    const manager = fakeManager();
+    const baseline = testRuntime(codexHome);
+    const calls: string[] = [];
+    const runtime: InstallerRuntime = {
+      ...baseline,
+      environment: { PATH: "" },
+      run: async (executable, args) => {
+        calls.push(`${executable} ${args.join(" ")}`);
+        if (args.join(" ") === "pm view ctx7 version") {
+          return { exitCode: 1, stdout: "", stderr: "registry unavailable" };
+        }
+        return baseline.run(executable, args);
+      },
+    };
+    const options = { paths: { codexHome }, officialPluginManager: manager, runtime };
+    try {
+      const first = await installHolyCodex({}, options);
+      expect(first.warnings.some((warning) => warning.includes("Optional ctx7"))).toBe(true);
+      expect(first.record.tooling?.context7).toBeUndefined();
+      const callsBeforeDoctor = calls.length;
+      const doctor = await doctorHolyCodex(options);
+      expect(doctor.healthy).toBe(true);
+      expect(doctor.checks["context7"]?.status).toBe("warning");
+      expect(calls.slice(callsBeforeDoctor).every((call) => !call.includes("add -g"))).toBe(true);
+      const second = await installHolyCodex({}, options);
+      expect(second.warnings.some((warning) => warning.includes("Optional ctx7"))).toBe(true);
+      expect(second.record.tooling?.context7).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves owned ctx7 cleanup state when optional refresh cannot reach the registry", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-context7-refresh-offline-"));
+    const codexHome = join(root, "codex");
+    const manager = fakeManager();
+    const baseline = testRuntime(codexHome);
+    const calls: string[] = [];
+    const runtime: InstallerRuntime = {
+      ...baseline,
+      environment: { PATH: "" },
+      run: async (executable, args) => {
+        calls.push(`${executable} ${args.join(" ")}`);
+        if (args.join(" ") === "pm view ctx7 version") {
+          return { exitCode: 1, stdout: "", stderr: "registry unavailable" };
+        }
+        return baseline.run(executable, args);
+      },
+    };
+    const initialOptions = {
+      paths: { codexHome },
+      officialPluginManager: manager,
+      runtime: baseline,
+    };
+    const options = { paths: { codexHome }, officialPluginManager: manager, runtime };
+    try {
+      const initial = await installHolyCodex({}, initialOptions);
+      const ownedContext7 = initial.record.tooling?.context7;
+      expect(ownedContext7?.ownership).toBe("holycodex");
+
+      const refreshed = await installHolyCodex({}, options);
+      expect(refreshed.warnings.some((warning) => warning.includes("Optional ctx7"))).toBe(true);
+      expect(refreshed.record.tooling?.context7).toEqual(ownedContext7);
+
+      await removeHolyCodex(options);
+      expect(calls).toContain("bun remove -g ctx7");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("doctor reports recognized observed official provider identities", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-observed-provider-"));
     const codexHome = join(root, "codex");
@@ -1977,6 +2049,26 @@ describe("native installation and removal", () => {
       expect(drifted.healthy).toBe(false);
       expect(drifted.checks["native_roles"]?.reasons).toContain("native_role_disagreement");
       expect(drifted.checks["native_roles"]?.details["roles"]).toContain("Reviewer.code:missing");
+
+      const expectedRoute = projectNativeAgents("default", "standard").find(
+        ({ name }) => name === "Explorer.lookup",
+      );
+      if (expectedRoute === undefined) throw new Error("The Explorer.lookup route is missing.");
+      const staleRoutePath = join(codexHome, "holycodex", "agents", `${expectedRoute.name}.toml`);
+      await writeFile(
+        staleRoutePath,
+        renderNativeAgent(expectedRoute).replace(
+          `model = "${expectedRoute.model}"`,
+          'model = "gpt-6-sol"',
+        ),
+      );
+      const staleRoute = await doctorHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+      });
+      expect(staleRoute.checks["native_roles"]?.details["roles"]).toContain(
+        "Explorer.lookup:changed",
+      );
 
       const activePath = join(codexHome, "holycodex", "active.json");
       const active = JSON.parse(await readFile(activePath, "utf8")) as Record<string, unknown>;

@@ -84,6 +84,13 @@ Root's managed configuration enables
 this V1 arrangement only; session metadata reports V2, so HolyCodex does not
 claim live V1 runtime proof or owned fork enforcement.
 
+When asked to continue existing work, Root recovers the current Intent, Plan,
+Assignments, results, and material decisions before resuming orchestration.
+For repository orientation requests, Root delegates bounded mapping and traces
+of important flows, then synthesizes the project's purpose, structure,
+conventions, and useful starting points. Orientation remains read-only unless
+the user requests a persistent document.
+
 Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; every native specialist route uses `gpt-6-luna` with the effort matrix below. These are
 routing identities; live skills and generated instructions target GPT-6-family
 behavior. Root dispatches the exact registered concrete `Role.task` identity
@@ -112,11 +119,11 @@ release gates, one pipeline, or no formal separation; do not assume GitHub or
 a branch topology. With one or no distinct release gate, record that topology
 and use only the repository's available terminal evidence.
 
-Root uses `request_user_input` before seeking workflow Plan approval, before
-installation profile approval, before any remote/origin/server VCS mutation or
-public publication/release, and whenever ambiguity or missing material input
-blocks safe progress; persist the resulting `needs_root_input` state on the
-Intent or Plan. A passing `Reviewer.code` fixed-point review is mandatory after
+Root obtains workflow Plan and installation profile approval when required.
+Before remote VCS mutation or public release, it checks authorization already
+given in the current request or session and asks only if authorization or
+material input is missing; unresolved input is persisted as `needs_root_input`
+on the Intent or Plan. A passing `Reviewer.code` fixed-point review is mandatory after
 implementation or a major codebase change and before completion or any VCS
 operation.
 

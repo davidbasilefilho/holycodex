@@ -214,7 +214,7 @@ export type Context7ToolState = Readonly<{
 
 export type InstallerToolingState = Readonly<{
   readonly git_bash: GitBashState;
-  readonly context7: Context7ToolState;
+  readonly context7?: Context7ToolState | undefined;
 }>;
 
 export type ManagedConflict = Readonly<{

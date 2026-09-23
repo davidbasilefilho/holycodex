@@ -86,7 +86,6 @@ import {
   createInstallerRuntime,
   ensureContext7,
   ensureGitBash,
-  preflightContext7,
   removeOwnedContext7,
   ToolingError,
   WINDOWS_GIT_BASH,
@@ -513,19 +512,17 @@ export async function installHolyCodex(
     if (environment["HOLYCODEX_DEBUG_INSTALLER"] !== "1") return;
     await appendFile(join(paths.codexHome, ".holycodex-debug.log"), `${message}\n`, "utf8");
   };
-  let context7PreflightReady = false;
-  try {
-    await preflightContext7(runtime);
-    context7PreflightReady = true;
-  } catch (error: unknown) {
-    throw new InstallerError(
-      "capability_denied",
-      "Context7 tooling cannot be inspected before managed installation changes.",
-      error,
-    );
-  }
+  const context7PreflightReady = await ensureContext7(
+    runtime,
+    false,
+    previous?.tooling?.context7,
+  ).then(
+    () => true,
+    () => false,
+  );
   let gitBash: GitBashState = discoveredGitBash;
   let context7: Context7ToolState | undefined;
+  let context7Warning: string | undefined;
   const providerPlugins = [
     ...new Set(
       pluginIdsForOptionalCapabilities(toCoreSelections(optional), additionalPlugins).map(
@@ -1041,17 +1038,22 @@ export async function installHolyCodex(
   try {
     try {
       gitBash = await ensureGitBash(runtime, true);
-      context7 = await ensureContext7(runtime, true, previous?.tooling?.context7);
-      if (context7 === undefined) {
-        throw new InstallerError("capability_denied", "Context7 installation was not verified.");
-      }
     } catch (error: unknown) {
       if (error instanceof ToolingError) {
         throw new InstallerError("capability_denied", error.message, error, error.details);
       }
       throw error;
     }
-    const tooling = { git_bash: gitBash, context7 } as const;
+    try {
+      context7 = await ensureContext7(runtime, true, previous?.tooling?.context7);
+    } catch (error: unknown) {
+      context7Warning = `Optional ctx7 is unavailable: ${safeMessage(error)}`;
+    }
+    const recordedContext7 = context7 ?? previous?.tooling?.context7;
+    const tooling = {
+      git_bash: gitBash,
+      ...(recordedContext7 === undefined ? {} : { context7: recordedContext7 }),
+    } as const;
     let transaction: PreparingTransaction = { ...preMutationTransaction, tooling };
     transactionForRecovery = transaction;
     await writeTransaction(paths.preparingRecord, transactionForRecovery);
@@ -1496,7 +1498,10 @@ export async function installHolyCodex(
       record,
       optional_plugins: providerPlugins,
       preserved: native.preserved,
-      warnings: native.preserved.length === 0 ? [] : ["modified managed files were preserved"],
+      warnings: [
+        ...(native.preserved.length === 0 ? [] : ["modified managed files were preserved"]),
+        ...(context7Warning === undefined ? [] : [context7Warning]),
+      ],
     };
   } catch (error: unknown) {
     const rollbackFailures: string[] = [];

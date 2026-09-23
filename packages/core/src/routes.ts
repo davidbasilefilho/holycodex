@@ -48,16 +48,16 @@ export type ServiceTier = typeof ServiceTierSchema.Type;
 export const EffortSchema = Schema.Literal("low", "medium", "high", "xhigh", "max");
 export type Effort = typeof EffortSchema.Type;
 
-/** Canonical mutation-minimization rule projected into source-mutating task profiles. */
+/** Canonical patch-quality rule for every source or artifact mutation. */
 export const SURGICAL_MUTATION_RULE =
-  "Make the smallest complete edit set within the authorized boundary, touch no unrelated paths, avoid speculative refactors or formatting churn, and perform no redundant writes or operations; preserve unrelated work and stop for Root input before expanding scope.";
+  "Satisfy the complete requested outcome correctly, elegantly, and mergeably; never weaken or reinterpret it to shrink the patch. Then make the smallest coherent patch within the authorized boundary. Prefer simple, cohesive, idiomatic solutions with appropriate abstraction and minimal accidental complexity. Avoid unrelated code, prose, configuration, documentation, instructions, tests, restructuring, formatting churn, files, and operations. Preserve unrelated work; return material scope expansion to Root.";
 
 /** Literal boundary for specialist tasks that may inspect or prove work but cannot mutate source. */
 export const NO_SOURCE_MUTATION_RULE =
   "Do not modify repository source or the implementation under validation; observation, analysis, and proof artifacts only.";
 
-const TERMINAL_RESULT_RULE =
-  "Send no mid-task messages to Root or peers. Return only a terminal result, including any material blocker.";
+const LIBRARIAN_CONTEXT7_INSTRUCTION =
+  "For current library, framework, SDK, API, CLI, or cloud-service facts, resolve the library identity and query Context7 narrowly before model memory or web search. Return the typed context7 evidence state with version/source evidence. Use web search only when Context7 is unavailable, lacks relevant coverage or the required version, fails for authentication or quota, or a conflict remains after checking authoritative first-party documentation.";
 
 /** Explicit fork policy for ordinary concrete specialist spawns. */
 export const ForkTurnsSchema = Schema.Literal("none");
@@ -83,19 +83,19 @@ export const ROLE_DEFINITIONS = [
       {
         name: "map",
         description: "Bounded repository structure mapping specialist.",
-        instruction: `Map the assigned repository area: locate its relevant packages, entry points, ownership boundaries, and nearby tests or docs. Return a compact path map and identify where a follow-up lookup or trace should start; do not trace runtime behavior or resolve an unrelated fact. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
+        instruction: `Map the assigned repository area: locate its relevant packages, entry points, ownership boundaries, and nearby tests or docs. Return a compact path map and identify where a follow-up lookup or trace should start; do not trace runtime behavior or resolve an unrelated fact. ${NO_SOURCE_MUTATION_RULE}`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "lookup",
         description: "Repository fact lookup specialist.",
-        instruction: `Find the specific requested repository fact and cite its exact path or symbol; keep the search narrower than a structure map or execution trace. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
+        instruction: `Find the specific requested repository fact and cite its exact path or symbol; keep the search narrower than a structure map or execution trace. ${NO_SOURCE_MUTATION_RULE}`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "trace",
         description: "Repository execution and reference tracing specialist.",
-        instruction: `Follow the assigned execution or reference path across callers, boundaries, and tests; explain the evidence-backed flow and stop at the assigned boundary. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
+        instruction: `Follow the assigned execution or reference path across callers, boundaries, and tests; explain the evidence-backed flow and stop at the assigned boundary. ${NO_SOURCE_MUTATION_RULE}`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
     ],
@@ -113,13 +113,13 @@ export const ROLE_DEFINITIONS = [
       {
         name: "lookup",
         description: "Authoritative external fact lookup specialist.",
-        instruction: `Answer the specific external fact with its current authoritative source; do not broaden into a multi-source synthesis. For current library, framework, SDK, API, CLI, or cloud-service facts, resolve the library identity and query Context7 narrowly before model memory or generic web sources. Return a typed Context7 evidence state in the context7 field with supporting version/source evidence. Use web search only when Context7 is unavailable, has no coverage or relevant results, fails for authentication or quota, the required version is missing, or a conflict remains unresolved after checking authoritative first-party documentation; successful Context7 evidence alone never justifies fallback. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
+        instruction: `Answer the specific external fact with its current authoritative source. ${NO_SOURCE_MUTATION_RULE}`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "research",
         description: "Current authoritative-source research specialist.",
-        instruction: `Compare and synthesize the assigned current sources with citations, noting conflicts and uncertainty rather than returning one isolated fact. For current library, framework, SDK, API, CLI, or cloud-service facts, resolve the library identity and query Context7 narrowly before model memory or generic web sources. Return a typed Context7 evidence state in the context7 field with supporting version/source evidence. Use web search only when Context7 is unavailable, has no coverage or relevant results, fails for authentication or quota, the required version is missing, or a conflict remains unresolved after checking authoritative first-party documentation; successful Context7 evidence alone never justifies fallback. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
+        instruction: `Compare and synthesize the assigned current sources with citations, noting conflicts and uncertainty. ${NO_SOURCE_MUTATION_RULE}`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
     ],
@@ -137,37 +137,38 @@ export const ROLE_DEFINITIONS = [
       {
         name: "mechanical",
         description: "Deterministic bounded-edit specialist.",
-        instruction: `Apply the exact already-decided transformation within the assigned files and verify it. ${TERMINAL_RESULT_RULE}`,
+        instruction: `Apply the exact already-decided transformation within the assigned files and verify it.`,
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
       {
         name: "implementation",
         description: "Bounded behavior implementation specialist.",
-        instruction: `Design and implement the assigned behavior within its bounded seam, then verify the changed behavior. ${TERMINAL_RESULT_RULE}`,
+        instruction: `Design and implement the assigned behavior within its bounded seam, then verify the changed behavior.`,
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
       {
         name: "integration",
         description: "Decided seam integration specialist.",
-        instruction: `Connect already-decided component seams, resolve interface mismatches within the assigned boundary, and verify their combined behavior. ${TERMINAL_RESULT_RULE}`,
+        instruction: `Connect already-decided component seams, resolve interface mismatches within the assigned boundary, and verify their combined behavior.`,
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
       {
         name: "operations",
         description: "Exact-ref or SHA terminal operations observer.",
-        instruction: `Observe the assigned CI or release gate for the Root-supplied exact ref or SHA until it reaches a terminal state; report the matching result and failure evidence. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
+        instruction: `Observe the assigned CI or release gate for the Root-supplied exact ref or SHA until it reaches a terminal state; report the matching result and failure evidence. ${NO_SOURCE_MUTATION_RULE}`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "validation",
         description: "Independent local behavioral validation specialist.",
-        instruction: `Independently exercise the assigned local behavior with the smallest relevant checks, classify failures, and report reproducible evidence; generated proof state is allowed, but do not repair the implementation or substitute for code review. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
+        instruction: `Independently exercise the assigned local behavior with the smallest relevant checks, classify failures, and report reproducible evidence; generated proof state is allowed, but do not repair the implementation or substitute for code review. ${NO_SOURCE_MUTATION_RULE}`,
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: false },
       },
       {
         name: "debugging",
         description: "Reproducible bounded defect-repair specialist.",
-        instruction: `Establish the failure reproducibly, identify the evidence-backed root cause, make the narrow bounded repair, and prove the regression is gone. ${TERMINAL_RESULT_RULE}`,
+        instruction:
+          "Use the debugging skill to repair the assigned defect within its bounded seam.",
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
     ],
@@ -186,19 +187,19 @@ export const ROLE_DEFINITIONS = [
       {
         name: "plan",
         description: "Adversarial implementation-plan review specialist.",
-        instruction: `Adversarially inspect the assigned implementation plan for missing requirements, invalid assumptions, unsafe ordering, unowned seams, and inadequate proof. Return actionable plan findings or a fixed-point verdict; do not implement the plan. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
+        instruction: `Adversarially inspect the assigned implementation plan for missing requirements, invalid assumptions, unsafe ordering, unowned seams, and inadequate proof. Return actionable plan findings or a fixed-point verdict; do not implement the plan. ${NO_SOURCE_MUTATION_RULE}`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "code",
         description: "Adversarial implemented-code review specialist.",
-        instruction: `Review and repair the implemented code to a fixed point. Use one batched evidence sweep, reason over it, make targeted follow-ups only, and batch related repairs and verification. The acceptance contract covers correctness, safety, compatibility, mergeability, clarity, simplicity, cohesion, idiomaticity, appropriate abstraction, accidental complexity, duplication, unnecessary files or file splitting, speculative abstraction, test quality, and generated-artifact hygiene. Prefer simple cohesive code over clever or over-engineered code. ${TERMINAL_RESULT_RULE}`,
+        instruction: `Review and repair the implemented code to a fixed point. Batch relevant evidence, then follow up on concrete uncertainty. Check correctness, safety, compatibility, test quality, generated-artifact hygiene, and the canonical patch-quality rule.`,
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
       {
         name: "artifact",
         description: "Adversarial produced-artifact review specialist.",
-        instruction: `Inspect the assigned produced artifact against its requested content, usability, and delivery constraints; repair concrete defects within the artifact boundary and repeat inspection until no actionable findings remain. ${TERMINAL_RESULT_RULE}`,
+        instruction: `Inspect the assigned produced artifact against its requested content, usability, and delivery constraints; repair concrete defects within the artifact boundary and repeat inspection until no actionable findings remain.`,
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
     ],
@@ -329,7 +330,9 @@ export function taskInstructionFor(route: RoleTask): string {
     .get(route.role)
     ?.tasks.find((candidate) => candidate.name === route.task);
   if (task === undefined) throw new Error("Unknown specialist task policy.");
-  return task.instruction;
+  return route.role === "Librarian"
+    ? `${LIBRARIAN_CONTEXT7_INSTRUCTION} ${task.instruction}`
+    : task.instruction;
 }
 
 /** Return the human-facing description assigned to a concrete specialist route. */
@@ -453,12 +456,13 @@ export type Context7EvidenceState = typeof Context7EvidenceStateSchema.Type;
 
 /** Canonical proportional proof rule for GPT-6-family instruction projections. */
 export const TESTING_POLICY = Object.freeze({
-  rule: "Run meaningful proof appropriate to changed behavior plus repository-required checks.",
+  rule: "Use the smallest meaningful proof proportionate to changed behavior, scope, and risk, plus repository-required gates. Avoid redundant equivalent checks and speculative edge-case tests.",
   avoidImplementationMirrorTestsForLowImpactReversibleChanges: true,
   broadenOrRepeatOnlyAfter: Object.freeze([
     "source_change",
     "proof_failure",
     "unresolved_material_concern",
+    "change_breadth_or_risk",
   ] as const),
   mandatoryRepositoryGatesRemainRequired: true,
   reviewerCodeRemainsRequired: true,
@@ -582,11 +586,7 @@ export const SECURITY_WORKFLOW_POLICY = Object.freeze({
   materialDecisionsRemainRootOwned: true,
 });
 
-/**
- * Durable Root orchestration contract shared by runtime projections and proofs. Every task is
- * delegated, including trivial work, except for Git/VCS writes and Computer Use when that
- * capability was selected during installation.
- */
+/** Root orchestration contract; only ROOT_DIRECT_EXECUTION_EXCEPTIONS permit direct execution. */
 export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   requiresDelegation: true,
   assignmentStartAndDispatchPrecedeDelegableExecution: true,

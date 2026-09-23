@@ -536,7 +536,7 @@ function installReviewDecisionCounts(
 
 function installReviewToolLine(tool: InstallReviewTool, color: boolean): string {
   const context7 = tool.name.toLowerCase() === "context7";
-  const status = context7 ? "Install/update managed Bun copy" : tool.status;
+  const status = context7 ? context7ReviewStatus(tool.status) : tool.status;
   const tone = tool.status === "ready" || tool.status === "healthy" ? "success" : "warning";
   const detail = context7 || tool.detail === undefined ? "" : ` (${tool.detail})`;
   return `  ${tool.name}: ${paintTerminal(status, tone, color)}${detail}`;
@@ -1108,7 +1108,7 @@ function nativeInstallReviewContent(
 
 function nativeInstallReviewToolLine(tool: InstallReviewTool): NativeLine {
   const context7 = tool.name.toLowerCase() === "context7";
-  const status = context7 ? "Install/update managed Bun copy" : tool.status;
+  const status = context7 ? context7ReviewStatus(tool.status) : tool.status;
   const tone = tool.status === "ready" || tool.status === "healthy" ? "success" : "warning";
   const detail = context7 || tool.detail === undefined ? "" : ` (${tool.detail})`;
   return nativeLine(
@@ -1116,6 +1116,10 @@ function nativeInstallReviewToolLine(tool: InstallReviewTool): NativeLine {
     { text: status, tone },
     ...(detail.length === 0 ? [] : [{ text: detail }]),
   );
+}
+
+function context7ReviewStatus(status: InstallReviewTool["status"]): string {
+  return status === "ready" ? "Use available ctx7" : "Attempt optional managed ctx7 install";
 }
 
 function capabilityDescription(name: OptionalCapabilityName): string {
