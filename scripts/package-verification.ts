@@ -83,12 +83,12 @@ const LEGACY_WORK_PROVIDER_PLUGINS = [
   "template-creator@openai-primary-runtime",
 ] as const;
 // These identities authenticate the immutable published previous-stable package used by the
-// upgrade proof. Its exact version is derived from the current canonical patch version below.
-const PREVIOUS_STABLE_SOURCE_SHA = "78bbcb5a51392f3397cf32ff7e433d21c0bbf39c";
+// upgrade proof. Update them only after verifying the exact published artifact.
+const PREVIOUS_STABLE_SOURCE_SHA = "0cbca341dfa44a5e34c704744afadf0eeec20c15";
 const PREVIOUS_STABLE_CLI_SHA256 =
-  "b1adcc45cabeb667affc7426fdb4bacbabba3e29095fef0fb3c99e3e4c3d5fba";
+  "99469e8fb8ff20c56df9e7661425625ebd86cf240ba5185ab84d1dc2943494e4";
 const PREVIOUS_STABLE_AGENT_SHA256 =
-  "4adcd4a2084080c7127b97c508a4a024e58faefff21f52803746c67756edc854";
+  "b2fb78eab0aca307be8be0c62c480a41b8b493278a98f3b9c7cb3f08060af773";
 
 type CodexPluginListEntry = Readonly<{
   readonly pluginId: string;
@@ -351,6 +351,11 @@ export async function verifyPublicPackage(
   bunEnvironment["PATH"] = [join(bunInstallRoot, "bin"), bunEnvironment["PATH"]]
     .filter((value): value is string => value !== undefined && value.length > 0)
     .join(delimiter);
+  const preexistingContext7 = await findCommandOnPath("ctx7", bunEnvironment["PATH"]).then(
+    () => true,
+    () => false,
+  );
+  const expectedContext7Ownership = preexistingContext7 ? "user" : "holycodex";
   await runChecked(["bun", "install", "--no-save", "--ignore-scripts", "--no-progress"], {
     cwd: installedRoot,
     env: bunEnvironment,
@@ -550,6 +555,7 @@ export async function verifyPublicPackage(
     bunEnvironment,
     commands,
     "packed install",
+    expectedContext7Ownership,
   );
   const managedConfigText = await readFile(join(codexHome, "config.toml"), "utf8");
   const managedConfig = parseConfig(managedConfigText);
@@ -565,7 +571,9 @@ export async function verifyPublicPackage(
   );
   assert(
     typeof managedRootInstructions === "string" &&
-      managedRootInstructions.includes("Dispatch every delegable action as a bounded Assignment") &&
+      managedRootInstructions.includes(
+        "Start a bounded Assignment and dispatch the exact concrete registered Role.task agent_type",
+      ) &&
       normalizedRootInstructions.includes("exact concrete registered role.task agent_type") &&
       ["explorer", "librarian", "worker", "reviewer", "labels"].every((term) =>
         normalizedRootInstructions.includes(term),
@@ -573,13 +581,11 @@ export async function verifyPublicPackage(
       normalizedRootInstructions.includes(
         "generic built-in agent_type values worker, explorer, reviewer, librarian are forbidden",
       ),
-    "the packed high-profile Root configuration must preserve Astra-specific exact specialist dispatch",
+    "the packed high-profile Root configuration must preserve exact specialist dispatch",
   );
-  const fixedPointReviewPosition = normalizedRootInstructions.indexOf(
-    "reviewer.code reaches a fixed point",
-  );
-  const validationPosition = normalizedRootInstructions.indexOf("worker.validation runs");
-  const integrationPosition = normalizedRootInstructions.indexOf("then root integrates");
+  const fixedPointReviewPosition = normalizedRootInstructions.indexOf("reviewer.code fixed point");
+  const validationPosition = normalizedRootInstructions.indexOf("run worker.validation");
+  const integrationPosition = normalizedRootInstructions.indexOf("then integrate");
   assert(
     fixedPointReviewPosition >= 0 &&
       validationPosition > fixedPointReviewPosition &&
@@ -1843,6 +1849,7 @@ async function assertPersistedContext7(
   environment: Readonly<Record<string, string | undefined>>,
   commands: string[],
   label: string,
+  expectedOwnership: "holycodex" | "user" = "holycodex",
 ): Promise<void> {
   assert(record["owner"] === "holycodex", `${label} record has the wrong installation owner`);
   const context7 = objectProperty(objectProperty(record, "tooling"), "context7");
@@ -1852,8 +1859,8 @@ async function assertPersistedContext7(
     `${label} did not persist the Bun Context7 manager and launcher`,
   );
   assert(
-    context7["ownership"] === "holycodex",
-    `${label} did not persist HolyCodex Context7 ownership`,
+    context7["ownership"] === expectedOwnership,
+    `${label} did not persist the expected Context7 ownership (${expectedOwnership})`,
   );
   assert(
     typeof context7["version"] === "string" &&
