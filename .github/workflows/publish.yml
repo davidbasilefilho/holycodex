@@ -127,27 +127,19 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Activate mise and install the pinned toolchain
-        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac
+      - name: Prepare the verified release artifact
+        uses: ./.github/actions/verified-release-artifact
         with:
-          install: true
-          cache: false
-
-      - name: Install the frozen workspace
-        run: mise exec -- bun install --frozen-lockfile
-
-      - name: Download and verify the exact validated artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: ${{ needs.validation.outputs.artifact_name }}
-          path: ${{ runner.temp }}/release
+          artifact_name: ${{ needs.validation.outputs.artifact_name }}
+          version: ${{ needs.prepare.outputs.version }}
+          channel: ${{ needs.prepare.outputs.channel }}
+          source_sha: ${{ needs.prepare.outputs.source_sha }}
+          sha256: ${{ needs.validation.outputs.artifact_sha256 }}
 
       - name: Verify artifact identity and npm retry state
         id: npm_state
         run: |
           set -euo pipefail
-          mise exec -- bun scripts/package-release.ts verify \
-            "$RUNNER_TEMP/release" "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$SOURCE_SHA" "$EXPECTED_SHA256"
           STATUS="$(mise exec -- bun scripts/package-release.ts check-npm \
             "$RUNNER_TEMP/release" "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$SOURCE_SHA" "$EXPECTED_SHA256")"
           case "$STATUS" in
@@ -155,13 +147,16 @@ jobs:
             *) echo "Unexpected npm retry state: $STATUS" >&2; exit 1 ;;
           esac
 
-      - name: Publish the development artifact under dev
-        if: steps.npm_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'dev'
-        run: mise exec -- bunx npm@12 publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag dev
-
-      - name: Publish the stable artifact under latest
-        if: steps.npm_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'stable'
-        run: mise exec -- bunx npm@12 publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag latest
+      - name: Publish the exact artifact under the channel tag
+        if: steps.npm_state.outputs.status == 'absent'
+        run: |
+          set -euo pipefail
+          if [ "$RELEASE_CHANNEL" = dev ]; then
+            NPM_TAG=dev
+          else
+            NPM_TAG=latest
+          fi
+          mise exec -- bunx npm@12 publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag "$NPM_TAG"
 
   publish_github:
     name: publish exact GitHub release
@@ -183,20 +178,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Activate mise and install the pinned toolchain
-        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac
+      - name: Prepare the verified release artifact
+        uses: ./.github/actions/verified-release-artifact
         with:
-          install: true
-          cache: false
-
-      - name: Install the frozen workspace
-        run: mise exec -- bun install --frozen-lockfile
-
-      - name: Download and verify the exact validated artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: ${{ needs.validation.outputs.artifact_name }}
-          path: ${{ runner.temp }}/release
+          artifact_name: ${{ needs.validation.outputs.artifact_name }}
+          version: ${{ needs.prepare.outputs.version }}
+          channel: ${{ needs.prepare.outputs.channel }}
+          source_sha: ${{ needs.prepare.outputs.source_sha }}
+          sha256: ${{ needs.validation.outputs.artifact_sha256 }}
 
       - name: Create the identity-marked release notes
         run: mise exec -- bun scripts/package-release.ts notes "$RUNNER_TEMP/release" "$RUNNER_TEMP/release-notes.md"
@@ -207,8 +196,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mise exec -- bun scripts/package-release.ts verify \
-            "$RUNNER_TEMP/release" "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$SOURCE_SHA" "$EXPECTED_SHA256"
           STATUS="$(mise exec -- bun scripts/package-release.ts check-github \
             "$RUNNER_TEMP/release" "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$SOURCE_SHA" "$EXPECTED_SHA256" "$GITHUB_REPOSITORY")"
           case "$STATUS" in
@@ -216,17 +203,8 @@ jobs:
             *) echo "Unexpected GitHub retry state: $STATUS" >&2; exit 1 ;;
           esac
 
-      - name: Create the development prerelease at the exact main SHA
-        if: steps.github_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'dev'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "v${RELEASE_VERSION}" "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" \
-            --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --prerelease --generate-notes \
-            --notes-file "$RUNNER_TEMP/release-notes.md"
-
-      - name: Create the stable release from the verified tag
-        if: steps.github_state.outputs.status == 'absent' && needs.prepare.outputs.channel == 'stable'
+      - name: Create the release from the verified source
+        if: steps.github_state.outputs.status == 'absent'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -235,11 +213,15 @@ jobs:
             "v${RELEASE_VERSION}"
             "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz"
             --repo "$GITHUB_REPOSITORY"
-            --verify-tag
             --generate-notes
             --notes-file "$RUNNER_TEMP/release-notes.md"
           )
-          if [[ "$RELEASE_VERSION" == *-* ]]; then
+          if [ "$RELEASE_CHANNEL" = dev ]; then
+            RELEASE_ARGS+=(--target "$SOURCE_SHA" --prerelease)
+          else
+            RELEASE_ARGS+=(--verify-tag)
+          fi
+          if [[ "$RELEASE_CHANNEL" = stable && "$RELEASE_VERSION" == *-* ]]; then
             RELEASE_ARGS+=(--prerelease)
           fi
           gh release create "${RELEASE_ARGS[@]}"

@@ -280,10 +280,12 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
         `${path} must publish through the current-major trusted-publishing npm CLI`,
       );
       assert(!workflow.includes("bun publish"), `${path} must not publish through Bun`);
-      assert(workflow.includes("--tag dev"), `${path} must publish development versions under dev`);
       assert(
-        workflow.includes("--tag latest"),
-        `${path} must publish stable versions under latest`,
+        workflow.includes('if [ "$RELEASE_CHANNEL" = dev ]') &&
+          /if \[ "\$RELEASE_CHANNEL" = dev \]; then\s+NPM_TAG=dev\s+else\s+NPM_TAG=latest\s+fi[\s\S]*--tag "\$NPM_TAG"/u.test(
+            workflow,
+          ),
+        `${path} must publish dev under dev and stable under latest using the selected npm tag`,
       );
       assert(
         workflow.includes("--prerelease"),
