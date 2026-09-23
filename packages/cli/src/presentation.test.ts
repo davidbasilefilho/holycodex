@@ -29,9 +29,9 @@ describe("human CLI presentation", () => {
   test("uses semantic ANSI only for interactive non-CI help", () => {
     const topLevel = renderHelp(undefined, { stdoutIsTTY: true, env: {} });
     const rendered = renderHelp("install", { stdoutIsTTY: true, env: {} });
-    expect(topLevel).toContain("\u001b[1mHolyCodex\u001b[0m");
-    expect(rendered).toContain("\u001b[1mUsage:\u001b[0m");
-    expect(rendered).toContain("\u001b[36m--frontend\u001b[0m");
+    expect(topLevel).toContain("\u001b[1;38;2;122;162;247mHolyCodex\u001b[0m");
+    expect(rendered).toContain("\u001b[1;38;2;122;162;247mUsage:\u001b[0m");
+    expect(rendered).toContain("\u001b[38;2;125;207;255m--frontend\u001b[0m");
     expect(renderHelp("install", { stdoutIsTTY: true, env: { NO_COLOR: "1" } })).not.toContain(
       "\u001b[",
     );
@@ -39,6 +39,22 @@ describe("human CLI presentation", () => {
       "\u001b[",
     );
     expect(renderHelp("install", { stdoutIsTTY: false, env: {} })).not.toContain("\u001b[");
+  });
+
+  test("uses the Tokyo Night semantic palette for colored command output", () => {
+    const result = {
+      envelope: {
+        schema_version: CLI_SCHEMA_VERSION,
+        ok: true,
+        command: "install",
+        data: { warnings: ["review provider availability"] },
+        warnings: [],
+      },
+      exitCode: 0,
+    } as CommandResult;
+    const rendered = renderHuman(result, { stdoutIsTTY: true, env: {} });
+    expect(rendered).toContain("\u001b[1;38;2;122;162;247minstall\u001b[0m");
+    expect(rendered).toContain("\u001b[38;2;224;175;104mwarning\u001b[0m");
   });
 
   test("summarizes installation state without exposing the internal record", () => {

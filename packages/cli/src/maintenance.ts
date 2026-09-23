@@ -6,6 +6,8 @@ import {
   cleanupManagedRuntimeConfig,
   compareManagedConfigKey,
   deleteTomlPath,
+  isManagedConfigKeyPath,
+  LEGACY_ROOT_CONFIG_KEY_PATHS,
   readTomlPath,
   resolveAgentConfigPath,
   resolveOfficialPluginEntry,
@@ -14,7 +16,11 @@ import {
   type TomlDocument,
   type LiveOfficialPluginListEnvelope,
 } from "@holycodex/codex";
-import { pluginIdsForOptionalCapabilities } from "@holycodex/core";
+import {
+  compareReleaseVersions,
+  pluginIdsForOptionalCapabilities,
+  type ReleaseVersion,
+} from "@holycodex/core";
 
 import {
   HOLYCODEX_PLUGIN,
@@ -26,18 +32,25 @@ import {
   recordDigestMatches,
   serializeConfig,
   InstallerError,
+  assertInstallTransactionState,
+  assertRemovalTransactionState,
+  diagnoseInstallTransactions,
   installHolyCodex,
+  installRequestFromPersistedOptions,
+  type InstallRequest,
   isTransactionBoundToActive,
+  readInstallOptions,
+  validateInstallOptions,
 } from "./installer.ts";
 import { asJsonValue } from "./json.ts";
-import { readCanonicalBaseVersion } from "./manifest.ts";
+import { readInstallationVersion } from "./manifest.ts";
 import {
   isKnownLegacyRootRoleContent,
   inspectNativeAgentConflicts,
   inspectNativeAgentRemovalConflicts,
   projectNativeAgents,
   renderNativeAgent,
-  nativeAgentSandboxMode,
+  nativeAgentSandboxConfigurationMatches,
   removeManagedNativeAgents,
 } from "./native-agents.ts";
 import { CodexOfficialPluginManager } from "./official-manager.ts";
@@ -102,11 +115,30 @@ export async function doctorHolyCodex(
       return undefined;
     }),
   ]);
-  if (preparing !== undefined && checks["transaction"]?.status !== "failed") {
-    checks["transaction"] = failedCheck(["incomplete_install_state"]);
-  }
-  if (conflicted !== undefined && checks["transaction"]?.status !== "failed") {
-    checks["transaction"] = failedCheck(["conflicted_state"]);
+  if (
+    checks["transaction"]?.status !== "failed" &&
+    (preparing !== undefined || conflicted !== undefined)
+  ) {
+    const diagnoses = diagnoseInstallTransactions(active, preparing, conflicted);
+    const reasons = [
+      ...new Set(
+        diagnoses.map((diagnosis) => {
+          if (diagnosis.relation === "stale") return "stale_transaction_state";
+          if (diagnosis.relation === "incompatible") return "incompatible_transaction_state";
+          return diagnosis.status === "preparing" ? "incomplete_install_state" : "conflicted_state";
+        }),
+      ),
+    ];
+    checks["transaction"] = failedCheck(reasons, {
+      recovery: diagnoses.map((diagnosis) => diagnosis.recovery).join(","),
+      transactions: diagnoses
+        .map(
+          (diagnosis) =>
+            `${diagnosis.status}:${diagnosis.relation}:${diagnosis.install_id}:${diagnosis.digest}`,
+        )
+        .join(","),
+      active: active === undefined ? "absent" : `${active.install_id}:${active.digest}`,
+    });
   }
 
   if (!checks["configuration"]) {
@@ -258,6 +290,7 @@ export async function inspectRemovalConflicts(
     optionalJsonFile(paths.preparingRecord, InstallTransactionSchema),
     optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema),
   ]);
+  assertRemovalTransactionState(active, preparing, conflicted);
   const recovery = selectRecoveryState(active, preparing, conflicted);
   if (recovery === undefined) return [];
   const document = parseConfig(await optionalTextFile(paths.configFile));
@@ -322,6 +355,7 @@ export async function removeHolyCodex(
     optionalJsonFile(paths.preparingRecord, InstallTransactionSchema),
     optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema),
   ]);
+  assertRemovalTransactionState(active, preparing, conflicted);
   const recovery = selectRecoveryState(active, preparing, conflicted);
   reportProgress(options, {
     stage: "removal",
@@ -601,6 +635,18 @@ export async function removeHolyCodex(
     }
   }
   if (preserved.length === 0) {
+    try {
+      await rm(paths.installOptions, { force: false });
+      removed.push(paths.installOptions);
+    } catch (error: unknown) {
+      if (!isFsCode(error, "ENOENT")) {
+        preserved.push(paths.installOptions);
+        reasons.push("state_remove_failed");
+        await writeConflictState(paths, recovery ?? active ?? emptyRemovalState());
+      }
+    }
+  }
+  if (preserved.length === 0) {
     for (const [path, present] of [
       [paths.preparingRecord, preparing !== undefined],
       [paths.conflictedRecord, conflicted !== undefined],
@@ -669,6 +715,7 @@ export async function upgradeHolyCodex(
       { path: paths.activeRecord },
     );
   }
+  assertInstallTransactionState(active, preparing, conflicted);
   const transaction = selectRecoveryTransaction(active, preparing, conflicted);
   const source = transaction ?? active;
   if (source === undefined) {
@@ -679,9 +726,35 @@ export async function upgradeHolyCodex(
       { recovery: "Run `holycodex install --yes` first." },
     );
   }
-  let targetVersion: string;
+  const persistedOptions = await readInstallOptions(paths);
+  const sourceOptions =
+    persistedOptions === undefined
+      ? {
+          profile: source.profile,
+          tier: source.tier,
+          optional: {
+            computer_use: source.optional_selections.computer_use,
+            frontend: source.optional_selections.frontend,
+            security: source.optional_selections.security,
+          },
+          officialPlugins: additionalPluginsFromRecord(source),
+        }
+      : installRequestFromPersistedOptions(persistedOptions);
+  const selectedOptions =
+    request.options === undefined ? sourceOptions : validateInstallOptions(request.options);
+  const effectiveOptions = {
+    profile: selectedOptions.profile ?? sourceOptions.profile,
+    tier: selectedOptions.tier ?? sourceOptions.tier,
+    optional: {
+      ...sourceOptions.optional,
+      ...selectedOptions.optional,
+    },
+    officialPlugins: selectedOptions.officialPlugins ?? sourceOptions.officialPlugins,
+  };
+  const optionsChanged = !sameInstallOptions(effectiveOptions, sourceOptions);
+  let targetVersion: ReleaseVersion;
   try {
-    targetVersion = await readCanonicalBaseVersion();
+    targetVersion = await readInstallationVersion();
   } catch (error: unknown) {
     throw new InstallerError(
       "upgrade_failed",
@@ -689,7 +762,15 @@ export async function upgradeHolyCodex(
       error,
     );
   }
-  const ordering = compareVersions(targetVersion, source.version);
+  // A development artifact and its stable install record share one release
+  // base. Reconciliation may cross that channel boundary in either direction;
+  // older bases and older builds within the development channel remain blocked.
+  const sameBaseChannelTransition =
+    targetVersion.split("-", 1)[0] === source.version.split("-", 1)[0] &&
+    targetVersion.includes("-dev.") !== source.version.includes("-dev.");
+  const ordering = sameBaseChannelTransition
+    ? 0
+    : compareReleaseVersions(targetVersion, source.version);
   if (ordering < 0) {
     throw new InstallerError(
       "upgrade_downgrade",
@@ -700,11 +781,14 @@ export async function upgradeHolyCodex(
   }
   const legacyContext =
     source.managed_config?.managed["features.context_management.experimental_mode"] !== undefined;
+  const legacyAutoCompact =
+    source.managed_config?.managed[LEGACY_ROOT_CONFIG_KEY_PATHS[0]!] !== undefined;
   const dryRunConflictInventory: ManagedConflict[] = [];
   if (request.dryRun === true) {
     const document = parseConfig(await optionalTextFile(paths.configFile));
     if (source.managed_config !== undefined) {
       for (const key of Object.keys(source.managed_config.managed) as ManagedConfigKeyPath[]) {
+        if (!isManagedConfigKeyPath(key)) continue;
         const comparison = await compareManagedConfigKey(document, source.managed_config, key);
         if (comparison.status !== "unchanged") {
           dryRunConflictInventory.push({ path: paths.configFile, key, action: "replace" });
@@ -758,9 +842,12 @@ export async function upgradeHolyCodex(
     toolingDrift = true;
   }
   const changes = [
-    ...(ordering > 0 ? ["version"] : []),
+    ...(ordering > 0 || sameBaseChannelTransition ? ["version"] : []),
+    ...(optionsChanged ? ["installation options"] : []),
+    ...(persistedOptions === undefined ? ["installation options migration"] : []),
     ...(legacyContext ? ["context-management configuration migration"] : []),
-    ...(ordering > 0 || legacyContext
+    ...(legacyAutoCompact ? ["auto-compaction configuration cleanup"] : []),
+    ...(ordering > 0 || legacyContext || legacyAutoCompact
       ? ["Root/session configuration", "specialist role definitions"]
       : []),
     ...(transaction ? ["interrupted transaction recovery"] : []),
@@ -795,16 +882,7 @@ export async function upgradeHolyCodex(
     };
   }
   try {
-    const result = await installHolyCodex(
-      {
-        profile: source.profile,
-        tier: source.tier,
-        optional: source.explicit_optional_selections,
-        officialPlugins: source.official_plugins,
-      },
-      options,
-      environment,
-    );
+    const result = await installHolyCodex(effectiveOptions, options, environment);
     return {
       status: "upgraded",
       from_version: source.version,
@@ -824,14 +902,27 @@ export async function upgradeHolyCodex(
   }
 }
 
-function compareVersions(left: string, right: string): -1 | 0 | 1 {
-  const a = left.split(".").map(Number);
-  const b = right.split(".").map(Number);
-  for (let index = 0; index < 3; index += 1) {
-    if ((a[index] ?? 0) < (b[index] ?? 0)) return -1;
-    if ((a[index] ?? 0) > (b[index] ?? 0)) return 1;
-  }
-  return 0;
+function additionalPluginsFromRecord(
+  record: Pick<InstallRecord, "official_plugins" | "optional_selections">,
+): readonly string[] {
+  const capabilityPlugins = new Set(pluginIdsForOptionalCapabilities(record.optional_selections));
+  return (record.official_plugins ?? []).filter((pluginId) => !capabilityPlugins.has(pluginId));
+}
+
+function sameInstallOptions(left: InstallRequest, right: InstallRequest): boolean {
+  const leftOptional = left.optional ?? {};
+  const rightOptional = right.optional ?? {};
+  const leftPlugins = [...new Set(left.officialPlugins ?? [])];
+  const rightPlugins = [...new Set(right.officialPlugins ?? [])];
+  return (
+    left.profile === right.profile &&
+    left.tier === right.tier &&
+    leftOptional.computer_use === rightOptional.computer_use &&
+    leftOptional.frontend === rightOptional.frontend &&
+    leftOptional.security === rightOptional.security &&
+    leftPlugins.length === rightPlugins.length &&
+    leftPlugins.every((pluginId, index) => pluginId === rightPlugins[index])
+  );
 }
 
 async function resolveRemovalConflicts(
@@ -891,13 +982,13 @@ async function doctorRuntimeConfig(
         : {}),
     });
     const drift: string[] = [];
-    for (const [keyPath, value] of Object.entries(expected)) {
+    for (const keyPath of Object.keys(expected)) {
       const comparison = await compareManagedConfigKey(
         document,
         active.managed_config,
         keyPath as ManagedConfigKeyPath,
       );
-      if (comparison.status !== "unchanged" || readTomlPath(document, keyPath) !== value) {
+      if (comparison.status !== "unchanged") {
         drift.push(keyPath);
       }
     }
@@ -948,15 +1039,17 @@ async function doctorNativeRoles(
         roleDocument["name"] !== agent.name ||
         typeof roleDocument["description"] !== "string" ||
         typeof roleDocument["developer_instructions"] !== "string" ||
-        roleDocument["model"] !== "gpt-5.6-luna" ||
+        roleDocument["model"] !== agent.model ||
+        roleDocument["model_reasoning_effort"] !== agent.effort ||
         roleDocument["model_reasoning_summary"] !== "none" ||
         roleDocument["model_verbosity"] !== "low" ||
         roleDocument["tool_output_token_limit"] !== undefined ||
         roleDocument["service_tier"] !== (tier === "standard" ? "default" : "fast") ||
-        roleDocument["sandbox_mode"] !== nativeAgentSandboxMode(agent) ||
+        !nativeAgentSandboxConfigurationMatches(agent, roleDocument) ||
         roleDocument["approval_policy"] !== "never" ||
         roleDocument["web_search"] !== (agent.permissions.network ? "live" : "disabled") ||
         readTomlPath(roleDocument, "agents.enabled") !== false ||
+        readTomlPath(roleDocument, "features.agent_message_board") !== false ||
         readTomlPath(roleDocument, "features.multi_agent_v2") !== false ||
         readTomlPath(roleDocument, "features.multi_agent") !== false ||
         readTomlPath(roleDocument, "features.context_management") !== true ||

@@ -19,7 +19,7 @@ const generatedTypescriptRoot = join(generatedRoot, "typescript");
 const provenancePath = join(generatedRoot, "provenance.json");
 const miseConfigPath = join(workspaceRoot, "mise.toml");
 const CODEX_TOOL = "npm:@openai/codex";
-const STABLE_VERSION = /^\d+\.\d+\.\d+$/u;
+const STABLE_VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
 const CODEX_VERSION_OUTPUT = /^codex-cli (\d+\.\d+\.\d+)$/u;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
@@ -63,7 +63,7 @@ export interface GeneratedCacheIdentity {
   readonly codexCliDigest: string;
 }
 
-/** Reject a Codex installation that does not match stable channel metadata. */
+/** Reject a Codex installation that does not match the stable channel metadata. */
 export function assertLatestStableMatch(latestVersion: string, installedVersion: string): void {
   assertStableVersion(latestVersion, "mise stable Codex metadata");
   assertStableVersion(installedVersion, "the installed Codex CLI version");
@@ -88,7 +88,7 @@ export function canReuseGeneratedOutput(
 let activeGeneration: Promise<EnsureCodexGeneratedResult> | undefined;
 
 /**
- * Ensure local generated bindings match the stable Codex CLI resolved by the stable mise channel. A
+ * Ensure local generated bindings match the stable Codex CLI resolved by mise's npm channel. A
  * valid current tree is reused without invoking the generator again.
  */
 export function ensureCodexGenerated(): Promise<EnsureCodexGeneratedResult> {
@@ -161,7 +161,7 @@ async function resolveCodexTool(): Promise<{
   readonly codexCliVersion: string;
   readonly codexCliDigest: string;
 }> {
-  await assertMiseLatestCodexConfig();
+  await readMiseLatestCodexConfig();
   const expectedVersion = await resolveLatestMiseCodexVersion();
   let executable: string;
   try {
@@ -209,12 +209,17 @@ async function resolveCodexTool(): Promise<{
   };
 }
 
-async function assertMiseLatestCodexConfig(): Promise<void> {
+/** Require the Codex npm package to use mise's stable latest channel. */
+export function assertMiseLatestCodexConfig(config: string): void {
+  if (!/^\s*"npm:@openai\/codex"\s*=\s*["']latest["']\s*$/mu.test(config)) {
+    throw new Error(`mise.toml must resolve ${CODEX_TOOL} from the "latest" stable channel`);
+  }
+}
+
+async function readMiseLatestCodexConfig(): Promise<void> {
   try {
     const config = await readFile(miseConfigPath, "utf8");
-    if (!/^\s*"npm:@openai\/codex"\s*=\s*["']latest["']\s*$/mu.test(config)) {
-      throw new Error(`mise.toml must resolve ${CODEX_TOOL} from the "latest" stable channel`);
-    }
+    assertMiseLatestCodexConfig(config);
   } catch (error: unknown) {
     throw new Error(`The stable Codex mise channel is unavailable (${safeError(error)}).`);
   }
@@ -227,14 +232,20 @@ async function resolveLatestMiseCodexVersion(): Promise<string> {
       env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
       maxOutputBytes: 16 * 1024,
     });
-    const version = result.stdout.trim();
-    assertStableVersion(version, "mise stable Codex metadata");
-    return version;
+    const output = result.stdout.trim();
+    return parseStableMiseCodexVersion(output);
   } catch (error: unknown) {
     throw new Error(
       `The stable Codex latest-channel metadata is unavailable; check network/cache access (${safeError(error)}).`,
     );
   }
+}
+
+/** Parse mise's stable Codex version output, including Windows line endings. */
+export function parseStableMiseCodexVersion(output: string): string {
+  const version = output.trim();
+  assertStableVersion(version, "mise stable Codex metadata");
+  return version;
 }
 
 async function verifyCurrentOutput(resolved: {

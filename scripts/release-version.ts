@@ -6,19 +6,22 @@ import { resolve } from "node:path";
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 
+import {
+  BaseVersionSchema,
+  CanonicalVersionSchema,
+  ReleaseVersionSchema,
+  canonicalBaseVersion,
+  isCanonicalVersion,
+} from "../packages/core/src/version.ts";
+
+export {
+  BaseVersionSchema,
+  CanonicalVersionSchema,
+  ReleaseVersionSchema,
+} from "../packages/core/src/version.ts";
+
 const workspaceRoot = resolve(import.meta.dirname, "..");
 
-export const BaseVersionSchema = Schema.String.pipe(
-  Schema.pattern(/^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u),
-);
-export const CanonicalVersionSchema = Schema.String.pipe(
-  Schema.pattern(/^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u),
-);
-export const ReleaseVersionSchema = Schema.String.pipe(
-  Schema.pattern(
-    /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*)|-dev\.[1-9]\d*\.[1-9]\d*)?$/u,
-  ),
-);
 export const ReleaseChannelSchema = Schema.Literal("dev", "stable");
 export const SourceShaSchema = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{40}$/u));
 export const Sha256Schema = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
@@ -32,7 +35,7 @@ const PositiveIntegerTextSchema = Schema.String.pipe(
   Schema.maxLength(15),
 );
 const StableTagSchema = Schema.String.pipe(
-  Schema.pattern(/^v0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u),
+  Schema.filter((value) => value.startsWith("v") && isCanonicalVersion(value.slice(1))),
 );
 
 export type ReleaseChannel = typeof ReleaseChannelSchema.Type;
@@ -58,7 +61,7 @@ export function developmentVersion(
   runAttempt: string,
 ): string {
   const canonical = decode(CanonicalVersionSchema, baseVersion, "the canonical version");
-  const base = canonical.split("-", 1)[0] ?? "";
+  const base = canonicalBaseVersion(canonical);
   const number = decode(PositiveIntegerTextSchema, runNumber, "the GitHub run number");
   const attempt = decode(PositiveIntegerTextSchema, runAttempt, "the GitHub run attempt");
   return `${base}-dev.${number}.${attempt}`;
@@ -82,7 +85,7 @@ export function assertReleaseVersion(
   version: string,
 ): void {
   const canonical = decode(CanonicalVersionSchema, baseVersion, "the canonical version");
-  const base = canonical.split("-", 1)[0] ?? "";
+  const base = canonicalBaseVersion(canonical);
   const selectedChannel = decode(ReleaseChannelSchema, channel, "the release channel");
   const candidate = decode(ReleaseVersionSchema, version, "the release version");
   if (selectedChannel === "stable" && candidate !== canonical) {
@@ -96,7 +99,7 @@ export function assertReleaseVersion(
 /** Extracts and validates the stable three-part base from a release version. */
 export function baseVersionFromRelease(version: string): string {
   const release = decode(ReleaseVersionSchema, version, "the release version");
-  const base = release.split(/[+-]/u, 1)[0] ?? "";
+  const base = release.split("-", 1)[0] ?? "";
   return decode(BaseVersionSchema, base, "the release base version");
 }
 

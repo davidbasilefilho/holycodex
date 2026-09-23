@@ -56,9 +56,22 @@ export const SURGICAL_MUTATION_RULE =
 export const NO_SOURCE_MUTATION_RULE =
   "Do not modify repository source or the implementation under validation; observation, analysis, and proof artifacts only.";
 
+const TERMINAL_RESULT_RULE =
+  "Send no mid-task messages to Root or peers. Return only a terminal result, including any material blocker.";
+
 /** Explicit fork policy for ordinary concrete specialist spawns. */
 export const ForkTurnsSchema = Schema.Literal("none");
 export type ForkTurns = typeof ForkTurnsSchema.Type;
+
+/** Canonical Root orchestration phases for one bounded Intent. */
+export const ROOT_ORCHESTRATION_PHASE_ORDER = Object.freeze([
+  "implementation",
+  "review",
+  "validation",
+  "integration",
+  "vcs",
+] as const);
+export type RootOrchestrationPhase = (typeof ROOT_ORCHESTRATION_PHASE_ORDER)[number];
 
 export const FILESYSTEM_ACCESS_SCHEMA = Schema.Literal("read-only", "workspace-write");
 export type FilesystemAccess = typeof FILESYSTEM_ACCESS_SCHEMA.Type;
@@ -68,25 +81,31 @@ export const ROLE_DEFINITIONS = [
     role: "Explorer",
     tasks: [
       {
+        name: "map",
+        description: "Bounded repository structure mapping specialist.",
+        instruction: `Map the assigned repository area: locate its relevant packages, entry points, ownership boundaries, and nearby tests or docs. Return a compact path map and identify where a follow-up lookup or trace should start; do not trace runtime behavior or resolve an unrelated fact. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
+        permissions: { network: true, filesystem: "read-only", sourceMutation: false },
+      },
+      {
         name: "lookup",
         description: "Repository fact lookup specialist.",
-        instruction: `Locate the exact requested repository fact. ${NO_SOURCE_MUTATION_RULE}`,
-        permissions: { network: false, filesystem: "read-only", sourceMutation: false },
+        instruction: `Find the specific requested repository fact and cite its exact path or symbol; keep the search narrower than a structure map or execution trace. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
+        permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "trace",
         description: "Repository execution and reference tracing specialist.",
-        instruction: `Trace the complete in-scope execution or reference path. ${NO_SOURCE_MUTATION_RULE}`,
-        permissions: { network: false, filesystem: "read-only", sourceMutation: false },
+        instruction: `Follow the assigned execution or reference path across callers, boundaries, and tests; explain the evidence-backed flow and stop at the assigned boundary. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
+        permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
     ],
     capability: "repository-read",
     authority:
-      "Read only the delegated Assignment repository scope; Git/VCS, lifecycle, and decisions remain Root-only.",
+      "Read only the delegated Assignment repository scope; Git/VCS writes, Intent lifecycle, and material decisions remain Root-only.",
     evidence: "Return exact paths, symbols, callers, tests, and constraints.",
     completion: "Account for every in-scope caller and constraint.",
     // Role defaults are deliberately non-mutating; task permissions below are authoritative.
-    permissions: { network: false, filesystem: "read-only", sourceMutation: false },
+    permissions: { network: true, filesystem: "read-only", sourceMutation: false },
   },
   {
     role: "Librarian",
@@ -94,23 +113,23 @@ export const ROLE_DEFINITIONS = [
       {
         name: "lookup",
         description: "Authoritative external fact lookup specialist.",
-        instruction: `Locate the exact requested authoritative external fact. For current library, framework, SDK, API, CLI, or cloud-service facts, resolve the library identity and query Context7 narrowly before model memory or generic web sources. Return a typed Context7 evidence state in the context7 field with supporting version/source evidence; fall back only for an allowed evidence state or when the required version is absent, and prefer authoritative first-party documentation when sources conflict. ${NO_SOURCE_MUTATION_RULE}`,
+        instruction: `Answer the specific external fact with its current authoritative source; do not broaden into a multi-source synthesis. For current library, framework, SDK, API, CLI, or cloud-service facts, resolve the library identity and query Context7 narrowly before model memory or generic web sources. Return a typed Context7 evidence state in the context7 field with supporting version/source evidence. Use web search only when Context7 is unavailable, has no coverage or relevant results, fails for authentication or quota, the required version is missing, or a conflict remains unresolved after checking authoritative first-party documentation; successful Context7 evidence alone never justifies fallback. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "research",
         description: "Current authoritative-source research specialist.",
-        instruction: `Synthesize the assigned current sources with citations. For current library, framework, SDK, API, CLI, or cloud-service facts, resolve the library identity and query Context7 narrowly before model memory or generic web sources. Return a typed Context7 evidence state in the context7 field with supporting version/source evidence; fall back only for an allowed evidence state or when the required version is absent, and prefer authoritative first-party documentation when sources conflict. ${NO_SOURCE_MUTATION_RULE}`,
+        instruction: `Compare and synthesize the assigned current sources with citations, noting conflicts and uncertainty rather than returning one isolated fact. For current library, framework, SDK, API, CLI, or cloud-service facts, resolve the library identity and query Context7 narrowly before model memory or generic web sources. Return a typed Context7 evidence state in the context7 field with supporting version/source evidence. Use web search only when Context7 is unavailable, has no coverage or relevant results, fails for authentication or quota, the required version is missing, or a conflict remains unresolved after checking authoritative first-party documentation; successful Context7 evidence alone never justifies fallback. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
     ],
     capability: "current-research",
     authority:
-      "Research only the delegated Assignment current sources without repository mutation; Git/VCS, lifecycle, and decisions remain Root-only.",
+      "Research only the delegated Assignment current sources without repository mutation; Git/VCS writes, Intent lifecycle, and material decisions remain Root-only.",
     evidence: "Return sourced facts, dates, and explicit uncertainty.",
     completion: "Resolve the assigned external fact or report the exact evidence gap.",
     // Role defaults are deliberately non-mutating; task permissions below are authoritative.
-    permissions: { network: false, filesystem: "read-only", sourceMutation: false },
+    permissions: { network: true, filesystem: "read-only", sourceMutation: false },
   },
   {
     role: "Worker",
@@ -118,49 +137,48 @@ export const ROLE_DEFINITIONS = [
       {
         name: "mechanical",
         description: "Deterministic bounded-edit specialist.",
-        instruction: "Apply only deterministic, already-decided edits.",
-        permissions: { network: false, filesystem: "workspace-write", sourceMutation: true },
+        instruction: `Apply the exact already-decided transformation within the assigned files and verify it. ${TERMINAL_RESULT_RULE}`,
+        permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
       {
         name: "implementation",
         description: "Bounded behavior implementation specialist.",
-        instruction: "Implement and verify the bounded behavior seam.",
-        permissions: { network: false, filesystem: "workspace-write", sourceMutation: true },
+        instruction: `Design and implement the assigned behavior within its bounded seam, then verify the changed behavior. ${TERMINAL_RESULT_RULE}`,
+        permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
       {
         name: "integration",
         description: "Decided seam integration specialist.",
-        instruction: "Integrate the decided seams and verify them together.",
-        permissions: { network: false, filesystem: "workspace-write", sourceMutation: true },
+        instruction: `Connect already-decided component seams, resolve interface mismatches within the assigned boundary, and verify their combined behavior. ${TERMINAL_RESULT_RULE}`,
+        permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
       {
         name: "operations",
         description: "Exact-ref or SHA terminal operations observer.",
-        instruction: `Observe the assigned post-VCS external gate at the supplied exact ref or SHA. ${NO_SOURCE_MUTATION_RULE}`,
+        instruction: `Observe the assigned CI or release gate for the Root-supplied exact ref or SHA until it reaches a terminal state; report the matching result and failure evidence. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "validation",
         description: "Independent local behavioral validation specialist.",
-        instruction: `When independent proof is useful, run the smallest relevant local checks for the delegated seam, classify failures, and report evidence without redesigning the solution or replacing code review. ${NO_SOURCE_MUTATION_RULE}`,
-        permissions: { network: false, filesystem: "workspace-write", sourceMutation: false },
+        instruction: `Independently exercise the assigned local behavior with the smallest relevant checks, classify failures, and report reproducible evidence; generated proof state is allowed, but do not repair the implementation or substitute for code review. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
+        permissions: { network: true, filesystem: "workspace-write", sourceMutation: false },
       },
       {
         name: "debugging",
         description: "Reproducible bounded defect-repair specialist.",
-        instruction:
-          "Establish the failure reproducibly, identify the evidence-backed root cause, make the narrow bounded repair, and prove the regression is gone; return material redesigns to Root.",
-        permissions: { network: false, filesystem: "workspace-write", sourceMutation: true },
+        instruction: `Establish the failure reproducibly, identify the evidence-backed root cause, make the narrow bounded repair, and prove the regression is gone. ${TERMINAL_RESULT_RULE}`,
+        permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
     ],
     capability: "task-scoped-assignment",
     authority:
-      "Concrete task permissions govern observation, proof writes, or source repair within the delegated Assignment; no role-level source-mutation authority is granted. Intent lifecycle, Git/VCS, and material choices remain Root-only.",
+      "Concrete task permissions govern observation, proof writes, or source repair within the delegated Assignment; no role-level source-mutation authority is granted. Intent lifecycle, Git/VCS writes, and material choices remain Root-only.",
     evidence: "Return changed files, verification results, and remaining risk.",
     completion:
       "Finish the delegated Assignment with proportional proof or an exact blocker and return a compact structured outcome.",
     // Role defaults are deliberately non-mutating; task permissions below are authoritative.
-    permissions: { network: false, filesystem: "read-only", sourceMutation: false },
+    permissions: { network: true, filesystem: "read-only", sourceMutation: false },
   },
   {
     role: "Reviewer",
@@ -168,31 +186,30 @@ export const ROLE_DEFINITIONS = [
       {
         name: "plan",
         description: "Adversarial implementation-plan review specialist.",
-        instruction: `Review the complete plan to a fixed point. ${NO_SOURCE_MUTATION_RULE}`,
-        permissions: { network: false, filesystem: "read-only", sourceMutation: false },
+        instruction: `Adversarially inspect the assigned implementation plan for missing requirements, invalid assumptions, unsafe ordering, unowned seams, and inadequate proof. Return actionable plan findings or a fixed-point verdict; do not implement the plan. ${NO_SOURCE_MUTATION_RULE} ${TERMINAL_RESULT_RULE}`,
+        permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "code",
         description: "Adversarial implemented-code review specialist.",
-        instruction:
-          "Review and repair the implemented code to a fixed point. The acceptance contract covers correctness, safety, compatibility, mergeability, clarity, simplicity, cohesion, idiomaticity, appropriate abstraction, accidental complexity, duplication, unnecessary files or file splitting, speculative abstraction, test quality, and generated-artifact hygiene. Prefer simple cohesive code over clever or over-engineered code.",
-        permissions: { network: false, filesystem: "workspace-write", sourceMutation: true },
+        instruction: `Review and repair the implemented code to a fixed point. Use one batched evidence sweep, reason over it, make targeted follow-ups only, and batch related repairs and verification. The acceptance contract covers correctness, safety, compatibility, mergeability, clarity, simplicity, cohesion, idiomaticity, appropriate abstraction, accidental complexity, duplication, unnecessary files or file splitting, speculative abstraction, test quality, and generated-artifact hygiene. Prefer simple cohesive code over clever or over-engineered code. ${TERMINAL_RESULT_RULE}`,
+        permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
       {
         name: "artifact",
         description: "Adversarial produced-artifact review specialist.",
-        instruction: "Review and repair the produced artifact to a fixed point.",
-        permissions: { network: false, filesystem: "workspace-write", sourceMutation: true },
+        instruction: `Inspect the assigned produced artifact against its requested content, usability, and delivery constraints; repair concrete defects within the artifact boundary and repeat inspection until no actionable findings remain. ${TERMINAL_RESULT_RULE}`,
+        permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
     ],
     capability: "task-scoped-review",
     authority:
-      "Concrete task permissions govern observational review or bounded repair within the delegated Assignment; no role-level source-mutation authority is granted. Intent lifecycle, Git/VCS, and material choices remain Root-only.",
+      "Concrete task permissions govern observational review or bounded repair within the delegated Assignment; no role-level source-mutation authority is granted. Intent lifecycle, Git/VCS writes, and material choices remain Root-only.",
     evidence: "Return findings, repaired paths, verification, and residual risk.",
     completion:
       "Reach a fixed point or report each reproducible blocker as a compact structured outcome.",
     // Role defaults are deliberately non-mutating; task permissions below are authoritative.
-    permissions: { network: false, filesystem: "read-only", sourceMutation: false },
+    permissions: { network: true, filesystem: "read-only", sourceMutation: false },
   },
 ] as const;
 freezeDeep(ROLE_DEFINITIONS);
@@ -347,9 +364,8 @@ export interface SpecialistTaskPermissions {
 /**
  * Resolve permissions for one concrete specialist task.
  *
- * Role defaults intentionally do not grant Worker network access. The sole exception is
- * Worker.operations, whose network is limited to observing a Root-supplied exact ref/SHA for
- * repository CI or release state.
+ * Every concrete route has web search and command network access. Worker.operations remains limited
+ * to observing a Root-supplied exact ref/SHA for repository CI or release state.
  */
 export function taskPermissionsFor(route: RoleTask): SpecialistTaskPermissions {
   const role = lookupRoleDefinition(route.role);
@@ -373,17 +389,17 @@ export interface RouteDefinition {
   readonly key: RouteKey;
   readonly role: Role;
   readonly task: TaskSlot;
-  readonly model: "gpt-5.6-luna";
+  readonly model: "gpt-6-luna";
   readonly effort: Effort;
 }
 
 export interface ProfileDefinition {
   readonly name: ProfileName;
   readonly root: {
-    readonly model: "gpt-6-astra";
+    readonly model: "gpt-6-sol" | "gpt-6-astra";
     readonly effort: Effort;
   };
-  readonly specialistModel: "gpt-5.6-luna";
+  readonly specialistModel: "gpt-6-luna";
   readonly defaultServiceTier: ServiceTier;
   readonly routes: readonly RouteDefinition[];
 }
@@ -395,7 +411,8 @@ export const ProfileSelectionSchema = Schema.Struct({
 export type ProfileSelection = typeof ProfileSelectionSchema.Type;
 
 /**
- * Root-only actions that do not receive a specialist Assignment.
+ * Root-only actions that do not receive a specialist Assignment. `git_vcs` covers writes; relevant
+ * read-only Git/VCS, CI, and PR-comment inspection may be delegated.
  *
  * Direct execution remains subject to the applicable approval and capability boundary.
  */
@@ -466,8 +483,15 @@ export const LIBRARIAN_CONTEXT7_POLICY = Object.freeze({
     "auth_or_quota_failure",
     "source_conflict",
   ] as const satisfies readonly Context7EvidenceState[]),
-  fallbackRequiresEvidenceStateOrMissingVersion: true,
-  authoritativeFirstPartyResolvesConflicts: true,
+  webFallbackEvidenceStates: Object.freeze([
+    "no_coverage",
+    "unavailable",
+    "auth_or_quota_failure",
+  ] as const satisfies readonly Context7EvidenceState[]),
+  missingRequiredVersionAllowsFallback: true,
+  successfulEvidenceAloneAllowsFallback: false,
+  checkFirstPartyDocsBeforeFallbackForConflict: true,
+  unresolvedConflictAfterFirstPartyAllowsFallback: true,
   materialDecisionsRemainRootOwned: true,
 });
 
@@ -560,8 +584,8 @@ export const SECURITY_WORKFLOW_POLICY = Object.freeze({
 
 /**
  * Durable Root orchestration contract shared by runtime projections and proofs. Every task is
- * delegated, including trivial work, except for Git/VCS and Computer Use when that capability was
- * selected during installation.
+ * delegated, including trivial work, except for Git/VCS writes and Computer Use when that
+ * capability was selected during installation.
  */
 export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   requiresDelegation: true,
@@ -598,6 +622,43 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
     "ambiguity_or_missing_material_input",
   ] as const),
   surgicalMutationRule: SURGICAL_MUTATION_RULE,
+  phaseOrder: ROOT_ORCHESTRATION_PHASE_ORDER,
+  phaseGates: Object.freeze({
+    implementationLeavesTerminalBeforeReviewerCode: true,
+    reviewerCodeFixedPointBeforeWorkerValidation: true,
+    workerValidationBeforeRootIntegration: true,
+    rootIntegrationBeforeVcs: true,
+  }),
+  initialDispatch: Object.freeze({
+    independentAssignments: true,
+    substantiveIndependentConcurrency: true,
+    routinePostdispatchSteering: false,
+    collectiveWaits: true,
+    evidenceReusedAcrossPhases: true,
+  }),
+  atomicLifecycleTransitions: Object.freeze({
+    relatedAssignmentAndIntentWrites: true,
+    oneLockOneCommit: true,
+    staleRevisionChecksRetained: true,
+    repositoryDriftChecksRetained: true,
+  }),
+  supersession: Object.freeze({
+    explicitOnly: true,
+    unfinishedPredecessorOnly: true,
+    validatedRelatedReplacement: true,
+    reasonAndProvenanceRequired: true,
+    supersededExcludedFromCompletionBlockers: true,
+  }),
+  specialistTerminalResultPersistence: Object.freeze({
+    ownActiveInvocationCapabilityRequired: true,
+    ownAssignmentOnly: true,
+    terminalOutcomeOnly: true,
+    rootOwnedIntentLifecycle: true,
+    rootOwnedAcceptanceReviewAndCiGates: true,
+    rootOwnedVcsAndExternalEffects: true,
+    sharedRuntimeCallerIdentityUnavailable: true,
+    legacyResultCompatibilityPreserved: true,
+  }),
   /** Ordinary specialist spawns are explicit, concrete, and preserve route configuration. */
   normalSpawnForkTurns: "none" as ForkTurns,
   normalSpawnRequiresExplicitForkTurns: true,
@@ -620,8 +681,8 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   outOfBoundaryRequiresNewAssignment: true,
   /** Root waits and batches lifecycle work instead of polling or coordinating status-only loops. */
   routineWaitTool: "collaboration.wait_agent" as const,
-  /** Verified V1 runtime maximum; completion of a specialist wakes the wait early. */
-  routineWaitMaximumTimeoutMs: 3_600_000,
+  /** Keep routine waits within the cache lifetime; specialist completion wakes early. */
+  routineWaitMaximumTimeoutMs: 1_200_000,
   routineWaitUsesMaximumRuntimeTimeout: true,
   earlySpecialistCompletionWakesWait: true,
   collectiveMailboxIncludesRelevantAgents: true,

@@ -5,8 +5,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ROUTE_KEYS } from "@holycodex/core";
+import { PROFILE_CATALOG, ROUTE_KEYS, ROUTE_EFFORT_OVERRIDES } from "@holycodex/core";
 
+import * as publicCli from "./index.ts";
 import {
   assertRootText,
   CodexOfficialPluginManager,
@@ -17,6 +18,7 @@ import {
   pathWithin,
   projectNativeAgents,
   projectRootAgent,
+  readInstallationVersion,
   readActiveInstallRecord,
   removeHolyCodex as removeHolyCodexImplementation,
   upgradeHolyCodex as upgradeHolyCodexImplementation,
@@ -32,6 +34,7 @@ import type {
   OfficialPluginManager,
   UpgradeRequest,
 } from "./index.ts";
+import { desiredRootConfig } from "./installer.ts";
 
 const toolingStates = new Map<string, { installed: boolean }>();
 
@@ -39,16 +42,21 @@ function testRuntime(codexHome: string): InstallerRuntime {
   const state = toolingStates.get(codexHome) ?? { installed: false };
   toolingStates.set(codexHome, state);
   const binRoot = "/fake/bin";
+  const projectRoot = "/fake/install/global";
   const packageRoot = "/fake/install/global/node_modules/ctx7";
   const packageExecutable = `${packageRoot}/dist/index.js`;
   const shim = `${binRoot}/ctx7`;
   return {
     platform: "linux",
-    environment: { npm_execpath: "/test/bunx", PATH: binRoot },
-    processPath: "/test/node",
+    environment: { PATH: binRoot },
+    processPath: "bun",
     files: {
       access: async (path) => {
-        if (!state.installed || ![packageExecutable, shim].includes(path.replaceAll("\\", "/"))) {
+        const normalizedPath = path.replaceAll("\\", "/");
+        if (
+          ![binRoot, projectRoot].includes(normalizedPath) &&
+          (!state.installed || ![packageRoot, packageExecutable, shim].includes(normalizedPath))
+        ) {
           throw new Error("missing");
         }
       },
@@ -66,11 +74,11 @@ function testRuntime(codexHome: string): InstallerRuntime {
       if (command === "bun pm bin -g") return { exitCode: 0, stdout: `${binRoot}\n`, stderr: "" };
       if (command === "bun pm view ctx7 version")
         return { exitCode: 0, stdout: "2.0.0\n", stderr: "" };
-      if (command === "bun add --global ctx7@latest") {
+      if (command === "bun add -g ctx7@latest") {
         state.installed = true;
         return { exitCode: 0, stdout: "", stderr: "" };
       }
-      if (command === "bun remove --global ctx7") {
+      if (command === "bun remove -g ctx7") {
         state.installed = false;
         return { exitCode: 0, stdout: "", stderr: "" };
       }
@@ -178,7 +186,65 @@ describe("CLI boundaries", () => {
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Usage:");
     expect(stdout).toContain("holycodex install");
+    expect(stdout).not.toContain("holycodex upgrade");
     expect(stderr).toBe("");
+  });
+
+  test("renders every profile route into TOML without coupling routing to service tier", () => {
+    let projectedRoutes = 0;
+    for (const profile of PROFILE_CATALOG) {
+      expect(
+        desiredRootConfig(profile.name, "standard")["agents.max_concurrent_threads_per_session"],
+      ).toBe(21);
+      const standardRoot = projectRootAgent(profile.name, "standard");
+      const fastRoot = projectRootAgent(profile.name, "fast");
+      const fastAllRoot = projectRootAgent(profile.name, "fast-all");
+      expect(standardRoot.model).toBe(profile.root.model);
+      expect(standardRoot.effort).toBe(profile.root.effort);
+      expect(fastRoot).toMatchObject({
+        model: profile.root.model,
+        effort: profile.root.effort,
+        serviceTier: "default",
+      });
+      expect(fastAllRoot).toMatchObject({
+        model: profile.root.model,
+        effort: profile.root.effort,
+        serviceTier: "fast",
+      });
+
+      const expectedEfforts = ROUTE_EFFORT_OVERRIDES.find(
+        (override) => override.profile === profile.name,
+      )?.efforts;
+      expect(expectedEfforts).toBeDefined();
+      const standard = projectNativeAgents(profile.name, "standard");
+      const fast = projectNativeAgents(profile.name, "fast");
+      const fastAll = projectNativeAgents(profile.name, "fast-all");
+      expect(standard).toHaveLength(ROUTE_KEYS.length);
+      expect(fast.map(({ name, model, effort }) => ({ name, model, effort }))).toEqual(
+        standard.map(({ name, model, effort }) => ({ name, model, effort })),
+      );
+      expect(fastAll.map(({ name, model, effort }) => ({ name, model, effort }))).toEqual(
+        standard.map(({ name, model, effort }) => ({ name, model, effort })),
+      );
+
+      for (const agent of standard) {
+        const effort =
+          expectedEfforts?.[`${agent.name.replace(".", ":")}` as keyof typeof expectedEfforts];
+        if (effort === undefined) throw new Error(`The effort matrix omitted ${agent.name}.`);
+        expect(agent.model).toBe("gpt-6-luna");
+        expect(agent.effort).toBe(effort);
+        const toml = renderNativeAgent(agent);
+        expect(toml).toContain(`name = "${agent.name}"`);
+        expect(toml).toContain(`model = "${agent.model}"`);
+        expect(toml).toContain(`model_reasoning_effort = "${agent.effort}"`);
+        expect(toml).toContain('service_tier = "default"');
+        expect(toml).toContain(agent.taskInstruction);
+        projectedRoutes += 1;
+      }
+
+      expect(fastAll.every((agent) => agent.serviceTier === "fast")).toBe(true);
+    }
+    expect(projectedRoutes).toBe(3 * ROUTE_KEYS.length);
   });
 
   test("accepts only the current command and option surface", () => {
@@ -251,22 +317,65 @@ describe("CLI boundaries", () => {
     }
   });
 
-  test("recognizes upgrade and its dry-run option at the argument boundary", () => {
-    expect(parseArgv(["upgrade", "--dry-run"]).command).toBe("upgrade");
-    expect(parseArgv(["upgrade", "--dry-run"]).options["dry-run"]).toBe(true);
-  });
+  test("rejects the removed upgrade command without suggesting it in human output", async () => {
+    expect(() => parseArgv(["upgrade"])).toThrow();
+    const result = await runCli(["upgrade", "--yes", "--json"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.envelope).toMatchObject({
+      ok: false,
+      error: { code: "unknown_command" },
+    });
 
-  test("treats an interactive upgrade decline as successful cancellation", async () => {
-    const result = await runCli(["upgrade"], {
-      io: {
-        stdoutIsTTY: true,
-        stderrIsTTY: true,
-        confirm: async () => false,
+    let stdout = "";
+    let stderr = "";
+    const exitCode = await runBinary(["upgrade"], {
+      stdoutIsTTY: false,
+      stderrIsTTY: false,
+      writeStdout: (value) => {
+        stdout += value;
+      },
+      writeStderr: (value) => {
+        stderr += value;
       },
     });
-    expect(result.exitCode).toBe(0);
-    expect(result.envelope).toMatchObject({ ok: true, data: { cancelled: true } });
+    expect(exitCode).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("unknown_command");
+    expect(stderr).toContain("holycodex --help");
+    expect(stderr).not.toContain("holycodex upgrade");
   });
+
+  test("keeps the upgrade review surface internal and install-only for the public CLI", async () => {
+    expect(publicCli).not.toHaveProperty("runOpenTuiInstallReview");
+    expect(publicCli).not.toHaveProperty("applyInstallReviewKey");
+    expect(publicCli).not.toHaveProperty("renderInstallReview");
+
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-install-review-"));
+    const codexHome = join(root, "codex");
+    const manager = fakeManager();
+    try {
+      await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager });
+      let reviewOperation: unknown;
+      let reviewFromVersion: unknown = "unset";
+      const result = await runCli(["install", "--yes", "--json", "--codex-home", codexHome], {
+        io: {
+          stdoutIsTTY: false,
+          stderrIsTTY: false,
+          installReview: async (review) => {
+            reviewOperation = review.operation;
+            reviewFromVersion = review.fromVersion;
+            return { action: "apply" };
+          },
+        },
+        installer: { officialPluginManager: manager, runtime: testRuntime(codexHome) },
+      });
+      expect(result.exitCode).toBe(0);
+      expect(reviewOperation).toBe("install");
+      expect(reviewFromVersion).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   test("reports missing Codex as a capability denial before installation", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
@@ -347,12 +456,16 @@ describe("native installation and removal", () => {
         ),
       ).toContain('model_reasoning_summary = "none"');
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
-      expect(config).toContain('model = "gpt-6-astra"');
-      expect(config).toContain("model_auto_compact_token_limit = 64000");
+      expect(config).toContain('model = "gpt-6-sol"');
+      expect(config).not.toContain("model_auto_compact_token_limit");
       expect(config).toContain("default_mode_request_user_input = true");
+      expect(config).toContain("max_concurrent_threads_per_session = 21");
       expect(config).toContain("multi_agent = true");
+      expect(config).toContain("agent_message_board = false");
       expect(config).toContain("multi_agent_v2 = false");
       expect(config).toContain("context_management = true");
+      expect(config).toContain('web_search = "live"');
+      expect(config).toContain("network_access = true");
       expect(config).toContain("You are the HolyCodex Root/session orchestrator");
       expect(config).toContain(
         "Computer Use is unavailable for this installation and cannot be delegated",
@@ -372,12 +485,14 @@ describe("native installation and removal", () => {
       expect(leaf).toContain('model_verbosity = "low"');
       expect(leaf).not.toContain("tool_output_token_limit");
       expect(leaf).toContain('sandbox_mode = "workspace-write"');
+      expect(leaf).toContain("network_access = true");
       expect(leaf).toContain('approval_policy = "never"');
-      expect(leaf).toContain('web_search = "disabled"');
+      expect(leaf).toContain('web_search = "live"');
       expect(leaf).toContain("[agents]");
       expect(leaf).toContain("enabled = false");
       expect(leaf).toContain("interrupt_message = false");
       expect(leaf).toContain("[features]");
+      expect(leaf).toContain("agent_message_board = false");
       expect(leaf).toContain("multi_agent_v2 = false");
       expect(leaf).toContain("multi_agent = false");
       expect(leaf).toContain("computer_use = false");
@@ -543,8 +658,11 @@ describe("native installation and removal", () => {
         resolveConflict: async () => "accept",
       });
       expect(removed.preserved).toEqual([]);
+      expect(removed.removed).toContain(provider);
       expect(providerRemoveAttempts).toBe(2);
-      await expect(manager.list?.()).resolves.toMatchObject({ installed: [] });
+      await expect(manager.list?.()).resolves.toMatchObject({
+        installed: [],
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -979,8 +1097,8 @@ describe("native installation and removal", () => {
     }
   });
 
-  test("owns and restores the Root auto-compaction threshold without adding it to leaves", async () => {
-    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-auto-compact-"));
+  test("leaves pre-existing auto-compaction settings untouched on fresh install", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-auto-compact-fresh-"));
     const codexHome = join(root, "codex");
     const config = join(codexHome, "config.toml");
     const manager = fakeManager();
@@ -991,23 +1109,122 @@ describe("native installation and removal", () => {
         {},
         { paths: { codexHome }, officialPluginManager: manager },
       );
-      expect(await readFile(config, "utf8")).toContain("model_auto_compact_token_limit = 64000");
+      const installed = await readFile(config, "utf8");
+      expect(installed).toContain("model_auto_compact_token_limit = 32000");
+      expect(installed).toContain("unrelated = true");
       expect(
-        initial.record.managed_config?.managed["model_auto_compact_token_limit"]?.originalValue,
-      ).toEqual({ kind: "number", value: 32000 });
-      const leaf = await readFile(
-        join(codexHome, "holycodex", "agents", "Worker.implementation.toml"),
-        "utf8",
-      );
-      expect(leaf).not.toContain("model_auto_compact_token_limit");
-
-      await removeHolyCodex({ paths: { codexHome }, officialPluginManager: manager });
-      const removed = await readFile(config, "utf8");
-      expect(removed).toContain("model_auto_compact_token_limit = 32000");
-      expect(removed).toContain("unrelated = true");
-      expect(removed).not.toContain("model_auto_compact_token_limit = 64000");
+        initial.record.managed_config?.managed["model_auto_compact_token_limit"],
+      ).toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("cleans the removed auto-compaction override from both previous release forms", async () => {
+    for (const [index, versionSuffix] of [undefined, "1"].entries()) {
+      for (const originalValue of [32000, undefined] as const) {
+        const root = await mkdtemp(join(tmpdir(), `holycodex-cli-auto-compact-upgrade-${index}-`));
+        const codexHome = join(root, "codex");
+        const config = join(codexHome, "config.toml");
+        const manager = fakeManager();
+        try {
+          const initial = await installHolyCodex(
+            {},
+            { paths: { codexHome }, officialPluginManager: manager },
+          );
+          const baseVersion = previousPatchVersion(initial.record.version);
+          const version =
+            versionSuffix === undefined ? baseVersion : `${baseVersion}-${versionSuffix}`;
+          const paths = resolveInstallerPaths({ paths: { codexHome } });
+          const managedConfig = initial.record.managed_config!;
+          const legacyEntry = {
+            owner: "holycodex" as const,
+            schema: managedConfig.schema,
+            installId: managedConfig.installId,
+            keyPath: "model_auto_compact_token_limit" as const,
+            originalValue:
+              originalValue === undefined
+                ? ({ kind: "absent" } as const)
+                : ({ kind: "number", value: originalValue } as const),
+            lastManagedValue: { kind: "number" as const, value: 64000 },
+          };
+          const oldRecord = {
+            ...initial.record,
+            version,
+            managed_config: {
+              ...managedConfig,
+              managed: {
+                ...managedConfig.managed,
+                model_auto_compact_token_limit: legacyEntry,
+              },
+            },
+          };
+          oldRecord.digest = await installRecordDigest({
+            owner: oldRecord.owner,
+            install_id: oldRecord.install_id,
+            version: oldRecord.version,
+            profile: oldRecord.profile,
+            tier: oldRecord.tier,
+            optional_selections: oldRecord.optional_selections,
+            explicit_optional_selections: oldRecord.explicit_optional_selections,
+            official_plugins: oldRecord.official_plugins ?? [],
+            capability_state: oldRecord.capability_state ?? null,
+            managed_artifacts: oldRecord.managed_artifacts,
+            managed_config: oldRecord.managed_config,
+            plugin_config: oldRecord.plugin_config,
+            provider_config: oldRecord.provider_config,
+            plugin_snapshot: oldRecord.plugin_snapshot,
+            owned_plugins: oldRecord.owned_plugins,
+            tooling: oldRecord.tooling,
+          });
+          await writeFile(paths.activeRecord, `${JSON.stringify(oldRecord)}\n`);
+          const currentConfig = await readFile(config, "utf8");
+          const firstTable = currentConfig.indexOf("\n[");
+          await writeFile(
+            config,
+            `${currentConfig.slice(0, firstTable)}\nmodel_auto_compact_token_limit = 64000\nunrelated = true${currentConfig.slice(firstTable)}`,
+          );
+
+          const upgraded = await upgradeHolyCodex(
+            { paths: { codexHome }, officialPluginManager: manager },
+            {},
+          );
+          expect(upgraded.status).toBe("upgraded");
+          const upgradedConfig = await readFile(config, "utf8");
+          if (originalValue === undefined) {
+            expect(upgradedConfig).not.toContain("model_auto_compact_token_limit");
+          } else {
+            expect(upgradedConfig).toContain("model_auto_compact_token_limit = 32000");
+          }
+          expect(upgradedConfig).toContain("unrelated = true");
+          expect(
+            upgraded.record?.managed_config?.managed["model_auto_compact_token_limit"],
+          ).toBeUndefined();
+
+          const driftedConfig = upgradedConfig.includes("model_auto_compact_token_limit")
+            ? upgradedConfig.replace(
+                /model_auto_compact_token_limit = (?:32000|64000)\n/u,
+                "model_auto_compact_token_limit = 128000\n",
+              )
+            : upgradedConfig.replace(
+                /\n\[features\]/u,
+                "\nmodel_auto_compact_token_limit = 128000\n\n[features]",
+              );
+          await writeFile(config, driftedConfig);
+          const reinstalled = await installHolyCodex(
+            {},
+            { paths: { codexHome }, officialPluginManager: manager },
+          );
+          expect(await readFile(config, "utf8")).toContain(
+            "model_auto_compact_token_limit = 128000",
+          );
+          expect(
+            reinstalled.record.managed_config?.managed["model_auto_compact_token_limit"],
+          ).toBeUndefined();
+        } finally {
+          await rm(root, { recursive: true, force: true });
+        }
+      }
     }
   });
 
@@ -1104,6 +1321,49 @@ describe("native installation and removal", () => {
       expect(addCalls).toEqual(["holycodex@holycodex"]);
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects higher installed versions with exact decimal ordering", async () => {
+    const huge = "9".repeat(80);
+    const currentBase = (await readInstallationVersion()).split("-", 1)[0]!;
+    for (const [index, version] of [`${currentBase}-${huge}`, `0.${huge}.0`].entries()) {
+      const root = await mkdtemp(join(tmpdir(), `holycodex-cli-upgrade-order-${index}-`));
+      const codexHome = join(root, "codex");
+      try {
+        const manager = fakeManager();
+        const initial = await installHolyCodex(
+          {},
+          { paths: { codexHome }, officialPluginManager: manager },
+        );
+        const paths = resolveInstallerPaths({ paths: { codexHome } });
+        const oldRecord = { ...initial.record, version };
+        oldRecord.digest = await installRecordDigest({
+          owner: oldRecord.owner,
+          install_id: oldRecord.install_id,
+          version: oldRecord.version,
+          profile: oldRecord.profile,
+          tier: oldRecord.tier,
+          optional_selections: oldRecord.optional_selections,
+          explicit_optional_selections: oldRecord.explicit_optional_selections,
+          official_plugins: oldRecord.official_plugins ?? [],
+          capability_state: oldRecord.capability_state ?? null,
+          managed_artifacts: oldRecord.managed_artifacts,
+          managed_config: oldRecord.managed_config,
+          plugin_config: oldRecord.plugin_config,
+          provider_config: oldRecord.provider_config,
+          plugin_snapshot: oldRecord.plugin_snapshot,
+          owned_plugins: oldRecord.owned_plugins,
+          tooling: oldRecord.tooling,
+        });
+        await writeFile(paths.activeRecord, `${JSON.stringify(oldRecord)}\n`);
+
+        await expect(
+          upgradeHolyCodex({ paths: { codexHome }, officialPluginManager: manager }),
+        ).rejects.toMatchObject({ code: "upgrade_downgrade" });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
     }
   });
 
@@ -1284,7 +1544,7 @@ describe("native installation and removal", () => {
       );
       let current = await readFile(config, "utf8");
       expect(current).toContain('external_plugin = "keep"');
-      expect(current).toContain('model = "gpt-6-astra"');
+      expect(current).toContain('model = "gpt-6-sol"');
 
       const reinstalled = await installHolyCodex(
         { tier: "fast-all" },
@@ -1522,7 +1782,7 @@ describe("native installation and removal", () => {
       await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager });
       await writeFile(
         config,
-        (await readFile(config, "utf8")).replace('model = "gpt-6-astra"', 'model = "user-model"'),
+        (await readFile(config, "utf8")).replace('model = "gpt-6-sol"', 'model = "user-model"'),
       );
       const declined = await removeHolyCodex({
         paths: { codexHome },
@@ -1787,7 +2047,8 @@ describe("native installation and removal", () => {
         { paths: { codexHome }, officialPluginManager: manager },
       );
       // A process crash after publishing the newer active record and before
-      // deleting the transaction leaves this older, valid journal behind.
+      // deleting the transaction leaves this stale journal behind. Removal
+      // uses the newer active record as the ownership authority.
       await writeFile(
         join(codexHome, "holycodex", "preparing.json"),
         `${JSON.stringify({
@@ -1801,10 +2062,10 @@ describe("native installation and removal", () => {
         paths: { codexHome },
         officialPluginManager: manager,
       });
-
-      expect(removed.removed).toContain("holycodex@holycodex");
-      expect(removed.removed).not.toContain(userPlugin);
+      expect(removed.preserved).toEqual([]);
       expect(removed.removed).toContain(frontend);
+      await expect(readFile(join(codexHome, "holycodex", "active.json"))).rejects.toThrow();
+      await expect(readFile(join(codexHome, "holycodex", "preparing.json"))).rejects.toThrow();
       await expect(manager.list?.()).resolves.toMatchObject({
         installed: [expect.objectContaining({ pluginId: userPlugin })],
       });
@@ -1832,3 +2093,8 @@ describe("native installation and removal", () => {
     expect(stderr).toBe("");
   });
 });
+
+function previousPatchVersion(version: string): string {
+  const [major, minor, patch] = version.split("-", 1)[0]!.split(".");
+  return `${major}.${minor}.${BigInt(patch!) - 1n}`;
+}

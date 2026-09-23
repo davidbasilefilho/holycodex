@@ -29,13 +29,14 @@ an explicit denial or classified failure.
    the only direct Root execution exceptions are Git/VCS and Computer Use when
    selected at install. Native subagents cannot turn their mechanics into
    permission.
-3. Native role profiles enforce the supported capability boundary: Explorer is
-   repository read-only; Librarian is current-research read-only with live web
-   access; Worker task permissions are specific, with source mutation only on
-   authorized implementation routes, observational `Worker.operations` limited
-   to Root-supplied exact-ref/SHA network evidence, `Worker.validation` allowed
-   to write proof artifacts and caches without changing the implementation
-   under validation, and `Worker.debugging` limited to bounded defect repair;
+3. Every specialist has live web search and command network access under the
+   built-in workspace-write sandbox. Concrete task authority and instructions
+   preserve the source-mutation boundary; observational
+   `Worker.operations` remains scoped to Root-supplied exact-ref/SHA evidence.
+   Source mutation is limited to authorized implementation and repair routes;
+   `Worker.validation` may write proof artifacts and caches without changing
+   the implementation under validation, and `Worker.debugging` is limited to
+   bounded defect repair;
    `Reviewer.plan` is observational and source-read-only, while other review
    tasks receive only their declared repair authority. Native leaf delegation
    features are disabled, so leaves cannot spawn or message peers.
@@ -74,7 +75,7 @@ an explicit denial or classified failure.
     must discover the repository's topology rather than assume a provider or
     branch scheme.
 12. HolyCodex manages the scalar `features.context_management` and sets it to
-    `true` because Codex does not enable it by default. Upgrade migrates owned
+    `true` because Codex does not enable it by default. The package migration converts owned
     historical `.experimental_mode` state only with matching ownership
     evidence. Cleanup restores the recorded prior value only when unchanged;
     user edits and unrelated context configuration remain untouched.

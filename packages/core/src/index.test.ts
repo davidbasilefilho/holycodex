@@ -30,6 +30,7 @@ import {
   ROLE_DEFINITIONS,
   ROUTE_KEYS,
   ROUTE_EFFORT_OVERRIDES,
+  ROOT_ORCHESTRATION_PHASE_ORDER,
   ROOT_ORCHESTRATION_POLICY,
   FRONTEND_WORKFLOW_POLICY,
   LIBRARIAN_CONTEXT7_POLICY,
@@ -70,11 +71,11 @@ import { decodeUnknown } from "./schema";
 
 const profileNames = ["low", "default", "high"] as const;
 describe("core profile catalog", () => {
-  test("contains every profile with Astra routing and reasoning policy", () => {
+  test("contains every profile with the exact Root model and effort policy", () => {
     expect(PROFILE_CATALOG.map((profile) => profile.name)).toEqual([...profileNames]);
     expect(PROFILE_CATALOG.map((profile) => profile.root)).toEqual([
-      { model: "gpt-6-astra", effort: "low" },
-      { model: "gpt-6-astra", effort: "medium" },
+      { model: "gpt-6-sol", effort: "medium" },
+      { model: "gpt-6-sol", effort: "high" },
       { model: "gpt-6-astra", effort: "high" },
     ]);
     for (const profile of PROFILE_CATALOG) {
@@ -83,11 +84,70 @@ describe("core profile catalog", () => {
   });
 
   test("contains all current route slots and exact parity-floor efforts", () => {
+    expect(ROUTE_EFFORT_OVERRIDES.map(({ profile, efforts }) => ({ profile, efforts }))).toEqual([
+      {
+        profile: "low",
+        efforts: {
+          "Explorer:map": "medium",
+          "Explorer:lookup": "medium",
+          "Explorer:trace": "high",
+          "Librarian:lookup": "medium",
+          "Librarian:research": "high",
+          "Worker:mechanical": "high",
+          "Worker:implementation": "high",
+          "Worker:integration": "max",
+          "Worker:operations": "high",
+          "Worker:validation": "medium",
+          "Worker:debugging": "high",
+          "Reviewer:plan": "high",
+          "Reviewer:code": "max",
+          "Reviewer:artifact": "high",
+        },
+      },
+      {
+        profile: "default",
+        efforts: {
+          "Explorer:map": "high",
+          "Explorer:lookup": "medium",
+          "Explorer:trace": "xhigh",
+          "Librarian:lookup": "medium",
+          "Librarian:research": "xhigh",
+          "Worker:mechanical": "high",
+          "Worker:implementation": "xhigh",
+          "Worker:integration": "max",
+          "Worker:operations": "high",
+          "Worker:validation": "high",
+          "Worker:debugging": "xhigh",
+          "Reviewer:plan": "xhigh",
+          "Reviewer:code": "max",
+          "Reviewer:artifact": "xhigh",
+        },
+      },
+      {
+        profile: "high",
+        efforts: {
+          "Explorer:map": "high",
+          "Explorer:lookup": "medium",
+          "Explorer:trace": "max",
+          "Librarian:lookup": "medium",
+          "Librarian:research": "max",
+          "Worker:mechanical": "xhigh",
+          "Worker:implementation": "max",
+          "Worker:integration": "max",
+          "Worker:operations": "xhigh",
+          "Worker:validation": "xhigh",
+          "Worker:debugging": "max",
+          "Reviewer:plan": "max",
+          "Reviewer:code": "max",
+          "Reviewer:artifact": "max",
+        },
+      },
+    ]);
     expect(ROUTE_KEYS.length).toBeGreaterThan(0);
     expect(new Set(ROUTE_KEYS).size).toBe(ROUTE_KEYS.length);
     for (const profile of PROFILE_CATALOG) {
       expect(profile.routes.map((route) => route.key)).toEqual([...ROUTE_KEYS]);
-      expect(profile.routes.every((route) => route.model === "gpt-5.6-luna")).toBe(true);
+      expect(profile.routes.every((route) => route.model === "gpt-6-luna")).toBe(true);
     }
 
     for (const expected of ROUTE_EFFORT_OVERRIDES) {
@@ -129,9 +189,19 @@ describe("core profile catalog", () => {
     expect(ROLE_DEFINITIONS.find((definition) => definition.role === "Reviewer")).toMatchObject({
       capability: "task-scoped-review",
     });
+    for (const definition of ROLE_DEFINITIONS) {
+      for (const task of definition.tasks) {
+        expect(task.permissions.network).toBe(true);
+        expect(task.instruction).toContain("Send no mid-task messages to Root or peers.");
+        expect(task.instruction).toContain(
+          "Return only a terminal result, including any material blocker.",
+        );
+      }
+    }
   });
 
   test("derives canonical native agent types from valid semantic routes", () => {
+    expect(nativeAgentTypeFor({ role: "Explorer", task: "map" })).toBe("Explorer.map");
     expect(nativeAgentTypeFor({ role: "Worker", task: "implementation" })).toBe(
       "Worker.implementation",
     );
@@ -152,9 +222,12 @@ describe("core profile catalog", () => {
     expect(debuggingInstruction).toContain("evidence-backed root cause");
     expect(debuggingInstruction).toContain("narrow bounded repair");
     expect(debuggingInstruction).toContain("regression is gone");
-    expect(debuggingInstruction).toContain("material redesigns to Root");
+    expect(debuggingInstruction).toContain("Return only a terminal result");
 
     const reviewerInstruction = taskInstructionFor({ role: "Reviewer", task: "code" });
+    expect(reviewerInstruction).toContain(
+      "Use one batched evidence sweep, reason over it, make targeted follow-ups only, and batch related repairs and verification.",
+    );
     for (const criterion of [
       "correctness",
       "safety",
@@ -177,7 +250,7 @@ describe("core profile catalog", () => {
     }
   });
 
-  test("grants network only to the exact-ref operations task", () => {
+  test("grants assigned network access while bounding operations to the supplied ref", () => {
     expect(taskPermissionsFor({ role: "Worker", task: "operations" })).toEqual({
       network: true,
       filesystem: "read-only",
@@ -185,30 +258,30 @@ describe("core profile catalog", () => {
       networkScope: "exact_ref_or_sha",
     });
     expect(taskPermissionsFor({ role: "Worker", task: "validation" })).toEqual({
-      network: false,
+      network: true,
       filesystem: "workspace-write",
       sourceMutation: false,
-      networkScope: "disabled",
+      networkScope: "current_sources",
     });
     expect(taskPermissionsFor({ role: "Worker", task: "debugging" })).toEqual({
-      network: false,
+      network: true,
       filesystem: "workspace-write",
       sourceMutation: true,
-      networkScope: "disabled",
+      networkScope: "current_sources",
     });
     for (const task of ["mechanical", "implementation", "integration"] as const) {
       expect(taskPermissionsFor({ role: "Worker", task })).toMatchObject({
-        network: false,
+        network: true,
         filesystem: "workspace-write",
         sourceMutation: true,
-        networkScope: "disabled",
+        networkScope: "current_sources",
       });
     }
     expect(taskPermissionsFor({ role: "Reviewer", task: "plan" })).toEqual({
-      network: false,
+      network: true,
       filesystem: "read-only",
       sourceMutation: false,
-      networkScope: "disabled",
+      networkScope: "current_sources",
     });
     expect(taskPermissionsFor({ role: "Librarian", task: "lookup" })).toEqual({
       network: true,
@@ -227,7 +300,7 @@ describe("core profile catalog", () => {
       expect(override).toBeDefined();
       if (!override) continue;
       expect(profile.routes.map((route) => route.model)).toEqual(
-        Array(ROUTE_KEYS.length).fill("gpt-5.6-luna"),
+        Array(ROUTE_KEYS.length).fill("gpt-6-luna"),
       );
       expect(profile.routes.map((route) => route.effort)).toEqual(
         ROUTE_KEYS.map((key) => override.efforts[key]),
@@ -287,7 +360,51 @@ describe("core profile catalog", () => {
       routineSafeReversibleInScopeDecisionsProceedAutonomously: true,
       userInstructionsOverrideSkillGuidelinesExceptHardInvariants: true,
       authorizedWorkContinuesThroughRequestedTerminalState: true,
+      phaseOrder: ROOT_ORCHESTRATION_PHASE_ORDER,
+      phaseGates: {
+        implementationLeavesTerminalBeforeReviewerCode: true,
+        reviewerCodeFixedPointBeforeWorkerValidation: true,
+        workerValidationBeforeRootIntegration: true,
+        rootIntegrationBeforeVcs: true,
+      },
+      initialDispatch: {
+        independentAssignments: true,
+        substantiveIndependentConcurrency: true,
+        routinePostdispatchSteering: false,
+        collectiveWaits: true,
+        evidenceReusedAcrossPhases: true,
+      },
+      atomicLifecycleTransitions: {
+        relatedAssignmentAndIntentWrites: true,
+        oneLockOneCommit: true,
+        staleRevisionChecksRetained: true,
+        repositoryDriftChecksRetained: true,
+      },
+      supersession: {
+        explicitOnly: true,
+        unfinishedPredecessorOnly: true,
+        validatedRelatedReplacement: true,
+        reasonAndProvenanceRequired: true,
+        supersededExcludedFromCompletionBlockers: true,
+      },
+      specialistTerminalResultPersistence: {
+        ownActiveInvocationCapabilityRequired: true,
+        ownAssignmentOnly: true,
+        terminalOutcomeOnly: true,
+        rootOwnedIntentLifecycle: true,
+        rootOwnedAcceptanceReviewAndCiGates: true,
+        rootOwnedVcsAndExternalEffects: true,
+        sharedRuntimeCallerIdentityUnavailable: true,
+        legacyResultCompatibilityPreserved: true,
+      },
     });
+    expect(ROOT_ORCHESTRATION_PHASE_ORDER).toEqual([
+      "implementation",
+      "review",
+      "validation",
+      "integration",
+      "vcs",
+    ]);
     const rootOnlyActions = [
       "user_interaction",
       "intent",
@@ -388,7 +505,7 @@ describe("core profile catalog", () => {
       assignmentContextIsTaskSpecificOnly: true,
       configuredRouteModelAndEffortPreserved: true,
       routineWaitTool: "collaboration.wait_agent",
-      routineWaitMaximumTimeoutMs: 3_600_000,
+      routineWaitMaximumTimeoutMs: 1_200_000,
       routineWaitUsesMaximumRuntimeTimeout: true,
       earlySpecialistCompletionWakesWait: true,
       collectiveMailboxIncludesRelevantAgents: true,
@@ -460,6 +577,15 @@ describe("core profile catalog", () => {
       ),
     ).toBe(true);
     expect(LIBRARIAN_CONTEXT7_POLICY.resolveIdentityBeforeQuery).toBe(true);
+    expect(LIBRARIAN_CONTEXT7_POLICY.webFallbackEvidenceStates).toEqual([
+      "no_coverage",
+      "unavailable",
+      "auth_or_quota_failure",
+    ]);
+    expect(LIBRARIAN_CONTEXT7_POLICY.successfulEvidenceAloneAllowsFallback).toBe(false);
+    expect(LIBRARIAN_CONTEXT7_POLICY.missingRequiredVersionAllowsFallback).toBe(true);
+    expect(LIBRARIAN_CONTEXT7_POLICY.checkFirstPartyDocsBeforeFallbackForConflict).toBe(true);
+    expect(LIBRARIAN_CONTEXT7_POLICY.unresolvedConflictAfterFirstPartyAllowsFallback).toBe(true);
     expect(FRONTEND_WORKFLOW_POLICY.sourceChangesInvalidateRenderEvidence).toBe(true);
     expect(FRONTEND_WORKFLOW_POLICY.rootOwnsLiveVisualAndInteractionAcceptance).toBe(true);
     expect(CREDENTIAL_INTERACTION_POLICY.credentialEntryAndSubmissionRemainUserOwned).toBe(true);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   lstat,
   mkdir,
@@ -157,6 +157,7 @@ export const AssignmentStatusSchema = Schema.Literal(
   "blocked",
   "needs_root_input",
   "failed",
+  "superseded",
 );
 export type AssignmentStatus = typeof AssignmentStatusSchema.Type;
 /** Compact durable facts from one concrete Assignment execution. */
@@ -172,7 +173,10 @@ export const InvocationSchema = Schema.Struct({
   remaining_risk: StringList,
 });
 export type AssignmentInvocation = typeof InvocationSchema.Type;
-export const AssignmentSchema = Schema.Struct({
+/** Opaque capability bound to one active Assignment invocation. */
+export const AssignmentInvocationCapabilitySchema = Digest;
+export type AssignmentInvocationCapability = typeof AssignmentInvocationCapabilitySchema.Type;
+const AssignmentFields = {
   schema_version: Schema.Literal(ASSIGNMENT_SCHEMA_VERSION),
   toon_compatibility: Schema.Literal(TOON_COMPATIBILITY),
   intent_id: Identifier,
@@ -190,13 +194,41 @@ export const AssignmentSchema = Schema.Struct({
   /** Invocation correlation for work currently in flight; absent on legacy records. */
   active_invocation_id: Schema.optional(NonEmpty),
   active_started_at: Schema.optional(DateText),
+  /** Predecessor Assignment replaced by this one, when supersession was explicit. */
+  supersedes: Schema.optional(Identifier),
+  /** Replacement Assignment that superseded this one, when supersession was explicit. */
+  superseded_by: Schema.optional(Identifier),
+  /** Explicit reason recorded on both ends of a supersession relation. */
+  supersession_reason: Schema.optional(NonEmpty),
+  /** Provenance for the Root decision that established the relation. */
+  supersession_provenance: Schema.optional(NonEmpty),
   evidence: Schema.Array(EvidenceSchema),
   blocker: Schema.optional(NonEmpty),
   remaining_risk: StringList,
   created_at: DateText,
   updated_at: DateText,
-});
+} as const;
+
+/** Public Assignment projection; protected invocation capabilities are deliberately omitted. */
+export const AssignmentSchema = Schema.Struct(AssignmentFields);
 export type Assignment = typeof AssignmentSchema.Type;
+
+/** Public response returned only when an Assignment invocation is started by its assignee. */
+export const AssignmentStartResponseSchema = Schema.Struct({
+  ...AssignmentFields,
+  capability: AssignmentInvocationCapabilitySchema,
+});
+export type AssignmentStartResponse = typeof AssignmentStartResponseSchema.Type;
+
+/** Protected persisted Assignment state, including active invocation verifiers. */
+const PersistedAssignmentSchema = Schema.Struct({
+  ...AssignmentFields,
+  /** One-way verifier for newly issued active invocation capabilities. */
+  active_invocation_capability_verifier: Schema.optional(AssignmentInvocationCapabilitySchema),
+  /** Raw capability retained only when reading historical persisted records. */
+  active_invocation_capability: Schema.optional(AssignmentInvocationCapabilitySchema),
+});
+type PersistedAssignment = typeof PersistedAssignmentSchema.Type;
 
 const WORK_STATE_TRANSACTION_FILE = ".holycodex-transaction.toon";
 const WORK_STATE_TRANSACTION_SCHEMA_VERSION = "holycodex-work-state-transaction-1" as const;
@@ -341,6 +373,15 @@ export interface AssignmentStartInput {
   readonly scope?: readonly string[] | undefined;
 }
 
+/** Root-owned relation used to replace one unfinished Assignment with a validated sibling. */
+export interface SupersedeAssignmentInput {
+  readonly replacementId: string;
+  /** Optional stale-write guard for the related replacement record. */
+  readonly replacementRevision?: number | undefined;
+  readonly reason: string;
+  readonly provenance: string;
+}
+
 /** Exact Root-owned VCS commit used to advance the repository baseline. */
 export interface VcsIntegrationInput {
   readonly commit: string;
@@ -365,6 +406,13 @@ export const ReviseAssignmentScopeInputSchema = Schema.Struct({
 export const AssignmentStartInputSchema = Schema.Struct({
   scope: Schema.optional(Schema.Array(NonEmpty).pipe(Schema.minItems(1))),
 });
+/** Runtime schema for explicit Assignment supersession. */
+export const SupersedeAssignmentInputSchema = Schema.Struct({
+  replacementId: Identifier,
+  replacementRevision: Schema.optional(Revision),
+  reason: NonEmpty,
+  provenance: NonEmpty,
+});
 /** Runtime schema for exact commit integration at the Root-owned VCS boundary. */
 export const VcsIntegrationInputSchema = Schema.Struct({
   commit: CommitSha,
@@ -372,6 +420,8 @@ export const VcsIntegrationInputSchema = Schema.Struct({
 /** Compact terminal outcome and evidence returned by one Assignment invocation. */
 export interface AssignmentResultInput {
   readonly invocationId?: string | undefined;
+  /** Capability issued when the active invocation was started. */
+  readonly capability?: AssignmentInvocationCapability | undefined;
   readonly outcome: AssignmentOutcome;
   readonly startedAt?: string | undefined;
   readonly summary: string;
@@ -385,6 +435,7 @@ export interface AssignmentResultInput {
 /** Runtime schema for the input accepted by {@link IntentStore.recordAssignmentResult}. */
 export const AssignmentResultInputSchema = Schema.Struct({
   invocationId: Schema.optional(NonEmpty),
+  capability: Schema.optional(AssignmentInvocationCapabilitySchema),
   outcome: AssignmentOutcomeSchema,
   startedAt: Schema.optional(NonEmpty),
   summary: NonEmpty,
@@ -393,6 +444,11 @@ export const AssignmentResultInputSchema = Schema.Struct({
   context7: Schema.optional(Context7EvidenceSchema),
   blocker: Schema.optional(NonEmpty),
   remainingRisk: Schema.optional(Schema.Array(NonEmpty)),
+});
+const AssignmentInterruptionRecoveryInputSchema = Schema.Struct({
+  invocationId: NonEmpty,
+  startedAt: DateText,
+  interruptionReason: NonEmpty,
 });
 /** Machine-readable reasons a predicate-checked Intent completion was refused. */
 export interface CompletionRefusal {
@@ -528,14 +584,26 @@ export class IntentStore {
         canonical !== undefined && /^assignments\/[a-z0-9][a-z0-9-]{0,95}\.toon$/u.test(canonical)
       );
     });
-    if (transaction.files.length !== 2 || intentFiles.length !== 1 || assignmentFiles.length !== 1)
+    if (
+      transaction.files.length < 2 ||
+      intentFiles.length !== 1 ||
+      assignmentFiles.length < 1 ||
+      intentFiles.length + assignmentFiles.length !== transaction.files.length
+    )
       throw new IntentStoreError(
         "schema_invalid",
-        "The work-state transaction must pair one Assignment with its Intent.",
+        "The work-state transaction must pair one or more Assignments with their Intent.",
         { path },
       );
     const seen = new Set<string>();
-    const targets = transaction.files.map((file) => {
+    const recoveredFiles = transaction.files.map((file) => {
+      const canonical = canonicalRepositoryPath(file.path);
+      if (canonical === undefined)
+        throw new IntentStoreError(
+          "schema_invalid",
+          "The work-state transaction contains an invalid target path.",
+          { path, target: file.path },
+        );
       const target = transactionTarget(directory, file.path);
       if (seen.has(target))
         throw new IntentStoreError(
@@ -547,14 +615,33 @@ export class IntentStore {
           },
         );
       seen.add(target);
-      return target;
+      const contents = transaction.state === "committed" ? file.next : file.previous;
+      const record =
+        canonical === "intent.toon"
+          ? parseValidatedToonText(contents, IntentSchema, target)
+          : parseValidatedToonText(contents, PersistedAssignmentSchema, target);
+      return { canonical, target, contents, record };
     });
-    for (const target of targets) await assertNoSymlinkAncestors(target);
-    for (const [index, file] of transaction.files.entries())
-      await atomicWriteText(
-        targets[index]!,
-        transaction.state === "committed" ? file.next : file.previous,
-      );
+    const recoveredIntentId = (
+      recoveredFiles.find((file) => file.canonical === "intent.toon")?.record as Intent | undefined
+    )?.id;
+    if (recoveredIntentId === undefined)
+      throw new IntentStoreError("schema_invalid", "The work-state transaction has no Intent.", {
+        path,
+      });
+    for (const file of recoveredFiles) {
+      await assertNoSymlinkAncestors(file.target);
+      if (file.canonical !== "intent.toon") {
+        const assignmentId = file.canonical.slice("assignments/".length, -".toon".length);
+        assertAssignmentIdentity(
+          file.record as PersistedAssignment,
+          recoveredIntentId,
+          assignmentId,
+          file.target,
+        );
+      }
+    }
+    for (const file of recoveredFiles) await atomicWriteText(file.target, file.contents);
     await rm(path, { force: true });
     await syncDirectory(directory);
     return true;
@@ -763,14 +850,16 @@ export class IntentStore {
       assertIntentMutable(intent);
       await this.#assertNoDrift(intent);
       if (intent.active_plan_revision !== undefined) await this.readPlan(reference);
-      const assignments = await this.#listAssignments(directory, intent);
+      const assignments = await this.#listPersistedAssignments(directory, intent);
       const reasons: string[] = [];
       if (intent.state !== "reviewing") reasons.push("intent_not_reviewing");
       if (intent.plan_required && intent.active_plan_revision === undefined)
         reasons.push("required_plan_missing");
       if (intent.blockers.length) reasons.push("global_blockers_unresolved");
       if (assignments.length === 0) reasons.push("assignment_required");
-      if (assignments.some((value) => value.status !== "completed"))
+      if (
+        assignments.some((value) => value.status !== "completed" && value.status !== "superseded")
+      )
         reasons.push("assignments_unresolved");
       if (intent.verification.required && intent.verification.status !== "passed")
         reasons.push("verification_unresolved");
@@ -1128,18 +1217,173 @@ export class IntentStore {
     return await this.#withIntentLock(directory, async () => {
       const intent = await this.#readIntentPath(join(directory, "intent.toon"));
       assertIntentMutable(intent);
-      const assignment = await this.#readAssignment(directory, intent, validatedId);
+      const assignment = await this.#readPersistedAssignment(directory, intent, validatedId);
       assertRevision(assignment.revision, expectedRevision);
-      if (assignment.status === "completed")
+      if (assignment.status === "completed" || assignment.status === "superseded")
         throw new IntentStoreError(
           "invalid_transition",
-          "A completed Assignment cannot have its scope revised.",
+          "A completed or superseded Assignment cannot have its scope revised.",
         );
       const revised = reviseAssignment(assignment, this.#now, {
         scope,
       });
       await atomicWriteToon(join(directory, "assignments", `${validatedId}.toon`), revised);
-      return revised;
+      return projectAssignment(revised);
+    });
+  }
+
+  /**
+   * Atomically replaces one unfinished Assignment with a related replacement.
+   *
+   * The relation is explicit and durable on both Assignment records. Completed, active, or already
+   * superseded work cannot be hidden by this operation, and the replacement must belong to the same
+   * Intent and overlap the predecessor's bounded repository scope.
+   */
+  async supersedeAssignment(
+    reference: string,
+    assignmentId: string,
+    expectedRevision: number,
+    input: SupersedeAssignmentInput,
+  ): Promise<{
+    readonly assignment: Assignment;
+    readonly replacement: Assignment;
+    readonly intent: Intent;
+  }> {
+    const validated = parseSchema(SupersedeAssignmentInputSchema, input);
+    const validatedId = parseSchema(Identifier, assignmentId);
+    const directory = await this.#locate(reference);
+    return await this.#withIntentLock(directory, async () => {
+      const intent = await this.#readIntentPath(join(directory, "intent.toon"));
+      assertIntentMutable(intent);
+      if (intent.acceptance_met || intent.root_readiness || intent.review.status === "accepted")
+        throw new IntentStoreError(
+          "invalid_transition",
+          "Accepted Intent evidence cannot be superseded.",
+          { intent_id: intent.id },
+        );
+      const assignment = await this.#readPersistedAssignment(directory, intent, validatedId);
+      assertRevision(assignment.revision, expectedRevision);
+      const replacement = await this.#readPersistedAssignment(
+        directory,
+        intent,
+        validated.replacementId,
+      );
+      if (validated.replacementRevision !== undefined)
+        assertRevision(replacement.revision, validated.replacementRevision);
+      if (replacement.id === assignment.id)
+        throw invalidInput("An Assignment cannot supersede itself.");
+      if (assignment.status === "completed" || assignment.status === "superseded")
+        throw new IntentStoreError(
+          "invalid_transition",
+          "Only unfinished, non-superseded Assignments may be replaced.",
+          { assignment_id: assignment.id, status: assignment.status },
+        );
+      if (assignment.status === "executing")
+        throw new IntentStoreError(
+          "invalid_transition",
+          "An executing Assignment must record its active invocation before supersession.",
+          { assignment_id: assignment.id },
+        );
+      if (assignment.superseded_by !== undefined)
+        throw new IntentStoreError(
+          "invalid_transition",
+          "An Assignment with an existing replacement cannot be superseded again.",
+          { assignment_id: assignment.id, replacement_id: assignment.superseded_by },
+        );
+      if (
+        replacement.status === "completed" ||
+        replacement.status === "executing" ||
+        replacement.status === "superseded"
+      )
+        throw new IntentStoreError(
+          "invalid_transition",
+          "A supersession replacement must be unfinished and inactive.",
+          { assignment_id: replacement.id, status: replacement.status },
+        );
+      if (replacement.supersedes !== undefined || replacement.superseded_by !== undefined)
+        throw new IntentStoreError(
+          "invalid_transition",
+          "An Assignment already participating in a supersession cannot be reused.",
+          { assignment_id: replacement.id },
+        );
+      const overlappingScope = assignment.scope.some((scope) =>
+        replacement.scope.some(
+          (candidate) =>
+            pathWithinAssignmentScope(scope, candidate) ||
+            pathWithinAssignmentScope(candidate, scope),
+        ),
+      );
+      if (!overlappingScope)
+        throw invalidInput(
+          "A supersession replacement must overlap the predecessor bounded scope.",
+        );
+      const assignments = await this.#listPersistedAssignments(directory, intent);
+      await this.#assertNoDrift(intent, [
+        ...assignment.scope,
+        ...replacement.scope,
+        ...assignments
+          .filter((candidate) => candidate.status === "executing")
+          .flatMap((candidate) => candidate.scope),
+      ]);
+      const revisedAssignment = reviseAssignment(assignment, this.#now, {
+        status: "superseded",
+        blocker: undefined,
+        active_invocation_id: undefined,
+        active_started_at: undefined,
+        active_invocation_capability_verifier: undefined,
+        active_invocation_capability: undefined,
+        superseded_by: replacement.id,
+        supersession_reason: validated.reason.trim(),
+        supersession_provenance: validated.provenance.trim(),
+      });
+      const revisedReplacement = reviseAssignment(replacement, this.#now, {
+        supersedes: assignment.id,
+        supersession_reason: validated.reason.trim(),
+        supersession_provenance: validated.provenance.trim(),
+      });
+      const revisedIntent = reviseIntent(intent, this.#now, {
+        state:
+          intent.blockers.length === 0 &&
+          ["blocked", "needs_root_input", "verifying", "reviewing"].includes(intent.state)
+            ? "executing"
+            : intent.state,
+        blockers: [...intent.blockers],
+        ...(intent.blockers.length === 0 ? { resume_state: undefined } : {}),
+        verification: resetGate(intent.verification),
+        review: resetGate(intent.review),
+        acceptance_met: false,
+        root_readiness: false,
+        evidence: [
+          ...intent.evidence,
+          {
+            kind: "behavior",
+            value: `Assignment ${assignment.id} superseded by ${replacement.id}: ${validated.reason.trim()} (${validated.provenance.trim()})`,
+            result: "observed",
+          },
+        ],
+      });
+      await this.#commitFiles(directory, [
+        {
+          path: `assignments/${assignment.id}.toon`,
+          previous: `${encodeToon(assignment)}\n`,
+          next: `${encodeToon(revisedAssignment)}\n`,
+        },
+        {
+          path: `assignments/${replacement.id}.toon`,
+          previous: `${encodeToon(replacement)}\n`,
+          next: `${encodeToon(revisedReplacement)}\n`,
+        },
+        {
+          path: "intent.toon",
+          previous: `${encodeToon(intent)}\n`,
+          next: `${encodeToon(revisedIntent)}\n`,
+        },
+      ]);
+      return {
+        assignment: projectAssignment(revisedAssignment),
+        replacement: projectAssignment(revisedReplacement),
+        intent: revisedIntent,
+      };
     });
   }
 
@@ -1149,15 +1393,30 @@ export class IntentStore {
     const directory = await this.#locate(reference);
     return await this.#withIntentLock(directory, async () => {
       const intent = await this.#readIntentPath(join(directory, "intent.toon"));
-      return await this.#readAssignment(directory, intent, validatedId);
+      return projectAssignment(await this.#readPersistedAssignment(directory, intent, validatedId));
     });
   }
 
-  async #readAssignment(
+  /** Reports whether an executing Assignment needs the capability-free legacy recovery path. */
+  async isLegacyExecutingAssignment(reference: string, assignmentId: string): Promise<boolean> {
+    const validatedId = parseSchema(Identifier, assignmentId);
+    const directory = await this.#locate(reference);
+    return await this.#withIntentLock(directory, async () => {
+      const intent = await this.#readIntentPath(join(directory, "intent.toon"));
+      const assignment = await this.#readPersistedAssignment(directory, intent, validatedId);
+      return (
+        assignment.status === "executing" &&
+        assignment.active_invocation_capability_verifier === undefined &&
+        assignment.active_invocation_capability === undefined
+      );
+    });
+  }
+
+  async #readPersistedAssignment(
     directory: string,
     intent: Intent,
     assignmentId: string,
-  ): Promise<Assignment> {
+  ): Promise<PersistedAssignment> {
     const assignmentsRoot = join(directory, "assignments");
     await assertDirectory(assignmentsRoot, true);
     const path = join(assignmentsRoot, `${assignmentId}.toon`);
@@ -1165,7 +1424,7 @@ export class IntentStore {
       throw new IntentStoreError("not_found", "Assignment was not found.", {
         assignment_id: assignmentId,
       });
-    const assignment = await readValidatedToon(path, AssignmentSchema);
+    const assignment = await readValidatedToon(path, PersistedAssignmentSchema);
     assertAssignmentIdentity(assignment, intent.id, assignmentId, path);
     return assignment;
   }
@@ -1174,11 +1433,19 @@ export class IntentStore {
   async listAssignments(reference: string): Promise<readonly Assignment[]> {
     const directory = await this.#locate(reference);
     return await this.#withIntentLock(directory, async () =>
-      this.#listAssignments(directory, await this.#readIntentPath(join(directory, "intent.toon"))),
+      (
+        await this.#listPersistedAssignments(
+          directory,
+          await this.#readIntentPath(join(directory, "intent.toon")),
+        )
+      ).map(projectAssignment),
     );
   }
 
-  async #listAssignments(directory: string, intent: Intent): Promise<readonly Assignment[]> {
+  async #listPersistedAssignments(
+    directory: string,
+    intent: Intent,
+  ): Promise<readonly PersistedAssignment[]> {
     const root = join(directory, "assignments");
     if (!(await assertDirectory(root, true))) return [];
     let entries: string[];
@@ -1194,7 +1461,7 @@ export class IntentStore {
         .sort()
         .map(async (entry) => {
           const path = join(root, entry);
-          const assignment = await readValidatedToon(path, AssignmentSchema);
+          const assignment = await readValidatedToon(path, PersistedAssignmentSchema);
           const expectedId = entry.slice(0, -".toon".length);
           assertAssignmentIdentity(assignment, intent.id, expectedId, path);
           return assignment;
@@ -1209,14 +1476,14 @@ export class IntentStore {
     assignmentId: string,
     expectedRevision: number,
     input: AssignmentStartInput = {},
-  ): Promise<Assignment> {
+  ): Promise<AssignmentStartResponse> {
     const validatedInput = parseSchema(AssignmentStartInputSchema, input);
     const validatedId = parseSchema(Identifier, assignmentId);
     const directory = await this.#locate(reference);
     return await this.#withIntentLock(directory, async () => {
       const intent = await this.#readIntentPath(join(directory, "intent.toon"));
       assertIntentMutable(intent);
-      const assignment = await this.#readAssignment(directory, intent, validatedId);
+      const assignment = await this.#readPersistedAssignment(directory, intent, validatedId);
       assertRevision(assignment.revision, expectedRevision);
       const scope = expandAssignmentScope(assignment.scope, validatedInput.scope);
       await this.#assertNoDrift(intent, scope);
@@ -1224,6 +1491,12 @@ export class IntentStore {
         throw new IntentStoreError(
           "invalid_transition",
           "A completed Assignment cannot be restarted.",
+        );
+      if (assignment.status === "superseded")
+        throw new IntentStoreError(
+          "invalid_transition",
+          "A superseded Assignment cannot be restarted.",
+          { assignment_id: assignment.id },
         );
       if (assignment.status === "executing")
         throw new IntentStoreError(
@@ -1238,15 +1511,21 @@ export class IntentStore {
         );
       const startedAt = this.#now().toISOString();
       const invocationId = nextInvocationId(assignment);
+      const capability = invocationCapability();
       const revised = reviseAssignment(assignment, this.#now, {
         status: "executing",
         scope,
         blocker: undefined,
         active_invocation_id: invocationId,
         active_started_at: startedAt,
+        active_invocation_capability_verifier: sha256(capability),
+        active_invocation_capability: undefined,
       });
       await atomicWriteToon(join(directory, "assignments", `${validatedId}.toon`), revised);
-      return revised;
+      return parseSchema(AssignmentStartResponseSchema, {
+        ...projectAssignment(revised),
+        capability,
+      });
     });
   }
 
@@ -1257,13 +1536,93 @@ export class IntentStore {
     expectedRevision: number,
     input: AssignmentResultInput,
   ): Promise<{ readonly assignment: Assignment; readonly intent: Intent }> {
+    return await this.#recordAssignmentResult(
+      reference,
+      assignmentId,
+      expectedRevision,
+      input,
+      false,
+    );
+  }
+
+  /**
+   * Persists a specialist result only when its active invocation capability is supplied. Newly
+   * issued capabilities are checked against their verifier; historical raw capabilities remain
+   * readable, and capability-free legacy records may use {@link IntentStore.recordAssignmentResult}.
+   */
+  async recordSpecialistAssignmentResult(
+    reference: string,
+    assignmentId: string,
+    expectedRevision: number,
+    input: AssignmentResultInput,
+  ): Promise<{ readonly assignment: Assignment; readonly intent: Intent }> {
+    const validated = parseSchema(AssignmentResultInputSchema, input);
+    if (validated.capability === undefined)
+      throw invalidInput("Specialist Assignment results require an active invocation capability.");
+    return await this.#recordAssignmentResult(
+      reference,
+      assignmentId,
+      expectedRevision,
+      input,
+      true,
+    );
+  }
+
+  /**
+   * Records a capability-lost active invocation as failed after exact interruption checks.
+   * Repository-shared callers cannot be authenticated as Root; this operation records recovery
+   * evidence and can never claim successful completion.
+   */
+  async recoverInterruptedAssignment(
+    reference: string,
+    assignmentId: string,
+    expectedRevision: number,
+    input: {
+      readonly invocationId: string;
+      readonly startedAt: string;
+      readonly interruptionReason: string;
+    },
+  ): Promise<{ readonly assignment: Assignment; readonly intent: Intent }> {
+    const validated = parseSchema(AssignmentInterruptionRecoveryInputSchema, input);
+    const reason = validated.interruptionReason.trim();
+    const recoveryEvidence: IntentEvidence = {
+      kind: "behavior",
+      value: `Interrupted invocation ${validated.invocationId} started at ${validated.startedAt} recovered as failed: ${reason}`,
+      result: "failed",
+    };
+    return await this.#recordAssignmentResult(
+      reference,
+      assignmentId,
+      expectedRevision,
+      {
+        invocationId: validated.invocationId,
+        outcome: "failed",
+        startedAt: validated.startedAt,
+        summary: `Interrupted invocation recovered as failed: ${reason}`,
+        evidence: [recoveryEvidence],
+      },
+      false,
+      { invocationId: validated.invocationId, startedAt: validated.startedAt },
+    );
+  }
+
+  async #recordAssignmentResult(
+    reference: string,
+    assignmentId: string,
+    expectedRevision: number,
+    input: AssignmentResultInput,
+    requireCapability: boolean,
+    recoveryMatch?: { readonly invocationId: string; readonly startedAt: string },
+  ): Promise<{ readonly assignment: Assignment; readonly intent: Intent }> {
     const validated = parseSchema(AssignmentResultInputSchema, input);
     const validatedId = parseSchema(Identifier, assignmentId);
     const directory = await this.#locate(reference);
     return await this.#withIntentLock(directory, async () => {
       const intent = await this.#readIntentPath(join(directory, "intent.toon"));
       assertIntentMutable(intent);
-      const assignment = await this.#readAssignment(directory, intent, validatedId);
+      if (recoveryMatch !== undefined && reference !== intent.id)
+        throw invalidInput("Interruption recovery requires the exact Intent ID reference.");
+      const assignment = await this.#readPersistedAssignment(directory, intent, validatedId);
       assertRevision(assignment.revision, expectedRevision);
       if (assignment.status !== "executing")
         throw new IntentStoreError(
@@ -1271,6 +1630,33 @@ export class IntentStore {
           `Assignment result requires an executing Assignment; current status is ${assignment.status}.`,
           { assignment_id: assignment.id, status: assignment.status },
         );
+      if (
+        recoveryMatch === undefined &&
+        !requireCapability &&
+        validated.capability === undefined &&
+        (assignment.active_invocation_capability_verifier !== undefined ||
+          assignment.active_invocation_capability !== undefined)
+      )
+        throw new IntentStoreError(
+          "invalid_transition",
+          "This Assignment invocation requires its active capability to record a result.",
+          { assignment_id: assignment.id },
+        );
+      if (recoveryMatch !== undefined) {
+        if (
+          assignment.active_invocation_id !== recoveryMatch.invocationId ||
+          assignment.active_started_at !== recoveryMatch.startedAt
+        )
+          throw new IntentStoreError(
+            "invalid_transition",
+            "Interruption recovery does not match the active invocation identity and start time.",
+            {
+              assignment_id: assignment.id,
+              expected_invocation_id: assignment.active_invocation_id,
+              expected_started_at: assignment.active_started_at,
+            },
+          );
+      }
       if (
         assignment.active_invocation_id !== undefined &&
         validated.invocationId !== undefined &&
@@ -1286,11 +1672,42 @@ export class IntentStore {
           },
         );
       if (
+        requireCapability &&
+        (assignment.active_invocation_id === undefined || validated.invocationId === undefined)
+      )
+        throw new IntentStoreError(
+          "invalid_transition",
+          "Specialist Assignment results require the active invocation identity.",
+          { assignment_id: assignment.id },
+        );
+      if (
+        requireCapability &&
+        assignment.active_invocation_capability_verifier === undefined &&
+        assignment.active_invocation_capability === undefined
+      )
+        throw new IntentStoreError(
+          "invalid_transition",
+          "The active Assignment invocation has no capability to authorize a specialist result.",
+          { assignment_id: assignment.id },
+        );
+      if (
+        validated.capability !== undefined &&
+        (assignment.active_invocation_capability_verifier !== undefined
+          ? sha256(validated.capability) !== assignment.active_invocation_capability_verifier
+          : assignment.active_invocation_capability !== validated.capability)
+      )
+        throw new IntentStoreError(
+          "invalid_transition",
+          "Assignment result capability does not match the active invocation.",
+          { assignment_id: assignment.id },
+        );
+      if (
         (validated.outcome === "blocked" || validated.outcome === "needs_root_input") &&
         !validated.blocker?.trim()
       )
         throw invalidInput("Blocked results require a local blocker.");
       if (
+        recoveryMatch === undefined &&
         context7RequiredForAssignment({
           role: assignment.owner.role,
           task: assignment.owner.task,
@@ -1327,7 +1744,7 @@ export class IntentStore {
           "Assignment evidence declares paths outside its bounded scope.",
           { assignment_id: assignment.id, out_of_scope_paths: outOfScope.sort() },
         );
-      const assignments = await this.#listAssignments(directory, intent);
+      const assignments = await this.#listPersistedAssignments(directory, intent);
       const concurrent = assignments.filter(
         (value) => value.id !== assignment.id && value.status === "executing",
       );
@@ -1364,13 +1781,14 @@ export class IntentStore {
       // Root-owned integration may advance HEAD before a result is recorded,
       // but only an explicitly declared Assignment evolution may explain it.
       if (
-        identityChanged ||
-        unexpected.length ||
-        undeclaredCurrentScope.length ||
-        (statusChanged && !observedDeclaration && !observedConcurrentPath) ||
-        (snapshot.head !== intent.baseline.expected_head &&
-          !observedDeclaration &&
-          !observedConcurrentPath)
+        recoveryMatch === undefined &&
+        (identityChanged ||
+          unexpected.length ||
+          undeclaredCurrentScope.length ||
+          (statusChanged && !observedDeclaration && !observedConcurrentPath) ||
+          (snapshot.head !== intent.baseline.expected_head &&
+            !observedDeclaration &&
+            !observedConcurrentPath))
       ) {
         throw new IntentStoreError(
           "repository_drift",
@@ -1409,6 +1827,8 @@ export class IntentStore {
         invocations: [...assignment.invocations, invocation],
         active_invocation_id: undefined,
         active_started_at: undefined,
+        active_invocation_capability_verifier: undefined,
+        active_invocation_capability: undefined,
         evidence: [...assignment.evidence, ...evidence],
         blocker: validated.blocker,
         remaining_risk: [...(validated.remainingRisk ?? [])],
@@ -1430,12 +1850,15 @@ export class IntentStore {
         (!intent.review.required || intent.review.status === "accepted");
       const invalidateGates = actualRelevantEvolution || validated.outcome === "failed";
       const revisedIntent = reviseIntent(intent, this.#now, {
-        baseline: baselineFromSnapshot(
-          snapshot,
-          timestamp,
-          intent.baseline.initial_head,
-          preserveIntegratedCommit ? intent.baseline.integrated_commit : undefined,
-        ),
+        baseline:
+          recoveryMatch === undefined
+            ? baselineFromSnapshot(
+                snapshot,
+                timestamp,
+                intent.baseline.initial_head,
+                preserveIntegratedCommit ? intent.baseline.integrated_commit : undefined,
+              )
+            : intent.baseline,
         ...(successfulOperations || !invalidateGates
           ? {}
           : {
@@ -1454,7 +1877,7 @@ export class IntentStore {
         intent,
         revisedIntent,
       );
-      return { assignment: revised, intent: revisedIntent };
+      return { assignment: projectAssignment(revised), intent: revisedIntent };
     });
   }
 
@@ -1525,34 +1948,40 @@ export class IntentStore {
   async #commitAssignmentAndIntent(
     directory: string,
     assignmentId: string,
-    previousAssignment: Assignment,
-    nextAssignment: Assignment,
+    previousAssignment: PersistedAssignment,
+    nextAssignment: PersistedAssignment,
     previousIntent: Intent,
     nextIntent: Intent,
   ): Promise<void> {
-    const assignmentPath = join(directory, "assignments", `${assignmentId}.toon`);
-    const intentPath = join(directory, "intent.toon");
+    await this.#commitFiles(directory, [
+      {
+        path: `assignments/${assignmentId}.toon`,
+        previous: `${encodeToon(previousAssignment)}\n`,
+        next: `${encodeToon(nextAssignment)}\n`,
+      },
+      {
+        path: "intent.toon",
+        previous: `${encodeToon(previousIntent)}\n`,
+        next: `${encodeToon(nextIntent)}\n`,
+      },
+    ]);
+  }
+
+  async #commitFiles(
+    directory: string,
+    files: readonly { readonly path: string; readonly previous: string; readonly next: string }[],
+  ): Promise<void> {
     const transactionPath = join(directory, WORK_STATE_TRANSACTION_FILE);
     const transaction: WorkStateTransaction = parseSchema(WorkStateTransactionSchema, {
       schema_version: WORK_STATE_TRANSACTION_SCHEMA_VERSION,
       state: "prepared",
-      files: [
-        {
-          path: `assignments/${assignmentId}.toon`,
-          previous: `${encodeToon(previousAssignment)}\n`,
-          next: `${encodeToon(nextAssignment)}\n`,
-        },
-        {
-          path: "intent.toon",
-          previous: `${encodeToon(previousIntent)}\n`,
-          next: `${encodeToon(nextIntent)}\n`,
-        },
-      ],
+      files: files.map((file) => ({ ...file })),
     });
+    const targets = transaction.files.map((file) => transactionTarget(directory, file.path));
     await atomicWriteToon(transactionPath, transaction);
     try {
-      await atomicWriteText(assignmentPath, transaction.files[0]!.next);
-      await atomicWriteText(intentPath, transaction.files[1]!.next);
+      for (const [index, target] of targets.entries())
+        await atomicWriteText(target, transaction.files[index]!.next);
       await atomicWriteToon(transactionPath, { ...transaction, state: "committed" });
     } catch (error: unknown) {
       try {
@@ -1796,6 +2225,10 @@ function hasMeaningfulVerificationEvidence(evidence: readonly IntentEvidence[]):
       ["passed", "observed"].includes(item.result ?? ""),
   );
 }
+function invocationCapability(): AssignmentInvocationCapability {
+  return randomBytes(32).toString("hex");
+}
+
 function nextInvocationId(assignment: Assignment): string {
   let sequence = assignment.invocations.length + 1;
   let id = `invocation-${String(sequence).padStart(3, "0")}`;
@@ -1817,12 +2250,12 @@ function reviseIntent(intent: Intent, now: () => Date, patch: Partial<Intent>): 
   );
 }
 function reviseAssignment(
-  value: Assignment,
+  value: PersistedAssignment,
   now: () => Date,
-  patch: Partial<Assignment>,
-): Assignment {
+  patch: Partial<PersistedAssignment>,
+): PersistedAssignment {
   return parseSchema(
-    AssignmentSchema,
+    PersistedAssignmentSchema,
     cleanUndefined({
       ...value,
       ...patch,
@@ -1830,6 +2263,14 @@ function reviseAssignment(
       updated_at: now().toISOString(),
     }),
   );
+}
+function projectAssignment(value: PersistedAssignment): Assignment {
+  const {
+    active_invocation_capability_verifier: _verifier,
+    active_invocation_capability: _capability,
+    ...projection
+  } = value;
+  return parseSchema(AssignmentSchema, projection);
 }
 function cleanUndefined(value: object): object {
   const cleaned: Record<string, unknown> = { ...value };
@@ -2029,6 +2470,15 @@ async function readRawToon(path: string): Promise<unknown> {
       throw new IntentStoreError("not_found", "Persistent work state was not found.", { path });
     throw storeIo(error);
   }
+  return decodeToonText(text, path);
+}
+async function readValidatedToon<A, I>(path: string, schema: Schema.Schema<A, I>): Promise<A> {
+  return parseSchema(schema, await readRawToon(path));
+}
+function parseValidatedToonText<A, I>(text: string, schema: Schema.Schema<A, I>, path: string): A {
+  return parseSchema(schema, decodeToonText(text, path));
+}
+function decodeToonText(text: string, path: string): unknown {
   try {
     return decodeToon(text, { strict: true });
   } catch (error: unknown) {
@@ -2037,9 +2487,6 @@ async function readRawToon(path: string): Promise<unknown> {
       message: error instanceof Error ? error.message : String(error),
     });
   }
-}
-async function readValidatedToon<A, I>(path: string, schema: Schema.Schema<A, I>): Promise<A> {
-  return parseSchema(schema, await readRawToon(path));
 }
 async function atomicWriteToon(path: string, value: unknown): Promise<void> {
   await atomicWriteText(path, `${encodeToon(value)}\n`);

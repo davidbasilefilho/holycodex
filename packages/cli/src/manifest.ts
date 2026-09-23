@@ -4,27 +4,31 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { JsonObject } from "@holycodex/core";
+import {
+  BaseVersionSchema,
+  CanonicalVersionSchema,
+  ReleaseVersionSchema,
+  resolveCanonicalVersion,
+  type BaseVersion,
+  type CanonicalVersion,
+  type JsonObject,
+  type ReleaseVersion,
+} from "@holycodex/core";
 import * as Schema from "effect/Schema";
 
 import { decodeSchema, isJsonObject } from "./schema.ts";
 import { writeAtomicJson } from "./storage.ts";
 
-const CanonicalVersionSchema = Schema.String.pipe(
-  Schema.pattern(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u),
-);
-const PublicVersionSchema = Schema.String.pipe(
-  Schema.pattern(
-    /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*)|-dev\.[1-9]\d*\.[1-9]\d*)?$/u,
-  ),
-);
 const PublicManifestSchema = Schema.declare(
   (
     value: unknown,
-  ): value is JsonObject & { readonly name: "holycodex"; readonly version: string } =>
+  ): value is JsonObject & {
+    readonly name: "holycodex";
+    readonly version: ReleaseVersion;
+  } =>
     isJsonObject(value) &&
     value["name"] === "holycodex" &&
-    decodeSchema(PublicVersionSchema, value["version"]) !== undefined,
+    decodeSchema(ReleaseVersionSchema, value["version"]) !== undefined,
 );
 type PublicManifest = typeof PublicManifestSchema.Type;
 
@@ -45,14 +49,46 @@ export async function readPublicManifest(
   return parsed;
 }
 
+/** Read the exact public release version, including a development release suffix. */
+export async function readPublicVersion(path = publicManifestPath): Promise<ReleaseVersion> {
+  const version = (await readPublicManifest(path))["version"];
+  const release = decodeSchema(ReleaseVersionSchema, version);
+  if (release === undefined) {
+    throw new ManifestError("manifest_invalid", "The public package manifest version is invalid.");
+  }
+  return release;
+}
+
 /** Read the canonical public package version from the validated manifest. */
-export async function readCanonicalVersion(path = publicManifestPath): Promise<string> {
-  return (await readPublicManifest(path))["version"];
+export async function readCanonicalVersion(path = publicManifestPath): Promise<CanonicalVersion> {
+  const version = await readPublicVersion(path);
+  const canonical = decodeSchema(CanonicalVersionSchema, version);
+  if (canonical === undefined) {
+    throw new ManifestError(
+      "manifest_invalid",
+      "The public package manifest must use a canonical stable release version.",
+    );
+  }
+  return canonical;
 }
 
 /** Read the canonical version without an optional release suffix. */
-export async function readCanonicalBaseVersion(path = publicManifestPath): Promise<string> {
-  return (await readCanonicalVersion(path)).split("-", 1)[0] ?? "";
+export async function readCanonicalBaseVersion(path = publicManifestPath): Promise<BaseVersion> {
+  const version = await readPublicVersion(path);
+  const base = version.split("-", 1)[0];
+  const canonical = decodeSchema(BaseVersionSchema, base);
+  if (canonical === undefined) {
+    throw new ManifestError(
+      "manifest_invalid",
+      "The public package manifest must use a canonical release base version.",
+    );
+  }
+  return canonical;
+}
+
+/** Read the exact release version recorded for an installation. */
+export async function readInstallationVersion(path = publicManifestPath): Promise<ReleaseVersion> {
+  return await readPublicVersion(path);
 }
 
 /** Resolve and optionally persist a canonical package version update. */
@@ -62,7 +98,7 @@ export async function updateCanonicalVersion(
   path = publicManifestPath,
 ): Promise<Readonly<{ previous: string; next: string }>> {
   const manifest = await readPublicManifest(path);
-  const previous = await readCanonicalBaseVersion(path);
+  const previous = await readCanonicalVersion(path);
   const next = resolveVersion(target, previous);
   if (!dryRun) {
     await writeAtomicJson(path, { ...manifest, version: next });
@@ -78,10 +114,14 @@ export function resolveVersion(target: string, current: string): string {
     }
     return target;
   }
-  const parts = (current.split("-", 1)[0] ?? "").split(".");
-  const minor = Number(parts[1]);
-  const patch = Number(parts[2]);
-  return target === "minor" ? `0.${minor + 1}.0` : `0.${minor}.${patch + 1}`;
+  try {
+    return resolveCanonicalVersion(target, current);
+  } catch (error: unknown) {
+    throw new ManifestError(
+      "version_invalid",
+      error instanceof Error ? error.message : "The current version is invalid.",
+    );
+  }
 }
 
 /** Structured failure raised while reading or validating an install manifest. */

@@ -11,6 +11,7 @@ import {
   IntentStoreError,
   PlanInputSchema,
   ReviseAssignmentScopeInputSchema,
+  SupersedeAssignmentInputSchema,
   VcsIntegrationInputSchema,
 } from "@holycodex/core";
 import * as Either from "effect/Either";
@@ -20,6 +21,11 @@ import { agentHelp, agentHelpRequested } from "./help.ts";
 
 const ResponseVersion = "holycodex-agent-response-1" as const;
 const ArgvSchema = Schema.Array(Schema.String);
+const AssignmentInterruptionRecoveryInputSchema = Schema.Struct({
+  invocationId: Schema.String,
+  startedAt: Schema.String,
+  interruptionReason: Schema.String,
+});
 
 /** Injectable streams and working directory for deterministic CLI execution. */
 export interface AgentIo {
@@ -135,6 +141,13 @@ async function execute(
         decodeJson(ReviseAssignmentScopeInputSchema, required(options, "input")),
         revision(options),
       );
+    if (subcommand === "supersede")
+      return await store.supersedeAssignment(
+        requiredValue(intent, "intent"),
+        required(options, "assignment"),
+        revision(options),
+        decodeJson(SupersedeAssignmentInputSchema, required(options, "input")),
+      );
     if (subcommand === "list") return await store.listAssignments(requiredValue(intent, "intent"));
     if (subcommand === "read")
       return await store.readAssignment(
@@ -150,13 +163,33 @@ async function execute(
           ? {}
           : decodeJson(AssignmentStartInputSchema, options["input"]),
       );
-    if (subcommand === "result")
-      return await store.recordAssignmentResult(
+    if (subcommand === "recover")
+      return await store.recoverInterruptedAssignment(
         requiredValue(intent, "intent"),
         required(options, "assignment"),
         revision(options),
-        decodeJson(AssignmentResultInputSchema, required(options, "input")),
+        decodeJson(AssignmentInterruptionRecoveryInputSchema, required(options, "input")),
       );
+    if (subcommand === "result") {
+      const result = decodeJson(AssignmentResultInputSchema, required(options, "input"));
+      const reference = requiredValue(intent, "intent");
+      const assignment = required(options, "assignment");
+      const expectedRevision = revision(options);
+
+      if (
+        result.capability === undefined &&
+        (await store.isLegacyExecutingAssignment(reference, assignment))
+      ) {
+        return await store.recordAssignmentResult(reference, assignment, expectedRevision, result);
+      }
+
+      return await store.recordSpecialistAssignmentResult(
+        reference,
+        assignment,
+        expectedRevision,
+        result,
+      );
+    }
   }
   throw new AgentCliError("invalid_usage", "Unknown command. Use --help.");
 }
@@ -203,9 +236,11 @@ function allowedOptions(command: string, subcommand: string): ReadonlySet<string
     "plan revise": ["intent", "revision", "plan-revision", "input"],
     "assignment create": ["intent", "revision", "input"],
     "assignment revise": ["intent", "assignment", "revision", "input"],
+    "assignment supersede": ["intent", "assignment", "revision", "input"],
     "assignment list": ["intent"],
     "assignment read": ["intent", "assignment"],
     "assignment start": ["intent", "assignment", "revision", "input"],
+    "assignment recover": ["intent", "assignment", "revision", "input"],
     "assignment result": ["intent", "assignment", "revision", "input"],
   };
   return new Set([...common, ...(options[`${command} ${subcommand}`] ?? [])]);

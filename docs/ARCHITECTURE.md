@@ -119,18 +119,12 @@ IDs do not define instruction behavior: every live skill and generated Root or
 specialist instruction targets the GPT-6 family. Historical routing values
 remain only in migration/cleanup paths for previously managed state. HolyCodex
 owns the scalar `features.context_management` projection and sets it to `true`
-for Root and every generated leaf because Codex does not enable it by default. Upgrade
-migrates owned historical
+for Root and every generated leaf because Codex does not enable it by default. The
+package migration converts owned historical
 `.experimental_mode` state to the scalar key. Standard managed-key ownership
 preserves a user edit and restores the recorded prior value during removal.
-Repo-local Intent/Plan/Assignment state remains independent. The active Codex
-configuration schema exposes `model_auto_compact_token_limit`; HolyCodex owns a
-Root-only `64000` threshold through that supported key and preserves prior or
-drifted values through the standard managed-key state. This is startup/effective
-configuration: no verified HolyCodex-owned hot compact invocation or rotation
-seam exists, so installation does not claim to apply the threshold to an
-already-running session or invoke the compact RPC. A bounded `Explorer.trace` dispatch has been
-verified with the `gpt-5.6-luna`/`high` route and the installed baseline retained;
+Repo-local Intent/Plan/Assignment state remains independent. A bounded `Explorer.trace` dispatch has been
+verified with the `gpt-6-luna`/`high` route and the installed baseline retained;
 session metadata reports V2, so this does not claim live V1 proof or
 HolyCodex-owned fork enforcement. Generated configuration and readback tests
 prove the V1 arrangement only.

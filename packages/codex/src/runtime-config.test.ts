@@ -20,7 +20,7 @@ const metadata = { schema: "state-0.16", installId: "install-1" } as const;
 describe("typed runtime configuration", () => {
   test("merges managed dotted keys while retaining unrelated TOML tables", async () => {
     const document = {
-      model: "gpt-5.6-luna",
+      model: "gpt-6-sol",
       unrelated: "preserve",
       features: { unrelated_feature: true },
     } as const;
@@ -28,20 +28,20 @@ describe("typed runtime configuration", () => {
       document,
       createManagedRuntimeConfigState(metadata),
       {
-        model: "gpt-5.6-terra",
+        model: "gpt-6-luna",
         "features.default_mode_request_user_input": true,
       },
       metadata,
     );
 
     expect(merged.document).toEqual({
-      model: "gpt-5.6-terra",
+      model: "gpt-6-luna",
       unrelated: "preserve",
       features: { unrelated_feature: true, default_mode_request_user_input: true },
     });
     expect(merged.state.managed["model"]?.originalValue).toEqual({
       kind: "enum",
-      value: "gpt-5.6-luna",
+      value: "gpt-6-sol",
     });
     expect(merged.state.managed["features.default_mode_request_user_input"]?.originalValue).toEqual(
       {
@@ -91,50 +91,6 @@ describe("typed runtime configuration", () => {
     }
   });
 
-  test("manages the supported Root auto-compaction threshold with typed ownership", async () => {
-    const keyPath = "model_auto_compact_token_limit" as const;
-    expect(isManagedConfigKeyPath(keyPath)).toBe(true);
-    const initial = await mergeManagedRuntimeConfig(
-      { [keyPath]: 32_000, unrelated: "keep" },
-      createManagedRuntimeConfigState(metadata),
-      { [keyPath]: 64_000 },
-      metadata,
-    );
-    expect(readTomlPath(initial.document, keyPath)).toBe(64_000);
-    expect(initial.state.managed[keyPath]?.originalValue).toEqual({
-      kind: "number",
-      value: 32_000,
-    });
-    expect(initial.state.managed[keyPath]?.lastManagedValue).toEqual({
-      kind: "number",
-      value: 64_000,
-    });
-    expect((await compareManagedConfigKey(initial.document, initial.state, keyPath)).status).toBe(
-      "unchanged",
-    );
-
-    const cleaned = await cleanupManagedRuntimeConfig(initial.document, initial.state, metadata);
-    expect(readTomlPath(cleaned.document, keyPath)).toBe(32_000);
-    expect(cleaned.document["unrelated"]).toBe("keep");
-    expect(cleaned.restoredKeys).toEqual([keyPath]);
-
-    const edited = writeTomlPath(initial.document, keyPath, 128_000);
-    const preserved = await cleanupManagedRuntimeConfig(edited, initial.state, metadata);
-    expect(readTomlPath(preserved.document, keyPath)).toBe(128_000);
-    expect(preserved.preservedKeys).toEqual([keyPath]);
-    expect(preserved.restoredKeys).toEqual([]);
-  });
-
-  test("rejects unsafe auto-compaction threshold writes at the runtime boundary", async () => {
-    const keyPath = "model_auto_compact_token_limit" as const;
-    const state = createManagedRuntimeConfigState(metadata);
-    for (const value of [64_000.5, -1, "64000"] as const) {
-      await expect(
-        mergeManagedRuntimeConfig({}, state, { [keyPath]: value }, metadata),
-      ).rejects.toMatchObject({ code: "invalid_external_data" });
-    }
-  });
-
   test("accepts Astra as the live root model and reports stale ownership metadata", async () => {
     const initial = await mergeManagedRuntimeConfig(
       {},
@@ -159,6 +115,32 @@ describe("typed runtime configuration", () => {
     expect(cleanup.document["model"]).toBe("gpt-6-astra");
     expect(cleanup.unresolvedKeys).toEqual(["model"]);
     expect(cleanup.restoredKeys).toEqual([]);
+  });
+
+  test("recognizes historical model IDs when restoring previously managed values", async () => {
+    for (const historicalModel of ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna"] as const) {
+      const initial = await mergeManagedRuntimeConfig(
+        { model: historicalModel },
+        createManagedRuntimeConfigState(metadata),
+        { model: "gpt-6-astra" },
+        metadata,
+      );
+      expect(initial.state.managed["model"]?.originalValue).toEqual({
+        kind: "enum",
+        value: historicalModel,
+      });
+      const cleaned = await cleanupManagedRuntimeConfig(initial.document, initial.state, metadata);
+      expect(cleaned.document["model"]).toBe(historicalModel);
+      expect(cleaned.restoredKeys).toEqual(["model"]);
+      await expect(
+        mergeManagedRuntimeConfig(
+          {},
+          createManagedRuntimeConfigState(metadata),
+          { model: historicalModel },
+          metadata,
+        ),
+      ).rejects.toMatchObject({ code: "invalid_external_data" });
+    }
   });
 
   test("manages context experimental mode as a required Root setting", async () => {
@@ -220,9 +202,9 @@ describe("typed runtime configuration", () => {
     const priorInstructions = "Bearer prior-secret-instructions";
     const installedInstructions = "HolyCodex instructions";
     const initial = await mergeManagedRuntimeConfig(
-      { model: "gpt-5.6-luna", developer_instructions: priorInstructions },
+      { model: "gpt-6-sol", developer_instructions: priorInstructions },
       createManagedRuntimeConfigState(metadata),
-      { model: "gpt-5.6-terra", developer_instructions: installedInstructions },
+      { model: "gpt-6-luna", developer_instructions: installedInstructions },
       metadata,
     );
     const serializedState = JSON.stringify(initial.state);
@@ -230,7 +212,7 @@ describe("typed runtime configuration", () => {
     expect(serializedState).not.toContain(installedInstructions);
 
     const cleaned = await cleanupManagedRuntimeConfig(initial.document, initial.state, metadata);
-    expect(cleaned.document["model"]).toBe("gpt-5.6-luna");
+    expect(cleaned.document["model"]).toBe("gpt-6-sol");
     expect(readTomlPath(cleaned.document, "developer_instructions")).toBe(installedInstructions);
     expect(cleaned.restoredKeys).toEqual(["model"]);
     expect(cleaned.unresolvedKeys).toEqual(["developer_instructions"]);
@@ -289,26 +271,70 @@ describe("typed runtime configuration", () => {
     });
   });
 
-  test("manages Root V1 multi-agent mode while disabling V2", async () => {
+  test("manages Root V1 dispatch while disabling message board and V2", async () => {
     const v1 = "features.multi_agent" as const;
+    const messageBoard = "features.agent_message_board" as const;
     const v2 = "features.multi_agent_v2" as const;
     expect(isManagedConfigKeyPath(v1)).toBe(true);
+    expect(isManagedConfigKeyPath(messageBoard)).toBe(true);
     expect(isManagedConfigKeyPath(v2)).toBe(true);
     const merged = await mergeManagedRuntimeConfig(
       {},
       createManagedRuntimeConfigState(metadata),
-      { [v1]: true, [v2]: false },
+      { [v1]: true, [messageBoard]: false, [v2]: false },
       metadata,
     );
     expect(readTomlPath(merged.document, v1)).toBe(true);
+    expect(readTomlPath(merged.document, messageBoard)).toBe(false);
     expect(readTomlPath(merged.document, v2)).toBe(false);
     expect(merged.state.managed[v1]?.lastManagedValue).toEqual({
       kind: "boolean",
       value: true,
     });
+    expect(merged.state.managed[messageBoard]?.lastManagedValue).toEqual({
+      kind: "boolean",
+      value: false,
+    });
     expect(merged.state.managed[v2]?.lastManagedValue).toEqual({
       kind: "boolean",
       value: false,
     });
+  });
+
+  test("manages live web search and workspace command network access", async () => {
+    const webSearch = "web_search" as const;
+    const networkAccess = "sandbox_workspace_write.network_access" as const;
+    expect(isManagedConfigKeyPath(webSearch)).toBe(true);
+    expect(isManagedConfigKeyPath(networkAccess)).toBe(true);
+    const merged = await mergeManagedRuntimeConfig(
+      {},
+      createManagedRuntimeConfigState(metadata),
+      { [webSearch]: "live", [networkAccess]: true },
+      metadata,
+    );
+    expect(readTomlPath(merged.document, webSearch)).toBe("live");
+    expect(readTomlPath(merged.document, networkAccess)).toBe(true);
+    expect(merged.state.managed[webSearch]?.lastManagedValue).toEqual({
+      kind: "enum",
+      value: "live",
+    });
+    expect(merged.state.managed[networkAccess]?.lastManagedValue).toEqual({
+      kind: "boolean",
+      value: true,
+    });
+  });
+
+  test("manages the Root session thread limit as a numeric setting", async () => {
+    const keyPath = "agents.max_concurrent_threads_per_session" as const;
+    expect(isManagedConfigKeyPath(keyPath)).toBe(true);
+    const merged = await mergeManagedRuntimeConfig(
+      { agents: { max_concurrent_threads_per_session: 4, unrelated: true } },
+      createManagedRuntimeConfigState(metadata),
+      { [keyPath]: 21 },
+      metadata,
+    );
+    expect(readTomlPath(merged.document, keyPath)).toBe(21);
+    expect(readTomlPath(merged.document, "agents.unrelated")).toBe(true);
+    expect(merged.state.managed[keyPath]?.lastManagedValue).toEqual({ kind: "number", value: 21 });
   });
 });

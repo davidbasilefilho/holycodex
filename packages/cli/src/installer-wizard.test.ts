@@ -21,16 +21,136 @@ import {
   projectNativeAgents,
   projectRootAgent,
   renderNativeAgent,
+  runOpenTuiConflictResolver,
   runOpenTuiInstallWizard,
+  readInstallationVersion,
   windowsGitBashShellDirective,
   runCli,
   toInstallOptions,
   stateFromRequest,
   type InstallOptions,
   type InstallRequest,
+  type ManagedConflict,
 } from "./index.ts";
+import {
+  applyInstallReviewKey,
+  renderInstallReview,
+  runOpenTuiInstallReview,
+  type InstallReviewScreenState,
+} from "./installer-wizard.ts";
+import type { InstallReview } from "./types.ts";
+
+const CURRENT_VERSION = await readInstallationVersion();
 
 const ANSI_SGR_PATTERN = new RegExp(`${String.fromCodePoint(0x1b)}\\[[0-9;]*m`, "gu");
+
+type FakeChunk = Readonly<{ text: string; styles?: readonly string[] }>;
+class FakeStyledText {
+  readonly chunks: readonly FakeChunk[];
+
+  constructor(chunks: readonly FakeChunk[]) {
+    this.chunks = chunks;
+  }
+}
+
+type FakeContent = string | FakeStyledText;
+
+function fakePlainText(content: FakeContent): string {
+  return typeof content === "string" ? content : content.chunks.map((chunk) => chunk.text).join("");
+}
+
+function fakeStyledChunks(content: FakeContent): readonly FakeChunk[] {
+  return typeof content === "string"
+    ? []
+    : content.chunks.filter((chunk) => chunk.styles !== undefined);
+}
+
+function fakeRenderer(
+  keys: readonly { readonly name: string; readonly ctrl?: boolean; readonly shift?: boolean }[],
+): {
+  readonly root: { readonly add: (_value: unknown) => void };
+  readonly keyInput: {
+    readonly on: (
+      _event: string,
+      listener: (key: {
+        readonly name: string;
+        readonly ctrl?: boolean;
+        readonly shift?: boolean;
+      }) => void,
+    ) => void;
+    readonly off: () => void;
+  };
+  readonly requestRender: () => void;
+  readonly start: () => void;
+  readonly destroy: () => void;
+} {
+  let keypress:
+    | ((key: { readonly name: string; readonly ctrl?: boolean; readonly shift?: boolean }) => void)
+    | undefined;
+  return {
+    root: { add: (_value: unknown): void => undefined },
+    keyInput: {
+      on: (_event, listener): void => {
+        keypress = listener;
+      },
+      off: (): void => {
+        keypress = undefined;
+      },
+    },
+    requestRender: (): void => undefined,
+    start: (): void => {
+      for (const key of keys) keypress?.(key);
+    },
+    destroy: (): void => undefined,
+  };
+}
+
+function fakeOpenTuiModule(
+  renderer: ReturnType<typeof fakeRenderer>,
+  rendered: FakeContent[],
+): Record<string, unknown> {
+  const style =
+    (name: string) =>
+    (input: string | FakeChunk): FakeChunk => {
+      const chunk = typeof input === "string" ? { text: input } : input;
+      return { ...chunk, styles: [...(chunk.styles ?? []), name] };
+    };
+  class FakeTextRenderable {
+    private value: FakeContent;
+
+    constructor(_renderer: unknown, options: { readonly content: FakeContent }) {
+      this.value = options.content;
+      rendered.push(options.content);
+    }
+
+    get content(): FakeContent {
+      return this.value;
+    }
+
+    set content(value: FakeContent) {
+      this.value = value;
+      rendered.push(value);
+    }
+  }
+  return {
+    createCliRenderer: async (): Promise<ReturnType<typeof fakeRenderer>> => renderer,
+    TextRenderable: FakeTextRenderable,
+    StyledText: FakeStyledText,
+    stringToStyledText: (text: string): FakeStyledText => new FakeStyledText([{ text }]),
+    fg:
+      (color: string) =>
+      (input: string | FakeChunk): FakeChunk => {
+        const chunk = typeof input === "string" ? { text: input } : input;
+        return { ...chunk, styles: [...(chunk.styles ?? []), color] };
+      },
+    bold: style("bold"),
+    cyan: style("cyan"),
+    dim: style("dim"),
+    green: style("green"),
+    red: style("red"),
+    yellow: style("yellow"),
+  };
+}
 
 describe("public install wizard contract", () => {
   test("parses additional plugin IDs as trimmed whitespace-separated values", () => {
@@ -165,52 +285,348 @@ describe("public install wizard contract", () => {
     ).not.toContain("\u001b[");
   });
 
-  test("keeps OpenTUI screens free of terminal escape sequences", async () => {
-    const rendered: string[] = [];
-    let keypress: ((key: { readonly name: string }) => void) | undefined;
-    const renderer = {
-      root: { add: (_value: unknown): void => undefined },
-      keyInput: {
-        on: (_event: string, listener: (key: { readonly name: string }) => void): void => {
-          keypress = listener;
+  test("renders operation actions and only offers conflict resolution when needed", () => {
+    const review: InstallReview = {
+      operation: "install",
+      toVersion: CURRENT_VERSION,
+      profile: "high",
+      tier: "fast-all",
+      capabilities: { computer_use: true, frontend: false, security: true },
+      additionalPlugins: ["example@marketplace"],
+      conflicts: [
+        {
+          identity: "config:model",
+          category: "config-key",
+          target: "model",
+          path: "config.toml",
+          key: "model",
+          action: "replace",
+          defaultDecision: "keep",
+          decision: "replace",
+          validDecisions: ["keep", "replace"],
         },
-        off: (): void => {
-          keypress = undefined;
+        {
+          identity: "role:Worker",
+          category: "role-asset",
+          target: "Worker",
+          path: "Worker.implementation.toml",
+          action: "replace",
+          defaultDecision: "replace",
+          decision: "keep",
+          validDecisions: ["keep", "replace"],
         },
-      },
-      requestRender: (): void => undefined,
-      start: (): void => {
-        keypress?.({ name: "enter" });
-        keypress?.({ name: "enter" });
-      },
-      destroy: (): void => undefined,
+      ],
+      conflictCounts: { "config-key": 1, "role-asset": 1 },
+      tools: [{ name: "Context7", status: "ready", detail: "bunx" }],
     };
-    let content = "";
-    class FakeTextRenderable {
-      constructor(_renderer: unknown, options: { readonly content: string }) {
-        content = options.content;
-        rendered.push(options.content);
-      }
+    const install = renderInstallReview(review);
+    expect(install).toContain("HolyCodex · install review");
+    expect(install).toContain("Install");
+    expect(install).toContain("Resolve conflicts");
+    expect(install).toContain("Config Key: 1");
+    expect(install).toContain("Role Asset: 1");
+    expect(install).toContain("DECISIONS (2)");
+    expect(install).toContain("Keep: 1");
+    expect(install).toContain("Replace: 1");
+    expect(install).toContain("Context7: Install/update managed Bun copy");
+    expect(install).not.toContain("Context7: ready (bunx)");
+    const colored = renderInstallReview(review, 0, { stdoutIsTTY: true, env: {} });
+    expect(colored).toContain("\u001b[");
+    expect(colored.replace(ANSI_SGR_PATTERN, "")).toContain("Profile: high");
+    expect(
+      renderInstallReview(review, 0, {
+        stdoutIsTTY: true,
+        env: { NO_COLOR: "1" },
+      }),
+    ).not.toContain("\u001b[");
 
-      get content(): string {
-        return content;
-      }
+    const withoutConflicts = renderInstallReview({ ...review, conflicts: [], conflictCounts: {} });
+    expect(withoutConflicts).not.toContain("Resolve conflicts");
+  });
 
-      set content(value: string) {
-        content = value;
-        rendered.push(value);
-      }
-    }
-    await mock.module("@opentui/core", () => ({
-      createCliRenderer: async (): Promise<typeof renderer> => renderer,
-      TextRenderable: FakeTextRenderable,
-    }));
+  test("keeps final review navigation and Esc back distinct from cancellation", () => {
+    const review: InstallReview = {
+      operation: "install",
+      toVersion: CURRENT_VERSION,
+      profile: "default",
+      tier: "standard",
+      capabilities: { computer_use: false, frontend: true, security: false },
+      additionalPlugins: [],
+      conflicts: [{ identity: "managed", path: "managed.json", action: "replace" }],
+      conflictCounts: { "managed-state": 1 },
+      tools: [],
+    };
+    const state: InstallReviewScreenState = { review, selected: 0 };
+    expect(applyInstallReviewKey(state, { name: "down" })).toEqual({
+      selected: 1,
+      action: "render",
+    });
+    expect(applyInstallReviewKey({ ...state, selected: 1 }, { name: "down" })).toEqual({
+      selected: 2,
+      action: "render",
+    });
+    expect(applyInstallReviewKey({ ...state, selected: 2 }, { name: "enter" })).toEqual({
+      selected: 2,
+      action: "choose",
+    });
+    expect(applyInstallReviewKey({ ...state, selected: 0 }, { name: "up" })).toEqual({
+      selected: 3,
+      action: "render",
+    });
+    expect(applyInstallReviewKey(state, { name: "escape" })).toEqual({
+      selected: 0,
+      action: "back",
+    });
+    expect(applyInstallReviewKey(state, { name: "c", ctrl: true })).toEqual({
+      selected: 0,
+      action: "cancel",
+    });
+  });
+
+  test("keeps native OpenTUI content semantic and free of terminal escape sequences", async () => {
+    const rendered: FakeContent[] = [];
+    const renderer = fakeRenderer([{ name: "enter" }, { name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(renderer, rendered));
     try {
-      await expect(runOpenTuiInstallWizard()).resolves.toMatchObject({ action: "install" });
+      await expect(
+        runOpenTuiInstallWizard({}, { stdoutIsTTY: false, env: {} }),
+      ).resolves.toMatchObject({ action: "install" });
       expect(rendered).toHaveLength(2);
-      expect(rendered[0]).toContain("HolyCodex  ·  install");
-      expect(rendered[1]).toContain("Review configuration");
-      expect(rendered.every((screen) => !screen.includes("\u001b["))).toBe(true);
+      expect(fakePlainText(rendered[0]!)).toContain("HolyCodex  ·  install");
+      expect(fakePlainText(rendered[1]!)).toContain("Review configuration");
+      expect(rendered.every((screen) => screen instanceof FakeStyledText)).toBe(true);
+      expect(rendered.every((screen) => fakeStyledChunks(screen).length === 0)).toBe(true);
+      expect(
+        rendered.every((screen) => !fakePlainText(screen).includes(String.fromCodePoint(0x1b))),
+      ).toBe(true);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("applies canonical native color policy and semantic styles across screens", async () => {
+    const review: InstallReview = {
+      operation: "install",
+      toVersion: CURRENT_VERSION,
+      profile: "default",
+      tier: "standard",
+      capabilities: { computer_use: false, frontend: true, security: false },
+      additionalPlugins: [],
+      conflicts: [],
+      conflictCounts: {},
+      tools: [],
+    };
+    const conflict: ManagedConflict = {
+      identity: "managed",
+      category: "managed-state",
+      path: "managed.json",
+      action: "replace",
+      existing: "old",
+      desired: "new",
+    };
+    const rendered: FakeContent[] = [];
+    const renderer = fakeRenderer([{ name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(renderer, rendered));
+    try {
+      await expect(
+        runOpenTuiInstallReview(review, { stdoutIsTTY: true, env: {} }),
+      ).resolves.toEqual({ action: "apply" });
+      const styledReview = fakeStyledChunks(rendered[0]!);
+      expect(styledReview.some((chunk) => chunk.text === "HolyCodex · install review")).toBe(true);
+      expect(
+        styledReview.some(
+          (chunk) => chunk.text === "enabled" && chunk.styles?.includes("#9ece6a") === true,
+        ),
+      ).toBe(true);
+    } finally {
+      mock.restore();
+    }
+
+    const monoRendered: FakeContent[] = [];
+    const monoRenderer = fakeRenderer([{ name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(monoRenderer, monoRendered));
+    try {
+      await expect(
+        runOpenTuiInstallReview(review, {
+          stdoutIsTTY: true,
+          env: { NO_COLOR: "1", FORCE_COLOR: "1" },
+        }),
+      ).resolves.toEqual({ action: "apply" });
+      expect(monoRendered.every((screen) => fakeStyledChunks(screen).length === 0)).toBe(true);
+    } finally {
+      mock.restore();
+    }
+
+    const sharedRendered: FakeContent[] = [];
+    const sharedRenderer = fakeRenderer([{ name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(sharedRenderer, sharedRendered));
+    try {
+      await expect(
+        runOpenTuiConflictResolver([conflict], { stdoutIsTTY: true, env: {} }),
+      ).resolves.toMatchObject({ action: "continue" });
+      const styledConflict = fakeStyledChunks(sharedRendered[0]!);
+      expect(styledConflict.some((chunk) => chunk.text === "HolyCodex · resolve conflicts")).toBe(
+        true,
+      );
+      expect(
+        styledConflict.some(
+          (chunk) => chunk.text === "replace" && chunk.styles?.includes("#e0af68") === true,
+        ),
+      ).toBe(true);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("handles normalized shifted conflict decisions while lowercase k navigates", async () => {
+    const conflicts: ManagedConflict[] = [
+      {
+        identity: "config:model",
+        category: "config-key",
+        target: "model",
+        path: "config.toml",
+        action: "replace",
+        existing: "old-model",
+        desired: "new-model",
+      },
+      {
+        identity: "role:Worker",
+        category: "role-asset",
+        target: "Worker",
+        path: "Worker.implementation.toml",
+        action: "replace",
+        existing: "old-worker",
+        desired: "new-worker",
+      },
+      {
+        identity: "managed:state",
+        category: "managed-state",
+        target: "managed.json",
+        path: "managed.json",
+        action: "replace",
+        existing: "old-state",
+        desired: "new-state",
+      },
+      {
+        identity: "config:cache",
+        category: "config-key",
+        target: "cache",
+        path: "config.toml",
+        action: "replace",
+        existing: "old-cache",
+        desired: "new-cache",
+      },
+      {
+        identity: "role:Reviewer",
+        category: "role-asset",
+        target: "Reviewer",
+        path: "Reviewer.implementation.toml",
+        action: "replace",
+        existing: "old-reviewer",
+        desired: "new-reviewer",
+      },
+      {
+        identity: "managed:lock",
+        category: "managed-state",
+        target: "managed.lock",
+        path: "managed.lock",
+        action: "replace",
+        existing: "old-lock",
+        desired: "new-lock",
+        explanation: "The managed lock is regenerated during install.",
+      },
+    ];
+    const defaults = Object.fromEntries(conflicts.map(({ identity }) => [identity, "replace"]));
+
+    const navigationRendered: FakeContent[] = [];
+    const navigationRenderer = fakeRenderer([{ name: "down" }, { name: "k" }, { name: "enter" }]);
+    await mock.module("@opentui/core", () =>
+      fakeOpenTuiModule(navigationRenderer, navigationRendered),
+    );
+    try {
+      await expect(
+        runOpenTuiConflictResolver(conflicts, { stdoutIsTTY: true, env: {} }),
+      ).resolves.toEqual({ action: "continue", decisions: defaults });
+      expect(fakePlainText(navigationRendered[1]!)).toContain("Focused conflict: Worker");
+      expect(fakePlainText(navigationRendered[2]!)).toContain("Focused conflict: model");
+      expect(
+        navigationRendered.every((screen) => fakePlainText(screen).split("\n").length - 1 <= 24),
+      ).toBe(true);
+    } finally {
+      mock.restore();
+    }
+
+    const keepRendered: FakeContent[] = [];
+    const keepRenderer = fakeRenderer([{ name: "k", shift: true }, { name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(keepRenderer, keepRendered));
+    try {
+      await expect(
+        runOpenTuiConflictResolver(conflicts, { stdoutIsTTY: true, env: {} }),
+      ).resolves.toEqual({
+        action: "continue",
+        decisions: Object.fromEntries(conflicts.map(({ identity }) => [identity, "keep"])),
+      });
+    } finally {
+      mock.restore();
+    }
+
+    const replaceRendered: FakeContent[] = [];
+    const replaceRenderer = fakeRenderer([{ name: "a", shift: true }, { name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(replaceRenderer, replaceRendered));
+    try {
+      await expect(
+        runOpenTuiConflictResolver(
+          conflicts.map((conflict) => ({ ...conflict, defaultDecision: "keep" })),
+          { stdoutIsTTY: true, env: {} },
+        ),
+      ).resolves.toEqual({
+        action: "continue",
+        decisions: Object.fromEntries(conflicts.map(({ identity }) => [identity, "replace"])),
+      });
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("keeps final native review controls visible at 80 columns by 24 rows", async () => {
+    const rendered: FakeContent[] = [];
+    const renderer = fakeRenderer([
+      { name: "down" },
+      { name: "down" },
+      { name: "down" },
+      { name: "enter" },
+    ]);
+    const review: InstallReview = {
+      operation: "install",
+      toVersion: CURRENT_VERSION,
+      profile: "high",
+      tier: "fast-all",
+      capabilities: { computer_use: true, frontend: true, security: true },
+      additionalPlugins: ["example@marketplace"],
+      conflicts: [
+        { identity: "config", category: "config-key", path: "config.toml", action: "replace" },
+      ],
+      conflictCounts: { "config-key": 1 },
+      tools: [{ name: "Context7", status: "ready" }],
+    };
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(renderer, rendered));
+    try {
+      await expect(
+        runOpenTuiInstallReview(review, {
+          width: 80,
+          height: 24,
+          stdoutIsTTY: false,
+          env: {},
+        }),
+      ).resolves.toEqual({ action: "cancel" });
+      expect(rendered.length).toBe(4);
+      for (const screen of rendered) {
+        const plain = fakePlainText(screen);
+        expect(plain.split("\n").length - 1).toBeLessThanOrEqual(24);
+        expect(plain).toContain("Review the complete preflight plan");
+        expect(plain).toContain("↑/↓ or j/k choose");
+        expect(plain).toContain("Resolve conflicts");
+      }
     } finally {
       mock.restore();
     }
@@ -220,7 +636,7 @@ describe("public install wizard contract", () => {
 describe("generated Root orchestration policy", () => {
   test("requires delegation while keeping Computer Use unavailable unless Root selected it", () => {
     const withoutComputerUse = rootDeveloperInstructions(false);
-    expect(withoutComputerUse).toMatch(/gpt-6-astra/iu);
+    expect(withoutComputerUse).toMatch(/selected Root profile/iu);
     expect(withoutComputerUse).toMatch(/every delegable action/iu);
     expect(withoutComputerUse).toMatch(
       /repository discovery.*source.*test.*documentation inspection/iu,
@@ -233,7 +649,7 @@ describe("generated Root orchestration policy", () => {
       /when useful|when appropriate|for complex work|delegate where practical/iu,
     );
     expect(withoutComputerUse).toMatch(
-      /Root directly owns only user interaction; Intent; material decisions; orchestration and lifecycle; integration acceptance; completion; Git\/VCS; external effects; GUI and browser execution; Computer Use when selected/iu,
+      /Root directly owns only user interaction; Intent; material decisions; orchestration and lifecycle; integration acceptance; completion; Git\/VCS writes; external effects; GUI and browser execution; Computer Use when selected/iu,
     );
     expect(withoutComputerUse).not.toMatch(/interactive capabilities/iu);
     expect(withoutComputerUse).toMatch(/Computer Use is unavailable/iu);
@@ -247,6 +663,13 @@ describe("generated Root orchestration policy", () => {
     expect(withoutComputerUse).toMatch(/writing-instructions/iu);
     expect(withoutComputerUse).not.toMatch(/writing-for-agents|Luna contracts/iu);
     expect(withoutComputerUse).toMatch(/Context7.*before model memory/isu);
+    expect(withoutComputerUse).toMatch(/Web search is allowed only for these Context7 states/iu);
+    expect(withoutComputerUse).toMatch(
+      /successful Context7 evidence alone never justifies fallback/iu,
+    );
+    expect(withoutComputerUse).toMatch(
+      /conflict still unresolved after checking authoritative first-party documentation/iu,
+    );
     expect(withoutComputerUse).toMatch(/meaningful proof appropriate/iu);
     expect(withoutComputerUse).toMatch(/source change.*failure.*material concern/isu);
     expect(withoutComputerUse).toMatch(/Frontend is selected/iu);
@@ -264,7 +687,7 @@ describe("generated Root orchestration policy", () => {
     }
     expect(withoutComputerUse).toMatch(/Security is selected/iu);
     expect(withoutComputerUse).toMatch(/Worker\.validation/iu);
-    expect(withoutComputerUse).toMatch(/Reviewer\.code.*fixed-point/iu);
+    expect(withoutComputerUse).toMatch(/Reviewer\.code.*fixed point/iu);
     expect(withoutComputerUse).toMatch(/exact ref or SHA/iu);
     expect(withoutComputerUse).not.toMatch(/delegate GUI.*Computer Use/iu);
 
@@ -275,7 +698,10 @@ describe("generated Root orchestration policy", () => {
       /normal specialist spawn.*fork_turns: "none".*never omit.*all.*default/isu,
     );
     expect(withoutComputerUse).toMatch(/configured model and reasoning effort/iu);
-    expect(withoutComputerUse).toMatch(/self-contained.*task-specific semantic context/isu);
+    expect(withoutComputerUse).toMatch(
+      /self-contained.*objective.*scope.*constraints.*exclusions.*dependencies.*acceptance criteria.*required evidence/isu,
+    );
+    expect(withoutComputerUse).toMatch(/Do not send messages to active specialists/iu);
     expect(withoutComputerUse).toMatch(/only useful or important information/isu);
     expect(withoutComputerUse).toMatch(/after every tool use or subagent update/isu);
     expect(withoutComputerUse).toMatch(/routine status-only chatter.*heartbeat/isu);
@@ -288,7 +714,7 @@ describe("generated Root orchestration policy", () => {
     expect(withoutComputerUse).toMatch(/out-of-boundary.*new bounded Assignment/isu);
     expect(withoutComputerUse).toMatch(/longest practical event wait/iu);
     expect(withoutComputerUse).toMatch(
-      /collaboration\.wait_agent.*timeout_ms=3600000.*active V1 runtime maximum/isu,
+      /collaboration\.wait_agent.*timeout_ms=1200000.*20 minutes.*cache lifetime/isu,
     );
     expect(withoutComputerUse).toMatch(/early specialist completion wakes.*collective mailbox/isu);
     expect(withoutComputerUse).toMatch(/maximum wait expires.*same maximum wait again/isu);
@@ -296,6 +722,15 @@ describe("generated Root orchestration policy", () => {
     expect(withoutComputerUse).toMatch(/never busy-poll.*status-only coordination loops/isu);
     expect(withoutComputerUse).toMatch(/batch independent lifecycle actions/iu);
     expect(withoutComputerUse).toMatch(/release specialist leaves/iu);
+    const astra = rootDeveloperInstructions({ rootModel: "gpt-6-astra" });
+    for (const instructions of [withoutComputerUse, astra]) {
+      expect(instructions).toMatch(
+        /collaboration\.wait_agent.*timeout_ms=1200000.*20 minutes.*cache lifetime/isu,
+      );
+      expect(instructions).toMatch(/early specialist completion wakes.*collective mailbox/isu);
+      expect(instructions).toMatch(/maximum wait expires.*same maximum wait again/isu);
+      expect(instructions).toMatch(/short waits.*list or status polling.*message loops/isu);
+    }
     expect(withoutComputerUse).toMatch(/concise, structured, and evidence-first/iu);
     expect(withoutComputerUse).toMatch(
       /large transcripts or artifacts only for material decisions/iu,
@@ -333,27 +768,48 @@ describe("generated Root orchestration policy", () => {
     expect(withComputerUse).toMatch(/user personally enters and submits/iu);
     expect(withComputerUse).toMatch(/default browser/iu);
     expect(withComputerUse).not.toMatch(/Computer Use is not selected/iu);
+    const astraRoot = rootDeveloperInstructions({ rootModel: "gpt-6-astra" });
+    expect(astraRoot).toMatch(/query Context7 narrowly before model memory or generic web/iu);
+    expect(astraRoot).toMatch(/successful Context7 evidence alone never justifies fallback/iu);
+    expect(astraRoot).toMatch(
+      /conflict still unresolved after checking authoritative first-party documentation/iu,
+    );
 
     expect(projectRootAgent("default")).toMatchObject({
-      model: "gpt-6-astra",
-      effort: "medium",
+      model: "gpt-6-sol",
+      effort: "high",
     });
 
     const leaf = renderNativeAgent(projectNativeAgents("default")[0]!);
-    expect(leaf).toMatch(/GPT-6-family specialist/iu);
     expect(leaf).not.toMatch(/GPT-5\.6 Luna specialist|Luna contracts/iu);
     expect(leaf).not.toMatch(/smallest complete edit set/iu);
     expect(leaf).toMatch(/context_management = true/iu);
     expect(leaf).toMatch(/Do not delegate.*Intent lifecycle/iu);
     expect(leaf).toMatch(/completed.*blocked.*needs_root_input.*failed/isu);
-    expect(leaf).toMatch(/no.*progress.*heartbeat.*intermediate evidence/isu);
-    expect(leaf).toMatch(/out-of-boundary.*new bounded Assignment/isu);
-    expect(leaf).toMatch(/exact boundary.*exclusions.*acceptance criteria/iu);
+    expect(leaf).toMatch(/out-of-boundary.*Root/iu);
+    expect(leaf).toMatch(/bounded Assignment.*acceptance criteria/iu);
 
     for (const agent of projectNativeAgents("default")) {
-      expect(agent.model).toBe("gpt-5.6-luna");
+      expect(agent.model).toBe("gpt-6-luna");
       const rendered = renderNativeAgent(agent);
       expect(rendered).toContain("context_management = true");
+      expect(rendered).toContain('web_search = "live"');
+      expect(rendered).toContain('sandbox_mode = "workspace-write"');
+      expect(rendered).toContain("network_access = true");
+      expect(rendered).not.toContain('default_permissions = "holycodex-readonly-network"');
+      expect(rendered).not.toContain("[permissions.");
+      if (agent.name === "Reviewer.code") {
+        expect(rendered).toContain(
+          "Use one batched evidence sweep, reason over it, make targeted follow-ups only, and batch related repairs and verification.",
+        );
+      }
+      if (agent.name === "Librarian.lookup" || agent.name === "Librarian.research") {
+        expect(rendered).toMatch(/Use web search only when Context7 is unavailable/iu);
+        expect(rendered).toMatch(/successful Context7 evidence alone never justifies fallback/iu);
+        expect(rendered).toMatch(
+          /conflict remains unresolved after checking authoritative first-party documentation/iu,
+        );
+      }
       if (agent.name === "Worker.operations") {
         expect(agent.permissions.networkScope).toBe("exact_ref_or_sha");
         expect(agent.permissions.sourceMutation).toBe(false);
@@ -370,14 +826,14 @@ describe("generated Root orchestration policy", () => {
         expect(rendered).toMatch(/Do not modify repository source/iu);
         expect(rendered).toContain('sandbox_mode = "workspace-write"');
       } else if (agent.name === "Worker.debugging") {
-        expect(agent.permissions.network).toBe(false);
+        expect(agent.permissions.network).toBe(true);
         expect(agent.permissions.sourceMutation).toBe(true);
-        expect(rendered).toContain('web_search = "disabled"');
+        expect(rendered).toContain('web_search = "live"');
         expect(rendered).toMatch(/reproducibly.*root/isu);
       } else if (agent.name.startsWith("Worker.")) {
-        expect(agent.permissions.network).toBe(false);
-        expect(agent.permissions.networkScope).toBe("disabled");
-        expect(rendered).toContain('web_search = "disabled"');
+        expect(agent.permissions.network).toBe(true);
+        expect(agent.permissions.networkScope).toBe("current_sources");
+        expect(rendered).toContain('web_search = "live"');
       }
     }
 
@@ -389,14 +845,13 @@ describe("generated Root orchestration policy", () => {
     const windowsLeaf = renderNativeAgent(projectNativeAgents("default")[0]!, {
       windowsGitBashExecutable: windowsExecutable,
     });
-    expect(windowsRoot).toContain(windowsExecutable);
-    expect(windowsRoot).toMatch(/Resolve C:\\Program Files\\Git\\bin\\bash\.exe first/iu);
-    expect(windowsRoot).toMatch(/bash on PATH only if that path is unavailable/iu);
-    expect(windowsRoot).toMatch(/PowerShell.*cmd\.exe.*WSL Bash.*Cygwin/isu);
-    expect(windowsLeaf).toContain("On Windows, execute every shell action");
-    expect(windowsLeaf).toContain(windowsExecutable.replaceAll("\\", "\\\\"));
-    expect(windowsLeaf).toContain("bash on PATH only if that path is unavailable");
-    expect(rootDeveloperInstructions(false)).not.toContain(windowsGitBashShellDirective("bash"));
+    const windowsDirective = windowsGitBashShellDirective(windowsExecutable);
+    expect(windowsRoot).toContain(JSON.stringify(windowsExecutable));
+    expect(windowsRoot).toContain(windowsDirective);
+    expect(windowsLeaf).toContain(JSON.stringify(windowsDirective).slice(1, -1));
+    expect(windowsGitBashShellDirective("another-bash.exe")).toContain('"another-bash.exe"');
+    expect(windowsGitBashShellDirective("another-bash.exe")).not.toBe(windowsDirective);
+    expect(rootDeveloperInstructions(false)).not.toContain(windowsDirective);
   });
 });
 

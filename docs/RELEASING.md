@@ -60,8 +60,11 @@ of inventing a second verification path.
 
 ## Development and stable channels
 
-`.github/workflows/publish.yml` publishes both channels. A push to `main`
-produces a development package under the `dev` tag. A stable release accepts
+`.github/workflows/publish.yml` handles both channels. Pull requests run the
+development validation and create a downloadable, identity-marked package
+artifact for the exact PR head SHA; they do not publish to npm or create a
+GitHub release. A push to `main` publishes a development package under the
+`dev` tag. A stable release accepts
 only an exact `vX.Y.Z` or numeric-suffix `vX.Y.Z-n` tag whose tag object
 resolves to the checked-out SHA and whose version matches the canonical CLI
 manifest. Numeric-suffix releases stay on the stable channel, publish the

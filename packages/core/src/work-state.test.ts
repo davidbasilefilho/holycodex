@@ -432,11 +432,12 @@ describe("IntentStore", () => {
       },
       intent.revision,
     );
-    let running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
     setSnapshot(snapshot(root, "a".repeat(40), ["packages/core/src/work-state.ts"]));
     const result = await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
       outcome: "completed",
       summary: "implemented",
+      capability: running.capability,
       evidence: [
         { kind: "changed_path", value: "packages/core/src/work-state.ts", result: "observed" },
       ],
@@ -444,8 +445,8 @@ describe("IntentStore", () => {
     expect(result.assignment.status).toBe("completed");
     expect(result.assignment.invocations).toHaveLength(1);
     expect(result.assignment.evidence[0]?.kind).toBe("changed_path");
-    running = await store.readAssignment(intent.id, assignment.id);
-    expect(running.status).toBe("completed");
+    const completed = await store.readAssignment(intent.id, assignment.id);
+    expect(completed.status).toBe("completed");
   });
 
   test("requires delegated proof before allowing completion", async () => {
@@ -470,6 +471,7 @@ describe("IntentStore", () => {
       await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
         outcome: "completed",
         summary: "delegated proof",
+        capability: running.capability,
       })
     ).intent;
     intent = await store.transitionIntent(intent.id, "ready", intent.revision);
@@ -513,6 +515,7 @@ describe("IntentStore", () => {
       store.recordAssignmentResult(intent.id, missing.id, missingRunning.revision, {
         outcome: "completed",
         summary: "Missing typed proof",
+        capability: missingRunning.capability,
       }),
     ).rejects.toMatchObject({
       code: "invalid_input",
@@ -546,6 +549,7 @@ describe("IntentStore", () => {
         {
           outcome: "completed",
           summary: `Recorded ${state} proof`,
+          capability: running.capability,
           context7: { state, evidence: [`Context7 ${state} evidence`] },
         },
       );
@@ -575,7 +579,11 @@ describe("IntentStore", () => {
       intent.id,
       unrelated.id,
       unrelatedRunning.revision,
-      { outcome: "completed", summary: "Historical fact recorded" },
+      {
+        outcome: "completed",
+        summary: "Historical fact recorded",
+        capability: unrelatedRunning.capability,
+      },
     );
     expect(unrelatedResult.assignment.invocations[0]?.context7).toBeUndefined();
   });
@@ -617,6 +625,7 @@ describe("IntentStore", () => {
     await expect(
       store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
         invocationId: "invocation-999",
+        capability: running.capability,
         outcome: "completed",
         summary: "mismatched result",
       }),
@@ -624,10 +633,387 @@ describe("IntentStore", () => {
     const result = await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
       outcome: "completed",
       summary: "correlated result",
+      capability: running.capability,
     });
     expect(result.assignment.status).toBe("completed");
     expect(result.assignment.active_invocation_id).toBeUndefined();
     expect(result.assignment.invocations[0]?.id).toBe("invocation-001");
+  });
+
+  test("requires the active invocation capability for specialist terminal results", async () => {
+    const { root, store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Invocation capability",
+      goal: "Keep specialist result writes attributable to their active invocation",
+      acceptanceCriteria: ["proof"],
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Record an attributable specialist result",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    const invocationId = running.active_invocation_id;
+    const capability = running.capability;
+    const startedAt = running.active_started_at;
+    expect(invocationId).toBe("invocation-001");
+    expect(capability).toMatch(/^[a-f0-9]{64}$/u);
+    expect(startedAt).toBeDefined();
+    if (invocationId === undefined || capability === undefined || startedAt === undefined)
+      throw new Error("startAssignment did not issue invocation authorization");
+    const directory = (await readdir(join(root, ".holycodex"))).find(
+      (entry) => entry !== "current",
+    );
+    if (directory === undefined) throw new Error("Intent directory was not created");
+    const persisted = await readFile(
+      join(root, ".holycodex", directory, "assignments", `${assignment.id}.toon`),
+      "utf8",
+    );
+    const capabilityVerifier = createHash("sha256").update(capability).digest("hex");
+    expect(persisted).not.toContain(capability);
+    expect(persisted).toContain(`active_invocation_capability_verifier: ${capabilityVerifier}`);
+    const reread = await store.readAssignment(intent.id, assignment.id);
+    expect(reread).not.toHaveProperty("active_invocation_capability");
+    expect(reread).not.toHaveProperty("active_invocation_capability_verifier");
+    const listed = (await store.listAssignments(intent.id)).find(({ id }) => id === assignment.id);
+    expect(listed).not.toHaveProperty("active_invocation_capability");
+    expect(listed).not.toHaveProperty("active_invocation_capability_verifier");
+    expect(capability).not.toBe(
+      createHash("sha256")
+        .update(
+          [intent.id, assignment.id, String(running.revision), invocationId, startedAt].join("\0"),
+        )
+        .digest("hex"),
+    );
+
+    await expect(
+      store.recordSpecialistAssignmentResult(intent.id, assignment.id, running.revision, {
+        invocationId,
+        outcome: "completed",
+        summary: "Missing capability",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(
+      store.recordSpecialistAssignmentResult(intent.id, assignment.id, running.revision, {
+        invocationId,
+        capability: capabilityVerifier,
+        outcome: "completed",
+        summary: "Leaked verifier cannot authorize a forged result",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+    await expect(
+      store.recordSpecialistAssignmentResult(intent.id, assignment.id, running.revision, {
+        invocationId,
+        capability: "f".repeat(64),
+        outcome: "completed",
+        summary: "Wrong capability",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+
+    const sibling = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Record another attributable specialist result",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/agent"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const siblingRunning = await store.startAssignment(intent.id, sibling.id, sibling.revision);
+    const siblingInvocationId = siblingRunning.active_invocation_id;
+    if (siblingInvocationId === undefined)
+      throw new Error("sibling startAssignment did not issue an invocation");
+    await expect(
+      store.recordSpecialistAssignmentResult(intent.id, sibling.id, siblingRunning.revision, {
+        invocationId: siblingInvocationId,
+        capability,
+        outcome: "completed",
+        summary: "Capability from another Assignment",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+    await store.recordSpecialistAssignmentResult(intent.id, sibling.id, siblingRunning.revision, {
+      invocationId: siblingInvocationId,
+      capability: siblingRunning.capability,
+      outcome: "completed",
+      summary: "Sibling capability-bound result",
+    });
+
+    const result = await store.recordSpecialistAssignmentResult(
+      intent.id,
+      assignment.id,
+      running.revision,
+      {
+        invocationId,
+        capability,
+        outcome: "completed",
+        summary: "Capability-bound result",
+      },
+    );
+    expect(result.assignment.status).toBe("completed");
+    expect(result.assignment.active_invocation_id).toBeUndefined();
+    expect(result.assignment).not.toHaveProperty("active_invocation_capability_verifier");
+    expect(result.assignment).not.toHaveProperty("active_invocation_capability");
+  });
+
+  test("recovers a legacy executing Assignment without a persisted capability", async () => {
+    const { root, store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Legacy invocation recovery",
+      goal: "Finish work started before invocation capabilities existed",
+      acceptanceCriteria: ["proof"],
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Complete a legacy executing Assignment",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    const invocationId = running.active_invocation_id;
+    if (invocationId === undefined) throw new Error("startAssignment did not issue an invocation");
+
+    const directory = (await readdir(join(root, ".holycodex"))).find(
+      (entry) => entry !== "current",
+    );
+    if (directory === undefined) throw new Error("Intent directory was not created");
+    const assignmentPath = join(
+      root,
+      ".holycodex",
+      directory,
+      "assignments",
+      `${assignment.id}.toon`,
+    );
+    const persisted = await readFile(assignmentPath, "utf8");
+    await writeFile(
+      assignmentPath,
+      persisted
+        .replace(/^active_invocation_capability_verifier:.*\r?\n?/mu, "")
+        .replace(/^active_invocation_capability:.*\r?\n?/mu, ""),
+      "utf8",
+    );
+    expect(await store.isLegacyExecutingAssignment(intent.id, assignment.id)).toBe(true);
+
+    const result = await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
+      outcome: "completed",
+      summary: "Recovered legacy result",
+    });
+    expect(result.assignment.status).toBe("completed");
+    expect(result.assignment.invocations[0]?.id).toBe("invocation-001");
+  });
+
+  test("recovers an interrupted invocation with exact markers as an evidenced failure", async () => {
+    const { store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Interrupted invocation recovery",
+      goal: "Close an invocation whose authorization token was lost",
+      acceptanceCriteria: ["truthful failure"],
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        id: "interrupted-recovery",
+        objective: "Record an interrupted invocation",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["record interruption"],
+      },
+      intent.revision,
+    );
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    const invocationId = running.active_invocation_id;
+    const startedAt = running.active_started_at;
+    if (invocationId === undefined || startedAt === undefined)
+      throw new Error("startAssignment did not issue complete invocation identity");
+
+    const recoveryInput = {
+      invocationId,
+      startedAt,
+      interruptionReason: "The invocation was confirmed interrupted before returning a result.",
+    };
+    await expect(
+      store.recoverInterruptedAssignment(intent.id, assignment.id, running.revision, {
+        ...recoveryInput,
+        invocationId: "invocation-stale",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+    await expect(
+      store.recoverInterruptedAssignment(intent.id, assignment.id, running.revision, {
+        ...recoveryInput,
+        startedAt: "2020-01-01T00:00:00.000Z",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+    await expect(
+      store.recoverInterruptedAssignment(
+        intent.slug,
+        assignment.id,
+        running.revision,
+        recoveryInput,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(
+      store.recoverInterruptedAssignment(
+        intent.id,
+        assignment.id,
+        running.revision + 1,
+        recoveryInput,
+      ),
+    ).rejects.toMatchObject({ code: "stale_write" });
+
+    const recovered = await store.recoverInterruptedAssignment(
+      intent.id,
+      assignment.id,
+      running.revision,
+      recoveryInput,
+    );
+    const invocation = recovered.assignment.invocations[0];
+    if (invocation === undefined) throw new Error("Recovered invocation was not recorded");
+    const recoveryEvidence = invocation.evidence[0];
+    if (recoveryEvidence === undefined) throw new Error("Recovery evidence was not recorded");
+    expect(recovered.assignment.status).toBe("failed");
+    expect(recovered.assignment.active_invocation_id).toBeUndefined();
+    expect(recovered.assignment.active_started_at).toBeUndefined();
+    expect(recovered.assignment).not.toHaveProperty("active_invocation_capability");
+    expect(invocation).toMatchObject({
+      id: invocationId,
+      outcome: "failed",
+      started_at: startedAt,
+      summary:
+        "Interrupted invocation recovered as failed: The invocation was confirmed interrupted before returning a result.",
+      evidence: [
+        {
+          kind: "behavior",
+          value: `Interrupted invocation ${invocationId} started at ${startedAt} recovered as failed: The invocation was confirmed interrupted before returning a result.`,
+          result: "failed",
+        },
+      ],
+    });
+    expect(recovered.assignment.evidence).toContainEqual(recoveryEvidence);
+  });
+
+  test("records interrupted Librarian failure despite later repository drift", async () => {
+    const { root, store, setSnapshot } = await fixture();
+    const intent = await store.createIntent({
+      title: "Interrupted current documentation lookup",
+      goal: "Recover a lost documentation lookup invocation",
+      acceptanceCriteria: ["truthful failure"],
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Look up the current library API documentation",
+        owner: { role: "Librarian", task: "lookup" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["document current API"],
+      },
+      intent.revision,
+    );
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    if (running.active_invocation_id === undefined || running.active_started_at === undefined)
+      throw new Error("startAssignment did not issue complete invocation identity");
+
+    setSnapshot({
+      ...snapshot(root, "c".repeat(40), ["packages/cli/unrelated.ts"]),
+      statusDigest: "d".repeat(64),
+    });
+    const recovered = await store.recoverInterruptedAssignment(
+      intent.id,
+      assignment.id,
+      running.revision,
+      {
+        invocationId: running.active_invocation_id,
+        startedAt: running.active_started_at,
+        interruptionReason: "Invocation ended before returning evidence",
+      },
+    );
+
+    expect(recovered.assignment.status).toBe("failed");
+    expect(recovered.assignment.invocations[0]?.context7).toBeUndefined();
+    expect(recovered.intent.baseline).toEqual(intent.baseline);
+  });
+
+  test("atomically supersedes one unfinished related Assignment and removes its blocker", async () => {
+    const { store, root } = await fixture();
+    const intent = await store.createIntent({
+      title: "Assignment supersession",
+      goal: "Replace a bounded unfinished task without losing its provenance",
+      acceptanceCriteria: ["proof"],
+    });
+    const predecessor = await store.createAssignment(
+      intent.id,
+      {
+        id: "predecessor",
+        objective: "Implement the first lifecycle seam",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core/src/work-state.ts"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+    const replacement = await store.createAssignment(
+      intent.id,
+      {
+        id: "replacement",
+        objective: "Implement the corrected lifecycle seam",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core/src/work-state.ts", "packages/core/src/work-state.test.ts"],
+        acceptanceCriteria: ["proof"],
+      },
+      intent.revision,
+    );
+
+    const result = await store.supersedeAssignment(
+      intent.id,
+      predecessor.id,
+      predecessor.revision,
+      {
+        replacementId: replacement.id,
+        replacementRevision: replacement.revision,
+        reason: "The implementation seam moved with its proof surface.",
+        provenance: "Root scope reconciliation",
+      },
+    );
+
+    expect(result.assignment.status).toBe("superseded");
+    expect(result.assignment.superseded_by).toBe(replacement.id);
+    expect(result.assignment.supersession_reason).toBe(
+      "The implementation seam moved with its proof surface.",
+    );
+    expect(result.assignment.supersession_provenance).toBe("Root scope reconciliation");
+    expect(result.replacement.status).toBe("pending");
+    expect(result.replacement.supersedes).toBe(predecessor.id);
+    expect(result.replacement.revision).toBe(replacement.revision + 1);
+    expect(result.intent.revision).toBe(intent.revision + 1);
+    expect(result.intent.evidence.at(-1)?.value).toContain(
+      `${predecessor.id} superseded by ${replacement.id}`,
+    );
+    expect(await store.listAssignments(intent.id)).toEqual([result.assignment, result.replacement]);
+    const directory = (await readdir(join(root, ".holycodex"))).find(
+      (entry) => entry !== "current",
+    )!;
+    expect(await readdir(join(root, ".holycodex", directory))).not.toContain(
+      ".holycodex-transaction.toon",
+    );
+    await expect(
+      store.startAssignment(intent.id, result.assignment.id, result.assignment.revision),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+    await expect(
+      store.reviseAssignmentScope(
+        intent.id,
+        result.assignment.id,
+        { scope: result.assignment.scope },
+        result.assignment.revision,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
   });
 
   test("supports Root scope reconciliation for an unfinished Assignment", async () => {
@@ -660,6 +1046,7 @@ describe("IntentStore", () => {
     const result = await store.recordAssignmentResult(intent.id, assignment.id, revised.revision, {
       outcome: "completed",
       summary: "Scope correction recorded",
+      capability: running.capability,
       evidence: [
         {
           kind: "changed_path",
@@ -705,7 +1092,11 @@ describe("IntentStore", () => {
       intent.id,
       first.id,
       firstRunning.revision,
-      { outcome: "completed", summary: "First seam complete" },
+      {
+        outcome: "completed",
+        summary: "First seam complete",
+        capability: firstRunning.capability,
+      },
     );
     expect(firstResult.assignment.status).toBe("completed");
 
@@ -716,6 +1107,7 @@ describe("IntentStore", () => {
       store.recordAssignmentResult(intent.id, second.id, secondRunning.revision, {
         outcome: "completed",
         summary: "Second seam complete",
+        capability: secondRunning.capability,
         evidence: [
           { kind: "changed_path", value: "packages/second/result.ts", result: "observed" },
         ],
@@ -760,6 +1152,7 @@ describe("IntentStore", () => {
       store.recordAssignmentResult(intent.id, primary.id, primaryRunning.revision, {
         outcome: "completed",
         summary: "Reject unrelated drift",
+        capability: primaryRunning.capability,
         evidence: [{ kind: "changed_path", value: primaryPath, result: "observed" }],
       }),
     ).rejects.toMatchObject({
@@ -776,6 +1169,7 @@ describe("IntentStore", () => {
       {
         outcome: "completed",
         summary: "Primary package change recorded",
+        capability: primaryRunning.capability,
         evidence: [{ kind: "changed_path", value: primaryPath, result: "observed" }],
       },
     );
@@ -993,6 +1387,7 @@ describe("IntentStore", () => {
         await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
           outcome: "completed",
           summary: "Special path modified",
+          capability: running.capability,
           evidence: [{ kind: "changed_path", value: special, result: "observed" }],
         })
       ).intent;
@@ -1054,6 +1449,7 @@ describe("IntentStore", () => {
       await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
         outcome: "completed",
         summary: "Implementation complete",
+        capability: running.capability,
         evidence: [{ kind: "changed_path", value: implementationPath, result: "observed" }],
       })
     ).intent;
@@ -1111,6 +1507,7 @@ describe("IntentStore", () => {
       {
         outcome: "completed",
         summary: "Exact integrated SHA observed",
+        capability: operationsRunning.capability,
         evidence: [{ kind: "ci", value: `observed ${commit}`, result: "passed" }],
       },
     );
@@ -1171,7 +1568,11 @@ describe("IntentStore", () => {
       integrated.id,
       operations.id,
       running.revision,
-      { outcome: "failed", summary: "CI observation failed" },
+      {
+        outcome: "failed",
+        summary: "CI observation failed",
+        capability: running.capability,
+      },
     );
     expect(failed.intent.state).toBe("executing");
     expect(failed.intent.verification.status).toBe("missing");
@@ -1188,7 +1589,11 @@ describe("IntentStore", () => {
       integrated.id,
       operations.id,
       retry.revision,
-      { outcome: "completed", summary: "CI observation recovered" },
+      {
+        outcome: "completed",
+        summary: "CI observation recovered",
+        capability: retry.capability,
+      },
     );
     expect(recovered.intent.state).toBe("executing");
     expect(recovered.intent.verification.status).toBe("missing");
@@ -1218,12 +1623,14 @@ describe("IntentStore", () => {
       store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
         outcome: "completed",
         summary: "missing declaration",
+        capability: running.capability,
       }),
     ).rejects.toMatchObject({ code: "repository_drift" });
     await expect(
       store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
         outcome: "completed",
         summary: "unobserved declaration",
+        capability: running.capability,
         evidence: [{ kind: "changed_path", value: "packages/core/src/work-state.ts" }],
       }),
     ).rejects.toMatchObject({ code: "repository_drift" });
@@ -1231,6 +1638,7 @@ describe("IntentStore", () => {
     const result = await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
       outcome: "completed",
       summary: "declared task evolution",
+      capability: running.capability,
       evidence: [{ kind: "changed_path", value: "packages/core/src/work-state.ts" }],
     });
     expect(result.assignment.status).toBe("completed");
@@ -1280,12 +1688,14 @@ describe("IntentStore", () => {
       store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
         outcome: "completed",
         summary: "Declared task complete",
+        capability: running.capability,
         scope: [changedPath],
       }),
     ).rejects.toMatchObject({ code: "invalid_input" });
     const result = await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
       outcome: "completed",
       summary: "Declared task complete",
+      capability: running.capability,
       scope: [changedPath, siblingTest],
       evidence: [{ kind: "changed_path", value: changedPath, result: "observed" }],
     });
@@ -1327,6 +1737,7 @@ describe("IntentStore", () => {
     const result = await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
       outcome: "completed",
       summary: "No repository evolution",
+      capability: running.capability,
     });
     expect(result.assignment.revision).toBe(running.revision + 1);
     expect(result.intent.revision).toBe(intent.revision + 1);
@@ -1368,9 +1779,14 @@ describe("IntentStore", () => {
     const assignmentPath = join(directory, "assignments", `${assignment.id}.toon`);
     const intentPath = join(directory, "intent.toon");
     const journalPath = join(directory, ".holycodex-transaction.toon");
-    const nextAssignment = { ...running, revision: running.revision + 10 };
+    const previousAssignmentText = await readFile(assignmentPath, "utf8");
+    const { capability: _capability, ...persistedRunning } = running;
+    const nextAssignment = {
+      ...persistedRunning,
+      active_invocation_capability: "a".repeat(64),
+      revision: running.revision + 10,
+    };
     const nextIntent = { ...intent, revision: intent.revision + 10 };
-    const previousAssignmentText = `${encode(running)}\n`;
     const previousIntentText = `${encode(intent)}\n`;
     const nextAssignmentText = `${encode(nextAssignment)}\n`;
     const nextIntentText = `${encode(nextIntent)}\n`;
@@ -1477,6 +1893,58 @@ describe("IntentStore", () => {
     await expect(readFile(journalPath, "utf8")).rejects.toThrow();
   });
 
+  test("rejects a replay whose Assignment provenance disagrees with its Intent", async () => {
+    const { root, store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Invalid transaction replay",
+      goal: "Preserve canonical state when a journal has invalid record provenance",
+      acceptanceCriteria: ["no partial replay"],
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        objective: "Exercise transaction identity validation",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["reject mismatched provenance"],
+      },
+      intent.revision,
+    );
+    const directoryName = (await readdir(join(root, ".holycodex"))).find(
+      (entry) => entry !== "current",
+    )!;
+    const directory = join(root, ".holycodex", directoryName);
+    const assignmentPath = join(directory, "assignments", `${assignment.id}.toon`);
+    const intentPath = join(directory, "intent.toon");
+    const journalPath = join(directory, ".holycodex-transaction.toon");
+    const previousAssignment = await readFile(assignmentPath, "utf8");
+    const previousIntent = await readFile(intentPath, "utf8");
+    const nextAssignment = `${encode({ ...assignment, intent_id: "intent-other" })}\n`;
+    const nextIntent = `${encode({ ...intent, revision: intent.revision + 1 })}\n`;
+
+    await writeFile(
+      journalPath,
+      `${encode({
+        schema_version: "holycodex-work-state-transaction-1",
+        state: "committed",
+        files: [
+          {
+            path: `assignments/${assignment.id}.toon`,
+            previous: previousAssignment,
+            next: nextAssignment,
+          },
+          { path: "intent.toon", previous: previousIntent, next: nextIntent },
+        ],
+      })}\n`,
+      "utf8",
+    );
+
+    await expect(store.currentIntent()).rejects.toMatchObject({ code: "schema_invalid" });
+    await expect(readFile(assignmentPath, "utf8")).resolves.toBe(previousAssignment);
+    await expect(readFile(intentPath, "utf8")).resolves.toBe(previousIntent);
+    await expect(readFile(journalPath, "utf8")).resolves.toContain("committed");
+  });
+
   test("waits for an active writer before recovering or listing an Intent", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-work-state-race-"));
     let blockSnapshot = false;
@@ -1519,6 +1987,7 @@ describe("IntentStore", () => {
     const resultPromise = store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
       outcome: "completed",
       summary: "Writer finished",
+      capability: running.capability,
     });
     await snapshotStarted;
 
@@ -1565,6 +2034,7 @@ describe("IntentStore", () => {
       store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
         outcome: "completed",
         summary: "out of bounds",
+        capability: running.capability,
         evidence: [{ kind: "changed_path", value: "packages/cli/src/index.ts" }],
       }),
     ).rejects.toMatchObject({ code: "repository_drift" });
@@ -1578,6 +2048,7 @@ describe("IntentStore", () => {
       store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
         outcome: "completed",
         summary: "identity changed",
+        capability: running.capability,
       }),
     ).rejects.toMatchObject({ code: "repository_drift" });
   });

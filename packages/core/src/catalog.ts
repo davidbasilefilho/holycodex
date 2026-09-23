@@ -24,7 +24,8 @@ import {
 import { decodeUnknown } from "./schema.ts";
 
 export const ASTRA_MODEL_ID = "gpt-6-astra" as const;
-export const LUNA_MODEL_ID = "gpt-5.6-luna" as const;
+export const SOL_MODEL_ID = "gpt-6-sol" as const;
+export const LUNA_MODEL_ID = "gpt-6-luna" as const;
 
 /** Decode the canonical product profile selection used by routing. */
 export function parseProfileSelection(input: unknown): CoreResult<ProfileSelection> {
@@ -58,6 +59,7 @@ export const ROUTE_EFFORT_OVERRIDES = [
     profile: "low",
     rationale: "The low profile keeps bounded specialist work economical.",
     efforts: {
+      "Explorer:map": "medium",
       "Explorer:lookup": "medium",
       "Explorer:trace": "high",
       "Librarian:lookup": "medium",
@@ -77,6 +79,7 @@ export const ROUTE_EFFORT_OVERRIDES = [
     profile: "default",
     rationale: "The default profile is the recommended balanced route.",
     efforts: {
+      "Explorer:map": "high",
       "Explorer:lookup": "medium",
       "Explorer:trace": "xhigh",
       "Librarian:lookup": "medium",
@@ -96,6 +99,7 @@ export const ROUTE_EFFORT_OVERRIDES = [
     profile: "high",
     rationale: "The high profile maximizes specialist reasoning where specified.",
     efforts: {
+      "Explorer:map": "high",
       "Explorer:lookup": "medium",
       "Explorer:trace": "max",
       "Librarian:lookup": "medium",
@@ -139,21 +143,25 @@ function routesForProfile(profile: ProfileName): readonly RouteDefinition[] {
 }
 
 function createProfile(
-  input: Readonly<{ readonly name: ProfileName; readonly effort: Effort }>,
+  input: Readonly<{
+    readonly name: ProfileName;
+    readonly rootModel: typeof SOL_MODEL_ID | typeof ASTRA_MODEL_ID;
+    readonly rootEffort: Effort;
+  }>,
 ): ProfileDefinition {
   return {
     name: input.name,
-    root: { model: "gpt-6-astra", effort: input.effort },
-    specialistModel: "gpt-5.6-luna",
+    root: { model: input.rootModel, effort: input.rootEffort },
+    specialistModel: LUNA_MODEL_ID,
     defaultServiceTier: "standard",
     routes: routesForProfile(input.name),
   };
 }
 
 const profileDefinitions: ProfileDefinition[] = [
-  createProfile({ name: "low", effort: "low" }),
-  createProfile({ name: "default", effort: "medium" }),
-  createProfile({ name: "high", effort: "high" }),
+  createProfile({ name: "low", rootModel: SOL_MODEL_ID, rootEffort: "medium" }),
+  createProfile({ name: "default", rootModel: SOL_MODEL_ID, rootEffort: "high" }),
+  createProfile({ name: "high", rootModel: ASTRA_MODEL_ID, rootEffort: "high" }),
 ];
 
 function validateCatalog(definitions: readonly ProfileDefinition[]): void {
@@ -168,12 +176,12 @@ function validateCatalog(definitions: readonly ProfileDefinition[]): void {
     if (!definition || definition.name !== expectedProfile) {
       throw new CoreError("catalog_invalid", "The profile catalog order is invalid.", { index });
     }
-    const expectedEffort =
-      expectedProfile === "low" ? "low" : expectedProfile === "default" ? "medium" : "high";
+    const expectedModel = expectedProfile === "high" ? ASTRA_MODEL_ID : SOL_MODEL_ID;
+    const expectedEffort = expectedProfile === "low" ? "medium" : "high";
     if (
-      definition.root.model !== "gpt-6-astra" ||
+      definition.root.model !== expectedModel ||
       definition.root.effort !== expectedEffort ||
-      definition.specialistModel !== "gpt-5.6-luna"
+      definition.specialistModel !== LUNA_MODEL_ID
     ) {
       throw new CoreError("catalog_invalid", "A profile has an invalid model route.", {
         profile: definition.name,
@@ -189,7 +197,7 @@ function validateCatalog(definitions: readonly ProfileDefinition[]): void {
       if (
         seenRoutes.has(routeDefinition.key) ||
         !routeKeys.has(routeDefinition.key) ||
-        routeDefinition.model !== "gpt-5.6-luna" ||
+        routeDefinition.model !== LUNA_MODEL_ID ||
         `${routeDefinition.role}:${routeDefinition.task}` !== routeDefinition.key
       ) {
         throw new CoreError("catalog_invalid", "A profile contains an invalid route.", {

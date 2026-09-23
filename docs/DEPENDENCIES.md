@@ -50,5 +50,6 @@ GitHub Action commit-SHA pins.
 
 The generated files under `packages/codex/generated/` are protocol types, not
 package dependencies. They are regenerated from the stable Codex CLI resolved
-by `mise.toml` before validation and packaging, and their executable identity,
-inventory, and digest are verified by the generated artifact proof.
+by mise's `npm:@openai/codex` latest channel before validation and packaging.
+Their executable identity, inventory, and digest are verified by the generated
+artifact proof.

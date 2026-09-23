@@ -78,7 +78,7 @@ describe("0.16 foundation parity contract", () => {
       readFile(resolve(workspaceRoot, "docs/CLI.md"), "utf8"),
     ]);
     expect(behavior).toContain("gpt-6-astra");
-    expect(behavior).toContain("gpt-5.6-luna");
+    expect(behavior).toContain("gpt-6-luna");
     expect(behavior).toMatch(/The live profiles are\s+`low`, `default`, and `high`/u);
     expect(behavior).toContain("Legacy `go`");
     expect(configuration).toContain("--profile");

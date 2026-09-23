@@ -5,7 +5,7 @@ management and does not stage duplicate plugin copies, rewrite unrelated
 settings, or maintain a second activation registry.
 
 HolyCodex installs one native leaf for each canonical identity:
-`Explorer.lookup`, `Explorer.trace`, `Librarian.lookup`,
+`Explorer.map`, `Explorer.lookup`, `Explorer.trace`, `Librarian.lookup`,
 `Librarian.research`, `Worker.mechanical`, `Worker.implementation`,
 `Worker.integration`, `Worker.operations`, `Worker.validation`,
 `Worker.debugging`, `Reviewer.plan`, `Reviewer.code`, and `Reviewer.artifact`.
@@ -17,24 +17,23 @@ unchanged HolyCodex-owned legacy Root file.
 
 ## Required tooling
 
-On Windows, install, upgrade, and doctor require a verified Git for Windows
+On Windows, installation, the package migration, and doctor require a verified Git for Windows
 Bash executable. HolyCodex checks `C:\\Program Files\\Git\\bin\\bash.exe`
 first and then a `bash` resolved from `PATH`; it accepts only a compatible Git
-for Windows installation. When none is healthy, install or upgrade runs
+for Windows installation. When none is healthy, install or the package migration runs
 `winget install --id Git.Git -e --source winget` and verifies the executable
 directly. Failure returns an actionable capability error. Existing Git for
 Windows state is shared user/system state and is not replaced, reconfigured,
 or removed merely because HolyCodex uses it.
 
-Context7 is required for current technical documentation. HolyCodex derives
-the package-manager family from launcher metadata and reconciles `ctx7@latest`
-through that same family: `bunx` uses `bun add --global ctx7@latest`, `npx`
-uses `npm install --global ctx7@latest`, and `pnpm dlx` uses
-`pnpm add --global ctx7@latest`. Unknown managers fail explicitly. Verification
-checks manager ownership, the resolved executable, and `ctx7 --version`, and
-rejects a shadowing binary. Upgrade repairs version drift; doctor checks it.
-Removal uninstalls Context7 only when HolyCodex recorded that it created the
-same manager-owned installation. HolyCodex never runs `ctx7 setup`.
+Context7 is required for current technical documentation. The supported
+launcher is Bun, and HolyCodex derives Bun's global bin directory with
+`bun pm bin -g`, installs with `bun add -g ctx7@latest`, and verifies the
+package root, package-owned executable, shim, and exact version. A `ctx7`
+found through a generic `PATH`, mise, npm, pnpm, or another Bun installation
+is ignored and left untouched; mise configuration is never edited. An
+unavailable Bun global installation is reported during preflight before any
+managed configuration is changed. HolyCodex never runs `ctx7 setup`.
 
 ## Install
 
@@ -83,14 +82,13 @@ browser, or Computer Use access.
 Profiles select configured Root and specialist route identities with the task
 effort matrix in [BEHAVIOR.md](BEHAVIOR.md). Every generated instruction
 targets GPT-6-family behavior regardless of a temporary routing model ID.
-The current Root route is `gpt-6-astra`; native specialist route files use the
-configured `gpt-5.6-luna` identity. Root dispatches concrete registered
+Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; native specialist route files use `gpt-6-luna`. Root dispatches concrete registered
 `Role.task` identities from the canonical inventory; role families and generic
 built-in agent types are not dispatch targets.
 HolyCodex manages the
 canonical scalar `features.context_management` and sets it to `true` for Root
 and every generated leaf because Codex does not enable it by default.
-Upgrade migrates owned historical
+The package migration converts owned historical
 `features.context_management.experimental_mode` state to the scalar key;
 removal restores the recorded prior value when unchanged.
 
@@ -102,8 +100,28 @@ third-party providers remain untrusted.
 Interactive install resolves Codex home internally and does not ask for a
 `CODEX_HOME` path. Use `--codex-home <absolute-path>` only for explicit
 non-interactive isolation, diagnostics, or recovery. The CLI keeps
-the selected profile, tier, optional plugin state, version, and configuration
-digest; Codex remains the owner of plugin files and marketplace state.
+the selected profile, tier, optional capabilities, and additional plugin IDs
+in `$CODEX_HOME/holycodex/install.toml`. That file contains only
+`schema_version = 1`, the profile, canonical service tier, capabilities, and
+additional plugins; ownership, transaction, derived state, and configuration
+contents remain outside it. Writes replace the file atomically, so a failed
+install or package migration preserves the previous options file and unrelated user
+state.
+
+Install and internal migration collect options, load the current managed state,
+and run a complete preflight before applying changes. Interactive conflict review
+groups only actual managed conflicts and then shows one final review with the
+selected options, conflict count, and planned tool operations. The approved
+transaction applies without another prompt. The internal migration boundary
+reuses persisted choices unless a caller supplies a reviewed replacement.
+
+Legacy installations without `install.toml` are reconstructed from safe
+managed-state evidence. Only choices that cannot be inferred are requested;
+missing legacy options alone are not an error. A successful migration writes
+the new options file. `--json` never opens a terminal UI and reports unresolved
+choices as an error. Non-TTY runs need complete explicit options (or `--yes`)
+and never prompt. `--yes` accepts safe managed replacements while preserving
+foreign tools, plugins, and configuration.
 
 ## Remove
 
@@ -123,7 +141,7 @@ uncertain native result is reported and is not blindly repeated.
 Legacy persisted Work selections are read only for migration cleanup and are
 not projected as a live capability. Document, PDF, presentation, spreadsheet,
 and template plugins remain shared user-owned state and are preserved during
-upgrade and removal.
+the package migration and removal.
 
 ## Doctor
 

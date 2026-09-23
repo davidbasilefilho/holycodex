@@ -3,7 +3,14 @@
 import type { ManagedRuntimeConfigState } from "@holycodex/codex";
 import type { LiveOfficialPluginListEnvelope } from "@holycodex/codex";
 import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
-import type { CliEnvelope, JsonObject, ProfileName, ServiceTier } from "@holycodex/core";
+import type {
+  ReleaseVersion,
+  CliEnvelope,
+  JsonObject,
+  OptionalCapabilityName,
+  ProfileName,
+  ServiceTier,
+} from "@holycodex/core";
 
 import type { InstallRequest } from "./installer.ts";
 
@@ -56,7 +63,7 @@ export interface InstallRecord {
   readonly owner: "holycodex";
   readonly schema_epoch: typeof STATE_SCHEMA_EPOCH;
   readonly install_id: string;
-  readonly version: string;
+  readonly version: ReleaseVersion;
   readonly digest: string;
   readonly profile: ProfileName;
   readonly tier: ServiceTier;
@@ -211,13 +218,65 @@ export type InstallerToolingState = Readonly<{
 }>;
 
 export type ManagedConflict = Readonly<{
+  /** Stable identity used to retain a decision while the view is redrawn. */
+  readonly identity?: string | undefined;
+  /** Managed conflict family, such as config-key, role-asset, or native-plugin. */
+  readonly category?: string | undefined;
+  /** Human-facing managed target. */
+  readonly target?: string | undefined;
+  readonly existing?: unknown;
+  readonly desired?: unknown;
+  /** Decision selected during preflight conflict resolution, when one was made. */
+  readonly decision?: ConflictDecision | undefined;
+  readonly defaultDecision?: ConflictDecision | undefined;
+  readonly validDecisions?: readonly ConflictDecision[] | undefined;
+  readonly explanation?: string | undefined;
   readonly path: string;
   readonly key?: string | undefined;
   readonly action: "replace" | "remove";
 }>;
 
 export type ConflictResolution = "accept" | "decline" | "cancel";
+export type ConflictDecision = "keep" | "replace" | "cancel";
 export type ConflictResolver = (conflict: ManagedConflict) => Promise<ConflictResolution>;
+/** Resolve the complete conflict inventory in one user interaction. */
+export type ConflictBatchResolver = (
+  conflicts: readonly ManagedConflict[],
+) => Promise<Readonly<Record<string, ConflictDecision>>>;
+
+/** A single prerequisite shown in the final install or upgrade review. */
+export type InstallReviewTool = Readonly<{
+  readonly name: string;
+  readonly status: string;
+  readonly detail?: string | undefined;
+}>;
+
+/** The complete, read-only plan presented immediately before a managed transaction. */
+export type InstallReview = Readonly<{
+  readonly operation: "install" | "upgrade";
+  readonly fromVersion?: ReleaseVersion | undefined;
+  readonly toVersion: ReleaseVersion;
+  readonly profile: ProfileName;
+  readonly tier: ServiceTier;
+  readonly capabilities: Readonly<Record<OptionalCapabilityName, boolean>>;
+  readonly additionalPlugins: readonly string[];
+  readonly conflicts: readonly ManagedConflict[];
+  readonly conflictCounts: Readonly<Record<string, number>>;
+  readonly tools: readonly InstallReviewTool[];
+}>;
+
+/** The action selected on the final install or upgrade review screen. */
+export type InstallReviewAction = "apply" | "change" | "resolve" | "cancel";
+
+/** Result returned by the final install or upgrade review surface. */
+export type InstallReviewResult =
+  | Readonly<{ readonly action: "apply" }>
+  | Readonly<{ readonly action: "change"; readonly request?: InstallRequest | undefined }>
+  | Readonly<{ readonly action: "resolve" }>
+  | Readonly<{ readonly action: "cancel" }>;
+
+/** Resolve the final plan in one interaction before any managed mutation begins. */
+export type InstallReviewResolver = (review: InstallReview) => Promise<InstallReviewResult>;
 
 export interface InstallerOptions {
   readonly paths?: Partial<InstallerPaths>;
@@ -228,6 +287,10 @@ export interface InstallerOptions {
   readonly runtime?: InstallerRuntime;
   /** Resolve modifications to state whose HolyCodex ownership is proven by persisted metadata. */
   readonly resolveConflict?: ConflictResolver;
+  /** Resolve all install conflicts through one review surface. */
+  readonly resolveConflicts?: ConflictBatchResolver;
+  /** Review the complete preflight plan before any managed mutation begins. */
+  readonly reviewInstall?: InstallReviewResolver;
   /** Receives lifecycle progress only when an installer stage actually starts or completes. */
   readonly onProgress?: (event: InstallProgressEvent) => void;
 }
@@ -241,12 +304,14 @@ export interface InstallResult {
 
 export interface UpgradeRequest {
   readonly dryRun?: boolean | undefined;
+  /** Explicit install selections used when the user chooses Change options. */
+  readonly options?: InstallRequest | undefined;
 }
 
 export interface UpgradeResult {
   readonly status: "upgraded" | "current" | "dry_run";
-  readonly from_version: string;
-  readonly to_version: string;
+  readonly from_version: ReleaseVersion;
+  readonly to_version: ReleaseVersion;
   readonly changes: readonly string[];
   readonly record?: InstallRecord | undefined;
   readonly preserved: readonly string[];
@@ -279,6 +344,8 @@ export interface CliIo {
   readonly confirm?: (message: string) => Promise<boolean | ConfirmationResult>;
   /** Injectable interactive installer boundary used by tests and embedders. */
   readonly installWizard?: (initial: InstallRequest) => Promise<InstallWizardResult>;
+  /** Injectable final install or upgrade review boundary used by tests and embedders. */
+  readonly installReview?: InstallReviewResolver;
   readonly writeStdout?: (text: string) => void;
   readonly writeStderr?: (text: string) => void;
 }

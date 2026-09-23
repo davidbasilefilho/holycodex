@@ -7,7 +7,6 @@ inspecting, and removing HolyCodex through Codex's native plugin management.
 bunx holycodex install
 bunx holycodex doctor
 bunx holycodex remove
-bunx holycodex upgrade
 ```
 
 Use `--yes` when no interactive terminal is available. `--profile` selects
@@ -23,16 +22,14 @@ Profiles select configured Root and specialist route identities and the
 per-task effort matrix documented in [BEHAVIOR.md](../../docs/BEHAVIOR.md).
 Every generated instruction targets GPT-6-family behavior regardless of a
 temporary routing model ID. Historical values are migration-only.
-The current Root route is `gpt-6-astra`; native specialist route files use the
-configured `gpt-5.6-luna` identity. Routing identity remains separate from
+Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; native specialist route files use `gpt-6-luna`. Routing identity remains separate from
 instruction behavior.
 
 Frontend and Security are selected by default; Computer Use is
 opt-in. Selected capabilities must install and verify or installation fails.
 The interactive installer accepts additional plugin IDs separated by whitespace;
 the repeatable `--add-plugin <id>` option remains available for scripts.
-`upgrade` migrates an existing installation in place; use `--dry-run` to preview
-changes without mutating it.
+Reinstalling with the current package reconciles a previous installation.
 Use `--json` for one validated machine-readable envelope. Human output reports
 the version, profile, tier, selected capabilities, and actionable warnings without
 printing the internal installation record.

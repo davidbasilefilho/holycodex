@@ -9,8 +9,7 @@ confirmation behavior. Observable product behavior is in
 The executable is `holycodex`. The published entry point is invoked with
 `bunx`; development uses `mise exec -- bun packages/cli/src/index.ts ...`.
 Bun is the repository runtime/toolchain. The canonical install and removal
-commands are `bunx holycodex install`, `bunx holycodex remove`, and
-`bunx holycodex upgrade`.
+commands are `bunx holycodex install` and `bunx holycodex remove`.
 
 ## Commands
 
@@ -19,7 +18,6 @@ commands are `bunx holycodex install`, `bunx holycodex remove`, and
 | `holycodex install [options]`                                        | Validate input, configure the selected profile, tier, and optional plugins through Codex native plugin management, verify readback, and write owned configuration. |
 | `holycodex doctor [--json]`                                          | Compare effective Root config, canonical leaf registrations/files, selected capabilities, ownership, and transaction state.                                        |
 | `holycodex remove [--yes] [--json]`                                  | Verify ownership, remove HolyCodex's native plugin state, and remove its owned configuration without touching unrelated state.                                     |
-| `holycodex upgrade [--dry-run] [--yes] [--json]`                     | Migrate an existing installation in place using the running binary while preserving selected and user-owned state.                                                 |
 | `holycodex version [<0.x.y[-n]\|patch\|minor>] [--dry-run] [--json]` | Read or update the canonical package version.                                                                                                                      |
 | `holycodex --help`                                                   | Print the current command and option syntax.                                                                                                                       |
 
@@ -35,7 +33,7 @@ and verify as installed and enabled; otherwise installation returns
 success. The default selections are Frontend and Security; Computer Use
 remains disabled unless selected.
 
-Root's selected Astra model, reasoning effort, service tier, compact developer
+Root's selected model, reasoning effort, service tier, compact developer
 instructions, required feature flags, and every canonical leaf registration
 are managed in `config.toml`. The parent session is Root; HolyCodex never
 creates or registers `agents/root.toml`. Native leaf profiles encode
@@ -132,12 +130,13 @@ JSON mode is always non-interactive. A nonzero exit never means that an
 external effect succeeded. An uncertain effect is reported and preserved for
 Root or user resolution; it is not blindly repeated.
 
-Upgrade and removal report modified, provably owned state as resolvable
-conflicts. Interactive resolution exposes the path or key and proposed action:
+Install reconciliation and removal report modified, provably owned state as
+resolvable conflicts. Interactive resolution exposes the path or key and proposed action:
 accept, decline/preserve, or cancel. `--yes` accepts owned replacement/removal;
 JSON or non-TTY without it returns structured confirmation-required state.
-`--dry-run` reports conflicts and planned resolution without mutation. Foreign
-or unverifiable state is never offered for destructive resolution.
+`--dry-run` is available only with `version`; it reports the prospective
+canonical version change without writing. Foreign or unverifiable state is
+never offered for destructive resolution.
 
 ## Human output
 

@@ -3,6 +3,7 @@
 name: HolyCodex release
 
 on:
+  pull_request:
   push:
     branches:
       - main
@@ -31,6 +32,7 @@ jobs:
     name: resolve release identity
     if: |
       (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) ||
+      github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
@@ -43,8 +45,9 @@ jobs:
       - name: Check out the triggering SHA
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Activate mise and install the pinned toolchain
         uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac
@@ -59,10 +62,13 @@ jobs:
         id: release
         env:
           REQUESTED_CHANNEL: ${{ inputs.channel }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            CHANNEL=dev
+          elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             CHANNEL=dev
           elif [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_TYPE" = "tag" ]; then
             CHANNEL=stable
@@ -73,7 +79,9 @@ jobs:
             exit 1
           fi
           if [ "$CHANNEL" = "dev" ]; then
-            test "$GITHUB_REF" = "refs/heads/main"
+            if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+              test "$GITHUB_REF" = "refs/heads/main"
+            fi
             VERSION="$(mise exec -- bun scripts/release-version.ts dev "$GITHUB_RUN_NUMBER" "$GITHUB_RUN_ATTEMPT")"
           elif [ "$CHANNEL" = "stable" ]; then
             test "$GITHUB_REF_TYPE" = "tag"
@@ -85,7 +93,7 @@ jobs:
           fi
           echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "source_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
 
   validation:
     name: required cross-platform validation and exact artifact
@@ -100,6 +108,7 @@ jobs:
 
   publish_npm:
     name: publish exact npm artifact
+    if: github.event_name != 'pull_request'
     needs: [prepare, validation]
     runs-on: ubuntu-latest
     permissions:
@@ -116,6 +125,7 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Activate mise and install the pinned toolchain
         uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac
@@ -155,6 +165,7 @@ jobs:
 
   publish_github:
     name: publish exact GitHub release
+    if: github.event_name != 'pull_request'
     needs: [prepare, validation, publish_npm]
     runs-on: ubuntu-latest
     permissions:
@@ -170,6 +181,7 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Activate mise and install the pinned toolchain
         uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac

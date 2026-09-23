@@ -9,6 +9,12 @@ import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 
 import {
+  CanonicalVersionSchema,
+  compareReleaseVersions,
+  isCanonicalVersion,
+  resolveCanonicalVersion,
+} from "../packages/core/src/version.ts";
+import {
   assertReleaseVersion,
   baseVersionFromRelease,
   developmentVersion,
@@ -18,18 +24,19 @@ import {
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const canonicalManifestPath = "packages/cli/package.json";
 const generatedPluginManifestPath = "packages/plugin/assets/.codex-plugin/plugin.json";
-const VersionText = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u;
+const rootRouteMigrationPath = "packages/cli/src/installer.ts";
 const RELEASE_LITERAL =
   /(?<![0-9A-Za-z])0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*)|-dev\.\d+\.\d+)?(?![0-9A-Za-z])/gu;
 const CliManifest = Schema.Struct({
   name: Schema.Literal("holycodex"),
-  version: Schema.String.pipe(Schema.pattern(VersionText)),
+  version: CanonicalVersionSchema,
 });
 type CliManifest = typeof CliManifest.Type;
 
 describe("release version authority", () => {
-  test("has exactly one canonical release-version literal in authored text", async () => {
+  test("keeps release literals canonical apart from the historical route boundary", async () => {
     const manifest = await readCanonicalManifest();
+    const routeBoundary = await readRootRouteMigrationBoundary();
     const occurrences: Array<Readonly<{ path: string; count: number }>> = [];
     for (const relativePath of await listFiles(workspaceRoot)) {
       const content = await readFile(`${workspaceRoot}/${relativePath}`, "utf8");
@@ -41,14 +48,24 @@ describe("release version authority", () => {
 
     expect(occurrences).toEqual([
       { path: canonicalManifestPath, count: 1 },
+      ...(routeBoundary === manifest.version ? [{ path: rootRouteMigrationPath, count: 1 }] : []),
       { path: generatedPluginManifestPath, count: 1 },
     ]);
+  }, 30_000);
+
+  test("keeps the route migration boundary in its single authoritative declaration", async () => {
+    const boundary = await readRootRouteMigrationBoundary();
+    const installer = await readFile(`${workspaceRoot}/${rootRouteMigrationPath}`, "utf8");
+
+    expect(isCanonicalVersion(boundary)).toBe(true);
+    expect(installer).toContain(`const ROOT_ROUTE_MIGRATION_BOUNDARY = "${boundary}" as const;`);
+    expect(countLiteral(installer, boundary)).toBe(1);
   });
 
   test("keeps the canonical version in the public CLI manifest", async () => {
     const manifest = await readCanonicalManifest();
 
-    expect(manifest.version).toMatch(VersionText);
+    expect(isCanonicalVersion(manifest.version)).toBe(true);
   });
 
   test("keeps shared dependency versions in the root Bun catalog", async () => {
@@ -108,6 +125,7 @@ describe("release version authority", () => {
 
   test("rejects stale HolyCodex release literals outside owned version domains", async () => {
     const manifest = await readCanonicalManifest();
+    const routeBoundary = await readRootRouteMigrationBoundary();
     const rootManifest = JSON.parse(await readFile(`${workspaceRoot}/package.json`, "utf8")) as {
       catalog?: Readonly<Record<string, string>>;
     };
@@ -118,6 +136,7 @@ describe("release version authority", () => {
       const content = await readFile(`${workspaceRoot}/${relativePath}`, "utf8");
       for (const match of content.matchAll(RELEASE_LITERAL)) {
         const literal = match[0];
+        if (relativePath === rootRouteMigrationPath && literal === routeBoundary) continue;
         if (
           (relativePath === canonicalManifestPath ||
             relativePath === generatedPluginManifestPath) &&
@@ -139,6 +158,48 @@ describe("release version authority", () => {
     expect(suffixedVersion).toBe("0.1.2-dev.17.3");
     expect(version).not.toBe("0.1.2-dev.17.2");
     expect(() => developmentVersion("0.1.2", "0", "1")).toThrow();
+  });
+
+  test("accepts numeric release suffixes as canonical versions and rejects malformed forms", () => {
+    for (const version of ["0.1.2-0", "0.1.2-1", "0.1.2-17"]) {
+      expect(isCanonicalVersion(version)).toBe(true);
+      expect(Either.isRight(Schema.decodeUnknownEither(CanonicalVersionSchema)(version))).toBe(
+        true,
+      );
+    }
+    for (const version of ["0.1.2-", "0.1.2-01", "0.1.2-1-2", "0.1.2-dev.1.1"]) {
+      expect(isCanonicalVersion(version)).toBe(false);
+      expect(Either.isLeft(Schema.decodeUnknownEither(CanonicalVersionSchema)(version))).toBe(true);
+    }
+  });
+
+  test("orders release components exactly and preserves suffix precedence", () => {
+    const huge = "9".repeat(80);
+
+    expect(compareReleaseVersions("0.1.2", "0.1.2-0")).toBe(-1);
+    expect(compareReleaseVersions("0.1.2-0", "0.1.2-1")).toBe(-1);
+    expect(compareReleaseVersions("0.1.2-dev.1.1", "0.1.2")).toBe(-1);
+    expect(compareReleaseVersions("0.1.2-dev.1.1", "0.1.2-dev.2.1")).toBe(-1);
+    expect(compareReleaseVersions(`0.1.2-${huge}`, "0.1.2-1")).toBe(1);
+    expect(compareReleaseVersions(`0.${huge}.0`, "0.1.2-1")).toBe(1);
+  });
+
+  test("resolves patch and minor updates from a suffixed canonical version", () => {
+    expect(resolveCanonicalVersion("patch", "0.1.2-1")).toBe("0.1.3");
+    expect(resolveCanonicalVersion("minor", "0.1.2-1")).toBe("0.2.0");
+    expect(resolveCanonicalVersion("0.1.2-17", "0.1.2-1")).toBe("0.1.2-17");
+  });
+
+  test("increments arbitrarily large canonical components with schema-valid text", () => {
+    const huge = "9".repeat(80);
+    const next = `1${"0".repeat(80)}`;
+    const patch = resolveCanonicalVersion("patch", `0.1.${huge}`);
+    const minor = resolveCanonicalVersion("minor", `0.${huge}.7`);
+
+    expect(patch).toBe(`0.1.${next}`);
+    expect(minor).toBe(`0.${next}.0`);
+    expect(isCanonicalVersion(patch)).toBe(true);
+    expect(isCanonicalVersion(minor)).toBe(true);
   });
 
   test("requires stable tags to match the canonical version and rejects prerelease mixing", () => {
@@ -229,6 +290,14 @@ async function readCanonicalManifest(): Promise<CliManifest> {
     throw new Error(String(parsed.left));
   }
   return parsed.right;
+}
+
+async function readRootRouteMigrationBoundary(): Promise<string> {
+  const installer = await readFile(`${workspaceRoot}/${rootRouteMigrationPath}`, "utf8");
+  const declaration = /const ROOT_ROUTE_MIGRATION_BOUNDARY = "([^"]+)" as const;/u.exec(installer);
+  const boundary = declaration?.[1];
+  if (boundary === undefined) throw new Error("The Root route migration boundary is missing.");
+  return boundary;
 }
 
 function countLiteral(content: string, literal: string): number {

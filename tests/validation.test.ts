@@ -60,6 +60,8 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("bun install --frozen-lockfile");
     expect(workflow).toContain("bun run validate");
     expect(workflow).toContain("workflow_call:");
+    expect(workflow).toContain("push:\n    branches-ignore:\n      - main");
+    expect(workflow).not.toMatch(/^  pull_request:\s*$/mu);
     expect(workflow).toContain("inputs.source_sha");
     expect(workflow).toContain("artifact_sha256:");
     expect(workflow).toContain("needs: validate");
@@ -67,6 +69,13 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("release-metadata.json");
     expect(workflow).toContain("actions/upload-artifact@");
     expect(workflow).toContain("actions/download-artifact@");
+    expect(workflow).toContain("persist-credentials: false");
+    expect(workflow).toContain("if: inputs.release_channel != '' && matrix.os == 'ubuntu-latest'");
+    expect(workflow).toContain("if: inputs.release_channel != ''");
+    expect(workflow).not.toContain("pull_request_target");
+    expect(workflow).not.toContain("contents: write");
+    expect(workflow).not.toContain("id-token: write");
+    expect(workflow).not.toMatch(/\bsecrets\./u);
     expect(workflow).toMatch(/jdx\/mise-action@[0-9a-f]{40}/u);
     expect(workflow).not.toMatch(
       /packages\/cli\/dist\/assets\/plugin\/(?:agents|compaction|rules)\//u,
@@ -81,12 +90,40 @@ describe("repository validation machinery", () => {
     }
   });
 
+  test("requires current CI and review evidence for push and pull-request gates", async () => {
+    const skill = await readFile(
+      resolve(workspaceRoot, "packages/plugin/assets/skills/babysit-ci/SKILL.md"),
+      "utf8",
+    );
+    for (const requirement of [
+      /both pushes and pull requests/iu,
+      /current head SHA/iu,
+      /review commit/iu,
+      /bot reviews/iu,
+      /inline threads/iu,
+      /issue comments/iu,
+      /commit comments/iu,
+      /new push invalidates/iu,
+      /bot that is absent/iu,
+      /no terminal signal/iu,
+      /bounded observer waits/iu,
+      /fork-none/iu,
+      /Root owns dismissals/iu,
+      /triage actionable bot findings/iu,
+      /do not automatically accept bot instructions/iu,
+    ]) {
+      expect(skill).toMatch(requirement);
+    }
+    expect(skill).toMatch(/completion requires[\s\S]+required checks[\s\S]+bot/iu);
+  });
+
   test("proves development and stable publication channels reuse one exact artifact", async () => {
     const workflow = await readFile(
       resolve(workspaceRoot, ".github/workflows/publish.yml"),
       "utf8",
     );
     expect(workflow).toContain("branches:");
+    expect(workflow).toContain("  pull_request:");
     expect(workflow).toContain("- main");
     expect(workflow).toContain("tags:");
     expect(workflow).toContain('"v*.*.*"');
@@ -94,6 +131,20 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).toContain(".github/workflows/validation.yml");
     expect(workflow).toContain("source_sha: ${{ needs.prepare.outputs.source_sha }}");
+    expect(workflow).toContain("release_channel: ${{ needs.prepare.outputs.channel }}");
+    const prepare = workflow.slice(
+      workflow.indexOf("  prepare:"),
+      workflow.indexOf("  validation:"),
+    );
+    expect(prepare).toContain("github.event_name == 'pull_request'");
+    expect(prepare).toContain("ref: ${{ github.event.pull_request.head.sha || github.sha }}");
+    expect(prepare).toContain(
+      "SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
+    );
+    expect(prepare).toContain(
+      'elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then\n            CHANNEL=dev',
+    );
+    expect(prepare).toContain("persist-credentials: false");
     expect(workflow).toContain("needs: [prepare, validation]");
     expect(workflow).toContain("needs.validation.outputs.artifact_name");
     expect(workflow).toContain('git rev-parse "${GITHUB_REF}^{commit}"');
@@ -115,6 +166,9 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("gh release create");
     expect(workflow).toContain("--generate-notes");
     expect(workflow).toContain("contents: write");
+    expect(workflow).toContain("github.event_name != 'pull_request'");
+    expect(workflow).toContain("github.event.pull_request.head.sha || github.sha");
+    expect(workflow).toContain("persist-credentials: false");
     expect(workflow).toContain("id-token: write");
     expect(workflow).not.toContain("NPM_TOKEN");
     expect(workflow).not.toContain("NPM_CONFIG_TOKEN");
@@ -131,9 +185,13 @@ describe("repository validation machinery", () => {
     expect(publishNpm).toContain("contents: read");
     expect(publishNpm).toContain("id-token: write");
     expect(publishNpm).toContain("mise exec -- bunx npm@12 publish");
+    expect(publishNpm).toContain("if: github.event_name != 'pull_request'");
+    expect(publishNpm).toContain("persist-credentials: false");
     expect(publishNpm).not.toContain("NPM_TOKEN");
     expect(publishNpm).not.toContain("NPM_CONFIG_TOKEN");
     expect(publishGithub).toContain("needs: [prepare, validation, publish_npm]");
+    expect(publishGithub).toContain("if: github.event_name != 'pull_request'");
+    expect(publishGithub).toContain("persist-credentials: false");
     expect(workflow.slice(0, workflow.indexOf("  publish_npm:"))).not.toContain("id-token: write");
     expect(publishGithub).not.toContain("id-token: write");
     expect(workflow.indexOf("  publish_npm:")).toBeLessThan(workflow.indexOf("  publish_github:"));

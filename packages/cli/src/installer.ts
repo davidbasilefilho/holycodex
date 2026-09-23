@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { rm } from "node:fs/promises";
+import { appendFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -8,6 +8,7 @@ import {
   compareManagedConfigKey,
   createManagedRuntimeConfigState,
   deleteTomlPath,
+  LEGACY_ROOT_CONFIG_KEY_PATHS,
   mergeManagedRuntimeConfig,
   readTomlPath,
   resolveAgentConfigPath,
@@ -27,8 +28,11 @@ import {
   DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
   NATIVE_AGENT_TYPES,
   STATE_SCHEMA_EPOCH,
+  canonicalBaseVersion,
+  canonicalJson,
   canonicalJsonUtf8,
   canonicalOfficialPluginId,
+  compareReleaseVersions,
   domainSeparatedSha256,
   lookupProfile,
   migrateProfileName,
@@ -40,18 +44,19 @@ import {
   type OptionalCapabilityName,
   type OptionalCapabilitySelections,
   type ProfileName,
+  type ReleaseVersion,
   type ServiceTier,
 } from "@holycodex/core";
 
 import { asJsonValue } from "./json.ts";
-import { readCanonicalBaseVersion } from "./manifest.ts";
+import { readInstallationVersion } from "./manifest.ts";
 import {
   installNativeAgents,
   inspectNativeAgentConflicts,
   isKnownLegacyRootRoleContent,
   projectNativeAgents,
   projectRootAgent,
-  nativeAgentSandboxMode,
+  nativeAgentSandboxConfigurationMatches,
   removeManagedNativeAgents,
   rollbackNativeAgentInstall,
   rootDeveloperInstructions,
@@ -70,6 +75,7 @@ import {
   InstallRecordMigrationSchema,
   InstallRecordSchema,
   InstallOptionsSchema,
+  PersistedInstallOptionsSchema,
   InstallRequestSchema,
   InstallTransactionSchema,
   JsonObjectSchema,
@@ -80,6 +86,8 @@ import {
   createInstallerRuntime,
   ensureContext7,
   ensureGitBash,
+  preflightContext7,
+  removeOwnedContext7,
   ToolingError,
   WINDOWS_GIT_BASH,
 } from "./tooling.ts";
@@ -101,7 +109,9 @@ import type {
   InstallProgressEvent,
   GitBashState,
   Context7ToolState,
+  ConflictDecision,
   ManagedConflict,
+  InstallReview,
 } from "./types.ts";
 
 export {
@@ -110,11 +120,14 @@ export {
   InstallRequestSchema,
   InstallRecordSchema,
   InstallOptionsSchema,
+  PersistedInstallOptionsSchema,
   InstallTransactionSchema,
 } from "./schema.ts";
 
 export const HOLYCODEX_MARKETPLACE = "davidbasilefilho/holycodex";
 export const HOLYCODEX_PLUGIN = "holycodex@holycodex";
+// Pre-boundary records used Astra for every Root profile; keep this fixed when later releases change.
+const ROOT_ROUTE_MIGRATION_BOUNDARY = "0.16.8" as const;
 
 export interface InstallRequest {
   readonly profile?: ProfileName | undefined;
@@ -135,6 +148,113 @@ export function validateInstallOptions(input: unknown): InstallOptions {
   return parsed as InstallOptions;
 }
 
+/** The only values written to the user-facing install options file. */
+export type PersistedInstallOptions = Readonly<{
+  readonly schema_version: 1;
+  readonly profile: ProfileName;
+  readonly tier: ServiceTier;
+  readonly capabilities: readonly OptionalCapabilityName[];
+  readonly additional_plugins: readonly string[];
+}>;
+
+/** Read and validate the optional user-facing install options file. */
+export async function readInstallOptions(
+  paths: ResolvedInstallerPaths,
+): Promise<PersistedInstallOptions | undefined> {
+  const source = await optionalTextFile(paths.installOptions);
+  return decodeInstallOptionsText(source, paths.installOptions);
+}
+
+function decodeInstallOptionsText(
+  source: string | undefined,
+  path: string,
+): PersistedInstallOptions | undefined {
+  if (source === undefined) return undefined;
+  let document: TomlDocument;
+  try {
+    document = parseToml(source);
+  } catch (error: unknown) {
+    throw new InstallerError(
+      "state_corrupt",
+      "The HolyCodex install options are not valid TOML.",
+      error,
+      { path },
+    );
+  }
+  const parsed = decodeSchema(PersistedInstallOptionsSchema, document);
+  if (parsed === undefined) {
+    throw new InstallerError(
+      "state_corrupt",
+      "The HolyCodex install options are invalid.",
+      undefined,
+      { path },
+    );
+  }
+  return parsed as PersistedInstallOptions;
+}
+
+/** Serialize and atomically persist the validated install options. */
+export async function writeInstallOptions(
+  paths: ResolvedInstallerPaths,
+  value: PersistedInstallOptions,
+): Promise<void> {
+  if (decodeSchema(PersistedInstallOptionsSchema, value) === undefined) {
+    throw new InstallerError("state_corrupt", "The HolyCodex install options are invalid.");
+  }
+  await writeAtomicText(paths.installOptions, stringifyToml(value as unknown as TomlDocument));
+}
+
+/** Convert persisted selections into the install request used by the wizard and installer. */
+export function installRequestFromPersistedOptions(value: PersistedInstallOptions): InstallRequest {
+  return {
+    profile: value.profile,
+    tier: value.tier,
+    optional: {
+      computer_use: value.capabilities.includes("computer_use"),
+      frontend: value.capabilities.includes("frontend"),
+      security: value.capabilities.includes("security"),
+    },
+    officialPlugins: [...value.additional_plugins],
+  };
+}
+
+/** Read effective prior selections for an interactive reinstall. */
+export async function readEffectiveInstallRequest(
+  options: InstallerOptions = {},
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): Promise<InstallRequest> {
+  const paths = resolveInstallerPaths(options, environment);
+  const persisted = await readInstallOptions(paths);
+  if (persisted !== undefined) return installRequestFromPersistedOptions(persisted);
+  const previous = await readActiveInstallRecord(paths);
+  if (previous === undefined) return {};
+  return {
+    profile: previous.profile,
+    tier: previous.tier,
+    optional: previous.optional_selections,
+    officialPlugins: additionalPluginsFromPrevious(previous),
+  };
+}
+
+/** Build the persisted representation from the fully resolved install selections. */
+export function persistedOptionsForInstall(
+  profile: ProfileName,
+  tier: ServiceTier,
+  optional: OptionalSelections,
+  additionalPlugins: readonly string[],
+): PersistedInstallOptions {
+  const capabilities = (["computer_use", "frontend", "security"] as const).filter(
+    (name) => optional[name],
+  );
+  return {
+    schema_version: 1,
+    profile,
+    tier,
+    capabilities,
+    additional_plugins: [...new Set(additionalPlugins)],
+  };
+}
+
 type PreparingTransaction = Omit<InstallRecord, "status" | "step"> & {
   readonly status: "preparing";
   readonly step: InstallTransactionStep;
@@ -148,15 +268,138 @@ type PreparingTransaction = Omit<InstallRecord, "status" | "step"> & {
  * to reconcile.
  *
  * Transactions deliberately carry the active record's installation identity and digest while
- * effects are being applied. This relation lets recovery ignore a stale transaction left after a
- * newer active record was published; it does not attempt to authenticate same-user filesystem
- * state.
+ * effects are being applied. This relation lets recovery distinguish a transaction bound to the
+ * active record from one that must be inspected before any destructive work.
  */
 export function isTransactionBoundToActive(
   transaction: Readonly<Pick<InstallRecord, "install_id" | "digest">>,
   active: Readonly<Pick<InstallRecord, "install_id" | "digest">>,
 ): boolean {
   return transaction.install_id === active.install_id && transaction.digest === active.digest;
+}
+
+/** Describe how persisted transaction journals relate to the active ownership record. */
+export type InstallTransactionDiagnosis = Readonly<{
+  readonly status: "preparing" | "conflicted";
+  readonly relation: "bound" | "orphaned" | "stale" | "incompatible";
+  readonly install_id: string;
+  readonly digest: string;
+  readonly recovery: "reconcile" | "inspect";
+  readonly active_install_id?: string | undefined;
+  readonly active_digest?: string | undefined;
+}>;
+
+type InstallTransactionIdentity = Readonly<Pick<InstallRecord, "install_id" | "digest">>;
+
+/**
+ * Diagnose all transaction journals before an installer or maintenance operation mutates state. A
+ * journal with no active record is recoverable orphaned state; a journal that disagrees with an
+ * active record is stale and cannot authorize destructive work.
+ */
+export function diagnoseInstallTransactions(
+  active: InstallTransactionIdentity | undefined,
+  preparing: InstallTransactionIdentity | undefined,
+  conflicted: InstallTransactionIdentity | undefined,
+): readonly InstallTransactionDiagnosis[] {
+  const transactions = [
+    { status: "conflicted" as const, record: conflicted },
+    { status: "preparing" as const, record: preparing },
+  ].filter(
+    (entry): entry is { status: "conflicted" | "preparing"; record: InstallTransactionIdentity } =>
+      entry.record !== undefined,
+  );
+  const multiple = transactions.length > 1;
+  const matchingJournals =
+    multiple &&
+    transactions.every(({ record }) => isTransactionBoundToActive(record, transactions[0]!.record));
+  return transactions.map(({ status, record }) => {
+    const relation =
+      active === undefined
+        ? multiple && !matchingJournals
+          ? "incompatible"
+          : "orphaned"
+        : isTransactionBoundToActive(record, active)
+          ? multiple && !matchingJournals
+            ? "incompatible"
+            : "bound"
+          : "stale";
+    return {
+      status,
+      relation,
+      install_id: record.install_id,
+      digest: record.digest,
+      recovery: relation === "stale" || relation === "incompatible" ? "inspect" : "reconcile",
+      ...(active === undefined
+        ? {}
+        : { active_install_id: active.install_id, active_digest: active.digest }),
+    };
+  });
+}
+
+/** Reject stale or mutually incompatible journals before destructive recovery can begin. */
+export function assertInstallTransactionState(
+  active: InstallTransactionIdentity | undefined,
+  preparing: InstallTransactionIdentity | undefined,
+  conflicted: InstallTransactionIdentity | undefined,
+): readonly InstallTransactionDiagnosis[] {
+  const diagnoses = diagnoseInstallTransactions(active, preparing, conflicted);
+  const incompatible = diagnoses.filter(
+    (diagnosis) => diagnosis.relation === "stale" || diagnosis.relation === "incompatible",
+  );
+  if (incompatible.length > 0) {
+    throw new InstallerError(
+      "state_corrupt",
+      "HolyCodex has stale or incompatible transaction state and cannot recover safely.",
+      undefined,
+      transactionDiagnosisDetails(diagnoses),
+    );
+  }
+  return diagnoses;
+}
+
+/**
+ * Reject only ambiguous transaction journals before removal can begin.
+ *
+ * Removal is authorized by a valid active install record when one exists, so stale journals are
+ * ignored and bound journals remain available for recovery. With no active record, multiple
+ * journals cannot establish ownership safely.
+ */
+export function assertRemovalTransactionState(
+  active: InstallTransactionIdentity | undefined,
+  preparing: InstallTransactionIdentity | undefined,
+  conflicted: InstallTransactionIdentity | undefined,
+): readonly InstallTransactionDiagnosis[] {
+  const diagnoses = diagnoseInstallTransactions(active, preparing, conflicted);
+  if (
+    active === undefined &&
+    diagnoses.some((diagnosis) => diagnosis.relation === "incompatible")
+  ) {
+    throw new InstallerError(
+      "state_corrupt",
+      "HolyCodex has ambiguous transaction state and cannot recover safely.",
+      undefined,
+      transactionDiagnosisDetails(diagnoses),
+    );
+  }
+  return diagnoses;
+}
+
+function transactionDiagnosisDetails(
+  diagnoses: readonly InstallTransactionDiagnosis[],
+): JsonObject {
+  return {
+    recovery: diagnoses.map((diagnosis) => diagnosis.recovery).join(","),
+    transactions: diagnoses
+      .map(
+        (diagnosis) =>
+          `${diagnosis.status}:${diagnosis.relation}:${diagnosis.install_id}:${diagnosis.digest}`,
+      )
+      .join(","),
+    active:
+      diagnoses[0]?.active_install_id === undefined
+        ? "absent"
+        : `${diagnoses[0].active_install_id}:${diagnoses[0].active_digest}`,
+  };
 }
 
 const HOLYCODEX_MARKETPLACE_URL = "https://github.com/davidbasilefilho/holycodex.git" as const;
@@ -169,6 +412,7 @@ const LEGACY_WORK_PLUGIN_NAMES = new Set([
   "spreadsheets",
   "template-creator",
 ]);
+const LEGACY_AUTO_COMPACT_KEY = LEGACY_ROOT_CONFIG_KEY_PATHS[0]!;
 
 /** Install or reconcile HolyCodex state, plugins, native agents, and managed configuration. */
 export async function installHolyCodex(
@@ -180,6 +424,13 @@ export async function installHolyCodex(
     throw new InstallerError("install_failed", "The installation options are invalid.");
   }
   const paths = resolveInstallerPaths(options, environment);
+  const installOptionsBefore = await optionalTextFile(paths.installOptions);
+  const activeRecordBefore = await optionalTextFile(paths.activeRecord);
+  const persistedOptions = decodeInstallOptionsText(installOptionsBefore, paths.installOptions);
+  const persistedRequest =
+    persistedOptions === undefined
+      ? undefined
+      : installRequestFromPersistedOptions(persistedOptions);
   reportProgress(options, {
     stage: "validation",
     status: "started",
@@ -196,6 +447,7 @@ export async function installHolyCodex(
   }
   const preparing = await optionalJsonFile(paths.preparingRecord, InstallTransactionSchema);
   const conflicted = await optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema);
+  assertInstallTransactionState(previous, preparing, conflicted);
   const interrupted = [conflicted, preparing].find(
     (transaction) =>
       transaction !== undefined &&
@@ -217,32 +469,63 @@ export async function installHolyCodex(
     }
     return await installHolyCodex(
       {
-        profile: request.profile ?? interrupted.profile,
-        tier: request.tier ?? interrupted.tier,
+        profile: request.profile ?? persistedRequest?.profile ?? interrupted.profile,
+        tier: request.tier ?? persistedRequest?.tier ?? interrupted.tier,
         optional: {
           computer_use:
-            request.optional?.computer_use ?? interrupted.optional_selections.computer_use,
-          frontend: request.optional?.frontend ?? interrupted.optional_selections.frontend,
-          security: request.optional?.security ?? interrupted.optional_selections.security,
+            request.optional?.computer_use ??
+            persistedRequest?.optional?.computer_use ??
+            interrupted.optional_selections.computer_use,
+          frontend:
+            request.optional?.frontend ??
+            persistedRequest?.optional?.frontend ??
+            interrupted.optional_selections.frontend,
+          security:
+            request.optional?.security ??
+            persistedRequest?.optional?.security ??
+            interrupted.optional_selections.security,
         },
-        officialPlugins: request.officialPlugins ?? additionalPluginsFromPrevious(interrupted),
+        officialPlugins:
+          request.officialPlugins ??
+          persistedRequest?.officialPlugins ??
+          additionalPluginsFromPrevious(interrupted),
       },
       options,
       environment,
     );
   }
-  const profile = chooseProfile(request.profile, previous?.profile);
-  const tier = chooseTier(request.tier, previous?.tier);
-  const optional = chooseOptional(request.optional, previous?.optional_selections);
+  const profile = chooseProfile(request.profile ?? persistedRequest?.profile, previous?.profile);
+  const tier = chooseTier(request.tier ?? persistedRequest?.tier, previous?.tier);
+  const persistedOptional = persistedRequest?.optional;
+  const requestedOptional = mergeExplicitOptionalSelections(persistedOptional, request.optional);
+  const optional = chooseOptional(requestedOptional, previous?.optional_selections);
   const explicitOptional = mergeExplicitOptionalSelections(
-    previous?.explicit_optional_selections,
+    mergeExplicitOptionalSelections(previous?.explicit_optional_selections, persistedOptional),
     request.optional,
   );
-  const additionalPlugins = request.officialPlugins ?? additionalPluginsFromPrevious(previous);
+  const additionalPlugins =
+    request.officialPlugins ??
+    persistedRequest?.officialPlugins ??
+    additionalPluginsFromPrevious(previous);
   const runtime = options.runtime ?? createInstallerRuntime(environment);
   const discoveredGitBash = await ensureGitBash(runtime, false);
+  const debugInstaller = async (message: string): Promise<void> => {
+    if (environment["HOLYCODEX_DEBUG_INSTALLER"] !== "1") return;
+    await appendFile(join(paths.codexHome, ".holycodex-debug.log"), `${message}\n`, "utf8");
+  };
+  let context7PreflightReady = false;
+  try {
+    await preflightContext7(runtime);
+    context7PreflightReady = true;
+  } catch (error: unknown) {
+    throw new InstallerError(
+      "capability_denied",
+      "Context7 tooling cannot be inspected before managed installation changes.",
+      error,
+    );
+  }
   let gitBash: GitBashState = discoveredGitBash;
-  let context7: Context7ToolState;
+  let context7: Context7ToolState | undefined;
   const providerPlugins = [
     ...new Set(
       pluginIdsForOptionalCapabilities(toCoreSelections(optional), additionalPlugins).map(
@@ -294,18 +577,36 @@ export async function installHolyCodex(
   });
 
   const installId = previous?.install_id ?? crypto.randomUUID().replaceAll("-", "");
-  const version = await readCanonicalBaseVersion();
+  const version = await readInstallationVersion();
   const refreshPluginIds =
     previous !== undefined &&
     previous.version !== version &&
     previous.owned_plugins?.includes(HOLYCODEX_PLUGIN) === true
       ? new Set([HOLYCODEX_PLUGIN])
       : new Set<string>();
+  const previousOwnedPlugins = new Set(previous?.owned_plugins ?? []);
+  const desiredOwnedPlugins = new Set([HOLYCODEX_PLUGIN, ...providerPlugins]);
+  const omittedOwnedPlugins = [...previousOwnedPlugins].filter(
+    (pluginId) => !desiredOwnedPlugins.has(pluginId),
+  );
+  if (omittedOwnedPlugins.length > 0 && manager.remove === undefined) {
+    throw new InstallerError(
+      "install_failed",
+      "Native Codex cannot remove previously managed plugins omitted from the new selection.",
+      undefined,
+      { plugins: omittedOwnedPlugins.join(",") },
+    );
+  }
   const installedAt = (options.now?.() ?? new Date()).toISOString();
   const configBefore = await optionalTextFile(paths.configFile);
   const configInputDocument = parseConfig(configBefore);
   const currentHolyCodexPluginConfig = await snapshotHolyCodexPluginConfig(configInputDocument);
-  const pluginConfigBefore = previous?.plugin_config?.before ?? currentHolyCodexPluginConfig;
+  const initialPluginConfigBefore = previous?.plugin_config?.before ?? currentHolyCodexPluginConfig;
+  let pluginConfigBefore = initialPluginConfigBefore;
+  const useBatchConflictResolution = options.resolveConflicts !== undefined;
+  const pendingConflicts: ManagedConflict[] = [];
+  let pluginConfigConflicts: readonly ManagedConflict[] = [];
+  let providerConfigConflicts: readonly ManagedConflict[] = [];
   if (previous?.plugin_config !== undefined) {
     const conflicts = (["preference", "marketplace"] as const).filter((name) => {
       const current = currentHolyCodexPluginConfig[name].digest;
@@ -314,14 +615,31 @@ export async function installHolyCodex(
         current !== previous.plugin_config?.before[name].digest
       );
     });
-    await resolveOwnedConflicts(
-      options,
-      conflicts.map((name) => ({
+    pluginConfigConflicts = conflicts.map((name) => {
+      const key =
+        name === "preference" ? 'plugins."holycodex@holycodex"' : "marketplaces.holycodex";
+      const current = currentHolyCodexPluginConfig[name];
+      const desired =
+        name === "preference"
+          ? { kind: "boolean" as const, value: true }
+          : {
+              kind: "marketplace" as const,
+              source_type: "git" as const,
+              source: HOLYCODEX_MARKETPLACE_URL,
+            };
+      const conflict = structureConflict({
         path: paths.configFile,
-        key: name === "preference" ? 'plugins."holycodex@holycodex"' : "marketplaces.holycodex",
+        key,
         action: "replace" as const,
-      })),
-    );
+        category: "config-key",
+        target: key,
+        existing: current.safe_value ?? { presence: current.presence },
+        desired,
+        explanation: `The managed ${key} entry changed outside the previous HolyCodex transaction.`,
+      });
+      return conflict;
+    });
+    if (useBatchConflictResolution) pendingConflicts.push(...pluginConfigConflicts);
   }
   const providerConfigPluginIds = [
     ...new Set([
@@ -347,16 +665,23 @@ export async function installHolyCodex(
         current.before.digest !== prior.before.digest
       );
     });
-    await resolveOwnedConflicts(
-      options,
-      conflicts.map((entry) => ({
+    providerConfigConflicts = conflicts.map((entry) => {
+      const key = `plugins."${entry.plugin_id}"`;
+      const conflict = structureConflict({
         path: paths.configFile,
-        key: `plugins."${entry.plugin_id}"`,
+        key,
         action: "replace" as const,
-      })),
-    );
+        category: "config-key",
+        target: key,
+        existing: entry.before.safe_value ?? { presence: entry.before.presence },
+        desired: { kind: "boolean", value: true },
+        explanation: `The managed provider plugin entry ${entry.plugin_id} changed outside the previous transaction.`,
+      });
+      return conflict;
+    });
+    if (useBatchConflictResolution) pendingConflicts.push(...providerConfigConflicts);
   }
-  const providerConfigBefore = currentProviderConfig.map((entry) => {
+  const initialProviderConfigBefore = currentProviderConfig.map((entry) => {
     const previousEntry = previous?.provider_config?.find(
       (candidate) => candidate.plugin_id === entry.plugin_id,
     );
@@ -364,6 +689,7 @@ export async function installHolyCodex(
       ? entry
       : { plugin_id: entry.plugin_id, before: previousEntry.before, after: previousEntry.before };
   });
+  let providerConfigBefore: readonly ProviderPluginConfigSnapshot[] = initialProviderConfigBefore;
   const unmanagedConfigState =
     previous?.managed_config ??
     createManagedRuntimeConfigState({ schema: STATE_SCHEMA_EPOCH, installId });
@@ -376,8 +702,12 @@ export async function installHolyCodex(
     migratedRuntime.document,
     migratedRuntime.state,
   );
-  const configDocument = migratedContext.document;
-  const currentManagedConfig = migratedContext.state;
+  const migratedAutoCompact = await migrateLegacyAutoCompactConfig(
+    migratedContext.document,
+    migratedContext.state,
+  );
+  const configDocument = migratedAutoCompact.document;
+  const currentManagedConfig = migratedAutoCompact.state;
   rejectPreExistingDeveloperInstructions(configDocument, currentManagedConfig);
   const desiredConfig = desiredRootConfig(profile, tier, {
     computerUse: optional.computer_use,
@@ -390,12 +720,41 @@ export async function installHolyCodex(
         }
       : {}),
   });
+  await debugInstaller(
+    `desired platform=${runtime.platform} gitBash=${discoveredGitBash.status} desiredShell=${String(typeof desiredConfig.developer_instructions === "string" && desiredConfig.developer_instructions.includes("On Windows, use Git for Windows Bash"))} desiredTail=${JSON.stringify(typeof desiredConfig.developer_instructions === "string" ? desiredConfig.developer_instructions.slice(-500) : desiredConfig.developer_instructions)} previous=${previous?.version ?? "none"}`,
+  );
+  let previousDesiredConfig:
+    | Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>
+    | undefined;
+  if (previous !== undefined) {
+    previousDesiredConfig = desiredRootConfig(previous.profile, previous.tier, {
+      computerUse: previous.optional_selections.computer_use,
+      frontend: previous.optional_selections.frontend,
+      security: previous.optional_selections.security,
+    });
+    const previousBaseVersion = canonicalBaseVersion(previous.version.split("-", 1)[0]!);
+    if (compareReleaseVersions(previousBaseVersion, ROOT_ROUTE_MIGRATION_BOUNDARY) < 0) {
+      // Interpret the prior managed values using the route contract active at installation.
+      previousDesiredConfig.model = "gpt-6-astra";
+      previousDesiredConfig.model_reasoning_effort =
+        previous.profile === "low" ? "low" : previous.profile === "default" ? "medium" : "high";
+    }
+    // Developer instructions contain host-boundary policy that must follow the
+    // current runtime, even when an older record treated its value as managed.
+    delete previousDesiredConfig.developer_instructions;
+  }
+  const desiredConfigWithPersistedManagedValues = await preserveManagedConfigDecisions(
+    configDocument,
+    currentManagedConfig,
+    desiredConfig,
+    previousDesiredConfig,
+  );
   let mergedConfig: Awaited<ReturnType<typeof mergeManagedRuntimeConfig>>;
   try {
     mergedConfig = await mergeManagedRuntimeConfig(
       configDocument,
       currentManagedConfig,
-      desiredConfig,
+      desiredConfigWithPersistedManagedValues,
       { schema: STATE_SCHEMA_EPOCH, installId },
     );
   } catch (error: unknown) {
@@ -407,47 +766,25 @@ export async function installHolyCodex(
       { recovery: "Converge the conflicting Codex setting, then retry." },
     );
   }
+  let managedConfigConflicts: readonly ManagedConflict[] = [];
   if (mergedConfig.driftedKeys.length > 0) {
-    await resolveOwnedConflicts(
-      options,
-      mergedConfig.driftedKeys.map((key) => ({ path: paths.configFile, key, action: "replace" })),
-    );
-    let acceptedDocument = configDocument;
-    const acceptedManaged = { ...currentManagedConfig.managed };
-    for (const key of mergedConfig.driftedKeys) {
-      const existing = acceptedManaged[key];
+    managedConfigConflicts = mergedConfig.driftedKeys.map((key) => {
+      const existing = currentManagedConfig.managed[key];
+      const currentValue = readTomlPath(configDocument, key);
       const desiredValue = desiredConfig[key];
-      if (existing === undefined || desiredValue === undefined) {
-        throw new InstallerError(
-          "state_corrupt",
-          "The managed conflict cannot be verified.",
-          undefined,
-          {
-            path: paths.configFile,
-            key,
-          },
-        );
-      }
-      let live = readTomlPath(acceptedDocument, key);
-      if (live === undefined) {
-        acceptedDocument = writeTomlPath(acceptedDocument, key, desiredValue);
-        live = desiredValue;
-      }
-      acceptedManaged[key] = {
-        ...existing,
-        lastManagedValue: await summarizeManagedConfigValue(key, live),
-      };
-    }
-    mergedConfig = await mergeManagedRuntimeConfig(
-      acceptedDocument,
-      { ...currentManagedConfig, managed: acceptedManaged },
-      desiredConfig,
-      { schema: STATE_SCHEMA_EPOCH, installId },
-    );
-    if (mergedConfig.driftedKeys.length > 0) {
-      throw new InstallerError("state_corrupt", "The accepted managed conflicts did not converge.");
-    }
+      return structureConflict({
+        path: paths.configFile,
+        key,
+        action: "replace",
+        category: "config-key",
+        target: key,
+        existing: currentValue ?? existing?.lastManagedValue,
+        desired: desiredValue,
+        explanation: `The managed Codex setting ${key} changed outside the previous transaction.`,
+      });
+    });
   }
+  if (useBatchConflictResolution) pendingConflicts.push(...managedConfigConflicts);
   let nativeConflicts: readonly ManagedConflict[];
   try {
     nativeConflicts = await inspectNativeAgentConflicts(
@@ -464,7 +801,194 @@ export async function installHolyCodex(
   } catch (error: unknown) {
     throw new InstallerError("install_failed", safeMessage(error), error);
   }
-  const acceptedNativeConflicts = await resolveOwnedConflicts(options, nativeConflicts, true);
+  if (useBatchConflictResolution) pendingConflicts.push(...nativeConflicts.map(structureConflict));
+  const allConflicts = [
+    ...pluginConfigConflicts,
+    ...providerConfigConflicts,
+    ...managedConfigConflicts,
+    ...nativeConflicts.map(structureConflict),
+  ];
+  let resolvedConflicts = await resolveOwnedConflictInventory(
+    options,
+    useBatchConflictResolution ? pendingConflicts : allConflicts,
+    true,
+  );
+  let reviewedNativeConflicts: readonly ManagedConflict[] = [];
+  let resolvedDesiredConfig: Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> = {
+    ...desiredConfigWithPersistedManagedValues,
+  };
+  let resolvedManagedConfig = currentManagedConfig.managed;
+  const applyResolvedConflictDecisions = async (): Promise<void> => {
+    reviewedNativeConflicts = nativeConflicts.map((conflict) => {
+      const projected = structureConflict(conflict);
+      const decision = resolvedConflicts.decisions.get(projected.identity!);
+      return decision === undefined ? projected : { ...projected, decision };
+    });
+    const acceptedPluginConfig = await applyPluginConfigConflictDecisions(
+      configDocument,
+      configDocument,
+      initialPluginConfigBefore,
+      initialProviderConfigBefore,
+      currentHolyCodexPluginConfig,
+      currentProviderConfig,
+      pluginConfigConflicts,
+      providerConfigConflicts,
+      resolvedConflicts.decisions,
+      providerPlugins,
+    );
+    let acceptedDocument = acceptedPluginConfig.document;
+    pluginConfigBefore = acceptedPluginConfig.pluginConfigBefore;
+    providerConfigBefore = acceptedPluginConfig.providerConfigBefore;
+    const acceptedManaged = { ...currentManagedConfig.managed };
+    const effectiveDesiredConfig: Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> = {
+      ...desiredConfigWithPersistedManagedValues,
+    };
+    for (const conflict of managedConfigConflicts) {
+      const key = conflict.key;
+      if (key === undefined) continue;
+      const configKey = key as ManagedConfigKeyPath;
+      const decision = resolvedConflicts.decisions.get(conflict.identity!);
+      if (decision !== "keep" && decision !== "replace") {
+        throw new InstallerError(
+          "confirmation_required",
+          "Managed conflict resolution is incomplete.",
+          undefined,
+          { key },
+        );
+      }
+      const existing = acceptedManaged[configKey];
+      const desiredValue = desiredConfig[configKey];
+      if (existing === undefined || desiredValue === undefined) {
+        throw new InstallerError(
+          "state_corrupt",
+          "The managed conflict cannot be verified.",
+          undefined,
+          { path: paths.configFile, key },
+        );
+      }
+      const live = readTomlPath(configDocument, configKey);
+      if (decision === "replace") {
+        acceptedDocument = writeTomlPath(acceptedDocument, configKey, desiredValue);
+        acceptedManaged[configKey] = {
+          ...existing,
+          lastManagedValue: await summarizeManagedConfigValue(configKey, desiredValue),
+        };
+      } else if (live === undefined) {
+        delete effectiveDesiredConfig[configKey];
+        delete acceptedManaged[configKey];
+      } else {
+        delete effectiveDesiredConfig[configKey];
+        acceptedManaged[configKey] = {
+          ...existing,
+          lastManagedValue: await summarizeManagedConfigValue(configKey, live),
+        };
+      }
+    }
+    mergedConfig = await mergeManagedRuntimeConfig(
+      acceptedDocument,
+      { ...currentManagedConfig, managed: acceptedManaged },
+      effectiveDesiredConfig,
+      { schema: STATE_SCHEMA_EPOCH, installId },
+    );
+    if (mergedConfig.driftedKeys.length > 0) {
+      throw new InstallerError("state_corrupt", "The accepted managed conflicts did not converge.");
+    }
+    resolvedDesiredConfig = effectiveDesiredConfig;
+    await debugInstaller(
+      `resolvedShell=${String(typeof resolvedDesiredConfig.developer_instructions === "string" && resolvedDesiredConfig.developer_instructions.includes("On Windows, use Git for Windows Bash"))} resolvedTail=${JSON.stringify(typeof resolvedDesiredConfig.developer_instructions === "string" ? resolvedDesiredConfig.developer_instructions.slice(-500) : resolvedDesiredConfig.developer_instructions)}`,
+    );
+    const stabilityManaged = { ...currentManagedConfig.managed };
+    for (const conflict of managedConfigConflicts) {
+      const key = conflict.key as ManagedConfigKeyPath | undefined;
+      if (key === undefined) continue;
+      const live = readTomlPath(configDocument, key);
+      const existing = stabilityManaged[key];
+      if (existing !== undefined && live === undefined) {
+        delete stabilityManaged[key];
+      } else if (existing !== undefined && live !== undefined) {
+        stabilityManaged[key] = {
+          ...existing,
+          lastManagedValue: await summarizeManagedConfigValue(key, live),
+        };
+      }
+    }
+    resolvedManagedConfig = stabilityManaged;
+  };
+  await applyResolvedConflictDecisions();
+  const projectReviewConflicts = (): readonly ManagedConflict[] =>
+    allConflicts.map((conflict) => {
+      const projected = structureConflict(conflict);
+      const decision = resolvedConflicts.decisions.get(projected.identity!);
+      return decision === undefined ? projected : { ...projected, decision };
+    });
+  const projectReviewConflictCounts = (
+    conflicts: readonly ManagedConflict[],
+  ): Readonly<Record<string, number>> =>
+    Object.fromEntries(
+      ["config-key", "native-plugin", "role-asset"].flatMap((category) => {
+        const count = conflicts.filter((conflict) => conflict.category === category).length;
+        return count === 0 ? [] : [[category, count] as const];
+      }),
+    );
+  let reviewConflicts = projectReviewConflicts();
+  let reviewConflictCounts = projectReviewConflictCounts(reviewConflicts);
+  const reviewTools = installReviewTools(
+    discoveredGitBash,
+    context7PreflightReady,
+    preflightLive,
+    providerPlugins,
+  );
+  if (options.reviewInstall !== undefined) {
+    while (true) {
+      const review = await options.reviewInstall({
+        operation: previous === undefined ? "install" : "upgrade",
+        ...(previous === undefined ? {} : { fromVersion: previous.version }),
+        toVersion: version,
+        profile,
+        tier,
+        capabilities: {
+          computer_use: optional.computer_use,
+          frontend: optional.frontend,
+          security: optional.security,
+        },
+        additionalPlugins: [...additionalPlugins],
+        conflicts: reviewConflicts,
+        conflictCounts: reviewConflictCounts,
+        tools: reviewTools,
+      });
+      if (review.action === "cancel") {
+        throw new InstallerError("confirmation_required", "Install review was cancelled.");
+      }
+      if (review.action === "resolve") {
+        if (allConflicts.length === 0) {
+          throw new InstallerError(
+            "confirmation_required",
+            "There are no managed conflicts to resolve.",
+          );
+        }
+        resolvedConflicts = await resolveOwnedConflictInventory(
+          options,
+          useBatchConflictResolution ? pendingConflicts : allConflicts,
+          true,
+        );
+        await applyResolvedConflictDecisions();
+        reviewConflicts = projectReviewConflicts();
+        reviewConflictCounts = projectReviewConflictCounts(reviewConflicts);
+        continue;
+      }
+      if (review.action === "change") {
+        if (review.request === undefined) {
+          throw new InstallerError(
+            "confirmation_required",
+            "Changing install options requires a revised request.",
+          );
+        }
+        return await installHolyCodex(review.request, options, environment);
+      }
+      if (review.action === "apply") break;
+      throw new InstallerError("confirmation_required", "Unknown install review action.");
+    }
+  }
   const preMutationTransaction: PreparingTransaction = {
     owner: "holycodex",
     schema_epoch: STATE_SCHEMA_EPOCH,
@@ -481,7 +1005,10 @@ export async function installHolyCodex(
     installed_at: installedAt,
     status: "preparing",
     step: "validated",
-    managed_config: mergedConfig.state,
+    // Until config publication, recovery must use the ownership record already
+    // committed for the live configuration. Conflict decisions are projections
+    // and must not make user-kept values look HolyCodex-owned in this journal.
+    managed_config: unmanagedConfigState,
     plugin_snapshot: [],
     plugin_config: {
       plugin_id: HOLYCODEX_PLUGIN as "holycodex@holycodex",
@@ -489,67 +1016,100 @@ export async function installHolyCodex(
       after: pluginConfigBefore,
     },
     provider_config: providerConfigBefore,
-    owned_plugins: [...new Set(previous?.owned_plugins ?? [])],
+    owned_plugins: [...previousOwnedPlugins],
     ...(previous?.tooling === undefined ? {} : { tooling: previous.tooling }),
   };
   await ensureOwnedDirectory(paths.stateRoot);
   await writeTransaction(paths.preparingRecord, preMutationTransaction);
-  try {
-    gitBash = await ensureGitBash(runtime, true);
-    context7 = await ensureContext7(runtime, true, previous?.tooling?.context7);
-  } catch (error: unknown) {
-    if (error instanceof ToolingError) {
-      throw new InstallerError("capability_denied", error.message, error, error.details);
-    }
-    throw error;
-  }
-  const tooling = { git_bash: gitBash, context7 } as const;
-  if (
-    manager.ensureOfficialMarketplace !== undefined &&
-    unresolvedOfficialProviderPlugins.length > 0
-  ) {
-    try {
-      await manager.ensureOfficialMarketplace(unresolvedOfficialProviderPlugins);
-    } catch (error: unknown) {
-      throw new InstallerError(
-        "capability_denied",
-        `The selected official Codex provider marketplace is unavailable: ${safeMessage(error)}`,
-        error,
-        { recovery: "Check Codex network and marketplace policy, then retry." },
-      );
-    }
-  }
 
-  let pluginSnapshot: readonly PluginSnapshot[];
-  try {
-    pluginSnapshot = await snapshotPlugins({ list: () => manager.list!() }, [
-      ...new Set([HOLYCODEX_PLUGIN, ...providerPlugins, ...(previous?.owned_plugins ?? [])]),
-    ]);
-  } catch (error: unknown) {
-    throw new InstallerError(
-      "capability_denied",
-      "Native Codex plugin state could not be read safely.",
-      error,
-    );
-  }
-  const transaction: PreparingTransaction = {
-    ...preMutationTransaction,
-    plugin_snapshot: pluginSnapshot,
-    tooling,
-  };
-  await writeTransaction(paths.preparingRecord, transaction);
+  let pluginSnapshot: readonly PluginSnapshot[] = [];
 
   let native: NativeAgentInstallResult | undefined;
   let configPublished = false;
   const addedPlugins = new Set<string>();
-  const ownedPlugins = new Set(previous?.owned_plugins ?? []);
+  const removedPlugins = new Set<string>();
+  const uncertainPluginRemovals = new Set<string>();
+  const ownedPlugins = new Set(previousOwnedPlugins);
+  const rollbackOwnedPlugins = new Set(previousOwnedPlugins);
   const uncertainPluginMutations = new Set<string>();
-  let transactionForRecovery: PreparingTransaction = transaction;
+  let transactionForRecovery: PreparingTransaction = preMutationTransaction;
   let pluginEffectsStarted = false;
-  let pluginConfigBaselineValidated = false;
-  let configRollbackBaseline = configBefore;
+  let configBeforeMutationDocument: TomlDocument | undefined;
   let publishedConfigState = mergedConfig.state;
+  let activeRecordWriteStarted = false;
+  let installOptionsWriteStarted = false;
   try {
+    try {
+      gitBash = await ensureGitBash(runtime, true);
+      context7 = await ensureContext7(runtime, true, previous?.tooling?.context7);
+      if (context7 === undefined) {
+        throw new InstallerError("capability_denied", "Context7 installation was not verified.");
+      }
+    } catch (error: unknown) {
+      if (error instanceof ToolingError) {
+        throw new InstallerError("capability_denied", error.message, error, error.details);
+      }
+      throw error;
+    }
+    const tooling = { git_bash: gitBash, context7 } as const;
+    let transaction: PreparingTransaction = { ...preMutationTransaction, tooling };
+    transactionForRecovery = transaction;
+    await writeTransaction(paths.preparingRecord, transactionForRecovery);
+    if (
+      manager.ensureOfficialMarketplace !== undefined &&
+      unresolvedOfficialProviderPlugins.length > 0
+    ) {
+      try {
+        await manager.ensureOfficialMarketplace(unresolvedOfficialProviderPlugins);
+      } catch (error: unknown) {
+        throw new InstallerError(
+          "capability_denied",
+          `The selected official Codex provider marketplace is unavailable: ${safeMessage(error)}`,
+          error,
+          { recovery: "Check Codex network and marketplace policy, then retry." },
+        );
+      }
+    }
+    try {
+      pluginSnapshot = await snapshotPlugins({ list: () => manager.list!() }, [
+        ...new Set([HOLYCODEX_PLUGIN, ...providerPlugins, ...previousOwnedPlugins]),
+      ]);
+    } catch (error: unknown) {
+      throw new InstallerError(
+        "capability_denied",
+        "Native Codex plugin state could not be read safely.",
+        error,
+      );
+    }
+    transaction = { ...transaction, plugin_snapshot: pluginSnapshot };
+    transactionForRecovery = transaction;
+    await writeTransaction(paths.preparingRecord, transactionForRecovery);
+    const liveConfigBeforeMutation = parseConfig(await optionalTextFile(paths.configFile));
+    await assertPreflightPluginConfigStable(
+      liveConfigBeforeMutation,
+      currentHolyCodexPluginConfig,
+      currentProviderConfig,
+    );
+    const configBeforeMutationRuntime = await migrateKnownLegacyRoleRegistrations(
+      liveConfigBeforeMutation,
+      unmanagedConfigState,
+      previous,
+    );
+    const configBeforeMutationContext = await migrateLegacyContextManagement(
+      configBeforeMutationRuntime.document,
+      configBeforeMutationRuntime.state,
+    );
+    const configBeforeMutationAutoCompact = await migrateLegacyAutoCompactConfig(
+      configBeforeMutationContext.document,
+      configBeforeMutationContext.state,
+    );
+    configBeforeMutationDocument = configBeforeMutationAutoCompact.document;
+    await assertPostPluginConfigStable(
+      configBeforeMutationDocument,
+      configDocument,
+      { ...currentManagedConfig, managed: resolvedManagedConfig },
+      resolvedDesiredConfig,
+    );
     reportProgress(options, {
       stage: "roles",
       status: "started",
@@ -563,7 +1123,7 @@ export async function installHolyCodex(
       tier,
       gitBash.status === "healthy" ? gitBash.path : undefined,
       nativeConflicts.length === 0 ? options.resolveConflict : undefined,
-      acceptedNativeConflicts,
+      reviewedNativeConflicts,
     );
     transactionForRecovery = {
       ...transaction,
@@ -582,6 +1142,80 @@ export async function installHolyCodex(
       message: "Installing selected capabilities",
     });
     pluginEffectsStarted = true;
+    let pluginRecoveryTargetDocument = configBeforeMutationDocument;
+    if (pluginRecoveryTargetDocument === undefined) {
+      throw new InstallerError(
+        "state_corrupt",
+        "The pre-mutation configuration baseline is missing.",
+      );
+    }
+    pluginRecoveryTargetDocument = writePluginConfigEntry(
+      pluginRecoveryTargetDocument,
+      "plugins",
+      HOLYCODEX_PLUGIN_CONFIG_KEY,
+      { enabled: true },
+    );
+    pluginRecoveryTargetDocument = writePluginConfigEntry(
+      pluginRecoveryTargetDocument,
+      "marketplaces",
+      HOLYCODEX_MARKETPLACE_CONFIG_KEY,
+      { source_type: "git", source: HOLYCODEX_MARKETPLACE_URL },
+    );
+    for (const pluginId of providerPlugins) {
+      pluginRecoveryTargetDocument = writePluginConfigEntry(
+        pluginRecoveryTargetDocument,
+        "plugins",
+        pluginId,
+        { enabled: true },
+      );
+    }
+    const pluginRecoveryConfigAfter = await snapshotHolyCodexPluginConfig(
+      pluginRecoveryTargetDocument,
+    );
+    const providerRecoveryConfigAfter = await snapshotProviderPluginConfig(
+      pluginRecoveryTargetDocument,
+      providerConfigPluginIds,
+    );
+    const providerRecoveryConfig = providerRecoveryConfigAfter.map((entry) => ({
+      plugin_id: entry.plugin_id,
+      before:
+        providerConfigBefore.find((candidate) => candidate.plugin_id === entry.plugin_id)?.before ??
+        entry.before,
+      after: entry.before,
+    }));
+    transactionForRecovery = {
+      ...transactionForRecovery,
+      plugin_config: {
+        plugin_id: HOLYCODEX_PLUGIN as "holycodex@holycodex",
+        before: pluginConfigBefore,
+        after: pluginRecoveryConfigAfter,
+      },
+      provider_config: providerRecoveryConfig,
+    };
+    await writeTransaction(paths.preparingRecord, transactionForRecovery);
+    if (omittedOwnedPlugins.length > 0) {
+      const removalManager = {
+        list: () => manager.list!(),
+        remove: (id: string) => manager.remove!(id),
+      };
+      await removeAndVerify(removalManager, omittedOwnedPlugins, async (id, mutation) => {
+        if (mutation === "removed") {
+          removedPlugins.add(id);
+          ownedPlugins.delete(id);
+        } else if (mutation === "absent") {
+          ownedPlugins.delete(id);
+        } else {
+          // A failed remove whose post-state cannot be proven remains owned
+          // so conflicted recovery can retry it safely.
+          uncertainPluginRemovals.add(id);
+        }
+        transactionForRecovery = {
+          ...transactionForRecovery,
+          owned_plugins: [...ownedPlugins],
+        };
+        await writeTransaction(paths.preparingRecord, transactionForRecovery);
+      });
+    }
     await manager.addMarketplace!(HOLYCODEX_MARKETPLACE);
     const nativeManager = {
       list: () => manager.list!(),
@@ -591,10 +1225,11 @@ export async function installHolyCodex(
       nativeManager,
       [HOLYCODEX_PLUGIN, ...providerPlugins],
       refreshPluginIds,
-      (id, mutation) => {
+      async (id, mutation) => {
         if (mutation === "new") {
           addedPlugins.add(id);
           ownedPlugins.add(id);
+          rollbackOwnedPlugins.add(id);
           transactionForRecovery = {
             ...transactionForRecovery,
             owned_plugins: [...ownedPlugins],
@@ -605,11 +1240,13 @@ export async function installHolyCodex(
           // the next remove/retry must reconcile that effect explicitly.
           uncertainPluginMutations.add(id);
           ownedPlugins.add(id);
+          rollbackOwnedPlugins.add(id);
           transactionForRecovery = {
             ...transactionForRecovery,
             owned_plugins: [...ownedPlugins],
           };
         }
+        await writeTransaction(paths.preparingRecord, transactionForRecovery);
       },
     );
     transactionForRecovery = { ...transactionForRecovery, step: "plugins_installed" };
@@ -620,7 +1257,6 @@ export async function installHolyCodex(
       message: "Selected capabilities installed",
     });
     const configAfterPlugins = await optionalTextFile(paths.configFile);
-    configRollbackBaseline = configAfterPlugins;
     const postPluginDocument = parseConfig(configAfterPlugins);
     const postPluginRuntime = await migrateKnownLegacyRoleRegistrations(
       postPluginDocument,
@@ -631,8 +1267,39 @@ export async function installHolyCodex(
       postPluginRuntime.document,
       postPluginRuntime.state,
     );
-    const stablePostPluginDocument = postPluginContext.document;
-    const stableManagedConfig = postPluginContext.state;
+    const postPluginAutoCompact = await migrateLegacyAutoCompactConfig(
+      postPluginContext.document,
+      postPluginContext.state,
+    );
+    if (configBeforeMutationDocument === undefined) {
+      throw new InstallerError(
+        "state_corrupt",
+        "The pre-mutation configuration baseline is missing.",
+      );
+    }
+    const postPluginResolution = await applyPluginConfigConflictDecisions(
+      postPluginAutoCompact.document,
+      configBeforeMutationDocument,
+      initialPluginConfigBefore,
+      initialProviderConfigBefore,
+      currentHolyCodexPluginConfig,
+      currentProviderConfig,
+      pluginConfigConflicts,
+      providerConfigConflicts,
+      resolvedConflicts.decisions,
+      providerPlugins,
+    );
+    let stablePostPluginDocument = postPluginResolution.document;
+    for (const rawKeyPath of Object.keys(resolvedManagedConfig)) {
+      const keyPath = rawKeyPath as ManagedConfigKeyPath;
+      const acceptedValue = readTomlPath(configBeforeMutationDocument, keyPath);
+      stablePostPluginDocument =
+        acceptedValue === undefined
+          ? deleteTomlPath(stablePostPluginDocument, keyPath)
+          : writeTomlPath(stablePostPluginDocument, keyPath, acceptedValue);
+    }
+    pluginConfigBefore = postPluginResolution.pluginConfigBefore;
+    providerConfigBefore = postPluginResolution.providerConfigBefore;
     const pluginConfigAfter = await snapshotHolyCodexPluginConfig(stablePostPluginDocument);
     const currentProviderConfigAfter = await snapshotProviderPluginConfig(
       stablePostPluginDocument,
@@ -645,16 +1312,41 @@ export async function installHolyCodex(
         entry.before,
       after: entry.before,
     }));
+    transactionForRecovery = {
+      ...transactionForRecovery,
+      plugin_config: {
+        plugin_id: HOLYCODEX_PLUGIN as "holycodex@holycodex",
+        before: pluginConfigBefore,
+        after: pluginConfigAfter,
+      },
+      provider_config: providerConfig,
+    };
+    const postPluginBaselineManaged: Record<string, ManagedRuntimeConfigState["managed"][string]> =
+      {};
+    for (const [rawKeyPath, entry] of Object.entries(resolvedManagedConfig)) {
+      const keyPath = rawKeyPath as ManagedConfigKeyPath;
+      const value = readTomlPath(configBeforeMutationDocument, keyPath);
+      postPluginBaselineManaged[keyPath] = {
+        ...entry,
+        ...(value === undefined
+          ? {}
+          : { lastManagedValue: await summarizeManagedConfigValue(keyPath, value) }),
+      };
+    }
+    const postPluginBaseline: ManagedRuntimeConfigState = {
+      ...currentManagedConfig,
+      managed: postPluginBaselineManaged,
+    };
     await assertPostPluginConfigStable(
       stablePostPluginDocument,
-      configDocument,
-      stableManagedConfig,
-      desiredConfig,
+      configBeforeMutationDocument,
+      postPluginBaseline,
+      resolvedDesiredConfig,
     );
     const postPluginConfig = await mergeManagedRuntimeConfig(
       stablePostPluginDocument,
-      stableManagedConfig,
-      desiredConfig,
+      postPluginBaseline,
+      resolvedDesiredConfig,
       { schema: STATE_SCHEMA_EPOCH, installId },
     );
     if (postPluginConfig.driftedKeys.length > 0) {
@@ -665,7 +1357,13 @@ export async function installHolyCodex(
         { keys: postPluginConfig.driftedKeys.join(",") },
       );
     }
-    pluginConfigBaselineValidated = true;
+    const publishedDeveloperInstructions = readTomlPath(
+      postPluginConfig.document,
+      "developer_instructions",
+    );
+    await debugInstaller(
+      `publishedCandidate shell=${String(typeof publishedDeveloperInstructions === "string" && publishedDeveloperInstructions.includes("On Windows, use Git for Windows Bash"))} publishedTail=${JSON.stringify(typeof publishedDeveloperInstructions === "string" ? publishedDeveloperInstructions.slice(-500) : publishedDeveloperInstructions)} resolvedShell=${String(typeof resolvedDesiredConfig.developer_instructions === "string" && resolvedDesiredConfig.developer_instructions.includes("On Windows, use Git for Windows Bash"))}`,
+    );
     reportProgress(options, {
       stage: "config",
       status: "started",
@@ -682,8 +1380,20 @@ export async function installHolyCodex(
       },
       provider_config: providerConfig,
     };
+    if ((await optionalTextFile(paths.configFile)) !== configAfterPlugins) {
+      throw new InstallerError(
+        "confirmation_required",
+        "Codex configuration changed during plugin setup; review the latest configuration and retry.",
+        undefined,
+        { path: paths.configFile },
+      );
+    }
     await writeAtomicText(paths.configFile, serializeConfig(postPluginConfig.document));
     configPublished = true;
+    const publishedConfigText = await optionalTextFile(paths.configFile);
+    await debugInstaller(
+      `afterWrite shell=${String(publishedConfigText?.includes("On Windows, use Git for Windows Bash"))} textTail=${JSON.stringify(publishedConfigText?.slice(-500) ?? "")}`,
+    );
     transactionForRecovery = { ...transactionForRecovery, step: "config_published" };
     await writeTransaction(paths.preparingRecord, transactionForRecovery);
     reportProgress(options, {
@@ -708,6 +1418,7 @@ export async function installHolyCodex(
       },
       publishedConfigState,
       native.preserved,
+      resolvedDesiredConfig,
     );
     reportProgress(options, {
       stage: "verification",
@@ -767,7 +1478,13 @@ export async function installHolyCodex(
     if (decodeSchema(InstallRecordSchema, record) === undefined) {
       throw new InstallerError("state_corrupt", "The HolyCodex configuration is invalid.");
     }
+    activeRecordWriteStarted = true;
     await writeAtomicJson(paths.activeRecord, asJsonValue(record));
+    installOptionsWriteStarted = true;
+    await writeInstallOptions(
+      paths,
+      persistedOptionsForInstall(profile, tier, optional, additionalPlugins),
+    );
     await removeTransaction(paths.preparingRecord);
     await removeTransaction(paths.conflictedRecord);
     reportProgress(options, {
@@ -783,16 +1500,45 @@ export async function installHolyCodex(
     };
   } catch (error: unknown) {
     const rollbackFailures: string[] = [];
-    if (configPublished) {
+    if (activeRecordWriteStarted) {
       try {
-        await restoreConfig(paths.configFile, configRollbackBaseline);
+        if (activeRecordBefore === undefined) {
+          await rm(paths.activeRecord, { force: false }).catch((restoreError: unknown) => {
+            if (!isFsCode(restoreError, "ENOENT")) throw restoreError;
+          });
+        } else {
+          await writeAtomicText(paths.activeRecord, activeRecordBefore);
+        }
+      } catch {
+        rollbackFailures.push("active_record");
+      }
+    }
+    if (installOptionsWriteStarted) {
+      try {
+        if (installOptionsBefore === undefined) {
+          await rm(paths.installOptions, { force: false }).catch((restoreError: unknown) => {
+            if (!isFsCode(restoreError, "ENOENT")) throw restoreError;
+          });
+        } else {
+          await writeAtomicText(paths.installOptions, installOptionsBefore);
+        }
+      } catch {
+        rollbackFailures.push("install_options");
+      }
+    }
+    if (pluginEffectsStarted || configPublished) {
+      try {
+        if (configBeforeMutationDocument !== undefined) {
+          await rollbackConfigTransaction(
+            paths.configFile,
+            transactionForRecovery,
+            configBeforeMutationDocument,
+            rollbackOwnedPlugins,
+          );
+        }
       } catch {
         rollbackFailures.push("config");
       }
-    }
-    if (pluginEffectsStarted && !pluginConfigBaselineValidated) {
-      const currentConfig = await optionalTextFile(paths.configFile).catch(() => undefined);
-      if (currentConfig !== configRollbackBaseline) rollbackFailures.push("config");
     }
     if (native !== undefined) {
       try {
@@ -814,12 +1560,113 @@ export async function installHolyCodex(
         rollbackFailures.push(`plugin:${pluginId}`);
       }
     }
+    for (const pluginId of new Set([...removedPlugins, ...uncertainPluginRemovals])) {
+      try {
+        await restoreRemovedPlugin(
+          {
+            list: () => manager.list!(),
+            add: (id: string) => manager.add!(id),
+          },
+          pluginId,
+          pluginSnapshot.find((snapshot) => snapshot.plugin_id === pluginId)?.status,
+        );
+        removedPlugins.delete(pluginId);
+        uncertainPluginRemovals.delete(pluginId);
+        ownedPlugins.add(pluginId);
+        transactionForRecovery = {
+          ...transactionForRecovery,
+          owned_plugins: [...ownedPlugins],
+        };
+        await writeTransaction(paths.preparingRecord, transactionForRecovery);
+      } catch {
+        // Keep ownership in the recovery journal when restoring a removed
+        // plugin cannot be proven complete.
+        ownedPlugins.add(pluginId);
+        uncertainPluginRemovals.add(pluginId);
+        transactionForRecovery = {
+          ...transactionForRecovery,
+          owned_plugins: [...ownedPlugins],
+        };
+        await writeTransaction(paths.preparingRecord, transactionForRecovery).catch(
+          () => undefined,
+        );
+        rollbackFailures.push(`plugin:${pluginId}`);
+      }
+    }
+    if (
+      context7?.ownership === "holycodex" &&
+      previous?.tooling?.context7?.ownership !== "holycodex"
+    ) {
+      try {
+        if (!(await removeOwnedContext7(runtime, context7))) {
+          rollbackFailures.push("context7");
+        }
+      } catch {
+        rollbackFailures.push("context7");
+      }
+    }
     if (rollbackFailures.length > 0) {
-      await writeTransaction(paths.conflictedRecord, {
-        ...transactionForRecovery,
-        step: "conflicted",
-        status: "conflicted",
-      }).catch(() => undefined);
+      try {
+        const recoveryDocument = parseConfig(await optionalTextFile(paths.configFile));
+        const recoveryPluginConfig = transactionForRecovery.plugin_config;
+        const recoveryCurrentPluginConfig = await snapshotHolyCodexPluginConfig(recoveryDocument);
+        const normalizedPluginConfig =
+          recoveryPluginConfig === undefined
+            ? undefined
+            : {
+                ...recoveryPluginConfig,
+                after: {
+                  preference:
+                    recoveryCurrentPluginConfig.preference.digest ===
+                    recoveryPluginConfig.before.preference.digest
+                      ? recoveryPluginConfig.before.preference
+                      : recoveryPluginConfig.after.preference,
+                  marketplace:
+                    recoveryCurrentPluginConfig.marketplace.digest ===
+                    recoveryPluginConfig.before.marketplace.digest
+                      ? recoveryPluginConfig.before.marketplace
+                      : recoveryPluginConfig.after.marketplace,
+                },
+              };
+        const recoveryProviderConfig = transactionForRecovery.provider_config;
+        const recoveryCurrentProviderConfig = await snapshotProviderPluginConfig(
+          recoveryDocument,
+          recoveryProviderConfig?.map((entry) => entry.plugin_id) ?? [],
+        );
+        const normalizedProviderConfig = recoveryProviderConfig?.map((entry) => {
+          const current = recoveryCurrentProviderConfig.find(
+            (candidate) => candidate.plugin_id === entry.plugin_id,
+          );
+          return current !== undefined && current.before.digest === entry.before.digest
+            ? { ...entry, after: entry.before }
+            : entry;
+        });
+        transactionForRecovery = {
+          ...transactionForRecovery,
+          ...(normalizedPluginConfig === undefined
+            ? {}
+            : { plugin_config: normalizedPluginConfig }),
+          ...(normalizedProviderConfig === undefined
+            ? {}
+            : { provider_config: normalizedProviderConfig }),
+        };
+      } catch {
+        // Keep the transaction's expected post-mutation snapshots when the live state cannot be read.
+      }
+      let conflictPublished = false;
+      try {
+        await writeTransaction(paths.conflictedRecord, {
+          ...transactionForRecovery,
+          step: "conflicted",
+          status: "conflicted",
+        });
+        conflictPublished = true;
+      } catch {
+        // Keep the preparing journal when conflict publication fails so recovery can retry it.
+      }
+      if (conflictPublished) {
+        await removeTransaction(paths.preparingRecord).catch(() => undefined);
+      }
     } else {
       await removeTransaction(paths.preparingRecord).catch(() => undefined);
     }
@@ -1129,6 +1976,29 @@ export async function cleanupProviderPluginConfig(
   return { document: output, restored, removed, preserved };
 }
 
+async function restoreUnsupportedPluginConfigEntry(
+  document: TomlDocument,
+  baseline: TomlDocument,
+  parent: "plugins" | "marketplaces",
+  key: string,
+  before: PluginConfigEntrySnapshot | ProviderPluginConfigSnapshot["before"],
+  after: PluginConfigEntrySnapshot | ProviderPluginConfigSnapshot["after"],
+): Promise<{ readonly document: TomlDocument; readonly restored: boolean }> {
+  if (before.presence !== "present" || before.safe_value !== undefined) {
+    return { document, restored: false };
+  }
+  const current = await snapshotPluginConfigEntry(document, parent, key);
+  if (current.digest === before.digest || current.digest !== after.digest) {
+    return { document, restored: false };
+  }
+  const value = readPluginConfigEntry(baseline, parent, key);
+  if (value === undefined) return { document, restored: false };
+  return {
+    document: writePluginConfigEntry(document, parent, key, value),
+    restored: true,
+  };
+}
+
 async function snapshotPluginConfigEntry(
   document: TomlDocument,
   parent: "plugins" | "marketplaces",
@@ -1198,7 +2068,7 @@ function writePluginConfigEntry(
   document: TomlDocument,
   parent: "plugins" | "marketplaces",
   key: string,
-  value: TomlTable,
+  value: TomlValue,
 ): TomlDocument {
   const output: Record<string, TomlValue> = { ...document };
   const parentValue = output[parent];
@@ -1230,6 +2100,211 @@ function isTomlTable(value: TomlValue | undefined): value is TomlTable {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+type PluginConfigConflictResolution = Readonly<{
+  readonly document: TomlDocument;
+  readonly pluginConfigBefore: PluginConfigSnapshot["before"];
+  readonly providerConfigBefore: readonly ProviderPluginConfigSnapshot[];
+}>;
+
+async function assertPreflightPluginConfigStable(
+  document: TomlDocument,
+  expectedHolyCodex: PluginConfigSnapshot["before"],
+  expectedProviders: readonly ProviderPluginConfigSnapshot[],
+): Promise<void> {
+  const entries = [
+    { parent: "plugins", key: HOLYCODEX_PLUGIN_CONFIG_KEY, expected: expectedHolyCodex.preference },
+    {
+      parent: "marketplaces",
+      key: HOLYCODEX_MARKETPLACE_CONFIG_KEY,
+      expected: expectedHolyCodex.marketplace,
+    },
+    ...expectedProviders.map(({ plugin_id, before }) => ({
+      parent: "plugins" as const,
+      key: plugin_id,
+      expected: before,
+    })),
+  ] as const;
+  for (const { parent, key, expected } of entries) {
+    const current = await snapshotPluginConfigEntry(document, parent, key);
+    if (current.digest !== expected.digest) {
+      throw new InstallerError(
+        "confirmation_required",
+        "Plugin configuration changed after preflight; review the latest configuration and retry.",
+        undefined,
+        { key: `${parent}.${key}` },
+      );
+    }
+  }
+}
+
+async function applyPluginConfigConflictDecisions(
+  document: TomlDocument,
+  preservationDocument: TomlDocument,
+  pluginConfigBefore: PluginConfigSnapshot["before"],
+  providerConfigBefore: readonly ProviderPluginConfigSnapshot[],
+  currentPluginConfig: PluginConfigSnapshot["before"],
+  currentProviderConfig: readonly ProviderPluginConfigSnapshot[],
+  pluginConflicts: readonly ManagedConflict[],
+  providerConflicts: readonly ManagedConflict[],
+  decisions: ReadonlyMap<string, ConflictDecision>,
+  selectedProviderPlugins: readonly string[],
+): Promise<PluginConfigConflictResolution> {
+  let output = document;
+  let effectivePluginConfigBefore = pluginConfigBefore;
+  let effectiveProviderConfigBefore = providerConfigBefore;
+  for (const conflict of pluginConflicts) {
+    const identity = conflict.identity;
+    if (identity === undefined) {
+      throw new InstallerError("state_corrupt", "A plugin configuration conflict has no identity.");
+    }
+    const decision = decisions.get(identity);
+    if (decision !== "keep" && decision !== "replace") {
+      throw new InstallerError(
+        "confirmation_required",
+        `Plugin configuration conflict resolution is incomplete for ${conflict.key ?? identity}.`,
+      );
+    }
+    const name: PluginConfigEntryName =
+      conflict.key === 'plugins."holycodex@holycodex"' ? "preference" : "marketplace";
+    const current = currentPluginConfig[name];
+    if (decision === "keep") {
+      const preserved = readPluginConfigEntry(
+        preservationDocument,
+        "plugins",
+        HOLYCODEX_PLUGIN_CONFIG_KEY,
+      );
+      if (name === "preference" && isTomlTable(preserved) && preserved["enabled"] === false) {
+        throw new InstallerError(
+          "confirmation_required",
+          "Keeping disabled HolyCodex config would disable the selected plugin.",
+        );
+      }
+      output = preserveConfigConflictEntry(output, preservationDocument, conflict.key);
+      effectivePluginConfigBefore = {
+        ...effectivePluginConfigBefore,
+        [name]: current,
+      };
+      continue;
+    }
+    output = writePluginConfigEntry(
+      output,
+      name === "preference" ? "plugins" : "marketplaces",
+      name === "preference" ? HOLYCODEX_PLUGIN_CONFIG_KEY : HOLYCODEX_MARKETPLACE_CONFIG_KEY,
+      name === "preference"
+        ? { enabled: true }
+        : { source_type: "git", source: HOLYCODEX_MARKETPLACE_URL },
+    );
+  }
+  for (const conflict of providerConflicts) {
+    const identity = conflict.identity;
+    const key = conflict.key;
+    if (identity === undefined || key === undefined) {
+      throw new InstallerError(
+        "state_corrupt",
+        "A provider configuration conflict has no identity.",
+      );
+    }
+    const pluginId =
+      key.startsWith('plugins."') && key.endsWith('"')
+        ? key.slice('plugins."'.length, -1)
+        : undefined;
+    if (pluginId === undefined) {
+      throw new InstallerError(
+        "state_corrupt",
+        `The provider configuration conflict key ${key} is invalid.`,
+      );
+    }
+    const decision = decisions.get(identity);
+    if (decision !== "keep" && decision !== "replace") {
+      throw new InstallerError(
+        "confirmation_required",
+        `Provider configuration conflict resolution is incomplete for ${key}.`,
+      );
+    }
+    const current = currentProviderConfig.find((entry) => entry.plugin_id === pluginId);
+    if (current === undefined) {
+      throw new InstallerError(
+        "state_corrupt",
+        `The provider configuration entry ${pluginId} is missing.`,
+      );
+    }
+    if (decision === "keep") {
+      const preserved = readPluginConfigEntry(preservationDocument, "plugins", pluginId);
+      if (
+        selectedProviderPlugins.includes(pluginId) &&
+        isTomlTable(preserved) &&
+        preserved["enabled"] === false
+      ) {
+        throw new InstallerError(
+          "confirmation_required",
+          `Keeping disabled config would disable selected plugin ${pluginId}.`,
+        );
+      }
+      output = preserveConfigConflictEntry(output, preservationDocument, key);
+      effectiveProviderConfigBefore = effectiveProviderConfigBefore.map((entry) =>
+        entry.plugin_id === pluginId
+          ? { plugin_id: pluginId, before: current.before, after: current.before }
+          : entry,
+      );
+      continue;
+    }
+    output = writePluginConfigEntry(output, "plugins", pluginId, { enabled: true });
+  }
+  return {
+    document: output,
+    pluginConfigBefore: effectivePluginConfigBefore,
+    providerConfigBefore: effectiveProviderConfigBefore,
+  };
+}
+
+function preserveConfigConflictEntry(
+  document: TomlDocument,
+  preservationDocument: TomlDocument,
+  key: string | undefined,
+): TomlDocument {
+  if (key === undefined) {
+    throw new InstallerError("state_corrupt", "A configuration conflict has no key.");
+  }
+  if (key.startsWith('plugins."') && key.endsWith('"')) {
+    const pluginId = key.slice('plugins."'.length, -1);
+    const value = readPluginConfigEntry(preservationDocument, "plugins", pluginId);
+    return value === undefined
+      ? deletePluginConfigEntry(document, "plugins", pluginId)
+      : writePluginConfigEntry(document, "plugins", pluginId, value);
+  }
+  const value = readTomlPath(preservationDocument, key);
+  return value === undefined ? deleteTomlPath(document, key) : writeTomlPath(document, key, value);
+}
+
+async function preserveManagedConfigDecisions(
+  document: TomlDocument,
+  current: ManagedRuntimeConfigState,
+  desired: Readonly<Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>>,
+  previousDesired:
+    | Readonly<Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>>
+    | undefined,
+): Promise<Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>> {
+  const effective = { ...desired };
+  if (previousDesired === undefined) return effective;
+  for (const rawKeyPath of Object.keys(desired)) {
+    const keyPath = rawKeyPath as ManagedConfigKeyPath;
+    const existing = current.managed[keyPath];
+    const previousValue = previousDesired[keyPath];
+    if (existing === undefined || previousValue === undefined) continue;
+    const previousSummary = await summarizeManagedConfigValue(keyPath, previousValue);
+    if (JSON.stringify(previousSummary) === JSON.stringify(existing.lastManagedValue)) continue;
+    const live = readTomlPath(document, keyPath);
+    if (typeof live !== "string" && typeof live !== "number" && typeof live !== "boolean") {
+      continue;
+    }
+    const liveSummary = await summarizeManagedConfigValue(keyPath, live);
+    if (JSON.stringify(liveSummary) === JSON.stringify(existing.lastManagedValue)) {
+      delete effective[keyPath];
+    }
+  }
+  return effective;
+}
+
 /** Build the complete managed Root and canonical-agent runtime projection. */
 export function desiredRootConfig(
   profile: ProfileName,
@@ -1246,14 +2321,20 @@ export function desiredRootConfig(
   const root = projectRootAgent(profile, tier);
   const desired: Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> = {
     model: root.model,
-    model_auto_compact_token_limit: 64_000,
     model_reasoning_effort: root.effort,
     service_tier: root.serviceTier,
+    "agents.max_concurrent_threads_per_session": 21,
+    web_search: "live",
+    "sandbox_workspace_write.network_access": true,
     model_verbosity: "low",
-    developer_instructions: rootDeveloperInstructions(capabilities),
+    developer_instructions: rootDeveloperInstructions({
+      ...(typeof capabilities === "boolean" ? { computerUse: capabilities } : capabilities),
+      rootModel: root.model,
+    }),
     suppress_unstable_features_warning: true,
     "features.default_mode_request_user_input": true,
     "features.multi_agent": true,
+    "features.agent_message_board": false,
     "features.multi_agent_v2": false,
     "features.context_management": true,
   };
@@ -1280,14 +2361,18 @@ async function assertPostPluginConfigStable(
     }
     const before = readTomlPath(preflight, keyPath);
     const after = readTomlPath(live, keyPath);
-    if (before !== after) drifted.push(keyPath);
+    const beforeJson = asJsonValue(before === undefined ? null : before);
+    const afterJson = asJsonValue(after === undefined ? null : after);
+    if (canonicalJson(beforeJson) !== canonicalJson(afterJson)) drifted.push(keyPath);
   }
   if (drifted.length > 0) {
     throw new InstallerError(
       "state_corrupt",
       "Codex settings changed during native plugin setup.",
       undefined,
-      { keys: drifted.join(",") },
+      {
+        keys: drifted.join(","),
+      },
     );
   }
 }
@@ -1353,6 +2438,24 @@ async function migrateKnownLegacyRoleRegistrations(
     }
   }
   return { document: output, state: migratedState };
+}
+
+/** Remove the former auto-compaction override while preserving any user drift. */
+async function migrateLegacyAutoCompactConfig(
+  document: TomlDocument,
+  state: ManagedRuntimeConfigState,
+): Promise<Readonly<{ document: TomlDocument; state: ManagedRuntimeConfigState }>> {
+  const entry = state.managed[LEGACY_AUTO_COMPACT_KEY];
+  if (entry === undefined) return { document, state };
+  const cleanup = await cleanupManagedRuntimeConfig(
+    document,
+    { ...state, managed: { [LEGACY_AUTO_COMPACT_KEY]: entry } },
+    { schema: state.schema, installId: state.installId },
+  );
+  const managed = Object.fromEntries(
+    Object.entries(state.managed).filter(([keyPath]) => keyPath !== LEGACY_AUTO_COMPACT_KEY),
+  );
+  return { document: cleanup.document, state: { ...state, managed } };
 }
 
 /** Migrate the pre-0.17 nested context-management key when ownership is recorded. */
@@ -1484,14 +2587,103 @@ async function removeTransaction(path: string): Promise<void> {
   });
 }
 
-async function restoreConfig(path: string, before: string | undefined): Promise<void> {
-  if (before === undefined) {
-    await rm(path, { force: false }).catch((error: unknown) => {
-      if (!isFsCode(error, "ENOENT")) throw error;
-    });
-    return;
+async function rollbackConfigTransaction(
+  path: string,
+  transaction: PreparingTransaction,
+  baseline: TomlDocument,
+  ownedPlugins: ReadonlySet<string>,
+): Promise<void> {
+  const currentText = await optionalTextFile(path);
+  if (currentText === undefined) return;
+  let document = parseConfig(currentText);
+  const managed: Record<string, ManagedRuntimeConfigState["managed"][string]> = {};
+  let unsupportedConfigRestored = 0;
+  for (const [keyPath, entry] of Object.entries(transaction.managed_config.managed)) {
+    const managedKeyPath = keyPath as ManagedConfigKeyPath;
+    const before = readTomlPath(baseline, managedKeyPath);
+    const beforeSummary =
+      before === undefined ? undefined : await summarizeManagedConfigValue(managedKeyPath, before);
+    if (JSON.stringify(beforeSummary ?? null) === JSON.stringify(entry.lastManagedValue)) {
+      continue;
+    }
+    if (before !== undefined && beforeSummary?.kind === "digest") {
+      const live = readTomlPath(document, managedKeyPath);
+      if (
+        live !== undefined &&
+        JSON.stringify(await summarizeManagedConfigValue(managedKeyPath, live)) ===
+          JSON.stringify(entry.lastManagedValue)
+      ) {
+        document = writeTomlPath(document, managedKeyPath, before);
+        unsupportedConfigRestored += 1;
+      }
+      continue;
+    }
+    managed[keyPath] = {
+      ...entry,
+      originalValue: beforeSummary ?? { kind: "absent" },
+    };
   }
-  await writeAtomicText(path, before);
+  const managedCleanup = await cleanupManagedRuntimeConfig(
+    document,
+    { ...transaction.managed_config, managed },
+    { schema: STATE_SCHEMA_EPOCH, installId: transaction.install_id },
+  );
+  document = managedCleanup.document;
+  const pluginCleanup =
+    transaction.plugin_config === undefined
+      ? undefined
+      : await cleanupHolyCodexPluginConfig(document, transaction.plugin_config, {
+          allowBeforeState: true,
+        });
+  if (pluginCleanup !== undefined) document = pluginCleanup.document;
+  const providerCleanup =
+    transaction.provider_config === undefined
+      ? undefined
+      : await cleanupProviderPluginConfig(document, transaction.provider_config, ownedPlugins, {
+          allowBeforeState: true,
+        });
+  if (providerCleanup !== undefined) document = providerCleanup.document;
+  if (transaction.plugin_config !== undefined) {
+    for (const [name, parent, key] of [
+      ["preference", "plugins", HOLYCODEX_PLUGIN_CONFIG_KEY],
+      ["marketplace", "marketplaces", HOLYCODEX_MARKETPLACE_CONFIG_KEY],
+    ] as const) {
+      const restoration = await restoreUnsupportedPluginConfigEntry(
+        document,
+        baseline,
+        parent,
+        key,
+        transaction.plugin_config.before[name],
+        transaction.plugin_config.after[name],
+      );
+      document = restoration.document;
+      if (restoration.restored) unsupportedConfigRestored += 1;
+    }
+  }
+  if (transaction.provider_config !== undefined) {
+    for (const snapshot of transaction.provider_config) {
+      if (!ownedPlugins.has(snapshot.plugin_id)) continue;
+      const restoration = await restoreUnsupportedPluginConfigEntry(
+        document,
+        baseline,
+        "plugins",
+        snapshot.plugin_id,
+        snapshot.before,
+        snapshot.after,
+      );
+      document = restoration.document;
+      if (restoration.restored) unsupportedConfigRestored += 1;
+    }
+  }
+  const changed =
+    managedCleanup.restoredKeys.length > 0 ||
+    (pluginCleanup !== undefined &&
+      (pluginCleanup.restored.length > 0 || pluginCleanup.removed.length > 0)) ||
+    (providerCleanup !== undefined &&
+      (providerCleanup.restored.length > 0 || providerCleanup.removed.length > 0)) ||
+    unsupportedConfigRestored > 0;
+  if (!changed) return;
+  await writeAtomicText(path, serializeConfig(document));
 }
 
 /** Verify effective Root configuration and every canonical native specialist profile. */
@@ -1507,10 +2699,13 @@ export async function verifyEffectiveInstall(
   }>,
   state: ManagedRuntimeConfigState,
   preservedArtifacts: readonly string[] = [],
+  expectedConfig: Readonly<
+    Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>
+  > = desiredRootConfig(profile, tier, capabilities),
 ): Promise<void> {
   const text = await optionalTextFile(paths.configFile);
   const document = parseConfig(text);
-  const expected = desiredRootConfig(profile, tier, capabilities);
+  const expected = expectedConfig;
   for (const [keyPath, expectedValue] of Object.entries(expected)) {
     const actual = readTomlPath(document, keyPath);
     if (keyPath === "developer_instructions") {
@@ -1557,11 +2752,12 @@ export async function verifyEffectiveInstall(
       typeof roleDoc["model_reasoning_effort"] !== "string" ||
       typeof roleDoc["service_tier"] !== "string" ||
       typeof roleDoc["developer_instructions"] !== "string" ||
-      roleDoc["sandbox_mode"] !== nativeAgentSandboxMode(agent) ||
+      !nativeAgentSandboxConfigurationMatches(agent, roleDoc) ||
       roleDoc["approval_policy"] !== "never" ||
       roleDoc["web_search"] !== (agent.permissions.network ? "live" : "disabled") ||
       roleDoc["tool_output_token_limit"] !== undefined ||
       readTomlPath(roleDoc, "agents.enabled") !== false ||
+      readTomlPath(roleDoc, "features.agent_message_board") !== false ||
       readTomlPath(roleDoc, "features.multi_agent_v2") !== false ||
       readTomlPath(roleDoc, "features.multi_agent") !== false ||
       readTomlPath(roleDoc, "features.context_management") !== true ||
@@ -1621,7 +2817,7 @@ async function installAndVerify(
   manager: Required<Pick<OfficialPluginManager, "list" | "add">>,
   ids: readonly string[],
   refreshIds: ReadonlySet<string> = new Set(),
-  onMutation?: (id: string, mutation: "new" | "uncertain") => void,
+  onMutation?: (id: string, mutation: "new" | "uncertain") => void | Promise<void>,
 ): Promise<void> {
   for (const id of ids) {
     const refresh = refreshIds.has(id);
@@ -1641,9 +2837,10 @@ async function installAndVerify(
       } catch (error: unknown) {
         try {
           const afterFailure = findPlugin(await manager.list(), id);
-          if (refresh || !samePluginState(before, afterFailure)) onMutation?.(id, "uncertain");
+          if (refresh || !samePluginState(before, afterFailure))
+            await onMutation?.(id, "uncertain");
         } catch {
-          onMutation?.(id, "uncertain");
+          await onMutation?.(id, "uncertain");
         }
         throw wrapPluginManagerError("add", error, id);
       }
@@ -1652,20 +2849,105 @@ async function installAndVerify(
     try {
       after = findPlugin(await manager.list(), id);
     } catch (error: unknown) {
-      if (addAttempted) onMutation?.(id, "uncertain");
+      if (addAttempted) await onMutation?.(id, "uncertain");
       throw wrapPluginManagerError("list", error, id);
     }
     if (!after?.installed) {
       if (addAttempted && (refresh || !samePluginState(before, after))) {
-        onMutation?.(id, "uncertain");
+        await onMutation?.(id, "uncertain");
       }
       throw new PluginVerificationError("missing", `${id} is not installed after add`);
     }
-    if (addAttempted && after.enabled) onMutation?.(id, refresh ? "uncertain" : "new");
+    if (addAttempted && after.enabled) await onMutation?.(id, refresh ? "uncertain" : "new");
     if (!after.enabled) {
-      if (addAttempted) onMutation?.(id, refresh ? "uncertain" : "new");
+      if (addAttempted) await onMutation?.(id, refresh ? "uncertain" : "new");
       throw new PluginVerificationError("uncertain", `${id} is disabled after add`);
     }
+  }
+}
+
+async function removeAndVerify(
+  manager: Required<Pick<OfficialPluginManager, "list" | "remove">>,
+  ids: readonly string[],
+  onMutation?: (id: string, mutation: "absent" | "removed" | "uncertain") => void | Promise<void>,
+): Promise<void> {
+  for (const id of ids) {
+    let before;
+    try {
+      before = findPlugin(await manager.list(), id);
+    } catch (error: unknown) {
+      await onMutation?.(id, "uncertain");
+      throw wrapPluginManagerError("list", error, id);
+    }
+    if (!(before?.installed ?? false)) {
+      await onMutation?.(id, "absent");
+      continue;
+    }
+    try {
+      await manager.remove(id);
+    } catch (error: unknown) {
+      try {
+        const afterFailure = findPlugin(await manager.list(), id);
+        if (!(afterFailure?.installed ?? false)) {
+          await onMutation?.(id, "removed");
+        } else {
+          await onMutation?.(id, "uncertain");
+        }
+      } catch {
+        await onMutation?.(id, "uncertain");
+      }
+      throw wrapPluginManagerError("remove", error, id);
+    }
+    let after;
+    try {
+      after = findPlugin(await manager.list(), id);
+    } catch (error: unknown) {
+      await onMutation?.(id, "uncertain");
+      throw wrapPluginManagerError("list", error, id);
+    }
+    if (after?.installed) {
+      await onMutation?.(id, "uncertain");
+      throw new PluginVerificationError("uncertain", `${id} is still installed after remove`);
+    }
+    await onMutation?.(id, "removed");
+  }
+}
+
+async function restoreRemovedPlugin(
+  manager: Required<Pick<OfficialPluginManager, "list" | "add">>,
+  id: string,
+  priorStatus: PluginSnapshot["status"] | undefined,
+): Promise<void> {
+  if (priorStatus !== "installed" && priorStatus !== "disabled") {
+    throw new PluginVerificationError("uncertain", `${id} has no proven prior installed state`);
+  }
+  const expectedEnabled = priorStatus === "installed";
+  let before;
+  try {
+    before = findPlugin(await manager.list(), id);
+  } catch (error: unknown) {
+    throw wrapPluginManagerError("list", error, id);
+  }
+  if (before?.installed && before.enabled === expectedEnabled) return;
+  try {
+    await manager.add(id);
+  } catch (error: unknown) {
+    throw wrapPluginManagerError("add", error, id);
+  }
+  let after;
+  try {
+    after = findPlugin(await manager.list(), id);
+  } catch (error: unknown) {
+    throw wrapPluginManagerError("list", error, id);
+  }
+  if (!after?.installed) {
+    throw new PluginVerificationError("missing", `${id} is not installed after restore`);
+  }
+  if (after.enabled !== expectedEnabled) {
+    throw new PluginVerificationError(
+      "uncertain",
+      `${id} did not regain its prior ${expectedEnabled ? "enabled" : "disabled"} state`,
+    );
   }
 }
 
@@ -1682,16 +2964,18 @@ function samePluginState(
 }
 
 function wrapPluginManagerError(
-  operation: "list" | "add",
+  operation: "list" | "add" | "remove",
   error: unknown,
   pluginId: string,
 ): OfficialPluginManagerError {
   if (error instanceof OfficialPluginManagerError) return error;
   return new OfficialPluginManagerError(
-    operation === "list" ? "list_failed" : "add_failed",
+    operation === "list" ? "list_failed" : operation === "remove" ? "remove_failed" : "add_failed",
     operation === "list"
       ? `Codex could not read the status of ${pluginId}.`
-      : `Codex could not add ${pluginId}.`,
+      : operation === "remove"
+        ? `Codex could not remove ${pluginId}.`
+        : `Codex could not add ${pluginId}.`,
     error,
     { plugin_id: pluginId },
   );
@@ -1774,7 +3058,7 @@ function capabilityStateFor(
 type InstallRecordDigestInput = {
   readonly owner: "holycodex";
   readonly install_id: string;
-  readonly version: string;
+  readonly version: ReleaseVersion;
   readonly profile?: ProfileName | LegacyProfileName;
   /** Legacy persisted product field; never emitted for current records. */
   readonly plan?: ProfileName | LegacyProfileName;
@@ -1811,7 +3095,7 @@ export async function recordDigestMatches(record: InstallRecord): Promise<boolea
 async function recordDigestMatchesRaw(record: {
   readonly owner: "holycodex";
   readonly install_id: string;
-  readonly version: string;
+  readonly version: ReleaseVersion;
   readonly profile?: ProfileName | LegacyProfileName;
   readonly plan?: ProfileName | LegacyProfileName;
   readonly tier: ServiceTier;
@@ -1858,23 +3142,119 @@ function safeMessage(error: unknown): string {
   return error instanceof Error ? error.message.slice(0, 256) : "operation failed";
 }
 
-async function resolveOwnedConflicts(
+function installReviewTools(
+  gitBash: GitBashState,
+  context7Ready: boolean,
+  live: Awaited<ReturnType<NonNullable<OfficialPluginManager["list"]>>>,
+  providerPlugins: readonly string[],
+): InstallReview["tools"] {
+  const tools: InstallReview["tools"][number][] = [
+    {
+      name: "git-bash",
+      status: gitBash.status,
+      ...(gitBash.status === "healthy"
+        ? { detail: gitBash.path }
+        : gitBash.status === "missing"
+          ? { detail: "Git is required for Bash; install with: winget install Git.Git" }
+          : {}),
+    },
+    {
+      name: "context7",
+      status: context7Ready ? "ready" : "unavailable",
+    },
+  ];
+  for (const pluginId of providerPlugins) {
+    const entry = findPlugin(live, pluginId);
+    const status =
+      entry === undefined
+        ? "missing"
+        : entry.installed
+          ? entry.enabled
+            ? "installed"
+            : "disabled"
+          : "available";
+    tools.push({
+      name: `official-plugin:${pluginId}`,
+      status,
+      ...(typeof entry?.version === "string" ? { detail: entry.version } : {}),
+    });
+  }
+  return tools;
+}
+
+function structureConflict(conflict: ManagedConflict): ManagedConflict {
+  const category = conflict.category ?? (conflict.key === undefined ? "role-asset" : "config-key");
+  const target = conflict.target ?? conflict.key ?? conflict.path;
+  const identity =
+    conflict.identity ?? `${category}:${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
+  return {
+    ...conflict,
+    identity,
+    category,
+    target,
+    defaultDecision: conflict.defaultDecision ?? "replace",
+    validDecisions: conflict.validDecisions ?? ["keep", "replace", "cancel"],
+    explanation:
+      conflict.explanation ??
+      (conflict.action === "remove"
+        ? `HolyCodex can remove the managed ${target} after reviewing this change.`
+        : `HolyCodex can replace the managed ${target} after reviewing this change.`),
+  };
+}
+
+async function resolveOwnedConflictInventory(
   options: InstallerOptions,
-  conflicts: readonly {
-    readonly path: string;
-    readonly key?: string | undefined;
-    readonly action: "replace" | "remove";
-  }[],
+  conflicts: readonly ManagedConflict[],
   preserveDeclined = false,
-): Promise<readonly ManagedConflict[]> {
+): Promise<{
+  readonly accepted: readonly ManagedConflict[];
+  readonly decisions: ReadonlyMap<string, ConflictDecision>;
+}> {
+  const structured = conflicts.map(structureConflict);
+  const decisions = new Map<string, ConflictDecision>();
+  if (structured.length === 0) return { accepted: [], decisions };
+  if (options.resolveConflicts !== undefined) {
+    const selected = await options.resolveConflicts(structured);
+    for (const conflict of structured) {
+      const identity = conflict.identity!;
+      const decision = selected[identity];
+      if (decision !== "keep" && decision !== "replace" && decision !== "cancel") {
+        throw new InstallerError(
+          "confirmation_required",
+          "Every managed conflict must have a valid decision before installation.",
+          undefined,
+          { identity },
+        );
+      }
+      if (decision === "cancel") {
+        throw new InstallerError(
+          "confirmation_required",
+          "Conflict resolution was cancelled.",
+          undefined,
+          {
+            identity,
+          },
+        );
+      }
+      decisions.set(identity, decision);
+    }
+    return {
+      accepted: structured.filter((conflict) => decisions.get(conflict.identity!) === "replace"),
+      decisions,
+    };
+  }
   const accepted: ManagedConflict[] = [];
-  for (const conflict of conflicts) {
+  for (const conflict of structured) {
     const resolution = await options.resolveConflict?.(conflict);
     if (resolution === "accept") {
       accepted.push(conflict);
+      decisions.set(conflict.identity!, "replace");
       continue;
     }
-    if (resolution === "decline" && preserveDeclined) continue;
+    if (resolution === "decline" && preserveDeclined) {
+      decisions.set(conflict.identity!, "keep");
+      continue;
+    }
     throw new InstallerError(
       "confirmation_required",
       resolution === "cancel"
@@ -1889,7 +3269,7 @@ async function resolveOwnedConflicts(
       },
     );
   }
-  return accepted;
+  return { accepted, decisions };
 }
 
 function reportProgress(options: InstallerOptions, event: InstallProgressEvent): void {
