@@ -36,6 +36,8 @@ describe("plugin source assets", () => {
     expect(source.files.map((file) => file.path)).toContain("skills/plan/SKILL.md");
     expect(source.files.map((file) => file.path)).toContain("skills/operations/SKILL.md");
     expect(source.files.map((file) => file.path)).toContain("skills/grill-me/SKILL.md");
+    expect(source.files.map((file) => file.path)).toContain("skills/continue-work/SKILL.md");
+    expect(source.files.map((file) => file.path)).toContain("skills/codebase-onboarding/SKILL.md");
     const defaultPrompt = source.manifest.interface.defaultPrompt.join("\n");
     expect(defaultPrompt).toContain("Activate HolyCodex capabilities");
     expect(defaultPrompt).not.toContain("delegate every task");
@@ -106,10 +108,26 @@ describe("plugin source assets", () => {
     expect(handoff).toContain("semantic state remains authoritative");
     expect(handoff).not.toContain("write one redacted handoff");
 
+    const continuation = await readFile(
+      join(pluginSourceRoot, "skills", "continue-work", "SKILL.md"),
+      "utf8",
+    );
+    expect(continuation).toContain("current Intent, Plan, Assignments, terminal results");
+    expect(continuation).toContain("state diagnose --intent <ref>` only when");
+
+    const onboarding = await readFile(
+      join(pluginSourceRoot, "skills", "codebase-onboarding", "SKILL.md"),
+      "utf8",
+    );
+    expect(onboarding).toContain("bounded repository map");
+    expect(onboarding).toContain("read-only");
+
     const commit = await readFile(join(pluginSourceRoot, "skills", "commit", "SKILL.md"), "utf8");
     expect(commit).toContain("local commit");
     expect(commit).toContain("Reviewer.code fixed-point");
     expect(commit).toContain("../babysit-ci/SKILL.md");
+    expect(commit).toContain("repository's commit naming convention");
+    expect(commit).toContain("separately meaningful purpose");
 
     const programming = await readFile(
       join(pluginSourceRoot, "skills", "programming", "SKILL.md"),
@@ -124,11 +142,9 @@ describe("plugin source assets", () => {
       "utf8",
     );
     expect(programming).toContain("decided seam");
-    expect(debugging).toContain("Reproduce the defect");
+    expect(debugging).toContain("Reproduce the defect with the smallest practical failing case");
+    expect(debugging).toContain("evidence-backed root cause");
     expect(review).toContain("Reviewer.code");
-    expect(review).toContain(
-      "Use one batched evidence sweep, reason over it, make targeted follow-ups only,\nand batch related repairs and verification.",
-    );
     expect(review).not.toContain("fixed-point result");
   });
 });

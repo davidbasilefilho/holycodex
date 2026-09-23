@@ -192,10 +192,6 @@ describe("core profile catalog", () => {
     for (const definition of ROLE_DEFINITIONS) {
       for (const task of definition.tasks) {
         expect(task.permissions.network).toBe(true);
-        expect(task.instruction).toContain("Send no mid-task messages to Root or peers.");
-        expect(task.instruction).toContain(
-          "Return only a terminal result, including any material blocker.",
-        );
       }
     }
   });
@@ -218,36 +214,12 @@ describe("core profile catalog", () => {
       "max",
     ]);
     const debuggingInstruction = taskInstructionFor({ role: "Worker", task: "debugging" });
-    expect(debuggingInstruction).toContain("Establish the failure reproducibly");
-    expect(debuggingInstruction).toContain("evidence-backed root cause");
-    expect(debuggingInstruction).toContain("narrow bounded repair");
-    expect(debuggingInstruction).toContain("regression is gone");
-    expect(debuggingInstruction).toContain("Return only a terminal result");
+    expect(debuggingInstruction).toContain("debugging skill");
+    expect(debuggingInstruction).toContain("bounded seam");
 
     const reviewerInstruction = taskInstructionFor({ role: "Reviewer", task: "code" });
-    expect(reviewerInstruction).toContain(
-      "Use one batched evidence sweep, reason over it, make targeted follow-ups only, and batch related repairs and verification.",
-    );
-    for (const criterion of [
-      "correctness",
-      "safety",
-      "compatibility",
-      "mergeability",
-      "clarity",
-      "simplicity",
-      "cohesion",
-      "idiomaticity",
-      "appropriate abstraction",
-      "accidental complexity",
-      "duplication",
-      "unnecessary files",
-      "file splitting",
-      "speculative abstraction",
-      "test quality",
-      "generated-artifact hygiene",
-    ]) {
-      expect(reviewerInstruction).toContain(criterion);
-    }
+    expect(reviewerInstruction).toContain("canonical patch-quality rule");
+    expect(reviewerInstruction).toContain("correctness, safety, compatibility, test quality");
   });
 
   test("grants assigned network access while bounding operations to the supplied ref", () => {
@@ -461,7 +433,10 @@ describe("core profile catalog", () => {
       "ambiguity_or_missing_material_input",
     ]);
     expect(ROOT_ORCHESTRATION_POLICY.surgicalMutationRule).toBe(SURGICAL_MUTATION_RULE);
-    expect(SURGICAL_MUTATION_RULE).toContain("smallest complete edit set");
+    expect(SURGICAL_MUTATION_RULE).toContain("complete requested outcome correctly");
+    expect(SURGICAL_MUTATION_RULE).toContain("never weaken or reinterpret it");
+    expect(SURGICAL_MUTATION_RULE).toContain("smallest coherent patch");
+    expect(SURGICAL_MUTATION_RULE).toContain("simple, cohesive, idiomatic solutions");
     expect(ROOT_ORCHESTRATION_POLICY.specialistOutcomes).toEqual([
       "completed",
       "blocked",
@@ -469,10 +444,15 @@ describe("core profile catalog", () => {
       "failed",
     ]);
     expect(ROOT_ORCHESTRATION_POLICY.testingPolicy).toBe(TESTING_POLICY);
+    expect(TESTING_POLICY.rule).toContain(
+      "smallest meaningful proof proportionate to changed behavior, scope, and risk",
+    );
+    expect(TESTING_POLICY.rule).toContain("repository-required gates");
     expect(TESTING_POLICY.broadenOrRepeatOnlyAfter).toEqual([
       "source_change",
       "proof_failure",
       "unresolved_material_concern",
+      "change_breadth_or_risk",
     ]);
   });
 

@@ -10,7 +10,3 @@ wording, irrelevant call order, broad repository shape, or one implementation
 strategy. Prefer observable typed or public boundaries. Package-verification
 tests should consume the shipped artifact through one supported outer boundary
 with minimal realistic setup, proving behavior without duplicating the suite.
-
-The canonical testing policy owns proportional proof, required gates, and when
-to broaden or repeat checks. Role.task and the Assignment own the validator's
-authority; this reference adds only test-quality criteria.
