@@ -31,6 +31,7 @@ import {
   canonicalJson,
   canonicalJsonUtf8,
   canonicalOfficialPluginId,
+  compareReleaseVersions,
   domainSeparatedSha256,
   lookupProfile,
   migrateProfileName,
@@ -85,6 +86,7 @@ import {
   ensureContext7,
   ensureGitBash,
   preflightContext7,
+  removeOwnedContext7,
   ToolingError,
   WINDOWS_GIT_BASH,
 } from "./tooling.ts";
@@ -520,7 +522,7 @@ export async function installHolyCodex(
     );
   }
   let gitBash: GitBashState = discoveredGitBash;
-  let context7: Context7ToolState;
+  let context7: Context7ToolState | undefined;
   const providerPlugins = [
     ...new Set(
       pluginIdsForOptionalCapabilities(toCoreSelections(optional), additionalPlugins).map(
@@ -727,6 +729,14 @@ export async function installHolyCodex(
       frontend: previous.optional_selections.frontend,
       security: previous.optional_selections.security,
     });
+    if (compareReleaseVersions(previous.version, version) < 0) {
+      // Before this release every profile used Astra for Root. Compare against that
+      // persisted release contract so its canonical route upgrades, while a
+      // recorded user override remains distinguishable and is preserved.
+      previousDesiredConfig.model = "gpt-6-astra";
+      previousDesiredConfig.model_reasoning_effort =
+        previous.profile === "low" ? "low" : previous.profile === "default" ? "medium" : "high";
+    }
     // Developer instructions contain host-boundary policy that must follow the
     // current runtime, even when an older record treated its value as managed.
     delete previousDesiredConfig.developer_instructions;
@@ -863,6 +873,7 @@ export async function installHolyCodex(
         };
       } else if (live === undefined) {
         delete effectiveDesiredConfig[configKey];
+        delete acceptedManaged[configKey];
       } else {
         delete effectiveDesiredConfig[configKey];
         acceptedManaged[configKey] = {
@@ -890,7 +901,9 @@ export async function installHolyCodex(
       if (key === undefined) continue;
       const live = readTomlPath(configDocument, key);
       const existing = stabilityManaged[key];
-      if (existing !== undefined && live !== undefined) {
+      if (existing !== undefined && live === undefined) {
+        delete stabilityManaged[key];
+      } else if (existing !== undefined && live !== undefined) {
         stabilityManaged[key] = {
           ...existing,
           lastManagedValue: await summarizeManagedConfigValue(key, live),
@@ -990,7 +1003,7 @@ export async function installHolyCodex(
     installed_at: installedAt,
     status: "preparing",
     step: "validated",
-    managed_config: mergedConfig.state,
+    managed_config: { ...currentManagedConfig, managed: resolvedManagedConfig },
     plugin_snapshot: [],
     plugin_config: {
       plugin_id: HOLYCODEX_PLUGIN as "holycodex@holycodex",
@@ -1003,50 +1016,8 @@ export async function installHolyCodex(
   };
   await ensureOwnedDirectory(paths.stateRoot);
   await writeTransaction(paths.preparingRecord, preMutationTransaction);
-  try {
-    gitBash = await ensureGitBash(runtime, true);
-    context7 = await ensureContext7(runtime, true, previous?.tooling?.context7);
-  } catch (error: unknown) {
-    if (error instanceof ToolingError) {
-      throw new InstallerError("capability_denied", error.message, error, error.details);
-    }
-    throw error;
-  }
-  const tooling = { git_bash: gitBash, context7 } as const;
-  if (
-    manager.ensureOfficialMarketplace !== undefined &&
-    unresolvedOfficialProviderPlugins.length > 0
-  ) {
-    try {
-      await manager.ensureOfficialMarketplace(unresolvedOfficialProviderPlugins);
-    } catch (error: unknown) {
-      throw new InstallerError(
-        "capability_denied",
-        `The selected official Codex provider marketplace is unavailable: ${safeMessage(error)}`,
-        error,
-        { recovery: "Check Codex network and marketplace policy, then retry." },
-      );
-    }
-  }
 
-  let pluginSnapshot: readonly PluginSnapshot[];
-  try {
-    pluginSnapshot = await snapshotPlugins({ list: () => manager.list!() }, [
-      ...new Set([HOLYCODEX_PLUGIN, ...providerPlugins, ...previousOwnedPlugins]),
-    ]);
-  } catch (error: unknown) {
-    throw new InstallerError(
-      "capability_denied",
-      "Native Codex plugin state could not be read safely.",
-      error,
-    );
-  }
-  const transaction: PreparingTransaction = {
-    ...preMutationTransaction,
-    plugin_snapshot: pluginSnapshot,
-    tooling,
-  };
-  await writeTransaction(paths.preparingRecord, transaction);
+  let pluginSnapshot: readonly PluginSnapshot[] = [];
 
   let native: NativeAgentInstallResult | undefined;
   let configPublished = false;
@@ -1056,13 +1027,58 @@ export async function installHolyCodex(
   const ownedPlugins = new Set(previousOwnedPlugins);
   const rollbackOwnedPlugins = new Set(previousOwnedPlugins);
   const uncertainPluginMutations = new Set<string>();
-  let transactionForRecovery: PreparingTransaction = transaction;
+  let transactionForRecovery: PreparingTransaction = preMutationTransaction;
   let pluginEffectsStarted = false;
   let configBeforeMutationDocument: TomlDocument | undefined;
   let publishedConfigState = mergedConfig.state;
   let activeRecordWriteStarted = false;
   let installOptionsWriteStarted = false;
   try {
+    try {
+      gitBash = await ensureGitBash(runtime, true);
+      context7 = await ensureContext7(runtime, true, previous?.tooling?.context7);
+      if (context7 === undefined) {
+        throw new InstallerError("capability_denied", "Context7 installation was not verified.");
+      }
+    } catch (error: unknown) {
+      if (error instanceof ToolingError) {
+        throw new InstallerError("capability_denied", error.message, error, error.details);
+      }
+      throw error;
+    }
+    const tooling = { git_bash: gitBash, context7 } as const;
+    let transaction: PreparingTransaction = { ...preMutationTransaction, tooling };
+    transactionForRecovery = transaction;
+    await writeTransaction(paths.preparingRecord, transactionForRecovery);
+    if (
+      manager.ensureOfficialMarketplace !== undefined &&
+      unresolvedOfficialProviderPlugins.length > 0
+    ) {
+      try {
+        await manager.ensureOfficialMarketplace(unresolvedOfficialProviderPlugins);
+      } catch (error: unknown) {
+        throw new InstallerError(
+          "capability_denied",
+          `The selected official Codex provider marketplace is unavailable: ${safeMessage(error)}`,
+          error,
+          { recovery: "Check Codex network and marketplace policy, then retry." },
+        );
+      }
+    }
+    try {
+      pluginSnapshot = await snapshotPlugins({ list: () => manager.list!() }, [
+        ...new Set([HOLYCODEX_PLUGIN, ...providerPlugins, ...previousOwnedPlugins]),
+      ]);
+    } catch (error: unknown) {
+      throw new InstallerError(
+        "capability_denied",
+        "Native Codex plugin state could not be read safely.",
+        error,
+      );
+    }
+    transaction = { ...transaction, plugin_snapshot: pluginSnapshot };
+    transactionForRecovery = transaction;
+    await writeTransaction(paths.preparingRecord, transactionForRecovery);
     const liveConfigBeforeMutation = parseConfig(await optionalTextFile(paths.configFile));
     await assertPreflightPluginConfigStable(
       liveConfigBeforeMutation,
@@ -1570,6 +1586,18 @@ export async function installHolyCodex(
           () => undefined,
         );
         rollbackFailures.push(`plugin:${pluginId}`);
+      }
+    }
+    if (
+      context7?.ownership === "holycodex" &&
+      previous?.tooling?.context7?.ownership !== "holycodex"
+    ) {
+      try {
+        if (!(await removeOwnedContext7(runtime, context7))) {
+          rollbackFailures.push("context7");
+        }
+      } catch {
+        rollbackFailures.push("context7");
       }
     }
     if (rollbackFailures.length > 0) {

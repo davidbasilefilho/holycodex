@@ -1058,6 +1058,7 @@ async function verifyPreviousStableUpgrade(options: {
   ]
     .filter((value): value is string => value !== undefined && value.length > 0)
     .join(delimiter);
+  const bunxLauncher = await findCommandOnPath("bunx", previousBunEnvironment["PATH"]);
   await writeJson(join(previousInstalledRoot, "package.json"), {
     name: "holycodex-previous-stable-verification",
     private: true,
@@ -1115,7 +1116,9 @@ async function verifyPreviousStableUpgrade(options: {
     TEMP: previousBunEnvironment["TEMP"],
     TMP: previousBunEnvironment["TMP"],
     TMPDIR: previousBunEnvironment["TMPDIR"],
-    npm_execpath: process.execPath,
+    // The previous stable package predates direct Bun runtime detection and requires the
+    // launcher identity that real `bunx holycodex` execution supplies.
+    npm_execpath: bunxLauncher,
     npm_command: "exec",
     npm_config_user_agent: `bun/${Bun.version}`,
     HOLYCODEX_DEBUG_INSTALLER: "1",
@@ -2496,6 +2499,17 @@ async function findInstalledExecutable(installedRoot: string): Promise<string> {
     }
   }
   throw new Error("the installed executable bin is missing");
+}
+
+async function findCommandOnPath(name: string, searchPath: string | undefined): Promise<string> {
+  const extensions = process.platform === "win32" ? ["", ".exe", ".cmd", ".bat"] : [""];
+  for (const directory of (searchPath ?? "").split(delimiter)) {
+    for (const extension of extensions) {
+      const candidate = join(directory, `${name}${extension}`);
+      if (await exists(candidate)) return candidate;
+    }
+  }
+  throw new Error(`the ${name} launcher is missing from the package verification PATH`);
 }
 
 function createReleaseStamp(options: PackageReleaseOptions): typeof ReleaseStampSchema.Type {

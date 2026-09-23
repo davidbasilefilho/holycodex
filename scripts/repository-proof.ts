@@ -247,6 +247,20 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
     assert(workflow.includes("contents: read"), `${path} must use least-read permissions`);
     if (path === ".github/workflows/publish.yml") {
       assert(workflow.includes("push:"), `${path} must publish from push events`);
+      assert(
+        workflow.includes("pull_request:"),
+        `${path} must package development builds for pull requests`,
+      );
+      assert(
+        workflow.includes(
+          'elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then\n            CHANNEL=dev',
+        ),
+        `${path} must resolve pull requests to the development channel`,
+      );
+      assert(
+        workflow.includes("SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}"),
+        `${path} must validate and package the exact pull request head SHA`,
+      );
       assert(workflow.includes("main"), `${path} must include the main development channel`);
       assert(workflow.includes("tags:"), `${path} must include the stable tag channel`);
       assert(workflow.includes('"v*.*.*"'), `${path} must filter stable version tags`);
@@ -287,6 +301,10 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
         `${path} must gate publication jobs`,
       );
       assert(
+        workflow.includes("if: github.event_name != 'pull_request'"),
+        `${path} must keep publication jobs disabled for pull requests`,
+      );
+      assert(
         workflow.includes("contents: write"),
         `${path} must grant release write access explicitly`,
       );
@@ -324,7 +342,14 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
         `${path} GitHub publication must not receive OIDC access`,
       );
     } else if (path === ".github/workflows/validation.yml") {
-      assert(workflow.includes("pull_request:"), `${path} must preserve pull request validation`);
+      assert(
+        workflow.includes("push:\n    branches-ignore:\n      - main"),
+        `${path} must leave main pushes to the release workflow`,
+      );
+      assert(
+        !/^  pull_request:\s*$/mu.test(workflow),
+        `${path} must leave pull request validation to the release workflow`,
+      );
       assert(workflow.includes("workflow_dispatch:"), `${path} must preserve dispatch validation`);
       assert(workflow.includes("workflow_call:"), `${path} must expose reusable validation`);
       assert(

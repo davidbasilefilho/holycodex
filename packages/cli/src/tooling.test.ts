@@ -665,7 +665,9 @@ function context7Runtime(options: ContextFixtureOptions): {
           if (options.globalBinFails) return failure("bun global location unavailable");
           if (options.globalBinEmpty) return success();
           if (options.missingProjectInitially && !projectAvailable) {
-            return failure("No package.json was found for Bun's global project");
+            return failure(
+              'error: No package.json was found for directory "C:\\Users\\test\\.bun\\install\\global"\nnote: Run "bun init" to initialize a project',
+            );
           }
           return success(binRoot);
         }

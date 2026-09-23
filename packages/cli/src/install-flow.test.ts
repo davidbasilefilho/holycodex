@@ -5,6 +5,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { summarizeManagedConfigValue } from "@holycodex/codex";
+
 import {
   executeCommand,
   installHolyCodex,
@@ -167,6 +169,47 @@ async function makeLegacy(codexHome: string, version = LEGACY_VERSION): Promise<
   await rm(paths.installOptions, { force: true });
 }
 
+async function setLegacyRootModel(codexHome: string, model: string): Promise<void> {
+  const paths = resolveInstallerPaths({ paths: { codexHome } });
+  const current = await readActiveInstallRecord(paths);
+  if (current?.managed_config === undefined) throw new Error("the seed has no managed config");
+  const managed = current.managed_config.managed;
+  const modelEntry = managed["model"];
+  if (modelEntry === undefined) throw new Error("the seed does not manage the root model");
+  const managedConfig = {
+    ...current.managed_config,
+    managed: {
+      ...managed,
+      model: { ...modelEntry, lastManagedValue: await summarizeManagedConfigValue("model", model) },
+    },
+  };
+  const legacy = { ...current, version: LEGACY_VERSION, managed_config: managedConfig };
+  const digest = await installRecordDigest({
+    owner: legacy.owner,
+    install_id: legacy.install_id,
+    version: legacy.version,
+    profile: legacy.profile,
+    tier: legacy.tier,
+    optional_selections: legacy.optional_selections,
+    explicit_optional_selections: legacy.explicit_optional_selections,
+    official_plugins: legacy.official_plugins ?? [],
+    capability_state: legacy.capability_state ?? null,
+    managed_artifacts: legacy.managed_artifacts,
+    managed_config: legacy.managed_config,
+    plugin_config: legacy.plugin_config,
+    provider_config: legacy.provider_config,
+    plugin_snapshot: legacy.plugin_snapshot,
+    owned_plugins: legacy.owned_plugins,
+    tooling: legacy.tooling,
+  });
+  await writeFile(paths.activeRecord, `${JSON.stringify({ ...legacy, digest })}\n`);
+  const config = await readFile(paths.configFile, "utf8");
+  await writeFile(
+    paths.configFile,
+    config.replace(/model = "[^"]+"/u, `model = ${JSON.stringify(model)}`),
+  );
+}
+
 function commandContext(codexHome: string, manager: OfficialPluginManager, io: CliIo) {
   return {
     env: fakeEnvironment,
@@ -176,6 +219,104 @@ function commandContext(codexHome: string, manager: OfficialPluginManager, io: C
 }
 
 describe("command install and upgrade review flow", () => {
+  test("upgrades legacy canonical Root routes and preserves recorded user overrides", async () => {
+    for (const profile of ["low", "default"] as const) {
+      const root = await mkdtemp(join(tmpdir(), `holycodex-cli-flow-root-route-${profile}-`));
+      const codexHome = join(root, "codex");
+      const manager = fakeManager();
+      const paths = resolveInstallerPaths({ paths: { codexHome } });
+      try {
+        await seedInstall(
+          root,
+          { profile, optional: { frontend: false, security: false, computer_use: false } },
+          manager,
+        );
+        await setLegacyRootModel(codexHome, "gpt-6-astra");
+        await installHolyCodex(
+          { optional: { frontend: false, security: false, computer_use: false } },
+          {
+            ...installerOptions(codexHome, manager),
+            reviewInstall: async () => ({ action: "apply" }),
+          },
+          fakeEnvironment,
+        );
+        expect(await readFile(paths.configFile, "utf8")).toContain('model = "gpt-6-sol"');
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-root-override-"));
+    const codexHome = join(root, "codex");
+    const manager = fakeManager();
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    try {
+      await seedInstall(
+        root,
+        { profile: "low", optional: { frontend: false, security: false, computer_use: false } },
+        manager,
+      );
+      await setLegacyRootModel(codexHome, "gpt-5.6-terra");
+      await installHolyCodex(
+        { optional: { frontend: false, security: false, computer_use: false } },
+        {
+          ...installerOptions(codexHome, manager),
+          reviewInstall: async () => ({ action: "apply" }),
+        },
+        fakeEnvironment,
+      );
+      expect(await readFile(paths.configFile, "utf8")).toContain('model = "gpt-5.6-terra"');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("keeps recovery state when rollback cannot remove newly installed Context7", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-context7-rollback-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const baseRuntime = testRuntime(codexHome);
+    const manager = fakeManager();
+    const failingManager: OfficialPluginManager = {
+      ...manager,
+      addMarketplace: async () => {
+        throw new Error("injected rollback after Context7 installation");
+      },
+    };
+    const context7RemoveCalls: string[] = [];
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await expect(
+        installHolyCodex(
+          { optional: { frontend: false, security: false, computer_use: false } },
+          {
+            ...installerOptions(codexHome, failingManager),
+            runtime: {
+              ...baseRuntime,
+              run: async (executable, args) => {
+                if (args[0] === "remove" && args.includes("ctx7")) {
+                  context7RemoveCalls.push(`${executable} ${args.join(" ")}`);
+                  return { exitCode: 1, stdout: "", stderr: "injected remove failure" };
+                }
+                return await baseRuntime.run(executable, args);
+              },
+            },
+          },
+          fakeEnvironment,
+        ),
+      ).rejects.toBeDefined();
+      expect(context7RemoveCalls).toEqual(["bun remove -g ctx7"]);
+      const recovery = JSON.parse(await readFile(paths.conflictedRecord, "utf8")) as {
+        readonly managed_config?: { readonly managed?: Readonly<Record<string, unknown>> };
+        readonly tooling?: { readonly context7?: { readonly ownership?: string } };
+      };
+      expect(recovery.tooling?.context7?.ownership).toBe("holycodex");
+      expect(recovery.managed_config?.managed).not.toHaveProperty("model");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("preserves conflict choices when the final review reopens resolution", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-reopen-conflicts-"));
     const codexHome = join(root, "codex");
@@ -876,15 +1017,13 @@ describe("command install and upgrade review flow", () => {
       expect(missingConfig).not.toContain("model = ");
       expect(
         (await readActiveInstallRecord(paths))?.managed_config?.managed["model"],
-      ).toBeDefined();
+      ).toBeUndefined();
       const missingDoctor = await doctorHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
         runtime: testRuntime(codexHome),
       });
       expect(missingDoctor.healthy).toBe(false);
-      expect(missingDoctor.checks["runtime_config"]?.reasons).toContain("changed_holycodex_config");
-      expect(missingDoctor.checks["runtime_config"]?.details["keys"]).toContain("model");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

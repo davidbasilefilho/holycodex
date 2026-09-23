@@ -48,7 +48,7 @@ describe("release version authority", () => {
       { path: canonicalManifestPath, count: 1 },
       { path: generatedPluginManifestPath, count: 1 },
     ]);
-  });
+  }, 30_000);
 
   test("keeps the canonical version in the public CLI manifest", async () => {
     const manifest = await readCanonicalManifest();

@@ -3,8 +3,9 @@
 name: HolyCodex validation
 
 on:
-  pull_request:
   push:
+    branches-ignore:
+      - main
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -73,7 +74,7 @@ jobs:
         run: mise exec -- bun run validate
 
       - name: Upload the validated Ubuntu build for release packaging
-        if: inputs.release_channel != '' && github.event_name != 'pull_request' && matrix.os == 'ubuntu-latest'
+        if: inputs.release_channel != '' && matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: holycodex-build-${{ github.run_id }}-${{ github.run_attempt }}
@@ -87,7 +88,7 @@ jobs:
 
   package:
     name: package exact release artifact
-    if: inputs.release_channel != '' && github.event_name != 'pull_request'
+    if: inputs.release_channel != ''
     needs: validate
     runs-on: ubuntu-latest
     outputs:

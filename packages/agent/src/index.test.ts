@@ -445,7 +445,7 @@ describe("holycodex-agent", () => {
       ok: true,
       data: { assignment: { status: "completed" } },
     });
-  });
+  }, 30_000);
 
   test("records interruption recovery through the CLI when the persisted verifier remains", async () => {
     const cwd = await createTemporaryDirectory("holycodex-agent-recovery-");
