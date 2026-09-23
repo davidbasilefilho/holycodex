@@ -58,6 +58,29 @@ async function runAgent(cwd: string, argv: readonly string[]) {
 }
 
 describe("holycodex-agent", () => {
+  test("exposes read-only work-state diagnosis", async () => {
+    const cwd = await createTemporaryDirectory("holycodex-agent-diagnose-");
+    await initRepository(cwd);
+    const created = await runAgent(cwd, [
+      "intent",
+      "create",
+      "--input",
+      JSON.stringify({
+        title: "Diagnosis",
+        goal: "Check state",
+        acceptanceCriteria: ["done"],
+        planRequired: true,
+      }),
+    ]);
+    expect(created.exitCode).toBe(0);
+    const intentId = JSON.parse(created.stdout).data.id as string;
+    const result = await runAgent(cwd, ["state", "diagnose", "--intent", intentId]);
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      operation: "state.diagnose",
+      data: { intent_id: intentId, issues: [{ code: "required_plan_missing" }] },
+    });
+  });
   test("supports equivalent side-effect-free help at every command depth", async () => {
     const cwd = await createTemporaryDirectory("holycodex-agent-help-");
     const paths: readonly (readonly string[])[] = [
@@ -85,6 +108,8 @@ describe("holycodex-agent", () => {
       ["assignment", "start"],
       ["assignment", "recover"],
       ["assignment", "result"],
+      ["state"],
+      ["state", "diagnose"],
     ];
     for (const path of paths) {
       const short = io(cwd);

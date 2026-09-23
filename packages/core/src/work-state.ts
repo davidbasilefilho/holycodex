@@ -456,6 +456,19 @@ export interface CompletionRefusal {
   readonly reasons: readonly string[];
 }
 
+/** One deterministic, actionable finding from a read-only work-state diagnosis. */
+export interface WorkStateDiagnosticIssue {
+  readonly code: string;
+  readonly subject: string;
+  readonly repair: string;
+}
+
+/** Read-only diagnosis of one Intent and its canonical Plan and Assignments. */
+export interface WorkStateDiagnosis {
+  readonly intent_id: string;
+  readonly issues: readonly WorkStateDiagnosticIssue[];
+}
+
 /** Root-owned evidence and gate updates accepted by the Intent store. */
 export interface IntentEvidenceInput {
   readonly evidence?: readonly IntentEvidence[] | undefined;
@@ -483,6 +496,314 @@ export class IntentStore {
   readonly repositoryRoot: string;
   readonly stateRoot: string;
   readonly #now: () => Date;
+
+  /** Inspects one Intent without recovery, migration, locking, or writes. */
+  async diagnose(reference: string): Promise<WorkStateDiagnosis> {
+    await this.#ensureStateRoot();
+    const entries = await readdir(this.stateRoot).catch((error: unknown) => {
+      if (isFsCode(error, "ENOENT"))
+        throw new IntentStoreError("not_found", "Intent was not found.", { reference });
+      throw storeIo(error);
+    });
+    const matches: { directory: string; intent: Intent }[] = [];
+    for (const entry of entries.sort()) {
+      const directory = join(this.stateRoot, entry);
+      if (!(await isDirectory(directory)) || !(await isFile(join(directory, "intent.toon"))))
+        continue;
+      const intent = await readIntentForDiagnosis(join(directory, "intent.toon"));
+      if ([intent.id, intent.slug, entry].includes(reference)) matches.push({ directory, intent });
+    }
+    if (matches.length !== 1)
+      throw new IntentStoreError(
+        matches.length ? "current_ambiguous" : "not_found",
+        matches.length ? "Intent reference is ambiguous." : "Intent was not found.",
+        { reference },
+      );
+    const { directory, intent } = matches[0]!;
+    const issues: WorkStateDiagnosticIssue[] = [];
+    const add = (code: string, subject: string, repair: string): void => {
+      issues.push({ code, subject, repair });
+    };
+    const transactionPath = join(directory, WORK_STATE_TRANSACTION_FILE);
+    try {
+      const transaction = await lstat(transactionPath);
+      if (transaction.isSymbolicLink() || !transaction.isFile())
+        add(
+          "transaction_journal_invalid",
+          "intent",
+          "Restore the transaction journal as a regular repository-local file.",
+        );
+      else
+        add(
+          "pending_transaction",
+          "intent",
+          "Recover the interrupted work-state transaction before relying on this diagnosis.",
+        );
+    } catch (error: unknown) {
+      if (!isFsCode(error, "ENOENT") && !isFsCode(error, "ENOTDIR")) throw storeIo(error);
+    }
+    const planPath = join(directory, "plan.toon");
+    let plan: IntentPlan | undefined;
+    let planUnreadable = false;
+    try {
+      plan = await readOptionalValidatedToon(planPath, PlanSchema);
+    } catch (error: unknown) {
+      if (!isDiagnosticRecordError(error)) throw error;
+      planUnreadable = true;
+      add("plan_unreadable", "plan", "Repair the canonical Plan record before continuing.");
+    }
+    if (!planUnreadable && intent.plan_required && plan === undefined)
+      add("required_plan_missing", "plan", "Create the required Plan before continuing.");
+    if (plan !== undefined) {
+      const digest = sha256(`${encodeToon(plan)}\n`);
+      if (
+        plan.intent_id !== intent.id ||
+        intent.active_plan_revision !== plan.revision ||
+        intent.active_plan_digest !== digest
+      )
+        add(
+          "plan_provenance_mismatch",
+          "plan",
+          "Reconcile the canonical Plan and Intent provenance.",
+        );
+    } else if (
+      !planUnreadable &&
+      (intent.active_plan_revision !== undefined || intent.active_plan_digest !== undefined)
+    ) {
+      add("stale_plan_reference", "intent", "Restore or reconcile the referenced Plan.");
+    }
+    const assignmentRoot = join(directory, "assignments");
+    let assignmentEntries: string[] = [];
+    try {
+      if (await assertDirectory(assignmentRoot, true))
+        assignmentEntries = (await readdir(assignmentRoot))
+          .filter((entry) => entry.endsWith(".toon"))
+          .sort();
+    } catch (error: unknown) {
+      if (!isDiagnosticRecordError(error)) throw error;
+      add(
+        "assignment_directory_invalid",
+        "assignments",
+        "Restore the Assignments directory as a real repository-local directory.",
+      );
+    }
+    const assignments: PersistedAssignment[] = [];
+    for (const entry of assignmentEntries) {
+      let assignment: PersistedAssignment;
+      try {
+        assignment = await readValidatedToon(
+          join(assignmentRoot, entry),
+          PersistedAssignmentSchema,
+        );
+      } catch (error: unknown) {
+        if (!isDiagnosticRecordError(error)) throw error;
+        add("assignment_unreadable", entry, "Repair this Assignment record before continuing.");
+        continue;
+      }
+      if (assignment.intent_id !== intent.id || entry !== `${assignment.id}.toon`) {
+        add("assignment_identity_mismatch", entry, "Reconcile the Assignment identity and path.");
+        continue;
+      }
+      assignments.push(assignment);
+    }
+    const byId = new Map(assignments.map((assignment) => [assignment.id, assignment]));
+    for (const assignment of assignments) {
+      const subject = `assignment:${assignment.id}`;
+      const activeId = assignment.active_invocation_id;
+      const active = activeId !== undefined;
+      const hasActiveMetadata =
+        active ||
+        assignment.active_started_at !== undefined ||
+        assignment.active_invocation_capability !== undefined ||
+        assignment.active_invocation_capability_verifier !== undefined;
+      if (assignment.status === "executing" && !active)
+        add(
+          "missing_active_invocation",
+          subject,
+          "Reconcile the executing Assignment's invocation.",
+        );
+      if (assignment.status !== "executing" && hasActiveMetadata)
+        add(
+          "orphaned_active_invocation",
+          subject,
+          "Reconcile the active invocation and Assignment status.",
+        );
+      if (active && assignment.active_started_at === undefined)
+        add("missing_invocation_start", subject, "Reconcile the active invocation start time.");
+      const invocationIds = new Set<string>();
+      for (const invocation of assignment.invocations) {
+        if (invocationIds.has(invocation.id))
+          add("duplicate_invocation_id", subject, "Reconcile duplicate invocation records.");
+        invocationIds.add(invocation.id);
+      }
+      if (activeId !== undefined && invocationIds.has(activeId))
+        add("active_invocation_reused", subject, "Reconcile the active invocation identity.");
+      if (assignment.status === "superseded" && assignment.superseded_by === undefined)
+        add("missing_replacement", subject, "Record or reconcile the replacement Assignment.");
+      if (assignment.superseded_by !== undefined) {
+        const replacement = byId.get(assignment.superseded_by);
+        if (
+          assignment.superseded_by === assignment.id ||
+          replacement?.supersedes !== assignment.id ||
+          assignment.status !== "superseded"
+        )
+          add("stale_supersession", subject, "Reconcile both ends of the supersession relation.");
+        else if (
+          assignment.supersession_reason === undefined ||
+          assignment.supersession_provenance === undefined ||
+          replacement.supersession_reason === undefined ||
+          replacement.supersession_provenance === undefined
+        )
+          add(
+            "supersession_metadata_missing",
+            subject,
+            "Record the reason and provenance on both Assignments.",
+          );
+        else if (
+          assignment.supersession_reason !== replacement.supersession_reason ||
+          assignment.supersession_provenance !== replacement.supersession_provenance
+        )
+          add(
+            "supersession_metadata_mismatch",
+            subject,
+            "Reconcile the reason and provenance on both Assignments.",
+          );
+      }
+      if (
+        assignment.supersedes !== undefined &&
+        (assignment.supersedes === assignment.id ||
+          byId.get(assignment.supersedes)?.superseded_by !== assignment.id)
+      )
+        add("stale_predecessor", subject, "Reconcile the predecessor Assignment reference.");
+      for (const dependency of assignment.dependencies) {
+        if (dependency === assignment.id)
+          add("self_dependency", subject, "Remove the Assignment's dependency on itself.");
+        else if (dependency.startsWith("assignment-") && !byId.has(dependency))
+          add("stale_dependency", subject, `Reconcile missing dependency ${dependency}.`);
+        else if (byId.get(dependency)?.status === "superseded")
+          add(
+            "superseded_dependency",
+            subject,
+            `Reconcile dependency ${dependency} with its replacement Assignment.`,
+          );
+      }
+      const latestInvocation = assignment.invocations.at(-1);
+      if (assignment.status === "completed") {
+        if (
+          latestInvocation?.outcome !== "completed" ||
+          (latestInvocation.evidence.length === 0 && latestInvocation.context7 === undefined)
+        )
+          add(
+            "completion_evidence_missing",
+            subject,
+            "Reconcile the completed invocation result and its evidence.",
+          );
+      } else if (
+        ["blocked", "needs_root_input", "failed"].includes(assignment.status) &&
+        latestInvocation?.outcome !== assignment.status
+      ) {
+        add("assignment_result_mismatch", subject, "Reconcile the status with its latest result.");
+      }
+      if (
+        ["blocked", "needs_root_input"].includes(assignment.status) &&
+        assignment.blocker === undefined
+      )
+        add("assignment_blocker_missing", subject, "Record the Assignment's current blocker.");
+      if (assignment.status === "pending" && assignment.invocations.length > 0)
+        add(
+          "pending_assignment_has_history",
+          subject,
+          "Reconcile pending status with its results.",
+        );
+      if (!["completed", "superseded"].includes(assignment.status))
+        add(
+          "assignment_unresolved",
+          subject,
+          intent.state === "abandoned"
+            ? "Treat as intentionally unfinished; create a new Intent if work resumes."
+            : "Resume, repair, or explicitly supersede this Assignment.",
+        );
+    }
+    if (plan !== undefined) {
+      for (const reference of plan.assignments) {
+        if (reference.startsWith("assignment-") && !byId.has(reference))
+          add("stale_plan_assignment", "plan", `Reconcile missing Assignment ${reference}.`);
+      }
+    }
+    const cyclicDependencies = findAssignmentDependencyCycles(assignments);
+    for (const assignmentId of cyclicDependencies)
+      add(
+        "dependency_cycle",
+        `assignment:${assignmentId}`,
+        "Remove the cyclic Assignment dependency before continuing.",
+      );
+    if (
+      intent.state === "complete" &&
+      assignments.some((assignment) => !["completed", "superseded"].includes(assignment.status))
+    )
+      add(
+        "terminal_intent_with_unresolved_work",
+        "intent",
+        "Reconcile terminal state and unfinished Assignments.",
+      );
+    if (intent.state === "complete" && assignments.length === 0)
+      add("assignment_required", "intent", "Reconcile the required Assignment record.");
+    if (["complete", "abandoned"].includes(intent.state) && intent.blockers.length > 0)
+      add("terminal_intent_with_blockers", "intent", "Reconcile terminal state and blockers.");
+    if (["blocked", "needs_root_input"].includes(intent.state)) {
+      if (intent.blockers.length === 0)
+        add("blocked_without_reason", "intent", "Record the blocker or resume the previous state.");
+      if (intent.resume_state === undefined)
+        add(
+          "resume_state_missing",
+          "intent",
+          "Record the state to resume after the blocker clears.",
+        );
+    } else if (intent.resume_state !== undefined) {
+      add("stale_resume_state", "intent", "Clear the stale blocked-state resume target.");
+    }
+    if (intent.state === "complete") {
+      if (
+        intent.verification.required &&
+        (intent.verification.status !== "passed" ||
+          !hasMeaningfulVerificationEvidence(intent.verification.evidence))
+      )
+        add("verification_evidence_missing", "intent", "Reconcile required verification evidence.");
+      if (
+        intent.review.required &&
+        (intent.review.status !== "accepted" || intent.review.evidence.length === 0)
+      )
+        add("review_evidence_missing", "intent", "Reconcile required review evidence.");
+      if (!intent.acceptance_met || !intent.root_readiness || intent.evidence.length === 0)
+        add(
+          "completion_evidence_missing",
+          "intent",
+          "Reconcile acceptance and Root readiness evidence.",
+        );
+    }
+    try {
+      await this.#assertNoDrift(
+        intent,
+        assignments
+          .filter((assignment) => assignment.status === "executing")
+          .flatMap((assignment) => assignment.scope),
+      );
+    } catch (error: unknown) {
+      if (!(error instanceof IntentStoreError) || error.code !== "repository_drift") throw error;
+      add(
+        "repository_drift",
+        "repository",
+        "Reconcile the recorded baseline with the current repository state.",
+      );
+    }
+    issues.sort(
+      (left, right) =>
+        compareText(left.subject, right.subject) ||
+        compareText(left.code, right.code) ||
+        compareText(left.repair, right.repair),
+    );
+    return { intent_id: intent.id, issues };
+  }
   readonly #snapshot: () => Promise<RepositorySnapshot>;
 
   constructor(repositoryRoot: string, options: IntentStoreOptions = {}) {
@@ -2474,6 +2795,65 @@ async function readRawToon(path: string): Promise<unknown> {
 }
 async function readValidatedToon<A, I>(path: string, schema: Schema.Schema<A, I>): Promise<A> {
   return parseSchema(schema, await readRawToon(path));
+}
+async function readOptionalValidatedToon<A, I>(
+  path: string,
+  schema: Schema.Schema<A, I>,
+): Promise<A | undefined> {
+  let entry;
+  try {
+    entry = await lstat(path);
+  } catch (error: unknown) {
+    if (isFsCode(error, "ENOENT") || isFsCode(error, "ENOTDIR")) return undefined;
+    throw storeIo(error);
+  }
+  if (entry.isSymbolicLink() || !entry.isFile())
+    throw new IntentStoreError("schema_invalid", "Persistent work state must be a regular file.", {
+      path,
+    });
+  return await readValidatedToon(path, schema);
+}
+async function readIntentForDiagnosis(path: string): Promise<Intent> {
+  const value = await readRawToon(path);
+  const current = decodeUnknown(IntentSchema, value);
+  if (Either.isRight(current)) return current.right;
+  const legacy = decodeUnknown(LegacyIntentSchema, value);
+  if (Either.isLeft(legacy))
+    throw new IntentStoreError("schema_invalid", "Persisted Intent failed schema validation.", {
+      path,
+      error: String(current.left),
+    });
+  return migrateLegacyIntent(legacy.right);
+}
+function isDiagnosticRecordError(error: unknown): error is IntentStoreError {
+  return (
+    error instanceof IntentStoreError &&
+    ["malformed_toon", "schema_invalid", "not_found"].includes(error.code)
+  );
+}
+function findAssignmentDependencyCycles(assignments: readonly PersistedAssignment[]): string[] {
+  const byId = new Map(assignments.map((assignment) => [assignment.id, assignment]));
+  const visited = new Set<string>();
+  const active: string[] = [];
+  const cyclic = new Set<string>();
+  const visit = (id: string): void => {
+    const cycleStart = active.indexOf(id);
+    if (cycleStart >= 0) {
+      for (const member of active.slice(cycleStart)) cyclic.add(member);
+      return;
+    }
+    if (visited.has(id)) return;
+    active.push(id);
+    for (const dependency of byId.get(id)?.dependencies ?? [])
+      if (dependency !== id && byId.has(dependency)) visit(dependency);
+    active.pop();
+    visited.add(id);
+  };
+  for (const id of [...byId.keys()].sort()) visit(id);
+  return [...cyclic].sort();
+}
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 function parseValidatedToonText<A, I>(text: string, schema: Schema.Schema<A, I>, path: string): A {
   return parseSchema(schema, decodeToonText(text, path));
