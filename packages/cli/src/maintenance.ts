@@ -642,6 +642,7 @@ export async function removeHolyCodex(
       if (!isFsCode(error, "ENOENT")) {
         preserved.push(paths.installOptions);
         reasons.push("state_remove_failed");
+        await writeConflictState(paths, recovery ?? active ?? emptyRemovalState());
       }
     }
   }
@@ -761,7 +762,15 @@ export async function upgradeHolyCodex(
       error,
     );
   }
-  const ordering = compareReleaseVersions(targetVersion, source.version);
+  // A development artifact and its stable install record share one release
+  // base. Reconciliation may cross that channel boundary in either direction;
+  // older bases and older builds within the development channel remain blocked.
+  const sameBaseChannelTransition =
+    targetVersion.split("-", 1)[0] === source.version.split("-", 1)[0] &&
+    targetVersion.includes("-dev.") !== source.version.includes("-dev.");
+  const ordering = sameBaseChannelTransition
+    ? 0
+    : compareReleaseVersions(targetVersion, source.version);
   if (ordering < 0) {
     throw new InstallerError(
       "upgrade_downgrade",
@@ -833,8 +842,9 @@ export async function upgradeHolyCodex(
     toolingDrift = true;
   }
   const changes = [
-    ...(ordering > 0 ? ["version"] : []),
+    ...(ordering > 0 || sameBaseChannelTransition ? ["version"] : []),
     ...(optionsChanged ? ["installation options"] : []),
+    ...(persistedOptions === undefined ? ["installation options migration"] : []),
     ...(legacyContext ? ["context-management configuration migration"] : []),
     ...(legacyAutoCompact ? ["auto-compaction configuration cleanup"] : []),
     ...(ordering > 0 || legacyContext || legacyAutoCompact
@@ -872,13 +882,7 @@ export async function upgradeHolyCodex(
     };
   }
   try {
-    const result = await installHolyCodex(
-      {
-        ...selectedOptions,
-      },
-      options,
-      environment,
-    );
+    const result = await installHolyCodex(effectiveOptions, options, environment);
     return {
       status: "upgraded",
       from_version: source.version,
@@ -1035,7 +1039,8 @@ async function doctorNativeRoles(
         roleDocument["name"] !== agent.name ||
         typeof roleDocument["description"] !== "string" ||
         typeof roleDocument["developer_instructions"] !== "string" ||
-        roleDocument["model"] !== "gpt-5.6-luna" ||
+        roleDocument["model"] !== agent.model ||
+        roleDocument["model_reasoning_effort"] !== agent.effort ||
         roleDocument["model_reasoning_summary"] !== "none" ||
         roleDocument["model_verbosity"] !== "low" ||
         roleDocument["tool_output_token_limit"] !== undefined ||

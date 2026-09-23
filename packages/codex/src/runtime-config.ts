@@ -226,6 +226,8 @@ function isManagedConfigStateKeyPath(value: unknown): value is ManagedConfigStat
 
 type ManagedEnum =
   | "gpt-6-astra"
+  | "gpt-6-sol"
+  | "gpt-6-luna"
   | "gpt-5.6-terra"
   | "gpt-5.6-sol"
   | "gpt-5.6-luna"
@@ -285,6 +287,8 @@ function isSafeMetadataText(value: unknown): value is string {
 function isManagedEnum(value: unknown): value is ManagedEnum {
   return (
     value === "gpt-6-astra" ||
+    value === "gpt-6-sol" ||
+    value === "gpt-6-luna" ||
     value === "gpt-5.6-terra" ||
     value === "gpt-5.6-sol" ||
     value === "gpt-5.6-luna" ||
@@ -353,6 +357,8 @@ function isSafeValueForKey(
       if (keyPath === "model") {
         return (
           value.value === "gpt-6-astra" ||
+          value.value === "gpt-6-sol" ||
+          value.value === "gpt-6-luna" ||
           value.value === "gpt-5.6-terra" ||
           value.value === "gpt-5.6-sol" ||
           value.value === "gpt-5.6-luna"
@@ -510,6 +516,9 @@ function isExpectedValueForKey(keyPath: ManagedConfigKeyPath, value: TomlValue):
   if (kind === "boolean") return typeof value === "boolean";
   if (kind === "relative_path") return typeof value === "string" && isRelativeConfigPath(value);
   if (kind === "digest") return typeof value === "string";
+  if (keyPath === "model") {
+    return value === "gpt-6-astra" || value === "gpt-6-sol" || value === "gpt-6-luna";
+  }
   return typeof value === "string" && isManagedEnum(value);
 }
 

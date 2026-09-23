@@ -21,6 +21,11 @@ import { agentHelp, agentHelpRequested } from "./help.ts";
 
 const ResponseVersion = "holycodex-agent-response-1" as const;
 const ArgvSchema = Schema.Array(Schema.String);
+const AssignmentInterruptionRecoveryInputSchema = Schema.Struct({
+  invocationId: Schema.String,
+  startedAt: Schema.String,
+  interruptionReason: Schema.String,
+});
 
 /** Injectable streams and working directory for deterministic CLI execution. */
 export interface AgentIo {
@@ -158,6 +163,13 @@ async function execute(
           ? {}
           : decodeJson(AssignmentStartInputSchema, options["input"]),
       );
+    if (subcommand === "recover")
+      return await store.recoverInterruptedAssignment(
+        requiredValue(intent, "intent"),
+        required(options, "assignment"),
+        revision(options),
+        decodeJson(AssignmentInterruptionRecoveryInputSchema, required(options, "input")),
+      );
     if (subcommand === "result") {
       const result = decodeJson(AssignmentResultInputSchema, required(options, "input"));
       const reference = requiredValue(intent, "intent");
@@ -228,6 +240,7 @@ function allowedOptions(command: string, subcommand: string): ReadonlySet<string
     "assignment list": ["intent"],
     "assignment read": ["intent", "assignment"],
     "assignment start": ["intent", "assignment", "revision", "input"],
+    "assignment recover": ["intent", "assignment", "revision", "input"],
     "assignment result": ["intent", "assignment", "revision", "input"],
   };
   return new Set([...common, ...(options[`${command} ${subcommand}`] ?? [])]);

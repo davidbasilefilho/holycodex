@@ -20,7 +20,7 @@ const metadata = { schema: "state-0.16", installId: "install-1" } as const;
 describe("typed runtime configuration", () => {
   test("merges managed dotted keys while retaining unrelated TOML tables", async () => {
     const document = {
-      model: "gpt-5.6-luna",
+      model: "gpt-6-sol",
       unrelated: "preserve",
       features: { unrelated_feature: true },
     } as const;
@@ -28,20 +28,20 @@ describe("typed runtime configuration", () => {
       document,
       createManagedRuntimeConfigState(metadata),
       {
-        model: "gpt-5.6-terra",
+        model: "gpt-6-luna",
         "features.default_mode_request_user_input": true,
       },
       metadata,
     );
 
     expect(merged.document).toEqual({
-      model: "gpt-5.6-terra",
+      model: "gpt-6-luna",
       unrelated: "preserve",
       features: { unrelated_feature: true, default_mode_request_user_input: true },
     });
     expect(merged.state.managed["model"]?.originalValue).toEqual({
       kind: "enum",
-      value: "gpt-5.6-luna",
+      value: "gpt-6-sol",
     });
     expect(merged.state.managed["features.default_mode_request_user_input"]?.originalValue).toEqual(
       {
@@ -117,6 +117,32 @@ describe("typed runtime configuration", () => {
     expect(cleanup.restoredKeys).toEqual([]);
   });
 
+  test("recognizes historical model IDs when restoring previously managed values", async () => {
+    for (const historicalModel of ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna"] as const) {
+      const initial = await mergeManagedRuntimeConfig(
+        { model: historicalModel },
+        createManagedRuntimeConfigState(metadata),
+        { model: "gpt-6-astra" },
+        metadata,
+      );
+      expect(initial.state.managed["model"]?.originalValue).toEqual({
+        kind: "enum",
+        value: historicalModel,
+      });
+      const cleaned = await cleanupManagedRuntimeConfig(initial.document, initial.state, metadata);
+      expect(cleaned.document["model"]).toBe(historicalModel);
+      expect(cleaned.restoredKeys).toEqual(["model"]);
+      await expect(
+        mergeManagedRuntimeConfig(
+          {},
+          createManagedRuntimeConfigState(metadata),
+          { model: historicalModel },
+          metadata,
+        ),
+      ).rejects.toMatchObject({ code: "invalid_external_data" });
+    }
+  });
+
   test("manages context experimental mode as a required Root setting", async () => {
     const keyPath = "features.context_management.experimental_mode" as const;
     expect(isManagedConfigKeyPath(keyPath)).toBe(true);
@@ -176,9 +202,9 @@ describe("typed runtime configuration", () => {
     const priorInstructions = "Bearer prior-secret-instructions";
     const installedInstructions = "HolyCodex instructions";
     const initial = await mergeManagedRuntimeConfig(
-      { model: "gpt-5.6-luna", developer_instructions: priorInstructions },
+      { model: "gpt-6-sol", developer_instructions: priorInstructions },
       createManagedRuntimeConfigState(metadata),
-      { model: "gpt-5.6-terra", developer_instructions: installedInstructions },
+      { model: "gpt-6-luna", developer_instructions: installedInstructions },
       metadata,
     );
     const serializedState = JSON.stringify(initial.state);
@@ -186,7 +212,7 @@ describe("typed runtime configuration", () => {
     expect(serializedState).not.toContain(installedInstructions);
 
     const cleaned = await cleanupManagedRuntimeConfig(initial.document, initial.state, metadata);
-    expect(cleaned.document["model"]).toBe("gpt-5.6-luna");
+    expect(cleaned.document["model"]).toBe("gpt-6-sol");
     expect(readTomlPath(cleaned.document, "developer_instructions")).toBe(installedInstructions);
     expect(cleaned.restoredKeys).toEqual(["model"]);
     expect(cleaned.unresolvedKeys).toEqual(["developer_instructions"]);

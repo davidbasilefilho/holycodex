@@ -119,12 +119,12 @@ IDs do not define instruction behavior: every live skill and generated Root or
 specialist instruction targets the GPT-6 family. Historical routing values
 remain only in migration/cleanup paths for previously managed state. HolyCodex
 owns the scalar `features.context_management` projection and sets it to `true`
-for Root and every generated leaf because Codex does not enable it by default. Upgrade
-migrates owned historical
+for Root and every generated leaf because Codex does not enable it by default. The
+package migration converts owned historical
 `.experimental_mode` state to the scalar key. Standard managed-key ownership
 preserves a user edit and restores the recorded prior value during removal.
 Repo-local Intent/Plan/Assignment state remains independent. A bounded `Explorer.trace` dispatch has been
-verified with the `gpt-5.6-luna`/`high` route and the installed baseline retained;
+verified with the `gpt-6-luna`/`high` route and the installed baseline retained;
 session metadata reports V2, so this does not claim live V1 proof or
 HolyCodex-owned fork enforcement. Generated configuration and readback tests
 prove the V1 arrangement only.

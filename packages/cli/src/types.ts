@@ -344,12 +344,6 @@ export interface CliIo {
   readonly confirm?: (message: string) => Promise<boolean | ConfirmationResult>;
   /** Injectable interactive installer boundary used by tests and embedders. */
   readonly installWizard?: (initial: InstallRequest) => Promise<InstallWizardResult>;
-  /** Injectable native upgrade choice boundary used by tests and embedders. */
-  readonly upgradeWizard?: (
-    current: InstallRequest,
-    fromVersion: ReleaseVersion,
-    toVersion: ReleaseVersion,
-  ) => Promise<UpgradeWizardResult>;
   /** Injectable final install or upgrade review boundary used by tests and embedders. */
   readonly installReview?: InstallReviewResolver;
   readonly writeStdout?: (text: string) => void;
@@ -359,12 +353,6 @@ export interface CliIo {
 /** Result of the public interactive install wizard. */
 export type InstallWizardResult =
   | Readonly<{ readonly action: "install"; readonly request: InstallRequest }>
-  | Readonly<{ readonly action: "cancel" }>;
-
-/** Result of the initial interactive upgrade choice screen. */
-export type UpgradeWizardResult =
-  | Readonly<{ readonly action: "keep" }>
-  | Readonly<{ readonly action: "change"; readonly request?: InstallRequest | undefined }>
   | Readonly<{ readonly action: "cancel" }>;
 
 export type ConfirmationResult = "confirmed" | "cancelled" | "unavailable";

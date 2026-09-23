@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { access, chmod, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { delimiter, dirname, join, relative, resolve } from "node:path";
+import { delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 
@@ -10,7 +10,12 @@ import * as Schema from "effect/Schema";
 
 import { parseConfig } from "../packages/cli/src/installer.ts";
 import { windowsGitBashShellDirective } from "../packages/cli/src/native-agents.ts";
+import type {
+  NativeAgentProjection,
+  RootAgentProjection,
+} from "../packages/cli/src/native-agents.ts";
 import { AppServerClient, BunStdioTransport, readTomlPath } from "../packages/codex/src/index.ts";
+import { PROFILE_CATALOG } from "../packages/core/src/catalog.ts";
 import { CliEnvelopeSchema } from "../packages/core/src/envelopes.ts";
 import { NATIVE_AGENT_TYPES } from "../packages/core/src/routes.ts";
 import {
@@ -70,7 +75,6 @@ const EXPECTED_CODEX_PROVIDER_PLUGINS = [
 ] as const;
 const CODEX_HOLYCODEX_PLUGIN = "holycodex@holycodex" as const;
 const ADDITIONAL_FIXTURE_PLUGIN = "additional@fixture" as const;
-const windowsShell = windowsGitBashShellDirective();
 const LEGACY_WORK_PROVIDER_PLUGINS = [
   "documents@openai-primary-runtime",
   "pdf@openai-primary-runtime",
@@ -80,11 +84,11 @@ const LEGACY_WORK_PROVIDER_PLUGINS = [
 ] as const;
 // These identities authenticate the immutable published previous-stable package used by the
 // upgrade proof. Its exact version is derived from the current canonical patch version below.
-const PREVIOUS_STABLE_SOURCE_SHA = "b7fa7491244b17d03b5a8a6f3541b9637b5878d7";
+const PREVIOUS_STABLE_SOURCE_SHA = "78bbcb5a51392f3397cf32ff7e433d21c0bbf39c";
 const PREVIOUS_STABLE_CLI_SHA256 =
-  "988b9bdd1bb2f9e3792b3d3ef6b88da75d6c502e9bfd620622919f99c0d917c9";
+  "b1adcc45cabeb667affc7426fdb4bacbabba3e29095fef0fb3c99e3e4c3d5fba";
 const PREVIOUS_STABLE_AGENT_SHA256 =
-  "caf3d633a507c4faf86f3cce34fb4e8ab0a162af88e4b975e26956dda2dc0887";
+  "4adcd4a2084080c7127b97c508a4a024e58faefff21f52803746c67756edc854";
 
 type CodexPluginListEntry = Readonly<{
   readonly pluginId: string;
@@ -99,8 +103,132 @@ type CodexPluginList = Readonly<{
 type PublicManifest = typeof PublicManifestSchema.Type;
 type InstalledCliModule = Readonly<{
   readonly runCli: (argv: readonly string[], context?: unknown) => Promise<unknown>;
+  readonly upgradeHolyCodex: (
+    options: unknown,
+    environment: Readonly<Record<string, string | undefined>>,
+    request: { readonly dryRun?: boolean },
+  ) => Promise<Record<string, unknown>>;
   readonly installRecordDigest: (value: Record<string, unknown>) => Promise<string>;
+  readonly projectNativeAgents: (
+    profile: (typeof PROFILE_CATALOG)[number]["name"],
+    tier?: "standard" | "fast" | "fast-all",
+  ) => readonly NativeAgentProjection[];
+  readonly projectRootAgent: (
+    profile: (typeof PROFILE_CATALOG)[number]["name"],
+    tier?: "standard" | "fast" | "fast-all",
+  ) => RootAgentProjection;
+  readonly renderNativeAgent: (agent: NativeAgentProjection) => string;
 }>;
+
+type InternalUpgradeOutcome =
+  | Readonly<{ ok: true; data: Record<string, unknown> }>
+  | Readonly<{ ok: false; error: Readonly<{ code: string }> }>;
+
+function verifyPublishedRouting(installed: InstalledCliModule): void {
+  let projectedRoutes = 0;
+  for (const profile of PROFILE_CATALOG) {
+    const roots = [
+      installed.projectRootAgent(profile.name, "standard"),
+      installed.projectRootAgent(profile.name, "fast"),
+      installed.projectRootAgent(profile.name, "fast-all"),
+    ];
+    assert(
+      roots.every(
+        (root) => root.model === profile.root.model && root.effort === profile.root.effort,
+      ),
+      `the packed ${profile.name} Root route changed across service tiers`,
+    );
+    assert(
+      roots[0]?.serviceTier === "default" &&
+        roots[1]?.serviceTier === "default" &&
+        roots[2]?.serviceTier === "fast",
+      `the packed ${profile.name} Root service-tier projection is invalid`,
+    );
+
+    const standard = installed.projectNativeAgents(profile.name, "standard");
+    const fast = installed.projectNativeAgents(profile.name, "fast");
+    const fastAll = installed.projectNativeAgents(profile.name, "fast-all");
+    assert(
+      standard.length === NATIVE_AGENT_TYPES.length &&
+        fast.length === standard.length &&
+        fastAll.length === standard.length,
+      `the packed ${profile.name} route projection is incomplete`,
+    );
+
+    for (const route of profile.routes) {
+      const name = `${route.role}.${route.task}`;
+      const standardAgent = standard.find((agent) => agent.name === name);
+      const fastAgent = fast.find((agent) => agent.name === name);
+      const fastAllAgent = fastAll.find((agent) => agent.name === name);
+      assert(
+        standardAgent !== undefined && fastAgent !== undefined && fastAllAgent !== undefined,
+        `the packed ${profile.name} route projection omitted ${name}`,
+      );
+      for (const agent of [standardAgent, fastAgent, fastAllAgent]) {
+        assert(
+          agent.model === "gpt-6-luna" &&
+            agent.model === route.model &&
+            agent.effort === route.effort,
+          `the packed ${profile.name} route for ${name} changed model or effort`,
+        );
+      }
+      assert(
+        standardAgent.serviceTier === "default" &&
+          fastAgent.serviceTier === "fast" &&
+          fastAllAgent.serviceTier === "fast",
+        `the packed ${profile.name} route for ${name} changed service tier`,
+      );
+
+      for (const [agent, expectedTier] of [
+        [standardAgent, "default"],
+        [fastAllAgent, "fast"],
+      ] as const) {
+        const document = parseConfig(installed.renderNativeAgent(agent));
+        assert(
+          readTomlPath(document, "name") === name &&
+            readTomlPath(document, "model") === route.model &&
+            readTomlPath(document, "model_reasoning_effort") === route.effort &&
+            readTomlPath(document, "service_tier") === expectedTier,
+          `the packed ${profile.name} TOML projection for ${name} is invalid`,
+        );
+      }
+      projectedRoutes += 1;
+    }
+  }
+  assert(
+    projectedRoutes === PROFILE_CATALOG.length * NATIVE_AGENT_TYPES.length,
+    "the packed module did not verify all 39 profile and specialist projections",
+  );
+}
+
+/** Exercise the packed package's migration boundary without a public CLI command. */
+async function runInternalUpgrade(
+  entry: string,
+  codexHome: string,
+  environment: Readonly<Record<string, string | undefined>>,
+  dryRun = false,
+): Promise<InternalUpgradeOutcome> {
+  const installed = (await import(pathToFileURL(entry).href)) as InstalledCliModule;
+  try {
+    return {
+      ok: true,
+      data: await installed.upgradeHolyCodex({ paths: { codexHome } }, environment, { dryRun }),
+    };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      error: {
+        code:
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          typeof error.code === "string"
+            ? error.code
+            : "internal_error",
+      },
+    };
+  }
+}
 
 export interface PackageReleaseOptions {
   readonly version: string;
@@ -306,6 +434,7 @@ export async function verifyPublicPackage(
     npm_config_user_agent: `bun/${Bun.version}`,
   });
   const installedModule = (await import(pathToFileURL(installedEntry).href)) as InstalledCliModule;
+  verifyPublishedRouting(installedModule);
   await verifyPreviousStableUpgrade({
     temporaryRoot,
     currentCanonicalVersion: packed.canonicalVersion,
@@ -329,6 +458,19 @@ export async function verifyPublicPackage(
     assert(hasProperty(versionData, "version"), "installed package version data is invalid");
     assert(versionData["version"] === version, "installed package version is not canonical");
   }
+  const removedUpgrade = await runCliResult(
+    installedEntry,
+    ["upgrade", "--json"],
+    installedRoot,
+    commands,
+    codexEnvironment,
+  );
+  assert(
+    removedUpgrade.exitCode === 1 &&
+      !removedUpgrade.envelope.ok &&
+      removedUpgrade.envelope.error.code === "unknown_command",
+    "the packed public CLI must reject the removed upgrade command",
+  );
 
   await runInstalledAgentHelp(installedAgentEntry, installedRoot, commands);
 
@@ -410,22 +552,39 @@ export async function verifyPublicPackage(
     "packed install",
   );
   const managedConfigText = await readFile(join(codexHome, "config.toml"), "utf8");
+  const managedConfig = parseConfig(managedConfigText);
+  const managedRootInstructions = readTomlPath(managedConfig, "developer_instructions");
+  const normalizedRootInstructions =
+    typeof managedRootInstructions === "string" ? managedRootInstructions.toLowerCase() : "";
   assert(
-    managedConfigText.includes("gpt-6-astra") &&
+    readTomlPath(managedConfig, "model") === "gpt-6-astra" &&
       managedConfigText.includes("context_management = true") &&
       !managedConfigText.includes("experimental_mode") &&
       !/\b(?:Sol|Terra)\b/u.test(managedConfigText),
     "the managed Codex configuration must use Astra and canonical scalar context management",
   );
   assert(
-    managedConfigText.includes("exact concrete registered Role.task agent_type") &&
-      managedConfigText.includes(
-        "role families Explorer, Librarian, Worker, and Reviewer are labels only",
+    typeof managedRootInstructions === "string" &&
+      managedRootInstructions.includes("Dispatch every delegable action as a bounded Assignment") &&
+      normalizedRootInstructions.includes("exact concrete registered role.task agent_type") &&
+      ["explorer", "librarian", "worker", "reviewer", "labels"].every((term) =>
+        normalizedRootInstructions.includes(term),
       ) &&
-      managedConfigText.includes(
-        "Generic built-in agent_type values worker, explorer, reviewer, librarian are forbidden",
+      normalizedRootInstructions.includes(
+        "generic built-in agent_type values worker, explorer, reviewer, librarian are forbidden",
       ),
-    "the packed Root configuration must require exact registered specialist dispatch",
+    "the packed high-profile Root configuration must preserve Astra-specific exact specialist dispatch",
+  );
+  const fixedPointReviewPosition = normalizedRootInstructions.indexOf(
+    "reviewer.code reaches a fixed point",
+  );
+  const validationPosition = normalizedRootInstructions.indexOf("worker.validation runs");
+  const integrationPosition = normalizedRootInstructions.indexOf("then root integrates");
+  assert(
+    fixedPointReviewPosition >= 0 &&
+      validationPosition > fixedPointReviewPosition &&
+      integrationPosition > validationPosition,
+    "the packed high-profile Root configuration must place validation after fixed-point review",
   );
   if (process.platform === "win32") {
     const tooling = objectProperty(activeRecord, "tooling");
@@ -436,10 +595,9 @@ export async function verifyPublicPackage(
         /[\\/]bash\.exe$/iu.test(gitBash["path"]),
       "the packed Windows install record must retain a verified Git Bash executable",
     );
-    const managedConfig = parseConfig(managedConfigText);
-    const developerInstructions = readTomlPath(managedConfig, "developer_instructions");
     assert(
-      typeof developerInstructions === "string" && developerInstructions.includes(windowsShell),
+      typeof managedRootInstructions === "string" &&
+        managedRootInstructions.includes(windowsGitBashShellDirective(gitBash["path"] as string)),
       "the packed Windows Root configuration must project the verified Git Bash boundary",
     );
   }
@@ -531,13 +689,7 @@ export async function verifyPublicPackage(
     assert(doctorData["healthy"] === true, "packed package doctor did not report healthy");
   }
 
-  const currentUpgrade = await runCli(
-    installedEntry,
-    ["upgrade", "--yes", "--json", "--codex-home", codexHome],
-    installedRoot,
-    commands,
-    codexEnvironment,
-  );
+  const currentUpgrade = await runInternalUpgrade(installedEntry, codexHome, codexEnvironment);
   assert(currentUpgrade.ok, "packed package current upgrade command failed");
   if (currentUpgrade.ok) {
     assert(
@@ -591,13 +743,7 @@ export async function verifyPublicPackage(
   });
   const dryRunBeforeConfig = await readFile(join(codexHome, "config.toml"), "utf8");
   const dryRunBeforeRecord = await readFile(activeRecordPath, "utf8");
-  const dryRun = await runCli(
-    installedEntry,
-    ["upgrade", "--yes", "--dry-run", "--json", "--codex-home", codexHome],
-    installedRoot,
-    commands,
-    codexEnvironment,
-  );
+  const dryRun = await runInternalUpgrade(installedEntry, codexHome, codexEnvironment, true);
   assert(dryRun.ok, "packed package upgrade dry-run failed");
   if (dryRun.ok) {
     assert(
@@ -617,13 +763,7 @@ export async function verifyPublicPackage(
       (await readFile(activeRecordPath, "utf8")) === dryRunBeforeRecord,
     "upgrade dry-run must not mutate state",
   );
-  const upgraded = await runCli(
-    installedEntry,
-    ["upgrade", "--yes", "--json", "--codex-home", codexHome],
-    installedRoot,
-    commands,
-    codexEnvironment,
-  );
+  const upgraded = await runInternalUpgrade(installedEntry, codexHome, codexEnvironment);
   assert(upgraded.ok, "packed package legacy upgrade failed");
   if (upgraded.ok) {
     assert(
@@ -657,16 +797,10 @@ export async function verifyPublicPackage(
     ...record,
     version: nextPatchVersion(version),
   }));
-  const downgrade = await runCliResult(
-    installedEntry,
-    ["upgrade", "--yes", "--json", "--codex-home", codexHome],
-    installedRoot,
-    commands,
-    codexEnvironment,
-  );
-  assert(downgrade.exitCode !== 0, "downgrade upgrade must fail");
+  const downgrade = await runInternalUpgrade(installedEntry, codexHome, codexEnvironment);
+  assert(!downgrade.ok, "downgrade upgrade must fail");
   assert(
-    !downgrade.envelope.ok && downgrade.envelope.error.code === "upgrade_downgrade",
+    !downgrade.ok && downgrade.error.code === "upgrade_downgrade",
     "downgrade upgrade must return a semantic refusal",
   );
   await rewriteActiveRecord(activeRecordPath, installedModule, (record) => ({
@@ -684,13 +818,7 @@ export async function verifyPublicPackage(
       status,
       step: status === "preparing" ? "validated" : "conflicted",
     });
-    const recovered = await runCli(
-      installedEntry,
-      ["upgrade", "--yes", "--json", "--codex-home", codexHome],
-      installedRoot,
-      commands,
-      codexEnvironment,
-    );
+    const recovered = await runInternalUpgrade(installedEntry, codexHome, codexEnvironment);
     assert(recovered.ok, `${name} transaction recovery failed`);
     assert(
       !(await exists(join(stateRoot, `${name}.json`))),
@@ -699,15 +827,12 @@ export async function verifyPublicPackage(
   }
 
   const notInstalledHome = join(temporaryRoot, "not-installed-codex-home");
-  const notInstalled = await runCliResult(
-    installedEntry,
-    ["upgrade", "--yes", "--json", "--codex-home", notInstalledHome],
-    installedRoot,
-    commands,
-    { ...codexEnvironment, CODEX_HOME: notInstalledHome },
-  );
+  const notInstalled = await runInternalUpgrade(installedEntry, notInstalledHome, {
+    ...codexEnvironment,
+    CODEX_HOME: notInstalledHome,
+  });
   assert(
-    !notInstalled.envelope.ok && notInstalled.envelope.error.code === "not_installed",
+    !notInstalled.ok && notInstalled.error.code === "not_installed",
     "upgrade without an installation must return not_installed",
   );
 
@@ -1033,13 +1158,7 @@ async function verifyPreviousStableUpgrade(options: {
   await rm(fixturePluginSource, { recursive: true, force: true });
   await stageFixturePlugin(options.currentInstalledPackageRoot, fixturePluginSource);
   const beforeDryRun = await snapshotDirectoryBytes(codexHome);
-  const dryRun = await runCli(
-    options.currentEntry,
-    ["upgrade", "--yes", "--dry-run", "--json", "--codex-home", codexHome],
-    options.currentInstalledRoot,
-    options.commands,
-    environment,
-  );
+  const dryRun = await runInternalUpgrade(options.currentEntry, codexHome, environment, true);
   assert(dryRun.ok, "the real previous-stable upgrade dry-run failed");
   if (dryRun.ok) {
     assert(
@@ -1052,13 +1171,7 @@ async function verifyPreviousStableUpgrade(options: {
     "the real previous-stable upgrade dry-run changed isolated Codex-home bytes",
   );
 
-  const upgraded = await runCli(
-    options.currentEntry,
-    ["upgrade", "--yes", "--json", "--codex-home", codexHome],
-    options.currentInstalledRoot,
-    options.commands,
-    environment,
-  );
+  const upgraded = await runInternalUpgrade(options.currentEntry, codexHome, environment);
   assert(upgraded.ok, "the real previous-stable package upgrade failed");
   const upgradedRecord = JSON.parse(await readFile(activeRecordPath, "utf8")) as Record<
     string,
@@ -1146,6 +1259,36 @@ async function verifyPreviousStableUpgrade(options: {
     doctor.ok && hasProperty(doctor.data, "healthy") && doctor.data["healthy"] === true,
     "the real previous-stable upgrade did not end doctor-healthy",
   );
+
+  if (options.currentVersion !== options.currentCanonicalVersion) {
+    const currentModule = (await import(
+      pathToFileURL(options.currentEntry).href
+    )) as InstalledCliModule;
+    await rewriteActiveRecord(activeRecordPath, currentModule, (record) => ({
+      ...record,
+      version: options.currentCanonicalVersion,
+    }));
+    const sameBaseReconciliation = await runInternalUpgrade(
+      options.currentEntry,
+      codexHome,
+      environment,
+    );
+    assert(
+      sameBaseReconciliation.ok &&
+        sameBaseReconciliation.data["status"] === "upgraded" &&
+        sameBaseReconciliation.data["from_version"] === options.currentCanonicalVersion &&
+        sameBaseReconciliation.data["to_version"] === options.currentVersion,
+      "a same-base development package must reconcile its stable install record",
+    );
+    const reconciledRecord = JSON.parse(await readFile(activeRecordPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    assert(
+      reconciledRecord["version"] === options.currentVersion,
+      "same-base development reconciliation must record the running development artifact",
+    );
+  }
 }
 
 async function stageFixturePlugin(packageRoot: string, destination: string): Promise<void> {
@@ -1796,26 +1939,92 @@ async function assertCodexAppServerReadback(
       "Codex App Server returned a protocol version different from generated provenance",
     );
     const readback = await client.readConfig({ includeLayers: true, cwd: codexHome });
+    assert(
+      readback.config["model"] === "gpt-6-astra" &&
+        readback.config["model_reasoning_effort"] === "high",
+      "Codex App Server config readback changed the high-profile Root route",
+    );
+    const rootInstructions = readback.config["developer_instructions"];
+    assert(
+      typeof rootInstructions === "string" &&
+        rootInstructions.toLowerCase().includes("bounded assignment") &&
+        rootInstructions.toLowerCase().includes("exact concrete registered role.task agent_type"),
+      "Codex App Server config readback changed the Astra-specific Root instruction projection",
+    );
+    if (process.platform === "win32") {
+      const active = JSON.parse(
+        await readFile(join(codexHome, "holycodex/active.json"), "utf8"),
+      ) as {
+        tooling?: { git_bash?: { path?: string } };
+      };
+      const verifiedShell = active.tooling?.git_bash?.path;
+      assert(
+        typeof verifiedShell === "string" &&
+          typeof readback.config["developer_instructions"] === "string" &&
+          readback.config["developer_instructions"].includes(
+            windowsGitBashShellDirective(verifiedShell),
+          ),
+        "Codex App Server config readback changed the verified Git Bash executable",
+      );
+    }
     const agents = readback.config["agents"];
     assert(
       typeof agents === "object" && agents !== null && !Array.isArray(agents),
       "Codex App Server config readback omitted role registrations",
     );
     const agentTable = agents as Record<string, unknown>;
+    const highProfile = PROFILE_CATALOG.find((profile) => profile.name === "high");
+    assert(highProfile !== undefined, "the high profile is missing from the route catalog");
     for (const agentType of NATIVE_AGENT_TYPES) {
       const registration = agentTable[agentType];
       assert(
         typeof registration === "object" &&
           registration !== null &&
           !Array.isArray(registration) &&
-          (registration as Record<string, unknown>)["config_file"] ===
-            `holycodex/agents/${agentType}.toml`,
+          typeof (registration as Record<string, unknown>)["config_file"] === "string",
         `Codex App Server config readback omitted the ${agentType} registration`,
       );
       assert(
         typeof (registration as Record<string, unknown>)["name"] === "undefined",
         `Codex App Server config readback unexpectedly materialized ${agentType} metadata`,
       );
+      const configuredPath = (registration as Record<string, string>)["config_file"]!;
+      const readbackPath = isAbsolute(configuredPath)
+        ? resolve(configuredPath)
+        : resolve(codexHome, configuredPath);
+      const expectedPath = resolve(codexHome, "holycodex", "agents", `${agentType}.toml`);
+      const comparableReadbackPath =
+        process.platform === "win32" ? readbackPath.toLowerCase() : readbackPath;
+      const comparableExpectedPath =
+        process.platform === "win32" ? expectedPath.toLowerCase() : expectedPath;
+      assert(
+        comparableReadbackPath === comparableExpectedPath,
+        `Codex App Server config readback resolved ${agentType} outside the installed role directory`,
+      );
+      const roleDocument = parseConfig(await readFile(readbackPath, "utf8"));
+      const expectedRoute = highProfile.routes.find(
+        (route) => `${route.role}.${route.task}` === agentType,
+      );
+      assert(expectedRoute !== undefined, `the high route catalog omitted ${agentType}`);
+      assert(
+        readTomlPath(roleDocument, "model") === "gpt-6-luna" &&
+          readTomlPath(roleDocument, "model") === expectedRoute.model &&
+          readTomlPath(roleDocument, "model_reasoning_effort") === expectedRoute.effort,
+        `Codex App Server config readback changed the ${agentType} route TOML`,
+      );
+      if (process.platform === "win32") {
+        const active = JSON.parse(
+          await readFile(join(codexHome, "holycodex/active.json"), "utf8"),
+        ) as { tooling?: { git_bash?: { path?: string } } };
+        const verifiedShell = active.tooling?.git_bash?.path;
+        const instructions = readTomlPath(roleDocument, "developer_instructions");
+        assert(
+          typeof verifiedShell === "string" &&
+            typeof instructions === "string" &&
+            instructions.includes(windowsGitBashShellDirective(verifiedShell)),
+          `Codex App Server config readback changed the verified Git Bash boundary for ${agentType}`,
+        );
+      }
     }
   } catch (error: unknown) {
     const diagnostics = transport.diagnostics.join("; ");
@@ -1824,7 +2033,11 @@ async function assertCodexAppServerReadback(
     const configSnippet = configText
       .slice(shellIndex < 0 ? 0 : shellIndex, shellIndex < 0 ? 512 : shellIndex + 1024)
       .replaceAll(/\s+/gu, " ");
-    const configProbe = `configShell=${configText.includes(windowsShell)} configDeveloper=${configText.includes("developer_instructions")} configSnippet=${configSnippet}`;
+    const active = JSON.parse(await readFile(join(codexHome, "holycodex/active.json"), "utf8")) as {
+      tooling?: { git_bash?: { path?: string } };
+    };
+    const verifiedShell = active.tooling?.git_bash?.path;
+    const configProbe = `configShell=${verifiedShell !== undefined && configText.includes(JSON.stringify(verifiedShell).replaceAll("\\", "\\\\"))} configDeveloper=${configText.includes("developer_instructions")} configSnippet=${configSnippet}`;
     const installerDebug = await readFile(join(codexHome, ".holycodex-debug.log"), "utf8").catch(
       () => "",
     );
@@ -1877,7 +2090,7 @@ function parseCodexPluginList(stdout: string): CodexPluginList {
 function fakeCodexProgram(codexCliVersion: string): string {
   const source = String.raw`const CODEX_VERSION = "CODEX_VERSION_PLACEHOLDER";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 const HOME = process.env.CODEX_HOME;
 const HOLY = "holycodex@holycodex";
@@ -2029,38 +2242,68 @@ async function removePlugin(pluginId) {
 
 async function configRead() {
   const text = await readFile(join(HOME, "config.toml"), "utf8");
+  const active = JSON.parse(await readFile(join(HOME, "holycodex", "active.json"), "utf8"));
+  const verifiedShell = active.tooling?.git_bash?.path;
+  const shellMarker = typeof verifiedShell === "string" ? JSON.stringify(verifiedShell).replaceAll("\\", "\\\\") : "";
   if (!text.includes("multi_agent = true") || !text.includes("multi_agent_v2 = false")) {
     fail("Codex config omitted the canonical Root multi-agent mode");
   }
   if (!text.includes("context_management = true")) fail("Codex config omitted scalar context management");
   if (text.includes("experimental_mode")) fail("Codex config retained legacy context management");
-  const rootRouting = "exact concrete registered Role.task agent_type";
-  if (!text.includes(rootRouting)) fail("Codex config omitted exact specialist dispatch policy");
+  function rootStringSetting(name) {
+    const prefix = name + " = ";
+    const line = text.split(/\r?\n/u).find((candidate) => candidate.startsWith(prefix));
+    if (line === undefined) fail("Codex config omitted " + name);
+    const value = JSON.parse(line.slice(prefix.length));
+    if (typeof value !== "string") fail("Codex config has an invalid " + name);
+    return value;
+  }
+  const rootInstructions = rootStringSetting("developer_instructions").toLowerCase();
+  if (!rootInstructions.includes("bounded assignment")) {
+    fail("Codex config omitted the model-specific Root dispatch policy");
+  }
   if (
-    !text.includes("role families Explorer, Librarian, Worker, and Reviewer are labels only") ||
-    !text.includes(
-      "Generic built-in agent_type values worker, explorer, reviewer, librarian are forbidden",
-    )
+    !rootInstructions.includes("exact concrete registered role.task agent_type") ||
+    !["explorer", "librarian", "worker", "reviewer", "labels"].every((term) =>
+      rootInstructions.includes(term),
+    ) ||
+    !rootInstructions.includes("generic built-in agent_type values worker, explorer, reviewer, librarian are forbidden")
   ) {
     fail("Codex config retained ambiguous specialist dispatch policy");
   }
   if (
     process.platform === "win32" &&
-    !text.includes(WINDOWS_SHELL_PLACEHOLDER.replaceAll("\\\\", "\\\\\\\\"))
+    (shellMarker.length === 0 || !text.includes("On Windows, use Git for Windows Bash") || !text.includes(shellMarker))
   ) {
     fail("Codex config omitted the Windows Git Bash boundary");
   }
   const config = {
+    model: rootStringSetting("model"),
+    model_reasoning_effort: rootStringSetting("model_reasoning_effort"),
+    service_tier: rootStringSetting("service_tier"),
+    developer_instructions: rootStringSetting("developer_instructions"),
     features: { multi_agent: true, multi_agent_v2: false, context_management: true },
     agents: {},
   };
   const agentTypes = AGENT_TYPES_PLACEHOLDER;
   for (const agentType of agentTypes) {
-    const reference = "config_file = \"holycodex/agents/" + agentType + ".toml\"";
-    if (!text.includes(reference)) fail("Codex config omitted the " + agentType + " registration");
-    const roleFile = agentType + ".toml";
-    const roleText = await readFile(join(HOME, "holycodex", "agents", roleFile), "utf8");
-    if (!roleText.includes('model = "gpt-5.6-luna"')) {
+    const marker = "[agents.\"" + agentType + "\"]";
+    const sectionStart = text.indexOf(marker);
+    if (sectionStart < 0) fail("Codex config omitted the " + agentType + " registration");
+    const section = text.slice(sectionStart + marker.length).split(/\r?\n\r?\n/u, 1)[0];
+    const configFileMatch = /^config_file = (".*")$/mu.exec(section);
+    if (configFileMatch === null) fail("Codex config omitted the " + agentType + " path");
+    const configFile = JSON.parse(configFileMatch[1]);
+    if (typeof configFile !== "string") fail("Codex config has an invalid agent path");
+    const rolePath = isAbsolute(configFile) ? resolve(configFile) : resolve(HOME, configFile);
+    const expectedRolePath = resolve(HOME, "holycodex", "agents", agentType + ".toml");
+    const comparableRolePath = process.platform === "win32" ? rolePath.toLowerCase() : rolePath;
+    const comparableExpectedRolePath = process.platform === "win32" ? expectedRolePath.toLowerCase() : expectedRolePath;
+    if (comparableRolePath !== comparableExpectedRolePath) {
+      fail("Codex config points " + agentType + " outside the managed role directory");
+    }
+    const roleText = await readFile(rolePath, "utf8");
+    if (!roleText.includes('model = "gpt-6-luna"')) {
       fail("Codex role file omitted the configured specialist routing model");
     }
     if (
@@ -2080,11 +2323,11 @@ async function configRead() {
     }
     if (
       process.platform === "win32" &&
-      !roleText.includes(WINDOWS_SHELL_PLACEHOLDER.replaceAll("\\", "\\\\"))
+      (shellMarker.length === 0 || !roleText.includes("On Windows, use Git for Windows Bash") || !roleText.includes(shellMarker))
     ) {
       fail("Codex role file omitted the Windows Git Bash boundary");
     }
-    config.agents[agentType] = { config_file: "holycodex/agents/" + roleFile };
+    config.agents[agentType] = { config_file: configFile };
   }
   return { config, origins: {}, layers: null };
 }
@@ -2161,7 +2404,6 @@ main().catch((error) => {
 `;
   return source
     .replace('"CODEX_VERSION_PLACEHOLDER"', JSON.stringify(codexCliVersion))
-    .replaceAll("WINDOWS_SHELL_PLACEHOLDER", JSON.stringify(windowsShell))
     .replace("AGENT_TYPES_PLACEHOLDER", JSON.stringify(NATIVE_AGENT_TYPES));
 }
 

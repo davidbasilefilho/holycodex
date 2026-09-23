@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +17,6 @@ import {
 } from "./index.ts";
 import type {
   InstallRequest,
-  InstallReview,
   InstallerRuntime,
   ManagedConflict,
   OfficialPluginManager,
@@ -29,6 +28,10 @@ import {
   parseConfig,
   serializeConfig,
 } from "./installer.ts";
+import type { InstallReview } from "./types.ts";
+
+const realFs = await import("node:fs/promises");
+const realRm = realFs.rm;
 
 const toolingStates = new Map<string, { installed: boolean }>();
 
@@ -358,7 +361,7 @@ describe("installer preflight", () => {
       await writeFile(
         paths.configFile,
         (await readFile(paths.configFile, "utf8"))
-          .replace('model = "gpt-6-astra"', 'model = "gpt-5.6-terra"')
+          .replace('model = "gpt-6-sol"', 'model = "gpt-5.6-terra"')
           .replace("context_management = true", "context_management = false"),
       );
       const rolePath = join(paths.roleRoot, "Worker.implementation.toml");
@@ -407,7 +410,7 @@ describe("installer preflight", () => {
       await writeFile(
         paths.configFile,
         (await readFile(paths.configFile, "utf8"))
-          .replace('model = "gpt-6-astra"', 'model = "gpt-5.6-terra"')
+          .replace('model = "gpt-6-sol"', 'model = "gpt-5.6-terra"')
           .replace("context_management = true", 'context_management = false\nunrelated = "keep"'),
       );
       const rolePath = join(paths.roleRoot, "Worker.implementation.toml");
@@ -465,7 +468,7 @@ describe("installer preflight", () => {
       expect(reviews[0]?.conflictCounts["config-key"]).toBeGreaterThanOrEqual(2);
       expect(reviews[0]?.conflictCounts["role-asset"]).toBeGreaterThanOrEqual(1);
       const finalConfig = await readFile(paths.configFile, "utf8");
-      expect(finalConfig).toContain('model = "gpt-6-astra"');
+      expect(finalConfig).toContain('model = "gpt-6-sol"');
       expect(finalConfig).toContain("context_management = false");
       expect(finalConfig).toContain('unrelated = "keep"');
       expect(await readFile(rolePath, "utf8")).toBe(userRole);
@@ -554,6 +557,106 @@ describe("installer preflight", () => {
       expect(reviews[1]?.conflictCounts["role-asset"]).toBeGreaterThanOrEqual(1);
       expect(await readFile(rolePath, "utf8")).toBe(userRole);
       expect(result.preserved).toContain(rolePath);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("rejects a native role replacement decision when the reviewed file changes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-stale-role-review-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const events: string[] = [];
+    try {
+      const { manager, runtime, result: baseline } = await installBaseline(codexHome, events);
+      const rolePath = join(paths.roleRoot, "Worker.implementation.toml");
+      await writeFile(rolePath, "reviewed role edit\n");
+      const latestRole = "newer user role edit\n";
+      const beforeAttemptEvents = [...events];
+
+      await expect(
+        installHolyCodex(request, {
+          paths: { codexHome },
+          officialPluginManager: manager,
+          runtime,
+          resolveConflicts: async (conflicts) =>
+            Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "replace"])),
+          reviewInstall: async (review) => {
+            expect(review.conflicts.find((conflict) => conflict.path === rolePath)?.decision).toBe(
+              "replace",
+            );
+            await writeFile(rolePath, latestRole);
+            return { action: "apply" };
+          },
+        }),
+      ).rejects.toMatchObject({ code: "install_failed" });
+
+      expect(await readFile(rolePath, "utf8")).toBe(latestRole);
+      expect(await readActiveInstallRecord(paths)).toEqual(baseline.record);
+      expect(events).toEqual(beforeAttemptEvents);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("rejects plugin config decisions when plugin and provider entries change after review", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-stale-plugin-review-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const events: string[] = [];
+    const frontendRequest: InstallRequest = {
+      optional: { frontend: true, security: false },
+    };
+    try {
+      const manager = configWritingManager(paths, events);
+      const runtime = testRuntime(codexHome);
+      const baseline = await installHolyCodex(frontendRequest, {
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+      });
+      await writeTestConfigValue(paths, 'plugins."holycodex@holycodex"', { enabled: false });
+      await writeTestConfigValue(paths, 'plugins."build-web-apps@openai-curated"', {
+        enabled: false,
+      });
+      const beforeAttemptEvents = [...events];
+      const latestPluginConfig = { enabled: false, user_edit: "latest plugin edit" };
+      const latestProviderConfig = { enabled: false, user_edit: "latest provider edit" };
+
+      await expect(
+        installHolyCodex(frontendRequest, {
+          paths: { codexHome },
+          officialPluginManager: manager,
+          runtime,
+          resolveConflicts: async (conflicts) =>
+            Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "replace"])),
+          reviewInstall: async (review) => {
+            expect(review.conflicts.map((conflict) => conflict.key)).toEqual(
+              expect.arrayContaining([
+                'plugins."holycodex@holycodex"',
+                'plugins."build-web-apps@openai-curated"',
+              ]),
+            );
+            await writeTestConfigValue(paths, 'plugins."holycodex@holycodex"', latestPluginConfig);
+            await writeTestConfigValue(
+              paths,
+              'plugins."build-web-apps@openai-curated"',
+              latestProviderConfig,
+            );
+            return { action: "apply" };
+          },
+        }),
+      ).rejects.toMatchObject({ code: "confirmation_required" });
+
+      const latestConfig = parseConfig(await readFile(paths.configFile, "utf8"));
+      expect(readTestConfigEntry(latestConfig, "plugins", "holycodex@holycodex")).toEqual(
+        latestPluginConfig,
+      );
+      expect(readTestConfigEntry(latestConfig, "plugins", "build-web-apps@openai-curated")).toEqual(
+        latestProviderConfig,
+      );
+      expect(await readActiveInstallRecord(paths)).toEqual(baseline.record);
+      expect(events).toEqual(beforeAttemptEvents);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -730,6 +833,131 @@ describe("installer preflight", () => {
       await expect(readFile(paths.conflictedRecord)).rejects.toThrow();
       await expect(readFile(paths.preparingRecord)).rejects.toThrow();
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("keeps a disabled removed plugin recoverable when rollback cannot restore its state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-disabled-rollback-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const oldPlugin = "sample@openai-curated";
+    const replacementPlugin = "replacement@openai-curated";
+    const states = new Map<string, { installed: boolean; enabled: boolean }>();
+    const manager: OfficialPluginManager = {
+      list: async () => ({
+        installed: [...states]
+          .filter(([, state]) => state.installed)
+          .map(([pluginId, state]) => ({ pluginId, ...state })),
+        available: [...states]
+          .filter(([, state]) => !state.installed)
+          .map(([pluginId, state]) => ({ pluginId, ...state })),
+      }),
+      addMarketplace: async () => undefined,
+      add: async (pluginId) => {
+        if (pluginId === replacementPlugin) throw new Error("replacement unavailable");
+        states.set(pluginId, { installed: true, enabled: true });
+      },
+      remove: async (pluginId) => {
+        states.delete(pluginId);
+      },
+    };
+    const runtime = testRuntime(codexHome);
+    try {
+      const initial = await installHolyCodex(
+        {
+          optional: { computer_use: false, frontend: false, security: false },
+          officialPlugins: [oldPlugin],
+        },
+        { paths: { codexHome }, officialPluginManager: manager, runtime },
+      );
+      expect(initial.record.owned_plugins).toContain(oldPlugin);
+      states.set(oldPlugin, { installed: true, enabled: false });
+
+      await expect(
+        installHolyCodex(
+          {
+            optional: { computer_use: false, frontend: false, security: false },
+            officialPlugins: [replacementPlugin],
+          },
+          { paths: { codexHome }, officialPluginManager: manager, runtime },
+        ),
+      ).rejects.toMatchObject({
+        code: "capability_denied",
+        details: { recovery: expect.any(String) },
+      });
+
+      const conflicted = JSON.parse(await readFile(paths.conflictedRecord, "utf8")) as {
+        owned_plugins: string[];
+        plugin_snapshot: { plugin_id: string; status: string }[];
+      };
+      expect(conflicted.owned_plugins).toContain(oldPlugin);
+      expect(conflicted.plugin_snapshot).toContainEqual({
+        plugin_id: oldPlugin,
+        status: "disabled",
+      });
+
+      const removal = await removeHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+      });
+      expect(removal.reasons).toEqual([]);
+      expect(removal.removed).toContain(oldPlugin);
+      expect((await manager.list?.())?.installed).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("persists recovery when install options removal fails and removes it on retry", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-options-removal-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const { manager, runtime } = await installBaseline(codexHome);
+    let failOptionsRemoval = true;
+    const mockedRm = async (...args: Parameters<typeof realRm>) => {
+      const [path] = args;
+      if (failOptionsRemoval && path.toString() === paths.installOptions) {
+        failOptionsRemoval = false;
+        throw Object.assign(new Error("injected install options removal failure"), {
+          code: "EACCES",
+        });
+      }
+      return await realRm(...args);
+    };
+    await mock.module("node:fs/promises", () => ({ ...realFs, rm: mockedRm }));
+    try {
+      const maintenanceModulePath: string = "./maintenance.ts?install-options-removal-recovery";
+      const maintenance = (await import(
+        maintenanceModulePath
+      )) as typeof import("./maintenance.ts");
+      const failedRemoval = await maintenance.removeHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+        resolveConflict: async () => "accept",
+      });
+      expect(failedRemoval.preserved).toContain(paths.installOptions);
+      expect(failedRemoval.reasons).toContain("state_remove_failed");
+      await expect(readFile(paths.activeRecord, "utf8")).rejects.toThrow();
+      await expect(readFile(paths.installOptions, "utf8")).resolves.toBeTruthy();
+      await expect(readFile(paths.conflictedRecord, "utf8")).resolves.toContain(
+        '"status":"conflicted"',
+      );
+
+      const retry = await maintenance.removeHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+        resolveConflict: async () => "accept",
+      });
+      expect(retry.preserved).toEqual([]);
+      expect(retry.reasons).toEqual([]);
+      await expect(readFile(paths.installOptions, "utf8")).rejects.toThrow();
+      await expect(readFile(paths.conflictedRecord, "utf8")).rejects.toThrow();
+    } finally {
+      mock.restore();
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);

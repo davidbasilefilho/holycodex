@@ -33,7 +33,7 @@ export type NativeAgentProjection = Readonly<{
   name: NativeAgentType;
   rolePolicy: (typeof ROLE_DEFINITIONS)[number];
   taskInstruction: string;
-  model: "gpt-5.6-luna";
+  model: "gpt-6-luna";
   effort: string;
   description: string;
   serviceTier: "default" | "fast";
@@ -45,17 +45,20 @@ export type NativeAgentInstructionOptions = Readonly<{
   windowsGitBashExecutable?: string;
 }>;
 
+/** Configure optional Root capabilities, the Windows shell, and model-specific guidance. */
 export type RootDeveloperInstructionOptions = NativeAgentInstructionOptions &
   Readonly<{
     computerUse?: boolean;
     frontend?: boolean;
     security?: boolean;
+    /** Selected Root model; Astra receives a shorter instruction projection. */
+    rootModel?: RootAgentProjection["model"];
   }>;
 
 export type RootAgentProjection = Readonly<{
   name: "root";
   description: string;
-  model: "gpt-6-astra";
+  model: "gpt-6-sol" | "gpt-6-astra";
   effort: string;
   serviceTier: "default" | "fast";
 }>;
@@ -97,6 +100,9 @@ const DELEGABLE_ACTION_LABELS = {
 } as const satisfies Readonly<
   Record<(typeof ROOT_ORCHESTRATION_POLICY.delegableActions)[number], string>
 >;
+
+const REVIEW_VALIDATION_PHASE_BARRIER =
+  "Require Reviewer.code before VCS. Follow the canonical phase gate: implementation completes, Reviewer.code reaches a fixed point, Worker.validation runs, then Root integrates and handles VCS. Any Reviewer.code repair invalidates earlier validation, so rerun Worker.validation.";
 
 export interface NativeAgentInstallResult {
   readonly managed_artifacts: readonly ManagedArtifact[];
@@ -238,7 +244,7 @@ export function projectNativeAgents(
       description: taskDescriptionFor(roleTask),
       taskInstruction: taskInstructionFor(roleTask),
       permissions: taskPermissionsFor(roleTask),
-      model: "gpt-5.6-luna",
+      model: route.model,
       effort: route.effort,
       serviceTier: tier === "standard" ? "default" : "fast",
     };
@@ -327,8 +333,11 @@ export function rootDeveloperInstructions(
   ) {
     throw new Error("The Root orchestration policy is incomplete.");
   }
+  if (options.rootModel === "gpt-6-astra") {
+    return astraRootDeveloperInstructions(options, computerUse);
+  }
   const instructions = [
-    `You are the HolyCodex Root/session orchestrator running gpt-6-astra. Root directly owns only ${ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority.map((authority) => ROOT_AUTHORITY_LABELS[authority]).join("; ")}. These actions remain subject to their approval and capability boundaries.`,
+    `You are the HolyCodex Root/session orchestrator. Your model and reasoning effort come from the selected Root profile. Root directly owns only ${ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority.map((authority) => ROOT_AUTHORITY_LABELS[authority]).join("; ")}. These actions remain subject to their approval and capability boundaries.`,
     `Delegate every delegable action with a bounded Assignment and dispatch spawn_agent using the exact concrete registered Role.task agent_type selected from this canonical HolyCodex inventory: ${ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes.join(", ")}. The role families Explorer, Librarian, Worker, and Reviewer are labels only and are never dispatch targets. Generic built-in agent_type values ${ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes.join(", ")} are forbidden for HolyCodex specialist Assignments. If no matching concrete registered route is available, stop with needs_root_input; never substitute a generic agent. This includes ${ROOT_ORCHESTRATION_POLICY.delegableActions.map((action) => DELEGABLE_ACTION_LABELS[action]).join("; ")}. Starting the Assignment and dispatching its specialist must precede every such inspection or execution, including trivial, preparatory, and exploratory work. There is no generic Root direct-work fallback. Root may inspect returned evidence for integration acceptance. Root-only execution does not grant Root authority to perform specialist work.`,
     `For every normal specialist spawn, pass the exact concrete Role.task agent_type and explicitly set fork_turns: "${ROOT_ORCHESTRATION_POLICY.normalSpawnForkTurns}"; never omit fork_turns or use "all" or its default. Preserve the selected route's configured model and reasoning effort. Each Assignment must be self-contained and carry only task-specific semantic context for its bounded objective, scope, constraints, exclusions, dependencies, acceptance criteria, and relevant evidence.`,
     "Use holycodex-agent semantic operations for Intent, optional Plan, and Assignment state. Never edit TOON state or create standalone handoff, Decision, or blocker files.",
@@ -338,7 +347,7 @@ export function rootDeveloperInstructions(
     "Give the user only useful or important information. Do not output after every tool use or subagent update, emit routine status-only chatter or heartbeat messages, or follow a fixed update cadence. Material updates include significant findings or decisions, consequential blockers or input needs, and release milestones. Preserve native Astra Default questions, including asking while independent work proceeds; this rule adds no question protocol.",
     `Use the longest practical event wait for every routine Root wait: call ${ROOT_ORCHESTRATION_POLICY.routineWaitTool} with timeout_ms=${ROOT_ORCHESTRATION_POLICY.routineWaitMaximumTimeoutMs} (the active V1 runtime maximum). Early specialist completion wakes the wait; the collective mailbox already includes all relevant agents. If the maximum wait expires while idle, call the same maximum wait again. Never use short waits, list or status polling, or message loops on idle timeout; never busy-poll or run status-only coordination loops. Batch independent lifecycle actions and stop or release specialist leaves once their accepted terminal outcomes are recorded.`,
     `Keep specialist and Reviewer reports concise, structured, and evidence-first: lead with ${ROOT_ORCHESTRATION_POLICY.specialistReportFields.join(", ")}. Root reads large transcripts or artifacts only for ${ROOT_ORCHESTRATION_POLICY.rootLargeReadsOnlyFor.join(", ")}; reuse stable facts, keep each meaning with one authoritative owner, and do not duplicate policy. Stable bounded component scopes are canonical guidance; the lifecycle worker owns deterministic Intent, Plan, and Assignment API decisions, while Root owns material decisions, integration, and completion.`,
-    `${TESTING_POLICY.rule} Do not add tests for low-impact reversible changes when they merely mirror implementation details. Once relevant proof passes, broaden or repeat it only after another source change, a failure, or an unresolved material concern. Mandatory repository gates and Reviewer.code remain required. Inspect specialist evidence before integration; Worker.validation supplies independent local proof without replacing implementation proof or Reviewer.code. Reviewer.code fixed-point review is mandatory after implementation or a major codebase change and before completion or VCS.`,
+    `${TESTING_POLICY.rule} Do not add tests for low-impact reversible changes when they merely mirror implementation details. Once relevant proof passes, broaden or repeat it only after another source change, a failure, or an unresolved material concern. Mandatory repository gates and Reviewer.code remain required. Inspect specialist evidence before integration; Worker.validation supplies independent local proof without replacing implementation proof or Reviewer.code. ${REVIEW_VALIDATION_PHASE_BARRIER}`,
     `For current technical documentation, Librarian.lookup and Librarian.research resolve the library identity and use Context7 before model memory or generic web, query narrowly, and return one typed evidence state (${LIBRARIAN_CONTEXT7_POLICY.evidenceStates.join(" | ")}) in the context7 field with version/source evidence. Fallback is allowed only for one of those states or an absent required version; authoritative first-party documentation resolves conflicts. Context7 supplies facts while Root owns material product, architecture, dependency, compatibility, and implementation decisions.`,
     "After integration, Root performs approved VCS actions and dispatches Worker.operations with the exact ref or SHA for terminal CI or release evidence. Pending is never success. Discover the actual topology; repair failures through bounded Assignments and repeat integration, fixed-point review, VCS, and terminal observation until the applicable gate is green.",
   ];
@@ -348,6 +357,41 @@ export function rootDeveloperInstructions(
   if (options.security ?? true) {
     instructions.push(
       "Security is selected. Use threat-model for material trust-boundary changes, security-diff-scan before VCS for security-sensitive diffs, and full security-scan for explicit audits, substantial new exposed surfaces, or broader systemic concern. Validate supported findings before blocking. A validated vulnerability introduced or worsened by the change blocks VCS until repaired or explicitly risk-accepted; report unrelated pre-existing findings without expanding scope. Security-driven edits invalidate Reviewer.code, and security-sensitive Reviewer.code edits invalidate the applicable security review; repeat both gates until green together.",
+    );
+  }
+  if (computerUse) {
+    instructions.push(
+      "Computer Use is selected and is directly executable by Root/session only; it must not be delegated.",
+      "For interactive authentication, use Computer Use with the user's default browser unless the builtin browser is that default. Navigate to authentication, hand control to the user, wait while the user personally enters and submits every credential, then resume from the authenticated session. Never ask for credentials in chat or type, paste, retrieve, infer, expose, store, or submit them. If no authorized Computer Use/default-browser path exists, report the capability blocker.",
+    );
+  } else {
+    instructions.push(
+      "Computer Use is unavailable for this installation and cannot be delegated. GUI and browser execution remain Root/session-only.",
+    );
+  }
+  if (options.windowsGitBashExecutable !== undefined) {
+    instructions.push(windowsGitBashShellDirective(options.windowsGitBashExecutable));
+  }
+  return instructions.join("\n");
+}
+
+function astraRootDeveloperInstructions(
+  options: RootDeveloperInstructionOptions,
+  computerUse: boolean,
+): string {
+  const instructions = [
+    `You are the HolyCodex Root/session orchestrator. Root owns only ${ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority.map((authority) => ROOT_AUTHORITY_LABELS[authority]).join("; ")}. All actions remain subject to approval and capability boundaries.`,
+    `Dispatch every delegable action as a bounded Assignment to the exact concrete registered Role.task agent_type listed here: ${ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes.join(", ")}. Explorer, Librarian, Worker, and Reviewer are labels, never targets; generic built-in agent_type values ${ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes.join(", ")} are forbidden. Start and dispatch before delegated inspection or execution, including preparatory, exploratory, and trivial work. If no matching route exists, stop with needs_root_input.`,
+    `Every normal specialist spawn must set fork_turns: "${ROOT_ORCHESTRATION_POLICY.normalSpawnForkTurns}"; never omit it or use "all" or the default.`,
+    "Use holycodex-agent semantic operations for Intent, optional Plan, and Assignment state. Do not edit TOON state or create standalone handoff, Decision, or blocker files.",
+    "Follow explicit user instructions over skills except hard safety, authority, capability, and lifecycle invariants. Make routine safe, reversible, in-scope choices; carry authorized work through implementation, repair, proportional proof, and the requested terminal state. Ask only for material unresolved choices, genuine approval boundaries, user credential entry, or outcome-changing blockers. Keep Assignments bounded and self-contained; return out-of-boundary work to Root for a new Assignment.",
+    `Use the selected capabilities and relevant skills. For current technical documentation, delegate to Librarian specialists, use Context7 before model memory when available, and resolve conflicts with authoritative first-party documentation. ${TESTING_POLICY.rule} ${REVIEW_VALIDATION_PHASE_BARRIER} Security-sensitive edits and reviews must remain valid together.`,
+    "Report material findings, decisions, blockers, and release milestones; skip routine tool updates. Wait on active specialist work via collaboration events and resume on completion; do not busy-poll. After accepted integration, use approved VCS and dispatch Worker.operations with the exact ref or SHA for terminal CI or release evidence. Pending is never success.",
+  ];
+  if (options.frontend ?? true) instructions.push(renderFrontendCapabilityInstruction());
+  if (options.security ?? true) {
+    instructions.push(
+      "Security is selected. Use threat-model for material trust-boundary changes, security-diff-scan before VCS for security-sensitive diffs, and full security-scan for explicit audits, substantial new exposed surfaces, or broader systemic concern. Validate supported findings before blocking. A validated vulnerability introduced or worsened by the change blocks VCS until repaired or explicitly risk-accepted; report unrelated pre-existing findings without expanding scope.",
     );
   }
   if (computerUse) {
@@ -409,9 +453,32 @@ export async function installNativeAgents(
   );
   const currentByPath = new Map<string, string | undefined>();
   const acceptedConflicts = new Set<string>();
+  const preservedConflicts = new Set<string>();
+  const conflictSnapshotDigests = new Map<string, string>();
   for (const projection of projections) {
     const current = await readRegularFile(projection.path);
     currentByPath.set(projection.path, current);
+    const preResolved = preResolvedConflicts.find(
+      (candidate) =>
+        candidate.path === projection.path &&
+        candidate.action === "replace" &&
+        candidate.key === undefined,
+    );
+    if (preResolved !== undefined) {
+      const reviewedDigest = conflictDigest(preResolved);
+      if (
+        reviewedDigest === undefined ||
+        current === undefined ||
+        (await sha256(current)) !== reviewedDigest
+      ) {
+        throw new Error(
+          `The native role conflict changed after review; review the latest file and retry: ${projection.path}`,
+        );
+      }
+      conflictSnapshotDigests.set(projection.path, reviewedDigest);
+      if (preResolved.decision === "keep") preservedConflicts.add(projection.path);
+      else acceptedConflicts.add(projection.path);
+    }
     const previousArtifact = previousByPath.get(projection.path);
     if (
       current !== undefined &&
@@ -432,17 +499,27 @@ export async function installNativeAgents(
           { present: true, digest: await sha256(projection.contents) },
           "The managed native role file changed outside the previous HolyCodex transaction.",
         );
-        const preResolved = preResolvedConflicts.some(
-          (candidate) =>
-            candidate.path === conflict.path &&
-            candidate.action === conflict.action &&
-            candidate.key === conflict.key,
-        );
-        const resolution = preResolved ? "accept" : await resolveConflict?.(conflict);
+        const resolution =
+          preResolved === undefined
+            ? await resolveConflict?.(conflict)
+            : preResolved.decision === "keep"
+              ? "decline"
+              : "accept";
         if (resolution === "cancel") {
           throw new Error(`Native-agent conflict resolution was cancelled: ${projection.path}`);
         }
-        if (resolution === "accept") acceptedConflicts.add(projection.path);
+        if (resolution === "accept" || resolution === "decline") {
+          const reviewedDigest = await sha256(current);
+          const latest = await readRegularFile(projection.path);
+          if (latest === undefined || (await sha256(latest)) !== reviewedDigest) {
+            throw new Error(
+              `The native role conflict changed after review; review the latest file and retry: ${projection.path}`,
+            );
+          }
+          conflictSnapshotDigests.set(projection.path, reviewedDigest);
+          if (resolution === "accept") acceptedConflicts.add(projection.path);
+          else preservedConflicts.add(projection.path);
+        }
       }
     }
   }
@@ -451,6 +528,22 @@ export async function installNativeAgents(
     for (const projection of projections) {
       const current = currentByPath.get(projection.path);
       const previousArtifact = previousByPath.get(projection.path);
+      const reviewedDigest = conflictSnapshotDigests.get(projection.path);
+      if (reviewedDigest !== undefined) {
+        const latest = await readRegularFile(projection.path);
+        if (latest === undefined || (await sha256(latest)) !== reviewedDigest) {
+          throw new Error(
+            `The native role conflict changed after review; review the latest file and retry: ${projection.path}`,
+          );
+        }
+      }
+      if (preservedConflicts.has(projection.path)) {
+        if (previousArtifact !== undefined) {
+          preserved.push(projection.path);
+          managed_artifacts.push(previousArtifact);
+        }
+        continue;
+      }
       if (current !== undefined && previousArtifact !== undefined) {
         const digest = await sha256(current);
         if (
@@ -496,12 +589,24 @@ export async function installNativeAgents(
           preserved.push(absolute);
           continue;
         }
-        const acceptedRemoval = preResolvedConflicts.some(
+        const preResolvedRemoval = preResolvedConflicts.find(
           (conflict) => conflict.path === absolute && conflict.action === "remove",
         );
-        if (acceptedRemoval) {
+        if (preResolvedRemoval !== undefined) {
           const current = await readRegularFile(absolute);
-          if (current !== undefined) {
+          const reviewedDigest = conflictDigest(preResolvedRemoval);
+          if (
+            current === undefined ||
+            reviewedDigest === undefined ||
+            (await sha256(current)) !== reviewedDigest
+          ) {
+            throw new Error(
+              `The native role conflict changed after review; review the latest file and retry: ${absolute}`,
+            );
+          }
+          if (preResolvedRemoval.decision === "keep") {
+            preserved.push(absolute);
+          } else {
             await rm(absolute, { force: false });
             rollback.push({ path: absolute, previous: current, installedDigest: undefined });
           }
@@ -655,15 +760,12 @@ export function renderNativeAgent(
   ].join("\n");
 }
 
-const WINDOWS_GIT_BASH_SHELL_DIRECTIVE =
-  "On Windows, use Git for Windows Bash for all shell actions. The active shell environment must be Git for Windows Bash, resolving from C:\\Program Files\\Git\\bin\\bash.exe. Do not launch another Bash process when already running in that environment. Do not use PowerShell, pwsh, cmd.exe, WSL Bash, Cygwin, or unrelated MSYS shells. If the active shell is not Git for Windows Bash, report the environment mismatch instead of continuing.";
-
 /** Return the canonical Windows-only shell invariant after Git Bash verification. */
 export function windowsGitBashShellDirective(executable?: string): string {
-  if (executable !== undefined && executable.trim().length === 0) {
+  if (executable === undefined || executable.trim().length === 0) {
     throw new Error("Git Bash executable is required.");
   }
-  return WINDOWS_GIT_BASH_SHELL_DIRECTIVE;
+  return `On Windows, use Git for Windows Bash for all shell actions. The verified executable is ${JSON.stringify(executable)}. Do not launch another Bash process when already running in that environment. Do not use PowerShell, pwsh, cmd.exe, WSL Bash, Cygwin, or unrelated MSYS shells. If the active shell is not Git for Windows Bash, report the environment mismatch instead of continuing.`;
 }
 
 /** Return the Codex sandbox mode for a concrete task, including proof-only writable tasks. */
@@ -808,4 +910,10 @@ function nativeConflict(
     path,
     action,
   };
+}
+
+function conflictDigest(conflict: ManagedConflict): string | undefined {
+  if (typeof conflict.existing !== "object" || conflict.existing === null) return undefined;
+  const digest = (conflict.existing as { readonly digest?: unknown }).digest;
+  return typeof digest === "string" ? digest : undefined;
 }

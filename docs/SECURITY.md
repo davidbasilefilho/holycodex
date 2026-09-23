@@ -74,7 +74,7 @@ an explicit denial or classified failure.
     must discover the repository's topology rather than assume a provider or
     branch scheme.
 12. HolyCodex manages the scalar `features.context_management` and sets it to
-    `true` because Codex does not enable it by default. Upgrade migrates owned
+    `true` because Codex does not enable it by default. The package migration converts owned
     historical `.experimental_mode` state only with matching ownership
     evidence. Cleanup restores the recorded prior value only when unchanged;
     user edits and unrelated context configuration remain untouched.

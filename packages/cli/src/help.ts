@@ -8,7 +8,6 @@ const TOP_LEVEL_HELP = `HolyCodex
 Usage:
   holycodex install [options]
   holycodex remove [options]
-  holycodex upgrade [options]
   holycodex doctor [options]
   holycodex version [<0.x.y[-n]|patch|minor>] [options]
 
@@ -26,8 +25,8 @@ Usage:
   holycodex install [options]
 
 Profiles control routing only:
-  low     Root gpt-6-astra/low; specialists use the low route matrix.
-  default Root gpt-6-astra/medium; recommended default routing.
+  low     Root gpt-6-sol/medium; specialists use the low route matrix.
+  default Root gpt-6-sol/high; recommended default routing.
   high    Root gpt-6-astra/high; specialists use the high route matrix.
   Default profile: default.
 
@@ -65,16 +64,6 @@ Usage:
   holycodex doctor [--json] [--codex-home <absolute-path>]
 `;
 
-const UPGRADE_HELP = `Migrate an existing HolyCodex installation in place.
-
-Usage:
-  holycodex upgrade [--dry-run] [--yes] [--json] [--codex-home <absolute-path>]
-
-Upgrade preserves your selected profile, service tier, capabilities, additional
-plugins, and unrelated Codex configuration while applying the running version.
-Use --dry-run to preview changes. It does not download or install a new binary.
-`;
-
 const VERSION_HELP = `Read or update the canonical public package version.
 
 Usage:
@@ -92,8 +81,6 @@ export function helpText(topic?: string): string {
       return REMOVE_HELP;
     case "doctor":
       return DOCTOR_HELP;
-    case "upgrade":
-      return UPGRADE_HELP;
     case "version":
       return VERSION_HELP;
     default:

@@ -2,13 +2,11 @@
 
 import {
   CLI_SCHEMA_VERSION,
-  pluginIdsForOptionalCapabilities,
   parseCliEnvelope,
   type CliEnvelope,
   type JsonObject,
   type JsonValue,
   type ProfileName,
-  type ReleaseVersion,
   type ServiceTier,
 } from "@holycodex/core";
 import { lookupProfile } from "@holycodex/core";
@@ -19,32 +17,18 @@ import {
   runOpenTuiConflictResolver,
   runOpenTuiInstallReview,
   runOpenTuiInstallWizard,
-  runOpenTuiUpgradeChoiceScreen,
 } from "./installer-wizard.ts";
 import {
-  installRequestFromPersistedOptions,
   installHolyCodex,
   InstallerError,
-  readActiveInstallRecord,
-  readInstallOptions,
   validateInstallOptions,
   type InstallRequest,
 } from "./installer.ts";
 import { asJsonValue } from "./json.ts";
-import {
-  doctorHolyCodex,
-  inspectRemovalConflicts,
-  removeHolyCodex,
-  upgradeHolyCodex,
-} from "./maintenance.ts";
-import {
-  readInstallationVersion,
-  readPublicVersion,
-  updateCanonicalVersion,
-  ManifestError,
-} from "./manifest.ts";
+import { doctorHolyCodex, inspectRemovalConflicts, removeHolyCodex } from "./maintenance.ts";
+import { readPublicVersion, updateCanonicalVersion, ManifestError } from "./manifest.ts";
 import { OfficialPluginManagerError } from "./official-manager.ts";
-import { PathBoundaryError, resolveInstallerPaths } from "./paths.ts";
+import { PathBoundaryError } from "./paths.ts";
 import { StorageError } from "./storage.ts";
 import type {
   CliContext,
@@ -101,8 +85,6 @@ export async function executeCommand(
       return asJsonValue(await doctorHolyCodex(installerOptions(parsed, context), context.env));
     case "remove":
       return asJsonValue(await executeRemove(parsed, context));
-    case "upgrade":
-      return asJsonValue(await executeUpgrade(parsed, context));
     case "version":
       return asJsonValue(await executeVersion(parsed, context));
     case "help":
@@ -199,126 +181,6 @@ async function executeRemove(parsed: ParsedCommand, context: CliContext) {
   }
   const result = await removeHolyCodex(installerOptions(parsed, context), context.env);
   return result;
-}
-
-async function executeUpgrade(parsed: ParsedCommand, context: CliContext) {
-  const dryRun = parsed.options["dry-run"] === true;
-  const interactive =
-    !dryRun &&
-    parsed.options["json"] !== true &&
-    parsed.options["yes"] !== true &&
-    context.io?.stdoutIsTTY === true &&
-    context.io?.stderrIsTTY === true;
-  let upgradeOptions: InstallRequest | undefined;
-  if (!dryRun) {
-    if (interactive) {
-      const current = await upgradeSelectionState(parsed, context);
-      const choice = await (context.io?.upgradeWizard ?? runOpenTuiUpgradeChoiceScreen)(
-        current.request,
-        current.fromVersion,
-        await readPublicVersion(),
-      );
-      if (choice.action === "cancel") {
-        return { cancelled: true, status: "cancelled", changes: [] };
-      }
-      if (choice.action === "keep") {
-        upgradeOptions = current.request;
-      } else {
-        if (choice.request !== undefined) {
-          upgradeOptions = validateInstallOptions(choice.request);
-        } else {
-          const changed = await (context.io?.installWizard ?? runOpenTuiInstallWizard)(
-            current.request,
-          );
-          if (changed.action === "cancel") {
-            return { cancelled: true, status: "cancelled", changes: [] };
-          }
-          upgradeOptions = validateInstallOptions(changed.request);
-        }
-      }
-    } else {
-      const confirmationResult = await confirmation(
-        parsed,
-        context,
-        "Upgrade the existing HolyCodex installation in place?",
-      );
-      if (confirmationResult === "cancelled") {
-        return { cancelled: true, status: "cancelled", changes: [] };
-      }
-      if (confirmationResult === "unavailable") {
-        const preview = await upgradeHolyCodex(installerOptions(parsed, context), context.env, {
-          dryRun: true,
-        });
-        const conflict = preview.conflicts?.[0];
-        if (conflict !== undefined) {
-          throw new InstallerError(
-            "confirmation_required",
-            "Modified HolyCodex-owned state requires confirmation before upgrade.",
-            undefined,
-            {
-              path: conflict.path,
-              ...(conflict.key === undefined ? {} : { key: conflict.key }),
-              action: conflict.action,
-            },
-          );
-        }
-        throw new CliCommandError(
-          "non_tty_confirmation_required",
-          "Upgrade requires --yes in non-interactive mode.",
-        );
-      }
-    }
-  }
-  return await upgradeHolyCodex(installerOptions(parsed, context), context.env, {
-    dryRun,
-    ...(upgradeOptions === undefined ? {} : { options: upgradeOptions }),
-  });
-}
-
-async function upgradeSelectionState(
-  parsed: ParsedCommand,
-  context: CliContext,
-): Promise<Readonly<{ request: InstallRequest; fromVersion: ReleaseVersion }>> {
-  const paths = resolveInstallerPaths(installerOptions(parsed, context), context.env);
-  const [persisted, active] = await Promise.all([
-    readInstallOptions(paths),
-    readActiveInstallRecord(paths),
-  ]);
-  const capabilityPlugins =
-    active === undefined
-      ? new Set<string>()
-      : new Set(
-          pluginIdsForOptionalCapabilities({
-            computer_use: active.optional_selections.computer_use,
-            frontend: active.optional_selections.frontend,
-            security: active.optional_selections.security,
-          }),
-        );
-  const request =
-    persisted === undefined
-      ? active === undefined
-        ? {}
-        : validateInstallOptions({
-            profile: active.profile,
-            tier: active.tier,
-            optional: {
-              computer_use:
-                active.explicit_optional_selections.computer_use ??
-                active.optional_selections.computer_use,
-              frontend:
-                active.explicit_optional_selections.frontend ?? active.optional_selections.frontend,
-              security:
-                active.explicit_optional_selections.security ?? active.optional_selections.security,
-            },
-            officialPlugins: (active.official_plugins ?? []).filter(
-              (pluginId) => !capabilityPlugins.has(pluginId),
-            ),
-          })
-      : validateInstallOptions(installRequestFromPersistedOptions(persisted));
-  return {
-    request,
-    fromVersion: active?.version ?? (await readInstallationVersion()),
-  };
 }
 
 async function executeVersion(parsed: ParsedCommand, _context: CliContext) {
@@ -442,7 +304,11 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
               "Managed conflicts require an interactive review or --yes.",
             );
           }
-          const result = await runOpenTuiConflictResolver(conflicts);
+          const result = await runOpenTuiConflictResolver(
+            conflicts,
+            {},
+            Object.fromEntries(selectedConflictDecisions),
+          );
           if (result.action === "back") {
             return Object.fromEntries(
               conflicts.map((conflict) => {
@@ -473,7 +339,7 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
       ? undefined
       : async (plan: InstallReview): Promise<InstallReviewResult> => {
           const reviewedPlan = withSelectedConflictDecisions(plan, selectedConflictDecisions);
-          const result = await review(reviewedPlan);
+          const result = await review(installReviewForCli(reviewedPlan));
           if (result.action !== "change") return result;
           if (result.request !== undefined) {
             return { action: "change", request: validateInstallOptions(result.request) };
@@ -549,6 +415,11 @@ function withSelectedConflictDecisions(
       return decision === undefined ? conflict : { ...conflict, decision };
     }),
   };
+}
+
+function installReviewForCli(plan: InstallReview): InstallReview {
+  const { fromVersion: _fromVersion, ...installPlan } = plan;
+  return { ...installPlan, operation: "install" };
 }
 
 function successEnvelope(command: string, data: JsonValue): CliEnvelope {
@@ -706,7 +577,6 @@ export function renderHuman(result: CommandResult, options: HumanRenderOptions =
     if (result.envelope.command === "version") return renderVersion(result.envelope.data);
     if (result.envelope.command === "install") return renderInstall(result.envelope.data, color);
     if (result.envelope.command === "remove") return renderRemove(result.envelope.data, color);
-    if (result.envelope.command === "upgrade") return renderUpgrade(result.envelope.data, color);
     if (result.envelope.command === "doctor") return renderDoctor(result.envelope.data, color);
     return `${paint("✔", "green", color)} ${paint(result.envelope.command, "heading", color)}\n${renderData(result.envelope.data, color)}`;
   }
@@ -795,23 +665,6 @@ function renderRemove(data: JsonValue, color: boolean): string {
   return `${lines.join("\n")}\n`;
 }
 
-function renderUpgrade(data: JsonValue, color: boolean): string {
-  if (dataValue(data, "cancelled") === true) {
-    return `${paint("↩", "cyan", color)} ${paint("upgrade", "heading", color)} cancelled\n`;
-  }
-  const status = stringValue(isJsonObject(data) ? data : undefined, "status") ?? "completed";
-  const from = stringValue(isJsonObject(data) ? data : undefined, "from_version");
-  const to = stringValue(isJsonObject(data) ? data : undefined, "to_version");
-  const changes = arrayValue(data, "changes");
-  const version = from !== undefined && to !== undefined ? ` (${from} → ${to})` : "";
-  const lines = [
-    `${paint("✔", "green", color)} ${paint("upgrade", "heading", color)}${version}`,
-    `  ${paint("status", "option", color)}: ${status}`,
-    `  ${paint("changes", "option", color)}: ${changes.length === 0 ? "none" : changes.map(humanizeReason).join(", ")}`,
-  ];
-  return `${lines.join("\n")}\n`;
-}
-
 function renderDoctor(data: JsonValue, color: boolean): string {
   const healthy = dataValue(data, "healthy") === true;
   const checks = objectValue(data, "checks");
@@ -883,8 +736,8 @@ function formatValue(value: JsonValue): string {
 }
 
 function actionableHint(code: string, command: string): string | undefined {
-  if (code === "invalid_argument" || code === "unknown_command")
-    return `holycodex ${command} --help`;
+  if (code === "unknown_command") return "run `holycodex --help` to list supported commands";
+  if (code === "invalid_argument") return `holycodex ${command} --help`;
   if (code === "non_tty_confirmation_required")
     return "rerun with --yes or use an interactive terminal";
   if (code === "capability_denied")

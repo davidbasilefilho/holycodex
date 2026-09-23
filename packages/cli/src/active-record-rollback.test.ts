@@ -208,7 +208,20 @@ test("rolls back all effects after active-record post-rename sync failure", asyn
       paths.configFile,
       '[marketplaces.holycodex]\nsource_type = "git"\nsource = "https://github.com/davidbasilefilho/holycodex.git"\n\n[plugins."holycodex@holycodex"]\nenabled = true\n',
     );
-    const manager = configWritingManager(paths, installer, ["holycodex@holycodex"]);
+    const baseManager = configWritingManager(paths, installer, ["holycodex@holycodex"]);
+    const manager: OfficialPluginManager = {
+      ...baseManager,
+      list: async () => {
+        const live = await baseManager.list!();
+        return {
+          ...live,
+          installed: [
+            ...live.installed,
+            { pluginId: "unmanaged@third-party", installed: true, enabled: false },
+          ],
+        };
+      },
+    };
     const runtime = testRuntime(codexHome);
     await installer.installHolyCodex(
       { optional: { computer_use: false, frontend: false, security: false } },

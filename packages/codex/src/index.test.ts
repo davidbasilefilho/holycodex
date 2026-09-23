@@ -388,14 +388,14 @@ describe("Codex identity, configuration, and plugins", () => {
     const merged = await mergeManagedConfig(
       { unrelated: "keep", model: "gpt-5.6-luna" },
       initial,
-      { model: "gpt-5.6-terra", "features.default_mode_request_user_input": true },
+      { model: "gpt-6-astra", "features.default_mode_request_user_input": true },
       metadata,
     );
-    const userEdited = { ...merged.document, model: "gpt-5.6-sol" };
+    const userEdited = { ...merged.document, model: "gpt-6-sol" };
     const cleaned = await cleanupManagedConfig(userEdited, merged.state, metadata);
     expect(cleaned.document).toEqual({
       unrelated: "keep",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
     });
     expect(cleaned.preservedKeys).toEqual(["model"]);
     const restored = await cleanupManagedConfig(merged.document, merged.state, metadata);

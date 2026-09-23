@@ -40,8 +40,7 @@ branch-specific workflow, while a delegation prompt supplies assignment facts.
 Runtime flags enforce hard capability boundaries where Codex supports them;
 prose does not stand in for a missing native control.
 
-The current Root route is `gpt-6-astra`; native specialist route files use the
-configured `gpt-5.6-luna` identity. Root dispatches the exact registered
+Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; native specialist route files use `gpt-6-luna`. Root dispatches the exact registered
 concrete `Role.task` selected from the canonical route inventory. The role
 families Explorer, Librarian, Worker, and Reviewer are labels only, and generic
 built-in `worker`, `explorer`, `reviewer`, and `librarian` types are forbidden
@@ -49,7 +48,7 @@ for HolyCodex specialist Assignments.
 
 HolyCodex manages the canonical scalar `features.context_management` and
 writes `true` for Root and every generated leaf because Codex does not
-enable it by default. Upgrade migrates
+enable it by default. An internal package migration converts
 owned historical `features.context_management.experimental_mode` state to the
 scalar key, preserving unrelated settings; removal restores the recorded prior
 value when the live value is unchanged, while a user edit is preserved and

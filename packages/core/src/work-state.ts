@@ -220,10 +220,12 @@ export const AssignmentStartResponseSchema = Schema.Struct({
 });
 export type AssignmentStartResponse = typeof AssignmentStartResponseSchema.Type;
 
-/** Protected persisted Assignment state, including the active invocation capability. */
+/** Protected persisted Assignment state, including active invocation verifiers. */
 const PersistedAssignmentSchema = Schema.Struct({
   ...AssignmentFields,
-  /** Capability digest bound to the active invocation; absent on legacy records. */
+  /** One-way verifier for newly issued active invocation capabilities. */
+  active_invocation_capability_verifier: Schema.optional(AssignmentInvocationCapabilitySchema),
+  /** Raw capability retained only when reading historical persisted records. */
   active_invocation_capability: Schema.optional(AssignmentInvocationCapabilitySchema),
 });
 type PersistedAssignment = typeof PersistedAssignmentSchema.Type;
@@ -442,6 +444,11 @@ export const AssignmentResultInputSchema = Schema.Struct({
   context7: Schema.optional(Context7EvidenceSchema),
   blocker: Schema.optional(NonEmpty),
   remainingRisk: Schema.optional(Schema.Array(NonEmpty)),
+});
+const AssignmentInterruptionRecoveryInputSchema = Schema.Struct({
+  invocationId: NonEmpty,
+  startedAt: DateText,
+  interruptionReason: NonEmpty,
 });
 /** Machine-readable reasons a predicate-checked Intent completion was refused. */
 export interface CompletionRefusal {
@@ -1297,6 +1304,7 @@ export class IntentStore {
         blocker: undefined,
         active_invocation_id: undefined,
         active_started_at: undefined,
+        active_invocation_capability_verifier: undefined,
         active_invocation_capability: undefined,
         superseded_by: replacement.id,
         supersession_reason: validated.reason.trim(),
@@ -1371,7 +1379,9 @@ export class IntentStore {
       const intent = await this.#readIntentPath(join(directory, "intent.toon"));
       const assignment = await this.#readPersistedAssignment(directory, intent, validatedId);
       return (
-        assignment.status === "executing" && assignment.active_invocation_capability === undefined
+        assignment.status === "executing" &&
+        assignment.active_invocation_capability_verifier === undefined &&
+        assignment.active_invocation_capability === undefined
       );
     });
   }
@@ -1482,7 +1492,8 @@ export class IntentStore {
         blocker: undefined,
         active_invocation_id: invocationId,
         active_started_at: startedAt,
-        active_invocation_capability: capability,
+        active_invocation_capability_verifier: sha256(capability),
+        active_invocation_capability: undefined,
       });
       await atomicWriteToon(join(directory, "assignments", `${validatedId}.toon`), revised);
       return parseSchema(AssignmentStartResponseSchema, {
@@ -1509,9 +1520,9 @@ export class IntentStore {
   }
 
   /**
-   * Persists a specialist result only when its active invocation capability is supplied. Legacy
-   * records may continue through {@link IntentStore.recordAssignmentResult}; newly issued invocation
-   * capabilities are validated here at the receiving boundary.
+   * Persists a specialist result only when its active invocation capability is supplied. Newly
+   * issued capabilities are checked against their verifier; historical raw capabilities remain
+   * readable, and capability-free legacy records may use {@link IntentStore.recordAssignmentResult}.
    */
   async recordSpecialistAssignmentResult(
     reference: string,
@@ -1531,12 +1542,51 @@ export class IntentStore {
     );
   }
 
+  /**
+   * Records a capability-lost active invocation as failed after exact interruption checks.
+   * Repository-shared callers cannot be authenticated as Root; this operation records recovery
+   * evidence and can never claim successful completion.
+   */
+  async recoverInterruptedAssignment(
+    reference: string,
+    assignmentId: string,
+    expectedRevision: number,
+    input: {
+      readonly invocationId: string;
+      readonly startedAt: string;
+      readonly interruptionReason: string;
+    },
+  ): Promise<{ readonly assignment: Assignment; readonly intent: Intent }> {
+    const validated = parseSchema(AssignmentInterruptionRecoveryInputSchema, input);
+    const reason = validated.interruptionReason.trim();
+    const recoveryEvidence: IntentEvidence = {
+      kind: "behavior",
+      value: `Interrupted invocation ${validated.invocationId} started at ${validated.startedAt} recovered as failed: ${reason}`,
+      result: "failed",
+    };
+    return await this.#recordAssignmentResult(
+      reference,
+      assignmentId,
+      expectedRevision,
+      {
+        invocationId: validated.invocationId,
+        outcome: "failed",
+        startedAt: validated.startedAt,
+        summary: `Interrupted invocation recovered as failed: ${reason}`,
+        evidence: [recoveryEvidence],
+      },
+      false,
+      { invocationId: validated.invocationId, startedAt: validated.startedAt },
+    );
+  }
+
   async #recordAssignmentResult(
     reference: string,
     assignmentId: string,
     expectedRevision: number,
     input: AssignmentResultInput,
     requireCapability: boolean,
+    recoveryMatch?: { readonly invocationId: string; readonly startedAt: string },
   ): Promise<{ readonly assignment: Assignment; readonly intent: Intent }> {
     const validated = parseSchema(AssignmentResultInputSchema, input);
     const validatedId = parseSchema(Identifier, assignmentId);
@@ -1544,6 +1594,8 @@ export class IntentStore {
     return await this.#withIntentLock(directory, async () => {
       const intent = await this.#readIntentPath(join(directory, "intent.toon"));
       assertIntentMutable(intent);
+      if (recoveryMatch !== undefined && reference !== intent.id)
+        throw invalidInput("Interruption recovery requires the exact Intent ID reference.");
       const assignment = await this.#readPersistedAssignment(directory, intent, validatedId);
       assertRevision(assignment.revision, expectedRevision);
       if (assignment.status !== "executing")
@@ -1552,6 +1604,21 @@ export class IntentStore {
           `Assignment result requires an executing Assignment; current status is ${assignment.status}.`,
           { assignment_id: assignment.id, status: assignment.status },
         );
+      if (recoveryMatch !== undefined) {
+        if (
+          assignment.active_invocation_id !== recoveryMatch.invocationId ||
+          assignment.active_started_at !== recoveryMatch.startedAt
+        )
+          throw new IntentStoreError(
+            "invalid_transition",
+            "Interruption recovery does not match the active invocation identity and start time.",
+            {
+              assignment_id: assignment.id,
+              expected_invocation_id: assignment.active_invocation_id,
+              expected_started_at: assignment.active_started_at,
+            },
+          );
+      }
       if (
         assignment.active_invocation_id !== undefined &&
         validated.invocationId !== undefined &&
@@ -1575,7 +1642,11 @@ export class IntentStore {
           "Specialist Assignment results require the active invocation identity.",
           { assignment_id: assignment.id },
         );
-      if (requireCapability && assignment.active_invocation_capability === undefined)
+      if (
+        requireCapability &&
+        assignment.active_invocation_capability_verifier === undefined &&
+        assignment.active_invocation_capability === undefined
+      )
         throw new IntentStoreError(
           "invalid_transition",
           "The active Assignment invocation has no capability to authorize a specialist result.",
@@ -1583,7 +1654,9 @@ export class IntentStore {
         );
       if (
         validated.capability !== undefined &&
-        assignment.active_invocation_capability !== validated.capability
+        (assignment.active_invocation_capability_verifier !== undefined
+          ? sha256(validated.capability) !== assignment.active_invocation_capability_verifier
+          : assignment.active_invocation_capability !== validated.capability)
       )
         throw new IntentStoreError(
           "invalid_transition",
@@ -1714,6 +1787,7 @@ export class IntentStore {
         invocations: [...assignment.invocations, invocation],
         active_invocation_id: undefined,
         active_started_at: undefined,
+        active_invocation_capability_verifier: undefined,
         active_invocation_capability: undefined,
         evidence: [...assignment.evidence, ...evidence],
         blocker: validated.blocker,
@@ -2148,7 +2222,11 @@ function reviseAssignment(
   );
 }
 function projectAssignment(value: PersistedAssignment): Assignment {
-  const { active_invocation_capability: _capability, ...projection } = value;
+  const {
+    active_invocation_capability_verifier: _verifier,
+    active_invocation_capability: _capability,
+    ...projection
+  } = value;
   return parseSchema(AssignmentSchema, projection);
 }
 function cleanUndefined(value: object): object {

@@ -108,14 +108,16 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
     "behavior must define only the live low/default/high profiles",
   );
   assert(
-    behaviorContract.includes("gpt-6-astra") && behaviorContract.includes("gpt-5.6-luna"),
+    behaviorContract.includes("gpt-6-astra") &&
+      behaviorContract.includes("gpt-6-sol") &&
+      behaviorContract.includes("gpt-6-luna"),
     "behavior must record the canonical Astra/Luna routes",
   );
   assert(
     configurationContract.includes("manages the canonical scalar `features.context_management`") &&
       configurationContract.includes("features.context_management.experimental_mode") &&
-      configurationContract.includes("Upgrade migrates"),
-    "configuration must define scalar context-management ownership and migration",
+      configurationContract.includes("An internal package migration converts"),
+    "configuration must define scalar context-management ownership and internal migration",
   );
   assert(
     behaviorContract.includes("Worker.validation") &&
@@ -143,8 +145,8 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
     "route prose must not retain stale canonical leaf counts",
   );
   assert(
-    cliContract.includes("holycodex upgrade") && cliContract.includes("--dry-run"),
-    "CLI contract must define in-place upgrade and dry-run",
+    !cliContract.includes("holycodex upgrade") && cliContract.includes("--dry-run"),
+    "CLI contract must exclude the removed public upgrade command",
   );
   assert(
     packageVerification.includes("context_management = true") &&

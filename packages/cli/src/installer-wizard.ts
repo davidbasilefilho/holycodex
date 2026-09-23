@@ -4,7 +4,6 @@ import {
   DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
   type OptionalCapabilityName,
   type ProfileName,
-  type ReleaseVersion,
   type ServiceTier,
 } from "@holycodex/core";
 
@@ -18,7 +17,6 @@ import type {
   InstallReviewResult,
   InstallReviewTool,
   ManagedConflict,
-  UpgradeWizardResult,
 } from "./types.ts";
 
 const PROFILE_NAMES: readonly ProfileName[] = ["low", "default", "high"];
@@ -63,20 +61,6 @@ export type ConflictScreenTransition = Readonly<{
 export type ConflictScreenResult =
   | Readonly<{ action: "continue"; decisions: Readonly<Record<string, ConflictDecision>> }>
   | Readonly<{ action: "back" | "cancel" }>;
-
-/** State rendered by the initial upgrade choice screen. */
-export type UpgradeScreenState = Readonly<{
-  current: InstallRequest;
-  fromVersion: ReleaseVersion;
-  toVersion: ReleaseVersion;
-  selected: number;
-}>;
-
-/** Result of applying one key to the initial upgrade choice screen. */
-export type UpgradeScreenTransition = Readonly<{
-  selected: number;
-  action: "render" | "choose" | "cancel";
-}>;
 
 /** Streams used by the OpenTUI renderer, primarily for embedded interactive callers. */
 export type OpenTuiInstallWizardOptions = Readonly<{
@@ -308,14 +292,17 @@ export async function runOpenTuiInstallWizard(
   });
 }
 
-/** Build one conflict review state, retaining a valid default decision for every conflict. */
-export function stateFromConflicts(conflicts: readonly ManagedConflict[]): ConflictScreenState {
+/** Build one conflict review state, retaining valid prior decisions before applying defaults. */
+export function stateFromConflicts(
+  conflicts: readonly ManagedConflict[],
+  priorDecisions: Readonly<Record<string, ConflictDecision>> = {},
+): ConflictScreenState {
   const decisions: Record<string, ConflictDecision> = {};
   for (const conflict of conflicts) {
     const identity =
       conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
     const valid = conflict.validDecisions ?? ["keep", "replace", "cancel"];
-    const preferred = conflict.defaultDecision ?? "replace";
+    const preferred = priorDecisions[identity] ?? conflict.defaultDecision ?? "replace";
     decisions[identity] = valid.includes(preferred)
       ? preferred
       : (valid.find((decision) => decision === "keep" || decision === "replace") ?? "keep");
@@ -416,9 +403,10 @@ export function renderConflictScreen(
 export async function runOpenTuiConflictResolver(
   conflicts: readonly ManagedConflict[],
   rendererOptions: OpenTuiInstallWizardOptions = {},
+  priorDecisions: Readonly<Record<string, ConflictDecision>> = {},
 ): Promise<ConflictScreenResult> {
   const opentui = await import("@opentui/core");
-  const state = stateFromConflicts(conflicts);
+  const state = stateFromConflicts(conflicts, priorDecisions);
   const renderer = await opentui.createCliRenderer({
     ...nativeRendererOptions(rendererOptions),
     exitOnCtrlC: true,
@@ -465,152 +453,6 @@ export async function runOpenTuiConflictResolver(
         else if (transition.action === "back" || transition.action === "cancel")
           settle({ action: transition.action });
         else refresh();
-      } catch (error: unknown) {
-        fail(error);
-      }
-    };
-    renderer.keyInput.on("keypress", onKey);
-    try {
-      renderer.start();
-    } catch (error: unknown) {
-      fail(error);
-    }
-  });
-}
-
-/** Render the initial native upgrade choice, including installed and target versions. */
-export function renderUpgradeChoiceScreen(
-  current: InstallRequest,
-  fromVersion: ReleaseVersion,
-  toVersion: ReleaseVersion,
-  selected = 0,
-  options: HumanRenderOptions = {},
-): string {
-  const state: UpgradeScreenState = {
-    current: validateInstallOptions(current),
-    fromVersion,
-    toVersion,
-    selected,
-  };
-  const color = colorEnabled({ ...options, stream: "stdout" });
-  const request = stateFromRequest(state.current);
-  const actions = ["Keep installed options", "Change options", "Cancel"] as const;
-  const lines = [
-    paintTerminal("HolyCodex  ·  upgrade", "heading", color),
-    paintTerminal("Choose how to apply this upgrade.", "hint", color),
-    `Installed version: ${state.fromVersion}`,
-    `Target version:    ${state.toVersion}`,
-    "",
-    paintTerminal("CURRENT OPTIONS", "heading", color),
-    `Profile: ${request.profile}`,
-    `Service tier: ${request.tier}`,
-    ...CAPABILITY_NAMES.map(
-      (name) =>
-        `  ${capabilityLabel(name)}: ${paintTerminal(enabled(request.optional[name]), request.optional[name] ? "enabled" : "disabled", color)}`,
-    ),
-    ...wrapWizardLine(
-      `  Additional plugins: ${request.plugins.length === 0 ? "none" : request.plugins.join(" ")}`,
-    ),
-    "",
-    paintTerminal("↑/↓ or j/k choose   Enter select   Esc cancel", "hint", color),
-    ...actions.map((action, index) =>
-      paintTerminal(
-        `${index === state.selected ? "›" : " "} ${action}`,
-        index === state.selected
-          ? "focus"
-          : index === 0
-            ? "success"
-            : index === 1
-              ? "warning"
-              : "error",
-        color,
-      ),
-    ),
-  ];
-  return `${lines.join("\n")}\n`;
-}
-
-/** Apply one keyboard action to the initial native upgrade choice screen. */
-export function applyUpgradeChoiceKey(
-  state: UpgradeScreenState,
-  key: WizardKey,
-): UpgradeScreenTransition {
-  const name = key.name.toLowerCase();
-  if (name === "escape" || (key.ctrl === true && name === "c")) {
-    return { selected: state.selected, action: "cancel" };
-  }
-  if (name === "up" || name === "k") {
-    return { selected: (state.selected + 2) % 3, action: "render" };
-  }
-  if (name === "down" || name === "j") {
-    return { selected: (state.selected + 1) % 3, action: "render" };
-  }
-  if (name === "return" || name === "enter" || name === "linefeed") {
-    return { selected: state.selected, action: "choose" };
-  }
-  return { selected: state.selected, action: "render" };
-}
-
-/** Run the initial native OpenTUI upgrade choice screen. */
-export async function runOpenTuiUpgradeChoiceScreen(
-  current: InstallRequest,
-  fromVersion: ReleaseVersion,
-  toVersion: ReleaseVersion,
-  rendererOptions: OpenTuiInstallWizardOptions = {},
-): Promise<UpgradeWizardResult> {
-  const opentui = await import("@opentui/core");
-  const state: UpgradeScreenState = {
-    current: validateInstallOptions(current),
-    fromVersion,
-    toVersion,
-    selected: 0,
-  };
-  const renderer = await opentui.createCliRenderer({
-    ...nativeRendererOptions(rendererOptions),
-    exitOnCtrlC: true,
-    clearOnShutdown: true,
-  });
-  const color = nativeColorEnabled(rendererOptions);
-  const text = new opentui.TextRenderable(renderer, {
-    content: nativeUpgradeContent(opentui, state, color),
-  });
-  renderer.root.add(text);
-  return await new Promise<UpgradeWizardResult>((resolve, reject) => {
-    let selected = state.selected;
-    let settled = false;
-    const settle = (result: UpgradeWizardResult): void => {
-      if (settled) return;
-      settled = true;
-      renderer.keyInput.off("keypress", onKey);
-      renderer.destroy();
-      resolve(result);
-    };
-    const fail = (error: unknown): void => {
-      if (settled) return;
-      settled = true;
-      renderer.keyInput.off("keypress", onKey);
-      renderer.destroy();
-      reject(error);
-    };
-    const refresh = (): void => {
-      text.content = nativeUpgradeContent(opentui, { ...state, selected }, color);
-      renderer.requestRender();
-    };
-    const onKey = (key: WizardKey): void => {
-      try {
-        const transition = applyUpgradeChoiceKey({ ...state, selected }, key);
-        selected = transition.selected;
-        if (transition.action === "cancel") {
-          settle({ action: "cancel" });
-        } else if (transition.action === "choose") {
-          settle(
-            transition.selected === 0
-              ? { action: "keep" }
-              : transition.selected === 1
-                ? { action: "change" }
-                : { action: "cancel" },
-          );
-        } else refresh();
       } catch (error: unknown) {
         fail(error);
       }
@@ -1207,52 +1049,6 @@ function nativeConflictContent(
         lines.push(nativeTextLine(`  ${focused.explanation}`, "hint"));
     }
   }
-  return nativeStyledText(opentui, lines, color);
-}
-
-function nativeUpgradeContent(
-  opentui: OpenTuiModule,
-  state: UpgradeScreenState,
-  color: boolean,
-): OpenTuiStyledText {
-  const request = stateFromRequest(state.current);
-  const actions = ["Keep installed options", "Change options", "Cancel"] as const;
-  const lines: NativeLine[] = [
-    nativeTextLine("HolyCodex  ·  upgrade", "heading"),
-    nativeTextLine("Choose how to apply this upgrade.", "hint"),
-    nativeTextLine(`Installed version: ${state.fromVersion}`),
-    nativeTextLine(`Target version:    ${state.toVersion}`),
-    nativeTextLine(""),
-    nativeTextLine("CURRENT OPTIONS", "heading"),
-    nativeTextLine(`Profile: ${request.profile}`),
-    nativeTextLine(`Service tier: ${request.tier}`),
-    ...CAPABILITY_NAMES.map((name) =>
-      nativeLine(
-        { text: `  ${capabilityLabel(name)}: ` },
-        {
-          text: enabled(request.optional[name]),
-          tone: request.optional[name] ? "enabled" : "disabled",
-        },
-      ),
-    ),
-    ...wrapWizardLine(
-      `  Additional plugins: ${request.plugins.length === 0 ? "none" : request.plugins.join(" ")}`,
-    ).map((line) => nativeTextLine(line, "argument")),
-    nativeTextLine(""),
-    nativeTextLine("↑/↓ or j/k choose   Enter select   Esc cancel", "hint"),
-    ...actions.map((action, index) =>
-      nativeTextLine(
-        `${index === state.selected ? "›" : " "} ${action}`,
-        index === state.selected
-          ? "focus"
-          : index === 0
-            ? "success"
-            : index === 1
-              ? "warning"
-              : "error",
-      ),
-    ),
-  ];
   return nativeStyledText(opentui, lines, color);
 }
 

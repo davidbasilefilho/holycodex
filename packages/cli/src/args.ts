@@ -87,7 +87,6 @@ export function parseArgv(argv: readonly string[]): ParsedCommand {
     command !== "install" &&
     command !== "doctor" &&
     command !== "remove" &&
-    command !== "upgrade" &&
     command !== "version"
   ) {
     throw new ArgumentError("unknown_command", "Unknown command.", { command: command ?? "" });
@@ -218,7 +217,7 @@ function validateCommand(
       );
     }
   }
-  if (["install", "remove", "upgrade"].includes(command) && options["yes"] === false) {
+  if (["install", "remove"].includes(command) && options["yes"] === false) {
     throw new ArgumentError("invalid_argument", "--yes cannot be false.");
   }
   if (
@@ -265,8 +264,6 @@ function commandOptions(command: string): ReadonlySet<string> {
       return new Set(["json", "verbose", "codex-home"]);
     case "remove":
       return new Set(["yes", "json", "verbose", "codex-home"]);
-    case "upgrade":
-      return new Set(["yes", "json", "verbose", "dry-run", "codex-home"]);
     case "version":
       return new Set(["json", "verbose", "dry-run"]);
     default:

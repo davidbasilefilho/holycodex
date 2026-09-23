@@ -15,33 +15,32 @@ import {
 import {
   parseArgv,
   parsePluginInput,
-  applyInstallReviewKey,
   applyWizardConfigurationKey,
-  renderInstallReview,
   renderInstallWizardReview,
   rootDeveloperInstructions,
   projectNativeAgents,
   projectRootAgent,
   renderNativeAgent,
   runOpenTuiConflictResolver,
-  runOpenTuiInstallReview,
   runOpenTuiInstallWizard,
-  runOpenTuiUpgradeChoiceScreen,
   readInstallationVersion,
   windowsGitBashShellDirective,
   runCli,
   toInstallOptions,
   stateFromRequest,
   type InstallOptions,
-  type InstallReview,
-  type InstallReviewScreenState,
   type InstallRequest,
   type ManagedConflict,
 } from "./index.ts";
+import {
+  applyInstallReviewKey,
+  renderInstallReview,
+  runOpenTuiInstallReview,
+  type InstallReviewScreenState,
+} from "./installer-wizard.ts";
+import type { InstallReview } from "./types.ts";
 
 const CURRENT_VERSION = await readInstallationVersion();
-const [CURRENT_MAJOR, CURRENT_MINOR, CURRENT_PATCH] = CURRENT_VERSION.split("-", 1)[0]!.split(".");
-const PREVIOUS_VERSION = `${CURRENT_MAJOR}.${CURRENT_MINOR}.${Number(CURRENT_PATCH) - 1}`;
 
 const ANSI_SGR_PATTERN = new RegExp(`${String.fromCodePoint(0x1b)}\\[[0-9;]*m`, "gu");
 
@@ -335,23 +334,13 @@ describe("public install wizard contract", () => {
       }),
     ).not.toContain("\u001b[");
 
-    const upgrade = renderInstallReview({
-      ...review,
-      operation: "upgrade",
-      fromVersion: PREVIOUS_VERSION,
-    });
-    expect(upgrade).toContain("HolyCodex · upgrade review");
-    expect(upgrade).toContain("Upgrade");
-    expect(upgrade).not.toContain("Apply");
-
     const withoutConflicts = renderInstallReview({ ...review, conflicts: [], conflictCounts: {} });
     expect(withoutConflicts).not.toContain("Resolve conflicts");
   });
 
   test("keeps final review navigation and Esc back distinct from cancellation", () => {
     const review: InstallReview = {
-      operation: "upgrade",
-      fromVersion: PREVIOUS_VERSION,
+      operation: "install",
       toVersion: CURRENT_VERSION,
       profile: "default",
       tier: "standard",
@@ -404,24 +393,6 @@ describe("public install wizard contract", () => {
       expect(
         rendered.every((screen) => !fakePlainText(screen).includes(String.fromCodePoint(0x1b))),
       ).toBe(true);
-    } finally {
-      mock.restore();
-    }
-
-    const upgradeRendered: FakeContent[] = [];
-    const upgradeRenderer = fakeRenderer([{ name: "enter" }]);
-    await mock.module("@opentui/core", () => fakeOpenTuiModule(upgradeRenderer, upgradeRendered));
-    try {
-      await expect(
-        runOpenTuiUpgradeChoiceScreen(
-          { profile: "default", tier: "standard", optional: { frontend: true } },
-          PREVIOUS_VERSION,
-          CURRENT_VERSION,
-          { stdoutIsTTY: true, env: {} },
-        ),
-      ).resolves.toEqual({ action: "keep" });
-      const styledUpgrade = fakeStyledChunks(upgradeRendered[0]!);
-      expect(styledUpgrade.some((chunk) => chunk.text === "HolyCodex  ·  upgrade")).toBe(true);
     } finally {
       mock.restore();
     }
@@ -659,7 +630,7 @@ describe("public install wizard contract", () => {
 describe("generated Root orchestration policy", () => {
   test("requires delegation while keeping Computer Use unavailable unless Root selected it", () => {
     const withoutComputerUse = rootDeveloperInstructions(false);
-    expect(withoutComputerUse).toMatch(/gpt-6-astra/iu);
+    expect(withoutComputerUse).toMatch(/selected Root profile/iu);
     expect(withoutComputerUse).toMatch(/every delegable action/iu);
     expect(withoutComputerUse).toMatch(
       /repository discovery.*source.*test.*documentation inspection/iu,
@@ -703,7 +674,7 @@ describe("generated Root orchestration policy", () => {
     }
     expect(withoutComputerUse).toMatch(/Security is selected/iu);
     expect(withoutComputerUse).toMatch(/Worker\.validation/iu);
-    expect(withoutComputerUse).toMatch(/Reviewer\.code.*fixed-point/iu);
+    expect(withoutComputerUse).toMatch(/Reviewer\.code.*fixed point/iu);
     expect(withoutComputerUse).toMatch(/exact ref or SHA/iu);
     expect(withoutComputerUse).not.toMatch(/delegate GUI.*Computer Use/iu);
 
@@ -774,8 +745,8 @@ describe("generated Root orchestration policy", () => {
     expect(withComputerUse).not.toMatch(/Computer Use is not selected/iu);
 
     expect(projectRootAgent("default")).toMatchObject({
-      model: "gpt-6-astra",
-      effort: "medium",
+      model: "gpt-6-sol",
+      effort: "high",
     });
 
     const leaf = renderNativeAgent(projectNativeAgents("default")[0]!);
@@ -793,7 +764,7 @@ describe("generated Root orchestration policy", () => {
     );
 
     for (const agent of projectNativeAgents("default")) {
-      expect(agent.model).toBe("gpt-5.6-luna");
+      expect(agent.model).toBe("gpt-6-luna");
       const rendered = renderNativeAgent(agent);
       expect(rendered).toContain("context_management = true");
       if (agent.name === "Reviewer.code") {
@@ -837,10 +808,11 @@ describe("generated Root orchestration policy", () => {
       windowsGitBashExecutable: windowsExecutable,
     });
     const windowsDirective = windowsGitBashShellDirective(windowsExecutable);
-    expect(windowsRoot).toContain(windowsExecutable);
+    expect(windowsRoot).toContain(JSON.stringify(windowsExecutable));
     expect(windowsRoot).toContain(windowsDirective);
-    expect(windowsLeaf).toContain(windowsDirective.replaceAll("\\", "\\\\"));
-    expect(windowsGitBashShellDirective("another-bash.exe")).toBe(windowsDirective);
+    expect(windowsLeaf).toContain(JSON.stringify(windowsDirective).slice(1, -1));
+    expect(windowsGitBashShellDirective("another-bash.exe")).toContain('"another-bash.exe"');
+    expect(windowsGitBashShellDirective("another-bash.exe")).not.toBe(windowsDirective);
     expect(rootDeveloperInstructions(false)).not.toContain(windowsDirective);
   });
 });

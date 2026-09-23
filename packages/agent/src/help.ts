@@ -8,7 +8,7 @@ All mutations require --revision and are atomic. No command prompts or emits ANS
 Commands:
   intent      create, list, current, read, select, transition, evidence, integrate, complete, abandon
   plan        read, revise
-  assignment  create, list, read, revise, supersede, start, result
+  assignment  create, list, read, revise, supersede, start, recover, result
 
 Use -h or --help at any command depth. Failures are classified and exit nonzero.
 `;
@@ -84,9 +84,10 @@ Input requires approach and may include scope, assignments, dependencies, archit
 assumptions, openQuestions, verification, and recovery. Effect: archives plan.old-NNN.toon
 immutably before atomic replacement. Fails on stale Intent or Plan revision.
 `,
-  assignment: `Usage: holycodex-agent assignment <create|list|read|revise|supersede|start|result> [options]
+  assignment: `Usage: holycodex-agent assignment <create|list|read|revise|supersede|start|recover|result> [options]
 
 Assignments are bounded specialist contracts. Their results never own global lifecycle state.
+Root may use recover only to record a confirmed interrupted invocation as failed.
 `,
   "assignment create": `Usage: holycodex-agent assignment create --intent <ref> --revision <n> --input <json> [--repo <path>]
 
@@ -119,13 +120,23 @@ Effect: marks a pending/blocked/failed Assignment executing and records its acti
 Optional input is {"scope":string[]} for an explicit bounded superset expansion. An already
 executing Assignment must receive its result before another start.
 `,
+  "assignment recover": `Usage: holycodex-agent assignment recover --intent <ref> --assignment <id> --revision <n> --input <json> [--repo <path>]
+
+Input: {"invocationId":string,"startedAt":string,"interruptionReason":string}. Root uses this
+only after confirming the active invocation stopped before returning a result. Exact invocation
+identity and revision must match. Effect: records the invocation and Assignment as failed, clears
+active invocation state, and adds failed recovery evidence. It cannot record success; this CLI
+does not authenticate that its caller is Root. Use assignment result for a returned result.
+`,
   "assignment result": `Usage: holycodex-agent assignment result --intent <ref> --assignment <id> --revision <n> --input <json> [--repo <path>]
 
 Input requires outcome and summary; supports compact invocation metadata, an explicit bounded
 scope superset, typed Context7 proof, evidence, blocker, remainingRisk, and the capability returned
-when a new invocation starts. The capability is required and validates the active specialist invocation.
-The operation atomically
-persists the Assignment and Intent revisions and returns both current records. Worker evidence
+when a new invocation starts. Supply the active invocation ID and matching capability for current
+records and historical records with a raw capability. A capability-free result is accepted only
+for legacy executing records with neither a persisted verifier nor a raw capability.
+The operation atomically persists the Assignment and Intent revisions and returns both current
+records. Worker evidence
 cannot set Root gates; actual repository evolution or failure invalidates prior gates.
 `,
 };

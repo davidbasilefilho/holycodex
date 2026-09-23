@@ -8,7 +8,8 @@ description: Use when authoring or reviewing model-facing instructions for GPT-6
 HolyCodex's canonical instruction-authoring skill has a GPT-6 → GPT-6 direction.
 It covers developer_instructions, Root/session policy, specialist and Role.task
 instructions, skill bodies, conditional workflows, and task-specific contracts.
-Model routing identities do not change this behavioral target.
+Keep shared behavioral policy under one owner across model routes, while
+accounting for demonstrated model-specific capability or prompting differences.
 
 Before writing, identify the receiver's effective context: higher-priority and
 user instructions, repository instructions, Role/task policy, relevant skills,

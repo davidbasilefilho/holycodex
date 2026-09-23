@@ -71,11 +71,11 @@ import { decodeUnknown } from "./schema";
 
 const profileNames = ["low", "default", "high"] as const;
 describe("core profile catalog", () => {
-  test("contains every profile with Astra routing and reasoning policy", () => {
+  test("contains every profile with the exact Root model and effort policy", () => {
     expect(PROFILE_CATALOG.map((profile) => profile.name)).toEqual([...profileNames]);
     expect(PROFILE_CATALOG.map((profile) => profile.root)).toEqual([
-      { model: "gpt-6-astra", effort: "low" },
-      { model: "gpt-6-astra", effort: "medium" },
+      { model: "gpt-6-sol", effort: "medium" },
+      { model: "gpt-6-sol", effort: "high" },
       { model: "gpt-6-astra", effort: "high" },
     ]);
     for (const profile of PROFILE_CATALOG) {
@@ -84,11 +84,67 @@ describe("core profile catalog", () => {
   });
 
   test("contains all current route slots and exact parity-floor efforts", () => {
+    expect(ROUTE_EFFORT_OVERRIDES.map(({ profile, efforts }) => ({ profile, efforts }))).toEqual([
+      {
+        profile: "low",
+        efforts: {
+          "Explorer:lookup": "medium",
+          "Explorer:trace": "high",
+          "Librarian:lookup": "medium",
+          "Librarian:research": "high",
+          "Worker:mechanical": "high",
+          "Worker:implementation": "high",
+          "Worker:integration": "max",
+          "Worker:operations": "high",
+          "Worker:validation": "medium",
+          "Worker:debugging": "high",
+          "Reviewer:plan": "high",
+          "Reviewer:code": "max",
+          "Reviewer:artifact": "high",
+        },
+      },
+      {
+        profile: "default",
+        efforts: {
+          "Explorer:lookup": "medium",
+          "Explorer:trace": "xhigh",
+          "Librarian:lookup": "medium",
+          "Librarian:research": "xhigh",
+          "Worker:mechanical": "high",
+          "Worker:implementation": "xhigh",
+          "Worker:integration": "max",
+          "Worker:operations": "high",
+          "Worker:validation": "high",
+          "Worker:debugging": "xhigh",
+          "Reviewer:plan": "xhigh",
+          "Reviewer:code": "max",
+          "Reviewer:artifact": "xhigh",
+        },
+      },
+      {
+        profile: "high",
+        efforts: {
+          "Explorer:lookup": "medium",
+          "Explorer:trace": "max",
+          "Librarian:lookup": "medium",
+          "Librarian:research": "max",
+          "Worker:mechanical": "xhigh",
+          "Worker:implementation": "max",
+          "Worker:integration": "max",
+          "Worker:operations": "xhigh",
+          "Worker:validation": "xhigh",
+          "Worker:debugging": "max",
+          "Reviewer:plan": "max",
+          "Reviewer:code": "max",
+          "Reviewer:artifact": "max",
+        },
+      },
+    ]);
     expect(ROUTE_KEYS.length).toBeGreaterThan(0);
     expect(new Set(ROUTE_KEYS).size).toBe(ROUTE_KEYS.length);
     for (const profile of PROFILE_CATALOG) {
       expect(profile.routes.map((route) => route.key)).toEqual([...ROUTE_KEYS]);
-      expect(profile.routes.every((route) => route.model === "gpt-5.6-luna")).toBe(true);
+      expect(profile.routes.every((route) => route.model === "gpt-6-luna")).toBe(true);
     }
 
     for (const expected of ROUTE_EFFORT_OVERRIDES) {
@@ -231,7 +287,7 @@ describe("core profile catalog", () => {
       expect(override).toBeDefined();
       if (!override) continue;
       expect(profile.routes.map((route) => route.model)).toEqual(
-        Array(ROUTE_KEYS.length).fill("gpt-5.6-luna"),
+        Array(ROUTE_KEYS.length).fill("gpt-6-luna"),
       );
       expect(profile.routes.map((route) => route.effort)).toEqual(
         ROUTE_KEYS.map((key) => override.efforts[key]),

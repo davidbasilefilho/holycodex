@@ -22,12 +22,11 @@ bunx holycodex install
 ```
 
 Use `--yes` for a non-interactive install. `doctor` inspects the effective
-installation, `upgrade` migrates an existing installation in place, and
-removal is:
+installation. Reinstalling with the current package reconciles a previous
+HolyCodex installation. Removal is:
 
 ```sh
 bunx holycodex remove
-bunx holycodex upgrade
 ```
 
 Profiles choose routing only. The live profiles are `low`, `default`, and
@@ -40,8 +39,7 @@ while `plus-low`, `plus`, and `plus-high` migrate to `low`, `default`, and
 `high`. Removed `pro-5x` and `pro-20x` values remain migration-only and
 require an explicit replacement.
 
-The current Root route is `gpt-6-astra`, while native specialist route files
-use the configured `gpt-5.6-luna` identity with their per-task effort matrix.
+Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; native specialists use `gpt-6-luna` with their per-task effort matrix.
 Those routing identities are separate from the GPT-6-family behavior required
 by live skills and generated instructions.
 
@@ -51,7 +49,7 @@ installation fails. Use `--json` when another program needs the complete
 structured state; human output stays concise.
 
 HolyCodex manages the scalar `features.context_management = true` in the Root
-configuration. Upgrade migrates owned historical
+configuration. The package migration converts owned historical
 `features.context_management.experimental_mode` state and removal restores the
 recorded prior value when it is unchanged.
 

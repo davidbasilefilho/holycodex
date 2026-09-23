@@ -5,7 +5,7 @@ import { createInterface } from "node:readline/promises";
 import { runCli, renderHuman } from "./commands.ts";
 import { helpRequested, helpTopic, renderHelp } from "./help.ts";
 import type { InstallRequest } from "./installer.ts";
-import type { CliContext, InstallWizardResult, UpgradeWizardResult } from "./types.ts";
+import type { CliContext, InstallWizardResult } from "./types.ts";
 
 export interface BinaryIo {
   readonly stdin?: AsyncIterable<string>;
@@ -16,12 +16,6 @@ export interface BinaryIo {
   ) => Promise<boolean | "confirmed" | "cancelled" | "unavailable">;
   /** Optional injectable wizard used by embedders and tests. */
   readonly installWizard?: (initial: InstallRequest) => Promise<InstallWizardResult>;
-  /** Optional injectable upgrade choice screen used by embedders and tests. */
-  readonly upgradeWizard?: (
-    current: InstallRequest,
-    fromVersion: string,
-    toVersion: string,
-  ) => Promise<UpgradeWizardResult>;
   readonly writeStdout: (text: string) => void;
   readonly writeStderr: (text: string) => void;
 }
@@ -40,7 +34,6 @@ export async function runBinary(
       stderrIsTTY: binaryIo.stderrIsTTY ?? process.stderr.isTTY === true,
       ...(binaryIo.confirm === undefined ? {} : { confirm: binaryIo.confirm }),
       ...(binaryIo.installWizard === undefined ? {} : { installWizard: binaryIo.installWizard }),
-      ...(binaryIo.upgradeWizard === undefined ? {} : { upgradeWizard: binaryIo.upgradeWizard }),
       writeStdout: binaryIo.writeStdout,
       writeStderr: binaryIo.writeStderr,
     },

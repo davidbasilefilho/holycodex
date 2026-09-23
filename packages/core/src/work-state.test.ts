@@ -631,7 +631,7 @@ describe("IntentStore", () => {
   });
 
   test("requires the active invocation capability for specialist terminal results", async () => {
-    const { store } = await fixture();
+    const { root, store } = await fixture();
     const intent = await store.createIntent({
       title: "Invocation capability",
       goal: "Keep specialist result writes attributable to their active invocation",
@@ -656,11 +656,23 @@ describe("IntentStore", () => {
     expect(startedAt).toBeDefined();
     if (invocationId === undefined || capability === undefined || startedAt === undefined)
       throw new Error("startAssignment did not issue invocation authorization");
+    const directory = (await readdir(join(root, ".holycodex"))).find(
+      (entry) => entry !== "current",
+    );
+    if (directory === undefined) throw new Error("Intent directory was not created");
+    const persisted = await readFile(
+      join(root, ".holycodex", directory, "assignments", `${assignment.id}.toon`),
+      "utf8",
+    );
+    const capabilityVerifier = createHash("sha256").update(capability).digest("hex");
+    expect(persisted).not.toContain(capability);
+    expect(persisted).toContain(`active_invocation_capability_verifier: ${capabilityVerifier}`);
     const reread = await store.readAssignment(intent.id, assignment.id);
     expect(reread).not.toHaveProperty("active_invocation_capability");
-    expect(
-      (await store.listAssignments(intent.id)).find(({ id }) => id === assignment.id),
-    ).not.toHaveProperty("active_invocation_capability");
+    expect(reread).not.toHaveProperty("active_invocation_capability_verifier");
+    const listed = (await store.listAssignments(intent.id)).find(({ id }) => id === assignment.id);
+    expect(listed).not.toHaveProperty("active_invocation_capability");
+    expect(listed).not.toHaveProperty("active_invocation_capability_verifier");
     expect(capability).not.toBe(
       createHash("sha256")
         .update(
@@ -676,6 +688,14 @@ describe("IntentStore", () => {
         summary: "Missing capability",
       }),
     ).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(
+      store.recordSpecialistAssignmentResult(intent.id, assignment.id, running.revision, {
+        invocationId,
+        capability: capabilityVerifier,
+        outcome: "completed",
+        summary: "Leaked verifier cannot authorize a forged result",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
     await expect(
       store.recordSpecialistAssignmentResult(intent.id, assignment.id, running.revision, {
         invocationId,
@@ -727,6 +747,7 @@ describe("IntentStore", () => {
     );
     expect(result.assignment.status).toBe("completed");
     expect(result.assignment.active_invocation_id).toBeUndefined();
+    expect(result.assignment).not.toHaveProperty("active_invocation_capability_verifier");
     expect(result.assignment).not.toHaveProperty("active_invocation_capability");
   });
 
@@ -765,9 +786,12 @@ describe("IntentStore", () => {
     const persisted = await readFile(assignmentPath, "utf8");
     await writeFile(
       assignmentPath,
-      persisted.replace(/^active_invocation_capability:.*\r?\n?/mu, ""),
+      persisted
+        .replace(/^active_invocation_capability_verifier:.*\r?\n?/mu, "")
+        .replace(/^active_invocation_capability:.*\r?\n?/mu, ""),
       "utf8",
     );
+    expect(await store.isLegacyExecutingAssignment(intent.id, assignment.id)).toBe(true);
 
     const result = await store.recordAssignmentResult(intent.id, assignment.id, running.revision, {
       outcome: "completed",
@@ -775,6 +799,95 @@ describe("IntentStore", () => {
     });
     expect(result.assignment.status).toBe("completed");
     expect(result.assignment.invocations[0]?.id).toBe("invocation-001");
+  });
+
+  test("recovers an interrupted invocation with exact markers as an evidenced failure", async () => {
+    const { store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Interrupted invocation recovery",
+      goal: "Close an invocation whose authorization token was lost",
+      acceptanceCriteria: ["truthful failure"],
+    });
+    const assignment = await store.createAssignment(
+      intent.id,
+      {
+        id: "interrupted-recovery",
+        objective: "Record an interrupted invocation",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["record interruption"],
+      },
+      intent.revision,
+    );
+    const running = await store.startAssignment(intent.id, assignment.id, assignment.revision);
+    const invocationId = running.active_invocation_id;
+    const startedAt = running.active_started_at;
+    if (invocationId === undefined || startedAt === undefined)
+      throw new Error("startAssignment did not issue complete invocation identity");
+
+    const recoveryInput = {
+      invocationId,
+      startedAt,
+      interruptionReason: "The invocation was confirmed interrupted before returning a result.",
+    };
+    await expect(
+      store.recoverInterruptedAssignment(intent.id, assignment.id, running.revision, {
+        ...recoveryInput,
+        invocationId: "invocation-stale",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+    await expect(
+      store.recoverInterruptedAssignment(intent.id, assignment.id, running.revision, {
+        ...recoveryInput,
+        startedAt: "2020-01-01T00:00:00.000Z",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+    await expect(
+      store.recoverInterruptedAssignment(
+        intent.slug,
+        assignment.id,
+        running.revision,
+        recoveryInput,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(
+      store.recoverInterruptedAssignment(
+        intent.id,
+        assignment.id,
+        running.revision + 1,
+        recoveryInput,
+      ),
+    ).rejects.toMatchObject({ code: "stale_write" });
+
+    const recovered = await store.recoverInterruptedAssignment(
+      intent.id,
+      assignment.id,
+      running.revision,
+      recoveryInput,
+    );
+    const invocation = recovered.assignment.invocations[0];
+    if (invocation === undefined) throw new Error("Recovered invocation was not recorded");
+    const recoveryEvidence = invocation.evidence[0];
+    if (recoveryEvidence === undefined) throw new Error("Recovery evidence was not recorded");
+    expect(recovered.assignment.status).toBe("failed");
+    expect(recovered.assignment.active_invocation_id).toBeUndefined();
+    expect(recovered.assignment.active_started_at).toBeUndefined();
+    expect(recovered.assignment).not.toHaveProperty("active_invocation_capability");
+    expect(invocation).toMatchObject({
+      id: invocationId,
+      outcome: "failed",
+      started_at: startedAt,
+      summary:
+        "Interrupted invocation recovered as failed: The invocation was confirmed interrupted before returning a result.",
+      evidence: [
+        {
+          kind: "behavior",
+          value: `Interrupted invocation ${invocationId} started at ${startedAt} recovered as failed: The invocation was confirmed interrupted before returning a result.`,
+          result: "failed",
+        },
+      ],
+    });
+    expect(recovered.assignment.evidence).toContainEqual(recoveryEvidence);
   });
 
   test("atomically supersedes one unfinished related Assignment and removes its blocker", async () => {

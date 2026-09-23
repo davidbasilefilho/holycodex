@@ -383,17 +383,17 @@ export interface RouteDefinition {
   readonly key: RouteKey;
   readonly role: Role;
   readonly task: TaskSlot;
-  readonly model: "gpt-5.6-luna";
+  readonly model: "gpt-6-luna";
   readonly effort: Effort;
 }
 
 export interface ProfileDefinition {
   readonly name: ProfileName;
   readonly root: {
-    readonly model: "gpt-6-astra";
+    readonly model: "gpt-6-sol" | "gpt-6-astra";
     readonly effort: Effort;
   };
-  readonly specialistModel: "gpt-5.6-luna";
+  readonly specialistModel: "gpt-6-luna";
   readonly defaultServiceTier: ServiceTier;
   readonly routes: readonly RouteDefinition[];
 }

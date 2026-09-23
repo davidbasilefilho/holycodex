@@ -83,8 +83,7 @@ Root's managed configuration enables
 this V1 arrangement only; session metadata reports V2, so HolyCodex does not
 claim live V1 runtime proof or owned fork enforcement.
 
-The current Root route uses `gpt-6-astra`, and native specialist route files use
-the configured `gpt-5.6-luna` identity with the effort matrix below. These are
+Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; every native specialist route uses `gpt-6-luna` with the effort matrix below. These are
 routing identities; live skills and generated instructions target GPT-6-family
 behavior. Root dispatches the exact registered concrete `Role.task` identity
 selected from this inventory. Explorer, Librarian, Worker, and Reviewer are
@@ -136,7 +135,9 @@ route identities with this reasoning-effort matrix:
 
 | Route                 | `low`  | `default` | `high` |
 | --------------------- | ------ | --------- | ------ |
-| Root/session agent    | low    | medium    | high   |
+| Root model            | Sol    | Sol       | Astra  |
+| Root/session agent    | medium | high      | high   |
+| Specialist model      | Luna   | Luna      | Luna   |
 | Explorer.lookup       | medium | medium    | medium |
 | Explorer.trace        | high   | xhigh     | max    |
 | Librarian.lookup      | medium | medium    | medium |
@@ -259,7 +260,7 @@ success.
 
 HolyCodex manages the canonical scalar `features.context_management` and sets
 it to `true` for Root and every generated leaf because Codex does not
-enable it by default. Upgrade migrates
+enable it by default. The package migration converts
 owned historical `features.context_management.experimental_mode` state to the
 scalar key, retaining unrelated settings only when the ownership evidence is
 safe. The normal managed-key ownership rules preserve user edits and restore

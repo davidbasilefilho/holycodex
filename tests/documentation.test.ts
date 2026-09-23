@@ -62,13 +62,16 @@ describe("documentation invariants", () => {
     ]);
     for (const content of [readme, cliReadme, behavior, configuration, installation]) {
       expect(content).toContain("gpt-6-astra");
-      expect(content).toContain("gpt-5.6-luna");
+      expect(content).toContain("gpt-6-luna");
       expect(content).not.toContain("The live plans are");
     }
     expect(readme).toContain("--profile <low|default|high>");
     expect(cliReadme).toContain("--profile");
     expect(cli).toContain("--profile <name>");
     expect(cli).not.toContain("--plan <name>");
+    expect(cli).not.toMatch(/holycodex upgrade(?:\s|\[|$)/iu);
+    expect(readme).not.toMatch(/holycodex upgrade(?:\s|\[|$)/iu);
+    expect(cliReadme).not.toMatch(/holycodex upgrade(?:\s|\[|$)/iu);
     expect(behavior).toMatch(/The live profiles are\s+`low`, `default`, and `high`/u);
     expect(behavior).toContain("installation profile approval");
     expect(behavior).toContain("features.context_management` and sets");
