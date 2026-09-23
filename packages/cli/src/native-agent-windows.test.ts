@@ -121,6 +121,9 @@ function windowsRuntime(): InstallerRuntime {
       if (executable === processPath && args.join(" ") === "pm bin -g") {
         return { exitCode: 0, stdout: `${binRoot}\n`, stderr: "" };
       }
+      if (args.join(" ") === "pm view ctx7 version") {
+        return { exitCode: 0, stdout: "2.0.0\n", stderr: "" };
+      }
       if (executable === processPath && args.join(" ") === "add -g ctx7@latest") {
         return { exitCode: 0, stdout: "", stderr: "" };
       }

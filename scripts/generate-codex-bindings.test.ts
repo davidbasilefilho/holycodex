@@ -6,15 +6,16 @@ import {
   assertLatestStableMatch,
   assertMiseLatestCodexConfig,
   canReuseGeneratedOutput,
-  createMiseMetadataEnvironment,
   parseStableMiseCodexVersion,
 } from "./generate-codex-bindings.ts";
 
 describe("latest stable Codex generation contract", () => {
-  test("requires the native Codex mise tool from its latest stable channel", () => {
-    expect(() => assertMiseLatestCodexConfig('[tools]\ncodex = "latest"\n')).not.toThrow();
-    expect(() => assertMiseLatestCodexConfig('[tools]\n"npm:@openai/codex" = "latest"\n')).toThrow(
-      'mise.toml must resolve codex from the "latest" stable channel',
+  test("requires the npm Codex package from its latest stable channel", () => {
+    expect(() =>
+      assertMiseLatestCodexConfig('[tools]\n"npm:@openai/codex" = "latest"\n'),
+    ).not.toThrow();
+    expect(() => assertMiseLatestCodexConfig('[tools]\ncodex = "latest"\n')).toThrow(
+      'mise.toml must resolve npm:@openai/codex from the "latest" stable channel',
     );
   });
 
@@ -27,11 +28,15 @@ describe("latest stable Codex generation contract", () => {
     );
   });
 
-  test("accepts a stable installed version when latest metadata is empty on either platform", () => {
-    expect(() => assertLatestStableMatch("", "0.155.1")).not.toThrow();
-    expect(() => assertLatestStableMatch("\r\n", "0.155.1")).not.toThrow();
-    expect(() => assertLatestStableMatch(undefined, "0.155.1")).not.toThrow();
-    expect(() => assertLatestStableMatch("", "0.155.1-dev.1")).toThrow(
+  test("requires valid stable latest metadata on either platform", () => {
+    expect(() => assertLatestStableMatch("0.155.1", "0.155.1")).not.toThrow();
+    expect(() => assertLatestStableMatch("", "0.155.1")).toThrow(
+      "mise stable Codex metadata must be a stable semantic version",
+    );
+    expect(() => assertLatestStableMatch("\r\n", "0.155.1")).toThrow(
+      "mise stable Codex metadata must be a stable semantic version",
+    );
+    expect(() => assertLatestStableMatch("0.155.1", "0.155.1-dev.1")).toThrow(
       "the installed Codex CLI version must be a stable semantic version",
     );
   });
@@ -44,23 +49,6 @@ describe("latest stable Codex generation contract", () => {
     expect(() => parseStableMiseCodexVersion("01.2.3")).toThrow(
       "must be a stable semantic version",
     );
-  });
-
-  test("passes the read-only GitHub token only to stable metadata lookup", () => {
-    const originalGithubToken = process.env["GITHUB_TOKEN"];
-    const originalGhToken = process.env["GH_TOKEN"];
-    process.env["GITHUB_TOKEN"] = "test-read-token";
-    process.env["GH_TOKEN"] = "unrelated-token";
-    try {
-      const environment = createMiseMetadataEnvironment();
-      expect(environment["GITHUB_TOKEN"]).toBe("test-read-token");
-      expect(environment["GH_TOKEN"]).toBeUndefined();
-    } finally {
-      if (originalGithubToken === undefined) delete process.env["GITHUB_TOKEN"];
-      else process.env["GITHUB_TOKEN"] = originalGithubToken;
-      if (originalGhToken === undefined) delete process.env["GH_TOKEN"];
-      else process.env["GH_TOKEN"] = originalGhToken;
-    }
   });
 
   test("reuses a generated cache only for the current version and executable digest", () => {

@@ -18,10 +18,9 @@ const generatedRoot = join(workspaceRoot, "packages/codex/generated");
 const generatedTypescriptRoot = join(generatedRoot, "typescript");
 const provenancePath = join(generatedRoot, "provenance.json");
 const miseConfigPath = join(workspaceRoot, "mise.toml");
-const CODEX_TOOL = "codex";
+const CODEX_TOOL = "npm:@openai/codex";
 const STABLE_VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
 const CODEX_VERSION_OUTPUT = /^codex-cli (\d+\.\d+\.\d+)$/u;
-const MISE_METADATA_ENVIRONMENT_KEYS = [...DEFAULT_COMMAND_ENVIRONMENT_KEYS, "GITHUB_TOKEN"];
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 
@@ -64,20 +63,13 @@ export interface GeneratedCacheIdentity {
   readonly codexCliDigest: string;
 }
 
-/** Reject a Codex installation that does not match available stable channel metadata. */
-export function assertLatestStableMatch(
-  latestVersion: string | undefined,
-  installedVersion: string,
-): void {
+/** Reject a Codex installation that does not match the stable channel metadata. */
+export function assertLatestStableMatch(latestVersion: string, installedVersion: string): void {
+  assertStableVersion(latestVersion, "mise stable Codex metadata");
   assertStableVersion(installedVersion, "the installed Codex CLI version");
-  const stableChannelVersion = latestVersion?.trim();
-  if (stableChannelVersion === undefined || stableChannelVersion.length === 0) {
-    return;
-  }
-  assertStableVersion(stableChannelVersion, "mise stable Codex metadata");
-  if (stableChannelVersion !== installedVersion) {
+  if (latestVersion !== installedVersion) {
     throw new Error(
-      `The installed Codex version ${installedVersion} is stale; mise stable metadata resolves ${stableChannelVersion}. Run "mise install ${CODEX_TOOL}@latest" and retry.`,
+      `The installed Codex version ${installedVersion} is stale; mise stable metadata resolves ${latestVersion}. Run "mise install ${CODEX_TOOL}@latest" and retry.`,
     );
   }
 }
@@ -96,7 +88,7 @@ export function canReuseGeneratedOutput(
 let activeGeneration: Promise<EnsureCodexGeneratedResult> | undefined;
 
 /**
- * Ensure local generated bindings match the stable Codex CLI resolved by the stable mise channel. A
+ * Ensure local generated bindings match the stable Codex CLI resolved by mise's npm channel. A
  * valid current tree is reused without invoking the generator again.
  */
 export function ensureCodexGenerated(): Promise<EnsureCodexGeneratedResult> {
@@ -217,9 +209,9 @@ async function resolveCodexTool(): Promise<{
   };
 }
 
-/** Require the native Codex tool to use mise's stable latest channel. */
+/** Require the Codex npm package to use mise's stable latest channel. */
 export function assertMiseLatestCodexConfig(config: string): void {
-  if (!/^\s*codex\s*=\s*["']latest["']\s*$/mu.test(config)) {
+  if (!/^\s*"npm:@openai\/codex"\s*=\s*["']latest["']\s*$/mu.test(config)) {
     throw new Error(`mise.toml must resolve ${CODEX_TOOL} from the "latest" stable channel`);
   }
 }
@@ -233,25 +225,20 @@ async function readMiseLatestCodexConfig(): Promise<void> {
   }
 }
 
-async function resolveLatestMiseCodexVersion(): Promise<string | undefined> {
+async function resolveLatestMiseCodexVersion(): Promise<string> {
   try {
     const result = await runChecked(["mise", "latest", CODEX_TOOL], {
       cwd: workspaceRoot,
-      env: createMiseMetadataEnvironment(),
+      env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
       maxOutputBytes: 16 * 1024,
     });
     const output = result.stdout.trim();
-    return output.length === 0 ? undefined : parseStableMiseCodexVersion(output);
+    return parseStableMiseCodexVersion(output);
   } catch (error: unknown) {
     throw new Error(
       `The stable Codex latest-channel metadata is unavailable; check network/cache access (${safeError(error)}).`,
     );
   }
-}
-
-/** Pass GitHub's read token only to mise's remote stable-version lookup. */
-export function createMiseMetadataEnvironment(): Record<string, string> {
-  return allowlistedEnvironment(MISE_METADATA_ENVIRONMENT_KEYS);
 }
 
 /** Parse mise's stable Codex version output, including Windows line endings. */

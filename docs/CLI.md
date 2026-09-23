@@ -134,8 +134,9 @@ Install reconciliation and removal report modified, provably owned state as
 resolvable conflicts. Interactive resolution exposes the path or key and proposed action:
 accept, decline/preserve, or cancel. `--yes` accepts owned replacement/removal;
 JSON or non-TTY without it returns structured confirmation-required state.
-`--dry-run` reports conflicts and planned resolution without mutation. Foreign
-or unverifiable state is never offered for destructive resolution.
+`--dry-run` is available only with `version`; it reports the prospective
+canonical version change without writing. Foreign or unverifiable state is
+never offered for destructive resolution.
 
 ## Human output
 

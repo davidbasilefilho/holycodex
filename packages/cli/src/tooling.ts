@@ -325,7 +325,8 @@ async function ensureContext7ViaLauncher(
       `${manager.family} could not resolve the latest ctx7 version.`,
     );
   }
-  if (mutate && before?.version !== latest) {
+  const ownership = context7Ownership(previous, manager, before);
+  if (mutate && before?.version !== latest && ownership === "holycodex") {
     const command = context7InstallCommand(manager.family);
     const result = await runtime.run(command.executable, command.args);
     if (result.exitCode !== 0) {
@@ -355,7 +356,6 @@ async function ensureContext7ViaLauncher(
       { installed: after.version, latest },
     );
   }
-  const ownership = context7Ownership(previous, manager, before);
   const state: Context7StateWithIdentity = {
     manager: manager.family,
     launcher: manager.launcher,
@@ -377,7 +377,15 @@ async function ensureBunGlobalContext7(
 ): Promise<Context7ToolState> {
   const manager: Context7Manager = { launcher: "bunx", family: "bun", executable: "bun" };
   const before = await inspectBunGlobalContext7(runtime);
-  if (mutate) {
+  const latest = await latestContext7Version(runtime, manager);
+  if (latest === undefined) {
+    throw new ToolingError(
+      "context7_verification_failed",
+      "Bun could not resolve the latest ctx7 version.",
+    );
+  }
+  const ownership = context7Ownership(previous, manager, before);
+  if (mutate && before?.version !== latest && ownership === "holycodex") {
     const result = await runtime.run(runtime.processPath, ["add", "-g", CONTEXT7_SPEC]);
     if (result.exitCode !== 0) {
       throw new ToolingError(
@@ -399,7 +407,13 @@ async function ensureBunGlobalContext7(
       `${CONTEXT7_SPEC} could not be verified in Bun's exact global installation.`,
     );
   }
-  const ownership = context7Ownership(previous, manager, before);
+  if (after.version !== latest) {
+    throw new ToolingError(
+      "context7_outdated",
+      `Bun's global ctx7 is ${after.version}; ${latest} is required.`,
+      { installed: after.version, latest },
+    );
+  }
   const state: Context7StateWithIdentity = {
     manager: "bun",
     launcher: "bunx",
@@ -861,7 +875,7 @@ async function latestContext7Version(
   manager: Context7Manager,
 ): Promise<string | undefined> {
   const result = await runtime.run(
-    manager.executable,
+    manager.family === "bun" && isBunRuntime(runtime) ? runtime.processPath : manager.executable,
     manager.family === "bun" ? ["pm", "view", "ctx7", "version"] : ["view", "ctx7", "version"],
   );
   if (result.exitCode !== 0) return undefined;

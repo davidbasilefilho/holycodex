@@ -28,6 +28,7 @@ import {
   DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
   NATIVE_AGENT_TYPES,
   STATE_SCHEMA_EPOCH,
+  canonicalBaseVersion,
   canonicalJson,
   canonicalJsonUtf8,
   canonicalOfficialPluginId,
@@ -125,6 +126,8 @@ export {
 
 export const HOLYCODEX_MARKETPLACE = "davidbasilefilho/holycodex";
 export const HOLYCODEX_PLUGIN = "holycodex@holycodex";
+// Pre-boundary records used Astra for every Root profile; keep this fixed when later releases change.
+const ROOT_ROUTE_MIGRATION_BOUNDARY = "0.16.8" as const;
 
 export interface InstallRequest {
   readonly profile?: ProfileName | undefined;
@@ -729,10 +732,9 @@ export async function installHolyCodex(
       frontend: previous.optional_selections.frontend,
       security: previous.optional_selections.security,
     });
-    if (compareReleaseVersions(previous.version, version) < 0) {
-      // Before this release every profile used Astra for Root. Compare against that
-      // persisted release contract so its canonical route upgrades, while a
-      // recorded user override remains distinguishable and is preserved.
+    const previousBaseVersion = canonicalBaseVersion(previous.version.split("-", 1)[0]!);
+    if (compareReleaseVersions(previousBaseVersion, ROOT_ROUTE_MIGRATION_BOUNDARY) < 0) {
+      // Interpret the prior managed values using the route contract active at installation.
       previousDesiredConfig.model = "gpt-6-astra";
       previousDesiredConfig.model_reasoning_effort =
         previous.profile === "low" ? "low" : previous.profile === "default" ? "medium" : "high";

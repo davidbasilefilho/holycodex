@@ -2,7 +2,7 @@
 [tools]
 bun = "1.4"
 node = "26"
-codex = "latest"
+"npm:@openai/codex" = "latest"
 
 [settings]
 fetch_remote_versions_cache = "0s"

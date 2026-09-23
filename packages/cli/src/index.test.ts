@@ -72,6 +72,8 @@ function testRuntime(codexHome: string): InstallerRuntime {
       const command = `${executable} ${args.join(" ")}`;
       const normalizedCommand = command.replaceAll("\\", "/");
       if (command === "bun pm bin -g") return { exitCode: 0, stdout: `${binRoot}\n`, stderr: "" };
+      if (command === "bun pm view ctx7 version")
+        return { exitCode: 0, stdout: "2.0.0\n", stderr: "" };
       if (command === "bun add -g ctx7@latest") {
         state.installed = true;
         return { exitCode: 0, stdout: "", stderr: "" };

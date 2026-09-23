@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { summarizeManagedConfigValue } from "@holycodex/codex";
+import { resolveCanonicalVersion } from "@holycodex/core";
 
 import {
   executeCommand,
@@ -73,6 +74,8 @@ function testRuntime(codexHome: string): InstallerRuntime {
       const command = `${executable} ${args.join(" ")}`;
       const normalizedCommand = command.replaceAll("\\", "/");
       if (command === "bun pm bin -g") return { exitCode: 0, stdout: `${binRoot}\n`, stderr: "" };
+      if (command === "bun pm view ctx7 version")
+        return { exitCode: 0, stdout: "2.0.0\n", stderr: "" };
       if (command === "bun add -g ctx7@latest") {
         state.installed = true;
         return { exitCode: 0, stdout: "", stderr: "" };
@@ -314,6 +317,50 @@ describe("command install and upgrade review flow", () => {
       expect(recovery.tooling?.context7?.ownership).toBe("holycodex");
       expect(recovery.managed_config?.managed).not.toHaveProperty("model");
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("preserves a pre-existing user-owned Context7 package when install rolls back", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-user-context7-rollback-"));
+    const codexHome = join(root, "codex");
+    const existingContext7 = { installed: true };
+    toolingStates.set(codexHome, existingContext7);
+    const baseRuntime = testRuntime(codexHome);
+    const manager = fakeManager();
+    const failingManager: OfficialPluginManager = {
+      ...manager,
+      addMarketplace: async () => {
+        throw new Error("injected rollback after Context7 verification");
+      },
+    };
+    const context7Mutations: string[] = [];
+    try {
+      await expect(
+        installHolyCodex(
+          { optional: { frontend: false, security: false, computer_use: false } },
+          {
+            ...installerOptions(codexHome, failingManager),
+            runtime: {
+              ...baseRuntime,
+              run: async (executable, args) => {
+                if (
+                  (args[0] === "add" && args[1] === "-g" && args[2] === "ctx7@latest") ||
+                  (args[0] === "remove" && args[1] === "-g" && args[2] === "ctx7")
+                ) {
+                  context7Mutations.push(`${executable} ${args.join(" ")}`);
+                }
+                return await baseRuntime.run(executable, args);
+              },
+            },
+          },
+          fakeEnvironment,
+        ),
+      ).rejects.toBeDefined();
+      expect(context7Mutations).toEqual([]);
+      expect(existingContext7.installed).toBe(true);
+    } finally {
+      toolingStates.delete(codexHome);
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);
@@ -918,6 +965,40 @@ describe("command install and upgrade review flow", () => {
         expect(stableUpgrade.to_version).toBe(CURRENT_VERSION);
         expect(stableUpgrade.changes).toContain("version");
         expect(stableUpgrade.record?.version).toBe(CURRENT_VERSION);
+
+        const futureInstallerModule: string = "./installer.ts?route-update-boundary";
+        const futureInstaller = (await import(
+          futureInstallerModule
+        )) as typeof import("./installer.ts");
+        targetVersion = CURRENT_VERSION;
+        const routeRoot = join(root, "route-update");
+        const routeCodexHome = join(routeRoot, "codex");
+        await mkdir(routeRoot, { recursive: true });
+        const routePaths = resolveInstallerPaths({ paths: { codexHome: routeCodexHome } });
+        await futureInstaller.installHolyCodex(
+          {
+            profile: "low",
+            optional: { frontend: false, security: false, computer_use: false },
+          },
+          installerOptions(routeCodexHome, manager),
+          fakeEnvironment,
+        );
+
+        targetVersion = resolveCanonicalVersion("patch", CURRENT_VERSION);
+        await futureInstaller.installHolyCodex(
+          {
+            profile: "high",
+            optional: { frontend: false, security: false, computer_use: false },
+          },
+          {
+            ...installerOptions(routeCodexHome, manager),
+            reviewInstall: async () => ({ action: "apply" }),
+          },
+          fakeEnvironment,
+        );
+        expect(parseConfig(await readFile(routePaths.configFile, "utf8"))["model"]).toBe(
+          "gpt-6-astra",
+        );
       } finally {
         mock.restore();
       }

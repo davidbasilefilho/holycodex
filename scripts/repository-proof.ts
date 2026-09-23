@@ -145,8 +145,9 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
     "route prose must not retain stale canonical leaf counts",
   );
   assert(
-    !cliContract.includes("holycodex upgrade") && cliContract.includes("--dry-run"),
-    "CLI contract must exclude the removed public upgrade command",
+    !cliContract.includes("holycodex upgrade") &&
+      cliContract.includes("`--dry-run` is available only with `version`"),
+    "CLI contract must exclude the removed public upgrade command and scope dry-run to version",
   );
   assert(
     packageVerification.includes("context_management = true") &&
