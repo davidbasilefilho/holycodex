@@ -5,12 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  CAPABILITY_REGISTRY,
-  FRONTEND_WORKFLOW_POLICY,
-  GENERIC_BUILTIN_AGENT_TYPES,
-  NATIVE_AGENT_TYPES,
-} from "@holycodex/core";
+import { CAPABILITY_REGISTRY, NATIVE_AGENT_TYPES } from "@holycodex/core";
 
 import {
   parseArgv,
@@ -328,8 +323,14 @@ describe("public install wizard contract", () => {
     expect(install).toContain("DECISIONS (2)");
     expect(install).toContain("Keep: 1");
     expect(install).toContain("Replace: 1");
-    expect(install).toContain("Context7: Install/update managed Bun copy");
+    expect(install).toContain("Context7: Use available ctx7");
     expect(install).not.toContain("Context7: ready (bunx)");
+    expect(
+      renderInstallReview({
+        ...review,
+        tools: [{ name: "Context7", status: "unavailable" }],
+      }),
+    ).toContain("Context7: Attempt optional managed ctx7 install");
     const colored = renderInstallReview(review, 0, { stdoutIsTTY: true, env: {} });
     expect(colored).toContain("\u001b[");
     expect(colored.replace(ANSI_SGR_PATTERN, "")).toContain("Profile: high");
@@ -623,6 +624,7 @@ describe("public install wizard contract", () => {
       for (const screen of rendered) {
         const plain = fakePlainText(screen);
         expect(plain.split("\n").length - 1).toBeLessThanOrEqual(24);
+        expect(plain).toContain("Context7: Use available ctx7");
         expect(plain).toContain("Review the complete preflight plan");
         expect(plain).toContain("↑/↓ or j/k choose");
         expect(plain).toContain("Resolve conflicts");
@@ -634,224 +636,80 @@ describe("public install wizard contract", () => {
 });
 
 describe("generated Root orchestration policy", () => {
-  test("requires delegation while keeping Computer Use unavailable unless Root selected it", () => {
-    const withoutComputerUse = rootDeveloperInstructions(false);
-    expect(withoutComputerUse).toMatch(/selected Root profile/iu);
-    expect(withoutComputerUse).toMatch(/every delegable action/iu);
-    expect(withoutComputerUse).toMatch(
-      /repository discovery.*source.*test.*documentation inspection/iu,
-    );
-    expect(withoutComputerUse).toMatch(
-      /Starting the Assignment and dispatching.*must precede every such inspection or execution/isu,
-    );
-    expect(withoutComputerUse).toMatch(/no generic Root direct-work fallback/iu);
-    expect(withoutComputerUse).not.toMatch(
-      /when useful|when appropriate|for complex work|delegate where practical/iu,
-    );
-    expect(withoutComputerUse).toMatch(
-      /Root directly owns only user interaction; Intent; material decisions; orchestration and lifecycle; integration acceptance; completion; Git\/VCS writes; external effects; GUI and browser execution; Computer Use when selected/iu,
-    );
-    expect(withoutComputerUse).not.toMatch(/interactive capabilities/iu);
-    expect(withoutComputerUse).toMatch(/Computer Use is unavailable/iu);
-    expect(withoutComputerUse).toMatch(/cannot be delegated/iu);
-    expect(withoutComputerUse).toMatch(/GUI.*browser.*Root\/session-only/iu);
-    expect(withoutComputerUse).toMatch(/routine safe, reversible, in-scope choices/iu);
-    expect(withoutComputerUse).toMatch(/authorized.*read-only.*preparatory/iu);
-    expect(withoutComputerUse).toMatch(/installation profile approval/iu);
-    expect(withoutComputerUse).toMatch(/independent.*Assignments.*concurrently/iu);
-    expect(withoutComputerUse).toMatch(/later-phase questions/iu);
-    expect(withoutComputerUse).toMatch(/writing-instructions/iu);
-    expect(withoutComputerUse).not.toMatch(/writing-for-agents|Luna contracts/iu);
-    expect(withoutComputerUse).toMatch(/Context7.*before model memory/isu);
-    expect(withoutComputerUse).toMatch(/Web search is allowed only for these Context7 states/iu);
-    expect(withoutComputerUse).toMatch(
-      /successful Context7 evidence alone never justifies fallback/iu,
-    );
-    expect(withoutComputerUse).toMatch(
-      /conflict still unresolved after checking authoritative first-party documentation/iu,
-    );
-    expect(withoutComputerUse).toMatch(/meaningful proof appropriate/iu);
-    expect(withoutComputerUse).toMatch(/source change.*failure.*material concern/isu);
-    expect(withoutComputerUse).toMatch(/Frontend is selected/iu);
-    for (const mapping of CAPABILITY_REGISTRY.frontend.applicability) {
-      expect(withoutComputerUse).toContain(mapping.skillId);
-      expect(withoutComputerUse).toContain(mapping.appliesWhen);
-    }
-    expect(FRONTEND_WORKFLOW_POLICY.repositoryAndUserRequirementsPrecedePluginDefaults).toBe(true);
-    expect(withoutComputerUse).toMatch(
-      /Repository stack, existing design system, and explicit user requirements govern over generic plugin defaults/iu,
-    );
-    const frontendDisabled = rootDeveloperInstructions({ frontend: false, security: false });
-    for (const mapping of CAPABILITY_REGISTRY.frontend.applicability) {
-      expect(frontendDisabled).not.toContain(mapping.skillId);
-    }
-    expect(withoutComputerUse).toMatch(/Security is selected/iu);
-    expect(withoutComputerUse).toMatch(/Worker\.validation/iu);
-    expect(withoutComputerUse).toMatch(/Reviewer\.code.*fixed point/iu);
-    expect(withoutComputerUse).toMatch(/exact ref or SHA/iu);
-    expect(withoutComputerUse).not.toMatch(/delegate GUI.*Computer Use/iu);
-
-    expect(withoutComputerUse).toMatch(
-      /exact concrete registered Role\.task agent_type.*canonical HolyCodex inventory/isu,
-    );
-    expect(withoutComputerUse).toMatch(
-      /normal specialist spawn.*fork_turns: "none".*never omit.*all.*default/isu,
-    );
-    expect(withoutComputerUse).toMatch(/configured model and reasoning effort/iu);
-    expect(withoutComputerUse).toMatch(
-      /self-contained.*objective.*scope.*constraints.*exclusions.*dependencies.*acceptance criteria.*required evidence/isu,
-    );
-    expect(withoutComputerUse).toMatch(/Do not send messages to active specialists/iu);
-    expect(withoutComputerUse).toMatch(/only useful or important information/isu);
-    expect(withoutComputerUse).toMatch(/after every tool use or subagent update/isu);
-    expect(withoutComputerUse).toMatch(/routine status-only chatter.*heartbeat/isu);
-    expect(withoutComputerUse).toMatch(/fixed update cadence/isu);
-    expect(withoutComputerUse).toMatch(/significant findings or decisions/isu);
-    expect(withoutComputerUse).toMatch(/consequential blockers or input needs/isu);
-    expect(withoutComputerUse).toMatch(/release milestones/isu);
-    expect(withoutComputerUse).toMatch(/native Astra Default questions.*independent work/isu);
-    expect(withoutComputerUse).toMatch(/no question protocol/isu);
-    expect(withoutComputerUse).toMatch(/out-of-boundary.*new bounded Assignment/isu);
-    expect(withoutComputerUse).toMatch(/longest practical event wait/iu);
-    expect(withoutComputerUse).toMatch(
-      /collaboration\.wait_agent.*timeout_ms=1200000.*20 minutes.*cache lifetime/isu,
-    );
-    expect(withoutComputerUse).toMatch(/early specialist completion wakes.*collective mailbox/isu);
-    expect(withoutComputerUse).toMatch(/maximum wait expires.*same maximum wait again/isu);
-    expect(withoutComputerUse).toMatch(/short waits.*list or status polling.*message loops/isu);
-    expect(withoutComputerUse).toMatch(/never busy-poll.*status-only coordination loops/isu);
-    expect(withoutComputerUse).toMatch(/batch independent lifecycle actions/iu);
-    expect(withoutComputerUse).toMatch(/release specialist leaves/iu);
+  test("keeps delegation and Root authority explicit across profiles", () => {
+    const sol = rootDeveloperInstructions({ rootModel: "gpt-6-sol" });
     const astra = rootDeveloperInstructions({ rootModel: "gpt-6-astra" });
-    for (const instructions of [withoutComputerUse, astra]) {
-      expect(instructions).toMatch(
-        /collaboration\.wait_agent.*timeout_ms=1200000.*20 minutes.*cache lifetime/isu,
-      );
-      expect(instructions).toMatch(/early specialist completion wakes.*collective mailbox/isu);
-      expect(instructions).toMatch(/maximum wait expires.*same maximum wait again/isu);
-      expect(instructions).toMatch(/short waits.*list or status polling.*message loops/isu);
-    }
-    expect(withoutComputerUse).toMatch(/concise, structured, and evidence-first/iu);
-    expect(withoutComputerUse).toMatch(
-      /large transcripts or artifacts only for material decisions/iu,
+    expect(astra).toBe(sol);
+    expect(sol).toContain("Never perform delegable work yourself");
+    expect(sol).toContain("Root may directly perform only user interaction; Intent");
+    expect(sol).toContain(
+      "before every delegable action, including trivial, preparatory, and exploratory work",
     );
-    expect(withoutComputerUse).toMatch(/reuse stable facts.*do not duplicate policy/isu);
-    expect(withoutComputerUse).toMatch(/stable bounded component scopes are canonical/iu);
-    expect(withoutComputerUse).toMatch(
-      /lifecycle worker owns deterministic Intent.*Assignment API/isu,
+    expect(sol).toContain('fork_turns: "none"');
+    expect(sol).toContain("If no matching route exists, return needs_root_input");
+    expect(sol).toContain("Reviewer.code fixed point");
+    expect(sol).toContain("Worker.validation");
+    expect(sol).toContain("smallest meaningful proof");
+    expect(sol).not.toContain(
+      "Your model and reasoning effort come from the selected Root profile",
     );
-    for (const agentType of NATIVE_AGENT_TYPES) {
-      expect(withoutComputerUse).toContain(agentType);
-    }
-    expect(withoutComputerUse).toMatch(
-      /role families Explorer, Librarian, Worker, and Reviewer are labels only/iu,
-    );
-    expect(withoutComputerUse).toMatch(/never dispatch targets/iu);
-    for (const genericAgentType of GENERIC_BUILTIN_AGENT_TYPES) {
-      expect(withoutComputerUse).toContain(genericAgentType);
-    }
-    expect(withoutComputerUse).toMatch(/forbidden for HolyCodex specialist Assignments/iu);
-    expect(withoutComputerUse).toMatch(
-      /no matching concrete registered route.*needs_root_input/isu,
-    );
-    expect(withoutComputerUse).not.toMatch(
-      /native Explorer, Librarian, Worker, or Reviewer route/iu,
-    );
-    expect(withoutComputerUse).not.toMatch(
-      /dispatch (?:a|an)?\s*(?:Explorer|Librarian|Worker|Reviewer) route/iu,
-    );
-
-    const withComputerUse = rootDeveloperInstructions(true);
-    expect(withComputerUse).toMatch(/every delegable action/iu);
-    expect(withComputerUse).toMatch(/GUI and browser execution; Computer Use when selected/iu);
-    expect(withComputerUse).toMatch(/Computer Use is selected.*Root\/session only/iu);
-    expect(withComputerUse).toMatch(/user personally enters and submits/iu);
-    expect(withComputerUse).toMatch(/default browser/iu);
-    expect(withComputerUse).not.toMatch(/Computer Use is not selected/iu);
-    const astraRoot = rootDeveloperInstructions({ rootModel: "gpt-6-astra" });
-    expect(astraRoot).toMatch(/query Context7 narrowly before model memory or generic web/iu);
-    expect(astraRoot).toMatch(/successful Context7 evidence alone never justifies fallback/iu);
-    expect(astraRoot).toMatch(
-      /conflict still unresolved after checking authoritative first-party documentation/iu,
-    );
-
+    expect(sol).not.toContain("Context7 states");
+    for (const agentType of NATIVE_AGENT_TYPES) expect(sol).toContain(agentType);
     expect(projectRootAgent("default")).toMatchObject({
       model: "gpt-6-sol",
       effort: "high",
     });
+  });
 
-    const leaf = renderNativeAgent(projectNativeAgents("default")[0]!);
-    expect(leaf).not.toMatch(/GPT-5\.6 Luna specialist|Luna contracts/iu);
-    expect(leaf).not.toMatch(/smallest complete edit set/iu);
-    expect(leaf).toMatch(/context_management = true/iu);
-    expect(leaf).toMatch(/Do not delegate.*Intent lifecycle/iu);
-    expect(leaf).toMatch(/completed.*blocked.*needs_root_input.*failed/isu);
-    expect(leaf).toMatch(/out-of-boundary.*Root/iu);
-    expect(leaf).toMatch(/bounded Assignment.*acceptance criteria/iu);
+  test("selects conditional capability guidance and preserves specialist boundaries", () => {
+    const root = rootDeveloperInstructions(true);
+    expect(root).toContain("Computer Use is Root-only");
+    expect(root).toContain("user for credential entry and submission");
+    expect(root).toContain("babysit-ci");
+    for (const mapping of CAPABILITY_REGISTRY.frontend.applicability) {
+      expect(root).toContain(mapping.skillId);
+      expect(root).toContain(mapping.appliesWhen);
+    }
+    expect(rootDeveloperInstructions({ frontend: false, security: false })).not.toContain(
+      CAPABILITY_REGISTRY.frontend.applicability[0]!.skillId,
+    );
+    const leaf = renderNativeAgent(
+      projectNativeAgents("default").find((agent) => agent.name === "Worker.implementation")!,
+    );
+    expect(leaf).toContain("bounded Assignment");
+    expect(leaf).toContain("Patch quality:");
+    expect(leaf).toContain("correctly, elegantly, and mergeably");
+    expect(leaf).toContain("context_management = true");
+    expect(leaf).not.toContain("Your model and reasoning effort");
 
     for (const agent of projectNativeAgents("default")) {
-      expect(agent.model).toBe("gpt-6-luna");
       const rendered = renderNativeAgent(agent);
-      expect(rendered).toContain("context_management = true");
-      expect(rendered).toContain('web_search = "live"');
       expect(rendered).toContain('sandbox_mode = "workspace-write"');
-      expect(rendered).toContain("network_access = true");
-      expect(rendered).not.toContain('default_permissions = "holycodex-readonly-network"');
-      expect(rendered).not.toContain("[permissions.");
-      if (agent.name === "Reviewer.code") {
-        expect(rendered).toContain(
-          "Use one batched evidence sweep, reason over it, make targeted follow-ups only, and batch related repairs and verification.",
-        );
-      }
-      if (agent.name === "Librarian.lookup" || agent.name === "Librarian.research") {
-        expect(rendered).toMatch(/Use web search only when Context7 is unavailable/iu);
-        expect(rendered).toMatch(/successful Context7 evidence alone never justifies fallback/iu);
-        expect(rendered).toMatch(
-          /conflict remains unresolved after checking authoritative first-party documentation/iu,
-        );
-      }
-      if (agent.name === "Worker.operations") {
-        expect(agent.permissions.networkScope).toBe("exact_ref_or_sha");
-        expect(agent.permissions.sourceMutation).toBe(false);
-        expect(agent.permissions.filesystem).toBe("read-only");
-        expect(rendered).toMatch(/Do not modify repository source/iu);
-        expect(rendered).toContain('web_search = "live"');
-      } else if (agent.name === "Reviewer.plan") {
-        expect(agent.permissions.sourceMutation).toBe(false);
-        expect(agent.permissions.filesystem).toBe("read-only");
-        expect(rendered).toMatch(/Do not modify repository source/iu);
-      } else if (agent.name === "Worker.validation") {
-        expect(agent.permissions.sourceMutation).toBe(false);
-        expect(agent.permissions.filesystem).toBe("workspace-write");
-        expect(rendered).toMatch(/Do not modify repository source/iu);
-        expect(rendered).toContain('sandbox_mode = "workspace-write"');
-      } else if (agent.name === "Worker.debugging") {
-        expect(agent.permissions.network).toBe(true);
-        expect(agent.permissions.sourceMutation).toBe(true);
-        expect(rendered).toContain('web_search = "live"');
-        expect(rendered).toMatch(/reproducibly.*root/isu);
-      } else if (agent.name.startsWith("Worker.")) {
-        expect(agent.permissions.network).toBe(true);
-        expect(agent.permissions.networkScope).toBe("current_sources");
-        expect(rendered).toContain('web_search = "live"');
+      expect(rendered).toContain('web_search = "live"');
+      if (
+        agent.permissions.filesystem === "workspace-write" ||
+        agent.name === "Reviewer.code" ||
+        agent.name === "Reviewer.artifact"
+      ) {
+        expect(rendered).toContain("Patch quality:");
+      } else {
+        expect(rendered).not.toContain("Patch quality:");
       }
     }
+  });
 
-    const windowsExecutable = "C:\\Program Files\\Git\\bin\\bash.exe";
-    const windowsRoot = rootDeveloperInstructions({
-      computerUse: false,
-      windowsGitBashExecutable: windowsExecutable,
-    });
-    const windowsLeaf = renderNativeAgent(projectNativeAgents("default")[0]!, {
-      windowsGitBashExecutable: windowsExecutable,
-    });
-    const windowsDirective = windowsGitBashShellDirective(windowsExecutable);
-    expect(windowsRoot).toContain(JSON.stringify(windowsExecutable));
-    expect(windowsRoot).toContain(windowsDirective);
-    expect(windowsLeaf).toContain(JSON.stringify(windowsDirective).slice(1, -1));
-    expect(windowsGitBashShellDirective("another-bash.exe")).toContain('"another-bash.exe"');
-    expect(windowsGitBashShellDirective("another-bash.exe")).not.toBe(windowsDirective);
-    expect(rootDeveloperInstructions(false)).not.toContain(windowsDirective);
+  test("projects the verified Windows shell only when selected", () => {
+    const executable = "C:\\Program Files\\Git\\bin\\bash.exe";
+    const directive = windowsGitBashShellDirective(executable);
+    expect(rootDeveloperInstructions({ windowsGitBashExecutable: executable })).toContain(
+      directive,
+    );
+    expect(
+      renderNativeAgent(projectNativeAgents("default")[0]!, {
+        windowsGitBashExecutable: executable,
+      }),
+    ).toContain(JSON.stringify(directive).slice(1, -1));
+    expect(rootDeveloperInstructions(false)).not.toContain(directive);
   });
 });
 

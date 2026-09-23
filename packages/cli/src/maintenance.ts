@@ -80,6 +80,14 @@ import type {
   ManagedConflict,
 } from "./types.ts";
 
+const LEGACY_WORK_PLUGIN_NAMES = new Set([
+  "documents",
+  "pdf",
+  "presentations",
+  "spreadsheets",
+  "template-creator",
+]);
+
 /** Inspect HolyCodex paths, records, runtime configuration, plugins, and tooling health. */
 export async function doctorHolyCodex(
   options: InstallerOptions = {},
@@ -195,7 +203,11 @@ export async function doctorHolyCodex(
       ownership: context7.ownership,
     });
   } catch (error: unknown) {
-    checks["context7"] = failedCheck(["context7_unavailable"], { error: safeMessage(error) });
+    checks["context7"] = {
+      status: "warning",
+      reasons: ["context7_unavailable"],
+      details: { error: safeMessage(error) },
+    };
   }
 
   try {
@@ -214,12 +226,9 @@ export async function doctorHolyCodex(
     });
   }
 
-  const manager =
-    options.officialPluginManager ??
-    (await CodexOfficialPluginManager.discover({
-      ...environment,
-      CODEX_HOME: paths.codexHome,
-    }).catch(() => undefined));
+  // Codex's plugin listing can initialize its marketplace cache. Doctor must only
+  // inspect managers explicitly supplied as observational test boundaries.
+  const manager = options.officialPluginManager;
   if (active && manager?.status) {
     const selected = [
       ...new Set([
@@ -257,7 +266,7 @@ export async function doctorHolyCodex(
   } else {
     checks["native_plugins"] = {
       status: "unsupported",
-      reasons: ["native_plugin_manager_unavailable"],
+      reasons: ["native_plugin_status_unobserved"],
       details: {},
     };
   }
@@ -739,7 +748,7 @@ export async function upgradeHolyCodex(
           },
           officialPlugins: additionalPluginsFromRecord(source),
         }
-      : installRequestFromPersistedOptions(persistedOptions);
+      : withoutLegacyWorkPlugins(installRequestFromPersistedOptions(persistedOptions));
   const selectedOptions =
     request.options === undefined ? sourceOptions : validateInstallOptions(request.options);
   const effectiveOptions = {
@@ -835,9 +844,9 @@ export async function upgradeHolyCodex(
     const context7 = await ensureContext7(runtime, false, source.tooling?.context7);
     toolingDrift ||=
       gitBash.status === "missing" ||
-      context7.manager !== source.tooling?.context7.manager ||
-      context7.version !== source.tooling?.context7.version ||
-      context7.executable !== source.tooling?.context7.executable;
+      context7.manager !== source.tooling?.context7?.manager ||
+      context7.version !== source.tooling?.context7?.version ||
+      context7.executable !== source.tooling?.context7?.executable;
   } catch {
     toolingDrift = true;
   }
@@ -906,7 +915,27 @@ function additionalPluginsFromRecord(
   record: Pick<InstallRecord, "official_plugins" | "optional_selections">,
 ): readonly string[] {
   const capabilityPlugins = new Set(pluginIdsForOptionalCapabilities(record.optional_selections));
-  return (record.official_plugins ?? []).filter((pluginId) => !capabilityPlugins.has(pluginId));
+  return (record.official_plugins ?? []).filter(
+    (pluginId) => !isLegacyWorkPlugin(pluginId) && !capabilityPlugins.has(pluginId),
+  );
+}
+
+function withoutLegacyWorkPlugins(request: InstallRequest): InstallRequest {
+  return {
+    ...request,
+    ...(request.officialPlugins === undefined
+      ? {}
+      : {
+          officialPlugins: request.officialPlugins.filter(
+            (pluginId) => !isLegacyWorkPlugin(pluginId),
+          ),
+        }),
+  };
+}
+
+function isLegacyWorkPlugin(pluginId: string): boolean {
+  const name = pluginId.slice(0, pluginId.lastIndexOf("@"));
+  return LEGACY_WORK_PLUGIN_NAMES.has(name);
 }
 
 function sameInstallOptions(left: InstallRequest, right: InstallRequest): boolean {

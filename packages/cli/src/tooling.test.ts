@@ -32,6 +32,23 @@ const failure = (stderr = "failed"): InstallerProcessResult => ({
 const normalized = (path: string): string => win32.resolve(path).toLowerCase();
 
 describe("installer tooling", () => {
+  test("accepts a working PATH ctx7 when registry resolution fails", async () => {
+    const fixture = context7Runtime({
+      family: "bun",
+      processPath: "bun",
+      installed: "1.0.0",
+      latestFails: true,
+      shadowed: true,
+      shadowVersion: "3.0.0",
+    });
+    await expect(ensureContext7(fixture.runtime, true)).resolves.toMatchObject({
+      version: "3.0.0",
+      executable: "C:\\Shadow\\ctx7.cmd",
+      ownership: "user",
+    });
+    expect(fixture.installs()).toBe(0);
+    expect(fixture.calls.some((call) => call.includes("pm view ctx7 version"))).toBe(false);
+  });
   test("accepts only bunx, npx, and pnpm dlx launcher metadata", () => {
     expect(detectContext7Manager({ npm_execpath: "C:/bun/bin/bunx.exe" })).toEqual({
       launcher: "bunx",
@@ -145,7 +162,7 @@ describe("installer tooling", () => {
     expect(fixture.calls).toContain("bun pm view ctx7 version");
   });
 
-  test("does not let a foreign PATH shadow affect the exact Bun global branch", async () => {
+  test("falls back to a valid Bun global ctx7 when the PATH executable fails", async () => {
     const fixture = context7Runtime({
       family: "bun",
       processPath: "bun",
@@ -159,7 +176,7 @@ describe("installer tooling", () => {
       version: "2.0.0",
     });
     expect(fixture.installs()).toBe(0);
-    expect(fixture.calls.some((call) => call.includes("Shadow"))).toBe(false);
+    expect(fixture.calls.some((call) => call.includes("Shadow"))).toBe(true);
     expect(fixture.calls).toContain("bun pm view ctx7 version");
   });
 
@@ -604,6 +621,7 @@ type ContextFixtureOptions = Readonly<{
   brokenShim?: boolean;
   shimVersion?: string;
   shadowed?: boolean;
+  shadowVersion?: string;
   outsidePackageBin?: boolean;
   packageRevision?: string;
   root?: string;
@@ -645,7 +663,7 @@ function context7Runtime(options: ContextFixtureOptions): {
   let projectAvailable = options.missingProjectInitially !== true;
   const environment = {
     ...manager.environment,
-    PATH: options.shadowed ? `C:\\Shadow;${binRoot}` : binRoot,
+    PATH: options.shadowed ? `C:\\Shadow;${binRoot}` : "",
   };
   const present = (path: string): boolean => {
     const value = normalized(path);
@@ -731,6 +749,9 @@ function context7Runtime(options: ContextFixtureOptions): {
         shimRunCount += 1;
         if (options.brokenShim) return failure("broken shim");
         return success(`ctx7 ${options.shimVersion ?? current ?? "0.0.0"}`);
+      }
+      if (normalized(executable) === normalized(shadow) && options.shadowVersion !== undefined) {
+        return success(`ctx7 ${options.shadowVersion}`);
       }
       return failure("unexpected command");
     },

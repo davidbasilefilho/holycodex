@@ -123,7 +123,7 @@ const Context7ToolStateSchema = Schema.Struct({
 });
 export const InstallerToolingStateSchema = Schema.Struct({
   git_bash: GitBashStateSchema,
-  context7: Context7ToolStateSchema,
+  context7: Schema.optional(Context7ToolStateSchema),
 });
 
 const PluginConfigEntrySnapshotSchema = Schema.Struct({
