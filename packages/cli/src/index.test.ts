@@ -34,6 +34,7 @@ import type {
   OfficialPluginManager,
   UpgradeRequest,
 } from "./index.ts";
+import { desiredRootConfig } from "./installer.ts";
 
 const toolingStates = new Map<string, { installed: boolean }>();
 
@@ -190,6 +191,9 @@ describe("CLI boundaries", () => {
   test("renders every profile route into TOML without coupling routing to service tier", () => {
     let projectedRoutes = 0;
     for (const profile of PROFILE_CATALOG) {
+      expect(
+        desiredRootConfig(profile.name, "standard")["agents.max_concurrent_threads_per_session"],
+      ).toBe(21);
       const standardRoot = projectRootAgent(profile.name, "standard");
       const fastRoot = projectRootAgent(profile.name, "fast");
       const fastAllRoot = projectRootAgent(profile.name, "fast-all");
@@ -232,12 +236,13 @@ describe("CLI boundaries", () => {
         expect(toml).toContain(`model = "${agent.model}"`);
         expect(toml).toContain(`model_reasoning_effort = "${agent.effort}"`);
         expect(toml).toContain('service_tier = "default"');
+        expect(toml).toContain(agent.taskInstruction);
         projectedRoutes += 1;
       }
 
       expect(fastAll.every((agent) => agent.serviceTier === "fast")).toBe(true);
     }
-    expect(projectedRoutes).toBe(39);
+    expect(projectedRoutes).toBe(3 * ROUTE_KEYS.length);
   });
 
   test("accepts only the current command and option surface", () => {
@@ -452,9 +457,13 @@ describe("native installation and removal", () => {
       expect(config).toContain('model = "gpt-6-sol"');
       expect(config).not.toContain("model_auto_compact_token_limit");
       expect(config).toContain("default_mode_request_user_input = true");
+      expect(config).toContain("max_concurrent_threads_per_session = 21");
       expect(config).toContain("multi_agent = true");
+      expect(config).toContain("agent_message_board = false");
       expect(config).toContain("multi_agent_v2 = false");
       expect(config).toContain("context_management = true");
+      expect(config).toContain('web_search = "live"');
+      expect(config).toContain("network_access = true");
       expect(config).toContain("You are the HolyCodex Root/session orchestrator");
       expect(config).toContain(
         "Computer Use is unavailable for this installation and cannot be delegated",
@@ -474,12 +483,14 @@ describe("native installation and removal", () => {
       expect(leaf).toContain('model_verbosity = "low"');
       expect(leaf).not.toContain("tool_output_token_limit");
       expect(leaf).toContain('sandbox_mode = "workspace-write"');
+      expect(leaf).toContain("network_access = true");
       expect(leaf).toContain('approval_policy = "never"');
-      expect(leaf).toContain('web_search = "disabled"');
+      expect(leaf).toContain('web_search = "live"');
       expect(leaf).toContain("[agents]");
       expect(leaf).toContain("enabled = false");
       expect(leaf).toContain("interrupt_message = false");
       expect(leaf).toContain("[features]");
+      expect(leaf).toContain("agent_message_board = false");
       expect(leaf).toContain("multi_agent_v2 = false");
       expect(leaf).toContain("multi_agent = false");
       expect(leaf).toContain("computer_use = false");

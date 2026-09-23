@@ -54,7 +54,7 @@ import {
   isKnownLegacyRootRoleContent,
   projectNativeAgents,
   projectRootAgent,
-  nativeAgentSandboxMode,
+  nativeAgentSandboxConfigurationMatches,
   removeManagedNativeAgents,
   rollbackNativeAgentInstall,
   rootDeveloperInstructions,
@@ -210,6 +210,24 @@ export function installRequestFromPersistedOptions(value: PersistedInstallOption
       security: value.capabilities.includes("security"),
     },
     officialPlugins: [...value.additional_plugins],
+  };
+}
+
+/** Read effective prior selections for an interactive reinstall. */
+export async function readEffectiveInstallRequest(
+  options: InstallerOptions = {},
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): Promise<InstallRequest> {
+  const paths = resolveInstallerPaths(options, environment);
+  const persisted = await readInstallOptions(paths);
+  if (persisted !== undefined) return installRequestFromPersistedOptions(persisted);
+  const previous = await readActiveInstallRecord(paths);
+  if (previous === undefined) return {};
+  return {
+    profile: previous.profile,
+    tier: previous.tier,
+    optional: previous.optional_selections,
+    officialPlugins: additionalPluginsFromPrevious(previous),
   };
 }
 
@@ -582,7 +600,6 @@ export async function installHolyCodex(
   let pluginConfigBefore = initialPluginConfigBefore;
   const useBatchConflictResolution = options.resolveConflicts !== undefined;
   const pendingConflicts: ManagedConflict[] = [];
-  const reviewedConfigConflictDigests = new Map<string, string>();
   let pluginConfigConflicts: readonly ManagedConflict[] = [];
   let providerConfigConflicts: readonly ManagedConflict[] = [];
   if (previous?.plugin_config !== undefined) {
@@ -615,7 +632,6 @@ export async function installHolyCodex(
         desired,
         explanation: `The managed ${key} entry changed outside the previous HolyCodex transaction.`,
       });
-      reviewedConfigConflictDigests.set(conflict.identity!, current.digest);
       return conflict;
     });
     if (useBatchConflictResolution) pendingConflicts.push(...pluginConfigConflicts);
@@ -656,7 +672,6 @@ export async function installHolyCodex(
         desired: { kind: "boolean", value: true },
         explanation: `The managed provider plugin entry ${entry.plugin_id} changed outside the previous transaction.`,
       });
-      reviewedConfigConflictDigests.set(conflict.identity!, entry.before.digest);
       return conflict;
     });
     if (useBatchConflictResolution) pendingConflicts.push(...providerConfigConflicts);
@@ -807,6 +822,7 @@ export async function installHolyCodex(
       pluginConfigConflicts,
       providerConfigConflicts,
       resolvedConflicts.decisions,
+      providerPlugins,
     );
     let acceptedDocument = acceptedPluginConfig.document;
     pluginConfigBefore = acceptedPluginConfig.pluginConfigBefore;
@@ -954,7 +970,8 @@ export async function installHolyCodex(
         }
         return await installHolyCodex(review.request, options, environment);
       }
-      break;
+      if (review.action === "apply") break;
+      throw new InstallerError("confirmation_required", "Unknown install review action.");
     }
   }
   const preMutationTransaction: PreparingTransaction = {
@@ -1047,10 +1064,10 @@ export async function installHolyCodex(
   let installOptionsWriteStarted = false;
   try {
     const liveConfigBeforeMutation = parseConfig(await optionalTextFile(paths.configFile));
-    await assertReviewedPluginConfigConflictsStable(
+    await assertPreflightPluginConfigStable(
       liveConfigBeforeMutation,
-      [...pluginConfigConflicts, ...providerConfigConflicts],
-      reviewedConfigConflictDigests,
+      currentHolyCodexPluginConfig,
+      currentProviderConfig,
     );
     const configBeforeMutationRuntime = await migrateKnownLegacyRoleRegistrations(
       liveConfigBeforeMutation,
@@ -1249,6 +1266,7 @@ export async function installHolyCodex(
       pluginConfigConflicts,
       providerConfigConflicts,
       resolvedConflicts.decisions,
+      providerPlugins,
     );
     let stablePostPluginDocument = postPluginResolution.document;
     for (const rawKeyPath of Object.keys(resolvedManagedConfig)) {
@@ -2055,46 +2073,32 @@ type PluginConfigConflictResolution = Readonly<{
   readonly providerConfigBefore: readonly ProviderPluginConfigSnapshot[];
 }>;
 
-async function assertReviewedPluginConfigConflictsStable(
+async function assertPreflightPluginConfigStable(
   document: TomlDocument,
-  conflicts: readonly ManagedConflict[],
-  reviewedDigests: ReadonlyMap<string, string>,
+  expectedHolyCodex: PluginConfigSnapshot["before"],
+  expectedProviders: readonly ProviderPluginConfigSnapshot[],
 ): Promise<void> {
-  for (const conflict of conflicts) {
-    const identity = conflict.identity;
-    const key = conflict.key;
-    const reviewedDigest = identity === undefined ? undefined : reviewedDigests.get(identity);
-    if (identity === undefined || key === undefined || reviewedDigest === undefined) {
-      throw new InstallerError("state_corrupt", "A plugin configuration conflict is incomplete.");
-    }
-    let parent: "plugins" | "marketplaces";
-    let entryKey: string;
-    if (key === 'plugins."holycodex@holycodex"') {
-      parent = "plugins";
-      entryKey = HOLYCODEX_PLUGIN_CONFIG_KEY;
-    } else if (key === "marketplaces.holycodex") {
-      parent = "marketplaces";
-      entryKey = HOLYCODEX_MARKETPLACE_CONFIG_KEY;
-    } else {
-      const providerPlugin = /^plugins\."([^"\\]+)"$/u.exec(key)?.[1];
-      if (providerPlugin === undefined) {
-        throw new InstallerError(
-          "state_corrupt",
-          "A provider configuration conflict has an invalid key.",
-          undefined,
-          { key },
-        );
-      }
-      parent = "plugins";
-      entryKey = providerPlugin;
-    }
-    const current = await snapshotPluginConfigEntry(document, parent, entryKey);
-    if (current.digest !== reviewedDigest) {
+  const entries = [
+    { parent: "plugins", key: HOLYCODEX_PLUGIN_CONFIG_KEY, expected: expectedHolyCodex.preference },
+    {
+      parent: "marketplaces",
+      key: HOLYCODEX_MARKETPLACE_CONFIG_KEY,
+      expected: expectedHolyCodex.marketplace,
+    },
+    ...expectedProviders.map(({ plugin_id, before }) => ({
+      parent: "plugins" as const,
+      key: plugin_id,
+      expected: before,
+    })),
+  ] as const;
+  for (const { parent, key, expected } of entries) {
+    const current = await snapshotPluginConfigEntry(document, parent, key);
+    if (current.digest !== expected.digest) {
       throw new InstallerError(
         "confirmation_required",
-        "A plugin configuration conflict changed after review; review the latest configuration and retry.",
+        "Plugin configuration changed after preflight; review the latest configuration and retry.",
         undefined,
-        { path: conflict.path, key },
+        { key: `${parent}.${key}` },
       );
     }
   }
@@ -2110,6 +2114,7 @@ async function applyPluginConfigConflictDecisions(
   pluginConflicts: readonly ManagedConflict[],
   providerConflicts: readonly ManagedConflict[],
   decisions: ReadonlyMap<string, ConflictDecision>,
+  selectedProviderPlugins: readonly string[],
 ): Promise<PluginConfigConflictResolution> {
   let output = document;
   let effectivePluginConfigBefore = pluginConfigBefore;
@@ -2130,6 +2135,17 @@ async function applyPluginConfigConflictDecisions(
       conflict.key === 'plugins."holycodex@holycodex"' ? "preference" : "marketplace";
     const current = currentPluginConfig[name];
     if (decision === "keep") {
+      const preserved = readPluginConfigEntry(
+        preservationDocument,
+        "plugins",
+        HOLYCODEX_PLUGIN_CONFIG_KEY,
+      );
+      if (name === "preference" && isTomlTable(preserved) && preserved["enabled"] === false) {
+        throw new InstallerError(
+          "confirmation_required",
+          "Keeping disabled HolyCodex config would disable the selected plugin.",
+        );
+      }
       output = preserveConfigConflictEntry(output, preservationDocument, conflict.key);
       effectivePluginConfigBefore = {
         ...effectivePluginConfigBefore,
@@ -2180,6 +2196,17 @@ async function applyPluginConfigConflictDecisions(
       );
     }
     if (decision === "keep") {
+      const preserved = readPluginConfigEntry(preservationDocument, "plugins", pluginId);
+      if (
+        selectedProviderPlugins.includes(pluginId) &&
+        isTomlTable(preserved) &&
+        preserved["enabled"] === false
+      ) {
+        throw new InstallerError(
+          "confirmation_required",
+          `Keeping disabled config would disable selected plugin ${pluginId}.`,
+        );
+      }
       output = preserveConfigConflictEntry(output, preservationDocument, key);
       effectiveProviderConfigBefore = effectiveProviderConfigBefore.map((entry) =>
         entry.plugin_id === pluginId
@@ -2263,6 +2290,9 @@ export function desiredRootConfig(
     model: root.model,
     model_reasoning_effort: root.effort,
     service_tier: root.serviceTier,
+    "agents.max_concurrent_threads_per_session": 21,
+    web_search: "live",
+    "sandbox_workspace_write.network_access": true,
     model_verbosity: "low",
     developer_instructions: rootDeveloperInstructions({
       ...(typeof capabilities === "boolean" ? { computerUse: capabilities } : capabilities),
@@ -2271,6 +2301,7 @@ export function desiredRootConfig(
     suppress_unstable_features_warning: true,
     "features.default_mode_request_user_input": true,
     "features.multi_agent": true,
+    "features.agent_message_board": false,
     "features.multi_agent_v2": false,
     "features.context_management": true,
   };
@@ -2688,11 +2719,12 @@ export async function verifyEffectiveInstall(
       typeof roleDoc["model_reasoning_effort"] !== "string" ||
       typeof roleDoc["service_tier"] !== "string" ||
       typeof roleDoc["developer_instructions"] !== "string" ||
-      roleDoc["sandbox_mode"] !== nativeAgentSandboxMode(agent) ||
+      !nativeAgentSandboxConfigurationMatches(agent, roleDoc) ||
       roleDoc["approval_policy"] !== "never" ||
       roleDoc["web_search"] !== (agent.permissions.network ? "live" : "disabled") ||
       roleDoc["tool_output_token_limit"] !== undefined ||
       readTomlPath(roleDoc, "agents.enabled") !== false ||
+      readTomlPath(roleDoc, "features.agent_message_board") !== false ||
       readTomlPath(roleDoc, "features.multi_agent_v2") !== false ||
       readTomlPath(roleDoc, "features.multi_agent") !== false ||
       readTomlPath(roleDoc, "features.context_management") !== true ||
@@ -3087,7 +3119,11 @@ function installReviewTools(
     {
       name: "git-bash",
       status: gitBash.status,
-      ...(gitBash.status === "healthy" ? { detail: gitBash.path } : {}),
+      ...(gitBash.status === "healthy"
+        ? { detail: gitBash.path }
+        : gitBash.status === "missing"
+          ? { detail: "Git is required for Bash; install with: winget install Git.Git" }
+          : {}),
     },
     {
       name: "context7",

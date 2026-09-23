@@ -137,6 +137,12 @@ function fakeOpenTuiModule(
     TextRenderable: FakeTextRenderable,
     StyledText: FakeStyledText,
     stringToStyledText: (text: string): FakeStyledText => new FakeStyledText([{ text }]),
+    fg:
+      (color: string) =>
+      (input: string | FakeChunk): FakeChunk => {
+        const chunk = typeof input === "string" ? { text: input } : input;
+        return { ...chunk, styles: [...(chunk.styles ?? []), color] };
+      },
     bold: style("bold"),
     cyan: style("cyan"),
     dim: style("dim"),
@@ -429,7 +435,7 @@ describe("public install wizard contract", () => {
       expect(styledReview.some((chunk) => chunk.text === "HolyCodex · install review")).toBe(true);
       expect(
         styledReview.some(
-          (chunk) => chunk.text === "enabled" && chunk.styles?.includes("green") === true,
+          (chunk) => chunk.text === "enabled" && chunk.styles?.includes("#9ece6a") === true,
         ),
       ).toBe(true);
     } finally {
@@ -464,7 +470,7 @@ describe("public install wizard contract", () => {
       );
       expect(
         styledConflict.some(
-          (chunk) => chunk.text === "replace" && chunk.styles?.includes("yellow") === true,
+          (chunk) => chunk.text === "replace" && chunk.styles?.includes("#e0af68") === true,
         ),
       ).toBe(true);
     } finally {
@@ -643,7 +649,7 @@ describe("generated Root orchestration policy", () => {
       /when useful|when appropriate|for complex work|delegate where practical/iu,
     );
     expect(withoutComputerUse).toMatch(
-      /Root directly owns only user interaction; Intent; material decisions; orchestration and lifecycle; integration acceptance; completion; Git\/VCS; external effects; GUI and browser execution; Computer Use when selected/iu,
+      /Root directly owns only user interaction; Intent; material decisions; orchestration and lifecycle; integration acceptance; completion; Git\/VCS writes; external effects; GUI and browser execution; Computer Use when selected/iu,
     );
     expect(withoutComputerUse).not.toMatch(/interactive capabilities/iu);
     expect(withoutComputerUse).toMatch(/Computer Use is unavailable/iu);
@@ -657,6 +663,13 @@ describe("generated Root orchestration policy", () => {
     expect(withoutComputerUse).toMatch(/writing-instructions/iu);
     expect(withoutComputerUse).not.toMatch(/writing-for-agents|Luna contracts/iu);
     expect(withoutComputerUse).toMatch(/Context7.*before model memory/isu);
+    expect(withoutComputerUse).toMatch(/Web search is allowed only for these Context7 states/iu);
+    expect(withoutComputerUse).toMatch(
+      /successful Context7 evidence alone never justifies fallback/iu,
+    );
+    expect(withoutComputerUse).toMatch(
+      /conflict still unresolved after checking authoritative first-party documentation/iu,
+    );
     expect(withoutComputerUse).toMatch(/meaningful proof appropriate/iu);
     expect(withoutComputerUse).toMatch(/source change.*failure.*material concern/isu);
     expect(withoutComputerUse).toMatch(/Frontend is selected/iu);
@@ -685,7 +698,10 @@ describe("generated Root orchestration policy", () => {
       /normal specialist spawn.*fork_turns: "none".*never omit.*all.*default/isu,
     );
     expect(withoutComputerUse).toMatch(/configured model and reasoning effort/iu);
-    expect(withoutComputerUse).toMatch(/self-contained.*task-specific semantic context/isu);
+    expect(withoutComputerUse).toMatch(
+      /self-contained.*objective.*scope.*constraints.*exclusions.*dependencies.*acceptance criteria.*required evidence/isu,
+    );
+    expect(withoutComputerUse).toMatch(/Do not send messages to active specialists/iu);
     expect(withoutComputerUse).toMatch(/only useful or important information/isu);
     expect(withoutComputerUse).toMatch(/after every tool use or subagent update/isu);
     expect(withoutComputerUse).toMatch(/routine status-only chatter.*heartbeat/isu);
@@ -698,7 +714,7 @@ describe("generated Root orchestration policy", () => {
     expect(withoutComputerUse).toMatch(/out-of-boundary.*new bounded Assignment/isu);
     expect(withoutComputerUse).toMatch(/longest practical event wait/iu);
     expect(withoutComputerUse).toMatch(
-      /collaboration\.wait_agent.*timeout_ms=3600000.*active V1 runtime maximum/isu,
+      /collaboration\.wait_agent.*timeout_ms=1200000.*20 minutes.*cache lifetime/isu,
     );
     expect(withoutComputerUse).toMatch(/early specialist completion wakes.*collective mailbox/isu);
     expect(withoutComputerUse).toMatch(/maximum wait expires.*same maximum wait again/isu);
@@ -706,6 +722,15 @@ describe("generated Root orchestration policy", () => {
     expect(withoutComputerUse).toMatch(/never busy-poll.*status-only coordination loops/isu);
     expect(withoutComputerUse).toMatch(/batch independent lifecycle actions/iu);
     expect(withoutComputerUse).toMatch(/release specialist leaves/iu);
+    const astra = rootDeveloperInstructions({ rootModel: "gpt-6-astra" });
+    for (const instructions of [withoutComputerUse, astra]) {
+      expect(instructions).toMatch(
+        /collaboration\.wait_agent.*timeout_ms=1200000.*20 minutes.*cache lifetime/isu,
+      );
+      expect(instructions).toMatch(/early specialist completion wakes.*collective mailbox/isu);
+      expect(instructions).toMatch(/maximum wait expires.*same maximum wait again/isu);
+      expect(instructions).toMatch(/short waits.*list or status polling.*message loops/isu);
+    }
     expect(withoutComputerUse).toMatch(/concise, structured, and evidence-first/iu);
     expect(withoutComputerUse).toMatch(
       /large transcripts or artifacts only for material decisions/iu,
@@ -743,6 +768,12 @@ describe("generated Root orchestration policy", () => {
     expect(withComputerUse).toMatch(/user personally enters and submits/iu);
     expect(withComputerUse).toMatch(/default browser/iu);
     expect(withComputerUse).not.toMatch(/Computer Use is not selected/iu);
+    const astraRoot = rootDeveloperInstructions({ rootModel: "gpt-6-astra" });
+    expect(astraRoot).toMatch(/query Context7 narrowly before model memory or generic web/iu);
+    expect(astraRoot).toMatch(/successful Context7 evidence alone never justifies fallback/iu);
+    expect(astraRoot).toMatch(
+      /conflict still unresolved after checking authoritative first-party documentation/iu,
+    );
 
     expect(projectRootAgent("default")).toMatchObject({
       model: "gpt-6-sol",
@@ -750,26 +781,33 @@ describe("generated Root orchestration policy", () => {
     });
 
     const leaf = renderNativeAgent(projectNativeAgents("default")[0]!);
-    expect(leaf).toMatch(/GPT-6-family specialist/iu);
     expect(leaf).not.toMatch(/GPT-5\.6 Luna specialist|Luna contracts/iu);
     expect(leaf).not.toMatch(/smallest complete edit set/iu);
     expect(leaf).toMatch(/context_management = true/iu);
     expect(leaf).toMatch(/Do not delegate.*Intent lifecycle/iu);
     expect(leaf).toMatch(/completed.*blocked.*needs_root_input.*failed/isu);
-    expect(leaf).toMatch(/no.*progress.*heartbeat.*intermediate evidence/isu);
-    expect(leaf).toMatch(/out-of-boundary.*new bounded Assignment/isu);
-    expect(leaf).toMatch(/exact boundary.*exclusions.*acceptance criteria/iu);
-    expect(leaf).toContain(
-      "Batch independent evidence acquisition, reuse stable evidence, and avoid inspect→reason→inspect micro-loops.",
-    );
+    expect(leaf).toMatch(/out-of-boundary.*Root/iu);
+    expect(leaf).toMatch(/bounded Assignment.*acceptance criteria/iu);
 
     for (const agent of projectNativeAgents("default")) {
       expect(agent.model).toBe("gpt-6-luna");
       const rendered = renderNativeAgent(agent);
       expect(rendered).toContain("context_management = true");
+      expect(rendered).toContain('web_search = "live"');
+      expect(rendered).toContain('sandbox_mode = "workspace-write"');
+      expect(rendered).toContain("network_access = true");
+      expect(rendered).not.toContain('default_permissions = "holycodex-readonly-network"');
+      expect(rendered).not.toContain("[permissions.");
       if (agent.name === "Reviewer.code") {
         expect(rendered).toContain(
           "Use one batched evidence sweep, reason over it, make targeted follow-ups only, and batch related repairs and verification.",
+        );
+      }
+      if (agent.name === "Librarian.lookup" || agent.name === "Librarian.research") {
+        expect(rendered).toMatch(/Use web search only when Context7 is unavailable/iu);
+        expect(rendered).toMatch(/successful Context7 evidence alone never justifies fallback/iu);
+        expect(rendered).toMatch(
+          /conflict remains unresolved after checking authoritative first-party documentation/iu,
         );
       }
       if (agent.name === "Worker.operations") {
@@ -788,14 +826,14 @@ describe("generated Root orchestration policy", () => {
         expect(rendered).toMatch(/Do not modify repository source/iu);
         expect(rendered).toContain('sandbox_mode = "workspace-write"');
       } else if (agent.name === "Worker.debugging") {
-        expect(agent.permissions.network).toBe(false);
+        expect(agent.permissions.network).toBe(true);
         expect(agent.permissions.sourceMutation).toBe(true);
-        expect(rendered).toContain('web_search = "disabled"');
+        expect(rendered).toContain('web_search = "live"');
         expect(rendered).toMatch(/reproducibly.*root/isu);
       } else if (agent.name.startsWith("Worker.")) {
-        expect(agent.permissions.network).toBe(false);
-        expect(agent.permissions.networkScope).toBe("disabled");
-        expect(rendered).toContain('web_search = "disabled"');
+        expect(agent.permissions.network).toBe(true);
+        expect(agent.permissions.networkScope).toBe("current_sources");
+        expect(rendered).toContain('web_search = "live"');
       }
     }
 

@@ -88,6 +88,7 @@ describe("core profile catalog", () => {
       {
         profile: "low",
         efforts: {
+          "Explorer:map": "medium",
           "Explorer:lookup": "medium",
           "Explorer:trace": "high",
           "Librarian:lookup": "medium",
@@ -106,6 +107,7 @@ describe("core profile catalog", () => {
       {
         profile: "default",
         efforts: {
+          "Explorer:map": "high",
           "Explorer:lookup": "medium",
           "Explorer:trace": "xhigh",
           "Librarian:lookup": "medium",
@@ -124,6 +126,7 @@ describe("core profile catalog", () => {
       {
         profile: "high",
         efforts: {
+          "Explorer:map": "high",
           "Explorer:lookup": "medium",
           "Explorer:trace": "max",
           "Librarian:lookup": "medium",
@@ -186,9 +189,19 @@ describe("core profile catalog", () => {
     expect(ROLE_DEFINITIONS.find((definition) => definition.role === "Reviewer")).toMatchObject({
       capability: "task-scoped-review",
     });
+    for (const definition of ROLE_DEFINITIONS) {
+      for (const task of definition.tasks) {
+        expect(task.permissions.network).toBe(true);
+        expect(task.instruction).toContain("Send no mid-task messages to Root or peers.");
+        expect(task.instruction).toContain(
+          "Return only a terminal result, including any material blocker.",
+        );
+      }
+    }
   });
 
   test("derives canonical native agent types from valid semantic routes", () => {
+    expect(nativeAgentTypeFor({ role: "Explorer", task: "map" })).toBe("Explorer.map");
     expect(nativeAgentTypeFor({ role: "Worker", task: "implementation" })).toBe(
       "Worker.implementation",
     );
@@ -209,7 +222,7 @@ describe("core profile catalog", () => {
     expect(debuggingInstruction).toContain("evidence-backed root cause");
     expect(debuggingInstruction).toContain("narrow bounded repair");
     expect(debuggingInstruction).toContain("regression is gone");
-    expect(debuggingInstruction).toContain("material redesigns to Root");
+    expect(debuggingInstruction).toContain("Return only a terminal result");
 
     const reviewerInstruction = taskInstructionFor({ role: "Reviewer", task: "code" });
     expect(reviewerInstruction).toContain(
@@ -237,7 +250,7 @@ describe("core profile catalog", () => {
     }
   });
 
-  test("grants network only to the exact-ref operations task", () => {
+  test("grants assigned network access while bounding operations to the supplied ref", () => {
     expect(taskPermissionsFor({ role: "Worker", task: "operations" })).toEqual({
       network: true,
       filesystem: "read-only",
@@ -245,30 +258,30 @@ describe("core profile catalog", () => {
       networkScope: "exact_ref_or_sha",
     });
     expect(taskPermissionsFor({ role: "Worker", task: "validation" })).toEqual({
-      network: false,
+      network: true,
       filesystem: "workspace-write",
       sourceMutation: false,
-      networkScope: "disabled",
+      networkScope: "current_sources",
     });
     expect(taskPermissionsFor({ role: "Worker", task: "debugging" })).toEqual({
-      network: false,
+      network: true,
       filesystem: "workspace-write",
       sourceMutation: true,
-      networkScope: "disabled",
+      networkScope: "current_sources",
     });
     for (const task of ["mechanical", "implementation", "integration"] as const) {
       expect(taskPermissionsFor({ role: "Worker", task })).toMatchObject({
-        network: false,
+        network: true,
         filesystem: "workspace-write",
         sourceMutation: true,
-        networkScope: "disabled",
+        networkScope: "current_sources",
       });
     }
     expect(taskPermissionsFor({ role: "Reviewer", task: "plan" })).toEqual({
-      network: false,
+      network: true,
       filesystem: "read-only",
       sourceMutation: false,
-      networkScope: "disabled",
+      networkScope: "current_sources",
     });
     expect(taskPermissionsFor({ role: "Librarian", task: "lookup" })).toEqual({
       network: true,
@@ -492,7 +505,7 @@ describe("core profile catalog", () => {
       assignmentContextIsTaskSpecificOnly: true,
       configuredRouteModelAndEffortPreserved: true,
       routineWaitTool: "collaboration.wait_agent",
-      routineWaitMaximumTimeoutMs: 3_600_000,
+      routineWaitMaximumTimeoutMs: 1_200_000,
       routineWaitUsesMaximumRuntimeTimeout: true,
       earlySpecialistCompletionWakesWait: true,
       collectiveMailboxIncludesRelevantAgents: true,
@@ -564,6 +577,15 @@ describe("core profile catalog", () => {
       ),
     ).toBe(true);
     expect(LIBRARIAN_CONTEXT7_POLICY.resolveIdentityBeforeQuery).toBe(true);
+    expect(LIBRARIAN_CONTEXT7_POLICY.webFallbackEvidenceStates).toEqual([
+      "no_coverage",
+      "unavailable",
+      "auth_or_quota_failure",
+    ]);
+    expect(LIBRARIAN_CONTEXT7_POLICY.successfulEvidenceAloneAllowsFallback).toBe(false);
+    expect(LIBRARIAN_CONTEXT7_POLICY.missingRequiredVersionAllowsFallback).toBe(true);
+    expect(LIBRARIAN_CONTEXT7_POLICY.checkFirstPartyDocsBeforeFallbackForConflict).toBe(true);
+    expect(LIBRARIAN_CONTEXT7_POLICY.unresolvedConflictAfterFirstPartyAllowsFallback).toBe(true);
     expect(FRONTEND_WORKFLOW_POLICY.sourceChangesInvalidateRenderEvidence).toBe(true);
     expect(FRONTEND_WORKFLOW_POLICY.rootOwnsLiveVisualAndInteractionAcceptance).toBe(true);
     expect(CREDENTIAL_INTERACTION_POLICY.credentialEntryAndSubmissionRemainUserOwned).toBe(true);

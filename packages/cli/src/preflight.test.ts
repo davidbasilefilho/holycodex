@@ -352,6 +352,37 @@ describe("installer preflight", () => {
     }
   });
 
+  test("warns Windows users to install Git for Bash during preflight review", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-windows-git-bash-"));
+    const codexHome = join(root, "codex");
+    let review: InstallReview | undefined;
+    try {
+      const runtime = { ...testRuntime(codexHome), platform: "win32" as const };
+      await expect(
+        installHolyCodex(request, {
+          paths: { codexHome },
+          officialPluginManager: testManager(),
+          runtime,
+          reviewInstall: async (value) => {
+            review = value;
+            return { action: "cancel" };
+          },
+        }),
+      ).rejects.toMatchObject({ code: "confirmation_required" });
+      expect(review?.tools).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "git-bash",
+            status: "missing",
+            detail: expect.stringContaining("winget install Git.Git"),
+          }),
+        ]),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("surfaces multiple config and role conflicts with independent decisions", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-conflicts-"));
     const codexHome = join(root, "codex");
@@ -980,14 +1011,19 @@ describe("installer preflight", () => {
           officialPluginManager: manager,
           runtime,
         });
-        await writeTestConfigValue(paths, 'plugins."holycodex@holycodex"', { enabled: false });
+        const keptPluginConfig = { enabled: true, user_setting: "preserve" };
+        const selectedPluginConfig = decision === "keep" ? keptPluginConfig : { enabled: false };
+        await writeTestConfigValue(paths, 'plugins."holycodex@holycodex"', selectedPluginConfig);
         await writeTestConfigValue(paths, "marketplaces.holycodex", {
           source_type: "git",
           source: "https://example.test/custom-holycodex.git",
         });
-        await writeTestConfigValue(paths, 'plugins."build-web-apps@openai-curated"', {
-          enabled: false,
-        });
+        const selectedProviderConfig = decision === "keep" ? keptPluginConfig : { enabled: false };
+        await writeTestConfigValue(
+          paths,
+          'plugins."build-web-apps@openai-curated"',
+          selectedProviderConfig,
+        );
         const conflictKeys: string[] = [];
         const result = await installHolyCodex(frontendRequest, {
           paths: { codexHome },
@@ -1009,14 +1045,12 @@ describe("installer preflight", () => {
         const serialized = await readFile(paths.configFile, "utf8");
         const finalConfig = parseConfig(serialized);
         const expectedEnabled = decision === "replace";
-        expect(readTestConfigEntry(finalConfig, "plugins", "holycodex@holycodex")).toEqual({
-          enabled: expectedEnabled,
-        });
+        expect(readTestConfigEntry(finalConfig, "plugins", "holycodex@holycodex")).toEqual(
+          decision === "keep" ? keptPluginConfig : { enabled: expectedEnabled },
+        );
         expect(
           readTestConfigEntry(finalConfig, "plugins", "build-web-apps@openai-curated"),
-        ).toEqual({
-          enabled: expectedEnabled,
-        });
+        ).toEqual(decision === "keep" ? keptPluginConfig : { enabled: expectedEnabled });
         expect(readTestConfigEntry(finalConfig, "marketplaces", "holycodex")).toEqual(
           decision === "replace"
             ? {
@@ -1041,13 +1075,10 @@ describe("installer preflight", () => {
         if (pluginConfig === undefined || providerConfig === undefined) {
           throw new Error("The persisted plugin/provider config snapshots are missing.");
         }
-        expect(pluginConfig.before.preference.safe_value).toEqual(
-          decision === "replace" ? undefined : { kind: "boolean", value: false },
+        expect(pluginConfig.before.preference.safe_value).toBeUndefined();
+        expect(pluginConfig.after.preference.safe_value).toEqual(
+          decision === "replace" ? { kind: "boolean", value: true } : undefined,
         );
-        expect(pluginConfig.after.preference.safe_value).toEqual({
-          kind: "boolean",
-          value: expectedEnabled,
-        });
         if (decision === "keep") {
           expect(pluginConfig.before.marketplace.digest).toBe(
             pluginConfig.after.marketplace.digest,
@@ -1057,13 +1088,58 @@ describe("installer preflight", () => {
             pluginConfig.after.marketplace.digest,
           );
         }
-        expect(providerConfig.before.safe_value).toEqual(
-          decision === "replace" ? undefined : { kind: "boolean", value: false },
+        expect(providerConfig.before.safe_value).toBeUndefined();
+        expect(providerConfig.after.safe_value).toEqual(
+          decision === "replace" ? { kind: "boolean", value: true } : undefined,
         );
-        expect(providerConfig.after.safe_value).toEqual({
-          kind: "boolean",
-          value: expectedEnabled,
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  }, 30_000);
+
+  test("rejects keeping disabled config for selected plugins", async () => {
+    for (const target of ["holycodex", "provider"] as const) {
+      const root = await mkdtemp(join(tmpdir(), `holycodex-preflight-disabled-keep-${target}-`));
+      const codexHome = join(root, "codex");
+      const paths = resolveInstallerPaths({ paths: { codexHome } });
+      const events: string[] = [];
+      const request: InstallRequest = { optional: { frontend: true, security: false } };
+      try {
+        const manager = configWritingManager(paths, events);
+        const runtime = testRuntime(codexHome);
+        const baseline = await installHolyCodex(request, {
+          paths: { codexHome },
+          officialPluginManager: manager,
+          runtime,
         });
+        if (target === "provider") {
+          await writeTestConfigValue(paths, 'plugins."holycodex@holycodex"', {
+            enabled: true,
+            user_setting: "preserve",
+          });
+          await writeTestConfigValue(paths, 'plugins."build-web-apps@openai-curated"', {
+            enabled: false,
+          });
+        } else {
+          await writeTestConfigValue(paths, 'plugins."holycodex@holycodex"', {
+            enabled: false,
+          });
+        }
+        const beforeAttemptEvents = [...events];
+
+        await expect(
+          installHolyCodex(request, {
+            paths: { codexHome },
+            officialPluginManager: manager,
+            runtime,
+            resolveConflicts: async (conflicts) =>
+              Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"])),
+          }),
+        ).rejects.toMatchObject({ code: "confirmation_required" });
+
+        expect(await readActiveInstallRecord(paths)).toEqual(baseline.record);
+        expect(events).toEqual(beforeAttemptEvents);
       } finally {
         await rm(root, { recursive: true, force: true });
       }

@@ -27,6 +27,7 @@ one Codex registration at `agents."<Role.task>"` in `config.toml`:
 
 | Canonical identity      | Capability boundary                                    |
 | ----------------------- | ------------------------------------------------------ |
+| `Explorer.map`          | Read-only repository structure mapping                 |
 | `Explorer.lookup`       | Read-only repository fact finding                      |
 | `Explorer.trace`        | Read-only repository path tracing                      |
 | `Librarian.lookup`      | Current-fact lookup with no repository mutation        |
@@ -61,12 +62,12 @@ decisions, consequential blockers or input needs, and release milestones.
 Native Astra Default questions remain available, including while independent
 work proceeds. Root waits for terminal outcomes when no such update or question
 is needed and sends out-of-boundary work back as a new bounded Assignment. For
-every routine wait, Root uses `collaboration.wait_agent` with the active V1
-runtime maximum (`timeout_ms = 3600000` in the verified runtime); early
-specialist completion wakes the wait and the collective mailbox already
-contains the relevant agents. If that maximum expires while idle, Root waits
-again with the same maximum. Short waits, status or list polling, and message
-loops on idle timeout are not routine coordination.
+every routine wait, Root uses `collaboration.wait_agent` with
+`timeout_ms = 1200000` (20 minutes, within the cache lifetime); early specialist
+completion wakes the wait and the collective mailbox already contains the
+relevant agents. If that wait expires while idle, Root waits again with the same
+timeout. Short waits, status or list polling, and message loops on idle timeout
+are not routine coordination.
 Specialist and Reviewer terminal reports are concise, structured, and
 evidence-first: changed paths, checks, observable evidence, blockers, Root
 decisions needed, and remaining risk. Root reads large transcripts or
@@ -138,6 +139,7 @@ route identities with this reasoning-effort matrix:
 | Root model            | Sol    | Sol       | Astra  |
 | Root/session agent    | medium | high      | high   |
 | Specialist model      | Luna   | Luna      | Luna   |
+| Explorer.map          | medium | high      | high   |
 | Explorer.lookup       | medium | medium    | medium |
 | Explorer.trace        | high   | xhigh     | max    |
 | Librarian.lookup      | medium | medium    | medium |

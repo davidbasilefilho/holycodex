@@ -12,7 +12,14 @@ import {
 import { lookupProfile } from "@holycodex/core";
 
 import { ArgumentError, parseArgv } from "./args.ts";
-import { colorEnabled, helpRequested, helpText, helpTopic } from "./help.ts";
+import {
+  colorEnabled,
+  helpRequested,
+  helpText,
+  helpTopic,
+  paintTerminal,
+  type TerminalSemanticTone,
+} from "./help.ts";
 import {
   runOpenTuiConflictResolver,
   runOpenTuiInstallReview,
@@ -21,6 +28,7 @@ import {
 import {
   installHolyCodex,
   InstallerError,
+  readEffectiveInstallRequest,
   validateInstallOptions,
   type InstallRequest,
 } from "./installer.ts";
@@ -114,7 +122,17 @@ async function resolveInstallRequest(
     context.io?.stdoutIsTTY === true &&
     context.io?.stderrIsTTY === true;
   if (interactive) {
-    const result = await (context.io?.installWizard ?? runOpenTuiInstallWizard)(initial);
+    const previous = await readEffectiveInstallRequest(
+      installerOptions(parsed, context),
+      context.env,
+    );
+    const result = await (context.io?.installWizard ?? runOpenTuiInstallWizard)({
+      ...previous,
+      ...initial,
+      ...(previous.optional === undefined && initial.optional === undefined
+        ? {}
+        : { optional: { ...previous.optional, ...initial.optional } }),
+    });
     if (result.action === "cancel") {
       return { cancelled: true };
     }
@@ -640,7 +658,9 @@ function renderInstall(data: JsonValue, color: boolean): string {
     `  ${paint("tier", "option", color)}: ${tier}`,
     `  ${paint("capabilities", "option", color)}: ${capabilitySummary}`,
     `  ${paint("preserved", "option", color)}: ${preservedSummary}`,
-    ...warnings.map((warning) => `  ${paint("warning", "red", color)}: ${humanizeReason(warning)}`),
+    ...warnings.map(
+      (warning) => `  ${paint("warning", "warning", color)}: ${humanizeReason(warning)}`,
+    ),
   ];
   return `${lines.join("\n")}\n`;
 }
@@ -745,19 +765,19 @@ function actionableHint(code: string, command: string): string | undefined {
   return undefined;
 }
 
-type Color = "red" | "green" | "cyan" | "dim" | "heading" | "option";
+type Color = "red" | "green" | "cyan" | "dim" | "warning" | "heading" | "option";
 
 function paint(value: string, color: Color, enabled: boolean): string {
-  if (!enabled) return value;
-  const codes: Record<Color, string> = {
-    red: "31",
-    green: "32",
-    cyan: "36",
-    dim: "2",
-    heading: "1",
-    option: "36",
+  const tones: Record<Color, TerminalSemanticTone> = {
+    red: "error",
+    green: "success",
+    cyan: "focus",
+    dim: "hint",
+    warning: "warning",
+    heading: "heading",
+    option: "option",
   };
-  return `\u001b[${codes[color]}m${value}\u001b[0m`;
+  return paintTerminal(value, tones[color], enabled);
 }
 
 /** Structured failure returned by a CLI command boundary. */

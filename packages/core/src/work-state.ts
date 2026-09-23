@@ -596,7 +596,14 @@ export class IntentStore {
         { path },
       );
     const seen = new Set<string>();
-    const targets = transaction.files.map((file) => {
+    const recoveredFiles = transaction.files.map((file) => {
+      const canonical = canonicalRepositoryPath(file.path);
+      if (canonical === undefined)
+        throw new IntentStoreError(
+          "schema_invalid",
+          "The work-state transaction contains an invalid target path.",
+          { path, target: file.path },
+        );
       const target = transactionTarget(directory, file.path);
       if (seen.has(target))
         throw new IntentStoreError(
@@ -608,14 +615,33 @@ export class IntentStore {
           },
         );
       seen.add(target);
-      return target;
+      const contents = transaction.state === "committed" ? file.next : file.previous;
+      const record =
+        canonical === "intent.toon"
+          ? parseValidatedToonText(contents, IntentSchema, target)
+          : parseValidatedToonText(contents, PersistedAssignmentSchema, target);
+      return { canonical, target, contents, record };
     });
-    for (const target of targets) await assertNoSymlinkAncestors(target);
-    for (const [index, file] of transaction.files.entries())
-      await atomicWriteText(
-        targets[index]!,
-        transaction.state === "committed" ? file.next : file.previous,
-      );
+    const recoveredIntentId = (
+      recoveredFiles.find((file) => file.canonical === "intent.toon")?.record as Intent | undefined
+    )?.id;
+    if (recoveredIntentId === undefined)
+      throw new IntentStoreError("schema_invalid", "The work-state transaction has no Intent.", {
+        path,
+      });
+    for (const file of recoveredFiles) {
+      await assertNoSymlinkAncestors(file.target);
+      if (file.canonical !== "intent.toon") {
+        const assignmentId = file.canonical.slice("assignments/".length, -".toon".length);
+        assertAssignmentIdentity(
+          file.record as PersistedAssignment,
+          recoveredIntentId,
+          assignmentId,
+          file.target,
+        );
+      }
+    }
+    for (const file of recoveredFiles) await atomicWriteText(file.target, file.contents);
     await rm(path, { force: true });
     await syncDirectory(directory);
     return true;
@@ -1604,6 +1630,18 @@ export class IntentStore {
           `Assignment result requires an executing Assignment; current status is ${assignment.status}.`,
           { assignment_id: assignment.id, status: assignment.status },
         );
+      if (
+        recoveryMatch === undefined &&
+        !requireCapability &&
+        validated.capability === undefined &&
+        (assignment.active_invocation_capability_verifier !== undefined ||
+          assignment.active_invocation_capability !== undefined)
+      )
+        throw new IntentStoreError(
+          "invalid_transition",
+          "This Assignment invocation requires its active capability to record a result.",
+          { assignment_id: assignment.id },
+        );
       if (recoveryMatch !== undefined) {
         if (
           assignment.active_invocation_id !== recoveryMatch.invocationId ||
@@ -1669,6 +1707,7 @@ export class IntentStore {
       )
         throw invalidInput("Blocked results require a local blocker.");
       if (
+        recoveryMatch === undefined &&
         context7RequiredForAssignment({
           role: assignment.owner.role,
           task: assignment.owner.task,
@@ -1742,13 +1781,14 @@ export class IntentStore {
       // Root-owned integration may advance HEAD before a result is recorded,
       // but only an explicitly declared Assignment evolution may explain it.
       if (
-        identityChanged ||
-        unexpected.length ||
-        undeclaredCurrentScope.length ||
-        (statusChanged && !observedDeclaration && !observedConcurrentPath) ||
-        (snapshot.head !== intent.baseline.expected_head &&
-          !observedDeclaration &&
-          !observedConcurrentPath)
+        recoveryMatch === undefined &&
+        (identityChanged ||
+          unexpected.length ||
+          undeclaredCurrentScope.length ||
+          (statusChanged && !observedDeclaration && !observedConcurrentPath) ||
+          (snapshot.head !== intent.baseline.expected_head &&
+            !observedDeclaration &&
+            !observedConcurrentPath))
       ) {
         throw new IntentStoreError(
           "repository_drift",
@@ -1810,12 +1850,15 @@ export class IntentStore {
         (!intent.review.required || intent.review.status === "accepted");
       const invalidateGates = actualRelevantEvolution || validated.outcome === "failed";
       const revisedIntent = reviseIntent(intent, this.#now, {
-        baseline: baselineFromSnapshot(
-          snapshot,
-          timestamp,
-          intent.baseline.initial_head,
-          preserveIntegratedCommit ? intent.baseline.integrated_commit : undefined,
-        ),
+        baseline:
+          recoveryMatch === undefined
+            ? baselineFromSnapshot(
+                snapshot,
+                timestamp,
+                intent.baseline.initial_head,
+                preserveIntegratedCommit ? intent.baseline.integrated_commit : undefined,
+              )
+            : intent.baseline,
         ...(successfulOperations || !invalidateGates
           ? {}
           : {
@@ -2427,6 +2470,15 @@ async function readRawToon(path: string): Promise<unknown> {
       throw new IntentStoreError("not_found", "Persistent work state was not found.", { path });
     throw storeIo(error);
   }
+  return decodeToonText(text, path);
+}
+async function readValidatedToon<A, I>(path: string, schema: Schema.Schema<A, I>): Promise<A> {
+  return parseSchema(schema, await readRawToon(path));
+}
+function parseValidatedToonText<A, I>(text: string, schema: Schema.Schema<A, I>, path: string): A {
+  return parseSchema(schema, decodeToonText(text, path));
+}
+function decodeToonText(text: string, path: string): unknown {
   try {
     return decodeToon(text, { strict: true });
   } catch (error: unknown) {
@@ -2435,9 +2487,6 @@ async function readRawToon(path: string): Promise<unknown> {
       message: error instanceof Error ? error.message : String(error),
     });
   }
-}
-async function readValidatedToon<A, I>(path: string, schema: Schema.Schema<A, I>): Promise<A> {
-  return parseSchema(schema, await readRawToon(path));
 }
 async function atomicWriteToon(path: string, value: unknown): Promise<void> {
   await atomicWriteText(path, `${encodeToon(value)}\n`);

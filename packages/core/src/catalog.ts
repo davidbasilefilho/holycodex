@@ -59,6 +59,7 @@ export const ROUTE_EFFORT_OVERRIDES = [
     profile: "low",
     rationale: "The low profile keeps bounded specialist work economical.",
     efforts: {
+      "Explorer:map": "medium",
       "Explorer:lookup": "medium",
       "Explorer:trace": "high",
       "Librarian:lookup": "medium",
@@ -78,6 +79,7 @@ export const ROUTE_EFFORT_OVERRIDES = [
     profile: "default",
     rationale: "The default profile is the recommended balanced route.",
     efforts: {
+      "Explorer:map": "high",
       "Explorer:lookup": "medium",
       "Explorer:trace": "xhigh",
       "Librarian:lookup": "medium",
@@ -97,6 +99,7 @@ export const ROUTE_EFFORT_OVERRIDES = [
     profile: "high",
     rationale: "The high profile maximizes specialist reasoning where specified.",
     efforts: {
+      "Explorer:map": "high",
       "Explorer:lookup": "medium",
       "Explorer:trace": "max",
       "Librarian:lookup": "medium",

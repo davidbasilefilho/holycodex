@@ -7,7 +7,7 @@ import {
   type ServiceTier,
 } from "@holycodex/core";
 
-import { colorEnabled, paintTerminal } from "./help.ts";
+import { colorEnabled, paintTerminal, TERMINAL_THEME } from "./help.ts";
 import { validateInstallOptions, type InstallOptions, type InstallRequest } from "./installer.ts";
 import type { HumanRenderOptions } from "./types.ts";
 import type {
@@ -143,25 +143,8 @@ function nativeStyledChunk(
   text: string,
   tone: NativeTone,
 ): OpenTuiTextChunk {
-  switch (tone) {
-    case "heading":
-      return opentui.bold(text);
-    case "argument":
-      return opentui.dim(text);
-    case "disabled":
-      return opentui.dim(text);
-    case "enabled":
-    case "success":
-      return opentui.green(text);
-    case "error":
-      return opentui.red(text);
-    case "focus":
-      return opentui.bold(opentui.cyan(text));
-    case "hint":
-      return opentui.dim(text);
-    case "warning":
-      return opentui.yellow(text);
-  }
+  const colored = opentui.fg(TERMINAL_THEME[tone])(text);
+  return tone === "heading" || tone === "focus" ? opentui.bold(colored) : colored;
 }
 
 function nativeStyledText(

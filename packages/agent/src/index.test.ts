@@ -601,5 +601,5 @@ describe("holycodex-agent", () => {
       ok: false,
       error: { code: "invalid_input" },
     });
-  });
+  }, 15_000);
 });

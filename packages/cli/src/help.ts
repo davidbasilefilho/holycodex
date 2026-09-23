@@ -146,6 +146,22 @@ export type TerminalSemanticTone =
   | "error"
   | "hint";
 
+/** Tokyo Night's official Night palette, mapped to readable CLI semantic tones. */
+export const TERMINAL_THEME: Readonly<Record<TerminalSemanticTone, string>> = {
+  // Source: folke/tokyonight.nvim night palette, which inherits storm accents.
+  // https://github.com/folke/tokyonight.nvim/blob/main/lua/tokyonight/colors/night.lua
+  heading: "#7aa2f7",
+  option: "#7dcfff",
+  argument: "#a9b1d6",
+  focus: "#7dcfff",
+  enabled: "#9ece6a",
+  disabled: "#a9b1d6",
+  success: "#73daca",
+  warning: "#e0af68",
+  error: "#f7768e",
+  hint: "#737aa2",
+};
+
 /** Apply a shared semantic terminal tone when color is enabled. */
 export function paintTerminal(
   value: string,
@@ -153,17 +169,10 @@ export function paintTerminal(
   enabled: boolean,
 ): string {
   if (!enabled) return value;
-  const codes: Record<TerminalSemanticTone, string> = {
-    heading: "1",
-    option: "36",
-    argument: "2",
-    focus: "1;36",
-    enabled: "32",
-    disabled: "2",
-    success: "32",
-    warning: "33",
-    error: "31",
-    hint: "2",
-  };
-  return `\u001b[${codes[color]}m${value}\u001b[0m`;
+  const attributes = color === "heading" || color === "focus" ? "1;" : "";
+  const hex = TERMINAL_THEME[color];
+  const red = Number.parseInt(hex.slice(1, 3), 16);
+  const green = Number.parseInt(hex.slice(3, 5), 16);
+  const blue = Number.parseInt(hex.slice(5, 7), 16);
+  return `\u001b[${attributes}38;2;${red};${green};${blue}m${value}\u001b[0m`;
 }

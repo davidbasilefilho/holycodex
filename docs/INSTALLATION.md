@@ -5,7 +5,7 @@ management and does not stage duplicate plugin copies, rewrite unrelated
 settings, or maintain a second activation registry.
 
 HolyCodex installs one native leaf for each canonical identity:
-`Explorer.lookup`, `Explorer.trace`, `Librarian.lookup`,
+`Explorer.map`, `Explorer.lookup`, `Explorer.trace`, `Librarian.lookup`,
 `Librarian.research`, `Worker.mechanical`, `Worker.implementation`,
 `Worker.integration`, `Worker.operations`, `Worker.validation`,
 `Worker.debugging`, `Reviewer.plan`, `Reviewer.code`, and `Reviewer.artifact`.

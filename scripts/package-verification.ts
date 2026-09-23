@@ -2037,7 +2037,7 @@ async function assertCodexAppServerReadback(
       tooling?: { git_bash?: { path?: string } };
     };
     const verifiedShell = active.tooling?.git_bash?.path;
-    const configProbe = `configShell=${verifiedShell !== undefined && configText.includes(JSON.stringify(verifiedShell).replaceAll("\\", "\\\\"))} configDeveloper=${configText.includes("developer_instructions")} configSnippet=${configSnippet}`;
+    const configProbe = `configShell=${verifiedShell !== undefined && configText.includes("On Windows, use Git for Windows Bash")} configDeveloper=${configText.includes("developer_instructions")} configSnippet=${configSnippet}`;
     const installerDebug = await readFile(join(codexHome, ".holycodex-debug.log"), "utf8").catch(
       () => "",
     );
@@ -2244,7 +2244,6 @@ async function configRead() {
   const text = await readFile(join(HOME, "config.toml"), "utf8");
   const active = JSON.parse(await readFile(join(HOME, "holycodex", "active.json"), "utf8"));
   const verifiedShell = active.tooling?.git_bash?.path;
-  const shellMarker = typeof verifiedShell === "string" ? JSON.stringify(verifiedShell).replaceAll("\\", "\\\\") : "";
   if (!text.includes("multi_agent = true") || !text.includes("multi_agent_v2 = false")) {
     fail("Codex config omitted the canonical Root multi-agent mode");
   }
@@ -2273,7 +2272,9 @@ async function configRead() {
   }
   if (
     process.platform === "win32" &&
-    (shellMarker.length === 0 || !text.includes("On Windows, use Git for Windows Bash") || !text.includes(shellMarker))
+    (typeof verifiedShell !== "string" ||
+      !rootStringSetting("developer_instructions").includes("On Windows, use Git for Windows Bash") ||
+      !rootStringSetting("developer_instructions").includes(JSON.stringify(verifiedShell)))
   ) {
     fail("Codex config omitted the Windows Git Bash boundary");
   }
@@ -2321,9 +2322,16 @@ async function configRead() {
     if (roleText.includes("tool_output_token_limit")) {
       fail("Codex role file contains the removed tool_output_token_limit");
     }
+    const roleInstructionLine = roleText.split(/\r?\n/u).find((line) => line.startsWith("developer_instructions = "));
+    const roleInstructions = roleInstructionLine === undefined
+      ? ""
+      : JSON.parse(roleInstructionLine.slice("developer_instructions = ".length));
     if (
       process.platform === "win32" &&
-      (shellMarker.length === 0 || !roleText.includes("On Windows, use Git for Windows Bash") || !roleText.includes(shellMarker))
+      (typeof verifiedShell !== "string" ||
+        typeof roleInstructions !== "string" ||
+        !roleInstructions.includes("On Windows, use Git for Windows Bash") ||
+        !roleInstructions.includes(JSON.stringify(verifiedShell)))
     ) {
       fail("Codex role file omitted the Windows Git Bash boundary");
     }

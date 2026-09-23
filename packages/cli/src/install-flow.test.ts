@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, mock, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -220,6 +220,7 @@ describe("command install and upgrade review flow", () => {
       TextRenderable: TestTextRenderable,
       StyledText: TestStyledText,
       stringToStyledText: styled,
+      fg: () => styled,
       bold: styled,
       cyan: styled,
       dim: styled,
@@ -308,8 +309,12 @@ describe("command install and upgrade review flow", () => {
           rootModel: "gpt-6-astra",
         }),
       );
-      expect(astraInstructions.length).toBeLessThan(solInstructions.length / 2);
-      expect(astraInstructions).not.toContain("longest practical event wait");
+      expect(astraInstructions).toContain("longest practical event wait");
+      expect(astraInstructions).toMatch(
+        /collaboration\.wait_agent.*timeout_ms=1200000.*20 minutes.*cache lifetime/isu,
+      );
+      expect(astraInstructions).toMatch(/early specialist completion wakes.*collective mailbox/isu);
+      expect(astraInstructions).toMatch(/maximum wait expires.*same maximum wait again/isu);
       expect(lowConfig["developer_instructions"]).toBe(solInstructions);
       expect(defaultConfig["developer_instructions"]).toBe(solInstructions);
       expect(solInstructions).toContain("longest practical event wait");
@@ -345,6 +350,225 @@ describe("command install and upgrade review flow", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  test("preloads saved selections in the interactive install wizard and applies flag overrides", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-saved-options-"));
+    const codexHome = join(root, "codex");
+    const manager = fakeManager({ initial: { [additionalPlugin]: "available" } });
+    try {
+      await seedInstall(
+        root,
+        {
+          profile: "high",
+          tier: "fast",
+          optional: { frontend: false, security: false, computer_use: true },
+          officialPlugins: [additionalPlugin],
+        },
+        manager,
+      );
+      let initialRequest: InstallRequest | undefined;
+      const result = await runCli(
+        ["install", "--profile", "low", "--frontend", "--codex-home", codexHome],
+        commandContext(codexHome, manager, {
+          stdoutIsTTY: true,
+          stderrIsTTY: true,
+          installWizard: async (current) => {
+            initialRequest = current;
+            return { action: "cancel" };
+          },
+        }),
+      );
+      expect(result.exitCode).toBe(0);
+      expect(initialRequest).toMatchObject({
+        profile: "low",
+        tier: "fast",
+        optional: { frontend: true, security: false, computer_use: true },
+        officialPlugins: [additionalPlugin],
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("preloads the active record when saved install options are absent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-active-options-"));
+    const manager = fakeManager({ initial: { [additionalPlugin]: "available" } });
+    try {
+      const { codexHome } = await seedInstall(
+        root,
+        {
+          profile: "high",
+          tier: "fast",
+          optional: { frontend: false, security: false, computer_use: false },
+          officialPlugins: [additionalPlugin],
+        },
+        manager,
+      );
+      await rm(resolveInstallerPaths({ paths: { codexHome } }).installOptions);
+      let initialRequest: InstallRequest | undefined;
+      await runCli(
+        ["install", "--codex-home", codexHome],
+        commandContext(codexHome, manager, {
+          stdoutIsTTY: true,
+          stderrIsTTY: true,
+          installWizard: async (current) => {
+            initialRequest = current;
+            return { action: "cancel" };
+          },
+        }),
+      );
+      expect(initialRequest).toMatchObject({
+        profile: "high",
+        tier: "fast",
+        optional: { frontend: false, security: false, computer_use: false },
+        officialPlugins: [additionalPlugin],
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("rejects unknown final review actions before writing installation state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-review-action-"));
+    const codexHome = join(root, "codex");
+    try {
+      await expect(
+        installHolyCodex(
+          { optional: { frontend: false, security: false, computer_use: false } },
+          {
+            ...installerOptions(codexHome, fakeManager()),
+            reviewInstall: async () => ({ action: "unexpected" }) as never,
+          },
+          fakeEnvironment,
+        ),
+      ).rejects.toMatchObject({ code: "confirmation_required" });
+      expect(await readActiveInstallRecord(resolveInstallerPaths({ paths: { codexHome } }))).toBe(
+        undefined,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("rejects edits to initially canonical plugin config after review", async () => {
+    for (const changedEntry of [
+      '[plugins."holycodex@holycodex"]\nenabled = false\n',
+      `[plugins."${additionalPlugin}"]\nenabled = false\n`,
+      '[marketplaces.holycodex]\nsource_type = "git"\nsource = "https://example.com/changed.git"\n',
+    ]) {
+      const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-plugin-drift-"));
+      const codexHome = join(root, "codex");
+      const paths = resolveInstallerPaths({ paths: { codexHome } });
+      try {
+        await mkdir(codexHome, { recursive: true });
+        await expect(
+          installHolyCodex(
+            {
+              optional: { frontend: false, security: false, computer_use: false },
+              officialPlugins: [additionalPlugin],
+            },
+            {
+              ...installerOptions(codexHome, fakeManager()),
+              reviewInstall: async () => {
+                const current = await readFile(paths.configFile, "utf8").catch(() => "");
+                await writeFile(paths.configFile, `${current}\n${changedEntry}`);
+                return { action: "apply" };
+              },
+            },
+            fakeEnvironment,
+          ),
+        ).rejects.toMatchObject({ code: "confirmation_required" });
+        expect(await readActiveInstallRecord(paths)).toBe(undefined);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  }, 30_000);
+
+  test("cannot keep disabled config for a selected provider", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-disabled-provider-"));
+    const manager = fakeManager({ initial: { [additionalPlugin]: "available" } });
+    try {
+      await mkdir(join(root, "codex"), { recursive: true });
+      await writeFile(
+        join(root, "codex", "config.toml"),
+        `[plugins."${additionalPlugin}"]\nenabled = true\n`,
+      );
+      const { codexHome } = await seedInstall(
+        root,
+        {
+          optional: { frontend: false, security: false, computer_use: false },
+          officialPlugins: [additionalPlugin],
+        },
+        manager,
+      );
+      const paths = resolveInstallerPaths({ paths: { codexHome } });
+      const current = await readFile(paths.configFile, "utf8");
+      const marker = `[plugins."${additionalPlugin}"]\nenabled = true`;
+      expect(current).toContain(marker);
+      await writeFile(paths.configFile, current.replace(marker, marker.replace("true", "false")));
+      await expect(
+        installHolyCodex(
+          {},
+          {
+            ...installerOptions(codexHome, manager),
+            resolveConflicts: async (conflicts) =>
+              Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"])),
+            reviewInstall: async () => ({ action: "apply" }),
+          },
+          fakeEnvironment,
+        ),
+      ).rejects.toMatchObject({ code: "confirmation_required" });
+      expect(await readFile(paths.configFile, "utf8")).toContain(marker.replace("true", "false"));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("rejects a reviewed canonical provider entry changed before mutation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-reviewed-provider-"));
+    const codexHome = join(root, "codex");
+    const manager = fakeManager({ initial: { [additionalPlugin]: "available" } });
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(
+        join(codexHome, "config.toml"),
+        `[plugins."${additionalPlugin}"]\nenabled = true\n`,
+      );
+      await installHolyCodex(
+        {
+          optional: { frontend: false, security: false, computer_use: false },
+          officialPlugins: [additionalPlugin],
+        },
+        installerOptions(codexHome, manager),
+        fakeEnvironment,
+      );
+      const paths = resolveInstallerPaths({ paths: { codexHome } });
+      const before = await readFile(paths.activeRecord, "utf8");
+      await expect(
+        installHolyCodex(
+          {},
+          {
+            ...installerOptions(codexHome, manager),
+            reviewInstall: async () => {
+              const current = await readFile(paths.configFile, "utf8");
+              const marker = `[plugins."${additionalPlugin}"]\nenabled = true`;
+              expect(current).toContain(marker);
+              await writeFile(
+                paths.configFile,
+                current.replace(marker, marker.replace("true", "false")),
+              );
+              return { action: "apply" };
+            },
+          },
+          fakeEnvironment,
+        ),
+      ).rejects.toMatchObject({ code: "confirmation_required" });
+      expect(await readFile(paths.activeRecord, "utf8")).toBe(before);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   test("removes deselected owned plugins while preserving foreign plugin state", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-deselect-"));

@@ -21,10 +21,13 @@ and cannot write configuration.
 ## Native runtime projection
 
 The managed projection writes Root's selected model, reasoning effort, service
-tier, compact `developer_instructions`, required feature flags, and every
+tier, live web search, workspace-write command network access, compact
+`developer_instructions`, required feature flags, and every
 canonical `agents."{Role}.{task}".config_file` registration into
-`<CODEX_HOME>/config.toml`. Root is the parent session in that file; no
-`agents/root.toml` is generated or registered. Leaf TOMLs live under
+`<CODEX_HOME>/config.toml`. It also sets
+`agents.max_concurrent_threads_per_session = 21` for every profile. Root is the
+parent session in that file; no `agents/root.toml` is generated or registered.
+Leaf TOMLs live under
 `<CODEX_HOME>/holycodex/agents/` and use native controls for their model,
 reasoning effort, service tier, sandbox, approval, network, and delegation
 features. Task permissions are specific: observational `Worker.operations` has
@@ -32,8 +35,16 @@ exact-ref/SHA network access without repository/source mutation;
 `Reviewer.plan` is observational and source-read-only; `Worker.validation` may
 write caches, build output, and generated test state while retaining no
 authority to change the implementation under validation; and
-`Worker.debugging` is the bounded repair route. Generated leaves do not set
+`Worker.debugging` is the bounded repair route. Every generated specialist has
+live web search and command network access. Leaves use the built-in
+`workspace-write` sandbox with `sandbox_workspace_write.network_access = true`;
+observation-only task instructions and `sourceMutation = false` preserve the
+repository/source boundary. Generated leaves do not set
 `tool_output_token_limit`.
+
+These are HolyCodex configuration defaults. A stricter active session or
+composer sandbox, managed policy, or unavailable web-search capability can
+still block network use; generated configuration cannot widen those boundaries.
 
 The concrete `Role.task` policy is the authority source. A task skill supplies
 branch-specific workflow, while a delegation prompt supplies assignment facts.

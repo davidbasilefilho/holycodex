@@ -171,11 +171,15 @@ export const ROOT_CONFIG_KEY_PATHS = [
   "model",
   "model_reasoning_effort",
   "service_tier",
+  "agents.max_concurrent_threads_per_session",
+  "web_search",
+  "sandbox_workspace_write.network_access",
   "model_verbosity",
   "developer_instructions",
   "suppress_unstable_features_warning",
   "features.default_mode_request_user_input",
   "features.multi_agent",
+  "features.agent_message_board",
   "features.multi_agent_v2",
   "features.context_management",
   // Compatibility key retained only so older persisted state can be migrated safely.
@@ -234,6 +238,10 @@ type ManagedEnum =
   | Effort
   | "default"
   | "fast"
+  | "live"
+  | "cached"
+  | "indexed"
+  | "disabled"
   | "low"
   | "medium"
   | "high";
@@ -298,7 +306,11 @@ function isManagedEnum(value: unknown): value is ManagedEnum {
     value === "xhigh" ||
     value === "max" ||
     value === "default" ||
-    value === "fast"
+    value === "fast" ||
+    value === "live" ||
+    value === "cached" ||
+    value === "indexed" ||
+    value === "disabled"
   );
 }
 
@@ -375,6 +387,14 @@ function isSafeValueForKey(
       }
       if (keyPath === "service_tier") {
         return value.value === "default" || value.value === "fast";
+      }
+      if (keyPath === "web_search") {
+        return (
+          value.value === "live" ||
+          value.value === "cached" ||
+          value.value === "indexed" ||
+          value.value === "disabled"
+        );
       }
       return value.value === "low" || value.value === "medium" || value.value === "high";
   }
@@ -495,15 +515,18 @@ function configKeyKind(
 ): "enum" | "number" | "boolean" | "relative_path" | "digest" {
   if (keyPath === "developer_instructions") return "digest";
   if (keyPath.endsWith(".config_file")) return "relative_path";
+  if (keyPath === "agents.max_concurrent_threads_per_session") return "number";
   // Retained solely so persisted prior-release ownership can be validated and removed safely.
   if (keyPath === "model_auto_compact_token_limit") return "number";
   if (
     keyPath === "suppress_unstable_features_warning" ||
     keyPath === "features.default_mode_request_user_input" ||
     keyPath === "features.multi_agent" ||
+    keyPath === "features.agent_message_board" ||
     keyPath === "features.multi_agent_v2" ||
     keyPath === "features.context_management" ||
-    keyPath === "features.context_management.experimental_mode"
+    keyPath === "features.context_management.experimental_mode" ||
+    keyPath === "sandbox_workspace_write.network_access"
   ) {
     return "boolean";
   }

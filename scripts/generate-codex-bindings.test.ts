@@ -2,9 +2,20 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { assertLatestStableMatch, canReuseGeneratedOutput } from "./generate-codex-bindings.ts";
+import {
+  assertLatestStableMatch,
+  assertMiseLatestCodexConfig,
+  canReuseGeneratedOutput,
+} from "./generate-codex-bindings.ts";
 
 describe("latest stable Codex generation contract", () => {
+  test("requires the native Codex mise tool from its latest stable channel", () => {
+    expect(() => assertMiseLatestCodexConfig('[tools]\ncodex = "latest"\n')).not.toThrow();
+    expect(() => assertMiseLatestCodexConfig('[tools]\n"npm:@openai/codex" = "latest"\n')).toThrow(
+      'mise.toml must resolve codex from the "latest" stable channel',
+    );
+  });
+
   test("rejects a stale cached tool against mocked latest-channel metadata", () => {
     expect(() => assertLatestStableMatch("0.153.0", "0.152.1")).toThrow(
       "installed Codex version 0.152.1 is stale",

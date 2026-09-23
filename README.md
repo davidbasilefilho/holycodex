@@ -81,7 +81,7 @@ required on every platform and installed as ctx7@latest through the same
 package-manager family that launched HolyCodex. See
 [installation](docs/INSTALLATION.md) for setup, ownership, and repair behavior.
 
-The native surface has one canonical leaf for every route: `Explorer.lookup`,
+The native surface has one canonical leaf for every route: `Explorer.map`, `Explorer.lookup`,
 `Explorer.trace`, `Librarian.lookup`, `Librarian.research`,
 `Worker.mechanical`, `Worker.implementation`, `Worker.integration`,
 `Worker.operations`, `Worker.validation`, `Worker.debugging`, `Reviewer.plan`, `Reviewer.code`, and

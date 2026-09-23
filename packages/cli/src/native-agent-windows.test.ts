@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 
@@ -24,7 +25,7 @@ import {
   type OfficialPluginManager,
 } from "./index.ts";
 import { parseConfig } from "./installer.ts";
-import { inspectNativeAgentConflicts } from "./native-agents.ts";
+import { installNativeAgents, inspectNativeAgentConflicts } from "./native-agents.ts";
 
 const verifiedPathBash = "C:\\Other\\Git\\bin\\bash.exe";
 
@@ -176,6 +177,7 @@ describe("Windows native-agent instructions", () => {
       });
 
       const configText = await readFile(join(codexHome, "config.toml"), "utf8");
+      expect(configText).not.toContain("holycodex-readonly-network");
       const config = parseConfig(configText);
       const rootInstructions = config["developer_instructions"];
       expect(typeof rootInstructions).toBe("string");
@@ -193,8 +195,15 @@ describe("Windows native-agent instructions", () => {
         expect(roleText).toBe(
           renderNativeAgent(agent, { windowsGitBashExecutable: verifiedPathBash }),
         );
+        expect(roleText).toContain('sandbox_mode = "workspace-write"');
+        expect(roleText).toContain("network_access = true");
+        expect(roleText).not.toContain("default_permissions =");
+        expect(roleText).not.toContain("[permissions.");
         const roleInstructions = parseConfig(roleText)["developer_instructions"];
         expect(typeof roleInstructions).toBe("string");
+        expect(roleInstructions).toMatch(
+          /Read-only Git\/VCS, CI, and PR-comment inspection is allowed when relevant and within the Assignment; Git\/VCS writes remain Root-only/iu,
+        );
         expect(roleInstructions).toContain(windowsGitBashShellDirective(verifiedPathBash));
         expect(roleInstructions).not.toContain(WINDOWS_GIT_BASH);
         expect(readTomlPath(readback.config, `agents."${agent.name}".config_file`)).toBe(
@@ -233,7 +242,44 @@ describe("Windows native-agent instructions", () => {
     }
   }, 30_000);
 
-  test("uses a shorter Astra Root instruction set while retaining its governing boundaries", () => {
+  test("migrates owned legacy network profiles while preserving user configuration", async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "holycodex-agent-network-migration-"));
+    const codexHome = join(temporaryRoot, "codex");
+    const rolePath = join(codexHome, "holycodex", "agents", "Explorer.lookup.toml");
+    const configPath = join(codexHome, "config.toml");
+    const userConfig = '[permissions."holycodex-readonly-network"]\ncustom = true\n';
+    try {
+      const agent = projectNativeAgents("default").find(({ name }) => name === "Explorer.lookup");
+      if (agent === undefined) throw new Error("Explorer.lookup route is missing.");
+      const current = renderNativeAgent(agent);
+      const legacy = current
+        .replace(
+          'sandbox_mode = "workspace-write"',
+          'default_permissions = "holycodex-readonly-network"',
+        )
+        .replace(
+          "[sandbox_workspace_write]\nnetwork_access = true",
+          '[permissions."holycodex-readonly-network"]\nextends = ":read-only"\n\n[permissions."holycodex-readonly-network".network]\nenabled = true',
+        );
+      await mkdir(join(codexHome, "holycodex", "agents"), { recursive: true });
+      await writeFile(rolePath, legacy);
+      await writeFile(configPath, userConfig);
+
+      await installNativeAgents(codexHome, "default", [
+        {
+          path: "holycodex/agents/Explorer.lookup.toml",
+          digest: createHash("sha256").update(legacy).digest("hex"),
+        },
+      ]);
+
+      expect(await readFile(rolePath, "utf8")).toBe(current);
+      expect(await readFile(configPath, "utf8")).toBe(userConfig);
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("retains Astra Root governing boundaries", () => {
     const highRoot = projectRootAgent("high");
     const lowRoot = projectRootAgent("low");
     const defaultRoot = projectRootAgent("default");
@@ -258,13 +304,18 @@ describe("Windows native-agent instructions", () => {
     expect(astra).toMatch(/fork_turns: "none".*never omit.*all.*default/isu);
     expect(sol).toMatch(/fork_turns: "none".*never omit.*all.*default/isu);
     expect(lowSol).toMatch(/fork_turns: "none".*never omit.*all.*default/isu);
-    expect(astra.length).toBeLessThan(sol.length / 2);
     expect(astra).toContain("bounded Assignment");
     expect(astra).toContain("exact concrete registered Role.task agent_type");
     expect(astra).toContain("holycodex-agent semantic operations");
     expect(astra).toContain("routine safe, reversible, in-scope choices");
     expect(astra).toContain("Reviewer.code before VCS");
-    expect(astra).not.toContain("longest practical event wait");
+    expect(astra).toContain("longest practical event wait");
+    expect(astra).toMatch(
+      /collaboration\.wait_agent.*timeout_ms=1200000.*20 minutes.*cache lifetime/isu,
+    );
+    expect(astra).toMatch(/early specialist completion wakes.*collective mailbox/isu);
+    expect(astra).toMatch(/maximum wait expires.*same maximum wait again/isu);
+    expect(astra).toMatch(/short waits.*list or status polling.*message loops/isu);
 
     for (const instructions of [lowSol, sol, astra]) {
       expect(instructions).toMatch(

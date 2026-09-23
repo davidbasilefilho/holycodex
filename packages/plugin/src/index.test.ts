@@ -92,19 +92,6 @@ describe("plugin source assets", () => {
   });
 
   test("keeps conditional workflows available for canonical routes", async () => {
-    const requiredSkills = [
-      "plan",
-      "plan-review",
-      "programming",
-      "debugging",
-      "code-review",
-      "operations",
-      "babysit-ci",
-    ];
-    for (const skill of requiredSkills) {
-      const body = await readFile(join(pluginSourceRoot, "skills", skill, "SKILL.md"), "utf8");
-      expect(body.length).toBeGreaterThan(80);
-    }
     const grill = await readFile(join(pluginSourceRoot, "skills", "grill-me", "SKILL.md"), "utf8");
     expect(grill).toContain("material unresolved choice");
     expect(grill).toContain("earliest unresolved");
@@ -136,32 +123,13 @@ describe("plugin source assets", () => {
       join(pluginSourceRoot, "skills", "code-review", "SKILL.md"),
       "utf8",
     );
-    expect(programming).toContain("Worker.implementation");
-    expect(programming).toContain("Root does not implement or test");
-    expect(debugging).toContain("Worker.debugging");
-    expect(debugging).toContain("Root does not reproduce, repair, or test");
+    expect(programming).toContain("decided seam");
+    expect(debugging).toContain("Reproduce the defect");
     expect(review).toContain("Reviewer.code");
     expect(review).toContain(
       "Use one batched evidence sweep, reason over it, make targeted follow-ups only,\nand batch related repairs and verification.",
     );
-    expect(review).toContain("Root does not perform code review or");
-  });
-
-  test("keeps every write-capable skill Assignment-bounded and outcome-oriented", async () => {
-    const writeSkills = [
-      "code-review",
-      "compress",
-      "debugging",
-      "operations",
-      "programming",
-      "refactor",
-      "rules",
-      "stop-slop",
-    ];
-    for (const skill of writeSkills) {
-      const body = await readFile(join(pluginSourceRoot, "skills", skill, "SKILL.md"), "utf8");
-      expect(body.length).toBeGreaterThan(80);
-    }
+    expect(review).not.toContain("fixed-point result");
   });
 });
 

@@ -271,26 +271,70 @@ describe("typed runtime configuration", () => {
     });
   });
 
-  test("manages Root V1 multi-agent mode while disabling V2", async () => {
+  test("manages Root V1 dispatch while disabling message board and V2", async () => {
     const v1 = "features.multi_agent" as const;
+    const messageBoard = "features.agent_message_board" as const;
     const v2 = "features.multi_agent_v2" as const;
     expect(isManagedConfigKeyPath(v1)).toBe(true);
+    expect(isManagedConfigKeyPath(messageBoard)).toBe(true);
     expect(isManagedConfigKeyPath(v2)).toBe(true);
     const merged = await mergeManagedRuntimeConfig(
       {},
       createManagedRuntimeConfigState(metadata),
-      { [v1]: true, [v2]: false },
+      { [v1]: true, [messageBoard]: false, [v2]: false },
       metadata,
     );
     expect(readTomlPath(merged.document, v1)).toBe(true);
+    expect(readTomlPath(merged.document, messageBoard)).toBe(false);
     expect(readTomlPath(merged.document, v2)).toBe(false);
     expect(merged.state.managed[v1]?.lastManagedValue).toEqual({
       kind: "boolean",
       value: true,
     });
+    expect(merged.state.managed[messageBoard]?.lastManagedValue).toEqual({
+      kind: "boolean",
+      value: false,
+    });
     expect(merged.state.managed[v2]?.lastManagedValue).toEqual({
       kind: "boolean",
       value: false,
     });
+  });
+
+  test("manages live web search and workspace command network access", async () => {
+    const webSearch = "web_search" as const;
+    const networkAccess = "sandbox_workspace_write.network_access" as const;
+    expect(isManagedConfigKeyPath(webSearch)).toBe(true);
+    expect(isManagedConfigKeyPath(networkAccess)).toBe(true);
+    const merged = await mergeManagedRuntimeConfig(
+      {},
+      createManagedRuntimeConfigState(metadata),
+      { [webSearch]: "live", [networkAccess]: true },
+      metadata,
+    );
+    expect(readTomlPath(merged.document, webSearch)).toBe("live");
+    expect(readTomlPath(merged.document, networkAccess)).toBe(true);
+    expect(merged.state.managed[webSearch]?.lastManagedValue).toEqual({
+      kind: "enum",
+      value: "live",
+    });
+    expect(merged.state.managed[networkAccess]?.lastManagedValue).toEqual({
+      kind: "boolean",
+      value: true,
+    });
+  });
+
+  test("manages the Root session thread limit as a numeric setting", async () => {
+    const keyPath = "agents.max_concurrent_threads_per_session" as const;
+    expect(isManagedConfigKeyPath(keyPath)).toBe(true);
+    const merged = await mergeManagedRuntimeConfig(
+      { agents: { max_concurrent_threads_per_session: 4, unrelated: true } },
+      createManagedRuntimeConfigState(metadata),
+      { [keyPath]: 21 },
+      metadata,
+    );
+    expect(readTomlPath(merged.document, keyPath)).toBe(21);
+    expect(readTomlPath(merged.document, "agents.unrelated")).toBe(true);
+    expect(merged.state.managed[keyPath]?.lastManagedValue).toEqual({ kind: "number", value: 21 });
   });
 });
