@@ -19,8 +19,9 @@ const generatedTypescriptRoot = join(generatedRoot, "typescript");
 const provenancePath = join(generatedRoot, "provenance.json");
 const miseConfigPath = join(workspaceRoot, "mise.toml");
 const CODEX_TOOL = "codex";
-const STABLE_VERSION = /^\d+\.\d+\.\d+$/u;
+const STABLE_VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
 const CODEX_VERSION_OUTPUT = /^codex-cli (\d+\.\d+\.\d+)$/u;
+const MISE_METADATA_ENVIRONMENT_KEYS = [...DEFAULT_COMMAND_ENVIRONMENT_KEYS, "GITHUB_TOKEN"];
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 
@@ -229,17 +230,27 @@ async function resolveLatestMiseCodexVersion(): Promise<string> {
   try {
     const result = await runChecked(["mise", "latest", CODEX_TOOL], {
       cwd: workspaceRoot,
-      env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
+      env: createMiseMetadataEnvironment(),
       maxOutputBytes: 16 * 1024,
     });
-    const version = result.stdout.trim();
-    assertStableVersion(version, "mise stable Codex metadata");
-    return version;
+    return parseStableMiseCodexVersion(result.stdout);
   } catch (error: unknown) {
     throw new Error(
       `The stable Codex latest-channel metadata is unavailable; check network/cache access (${safeError(error)}).`,
     );
   }
+}
+
+/** Pass GitHub's read token only to mise's remote stable-version lookup. */
+export function createMiseMetadataEnvironment(): Record<string, string> {
+  return allowlistedEnvironment(MISE_METADATA_ENVIRONMENT_KEYS);
+}
+
+/** Parse mise's stable Codex version output, including Windows line endings. */
+export function parseStableMiseCodexVersion(output: string): string {
+  const version = output.trim();
+  assertStableVersion(version, "mise stable Codex metadata");
+  return version;
 }
 
 async function verifyCurrentOutput(resolved: {

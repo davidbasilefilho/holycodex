@@ -6,6 +6,8 @@ import {
   assertLatestStableMatch,
   assertMiseLatestCodexConfig,
   canReuseGeneratedOutput,
+  createMiseMetadataEnvironment,
+  parseStableMiseCodexVersion,
 } from "./generate-codex-bindings.ts";
 
 describe("latest stable Codex generation contract", () => {
@@ -23,6 +25,33 @@ describe("latest stable Codex generation contract", () => {
     expect(() => assertLatestStableMatch("0.153.0-dev.1", "0.153.0")).toThrow(
       "must be a stable semantic version",
     );
+  });
+
+  test("parses Windows mise output and rejects a successful empty metadata result", () => {
+    expect(parseStableMiseCodexVersion("0.155.1\r\n")).toBe("0.155.1");
+    expect(() => parseStableMiseCodexVersion("")).toThrow(
+      "mise stable Codex metadata must be a stable semantic version, received .",
+    );
+    expect(() => parseStableMiseCodexVersion("01.2.3")).toThrow(
+      "must be a stable semantic version",
+    );
+  });
+
+  test("passes the read-only GitHub token only to stable metadata lookup", () => {
+    const originalGithubToken = process.env["GITHUB_TOKEN"];
+    const originalGhToken = process.env["GH_TOKEN"];
+    process.env["GITHUB_TOKEN"] = "test-read-token";
+    process.env["GH_TOKEN"] = "unrelated-token";
+    try {
+      const environment = createMiseMetadataEnvironment();
+      expect(environment["GITHUB_TOKEN"]).toBe("test-read-token");
+      expect(environment["GH_TOKEN"]).toBeUndefined();
+    } finally {
+      if (originalGithubToken === undefined) delete process.env["GITHUB_TOKEN"];
+      else process.env["GITHUB_TOKEN"] = originalGithubToken;
+      if (originalGhToken === undefined) delete process.env["GH_TOKEN"];
+      else process.env["GH_TOKEN"] = originalGhToken;
+    }
   });
 
   test("reuses a generated cache only for the current version and executable digest", () => {
