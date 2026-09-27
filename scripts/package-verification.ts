@@ -701,7 +701,12 @@ export async function verifyPublicPackage(
   if (currentUpgrade.ok) {
     assert(
       hasProperty(currentUpgrade.data, "status") && currentUpgrade.data["status"] === "current",
-      "already-current upgrade must report current",
+      `already-current upgrade must report current (${JSON.stringify({
+        status: currentUpgrade.data["status"],
+        from_version: currentUpgrade.data["from_version"],
+        to_version: currentUpgrade.data["to_version"],
+        changes: currentUpgrade.data["changes"],
+      })})`,
     );
   }
 
