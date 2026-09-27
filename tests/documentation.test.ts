@@ -47,7 +47,7 @@ describe("documentation invariants", () => {
     expect(behavior).toContain("Explorer.lookup");
     expect(behavior).toContain('agents."<Role.task>"');
     expect(behavior).toContain("native plugin");
-    expect(cli).toContain("--frontend");
+    expect(cli).toContain("--sites");
     expect(cli).toContain("capability_denied");
   });
 
@@ -74,8 +74,8 @@ describe("documentation invariants", () => {
     expect(cliReadme).not.toMatch(/holycodex upgrade(?:\s|\[|$)/iu);
     expect(behavior).toMatch(/The live profiles are\s+`low`, `default`, and `high`/u);
     expect(behavior).toContain("installation profile approval");
-    expect(behavior).toContain("features.context_management` and sets");
-    expect(configuration).toContain("manages the canonical scalar `features.context_management`");
+    expect(behavior).toContain("features.context_management.experimental_mode = true");
+    expect(configuration).toContain("features.context_management.experimental_mode = true");
     expect(configuration).toMatch(/installation\s+profile approval/u);
     expect(installation).toContain("Legacy `go`");
   });

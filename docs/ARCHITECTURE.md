@@ -73,13 +73,14 @@ Root integrates, performs VCS, delegates exact-ref terminal CI/release checks
 ```
 
 Profiles select native routing only. Service tiers are independent settings and
-must not rewrite route policy or authority. Optional frontend,
-Security, and Computer Use selections are explicit and independently denied
-when unavailable. Native subagents receive bounded Assignments; Root retains
-scope, policy, material choices, lifecycle, integration, VCS, and final
-judgment. Root MUST delegate every task, including trivial work. The only
-direct Root execution exceptions are Git/VCS and Computer Use when selected at
-installation. The typed orchestration policy in `core` is machine-testable.
+must not rewrite route policy or authority. Frontend and Security are required;
+ChatGPT Sites and Browser Use are optional and default on; Computer Use is
+optional and default off. Selected unsupported capabilities fail explicitly
+without substitution. Native subagents receive bounded Assignments; Root
+retains scope, policy, material choices, lifecycle, integration, VCS, and final
+judgment. Root delegates Browser Use and Computer Use through the applicable
+concrete `Role.task` and accepts terminal evidence. Tool availability grants
+no authority. The typed orchestration policy in `core` is machine-testable.
 After implementation or a major codebase change, `Reviewer.code` must reach a
 fixed point before completion or any VCS operation. Root obtains required Plan
 approval and checks existing authorization before remote VCS mutations. It
@@ -105,24 +106,23 @@ the `core` work-state receiving boundary requires it only for a Librarian
 Assignment whose own contract names a non-historical technical subject and
 persists it with that invocation.
 
-Installation preflights selected capabilities and runtime compatibility, then
-journals native mutations and verifies readback before publishing managed
-state. A retry reconciles an incomplete transaction. Installation changes only
-the declared HolyCodex-owned configuration and the Codex native plugin state
-required by that installation. Removal verifies ownership before deleting the
-same scope. Neither command rewrites unrelated Codex settings or installs an
-unrequested capability.
+Installation preflights required and selected capabilities and runtime
+compatibility, then journals native mutations and verifies readback before
+publishing routing, capability state, plugins, and generated configuration as
+one coherent activation. A retry reconciles an incomplete transaction.
+Installation changes only the declared HolyCodex-owned configuration and the
+Codex native plugin state required by that installation. Removal verifies
+ownership before deleting the same scope. Neither command rewrites unrelated
+Codex settings or installs an unrequested capability.
 
 The `low`, `default`, and `high` product profiles select configured Root and
 specialist route identities and task-specific reasoning effort. Routing model
 IDs do not define instruction behavior: every live skill and generated Root or
 specialist instruction targets the GPT-6 family. Historical routing values
 remain only in migration/cleanup paths for previously managed state. HolyCodex
-owns the scalar `features.context_management` projection and sets it to `true`
-for Root and every generated leaf because Codex does not enable it by default. The
-package migration converts owned historical
-`.experimental_mode` state to the scalar key. Standard managed-key ownership
-preserves a user edit and restores the recorded prior value during removal.
+owns `features.context_management.experimental_mode = true` for Root and every
+generated leaf. Standard managed-key ownership preserves a user edit and
+restores the recorded prior value during removal.
 Repo-local Intent/Plan/Assignment state remains independent. A bounded `Explorer.trace` dispatch has been
 verified with the `gpt-6-luna`/`high` route and the installed baseline retained;
 session metadata reports V2, so this does not claim live V1 proof or

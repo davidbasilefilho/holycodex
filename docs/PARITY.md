@@ -36,7 +36,7 @@ their readback.
 | Independent service tiers                                               | [BEHAVIOR.md](BEHAVIOR.md), [CONFIGURATION.md](CONFIGURATION.md)       | Configuration boundary tests                  | proven           |
 | CLI install, remove, version, JSON, and exit behavior                   | [CLI.md](CLI.md)                                                       | CLI boundary tests                            | proven           |
 | Native Codex plugin management, owned state, and transactional recovery | [INSTALLATION.md](INSTALLATION.md), [STATE.md](STATE.md)               | Isolated install/removal/doctor verification  | proven           |
-| Frontend, Security, and Computer Use selections                         | [BEHAVIOR.md](BEHAVIOR.md), [SECURITY.md](SECURITY.md)                 | Denial and typed-port tests                   | capability-gated |
+| Required Frontend/Security and optional Sites/Browser/Computer Use      | [BEHAVIOR.md](BEHAVIOR.md), [SECURITY.md](SECURITY.md)                 | Selection, denial, and typed-port tests       | capability-gated |
 | Secret exclusion and fail-closed behavior                               | [SECURITY.md](SECURITY.md)                                             | Security and redaction tests                  | proven           |
 | Evidence admissibility and provenance                                   | [PROVENANCE.md](PROVENANCE.md)                                         | Repository proof and changed-file inspection  | proven           |
 | Exact release artifact and publication gates                            | [RELEASING.md](RELEASING.md)                                           | CI artifact digest and release checks         | proven           |

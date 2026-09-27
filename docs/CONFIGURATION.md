@@ -57,23 +57,22 @@ families Explorer, Librarian, Worker, and Reviewer are labels only, and generic
 built-in `worker`, `explorer`, `reviewer`, and `librarian` types are forbidden
 for HolyCodex specialist Assignments.
 
-HolyCodex manages the canonical scalar `features.context_management` and
-writes `true` for Root and every generated leaf because Codex does not
-enable it by default. An internal package migration converts
-owned historical `features.context_management.experimental_mode` state to the
-scalar key, preserving unrelated settings; removal restores the recorded prior
-value when the live value is unchanged, while a user edit is preserved and
-reported as drift. Intent, Plan, and Assignment persistence remains independent
-repo-local work state.
+HolyCodex manages
+`features.context_management.experimental_mode = true` for Root and every
+generated leaf. Removal restores the recorded prior value when unchanged, while
+a user edit is preserved and reported as drift. Intent, Plan, and Assignment
+persistence remains independent repo-local work state.
 
 Root MUST delegate every task, including trivial work, through a bounded
-Assignment. Direct Root execution is limited to Git/VCS and Computer Use when
-selected at installation. A passing `Reviewer.code` fixed-point review is
+Assignment. Git/VCS is Root-owned. Browser Use and Computer Use execution is
+delegated through the applicable specialist route when enabled and available;
+tool availability grants no authority. A passing `Reviewer.code` fixed-point review is
 required after implementation or a major codebase change and before completion
-or VCS. Root uses `request_user_input` for workflow Plan approval, installation
-profile approval, remote/origin/server VCS mutations, public publication or
-release, and ambiguity or missing material input; persist `needs_root_input`
-when blocked.
+or VCS. Root uses `request_user_input` for workflow Plan approval and
+installation profile approval. Before remote/origin/server VCS mutations or
+public publication, Root honors authorization already given in the current
+request or session and asks only when authorization or material information is
+missing; persist `needs_root_input` when required input remains unresolved.
 
 ## Profiles, tiers, and optional plugins
 
@@ -96,19 +95,22 @@ The service tier is an independent setting selected with `--tier`. It changes
 service handling without changing the profile, route, authority, or proof
 requirements. The valid tier names are `standard`, `fast`, and `fast-all`.
 
-Optional plugins are explicit booleans for `frontend`, `security`, and
-`computer_use`. On a first install, Computer Use defaults to false while
-frontend and Security default to true; an omitted selection otherwise inherits
-the existing managed configuration. Availability never grants authority.
-Explicitly selected or additionally requested plugins return a structured
-denial when missing. Capability discovery only resolves marketplaces needed by
-the selected set; an unrelated unavailable provider does not abort the install.
-Every selected capability and additional plugin must verify as installed and
-enabled or installation fails; no selected capability is recorded as a
-successful unresolved state and no fallback is selected. Official
-`openai-curated` and `openai-curated-remote` identities are equivalent only for
-an allowlisted OpenAI plugin such as build-web-apps or codex-security; a
-same-name third-party marketplace is not trusted.
+Frontend and Security are required. Optional selections are explicit booleans
+for `sites`, `browser_use`, and `computer_use`. On a first install, Sites and
+Browser Use default to true while Computer Use defaults to false; omitted
+selections otherwise inherit existing managed options. Sites availability can
+depend on account, region, workspace policy, or supported Codex surface.
+Browser Use depends on Codex surface/runtime. Computer Use has stronger
+platform and surface restrictions and greater external-action capability.
+Availability never grants authority. Unsupported or unavailable selected
+capabilities and additional plugins fail explicitly; no silent omission or
+substitute is accepted. Capability discovery resolves only providers needed
+for the selected set; an unrelated unavailable provider does not abort the
+install. Official `openai-curated` and `openai-curated-remote` identities are
+equivalent only for allowlisted build-web-apps and codex-security plugins.
+Bundled Browser, Computer Use, and Sites use their canonical
+`openai-bundled` identities. A same-name third-party marketplace is not
+trusted.
 
 ## Paths and ownership
 

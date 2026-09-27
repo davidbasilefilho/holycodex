@@ -68,10 +68,11 @@ git diff --check
 ```
 
 Root MUST delegate every task, including trivial work, through a bounded
-Assignment and native specialist. Only Git/VCS is always direct Root work;
-Computer Use is direct only when selected at installation. Root delegates
-implementation, tests, review, and CI/release observation, then integrates
-evidence and performs the VCS step. Discover the repository's actual
+Assignment and native specialist. Git/VCS is Root-owned. Browser Use and
+Computer Use execution is delegated through the applicable specialist route
+when enabled and available; tool availability does not grant authority. Root
+delegates implementation, tests, review, and CI/release observation, then
+integrates evidence and performs the VCS step. Discover the repository's actual
 development/release topology from its own configuration; pending checks are
 not green. A passing `Reviewer.code` fixed-point review is mandatory after
 implementation or a major codebase change and before completion or any VCS
