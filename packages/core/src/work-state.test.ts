@@ -153,6 +153,59 @@ describe("IntentStore", () => {
     );
     expect(diagnosis.issues).toContainEqual(expect.objectContaining({ code: "repository_drift" }));
   });
+  test("diagnoses Plan references stranded on superseded Assignments", async () => {
+    const { store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Superseded Plan reference",
+      goal: "Keep the Plan aligned with active bounded work",
+      acceptanceCriteria: ["replacement is referenced"],
+    });
+    const predecessor = await store.createAssignment(
+      intent.id,
+      {
+        id: "assignment-predecessor",
+        objective: "Original bounded work",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["complete original work"],
+      },
+      intent.revision,
+    );
+    const replacement = await store.createAssignment(
+      intent.id,
+      {
+        id: "assignment-replacement",
+        objective: "Replacement bounded work",
+        owner: { role: "Worker", task: "implementation" },
+        scope: ["packages/core"],
+        acceptanceCriteria: ["complete replacement work"],
+      },
+      intent.revision,
+    );
+    const superseded = await store.supersedeAssignment(
+      intent.id,
+      predecessor.id,
+      predecessor.revision,
+      {
+        replacementId: replacement.id,
+        reason: "The original scope needs replacement",
+        provenance: "Root reconciliation",
+      },
+    );
+    await store.revisePlan(
+      intent.id,
+      { approach: "Continue with the replacement", assignments: [predecessor.id] },
+      superseded.intent.revision,
+    );
+
+    const diagnosis = await store.diagnose(intent.id);
+    expect(diagnosis.issues).toContainEqual(
+      expect.objectContaining({
+        code: "superseded_plan_assignment",
+        subject: "plan",
+      }),
+    );
+  });
   test("limits Assignment ownership to canonical specialist role/task pairs", async () => {
     const { store } = await fixture();
     const intent = await store.createIntent({

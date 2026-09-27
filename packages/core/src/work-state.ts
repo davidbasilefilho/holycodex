@@ -728,6 +728,12 @@ export class IntentStore {
       for (const reference of plan.assignments) {
         if (reference.startsWith("assignment-") && !byId.has(reference))
           add("stale_plan_assignment", "plan", `Reconcile missing Assignment ${reference}.`);
+        else if (byId.get(reference)?.status === "superseded")
+          add(
+            "superseded_plan_assignment",
+            "plan",
+            `Reconcile Plan reference ${reference} with its replacement Assignment.`,
+          );
       }
     }
     const cyclicDependencies = findAssignmentDependencyCycles(assignments);
