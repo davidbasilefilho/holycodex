@@ -177,12 +177,7 @@ export const ROOT_CONFIG_KEY_PATHS = [
   "model_verbosity",
   "developer_instructions",
   "suppress_unstable_features_warning",
-  "features.default_mode_request_user_input",
   "features.multi_agent",
-  "features.agent_message_board",
-  "features.multi_agent_v2",
-  "features.context_management",
-  // Compatibility key retained only so older persisted state can be migrated safely.
   "features.context_management.experimental_mode",
 ] as const;
 export type RootConfigKeyPath = (typeof ROOT_CONFIG_KEY_PATHS)[number];
@@ -191,7 +186,13 @@ export type RootConfigKeyPath = (typeof ROOT_CONFIG_KEY_PATHS)[number];
  * Configuration keys accepted only long enough to clean up state written by older releases. These
  * keys are never part of a new desired configuration.
  */
-export const LEGACY_ROOT_CONFIG_KEY_PATHS = ["model_auto_compact_token_limit"] as const;
+export const LEGACY_ROOT_CONFIG_KEY_PATHS = [
+  "model_auto_compact_token_limit",
+  "features.default_mode_request_user_input",
+  "features.agent_message_board",
+  "features.multi_agent_v2",
+  "features.context_management",
+] as const;
 export type LegacyRootConfigKeyPath = (typeof LEGACY_ROOT_CONFIG_KEY_PATHS)[number];
 
 export const HOLYCODEX_AGENT_TYPES = NATIVE_AGENT_TYPES;
@@ -520,12 +521,9 @@ function configKeyKind(
   if (keyPath === "model_auto_compact_token_limit") return "number";
   if (
     keyPath === "suppress_unstable_features_warning" ||
-    keyPath === "features.default_mode_request_user_input" ||
     keyPath === "features.multi_agent" ||
-    keyPath === "features.agent_message_board" ||
-    keyPath === "features.multi_agent_v2" ||
-    keyPath === "features.context_management" ||
     keyPath === "features.context_management.experimental_mode" ||
+    (LEGACY_ROOT_CONFIG_KEY_PATHS as readonly string[]).includes(keyPath as string) ||
     keyPath === "sandbox_workspace_write.network_access"
   ) {
     return "boolean";

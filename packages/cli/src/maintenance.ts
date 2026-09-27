@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { rm, rmdir } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   cleanupManagedRuntimeConfig,
@@ -17,6 +18,7 @@ import {
   type LiveOfficialPluginListEnvelope,
 } from "@holycodex/codex";
 import {
+  DEFAULT_CAPABILITY_SELECTIONS,
   compareReleaseVersions,
   pluginIdsForOptionalCapabilities,
   type ReleaseVersion,
@@ -48,6 +50,8 @@ import {
   isKnownLegacyRootRoleContent,
   inspectNativeAgentConflicts,
   inspectNativeAgentRemovalConflicts,
+  nativeAgentConfigPath,
+  nativeAgentGenerationId,
   projectNativeAgents,
   renderNativeAgent,
   nativeAgentSandboxConfigurationMatches,
@@ -64,8 +68,8 @@ import { decodeSchema, InstallTransactionSchema } from "./schema.ts";
 import { optionalJsonFile, optionalTextFile, writeAtomicJson, writeAtomicText } from "./storage.ts";
 import {
   createInstallerRuntime,
-  ensureContext7,
   ensureGitBash,
+  inspectContext7ReadOnly,
   removeOwnedContext7,
 } from "./tooling.ts";
 import type {
@@ -172,6 +176,14 @@ export async function doctorHolyCodex(
       active.profile,
       active.tier,
       active.tooling?.git_bash.status === "healthy" ? active.tooling.git_bash.path : undefined,
+      {
+        browserUse:
+          active.capability_state?.browser_use.status === "healthy" &&
+          active.capability_state.browser_use.selected,
+        computerUse:
+          active.capability_state?.computer_use.status === "healthy" &&
+          active.capability_state.computer_use.selected,
+      },
     );
     const failedCapability = Object.entries(active.capability_state ?? {}).find(
       ([, value]) => value.selected && value.status !== "healthy",
@@ -195,7 +207,7 @@ export async function doctorHolyCodex(
     checks["git_bash"] = failedCheck(["git_bash_unavailable"], { error: safeMessage(error) });
   }
   try {
-    const context7 = await ensureContext7(runtime, false, active?.tooling?.context7);
+    const context7 = await inspectContext7ReadOnly(runtime, active?.tooling?.context7);
     checks["context7"] = healthyCheck({
       manager: context7.manager,
       version: context7.version,
@@ -235,9 +247,9 @@ export async function doctorHolyCodex(
         HOLYCODEX_PLUGIN,
         ...pluginIdsForOptionalCapabilities(
           {
+            browser_use: active.optional_selections.browser_use,
             computer_use: active.optional_selections.computer_use,
-            frontend: active.optional_selections.frontend,
-            security: active.optional_selections.security,
+            sites: active.optional_selections.sites,
           },
           active.official_plugins,
         ),
@@ -264,11 +276,9 @@ export async function doctorHolyCodex(
       });
     }
   } else {
-    checks["native_plugins"] = {
-      status: "unsupported",
-      reasons: ["native_plugin_status_unobserved"],
-      details: {},
-    };
+    checks["native_plugins"] = failedCheck(["native_plugin_status_unavailable"], {
+      reason: "No read-only live official plugin status source is available.",
+    });
   }
   const reasons = Object.values(checks).flatMap((check) => check.reasons);
   return {
@@ -375,6 +385,7 @@ export async function removeHolyCodex(
   const removed: string[] = [];
   const preserved: string[] = [];
   const reasons: string[] = [];
+  let removalCheckpointWritten = false;
   if (recovery === undefined) {
     reportProgress(options, {
       stage: "removal",
@@ -477,74 +488,10 @@ export async function removeHolyCodex(
     );
   }
 
-  const native = await removeManagedNativeAgents(
-    paths.codexHome,
-    recovery?.managed_artifacts ?? [],
-    new Set(
-      removalConflicts
-        .filter(
-          (conflict) =>
-            conflict.key === undefined && acceptedRemovalConflicts.has(conflictIdentity(conflict)),
-        )
-        .map((conflict) => conflict.path),
-    ),
-  );
-  removed.push(...native.removed);
-  preserved.push(...native.preserved);
-  if (native.preserved.length > 0) reasons.push("managed_artifact_changed");
-
-  for (const pluginId of ownedPlugins) {
-    try {
-      const before = await manager.list();
-      const observed = resolveOwnedPluginEntry(before, pluginId);
-      if (observed?.entry.installed !== true) continue;
-      const removalId = observed.entry.pluginId;
-      await manager.remove(removalId);
-      const live = await manager.list();
-      const resolvedRemaining = resolveOfficialPluginEntry(live, pluginId)?.entry;
-      const remaining =
-        resolvedRemaining?.installed === true ||
-        [...live.installed, ...live.available].some(
-          (entry) => entry.pluginId === pluginId && entry.installed,
-        );
-      if (remaining) {
-        throw new InstallerError(
-          "capability_denied",
-          `Codex still reports ${pluginId} after removal.`,
-        );
-      }
-      removed.push(pluginId);
-    } catch (error: unknown) {
-      reasons.push("native_plugin_remove_failed");
-      await writeConflictState(paths, recovery ?? emptyRemovalState());
-      throw new InstallerError(
-        "capability_denied",
-        `Codex native plugin removal did not converge for ${pluginId}: ${safeMessage(error)}`,
-        error,
-      );
-    }
-  }
-  try {
-    if (
-      await removeOwnedContext7(
-        options.runtime ?? createInstallerRuntime(environment),
-        recovery.tooling?.context7,
-      )
-    ) {
-      removed.push("ctx7");
-    }
-  } catch (error: unknown) {
-    reasons.push("context7_remove_failed");
-    await writeConflictState(paths, recovery);
-    throw new InstallerError(
-      "capability_denied",
-      `Context7 removal did not converge: ${safeMessage(error)}`,
-      error,
-    );
-  }
   let cleanedConfig:
     | { readonly document: TomlDocument; readonly state?: ManagedRuntimeConfigState }
     | undefined;
+  let recoveryForRemoval = recovery;
   try {
     let document = configBeforeDocument;
     let managedState = recoveryManagedConfig;
@@ -617,18 +564,88 @@ export async function removeHolyCodex(
       } else {
         await writeAtomicText(paths.configFile, serializeConfig(cleanedConfig.document));
       }
+      recoveryForRemoval = { ...recovery, managed_config: cleanedConfig.state };
+      await writeConflictState(paths, recoveryForRemoval);
+      removalCheckpointWritten = true;
     }
   } catch (error: unknown) {
     if (error instanceof InstallerError) {
-      await writeConflictState(paths, recovery ?? emptyRemovalState());
+      await writeConflictState(paths, recoveryForRemoval ?? emptyRemovalState());
       throw error;
     }
-    {
-      preserved.push(paths.configFile);
-      reasons.push("managed_config_write_failed");
-      await writeConflictState(paths, recovery ?? emptyRemovalState());
-      return { removed, preserved, reasons };
+    preserved.push(paths.configFile);
+    reasons.push("managed_config_write_failed");
+    await writeConflictState(paths, recoveryForRemoval ?? emptyRemovalState());
+    return { removed, preserved, reasons };
+  }
+
+  const native = await removeManagedNativeAgents(
+    paths.codexHome,
+    recovery?.managed_artifacts ?? [],
+    new Set(
+      removalConflicts
+        .filter(
+          (conflict) =>
+            conflict.key === undefined && acceptedRemovalConflicts.has(conflictIdentity(conflict)),
+        )
+        .map((conflict) => conflict.path),
+    ),
+  );
+  removed.push(...native.removed);
+  preserved.push(...native.preserved);
+  if (native.preserved.length > 0) reasons.push("managed_artifact_changed");
+  removed.push(
+    ...(await removeEmptyManagedRoleGenerations(paths.roleRoot, recovery?.managed_artifacts ?? [])),
+  );
+
+  for (const pluginId of ownedPlugins) {
+    try {
+      const before = await manager.list();
+      const observed = resolveOwnedPluginEntry(before, pluginId);
+      if (observed?.entry.installed !== true) continue;
+      const removalId = observed.entry.pluginId;
+      await manager.remove(removalId);
+      const live = await manager.list();
+      const resolvedRemaining = resolveOfficialPluginEntry(live, pluginId)?.entry;
+      const remaining =
+        resolvedRemaining?.installed === true ||
+        [...live.installed, ...live.available].some(
+          (entry) => entry.pluginId === pluginId && entry.installed,
+        );
+      if (remaining) {
+        throw new InstallerError(
+          "capability_denied",
+          `Codex still reports ${pluginId} after removal.`,
+        );
+      }
+      removed.push(pluginId);
+    } catch (error: unknown) {
+      reasons.push("native_plugin_remove_failed");
+      await writeConflictState(paths, recoveryForRemoval ?? emptyRemovalState());
+      throw new InstallerError(
+        "capability_denied",
+        `Codex native plugin removal did not converge for ${pluginId}: ${safeMessage(error)}`,
+        error,
+      );
     }
+  }
+  try {
+    if (
+      await removeOwnedContext7(
+        options.runtime ?? createInstallerRuntime(environment),
+        recovery.tooling?.context7,
+      )
+    ) {
+      removed.push("ctx7");
+    }
+  } catch (error: unknown) {
+    reasons.push("context7_remove_failed");
+    await writeConflictState(paths, recoveryForRemoval ?? emptyRemovalState());
+    throw new InstallerError(
+      "capability_denied",
+      `Context7 removal did not converge: ${safeMessage(error)}`,
+      error,
+    );
   }
   if (active) {
     try {
@@ -658,7 +675,7 @@ export async function removeHolyCodex(
   if (preserved.length === 0) {
     for (const [path, present] of [
       [paths.preparingRecord, preparing !== undefined],
-      [paths.conflictedRecord, conflicted !== undefined],
+      [paths.conflictedRecord, conflicted !== undefined || removalCheckpointWritten],
     ] as const) {
       if (!present) continue;
       try {
@@ -704,6 +721,46 @@ export async function removeHolyCodex(
   return { removed, preserved, reasons };
 }
 
+/** Remove only empty generation directories named by this install's role artifacts. */
+async function removeEmptyManagedRoleGenerations(
+  roleRoot: string,
+  artifacts: readonly InstallRecord["managed_artifacts"][number][],
+): Promise<readonly string[]> {
+  const generations = new Set<string>();
+  for (const artifact of artifacts) {
+    const parts = artifact.path.split("/");
+    if (
+      parts.length === 4 &&
+      parts[0] === "holycodex" &&
+      parts[1] === "agents" &&
+      /^[a-f0-9]{20}$/u.test(parts[2] ?? "") &&
+      parts[3]?.endsWith(".toml")
+    ) {
+      generations.add(parts[2]!);
+    }
+  }
+
+  const removed: string[] = [];
+  for (const generation of generations) {
+    const directory = join(roleRoot, generation);
+    try {
+      await rmdir(directory);
+      removed.push(directory);
+    } catch (error: unknown) {
+      // Non-empty generations can still contain user data or profiles referenced by
+      // older threads. Keep them for the existing role-root preservation handling.
+      if (
+        !isFsCode(error, "ENOENT") &&
+        !isFsCode(error, "ENOTEMPTY") &&
+        !isFsCode(error, "EEXIST")
+      ) {
+        throw error;
+      }
+    }
+  }
+  return removed;
+}
+
 /** Migrate an existing installation in place using the running HolyCodex binary. */
 export async function upgradeHolyCodex(
   options: InstallerOptions = {},
@@ -742,9 +799,9 @@ export async function upgradeHolyCodex(
           profile: source.profile,
           tier: source.tier,
           optional: {
+            browser_use: source.optional_selections.browser_use,
             computer_use: source.optional_selections.computer_use,
-            frontend: source.optional_selections.frontend,
-            security: source.optional_selections.security,
+            sites: source.optional_selections.sites,
           },
           officialPlugins: additionalPluginsFromRecord(source),
         }
@@ -788,8 +845,7 @@ export async function upgradeHolyCodex(
       { installed_version: source.version, running_version: targetVersion },
     );
   }
-  const legacyContext =
-    source.managed_config?.managed["features.context_management.experimental_mode"] !== undefined;
+  const legacyContext = source.managed_config?.managed["features.context_management"] !== undefined;
   const legacyAutoCompact =
     source.managed_config?.managed[LEGACY_ROOT_CONFIG_KEY_PATHS[0]!] !== undefined;
   const dryRunConflictInventory: ManagedConflict[] = [];
@@ -832,6 +888,10 @@ export async function upgradeHolyCodex(
       source.managed_artifacts,
       source.tier,
       source.tooling?.git_bash.status === "healthy" ? source.tooling.git_bash.path : undefined,
+      {
+        browserUse: source.optional_selections.browser_use,
+        computerUse: source.optional_selections.computer_use,
+      },
     );
     for (const conflict of nativeConflicts) {
       dryRunConflictInventory.push(conflict);
@@ -841,12 +901,18 @@ export async function upgradeHolyCodex(
   try {
     const runtime = options.runtime ?? createInstallerRuntime(environment);
     const gitBash = await ensureGitBash(runtime, false);
-    const context7 = await ensureContext7(runtime, false, source.tooling?.context7);
+    let context7: Awaited<ReturnType<typeof inspectContext7ReadOnly>> | undefined;
+    try {
+      context7 = await inspectContext7ReadOnly(runtime, source.tooling?.context7);
+    } catch (error: unknown) {
+      if (source.tooling?.context7 !== undefined || !isContext7Absent(error)) throw error;
+    }
+    const recordedContext7 = source.tooling?.context7;
     toolingDrift ||=
       gitBash.status === "missing" ||
-      context7.manager !== source.tooling?.context7?.manager ||
-      context7.version !== source.tooling?.context7?.version ||
-      context7.executable !== source.tooling?.context7?.executable;
+      recordedContext7?.manager !== context7?.manager ||
+      recordedContext7?.version !== context7?.version ||
+      recordedContext7?.executable !== context7?.executable;
   } catch {
     toolingDrift = true;
   }
@@ -946,9 +1012,9 @@ function sameInstallOptions(left: InstallRequest, right: InstallRequest): boolea
   return (
     left.profile === right.profile &&
     left.tier === right.tier &&
+    leftOptional.browser_use === rightOptional.browser_use &&
     leftOptional.computer_use === rightOptional.computer_use &&
-    leftOptional.frontend === rightOptional.frontend &&
-    leftOptional.security === rightOptional.security &&
+    leftOptional.sites === rightOptional.sites &&
     leftPlugins.length === rightPlugins.length &&
     leftPlugins.every((pluginId, index) => pluginId === rightPlugins[index])
   );
@@ -1003,9 +1069,12 @@ async function doctorRuntimeConfig(
   try {
     const document = parseConfig(await optionalTextFile(paths.configFile));
     const expected = desiredRootConfig(active.profile, active.tier, {
+      browserUse:
+        active.capability_state?.browser_use.status === "healthy" &&
+        active.capability_state.browser_use.selected,
       computerUse: active.optional_selections.computer_use,
-      frontend: active.optional_selections.frontend,
-      security: active.optional_selections.security,
+      frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
+      security: DEFAULT_CAPABILITY_SELECTIONS.security,
       ...(active.tooling?.git_bash.status === "healthy"
         ? { windowsGitBashExecutable: active.tooling.git_bash.path }
         : {}),
@@ -1034,13 +1103,24 @@ async function doctorNativeRoles(
   profile: InstallRecord["profile"],
   tier: InstallRecord["tier"],
   windowsGitBashExecutable?: string,
+  capabilities: Readonly<{ browserUse: boolean; computerUse: boolean }> = {
+    browserUse: false,
+    computerUse: false,
+  },
 ): Promise<DoctorCheck> {
   try {
     const document = parseConfig(await optionalTextFile(paths.configFile));
     const failures: string[] = [];
+    const generationId = nativeAgentGenerationId(profile, tier, {
+      ...capabilities,
+      ...(windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable }),
+    });
     for (const agent of projectNativeAgents(profile, tier)) {
       const ref = readTomlPath(document, `agents."${agent.name}".config_file`);
-      const expected = `${paths.roleRoot}/${agent.name}.toml`.replaceAll("\\", "/");
+      const expected = resolveAgentConfigPath(
+        paths.configFile,
+        nativeAgentConfigPath(agent.name, generationId),
+      ).replaceAll("\\", "/");
       if (
         typeof ref !== "string" ||
         resolveAgentConfigPath(paths.configFile, ref).replaceAll("\\", "/") !== expected
@@ -1048,17 +1128,17 @@ async function doctorNativeRoles(
         failures.push(`${agent.name}:registration`);
         continue;
       }
-      const roleText = await optionalTextFile(`${paths.roleRoot}/${agent.name}.toml`);
+      const roleText = await optionalTextFile(expected);
       if (roleText === undefined) {
         failures.push(`${agent.name}:missing`);
         continue;
       }
       if (
         roleText !==
-        renderNativeAgent(
-          agent,
-          windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable },
-        )
+        renderNativeAgent(agent, {
+          ...capabilities,
+          ...(windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable }),
+        })
       ) {
         failures.push(`${agent.name}:changed`);
         continue;
@@ -1078,13 +1158,10 @@ async function doctorNativeRoles(
         roleDocument["approval_policy"] !== "never" ||
         roleDocument["web_search"] !== (agent.permissions.network ? "live" : "disabled") ||
         readTomlPath(roleDocument, "agents.enabled") !== false ||
-        readTomlPath(roleDocument, "features.agent_message_board") !== false ||
-        readTomlPath(roleDocument, "features.multi_agent_v2") !== false ||
         readTomlPath(roleDocument, "features.multi_agent") !== false ||
-        readTomlPath(roleDocument, "features.context_management") !== true ||
-        readTomlPath(roleDocument, "features.computer_use") !== false ||
-        readTomlPath(roleDocument, "features.browser_use") !== false ||
-        readTomlPath(roleDocument, "features.in_app_browser") !== false
+        Object.keys((roleDocument["features"] as Record<string, unknown> | undefined) ?? {}).some(
+          (key) => key !== "multi_agent",
+        )
       ) {
         failures.push(`${agent.name}:malformed`);
       }
@@ -1172,9 +1249,9 @@ function emptyRemovalState(): InstallRecord {
     profile: "default",
     tier: "standard",
     optional_selections: {
+      browser_use: false,
       computer_use: false,
-      frontend: false,
-      security: false,
+      sites: false,
       coding: true,
     },
     explicit_optional_selections: {},
@@ -1224,6 +1301,15 @@ async function removeTransaction(path: string): Promise<void> {
   await rm(path, { force: false }).catch((error: unknown) => {
     if (!isFsCode(error, "ENOENT")) throw error;
   });
+}
+
+function isContext7Absent(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error.code === "context7_unavailable" || error.code === "context7_manager_unknown")
+  );
 }
 
 function safeMessage(error: unknown): string {

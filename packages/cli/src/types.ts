@@ -15,17 +15,17 @@ import type {
 import type { InstallRequest } from "./installer.ts";
 
 export type OptionalSelections = Readonly<{
+  readonly browser_use: boolean;
   readonly computer_use: boolean;
-  readonly frontend: boolean;
-  readonly security: boolean;
+  readonly sites: boolean;
   readonly coding: true;
 }>;
 
 export type ExplicitOptionalSelections = Readonly<
   Partial<{
+    readonly browser_use: boolean | undefined;
     readonly computer_use: boolean | undefined;
-    readonly frontend: boolean | undefined;
-    readonly security: boolean | undefined;
+    readonly sites: boolean | undefined;
   }>
 >;
 
@@ -154,9 +154,11 @@ export interface CapabilityInstallState {
 }
 
 export type CapabilityStateRecord = Readonly<{
+  readonly browser_use: CapabilityInstallState;
   readonly computer_use: CapabilityInstallState;
   readonly frontend: CapabilityInstallState;
   readonly security: CapabilityInstallState;
+  readonly sites: CapabilityInstallState;
 }>;
 
 export type InstallerPlatform = NodeJS.Platform;

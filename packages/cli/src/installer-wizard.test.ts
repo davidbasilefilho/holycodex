@@ -173,8 +173,8 @@ describe("public install wizard contract", () => {
       profile: "default",
       tier: "fast-all",
       optional: {
-        frontend: false,
-        security: true,
+        sites: false,
+        browser_use: true,
         computer_use: true,
       },
       officialPlugins: ["example@marketplace"],
@@ -184,8 +184,8 @@ describe("public install wizard contract", () => {
     expect(review).toContain("Profile: default");
     expect(review).toContain("Service tier: fast-all");
     expect(review).not.toContain("Work:");
-    expect(review).toContain("Frontend: disabled");
-    expect(review).toContain("Security: enabled");
+    expect(review).toContain("ChatGPT Sites: disabled");
+    expect(review).toContain("Browser Use: enabled");
     expect(review).toContain("Computer Use: enabled");
     expect(review).toContain("Additional plugins: example@marketplace");
     expect(review).toContain("Install");
@@ -208,15 +208,15 @@ describe("public install wizard contract", () => {
     const initial: InstallRequest = {
       profile: "high",
       tier: "standard",
-      optional: { frontend: true, security: false, computer_use: false },
+      optional: { sites: false, browser_use: true, computer_use: false },
       officialPlugins: ["one@marketplace", "one@marketplace"],
     };
     const options = toInstallOptions({
       profile: initial.profile!,
       tier: initial.tier!,
       optional: {
-        frontend: initial.optional?.frontend ?? false,
-        security: initial.optional?.security ?? false,
+        sites: initial.optional?.sites ?? true,
+        browser_use: initial.optional?.browser_use ?? true,
         computer_use: initial.optional?.computer_use ?? false,
       },
       plugins: [...initial.officialPlugins!],
@@ -226,7 +226,7 @@ describe("public install wizard contract", () => {
     expect(options).toEqual({
       profile: "high",
       tier: "standard",
-      optional: { frontend: true, security: false, computer_use: false },
+      optional: { sites: false, browser_use: true, computer_use: false },
       officialPlugins: ["one@marketplace", "one@marketplace"],
     } satisfies InstallOptions);
   });
@@ -234,16 +234,16 @@ describe("public install wizard contract", () => {
   test("applies navigation, choice, toggle, submit, and text-editing semantics", () => {
     const state = stateFromRequest({
       profile: "default",
-      optional: { frontend: true, security: true, computer_use: false },
+      optional: { sites: true, browser_use: true, computer_use: false },
       officialPlugins: ["alpha@marketplace"],
     });
     expect(applyWizardConfigurationKey(state, 0, { name: "down" }).cursor).toBe(1);
     expect(applyWizardConfigurationKey(state, 1, { name: "left" }).cursor).toBe(1);
     expect(state.tier).toBe("fast-all");
     expect(applyWizardConfigurationKey(state, 2, { name: "space" }).cursor).toBe(2);
-    expect(state.optional.frontend).toBe(false);
+    expect(state.optional.sites).toBe(false);
     expect(applyWizardConfigurationKey(state, 2, { name: "right" }).cursor).toBe(2);
-    expect(state.optional.frontend).toBe(false);
+    expect(state.optional.sites).toBe(false);
     expect(applyWizardConfigurationKey(state, 2, { name: "enter" })).toEqual({
       cursor: 2,
       action: "review",
@@ -264,13 +264,13 @@ describe("public install wizard contract", () => {
   });
 
   test("uses semantic color only for an interactive TTY", () => {
-    const request: InstallRequest = { optional: { frontend: true, security: false } };
+    const request: InstallRequest = { optional: { sites: true, browser_use: false } };
     const colored = renderInstallWizardReview(request, "install", {
       stdoutIsTTY: true,
       env: {},
     });
     expect(colored).toContain("\u001b[");
-    expect(colored.replace(ANSI_SGR_PATTERN, "")).toContain("Frontend: enabled");
+    expect(colored.replace(ANSI_SGR_PATTERN, "")).toContain("ChatGPT Sites: enabled");
     expect(renderInstallWizardReview(request)).not.toContain("\u001b[");
     expect(
       renderInstallWizardReview(request, "install", {
@@ -286,7 +286,7 @@ describe("public install wizard contract", () => {
       toVersion: CURRENT_VERSION,
       profile: "high",
       tier: "fast-all",
-      capabilities: { computer_use: true, frontend: false, security: true },
+      capabilities: { computer_use: true, sites: true, browser_use: true },
       additionalPlugins: ["example@marketplace"],
       conflicts: [
         {
@@ -351,7 +351,7 @@ describe("public install wizard contract", () => {
       toVersion: CURRENT_VERSION,
       profile: "default",
       tier: "standard",
-      capabilities: { computer_use: false, frontend: true, security: false },
+      capabilities: { computer_use: false, sites: true, browser_use: false },
       additionalPlugins: [],
       conflicts: [{ identity: "managed", path: "managed.json", action: "replace" }],
       conflictCounts: { "managed-state": 1 },
@@ -411,7 +411,11 @@ describe("public install wizard contract", () => {
       toVersion: CURRENT_VERSION,
       profile: "default",
       tier: "standard",
-      capabilities: { computer_use: false, frontend: true, security: false },
+      capabilities: {
+        computer_use: false,
+        sites: true,
+        browser_use: false,
+      },
       additionalPlugins: [],
       conflicts: [],
       conflictCounts: {},
@@ -434,11 +438,7 @@ describe("public install wizard contract", () => {
       ).resolves.toEqual({ action: "apply" });
       const styledReview = fakeStyledChunks(rendered[0]!);
       expect(styledReview.some((chunk) => chunk.text === "HolyCodex · install review")).toBe(true);
-      expect(
-        styledReview.some(
-          (chunk) => chunk.text === "enabled" && chunk.styles?.includes("#9ece6a") === true,
-        ),
-      ).toBe(true);
+      expect(styledReview.some((chunk) => chunk.styles?.includes("#9ece6a") === true)).toBe(true);
     } finally {
       mock.restore();
     }
@@ -602,7 +602,7 @@ describe("public install wizard contract", () => {
       toVersion: CURRENT_VERSION,
       profile: "high",
       tier: "fast-all",
-      capabilities: { computer_use: true, frontend: true, security: true },
+      capabilities: { computer_use: true, sites: true, browser_use: true },
       additionalPlugins: ["example@marketplace"],
       conflicts: [
         { identity: "config", category: "config-key", path: "config.toml", action: "replace" },
@@ -645,6 +645,10 @@ describe("generated Root orchestration policy", () => {
     expect(sol).toContain(
       "before every delegable action, including trivial, preparatory, and exploratory work",
     );
+    expect(sol).toContain("derive the exact Role.task target and complete configuration");
+    expect(sol).toContain("service tier, full developer instructions, shell/environment policy");
+    expect(sol).toContain("Never inherit Root settings, substitute a generic route");
+    expect(sol).toContain("stop with needs_root_input before spawning");
     expect(sol).toContain('fork_turns: "none"');
     expect(sol).toContain("If no matching route exists, return needs_root_input");
     expect(sol).toContain("Reviewer.code fixed point");
@@ -663,8 +667,10 @@ describe("generated Root orchestration policy", () => {
 
   test("selects conditional capability guidance and preserves specialist boundaries", () => {
     const root = rootDeveloperInstructions(true);
-    expect(root).toContain("Computer Use is Root-only");
-    expect(root).toContain("user for credential entry and submission");
+    expect(root).toContain("Root decides when interface work is needed");
+    expect(root).toContain("without operating the browser or computer");
+    expect(root).not.toContain("Root-only browser");
+    expect(root).not.toContain("never request, enter, retrieve, expose, or store credentials");
     expect(root).toContain("babysit-ci");
     for (const mapping of CAPABILITY_REGISTRY.frontend.applicability) {
       expect(root).toContain(mapping.skillId);
@@ -679,12 +685,22 @@ describe("generated Root orchestration policy", () => {
     expect(leaf).toContain("bounded Assignment");
     expect(leaf).toContain("Patch quality:");
     expect(leaf).toContain("correctly, elegantly, and mergeably");
-    expect(leaf).toContain("context_management = true");
+    expect(leaf).not.toContain("agent_message_board");
+    expect(leaf).not.toContain("thread_tools");
+    expect(leaf).not.toContain("multi_agent_v2");
     expect(leaf).not.toContain("Your model and reasoning effort");
+    const interactiveLeaf = renderNativeAgent(
+      projectNativeAgents("default").find((agent) => agent.name === "Worker.implementation")!,
+      { browserUse: true, computerUse: true },
+    );
+    expect(interactiveLeaf).toContain("Use Browser Use only for this Assignment");
+    expect(interactiveLeaf).toContain("Use Computer Use only for this Assignment");
+    expect(leaf).not.toContain("Use Browser Use only for this Assignment");
+    expect(leaf).not.toContain("Use Computer Use only for this Assignment");
 
     for (const agent of projectNativeAgents("default")) {
       const rendered = renderNativeAgent(agent);
-      expect(rendered).toContain('sandbox_mode = "workspace-write"');
+      expect(rendered).toContain(`sandbox_mode = ${JSON.stringify(agent.permissions.filesystem)}`);
       expect(rendered).toContain('web_search = "live"');
       if (
         agent.permissions.filesystem === "workspace-write" ||
@@ -736,7 +752,7 @@ describe("interactive command boundary", () => {
     };
     let initial: InstallRequest | undefined;
     try {
-      const result = await runCli(["install", "--profile", "low", "--frontend", "--no-security"], {
+      const result = await runCli(["install", "--profile", "low", "--sites", "--no-browser-use"], {
         io: {
           stdoutIsTTY: true,
           stderrIsTTY: true,
@@ -751,7 +767,7 @@ describe("interactive command boundary", () => {
       });
       expect(initial).toEqual({
         profile: "low",
-        optional: { frontend: true, security: false },
+        optional: { sites: true, browser_use: false },
       });
       expect(result.exitCode).toBe(0);
       expect(result.envelope).toMatchObject({

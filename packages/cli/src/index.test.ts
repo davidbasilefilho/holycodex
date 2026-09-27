@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,6 +11,7 @@ import * as publicCli from "./index.ts";
 import {
   assertRootText,
   CodexOfficialPluginManager,
+  ReadOnlyCodexPluginStatus,
   doctorHolyCodex as doctorHolyCodexImplementation,
   installHolyCodex as installHolyCodexImplementation,
   installRecordDigest,
@@ -35,8 +36,19 @@ import type {
   UpgradeRequest,
 } from "./index.ts";
 import { desiredRootConfig } from "./installer.ts";
+import { nativeAgentGenerationId } from "./native-agents.ts";
 
 const toolingStates = new Map<string, { installed: boolean }>();
+
+function managedRolePath(
+  codexHome: string,
+  artifacts: readonly { readonly path: string }[],
+  name: string,
+): string {
+  const artifact = artifacts.find((entry) => entry.path.endsWith(`/${name}.toml`));
+  if (artifact === undefined) throw new Error(`Missing managed role artifact: ${name}`);
+  return join(codexHome, artifact.path);
+}
 
 function testRuntime(codexHome: string): InstallerRuntime {
   const state = toolingStates.get(codexHome) ?? { installed: false };
@@ -248,7 +260,7 @@ describe("CLI boundaries", () => {
   });
 
   test("accepts only the current command and option surface", () => {
-    expect(parseArgv(["install", "--tier", "standard", "--frontend"]).options["tier"]).toBe(
+    expect(parseArgv(["install", "--tier", "standard", "--sites"]).options["tier"]).toBe(
       "standard",
     );
     expect(parseArgv(["install", "--tier", "fast-all"]).options["tier"]).toBe("fast-all");
@@ -435,50 +447,59 @@ describe("native installation and removal", () => {
       expect(install.record.profile).toBe("default");
       expect(install.record.tier).toBe("standard");
       expect(install.record.optional_selections).toMatchObject({
-        frontend: true,
-        security: true,
+        browser_use: true,
+        computer_use: false,
+        sites: true,
       });
+      expect(install.record.capability_state?.frontend.selected).toBe(true);
+      expect(install.record.capability_state?.security.selected).toBe(true);
+      expect(install.record.optional_selections).not.toHaveProperty("frontend");
+      expect(install.record.optional_selections).not.toHaveProperty("security");
       expect(install.record.optional_selections).not.toHaveProperty("work");
       expect(install.record.owned_plugins).toEqual([
         "holycodex@holycodex",
         "build-web-apps@openai-curated",
         "codex-security@openai-curated",
+        "browser@openai-bundled",
+        "sites@openai-bundled",
       ]);
       expect(install.record.managed_artifacts).toHaveLength(projectNativeAgents("default").length);
+      const generation = install.record.managed_artifacts[0]?.path.split("/")[2];
+      expect(generation).toMatch(/^[a-f0-9]{20}$/u);
+      const generationDirectory = join(codexHome, "holycodex", "agents", generation!);
       expect(install.record.managed_artifacts.map((artifact) => artifact.path)).toEqual(
-        projectNativeAgents("default").map((agent) => `holycodex/agents/${agent.name}.toml`),
+        projectNativeAgents("default").map(
+          (agent) => `holycodex/agents/${generation}/${agent.name}.toml`,
+        ),
       );
       expect(install.record.status).toBe("active");
       expect(
         await readFile(
-          join(codexHome, "holycodex", "agents", "Worker.implementation.toml"),
+          managedRolePath(codexHome, install.record.managed_artifacts, "Worker.implementation"),
           "utf8",
         ),
       ).toContain('model_reasoning_summary = "none"');
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
       expect(config).toContain('model = "gpt-6-sol"');
       expect(config).not.toContain("model_auto_compact_token_limit");
-      expect(config).toContain("default_mode_request_user_input = true");
       expect(config).toContain("max_concurrent_threads_per_session = 21");
       expect(config).toContain("multi_agent = true");
-      expect(config).toContain("agent_message_board = false");
-      expect(config).toContain("multi_agent_v2 = false");
-      expect(config).toContain("context_management = true");
+      expect(config).toContain("experimental_mode = true");
+      expect(config).not.toContain("agent_message_board");
+      expect(config).not.toContain("thread_tools");
       expect(config).toContain('web_search = "live"');
       expect(config).toContain("network_access = true");
       expect(config).toContain("You are the HolyCodex Root/session orchestrator");
-      expect(config).toContain(
-        "GUI and browser execution remain Root-only; Computer Use is unavailable",
-      );
+      expect(config).toContain("Browser Use and Computer Use execution are specialist-owned");
       expect(config).not.toContain("delegate GUI");
       expect(config).not.toContain("Interactive GUI, browser, and Computer Use execution");
       for (const agent of projectNativeAgents("default")) {
         expect(config).toContain(`[agents.${JSON.stringify(agent.name)}]`);
-        expect(config).toContain(`holycodex/agents/${agent.name}.toml`);
+        expect(config).toContain(`holycodex/agents/${generation}/${agent.name}.toml`);
       }
       expect(config).not.toContain('name = "root"');
       const leaf = await readFile(
-        join(codexHome, "holycodex", "agents", "Worker.implementation.toml"),
+        managedRolePath(codexHome, install.record.managed_artifacts, "Worker.implementation"),
         "utf8",
       );
       expect(leaf).toContain('service_tier = "default"');
@@ -492,17 +513,15 @@ describe("native installation and removal", () => {
       expect(leaf).toContain("enabled = false");
       expect(leaf).toContain("interrupt_message = false");
       expect(leaf).toContain("[features]");
-      expect(leaf).toContain("agent_message_board = false");
-      expect(leaf).toContain("multi_agent_v2 = false");
       expect(leaf).toContain("multi_agent = false");
-      expect(leaf).toContain("computer_use = false");
-      expect(leaf).toContain("browser_use = false");
       expect(leaf).not.toContain("Do not spawn agents, message peers, or delegate work.");
       const result = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
       });
       expect(result.preserved).toEqual([]);
+      expect(result.removed).toContain(generationDirectory);
+      await expect(readdir(generationDirectory)).rejects.toThrow();
       expect(result.removed).toContain("holycodex@holycodex");
       expect(result.removed).toContain("build-web-apps@openai-curated");
       expect(result.removed).toContain("codex-security@openai-curated");
@@ -519,25 +538,65 @@ describe("native installation and removal", () => {
     }
   });
 
-  test("keeps Computer Use Root-only when the capability is selected", async () => {
+  test("publishes cleaned configuration before removing referenced artifacts and recovers failures", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-removal-order-"));
+    const codexHome = join(root, "codex");
+    const config = join(codexHome, "config.toml");
+    const base = fakeManager();
+    let configAtRemoval: string | undefined;
+    let failFirstRemoval = true;
+    const manager: OfficialPluginManager = {
+      ...base,
+      remove: async (pluginId) => {
+        try {
+          configAtRemoval = await readFile(config, "utf8");
+        } catch {
+          configAtRemoval = undefined;
+        }
+        if (failFirstRemoval) {
+          failFirstRemoval = false;
+          throw new Error("interrupted provider removal");
+        }
+        await base.remove?.(pluginId);
+      },
+    };
+    try {
+      await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager });
+      await expect(
+        removeHolyCodex({ paths: { codexHome }, officialPluginManager: manager }),
+      ).rejects.toMatchObject({ code: "capability_denied" });
+      expect(configAtRemoval?.trim()).toBe("");
+      await expect(readFile(join(codexHome, "holycodex", "conflicted.json"))).resolves.toBeTruthy();
+
+      const recovered = await removeHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: base,
+      });
+      expect(recovered.preserved).toEqual([]);
+      await expect(readFile(join(codexHome, "holycodex", "active.json"))).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("projects Computer Use instructions to specialists when selected", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-computer-use-"));
     const codexHome = join(root, "codex");
     try {
       const install = await installHolyCodex(
-        { optional: { computer_use: true, frontend: false, security: false } },
+        { optional: { computer_use: true } },
         { paths: { codexHome }, officialPluginManager: fakeManager() },
       );
       expect(install.record.official_plugins).toContain("computer-use@openai-bundled");
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
-      expect(config).toContain("Computer Use is Root-only");
+      expect(config).toContain("Browser Use and Computer Use execution are specialist-owned");
       for (const agent of projectNativeAgents("default")) {
         const leaf = await readFile(
-          join(codexHome, "holycodex", "agents", `${agent.name}.toml`),
+          managedRolePath(codexHome, install.record.managed_artifacts, agent.name),
           "utf8",
         );
-        expect(leaf).toContain("computer_use = false");
-        expect(leaf).toContain("browser_use = false");
-        expect(leaf).toContain("in_app_browser = false");
+        expect(leaf).toContain("Use Computer Use only for this Assignment");
+        expect(leaf).toContain("Tool availability does not grant authority");
       }
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -581,7 +640,11 @@ describe("native installation and removal", () => {
         {},
         { paths: { codexHome }, officialPluginManager: manager },
       );
-      expect(install.record.owned_plugins).toEqual(["holycodex@holycodex"]);
+      expect(install.record.owned_plugins).toEqual([
+        "holycodex@holycodex",
+        "browser@openai-bundled",
+        "sites@openai-bundled",
+      ]);
       const removed = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
@@ -622,7 +685,11 @@ describe("native installation and removal", () => {
       },
       add: async (pluginId) => {
         if (pluginId === provider) {
-          providerState = "disabled";
+          if (providerFails) {
+            providerState = "disabled";
+            return;
+          }
+          await base.add!(pluginId);
           return;
         }
         await base.add!(pluginId);
@@ -637,14 +704,17 @@ describe("native installation and removal", () => {
         await base.remove!(pluginId);
       },
     };
+    let providerFails = false;
     try {
       await installHolyCodex(
-        { optional: { frontend: false, security: false } },
+        { optional: {} },
         { paths: { codexHome }, officialPluginManager: manager },
       );
+      providerFails = true;
+      await base.remove!(provider);
       await expect(
         installHolyCodex(
-          { optional: { frontend: true, security: false } },
+          { optional: {} },
           { paths: { codexHome }, officialPluginManager: manager },
         ),
       ).rejects.toMatchObject({ code: "capability_denied" });
@@ -758,12 +828,23 @@ describe("native installation and removal", () => {
           officialPluginManager: manager,
         },
       );
-      expect(events).toEqual(["add:holycodex@holycodex"]);
-      expect(install.record.official_plugins).toEqual([
-        "build-web-apps@openai-curated",
-        "codex-security@openai-curated",
+      expect(events).toHaveLength(3);
+      expect(events).toContain("add:holycodex@holycodex");
+      expect(events).toContain("add:browser@openai-bundled");
+      expect(events).toContain("add:sites@openai-bundled");
+      expect(install.record.official_plugins).toEqual(
+        expect.arrayContaining([
+          "build-web-apps@openai-curated",
+          "codex-security@openai-curated",
+          "browser@openai-bundled",
+          "sites@openai-bundled",
+        ]),
+      );
+      expect(install.record.owned_plugins).toEqual([
+        "holycodex@holycodex",
+        "browser@openai-bundled",
+        "sites@openai-bundled",
       ]);
-      expect(install.record.owned_plugins).toEqual(["holycodex@holycodex"]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -772,9 +853,16 @@ describe("native installation and removal", () => {
   test("does not register a malformed pre-existing HolyCodex role", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-role-conflict-"));
     const codexHome = join(root, "codex");
-    const rolePath = join(codexHome, "holycodex", "agents", "Worker.implementation.toml");
+    const generation = nativeAgentGenerationId("default", "standard", { browserUse: true });
+    const rolePath = join(
+      codexHome,
+      "holycodex",
+      "agents",
+      generation,
+      "Worker.implementation.toml",
+    );
     try {
-      await mkdir(join(codexHome, "holycodex", "agents"), { recursive: true });
+      await mkdir(join(codexHome, "holycodex", "agents", generation), { recursive: true });
       await writeFile(rolePath, 'name = "not-worker"\n');
       await expect(
         installHolyCodex({}, { paths: { codexHome }, officialPluginManager: fakeManager() }),
@@ -885,10 +973,10 @@ describe("native installation and removal", () => {
       const recoveredRoot = await mkdtemp(join(tmpdir(), "holycodex-cli-recovered-"));
       const recoveredCodexHome = join(recoveredRoot, "codex");
       const recovered = await installHolyCodex(
-        { optional: { frontend: false, security: false } },
+        { optional: {} },
         { paths: { codexHome: recoveredCodexHome }, officialPluginManager: manager },
       );
-      expect(recovered.record.capability_state?.frontend.status).toBe("disabled");
+      expect(recovered.record.capability_state?.frontend.status).toBe("healthy");
       await rm(recoveredRoot, { recursive: true, force: true });
 
       const explicitRoot = await mkdtemp(join(tmpdir(), "holycodex-cli-explicit-"));
@@ -898,7 +986,7 @@ describe("native installation and removal", () => {
         });
         await expect(
           installHolyCodex(
-            { optional: { frontend: true } },
+            { optional: {} },
             {
               paths: { codexHome: join(explicitRoot, "codex") },
               officialPluginManager: explicitManager,
@@ -958,13 +1046,13 @@ describe("native installation and removal", () => {
   test("preserves an additional provider plugin across reinstall", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
     const codexHome = join(root, "codex");
-    const provider = "build-web-apps@openai-curated";
+    const provider = "sample@openai-curated";
     try {
       const initial = await installHolyCodex(
-        { optional: { frontend: false, security: false }, officialPlugins: [provider] },
+        { optional: {}, officialPlugins: [provider] },
         { paths: { codexHome }, officialPluginManager: fakeManager() },
       );
-      expect(initial.record.official_plugins).toEqual([provider]);
+      expect(initial.record.official_plugins).toContain(provider);
 
       await expect(
         installHolyCodex(
@@ -1003,7 +1091,7 @@ describe("native installation and removal", () => {
     const codexHome = join(root, "codex");
     try {
       const initial = await installHolyCodex(
-        { optional: { frontend: false, security: false } },
+        { optional: {} },
         { paths: { codexHome }, officialPluginManager: fakeManager() },
       );
       const legacyRecord = {
@@ -1052,15 +1140,21 @@ describe("native installation and removal", () => {
     const manager = fakeManager();
     try {
       await mkdir(codexHome, { recursive: true });
-      await writeFile(config, '[features]\ncontext_management = false\nunrelated = "keep"\n');
+      await writeFile(
+        config,
+        '[features.context_management]\nexperimental_mode = false\nunrelated = "keep"\n',
+      );
       const initial = await installHolyCodex(
         {},
         { paths: { codexHome }, officialPluginManager: manager },
       );
-      expect(await readFile(config, "utf8")).toContain("context_management = true");
-      expect(initial.record.managed_config?.managed["features.context_management"]).toBeDefined();
+      expect(await readFile(config, "utf8")).toContain("experimental_mode = true");
       expect(
-        initial.record.managed_config?.managed["features.context_management"]?.originalValue,
+        initial.record.managed_config?.managed["features.context_management.experimental_mode"],
+      ).toBeDefined();
+      expect(
+        initial.record.managed_config?.managed["features.context_management.experimental_mode"]
+          ?.originalValue,
       ).toEqual({ kind: "boolean", value: false });
 
       const reinstalled = await installHolyCodex(
@@ -1068,9 +1162,9 @@ describe("native installation and removal", () => {
         { paths: { codexHome }, officialPluginManager: manager },
       );
       expect(
-        reinstalled.record.managed_config?.managed["features.context_management"],
+        reinstalled.record.managed_config?.managed["features.context_management.experimental_mode"],
       ).toBeDefined();
-      expect(await readFile(config, "utf8")).toContain("context_management = true");
+      expect(await readFile(config, "utf8")).toContain("experimental_mode = true");
       expect(
         (
           await doctorHolyCodex({
@@ -1085,10 +1179,10 @@ describe("native installation and removal", () => {
         officialPluginManager: manager,
       });
       expect(removed.preserved).toEqual([]);
-      expect(await readFile(config, "utf8")).toContain("context_management = false");
+      expect(await readFile(config, "utf8")).toContain("experimental_mode = false");
       expect(await readFile(config, "utf8")).toContain('unrelated = "keep"');
       expect(await readFile(join(codexHome, "config.toml"), "utf8")).not.toContain(
-        "context_management = true",
+        "experimental_mode = true",
       );
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -1224,20 +1318,24 @@ describe("native installation and removal", () => {
         }
       }
     }
-  });
+  }, 15_000);
 
   test("accepts an existing scalar context-management setting", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-context-scalar-"));
     const codexHome = join(root, "codex");
     try {
       await mkdir(codexHome, { recursive: true });
-      await writeFile(join(codexHome, "config.toml"), "[features]\ncontext_management = true\n");
+      await writeFile(
+        join(codexHome, "config.toml"),
+        "[features.context_management]\nexperimental_mode = true\n",
+      );
       const result = await installHolyCodex(
         {},
         { paths: { codexHome }, officialPluginManager: fakeManager() },
       );
       expect(
-        result.record.managed_config?.managed["features.context_management"]?.originalValue,
+        result.record.managed_config?.managed["features.context_management.experimental_mode"]
+          ?.originalValue,
       ).toEqual({
         kind: "boolean",
         value: true,
@@ -1254,7 +1352,7 @@ describe("native installation and removal", () => {
     const manager = fakeManager({ addCalls });
     try {
       const initial = await installHolyCodex(
-        { tier: "fast", optional: { frontend: false, security: false } },
+        { tier: "fast", optional: {} },
         { paths: { codexHome }, officialPluginManager: manager },
       );
       addCalls.length = 0;
@@ -1262,7 +1360,12 @@ describe("native installation and removal", () => {
       const oldRecord = {
         ...initial.record,
         version: "0.1.0",
-        optional_selections: { ...initial.record.optional_selections, work: true },
+        optional_selections: {
+          ...initial.record.optional_selections,
+          frontend: true,
+          security: true,
+          work: true,
+        },
         explicit_optional_selections: {
           ...initial.record.explicit_optional_selections,
           work: true,
@@ -1371,12 +1474,14 @@ describe("native installation and removal", () => {
     const manager = fakeManager();
     try {
       const initial = await installHolyCodex(
-        { optional: { frontend: false, security: false } },
+        { optional: {} },
         { paths: { codexHome }, officialPluginManager: manager },
       );
       const paths = resolveInstallerPaths({ paths: { codexHome } });
       const debugType = "Worker.debugging";
-      const debugArtifact = `holycodex/agents/${debugType}.toml`;
+      const debugArtifact = initial.record.managed_artifacts.find((artifact) =>
+        artifact.path.endsWith(`/${debugType}.toml`),
+      )!.path;
       const configPath = join(codexHome, "config.toml");
       const config = await readFile(configPath, "utf8");
       await writeFile(
@@ -1427,11 +1532,16 @@ describe("native installation and removal", () => {
       );
       expect(upgraded.status).toBe("upgraded");
       expect(upgraded.record?.managed_artifacts.map((artifact) => artifact.path)).toContain(
-        debugArtifact,
+        initial.record.managed_artifacts.find((artifact) =>
+          artifact.path.endsWith(`/${debugType}.toml`),
+        )?.path,
       );
       expect(projectNativeAgents("default")).toHaveLength(ROUTE_KEYS.length);
-      const debugging = await readFile(join(codexHome, `${debugArtifact}`), "utf8");
-      expect(debugging).toContain("context_management = true");
+      const debugging = await readFile(
+        managedRolePath(codexHome, upgraded.record!.managed_artifacts, debugType),
+        "utf8",
+      );
+      expect(debugging).toContain("Use the debugging skill");
       expect(
         (await doctorHolyCodex({ paths: { codexHome }, officialPluginManager: manager })).healthy,
       ).toBe(true);
@@ -1451,16 +1561,12 @@ describe("native installation and removal", () => {
       );
       const paths = resolveInstallerPaths({ paths: { codexHome } });
       const managedConfig = initial.record.managed_config;
-      const scalar = managedConfig?.managed["features.context_management"];
+      const scalar = managedConfig?.managed["features.context_management.experimental_mode"];
       if (managedConfig === undefined || scalar === undefined) {
         throw new Error("the install did not persist scalar context-management ownership");
       }
       const managed = { ...managedConfig.managed };
-      delete managed["features.context_management"];
-      managed["features.context_management.experimental_mode"] = {
-        ...scalar,
-        keyPath: "features.context_management.experimental_mode",
-      };
+      managed["features.context_management.experimental_mode"] = scalar;
       const legacyRecord = {
         ...initial.record,
         version: "0.1.0",
@@ -1486,15 +1592,15 @@ describe("native installation and removal", () => {
       await writeFile(paths.activeRecord, `${JSON.stringify(legacyRecord)}\n`);
       const configPath = join(codexHome, "config.toml");
       const changedConfig = (await readFile(configPath, "utf8")).replace(
-        "context_management = true",
-        "context_management = false",
+        "experimental_mode = true",
+        "experimental_mode = false",
       );
       await writeFile(configPath, changedConfig);
 
       await expect(
         upgradeHolyCodex({ paths: { codexHome }, officialPluginManager: manager }),
       ).rejects.toMatchObject({ code: "state_corrupt" });
-      expect(await readFile(configPath, "utf8")).toContain("context_management = false");
+      expect(await readFile(configPath, "utf8")).toContain("experimental_mode = false");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1509,12 +1615,12 @@ describe("native installation and removal", () => {
         upgradeHolyCodex({ paths: { codexHome }, officialPluginManager: manager }),
       ).rejects.toMatchObject({ code: "not_installed" });
       await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager });
-      const current = await upgradeHolyCodex(
+      const first = await upgradeHolyCodex(
         { paths: { codexHome }, officialPluginManager: manager },
         {},
       );
-      expect(current.status).toBe("current");
-      expect(current.changes).toEqual([]);
+      expect(first.status).toBe("current");
+      expect(first.changes).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1537,7 +1643,7 @@ describe("native installation and removal", () => {
     };
     try {
       const initial = await installHolyCodex(
-        { optional: { frontend: false, security: false } },
+        { optional: {} },
         { paths: { codexHome }, officialPluginManager: manager },
       );
       let current = await readFile(config, "utf8");
@@ -1619,7 +1725,7 @@ describe("native installation and removal", () => {
       await mkdir(codexHome, { recursive: true });
       await writeFile(config, 'unrelated = "keep"\n');
       const install = await installHolyCodex(
-        { optional: { frontend: false, security: false } },
+        { optional: {} },
         { paths: { codexHome }, officialPluginManager: manager },
       );
       expect(install.record.plugin_config?.before.preference.presence).toBe("absent");
@@ -1661,7 +1767,7 @@ describe("native installation and removal", () => {
         '[plugins."holycodex@holycodex"]\nenabled = false\n\n[marketplaces.holycodex]\nsource_type = "git"\nsource = "https://github.com/davidbasilefilho/holycodex.git"\n',
       );
       const install = await installHolyCodex(
-        { optional: { frontend: false, security: false } },
+        { optional: {} },
         { paths: { codexHome }, officialPluginManager: manager },
       );
       expect(install.record.plugin_config?.before.preference.safe_value).toEqual({
@@ -1708,19 +1814,22 @@ describe("native installation and removal", () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-role-preflight-"));
     const codexHome = join(root, "codex");
     const roleRoot = join(codexHome, "holycodex", "agents");
-    const malformedWorker = join(roleRoot, "Worker.implementation.toml");
+    const generation = nativeAgentGenerationId("default", "standard", { browserUse: true });
+    const malformedWorker = join(roleRoot, generation, "Worker.implementation.toml");
     try {
-      await mkdir(roleRoot, { recursive: true });
+      await mkdir(join(roleRoot, generation), { recursive: true });
       await writeFile(malformedWorker, "not valid HolyCodex role data\n");
       await expect(
         installHolyCodex(
-          { optional: { frontend: false, security: false } },
+          { optional: {} },
           { paths: { codexHome }, officialPluginManager: fakeManager() },
         ),
       ).rejects.toMatchObject({ code: "install_failed" });
       expect(await readFile(malformedWorker, "utf8")).toBe("not valid HolyCodex role data\n");
       for (const agentType of ["Explorer.lookup", "Librarian.lookup", "Reviewer.code"] as const) {
-        await expect(readFile(join(roleRoot, `${agentType}.toml`), "utf8")).rejects.toThrow();
+        await expect(
+          readFile(join(roleRoot, generation, `${agentType}.toml`), "utf8"),
+        ).rejects.toThrow();
       }
       await expect(readFile(join(codexHome, "holycodex", "active.json"))).rejects.toThrow();
     } finally {
@@ -1728,31 +1837,39 @@ describe("native installation and removal", () => {
     }
   });
 
-  test("preserves edited managed files during reinstall and remove", async () => {
+  test("fails closed when reinstall keeps a registered role edit and preserves it on remove", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
     const codexHome = join(root, "codex");
     const manager = fakeManager();
-    const leaf = join(codexHome, "holycodex", "agents", "Worker.implementation.toml");
+    let leaf = "";
     const config = join(codexHome, "config.toml");
     try {
       await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager });
-      await writeFile(leaf, "user edit\n");
+      const current = await readActiveInstallRecord(
+        resolveInstallerPaths({ paths: { codexHome } }),
+      );
+      leaf = managedRolePath(codexHome, current!.managed_artifacts, "Worker.implementation");
+      const originalLeaf = await readFile(leaf, "utf8");
+      const editedLeaf = originalLeaf.replace(
+        'model_reasoning_summary = "none"',
+        'model_reasoning_summary = "detailed"',
+      );
+      await writeFile(leaf, editedLeaf);
       const managedConfig = await readFile(config, "utf8");
       await writeFile(config, `approval_policy = "on-request"\n${managedConfig}`);
-      const reinstall = await installHolyCodex(
-        { tier: "fast-all" },
-        {
-          paths: { codexHome },
-          officialPluginManager: manager,
-          resolveConflict: async () => "decline",
-        },
-      );
-      expect(reinstall.preserved).toContain(leaf);
-      expect(reinstall.preserved).not.toContain(config);
-      expect(reinstall.warnings).toEqual(["modified managed files were preserved"]);
-      expect(await readFile(leaf, "utf8")).toBe("user edit\n");
+      await expect(
+        installHolyCodex(
+          {},
+          {
+            paths: { codexHome },
+            officialPluginManager: manager,
+            resolveConflict: async () => "decline",
+          },
+        ),
+      ).rejects.toMatchObject({ code: "install_failed" });
+      expect(await readFile(leaf, "utf8")).toBe(editedLeaf);
       expect(await readFile(config, "utf8")).toContain('approval_policy = "on-request"');
-      expect(await readFile(config, "utf8")).toContain('service_tier = "fast"');
+      expect(await readFile(config, "utf8")).toContain('service_tier = "default"');
 
       const result = await removeHolyCodex({
         paths: { codexHome },
@@ -1762,7 +1879,7 @@ describe("native installation and removal", () => {
       expect(result.preserved).toContain(leaf);
       expect(result.preserved).not.toContain(config);
       expect(result.reasons).toContain("managed_artifact_changed");
-      expect(await readFile(leaf, "utf8")).toBe("user edit\n");
+      expect(await readFile(leaf, "utf8")).toBe(editedLeaf);
       expect(await readFile(config, "utf8")).toContain('approval_policy = "on-request"');
       await expect(readFile(join(codexHome, "agents", "root.toml"), "utf8")).rejects.toThrow();
     } finally {
@@ -1809,29 +1926,42 @@ describe("native installation and removal", () => {
     }
   });
 
-  test("applies accepted native conflicts while preserving declined edits", async () => {
+  test("fails closed when a kept native conflict remains registered", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-native-conflicts-"));
     const codexHome = join(root, "codex");
     const manager = fakeManager();
-    const acceptedPath = join(codexHome, "holycodex", "agents", "Worker.implementation.toml");
-    const declinedPath = join(codexHome, "holycodex", "agents", "Explorer.lookup.toml");
+    let declinedPath = "";
     try {
       await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager });
-      await writeFile(acceptedPath, "accepted edit\n");
-      await writeFile(declinedPath, "declined edit\n");
-      const reinstall = await installHolyCodex(
-        { tier: "fast-all" },
-        {
-          paths: { codexHome },
-          officialPluginManager: manager,
-          resolveConflict: async (conflict) =>
-            conflict.path === acceptedPath ? "accept" : "decline",
-        },
+      const active = await readActiveInstallRecord(resolveInstallerPaths({ paths: { codexHome } }));
+      declinedPath = managedRolePath(codexHome, active!.managed_artifacts, "Explorer.lookup");
+      const declinedEdit = (await readFile(declinedPath, "utf8")).replace(
+        'model_reasoning_summary = "none"',
+        'model_reasoning_summary = "detailed"',
       );
-      expect(reinstall.preserved).toContain(declinedPath);
-      expect(reinstall.preserved).not.toContain(acceptedPath);
-      expect(await readFile(declinedPath, "utf8")).toBe("declined edit\n");
-      expect(await readFile(acceptedPath, "utf8")).toContain('service_tier = "fast"');
+      await writeFile(declinedPath, declinedEdit);
+      const configBefore = await readFile(
+        resolveInstallerPaths({ paths: { codexHome } }).configFile,
+        "utf8",
+      );
+      const activeBefore = await readFile(join(codexHome, "holycodex", "active.json"), "utf8");
+      await expect(
+        installHolyCodex(
+          {},
+          {
+            paths: { codexHome },
+            officialPluginManager: manager,
+            resolveConflict: async () => "decline",
+          },
+        ),
+      ).rejects.toMatchObject({ code: "install_failed" });
+      expect(await readFile(declinedPath, "utf8")).toBe(declinedEdit);
+      await expect(
+        readFile(resolveInstallerPaths({ paths: { codexHome } }).configFile, "utf8"),
+      ).resolves.toBe(configBefore);
+      await expect(readFile(join(codexHome, "holycodex", "active.json"), "utf8")).resolves.toBe(
+        activeBefore,
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1866,14 +1996,16 @@ describe("native installation and removal", () => {
     const manager = fakeManager();
     try {
       await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager });
-      const unrelated = join(codexHome, "holycodex", "user-notes.txt");
+      const active = await readActiveInstallRecord(resolveInstallerPaths({ paths: { codexHome } }));
+      const generation = active!.managed_artifacts[0]!.path.split("/")[2]!;
+      const unrelated = join(codexHome, "holycodex", "agents", generation, "user-notes.txt");
       await writeFile(unrelated, "keep\n");
       const result = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
       });
-      expect(result.preserved).toContain(join(codexHome, "holycodex"));
-      expect(result.reasons).toContain("state_directory_not_empty");
+      expect(result.preserved).toContain(join(codexHome, "holycodex", "agents"));
+      expect(result.reasons).toContain("role_directory_not_empty");
       expect(await readFile(unrelated, "utf8")).toBe("keep\n");
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -1906,6 +2038,112 @@ describe("native installation and removal", () => {
     }
   });
 
+  test("doctor reports unavailable live plugin status as unhealthy", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-doctor-plugin-status-"));
+    const codexHome = join(root, "codex");
+    try {
+      await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: fakeManager() });
+      const doctor = await doctorHolyCodex({
+        paths: { codexHome },
+        runtime: testRuntime(codexHome),
+      });
+      expect(doctor.healthy).toBe(false);
+      expect(doctor.checks["native_plugins"]).toMatchObject({
+        status: "failed",
+        reasons: ["native_plugin_status_unavailable"],
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("CLI doctor observes configured plugin status without running Codex or mutating config", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-doctor-readonly-plugin-status-"));
+    const codexHome = join(root, "codex");
+    const manager = fakeManager();
+    try {
+      const installed = await installHolyCodex(
+        {},
+        { paths: { codexHome }, officialPluginManager: manager },
+      );
+      const pluginIds = [
+        "holycodex@holycodex",
+        ...(installed.record.official_plugins ?? []),
+        ...(installed.record.owned_plugins ?? []),
+      ];
+      const configPath = join(codexHome, "config.toml");
+      let config = await readFile(configPath, "utf8");
+      for (const pluginId of new Set(pluginIds)) {
+        const separator = pluginId.lastIndexOf("@");
+        const name = pluginId.slice(0, separator);
+        const marketplace = pluginId.slice(separator + 1);
+        const pluginVersionRoot = join(codexHome, "plugins", "cache", marketplace, name, "fixture");
+        const manifest = join(pluginVersionRoot, ".codex-plugin", "plugin.json");
+        await mkdir(join(pluginVersionRoot, ".codex-plugin"), { recursive: true });
+        await writeFile(manifest, "{}\n");
+        config += `\n[plugins."${pluginId}"]\nenabled = true\n`;
+      }
+      await writeFile(configPath, config);
+      const beforeConfig = await readFile(join(codexHome, "config.toml"), "utf8");
+      const result = await runCli(["doctor", "--json", "--codex-home", codexHome], {
+        env: { CODEX_HOME: codexHome, PATH: "" },
+        installer: { runtime: testRuntime(codexHome) },
+      });
+      expect(result.envelope).toMatchObject({ ok: true });
+      if (result.envelope.ok) {
+        expect(result.envelope.data).toMatchObject({
+          healthy: true,
+          checks: { native_plugins: { status: "healthy" } },
+        });
+      }
+      expect(await readFile(join(codexHome, "config.toml"), "utf8")).toBe(beforeConfig);
+      await expect(readdir(join(codexHome, ".tmp"))).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("read-only plugin status honors Codex provider aliases and distinguishes disabled plugins", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-plugin-config-status-"));
+    const config = join(root, "config.toml");
+    try {
+      await writeFile(
+        config,
+        '[plugins."sites@openai-curated-remote"]\nenabled = true\n[plugins."browser@openai-bundled"]\nenabled = false\n[plugins."unified-computer-use@openai-bundled"]\nenabled = true\n',
+      );
+      const siteVersionRoot = join(
+        root,
+        "plugins",
+        "cache",
+        "openai-curated-remote",
+        "sites",
+        "0.1.0",
+      );
+      const siteManifest = join(siteVersionRoot, ".codex-plugin", "plugin.json");
+      await mkdir(join(siteVersionRoot, ".codex-plugin"), { recursive: true });
+      await writeFile(siteManifest, "{}\n");
+      const manager = new ReadOnlyCodexPluginStatus(root);
+      expect(
+        await manager.status([
+          "sites@openai-bundled",
+          "browser@openai-bundled",
+          "unified-computer-use@openai-bundled",
+        ]),
+      ).toEqual({
+        "sites@openai-bundled": "installed",
+        "browser@openai-bundled": "disabled",
+        "unified-computer-use@openai-bundled": "missing",
+      });
+      expect(manager.getObservedIdentities()).toEqual({
+        "sites@openai-bundled": "sites@openai-curated-remote",
+        "browser@openai-bundled": "browser@openai-bundled",
+        "unified-computer-use@openai-bundled": "unified-computer-use@openai-bundled",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("doctor does not change prerequisite discovery between unchanged installs", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-observational-doctor-"));
     const codexHome = join(root, "codex");
@@ -1932,10 +2170,41 @@ describe("native installation and removal", () => {
       const doctor = await doctorHolyCodex(options);
       expect(doctor.healthy).toBe(true);
       expect(doctor.checks["context7"]?.status).toBe("warning");
-      expect(calls.slice(callsBeforeDoctor).every((call) => !call.includes("add -g"))).toBe(true);
+      expect(
+        calls
+          .slice(callsBeforeDoctor)
+          .every((call) => !call.includes("add -g") && !call.includes("view ctx7 version")),
+      ).toBe(true);
       const second = await installHolyCodex({}, options);
       expect(second.warnings.some((warning) => warning.includes("Optional ctx7"))).toBe(true);
       expect(second.record.tooling?.context7).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("upgrade treats optional Context7 absent from both state and runtime as current", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-upgrade-context7-absent-"));
+    const codexHome = join(root, "codex");
+    const manager = fakeManager();
+    const baseline = testRuntime(codexHome);
+    const runtime: InstallerRuntime = {
+      ...baseline,
+      environment: { PATH: "" },
+      run: async (executable, args) => {
+        if (args.join(" ") === "pm view ctx7 version") {
+          return { exitCode: 1, stdout: "", stderr: "registry unavailable" };
+        }
+        return baseline.run(executable, args);
+      },
+    };
+    const options = { paths: { codexHome }, officialPluginManager: manager, runtime };
+    try {
+      const install = await installHolyCodex({}, options);
+      expect(install.record.tooling?.context7).toBeUndefined();
+      const upgrade = await upgradeHolyCodex(options);
+      expect(upgrade.status).toBe("current");
+      expect(upgrade.changes).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -2005,6 +2274,12 @@ describe("native installation and removal", () => {
             installed: true,
             enabled: true,
           })),
+          ...["browser", "sites"].map((name) => ({
+            pluginId: `${name}@openai-bundled`,
+            marketplaceName: "openai-bundled",
+            installed: true,
+            enabled: true,
+          })),
         ],
         available: [],
       };
@@ -2041,7 +2316,15 @@ describe("native installation and removal", () => {
           officialPluginManager: manager,
         },
       );
-      await rm(join(codexHome, "holycodex", "agents", "Reviewer.code.toml"));
+      const activeRecord = await readActiveInstallRecord(
+        resolveInstallerPaths({ paths: { codexHome } }),
+      );
+      const missingRole = managedRolePath(
+        codexHome,
+        activeRecord!.managed_artifacts,
+        "Reviewer.code",
+      );
+      await rm(missingRole);
       const drifted = await doctorHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
@@ -2054,10 +2337,14 @@ describe("native installation and removal", () => {
         ({ name }) => name === "Explorer.lookup",
       );
       if (expectedRoute === undefined) throw new Error("The Explorer.lookup route is missing.");
-      const staleRoutePath = join(codexHome, "holycodex", "agents", `${expectedRoute.name}.toml`);
+      const staleRoutePath = managedRolePath(
+        codexHome,
+        activeRecord!.managed_artifacts,
+        expectedRoute.name,
+      );
       await writeFile(
         staleRoutePath,
-        renderNativeAgent(expectedRoute).replace(
+        (await readFile(staleRoutePath, "utf8")).replace(
           `model = "${expectedRoute.model}"`,
           'model = "gpt-6-sol"',
         ),
@@ -2131,11 +2418,11 @@ describe("native installation and removal", () => {
     const manager = fakeManager({ initial: { [userPlugin]: "installed" } });
     try {
       const initial = await installHolyCodex(
-        { optional: { frontend: false, security: false } },
+        { optional: {} },
         { paths: { codexHome }, officialPluginManager: manager },
       );
       await installHolyCodex(
-        { optional: { frontend: true, security: false } },
+        { optional: {} },
         { paths: { codexHome }, officialPluginManager: manager },
       );
       // A process crash after publishing the newer active record and before
@@ -2180,7 +2467,7 @@ describe("native installation and removal", () => {
       },
     });
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("--frontend");
+    expect(stdout).toContain("--sites");
     expect(stdout).toContain("Default profile: default");
     expect(stderr).toBe("");
   });

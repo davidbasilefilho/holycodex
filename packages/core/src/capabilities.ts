@@ -2,10 +2,16 @@
 
 import * as Schema from "effect/Schema";
 
-export const CapabilityNameSchema = Schema.Literal("computer_use", "frontend", "security");
+export const CapabilityNameSchema = Schema.Literal(
+  "browser_use",
+  "computer_use",
+  "frontend",
+  "security",
+  "sites",
+);
 export type CapabilityName = typeof CapabilityNameSchema.Type;
 
-export const OptionalCapabilityNameSchema = Schema.Literal("computer_use", "frontend", "security");
+export const OptionalCapabilityNameSchema = Schema.Literal("browser_use", "computer_use", "sites");
 export type OptionalCapabilityName = typeof OptionalCapabilityNameSchema.Type;
 
 export const CapabilityProviderStatusSchema = Schema.Literal(
@@ -31,14 +37,22 @@ export const OFFICIAL_OPENAI_CURATED_MARKETPLACE_NAMES = Object.freeze([
   "openai-curated-remote",
 ] as const);
 export type OfficialOpenAiCuratedMarketplaceName =
-  (typeof OFFICIAL_OPENAI_CURATED_MARKETPLACE_NAMES)[number];
+  | (typeof OFFICIAL_OPENAI_CURATED_MARKETPLACE_NAMES)[number]
+  | "openai-bundled";
 
 /** Plugin names whose OpenAI curated identities are part of HolyCodex's capability contract. */
 export const OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES = Object.freeze([
   "build-web-apps",
   "codex-security",
 ] as const);
-export type OfficialOpenAiCuratedPluginName = (typeof OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES)[number];
+export const OFFICIAL_OPENAI_BUNDLED_PLUGIN_NAMES = Object.freeze([
+  "browser",
+  "computer-use",
+  "sites",
+] as const);
+export type OfficialOpenAiCuratedPluginName =
+  | (typeof OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES)[number]
+  | (typeof OFFICIAL_OPENAI_BUNDLED_PLUGIN_NAMES)[number];
 
 export type OfficialPluginIdentity = Readonly<{
   readonly pluginName: OfficialOpenAiCuratedPluginName;
@@ -62,6 +76,28 @@ export function resolveOfficialPluginIdentity(
   const pluginName = pluginId.slice(0, separator);
   const idMarketplaceName = pluginId.slice(separator + 1);
   if (
+    pluginName === "sites" &&
+    idMarketplaceName === "openai-curated-remote" &&
+    marketplaceName === idMarketplaceName
+  ) {
+    return {
+      pluginName,
+      marketplaceName: idMarketplaceName,
+      canonicalPluginId: "sites@openai-bundled",
+    };
+  }
+  if (
+    (OFFICIAL_OPENAI_BUNDLED_PLUGIN_NAMES as readonly string[]).includes(pluginName) &&
+    idMarketplaceName === "openai-bundled" &&
+    marketplaceName === idMarketplaceName
+  ) {
+    return {
+      pluginName: pluginName as OfficialOpenAiCuratedPluginName,
+      marketplaceName: idMarketplaceName,
+      canonicalPluginId: pluginId,
+    };
+  }
+  if (
     !isOfficialOpenAiCuratedPluginName(pluginName) ||
     !isOfficialOpenAiCuratedMarketplaceName(idMarketplaceName) ||
     marketplaceName !== idMarketplaceName
@@ -81,16 +117,29 @@ export function canonicalOfficialPluginId(pluginId: string): string | undefined 
   if (separator <= 0) return undefined;
   const pluginName = pluginId.slice(0, separator);
   const marketplaceName = pluginId.slice(separator + 1);
-  return isOfficialOpenAiCuratedPluginName(pluginName) &&
+  if (pluginName === "sites" && marketplaceName === "openai-curated-remote")
+    return "sites@openai-bundled";
+  if (
+    isOfficialOpenAiCuratedPluginName(pluginName) &&
     isOfficialOpenAiCuratedMarketplaceName(marketplaceName)
-    ? `${pluginName}@openai-curated`
-    : undefined;
+  )
+    return `${pluginName}@openai-curated`;
+  if (
+    (OFFICIAL_OPENAI_BUNDLED_PLUGIN_NAMES as readonly string[]).includes(pluginName) &&
+    marketplaceName === "openai-bundled"
+  )
+    return `${pluginName}@openai-bundled`;
+  return undefined;
 }
 
 /** Return all trusted runtime ids for a canonical OpenAI curated provider id. */
 export function officialPluginIdCandidates(pluginId: string): readonly string[] {
   const canonical = canonicalOfficialPluginId(pluginId);
   if (canonical === undefined) return [];
+  if (canonical === "sites@openai-bundled") {
+    return Object.freeze([canonical, "sites@openai-curated-remote"]);
+  }
+  if (canonical.endsWith("@openai-bundled")) return Object.freeze([canonical]);
   const pluginName = canonical.slice(0, canonical.lastIndexOf("@"));
   return Object.freeze([canonical, `${pluginName}@openai-curated-remote`]);
 }
@@ -111,22 +160,26 @@ function isOfficialOpenAiCuratedPluginName(
 export type CapabilityDefaults = Readonly<{
   readonly coding: true;
   readonly computer_use: boolean;
-  readonly frontend: boolean;
-  readonly security: boolean;
+  readonly browser_use: boolean;
+  readonly sites: boolean;
+  readonly frontend: true;
+  readonly security: true;
 }>;
 
 export const DEFAULT_CAPABILITY_SELECTIONS: CapabilityDefaults = Object.freeze({
   coding: true,
   computer_use: false,
+  browser_use: true,
+  sites: true,
   frontend: true,
   security: true,
 });
 
 export type CapabilityDefinition = Readonly<{
-  readonly name: OptionalCapabilityName;
+  readonly name: CapabilityName;
   readonly pluginIds: readonly string[];
   readonly defaultSelected: boolean;
-  readonly migrationKey: OptionalCapabilityName;
+  readonly migrationKey?: OptionalCapabilityName;
   readonly semanticSkillIds: readonly string[];
   readonly applicability: readonly CapabilityApplicability[];
   readonly ownership: "shared-preserve";
@@ -156,17 +209,18 @@ export const CAPABILITY_APPLICABILITY = Object.freeze({
   ] as const),
   security: Object.freeze([] as const),
   computer_use: Object.freeze([] as const),
-} satisfies Readonly<Record<OptionalCapabilityName, readonly CapabilityApplicability[]>>);
+  browser_use: Object.freeze([] as const),
+  sites: Object.freeze([] as const),
+} satisfies Readonly<Record<CapabilityName, readonly CapabilityApplicability[]>>);
 
 /** Canonical frontend applicability mappings. */
 export const FRONTEND_CAPABILITY_APPLICABILITY = CAPABILITY_APPLICABILITY.frontend;
 
-const registry: Record<OptionalCapabilityName, CapabilityDefinition> = {
+const registry: Record<CapabilityName, CapabilityDefinition> = {
   frontend: {
     name: "frontend",
     pluginIds: ["build-web-apps@openai-curated"],
     defaultSelected: DEFAULT_CAPABILITY_SELECTIONS.frontend,
-    migrationKey: "frontend",
     semanticSkillIds: Object.freeze(
       CAPABILITY_APPLICABILITY.frontend.map(({ skillId }) => skillId),
     ),
@@ -177,7 +231,6 @@ const registry: Record<OptionalCapabilityName, CapabilityDefinition> = {
     name: "security",
     pluginIds: ["codex-security@openai-curated"],
     defaultSelected: DEFAULT_CAPABILITY_SELECTIONS.security,
-    migrationKey: "security",
     semanticSkillIds: [
       "codex-security:security-scan",
       "codex-security:security-diff-scan",
@@ -195,21 +248,44 @@ const registry: Record<OptionalCapabilityName, CapabilityDefinition> = {
     applicability: CAPABILITY_APPLICABILITY.computer_use,
     ownership: "shared-preserve",
   },
+  browser_use: {
+    name: "browser_use",
+    pluginIds: ["browser@openai-bundled"],
+    defaultSelected: DEFAULT_CAPABILITY_SELECTIONS.browser_use,
+    migrationKey: "browser_use",
+    semanticSkillIds: [],
+    applicability: CAPABILITY_APPLICABILITY.browser_use,
+    ownership: "shared-preserve",
+  },
+  sites: {
+    name: "sites",
+    pluginIds: ["sites@openai-bundled"],
+    defaultSelected: DEFAULT_CAPABILITY_SELECTIONS.sites,
+    migrationKey: "sites",
+    semanticSkillIds: [],
+    applicability: CAPABILITY_APPLICABILITY.sites,
+    ownership: "shared-preserve",
+  },
 };
 
-export const CAPABILITY_REGISTRY: Readonly<Record<OptionalCapabilityName, CapabilityDefinition>> =
+export const CAPABILITY_REGISTRY: Readonly<Record<CapabilityName, CapabilityDefinition>> =
   Object.freeze(registry);
 
 export const OPTIONAL_CAPABILITY_NAMES: readonly OptionalCapabilityName[] = Object.freeze([
+  "browser_use",
   "computer_use",
-  "frontend",
-  "security",
+  "sites",
 ]);
+export const REQUIRED_CAPABILITY_NAMES = Object.freeze(["frontend", "security"] as const);
+export const REQUIRED_CAPABILITY_PLUGIN_IDS = Object.freeze([
+  ...CAPABILITY_REGISTRY.frontend.pluginIds,
+  ...CAPABILITY_REGISTRY.security.pluginIds,
+] as const);
 
 export type OptionalCapabilitySelections = Readonly<{
+  readonly browser_use: boolean;
   readonly computer_use: boolean;
-  readonly frontend: boolean;
-  readonly security: boolean;
+  readonly sites: boolean;
 }>;
 
 /** Canonical always-present workflow skills projected by the HolyCodex plugin. */
@@ -223,9 +299,9 @@ export type ExplicitOptionalCapabilitySelections = Readonly<
 >;
 
 export const DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS: OptionalCapabilitySelections = Object.freeze({
+  browser_use: DEFAULT_CAPABILITY_SELECTIONS.browser_use,
   computer_use: DEFAULT_CAPABILITY_SELECTIONS.computer_use,
-  frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
-  security: DEFAULT_CAPABILITY_SELECTIONS.security,
+  sites: DEFAULT_CAPABILITY_SELECTIONS.sites,
 });
 
 /** Migrate persisted capability flags, ignoring legacy capabilities that are no longer managed. */
@@ -235,9 +311,9 @@ export function migrateOptionalCapabilitySelections(
   // Legacy `work` is deliberately ignored. Shared document providers are no longer managed by a
   // live capability and remain user-owned during migration/removal.
   return {
-    computer_use: input?.[CAPABILITY_REGISTRY.computer_use.migrationKey] === true,
-    frontend: input?.[CAPABILITY_REGISTRY.frontend.migrationKey] === true,
-    security: input?.[CAPABILITY_REGISTRY.security.migrationKey] === true,
+    browser_use: input?.["browser_use"] === true,
+    computer_use: input?.["computer_use"] === true,
+    sites: input?.["sites"] === true,
   };
 }
 
@@ -248,9 +324,9 @@ export function resolveOptionalCapabilitySelections(
 ): OptionalCapabilitySelections {
   const fallback = previous ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS;
   return {
+    browser_use: requested?.browser_use ?? fallback.browser_use,
     computer_use: requested?.computer_use ?? fallback.computer_use,
-    frontend: requested?.frontend ?? fallback.frontend,
-    security: requested?.security ?? fallback.security,
+    sites: requested?.sites ?? fallback.sites,
   };
 }
 
@@ -259,8 +335,8 @@ export function pluginIdsForOptionalCapabilities(
   selections: OptionalCapabilitySelections,
   additionalPluginIds: readonly string[] = [],
 ): readonly string[] {
-  const ids: string[] = [];
-  const seen = new Set<string>();
+  const ids: string[] = [...REQUIRED_CAPABILITY_PLUGIN_IDS];
+  const seen = new Set<string>(ids);
   for (const name of OPTIONAL_CAPABILITY_NAMES) {
     if (!selections[name]) continue;
     for (const pluginId of CAPABILITY_REGISTRY[name].pluginIds) {

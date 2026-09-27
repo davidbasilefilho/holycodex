@@ -122,7 +122,7 @@ type InstalledCliModule = Readonly<{
 
 type InternalUpgradeOutcome =
   | Readonly<{ ok: true; data: Record<string, unknown> }>
-  | Readonly<{ ok: false; error: Readonly<{ code: string }> }>;
+  | Readonly<{ ok: false; error: Readonly<{ code: string; message: string }> }>;
 
 function verifyPublishedRouting(installed: InstalledCliModule): void {
   let projectedRoutes = 0;
@@ -225,6 +225,7 @@ async function runInternalUpgrade(
           typeof error.code === "string"
             ? error.code
             : "internal_error",
+        message: error instanceof Error ? error.message : String(error),
       },
     };
   }
@@ -398,7 +399,7 @@ export async function verifyPublicPackage(
   const stateRoot = join(codexHome, "holycodex");
   await mkdir(codexHome, { recursive: true });
   const unrelatedConfig =
-    '[features]\ncontext_management = true\nunrelated = "keep"\n\napproval_policy = "on-request"\n';
+    '[features]\nunrelated = "keep"\n\n[features.context_management]\nexperimental_mode = true\n\napproval_policy = "on-request"\n';
   await writeFile(join(codexHome, "config.toml"), unrelatedConfig, {
     encoding: "utf8",
     mode: 0o600,
@@ -528,9 +529,9 @@ export async function verifyPublicPackage(
   );
   const selections = objectProperty(activeRecord, "optional_selections");
   assert(
-    selections?.["computer_use"] === false &&
-      selections["frontend"] === true &&
-      selections["security"] === true &&
+    selections?.["sites"] === true &&
+      selections["browser_use"] === true &&
+      selections["computer_use"] === false &&
       selections["coding"] === true &&
       !Object.prototype.hasOwnProperty.call(selections, "work"),
     "the packed install record must retain the current optional capability selections",
@@ -564,10 +565,10 @@ export async function verifyPublicPackage(
     typeof managedRootInstructions === "string" ? managedRootInstructions.toLowerCase() : "";
   assert(
     readTomlPath(managedConfig, "model") === "gpt-6-astra" &&
-      managedConfigText.includes("context_management = true") &&
-      !managedConfigText.includes("experimental_mode") &&
+      managedConfigText.includes("[features.context_management]") &&
+      managedConfigText.includes("experimental_mode = true") &&
       !/\b(?:Sol|Terra)\b/u.test(managedConfigText),
-    "the managed Codex configuration must use Astra and canonical scalar context management",
+    "the managed Codex configuration must use Astra and experimental context management",
   );
   assert(
     typeof managedRootInstructions === "string" &&
@@ -729,24 +730,10 @@ export async function verifyPublicPackage(
     "interactive remove cancellation must not mutate the installation",
   );
 
-  await rewriteActiveRecord(activeRecordPath, installedModule, (record) =>
-    rewriteForLegacyContext(record, previousPatchVersion(version)),
-  );
-  const currentConfigForLegacy = await readFile(join(codexHome, "config.toml"), "utf8");
-  const legacyConfig = currentConfigForLegacy
-    .replace("context_management = true\n", "")
-    .replace(
-      '[agents."Explorer.lookup"]',
-      '[features.context_management]\nexperimental_mode = true\n\n[agents."Explorer.lookup"]',
-    );
-  assert(
-    legacyConfig !== currentConfigForLegacy,
-    "legacy fixture could not locate the canonical context-management setting",
-  );
-  await writeFile(join(codexHome, "config.toml"), legacyConfig, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
+  await rewriteActiveRecord(activeRecordPath, installedModule, (record) => ({
+    ...record,
+    version: previousPatchVersion(version),
+  }));
   const dryRunBeforeConfig = await readFile(join(codexHome, "config.toml"), "utf8");
   const dryRunBeforeRecord = await readFile(activeRecordPath, "utf8");
   const dryRun = await runInternalUpgrade(installedEntry, codexHome, codexEnvironment, true);
@@ -760,8 +747,8 @@ export async function verifyPublicPackage(
       hasProperty(dryRun.data, "changes") &&
         arrayProperty(dryRun.data, "changes")?.includes(
           "context-management configuration migration",
-        ) === true,
-      "upgrade dry-run must report legacy context migration",
+        ) !== true,
+      "upgrade dry-run must preserve current experimental context-management configuration",
     );
   }
   assert(
@@ -787,10 +774,10 @@ export async function verifyPublicPackage(
   }
   const migratedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
   assert(
-    migratedConfig.includes("context_management = true") &&
-      !migratedConfig.includes("experimental_mode") &&
+    migratedConfig.includes("[features.context_management]") &&
+      migratedConfig.includes("experimental_mode = true") &&
       migratedConfig.includes('unrelated = "keep"'),
-    "legacy upgrade must migrate the scalar context setting and preserve unrelated config",
+    "upgrade must preserve experimental context management and unrelated config",
   );
   await assertCodexAppServerReadback(
     codexFixture.executable,
@@ -842,33 +829,34 @@ export async function verifyPublicPackage(
     "upgrade without an installation must return not_installed",
   );
 
-  const incompatibleHome = join(temporaryRoot, "incompatible-codex-home");
-  await mkdir(incompatibleHome, { recursive: true });
+  const invalidConfigHome = join(temporaryRoot, "invalid-config-codex-home");
+  await mkdir(invalidConfigHome, { recursive: true });
   await writeFile(
-    join(incompatibleHome, "config.toml"),
-    '[features.context_management]\nexperimental_mode = false\nunrelated = "keep"\n',
+    join(invalidConfigHome, "config.toml"),
+    "[features.context_management]\nexperimental_mode =\n",
     { encoding: "utf8", mode: 0o600 },
   );
-  const incompatibleEvents: string[] = [];
-  const incompatible = (await installedModule.runCli(
-    ["install", "--yes", "--codex-home", incompatibleHome],
+  const invalidConfigEvents: string[] = [];
+  const invalidConfigInstall = (await installedModule.runCli(
+    ["install", "--yes", "--codex-home", invalidConfigHome],
     {
-      env: { ...codexEnvironment, CODEX_HOME: incompatibleHome },
+      env: { ...codexEnvironment, CODEX_HOME: invalidConfigHome },
       io: {
         stdoutIsTTY: true,
         stderrIsTTY: true,
-        writeStderr: (message: string) => incompatibleEvents.push(message),
+        writeStderr: (message: string) => invalidConfigEvents.push(message),
       },
     },
   )) as { readonly envelope: typeof CliEnvelopeSchema.Type; readonly exitCode: number };
-  assert(incompatible.exitCode !== 0, "incompatible config install must fail");
+  assert(invalidConfigInstall.exitCode !== 0, "invalid config install must fail");
   assert(
-    !incompatible.envelope.ok && incompatible.envelope.error.code === "state_corrupt",
-    "incompatible config install must return a semantic error",
+    !invalidConfigInstall.envelope.ok &&
+      invalidConfigInstall.envelope.error.code === "state_corrupt",
+    "invalid config install must return a semantic error",
   );
   assert(
-    incompatibleEvents.some((message) => message.includes("Validating Codex target")) &&
-      !incompatibleEvents.some((message) => message.includes("Installing subagent roles")),
+    invalidConfigEvents.some((message) => message.includes("Validating Codex target")) &&
+      !invalidConfigEvents.some((message) => message.includes("Installing subagent roles")),
     "failed install progress must stop at the real validation boundary",
   );
 
@@ -887,7 +875,8 @@ export async function verifyPublicPackage(
   );
   const removedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
   assert(
-    removedConfig.includes("context_management = true") &&
+    removedConfig.includes("[features.context_management]") &&
+      removedConfig.includes("experimental_mode = true") &&
       removedConfig.includes('unrelated = "keep"') &&
       removedConfig.includes('approval_policy = "on-request"'),
     "remove did not restore unrelated Codex configuration",
@@ -926,7 +915,8 @@ export async function verifyPublicPackage(
   }
   const repeatedRemovedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
   assert(
-    repeatedRemovedConfig.includes("context_management = true") &&
+    repeatedRemovedConfig.includes("[features.context_management]") &&
+      repeatedRemovedConfig.includes("experimental_mode = true") &&
       repeatedRemovedConfig.includes('unrelated = "keep"') &&
       repeatedRemovedConfig.includes('approval_policy = "on-request"'),
     "repeated remove must preserve unrelated Codex configuration",
@@ -1158,6 +1148,14 @@ async function verifyPreviousStableUpgrade(options: {
     string,
     unknown
   >;
+  // The PATH executable may be the previous managed installation, so derive upgrade ownership
+  // from the persisted record rather than treating every PATH match as user-owned.
+  const previousContext7 = objectProperty(objectProperty(previousRecord, "tooling"), "context7");
+  const expectedContext7Ownership = previousContext7?.["ownership"];
+  assert(
+    expectedContext7Ownership === "holycodex" || expectedContext7Ownership === "user",
+    "the previous package did not persist Context7 ownership",
+  );
   assert(previousRecord["version"] === previousVersion, "the previous install record is not exact");
   assert(
     objectProperty(previousRecord, "optional_selections")?.["work"] === true,
@@ -1181,7 +1179,10 @@ async function verifyPreviousStableUpgrade(options: {
   );
 
   const upgraded = await runInternalUpgrade(options.currentEntry, codexHome, environment);
-  assert(upgraded.ok, "the real previous-stable package upgrade failed");
+  assert(
+    upgraded.ok,
+    `the real previous-stable package upgrade failed (${upgraded.ok ? "unexpected success" : `${upgraded.error.code}: ${upgraded.error.message}`})`,
+  );
   const upgradedRecord = JSON.parse(await readFile(activeRecordPath, "utf8")) as Record<
     string,
     unknown
@@ -1219,10 +1220,12 @@ async function verifyPreviousStableUpgrade(options: {
     environment,
     options.commands,
     "previous stable upgrade",
+    expectedContext7Ownership,
   );
   const upgradedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
   assert(
-    upgradedConfig.includes("context_management = true") &&
+    upgradedConfig.includes("[features.context_management]") &&
+      upgradedConfig.includes("experimental_mode = true") &&
       upgradedConfig.includes('unrelated = "keep"'),
     "upgrade did not publish canonical configuration while preserving unrelated config",
   );
@@ -1398,30 +1401,6 @@ async function rewriteActiveRecord(
   });
 }
 
-function rewriteForLegacyContext(
-  record: Record<string, unknown>,
-  version: string,
-): Record<string, unknown> {
-  const managedConfig = objectProperty(record, "managed_config");
-  const managed = objectProperty(managedConfig, "managed");
-  const scalar = objectProperty(managed, "features.context_management");
-  if (managedConfig === undefined || managed === undefined || scalar === undefined) {
-    throw new Error("the active record does not contain scalar context-management ownership");
-  }
-  const legacy = {
-    ...scalar,
-    keyPath: "features.context_management.experimental_mode",
-  };
-  const nextManaged = { ...managed };
-  delete nextManaged["features.context_management"];
-  nextManaged["features.context_management.experimental_mode"] = legacy;
-  return {
-    ...record,
-    version,
-    managed_config: { ...managedConfig, managed: nextManaged },
-  };
-}
-
 function rewriteForLegacyWork(record: Record<string, unknown>): Record<string, unknown> {
   const optionalSelections = objectProperty(record, "optional_selections");
   const explicitOptionalSelections = objectProperty(record, "explicit_optional_selections");
@@ -1567,8 +1546,8 @@ async function runInstalledOpenTuiProbe(
     "installed OpenTUI wizard arrows did not change the service tier",
   );
   assert(
-    probe["frontend"] === "disabled",
-    "installed OpenTUI wizard Space did not toggle Frontend",
+    probe["computerUse"] === "enabled",
+    "installed OpenTUI wizard Space did not enable Computer Use",
   );
   assert(probe["hints"] === true, "installed OpenTUI wizard omitted its navigation hints");
   assert(probe["noColor"] === true, "installed OpenTUI wizard ignored NO_COLOR");
@@ -1766,13 +1745,15 @@ await waitForText("HolyCodex  ·  install");
 await waitForText(configurationHint);
 await pushUntilVisible("\x1b[B", () => visibleOutput().includes("❯ Service tier"));
 await pushUntilVisible("\x1b[C", () => /Service tier\s+fast/u.test(visibleOutput()));
-await pushUntilVisible("\x1b[B", () => visibleOutput().includes("❯ Frontend"));
-await pushUntilVisible(" ", () => /Frontend\s+\[ \] disabled/u.test(visibleOutput()));
+await pushUntilVisible("\x1b[B", () => visibleOutput().includes("❯ ChatGPT Sites"));
+await pushUntilVisible("\x1b[B", () => visibleOutput().includes("❯ Browser Use"));
+await pushUntilVisible("\x1b[B", () => visibleOutput().includes("❯ Computer Use"));
+await pushUntilVisible(" ", () => /Computer Use\s+\[x\] enabled/u.test(visibleOutput()));
 await pushUntilVisible(
   "\r",
   () => visibleOutput().includes("Review configuration") && visibleOutput().includes(reviewHint),
 );
-await pushUntilVisible("\x1b", () => visibleOutput().includes("❯ Frontend"));
+await pushUntilVisible("\x1b", () => visibleOutput().includes("❯ Computer Use"));
 await pushUntilVisible(
   "\r",
   () => visibleOutput().includes("Review configuration") && visibleOutput().includes(reviewHint),
@@ -1790,7 +1771,7 @@ realStdout.write(
       result: result.action,
       review: visible.includes("Review configuration"),
       tier: visible.match(/Service tier:\s+(\S+)/u)?.[1],
-      frontend: visible.match(/Frontend:\s+(\S+)/u)?.[1],
+      computerUse: visible.match(/Computer Use:\s+(\S+)/u)?.[1],
       hints: currentOutput().includes(configurationHint) && visible.includes(reviewHint),
       noColor: !/\x1b\[(?:1|2|36|1;36|32|33|31)m/u.test(rendered),
     }) +
@@ -2002,14 +1983,28 @@ async function assertCodexAppServerReadback(
       const readbackPath = isAbsolute(configuredPath)
         ? resolve(configuredPath)
         : resolve(codexHome, configuredPath);
-      const expectedPath = resolve(codexHome, "holycodex", "agents", `${agentType}.toml`);
+      const active = JSON.parse(
+        await readFile(join(codexHome, "holycodex/active.json"), "utf8"),
+      ) as { managed_artifacts?: readonly { path: string }[] };
+      const expectedReference = active.managed_artifacts?.find((artifact) =>
+        artifact.path.endsWith(`/${agentType}.toml`),
+      )?.path;
+      assert(
+        typeof expectedReference === "string" &&
+          /^holycodex\/agents\/[a-f0-9]{20}\//u.test(expectedReference) &&
+          configuredPath === expectedReference,
+        `Codex App Server config readback changed the active ${agentType} artifact reference`,
+      );
+      const expectedPath = isAbsolute(expectedReference)
+        ? resolve(expectedReference)
+        : resolve(codexHome, expectedReference);
       const comparableReadbackPath =
         process.platform === "win32" ? readbackPath.toLowerCase() : readbackPath;
       const comparableExpectedPath =
         process.platform === "win32" ? expectedPath.toLowerCase() : expectedPath;
       assert(
         comparableReadbackPath === comparableExpectedPath,
-        `Codex App Server config readback resolved ${agentType} outside the installed role directory`,
+        `Codex App Server config readback resolved ${agentType} outside the active installed generation`,
       );
       const roleDocument = parseConfig(await readFile(readbackPath, "utf8"));
       const expectedRoute = highProfile.routes.find(
@@ -2114,6 +2109,7 @@ const PROVIDERS = [
   "spreadsheets@openai-primary-runtime",
   "template-creator@openai-primary-runtime",
 ];
+const BUNDLED_PROVIDERS = ["browser@openai-bundled", "sites@openai-bundled"];
 const ADDITIONAL = "additional@fixture";
 const STATE_PATH = HOME === undefined ? "" : join(HOME, "fixture-codex-state.json");
 const SNAPSHOT_ROOT = HOME === undefined ? "" : join(HOME, "plugins", "openai-plugins");
@@ -2142,7 +2138,7 @@ async function readState() {
     ) {
       fail("fixture state is invalid");
     }
-    const known = new Set([HOLY, ...PROVIDERS, ADDITIONAL]);
+    const known = new Set([HOLY, ...PROVIDERS, ...BUNDLED_PROVIDERS, ADDITIONAL]);
     if (parsed.installed.some((id) => !known.has(id))) fail("fixture state contains an unknown plugin");
     return { marketplaces: [...new Set(parsed.marketplaces)], installed: [...new Set(parsed.installed)] };
   } catch (error) {
@@ -2155,6 +2151,39 @@ async function readState() {
 
 async function saveState(state) {
   await writeFile(STATE_PATH, JSON.stringify(state) + "\n", { encoding: "utf8", mode: 0o600 });
+}
+
+async function writeObservedPluginState(pluginId, enabled) {
+  const separator = pluginId.lastIndexOf("@");
+  const name = pluginId.slice(0, separator);
+  const marketplace = pluginId.slice(separator + 1);
+  const versionRoot = join(HOME, "plugins", "cache", marketplace, name, "fixture");
+  if (enabled) {
+    await mkdir(join(versionRoot, ".codex-plugin"), { recursive: true, mode: 0o700 });
+    await writeFile(
+      join(versionRoot, ".codex-plugin", "plugin.json"),
+      JSON.stringify({ name, version: "fixture" }) + "\n",
+      { encoding: "utf8", mode: 0o600 },
+    );
+  } else {
+    await rm(join(HOME, "plugins", "cache", marketplace, name), { recursive: true, force: true });
+  }
+  const configPath = join(HOME, "config.toml");
+  let config = await readFile(configPath, "utf8");
+  const header = "[plugins." + JSON.stringify(pluginId) + "]";
+  const start = config.indexOf(header);
+  if (start < 0) {
+    config += "\n" + header + "\nenabled = " + enabled + "\n";
+  } else {
+    const next = config.indexOf("\n[", start + header.length);
+    const end = next < 0 ? config.length : next;
+    const section = config.slice(start, end);
+    const updated = /(^|\n)enabled\s*=\s*(?:true|false)/u.test(section)
+      ? section.replace(/(^|\n)enabled\s*=\s*(?:true|false)/u, "$1enabled = " + enabled)
+      : section + "\nenabled = " + enabled;
+    config = config.slice(0, start) + updated + config.slice(end);
+  }
+  await writeFile(configPath, config, "utf8");
 }
 
 async function writeOfficialSnapshot() {
@@ -2204,6 +2233,7 @@ async function listPlugins() {
   const state = await readState();
   const visible = [
     ...PROVIDERS,
+    ...BUNDLED_PROVIDERS,
     ADDITIONAL,
     ...(state.marketplaces.includes(MARKETPLACE) ? [HOLY] : []),
   ];
@@ -2217,7 +2247,12 @@ async function listPlugins() {
 
 async function addPlugin(pluginId) {
   const state = await readState();
-  if (pluginId !== HOLY && !PROVIDERS.includes(pluginId) && pluginId !== ADDITIONAL) {
+  if (
+    pluginId !== HOLY &&
+    !PROVIDERS.includes(pluginId) &&
+    !BUNDLED_PROVIDERS.includes(pluginId) &&
+    pluginId !== ADDITIONAL
+  ) {
     fail("fixture rejected an unselected plugin");
   }
   if (pluginId === HOLY) {
@@ -2231,12 +2266,14 @@ async function addPlugin(pluginId) {
     await mkdir(join(HOME, "plugins"), { recursive: true, mode: 0o700 });
     await cp(source, destination, { recursive: true, dereference: true });
   } else if (
+    !BUNDLED_PROVIDERS.includes(pluginId) &&
     pluginId !== ADDITIONAL &&
     !(await hasOfficialProvider(pluginId.slice(0, pluginId.lastIndexOf("@"))))
   ) {
     fail("selected official provider is absent from Codex startup snapshot");
   }
   if (!state.installed.includes(pluginId)) state.installed.push(pluginId);
+  await writeObservedPluginState(pluginId, true);
   await saveState(state);
   process.stdout.write(JSON.stringify({ pluginId, installedPath: pluginId === HOLY ? join(HOME, "plugins", "holycodex") : undefined }) + "\n");
 }
@@ -2245,6 +2282,7 @@ async function removePlugin(pluginId) {
   const state = await readState();
   if (!state.installed.includes(pluginId)) fail("plugin is not installed");
   state.installed = state.installed.filter((candidate) => candidate !== pluginId);
+  await writeObservedPluginState(pluginId, false);
   if (pluginId === HOLY) await rm(join(HOME, "plugins", "holycodex"), { recursive: true, force: true });
   await saveState(state);
   process.stdout.write(JSON.stringify({ pluginId, removed: true }) + "\n");
@@ -2254,11 +2292,17 @@ async function configRead() {
   const text = await readFile(join(HOME, "config.toml"), "utf8");
   const active = JSON.parse(await readFile(join(HOME, "holycodex", "active.json"), "utf8"));
   const verifiedShell = active.tooling?.git_bash?.path;
-  if (!text.includes("multi_agent = true") || !text.includes("multi_agent_v2 = false")) {
+  if (!text.includes("multi_agent = true")) {
     fail("Codex config omitted the canonical Root multi-agent mode");
   }
-  if (!text.includes("context_management = true")) fail("Codex config omitted scalar context management");
-  if (text.includes("experimental_mode")) fail("Codex config retained legacy context management");
+  const experimentalContextManagement =
+    text.includes("[features.context_management]") && text.includes("experimental_mode = true");
+  if (!text.includes("context_management = true") && !experimentalContextManagement) {
+    fail("Codex config omitted context management");
+  }
+  if (/agent_message_board|thread_tools/u.test(text)) {
+    fail("Codex config contains an unsupported feature setting");
+  }
   function rootStringSetting(name) {
     const prefix = name + " = ";
     const line = text.split(/\r?\n/u).find((candidate) => candidate.startsWith(prefix));
@@ -2283,7 +2327,9 @@ async function configRead() {
   if (
     process.platform === "win32" &&
     (typeof verifiedShell !== "string" ||
-      !rootStringSetting("developer_instructions").includes("On Windows, use Git for Windows Bash") ||
+      !rootStringSetting("developer_instructions").includes(
+        "On Windows, run all shell actions in the verified Git for Windows Bash environment at",
+      ) ||
       !rootStringSetting("developer_instructions").includes(JSON.stringify(verifiedShell)))
   ) {
     fail("Codex config omitted the Windows Git Bash boundary");
@@ -2293,7 +2339,10 @@ async function configRead() {
     model_reasoning_effort: rootStringSetting("model_reasoning_effort"),
     service_tier: rootStringSetting("service_tier"),
     developer_instructions: rootStringSetting("developer_instructions"),
-    features: { multi_agent: true, multi_agent_v2: false, context_management: true },
+    features: {
+      multi_agent: true,
+      context_management: experimentalContextManagement ? { experimental_mode: true } : true,
+    },
     agents: {},
   };
   const agentTypes = AGENT_TYPES_PLACEHOLDER;
@@ -2307,27 +2356,32 @@ async function configRead() {
     const configFile = JSON.parse(configFileMatch[1]);
     if (typeof configFile !== "string") fail("Codex config has an invalid agent path");
     const rolePath = isAbsolute(configFile) ? resolve(configFile) : resolve(HOME, configFile);
-    const expectedRolePath = resolve(HOME, "holycodex", "agents", agentType + ".toml");
-    const comparableRolePath = process.platform === "win32" ? rolePath.toLowerCase() : rolePath;
-    const comparableExpectedRolePath = process.platform === "win32" ? expectedRolePath.toLowerCase() : expectedRolePath;
-    if (comparableRolePath !== comparableExpectedRolePath) {
-      fail("Codex config points " + agentType + " outside the managed role directory");
+    const managedArtifacts = Array.isArray(active.managed_artifacts)
+      ? active.managed_artifacts
+      : [];
+    const roleArtifact = managedArtifacts.find(
+      (artifact) => artifact?.path === configFile,
+    );
+    const roleSegments = configFile.split("/");
+    if (
+      roleArtifact === undefined ||
+      roleSegments.length !== 4 ||
+      roleSegments[0] !== "holycodex" ||
+      roleSegments[1] !== "agents" ||
+      !/^[a-f0-9]{20}$/u.test(roleSegments[2] ?? "") ||
+      roleSegments[3] !== agentType + ".toml"
+    ) {
+      fail("Codex config points " + agentType + " outside the active managed generation");
     }
     const roleText = await readFile(rolePath, "utf8");
     if (!roleText.includes('model = "gpt-6-luna"')) {
       fail("Codex role file omitted the configured specialist routing model");
     }
-    if (
-      !roleText.includes("multi_agent = false") ||
-      !roleText.includes("multi_agent_v2 = false") ||
-      !roleText.includes("context_management = true")
-    ) {
-      fail("Codex role file omitted scalar context management");
+    if (!roleText.includes("multi_agent = false")) {
+      fail("Codex role file omitted the leaf multi-agent boundary");
     }
-    for (const feature of ["computer_use = false", "browser_use = false", "in_app_browser = false"]) {
-      if (!roleText.includes(feature)) {
-        fail("Codex role file enabled a Root-only interactive capability");
-      }
+    if (/agent_message_board|thread_tools|context_management|computer_use|browser_use|in_app_browser/u.test(roleText)) {
+      fail("Codex role file contains an unsupported feature setting");
     }
     if (roleText.includes("tool_output_token_limit")) {
       fail("Codex role file contains the removed tool_output_token_limit");
@@ -2340,7 +2394,9 @@ async function configRead() {
       process.platform === "win32" &&
       (typeof verifiedShell !== "string" ||
         typeof roleInstructions !== "string" ||
-        !roleInstructions.includes("On Windows, use Git for Windows Bash") ||
+        !roleInstructions.includes(
+          "On Windows, run all shell actions in the verified Git for Windows Bash environment at",
+        ) ||
         !roleInstructions.includes(JSON.stringify(verifiedShell)))
     ) {
       fail("Codex role file omitted the Windows Git Bash boundary");
@@ -2372,7 +2428,11 @@ async function appServer() {
             protocolVersion: "codex-app-server-" + CODEX_VERSION.slice("codex-cli ".length),
           } }) + "\n");
         } else if (message.method === "config/read") {
-          process.stdout.write(JSON.stringify({ id: message.id, result: await configRead() }) + "\n");
+          try {
+            process.stdout.write(JSON.stringify({ id: message.id, result: await configRead() }) + "\n");
+          } catch (error) {
+            process.stdout.write(JSON.stringify({ id: message.id, error: { code: -32000, message: error instanceof Error ? error.message : "fixture config read failed" } }) + "\n");
+          }
         } else {
           process.stdout.write(JSON.stringify({ id: message.id, error: { code: -32601, message: "fixture rejected an unexpected App Server method" } }) + "\n");
         }

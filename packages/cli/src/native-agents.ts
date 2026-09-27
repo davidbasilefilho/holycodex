@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { createHash } from "node:crypto";
 import { lstat, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 import { readTomlPath, type TomlDocument } from "@holycodex/codex";
 import {
   CAPABILITY_REGISTRY,
-  ROLE_DEFINITIONS,
   NATIVE_AGENT_TYPES,
   GENERIC_BUILTIN_AGENT_TYPES,
   ROOT_ORCHESTRATION_POLICY,
@@ -39,10 +39,22 @@ export type NativeAgentProjection = Readonly<{
   permissions: ReturnType<typeof taskPermissionsFor>;
 }>;
 
+export type NativeAgentSandboxMode = "read-only" | "workspace-write";
+
 export type NativeAgentInstructionOptions = Readonly<{
   /** Verified Git-for-Windows Bash executable. Omit on non-Windows hosts. */
   windowsGitBashExecutable?: string;
+  /** Whether the assignment may use an installed and available Browser Use capability. */
+  browserUse?: boolean;
+  /** Whether the assignment may use an installed and available Computer Use capability. */
+  computerUse?: boolean;
 }>;
+
+/** Selected interactive capabilities that can be used within specialist Assignments. */
+export type NativeAgentCapabilityOptions = Pick<
+  NativeAgentInstructionOptions,
+  "browserUse" | "computerUse"
+>;
 
 /** Configure optional Root capabilities and the Windows shell. */
 export type RootDeveloperInstructionOptions = NativeAgentInstructionOptions &
@@ -76,8 +88,6 @@ const ROOT_AUTHORITY_LABELS = {
   completion: "completion",
   git_vcs: "Git/VCS writes",
   external_effects: "external effects",
-  gui_browser: "GUI and browser execution",
-  computer_use: "Computer Use when selected",
 } as const satisfies Readonly<Record<RootOwnedAuthority, string>>;
 
 const DELEGABLE_ACTION_LABELS = {
@@ -91,6 +101,8 @@ const DELEGABLE_ACTION_LABELS = {
   validation: "validation",
   frontend_work: "frontend work",
   security_work: "security work",
+  browser_use: "authorized Browser Use",
+  computer_use: "authorized Computer Use",
   review: "review",
   ci_release_observation: "CI or release observation",
 } as const satisfies Readonly<
@@ -126,14 +138,19 @@ export async function inspectNativeAgentConflicts(
   previous: readonly ManagedArtifact[] = [],
   tier: ServiceTier = "standard",
   windowsGitBashExecutable?: string,
+  capabilities: NativeAgentCapabilityOptions = {},
 ): Promise<readonly ManagedConflict[]> {
-  const root = join(codexHome, "holycodex", "agents");
+  const generationId = nativeAgentGenerationId(profile, tier, {
+    ...capabilities,
+    ...(windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable }),
+  });
+  const root = join(codexHome, "holycodex", "agents", generationId);
   const projections = projectNativeAgents(profile, tier).map((agent) => ({
     path: join(root, `${agent.name}.toml`),
-    contents: renderNativeAgent(
-      agent,
-      windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable },
-    ),
+    contents: renderNativeAgent(agent, {
+      ...capabilities,
+      ...(windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable }),
+    }),
   }));
   const previousByPath = new Map(
     previous.map((artifact) => [join(codexHome, artifact.path), artifact]),
@@ -164,27 +181,6 @@ export async function inspectNativeAgentConflicts(
           { present: true, digest: await sha256(current) },
           { present: true, digest: await sha256(projection.contents) },
           "The managed native role file changed outside the previous HolyCodex transaction.",
-        ),
-      );
-    }
-  }
-  for (const artifact of previous) {
-    const absolute = join(codexHome, artifact.path);
-    if (
-      projections.some((candidate) => candidate.path === absolute) ||
-      !isKnownLegacyNativePath(codexHome, absolute, artifact.path)
-    ) {
-      continue;
-    }
-    const current = await readRegularFile(absolute);
-    if (current !== undefined && (await sha256(current)) !== artifact.digest) {
-      conflicts.push(
-        nativeConflict(
-          absolute,
-          "remove",
-          { present: true, digest: await sha256(current) },
-          { present: false },
-          "The managed legacy role file changed and would be removed during reconciliation.",
         ),
       );
     }
@@ -248,6 +244,26 @@ export function projectNativeAgents(
   });
 }
 
+/** Resolve the content-addressed generation that new Codex threads should load. */
+export function nativeAgentGenerationId(
+  profileName: ProfileName,
+  tier: ServiceTier = "standard",
+  instructionOptions: NativeAgentInstructionOptions = {},
+): string {
+  const snapshot = projectNativeAgents(profileName, tier)
+    .map((agent) => `${agent.name}\0${renderNativeAgent(agent, instructionOptions)}`)
+    .join("\0");
+  return createHash("sha256").update(snapshot).digest("hex").slice(0, 20);
+}
+
+/** Resolve the managed TOML path registered for a canonical specialist route. */
+export function nativeAgentConfigPath(agentType: NativeAgentType, generationId: string): string {
+  if (!/^[a-f0-9]{20}$/u.test(generationId)) {
+    throw new Error("Invalid native-agent generation identifier.");
+  }
+  return `holycodex/agents/${generationId}/${agentType}.toml`;
+}
+
 /** Project the parent Root model configuration for a profile and service tier. */
 export function projectRootAgent(
   profileName: ProfileName,
@@ -270,7 +286,6 @@ export function rootDeveloperInstructions(
 ): string {
   const options: RootDeveloperInstructionOptions =
     typeof input === "boolean" ? { computerUse: input, frontend: true, security: true } : input;
-  const computerUse = options.computerUse ?? false;
   if (
     !ROOT_ORCHESTRATION_POLICY.requiresDelegation ||
     !ROOT_ORCHESTRATION_POLICY.assignmentStartAndDispatchPrecedeDelegableExecution ||
@@ -333,11 +348,12 @@ export function rootDeveloperInstructions(
   const instructions = [
     `You are the HolyCodex Root/session orchestrator. Never perform delegable work yourself. Root may directly perform only ${ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority.map((authority) => ROOT_AUTHORITY_LABELS[authority]).join("; ")}, within approval and capability boundaries.`,
     `Start a bounded Assignment and dispatch the exact concrete registered Role.task agent_type before every delegable action, including trivial, preparatory, and exploratory work: ${ROOT_ORCHESTRATION_POLICY.delegableActions.map((action) => DELEGABLE_ACTION_LABELS[action]).join("; ")}. Registered targets: ${ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes.join(", ")}. Explorer, Librarian, Worker, and Reviewer are role-family labels only. Generic built-in agent_type values ${ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes.join(", ")} are forbidden. If no matching route exists, return needs_root_input.`,
-    "Before each spawn, derive the exact Role.task target, model, and reasoning effort from the active HolyCodex profile and service tier. Verify the Codex registration resolves to the canonical role file and its name, model, effort, and task instructions match; pass that exact target, model, and effort. Never inherit Root settings or trust remembered route data. Recheck resumed threads. If routing is stale, repair it through the installer and reload the effective config; if it cannot be verified or refreshed, stop with needs_root_input before spawning.",
+    "Before each spawn, derive the exact Role.task target and complete configuration from the active HolyCodex profile, service tier, and selected capabilities. Verify the registration resolves to its canonical role file and that the name, model, reasoning effort, service tier, full developer instructions, shell/environment policy, capability settings, and permissions match; pass every supported configuration field explicitly. Never inherit Root settings, substitute a generic route, or trust remembered route data. Recheck resumed threads. If the complete route cannot be verified and passed, stop with needs_root_input before spawning.",
     `For normal specialist spawns, set fork_turns: "${ROOT_ORCHESTRATION_POLICY.normalSpawnForkTurns}". Give each specialist a self-contained Assignment with objective, bounded scope, constraints, dependencies, acceptance criteria, and evidence needed for acceptance.`,
     "Use holycodex-agent semantic operations for Intent, optional Plan, and Assignment state. Do not edit TOON state. Root owns material decisions, integration acceptance, lifecycle, and completion; return out-of-boundary work to Root for a new Assignment.",
     "Honor explicit user instructions within hard safety, authority, capability, and lifecycle boundaries. Make routine safe, reversible, in-scope choices and carry authorized work through its requested terminal state. Ask for material unresolved choices, genuine approval boundaries, user-owned credential entry, or outcome-changing blockers.",
     "Dispatch independent non-overlapping Assignments concurrently; order dependencies and serialize writes to a shared seam. Do not request specialist progress. Accept terminal evidence and resolve material contradictions before integration.",
+    "Browser Use and Computer Use execution are specialist-owned. Root decides when interface work is needed, assigns bounded authorized work to a specialist with the capability, and accepts terminal evidence without operating the browser or computer. If the required capability is disabled or unavailable on the current surface, stop with needs_root_input and report the blocker without substituting another provider or route.",
     "Use writing-instructions for model-facing contracts. Keep each meaning with one authoritative owner and add only the missing semantic delta for the receiver.",
     `Patch quality: ${SURGICAL_MUTATION_RULE}`,
     "Give the user useful updates for significant findings, decisions, blockers, input needs, and release milestones; avoid per-tool, status-only, heartbeat, or fixed-cadence messages.",
@@ -353,13 +369,6 @@ export function rootDeveloperInstructions(
       "For security-sensitive changes, use the relevant security review skills before VCS. Validate supported findings; repair introduced or worsened vulnerabilities before VCS unless explicitly risk-accepted. Keep security review current after relevant repairs.",
     );
   }
-  if (computerUse) {
-    instructions.push(
-      "Computer Use is Root-only. For interactive authentication, use the user's default browser, hand control to the user for credential entry and submission, then resume from the authenticated session. Never ask for credentials in chat or type, retrieve, expose, or store them.",
-    );
-  } else {
-    instructions.push("GUI and browser execution remain Root-only; Computer Use is unavailable.");
-  }
   if (options.windowsGitBashExecutable !== undefined) {
     instructions.push(windowsGitBashShellDirective(options.windowsGitBashExecutable));
   }
@@ -369,10 +378,10 @@ export function rootDeveloperInstructions(
 function renderFrontendCapabilityInstruction(): string {
   if (
     !FRONTEND_WORKFLOW_POLICY.repositoryAndUserRequirementsPrecedePluginDefaults ||
-    !FRONTEND_WORKFLOW_POLICY.specialistsOwnInspectionImplementationAndRepair ||
-    !FRONTEND_WORKFLOW_POLICY.rootOwnsLiveVisualAndInteractionAcceptance ||
+    !FRONTEND_WORKFLOW_POLICY.specialistsOwnInspectionImplementationAndRenderedAcceptance ||
+    !FRONTEND_WORKFLOW_POLICY.rootAcceptsTerminalVisualEvidence ||
     !FRONTEND_WORKFLOW_POLICY.sourceChangesInvalidateRenderEvidence ||
-    !FRONTEND_WORKFLOW_POLICY.specialistReportsCannotSubstituteForRootAcceptance ||
+    !FRONTEND_WORKFLOW_POLICY.specialistReportsIncludeObservableRenderedEvidence ||
     FRONTEND_WORKFLOW_POLICY.logicOnlyChangesRequireVisualAcceptance
   ) {
     throw new Error("The Frontend workflow policy is incomplete.");
@@ -381,7 +390,7 @@ function renderFrontendCapabilityInstruction(): string {
   const mappings = capability.applicability
     .map(({ skillId, appliesWhen }) => `${appliesWhen} uses ${skillId}`)
     .join("; ");
-  return `For a user-visible frontend task, ${mappings}. Follow the repository stack, design system, and user requirements. Specialists inspect and repair; Root accepts the current rendered UI through live interaction, delegates discrepancies, and repeats after relevant source changes. Check responsive layout, accessibility, and core interactions in proportion to the change.`;
+  return `For a user-visible frontend task, ${mappings}. Follow the repository stack, design system, and user requirements. Specialists inspect, implement, render, interact, and repair; Root accepts their current observable visual and interaction evidence, assigns discrepancies, and requires fresh evidence after relevant source changes. Check responsive layout, accessibility, and core interactions in proportion to the change.`;
 }
 
 /** Publish canonical native profiles while preserving foreign or modified files. */
@@ -393,16 +402,21 @@ export async function installNativeAgents(
   windowsGitBashExecutable?: string,
   resolveConflict?: ConflictResolver,
   preResolvedConflicts: readonly ManagedConflict[] = [],
+  capabilities: NativeAgentCapabilityOptions = {},
 ): Promise<NativeAgentInstallResult> {
-  const root = join(codexHome, "holycodex", "agents");
+  const generationId = nativeAgentGenerationId(profile, tier, {
+    ...capabilities,
+    ...(windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable }),
+  });
+  const root = join(codexHome, "holycodex", "agents", generationId);
   const preserved: string[] = [];
   const rollback: NativeAgentRollbackEntry[] = [];
   const projections = projectNativeAgents(profile, tier).map((agent) => ({
     path: join(root, `${agent.name}.toml`),
-    contents: renderNativeAgent(
-      agent,
-      windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable },
-    ),
+    contents: renderNativeAgent(agent, {
+      ...capabilities,
+      ...(windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable }),
+    }),
   }));
   const previousByPath = new Map(
     previous.map((artifact) => [join(codexHome, artifact.path), artifact]),
@@ -541,46 +555,6 @@ export async function installNativeAgents(
     for (const artifact of previous) {
       const absolute = join(codexHome, artifact.path);
       if (!projections.some((candidate) => candidate.path === absolute)) {
-        if (!isKnownLegacyNativePath(codexHome, absolute, artifact.path)) {
-          preserved.push(absolute);
-          continue;
-        }
-        const preResolvedRemoval = preResolvedConflicts.find(
-          (conflict) => conflict.path === absolute && conflict.action === "remove",
-        );
-        if (preResolvedRemoval !== undefined) {
-          const current = await readRegularFile(absolute);
-          const reviewedDigest = conflictDigest(preResolvedRemoval);
-          if (
-            current === undefined ||
-            reviewedDigest === undefined ||
-            (await sha256(current)) !== reviewedDigest
-          ) {
-            throw new Error(
-              `The native role conflict changed after review; review the latest file and retry: ${absolute}`,
-            );
-          }
-          if (preResolvedRemoval.decision === "keep") {
-            preserved.push(absolute);
-          } else {
-            await rm(absolute, { force: false });
-            rollback.push({ path: absolute, previous: current, installedDigest: undefined });
-          }
-          continue;
-        }
-        const status = await removeIfUnchanged(absolute, artifact.digest);
-        if (status.status === "preserved") preserved.push(absolute);
-        else if (status.previous !== undefined) {
-          rollback.push({ path: absolute, previous: status.previous, installedDigest: undefined });
-        }
-      }
-    }
-    for (const artifact of previous) {
-      const absolute = join(codexHome, artifact.path);
-      if (
-        preserved.includes(absolute) &&
-        !managed_artifacts.some((candidate) => join(codexHome, candidate.path) === absolute)
-      ) {
         managed_artifacts.push(artifact);
       }
     }
@@ -688,6 +662,16 @@ export function renderNativeAgent(
     ...(instructionOptions.windowsGitBashExecutable === undefined
       ? []
       : [windowsGitBashShellDirective(instructionOptions.windowsGitBashExecutable)]),
+    ...(instructionOptions.browserUse
+      ? [
+          "Use Browser Use only for this Assignment and only when the capability is actually available in the current Codex surface/runtime. Never assume support or substitute another provider; report unavailability as a blocker. Tool availability does not grant authority, and consequential external effects remain Root-owned.",
+        ]
+      : []),
+    ...(instructionOptions.computerUse
+      ? [
+          "Use Computer Use only for this Assignment and only when the capability is actually available in the current Codex surface/runtime. Its platform restrictions and ability to cause external actions require explicit task authority. Never assume support or substitute another provider; report unavailability as a blocker. Tool availability does not grant authority. Credential entry and submission remain user-owned; never request, enter, retrieve, expose, or store credentials.",
+        ]
+      : []),
   ].join("\n");
   return [
     `name = ${JSON.stringify(agent.name)}`,
@@ -697,7 +681,7 @@ export function renderNativeAgent(
     `service_tier = ${JSON.stringify(agent.serviceTier)}`,
     'model_reasoning_summary = "none"',
     'model_verbosity = "low"',
-    'sandbox_mode = "workspace-write"',
+    `sandbox_mode = ${JSON.stringify(nativeAgentSandboxMode(agent))}`,
     'approval_policy = "never"',
     'web_search = "live"',
     `developer_instructions = ${JSON.stringify(instructions)}`,
@@ -707,16 +691,11 @@ export function renderNativeAgent(
     "interrupt_message = false",
     "",
     "[features]",
-    "context_management = true",
-    "agent_message_board = false",
-    "multi_agent_v2 = false",
     "multi_agent = false",
-    "computer_use = false",
-    "browser_use = false",
-    "in_app_browser = false",
     "",
-    "[sandbox_workspace_write]",
-    "network_access = true",
+    ...(nativeAgentSandboxMode(agent) === "workspace-write"
+      ? ["[sandbox_workspace_write]", "network_access = true"]
+      : []),
     "",
   ].join("\n");
 }
@@ -726,12 +705,12 @@ export function windowsGitBashShellDirective(executable?: string): string {
   if (executable === undefined || executable.trim().length === 0) {
     throw new Error("Git Bash executable is required.");
   }
-  return `On Windows, use Git for Windows Bash for all shell actions. The verified executable is ${JSON.stringify(executable)}. Do not launch another Bash process when already running in that environment. Do not use PowerShell, pwsh, cmd.exe, WSL Bash, Cygwin, or unrelated MSYS shells. If the active shell is not Git for Windows Bash, report the environment mismatch instead of continuing.`;
+  return `On Windows, run all shell actions in the verified Git for Windows Bash environment at ${JSON.stringify(executable)}. If that environment is unavailable or inactive, stop and report the mismatch; never fall back to another shell.`;
 }
 
 /** Return the Codex sandbox mode for a concrete task, including proof-only writable tasks. */
-export function nativeAgentSandboxMode(_agent: NativeAgentProjection): "workspace-write" {
-  return "workspace-write";
+export function nativeAgentSandboxMode(agent: NativeAgentProjection): NativeAgentSandboxMode {
+  return agent.permissions.filesystem;
 }
 
 /** Check the generated sandbox and command-network controls for one specialist. */
@@ -740,9 +719,11 @@ export function nativeAgentSandboxConfigurationMatches(
   document: TomlDocument,
 ): boolean {
   return (
-    document["sandbox_mode"] === "workspace-write" &&
+    document["sandbox_mode"] === nativeAgentSandboxMode(agent) &&
     document["default_permissions"] === undefined &&
-    readTomlPath(document, "sandbox_workspace_write.network_access") === true
+    (nativeAgentSandboxMode(agent) === "workspace-write"
+      ? readTomlPath(document, "sandbox_workspace_write.network_access") === true
+      : readTomlPath(document, "sandbox_workspace_write.network_access") === undefined)
   );
 }
 
@@ -786,27 +767,6 @@ export function isKnownLegacyRootRoleContent(content: string): boolean {
   return LEGACY_ROOT_ROLE_CONTENTS.has(content);
 }
 
-function isKnownLegacyNativePath(
-  codexHome: string,
-  absolute: string,
-  relativePath: string,
-): boolean {
-  if (relativePath === "agents/root.toml") return true;
-  if (
-    ROLE_DEFINITIONS.some(
-      (definition) => relativePath === `holycodex/agents/${definition.role.toLowerCase()}.toml`,
-    )
-  ) {
-    return true;
-  }
-  if (!pathWithin(join(codexHome, "agents"), absolute)) return false;
-  return NATIVE_AGENT_TYPES.some((agentType) => {
-    const [role, task] = agentType.split(".");
-    const legacyName = `${role![0]!.toUpperCase()}${role!.slice(1)}.${task}.toml`;
-    return relativePath === `agents/${legacyName}`;
-  });
-}
-
 async function removeLegacyRootIfOwned(path: string): Promise<"removed" | "preserved" | "absent"> {
   try {
     await assertNoSymlink(path);
@@ -832,26 +792,6 @@ async function readRegularFile(path: string): Promise<string | undefined> {
     return new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path));
   } catch (error: unknown) {
     if (isFsCode(error, "ENOENT")) return undefined;
-    throw error;
-  }
-}
-
-async function removeIfUnchanged(
-  path: string,
-  digest: string,
-): Promise<Readonly<{ status: "removed" | "preserved"; previous?: string }>> {
-  try {
-    await assertNoSymlink(path);
-    const entry = await lstat(path);
-    if (entry.isSymbolicLink() || !entry.isFile()) return { status: "preserved" };
-    const previous = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path));
-    if ((await sha256(previous)) === digest) {
-      await rm(path, { force: false });
-      return { status: "removed", previous };
-    }
-    return { status: "preserved" };
-  } catch (error: unknown) {
-    if (isFsCode(error, "ENOENT")) return { status: "removed" };
     throw error;
   }
 }

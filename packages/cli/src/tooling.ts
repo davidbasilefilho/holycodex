@@ -169,6 +169,59 @@ export async function ensureContext7(
   return ensureContext7ViaLauncher(runtime, mutate, previous);
 }
 
+/** Inspect the available Context7 executable without registry access or managed changes. */
+export async function inspectContext7ReadOnly(
+  runtime: InstallerRuntime,
+  previous?: Context7ToolState,
+): Promise<Context7ToolState> {
+  const available = await inspectPathContext7(runtime);
+  if (available !== undefined) {
+    const manager =
+      detectContext7Manager(runtime.environment) ??
+      ({ launcher: "bunx", family: "bun", executable: "bun" } as const);
+    const retainedOwnership =
+      previous?.ownership === "holycodex" &&
+      typeof previous.identity === "string" &&
+      samePath(previous.executable, available.executable, runtime.platform);
+    return {
+      manager: manager.family,
+      launcher: manager.launcher,
+      version: available.version,
+      executable: available.executable,
+      ownership: retainedOwnership ? "holycodex" : "user",
+      ...(retainedOwnership ? { identity: previous.identity } : {}),
+    };
+  }
+
+  const manager = isBunRuntime(runtime)
+    ? ({ launcher: "bunx", family: "bun", executable: "bun" } as const)
+    : detectContext7Manager(runtime.environment);
+  if (manager === undefined) {
+    throw new ToolingError(
+      "context7_manager_unknown",
+      "No usable PATH Context7 executable or supported package manager is available.",
+    );
+  }
+  const inspected =
+    manager.family === "bun" && isBunRuntime(runtime)
+      ? await inspectBunGlobalContext7(runtime)
+      : await inspectContext7(runtime, manager);
+  if (inspected === undefined) {
+    throw new ToolingError(
+      "context7_unavailable",
+      "No usable managed Context7 executable is available.",
+    );
+  }
+  return {
+    manager: manager.family,
+    launcher: manager.launcher,
+    version: inspected.version,
+    executable: inspected.executable,
+    ownership: context7Ownership(previous, manager, inspected),
+    identity: inspected.identity,
+  } as Context7ToolState;
+}
+
 async function inspectPathContext7(
   runtime: InstallerRuntime,
 ): Promise<Pick<Context7Inspection, "version" | "executable"> | undefined> {
@@ -185,6 +238,9 @@ async function inspectPathContext7(
 
 /** Verify that the exact package-manager global installation can be inspected before mutation. */
 export async function preflightContext7(runtime: InstallerRuntime): Promise<void> {
+  // An executable already available to the process is sufficient. Do not require a
+  // package-manager identity or registry access to preserve a working PATH tool.
+  if ((await inspectPathContext7(runtime)) !== undefined) return;
   if (isBunRuntime(runtime)) {
     await preflightBunGlobalContext7(runtime);
     return;

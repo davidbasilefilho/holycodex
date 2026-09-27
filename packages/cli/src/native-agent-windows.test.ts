@@ -2,6 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
@@ -25,7 +26,14 @@ import {
   type OfficialPluginManager,
 } from "./index.ts";
 import { parseConfig } from "./installer.ts";
-import { installNativeAgents, inspectNativeAgentConflicts } from "./native-agents.ts";
+import {
+  installNativeAgents,
+  inspectNativeAgentConflicts,
+  nativeAgentConfigPath,
+  nativeAgentGenerationId,
+  nativeAgentSandboxConfigurationMatches,
+  nativeAgentSandboxMode,
+} from "./native-agents.ts";
 
 const verifiedPathBash = "C:\\Other\\Git\\bin\\bash.exe";
 
@@ -162,6 +170,88 @@ function pluginManager(): OfficialPluginManager {
 }
 
 describe("Windows native-agent instructions", () => {
+  test("publishes a complete native-agent generation before switching registrations", async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "holycodex-agent-generation-"));
+    const codexHome = join(temporaryRoot, "codex");
+    const manager = pluginManager();
+    const runtime: InstallerRuntime = { ...windowsRuntime(), platform: "linux" };
+    try {
+      const initial = await installHolyCodex(
+        { profile: "default" },
+        { paths: { codexHome }, runtime, officialPluginManager: manager },
+      );
+      const initialConfig = parseConfig(await readFile(join(codexHome, "config.toml"), "utf8"));
+      const previousRefs = new Map(
+        projectNativeAgents("default").map((agent) => [
+          agent.name,
+          readTomlPath(initialConfig, `agents."${agent.name}".config_file`),
+        ]),
+      );
+      const previousContents = new Map<string, string>();
+      for (const [name, ref] of previousRefs) {
+        if (typeof ref !== "string") throw new Error(`Missing initial registration for ${name}.`);
+        previousContents.set(name, await readFile(join(codexHome, ...ref.split("/")), "utf8"));
+      }
+
+      let configAtRolePublication: ReturnType<typeof parseConfig> | undefined;
+      const upgraded = await installHolyCodex(
+        { profile: "low" },
+        {
+          paths: { codexHome },
+          runtime,
+          officialPluginManager: manager,
+          onProgress: (event) => {
+            if (event.stage === "roles" && event.status === "completed") {
+              configAtRolePublication = parseConfig(
+                readFileSync(join(codexHome, "config.toml"), "utf8"),
+              );
+            }
+            if (event.stage === "config" && event.status === "completed") {
+              const published = parseConfig(readFileSync(join(codexHome, "config.toml"), "utf8"));
+              const expectedGeneration = nativeAgentGenerationId("low", "standard", {
+                browserUse: true,
+                computerUse: false,
+              });
+              expect(readTomlPath(published, 'agents."Explorer.map".config_file')).toBe(
+                nativeAgentConfigPath("Explorer.map", expectedGeneration),
+              );
+            }
+          },
+        },
+      );
+      expect(configAtRolePublication).toBeDefined();
+      for (const [name, ref] of previousRefs) {
+        expect(readTomlPath(configAtRolePublication!, `agents."${name}".config_file`)).toBe(ref);
+      }
+
+      const finalConfig = parseConfig(await readFile(join(codexHome, "config.toml"), "utf8"));
+      const nextGeneration = nativeAgentGenerationId("low", "standard", {
+        browserUse: upgraded.record.optional_selections.browser_use,
+        computerUse: upgraded.record.optional_selections.computer_use,
+      });
+      for (const agent of projectNativeAgents("low")) {
+        const expectedRef = nativeAgentConfigPath(agent.name, nextGeneration);
+        expect(readTomlPath(finalConfig, `agents."${agent.name}".config_file`)).toBe(expectedRef);
+        const newText = await readFile(join(codexHome, ...expectedRef.split("/")), "utf8");
+        expect(newText).toBe(
+          renderNativeAgent(agent, {
+            browserUse: upgraded.record.optional_selections.browser_use,
+            computerUse: upgraded.record.optional_selections.computer_use,
+          }),
+        );
+        const oldRef = previousRefs.get(agent.name);
+        if (typeof oldRef !== "string")
+          throw new Error(`Missing initial registration for ${agent.name}.`);
+        const oldText = previousContents.get(agent.name);
+        if (oldText === undefined)
+          throw new Error(`Missing initial role content for ${agent.name}.`);
+        expect(await readFile(join(codexHome, ...oldRef.split("/")), "utf8")).toBe(oldText);
+      }
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("uses the verified PATH Bash in Root generation, App Server readback, and install verification", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "holycodex-native-windows-"));
     const codexHome = join(temporaryRoot, "codex");
@@ -180,6 +270,8 @@ describe("Windows native-agent instructions", () => {
       });
 
       const configText = await readFile(join(codexHome, "config.toml"), "utf8");
+      expect(configText).not.toContain("agent_message_board");
+      expect(configText).not.toContain("thread_tools");
       expect(configText).not.toContain("holycodex-readonly-network");
       const config = parseConfig(configText);
       const rootInstructions = config["developer_instructions"];
@@ -192,16 +284,28 @@ describe("Windows native-agent instructions", () => {
       await appServer.initialize();
       const readback = await appServer.readConfig();
       expect(readTomlPath(readback.config, "developer_instructions")).toBe(rootInstructions);
+      const instructionOptions = {
+        windowsGitBashExecutable: verifiedPathBash,
+        browserUse: installed.record.optional_selections.browser_use,
+        computerUse: installed.record.optional_selections.computer_use,
+      };
+      const generationId = nativeAgentGenerationId("default", "standard", instructionOptions);
       for (const agent of projectNativeAgents("default")) {
-        const rolePath = join(codexHome, "holycodex", "agents", `${agent.name}.toml`);
+        const roleRef = nativeAgentConfigPath(agent.name, generationId);
+        const rolePath = join(codexHome, ...roleRef.split("/"));
         const roleText = await readFile(rolePath, "utf8");
-        expect(roleText).toBe(
-          renderNativeAgent(agent, { windowsGitBashExecutable: verifiedPathBash }),
-        );
-        expect(roleText).toContain('sandbox_mode = "workspace-write"');
-        expect(roleText).toContain("network_access = true");
+        expect(roleText).toBe(renderNativeAgent(agent, instructionOptions));
+        expect(roleText).toContain(`sandbox_mode = "${nativeAgentSandboxMode(agent)}"`);
+        expect(nativeAgentSandboxConfigurationMatches(agent, parseConfig(roleText))).toBe(true);
+        if (nativeAgentSandboxMode(agent) === "workspace-write") {
+          expect(roleText).toContain("network_access = true");
+        } else {
+          expect(roleText).not.toContain("[sandbox_workspace_write]");
+        }
         expect(roleText).not.toContain("default_permissions =");
         expect(roleText).not.toContain("[permissions.");
+        expect(roleText).not.toContain("agent_message_board");
+        expect(roleText).not.toContain("thread_tools");
         const roleInstructions = parseConfig(roleText)["developer_instructions"];
         expect(typeof roleInstructions).toBe("string");
         expect(roleInstructions).toMatch(
@@ -209,9 +313,7 @@ describe("Windows native-agent instructions", () => {
         );
         expect(roleInstructions).toContain(windowsGitBashShellDirective(verifiedPathBash));
         expect(roleInstructions).not.toContain(WINDOWS_GIT_BASH);
-        expect(readTomlPath(readback.config, `agents."${agent.name}".config_file`)).toBe(
-          `holycodex/agents/${agent.name}.toml`,
-        );
+        expect(readTomlPath(readback.config, `agents."${agent.name}".config_file`)).toBe(roleRef);
       }
       await appServer.close();
 
@@ -222,13 +324,15 @@ describe("Windows native-agent instructions", () => {
           installed.record.managed_artifacts,
           "standard",
           verifiedPathBash,
+          {
+            browserUse: installed.record.optional_selections.browser_use,
+            computerUse: installed.record.optional_selections.computer_use,
+          },
         ),
       ).toEqual([]);
       const changedRole = join(
         codexHome,
-        "holycodex",
-        "agents",
-        `${projectNativeAgents("default")[0]!.name}.toml`,
+        ...nativeAgentConfigPath(projectNativeAgents("default")[0]!.name, generationId).split("/"),
       );
       await writeFile(changedRole, `${await readFile(changedRole, "utf8")}# user edit\n`);
       const conflicts = await inspectNativeAgentConflicts(
@@ -237,6 +341,10 @@ describe("Windows native-agent instructions", () => {
         installed.record.managed_artifacts,
         "standard",
         verifiedPathBash,
+        {
+          browserUse: installed.record.optional_selections.browser_use,
+          computerUse: installed.record.optional_selections.computer_use,
+        },
       );
       expect(conflicts).toHaveLength(1);
       expect(conflicts[0]).toMatchObject({ path: changedRole, action: "replace" });
@@ -245,10 +353,40 @@ describe("Windows native-agent instructions", () => {
     }
   }, 30_000);
 
+  test("switches Windows profile registrations to the matching Bash-bound generation", async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "holycodex-native-windows-profile-"));
+    const codexHome = join(temporaryRoot, "codex");
+    try {
+      const runtime = windowsRuntime();
+      const manager = pluginManager();
+      await installHolyCodex(
+        { profile: "default" },
+        { paths: { codexHome }, runtime, officialPluginManager: manager },
+      );
+      const upgraded = await installHolyCodex(
+        { profile: "low" },
+        { paths: { codexHome }, runtime, officialPluginManager: manager },
+      );
+      const config = parseConfig(await readFile(join(codexHome, "config.toml"), "utf8"));
+      const generation = nativeAgentGenerationId("low", "standard", {
+        browserUse: upgraded.record.optional_selections.browser_use,
+        computerUse: upgraded.record.optional_selections.computer_use,
+        windowsGitBashExecutable: verifiedPathBash,
+      });
+      for (const agent of projectNativeAgents("low")) {
+        expect(readTomlPath(config, `agents."${agent.name}".config_file`)).toBe(
+          nativeAgentConfigPath(agent.name, generation),
+        );
+      }
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("migrates owned legacy network profiles while preserving user configuration", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "holycodex-agent-network-migration-"));
     const codexHome = join(temporaryRoot, "codex");
-    const rolePath = join(codexHome, "holycodex", "agents", "Explorer.lookup.toml");
+    const legacyRolePath = join(codexHome, "holycodex", "agents", "Explorer.lookup.toml");
     const configPath = join(codexHome, "config.toml");
     const userConfig = '[permissions."holycodex-readonly-network"]\ncustom = true\n';
     try {
@@ -265,7 +403,7 @@ describe("Windows native-agent instructions", () => {
           '[permissions."holycodex-readonly-network"]\nextends = ":read-only"\n\n[permissions."holycodex-readonly-network".network]\nenabled = true',
         );
       await mkdir(join(codexHome, "holycodex", "agents"), { recursive: true });
-      await writeFile(rolePath, legacy);
+      await writeFile(legacyRolePath, legacy);
       await writeFile(configPath, userConfig);
 
       await installNativeAgents(codexHome, "default", [
@@ -275,7 +413,12 @@ describe("Windows native-agent instructions", () => {
         },
       ]);
 
-      expect(await readFile(rolePath, "utf8")).toBe(current);
+      const currentPath = join(
+        codexHome,
+        ...nativeAgentConfigPath("Explorer.lookup", nativeAgentGenerationId("default")).split("/"),
+      );
+      expect(await readFile(currentPath, "utf8")).toBe(current);
+      expect(await readFile(legacyRolePath, "utf8")).toBe(legacy);
       expect(await readFile(configPath, "utf8")).toBe(userConfig);
     } finally {
       await rm(temporaryRoot, { recursive: true, force: true });
@@ -308,13 +451,13 @@ describe("Windows native-agent instructions", () => {
       expect(instructions).toContain('fork_turns: "none"');
       expect(instructions).toContain("Never perform delegable work yourself");
       expect(instructions).toContain("bounded Assignment");
-      expect(instructions).toContain("Before each spawn, derive the exact Role.task target");
       expect(instructions).toContain(
-        "Verify the Codex registration resolves to the canonical role file",
+        "derive the exact Role.task target and complete configuration",
       );
-      expect(instructions).toContain("pass that exact target, model, and effort");
+      expect(instructions).toContain("Verify the registration resolves to its canonical role file");
+      expect(instructions).toContain("pass every supported configuration field explicitly");
       expect(instructions).toContain("Recheck resumed threads");
-      expect(instructions).toContain("if it cannot be verified or refreshed");
+      expect(instructions).toContain("If the complete route cannot be verified and passed");
       expect(instructions).toContain("holycodex-agent semantic operations");
       expect(instructions).toContain("Reviewer.code fixed point");
       expect(instructions).toContain("Worker.validation");

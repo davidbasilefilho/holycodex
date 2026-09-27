@@ -4,6 +4,7 @@ import { ManagedRuntimeConfigStateSchema } from "@holycodex/codex";
 import {
   ReleaseVersionSchema,
   decodeUnknown,
+  CapabilityNameSchema,
   OptionalCapabilityNameSchema,
   ProfileNameSchema,
   ProfileNameMigrationSchema,
@@ -43,15 +44,15 @@ export const ManagedArtifactSchema = Schema.Struct({
 });
 
 export const OptionalSelectionsSchema = Schema.Struct({
+  browser_use: Schema.Boolean,
   computer_use: Schema.Boolean,
-  frontend: Schema.Boolean,
-  security: Schema.Boolean,
+  sites: Schema.Boolean,
   coding: Schema.Literal(true),
 });
 export const ExplicitOptionalSelectionsSchema = Schema.Struct({
+  browser_use: Schema.optional(Schema.Boolean),
   computer_use: Schema.optional(Schema.Boolean),
-  frontend: Schema.optional(Schema.Boolean),
-  security: Schema.optional(Schema.Boolean),
+  sites: Schema.optional(Schema.Boolean),
 });
 export const InstallRequestSchema = Schema.Struct({
   profile: Schema.optional(ProfileNameSchema),
@@ -70,6 +71,13 @@ export const PersistedInstallOptionsSchema = Schema.Struct({
   capabilities: Schema.Array(OptionalCapabilityNameSchema),
   additional_plugins: Schema.Array(OfficialPluginIdSchema),
 });
+export const PersistedInstallOptionsMigrationSchema = Schema.Struct({
+  schema_version: Schema.Literal(1),
+  profile: ProfileNameSchema,
+  tier: ServiceTierSchema,
+  capabilities: Schema.Array(CapabilityNameSchema),
+  additional_plugins: Schema.Array(OfficialPluginIdSchema),
+});
 
 export const CapabilityInstallStateSchema = Schema.Struct({
   selected: Schema.Boolean,
@@ -86,22 +94,53 @@ export const CapabilityInstallStateSchema = Schema.Struct({
   reason: Schema.optional(Schema.String),
 });
 export const CapabilityStateRecordSchema = Schema.Struct({
+  browser_use: CapabilityInstallStateSchema,
   computer_use: CapabilityInstallStateSchema,
   frontend: CapabilityInstallStateSchema,
   security: CapabilityInstallStateSchema,
+  sites: CapabilityInstallStateSchema,
 });
 
 const LegacyOptionalSelectionsSchema = Schema.Struct({
-  ...OptionalSelectionsSchema.fields,
+  browser_use: Schema.optional(Schema.Boolean),
+  computer_use: Schema.Boolean,
+  frontend: Schema.Boolean,
+  security: Schema.Boolean,
+  sites: Schema.optional(Schema.Boolean),
+  coding: Schema.Literal(true),
   work: Schema.Boolean,
 });
 const LegacyExplicitOptionalSelectionsSchema = Schema.Struct({
-  ...ExplicitOptionalSelectionsSchema.fields,
+  browser_use: Schema.optional(Schema.Boolean),
+  computer_use: Schema.optional(Schema.Boolean),
+  frontend: Schema.optional(Schema.Boolean),
+  security: Schema.optional(Schema.Boolean),
+  sites: Schema.optional(Schema.Boolean),
   work: Schema.optional(Schema.Boolean),
 });
 const LegacyCapabilityStateRecordSchema = Schema.Struct({
-  ...CapabilityStateRecordSchema.fields,
+  browser_use: Schema.optional(CapabilityInstallStateSchema),
+  computer_use: CapabilityInstallStateSchema,
+  frontend: CapabilityInstallStateSchema,
+  security: CapabilityInstallStateSchema,
+  sites: Schema.optional(CapabilityInstallStateSchema),
   work: CapabilityInstallStateSchema,
+});
+const PreviousOptionalSelectionsSchema = Schema.Struct({
+  computer_use: Schema.Boolean,
+  frontend: Schema.Boolean,
+  security: Schema.Boolean,
+  coding: Schema.Literal(true),
+});
+const PreviousExplicitOptionalSelectionsSchema = Schema.Struct({
+  computer_use: Schema.optional(Schema.Boolean),
+  frontend: Schema.optional(Schema.Boolean),
+  security: Schema.optional(Schema.Boolean),
+});
+const PreviousCapabilityStateRecordSchema = Schema.Struct({
+  computer_use: CapabilityInstallStateSchema,
+  frontend: CapabilityInstallStateSchema,
+  security: CapabilityInstallStateSchema,
 });
 
 const GitBashStateSchema = Schema.Union(
@@ -214,6 +253,15 @@ const LegacyInstallRecordFields = {
 const LegacyInstallRecordWithoutProfile = (({ profile: _profile, ...fields }) => fields)(
   LegacyInstallRecordFields,
 );
+const PreviousInstallRecordFields = {
+  ...InstallRecordFields,
+  optional_selections: PreviousOptionalSelectionsSchema,
+  explicit_optional_selections: PreviousExplicitOptionalSelectionsSchema,
+  capability_state: Schema.optional(PreviousCapabilityStateRecordSchema),
+} as const;
+const PreviousInstallRecordWithoutProfile = (({ profile: _profile, ...fields }) => fields)(
+  PreviousInstallRecordFields,
+);
 /** Accept one pre-profile record shape only at the migration boundary. */
 export const InstallRecordMigrationSchema = Schema.Union(
   Schema.Struct({
@@ -226,6 +274,14 @@ export const InstallRecordMigrationSchema = Schema.Union(
   }),
   Schema.Struct({
     ...LegacyInstallRecordBaseFields,
+    plan: ProfileNameMigrationSchema,
+  }),
+  Schema.Struct({
+    ...PreviousInstallRecordFields,
+    profile: ProfileNameMigrationSchema,
+  }),
+  Schema.Struct({
+    ...PreviousInstallRecordWithoutProfile,
     plan: ProfileNameMigrationSchema,
   }),
 );

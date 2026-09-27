@@ -147,7 +147,7 @@ describe("core profile catalog", () => {
     expect(new Set(ROUTE_KEYS).size).toBe(ROUTE_KEYS.length);
     for (const profile of PROFILE_CATALOG) {
       expect(profile.routes.map((route) => route.key)).toEqual([...ROUTE_KEYS]);
-      expect(profile.routes.every((route) => route.model === "gpt-6-luna")).toBe(true);
+      expect(profile.routes.every((route) => route.model === profile.specialistModel)).toBe(true);
     }
 
     for (const expected of ROUTE_EFFORT_OVERRIDES) {
@@ -272,7 +272,7 @@ describe("core profile catalog", () => {
       expect(override).toBeDefined();
       if (!override) continue;
       expect(profile.routes.map((route) => route.model)).toEqual(
-        Array(ROUTE_KEYS.length).fill("gpt-6-luna"),
+        Array(ROUTE_KEYS.length).fill(profile.specialistModel),
       );
       expect(profile.routes.map((route) => route.effort)).toEqual(
         ROUTE_KEYS.map((key) => override.efforts[key]),
@@ -285,15 +285,17 @@ describe("core profile catalog", () => {
     expect(DEFAULT_CAPABILITY_SELECTIONS).toMatchObject({
       coding: true,
       computer_use: false,
+      browser_use: true,
       frontend: true,
       security: true,
+      sites: true,
     });
     expect(DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS).toEqual({
+      browser_use: DEFAULT_CAPABILITY_SELECTIONS.browser_use,
       computer_use: DEFAULT_CAPABILITY_SELECTIONS.computer_use,
-      frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
-      security: DEFAULT_CAPABILITY_SELECTIONS.security,
+      sites: DEFAULT_CAPABILITY_SELECTIONS.sites,
     });
-    for (const name of ["computer_use", "frontend", "security"] as const) {
+    for (const name of ["browser_use", "computer_use", "frontend", "security", "sites"] as const) {
       expect(CAPABILITY_REGISTRY[name].defaultSelected).toBe(DEFAULT_CAPABILITY_SELECTIONS[name]);
     }
     expect(DEFAULT_CAPABILITY_SELECTIONS).not.toHaveProperty("work");
@@ -386,8 +388,6 @@ describe("core profile catalog", () => {
       "completion",
       "git_vcs",
       "external_effects",
-      "gui_browser",
-      "computer_use",
     ] as const;
     expect(ROOT_ORCHESTRATION_POLICY.directExecutionExceptions).toEqual(rootOnlyActions);
     expect(ROOT_ORCHESTRATION_POLICY.delegableActions).toEqual([
@@ -401,6 +401,8 @@ describe("core profile catalog", () => {
       "validation",
       "frontend_work",
       "security_work",
+      "browser_use",
+      "computer_use",
       "review",
       "ci_release_observation",
     ]);
@@ -418,13 +420,14 @@ describe("core profile catalog", () => {
     expect(rootDirectExecutionAllowed("integration_acceptance")).toBe(true);
     expect(rootDirectExecutionAllowed("completion")).toBe(true);
     expect(rootDirectExecutionAllowed("external_effects")).toBe(true);
-    expect(rootDirectExecutionAllowed("gui_browser")).toBe(true);
-    expect(rootDirectExecutionAllowed("computer_use")).toBe(false);
-    expect(rootDirectExecutionAllowed("computer_use", true)).toBe(true);
+    expect(Either.isLeft(decodeUnknown(RootDirectExecutionExceptionSchema, "gui_browser"))).toBe(
+      true,
+    );
+    expect(Either.isLeft(decodeUnknown(RootDirectExecutionExceptionSchema, "computer_use"))).toBe(
+      true,
+    );
     expect(rootExecutionState()).toBe("delegated");
     expect(rootExecutionState("git_vcs")).toBe("root_direct");
-    expect(rootExecutionState("computer_use")).toBe("unavailable");
-    expect(rootExecutionState("computer_use", true)).toBe("root_direct");
     expect(ROOT_ORCHESTRATION_POLICY.requestUserInputGates).toEqual([
       "plan_approval",
       "installation_profile_approval",
@@ -567,9 +570,13 @@ describe("core profile catalog", () => {
     expect(LIBRARIAN_CONTEXT7_POLICY.checkFirstPartyDocsBeforeFallbackForConflict).toBe(true);
     expect(LIBRARIAN_CONTEXT7_POLICY.unresolvedConflictAfterFirstPartyAllowsFallback).toBe(true);
     expect(FRONTEND_WORKFLOW_POLICY.sourceChangesInvalidateRenderEvidence).toBe(true);
-    expect(FRONTEND_WORKFLOW_POLICY.rootOwnsLiveVisualAndInteractionAcceptance).toBe(true);
+    expect(FRONTEND_WORKFLOW_POLICY.rootAcceptsTerminalVisualEvidence).toBe(true);
+    expect(
+      FRONTEND_WORKFLOW_POLICY.specialistsOwnInspectionImplementationAndRenderedAcceptance,
+    ).toBe(true);
     expect(CREDENTIAL_INTERACTION_POLICY.credentialEntryAndSubmissionRemainUserOwned).toBe(true);
-    expect(CREDENTIAL_INTERACTION_POLICY.agentsMustNeverHandleCredentials).toBe(true);
+    expect(CREDENTIAL_INTERACTION_POLICY.specialistsMustNeverHandleCredentials).toBe(true);
+    expect(CREDENTIAL_INTERACTION_POLICY.interactiveCapabilitiesRemainSpecialistOwned).toBe(true);
     expect(SECURITY_WORKFLOW_POLICY.securityDiffScanRequiredForSecuritySensitiveDiffs).toBe(true);
     expect(SECURITY_WORKFLOW_POLICY.securityEditsInvalidateCodeReview).toBe(true);
     expect(SECURITY_WORKFLOW_POLICY.securitySensitiveCodeReviewEditsInvalidateSecurityReview).toBe(

@@ -10,6 +10,7 @@ import {
   detectContext7Manager,
   ensureContext7,
   ensureGitBash,
+  inspectContext7ReadOnly,
   preflightContext7,
   removeOwnedContext7,
 } from "./tooling.ts";
@@ -48,6 +49,21 @@ describe("installer tooling", () => {
     });
     expect(fixture.installs()).toBe(0);
     expect(fixture.calls.some((call) => call.includes("pm view ctx7 version"))).toBe(false);
+  });
+
+  test("preflights a usable PATH ctx7 without package-manager or registry access", async () => {
+    const fixture = context7Runtime({
+      family: "bun",
+      processPath: "bun",
+      installed: "1.0.0",
+      latestFails: true,
+      shadowed: true,
+      shadowVersion: "3.0.0",
+    });
+    await expect(
+      preflightContext7({ ...fixture.runtime, environment: { PATH: "C:\\Shadow" } }),
+    ).resolves.toBeUndefined();
+    expect(fixture.calls).toEqual(["C:\\Shadow\\ctx7.cmd --version"]);
   });
   test("accepts only bunx, npx, and pnpm dlx launcher metadata", () => {
     expect(detectContext7Manager({ npm_execpath: "C:/bun/bin/bunx.exe" })).toEqual({
@@ -428,6 +444,18 @@ describe("installer tooling", () => {
       code: "context7_outdated",
       details: { installed: "1.0.0", latest: "2.0.0" },
     });
+  });
+
+  test("read-only Context7 inspection never resolves the registry", async () => {
+    const fixture = context7Runtime({
+      family: "pnpm",
+      installed: "1.0.0",
+      latest: "2.0.0",
+      processPath: "node",
+    });
+    const inspected = await inspectContext7ReadOnly(fixture.runtime);
+    expect(inspected).toMatchObject({ version: "1.0.0", executable: fixture.shim });
+    expect(fixture.calls.some((call) => call.includes("view ctx7 version"))).toBe(false);
   });
 
   test("rejects missing, broken, mismatched, and shadowed shims", async () => {

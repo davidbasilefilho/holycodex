@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: Apache-2.0
+
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { ReadOnlyCodexPluginStatus } from "./official-manager.ts";
+
+describe("read-only official plugin status", () => {
+  let temporaryHome: string | undefined;
+
+  afterEach(async () => {
+    if (temporaryHome !== undefined) await rm(temporaryHome, { recursive: true, force: true });
+    temporaryHome = undefined;
+  });
+
+  test("uses an enabled, cached official alias when another accepted alias is disabled", async () => {
+    temporaryHome = await mkdtemp(join(tmpdir(), "holycodex-plugin-alias-status-"));
+    await writeFile(
+      join(temporaryHome, "config.toml"),
+      '[plugins."sites@openai-bundled"]\nenabled = false\n[plugins."sites@openai-curated-remote"]\nenabled = true\n',
+    );
+    const cacheDirectory = join(
+      temporaryHome,
+      "plugins",
+      "cache",
+      "openai-curated-remote",
+      "sites",
+      "fixture-cache",
+      ".codex-plugin",
+    );
+    await mkdir(cacheDirectory, { recursive: true });
+    await writeFile(join(cacheDirectory, "plugin.json"), "{}\n");
+
+    const manager = new ReadOnlyCodexPluginStatus(temporaryHome);
+    expect(await manager.status(["sites@openai-bundled"])).toEqual({
+      "sites@openai-bundled": "installed",
+    });
+    expect(manager.getObservedIdentities()).toEqual({
+      "sites@openai-bundled": "sites@openai-curated-remote",
+    });
+  });
+});

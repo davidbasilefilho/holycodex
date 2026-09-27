@@ -414,7 +414,7 @@ export const ProfileSelectionSchema = Schema.Struct({
 export type ProfileSelection = typeof ProfileSelectionSchema.Type;
 
 /**
- * Root-only actions that do not receive a specialist Assignment. `git_vcs` covers writes; relevant
+ * Root-owned actions that do not receive a specialist Assignment. `git_vcs` covers writes; relevant
  * read-only Git/VCS, CI, and PR-comment inspection may be delegated.
  *
  * Direct execution remains subject to the applicable approval and capability boundary.
@@ -428,8 +428,6 @@ export const ROOT_DIRECT_EXECUTION_EXCEPTIONS = Object.freeze([
   "completion",
   "git_vcs",
   "external_effects",
-  "gui_browser",
-  "computer_use",
 ] as const);
 export const RootDirectExecutionExceptionSchema = Schema.Literal(
   ...ROOT_DIRECT_EXECUTION_EXCEPTIONS,
@@ -539,37 +537,30 @@ export function context7RequiredForAssignment(input: Context7AssignmentSemantics
   );
 }
 
-/** Root's required acceptance loop for selected, user-visible frontend work. */
+/** Specialist-owned rendered acceptance loop for selected user-visible frontend work. */
 export const FRONTEND_WORKFLOW_POLICY = Object.freeze({
   repositoryAndUserRequirementsPrecedePluginDefaults: true,
-  specialistsOwnInspectionImplementationAndRepair: true,
-  rootOwnsLiveVisualAndInteractionAcceptance: true,
+  specialistsOwnInspectionImplementationAndRenderedAcceptance: true,
+  rootAcceptsTerminalVisualEvidence: true,
   sourceChangesInvalidateRenderEvidence: true,
-  specialistReportsCannotSubstituteForRootAcceptance: true,
+  specialistReportsIncludeObservableRenderedEvidence: true,
   logicOnlyChangesRequireVisualAcceptance: false,
   fixedPoint: Object.freeze([
     "specialist_implements",
-    "root_renders_opens_and_interacts",
-    "root_judges_current_result",
-    "root_delegates_discrepancies",
+    "specialist_renders_and_interacts",
+    "specialist_judges_current_result",
+    "root_accepts_terminal_evidence",
+    "root_assigns_discrepancies",
     "specialist_repairs",
     "root_rerenders_and_retests",
   ] as const),
 });
 
-/** Credential boundary for Root-only browser, GUI, and Computer Use activity. */
+/** Credential boundary for browser and GUI work performed under a specialist Assignment. */
 export const CREDENTIAL_INTERACTION_POLICY = Object.freeze({
-  interactiveCapabilitiesRemainRootOwned: true,
+  interactiveCapabilitiesRemainSpecialistOwned: true,
   credentialEntryAndSubmissionRemainUserOwned: true,
-  useDefaultBrowserWithComputerUse: true,
-  agentsMustNeverHandleCredentials: true,
-  authenticationSequence: Object.freeze([
-    "root_navigates_to_authentication",
-    "root_hands_control_to_user",
-    "user_enters_and_submits_credentials",
-    "root_waits_for_completion",
-    "root_resumes_authenticated_session",
-  ] as const),
+  specialistsMustNeverHandleCredentials: true,
   missingAuthorizedPathIsCapabilityBlocker: true,
 });
 
@@ -586,7 +577,7 @@ export const SECURITY_WORKFLOW_POLICY = Object.freeze({
   materialDecisionsRemainRootOwned: true,
 });
 
-/** Root orchestration contract; only ROOT_DIRECT_EXECUTION_EXCEPTIONS permit direct execution. */
+/** Root orchestration contract; only Root-owned authorities permit direct execution. */
 export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   requiresDelegation: true,
   assignmentStartAndDispatchPrecedeDelegableExecution: true,
@@ -609,6 +600,8 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
     "validation",
     "frontend_work",
     "security_work",
+    "browser_use",
+    "computer_use",
     "review",
     "ci_release_observation",
   ] as const),
@@ -731,26 +724,14 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   postVcsFlow: "discover_topology_observe_repair_repeat" as const,
 });
 
-/** Returns whether Root may execute a named exception directly. */
-export function rootDirectExecutionAllowed(
-  exception: RootDirectExecutionException,
-  computerUseEnabled = false,
-): boolean {
-  // This predicate only answers the direct case; `false` also covers unavailable.
-  return rootExecutionState(exception, computerUseEnabled) === "root_direct";
+/** Returns whether Root may execute a named Root-owned action directly. */
+export function rootDirectExecutionAllowed(exception: RootDirectExecutionException): boolean {
+  return rootExecutionState(exception) === "root_direct";
 }
 
-/**
- * Resolve direct, delegated, and unavailable states without conflating disabled capability with
- * delegation.
- */
-export function rootExecutionState(
-  exception?: RootDirectExecutionException,
-  computerUseEnabled = false,
-): RootExecutionState {
+/** Resolve Root-owned direct actions and all other work that must be assigned to a specialist. */
+export function rootExecutionState(exception?: RootDirectExecutionException): RootExecutionState {
   switch (exception) {
-    case "computer_use":
-      return computerUseEnabled ? "root_direct" : "unavailable";
     case "user_interaction":
     case "intent":
     case "material_decisions":
@@ -759,7 +740,6 @@ export function rootExecutionState(
     case "completion":
     case "git_vcs":
     case "external_effects":
-    case "gui_browser":
       return "root_direct";
     default:
       return "delegated";

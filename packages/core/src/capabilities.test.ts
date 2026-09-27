@@ -35,6 +35,21 @@ describe("official curated capability identities", () => {
     });
   });
 
+  test("maps Codex remote Sites to its bundled provider identity", () => {
+    expect(canonicalOfficialPluginId("sites@openai-curated-remote")).toBe("sites@openai-bundled");
+    expect(officialPluginIdCandidates("sites@openai-bundled")).toEqual([
+      "sites@openai-bundled",
+      "sites@openai-curated-remote",
+    ]);
+    expect(
+      resolveOfficialPluginIdentity("sites@openai-curated-remote", "openai-curated-remote"),
+    ).toMatchObject({
+      pluginName: "sites",
+      marketplaceName: "openai-curated-remote",
+      canonicalPluginId: "sites@openai-bundled",
+    });
+  });
+
   test("rejects third-party aliases and mismatched marketplace metadata", () => {
     expect(canonicalOfficialPluginId("build-web-apps@crowdstrike")).toBeUndefined();
     expect(
@@ -44,5 +59,9 @@ describe("official curated capability identities", () => {
       resolveOfficialPluginIdentity("build-web-apps@openai-curated", undefined),
     ).toBeUndefined();
     expect(officialPluginIdCandidates("build-web-apps@crowdstrike")).toEqual([]);
+    expect(canonicalOfficialPluginId("sites@crowdstrike")).toBeUndefined();
+    expect(
+      resolveOfficialPluginIdentity("sites@openai-curated-remote", "crowdstrike"),
+    ).toBeUndefined();
   });
 });

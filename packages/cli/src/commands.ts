@@ -35,8 +35,8 @@ import {
 import { asJsonValue } from "./json.ts";
 import { doctorHolyCodex, inspectRemovalConflicts, removeHolyCodex } from "./maintenance.ts";
 import { readPublicVersion, updateCanonicalVersion, ManifestError } from "./manifest.ts";
-import { OfficialPluginManagerError } from "./official-manager.ts";
-import { PathBoundaryError } from "./paths.ts";
+import { OfficialPluginManagerError, ReadOnlyCodexPluginStatus } from "./official-manager.ts";
+import { PathBoundaryError, resolveInstallerPaths } from "./paths.ts";
 import { StorageError } from "./storage.ts";
 import type {
   CliContext,
@@ -89,8 +89,20 @@ export async function executeCommand(
   switch (parsed.command) {
     case "install":
       return asJsonValue(await executeInstall(parsed, context));
-    case "doctor":
-      return asJsonValue(await doctorHolyCodex(installerOptions(parsed, context), context.env));
+    case "doctor": {
+      const options = installerOptions(parsed, context);
+      const paths = resolveInstallerPaths(options, context.env);
+      return asJsonValue(
+        await doctorHolyCodex(
+          {
+            ...options,
+            officialPluginManager:
+              options.officialPluginManager ?? new ReadOnlyCodexPluginStatus(paths.codexHome),
+          },
+          context.env,
+        ),
+      );
+    }
     case "remove":
       return asJsonValue(await executeRemove(parsed, context));
     case "version":
@@ -234,7 +246,7 @@ async function confirmIfAvailable(
 
 function optionalSelections(parsed: ParsedCommand) {
   const result: Record<string, boolean> = {};
-  for (const key of ["computer_use", "frontend", "security"] as const) {
+  for (const key of ["browser_use", "computer_use", "sites"] as const) {
     const positive = key.replaceAll("_", "-");
     if (parsed.options[positive] === true) result[key] = true;
     else if (parsed.options[positive] === false) result[key] = false;
@@ -636,10 +648,9 @@ function renderInstall(data: JsonValue, color: boolean): string {
   const version = stringValue(record, "version") ?? "unknown";
   const profile = stringValue(record, "profile") ?? "unknown";
   const tier = stringValue(record, "tier") ?? "unknown";
-  const selections = objectValue(record, "optional_selections");
   const capabilityState = objectValue(record, "capability_state");
-  const capabilities = ["frontend", "security", "computer_use"]
-    .filter((name) => selections?.[name] === true)
+  const capabilities = ["frontend", "security", "sites", "browser_use", "computer_use"]
+    .filter((name) => objectValue(capabilityState, name)?.["selected"] === true)
     .map((name) => {
       const status = stringValue(objectValue(capabilityState, name), "status");
       return status === undefined || status === "healthy" ? name : `${name} (${status})`;
