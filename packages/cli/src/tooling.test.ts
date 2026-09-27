@@ -13,6 +13,7 @@ import {
   inspectContext7ReadOnly,
   preflightContext7,
   removeOwnedContext7,
+  sameInstallerPath,
 } from "./tooling.ts";
 import type {
   Context7Manager,
@@ -33,6 +34,18 @@ const failure = (stderr = "failed"): InstallerProcessResult => ({
 const normalized = (path: string): string => win32.resolve(path).toLowerCase();
 
 describe("installer tooling", () => {
+  test("compares executable paths with platform-specific case rules", () => {
+    expect(
+      sameInstallerPath(
+        "C:\\Program Files\\Bun\\ctx7.exe",
+        "c:/program files/bun/ctx7.exe",
+        "win32",
+      ),
+    ).toBe(true);
+    expect(sameInstallerPath("/usr/local/bin/ctx7", "/usr/local/bin/ctx7", "linux")).toBe(true);
+    expect(sameInstallerPath("/usr/local/bin/CTX7", "/usr/local/bin/ctx7", "linux")).toBe(false);
+  });
+
   test("accepts a working PATH ctx7 when registry resolution fails", async () => {
     const fixture = context7Runtime({
       family: "bun",

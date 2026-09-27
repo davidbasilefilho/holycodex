@@ -152,7 +152,7 @@ export async function ensureContext7(
     const retainedOwnership =
       previous?.ownership === "holycodex" &&
       typeof previous.identity === "string" &&
-      samePath(previous.executable, available.executable, runtime.platform);
+      sameInstallerPath(previous.executable, available.executable, runtime.platform);
     return {
       manager: manager.family,
       launcher: manager.launcher,
@@ -182,7 +182,7 @@ export async function inspectContext7ReadOnly(
     const retainedOwnership =
       previous?.ownership === "holycodex" &&
       typeof previous.identity === "string" &&
-      samePath(previous.executable, available.executable, runtime.platform);
+      sameInstallerPath(previous.executable, available.executable, runtime.platform);
     return {
       manager: manager.family,
       launcher: manager.launcher,
@@ -366,7 +366,7 @@ async function preflightBunGlobalContext7(runtime: InstallerRuntime): Promise<vo
     );
   }
   if (
-    !samePath(canonicalPackageRoot, packageRoot, runtime.platform) ||
+    !sameInstallerPath(canonicalPackageRoot, packageRoot, runtime.platform) ||
     !normalize(canonicalExecutable).startsWith(`${normalize(canonicalPackageRoot)}/`)
   ) {
     throw new ToolingError(
@@ -562,7 +562,7 @@ async function inspectBunGlobalContext7(
     return undefined;
   }
   if (
-    !samePath(canonicalPackageRoot, packageRoot, runtime.platform) ||
+    !sameInstallerPath(canonicalPackageRoot, packageRoot, runtime.platform) ||
     !normalize(canonicalExecutable).startsWith(`${normalize(canonicalPackageRoot)}/`)
   )
     return undefined;
@@ -623,7 +623,7 @@ async function removeOwnedBunGlobalContext7(
   if (
     current === undefined ||
     current.version !== previous.version ||
-    !samePath(current.executable, previous.executable, runtime.platform) ||
+    !sameInstallerPath(current.executable, previous.executable, runtime.platform) ||
     !isContext7Identity((previous as Context7StateWithIdentity).identity) ||
     current.identity !== (previous as Context7StateWithIdentity).identity
   ) {
@@ -661,7 +661,7 @@ async function removeOwnedContext7ViaLauncher(
   if (
     current === undefined ||
     current.version !== previous.version ||
-    !samePath(current.executable, previous.executable, runtime.platform) ||
+    !sameInstallerPath(current.executable, previous.executable, runtime.platform) ||
     !isContext7Identity((previous as Context7StateWithIdentity).identity) ||
     current.identity !== (previous as Context7StateWithIdentity).identity
   ) {
@@ -819,7 +819,7 @@ async function inspectContext7(
   const shadow = await resolvePathExecutable(runtime.environment, runtime.platform, files);
   if (
     shadow !== undefined &&
-    !samePath(await canonicalPath(files, shadow), canonicalShim, runtime.platform)
+    !sameInstallerPath(await canonicalPath(files, shadow), canonicalShim, runtime.platform)
   ) {
     throw new ToolingError(
       "context7_shadowed",
@@ -986,9 +986,18 @@ function isExecutable(path: string, name: string): boolean {
   );
 }
 
-function samePath(left: string, right: string, platform: InstallerPlatform): boolean {
+/** Compare two resolved installer paths with the platform's path case rules. */
+export function sameInstallerPath(
+  left: string,
+  right: string,
+  platform: InstallerPlatform,
+): boolean {
   const pathApi = pathFor(platform);
-  return normalize(pathApi.resolve(left)) === normalize(pathApi.resolve(right));
+  const resolvedLeft = pathApi.resolve(left);
+  const resolvedRight = pathApi.resolve(right);
+  return platform === "win32"
+    ? normalize(resolvedLeft) === normalize(resolvedRight)
+    : resolvedLeft === resolvedRight;
 }
 
 function pathFor(platform: InstallerPlatform): typeof posix {

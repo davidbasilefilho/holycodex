@@ -71,6 +71,7 @@ import {
   ensureGitBash,
   inspectContext7ReadOnly,
   removeOwnedContext7,
+  sameInstallerPath,
 } from "./tooling.ts";
 import type {
   DoctorCheck,
@@ -912,7 +913,9 @@ export async function upgradeHolyCodex(
       gitBash.status === "missing" ||
       recordedContext7?.manager !== context7?.manager ||
       recordedContext7?.version !== context7?.version ||
-      recordedContext7?.executable !== context7?.executable;
+      (recordedContext7?.executable === undefined || context7?.executable === undefined
+        ? recordedContext7?.executable !== context7?.executable
+        : !sameInstallerPath(recordedContext7.executable, context7.executable, runtime.platform));
   } catch {
     toolingDrift = true;
   }
