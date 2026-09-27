@@ -706,6 +706,19 @@ export async function verifyPublicPackage(
         from_version: currentUpgrade.data["from_version"],
         to_version: currentUpgrade.data["to_version"],
         changes: currentUpgrade.data["changes"],
+        context7_executables: {
+          recorded: boundedDiagnosticPath(
+            objectProperty(objectProperty(activeRecord, "tooling") ?? {}, "context7")?.[
+              "executable"
+            ],
+          ),
+          reconciled: boundedDiagnosticPath(
+            objectProperty(
+              objectProperty(objectProperty(currentUpgrade.data, "record") ?? {}, "tooling") ?? {},
+              "context7",
+            )?.["executable"],
+          ),
+        },
       })})`,
     );
   }
@@ -2671,6 +2684,10 @@ function objectProperty(value: unknown, key: string): Record<string, unknown> | 
 function arrayProperty(value: unknown, key: string): readonly unknown[] | undefined {
   if (!hasProperty(value, key)) return undefined;
   return Array.isArray(value[key]) ? value[key] : undefined;
+}
+
+function boundedDiagnosticPath(value: unknown): string | undefined {
+  return typeof value === "string" ? value.slice(0, 512) : undefined;
 }
 
 if (import.meta.main) {
