@@ -13,6 +13,7 @@ import {
   inspectContext7ReadOnly,
   preflightContext7,
   removeOwnedContext7,
+  sameInstallerFile,
   sameInstallerPath,
 } from "./tooling.ts";
 import type {
@@ -44,6 +45,35 @@ describe("installer tooling", () => {
     ).toBe(true);
     expect(sameInstallerPath("/usr/local/bin/ctx7", "/usr/local/bin/ctx7", "linux")).toBe(true);
     expect(sameInstallerPath("/usr/local/bin/CTX7", "/usr/local/bin/ctx7", "linux")).toBe(false);
+  });
+
+  test("compares Windows short and long executable paths by canonical filesystem identity", async () => {
+    const fixture = context7Runtime({ family: "bun" });
+    const longPath = "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\holycodex\\ctx7.exe";
+    const shortPath = "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\holycodex\\ctx7.exe";
+    const baseFiles = fixture.runtime.files;
+    if (baseFiles === undefined)
+      throw new Error("The Context7 fixture has no filesystem boundary.");
+    const files: InstallerFileSystem = {
+      ...baseFiles,
+      realpath: async (path) => {
+        if (path === longPath || path === shortPath) return longPath;
+        throw new Error("ENOENT");
+      },
+    };
+    const runtime = { ...fixture.runtime, files };
+
+    await expect(sameInstallerFile(runtime, longPath, shortPath)).resolves.toBe(true);
+    await expect(
+      sameInstallerFile(runtime, longPath, "C:\\Users\\runneradmin\\other\\ctx7.exe"),
+    ).resolves.toBe(false);
+    await expect(
+      sameInstallerFile(
+        { ...runtime, files: { ...files, realpath: async () => Promise.reject(new Error()) } },
+        longPath,
+        shortPath,
+      ),
+    ).resolves.toBe(false);
   });
 
   test("accepts a working PATH ctx7 when registry resolution fails", async () => {

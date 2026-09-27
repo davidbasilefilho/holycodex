@@ -72,7 +72,7 @@ import {
   ensureGitBash,
   inspectContext7ReadOnly,
   removeOwnedContext7,
-  sameInstallerPath,
+  sameInstallerFile,
 } from "./tooling.ts";
 import type {
   DoctorCheck,
@@ -922,7 +922,7 @@ export async function upgradeHolyCodex(
       recordedContext7?.executable === undefined
         ? context7?.executable !== undefined
         : context7?.executable === undefined ||
-          !sameInstallerPath(recordedContext7.executable, context7.executable, runtime.platform)
+          !(await sameInstallerFile(runtime, recordedContext7.executable, context7.executable))
     ) {
       toolingDriftReasons.push("Context7 executable changed");
     }

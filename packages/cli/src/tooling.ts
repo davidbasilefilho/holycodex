@@ -152,7 +152,7 @@ export async function ensureContext7(
     const retainedOwnership =
       previous?.ownership === "holycodex" &&
       typeof previous.identity === "string" &&
-      sameInstallerPath(previous.executable, available.executable, runtime.platform);
+      (await sameInstallerFile(runtime, previous.executable, available.executable));
     return {
       manager: manager.family,
       launcher: manager.launcher,
@@ -182,7 +182,7 @@ export async function inspectContext7ReadOnly(
     const retainedOwnership =
       previous?.ownership === "holycodex" &&
       typeof previous.identity === "string" &&
-      sameInstallerPath(previous.executable, available.executable, runtime.platform);
+      (await sameInstallerFile(runtime, previous.executable, available.executable));
     return {
       manager: manager.family,
       launcher: manager.launcher,
@@ -623,7 +623,7 @@ async function removeOwnedBunGlobalContext7(
   if (
     current === undefined ||
     current.version !== previous.version ||
-    !sameInstallerPath(current.executable, previous.executable, runtime.platform) ||
+    !(await sameInstallerFile(runtime, current.executable, previous.executable)) ||
     !isContext7Identity((previous as Context7StateWithIdentity).identity) ||
     current.identity !== (previous as Context7StateWithIdentity).identity
   ) {
@@ -661,7 +661,7 @@ async function removeOwnedContext7ViaLauncher(
   if (
     current === undefined ||
     current.version !== previous.version ||
-    !sameInstallerPath(current.executable, previous.executable, runtime.platform) ||
+    !(await sameInstallerFile(runtime, current.executable, previous.executable)) ||
     !isContext7Identity((previous as Context7StateWithIdentity).identity) ||
     current.identity !== (previous as Context7StateWithIdentity).identity
   ) {
@@ -998,6 +998,25 @@ export function sameInstallerPath(
   return platform === "win32"
     ? normalize(resolvedLeft) === normalize(resolvedRight)
     : resolvedLeft === resolvedRight;
+}
+
+/** Compare executable paths by filesystem identity when lexical paths differ. */
+export async function sameInstallerFile(
+  runtime: InstallerRuntime,
+  left: string,
+  right: string,
+): Promise<boolean> {
+  if (sameInstallerPath(left, right, runtime.platform)) return true;
+  const files = runtime.files ?? nodeFiles;
+  try {
+    const [canonicalLeft, canonicalRight] = await Promise.all([
+      files.realpath(left),
+      files.realpath(right),
+    ]);
+    return sameInstallerPath(canonicalLeft, canonicalRight, runtime.platform);
+  } catch {
+    return false;
+  }
 }
 
 function pathFor(platform: InstallerPlatform): typeof posix {
