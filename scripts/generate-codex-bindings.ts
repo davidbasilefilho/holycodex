@@ -63,6 +63,11 @@ export interface GeneratedCacheIdentity {
   readonly codexCliDigest: string;
 }
 
+/** Build the mise lookup that bypasses ambiguous ambient executable resolution. */
+export function miseCodexExecutableCommand(): readonly string[] {
+  return ["mise", "which", "codex", "--tool", `${CODEX_TOOL}@latest`];
+}
+
 /** Reject a Codex installation that does not match the stable channel metadata. */
 export function assertLatestStableMatch(latestVersion: string, installedVersion: string): void {
   assertStableVersion(latestVersion, "mise stable Codex metadata");
@@ -165,7 +170,7 @@ async function resolveCodexTool(): Promise<{
   const expectedVersion = await resolveLatestMiseCodexVersion();
   let executable: string;
   try {
-    const result = await runChecked(["mise", "which", "codex"], {
+    const result = await runChecked(miseCodexExecutableCommand(), {
       cwd: workspaceRoot,
       env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
       maxOutputBytes: 16 * 1024,

@@ -6,6 +6,7 @@ import {
   assertLatestStableMatch,
   assertMiseLatestCodexConfig,
   canReuseGeneratedOutput,
+  miseCodexExecutableCommand,
   parseStableMiseCodexVersion,
 } from "./generate-codex-bindings.ts";
 
@@ -17,6 +18,16 @@ describe("latest stable Codex generation contract", () => {
     expect(() => assertMiseLatestCodexConfig('[tools]\ncodex = "latest"\n')).toThrow(
       'mise.toml must resolve npm:@openai/codex from the "latest" stable channel',
     );
+  });
+
+  test("resolves the configured Codex tool explicitly when PATH has another codex", () => {
+    expect(miseCodexExecutableCommand()).toEqual([
+      "mise",
+      "which",
+      "codex",
+      "--tool",
+      "npm:@openai/codex@latest",
+    ]);
   });
 
   test("rejects a stale cached tool against mocked latest-channel metadata", () => {
