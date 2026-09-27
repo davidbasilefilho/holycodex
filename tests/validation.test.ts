@@ -156,7 +156,7 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("bunx npm@12 publish");
     expect(await readFile(resolve(workspaceRoot, "mise.toml"), "utf8")).toContain('node = "26"');
     expect(workflow).not.toContain("bun publish");
-    expect(workflow).toContain("./.github/actions/verified-release-artifact");
+    expect(workflow).toContain("./.github/actions/download-release-artifact");
     expect(workflow).toContain("EXPECTED_SHA256");
     expect(workflow).toContain("check-npm");
     expect(workflow).toContain("check-github");
@@ -198,12 +198,17 @@ describe("repository validation machinery", () => {
     expect(workflow.indexOf("  publish_npm:")).toBeLessThan(workflow.indexOf("  publish_github:"));
 
     const prepareArtifact = await readFile(
-      resolve(workspaceRoot, ".github/actions/verified-release-artifact/action.yml"),
+      resolve(workspaceRoot, ".github/actions/download-release-artifact/action.yml"),
       "utf8",
     );
     expect(prepareArtifact).toContain("actions/download-artifact@");
-    expect(prepareArtifact).toContain("scripts/package-release.ts verify");
+    expect(prepareArtifact).toContain("bun install --frozen-lockfile");
+    expect(prepareArtifact).not.toContain("scripts/package-release.ts verify");
     expect(prepareArtifact).toContain('test "$(git rev-parse HEAD)" = "$SOURCE_SHA"');
+    expect(publishNpm.indexOf("check-npm")).toBeLessThan(publishNpm.indexOf("bunx npm@12 publish"));
+    expect(publishGithub.indexOf("check-github")).toBeLessThan(
+      publishGithub.indexOf("Create the identity-marked release notes"),
+    );
 
     const npmPublish = publishNpm.slice(
       publishNpm.indexOf("Publish the exact artifact under the channel tag"),

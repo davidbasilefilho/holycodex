@@ -127,14 +127,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prepare the verified release artifact
-        uses: ./.github/actions/verified-release-artifact
+      - name: Download the release artifact
+        uses: ./.github/actions/download-release-artifact
         with:
           artifact_name: ${{ needs.validation.outputs.artifact_name }}
-          version: ${{ needs.prepare.outputs.version }}
-          channel: ${{ needs.prepare.outputs.channel }}
           source_sha: ${{ needs.prepare.outputs.source_sha }}
-          sha256: ${{ needs.validation.outputs.artifact_sha256 }}
 
       - name: Verify artifact identity and npm retry state
         id: npm_state
@@ -178,17 +175,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prepare the verified release artifact
-        uses: ./.github/actions/verified-release-artifact
+      - name: Download the release artifact
+        uses: ./.github/actions/download-release-artifact
         with:
           artifact_name: ${{ needs.validation.outputs.artifact_name }}
-          version: ${{ needs.prepare.outputs.version }}
-          channel: ${{ needs.prepare.outputs.channel }}
           source_sha: ${{ needs.prepare.outputs.source_sha }}
-          sha256: ${{ needs.validation.outputs.artifact_sha256 }}
-
-      - name: Create the identity-marked release notes
-        run: mise exec -- bun scripts/package-release.ts notes "$RUNNER_TEMP/release" "$RUNNER_TEMP/release-notes.md"
 
       - name: Verify artifact identity and GitHub retry state
         id: github_state
@@ -202,6 +193,10 @@ jobs:
             absent|matching) echo "status=$STATUS" >> "$GITHUB_OUTPUT" ;;
             *) echo "Unexpected GitHub retry state: $STATUS" >&2; exit 1 ;;
           esac
+
+      - name: Create the identity-marked release notes
+        if: steps.github_state.outputs.status == 'absent'
+        run: mise exec -- bun scripts/package-release.ts notes "$RUNNER_TEMP/release" "$RUNNER_TEMP/release-notes.md"
 
       - name: Create the release from the verified source
         if: steps.github_state.outputs.status == 'absent'
