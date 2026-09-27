@@ -3,14 +3,13 @@ name: continue-work
 description: Use when the user asks Root to continue, resume, or keep going with existing HolyCodex work.
 ---
 
-Recover the current Intent, Plan, Assignments, terminal results, unresolved work,
-and material decisions. Reconcile them with the current repository and external
-evidence, then continue normal HolyCodex orchestration from the last supported
-state. Preserve established ownership, scope, decisions, evidence, and completed
-work; do not create a fresh Intent for the same work.
+Restore the current Intent, Plan if present, Assignments, accepted evidence,
+decisions, completed work, and unresolved work. Reconcile that state with the
+current repository and continue normal HolyCodex orchestration from the last
+supported point; do not restart the same work as a new Intent.
 
-Use `holycodex-agent state diagnose --intent <ref>` only when the available
-state cannot otherwise be resumed safely. Resolve a recoverable inconsistency
-through the owning state operation, or return the exact blocker to Root. A
-continuation request does not turn an active Assignment into a failed one
-without evidence that its invocation stopped.
+Use `holycodex-agent state diagnose --intent <ref>` only when safe continuation
+cannot be established from the available state and current evidence. Resolve a
+recoverable inconsistency through its owning state operation, or return the
+exact blocker to Root. An active Assignment is not failed without evidence that
+its invocation stopped.

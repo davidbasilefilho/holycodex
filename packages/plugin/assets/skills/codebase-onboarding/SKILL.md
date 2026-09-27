@@ -3,9 +3,9 @@ name: codebase-onboarding
 description: Use when explaining a repository or orienting a new contributor to how it works.
 ---
 
-Root delegates a bounded repository map, then traces only the important flows
-needed to explain the project. Root synthesizes the purpose, structure, major
-execution flow, conventions, and useful starting points from that evidence.
-Keep the explanation grounded in the current codebase and proportionate to the
-user's question. The workflow is read-only unless the user also requests
-persistent documentation.
+Provide a bounded, read-only orientation to the current repository or answer a
+repository question from its evidence. Cover the purpose, key structure and
+dependencies, entry points, and important execution or data flows relevant to
+the request. Return concrete evidence and file locators; Root synthesizes the
+explanation from specialist findings. Change persistent documentation only
+when requested.

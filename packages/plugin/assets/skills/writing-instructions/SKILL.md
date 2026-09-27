@@ -1,15 +1,14 @@
 ---
 name: writing-instructions
-description: Use when authoring or reviewing model-facing instructions for GPT-6.
+description: Use when authoring or reviewing model-facing instructions.
 ---
 
 # Writing instructions
 
-HolyCodex's canonical instruction-authoring skill has a GPT-6 → GPT-6 direction.
-It covers developer_instructions, Root/session policy, specialist and Role.task
-instructions, skill bodies, conditional workflows, and task-specific contracts.
-Keep shared behavioral policy under one owner across model routes, while
-accounting for demonstrated model-specific capability or prompting differences.
+Use this skill for model-facing instructions, including Root/session policy,
+specialist and Role.task contracts, skills, and conditional workflows. Keep
+shared behavior under one owner across model routes; account for model-specific
+differences only when supported by evidence.
 
 Before writing, identify the receiver's effective context: higher-priority and
 user instructions, repository instructions, Role/task policy, relevant skills,
@@ -37,9 +36,8 @@ policy, and unnecessary questionnaires. Preserve meaningful repository checks
 and review gates through their canonical owners instead of reproducing them in
 every skill. Use configuration for verbosity rather than generic style padding.
 
-When creating or changing a skill's invocation boundary or conditional branches,
-read [Skill mechanics](SKILL-MECHANICS.md). Other instruction changes do not need
-that reference.
+When changing a skill's invocation boundary or conditional branches, follow
+[Skill mechanics](SKILL-MECHANICS.md).
 
 An instruction change is complete when the receiver can act within its authority,
 recognize completion and escalation boundaries, and return sufficient evidence;

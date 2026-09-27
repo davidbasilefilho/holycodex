@@ -1,11 +1,11 @@
 ---
 name: debugging
-description: Use for a reproducible crash, wrong result, regression, hang, race, leak, or slowdown.
+description: Use to diagnose and repair an observable defect or unexplained behavior.
 ---
 
-Reproduce the defect with the smallest practical failing case. Inspect bounded
-relevant evidence, using targeted observation or temporary instrumentation when
-it resolves uncertainty. Identify the evidence-backed root cause, repair it
-within the assigned seam, and prove the regression is gone at an appropriate
-behavior boundary. Remove temporary instrumentation and proof debris before
-completion. Escalate competing causes or a material redesign.
+Reproduce the issue with the smallest useful case when practical; otherwise,
+establish its cause from strong observed evidence. Bound log review and use
+temporary instrumentation only when it resolves uncertainty; remove temporary
+instrumentation afterward. Repair only the assigned seam and prove the
+regression is gone at an appropriate behavior boundary. Escalate materially
+unresolved causes or a redesign.
