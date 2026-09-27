@@ -66,6 +66,41 @@ async function git(root: string, ...args: readonly string[]): Promise<string> {
 }
 
 describe("IntentStore", () => {
+  test("diagnoses a valid target despite an unrelated invalid Intent record", async () => {
+    const { root, store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Healthy target",
+      goal: "Inspect only the requested Intent",
+      acceptanceCriteria: ["diagnosis succeeds"],
+    });
+    const unrelatedDirectory = join(root, ".holycodex", "aaa-unrelated");
+    await mkdir(unrelatedDirectory);
+    await writeFile(join(unrelatedDirectory, "intent.toon"), `${encode({ state: "invalid" })}\n`);
+
+    await expect(store.diagnose(intent.id)).resolves.toMatchObject({ intent_id: intent.id });
+    await expect(store.readIntent(intent.id)).rejects.toMatchObject({ code: "schema_invalid" });
+  });
+
+  test("reports a requested invalid Intent by ID or slug", async () => {
+    const { root, store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Corrupt target",
+      goal: "Preserve requested-record validation",
+      acceptanceCriteria: ["invalid requested state remains visible"],
+    });
+    const stateRoot = join(root, ".holycodex");
+    const directory = (await readdir(stateRoot)).find((entry) => entry !== "current")!;
+    const path = join(stateRoot, directory, "intent.toon");
+    const persisted = decode(await readFile(path, "utf8"), { strict: true }) as Record<
+      string,
+      unknown
+    >;
+    await writeFile(path, `${encode({ ...persisted, state: "invalid" })}\n`);
+
+    await expect(store.diagnose(intent.id)).rejects.toMatchObject({ code: "schema_invalid" });
+    await expect(store.diagnose(intent.slug)).rejects.toMatchObject({ code: "schema_invalid" });
+  });
+
   test("diagnoses unresolved and inconsistent state without changing persisted records", async () => {
     const { root, store } = await fixture();
     const intent = await store.createIntent({

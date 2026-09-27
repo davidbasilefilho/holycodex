@@ -510,7 +510,21 @@ export class IntentStore {
       const directory = join(this.stateRoot, entry);
       if (!(await isDirectory(directory)) || !(await isFile(join(directory, "intent.toon"))))
         continue;
-      const intent = await readIntentForDiagnosis(join(directory, "intent.toon"));
+      let intent: Intent;
+      try {
+        intent = await readIntentForDiagnosis(join(directory, "intent.toon"));
+      } catch (error: unknown) {
+        if (isDiagnosticRecordError(error)) {
+          if (
+            entry === reference ||
+            (error.code !== "not_found" &&
+              (await intentIdentityMatches(join(directory, "intent.toon"), reference)))
+          )
+            throw error;
+          continue;
+        }
+        throw error;
+      }
       if ([intent.id, intent.slug, entry].includes(reference)) matches.push({ directory, intent });
     }
     if (matches.length !== 1)
@@ -2830,6 +2844,18 @@ async function readIntentForDiagnosis(path: string): Promise<Intent> {
       error: String(current.left),
     });
   return migrateLegacyIntent(legacy.right);
+}
+async function intentIdentityMatches(path: string, reference: string): Promise<boolean> {
+  let value: unknown;
+  try {
+    value = await readRawToon(path);
+  } catch (error: unknown) {
+    if (isDiagnosticRecordError(error)) return false;
+    throw error;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const identity = value as { readonly id?: unknown; readonly slug?: unknown };
+  return identity.id === reference || identity.slug === reference;
 }
 function isDiagnosticRecordError(error: unknown): error is IntentStoreError {
   return (
