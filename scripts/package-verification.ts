@@ -1210,6 +1210,18 @@ async function verifyPreviousStableUpgrade(options: {
   }
   const tooling = objectProperty(upgradedRecord, "tooling");
   const context7 = objectProperty(tooling, "context7");
+  const previousContext7Executable = previousContext7?.["executable"];
+  const upgradedContext7Executable = context7?.["executable"];
+  const expectedUpgradeContext7Ownership =
+    expectedContext7Ownership === "holycodex" &&
+    previousContext7?.["manager"] === context7?.["manager"] &&
+    typeof previousContext7?.["identity"] === "string" &&
+    /^[0-9a-f]{64}$/u.test(previousContext7["identity"]) &&
+    typeof previousContext7Executable === "string" &&
+    typeof upgradedContext7Executable === "string" &&
+    sameVerificationPath(previousContext7Executable, upgradedContext7Executable)
+      ? "holycodex"
+      : "user";
   assert(
     context7?.["manager"] === "bun" && context7["launcher"] === "bunx",
     "upgrade did not persist the injected Bun launcher identity for Context7",
@@ -1220,7 +1232,7 @@ async function verifyPreviousStableUpgrade(options: {
     environment,
     options.commands,
     "previous stable upgrade",
-    expectedContext7Ownership,
+    expectedUpgradeContext7Ownership,
   );
   const upgradedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
   assert(
@@ -1822,6 +1834,14 @@ async function readBoundedStream(
     offset += chunk.byteLength;
   }
   return new TextDecoder().decode(bytes);
+}
+
+function sameVerificationPath(left: string, right: string): boolean {
+  const resolvedLeft = resolve(left);
+  const resolvedRight = resolve(right);
+  return process.platform === "win32"
+    ? resolvedLeft.toLowerCase() === resolvedRight.toLowerCase()
+    : resolvedLeft === resolvedRight;
 }
 
 async function assertPersistedContext7(
