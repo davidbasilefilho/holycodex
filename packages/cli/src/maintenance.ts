@@ -31,6 +31,7 @@ import {
   desiredRootConfig,
   parseConfig,
   readActiveInstallRecord,
+  readInstallTransaction,
   recordDigestMatches,
   serializeConfig,
   InstallerError,
@@ -65,7 +66,7 @@ import {
   type ResolvedInstallerPaths,
 } from "./paths.ts";
 import { decodeSchema, InstallTransactionSchema } from "./schema.ts";
-import { optionalJsonFile, optionalTextFile, writeAtomicJson, writeAtomicText } from "./storage.ts";
+import { optionalTextFile, writeAtomicJson, writeAtomicText } from "./storage.ts";
 import {
   createInstallerRuntime,
   ensureGitBash,
@@ -108,19 +109,19 @@ export async function doctorHolyCodex(
     checks["paths"] = failedCheck(["path_symlink"], { error: safeMessage(error) });
   }
 
-  const [active, preparing, conflicted] = await Promise.all([
-    readActiveInstallRecord(paths).catch((error: unknown) => {
-      checks["configuration"] = failedCheck(["state_corrupt"], { error: safeMessage(error) });
-      return undefined;
-    }),
-    optionalJsonFile(paths.preparingRecord, InstallTransactionSchema).catch((error: unknown) => {
+  const active = await readActiveInstallRecord(paths).catch((error: unknown) => {
+    checks["configuration"] = failedCheck(["state_corrupt"], { error: safeMessage(error) });
+    return undefined;
+  });
+  const [preparing, conflicted] = await Promise.all([
+    readInstallTransaction(paths.preparingRecord, active).catch((error: unknown) => {
       checks["transaction"] = failedCheck(["state_corrupt"], {
         path: paths.preparingRecord,
         error: safeMessage(error),
       });
       return undefined;
     }),
-    optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema).catch((error: unknown) => {
+    readInstallTransaction(paths.conflictedRecord, active).catch((error: unknown) => {
       checks["transaction"] = failedCheck(["state_corrupt"], {
         path: paths.conflictedRecord,
         error: safeMessage(error),
@@ -307,8 +308,8 @@ export async function inspectRemovalConflicts(
     );
   }
   const [preparing, conflicted] = await Promise.all([
-    optionalJsonFile(paths.preparingRecord, InstallTransactionSchema),
-    optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema),
+    readInstallTransaction(paths.preparingRecord, active),
+    readInstallTransaction(paths.conflictedRecord, active),
   ]);
   assertRemovalTransactionState(active, preparing, conflicted);
   const recovery = selectRecoveryState(active, preparing, conflicted);
@@ -372,8 +373,8 @@ export async function removeHolyCodex(
     );
   }
   const [preparing, conflicted] = await Promise.all([
-    optionalJsonFile(paths.preparingRecord, InstallTransactionSchema),
-    optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema),
+    readInstallTransaction(paths.preparingRecord, active),
+    readInstallTransaction(paths.conflictedRecord, active),
   ]);
   assertRemovalTransactionState(active, preparing, conflicted);
   const recovery = selectRecoveryState(active, preparing, conflicted);
@@ -769,10 +770,10 @@ export async function upgradeHolyCodex(
   request: UpgradeRequest = {},
 ): Promise<UpgradeResult> {
   const paths = resolveInstallerPaths(options, environment);
-  const [active, preparing, conflicted] = await Promise.all([
-    readActiveInstallRecord(paths),
-    optionalJsonFile(paths.preparingRecord, InstallTransactionSchema),
-    optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema),
+  const active = await readActiveInstallRecord(paths);
+  const [preparing, conflicted] = await Promise.all([
+    readInstallTransaction(paths.preparingRecord, active),
+    readInstallTransaction(paths.conflictedRecord, active),
   ]);
   if (active !== undefined && !(await recordDigestMatches(active))) {
     throw new InstallerError(
@@ -899,9 +900,11 @@ export async function upgradeHolyCodex(
     }
   }
   let toolingDrift = source.tooling === undefined;
+  const toolingDriftReasons: string[] = source.tooling === undefined ? ["record missing"] : [];
   try {
     const runtime = options.runtime ?? createInstallerRuntime(environment);
     const gitBash = await ensureGitBash(runtime, false);
+    if (gitBash.status === "missing") toolingDriftReasons.push("Git Bash unavailable");
     let context7: Awaited<ReturnType<typeof inspectContext7ReadOnly>> | undefined;
     try {
       context7 = await inspectContext7ReadOnly(runtime, source.tooling?.context7);
@@ -909,15 +912,33 @@ export async function upgradeHolyCodex(
       if (source.tooling?.context7 !== undefined || !isContext7Absent(error)) throw error;
     }
     const recordedContext7 = source.tooling?.context7;
-    toolingDrift ||=
-      gitBash.status === "missing" ||
-      recordedContext7?.manager !== context7?.manager ||
-      recordedContext7?.version !== context7?.version ||
-      (recordedContext7?.executable === undefined || context7?.executable === undefined
-        ? recordedContext7?.executable !== context7?.executable
-        : !sameInstallerPath(recordedContext7.executable, context7.executable, runtime.platform));
-  } catch {
+    if (recordedContext7?.manager !== context7?.manager) {
+      toolingDriftReasons.push("Context7 manager changed");
+    }
+    if (recordedContext7?.version !== context7?.version) {
+      toolingDriftReasons.push("Context7 version changed");
+    }
+    if (
+      recordedContext7?.executable === undefined
+        ? context7?.executable !== undefined
+        : context7?.executable === undefined ||
+          !sameInstallerPath(recordedContext7.executable, context7.executable, runtime.platform)
+    ) {
+      toolingDriftReasons.push("Context7 executable changed");
+    }
+    toolingDrift ||= toolingDriftReasons.length > 0;
+  } catch (error: unknown) {
     toolingDrift = true;
+    const code =
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      typeof error.code === "string"
+        ? error.code
+        : error instanceof Error
+          ? error.name
+          : "inspection failed";
+    toolingDriftReasons.push(`inspection failed (${code})`);
   }
   const changes = [
     ...(ordering > 0 || sameBaseChannelTransition ? ["version"] : []),
@@ -929,7 +950,7 @@ export async function upgradeHolyCodex(
       ? ["Root/session configuration", "specialist role definitions"]
       : []),
     ...(transaction ? ["interrupted transaction recovery"] : []),
-    ...(toolingDrift ? ["shared tooling reconciliation"] : []),
+    ...(toolingDrift ? [`shared tooling reconciliation (${toolingDriftReasons.join(", ")})`] : []),
     ...dryRunConflictInventory.map(
       (conflict) =>
         `conflict: ${conflict.path}${conflict.key === undefined ? "" : ` (${conflict.key})`} -> ${conflict.action}`,

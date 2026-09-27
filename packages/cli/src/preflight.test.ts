@@ -10,6 +10,7 @@ import type { TomlDocument, TomlValue } from "@holycodex/codex";
 
 import {
   doctorHolyCodex,
+  installRecordDigest,
   installHolyCodex,
   readActiveInstallRecord,
   removeHolyCodex,
@@ -325,6 +326,93 @@ describe("installer preflight", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  test("recovers a preparing journal written with the prior install schema", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-legacy-journal-"));
+    const codexHome = join(root, "codex");
+    try {
+      const { manager, runtime, result } = await installBaseline(codexHome);
+      const paths = resolveInstallerPaths({ paths: { codexHome } });
+      const legacySelections = {
+        computer_use: result.record.optional_selections.computer_use,
+        frontend: true,
+        security: true,
+        coding: true as const,
+        work: false,
+      };
+      const legacyExplicit = {
+        frontend: false,
+        security: false,
+        work: false,
+      };
+      const legacyRecord = {
+        ...result.record,
+        optional_selections: legacySelections,
+        explicit_optional_selections: legacyExplicit,
+        capability_state: {
+          computer_use: result.record.capability_state!.computer_use,
+          frontend: result.record.capability_state!.frontend,
+          security: result.record.capability_state!.security,
+          work: {
+            selected: false,
+            status: "disabled" as const,
+            plugin_ids: [],
+          },
+        },
+      };
+      legacyRecord.digest = await installRecordDigest({
+        owner: legacyRecord.owner,
+        install_id: legacyRecord.install_id,
+        version: legacyRecord.version,
+        profile: legacyRecord.profile,
+        tier: legacyRecord.tier,
+        optional_selections: legacyRecord.optional_selections,
+        explicit_optional_selections: legacyRecord.explicit_optional_selections,
+        official_plugins: legacyRecord.official_plugins ?? [],
+        capability_state: legacyRecord.capability_state,
+        managed_artifacts: legacyRecord.managed_artifacts,
+        managed_config: legacyRecord.managed_config,
+        plugin_config: legacyRecord.plugin_config,
+        provider_config: legacyRecord.provider_config,
+        plugin_snapshot: legacyRecord.plugin_snapshot,
+        owned_plugins: legacyRecord.owned_plugins,
+        tooling: legacyRecord.tooling,
+      });
+      await writeFile(paths.activeRecord, `${JSON.stringify(legacyRecord)}\n`);
+      const journal = {
+        ...legacyRecord,
+        status: "preparing" as const,
+        step: "plugins_installed" as const,
+      };
+      const configBefore = await readFile(paths.configFile, "utf8");
+      for (const stale of [
+        { ...journal, digest: "f".repeat(64) },
+        { ...journal, install_id: "different-install" },
+      ]) {
+        await writeFile(paths.preparingRecord, `${JSON.stringify(stale)}\n`);
+        await expect(
+          installHolyCodex(request, {
+            paths: { codexHome },
+            officialPluginManager: manager,
+            runtime,
+          }),
+        ).rejects.toMatchObject({ code: "state_corrupt" });
+        expect(await readFile(paths.configFile, "utf8")).toBe(configBefore);
+      }
+      await writeFile(paths.preparingRecord, `${JSON.stringify(journal)}\n`);
+
+      const removal = await removeHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+      });
+      expect(removal.reasons).toEqual([]);
+      expect(await readFile(paths.activeRecord).catch(() => undefined)).toBeUndefined();
+      expect(await readFile(paths.preparingRecord).catch(() => undefined)).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   test("does not mutate managed state before final review approval", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-review-"));

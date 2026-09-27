@@ -81,6 +81,7 @@ import {
   PersistedInstallOptionsSchema,
   InstallRequestSchema,
   InstallTransactionSchema,
+  InstallTransactionMigrationSchema,
   JsonObjectSchema,
 } from "./schema.ts";
 import { optionalJsonFile, optionalTextFile, writeAtomicJson, writeAtomicText } from "./storage.ts";
@@ -130,6 +131,7 @@ export const HOLYCODEX_MARKETPLACE = "davidbasilefilho/holycodex";
 export const HOLYCODEX_PLUGIN = "holycodex@holycodex";
 // Pre-boundary records used Astra for every Root profile; keep this fixed when later releases change.
 const ROOT_ROUTE_MIGRATION_BOUNDARY = "0.16.8" as const;
+const migratedActiveDigests = new WeakMap<InstallRecord, string>();
 
 export interface InstallRequest {
   readonly profile?: ProfileName | undefined;
@@ -467,8 +469,8 @@ export async function installHolyCodex(
       { path: paths.activeRecord },
     );
   }
-  const preparing = await optionalJsonFile(paths.preparingRecord, InstallTransactionSchema);
-  const conflicted = await optionalJsonFile(paths.conflictedRecord, InstallTransactionSchema);
+  const preparing = await readInstallTransaction(paths.preparingRecord, previous);
+  const conflicted = await readInstallTransaction(paths.conflictedRecord, previous);
   assertInstallTransactionState(previous, preparing, conflicted);
   const interrupted = [conflicted, preparing].find(
     (transaction) =>
@@ -1850,7 +1852,134 @@ export async function readActiveInstallRecord(
       ...(legacy.tooling === undefined ? {} : { tooling: legacy.tooling }),
     }),
   } as InstallRecord;
+  migratedActiveDigests.set(migrated, legacy.digest);
   return migrated;
+}
+
+/** Read a transaction journal and migrate prior-schema selections before recovery examines it. */
+export async function readInstallTransaction(
+  path: string,
+  active?: InstallRecord,
+): Promise<
+  | (Omit<InstallRecord, "status" | "step"> & {
+      readonly status: "preparing" | "conflicted";
+      readonly step: InstallTransactionStep;
+    })
+  | undefined
+> {
+  const raw = await optionalJsonFile(path, JsonObjectSchema);
+  if (raw === undefined) return undefined;
+  const current = decodeSchema(InstallTransactionSchema, raw) as
+    | (Omit<InstallRecord, "status" | "step"> & {
+        readonly status: "preparing" | "conflicted";
+        readonly step: InstallTransactionStep;
+      })
+    | undefined;
+  if (current !== undefined) return current;
+  const legacy = decodeSchema(InstallTransactionMigrationSchema, raw);
+  if (legacy === undefined) {
+    throw new InstallerError(
+      "state_corrupt",
+      "The HolyCodex transaction state is invalid.",
+      undefined,
+      {
+        path,
+      },
+    );
+  }
+
+  const value = legacy as unknown as Record<string, unknown>;
+  const profileValue = value["profile"] ?? value["plan"];
+  if (typeof profileValue !== "string") {
+    throw new InstallerError(
+      "state_corrupt",
+      "The HolyCodex transaction has no profile.",
+      undefined,
+      {
+        path,
+      },
+    );
+  }
+  let profile: ProfileName;
+  try {
+    profile = migrateProfileName(profileValue as LegacyProfileName);
+  } catch (error: unknown) {
+    throw new InstallerError(
+      "state_corrupt",
+      "The persisted transaction profile requires an explicit replacement.",
+      error,
+      { path, profile: profileValue },
+    );
+  }
+
+  const selections = value["optional_selections"] as Readonly<Record<string, boolean | undefined>>;
+  const explicit = value["explicit_optional_selections"] as Readonly<
+    Record<string, boolean | undefined>
+  >;
+  const optionalSelections: OptionalSelections = {
+    browser_use: selections["browser_use"] ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.browser_use,
+    computer_use: selections["computer_use"] ?? false,
+    sites: selections["sites"] ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.sites,
+    coding: true,
+  };
+  const explicitOptionalSelections: ExplicitOptionalSelections = {
+    ...(explicit["browser_use"] === undefined ? {} : { browser_use: explicit["browser_use"] }),
+    ...(explicit["computer_use"] === undefined ? {} : { computer_use: explicit["computer_use"] }),
+    ...(explicit["sites"] === undefined ? {} : { sites: explicit["sites"] }),
+  };
+  const priorCapabilityState = value["capability_state"];
+  const capabilityState =
+    priorCapabilityState === undefined
+      ? undefined
+      : capabilityStateFor(
+          optionalSelections,
+          new Map<OptionalCapabilityName, "missing" | "uncertain">([
+            ["browser_use", "missing"],
+            ["sites", "missing"],
+          ]),
+        );
+  const {
+    plan: _plan,
+    profile: _profile,
+    optional_selections: _selections,
+    explicit_optional_selections: _explicit,
+    capability_state: _capabilityState,
+    ...base
+  } = value;
+  const priorDigest = typeof base["digest"] === "string" ? base["digest"] : undefined;
+  const boundLegacyDigest = active === undefined ? undefined : migratedActiveDigests.get(active);
+  const digest =
+    active !== undefined &&
+    base["install_id"] === active.install_id &&
+    (priorDigest === active.digest ||
+      (boundLegacyDigest !== undefined && priorDigest === boundLegacyDigest))
+      ? active.digest
+      : priorDigest;
+  const migrated = {
+    ...base,
+    profile,
+    optional_selections: optionalSelections,
+    explicit_optional_selections: explicitOptionalSelections,
+    ...(capabilityState === undefined ? {} : { capability_state: capabilityState }),
+    ...(digest === undefined ? {} : { digest }),
+  };
+  const transaction = decodeSchema(InstallTransactionSchema, migrated) as
+    | (Omit<InstallRecord, "status" | "step"> & {
+        readonly status: "preparing" | "conflicted";
+        readonly step: InstallTransactionStep;
+      })
+    | undefined;
+  if (transaction === undefined) {
+    throw new InstallerError(
+      "state_corrupt",
+      "The migrated transaction state is invalid.",
+      undefined,
+      {
+        path,
+      },
+    );
+  }
+  return transaction;
 }
 
 export { removeManagedNativeAgents };

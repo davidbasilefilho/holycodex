@@ -302,6 +302,43 @@ export const InstallTransactionSchema = Schema.Struct({
   step: InstallTransactionStepSchema,
 });
 
+const LegacyInstallTransactionFields = {
+  ...LegacyInstallRecordFields,
+  status: InstallTransactionStatusSchema,
+  step: InstallTransactionStepSchema,
+} as const;
+const LegacyInstallTransactionWithoutProfile = (({ profile: _profile, ...fields }) => fields)(
+  LegacyInstallTransactionFields,
+);
+const PreviousInstallTransactionFields = {
+  ...PreviousInstallRecordFields,
+  status: InstallTransactionStatusSchema,
+  step: InstallTransactionStepSchema,
+} as const;
+const PreviousInstallTransactionWithoutProfile = (({ profile: _profile, ...fields }) => fields)(
+  PreviousInstallTransactionFields,
+);
+/** Accept prior ownership-record shapes only while decoding persisted transaction journals. */
+export const InstallTransactionMigrationSchema = Schema.Union(
+  InstallTransactionSchema,
+  Schema.Struct({
+    ...LegacyInstallTransactionFields,
+    profile: ProfileNameMigrationSchema,
+  }),
+  Schema.Struct({
+    ...LegacyInstallTransactionWithoutProfile,
+    plan: ProfileNameMigrationSchema,
+  }),
+  Schema.Struct({
+    ...PreviousInstallTransactionFields,
+    profile: ProfileNameMigrationSchema,
+  }),
+  Schema.Struct({
+    ...PreviousInstallTransactionWithoutProfile,
+    plan: ProfileNameMigrationSchema,
+  }),
+);
+
 /** Decode unknown input with an Effect schema, returning undefined on validation failure. */
 export function decodeSchema<T>(schema: Schema.Schema<T>, input: unknown): T | undefined {
   const parsed = decodeUnknown(schema, input);
