@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { access, chmod, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
@@ -1224,7 +1225,7 @@ async function verifyPreviousStableUpgrade(options: {
     /^[0-9a-f]{64}$/u.test(previousContext7["identity"]) &&
     typeof previousContext7Executable === "string" &&
     typeof upgradedContext7Executable === "string" &&
-    sameVerificationPath(previousContext7Executable, upgradedContext7Executable)
+    (await sameVerificationFile(previousContext7Executable, upgradedContext7Executable))
       ? "holycodex"
       : "user";
   assert(
@@ -1841,12 +1842,20 @@ async function readBoundedStream(
   return new TextDecoder().decode(bytes);
 }
 
-function sameVerificationPath(left: string, right: string): boolean {
+async function sameVerificationFile(left: string, right: string): Promise<boolean> {
   const resolvedLeft = resolve(left);
   const resolvedRight = resolve(right);
-  return process.platform === "win32"
-    ? resolvedLeft.toLowerCase() === resolvedRight.toLowerCase()
-    : resolvedLeft === resolvedRight;
+  const samePath = (leftPath: string, rightPath: string): boolean =>
+    process.platform === "win32"
+      ? resolve(leftPath).toLowerCase() === resolve(rightPath).toLowerCase()
+      : resolve(leftPath) === resolve(rightPath);
+  if (samePath(resolvedLeft, resolvedRight)) return true;
+  try {
+    const [canonicalLeft, canonicalRight] = await Promise.all([realpath(left), realpath(right)]);
+    return samePath(canonicalLeft, canonicalRight);
+  } catch {
+    return false;
+  }
 }
 
 async function assertPersistedContext7(

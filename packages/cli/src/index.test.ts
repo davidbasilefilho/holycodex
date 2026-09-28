@@ -2103,6 +2103,54 @@ describe("native installation and removal", () => {
     }
   });
 
+  test("CLI doctor marks broken selected plugin configuration unhealthy", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-doctor-broken-plugin-"));
+    const codexHome = join(root, "codex");
+    try {
+      await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: fakeManager() });
+      const configPath = join(codexHome, "config.toml");
+      const pluginId = "holycodex@holycodex";
+      const cases = [
+        { name: "missing", config: "", status: "missing" },
+        {
+          name: "disabled",
+          config: `[plugins."${pluginId}"]\nenabled = false\n`,
+          status: "disabled",
+        },
+        {
+          name: "enabled without cache",
+          config: `[plugins."${pluginId}"]\nenabled = true\n`,
+          status: "missing",
+        },
+      ];
+
+      for (const { name, config, status } of cases) {
+        await writeFile(configPath, config);
+        const beforeConfig = await readFile(configPath, "utf8");
+        const result = await runCli(["doctor", "--json", "--codex-home", codexHome], {
+          env: { CODEX_HOME: codexHome, PATH: "" },
+          installer: { runtime: testRuntime(codexHome) },
+        });
+        expect(result.envelope, name).toMatchObject({
+          ok: true,
+          data: {
+            healthy: false,
+            checks: {
+              native_plugins: {
+                status: "failed",
+                reasons: ["native_plugin_disagreement"],
+                details: { status: { [pluginId]: status } },
+              },
+            },
+          },
+        });
+        expect(await readFile(configPath, "utf8"), name).toBe(beforeConfig);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("read-only plugin status honors Codex provider aliases and distinguishes disabled plugins", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-plugin-config-status-"));
     const config = join(root, "config.toml");
