@@ -484,8 +484,11 @@ describe("native installation and removal", () => {
       expect(config).not.toContain("model_auto_compact_token_limit");
       expect(config).toContain("max_concurrent_threads_per_session = 21");
       expect(config).toContain("multi_agent = true");
+      expect(config).toContain("default_mode_request_user_input = true");
+      expect(config).toContain("multi_agent_v2 = false");
+      expect(config).toContain("agent_message_board = false");
       expect(config).toContain("experimental_mode = true");
-      expect(config).not.toContain("agent_message_board");
+      expect(config).toContain("agent_message_board = false");
       expect(config).not.toContain("thread_tools");
       expect(config).toContain('web_search = "live"');
       expect(config).toContain("network_access = true");
@@ -514,6 +517,10 @@ describe("native installation and removal", () => {
       expect(leaf).toContain("interrupt_message = false");
       expect(leaf).toContain("[features]");
       expect(leaf).toContain("multi_agent = false");
+      expect(leaf).toContain("multi_agent_v2 = false");
+      expect(leaf).toContain("agent_message_board = false");
+      expect(leaf).toContain("[features.context_management]");
+      expect(leaf).toContain("experimental_mode = true");
       expect(leaf).not.toContain("Do not spawn agents, message peers, or delegate work.");
       const result = await removeHolyCodex({
         paths: { codexHome },
@@ -1146,7 +1153,20 @@ describe("native installation and removal", () => {
       );
       const initial = await installHolyCodex(
         {},
-        { paths: { codexHome }, officialPluginManager: manager },
+        {
+          paths: { codexHome },
+          officialPluginManager: manager,
+          resolveConflicts: async (conflicts) =>
+            Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "replace"])),
+          reviewInstall: async (review) => {
+            expect(
+              review.conflicts.find(
+                (conflict) => conflict.key === "features.context_management.experimental_mode",
+              ),
+            ).toMatchObject({ decision: "replace" });
+            return { action: "apply" };
+          },
+        },
       );
       expect(await readFile(config, "utf8")).toContain("experimental_mode = true");
       expect(
@@ -1720,6 +1740,11 @@ describe("native installation and removal", () => {
           );
         }
       },
+      remove: async (pluginId) => {
+        await baseManager.remove!(pluginId);
+        const current = await readFile(config, "utf8");
+        await writeFile(config, current.replace("enabled = true", "enabled = false"));
+      },
     };
     try {
       await mkdir(codexHome, { recursive: true });
@@ -1747,6 +1772,40 @@ describe("native installation and removal", () => {
     }
   });
 
+  test("rolls back marketplace config when marketplace maintenance fails after writing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-marketplace-rollback-"));
+    const codexHome = join(root, "codex");
+    const config = join(codexHome, "config.toml");
+    const manager: OfficialPluginManager = {
+      ...fakeManager(),
+      addMarketplace: async () => {
+        await writeFile(
+          config,
+          `${await readFile(config, "utf8")}\n[marketplaces.holycodex]\nsource_type = "git"\nsource = "https://github.com/davidbasilefilho/holycodex.git"\n`,
+        );
+        throw new Error("marketplace readback failed");
+      },
+    };
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(config, 'unrelated = "keep"\n');
+      await expect(
+        installHolyCodex(
+          { optional: {} },
+          { paths: { codexHome }, officialPluginManager: manager },
+        ),
+      ).rejects.toThrow("marketplace readback failed");
+      const restored = await readFile(config, "utf8");
+      expect(restored).toContain('unrelated = "keep"');
+      expect(restored).not.toContain("[marketplaces.holycodex]");
+      await expect(
+        readFile(join(codexHome, "holycodex", "install.pending.json")),
+      ).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("cleans up or restores only the managed HolyCodex plugin config", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-plugin-state-"));
     const codexHome = join(root, "codex");
@@ -1768,7 +1827,18 @@ describe("native installation and removal", () => {
       );
       const install = await installHolyCodex(
         { optional: {} },
-        { paths: { codexHome }, officialPluginManager: manager },
+        {
+          paths: { codexHome },
+          officialPluginManager: manager,
+          resolveConflicts: async (conflicts) =>
+            Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "replace"])),
+          reviewInstall: async (review) => {
+            expect(
+              review.conflicts.find((conflict) => conflict.key === 'plugins."holycodex@holycodex"'),
+            ).toMatchObject({ decision: "replace" });
+            return { action: "apply" };
+          },
+        },
       );
       expect(install.record.plugin_config?.before.preference.safe_value).toEqual({
         kind: "boolean",
@@ -2023,6 +2093,7 @@ describe("native installation and removal", () => {
         officialPluginManager: manager,
       });
       expect(doctor.healthy).toBe(true);
+      expect(doctor.checks["native_roles"]?.status).toBe("healthy");
       const activePath = join(codexHome, "holycodex", "active.json");
       const record = JSON.parse(await readFile(activePath, "utf8")) as Record<string, unknown>;
       record["plan"] = "Go";

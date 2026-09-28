@@ -1,6 +1,6 @@
 ---
 name: codebase-onboarding
-description: Use when explaining a repository or orienting a new contributor to how it works.
+description: Use when someone needs a repository explanation or contributor orientation; summarize its purpose, structure, and workflows from evidence.
 ---
 
 Provide a bounded, read-only orientation to the current repository or answer a

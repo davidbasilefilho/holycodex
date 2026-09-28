@@ -17,7 +17,9 @@ import type {
   InstallerRuntime,
 } from "./types.ts";
 
+/** Public CLI value for windows git bash. */
 export const WINDOWS_GIT_BASH = "C:\\Program Files\\Git\\bin\\bash.exe";
+/** Public CLI value for context7 spec. */
 export const CONTEXT7_SPEC = "ctx7@latest";
 
 type Context7StateWithIdentity = Context7ToolState & {

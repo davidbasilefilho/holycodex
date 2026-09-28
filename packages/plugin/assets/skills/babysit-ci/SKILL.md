@@ -1,6 +1,6 @@
 ---
 name: babysit-ci
-description: Use when following CI or release gates through terminal completion.
+description: Use when CI or release gates need follow-through; monitor their terminal results and report gate evidence.
 ---
 
 # Babysit CI

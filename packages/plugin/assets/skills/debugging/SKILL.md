@@ -1,6 +1,6 @@
 ---
 name: debugging
-description: Use to diagnose and repair an observable defect or unexplained behavior.
+description: Use when an observable defect or unexplained behavior needs diagnosis; establish its cause and repair it within the assigned boundary.
 ---
 
 Reproduce the issue with the smallest useful case when practical; otherwise,

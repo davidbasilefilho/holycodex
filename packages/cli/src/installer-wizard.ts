@@ -27,15 +27,23 @@ const CAPABILITY_NAMES: readonly OptionalCapabilityName[] = [
   "computer_use",
 ];
 
+/** Public CLI type describing wizard state. */
 export type WizardState = {
+  /** The profile in wizard state. */
   profile: ProfileName;
+  /** The tier in wizard state. */
   tier: ServiceTier;
+  /** The optional in wizard state. */
   optional: Record<OptionalCapabilityName, boolean>;
+  /** The plugins in wizard state. */
   plugins: string[];
+  /** The plugin input in wizard state. */
   pluginInput: string;
+  /** The plugin cursor in wizard state. */
   pluginCursor: number;
 };
 
+/** Public CLI type describing wizard key. */
 export type WizardKey = Readonly<{
   name: string;
   ctrl?: boolean;
@@ -43,21 +51,27 @@ export type WizardKey = Readonly<{
   meta?: boolean;
 }>;
 
+/** Public CLI type describing wizard configuration transition. */
 export type WizardConfigurationTransition = Readonly<{
   cursor: number;
   action: "render" | "review" | "cancel";
 }>;
 
+/** Public CLI type describing conflict screen state. */
 export type ConflictScreenState = {
+  /** The conflicts in conflict screen state. */
   conflicts: readonly ManagedConflict[];
+  /** The decisions in conflict screen state. */
   decisions: Record<string, ConflictDecision>;
 };
 
+/** Public CLI type describing conflict screen transition. */
 export type ConflictScreenTransition = Readonly<{
   cursor: number;
   action: "render" | "continue" | "back" | "cancel";
 }>;
 
+/** Result returned by conflict screen operations. */
 export type ConflictScreenResult =
   | Readonly<{ action: "continue"; decisions: Readonly<Record<string, ConflictDecision>> }>
   | Readonly<{ action: "back" | "cancel" }>;
@@ -374,6 +388,7 @@ export function renderConflictScreen(
     lines.push(`    ${paintTerminal(`decision: ${decision}`, tone, color)}`);
     lines.push(`    existing: ${formatConflictValue(conflict.existing)}`);
     lines.push(`    desired:  ${formatConflictValue(conflict.desired)}`);
+    lines.push(`    choices:  ${formatConflictChoices(conflict)}`);
     if (conflict.explanation !== undefined)
       lines.push(`    ${paintTerminal(conflict.explanation, "hint", color)}`);
   });
@@ -690,14 +705,17 @@ function cycleConflictDecision(
   const conflict = state.conflicts[cursor];
   if (conflict === undefined) return;
   const identity = conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
-  const choices = (conflict.validDecisions ?? ["keep", "replace", "cancel"]).filter(
-    (decision): decision is "keep" | "replace" => decision === "keep" || decision === "replace",
-  );
+  const choices = conflict.validDecisions ?? ["keep", "replace", "cancel"];
   if (choices.length === 0) return;
   const current = state.decisions[identity] ?? choices[0]!;
-  const index = choices.indexOf(current as "keep" | "replace");
+  const currentIndex = choices.indexOf(current);
+  const index = currentIndex < 0 ? 0 : currentIndex;
   state.decisions[identity] =
     choices[(index + direction + choices.length) % choices.length] ?? choices[0]!;
+}
+
+function formatConflictChoices(conflict: ManagedConflict): string {
+  return (conflict.validDecisions ?? ["keep", "replace", "cancel"]).join(" | ");
 }
 
 function categoryLabel(category: string): string {
@@ -1016,6 +1034,7 @@ function nativeConflictContent(
         { text: `${marker} ${target}`, tone: index === cursor ? "focus" : "argument" },
         { text: "  decision: " },
         { text: decision, tone },
+        { text: `   choices: ${formatConflictChoices(conflict)}`, tone: "hint" },
       ),
     );
   });

@@ -47,6 +47,7 @@ const InterfaceSchema = Schema.Struct({
   capabilities: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
   defaultPrompt: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
 });
+/** Schema for the checked-in plugin manifest accepted as packaging input. */
 export const SourceManifestSchema = Schema.Struct({
   name: PluginNameSchema,
   version: VersionSchema,
@@ -59,8 +60,10 @@ export const SourceManifestSchema = Schema.Struct({
   skills: SkillRootSchema,
   interface: InterfaceSchema,
 });
+/** Validated fields of a checked-in plugin source manifest. */
 export type SourceManifest = typeof SourceManifestSchema.Type;
 
+/** Schema for the plugin manifest embedded in an assembled payload. */
 export const GeneratedManifestSchema = Schema.Struct({
   name: PluginNameSchema,
   version: VersionSchema,
@@ -73,9 +76,13 @@ export const GeneratedManifestSchema = Schema.Struct({
   skills: SkillRootSchema,
   interface: InterfaceSchema,
 });
+/** Validated fields of a generated plugin manifest. */
 export type GeneratedManifest = typeof GeneratedManifestSchema.Type;
+/** Source manifest schema under its plugin-specific compatibility name. */
 export const SourcePluginManifestSchema = SourceManifestSchema;
+/** Generated manifest schema under its plugin-specific compatibility name. */
 export const GeneratedPluginManifestSchema = GeneratedManifestSchema;
+/** Generated plugin manifest type under its plugin-specific compatibility name. */
 export type GeneratedPluginManifest = GeneratedManifest;
 
 const PayloadFileSchema = Schema.Struct({
@@ -84,16 +91,21 @@ const PayloadFileSchema = Schema.Struct({
   sha256: DigestSchema,
 });
 const PayloadFilesSchema = Schema.Array(PayloadFileSchema);
+/** Relative path, byte length, and content digest for one payload file. */
 export type PayloadFile = typeof PayloadFileSchema.Type;
 
+/** Schema for the immutable version, digest, and epoch payload identity. */
 export const PayloadIdentitySchema = Schema.Struct({
   version: VersionSchema,
   digest: DigestSchema,
   epoch: SchemaEpochSchema,
 });
+/** Validated identity that uniquely describes a plugin payload. */
 export type PayloadIdentity = typeof PayloadIdentitySchema.Type;
+/** Payload identity exposed under its artifact-specific compatibility name. */
 export type ArtifactIdentity = PayloadIdentity;
 
+/** Schema for the complete staged payload manifest and its file inventory. */
 export const PayloadManifestSchema = Schema.Struct({
   schema_epoch: SchemaEpochSchema,
   version: VersionSchema,
@@ -101,6 +113,7 @@ export const PayloadManifestSchema = Schema.Struct({
   payload_digest: DigestSchema,
   identity: PayloadIdentitySchema,
 });
+/** Validated integrity manifest stored alongside an assembled payload. */
 export type PayloadManifest = typeof PayloadManifestSchema.Type;
 
 const AssemblyRequestSchema = Schema.Struct({
@@ -109,6 +122,7 @@ const AssemblyRequestSchema = Schema.Struct({
   version: VersionSchema,
   schemaEpoch: Schema.optional(SchemaEpochSchema),
 });
+/** Validated source and staging paths and version options for assembly. */
 export type AssemblyRequest = typeof AssemblyRequestSchema.Type;
 
 /** Decode unknown input with an Effect Schema and return undefined on rejection. */

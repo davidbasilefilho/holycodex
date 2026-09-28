@@ -14,6 +14,7 @@ const CommandResultSchema = Schema.Struct({
   stderr: Schema.String,
 });
 
+/** Captured output and exit status from a completed subprocess. */
 export type CommandResult = typeof CommandResultSchema.Type;
 
 /** Controls whether a failed subprocess exposes bounded or complete redacted diagnostics. */

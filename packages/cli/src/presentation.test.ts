@@ -134,4 +134,42 @@ describe("human CLI presentation", () => {
     expect(JSON.parse(stdout)).toMatchObject({ ok: false, command: "doctor" });
     expect(stdout.endsWith("\n")).toBe(true);
   });
+
+  test("keeps the concrete invalid configuration in human and JSON error output", () => {
+    const result = {
+      envelope: {
+        schema_version: CLI_SCHEMA_VERSION,
+        ok: false,
+        command: "install",
+        error: {
+          code: "invalid_configuration",
+          message: "Codex configuration cannot be reconciled safely.",
+          details: {
+            path: "config.toml",
+            key: "providers.local.command",
+            issue: "configured executable was not found",
+          },
+        },
+        warnings: [],
+      },
+      exitCode: 1,
+    } as CommandResult;
+
+    const human = renderHuman(result, { stdoutIsTTY: false, stderrIsTTY: false, env: {} });
+    expect(human).toContain("path: config.toml");
+    expect(human).toContain("key: providers.local.command");
+    expect(human).toContain("issue: configured executable was not found");
+
+    const json = JSON.stringify(result.envelope);
+    expect(JSON.parse(json)).toMatchObject({
+      ok: false,
+      error: {
+        details: {
+          path: "config.toml",
+          key: "providers.local.command",
+          issue: "configured executable was not found",
+        },
+      },
+    });
+  });
 });

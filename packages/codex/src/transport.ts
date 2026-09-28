@@ -9,9 +9,13 @@ import {
   sanitizeText,
 } from "./common";
 
+/** Data contract for async line transport. */
 export interface AsyncLineTransport {
+  /** Read line in the async line transport contract. */
   readLine(): Promise<string | null>;
+  /** Write line in the async line transport contract. */
   writeLine(line: string): Promise<void>;
+  /** Close in the async line transport contract. */
   close(): Promise<void>;
 }
 
@@ -105,12 +109,19 @@ export function sanitizeDiagnostics(value: string): readonly string[] {
     .slice(0, 128);
 }
 
+/** Options for configuring bun stdio transport. */
 export interface BunStdioTransportOptions {
+  /** Executable path in the bun stdio transport options contract. */
   readonly executablePath: string;
+  /** Working directory used to resolve relative paths. */
   readonly cwd?: string;
+  /** Environment variables passed to the process. */
   readonly environment?: Readonly<Record<string, string | undefined>>;
+  /** Max line bytes in the bun stdio transport options contract. */
   readonly maxLineBytes?: number;
+  /** Max diagnostic bytes in the bun stdio transport options contract. */
   readonly maxDiagnosticBytes?: number;
+  /** Signal in the bun stdio transport options contract. */
   readonly signal?: AbortSignal;
 }
 

@@ -7,16 +7,23 @@ import { helpRequested, helpTopic, renderHelp } from "./help.ts";
 import type { InstallRequest } from "./installer.ts";
 import type { CliContext, InstallWizardResult } from "./types.ts";
 
+/** Public data contract for binary io used by CLI operations. */
 export interface BinaryIo {
+  /** The stdin in binary io. */
   readonly stdin?: AsyncIterable<string>;
+  /** The stdout is tty in binary io. */
   readonly stdoutIsTTY?: boolean;
+  /** The stderr is tty in binary io. */
   readonly stderrIsTTY?: boolean;
+  /** The confirm in binary io. */
   readonly confirm?: (
     message: string,
   ) => Promise<boolean | "confirmed" | "cancelled" | "unavailable">;
   /** Optional injectable wizard used by embedders and tests. */
   readonly installWizard?: (initial: InstallRequest) => Promise<InstallWizardResult>;
+  /** The write stdout in binary io. */
   readonly writeStdout: (text: string) => void;
+  /** The write stderr in binary io. */
   readonly writeStderr: (text: string) => void;
 }
 

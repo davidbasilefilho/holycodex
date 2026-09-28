@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Use when unresolved architecture, scope, coordination, or material risk requires an implementation-ready Plan.
+description: Use when unresolved architecture, scope, coordination, or material risk needs resolution; produce an implementation-ready Plan with owners, seams, and proof.
 ---
 
 Resolve the current material choices into an implementation-ready Plan with

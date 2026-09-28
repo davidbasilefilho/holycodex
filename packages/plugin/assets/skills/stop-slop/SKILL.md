@@ -1,6 +1,6 @@
 ---
 name: stop-slop
-description: Use when assigned prose should lose predictable AI writing patterns while preserving voice.
+description: Use when assigned prose has predictable AI writing patterns; remove them while preserving meaning and voice.
 ---
 
 Edit only the assigned prose. Remove filler, formulaic structure, vague claims,

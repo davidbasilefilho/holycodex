@@ -2,6 +2,7 @@
 
 import type { SafeDetails } from "@holycodex/core";
 
+/** Failure categories emitted while validating or processing plugin assets. */
 export type PluginErrorCode =
   | "manifest_invalid"
   | "source_invalid"
@@ -13,7 +14,9 @@ export type PluginErrorCode =
 
 /** Structured failure raised while validating or processing plugin assets. */
 export class PluginError extends Error {
+  /** Stable category identifying the plugin operation failure. */
   readonly code: PluginErrorCode;
+  /** Safe structured details that help locate the invalid plugin state. */
   readonly details: SafeDetails;
 
   constructor(

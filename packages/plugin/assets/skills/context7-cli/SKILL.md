@@ -1,6 +1,6 @@
 ---
 name: context7-cli
-description: Use when querying current technical documentation with Context7 CLI.
+description: Use when current technical documentation is needed through Context7 CLI; find the requested version-specific facts.
 ---
 
 Resolve the requested library identity with the installed ctx7 CLI, then query

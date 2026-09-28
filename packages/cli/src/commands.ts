@@ -319,10 +319,24 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
   const configuredResolveConflicts: NonNullable<InstallerOptions["resolveConflicts"]> =
     base.resolveConflicts ??
     (parsed.options["yes"] === true
-      ? async (conflicts) =>
-          Object.fromEntries(
-            conflicts.map((conflict) => [conflict.identity ?? conflict.path, "replace"]),
-          )
+      ? async (conflicts) => {
+          if (conflicts.length > 0) {
+            const summary = conflicts
+              .map((conflict) => {
+                const target =
+                  conflict.key === undefined ? conflict.path : `${conflict.path} (${conflict.key})`;
+                return `${target}: ${conflict.explanation ?? "user-owned state requires review"}`;
+              })
+              .join("; ");
+            throw new InstallerError(
+              "confirmation_required",
+              `--yes cannot resolve user-owned configuration without overwriting it. Conflicts: ${summary}.`,
+              undefined,
+              { conflicts: summary },
+            );
+          }
+          return {};
+        }
       : async (conflicts) => {
           if (
             parsed.options["json"] === true ||
@@ -522,18 +536,19 @@ function mapError(
       exitCode: 4,
     };
   if (error instanceof InstallerError) {
+    const installerError = error;
     const exitCode =
-      error.code === "confirmation_required"
+      installerError.code === "confirmation_required"
         ? 1
-        : error.code === "capability_denied"
+        : installerError.code === "capability_denied"
           ? 2
-          : error.code === "state_corrupt"
+          : installerError.code === "state_corrupt"
             ? 4
             : 3;
     return {
-      code: error.code,
-      message: sanitizeMessage(error.message),
-      details: error.details,
+      code: installerError.code,
+      message: sanitizeMessage(installerError.message),
+      details: installerError.details,
       exitCode,
     };
   }
@@ -793,6 +808,7 @@ function paint(value: string, color: Color, enabled: boolean): string {
 
 /** Structured failure returned by a CLI command boundary. */
 export class CliCommandError extends Error {
+  /** The code in color. */
   readonly code:
     | "invalid_argument"
     | "non_tty_confirmation_required"

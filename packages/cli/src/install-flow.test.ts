@@ -1099,6 +1099,35 @@ describe("command install and upgrade review flow", () => {
     }
   }, 30_000);
 
+  test("does not let --yes overwrite user-owned managed configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-yes-conflict-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const manager = fakeManager();
+    try {
+      await seedInstall(root, {}, manager);
+      await writeFile(
+        paths.configFile,
+        (await readFile(paths.configFile, "utf8")).replace(
+          'model = "gpt-6-sol"',
+          'model = "user-model"',
+        ),
+      );
+      const result = await runCli(["install", "--yes", "--json", "--codex-home", codexHome], {
+        env: fakeEnvironment,
+        io: { stdoutIsTTY: false, stderrIsTTY: false },
+        installer: installerOptions(codexHome, manager),
+      });
+      expect(result.envelope).toMatchObject({
+        ok: false,
+        error: { code: "confirmation_required" },
+      });
+      expect(await readFile(paths.configFile, "utf8")).toContain('model = "user-model"');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("reconstructs legacy selections for internal migration review", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-upgrade-keep-"));
     const manager = fakeManager({ initial: { [additionalPlugin]: "available" } });

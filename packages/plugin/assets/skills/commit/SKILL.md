@@ -1,6 +1,6 @@
 ---
 name: commit
-description: Use when Root creates a local commit after scope and proof are settled.
+description: Use when Root is ready to commit settled and verified work; create the smallest coherent commits that follow repository conventions.
 ---
 
 After scope and proof are settled, follow the repository's commit conventions

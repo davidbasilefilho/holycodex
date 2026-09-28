@@ -12,10 +12,14 @@ import * as Schema from "effect/Schema";
 
 import { CODEX_PROTOCOL_EPOCH, CODEX_PROTOCOL_VERSION } from "../generated/typescript/protocol";
 
+/** Canonical package name used by the Codex integration. */
 export const packageName = "@holycodex/codex" as const;
+/** Canonical codex client version used by the Codex integration. */
 export const CODEX_CLIENT_VERSION = CLI_SCHEMA_VERSION;
 export { CODEX_PROTOCOL_EPOCH, CODEX_PROTOCOL_VERSION };
+/** Canonical default max line bytes used by the Codex integration. */
 export const DEFAULT_MAX_LINE_BYTES = 1024 * 1024;
+/** Canonical default max diagnostic bytes used by the Codex integration. */
 export const DEFAULT_MAX_DIAGNOSTIC_BYTES = 64 * 1024;
 
 type SafeObject = Record<string, JsonValue>;
@@ -39,22 +43,28 @@ export function isJsonValue(value: unknown): value is JsonValue {
   }
 }
 
+/** Validates JSON-compatible values accepted at Codex boundaries. */
 export const JsonValueSchema = Schema.declare((value: unknown): value is JsonValue =>
   isJsonValue(value),
 );
+/** Validates plain JSON objects accepted at Codex boundaries. */
 export const JsonObjectSchema = Schema.declare(
   (value: unknown): value is JsonObject => isPlainObject(value) && isJsonValue(value),
 );
+/** Validates bounded identifiers used by Codex contracts. */
 export const IdentifierSchema = Schema.String.pipe(
   Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u),
 );
+/** Validates non-empty, bounded text used by Codex contracts. */
 export const TextSchema = Schema.String.pipe(
   Schema.filter((value) => value.length > 0 && value.length <= 4096),
 );
+/** Validates finite, non-negative numbers used by Codex contracts. */
 export const NonNegativeNumberSchema = Schema.Number.pipe(
   Schema.filter((value) => Number.isFinite(value) && value >= 0),
 );
 
+/** Stable error codes returned when a Codex operation fails. */
 export type CodexErrorCode =
   | "approval_required"
   | "cancellation"
@@ -75,6 +85,7 @@ export type CodexErrorCode =
   | "turn_failed"
   | "unexpected_response";
 
+/** Stable failure categories mapped from Codex error codes. */
 export type CodexFailureKind =
   | "approval"
   | "closed"
@@ -123,9 +134,13 @@ export function failureKind(code: CodexErrorCode): CodexFailureKind {
 
 /** Structured failure raised while communicating with the Codex app server. */
 export class CodexError extends Error {
+  /** Stable code identifying the failure. */
   readonly code: CodexErrorCode;
+  /** Broad category used to classify and handle the failure. */
   readonly kind: CodexFailureKind;
+  /** Sanitized structured details safe to expose to callers. */
   readonly details: JsonObject;
+  /** Whether retrying the operation may succeed. */
   readonly retryable: boolean;
 
   constructor(
@@ -145,6 +160,7 @@ export class CodexError extends Error {
   }
 }
 
+/** Success value or structured failure returned by a Codex operation. */
 export type CodexResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: CodexError };

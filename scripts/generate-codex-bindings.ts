@@ -50,16 +50,25 @@ interface GeneratedProvenance {
   readonly files: { readonly count: number; readonly digest: string };
 }
 
+/** Summarize whether Codex bindings were generated or reused and identify the verified artifact set. */
 export interface EnsureCodexGeneratedResult {
+  /** Whether generation ran or a matching generated tree was reused. */
   readonly status: "generated" | "reused";
+  /** Stable Codex CLI version used to produce the bindings. */
   readonly codexCliVersion: string;
+  /** SHA-256 identity of the Codex CLI executable used. */
   readonly codexCliDigest: string;
+  /** Digest of the generated binding files. */
   readonly artifactDigest: string;
+  /** Number of generated binding files represented by the digest. */
   readonly artifactFiles: number;
 }
 
+/** Identifies a Codex CLI installation for matching cached generated bindings. */
 export interface GeneratedCacheIdentity {
+  /** Stable Codex CLI version associated with the cache. */
   readonly codexCliVersion: string;
+  /** SHA-256 identity of the Codex CLI executable associated with the cache. */
   readonly codexCliDigest: string;
 }
 

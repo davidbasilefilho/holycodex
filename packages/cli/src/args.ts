@@ -4,6 +4,7 @@ import { lookupProfile } from "@holycodex/core";
 
 import type { ParsedCommand } from "./types.ts";
 
+/** Public CLI value for install option catalog. */
 export const INSTALL_OPTION_CATALOG = Object.freeze([
   { name: "yes", kind: "boolean", usage: "--yes", description: "Confirm installation." },
   {
@@ -61,7 +62,9 @@ const BOOLEAN_OPTIONS = new Set([
 
 /** Structured failure raised while parsing CLI arguments. */
 export class ArgumentError extends Error {
+  /** The code in public cli contract. */
   readonly code: "unknown_command" | "invalid_argument";
+  /** The details in public cli contract. */
   readonly details: Readonly<Record<string, string>>;
 
   constructor(code: "unknown_command" | "invalid_argument", message: string, details = {}) {

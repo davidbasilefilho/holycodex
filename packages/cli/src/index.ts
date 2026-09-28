@@ -2,6 +2,7 @@
 
 import { runBinary } from "./binary.ts";
 
+/** Public CLI value for package name. */
 export const packageName = "holycodex" as const;
 
 export { runCli, executeCommand, renderHuman, renderProgress } from "./commands.ts";

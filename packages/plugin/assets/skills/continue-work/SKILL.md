@@ -1,6 +1,6 @@
 ---
 name: continue-work
-description: Use when the user asks Root to continue, resume, or keep going with existing HolyCodex work.
+description: Use when the user asks Root to continue existing HolyCodex work; restore its current state and carry unresolved work forward.
 ---
 
 Restore the current Intent, Plan if present, Assignments, accepted evidence,

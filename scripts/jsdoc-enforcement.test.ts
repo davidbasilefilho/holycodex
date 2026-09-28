@@ -86,4 +86,87 @@ export class PublicApi {
     expect(result.output).toContain('Public method "run"');
     expect(result.output).not.toContain('Public method "hidden"');
   });
+
+  test("requires documentation for exported types, schemas, and public type members", async () => {
+    const result = await lintFixture(`
+export interface User {
+  id: string;
+}
+
+export type UserOptions = {
+  enabled: boolean;
+};
+
+export const UserSchema = { parse() {} };
+
+export enum Status {
+  Ready,
+}
+
+type LocalValue = string;
+export { LocalValue as Value };
+
+interface InternalOnly {
+  id: string;
+}
+const internalSchema = {};
+`);
+
+    expect(result.exitCode).toBeGreaterThan(0);
+    expect(result.output).toContain('Exported interface "User"');
+    expect(result.output).toContain('Public type member "id"');
+    expect(result.output).toContain('Exported type alias "UserOptions"');
+    expect(result.output).toContain('Public type member "enabled"');
+    expect(result.output).toContain('Exported value "UserSchema"');
+    expect(result.output).toContain('Exported enum "Status"');
+    expect(result.output).toContain('Public enum member "Ready"');
+    expect(result.output).toContain('Exported declaration "Value"');
+    expect(result.output).not.toMatch(/holycodex\(require-jsdoc\).*InternalOnly/);
+    expect(result.output).not.toMatch(/holycodex\(require-jsdoc\).*internalSchema/);
+  });
+
+  test("accepts documented API declarations and leaves internal declarations alone", async () => {
+    const result = await lintFixture(`
+/** A public user shape. */
+export interface User {
+  /** Stable identity for the user. */
+  id: string;
+}
+
+/** Options accepted by the user API. */
+export type UserOptions = {
+  /** Whether the user is enabled. */
+  enabled: boolean;
+};
+
+/** Runtime validator for user input. */
+export const UserSchema = { parse() {} };
+
+/** A public status. */
+export enum Status {
+  /** Ready to use. */
+  Ready,
+}
+
+/** Default public options. */
+export default interface Defaults {
+  /** Number of retries. */
+  retries: number;
+}
+
+/** A public model with a documented field. */
+export class UserModel {
+  /** Stable user identity. */
+  id = "";
+}
+
+interface InternalOnly {
+  id: string;
+}
+const internalSchema = {};
+`);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).not.toContain("holycodex(require-jsdoc)");
+  });
 });

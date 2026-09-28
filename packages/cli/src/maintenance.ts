@@ -15,6 +15,8 @@ import {
   type ManagedConfigKeyPath,
   type ManagedRuntimeConfigState,
   type TomlDocument,
+  type TomlTable,
+  type TomlValue,
   type LiveOfficialPluginListEnvelope,
 } from "@holycodex/codex";
 import {
@@ -620,6 +622,9 @@ export async function removeHolyCodex(
           `Codex still reports ${pluginId} after removal.`,
         );
       }
+      if (cleanedConfig !== undefined) {
+        await reconcileRemovedPluginPreference(paths, cleanedConfig.document, pluginId);
+      }
       removed.push(pluginId);
     } catch (error: unknown) {
       reasons.push("native_plugin_remove_failed");
@@ -721,6 +726,39 @@ export async function removeHolyCodex(
         : "HolyCodex removal preserved state for review",
   });
   return { removed, preserved, reasons };
+}
+
+async function reconcileRemovedPluginPreference(
+  paths: ResolvedInstallerPaths,
+  expected: TomlDocument,
+  pluginId: string,
+): Promise<void> {
+  const configText = await optionalTextFile(paths.configFile);
+  if (configText === undefined) return;
+  const document = parseConfig(configText, paths.configFile);
+  const currentPlugins = document["plugins"];
+  if (!isTomlTableValue(currentPlugins)) return;
+  const current = currentPlugins[pluginId];
+  if (
+    !isTomlTableValue(current) ||
+    Object.keys(current).length !== 1 ||
+    current["enabled"] !== false
+  ) {
+    return;
+  }
+  const expectedPlugins = expected["plugins"];
+  const preserved = isTomlTableValue(expectedPlugins) ? expectedPlugins[pluginId] : undefined;
+  const plugins: Record<string, TomlValue> = { ...currentPlugins };
+  if (preserved === undefined) delete plugins[pluginId];
+  else plugins[pluginId] = preserved;
+  const restored: Record<string, TomlValue> = { ...document };
+  if (Object.keys(plugins).length === 0) delete restored["plugins"];
+  else restored["plugins"] = plugins;
+  await writeAtomicText(paths.configFile, serializeConfig(restored));
+}
+
+function isTomlTableValue(value: unknown): value is TomlTable {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Remove only empty generation directories named by this install's role artifacts. */
@@ -1183,8 +1221,17 @@ async function doctorNativeRoles(
         roleDocument["web_search"] !== (agent.permissions.network ? "live" : "disabled") ||
         readTomlPath(roleDocument, "agents.enabled") !== false ||
         readTomlPath(roleDocument, "features.multi_agent") !== false ||
+        readTomlPath(roleDocument, "features.multi_agent_v2") !== false ||
+        readTomlPath(roleDocument, "features.agent_message_board") !== false ||
+        readTomlPath(roleDocument, "features.context_management.experimental_mode") !== true ||
         Object.keys((roleDocument["features"] as Record<string, unknown> | undefined) ?? {}).some(
-          (key) => key !== "multi_agent",
+          (key) =>
+            ![
+              "multi_agent",
+              "multi_agent_v2",
+              "agent_message_board",
+              "context_management",
+            ].includes(key),
         )
       ) {
         failures.push(`${agent.name}:malformed`);

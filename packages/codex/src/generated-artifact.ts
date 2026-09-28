@@ -42,27 +42,43 @@ const GeneratedArtifactFileSchema = Schema.Struct({
   size: Schema.Number.pipe(Schema.int(), Schema.positive()),
   sha256: Sha256DigestSchema,
 });
+/** Data contract for generated artifact file. */
 export interface GeneratedArtifactFile {
+  /** Filesystem path associated with the value. */
   readonly path: string;
+  /** Value size in bytes. */
   readonly size: number;
+  /** SHA-256 digest of the value. */
   readonly sha256: Sha256Digest;
 }
 
+/** Data contract for generated artifact inventory. */
 export interface GeneratedArtifactInventory {
+  /** Count in the generated artifact inventory contract. */
   readonly count: number;
+  /** Files in the generated artifact inventory contract. */
   readonly files: readonly GeneratedArtifactFile[];
+  /** Digest in the generated artifact inventory contract. */
   readonly digest: Sha256Digest;
 }
 
+/** Data contract for generated artifact verification. */
 export interface GeneratedArtifactVerification {
+  /** Artifact root in the generated artifact verification contract. */
   readonly artifact_root: typeof ARTIFACT_ROOT_RELATIVE;
+  /** Protocol epoch in the generated artifact verification contract. */
   readonly protocol_epoch: string;
+  /** Codex cli version in the generated artifact verification contract. */
   readonly codex_cli_version: string;
+  /** Inventory in the generated artifact verification contract. */
   readonly inventory: GeneratedArtifactInventory;
+  /** Multi agent v2 lifecycle in the generated artifact verification contract. */
   readonly multi_agent_v2_lifecycle: "verified" | "unverified";
 }
 
+/** Options for configuring generated artifact verification. */
 export interface GeneratedArtifactVerificationOptions {
+  /** Artifact root in the generated artifact verification options contract. */
   readonly artifactRoot?: string;
 }
 

@@ -17,13 +17,17 @@ import {
 } from "./routes.ts";
 import { decodeUnknown } from "./schema.ts";
 
+/** Runtime schema validating specialist status values at the receiving boundary. */
 export const SpecialistStatusSchema = Schema.Literal("blocked", "completed", "failed", "partial");
+/** Type representing specialist status in the core domain. */
 export type SpecialistStatus = typeof SpecialistStatusSchema.Type;
 
+/** Runtime schema validating suggested luna effort values at the receiving boundary. */
 export const SuggestedLunaEffortSchema = Schema.Union(
   Schema.Literal("high", "max", "xhigh"),
   Schema.Null,
 );
+/** Type representing suggested luna effort in the core domain. */
 export type SuggestedLunaEffort = typeof SuggestedLunaEffortSchema.Type;
 
 function isSupportedJsonValue(value: unknown): value is JsonValue {
@@ -42,6 +46,7 @@ const JsonObjectSchema = Schema.declare(
     isObject(value) && !Array.isArray(value) && isSupportedJsonValue(value),
 );
 
+/** Runtime schema validating specialist outcome values at the receiving boundary. */
 export const SpecialistOutcomeSchema = Schema.Struct({
   blocked: Schema.Boolean,
   changed_files: Schema.Array(Schema.String),
@@ -61,8 +66,10 @@ export const SpecialistOutcomeSchema = Schema.Struct({
   verification: Schema.Array(Schema.String),
   verification_passed: Schema.Boolean,
 });
+/** Type representing specialist outcome in the core domain. */
 export type SpecialistOutcome = typeof SpecialistOutcomeSchema.Type;
 
+/** Canonical specialist outcome version used by core domain operations. */
 export const SPECIALIST_OUTCOME_VERSION = "holycodex-specialist-outcome-2";
 const OutcomeTextSchema = Schema.String.pipe(Schema.minLength(1));
 
@@ -73,6 +80,7 @@ export const Context7EvidenceSchema = Schema.Struct({
   library: Schema.optional(OutcomeTextSchema),
   version: Schema.optional(OutcomeTextSchema),
 });
+/** Type representing context7 evidence in the core domain. */
 export type Context7Evidence = typeof Context7EvidenceSchema.Type;
 
 const SpecialistOutcomeV2BaseFields = {
@@ -81,7 +89,9 @@ const SpecialistOutcomeV2BaseFields = {
   evidence: Schema.Array(OutcomeTextSchema),
   context7: Schema.optional(Context7EvidenceSchema),
 } as const;
+/** Runtime schema validating specialist outcome v2 base values at the receiving boundary. */
 export const SpecialistOutcomeV2BaseSchema = Schema.Struct(SpecialistOutcomeV2BaseFields);
+/** Type representing specialist outcome v2 base in the core domain. */
 export type SpecialistOutcomeV2Base = typeof SpecialistOutcomeV2BaseSchema.Type;
 
 const SpecialistOutcomeV2CompletedSchema = Schema.Struct({
@@ -109,22 +119,29 @@ const SpecialistOutcomeV2FailedSchema = Schema.Struct({
   error: OutcomeTextSchema,
 });
 
+/** Runtime schema validating specialist outcome v2 values at the receiving boundary. */
 export const SpecialistOutcomeV2Schema = Schema.Union(
   SpecialistOutcomeV2CompletedSchema,
   SpecialistOutcomeV2BlockedSchema,
   SpecialistOutcomeV2PartialSchema,
   SpecialistOutcomeV2FailedSchema,
 );
+/** Type representing specialist outcome v2 in the core domain. */
 export type SpecialistOutcomeV2 = typeof SpecialistOutcomeV2Schema.Type;
+/** Type representing specialist outcome v2 for role in the core domain. */
 export type SpecialistOutcomeV2ForRole<R extends Role> = SpecialistOutcomeV2 & {
   readonly route: Extract<RoleTask, { readonly role: R }>;
 };
 type PublicOutcomeAliases = {
   [R in Role as `${R}Outcome`]: SpecialistOutcomeV2ForRole<R>;
 };
+/** Type representing explorer outcome in the core domain. */
 export type ExplorerOutcome = PublicOutcomeAliases["ExplorerOutcome"];
+/** Type representing librarian outcome in the core domain. */
 export type LibrarianOutcome = PublicOutcomeAliases["LibrarianOutcome"];
+/** Type representing worker outcome in the core domain. */
 export type WorkerOutcome = PublicOutcomeAliases["WorkerOutcome"];
+/** Type representing reviewer outcome in the core domain. */
 export type ReviewerOutcome = PublicOutcomeAliases["ReviewerOutcome"];
 
 const CapabilityResultV2BaseFields = {
@@ -167,6 +184,7 @@ export const CapabilityResultV2Schema = Schema.Union(
   CapabilityResultV2PartialSchema,
   CapabilityResultV2FailedSchema,
 );
+/** Type representing capability result v2 in the core domain. */
 export type CapabilityResultV2 = typeof CapabilityResultV2Schema.Type;
 
 /** Decode an unknown value as a typed V2 capability result envelope. */
@@ -231,6 +249,7 @@ const CliErrorSchema = Schema.Struct({
   details: JsonObjectSchema,
 });
 
+/** Runtime schema validating cli success envelope values at the receiving boundary. */
 export const CliSuccessEnvelopeSchema = Schema.Struct({
   schema_version: CliSchemaVersionSchema,
   ok: Schema.Literal(true),
@@ -238,8 +257,10 @@ export const CliSuccessEnvelopeSchema = Schema.Struct({
   data: JsonValueSchema,
   warnings: CliWarningSchema,
 });
+/** Type representing cli success envelope in the core domain. */
 export type CliSuccessEnvelope = typeof CliSuccessEnvelopeSchema.Type;
 
+/** Runtime schema validating cli failure envelope values at the receiving boundary. */
 export const CliFailureEnvelopeSchema = Schema.Struct({
   schema_version: CliSchemaVersionSchema,
   ok: Schema.Literal(false),
@@ -247,12 +268,19 @@ export const CliFailureEnvelopeSchema = Schema.Struct({
   error: CliErrorSchema,
   warnings: CliWarningSchema,
 });
+/** Type representing cli failure envelope in the core domain. */
 export type CliFailureEnvelope = typeof CliFailureEnvelopeSchema.Type;
 
+/** Runtime schema validating cli envelope values at the receiving boundary. */
 export const CliEnvelopeSchema = Schema.Union(CliSuccessEnvelopeSchema, CliFailureEnvelopeSchema);
+/** Type representing cli envelope in the core domain. */
 export type CliEnvelope = typeof CliEnvelopeSchema.Type;
 
-/** @deprecated Use normalizeSpecialistOutcome at compatibility boundaries. */
+/**
+ * Parse a legacy specialist outcome.
+ *
+ * @deprecated Use {@link normalizeSpecialistOutcome} at compatibility boundaries.
+ */
 export function parseSpecialistOutcome(input: unknown): CoreResult<SpecialistOutcome> {
   const parsed = decodeUnknown(SpecialistOutcomeSchema, input);
   if (Either.isLeft(parsed)) {

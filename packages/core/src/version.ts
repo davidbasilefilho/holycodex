@@ -8,6 +8,7 @@ export const CANONICAL_VERSION_PATTERN = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-
 
 /** Validate the canonical public package version. */
 export const CanonicalVersionSchema = Schema.String.pipe(Schema.pattern(CANONICAL_VERSION_PATTERN));
+/** Type representing canonical version in the core domain. */
 export type CanonicalVersion = typeof CanonicalVersionSchema.Type;
 
 function decodeCanonicalVersion(value: unknown): CanonicalVersion | undefined {
@@ -26,6 +27,7 @@ function isBaseVersion(value: string): boolean {
 
 /** Validate a canonical version without a numeric release suffix. */
 export const BaseVersionSchema = Schema.String.pipe(Schema.filter(isBaseVersion));
+/** Type representing base version in the core domain. */
 export type BaseVersion = typeof BaseVersionSchema.Type;
 
 function isPositiveIntegerText(value: string | undefined): boolean {
@@ -52,10 +54,12 @@ function isDevelopmentVersion(value: string): boolean {
 
 /** Validate a collision-safe development release version. */
 export const DevelopmentVersionSchema = Schema.String.pipe(Schema.filter(isDevelopmentVersion));
+/** Type representing development version in the core domain. */
 export type DevelopmentVersion = typeof DevelopmentVersionSchema.Type;
 
 /** Validate either a canonical stable version or a development release version. */
 export const ReleaseVersionSchema = Schema.Union(CanonicalVersionSchema, DevelopmentVersionSchema);
+/** Type representing release version in the core domain. */
 export type ReleaseVersion = typeof ReleaseVersionSchema.Type;
 
 type ReleaseSuffix =

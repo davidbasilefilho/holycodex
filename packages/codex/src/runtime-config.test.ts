@@ -163,9 +163,10 @@ describe("typed runtime configuration", () => {
     });
   });
 
-  test("does not expose obsolete Codex feature flags as new managed settings", () => {
-    expect(isManagedConfigKeyPath("features.agent_message_board")).toBe(false);
-    expect(isManagedConfigKeyPath("features.multi_agent_v2")).toBe(false);
+  test("manages supported Root feature flags explicitly", () => {
+    expect(isManagedConfigKeyPath("features.default_mode_request_user_input")).toBe(true);
+    expect(isManagedConfigKeyPath("features.agent_message_board")).toBe(true);
+    expect(isManagedConfigKeyPath("features.multi_agent_v2")).toBe(true);
     expect(isManagedConfigKeyPath("features.thread_tools")).toBe(false);
   });
 

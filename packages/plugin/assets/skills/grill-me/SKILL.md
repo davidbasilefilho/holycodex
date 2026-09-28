@@ -1,6 +1,6 @@
 ---
 name: grill-me
-description: Use when an unspecified choice has multiple reasonable outcomes that could materially change the work.
+description: Use when an unspecified choice has multiple materially different outcomes; ask focused questions to resolve the decision before work depends on it.
 ---
 
 # Grill me

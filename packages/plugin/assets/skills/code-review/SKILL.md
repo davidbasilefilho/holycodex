@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Use after implementation when Root needs adversarial code review and bounded repair to a fixed point.
+description: Use when implementation is complete and Root needs adversarial code review; find defects and repair them within the assigned boundary until review reaches a fixed point.
 ---
 
 Inspect the integrated implementation against the `Reviewer.code` contract.

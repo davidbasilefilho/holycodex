@@ -82,6 +82,7 @@ import {
   InstallRequestSchema,
   InstallTransactionSchema,
   InstallTransactionMigrationSchema,
+  ConflictDecisionSchema,
   JsonObjectSchema,
 } from "./schema.ts";
 import { optionalJsonFile, optionalTextFile, writeAtomicJson, writeAtomicText } from "./storage.ts";
@@ -127,16 +128,23 @@ export {
   InstallTransactionSchema,
 } from "./schema.ts";
 
+/** Public CLI value for holycodex marketplace. */
 export const HOLYCODEX_MARKETPLACE = "davidbasilefilho/holycodex";
+/** Public CLI value for holycodex plugin. */
 export const HOLYCODEX_PLUGIN = "holycodex@holycodex";
 // Pre-boundary records used Astra for every Root profile; keep this fixed when later releases change.
 const ROOT_ROUTE_MIGRATION_BOUNDARY = "0.16.8" as const;
 const migratedActiveDigests = new WeakMap<InstallRecord, string>();
 
+/** Public data contract for install request used by CLI operations. */
 export interface InstallRequest {
+  /** The profile in install request. */
   readonly profile?: ProfileName | undefined;
+  /** The tier in install request. */
   readonly tier?: ServiceTier | undefined;
+  /** The optional in install request. */
   readonly optional?: ExplicitOptionalSelections | undefined;
+  /** The official plugins in install request. */
   readonly officialPlugins?: readonly string[] | undefined;
 }
 
@@ -616,8 +624,44 @@ export async function installHolyCodex(
     );
   }
   const installedAt = (options.now?.() ?? new Date()).toISOString();
+  const desiredConfig = desiredRootConfig(profile, tier, {
+    browserUse: optional.browser_use,
+    computerUse: optional.computer_use,
+    frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
+    security: DEFAULT_CAPABILITY_SELECTIONS.security,
+    ...(runtime.platform === "win32"
+      ? {
+          windowsGitBashExecutable:
+            discoveredGitBash.status === "healthy" ? discoveredGitBash.path : WINDOWS_GIT_BASH,
+        }
+      : {}),
+  });
   const configBefore = await optionalTextFile(paths.configFile);
-  const configInputDocument = parseConfig(configBefore);
+  let parsedConfigDocument: TomlDocument;
+  try {
+    parsedConfigDocument = parseConfig(configBefore, paths.configFile);
+  } catch (error: unknown) {
+    if (error instanceof InstallerError && error.code === "state_corrupt") {
+      await showUnrepairableConfigConflict(options, error, paths.configFile);
+    }
+    throw error;
+  }
+  const preflightManagedConfigState =
+    previous?.managed_config ??
+    createManagedRuntimeConfigState({ schema: STATE_SCHEMA_EPOCH, installId });
+  const preflightContext = await migrateLegacyContextManagement(
+    parsedConfigDocument,
+    preflightManagedConfigState,
+  );
+  const preflightInvalidConfig = await resolveInvalidConfigTables(
+    options,
+    paths.configFile,
+    preflightContext.document,
+    ['plugins."holycodex@holycodex"', "marketplaces.holycodex", ...Object.keys(desiredConfig)],
+  );
+  let configInputDocument = preflightInvalidConfig.document;
+  const preflightInvalidConfigConflicts = preflightInvalidConfig.conflicts;
+  const preflightInvalidConfigDecisions = preflightInvalidConfig.decisions;
   const currentHolyCodexPluginConfig = await snapshotHolyCodexPluginConfig(configInputDocument);
   const initialPluginConfigBefore = previous?.plugin_config?.before ?? currentHolyCodexPluginConfig;
   let pluginConfigBefore = initialPluginConfigBefore;
@@ -625,13 +669,26 @@ export async function installHolyCodex(
   const pendingConflicts: ManagedConflict[] = [];
   let pluginConfigConflicts: readonly ManagedConflict[] = [];
   let providerConfigConflicts: readonly ManagedConflict[] = [];
-  if (previous?.plugin_config !== undefined) {
+  {
     const conflicts = (["preference", "marketplace"] as const).filter((name) => {
       const current = currentHolyCodexPluginConfig[name].digest;
-      return (
-        current !== previous.plugin_config?.after[name].digest &&
-        current !== previous.plugin_config?.before[name].digest
-      );
+      const snapshot = currentHolyCodexPluginConfig[name];
+      const expected =
+        name === "preference"
+          ? { kind: "boolean" as const, value: true }
+          : {
+              kind: "marketplace" as const,
+              source_type: "git" as const,
+              source: HOLYCODEX_MARKETPLACE_URL,
+            };
+      const preexistingMismatch =
+        snapshot.presence === "present" &&
+        JSON.stringify(snapshot.safe_value) !== JSON.stringify(expected);
+      const changedSincePrevious =
+        previous?.plugin_config !== undefined &&
+        current !== previous.plugin_config.after[name].digest &&
+        current !== previous.plugin_config.before[name].digest;
+      return preexistingMismatch || changedSincePrevious;
     });
     pluginConfigConflicts = conflicts.map((name) => {
       const key =
@@ -653,7 +710,11 @@ export async function installHolyCodex(
         target: key,
         existing: current.safe_value ?? { presence: current.presence },
         desired,
-        explanation: `The managed ${key} entry changed outside the previous HolyCodex transaction.`,
+        explanation: `The existing ${key} entry does not match the HolyCodex plugin configuration.`,
+        ...(name === "preference" &&
+        pluginConfigEntryIsDisabled(configInputDocument, "plugins", HOLYCODEX_PLUGIN_CONFIG_KEY)
+          ? { validDecisions: ["replace", "cancel"] as const, defaultDecision: "replace" as const }
+          : {}),
       });
       return conflict;
     });
@@ -670,18 +731,22 @@ export async function installHolyCodex(
     configInputDocument,
     providerConfigPluginIds,
   );
-  if (previous?.provider_config !== undefined) {
-    const previousOwned = new Set(previous.owned_plugins ?? []);
+  {
+    const previousOwned = new Set(previous?.owned_plugins ?? []);
     const conflicts = currentProviderConfig.filter((current) => {
-      if (!previousOwned.has(current.plugin_id)) return false;
-      const prior = previous.provider_config?.find(
+      const prior = previous?.provider_config?.find(
         (candidate) => candidate.plugin_id === current.plugin_id,
       );
-      return (
+      const changedSincePrevious =
+        previousOwned.has(current.plugin_id) &&
         prior !== undefined &&
         current.before.digest !== prior.after.digest &&
-        current.before.digest !== prior.before.digest
-      );
+        current.before.digest !== prior.before.digest;
+      const selectedMismatch =
+        providerPlugins.includes(current.plugin_id) &&
+        current.before.presence === "present" &&
+        current.before.safe_value?.value !== true;
+      return changedSincePrevious || selectedMismatch;
     });
     providerConfigConflicts = conflicts.map((entry) => {
       const key = `plugins."${entry.plugin_id}"`;
@@ -693,7 +758,11 @@ export async function installHolyCodex(
         target: key,
         existing: entry.before.safe_value ?? { presence: entry.before.presence },
         desired: { kind: "boolean", value: true },
-        explanation: `The managed provider plugin entry ${entry.plugin_id} changed outside the previous transaction.`,
+        explanation: `The existing provider plugin entry ${entry.plugin_id} does not match the selected plugin configuration.`,
+        ...(providerPlugins.includes(entry.plugin_id) &&
+        pluginConfigEntryIsDisabled(configInputDocument, "plugins", entry.plugin_id)
+          ? { validDecisions: ["replace", "cancel"] as const, defaultDecision: "replace" as const }
+          : {}),
       });
       return conflict;
     });
@@ -708,9 +777,7 @@ export async function installHolyCodex(
       : { plugin_id: entry.plugin_id, before: previousEntry.before, after: previousEntry.before };
   });
   let providerConfigBefore: readonly ProviderPluginConfigSnapshot[] = initialProviderConfigBefore;
-  const unmanagedConfigState =
-    previous?.managed_config ??
-    createManagedRuntimeConfigState({ schema: STATE_SCHEMA_EPOCH, installId });
+  const unmanagedConfigState = preflightContext.state;
   const migratedRuntime = await migrateKnownLegacyRoleRegistrations(
     configInputDocument,
     unmanagedConfigState,
@@ -727,18 +794,6 @@ export async function installHolyCodex(
   const configDocument = migratedAutoCompact.document;
   const currentManagedConfig = migratedAutoCompact.state;
   rejectPreExistingDeveloperInstructions(configDocument, currentManagedConfig);
-  const desiredConfig = desiredRootConfig(profile, tier, {
-    browserUse: optional.browser_use,
-    computerUse: optional.computer_use,
-    frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
-    security: DEFAULT_CAPABILITY_SELECTIONS.security,
-    ...(runtime.platform === "win32"
-      ? {
-          windowsGitBashExecutable:
-            discoveredGitBash.status === "healthy" ? discoveredGitBash.path : WINDOWS_GIT_BASH,
-        }
-      : {}),
-  });
   let previousDesiredConfig:
     | Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>
     | undefined;
@@ -811,6 +866,31 @@ export async function installHolyCodex(
       });
     });
   }
+  const initialUserConfigConflicts: readonly ManagedConflict[] = Object.entries(
+    desiredConfig,
+  ).flatMap(([rawKey, desiredValue]) => {
+    const key = rawKey as ManagedConfigKeyPath;
+    if (currentManagedConfig.managed[key] !== undefined) return [];
+    const existing = readTomlPath(configDocument, key);
+    if (existing === undefined || JSON.stringify(existing) === JSON.stringify(desiredValue)) {
+      return [];
+    }
+    return [
+      structureConflict({
+        path: paths.configFile,
+        key,
+        action: "replace",
+        category: "config-key",
+        target: key,
+        existing,
+        desired: desiredValue,
+        explanation: `The existing Codex setting ${key} is user-owned and differs from the HolyCodex install value.`,
+        defaultDecision: "keep",
+        validDecisions: ["keep", "replace", "cancel"],
+      }),
+    ];
+  });
+  if (useBatchConflictResolution) pendingConflicts.push(...initialUserConfigConflicts);
   if (useBatchConflictResolution) pendingConflicts.push(...managedConfigConflicts);
   let nativeConflicts: readonly ManagedConflict[];
   try {
@@ -831,16 +911,28 @@ export async function installHolyCodex(
   }
   if (useBatchConflictResolution) pendingConflicts.push(...nativeConflicts.map(structureConflict));
   const allConflicts = [
+    ...preflightInvalidConfigConflicts,
     ...pluginConfigConflicts,
     ...providerConfigConflicts,
+    ...initialUserConfigConflicts,
     ...managedConfigConflicts,
     ...nativeConflicts.map(structureConflict),
   ];
-  let resolvedConflicts = await resolveOwnedConflictInventory(
+  const preResolvedIdentities = new Set(
+    preflightInvalidConfigConflicts.map((conflict) => conflict.identity!),
+  );
+  const initialReviewConflicts = useBatchConflictResolution
+    ? pendingConflicts
+    : allConflicts.filter((conflict) => !preResolvedIdentities.has(conflict.identity!));
+  const initialResolution = await resolveOwnedConflictInventory(
     options,
-    useBatchConflictResolution ? pendingConflicts : allConflicts,
+    initialReviewConflicts,
     true,
   );
+  let resolvedConflicts: Awaited<ReturnType<typeof resolveOwnedConflictInventory>> = {
+    ...initialResolution,
+    decisions: new Map([...preflightInvalidConfigDecisions, ...initialResolution.decisions]),
+  };
   let reviewedNativeConflicts: readonly ManagedConflict[] = [];
   let resolvedDesiredConfig: Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> = {
     ...desiredConfigWithPersistedManagedValues,
@@ -864,14 +956,18 @@ export async function installHolyCodex(
       resolvedConflicts.decisions,
       providerPlugins,
     );
-    let acceptedDocument = acceptedPluginConfig.document;
+    let acceptedDocument = applyInvalidConfigConflictDecisions(
+      acceptedPluginConfig.document,
+      preflightInvalidConfigConflicts,
+      resolvedConflicts.decisions,
+    );
     pluginConfigBefore = acceptedPluginConfig.pluginConfigBefore;
     providerConfigBefore = acceptedPluginConfig.providerConfigBefore;
     const acceptedManaged = { ...currentManagedConfig.managed };
     const effectiveDesiredConfig: Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> = {
       ...desiredConfigWithPersistedManagedValues,
     };
-    for (const conflict of managedConfigConflicts) {
+    for (const conflict of [...initialUserConfigConflicts, ...managedConfigConflicts]) {
       const key = conflict.key;
       if (key === undefined) continue;
       const configKey = key as ManagedConfigKeyPath;
@@ -886,7 +982,7 @@ export async function installHolyCodex(
       }
       const existing = acceptedManaged[configKey];
       const desiredValue = desiredConfig[configKey];
-      if (existing === undefined || desiredValue === undefined) {
+      if (desiredValue === undefined) {
         throw new InstallerError(
           "state_corrupt",
           "The managed conflict cannot be verified.",
@@ -897,15 +993,19 @@ export async function installHolyCodex(
       const live = readTomlPath(configDocument, configKey);
       if (decision === "replace") {
         acceptedDocument = writeTomlPath(acceptedDocument, configKey, desiredValue);
-        acceptedManaged[configKey] = {
-          ...existing,
-          lastManagedValue: await summarizeManagedConfigValue(configKey, desiredValue),
-        };
-      } else if (live === undefined) {
-        delete effectiveDesiredConfig[configKey];
-        delete acceptedManaged[configKey];
+        if (existing !== undefined) {
+          acceptedManaged[configKey] = {
+            ...existing,
+            lastManagedValue: await summarizeManagedConfigValue(configKey, desiredValue),
+          };
+        }
       } else {
         delete effectiveDesiredConfig[configKey];
+        if (existing === undefined) continue;
+        if (live === undefined) {
+          delete acceptedManaged[configKey];
+          continue;
+        }
         acceptedManaged[configKey] = {
           ...existing,
           lastManagedValue: await summarizeManagedConfigValue(configKey, live),
@@ -923,7 +1023,7 @@ export async function installHolyCodex(
     }
     resolvedDesiredConfig = effectiveDesiredConfig;
     const stabilityManaged = { ...currentManagedConfig.managed };
-    for (const conflict of managedConfigConflicts) {
+    for (const conflict of [...initialUserConfigConflicts, ...managedConfigConflicts]) {
       const key = conflict.key as ManagedConfigKeyPath | undefined;
       if (key === undefined) continue;
       const live = readTomlPath(configDocument, key);
@@ -950,7 +1050,7 @@ export async function installHolyCodex(
     conflicts: readonly ManagedConflict[],
   ): Readonly<Record<string, number>> =>
     Object.fromEntries(
-      ["config-key", "native-plugin", "role-asset"].flatMap((category) => {
+      ["config-key", "invalid-config", "native-plugin", "role-asset"].flatMap((category) => {
         const count = conflicts.filter((conflict) => conflict.category === category).length;
         return count === 0 ? [] : [[category, count] as const];
       }),
@@ -991,11 +1091,7 @@ export async function installHolyCodex(
             "There are no managed conflicts to resolve.",
           );
         }
-        resolvedConflicts = await resolveOwnedConflictInventory(
-          options,
-          useBatchConflictResolution ? pendingConflicts : allConflicts,
-          true,
-        );
+        resolvedConflicts = await resolveOwnedConflictInventory(options, allConflicts, true);
         await applyResolvedConflictDecisions();
         reviewConflicts = projectReviewConflicts();
         reviewConflictCounts = projectReviewConflictCounts(reviewConflicts);
@@ -1114,7 +1210,15 @@ export async function installHolyCodex(
     transaction = { ...transaction, plugin_snapshot: pluginSnapshot };
     transactionForRecovery = transaction;
     await writeTransaction(paths.preparingRecord, transactionForRecovery);
-    const liveConfigBeforeMutation = parseConfig(await optionalTextFile(paths.configFile));
+    const parsedLiveConfigBeforeMutation = parseConfig(
+      await optionalTextFile(paths.configFile),
+      paths.configFile,
+    );
+    const liveConfigBeforeMutation = applyInvalidConfigConflictDecisions(
+      parsedLiveConfigBeforeMutation,
+      preflightInvalidConfigConflicts,
+      resolvedConflicts.decisions,
+    );
     await assertPreflightPluginConfigStable(
       liveConfigBeforeMutation,
       currentHolyCodexPluginConfig,
@@ -1122,7 +1226,7 @@ export async function installHolyCodex(
     );
     const configBeforeMutationRuntime = await migrateKnownLegacyRoleRegistrations(
       liveConfigBeforeMutation,
-      unmanagedConfigState,
+      preflightManagedConfigState,
       previous,
     );
     const configBeforeMutationContext = await migrateLegacyContextManagement(
@@ -1265,10 +1369,15 @@ export async function installHolyCodex(
       message: "Selected capabilities installed",
     });
     const configAfterPlugins = await optionalTextFile(paths.configFile);
-    const postPluginDocument = parseConfig(configAfterPlugins);
+    const parsedPostPluginDocument = parseConfig(configAfterPlugins, paths.configFile);
+    const postPluginDocument = applyInvalidConfigConflictDecisions(
+      parsedPostPluginDocument,
+      preflightInvalidConfigConflicts,
+      resolvedConflicts.decisions,
+    );
     const postPluginRuntime = await migrateKnownLegacyRoleRegistrations(
       postPluginDocument,
-      unmanagedConfigState,
+      preflightManagedConfigState,
       previous,
     );
     const postPluginContext = await migrateLegacyContextManagement(
@@ -1638,7 +1747,10 @@ export async function installHolyCodex(
     }
     if (rollbackFailures.length > 0) {
       try {
-        const recoveryDocument = parseConfig(await optionalTextFile(paths.configFile));
+        const recoveryDocument = parseConfig(
+          await optionalTextFile(paths.configFile),
+          paths.configFile,
+        );
         const recoveryPluginConfig = transactionForRecovery.plugin_config;
         const recoveryCurrentPluginConfig = await snapshotHolyCodexPluginConfig(recoveryDocument);
         const normalizedPluginConfig =
@@ -1993,16 +2105,269 @@ function toCoreSelections(value: OptionalSelections): OptionalCapabilitySelectio
 }
 
 /** Parse Codex configuration text through the validated TOML document boundary. */
-export function parseConfig(text: string | undefined): TomlDocument {
+export function parseConfig(text: string | undefined, path = "config.toml"): TomlDocument {
   if (text === undefined || text.trim().length === 0) return {};
   try {
     const bun = (globalThis as { Bun?: { TOML?: { parse: (value: string) => unknown } } }).Bun;
     const parsed = bun?.TOML?.parse ? bun.TOML.parse(text) : parseToml(text);
     const document = decodeSchema(TomlDocumentSchema, parsed);
-    if (document === undefined) throw new Error("TOML document contains unsupported values.");
+    if (document === undefined) {
+      const key = findUnsupportedTomlPath(parsed);
+      const target = key === undefined ? "an unsupported TOML value" : `the TOML value ${key}`;
+      throw new InstallerError(
+        "state_corrupt",
+        `${path} contains ${target} that HolyCodex cannot preserve. Convert it to a string, number, boolean, table, or array, then retry.`,
+        undefined,
+        { path, ...(key === undefined ? {} : { key }), reason: "unsupported_toml_value" },
+      );
+    }
     return document;
   } catch (error: unknown) {
-    throw new InstallerError("state_corrupt", "The Codex config.toml is not valid TOML.", error);
+    if (error instanceof InstallerError) throw error;
+    const parserMessage = safeMessage(error);
+    const location = locateTomlParseFailure(text, parserMessage);
+    const detail =
+      location === undefined
+        ? `${path} contains invalid TOML: ${parserMessage}. Fix the TOML syntax and retry; HolyCodex cannot safely rewrite malformed TOML.`
+        : `${path} contains invalid TOML at line ${location.line}, column ${location.column} (offset ${location.offset}): ${parserMessage}. Fix the syntax at that location and retry; HolyCodex cannot safely rewrite malformed TOML.`;
+    throw new InstallerError("state_corrupt", detail, error, {
+      path,
+      parser_message: parserMessage,
+      ...(location === undefined ? {} : location),
+      reason: "invalid_toml_syntax",
+    });
+  }
+}
+
+function findUnsupportedTomlPath(value: unknown, path: readonly string[] = []): string | undefined {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return undefined;
+  if (typeof value === "number") return Number.isFinite(value) ? undefined : formatTomlPath(path);
+  if (Array.isArray(value)) {
+    for (const [index, entry] of value.entries()) {
+      const unsupported = findUnsupportedTomlPath(entry, [...path, "[" + index + "]"]);
+      if (unsupported !== undefined) return unsupported;
+    }
+    return undefined;
+  }
+  if (typeof value === "object" && value !== null) {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return formatTomlPath(path);
+    for (const [key, entry] of Object.entries(value)) {
+      const unsupported = findUnsupportedTomlPath(entry, [...path, key]);
+      if (unsupported !== undefined) return unsupported;
+    }
+    return undefined;
+  }
+  return formatTomlPath(path);
+}
+
+function formatTomlPath(parts: readonly string[]): string {
+  return parts.length === 0 ? "<root>" : parts.join(".");
+}
+
+function findInvalidConfigTables(
+  document: TomlDocument,
+  keyPaths: readonly string[],
+): readonly Readonly<{ key: string; value: TomlValue }>[] {
+  const issues = new Map<string, TomlValue>();
+  for (const keyPath of keyPaths) {
+    for (const parentPath of configPathParents(keyPath)) {
+      const value = readTomlPath(document, parentPath);
+      if (value !== undefined && !isTomlTable(value)) issues.set(parentPath, value);
+    }
+  }
+  return [...issues].map(([key, value]) => ({ key, value }));
+}
+
+function configPathParents(keyPath: string): readonly string[] {
+  const parents: string[] = [];
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < keyPath.length; index += 1) {
+    const character = keyPath[index]!;
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '"') quoted = true;
+    else if (character === ".") parents.push(keyPath.slice(0, index));
+  }
+  return parents;
+}
+
+function invalidConfigTableError(
+  path: string,
+  issue: Readonly<{ key: string; value: TomlValue }>,
+): InstallerError {
+  const existing = JSON.stringify(issue.value);
+  return new InstallerError(
+    "state_corrupt",
+    `${path} has the non-table value ${existing} at ${issue.key}, but the HolyCodex installer needs that path to be a table. Remove it after review or convert it to a table and retry; replacing it automatically could discard user configuration.`,
+    undefined,
+    {
+      path,
+      key: issue.key,
+      existing,
+      reason: "expected_table",
+    },
+  );
+}
+
+async function resolveInvalidConfigTables(
+  options: InstallerOptions,
+  path: string,
+  document: TomlDocument,
+  keyPaths: readonly string[],
+): Promise<{
+  readonly document: TomlDocument;
+  readonly conflicts: readonly ManagedConflict[];
+  readonly decisions: ReadonlyMap<string, ConflictDecision>;
+}> {
+  const conflicts = findInvalidConfigTables(document, keyPaths).map((issue) => {
+    const error = invalidConfigTableError(path, issue);
+    return structureConflict({
+      identity: `invalid-config:${path}:${issue.key}`,
+      category: "invalid-config",
+      target: issue.key,
+      existing: issue.value,
+      desired: `Remove the conflicting value at ${issue.key} so HolyCodex can create the required table.`,
+      explanation: `${error.message} Choose remove to continue or cancel to repair it manually.`,
+      path,
+      key: issue.key,
+      action: "remove",
+      defaultDecision: "cancel",
+      validDecisions: ["remove", "cancel"],
+    });
+  });
+  if (conflicts.length === 0) return { document, conflicts, decisions: new Map() };
+  const resolution = await resolveOwnedConflictInventory(options, conflicts, true);
+  return {
+    document: applyInvalidConfigConflictDecisions(document, conflicts, resolution.decisions),
+    conflicts,
+    decisions: resolution.decisions,
+  };
+}
+
+function applyInvalidConfigConflictDecisions(
+  document: TomlDocument,
+  conflicts: readonly ManagedConflict[],
+  decisions: ReadonlyMap<string, ConflictDecision>,
+): TomlDocument {
+  let output = document;
+  for (const conflict of conflicts) {
+    const decision = decisions.get(conflict.identity!);
+    if (decision !== "remove" || conflict.key === undefined) {
+      throw new InstallerError(
+        "confirmation_required",
+        `Invalid configuration at ${conflict.target} can only be removed after review or cancelled.`,
+        undefined,
+        {
+          path: conflict.path,
+          ...(conflict.key === undefined ? {} : { key: conflict.key }),
+          existing: JSON.stringify(conflict.existing),
+          valid_decisions: conflict.validDecisions ?? ["remove", "cancel"],
+        },
+      );
+    }
+    const live = readTomlPath(output, conflict.key);
+    if (live === undefined) continue;
+    if (JSON.stringify(live) !== JSON.stringify(conflict.existing)) {
+      throw new InstallerError(
+        "confirmation_required",
+        `Invalid configuration at ${conflict.key} changed after review; review the current value and retry.`,
+        undefined,
+        {
+          path: conflict.path,
+          key: conflict.key,
+          reviewed: JSON.stringify(conflict.existing),
+          current: JSON.stringify(live),
+        },
+      );
+    }
+    output = deleteTomlPath(output, conflict.key);
+  }
+  return output;
+}
+
+function locateTomlParseFailure(
+  source: string,
+  message: string,
+): Readonly<{ offset: number; line: number; column: number }> | undefined {
+  let offset: number | undefined;
+  const foundHex = /found \(0x([0-9a-f]{2})\)/iu.exec(message);
+  const foundToken = /found '((?:\\.|[^'])*)'/u.exec(message);
+  const foundCharacter =
+    foundHex === null
+      ? foundToken?.[1]?.replaceAll("\\'", "'").replaceAll('\\"', '"')
+      : String.fromCharCode(Number.parseInt(foundHex[1]!, 16));
+  if (foundCharacter !== undefined) {
+    offset = findTomlTokenOutsideValue(source, foundCharacter);
+  } else if (/end of file|unterminated/iu.test(message)) {
+    offset = source.length;
+  } else if (/missing value after/iu.test(message)) {
+    const equals = source.lastIndexOf("=");
+    const newline = equals < 0 ? -1 : source.indexOf("\n", equals + 1);
+    offset = newline < 0 ? source.length : newline;
+  }
+  if (offset === undefined) return undefined;
+  const line = source.slice(0, offset).split("\n").length;
+  const previousNewline = source.lastIndexOf("\n", Math.max(0, offset - 1));
+  return { offset, line, column: offset - previousNewline };
+}
+
+function findTomlTokenOutsideValue(source: string, token: string): number | undefined {
+  let quote: string | undefined;
+  let escaped = false;
+  let comment = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (comment) {
+      if (character === "\n") comment = false;
+      continue;
+    }
+    if (quote !== undefined) {
+      if (quote === '"' && escaped) escaped = false;
+      else if (quote === '"' && character === "\\") escaped = true;
+      else if (character === quote) quote = undefined;
+      continue;
+    }
+    if (character === "#") {
+      comment = true;
+      continue;
+    }
+    if (source.startsWith(token, index)) return index;
+    if (character === '"' || character === "'") quote = character;
+  }
+  return undefined;
+}
+
+async function showUnrepairableConfigConflict(
+  options: InstallerOptions,
+  error: InstallerError,
+  path: string,
+): Promise<void> {
+  const key = typeof error.details["key"] === "string" ? error.details["key"] : undefined;
+  const offset =
+    typeof error.details["offset"] === "number" ? String(error.details["offset"]) : undefined;
+  const conflict = structureConflict({
+    identity: "invalid-config:" + path + ":" + (offset ?? key ?? "unsupported"),
+    category: "invalid-config",
+    target: key === undefined ? path + " syntax" : path + " value " + key,
+    existing: error.details,
+    desired: "Repair the TOML value before installing HolyCodex.",
+    explanation: error.message,
+    path,
+    ...(key === undefined ? {} : { key }),
+    action: "replace",
+    defaultDecision: "cancel",
+    validDecisions: ["cancel"],
+  });
+  try {
+    await resolveOwnedConflictInventory(options, [conflict], true);
+  } catch {
+    // Invalid TOML has no safe automated repair; preserve the actionable parser failure.
   }
 }
 
@@ -2055,17 +2420,27 @@ async function snapshotProviderPluginConfig(
   );
 }
 
+/** Public data contract for plugin config cleanup result used by CLI operations. */
 export interface PluginConfigCleanupResult {
+  /** The document in plugin config cleanup result. */
   readonly document: TomlDocument;
+  /** The restored in plugin config cleanup result. */
   readonly restored: readonly PluginConfigEntryName[];
+  /** The removed in plugin config cleanup result. */
   readonly removed: readonly PluginConfigEntryName[];
+  /** The preserved in plugin config cleanup result. */
   readonly preserved: readonly PluginConfigEntryName[];
 }
 
+/** Public data contract for provider plugin config cleanup result used by CLI operations. */
 export interface ProviderPluginConfigCleanupResult {
+  /** The document in provider plugin config cleanup result. */
   readonly document: TomlDocument;
+  /** The restored in provider plugin config cleanup result. */
   readonly restored: readonly string[];
+  /** The removed in provider plugin config cleanup result. */
   readonly removed: readonly string[];
+  /** The preserved in provider plugin config cleanup result. */
   readonly preserved: readonly string[];
 }
 
@@ -2201,6 +2576,15 @@ function readPluginConfigEntry(
   const table = document[parent];
   if (!isTomlTable(table)) return undefined;
   return table[key];
+}
+
+function pluginConfigEntryIsDisabled(
+  document: TomlDocument,
+  parent: "plugins" | "marketplaces",
+  key: string,
+): boolean {
+  const value = readPluginConfigEntry(document, parent, key);
+  return isTomlTable(value) && value["enabled"] === false;
 }
 
 function pluginConfigSafeValue(
@@ -2518,6 +2902,9 @@ export function desiredRootConfig(
     }),
     suppress_unstable_features_warning: true,
     "features.multi_agent": true,
+    "features.default_mode_request_user_input": true,
+    "features.multi_agent_v2": false,
+    "features.agent_message_board": false,
     "features.context_management.experimental_mode": true,
   };
   for (const agentType of NATIVE_AGENT_TYPES) {
@@ -2717,7 +3104,7 @@ async function rollbackConfigTransaction(
 ): Promise<void> {
   const currentText = await optionalTextFile(path);
   if (currentText === undefined) return;
-  let document = parseConfig(currentText);
+  let document = parseConfig(currentText, path);
   const managed: Record<string, ManagedRuntimeConfigState["managed"][string]> = {};
   let unsupportedConfigRestored = 0;
   for (const [keyPath, entry] of Object.entries(transaction.managed_config.managed)) {
@@ -2827,7 +3214,7 @@ export async function verifyEffectiveInstall(
   > = desiredRootConfig(profile, tier, capabilities),
 ): Promise<void> {
   const text = await optionalTextFile(paths.configFile);
-  const document = parseConfig(text);
+  const document = parseConfig(text, paths.configFile);
   const expected = expectedConfig;
   for (const [keyPath, expectedValue] of Object.entries(expected)) {
     const actual = readTomlPath(document, keyPath);
@@ -2888,7 +3275,7 @@ export async function verifyEffectiveInstall(
         `The ${agent.name} role file was kept after a conflict and cannot be activated.`,
       );
     }
-    const roleDoc = parseConfig(roleText);
+    const roleDoc = parseConfig(roleText, rolePath);
     if (
       roleDoc["name"] !== agent.name ||
       typeof roleDoc["description"] !== "string" ||
@@ -2902,8 +3289,14 @@ export async function verifyEffectiveInstall(
       roleDoc["tool_output_token_limit"] !== undefined ||
       readTomlPath(roleDoc, "agents.enabled") !== false ||
       readTomlPath(roleDoc, "features.multi_agent") !== false ||
+      readTomlPath(roleDoc, "features.multi_agent_v2") !== false ||
+      readTomlPath(roleDoc, "features.agent_message_board") !== false ||
+      readTomlPath(roleDoc, "features.context_management.experimental_mode") !== true ||
       Object.keys((roleDoc["features"] as Record<string, unknown> | undefined) ?? {}).some(
-        (key) => key !== "multi_agent",
+        (key) =>
+          !["multi_agent", "multi_agent_v2", "agent_message_board", "context_management"].includes(
+            key,
+          ),
       )
     ) {
       throw new InstallerError("install_failed", `The ${agent.name} role file is malformed.`);
@@ -3329,13 +3722,29 @@ function structureConflict(conflict: ManagedConflict): ManagedConflict {
   const target = conflict.target ?? conflict.key ?? conflict.path;
   const identity =
     conflict.identity ?? `${category}:${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
+  const defaultDecisions =
+    conflict.action === "remove"
+      ? (["keep", "remove", "cancel"] as const)
+      : (["keep", "replace", "cancel"] as const);
+  const validDecisions =
+    conflict.action === "remove" &&
+    conflict.validDecisions?.includes("replace") === true &&
+    conflict.validDecisions.includes("remove") === false
+      ? defaultDecisions
+      : (conflict.validDecisions ?? defaultDecisions);
+  const defaultDecision =
+    conflict.defaultDecision !== undefined && validDecisions.includes(conflict.defaultDecision)
+      ? conflict.defaultDecision
+      : validDecisions.includes(conflict.action)
+        ? conflict.action
+        : (validDecisions[0] ?? conflict.action);
   return {
     ...conflict,
     identity,
     category,
     target,
-    defaultDecision: conflict.defaultDecision ?? "replace",
-    validDecisions: conflict.validDecisions ?? ["keep", "replace", "cancel"],
+    defaultDecision,
+    validDecisions,
     explanation:
       conflict.explanation ??
       (conflict.action === "remove"
@@ -3356,32 +3765,65 @@ async function resolveOwnedConflictInventory(
   const decisions = new Map<string, ConflictDecision>();
   if (structured.length === 0) return { accepted: [], decisions };
   if (options.resolveConflicts !== undefined) {
-    const selected = await options.resolveConflicts(structured);
+    let selected: Readonly<Record<string, ConflictDecision>>;
+    try {
+      selected = await options.resolveConflicts(structured);
+    } catch (error: unknown) {
+      if (!(error instanceof InstallerError) || error.code !== "confirmation_required") throw error;
+      const summary = structured
+        .map((conflict) => {
+          const observed =
+            conflict.category === "invalid-config" &&
+            conflict.key !== undefined &&
+            conflict.existing !== undefined
+              ? ` = ${JSON.stringify(conflict.existing)}`
+              : "";
+          return `${conflict.target} at ${conflict.path}${observed}`;
+        })
+        .join("; ");
+      throw new InstallerError(
+        "confirmation_required",
+        `${error.message} Conflicts: ${summary}.`,
+        error,
+        { conflicts: summary },
+      );
+    }
     for (const conflict of structured) {
       const identity = conflict.identity!;
-      const decision = selected[identity];
-      if (decision !== "keep" && decision !== "replace" && decision !== "cancel") {
+      const decision = decodeSchema(ConflictDecisionSchema, selected[identity]);
+      if (decision === undefined || conflict.validDecisions?.includes(decision) === false) {
+        const choices = conflict.validDecisions?.join(", ") ?? "keep, replace, cancel";
         throw new InstallerError(
           "confirmation_required",
-          "Every managed conflict must have a valid decision before installation.",
+          `The conflict at ${conflict.target} requires one of these decisions: ${choices}.`,
           undefined,
-          { identity },
+          {
+            identity,
+            path: conflict.path,
+            ...(conflict.key === undefined ? {} : { key: conflict.key }),
+          },
         );
       }
       if (decision === "cancel") {
         throw new InstallerError(
           "confirmation_required",
-          "Conflict resolution was cancelled.",
+          `Conflict resolution was cancelled for ${conflict.target} at ${conflict.path}.`,
           undefined,
           {
             identity,
+            path: conflict.path,
+            ...(conflict.key === undefined ? {} : { key: conflict.key }),
           },
         );
       }
       decisions.set(identity, decision);
     }
     return {
-      accepted: structured.filter((conflict) => decisions.get(conflict.identity!) === "replace"),
+      accepted: structured.filter(
+        (conflict) =>
+          decisions.get(conflict.identity!) ===
+          (conflict.action === "remove" ? "remove" : "replace"),
+      ),
       decisions,
     };
   }
@@ -3389,19 +3831,44 @@ async function resolveOwnedConflictInventory(
   for (const conflict of structured) {
     const resolution = await options.resolveConflict?.(conflict);
     if (resolution === "accept") {
+      const decision = conflict.action === "remove" ? "remove" : "replace";
+      if (conflict.validDecisions?.includes(decision) === false) {
+        throw new InstallerError(
+          "confirmation_required",
+          `The conflict at ${conflict.target} cannot be ${decision}d; choose ${conflict.validDecisions?.join(", ")}.`,
+          undefined,
+          {
+            identity: conflict.identity!,
+            path: conflict.path,
+            ...(conflict.key === undefined ? {} : { key: conflict.key }),
+          },
+        );
+      }
       accepted.push(conflict);
-      decisions.set(conflict.identity!, "replace");
+      decisions.set(conflict.identity!, decision);
       continue;
     }
     if (resolution === "decline" && preserveDeclined) {
+      if (conflict.validDecisions?.includes("keep") === false) {
+        throw new InstallerError(
+          "confirmation_required",
+          `The conflict at ${conflict.target} cannot be kept; choose ${conflict.validDecisions?.join(", ")}.`,
+          undefined,
+          {
+            identity: conflict.identity!,
+            path: conflict.path,
+            ...(conflict.key === undefined ? {} : { key: conflict.key }),
+          },
+        );
+      }
       decisions.set(conflict.identity!, "keep");
       continue;
     }
     throw new InstallerError(
       "confirmation_required",
       resolution === "cancel"
-        ? "Conflict resolution was cancelled."
-        : "HolyCodex-owned changes require confirmation before replacement.",
+        ? `Conflict resolution was cancelled for ${conflict.target} at ${conflict.path}.`
+        : `Conflict resolution is required for ${conflict.target} at ${conflict.path}: ${conflict.explanation}.`,
       undefined,
       {
         path: conflict.path,
@@ -3424,6 +3891,7 @@ function reportProgress(options: InstallerOptions, event: InstallProgressEvent):
 
 /** Structured failure raised while installing or upgrading HolyCodex. */
 export class InstallerError extends Error {
+  /** The code in install record digest input. */
   readonly code:
     | "install_failed"
     | "capability_denied"
@@ -3433,7 +3901,9 @@ export class InstallerError extends Error {
     | "not_installed"
     | "upgrade_failed"
     | "upgrade_downgrade";
+  /** The cause value in install record digest input. */
   readonly causeValue: unknown;
+  /** The details in install record digest input. */
   readonly details: JsonObject;
 
   constructor(

@@ -1,6 +1,6 @@
 ---
 name: rules
-description: Use when a repository rule needs discovery, validation, or diagnosis of an application failure.
+description: Use when a repository rule needs discovery, validation, or failure diagnosis; trace its owner and report the rule with evidence.
 ---
 
 Trace the owning rule loader and its limits, caching, trust boundary, and

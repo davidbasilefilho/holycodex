@@ -86,7 +86,7 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
     }
   }
 
-  /** Add an official plugin marketplace by source. */
+  /** Ensure the official marketplace is registered, refreshed, and verified by Codex readback. */
   async addMarketplace(source: string): Promise<void> {
     try {
       await this.adapter.addMarketplace(source);
@@ -307,6 +307,7 @@ function wrapManagerError(
 
 /** Structured failure raised by the official plugin manager boundary. */
 export class OfficialPluginManagerError extends Error {
+  /** The code in official plugin adapter shape. */
   readonly code:
     | "list_failed"
     | "add_failed"
@@ -321,7 +322,9 @@ export class OfficialPluginManagerError extends Error {
     | "marketplace_invalid"
     | "marketplace_timeout"
     | "marketplace_unavailable";
+  /** The cause value in official plugin adapter shape. */
   readonly causeValue: unknown;
+  /** The details in official plugin adapter shape. */
   readonly details: Readonly<Record<string, string>>;
 
   constructor(

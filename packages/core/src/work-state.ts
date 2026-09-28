@@ -24,9 +24,13 @@ import { Context7EvidenceSchema, type Context7Evidence } from "./envelopes.ts";
 import { context7RequiredForAssignment, ROLE_DEFINITIONS } from "./routes.ts";
 import { decodeUnknown } from "./schema.ts";
 
+/** Canonical intent schema version used by core domain operations. */
 export const INTENT_SCHEMA_VERSION = "holycodex-intent-1" as const;
+/** Canonical plan schema version used by core domain operations. */
 export const PLAN_SCHEMA_VERSION = "holycodex-plan-1" as const;
+/** Canonical assignment schema version used by core domain operations. */
 export const ASSIGNMENT_SCHEMA_VERSION = "holycodex-assignment-1" as const;
+/** Canonical toon compatibility used by core domain operations. */
 export const TOON_COMPATIBILITY = "toon-4" as const;
 
 const NonEmpty = Schema.String.pipe(Schema.filter((value) => value.trim().length > 0));
@@ -56,15 +60,19 @@ export const AssignmentOwnerSchema = Schema.Struct({
     ),
   ),
 );
+/** Type representing assignment owner in the core domain. */
 export type AssignmentOwner = typeof AssignmentOwnerSchema.Type;
 
+/** Runtime schema validating evidence values at the receiving boundary. */
 export const EvidenceSchema = Schema.Struct({
   kind: Schema.Literal("changed_path", "check", "repository_fact", "ci", "behavior", "uncertainty"),
   value: NonEmpty,
   result: Schema.optional(Schema.Literal("passed", "failed", "observed", "unknown")),
 });
+/** Type representing intent evidence in the core domain. */
 export type IntentEvidence = typeof EvidenceSchema.Type;
 
+/** Runtime schema validating repository baseline values at the receiving boundary. */
 export const RepositoryBaselineSchema = Schema.Struct({
   root: NonEmpty,
   git_common_dir: NonEmpty,
@@ -75,8 +83,10 @@ export const RepositoryBaselineSchema = Schema.Struct({
   integrated_commit: Schema.optional(CommitSha),
   updated_at: DateText,
 });
+/** Type representing repository baseline in the core domain. */
 export type RepositoryBaseline = typeof RepositoryBaselineSchema.Type;
 
+/** Runtime schema validating intent state values at the receiving boundary. */
 export const IntentStateSchema = Schema.Literal(
   "scoping",
   "ready",
@@ -88,6 +98,7 @@ export const IntentStateSchema = Schema.Literal(
   "complete",
   "abandoned",
 );
+/** Type representing intent state in the core domain. */
 export type IntentState = typeof IntentStateSchema.Type;
 const ResumeStateSchema = Schema.Literal("scoping", "ready", "executing", "verifying", "reviewing");
 const GateSchema = Schema.Struct({
@@ -96,6 +107,7 @@ const GateSchema = Schema.Struct({
   evidence: Schema.Array(EvidenceSchema),
 });
 
+/** Runtime schema validating intent values at the receiving boundary. */
 export const IntentSchema = Schema.Struct({
   schema_version: Schema.Literal(INTENT_SCHEMA_VERSION),
   toon_compatibility: Schema.Literal(TOON_COMPATIBILITY),
@@ -120,8 +132,10 @@ export const IntentSchema = Schema.Struct({
   created_at: DateText,
   updated_at: DateText,
 });
+/** Type representing intent in the core domain. */
 export type Intent = typeof IntentSchema.Type;
 
+/** Runtime schema validating plan values at the receiving boundary. */
 export const PlanSchema = Schema.Struct({
   schema_version: Schema.Literal(PLAN_SCHEMA_VERSION),
   toon_compatibility: Schema.Literal(TOON_COMPATIBILITY),
@@ -141,15 +155,19 @@ export const PlanSchema = Schema.Struct({
   recovery: StringList,
   updated_at: DateText,
 });
+/** Type representing intent plan in the core domain. */
 export type IntentPlan = typeof PlanSchema.Type;
 
+/** Runtime schema validating assignment outcome values at the receiving boundary. */
 export const AssignmentOutcomeSchema = Schema.Literal(
   "completed",
   "blocked",
   "needs_root_input",
   "failed",
 );
+/** Type representing assignment outcome in the core domain. */
 export type AssignmentOutcome = typeof AssignmentOutcomeSchema.Type;
+/** Runtime schema validating assignment status values at the receiving boundary. */
 export const AssignmentStatusSchema = Schema.Literal(
   "pending",
   "executing",
@@ -159,6 +177,7 @@ export const AssignmentStatusSchema = Schema.Literal(
   "failed",
   "superseded",
 );
+/** Type representing assignment status in the core domain. */
 export type AssignmentStatus = typeof AssignmentStatusSchema.Type;
 /** Compact durable facts from one concrete Assignment execution. */
 export const InvocationSchema = Schema.Struct({
@@ -172,9 +191,11 @@ export const InvocationSchema = Schema.Struct({
   blocker: Schema.optional(NonEmpty),
   remaining_risk: StringList,
 });
+/** Type representing assignment invocation in the core domain. */
 export type AssignmentInvocation = typeof InvocationSchema.Type;
 /** Opaque capability bound to one active Assignment invocation. */
 export const AssignmentInvocationCapabilitySchema = Digest;
+/** Type representing assignment invocation capability in the core domain. */
 export type AssignmentInvocationCapability = typeof AssignmentInvocationCapabilitySchema.Type;
 const AssignmentFields = {
   schema_version: Schema.Literal(ASSIGNMENT_SCHEMA_VERSION),
@@ -211,6 +232,7 @@ const AssignmentFields = {
 
 /** Public Assignment projection; protected invocation capabilities are deliberately omitted. */
 export const AssignmentSchema = Schema.Struct(AssignmentFields);
+/** Type representing assignment in the core domain. */
 export type Assignment = typeof AssignmentSchema.Type;
 
 /** Public response returned only when an Assignment invocation is started by its assignee. */
@@ -218,6 +240,7 @@ export const AssignmentStartResponseSchema = Schema.Struct({
   ...AssignmentFields,
   capability: AssignmentInvocationCapabilitySchema,
 });
+/** Type representing assignment start response in the core domain. */
 export type AssignmentStartResponse = typeof AssignmentStartResponseSchema.Type;
 
 /** Protected persisted Assignment state, including active invocation verifiers. */
@@ -259,6 +282,7 @@ const LegacyIntentSchema = Schema.Struct({
   updated_at: DateText,
 });
 
+/** Type representing store error code in the core domain. */
 export type StoreErrorCode =
   | "invalid_input"
   | "not_found"
@@ -276,7 +300,9 @@ export type StoreErrorCode =
 
 /** Deterministic failure returned by the persistent work-state boundary. */
 export class IntentStoreError extends Error {
+  /** Machine-readable error classification. */
   readonly code: StoreErrorCode;
+  /** Structured safe diagnostic context. */
   readonly details: Readonly<Record<string, unknown>>;
   constructor(
     code: StoreErrorCode,
@@ -292,24 +318,37 @@ export class IntentStoreError extends Error {
 
 /** Stable repository identity and working-tree observation used for drift checks. */
 export interface RepositorySnapshot {
+  /** Filesystem root of the repository. */
   readonly root: string;
+  /** Git common directory for the repository. */
   readonly gitCommonDir: string;
+  /** Git commit checked for the captured baseline. */
   readonly head: string;
+  /** Repository paths changed in the captured baseline. */
   readonly changedPaths: readonly string[];
+  /** Digest of the captured repository status. */
   readonly statusDigest: string;
 }
 /** Dependency injection hooks for deterministic clocks and repository observation. */
 export interface IntentStoreOptions {
+  /** Timestamp used to establish the operation time. */
   readonly now?: () => Date;
+  /** Repository baseline captured for the operation. */
   readonly repositorySnapshot?: () => Promise<RepositorySnapshot>;
 }
 /** User-owned data needed to create a durable Intent. */
 export interface CreateIntentInput {
+  /** Human-readable title for this record. */
   readonly title: string;
+  /** User outcome tracked by this Intent. */
   readonly goal: string;
+  /** Observable conditions required for acceptance. */
   readonly acceptanceCriteria: readonly string[];
+  /** Whether creating this Intent requires an approved Plan first. */
   readonly planRequired?: boolean | undefined;
+  /** Whether Root must record verification before completion. */
   readonly verificationRequired?: boolean | undefined;
+  /** Whether Root must record review before completion. */
   readonly reviewRequired?: boolean | undefined;
 }
 
@@ -324,16 +363,27 @@ export const CreateIntentInputSchema = Schema.Struct({
 });
 /** Root-owned data used to create or revise the canonical Plan. */
 export interface PlanInput {
+  /** Chosen approach recorded in the plan. */
   readonly approach: string;
+  /** Repository or task boundary covered by this record. */
   readonly scope?: readonly string[] | undefined;
+  /** Work explicitly outside this record. */
   readonly exclusions?: readonly string[] | undefined;
+  /** Assignments recorded on this plan input. */
   readonly assignments?: readonly string[] | undefined;
+  /** Records or work that must precede this one. */
   readonly dependencies?: readonly string[] | undefined;
+  /** Architecture constraints recorded in the plan. */
   readonly architecture?: readonly string[] | undefined;
+  /** Known risks recorded in the plan. */
   readonly risks?: readonly string[] | undefined;
+  /** Assumptions recorded in the plan. */
   readonly assumptions?: readonly string[] | undefined;
+  /** Unresolved questions recorded in the plan. */
   readonly openQuestions?: readonly string[] | undefined;
+  /** Verification required or completed for the plan. */
   readonly verification?: readonly string[] | undefined;
+  /** Recovery procedure for the plan. */
   readonly recovery?: readonly string[] | undefined;
 }
 
@@ -353,37 +403,51 @@ export const PlanInputSchema = Schema.Struct({
 });
 /** Bounded specialist contract accepted by the Assignment store operation. */
 export interface CreateAssignmentInput {
+  /** Stable identifier for this record. */
   readonly id?: string | undefined;
+  /** Outcome this record is intended to achieve. */
   readonly objective: string;
+  /** Role or authority responsible for this Assignment. */
   readonly owner: Assignment["owner"];
+  /** Repository or task boundary covered by this record. */
   readonly scope: readonly string[];
+  /** Requirements that constrain this record. */
   readonly constraints?: readonly string[] | undefined;
+  /** Work explicitly outside this record. */
   readonly exclusions?: readonly string[] | undefined;
+  /** Records or work that must precede this one. */
   readonly dependencies?: readonly string[] | undefined;
+  /** Observable conditions required for acceptance. */
   readonly acceptanceCriteria: readonly string[];
 }
 
 /** Root-owned contract correction used to reconcile an honest Assignment scope. */
 export interface ReviseAssignmentScopeInput {
+  /** Repository or task boundary covered by this record. */
   readonly scope: readonly string[];
 }
 
 /** Optional Root-approved scope expansion applied while starting an Assignment. */
 export interface AssignmentStartInput {
+  /** Repository or task boundary covered by this record. */
   readonly scope?: readonly string[] | undefined;
 }
 
 /** Root-owned relation used to replace one unfinished Assignment with a validated sibling. */
 export interface SupersedeAssignmentInput {
+  /** Identifier of the record replacing this one. */
   readonly replacementId: string;
   /** Optional stale-write guard for the related replacement record. */
   readonly replacementRevision?: number | undefined;
+  /** Reason for the recorded outcome. */
   readonly reason: string;
+  /** Source and authority for this value. */
   readonly provenance: string;
 }
 
 /** Exact Root-owned VCS commit used to advance the repository baseline. */
 export interface VcsIntegrationInput {
+  /** Git commit associated with this outcome. */
   readonly commit: string;
 }
 
@@ -419,17 +483,25 @@ export const VcsIntegrationInputSchema = Schema.Struct({
 });
 /** Compact terminal outcome and evidence returned by one Assignment invocation. */
 export interface AssignmentResultInput {
+  /** Identifier of the invocation that produced this result. */
   readonly invocationId?: string | undefined;
   /** Capability issued when the active invocation was started. */
   readonly capability?: AssignmentInvocationCapability | undefined;
+  /** Terminal outcome of this Assignment. */
   readonly outcome: AssignmentOutcome;
+  /** Time at which the Assignment began. */
   readonly startedAt?: string | undefined;
+  /** Concise result of the Assignment. */
   readonly summary: string;
   /** Optional Root-approved superset scope persisted with the terminal result. */
   readonly scope?: readonly string[] | undefined;
+  /** Evidence supporting the reported result. */
   readonly evidence?: readonly IntentEvidence[] | undefined;
+  /** Context7 evidence used to support the work. */
   readonly context7?: Context7Evidence | undefined;
+  /** Exact condition preventing completion. */
   readonly blocker?: string | undefined;
+  /** Risk that remains after the reported work. */
   readonly remainingRisk?: readonly string[] | undefined;
 }
 /** Runtime schema for the input accepted by {@link IntentStore.recordAssignmentResult}. */
@@ -452,30 +524,43 @@ const AssignmentInterruptionRecoveryInputSchema = Schema.Struct({
 });
 /** Machine-readable reasons a predicate-checked Intent completion was refused. */
 export interface CompletionRefusal {
+  /** Whether all required work is complete. */
   readonly completed: false;
+  /** Reasons completion requirements remain unmet. */
   readonly reasons: readonly string[];
 }
 
 /** One deterministic, actionable finding from a read-only work-state diagnosis. */
 export interface WorkStateDiagnosticIssue {
+  /** Machine-readable error classification. */
   readonly code: string;
+  /** Record affected by this issue. */
   readonly subject: string;
+  /** Meaningful repair available for this issue. */
   readonly repair: string;
 }
 
 /** Read-only diagnosis of one Intent and its canonical Plan and Assignments. */
 export interface WorkStateDiagnosis {
+  /** Parent Intent owning this Assignment. */
   readonly intent_id: string;
+  /** Concrete issues found during validation. */
   readonly issues: readonly WorkStateDiagnosticIssue[];
 }
 
 /** Root-owned evidence and gate updates accepted by the Intent store. */
 export interface IntentEvidenceInput {
+  /** Evidence supporting the reported result. */
   readonly evidence?: readonly IntentEvidence[] | undefined;
+  /** Verification required or completed for the plan. */
   readonly verification?: "passed" | "failed" | undefined;
+  /** Review result for the completed work. */
   readonly review?: "accepted" | "rejected" | undefined;
+  /** Whether the Assignment acceptance criteria are met. */
   readonly acceptanceMet?: boolean | undefined;
+  /** Whether evidence is ready for Root acceptance. */
   readonly rootReadiness?: boolean | undefined;
+  /** Whether completion blockers have been cleared. */
   readonly clearBlockers?: boolean | undefined;
 }
 
@@ -493,7 +578,9 @@ const execFileAsync = promisify(execFile);
 
 /** Official-TOON backed deterministic repository-local Intent persistence. */
 export class IntentStore {
+  /** Root directory of the managed repository. */
   readonly repositoryRoot: string;
+  /** Directory holding persisted work state. */
   readonly stateRoot: string;
   readonly #now: () => Date;
 

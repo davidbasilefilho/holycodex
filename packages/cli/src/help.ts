@@ -134,6 +134,7 @@ export function colorEnabled(options: HumanRenderOptions): boolean {
   return tty === true;
 }
 
+/** Public CLI type describing terminal semantic tone. */
 export type TerminalSemanticTone =
   | "heading"
   | "option"

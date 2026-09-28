@@ -9,9 +9,13 @@ import { runRepositoryProof } from "./repository-proof.ts";
 
 const workspaceRoot = resolveWorkspaceRoot();
 
+/** Summary of successful repository validation gates and verified package artifacts. */
 export interface ValidationResult {
+  /** Repository validation gates that completed successfully. */
   readonly steps: readonly string[];
+  /** Digest identifying the generated Codex artifact set validated by the run. */
   readonly generatedArtifactDigest: string;
+  /** Canonical public package version checked by package verification. */
   readonly packageVersion: string;
 }
 

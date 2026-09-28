@@ -22,8 +22,11 @@ export {
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
 
+/** Accepted release publication channels. */
 export const ReleaseChannelSchema = Schema.Literal("dev", "stable");
+/** Schema for a full Git commit SHA used as release source identity. */
 export const SourceShaSchema = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{40}$/u));
+/** Schema for a lowercase SHA-256 digest. */
 export const Sha256Schema = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
 
 const CanonicalManifestSchema = Schema.Struct({
@@ -38,6 +41,7 @@ const StableTagSchema = Schema.String.pipe(
   Schema.filter((value) => value.startsWith("v") && isCanonicalVersion(value.slice(1))),
 );
 
+/** Release publication channel accepted by the release workflows. */
 export type ReleaseChannel = typeof ReleaseChannelSchema.Type;
 
 /** Read and validate the canonical public package version. */

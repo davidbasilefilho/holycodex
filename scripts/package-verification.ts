@@ -226,33 +226,51 @@ async function runInternalUpgrade(
           typeof error.code === "string"
             ? error.code
             : "internal_error",
-        message: error instanceof Error ? error.message : String(error),
+        message: error instanceof Error ? (error.stack ?? error.message) : String(error),
       },
     };
   }
 }
 
+/** Release metadata used when packing a channel-specific public package. */
 export interface PackageReleaseOptions {
+  /** Version to embed in the packed package. */
   readonly version: string;
+  /** Release channel used to validate version and provenance metadata. */
   readonly channel: ReleaseChannel;
+  /** Full source commit SHA recorded in package provenance. */
   readonly sourceSha: string;
 }
 
+/** Verified package tarball details produced by the release packer. */
 export interface PackageVerificationResult {
+  /** Version read back from the packaged manifest. */
   readonly packageVersion: string;
+  /** Tarball filename produced by Bun's pack command. */
   readonly tarball: string;
+  /** SHA-256 digest of the packed tarball. */
   readonly tarballSha256: string;
+  /** Archive entries that passed the public package allowlist. */
   readonly entries: readonly string[];
+  /** Commands executed while building and verifying the package. */
   readonly commands: readonly string[];
 }
 
+/** Packed public package identity and the verified tarball's filesystem location. */
 export interface PackedPublicPackage {
+  /** Canonical HolyCodex release version from the source manifest. */
   readonly canonicalVersion: string;
+  /** Base version without any channel or numeric suffix. */
   readonly baseVersion: string;
+  /** Version embedded in the generated tarball. */
   readonly packageVersion: string;
+  /** Tarball filename. */
   readonly tarball: string;
+  /** Absolute path to the generated tarball. */
   readonly tarballPath: string;
+  /** SHA-256 digest of the generated tarball. */
   readonly tarballSha256: string;
+  /** Archive entries accepted by the public package allowlist. */
   readonly entries: readonly string[];
 }
 
@@ -515,6 +533,29 @@ export async function verifyPublicPackage(
     codexEnvironment,
   );
   assert(installEnvelope.ok, "packed package install failed");
+  const reinstallEnvelope = await runCli(
+    installedEntry,
+    [
+      "install",
+      "--yes",
+      "--json",
+      "--profile",
+      "high",
+      "--tier",
+      "fast-all",
+      "--add-plugin",
+      ADDITIONAL_FIXTURE_PLUGIN,
+      "--codex-home",
+      codexHome,
+    ],
+    installedRoot,
+    commands,
+    codexEnvironment,
+  );
+  assert(
+    reinstallEnvelope.ok,
+    "packed package reinstall failed to refresh and verify its existing marketplace",
+  );
   const activeRecordPath = join(stateRoot, "active.json");
   const activeRecord = decode(
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),
@@ -2279,6 +2320,21 @@ async function listPlugins() {
   };
 }
 
+async function listMarketplaces() {
+  const state = await readState();
+  return {
+    marketplaces: state.marketplaces.includes(MARKETPLACE)
+      ? [
+          {
+            name: "holycodex",
+            root: join(HOME, "plugins", "marketplaces", "holycodex"),
+            marketplaceSource: { sourceType: "git", source: MARKETPLACE },
+          },
+        ]
+      : [],
+  };
+}
+
 async function addPlugin(pluginId) {
   const state = await readState();
   if (
@@ -2322,19 +2378,39 @@ async function removePlugin(pluginId) {
   process.stdout.write(JSON.stringify({ pluginId, removed: true }) + "\n");
 }
 
+function readFeatureBoolean(document, table, key) {
+  let current = document;
+  for (const part of [...table.split("."), key]) {
+    if (typeof current !== "object" || current === null) return undefined;
+    current = current[part];
+  }
+  return typeof current === "boolean" ? current : undefined;
+}
+
 async function configRead() {
   const text = await readFile(join(HOME, "config.toml"), "utf8");
+  const rootDocument = Bun.TOML.parse(text);
+  const rootFeature = (key) => readFeatureBoolean(rootDocument, "features", key);
   const active = JSON.parse(await readFile(join(HOME, "holycodex", "active.json"), "utf8"));
   const verifiedShell = active.tooling?.git_bash?.path;
-  if (!text.includes("multi_agent = true")) {
+  if (rootFeature("multi_agent") !== true) {
     fail("Codex config omitted the canonical Root multi-agent mode");
   }
+  if (rootFeature("default_mode_request_user_input") !== true) {
+    fail("Codex config omitted Root request_user_input support: " + JSON.stringify(rootDocument.features));
+  }
+  if (rootFeature("multi_agent_v2") !== false) {
+    fail("Codex config omitted the intended Root multi-agent v1 selection");
+  }
+  if (rootFeature("agent_message_board") !== false) {
+    fail("Codex config omitted terminal-only specialist messaging enforcement");
+  }
   const experimentalContextManagement =
-    text.includes("[features.context_management]") && text.includes("experimental_mode = true");
-  if (!text.includes("context_management = true") && !experimentalContextManagement) {
+    readFeatureBoolean(rootDocument, "features.context_management", "experimental_mode") === true;
+  if (!experimentalContextManagement) {
     fail("Codex config omitted context management");
   }
-  if (/agent_message_board|thread_tools/u.test(text)) {
+  if (/thread_tools/u.test(text)) {
     fail("Codex config contains an unsupported feature setting");
   }
   function rootStringSetting(name) {
@@ -2346,8 +2422,13 @@ async function configRead() {
     return value;
   }
   const rootInstructions = rootStringSetting("developer_instructions").toLowerCase();
-  if (!rootInstructions.includes("bounded assignment")) {
-    fail("Codex config omitted the model-specific Root dispatch policy");
+  if (
+    !rootInstructions.includes("never perform delegable work yourself") ||
+    !rootInstructions.includes("before every delegable action, including trivial, preparatory, and exploratory work") ||
+    !rootInstructions.includes("never inherit root settings, substitute a generic route") ||
+    !rootInstructions.includes("browser use and computer use execution are specialist-owned")
+  ) {
+    fail("Codex config omitted the Root orchestration boundaries");
   }
   if (
     !rootInstructions.includes("exact concrete registered role.task agent_type") ||
@@ -2362,7 +2443,10 @@ async function configRead() {
     process.platform === "win32" &&
     (typeof verifiedShell !== "string" ||
       !rootStringSetting("developer_instructions").includes(
-        "On Windows, run all shell actions in the verified Git for Windows Bash environment at",
+        "On Windows, set the shell parameter to exactly",
+      ) ||
+      !rootStringSetting("developer_instructions").includes(
+        "for every shell command, including read-only commands; never rely on the default shell",
       ) ||
       !rootStringSetting("developer_instructions").includes(JSON.stringify(verifiedShell)))
   ) {
@@ -2374,8 +2458,11 @@ async function configRead() {
     service_tier: rootStringSetting("service_tier"),
     developer_instructions: rootStringSetting("developer_instructions"),
     features: {
-      multi_agent: true,
-      context_management: experimentalContextManagement ? { experimental_mode: true } : true,
+      multi_agent: rootFeature("multi_agent"),
+      default_mode_request_user_input: rootFeature("default_mode_request_user_input"),
+      multi_agent_v2: rootFeature("multi_agent_v2"),
+      agent_message_board: rootFeature("agent_message_board"),
+      context_management: { experimental_mode: experimentalContextManagement },
     },
     agents: {},
   };
@@ -2408,14 +2495,25 @@ async function configRead() {
       fail("Codex config points " + agentType + " outside the active managed generation");
     }
     const roleText = await readFile(rolePath, "utf8");
+    const roleDocument = Bun.TOML.parse(roleText);
+    const roleFeature = (key) => readFeatureBoolean(roleDocument, "features", key);
+    const roleContextManagement =
+      readFeatureBoolean(roleDocument, "features.context_management", "experimental_mode") === true;
     if (!roleText.includes('model = "gpt-6-luna"')) {
       fail("Codex role file omitted the configured specialist routing model");
     }
-    if (!roleText.includes("multi_agent = false")) {
+    if (roleFeature("multi_agent") !== false) {
       fail("Codex role file omitted the leaf multi-agent boundary");
     }
-    if (/agent_message_board|thread_tools|context_management|computer_use|browser_use|in_app_browser/u.test(roleText)) {
+    if (/thread_tools|computer_use|browser_use|in_app_browser/u.test(roleText)) {
       fail("Codex role file contains an unsupported feature setting");
+    }
+    if (
+      roleFeature("multi_agent_v2") !== false ||
+      roleFeature("agent_message_board") !== false ||
+      !roleContextManagement
+    ) {
+      fail("Codex role file omitted specialist feature boundaries");
     }
     if (roleText.includes("tool_output_token_limit")) {
       fail("Codex role file contains the removed tool_output_token_limit");
@@ -2425,11 +2523,21 @@ async function configRead() {
       ? ""
       : JSON.parse(roleInstructionLine.slice("developer_instructions = ".length));
     if (
+      typeof roleInstructions !== "string" ||
+      !roleInstructions.toLowerCase().includes("do not message root or peers during execution") ||
+      !roleInstructions.toLowerCase().includes("one compact, evidence-first terminal outcome")
+    ) {
+      fail("Codex role file omitted terminal-only specialist reporting boundaries");
+    }
+    if (
       process.platform === "win32" &&
       (typeof verifiedShell !== "string" ||
         typeof roleInstructions !== "string" ||
         !roleInstructions.includes(
-          "On Windows, run all shell actions in the verified Git for Windows Bash environment at",
+          "On Windows, set the shell parameter to exactly",
+        ) ||
+        !roleInstructions.includes(
+          "for every shell command, including read-only commands; never rely on the default shell",
         ) ||
         !roleInstructions.includes(JSON.stringify(verifiedShell)))
     ) {
@@ -2490,12 +2598,29 @@ async function main() {
     process.stdout.write(JSON.stringify(await listPlugins()) + "\n");
     return;
   }
+  if (
+    args.length === 4 &&
+    args[0] === "plugin" &&
+    args[1] === "marketplace" &&
+    args[2] === "list" &&
+    args[3] === "--json"
+  ) {
+    process.stdout.write(JSON.stringify(await listMarketplaces()) + "\n");
+    return;
+  }
   if (args.length === 4 && args[0] === "plugin" && args[1] === "marketplace" && args[2] === "add") {
     if (args[3] !== MARKETPLACE) fail("fixture rejected an unexpected marketplace");
     const state = await readState();
     if (!state.marketplaces.includes(MARKETPLACE)) state.marketplaces.push(MARKETPLACE);
     await saveState(state);
     process.stdout.write(JSON.stringify({ marketplaceName: "holycodex" }) + "\n");
+    return;
+  }
+  if (args.length === 4 && args[0] === "plugin" && args[1] === "marketplace" && args[2] === "upgrade") {
+    if (args[3] !== "holycodex") fail("fixture rejected an unexpected marketplace refresh");
+    const state = await readState();
+    if (!state.marketplaces.includes(MARKETPLACE)) fail("HolyCodex marketplace was not registered");
+    process.stdout.write("Upgraded marketplace holycodex.\n");
     return;
   }
   if (args.length === 4 && args[0] === "plugin" && args[1] === "add" && args[3] === "--json") {
