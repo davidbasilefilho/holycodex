@@ -10,8 +10,11 @@ import {
   detectContext7Manager,
   ensureContext7,
   ensureGitBash,
+  inspectContext7ReadOnly,
   preflightContext7,
   removeOwnedContext7,
+  sameInstallerFile,
+  sameInstallerPath,
 } from "./tooling.ts";
 import type {
   Context7Manager,
@@ -32,6 +35,79 @@ const failure = (stderr = "failed"): InstallerProcessResult => ({
 const normalized = (path: string): string => win32.resolve(path).toLowerCase();
 
 describe("installer tooling", () => {
+  test("compares executable paths with platform-specific case rules", () => {
+    expect(
+      sameInstallerPath(
+        "C:\\Program Files\\Bun\\ctx7.exe",
+        "c:/program files/bun/ctx7.exe",
+        "win32",
+      ),
+    ).toBe(true);
+    expect(sameInstallerPath("/usr/local/bin/ctx7", "/usr/local/bin/ctx7", "linux")).toBe(true);
+    expect(sameInstallerPath("/usr/local/bin/CTX7", "/usr/local/bin/ctx7", "linux")).toBe(false);
+  });
+
+  test("compares Windows short and long executable paths by canonical filesystem identity", async () => {
+    const fixture = context7Runtime({ family: "bun" });
+    const longPath = "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\holycodex\\ctx7.exe";
+    const shortPath = "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\holycodex\\ctx7.exe";
+    const baseFiles = fixture.runtime.files;
+    if (baseFiles === undefined)
+      throw new Error("The Context7 fixture has no filesystem boundary.");
+    const files: InstallerFileSystem = {
+      ...baseFiles,
+      realpath: async (path) => {
+        if (path === longPath || path === shortPath) return longPath;
+        throw new Error("ENOENT");
+      },
+    };
+    const runtime = { ...fixture.runtime, files };
+
+    await expect(sameInstallerFile(runtime, longPath, shortPath)).resolves.toBe(true);
+    await expect(
+      sameInstallerFile(runtime, longPath, "C:\\Users\\runneradmin\\other\\ctx7.exe"),
+    ).resolves.toBe(false);
+    await expect(
+      sameInstallerFile(
+        { ...runtime, files: { ...files, realpath: async () => Promise.reject(new Error()) } },
+        longPath,
+        shortPath,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  test("accepts a working PATH ctx7 when registry resolution fails", async () => {
+    const fixture = context7Runtime({
+      family: "bun",
+      processPath: "bun",
+      installed: "1.0.0",
+      latestFails: true,
+      shadowed: true,
+      shadowVersion: "3.0.0",
+    });
+    await expect(ensureContext7(fixture.runtime, true)).resolves.toMatchObject({
+      version: "3.0.0",
+      executable: "C:\\Shadow\\ctx7.cmd",
+      ownership: "user",
+    });
+    expect(fixture.installs()).toBe(0);
+    expect(fixture.calls.some((call) => call.includes("pm view ctx7 version"))).toBe(false);
+  });
+
+  test("preflights a usable PATH ctx7 without package-manager or registry access", async () => {
+    const fixture = context7Runtime({
+      family: "bun",
+      processPath: "bun",
+      installed: "1.0.0",
+      latestFails: true,
+      shadowed: true,
+      shadowVersion: "3.0.0",
+    });
+    await expect(
+      preflightContext7({ ...fixture.runtime, environment: { PATH: "C:\\Shadow" } }),
+    ).resolves.toBeUndefined();
+    expect(fixture.calls).toEqual(["C:\\Shadow\\ctx7.cmd --version"]);
+  });
   test("accepts only bunx, npx, and pnpm dlx launcher metadata", () => {
     expect(detectContext7Manager({ npm_execpath: "C:/bun/bin/bunx.exe" })).toEqual({
       launcher: "bunx",
@@ -145,7 +221,7 @@ describe("installer tooling", () => {
     expect(fixture.calls).toContain("bun pm view ctx7 version");
   });
 
-  test("does not let a foreign PATH shadow affect the exact Bun global branch", async () => {
+  test("falls back to a valid Bun global ctx7 when the PATH executable fails", async () => {
     const fixture = context7Runtime({
       family: "bun",
       processPath: "bun",
@@ -159,7 +235,7 @@ describe("installer tooling", () => {
       version: "2.0.0",
     });
     expect(fixture.installs()).toBe(0);
-    expect(fixture.calls.some((call) => call.includes("Shadow"))).toBe(false);
+    expect(fixture.calls.some((call) => call.includes("Shadow"))).toBe(true);
     expect(fixture.calls).toContain("bun pm view ctx7 version");
   });
 
@@ -413,6 +489,18 @@ describe("installer tooling", () => {
     });
   });
 
+  test("read-only Context7 inspection never resolves the registry", async () => {
+    const fixture = context7Runtime({
+      family: "pnpm",
+      installed: "1.0.0",
+      latest: "2.0.0",
+      processPath: "node",
+    });
+    const inspected = await inspectContext7ReadOnly(fixture.runtime);
+    expect(inspected).toMatchObject({ version: "1.0.0", executable: fixture.shim });
+    expect(fixture.calls.some((call) => call.includes("view ctx7 version"))).toBe(false);
+  });
+
   test("rejects missing, broken, mismatched, and shadowed shims", async () => {
     for (const option of [
       { missingShim: true },
@@ -604,6 +692,7 @@ type ContextFixtureOptions = Readonly<{
   brokenShim?: boolean;
   shimVersion?: string;
   shadowed?: boolean;
+  shadowVersion?: string;
   outsidePackageBin?: boolean;
   packageRevision?: string;
   root?: string;
@@ -645,7 +734,7 @@ function context7Runtime(options: ContextFixtureOptions): {
   let projectAvailable = options.missingProjectInitially !== true;
   const environment = {
     ...manager.environment,
-    PATH: options.shadowed ? `C:\\Shadow;${binRoot}` : binRoot,
+    PATH: options.shadowed ? `C:\\Shadow;${binRoot}` : "",
   };
   const present = (path: string): boolean => {
     const value = normalized(path);
@@ -731,6 +820,9 @@ function context7Runtime(options: ContextFixtureOptions): {
         shimRunCount += 1;
         if (options.brokenShim) return failure("broken shim");
         return success(`ctx7 ${options.shimVersion ?? current ?? "0.0.0"}`);
+      }
+      if (normalized(executable) === normalized(shadow) && options.shadowVersion !== undefined) {
+        return success(`ctx7 ${options.shadowVersion}`);
       }
       return failure("unexpected command");
     },

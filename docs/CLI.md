@@ -21,17 +21,20 @@ commands are `bunx holycodex install` and `bunx holycodex remove`.
 | `holycodex version [<0.x.y[-n]\|patch\|minor>] [--dry-run] [--json]` | Read or update the canonical package version.                                                                                                                      |
 | `holycodex --help`                                                   | Print the current command and option syntax.                                                                                                                       |
 
-Installation options are `--yes`, `--profile <name>`,
-`--tier <name>`, `--frontend`, `--security`, `--computer-use`, and
-`--add-plugin <id>`, and `--json`. Interactive plugin entry accepts whitespace-separated IDs. Each option is explicit; conflicting or
-malformed values fail before any effect.
+Installation options include `--yes`, `--profile <name>`, `--tier <name>`,
+`--sites`/`--no-sites`, `--browser-use`/`--no-browser-use`,
+`--computer-use`/`--no-computer-use`, `--add-plugin <id>`, and `--json`.
+Frontend and Security are required and are not optional selections. Sites and
+Browser Use default on; Computer Use defaults off. Interactive plugin entry
+accepts whitespace-separated IDs. Conflicting or malformed values fail before
+any effect.
 
 Profiles select native subagent routing only. The tier is an independent
-service setting. A selected capability and every additional plugin must install
-and verify as installed and enabled; otherwise installation returns
-`capability_denied` or a classified installation failure without claiming
-success. The default selections are Frontend and Security; Computer Use
-remains disabled unless selected.
+service setting. Required and selected capabilities and every additional plugin
+must be supported, installed, and verified as enabled; otherwise installation
+returns `capability_denied` or a classified installation failure without
+claiming success. Unsupported selections are not silently ignored or
+substituted.
 
 Root's selected model, reasoning effort, service tier, compact developer
 instructions, required feature flags, and every canonical leaf registration
@@ -47,11 +50,10 @@ per-task effort matrix owned by [BEHAVIOR.md](BEHAVIOR.md). All generated
 instructions target GPT-6-family behavior; temporary route IDs are not
 instruction semantics. Historical route and profile values are migration-only.
 
-With `--computer-use`, the official Computer Use capability is installed and
-Root receives the conditional Root-only interactive execution directive. The
-directive is absent without that option and the capability is unavailable; it
-is never represented as delegateable work or a delegation fallback. Native
-configuration withholds GUI, browser, and Computer Use from every leaf.
+When Browser Use or Computer Use is enabled and available, applicable
+directives come from canonical shared specialist policy. Root decides when the
+capability is needed, delegates through the applicable `Role.task`, and
+accepts terminal evidence. Tool availability alone grants no authority.
 
 Official OpenAI plugin health accepts the allowlisted `openai-curated` and
 `openai-curated-remote` identities for build-web-apps and codex-security. An
@@ -77,7 +79,8 @@ Assignment state; it does not replace the public human CLI.
 ```text
 holycodex-agent intent   create|list|current|read|select|transition|evidence|complete|abandon
 holycodex-agent plan     read|revise
-holycodex-agent assignment create|list|read|start|result
+holycodex-agent assignment create|list|read|revise|supersede|start|recover|result
+holycodex-agent state diagnose --intent <ref> [--repo <path>]
 ```
 
 Every command and nested subcommand accepts equivalent `-h` and `--help`,
@@ -85,6 +88,13 @@ exits 0 without mandatory arguments or side effects, and documents its input,
 output, effects, and important failure conditions. Semantic operations validate
 all request and persisted values and return deterministic error codes. Agents
 must not rename or edit TOON files directly.
+
+`state diagnose` inspects the referenced Intent, its active Plan and
+Assignments, and the repository baseline. It returns `intent_id` and
+deterministic issues with a code, subject, and repair guidance for broken
+`assignment-*` references, inconsistent relationships, unfinished work, missing
+completion evidence, or repository drift. It does not recover transactions,
+acquire locks, or change persisted records.
 
 Root's delegation, authority, review, and release boundaries are defined in
 [BEHAVIOR.md](BEHAVIOR.md). Workflow Plan approval and installation profile

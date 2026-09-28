@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { createHash } from "node:crypto";
 import { lstat, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 import { readTomlPath, type TomlDocument } from "@holycodex/codex";
 import {
   CAPABILITY_REGISTRY,
-  ROLE_DEFINITIONS,
   NATIVE_AGENT_TYPES,
   GENERIC_BUILTIN_AGENT_TYPES,
   ROOT_ORCHESTRATION_POLICY,
   FRONTEND_WORKFLOW_POLICY,
-  LIBRARIAN_CONTEXT7_POLICY,
   TESTING_POLICY,
   SURGICAL_MUTATION_RULE,
   lookupProfile,
@@ -40,18 +39,30 @@ export type NativeAgentProjection = Readonly<{
   permissions: ReturnType<typeof taskPermissionsFor>;
 }>;
 
+export type NativeAgentSandboxMode = "read-only" | "workspace-write";
+
 export type NativeAgentInstructionOptions = Readonly<{
   /** Verified Git-for-Windows Bash executable. Omit on non-Windows hosts. */
   windowsGitBashExecutable?: string;
+  /** Whether the assignment may use an installed and available Browser Use capability. */
+  browserUse?: boolean;
+  /** Whether the assignment may use an installed and available Computer Use capability. */
+  computerUse?: boolean;
 }>;
 
-/** Configure optional Root capabilities, the Windows shell, and model-specific guidance. */
+/** Selected interactive capabilities that can be used within specialist Assignments. */
+export type NativeAgentCapabilityOptions = Pick<
+  NativeAgentInstructionOptions,
+  "browserUse" | "computerUse"
+>;
+
+/** Configure optional Root capabilities and the Windows shell. */
 export type RootDeveloperInstructionOptions = NativeAgentInstructionOptions &
   Readonly<{
     computerUse?: boolean;
     frontend?: boolean;
     security?: boolean;
-    /** Selected Root model; Astra receives a shorter instruction projection. */
+    /** Selected Root model; retained for installer call compatibility. */
     rootModel?: RootAgentProjection["model"];
   }>;
 
@@ -64,8 +75,8 @@ export type RootAgentProjection = Readonly<{
 }>;
 
 const SPECIALIST_BASELINE_POLICY = [
-  "Execute one bounded Assignment through its acceptance criteria and proportional proof. Preserve unrelated work and return out-of-boundary work or material decisions to Root. Do not delegate, change Intent lifecycle, or perform external effects. Read-only Git/VCS, CI, and PR-comment inspection is allowed when relevant and within the Assignment; Git/VCS writes remain Root-only. Source mutation requires permission from the concrete task; proof and cache writes do not grant it.",
-  `Return one compact, evidence-first structured outcome (${ROOT_ORCHESTRATION_POLICY.specialistOutcomes.map((outcome) => `\`${outcome}\``).join(", ")}) with ${ROOT_ORCHESTRATION_POLICY.specialistReportFields.join(", ")}.`,
+  `Execute one bounded Assignment through its acceptance criteria. ${TESTING_POLICY.rule} Return out-of-boundary work or material decisions to Root. Do not message Root or peers during execution, delegate, change Intent lifecycle, or perform external effects. Read-only Git/VCS, CI, and PR-comment inspection is allowed when relevant and within the Assignment; Git/VCS writes remain Root-only. Source mutation requires permission from the concrete task; proof and cache writes do not grant it.`,
+  `Return only one compact, evidence-first terminal outcome (${ROOT_ORCHESTRATION_POLICY.specialistOutcomes.map((outcome) => `\`${outcome}\``).join(", ")}) with ${ROOT_ORCHESTRATION_POLICY.specialistReportFields.join(", ")}.`,
 ].join(" ");
 
 const ROOT_AUTHORITY_LABELS = {
@@ -77,8 +88,6 @@ const ROOT_AUTHORITY_LABELS = {
   completion: "completion",
   git_vcs: "Git/VCS writes",
   external_effects: "external effects",
-  gui_browser: "GUI and browser execution",
-  computer_use: "Computer Use when selected",
 } as const satisfies Readonly<Record<RootOwnedAuthority, string>>;
 
 const DELEGABLE_ACTION_LABELS = {
@@ -92,6 +101,8 @@ const DELEGABLE_ACTION_LABELS = {
   validation: "validation",
   frontend_work: "frontend work",
   security_work: "security work",
+  browser_use: "authorized Browser Use",
+  computer_use: "authorized Computer Use",
   review: "review",
   ci_release_observation: "CI or release observation",
 } as const satisfies Readonly<
@@ -99,9 +110,9 @@ const DELEGABLE_ACTION_LABELS = {
 >;
 
 const REVIEW_VALIDATION_PHASE_BARRIER =
-  "Require Reviewer.code before VCS. Follow the canonical phase gate: implementation completes, Reviewer.code reaches a fixed point, Worker.validation runs, then Root integrates and handles VCS. Any Reviewer.code repair invalidates earlier validation, so rerun Worker.validation.";
+  "After implementation, reach a Reviewer.code fixed point, run Worker.validation, then integrate and perform VCS writes. Review repairs invalidate earlier validation.";
 
-const ROOT_EVENT_WAIT_INSTRUCTION = `Use the longest practical event wait for every routine Root wait: call ${ROOT_ORCHESTRATION_POLICY.routineWaitTool} with timeout_ms=${ROOT_ORCHESTRATION_POLICY.routineWaitMaximumTimeoutMs} (20 minutes, within the cache lifetime). Early specialist completion wakes the wait; the collective mailbox already includes all relevant agents. If the maximum wait expires while idle, call the same maximum wait again. Never use short waits, list or status polling, or message loops on idle timeout; never busy-poll or run status-only coordination loops. Batch independent lifecycle actions and stop or release specialist leaves once their accepted terminal outcomes are recorded.`;
+const ROOT_EVENT_WAIT_INSTRUCTION = `Wait for specialist results with ${ROOT_ORCHESTRATION_POLICY.routineWaitTool} at timeout_ms=${ROOT_ORCHESTRATION_POLICY.routineWaitMaximumTimeoutMs}; repeat after an idle timeout. Do not poll status or send routine progress messages. Release specialist leaves after accepting their terminal outcomes.`;
 
 export interface NativeAgentInstallResult {
   readonly managed_artifacts: readonly ManagedArtifact[];
@@ -127,14 +138,19 @@ export async function inspectNativeAgentConflicts(
   previous: readonly ManagedArtifact[] = [],
   tier: ServiceTier = "standard",
   windowsGitBashExecutable?: string,
+  capabilities: NativeAgentCapabilityOptions = {},
 ): Promise<readonly ManagedConflict[]> {
-  const root = join(codexHome, "holycodex", "agents");
+  const generationId = nativeAgentGenerationId(profile, tier, {
+    ...capabilities,
+    ...(windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable }),
+  });
+  const root = join(codexHome, "holycodex", "agents", generationId);
   const projections = projectNativeAgents(profile, tier).map((agent) => ({
     path: join(root, `${agent.name}.toml`),
-    contents: renderNativeAgent(
-      agent,
-      windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable },
-    ),
+    contents: renderNativeAgent(agent, {
+      ...capabilities,
+      ...(windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable }),
+    }),
   }));
   const previousByPath = new Map(
     previous.map((artifact) => [join(codexHome, artifact.path), artifact]),
@@ -165,27 +181,6 @@ export async function inspectNativeAgentConflicts(
           { present: true, digest: await sha256(current) },
           { present: true, digest: await sha256(projection.contents) },
           "The managed native role file changed outside the previous HolyCodex transaction.",
-        ),
-      );
-    }
-  }
-  for (const artifact of previous) {
-    const absolute = join(codexHome, artifact.path);
-    if (
-      projections.some((candidate) => candidate.path === absolute) ||
-      !isKnownLegacyNativePath(codexHome, absolute, artifact.path)
-    ) {
-      continue;
-    }
-    const current = await readRegularFile(absolute);
-    if (current !== undefined && (await sha256(current)) !== artifact.digest) {
-      conflicts.push(
-        nativeConflict(
-          absolute,
-          "remove",
-          { present: true, digest: await sha256(current) },
-          { present: false },
-          "The managed legacy role file changed and would be removed during reconciliation.",
         ),
       );
     }
@@ -249,6 +244,26 @@ export function projectNativeAgents(
   });
 }
 
+/** Resolve the content-addressed generation that new Codex threads should load. */
+export function nativeAgentGenerationId(
+  profileName: ProfileName,
+  tier: ServiceTier = "standard",
+  instructionOptions: NativeAgentInstructionOptions = {},
+): string {
+  const snapshot = projectNativeAgents(profileName, tier)
+    .map((agent) => `${agent.name}\0${renderNativeAgent(agent, instructionOptions)}`)
+    .join("\0");
+  return createHash("sha256").update(snapshot).digest("hex").slice(0, 20);
+}
+
+/** Resolve the managed TOML path registered for a canonical specialist route. */
+export function nativeAgentConfigPath(agentType: NativeAgentType, generationId: string): string {
+  if (!/^[a-f0-9]{20}$/u.test(generationId)) {
+    throw new Error("Invalid native-agent generation identifier.");
+  }
+  return `holycodex/agents/${generationId}/${agentType}.toml`;
+}
+
 /** Project the parent Root model configuration for a profile and service tier. */
 export function projectRootAgent(
   profileName: ProfileName,
@@ -271,7 +286,6 @@ export function rootDeveloperInstructions(
 ): string {
   const options: RootDeveloperInstructionOptions =
     typeof input === "boolean" ? { computerUse: input, frontend: true, security: true } : input;
-  const computerUse = options.computerUse ?? false;
   if (
     !ROOT_ORCHESTRATION_POLICY.requiresDelegation ||
     !ROOT_ORCHESTRATION_POLICY.assignmentStartAndDispatchPrecedeDelegableExecution ||
@@ -331,75 +345,28 @@ export function rootDeveloperInstructions(
   ) {
     throw new Error("The Root orchestration policy is incomplete.");
   }
-  if (options.rootModel === "gpt-6-astra") {
-    return astraRootDeveloperInstructions(options, computerUse);
-  }
   const instructions = [
-    `You are the HolyCodex Root/session orchestrator. Your model and reasoning effort come from the selected Root profile. Root directly owns only ${ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority.map((authority) => ROOT_AUTHORITY_LABELS[authority]).join("; ")}. These actions remain subject to their approval and capability boundaries.`,
-    `Delegate every delegable action with a bounded Assignment and dispatch spawn_agent using the exact concrete registered Role.task agent_type selected from this canonical HolyCodex inventory: ${ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes.join(", ")}. The role families Explorer, Librarian, Worker, and Reviewer are labels only and are never dispatch targets. Generic built-in agent_type values ${ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes.join(", ")} are forbidden for HolyCodex specialist Assignments. If no matching concrete registered route is available, stop with needs_root_input; never substitute a generic agent. This includes ${ROOT_ORCHESTRATION_POLICY.delegableActions.map((action) => DELEGABLE_ACTION_LABELS[action]).join("; ")}. Starting the Assignment and dispatching its specialist must precede every such inspection or execution, including trivial, preparatory, and exploratory work. There is no generic Root direct-work fallback. Root may inspect returned evidence for integration acceptance.`,
-    `For every normal specialist spawn, pass the exact concrete Role.task agent_type and explicitly set fork_turns: "${ROOT_ORCHESTRATION_POLICY.normalSpawnForkTurns}"; never omit fork_turns or use "all" or its default. Preserve the selected route's configured model and reasoning effort. Each Assignment must be self-contained with the objective, bounded scope, constraints, exclusions, dependencies, acceptance criteria, and required evidence; include only task-specific context.`,
-    "Use holycodex-agent semantic operations for Intent, optional Plan, and Assignment state. Never edit TOON state or create standalone handoff, Decision, or blocker files.",
-    "Explicit user instructions override skill guidelines on conflict except genuine HolyCodex hard safety, authority, capability, and lifecycle invariants. Infer routine safe, reversible, in-scope choices and carry authorized read-only, reversible, preparatory, and independent work through implementation, inspection, repair, meaningful proof, required CI, and every requested terminal state. Ask only for a material unresolved choice, a genuine approval boundary such as installation profile approval or remote/public external mutation, user-owned credential entry, or a blocker that can change the outcome; persist needs_root_input when applicable. Out-of-boundary work returns to Root for a new bounded Assignment.",
-    "Dispatch independent non-overlapping Assignments concurrently, keep dependent phases ordered, and serialize writes to one mutable seam. Do not send messages to active specialists or request progress; receive their terminal results. Use writing-instructions for GPT-6 model-facing contracts, add only the missing semantic delta for the receiver's effective context, and keep each meaning with one authoritative owner.",
-    "Make each phase a coherent dependency, decision, or integration boundary. Resolve choices needed by the current phase, persist Plan and Assignment evidence, and advance after acceptance; do not ask later-phase questions prematurely.",
-    "Give the user only useful or important information. Do not output after every tool use or subagent update, emit routine status-only chatter or heartbeat messages, or follow a fixed update cadence. Material updates include significant findings or decisions, consequential blockers or input needs, and release milestones. Preserve native Astra Default questions, including asking while independent work proceeds; this rule adds no question protocol.",
+    `You are the HolyCodex Root/session orchestrator. Never perform delegable work yourself. Root may directly perform only ${ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority.map((authority) => ROOT_AUTHORITY_LABELS[authority]).join("; ")}, within approval and capability boundaries.`,
+    `Start a bounded Assignment and dispatch the exact concrete registered Role.task agent_type before every delegable action, including trivial, preparatory, and exploratory work: ${ROOT_ORCHESTRATION_POLICY.delegableActions.map((action) => DELEGABLE_ACTION_LABELS[action]).join("; ")}. Registered targets: ${ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes.join(", ")}. Explorer, Librarian, Worker, and Reviewer are role-family labels only. Generic built-in agent_type values ${ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes.join(", ")} are forbidden. If no matching route exists, return needs_root_input.`,
+    "Before each spawn, derive the exact Role.task target and complete configuration from the active HolyCodex profile, service tier, and selected capabilities. Verify the registration resolves to its canonical role file and that the name, model, reasoning effort, service tier, full developer instructions, shell/environment policy, capability settings, and permissions match; pass every supported configuration field explicitly. Never inherit Root settings, substitute a generic route, or trust remembered route data. Recheck resumed threads. If the complete route cannot be verified and passed, stop with needs_root_input before spawning.",
+    `For normal specialist spawns, set fork_turns: "${ROOT_ORCHESTRATION_POLICY.normalSpawnForkTurns}". Give each specialist a self-contained Assignment with objective, bounded scope, constraints, dependencies, acceptance criteria, and evidence needed for acceptance.`,
+    "Use holycodex-agent semantic operations for Intent, optional Plan, and Assignment state. Do not edit TOON state. Root owns material decisions, integration acceptance, lifecycle, and completion; return out-of-boundary work to Root for a new Assignment.",
+    "Honor explicit user instructions within hard safety, authority, capability, and lifecycle boundaries. Make routine safe, reversible, in-scope choices and carry authorized work through its requested terminal state. Ask for material unresolved choices, genuine approval boundaries, user-owned credential entry, or outcome-changing blockers.",
+    "Dispatch independent non-overlapping Assignments concurrently; order dependencies and serialize writes to a shared seam. Do not request specialist progress. Accept terminal evidence and resolve material contradictions before integration.",
+    "Browser Use and Computer Use execution are specialist-owned. Root decides when interface work is needed, assigns bounded authorized work to a specialist with the capability, and accepts terminal evidence without operating the browser or computer. If the required capability is disabled or unavailable on the current surface, stop with needs_root_input and report the blocker without substituting another provider or route.",
+    "Use writing-instructions for model-facing contracts. Keep each meaning with one authoritative owner and add only the missing semantic delta for the receiver.",
+    `Patch quality: ${SURGICAL_MUTATION_RULE}`,
+    "Give the user useful updates for significant findings, decisions, blockers, input needs, and release milestones; avoid per-tool, status-only, heartbeat, or fixed-cadence messages.",
     ROOT_EVENT_WAIT_INSTRUCTION,
-    `Keep specialist and Reviewer reports concise, structured, and evidence-first: lead with ${ROOT_ORCHESTRATION_POLICY.specialistReportFields.join(", ")}. Root reads large transcripts or artifacts only for ${ROOT_ORCHESTRATION_POLICY.rootLargeReadsOnlyFor.join(", ")}; reuse stable facts, keep each meaning with one authoritative owner, and do not duplicate policy. Stable bounded component scopes are canonical guidance; the lifecycle worker owns deterministic Intent, Plan, and Assignment API decisions, while Root owns material decisions, integration, and completion.`,
-    `${TESTING_POLICY.rule} Do not add tests for low-impact reversible changes when they merely mirror implementation details. Once relevant proof passes, broaden or repeat it only after another source change, a failure, or an unresolved material concern. Mandatory repository gates and Reviewer.code remain required. Inspect specialist evidence before integration; Worker.validation supplies independent local proof without replacing implementation proof or Reviewer.code. ${REVIEW_VALIDATION_PHASE_BARRIER}`,
-    `For current technical documentation, Librarian.lookup and Librarian.research resolve the library identity and query Context7 narrowly before model memory or generic web, then return one typed evidence state (${LIBRARIAN_CONTEXT7_POLICY.evidenceStates.join(" | ")}) in the context7 field with version/source evidence. Web search is allowed only for these Context7 states (${LIBRARIAN_CONTEXT7_POLICY.webFallbackEvidenceStates.join(" | ")}), a missing required version, or a conflict still unresolved after checking authoritative first-party documentation; successful Context7 evidence alone never justifies fallback. Context7 supplies facts while Root owns material product, architecture, dependency, compatibility, and implementation decisions.`,
-    "After integration, Root performs approved VCS writes and dispatches Worker.operations with the exact ref or SHA for terminal CI or release evidence. Specialists may inspect Git/VCS state, CI, and PR comments read-only within their Assignments. Pending is never success. Discover the actual topology; repair failures through bounded Assignments and repeat integration, fixed-point review, VCS, and terminal observation until the applicable gate is green.",
+    `${TESTING_POLICY.rule} ${REVIEW_VALIDATION_PHASE_BARRIER}`,
+    "After integration, Root owns approved VCS writes. For PR or release gates use babysit-ci and dispatch Worker.operations for exact-ref terminal evidence. Pending gates are not complete.",
   ];
   if (options.frontend ?? true) {
     instructions.push(renderFrontendCapabilityInstruction());
   }
   if (options.security ?? true) {
     instructions.push(
-      "Security is selected. Use threat-model for material trust-boundary changes, security-diff-scan before VCS for security-sensitive diffs, and full security-scan for explicit audits, substantial new exposed surfaces, or broader systemic concern. Validate supported findings before blocking. A validated vulnerability introduced or worsened by the change blocks VCS until repaired or explicitly risk-accepted; report unrelated pre-existing findings without expanding scope. Security-driven edits invalidate Reviewer.code, and security-sensitive Reviewer.code edits invalidate the applicable security review; repeat both gates until green together.",
-    );
-  }
-  if (computerUse) {
-    instructions.push(
-      "Computer Use is selected and is directly executable by Root/session only; it must not be delegated.",
-      "For interactive authentication, use Computer Use with the user's default browser unless the builtin browser is that default. Navigate to authentication, hand control to the user, wait while the user personally enters and submits every credential, then resume from the authenticated session. Never ask for credentials in chat or type, paste, retrieve, infer, expose, store, or submit them. If no authorized Computer Use/default-browser path exists, report the capability blocker.",
-    );
-  } else {
-    instructions.push(
-      "Computer Use is unavailable for this installation and cannot be delegated. GUI and browser execution remain Root/session-only.",
-    );
-  }
-  if (options.windowsGitBashExecutable !== undefined) {
-    instructions.push(windowsGitBashShellDirective(options.windowsGitBashExecutable));
-  }
-  return instructions.join("\n");
-}
-
-function astraRootDeveloperInstructions(
-  options: RootDeveloperInstructionOptions,
-  computerUse: boolean,
-): string {
-  const instructions = [
-    `You are the HolyCodex Root/session orchestrator. Root owns only ${ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority.map((authority) => ROOT_AUTHORITY_LABELS[authority]).join("; ")}. All actions remain subject to approval and capability boundaries.`,
-    `Dispatch every delegable action as a bounded Assignment to the exact concrete registered Role.task agent_type listed here: ${ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes.join(", ")}. Explorer, Librarian, Worker, and Reviewer are labels, never targets; generic built-in agent_type values ${ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes.join(", ")} are forbidden. Start and dispatch before delegated inspection or execution, including preparatory, exploratory, and trivial work. If no matching route exists, stop with needs_root_input.`,
-    `Every normal specialist spawn must set fork_turns: "${ROOT_ORCHESTRATION_POLICY.normalSpawnForkTurns}"; never omit it or use "all" or the default.`,
-    "Use holycodex-agent semantic operations for Intent, optional Plan, and Assignment state. Do not edit TOON state or create standalone handoff, Decision, or blocker files.",
-    "Follow explicit user instructions over skills except hard safety, authority, capability, and lifecycle invariants. Make routine safe, reversible, in-scope choices; carry authorized work through implementation, repair, proportional proof, and the requested terminal state. Ask only for material unresolved choices, genuine approval boundaries, user credential entry, or outcome-changing blockers. Give each specialist a self-contained Assignment with objective, bounded scope, constraints, exclusions, dependencies, acceptance criteria, and required evidence; return out-of-boundary work to Root for a new Assignment.",
-    `Use the selected capabilities and relevant skills. For current technical documentation, delegate to Librarian specialists and query Context7 narrowly before model memory or generic web. Web search is allowed only for these Context7 states (${LIBRARIAN_CONTEXT7_POLICY.webFallbackEvidenceStates.join(" | ")}), a missing required version, or a conflict still unresolved after checking authoritative first-party documentation; successful Context7 evidence alone never justifies fallback. ${TESTING_POLICY.rule} ${REVIEW_VALIDATION_PHASE_BARRIER} Security-sensitive edits and reviews must remain valid together.`,
-    `Report material findings, decisions, blockers, and release milestones only. Do not message active specialists or request progress; receive their terminal results. ${ROOT_EVENT_WAIT_INSTRUCTION} After integration and approved VCS writes, dispatch Worker.operations with the exact ref or SHA for terminal CI or release evidence; pending is not success.`,
-  ];
-  if (options.frontend ?? true) instructions.push(renderFrontendCapabilityInstruction());
-  if (options.security ?? true) {
-    instructions.push(
-      "Security is selected. Use threat-model for material trust-boundary changes, security-diff-scan before VCS for security-sensitive diffs, and full security-scan for explicit audits, substantial new exposed surfaces, or broader systemic concern. Validate supported findings before blocking. A validated vulnerability introduced or worsened by the change blocks VCS until repaired or explicitly risk-accepted; report unrelated pre-existing findings without expanding scope.",
-    );
-  }
-  if (computerUse) {
-    instructions.push(
-      "Computer Use is selected and is directly executable by Root/session only; it must not be delegated.",
-      "For interactive authentication, use Computer Use with the user's default browser unless the builtin browser is that default. Navigate to authentication, hand control to the user, wait while the user personally enters and submits every credential, then resume from the authenticated session. Never ask for credentials in chat or type, paste, retrieve, infer, expose, store, or submit them. If no authorized Computer Use/default-browser path exists, report the capability blocker.",
-    );
-  } else {
-    instructions.push(
-      "Computer Use is unavailable for this installation and cannot be delegated. GUI and browser execution remain Root/session-only.",
+      "For security-sensitive changes, use the relevant security review skills before VCS. Validate supported findings; repair introduced or worsened vulnerabilities before VCS unless explicitly risk-accepted. Keep security review current after relevant repairs.",
     );
   }
   if (options.windowsGitBashExecutable !== undefined) {
@@ -411,10 +378,10 @@ function astraRootDeveloperInstructions(
 function renderFrontendCapabilityInstruction(): string {
   if (
     !FRONTEND_WORKFLOW_POLICY.repositoryAndUserRequirementsPrecedePluginDefaults ||
-    !FRONTEND_WORKFLOW_POLICY.specialistsOwnInspectionImplementationAndRepair ||
-    !FRONTEND_WORKFLOW_POLICY.rootOwnsLiveVisualAndInteractionAcceptance ||
+    !FRONTEND_WORKFLOW_POLICY.specialistsOwnInspectionImplementationAndRenderedAcceptance ||
+    !FRONTEND_WORKFLOW_POLICY.rootAcceptsTerminalVisualEvidence ||
     !FRONTEND_WORKFLOW_POLICY.sourceChangesInvalidateRenderEvidence ||
-    !FRONTEND_WORKFLOW_POLICY.specialistReportsCannotSubstituteForRootAcceptance ||
+    !FRONTEND_WORKFLOW_POLICY.specialistReportsIncludeObservableRenderedEvidence ||
     FRONTEND_WORKFLOW_POLICY.logicOnlyChangesRequireVisualAcceptance
   ) {
     throw new Error("The Frontend workflow policy is incomplete.");
@@ -423,7 +390,7 @@ function renderFrontendCapabilityInstruction(): string {
   const mappings = capability.applicability
     .map(({ skillId, appliesWhen }) => `${appliesWhen} uses ${skillId}`)
     .join("; ");
-  return `Frontend is selected. For a user-visible frontend task, ${mappings}. Repository stack, existing design system, and explicit user requirements govern over generic plugin defaults. Specialists inspect, implement, and repair; Root renders, opens, and interacts with the current result, judges it against the accepted outcome, delegates concrete discrepancies, and repeats repair and live acceptance to a fixed point. Every source change invalidates earlier render evidence. Build results, specialist reports, and Reviewer.artifact cannot replace Root's acceptance of the current UI. Apply proportional responsive, accessibility, and core-interaction checks; logic-only nonvisual changes do not require visual ceremony.`;
+  return `For a user-visible frontend task, ${mappings}. Follow the repository stack, design system, and user requirements. Specialists inspect, implement, render, interact, and repair; Root accepts their current observable visual and interaction evidence, assigns discrepancies, and requires fresh evidence after relevant source changes. Check responsive layout, accessibility, and core interactions in proportion to the change.`;
 }
 
 /** Publish canonical native profiles while preserving foreign or modified files. */
@@ -435,16 +402,21 @@ export async function installNativeAgents(
   windowsGitBashExecutable?: string,
   resolveConflict?: ConflictResolver,
   preResolvedConflicts: readonly ManagedConflict[] = [],
+  capabilities: NativeAgentCapabilityOptions = {},
 ): Promise<NativeAgentInstallResult> {
-  const root = join(codexHome, "holycodex", "agents");
+  const generationId = nativeAgentGenerationId(profile, tier, {
+    ...capabilities,
+    ...(windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable }),
+  });
+  const root = join(codexHome, "holycodex", "agents", generationId);
   const preserved: string[] = [];
   const rollback: NativeAgentRollbackEntry[] = [];
   const projections = projectNativeAgents(profile, tier).map((agent) => ({
     path: join(root, `${agent.name}.toml`),
-    contents: renderNativeAgent(
-      agent,
-      windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable },
-    ),
+    contents: renderNativeAgent(agent, {
+      ...capabilities,
+      ...(windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable }),
+    }),
   }));
   const previousByPath = new Map(
     previous.map((artifact) => [join(codexHome, artifact.path), artifact]),
@@ -583,46 +555,6 @@ export async function installNativeAgents(
     for (const artifact of previous) {
       const absolute = join(codexHome, artifact.path);
       if (!projections.some((candidate) => candidate.path === absolute)) {
-        if (!isKnownLegacyNativePath(codexHome, absolute, artifact.path)) {
-          preserved.push(absolute);
-          continue;
-        }
-        const preResolvedRemoval = preResolvedConflicts.find(
-          (conflict) => conflict.path === absolute && conflict.action === "remove",
-        );
-        if (preResolvedRemoval !== undefined) {
-          const current = await readRegularFile(absolute);
-          const reviewedDigest = conflictDigest(preResolvedRemoval);
-          if (
-            current === undefined ||
-            reviewedDigest === undefined ||
-            (await sha256(current)) !== reviewedDigest
-          ) {
-            throw new Error(
-              `The native role conflict changed after review; review the latest file and retry: ${absolute}`,
-            );
-          }
-          if (preResolvedRemoval.decision === "keep") {
-            preserved.push(absolute);
-          } else {
-            await rm(absolute, { force: false });
-            rollback.push({ path: absolute, previous: current, installedDigest: undefined });
-          }
-          continue;
-        }
-        const status = await removeIfUnchanged(absolute, artifact.digest);
-        if (status.status === "preserved") preserved.push(absolute);
-        else if (status.previous !== undefined) {
-          rollback.push({ path: absolute, previous: status.previous, installedDigest: undefined });
-        }
-      }
-    }
-    for (const artifact of previous) {
-      const absolute = join(codexHome, artifact.path);
-      if (
-        preserved.includes(absolute) &&
-        !managed_artifacts.some((candidate) => join(codexHome, candidate.path) === absolute)
-      ) {
         managed_artifacts.push(artifact);
       }
     }
@@ -722,12 +654,24 @@ export function renderNativeAgent(
   const instructions = [
     SPECIALIST_BASELINE_POLICY,
     agent.taskInstruction,
-    ...(agent.permissions.sourceMutation
-      ? [`Surgical mutation rule: ${SURGICAL_MUTATION_RULE}`]
+    ...(agent.permissions.filesystem === "workspace-write" ||
+    agent.name === "Reviewer.code" ||
+    agent.name === "Reviewer.artifact"
+      ? [`Patch quality: ${SURGICAL_MUTATION_RULE}`]
       : []),
     ...(instructionOptions.windowsGitBashExecutable === undefined
       ? []
       : [windowsGitBashShellDirective(instructionOptions.windowsGitBashExecutable)]),
+    ...(instructionOptions.browserUse
+      ? [
+          "Use Browser Use only for this Assignment and only when the capability is actually available in the current Codex surface/runtime. Never assume support or substitute another provider; report unavailability as a blocker. Tool availability does not grant authority, and consequential external effects remain Root-owned.",
+        ]
+      : []),
+    ...(instructionOptions.computerUse
+      ? [
+          "Use Computer Use only for this Assignment and only when the capability is actually available in the current Codex surface/runtime. Its platform restrictions and ability to cause external actions require explicit task authority. Never assume support or substitute another provider; report unavailability as a blocker. Tool availability does not grant authority. Credential entry and submission remain user-owned; never request, enter, retrieve, expose, or store credentials.",
+        ]
+      : []),
   ].join("\n");
   return [
     `name = ${JSON.stringify(agent.name)}`,
@@ -737,7 +681,7 @@ export function renderNativeAgent(
     `service_tier = ${JSON.stringify(agent.serviceTier)}`,
     'model_reasoning_summary = "none"',
     'model_verbosity = "low"',
-    'sandbox_mode = "workspace-write"',
+    `sandbox_mode = ${JSON.stringify(nativeAgentSandboxMode(agent))}`,
     'approval_policy = "never"',
     'web_search = "live"',
     `developer_instructions = ${JSON.stringify(instructions)}`,
@@ -747,16 +691,11 @@ export function renderNativeAgent(
     "interrupt_message = false",
     "",
     "[features]",
-    "context_management = true",
-    "agent_message_board = false",
-    "multi_agent_v2 = false",
     "multi_agent = false",
-    "computer_use = false",
-    "browser_use = false",
-    "in_app_browser = false",
     "",
-    "[sandbox_workspace_write]",
-    "network_access = true",
+    ...(nativeAgentSandboxMode(agent) === "workspace-write"
+      ? ["[sandbox_workspace_write]", "network_access = true"]
+      : []),
     "",
   ].join("\n");
 }
@@ -766,12 +705,12 @@ export function windowsGitBashShellDirective(executable?: string): string {
   if (executable === undefined || executable.trim().length === 0) {
     throw new Error("Git Bash executable is required.");
   }
-  return `On Windows, use Git for Windows Bash for all shell actions. The verified executable is ${JSON.stringify(executable)}. Do not launch another Bash process when already running in that environment. Do not use PowerShell, pwsh, cmd.exe, WSL Bash, Cygwin, or unrelated MSYS shells. If the active shell is not Git for Windows Bash, report the environment mismatch instead of continuing.`;
+  return `On Windows, run all shell actions in the verified Git for Windows Bash environment at ${JSON.stringify(executable)}. If that environment is unavailable or inactive, stop and report the mismatch; never fall back to another shell.`;
 }
 
 /** Return the Codex sandbox mode for a concrete task, including proof-only writable tasks. */
-export function nativeAgentSandboxMode(_agent: NativeAgentProjection): "workspace-write" {
-  return "workspace-write";
+export function nativeAgentSandboxMode(agent: NativeAgentProjection): NativeAgentSandboxMode {
+  return agent.permissions.filesystem;
 }
 
 /** Check the generated sandbox and command-network controls for one specialist. */
@@ -780,9 +719,11 @@ export function nativeAgentSandboxConfigurationMatches(
   document: TomlDocument,
 ): boolean {
   return (
-    document["sandbox_mode"] === "workspace-write" &&
+    document["sandbox_mode"] === nativeAgentSandboxMode(agent) &&
     document["default_permissions"] === undefined &&
-    readTomlPath(document, "sandbox_workspace_write.network_access") === true
+    (nativeAgentSandboxMode(agent) === "workspace-write"
+      ? readTomlPath(document, "sandbox_workspace_write.network_access") === true
+      : readTomlPath(document, "sandbox_workspace_write.network_access") === undefined)
   );
 }
 
@@ -826,27 +767,6 @@ export function isKnownLegacyRootRoleContent(content: string): boolean {
   return LEGACY_ROOT_ROLE_CONTENTS.has(content);
 }
 
-function isKnownLegacyNativePath(
-  codexHome: string,
-  absolute: string,
-  relativePath: string,
-): boolean {
-  if (relativePath === "agents/root.toml") return true;
-  if (
-    ROLE_DEFINITIONS.some(
-      (definition) => relativePath === `holycodex/agents/${definition.role.toLowerCase()}.toml`,
-    )
-  ) {
-    return true;
-  }
-  if (!pathWithin(join(codexHome, "agents"), absolute)) return false;
-  return NATIVE_AGENT_TYPES.some((agentType) => {
-    const [role, task] = agentType.split(".");
-    const legacyName = `${role![0]!.toUpperCase()}${role!.slice(1)}.${task}.toml`;
-    return relativePath === `agents/${legacyName}`;
-  });
-}
-
 async function removeLegacyRootIfOwned(path: string): Promise<"removed" | "preserved" | "absent"> {
   try {
     await assertNoSymlink(path);
@@ -872,26 +792,6 @@ async function readRegularFile(path: string): Promise<string | undefined> {
     return new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path));
   } catch (error: unknown) {
     if (isFsCode(error, "ENOENT")) return undefined;
-    throw error;
-  }
-}
-
-async function removeIfUnchanged(
-  path: string,
-  digest: string,
-): Promise<Readonly<{ status: "removed" | "preserved"; previous?: string }>> {
-  try {
-    await assertNoSymlink(path);
-    const entry = await lstat(path);
-    if (entry.isSymbolicLink() || !entry.isFile()) return { status: "preserved" };
-    const previous = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path));
-    if ((await sha256(previous)) === digest) {
-      await rm(path, { force: false });
-      return { status: "removed", previous };
-    }
-    return { status: "preserved" };
-  } catch (error: unknown) {
-    if (isFsCode(error, "ENOENT")) return { status: "removed" };
     throw error;
   }
 }

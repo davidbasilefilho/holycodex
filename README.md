@@ -43,15 +43,18 @@ Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; native special
 Those routing identities are separate from the GPT-6-family behavior required
 by live skills and generated instructions.
 
-Frontend and Security plugins are selected by default. Computer Use is opt-in.
-A selected capability must install and verify successfully or the
-installation fails. Use `--json` when another program needs the complete
-structured state; human output stays concise.
+Frontend and Security are required capabilities. ChatGPT Sites and Browser Use
+are optional and enabled by default; Computer Use is optional and disabled by
+default. Each selected capability must be supported and verified or
+installation fails explicitly. Sites availability can depend on the account,
+region, workspace policy, or Codex surface; Browser Use depends on the Codex
+surface/runtime; Computer Use has stronger platform and surface restrictions
+and greater external-action capability. Use `--json` when another program
+needs the complete structured state; human output stays concise.
 
-HolyCodex manages the scalar `features.context_management = true` in the Root
-configuration. The package migration converts owned historical
-`features.context_management.experimental_mode` state and removal restores the
-recorded prior value when it is unchanged.
+HolyCodex manages `features.context_management.experimental_mode = true` for
+Root and generated specialists. Removal restores the recorded prior value when
+unchanged.
 
 The public `holycodex` CLI is for installation, diagnosis, removal, and
 versioning. Root's model-facing state surface is the separate deterministic
@@ -61,10 +64,12 @@ TUI, prompts, or ANSI output. Handoff is only a redacted projection of that
 state, never a second record.
 
 Root delegates every delegable action through a bounded Assignment and native
-specialist before inspection or execution, including trivial and preparatory
-work. Root owns user interaction, Intent, material decisions, orchestration,
-lifecycle, integration acceptance, completion, Git/VCS, external effects, and
-authorized GUI/browser/Computer Use. Independent Assignments can run in parallel;
+specialist before inspection or execution, including Browser Use and Computer
+Use when enabled and available. Root decides when those capabilities are
+needed and accepts terminal evidence; tool availability does not grant
+authority. Root owns user interaction, Intent, material decisions,
+orchestration, lifecycle, integration acceptance, completion, Git/VCS, and
+external-effect decisions. Independent Assignments can run in parallel;
 dependent work and shared write seams are serialized. Post-integration CI and
 release verification follow babysit-ci against the exact ref/SHA; pending is
 not success.
@@ -77,9 +82,9 @@ Historical route and profile values remain only in explicit migration or
 cleanup handling for old installations.
 
 Windows installations require verified Git for Windows Bash. Context7 is
-required on every platform and installed as ctx7@latest through the same
-package-manager family that launched HolyCodex. See
-[installation](docs/INSTALLATION.md) for setup, ownership, and repair behavior.
+optional: a usable `ctx7` on `PATH` is accepted, and managed installation
+failure is reported as a warning. See [installation](docs/INSTALLATION.md) for
+details.
 
 The native surface has one canonical leaf for every route: `Explorer.map`, `Explorer.lookup`,
 `Explorer.trace`, `Librarian.lookup`, `Librarian.research`,

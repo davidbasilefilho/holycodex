@@ -191,6 +191,8 @@ async function execute(
       );
     }
   }
+  if (command === "state" && subcommand === "diagnose")
+    return await store.diagnose(requiredValue(intent, "intent"));
   throw new AgentCliError("invalid_usage", "Unknown command. Use --help.");
 }
 
@@ -242,6 +244,7 @@ function allowedOptions(command: string, subcommand: string): ReadonlySet<string
     "assignment start": ["intent", "assignment", "revision", "input"],
     "assignment recover": ["intent", "assignment", "revision", "input"],
     "assignment result": ["intent", "assignment", "revision", "input"],
+    "state diagnose": ["intent"],
   };
   return new Set([...common, ...(options[`${command} ${subcommand}`] ?? [])]);
 }

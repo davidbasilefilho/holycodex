@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { summarizeManagedConfigValue } from "@holycodex/codex";
+import { readTomlPath, summarizeManagedConfigValue } from "@holycodex/codex";
 import { resolveCanonicalVersion } from "@holycodex/core";
 
 import {
@@ -26,6 +26,7 @@ import { parseConfig } from "./installer.ts";
 const CURRENT_VERSION = await readInstallationVersion();
 const [CURRENT_MAJOR, CURRENT_MINOR, CURRENT_PATCH] = CURRENT_VERSION.split("-", 1)[0]!.split(".");
 const LEGACY_VERSION = `${CURRENT_MAJOR}.${CURRENT_MINOR}.${Number(CURRENT_PATCH) - 1}`;
+const PRE_ROUTE_MIGRATION_VERSION = `${CURRENT_MAJOR}.${CURRENT_MINOR}.${Number(CURRENT_PATCH) - 2}`;
 import type {
   InstallRequest,
   InstallerOptions,
@@ -95,6 +96,7 @@ function fakeManager(
   options: Readonly<{
     readonly initial?: Readonly<Record<string, "installed" | "disabled" | "available">>;
     readonly onAdd?: (pluginId: string) => Promise<void>;
+    readonly onRemove?: (pluginId: string) => Promise<void>;
   }> = {},
 ): OfficialPluginManager {
   const states = new Map<string, { installed: boolean; enabled: boolean }>();
@@ -116,6 +118,7 @@ function fakeManager(
       states.set(pluginId, { installed: true, enabled: true });
     },
     remove: async (pluginId) => {
+      await options.onRemove?.(pluginId);
       states.delete(pluginId);
     },
     status: async (ids) =>
@@ -187,7 +190,11 @@ async function setLegacyRootModel(codexHome: string, model: string): Promise<voi
       model: { ...modelEntry, lastManagedValue: await summarizeManagedConfigValue("model", model) },
     },
   };
-  const legacy = { ...current, version: LEGACY_VERSION, managed_config: managedConfig };
+  const legacy = {
+    ...current,
+    version: PRE_ROUTE_MIGRATION_VERSION,
+    managed_config: managedConfig,
+  };
   const digest = await installRecordDigest({
     owner: legacy.owner,
     install_id: legacy.install_id,
@@ -223,6 +230,24 @@ function commandContext(codexHome: string, manager: OfficialPluginManager, io: C
 }
 
 describe("command install and upgrade review flow", () => {
+  test("installer debug mode does not persist configuration diagnostics", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-debug-log-"));
+    const codexHome = join(root, "codex");
+    try {
+      await installHolyCodex(
+        { profile: "default", optional: { computer_use: false } },
+        installerOptions(codexHome, fakeManager()),
+        { ...fakeEnvironment, HOLYCODEX_DEBUG_INSTALLER: "1" },
+      );
+      const debugLog = await readFile(join(codexHome, ".holycodex-debug.log"), "utf8").catch(
+        () => undefined,
+      );
+      expect(debugLog).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("upgrades legacy canonical Root routes and preserves recorded user overrides", async () => {
     for (const profile of ["low", "default"] as const) {
       const root = await mkdtemp(join(tmpdir(), `holycodex-cli-flow-root-route-${profile}-`));
@@ -230,14 +255,10 @@ describe("command install and upgrade review flow", () => {
       const manager = fakeManager();
       const paths = resolveInstallerPaths({ paths: { codexHome } });
       try {
-        await seedInstall(
-          root,
-          { profile, optional: { frontend: false, security: false, computer_use: false } },
-          manager,
-        );
+        await seedInstall(root, { profile, optional: { computer_use: false } }, manager);
         await setLegacyRootModel(codexHome, "gpt-6-astra");
         await installHolyCodex(
-          { optional: { frontend: false, security: false, computer_use: false } },
+          { optional: { computer_use: false } },
           {
             ...installerOptions(codexHome, manager),
             reviewInstall: async () => ({ action: "apply" }),
@@ -255,14 +276,10 @@ describe("command install and upgrade review flow", () => {
     const manager = fakeManager();
     const paths = resolveInstallerPaths({ paths: { codexHome } });
     try {
-      await seedInstall(
-        root,
-        { profile: "low", optional: { frontend: false, security: false, computer_use: false } },
-        manager,
-      );
+      await seedInstall(root, { profile: "low", optional: { computer_use: false } }, manager);
       await setLegacyRootModel(codexHome, "gpt-5.6-terra");
       await installHolyCodex(
-        { optional: { frontend: false, security: false, computer_use: false } },
+        { optional: { computer_use: false } },
         {
           ...installerOptions(codexHome, manager),
           reviewInstall: async () => ({ action: "apply" }),
@@ -292,7 +309,7 @@ describe("command install and upgrade review flow", () => {
       await mkdir(codexHome, { recursive: true });
       await expect(
         installHolyCodex(
-          { optional: { frontend: false, security: false, computer_use: false } },
+          { optional: { computer_use: false } },
           {
             ...installerOptions(codexHome, failingManager),
             runtime: {
@@ -338,7 +355,7 @@ describe("command install and upgrade review flow", () => {
     try {
       await expect(
         installHolyCodex(
-          { optional: { frontend: false, security: false, computer_use: false } },
+          { optional: { computer_use: false } },
           {
             ...installerOptions(codexHome, failingManager),
             runtime: {
@@ -369,11 +386,7 @@ describe("command install and upgrade review flow", () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-managed-recovery-"));
     const codexHome = join(root, "codex");
     const paths = resolveInstallerPaths({ paths: { codexHome } });
-    const initial = await seedInstall(
-      root,
-      { optional: { frontend: false, security: false, computer_use: false } },
-      fakeManager(),
-    );
+    const initial = await seedInstall(root, { optional: { computer_use: false } }, fakeManager());
     const config = await readFile(paths.configFile, "utf8");
     const customModel = 'model = "gpt-6-luna"';
     const modelEntry = /^model = .*$/mu.exec(config)?.[0];
@@ -440,7 +453,7 @@ describe("command install and upgrade review flow", () => {
     }
   }, 30_000);
 
-  test("preserves conflict choices when the final review reopens resolution", async () => {
+  test("fails closed when final review keeps a conflicting registered role", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-reopen-conflicts-"));
     const codexHome = join(root, "codex");
     const manager = fakeManager();
@@ -495,12 +508,22 @@ describe("command install and upgrade review flow", () => {
     try {
       const { codexHome: installedHome } = await seedInstall(
         root,
-        { optional: { frontend: false, security: false, computer_use: false } },
+        { optional: { computer_use: false } },
         manager,
       );
       const paths = resolveInstallerPaths({ paths: { codexHome: installedHome } });
-      const rolePath = join(paths.roleRoot, "Worker.implementation.toml");
-      const userRole = "keep my reopened conflict choice\n";
+      const activeRecord = await readActiveInstallRecord(paths);
+      const roleArtifact = activeRecord?.managed_artifacts.find(({ path }) =>
+        path.endsWith("/Worker.implementation.toml"),
+      );
+      if (roleArtifact === undefined) throw new Error("the implementation role is not managed");
+      const rolePath = join(installedHome, roleArtifact.path);
+      const originalRole = await readFile(rolePath, "utf8");
+      const userRole = originalRole.replace(
+        /^description = .+$/mu,
+        'description = "keep my reopened conflict choice"',
+      );
+      if (userRole === originalRole) throw new Error("the managed role description is missing");
       await writeFile(rolePath, userRole);
 
       const reviews: InstallReview[] = [];
@@ -519,7 +542,16 @@ describe("command install and upgrade review flow", () => {
         installer: installerOptions(codexHome, manager),
       });
 
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode).toBe(3);
+      expect(result.envelope).toMatchObject({
+        ok: false,
+        error: {
+          code: "install_failed",
+          message: expect.stringContaining(
+            "role file was kept after a conflict and cannot be activated",
+          ),
+        },
+      });
       expect(reviews).toHaveLength(3);
       expect(
         reviews.map((review) => review.conflicts.find(({ path }) => path === rolePath)?.decision),
@@ -542,7 +574,7 @@ describe("command install and upgrade review flow", () => {
         await installHolyCodex(
           {
             profile,
-            optional: { frontend: true, security: true, computer_use: false },
+            optional: { computer_use: false },
           },
           installerOptions(codexHome, fakeManager()),
           fakeEnvironment,
@@ -573,15 +605,12 @@ describe("command install and upgrade review flow", () => {
           rootModel: "gpt-6-astra",
         }),
       );
-      expect(astraInstructions).toContain("longest practical event wait");
-      expect(astraInstructions).toMatch(
-        /collaboration\.wait_agent.*timeout_ms=1200000.*20 minutes.*cache lifetime/isu,
-      );
-      expect(astraInstructions).toMatch(/early specialist completion wakes.*collective mailbox/isu);
-      expect(astraInstructions).toMatch(/maximum wait expires.*same maximum wait again/isu);
+      expect(astraInstructions).toContain("Never perform delegable work yourself");
+      expect(astraInstructions).toContain("collaboration.wait_agent at timeout_ms=1200000");
+      expect(astraInstructions).toContain("repeat after an idle timeout");
       expect(lowConfig["developer_instructions"]).toBe(solInstructions);
       expect(defaultConfig["developer_instructions"]).toBe(solInstructions);
-      expect(solInstructions).toContain("longest practical event wait");
+      expect(solInstructions).toBe(astraInstructions);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -625,14 +654,14 @@ describe("command install and upgrade review flow", () => {
         {
           profile: "high",
           tier: "fast",
-          optional: { frontend: false, security: false, computer_use: true },
+          optional: { computer_use: true, sites: false },
           officialPlugins: [additionalPlugin],
         },
         manager,
       );
       let initialRequest: InstallRequest | undefined;
       const result = await runCli(
-        ["install", "--profile", "low", "--frontend", "--codex-home", codexHome],
+        ["install", "--profile", "low", "--sites", "--codex-home", codexHome],
         commandContext(codexHome, manager, {
           stdoutIsTTY: true,
           stderrIsTTY: true,
@@ -646,7 +675,7 @@ describe("command install and upgrade review flow", () => {
       expect(initialRequest).toMatchObject({
         profile: "low",
         tier: "fast",
-        optional: { frontend: true, security: false, computer_use: true },
+        optional: { computer_use: true, sites: true },
         officialPlugins: [additionalPlugin],
       });
     } finally {
@@ -663,7 +692,7 @@ describe("command install and upgrade review flow", () => {
         {
           profile: "high",
           tier: "fast",
-          optional: { frontend: false, security: false, computer_use: false },
+          optional: { browser_use: true, computer_use: false, sites: true },
           officialPlugins: [additionalPlugin],
         },
         manager,
@@ -684,8 +713,12 @@ describe("command install and upgrade review flow", () => {
       expect(initialRequest).toMatchObject({
         profile: "high",
         tier: "fast",
-        optional: { frontend: false, security: false, computer_use: false },
-        officialPlugins: [additionalPlugin],
+        optional: { browser_use: true, computer_use: false, sites: true },
+        officialPlugins: expect.arrayContaining([
+          "build-web-apps@openai-curated",
+          "codex-security@openai-curated",
+          additionalPlugin,
+        ]),
       });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -698,7 +731,7 @@ describe("command install and upgrade review flow", () => {
     try {
       await expect(
         installHolyCodex(
-          { optional: { frontend: false, security: false, computer_use: false } },
+          { optional: { computer_use: false } },
           {
             ...installerOptions(codexHome, fakeManager()),
             reviewInstall: async () => ({ action: "unexpected" }) as never,
@@ -728,7 +761,7 @@ describe("command install and upgrade review flow", () => {
         await expect(
           installHolyCodex(
             {
-              optional: { frontend: false, security: false, computer_use: false },
+              optional: { computer_use: false },
               officialPlugins: [additionalPlugin],
             },
             {
@@ -761,7 +794,7 @@ describe("command install and upgrade review flow", () => {
       const { codexHome } = await seedInstall(
         root,
         {
-          optional: { frontend: false, security: false, computer_use: false },
+          optional: { computer_use: false },
           officialPlugins: [additionalPlugin],
         },
         manager,
@@ -801,7 +834,7 @@ describe("command install and upgrade review flow", () => {
       );
       await installHolyCodex(
         {
-          optional: { frontend: false, security: false, computer_use: false },
+          optional: { computer_use: false },
           officialPlugins: [additionalPlugin],
         },
         installerOptions(codexHome, manager),
@@ -834,21 +867,27 @@ describe("command install and upgrade review flow", () => {
     }
   }, 30_000);
 
-  test("removes deselected owned plugins while preserving foreign plugin state", async () => {
+  test("removes deselected optional providers while preserving required and foreign plugins", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-deselect-"));
     const codexHome = join(root, "codex");
     const paths = resolveInstallerPaths({ paths: { codexHome } });
     const foreignPlugin = "foreign-plugin@openai-curated";
+    let configAtBrowserRemoval: string | undefined;
     const manager = fakeManager({
       initial: {
         [additionalPlugin]: "available",
         [foreignPlugin]: "installed",
       },
+      onRemove: async (pluginId) => {
+        if (pluginId === "browser@openai-bundled") {
+          configAtBrowserRemoval = await readFile(paths.configFile, "utf8");
+        }
+      },
     });
     try {
       const initial = await installHolyCodex(
         {
-          optional: { computer_use: false, frontend: true, security: false },
+          optional: { computer_use: false },
           officialPlugins: [additionalPlugin],
         },
         installerOptions(codexHome, manager),
@@ -861,6 +900,8 @@ describe("command install and upgrade review flow", () => {
           additionalPlugin,
         ]),
       );
+      const initialConfig = parseConfig(await readFile(paths.configFile, "utf8"));
+      const initialAgentRef = readTomlPath(initialConfig, 'agents."Explorer.map".config_file');
       await writeFile(
         paths.configFile,
         `${await readFile(paths.configFile, "utf8")}\n[plugins."${foreignPlugin}"]\nenabled = false\nsource = "external"\n`,
@@ -868,15 +909,21 @@ describe("command install and upgrade review flow", () => {
 
       const reconciled = await installHolyCodex(
         {
-          optional: { computer_use: false, frontend: false, security: false },
+          optional: { browser_use: false, computer_use: false, sites: false },
           officialPlugins: [],
         },
         installerOptions(codexHome, manager),
         fakeEnvironment,
       );
 
-      expect(reconciled.record.official_plugins).toEqual([]);
-      expect(reconciled.record.owned_plugins).toEqual(["holycodex@holycodex"]);
+      expect(reconciled.record.official_plugins).not.toContain(additionalPlugin);
+      expect(reconciled.record.owned_plugins).toEqual(
+        expect.arrayContaining([
+          "holycodex@holycodex",
+          "build-web-apps@openai-curated",
+          "codex-security@openai-curated",
+        ]),
+      );
       expect(await manager.list!()).toMatchObject({
         installed: expect.arrayContaining([
           expect.objectContaining({
@@ -892,8 +939,19 @@ describe("command install and upgrade review flow", () => {
         ]),
       });
       expect((await manager.list!()).installed.map((entry) => entry.pluginId)).not.toContain(
-        "build-web-apps@openai-curated",
+        "browser@openai-bundled",
       );
+      expect((await manager.list!()).installed.map((entry) => entry.pluginId)).not.toContain(
+        "sites@openai-bundled",
+      );
+      expect(configAtBrowserRemoval).toBeDefined();
+      const publishedConfig = parseConfig(configAtBrowserRemoval);
+      const publishedAgentRef = readTomlPath(publishedConfig, 'agents."Explorer.map".config_file');
+      expect(publishedAgentRef).not.toBe(initialAgentRef);
+      expect(typeof publishedAgentRef).toBe("string");
+      await expect(
+        readFile(join(codexHome, publishedAgentRef as string), "utf8"),
+      ).resolves.toBeTruthy();
       expect((await manager.list!()).installed.map((entry) => entry.pluginId)).not.toContain(
         additionalPlugin,
       );
@@ -978,7 +1036,7 @@ describe("command install and upgrade review flow", () => {
         await futureInstaller.installHolyCodex(
           {
             profile: "low",
-            optional: { frontend: false, security: false, computer_use: false },
+            optional: { computer_use: false },
           },
           installerOptions(routeCodexHome, manager),
           fakeEnvironment,
@@ -988,7 +1046,7 @@ describe("command install and upgrade review flow", () => {
         await futureInstaller.installHolyCodex(
           {
             profile: "high",
-            optional: { frontend: false, security: false, computer_use: false },
+            optional: { computer_use: false },
           },
           {
             ...installerOptions(routeCodexHome, manager),
@@ -1050,7 +1108,7 @@ describe("command install and upgrade review flow", () => {
         {
           profile: "high",
           tier: "fast",
-          optional: { frontend: false, security: false, computer_use: false },
+          optional: { browser_use: true, computer_use: false, sites: true },
           officialPlugins: [additionalPlugin],
         },
         manager,
@@ -1076,7 +1134,7 @@ describe("command install and upgrade review flow", () => {
       expect(reviewRequest).toEqual({
         profile: "high",
         tier: "fast",
-        optional: { frontend: false, security: false, computer_use: false },
+        optional: { browser_use: true, computer_use: false, sites: true },
         officialPlugins: [additionalPlugin],
       });
     } finally {
@@ -1101,29 +1159,27 @@ describe("command install and upgrade review flow", () => {
       },
     });
     try {
-      await seedInstall(
-        root,
-        { optional: { frontend: false, security: false, computer_use: false } },
-        manager,
-      );
+      await seedInstall(root, { optional: { computer_use: false } }, manager);
       await makeLegacy(codexHome);
       await writeFile(
         paths.configFile,
         (await readFile(paths.configFile, "utf8"))
           .replace('model = "gpt-6-sol"', 'model = "gpt-5.6-terra"')
-          .replace("context_management = true", 'context_management = false\nunrelated = "keep"'),
+          .replace("experimental_mode = true", 'experimental_mode = false\nunrelated = "keep"'),
       );
       rewriteOnAdd = true;
 
       await installHolyCodex(
-        { optional: { frontend: false, security: false, computer_use: false } },
+        { optional: { computer_use: false } },
         {
           ...installerOptions(codexHome, manager),
           resolveConflicts: async (conflicts) =>
             Object.fromEntries(
               conflicts.map((conflict) => [
                 conflict.identity!,
-                conflict.key === "features.context_management" ? "replace" : "keep",
+                conflict.key === "features.context_management.experimental_mode"
+                  ? "replace"
+                  : "keep",
               ]),
             ),
           reviewInstall: async () => ({ action: "apply" }),
@@ -1133,12 +1189,12 @@ describe("command install and upgrade review flow", () => {
 
       const finalConfig = await readFile(paths.configFile, "utf8");
       expect(finalConfig).toContain('model = "gpt-5.6-terra"');
-      expect(finalConfig).toContain("context_management = true");
+      expect(finalConfig).toContain("experimental_mode = true");
       expect(finalConfig).toContain('unrelated = "keep"');
 
       await manager.remove?.("holycodex@holycodex");
       await installHolyCodex(
-        { optional: { frontend: false, security: false, computer_use: false } },
+        { optional: { computer_use: false } },
         {
           ...installerOptions(codexHome, manager),
           reviewInstall: async () => ({ action: "apply" }),
@@ -1147,7 +1203,7 @@ describe("command install and upgrade review flow", () => {
       );
       const reinstalledConfig = await readFile(paths.configFile, "utf8");
       expect(reinstalledConfig).toContain('model = "gpt-5.6-terra"');
-      expect(reinstalledConfig).toContain("context_management = true");
+      expect(reinstalledConfig).toContain("experimental_mode = true");
       expect(reinstalledConfig).toContain('unrelated = "keep"');
       expect(
         (
@@ -1161,7 +1217,7 @@ describe("command install and upgrade review flow", () => {
 
       await writeFile(paths.configFile, reinstalledConfig.replace('model = "gpt-5.6-terra"\n', ""));
       await installHolyCodex(
-        { optional: { frontend: false, security: false, computer_use: false } },
+        { optional: { computer_use: false } },
         {
           ...installerOptions(codexHome, manager),
           resolveConflicts: async (conflicts) =>
@@ -1195,7 +1251,7 @@ describe("command install and upgrade review flow", () => {
         {
           profile: "high",
           tier: "fast",
-          optional: { frontend: false, security: false, computer_use: false },
+          optional: { computer_use: false },
           officialPlugins: [additionalPlugin],
         },
         manager,
@@ -1204,7 +1260,7 @@ describe("command install and upgrade review flow", () => {
       const selected: InstallRequest = {
         profile: "low",
         tier: "standard",
-        optional: { frontend: true, security: false, computer_use: false },
+        optional: { browser_use: true, computer_use: false, sites: true },
         officialPlugins: [additionalPlugin],
       };
       let reviewRequest: InstallRequest | undefined;
@@ -1246,7 +1302,7 @@ describe("command install and upgrade review flow", () => {
           "high",
           "--tier",
           "fast",
-          "--no-frontend",
+          "--no-sites",
           "--add-plugin",
           additionalPlugin,
           "--codex-home",
@@ -1265,7 +1321,7 @@ describe("command install and upgrade review flow", () => {
                   request: {
                     profile: "low",
                     tier: "standard",
-                    optional: { frontend: true, security: false, computer_use: false },
+                    optional: { browser_use: true, computer_use: false, sites: false },
                     officialPlugins: [additionalPlugin],
                   },
                 };
@@ -1282,13 +1338,13 @@ describe("command install and upgrade review flow", () => {
         {
           profile: "high",
           tier: "fast",
-          optional: { frontend: false },
+          optional: { sites: false },
           officialPlugins: [additionalPlugin],
         },
         {
           profile: "high",
           tier: "fast",
-          optional: { frontend: false, security: true, computer_use: false },
+          optional: { browser_use: true, computer_use: false, sites: false },
           officialPlugins: [additionalPlugin],
         },
       ]);

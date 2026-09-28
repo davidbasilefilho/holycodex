@@ -22,8 +22,8 @@ import type {
 const PROFILE_NAMES: readonly ProfileName[] = ["low", "default", "high"];
 const SERVICE_TIERS: readonly ServiceTier[] = ["standard", "fast", "fast-all"];
 const CAPABILITY_NAMES: readonly OptionalCapabilityName[] = [
-  "frontend",
-  "security",
+  "sites",
+  "browser_use",
   "computer_use",
 ];
 
@@ -536,7 +536,7 @@ function installReviewDecisionCounts(
 
 function installReviewToolLine(tool: InstallReviewTool, color: boolean): string {
   const context7 = tool.name.toLowerCase() === "context7";
-  const status = context7 ? "Install/update managed Bun copy" : tool.status;
+  const status = context7 ? context7ReviewStatus(tool.status) : tool.status;
   const tone = tool.status === "ready" || tool.status === "healthy" ? "success" : "warning";
   const detail = context7 || tool.detail === undefined ? "" : ` (${tool.detail})`;
   return `  ${tool.name}: ${paintTerminal(status, tone, color)}${detail}`;
@@ -791,9 +791,9 @@ export function stateFromRequest(request: InstallRequest): WizardState {
     profile: request.profile ?? "default",
     tier: request.tier ?? "standard",
     optional: {
+      browser_use: optional.browser_use ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.browser_use,
       computer_use: optional.computer_use ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.computer_use,
-      frontend: optional.frontend ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.frontend,
-      security: optional.security ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.security,
+      sites: optional.sites ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.sites,
     },
     plugins: [...(request.officialPlugins ?? [])],
     pluginInput: (request.officialPlugins ?? []).join(" "),
@@ -1108,7 +1108,7 @@ function nativeInstallReviewContent(
 
 function nativeInstallReviewToolLine(tool: InstallReviewTool): NativeLine {
   const context7 = tool.name.toLowerCase() === "context7";
-  const status = context7 ? "Install/update managed Bun copy" : tool.status;
+  const status = context7 ? context7ReviewStatus(tool.status) : tool.status;
   const tone = tool.status === "ready" || tool.status === "healthy" ? "success" : "warning";
   const detail = context7 || tool.detail === undefined ? "" : ` (${tool.detail})`;
   return nativeLine(
@@ -1118,14 +1118,18 @@ function nativeInstallReviewToolLine(tool: InstallReviewTool): NativeLine {
   );
 }
 
+function context7ReviewStatus(status: InstallReviewTool["status"]): string {
+  return status === "ready" ? "Use available ctx7" : "Attempt optional managed ctx7 install";
+}
+
 function capabilityDescription(name: OptionalCapabilityName): string {
   switch (name) {
-    case "frontend":
-      return "Frontend tools for building and testing web experiences.";
-    case "security":
-      return "Security review and vulnerability analysis tools.";
+    case "sites":
+      return "ChatGPT Sites may depend on your account, region, workspace policy, or supported Codex surface.";
+    case "browser_use":
+      return "Browser Use depends on the Codex surface and runtime; it may be unavailable where unsupported.";
     case "computer_use":
-      return "Computer Use tools for interactive GUI and browser tasks.";
+      return "Computer Use has stronger platform and surface restrictions and can take external actions.";
   }
 }
 
@@ -1144,7 +1148,14 @@ function wrapWizardLine(line: string, width = 76): string[] {
 }
 
 function capabilityLabel(name: OptionalCapabilityName): string {
-  return name === "computer_use" ? "Computer Use" : `${name[0]!.toUpperCase()}${name.slice(1)}`;
+  switch (name) {
+    case "sites":
+      return "ChatGPT Sites";
+    case "browser_use":
+      return "Browser Use";
+    case "computer_use":
+      return "Computer Use";
+  }
 }
 
 function enabled(value: boolean): string {

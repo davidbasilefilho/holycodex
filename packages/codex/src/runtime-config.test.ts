@@ -12,6 +12,7 @@ import {
   normalizeRelativeConfigPath,
   readTomlPath,
   resolveAgentConfigPath,
+  summarizeManagedConfigValue,
   writeTomlPath,
 } from "./runtime-config";
 
@@ -29,7 +30,7 @@ describe("typed runtime configuration", () => {
       createManagedRuntimeConfigState(metadata),
       {
         model: "gpt-6-luna",
-        "features.default_mode_request_user_input": true,
+        "features.context_management.experimental_mode": true,
       },
       metadata,
     );
@@ -37,17 +38,15 @@ describe("typed runtime configuration", () => {
     expect(merged.document).toEqual({
       model: "gpt-6-luna",
       unrelated: "preserve",
-      features: { unrelated_feature: true, default_mode_request_user_input: true },
+      features: { unrelated_feature: true, context_management: { experimental_mode: true } },
     });
     expect(merged.state.managed["model"]?.originalValue).toEqual({
       kind: "enum",
       value: "gpt-6-sol",
     });
-    expect(merged.state.managed["features.default_mode_request_user_input"]?.originalValue).toEqual(
-      {
-        kind: "absent",
-      },
-    );
+    expect(
+      merged.state.managed["features.context_management.experimental_mode"]?.originalValue,
+    ).toEqual({ kind: "absent" });
   });
 
   test("reports per-key drift and preserves the changed value", async () => {
@@ -164,19 +163,43 @@ describe("typed runtime configuration", () => {
     });
   });
 
-  test("manages scalar context management without changing unrelated feature settings", async () => {
-    const keyPath = "features.context_management" as const;
-    const merged = await mergeManagedRuntimeConfig(
-      { features: { context_management: false, unrelated: "keep" } },
-      createManagedRuntimeConfigState(metadata),
-      { [keyPath]: true },
+  test("does not expose obsolete Codex feature flags as new managed settings", () => {
+    expect(isManagedConfigKeyPath("features.agent_message_board")).toBe(false);
+    expect(isManagedConfigKeyPath("features.multi_agent_v2")).toBe(false);
+    expect(isManagedConfigKeyPath("features.thread_tools")).toBe(false);
+  });
+
+  test("restores an obsolete managed flag only while its installed value is unchanged", async () => {
+    const keyPath = "features.agent_message_board" as const;
+    const lastManagedValue = await summarizeManagedConfigValue(keyPath, false);
+    const state = {
+      ...createManagedRuntimeConfigState(metadata),
+      managed: {
+        [keyPath]: {
+          owner: "holycodex",
+          schema: metadata.schema,
+          installId: metadata.installId,
+          keyPath,
+          originalValue: { kind: "boolean", value: true },
+          lastManagedValue,
+        },
+      },
+    } as const;
+    const cleaned = await cleanupManagedRuntimeConfig(
+      { features: { agent_message_board: false, unrelated: true } },
+      state,
       metadata,
     );
-    expect(readTomlPath(merged.document, keyPath)).toBe(true);
-    expect(readTomlPath(merged.document, "features.unrelated")).toBe("keep");
-    const cleaned = await cleanupManagedRuntimeConfig(merged.document, merged.state, metadata);
-    expect(readTomlPath(cleaned.document, keyPath)).toBe(false);
-    expect(readTomlPath(cleaned.document, "features.unrelated")).toBe("keep");
+    expect(readTomlPath(cleaned.document, keyPath)).toBe(true);
+    expect(readTomlPath(cleaned.document, "features.unrelated")).toBe(true);
+
+    const edited = await cleanupManagedRuntimeConfig(
+      { features: { agent_message_board: true, unrelated: true } },
+      state,
+      metadata,
+    );
+    expect(readTomlPath(edited.document, keyPath)).toBe(true);
+    expect(edited.preservedKeys).toEqual([keyPath]);
   });
 
   test("restores the prior context setting on removal and preserves user drift", async () => {
@@ -271,33 +294,19 @@ describe("typed runtime configuration", () => {
     });
   });
 
-  test("manages Root V1 dispatch while disabling message board and V2", async () => {
+  test("manages Root multi-agent dispatch without obsolete feature flags", async () => {
     const v1 = "features.multi_agent" as const;
-    const messageBoard = "features.agent_message_board" as const;
-    const v2 = "features.multi_agent_v2" as const;
     expect(isManagedConfigKeyPath(v1)).toBe(true);
-    expect(isManagedConfigKeyPath(messageBoard)).toBe(true);
-    expect(isManagedConfigKeyPath(v2)).toBe(true);
     const merged = await mergeManagedRuntimeConfig(
       {},
       createManagedRuntimeConfigState(metadata),
-      { [v1]: true, [messageBoard]: false, [v2]: false },
+      { [v1]: true },
       metadata,
     );
     expect(readTomlPath(merged.document, v1)).toBe(true);
-    expect(readTomlPath(merged.document, messageBoard)).toBe(false);
-    expect(readTomlPath(merged.document, v2)).toBe(false);
     expect(merged.state.managed[v1]?.lastManagedValue).toEqual({
       kind: "boolean",
       value: true,
-    });
-    expect(merged.state.managed[messageBoard]?.lastManagedValue).toEqual({
-      kind: "boolean",
-      value: false,
-    });
-    expect(merged.state.managed[v2]?.lastManagedValue).toEqual({
-      kind: "boolean",
-      value: false,
     });
   });
 

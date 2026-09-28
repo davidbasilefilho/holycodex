@@ -226,7 +226,7 @@ test("rolls back all effects after active-record post-rename sync failure", asyn
     };
     const runtime = testRuntime(codexHome);
     await installer.installHolyCodex(
-      { optional: { computer_use: false, frontend: false, security: false } },
+      { optional: { browser_use: false, computer_use: false, sites: false } },
       { paths: { codexHome }, officialPluginManager: manager, runtime },
     );
     const activeBefore = await realReadFile(paths.activeRecord, "utf8");
@@ -242,7 +242,7 @@ test("rolls back all effects after active-record post-rename sync failure", asyn
         {
           profile: "high",
           tier: "fast-all",
-          optional: { computer_use: false, frontend: false, security: false },
+          optional: { browser_use: false, computer_use: false, sites: false },
         },
         { paths: { codexHome }, officialPluginManager: manager, runtime },
       );

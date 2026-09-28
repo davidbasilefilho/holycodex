@@ -25,14 +25,20 @@ temporary routing model ID. Historical values are migration-only.
 Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; native specialist route files use `gpt-6-luna`. Routing identity remains separate from
 instruction behavior.
 
-Frontend and Security are selected by default; Computer Use is
-opt-in. Selected capabilities must install and verify or installation fails.
+Frontend and Security are required. ChatGPT Sites and Browser Use are optional
+and default on; Computer Use is optional and default off. Each selected
+capability must be supported and verified or installation fails explicitly.
+Sites availability may depend on account, region, workspace policy, or Codex
+surface; Browser Use depends on Codex surface/runtime; Computer Use has
+stronger platform/surface restrictions and greater external-action capability.
 The interactive installer accepts additional plugin IDs separated by whitespace;
 the repeatable `--add-plugin <id>` option remains available for scripts.
 Reinstalling with the current package reconciles a previous installation.
 Use `--json` for one validated machine-readable envelope. Human output reports
 the version, profile, tier, selected capabilities, and actionable warnings without
-printing the internal installation record.
+printing the internal installation record. Browser Use and Computer Use are
+specialist capabilities: Root delegates authorized execution and accepts the
+specialist's terminal evidence.
 
 The development entry point is:
 

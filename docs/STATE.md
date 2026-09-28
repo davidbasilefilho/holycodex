@@ -27,11 +27,27 @@ only normal mutation interface; it validates TOON with Effect Schema, writes
 atomically, archives plans before revision, guards lifecycle and revisions,
 and provides deterministic current-Intent discovery/resume.
 
+Assignment ownership persists the canonical `Role.task`, but invocation history
+does not pin the profile, service tier, model, or effort used for a prior run.
+On resume, Root derives specialist routes from the active installation profile
+and tier, verifies the registered leaf, and stops if the effective route cannot
+be verified or refreshed.
+
 The current lifecycle is `scoping → ready → executing → verifying → reviewing
 → complete`, with explicit `blocked`, `needs_root_input`, and `abandoned`
 paths. Completion is predicate-checked and cannot bypass unresolved
 Assignments, blockers, proof, review, acceptance, or Root readiness. A handoff
 is only a redacted projection of current Intent state.
+
+`holycodex-agent state diagnose --intent <ref>` checks the referenced Intent,
+its active Plan and Assignments, and the repository baseline for missing
+`assignment-*` references, invalid Assignment relationships, unresolved work,
+missing completion evidence, and repository drift. It returns deterministic
+issue codes and repair guidance. The command does not acquire locks, recover
+transactions, or change persisted records; a pending transaction is reported
+so Root can recover it before relying on the findings. Legacy Intent data is
+validated through an in-memory current-schema projection and remains unchanged.
+Root uses diagnosis when state cannot otherwise be resumed safely.
 
 ## Store layout and schema epoch
 
@@ -88,8 +104,6 @@ is copied to `profile` without changing its meaning. `plus-low`, `plus`, and
 `plus-high` migrate to `low`, `default`, and `high`; legacy `go` and removed
 Pro values are recognized explicitly and require an operator-selected
 replacement. No historical value is silently mapped to `low`. HolyCodex
-manages the canonical scalar `features.context_management` as a required Root
-setting and writes `true` because Codex does not enable it by default. The
-package migration converts owned historical `.experimental_mode` state to that scalar key.
-Removal restores the recorded prior value when unchanged and preserves user
-drift.
+manages `features.context_management.experimental_mode = true` for Root and
+generated leaves. Removal restores the recorded prior value when unchanged and
+preserves user drift.

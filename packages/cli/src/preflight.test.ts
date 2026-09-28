@@ -10,6 +10,7 @@ import type { TomlDocument, TomlValue } from "@holycodex/codex";
 
 import {
   doctorHolyCodex,
+  installRecordDigest,
   installHolyCodex,
   readActiveInstallRecord,
   removeHolyCodex,
@@ -115,6 +116,14 @@ function testManager(events: string[] = []): OfficialPluginManager {
 
 type TestPaths = ReturnType<typeof resolveInstallerPaths>;
 
+async function managedRolePath(codexHome: string, name: string): Promise<string> {
+  const paths = resolveInstallerPaths({ paths: { codexHome } });
+  const record = await readActiveInstallRecord(paths);
+  const artifact = record?.managed_artifacts.find((entry) => entry.path.endsWith(`/${name}.toml`));
+  if (artifact === undefined) throw new Error(`Missing managed role artifact: ${name}`);
+  return join(codexHome, artifact.path);
+}
+
 function readTestTomlTable(value: TomlValue | undefined): TomlDocument {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
   return value as TomlDocument;
@@ -198,7 +207,7 @@ function configWritingManager(
 }
 
 const request: InstallRequest = {
-  optional: { frontend: false, security: false },
+  optional: {},
 };
 
 async function installBaseline(codexHome: string, events: string[] = []) {
@@ -318,6 +327,93 @@ describe("installer preflight", () => {
     }
   });
 
+  test("recovers a preparing journal written with the prior install schema", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-legacy-journal-"));
+    const codexHome = join(root, "codex");
+    try {
+      const { manager, runtime, result } = await installBaseline(codexHome);
+      const paths = resolveInstallerPaths({ paths: { codexHome } });
+      const legacySelections = {
+        computer_use: result.record.optional_selections.computer_use,
+        frontend: true,
+        security: true,
+        coding: true as const,
+        work: false,
+      };
+      const legacyExplicit = {
+        frontend: false,
+        security: false,
+        work: false,
+      };
+      const legacyRecord = {
+        ...result.record,
+        optional_selections: legacySelections,
+        explicit_optional_selections: legacyExplicit,
+        capability_state: {
+          computer_use: result.record.capability_state!.computer_use,
+          frontend: result.record.capability_state!.frontend,
+          security: result.record.capability_state!.security,
+          work: {
+            selected: false,
+            status: "disabled" as const,
+            plugin_ids: [],
+          },
+        },
+      };
+      legacyRecord.digest = await installRecordDigest({
+        owner: legacyRecord.owner,
+        install_id: legacyRecord.install_id,
+        version: legacyRecord.version,
+        profile: legacyRecord.profile,
+        tier: legacyRecord.tier,
+        optional_selections: legacyRecord.optional_selections,
+        explicit_optional_selections: legacyRecord.explicit_optional_selections,
+        official_plugins: legacyRecord.official_plugins ?? [],
+        capability_state: legacyRecord.capability_state,
+        managed_artifacts: legacyRecord.managed_artifacts,
+        managed_config: legacyRecord.managed_config,
+        plugin_config: legacyRecord.plugin_config,
+        provider_config: legacyRecord.provider_config,
+        plugin_snapshot: legacyRecord.plugin_snapshot,
+        owned_plugins: legacyRecord.owned_plugins,
+        tooling: legacyRecord.tooling,
+      });
+      await writeFile(paths.activeRecord, `${JSON.stringify(legacyRecord)}\n`);
+      const journal = {
+        ...legacyRecord,
+        status: "preparing" as const,
+        step: "plugins_installed" as const,
+      };
+      const configBefore = await readFile(paths.configFile, "utf8");
+      for (const stale of [
+        { ...journal, digest: "f".repeat(64) },
+        { ...journal, install_id: "different-install" },
+      ]) {
+        await writeFile(paths.preparingRecord, `${JSON.stringify(stale)}\n`);
+        await expect(
+          installHolyCodex(request, {
+            paths: { codexHome },
+            officialPluginManager: manager,
+            runtime,
+          }),
+        ).rejects.toMatchObject({ code: "state_corrupt" });
+        expect(await readFile(paths.configFile, "utf8")).toBe(configBefore);
+      }
+      await writeFile(paths.preparingRecord, `${JSON.stringify(journal)}\n`);
+
+      const removal = await removeHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+      });
+      expect(removal.reasons).toEqual([]);
+      expect(await readFile(paths.activeRecord).catch(() => undefined)).toBeUndefined();
+      expect(await readFile(paths.preparingRecord).catch(() => undefined)).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("does not mutate managed state before final review approval", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-review-"));
     const codexHome = join(root, "codex");
@@ -340,7 +436,9 @@ describe("installer preflight", () => {
       expect(review?.conflicts).toEqual([]);
       expect(review?.conflictCounts).toEqual({});
       expect(review?.tools).toEqual(
-        expect.arrayContaining([expect.objectContaining({ name: "context7", status: "ready" })]),
+        expect.arrayContaining([
+          expect.objectContaining({ name: "context7", status: "unavailable" }),
+        ]),
       );
       expect(events).toEqual([]);
       await expect(
@@ -385,7 +483,7 @@ describe("installer preflight", () => {
     }
   });
 
-  test("surfaces multiple config and role conflicts with independent decisions", async () => {
+  test("fails closed after independent config and registered-role conflict decisions", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-conflicts-"));
     const codexHome = join(root, "codex");
     try {
@@ -395,16 +493,19 @@ describe("installer preflight", () => {
         paths.configFile,
         (await readFile(paths.configFile, "utf8"))
           .replace('model = "gpt-6-sol"', 'model = "gpt-5.6-terra"')
-          .replace("context_management = true", "context_management = false"),
+          .replace("experimental_mode = true", "experimental_mode = false"),
       );
-      const rolePath = join(paths.roleRoot, "Worker.implementation.toml");
-      const userRole = "user role edit\n";
+      const rolePath = await managedRolePath(codexHome, "Worker.implementation");
+      const userRole = (await readFile(rolePath, "utf8")).replace(
+        'model_reasoning_summary = "none"',
+        'model_reasoning_summary = "detailed"',
+      );
       await writeFile(rolePath, userRole);
       let review: InstallReview | undefined;
 
-      const result = await installHolyCodex(
-        { tier: "fast-all", ...request },
-        {
+      const conflictedConfig = await readFile(paths.configFile, "utf8");
+      await expect(
+        installHolyCodex(request, {
           paths: { codexHome },
           officialPluginManager: manager,
           runtime,
@@ -414,21 +515,24 @@ describe("installer preflight", () => {
             review = value;
             return { action: "apply" };
           },
-        },
-      );
+        }),
+      ).rejects.toMatchObject({
+        code: "install_failed",
+        message: expect.stringContaining(
+          "role file was kept after a conflict and cannot be activated",
+        ),
+      });
 
       expect(review?.conflictCounts["config-key"]).toBeGreaterThanOrEqual(2);
       expect(review?.conflictCounts["role-asset"]).toBeGreaterThanOrEqual(1);
-      expect(await readFile(paths.configFile, "utf8")).toContain('model = "gpt-5.6-terra"');
-      expect(await readFile(paths.configFile, "utf8")).toContain("context_management = true");
+      expect(await readFile(paths.configFile, "utf8")).toBe(conflictedConfig);
       expect(await readFile(rolePath, "utf8")).toBe(userRole);
-      expect(result.preserved).toContain(rolePath);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);
 
-  test("resolves managed config and role conflicts in one batch without pre-review mutation", async () => {
+  test("fails closed for a kept role after batch conflict review without pre-review mutation", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-batch-conflicts-"));
     const codexHome = join(root, "codex");
     const events: string[] = [];
@@ -444,18 +548,20 @@ describe("installer preflight", () => {
         paths.configFile,
         (await readFile(paths.configFile, "utf8"))
           .replace('model = "gpt-6-sol"', 'model = "gpt-5.6-terra"')
-          .replace("context_management = true", 'context_management = false\nunrelated = "keep"'),
+          .replace("experimental_mode = true", 'experimental_mode = false\nunrelated = "keep"'),
       );
-      const rolePath = join(paths.roleRoot, "Worker.implementation.toml");
-      const userRole = "batch user role edit\n";
+      const rolePath = await managedRolePath(codexHome, "Worker.implementation");
+      const userRole = (await readFile(rolePath, "utf8")).replace(
+        'model_reasoning_summary = "none"',
+        'model_reasoning_summary = "detailed"',
+      );
       await writeFile(rolePath, userRole);
       const preflightConfig = await readFile(paths.configFile, "utf8");
       const preflightRole = await readFile(rolePath, "utf8");
       events.length = 0;
 
-      const result = await installHolyCodex(
-        { tier: "fast-all", ...request },
-        {
+      await expect(
+        installHolyCodex(request, {
           paths: { codexHome },
           officialPluginManager: manager,
           runtime,
@@ -478,8 +584,13 @@ describe("installer preflight", () => {
             expect(events).toEqual([]);
             return { action: "apply" };
           },
-        },
-      );
+        }),
+      ).rejects.toMatchObject({
+        code: "install_failed",
+        message: expect.stringContaining(
+          "role file was kept after a conflict and cannot be activated",
+        ),
+      });
 
       expect(batchConflicts).toHaveLength(1);
       expect(batchConflicts[0]?.some((conflict) => conflict.category === "role-asset")).toBe(true);
@@ -491,7 +602,8 @@ describe("installer preflight", () => {
       expect(
         batchConflicts[0]?.some(
           (conflict) =>
-            conflict.category === "config-key" && conflict.key === "features.context_management",
+            conflict.category === "config-key" &&
+            conflict.key === "features.context_management.experimental_mode",
         ),
       ).toBe(true);
       expect(callbackConfigs).toEqual([preflightConfig]);
@@ -500,12 +612,8 @@ describe("installer preflight", () => {
       expect(reviews).toHaveLength(1);
       expect(reviews[0]?.conflictCounts["config-key"]).toBeGreaterThanOrEqual(2);
       expect(reviews[0]?.conflictCounts["role-asset"]).toBeGreaterThanOrEqual(1);
-      const finalConfig = await readFile(paths.configFile, "utf8");
-      expect(finalConfig).toContain('model = "gpt-6-sol"');
-      expect(finalConfig).toContain("context_management = false");
-      expect(finalConfig).toContain('unrelated = "keep"');
-      expect(await readFile(rolePath, "utf8")).toBe(userRole);
-      expect(result.preserved).toContain(rolePath);
+      expect(await readFile(paths.configFile, "utf8")).toBe(preflightConfig);
+      expect(await readFile(rolePath, "utf8")).toBe(preflightRole);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -532,7 +640,7 @@ describe("installer preflight", () => {
       rewriteOnAdd = true;
       await manager.remove?.("holycodex@holycodex");
       await writeTestConfigValue(paths, "model", "gpt-5.6-terra");
-      await writeTestConfigValue(paths, "features.context_management", false);
+      await writeTestConfigValue(paths, "features.context_management.experimental_mode", false);
       await writeTestConfigValue(paths, "unrelated", "keep");
 
       await installHolyCodex(request, {
@@ -543,7 +651,7 @@ describe("installer preflight", () => {
           Object.fromEntries(
             conflicts.map((conflict) => [
               conflict.identity!,
-              conflict.key === "features.context_management" ? "replace" : "keep",
+              conflict.key === "features.context_management.experimental_mode" ? "replace" : "keep",
             ]),
           ),
         reviewInstall: async () => ({ action: "apply" }),
@@ -551,28 +659,31 @@ describe("installer preflight", () => {
 
       const finalConfig = await readFile(paths.configFile, "utf8");
       expect(finalConfig).toContain('model = "gpt-5.6-terra"');
-      expect(finalConfig).toContain("context_management = true");
+      expect(finalConfig).toContain("experimental_mode = true");
       expect(finalConfig).toContain('unrelated = "keep"');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);
 
-  test("reopens conflict resolution before returning to final review and apply", async () => {
+  test("fails closed when reopened conflict resolution keeps a registered role", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-resolve-"));
     const codexHome = join(root, "codex");
     try {
       const { manager, runtime } = await installBaseline(codexHome);
       const paths = resolveInstallerPaths({ paths: { codexHome } });
-      const rolePath = join(paths.roleRoot, "Worker.implementation.toml");
-      const userRole = "reopened user role\n";
+      const rolePath = await managedRolePath(codexHome, "Worker.implementation");
+      const userRole = (await readFile(rolePath, "utf8")).replace(
+        'model_reasoning_summary = "none"',
+        'model_reasoning_summary = "detailed"',
+      );
       await writeFile(rolePath, userRole);
       const reviews: InstallReview[] = [];
       let reviewCalls = 0;
 
-      const result = await installHolyCodex(
-        { tier: "fast-all", ...request },
-        {
+      const preflightRole = await readFile(rolePath, "utf8");
+      await expect(
+        installHolyCodex(request, {
           paths: { codexHome },
           officialPluginManager: manager,
           runtime,
@@ -582,14 +693,18 @@ describe("installer preflight", () => {
             reviewCalls += 1;
             return reviewCalls === 1 ? { action: "resolve" } : { action: "apply" };
           },
-        },
-      );
+        }),
+      ).rejects.toMatchObject({
+        code: "install_failed",
+        message: expect.stringContaining(
+          "role file was kept after a conflict and cannot be activated",
+        ),
+      });
 
       expect(reviews).toHaveLength(2);
       expect(reviews[0]?.conflictCounts["role-asset"]).toBeGreaterThanOrEqual(1);
       expect(reviews[1]?.conflictCounts["role-asset"]).toBeGreaterThanOrEqual(1);
-      expect(await readFile(rolePath, "utf8")).toBe(userRole);
-      expect(result.preserved).toContain(rolePath);
+      expect(await readFile(rolePath, "utf8")).toBe(preflightRole);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -602,9 +717,19 @@ describe("installer preflight", () => {
     const events: string[] = [];
     try {
       const { manager, runtime, result: baseline } = await installBaseline(codexHome, events);
-      const rolePath = join(paths.roleRoot, "Worker.implementation.toml");
-      await writeFile(rolePath, "reviewed role edit\n");
-      const latestRole = "newer user role edit\n";
+      const rolePath = await managedRolePath(codexHome, "Worker.implementation");
+      const initialRole = await readFile(rolePath, "utf8");
+      await writeFile(
+        rolePath,
+        initialRole.replace(
+          'model_reasoning_summary = "none"',
+          'model_reasoning_summary = "detailed"',
+        ),
+      );
+      const latestRole = initialRole.replace(
+        'model_reasoning_summary = "none"',
+        'model_reasoning_summary = "concise"',
+      );
       const beforeAttemptEvents = [...events];
 
       await expect(
@@ -638,7 +763,7 @@ describe("installer preflight", () => {
     const paths = resolveInstallerPaths({ paths: { codexHome } });
     const events: string[] = [];
     const frontendRequest: InstallRequest = {
-      optional: { frontend: true, security: false },
+      optional: {},
     };
     try {
       const manager = configWritingManager(paths, events);
@@ -776,7 +901,7 @@ describe("installer preflight", () => {
     const manager = configWritingManager(paths, events, true);
     const runtime = testRuntime(codexHome);
     const frontendRequest: InstallRequest = {
-      optional: { frontend: true, security: false },
+      optional: {},
     };
     try {
       await expect(
@@ -838,7 +963,7 @@ describe("installer preflight", () => {
     });
     const runtime = testRuntime(codexHome);
     const frontendRequest: InstallRequest = {
-      optional: { frontend: true, security: false },
+      optional: {},
     };
     try {
       await expect(
@@ -870,7 +995,7 @@ describe("installer preflight", () => {
     }
   }, 30_000);
 
-  test("keeps a disabled removed plugin recoverable when rollback cannot restore its state", async () => {
+  test("keeps the active install intact when adding a replacement plugin fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-disabled-rollback-"));
     const codexHome = join(root, "codex");
     const paths = resolveInstallerPaths({ paths: { codexHome } });
@@ -899,7 +1024,7 @@ describe("installer preflight", () => {
     try {
       const initial = await installHolyCodex(
         {
-          optional: { computer_use: false, frontend: false, security: false },
+          optional: { computer_use: false },
           officialPlugins: [oldPlugin],
         },
         { paths: { codexHome }, officialPluginManager: manager, runtime },
@@ -910,34 +1035,21 @@ describe("installer preflight", () => {
       await expect(
         installHolyCodex(
           {
-            optional: { computer_use: false, frontend: false, security: false },
+            optional: { computer_use: false },
             officialPlugins: [replacementPlugin],
           },
           { paths: { codexHome }, officialPluginManager: manager, runtime },
         ),
-      ).rejects.toMatchObject({
-        code: "capability_denied",
-        details: { recovery: expect.any(String) },
-      });
+      ).rejects.toMatchObject({ code: "capability_denied" });
 
-      const conflicted = JSON.parse(await readFile(paths.conflictedRecord, "utf8")) as {
-        owned_plugins: string[];
-        plugin_snapshot: { plugin_id: string; status: string }[];
-      };
-      expect(conflicted.owned_plugins).toContain(oldPlugin);
-      expect(conflicted.plugin_snapshot).toContainEqual({
-        plugin_id: oldPlugin,
-        status: "disabled",
+      expect(await readActiveInstallRecord(paths)).toEqual(initial.record);
+      await expect(readFile(paths.conflictedRecord)).rejects.toThrow();
+      await expect(readFile(paths.preparingRecord)).rejects.toThrow();
+      await expect(manager.list?.()).resolves.toMatchObject({
+        installed: expect.arrayContaining([
+          expect.objectContaining({ pluginId: oldPlugin, installed: true, enabled: false }),
+        ]),
       });
-
-      const removal = await removeHolyCodex({
-        paths: { codexHome },
-        officialPluginManager: manager,
-        runtime,
-      });
-      expect(removal.reasons).toEqual([]);
-      expect(removal.removed).toContain(oldPlugin);
-      expect((await manager.list?.())?.installed).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1005,7 +1117,7 @@ describe("installer preflight", () => {
       const manager = configWritingManager(paths);
       const runtime = testRuntime(codexHome);
       const frontendRequest: InstallRequest = {
-        optional: { frontend: true, security: false },
+        optional: {},
       };
       try {
         await installHolyCodex(frontendRequest, {
@@ -1106,7 +1218,7 @@ describe("installer preflight", () => {
       const codexHome = join(root, "codex");
       const paths = resolveInstallerPaths({ paths: { codexHome } });
       const events: string[] = [];
-      const request: InstallRequest = { optional: { frontend: true, security: false } };
+      const request: InstallRequest = { optional: {} };
       try {
         const manager = configWritingManager(paths, events);
         const runtime = testRuntime(codexHome);

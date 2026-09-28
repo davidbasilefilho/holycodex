@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+
+name: Download release artifact
+description: Install the pinned toolchain and download the validated release tarball.
+inputs:
+  artifact_name:
+    required: true
+    description: Exact artifact uploaded by validation
+  source_sha:
+    required: true
+    description: Validated source SHA
+runs:
+  using: composite
+  steps:
+    - name: Activate mise and install the pinned toolchain
+      uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac
+      with:
+        install: true
+        cache: false
+
+    - name: Install the frozen workspace
+      shell: bash
+      run: mise exec -- bun install --frozen-lockfile
+
+    - name: Download the validated artifact
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: ${{ runner.temp }}/release
+
+    - name: Verify the publication checkout
+      shell: bash
+      env:
+        SOURCE_SHA: ${{ inputs.source_sha }}
+      run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"

@@ -77,12 +77,19 @@ bounded component scopes are canonical ownership boundaries. The lifecycle
 worker owns deterministic Intent, Plan, and Assignment API decisions; Root
 retains material decisions, integration, and completion.
 Root's managed configuration enables
-`multi_agent = true`, disables `multi_agent_v2`, and enables
-`context_management`; generated leaves set `agents.enabled = false`,
-`multi_agent = false`, `multi_agent_v2 = false`, and
-`context_management = true`. Generated configuration and readback tests prove
+`multi_agent = true`, disables `multi_agent_v2`, and sets
+`features.context_management.experimental_mode = true`; generated leaves set
+`agents.enabled = false`, `multi_agent = false`, and the same
+context-management key. Generated configuration and readback tests prove
 this V1 arrangement only; session metadata reports V2, so HolyCodex does not
 claim live V1 runtime proof or owned fork enforcement.
+
+When asked to continue existing work, Root recovers the current Intent, Plan,
+Assignments, results, and material decisions before resuming orchestration.
+For repository orientation requests, Root delegates bounded mapping and traces
+of important flows, then synthesizes the project's purpose, structure,
+conventions, and useful starting points. Orientation remains read-only unless
+the user requests a persistent document.
 
 Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; every native specialist route uses `gpt-6-luna` with the effort matrix below. These are
 routing identities; live skills and generated instructions target GPT-6-family
@@ -96,10 +103,11 @@ genuinely required, including a material scope or product choice or an
 externally consequential, destructive, or remote effect. Root MUST orchestrate
 and delegate every task, including trivial work, through a bounded Assignment
 and native specialist. Root never performs implementation, testing, review,
-research, or CI operations locally. The only direct Root execution exceptions
-are Git/VCS and Computer Use when `--computer-use` was selected at
-installation. Root still owns lifecycle, material decisions, integration
-acceptance, and completion.
+research, or CI operations locally. Git/VCS is Root-owned. Browser Use and
+Computer Use are specialist capabilities: when enabled and available, Root
+delegates their execution through the applicable concrete `Role.task` and
+accepts terminal evidence. Availability alone grants no authority. Root retains
+lifecycle, material decisions, integration acceptance, and completion.
 
 After integration, Root performs the approved VCS action, delegates
 exact-ref/SHA terminal development CI observation to `Worker.operations`, and
@@ -112,11 +120,11 @@ release gates, one pipeline, or no formal separation; do not assume GitHub or
 a branch topology. With one or no distinct release gate, record that topology
 and use only the repository's available terminal evidence.
 
-Root uses `request_user_input` before seeking workflow Plan approval, before
-installation profile approval, before any remote/origin/server VCS mutation or
-public publication/release, and whenever ambiguity or missing material input
-blocks safe progress; persist the resulting `needs_root_input` state on the
-Intent or Plan. A passing `Reviewer.code` fixed-point review is mandatory after
+Root obtains workflow Plan and installation profile approval when required.
+Before remote VCS mutation or public release, it checks authorization already
+given in the current request or session and asks only if authorization or
+material input is missing; unresolved input is persisted as `needs_root_input`
+on the Intent or Plan. A passing `Reviewer.code` fixed-point review is mandatory after
 implementation or a major codebase change and before completion or any VCS
 operation.
 
@@ -177,22 +185,24 @@ Coding and repository work use Bun, TypeScript, and the repository's typed
 boundaries. Effect Schema from `effect/Schema` validates every external,
 persisted, CLI, Codex, and specialist value before business logic sees it.
 
-Optional frontend, Security, and Computer Use plugins are independently
-selected. Selection does not claim availability or grant authority. Every
-selected capability and additional plugin must be installed and enabled by
-native plugin management. Official OpenAI curated identities are matched by
-an allowlist: at minimum, `build-web-apps@openai-curated` and
-`build-web-apps@openai-curated-remote`, and `codex-security@openai-curated` and
-`codex-security@openai-curated-remote`, are equivalent official identities.
-An arbitrary same-name plugin from another marketplace is not equivalent.
-Doctor reports the observed official identity. If verification cannot confirm
-the selected capability, installation fails with a classified denial or
-integrity error and does not claim success. The default selections are
-frontend and Security; Computer Use is disabled unless selected.
-GUI, browser, and Computer Use are Root/session-only. When Computer Use is
-selected, Root may execute it directly; otherwise it is unavailable and is
-never represented as delegateable work or a delegation fallback. No
-unapproved fallback is installed or used.
+Frontend and Security are required capabilities. ChatGPT Sites and Browser Use
+are optional and default on; Computer Use is optional and default off.
+Selection does not claim availability or grant authority. Every selected
+capability and additional plugin must be supported, installed, and enabled by
+native plugin management; unsupported or unavailable selections produce an
+explicit failure instead of a silent omission or substitute. Sites availability
+can depend on account, region, workspace policy, or supported Codex surface.
+Browser Use depends on the Codex surface/runtime. Computer Use has stronger
+platform and surface restrictions and greater external-action capability.
+Official OpenAI provider identities are matched by an allowlist:
+`openai-curated` and `openai-curated-remote` are recognized equivalents for
+build-web-apps and codex-security. Bundled Browser, Computer Use, and Sites
+providers use their canonical `openai-bundled` identities. An arbitrary
+same-name plugin from another marketplace is not equivalent. Doctor reports
+the observed official identity. Root delegates Browser Use and Computer Use
+execution to the applicable specialist route; if a selected provider or
+surface is unavailable, the capability fails explicitly. No substitute is
+silently installed or used.
 
 Frontend selection adds workflow behavior. The core capability registry maps a
 new visually-driven UI or meaningful redesign to
@@ -200,9 +210,10 @@ new visually-driven UI or meaningful redesign to
 `build-web-apps:frontend-testing-debugging`, and a relevant React or Next
 implementation or review to `build-web-apps:react-best-practices`. Repository
 stack, existing design system, and explicit user requirements govern over
-generic plugin defaults. Specialists inspect, implement, and repair. Root
-renders, opens, and interacts with the current result, delegates concrete
-discrepancies, and repeats until it accepts the requested result. Any source
+generic plugin defaults. Specialists inspect, implement, repair, and perform
+authorized interactive rendering through Browser Use or Computer Use. Root
+accepts their evidence, delegates concrete discrepancies, and repeats until it
+accepts the requested result. Any source
 change invalidates earlier render evidence. Logic-only changes do not require
 visual ceremony.
 
@@ -260,12 +271,10 @@ permission, an unavailable required capability, failed verification, or
 uncertain external state produces a structured failure and does not claim
 success.
 
-HolyCodex manages the canonical scalar `features.context_management` and sets
-it to `true` for Root and every generated leaf because Codex does not
-enable it by default. The package migration converts
-owned historical `features.context_management.experimental_mode` state to the
-scalar key, retaining unrelated settings only when the ownership evidence is
-safe. The normal managed-key ownership rules preserve user edits and restore
+HolyCodex manages `features.context_management.experimental_mode = true` for
+Root and every generated leaf. The package migration recognizes owned
+historical state only when ownership evidence is safe. The normal managed-key
+ownership rules preserve user edits and restore
 the recorded prior value during cleanup; a user edit is preserved as drift. Repo-local Intent, workflow
 Plan, and Assignment state remain independent of context management.
 

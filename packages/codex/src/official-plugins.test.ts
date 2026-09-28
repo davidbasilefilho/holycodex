@@ -29,6 +29,25 @@ describe("official plugin identity resolution", () => {
     expect(resolved?.entry.pluginId).toBe("build-web-apps@openai-curated-remote");
   });
 
+  test("resolves Codex remote Sites as the bundled Sites capability", () => {
+    const resolved = resolveOfficialPluginEntry(
+      {
+        installed: [
+          {
+            pluginId: "sites@openai-curated-remote",
+            installed: true,
+            enabled: true,
+            marketplaceName: "openai-curated-remote",
+          },
+        ],
+        available: [],
+      },
+      "sites@openai-bundled",
+    );
+    expect(resolved?.identity.canonicalPluginId).toBe("sites@openai-bundled");
+    expect(resolved?.entry.pluginId).toBe("sites@openai-curated-remote");
+  });
+
   test("does not resolve same-name third-party entries", () => {
     const live = {
       installed: [

@@ -373,7 +373,7 @@ describe("Codex identity, configuration, and plugins", () => {
         decode(ConfigReadResultSchema, {
           config: {
             model: "gpt-5.6-terra",
-            features: { default_mode_request_user_input: true },
+            features: { context_management: { experimental_mode: true } },
           },
           origins: {},
           layers: null,
@@ -388,7 +388,7 @@ describe("Codex identity, configuration, and plugins", () => {
     const merged = await mergeManagedConfig(
       { unrelated: "keep", model: "gpt-5.6-luna" },
       initial,
-      { model: "gpt-6-astra", "features.default_mode_request_user_input": true },
+      { model: "gpt-6-astra", "features.context_management.experimental_mode": true },
       metadata,
     );
     const userEdited = { ...merged.document, model: "gpt-6-sol" };
@@ -400,7 +400,10 @@ describe("Codex identity, configuration, and plugins", () => {
     expect(cleaned.preservedKeys).toEqual(["model"]);
     const restored = await cleanupManagedConfig(merged.document, merged.state, metadata);
     expect(restored.document).toEqual({ unrelated: "keep", model: "gpt-5.6-luna" });
-    expect(restored.restoredKeys).toEqual(["model", "features.default_mode_request_user_input"]);
+    expect(restored.restoredKeys).toEqual([
+      "model",
+      "features.context_management.experimental_mode",
+    ]);
   });
 
   test("rejects MCP declarations and requires explicit official selections", () => {

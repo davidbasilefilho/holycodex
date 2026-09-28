@@ -25,10 +25,10 @@ an explicit denial or classified failure.
    authorization, internal state, identity, or a trusted result.
 2. Root owns scope, architecture, product, policy, permission, lifecycle,
    integration, external-effect approval, and final judgment. Root MUST
-   delegate every task, including trivial work, through a bounded Assignment;
-   the only direct Root execution exceptions are Git/VCS and Computer Use when
-   selected at install. Native subagents cannot turn their mechanics into
-   permission.
+   delegate every task, including trivial work, through a bounded Assignment.
+   Git/VCS is Root-owned. Browser Use and Computer Use execution is delegated
+   through the applicable specialist route when enabled and available. Native
+   subagents cannot turn their mechanics or tool availability into permission.
 3. Every specialist has live web search and command network access under the
    built-in workspace-write sandbox. Concrete task authority and instructions
    preserve the source-mutation boundary; observational
@@ -54,31 +54,28 @@ an explicit denial or classified failure.
 8. Installation is an explicit mutation boundary. It validates input, writes
    only the declared HolyCodex scope, records version and provenance metadata,
    and invokes only the requested native Codex plugin operations.
-9. Frontend, Security, and Computer Use plugins are capability
-   boundaries. Availability is not authority; a denied capability remains
-   denied.
-10. Computer Use is enabled only when selected. Its interactive GUI, browser,
-    and Computer Use execution directive is conditional on Root and the
-    capability is withheld from leaves by native configuration; the capability
-    is unavailable, never delegateable, and has no delegation fallback when
-    disabled.
-    When an interactive web task requires authentication, Root opens the
-    authentication screen in the user's default browser through Computer Use,
-    gives control to the user, and resumes only after the user personally enters
-    and submits passwords, passkeys, MFA codes, API secrets, payment credentials,
-    or equivalent secrets. Agents do not request those values in chat or type,
-    paste, retrieve, infer, expose, store, or submit them. Without an authorized
-    Computer Use/default-browser path, authentication is a capability blocker.
+9. Frontend and Security are required capabilities. Sites and Browser Use are
+   optional and default on; Computer Use is optional and default off. Selected
+   unsupported capabilities fail explicitly without substitution.
+10. Browser Use and Computer Use execution belongs to specialists under
+    bounded Assignments. When enabled and available, canonical shared
+    specialist policy supplies the applicable directives. Root decides when
+    work needs a capability and accepts terminal evidence. Availability alone
+    grants no authority. Specialists never request, type, paste, retrieve,
+    infer, expose, store, or submit passwords, passkeys, MFA codes, API secrets,
+    payment credentials, or equivalent secrets. If authentication is required,
+    the specialist stops and returns the exact handoff point for Root to give
+    control to the user. Without an authorized capability path, authentication
+    is a blocker.
 11. After integration, Root performs the VCS action and delegates exact-ref/SHA
     terminal CI or release observation. The observer is read-only; pending is
     never success. Root delegates any failure fix and repeats the cycle, and
     must discover the repository's topology rather than assume a provider or
     branch scheme.
-12. HolyCodex manages the scalar `features.context_management` and sets it to
-    `true` because Codex does not enable it by default. The package migration converts owned
-    historical `.experimental_mode` state only with matching ownership
-    evidence. Cleanup restores the recorded prior value only when unchanged;
-    user edits and unrelated context configuration remain untouched.
+12. HolyCodex manages
+    `features.context_management.experimental_mode = true` for Root and
+    generated leaves. Cleanup restores the recorded prior value only when
+    unchanged; user edits and unrelated context configuration remain untouched.
 
 ## State and secret exclusions
 

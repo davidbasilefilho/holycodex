@@ -26,14 +26,10 @@ directly. Failure returns an actionable capability error. Existing Git for
 Windows state is shared user/system state and is not replaced, reconfigured,
 or removed merely because HolyCodex uses it.
 
-Context7 is required for current technical documentation. The supported
-launcher is Bun, and HolyCodex derives Bun's global bin directory with
-`bun pm bin -g`, installs with `bun add -g ctx7@latest`, and verifies the
-package root, package-owned executable, shim, and exact version. A `ctx7`
-found through a generic `PATH`, mise, npm, pnpm, or another Bun installation
-is ignored and left untouched; mise configuration is never edited. An
-unavailable Bun global installation is reported during preflight before any
-managed configuration is changed. HolyCodex never runs `ctx7 setup`.
+Context7 is optional. HolyCodex accepts a usable `ctx7` on the effective
+`PATH`. If none is available, it attempts to install `ctx7@latest` with Bun.
+Registry, installation, or managed verification failure produces a warning
+and does not prevent HolyCodex installation. HolyCodex never runs `ctx7 setup`.
 
 ## Install
 
@@ -48,7 +44,7 @@ Configure routing, service handling, and optional plugins explicitly:
 ```sh
 bunx holycodex install --yes \
   --profile default --tier standard \
-  --frontend --security --computer-use
+  --sites --browser-use --computer-use
 ```
 
 The live profiles are `low`, `default`, and `high`; `default` is the
@@ -59,25 +55,28 @@ migrate to `low`, `default`, and `high`. Legacy `go`, `pro-5x`, and `pro-20x`
 values are recognized as removed and require an explicit replacement; they are
 never silently reinterpreted. The profile controls native subagent routing
 only. The tier is independent.
-Optional plugins are frontend tooling, Security, and Computer Use. The
-CLI preflights the selected capabilities and runtime compatibility, invokes
-only the required native Codex marketplaces/providers, verifies readback, and
-atomically stores one HolyCodex-owned configuration under
-`$CODEX_HOME/holycodex`. Frontend and Security are selected by default;
-Computer Use is disabled unless selected. Every selected capability and
-`--add-plugin` ID must verify as installed and enabled or installation fails.
-An unrelated unavailable official-provider marketplace does not abort a valid
-selected set. Failed installs leave a recoverable transaction; retrying
-reconciles it before publishing new state.
+Frontend and Security are required capabilities. ChatGPT Sites and Browser Use
+are optional and default on; Computer Use is optional and default off. Sites
+availability can depend on account, region, workspace policy, or supported
+Codex surface. Browser Use depends on Codex surface/runtime and may be
+unsupported. Computer Use has stronger platform/surface restrictions and
+greater external-action capability. The CLI preflights required and selected
+capabilities and runtime compatibility, invokes only their canonical official
+Codex providers, verifies readback, and publishes routing, capability state,
+plugins, and generated configuration coherently. Selected unsupported or
+unavailable capabilities and `--add-plugin` IDs fail explicitly; no silent
+omission or substitute is accepted. An unrelated unavailable official-provider
+marketplace does not abort a valid selected set. Failed installs leave a
+recoverable transaction; retrying reconciles it before publishing new state.
 
 Root's selected model, reasoning effort, service tier, developer instructions,
 required feature flags, and every canonical leaf registration converge in
-`<CODEX_HOME>/config.toml`. With `--computer-use`, the official capability is
-enabled, and Root receives the conditional directive that interactive GUI,
-browser, and Computer Use execution is Root-only. Without that option, the
-directive is absent and the capability is unavailable; it is never represented
-as delegateable work or a delegation fallback. Leaves never receive GUI,
-browser, or Computer Use access.
+`<CODEX_HOME>/config.toml`. When Browser Use or Computer Use is enabled and
+available, canonical shared specialist policy carries its applicable
+directives. Root decides when the capability is needed, delegates execution
+through the applicable `Role.task`, and accepts terminal evidence. Tool
+availability does not grant authority. Unsupported selections fail explicitly
+without fallback.
 
 Profiles select configured Root and specialist route identities with the task
 effort matrix in [BEHAVIOR.md](BEHAVIOR.md). Every generated instruction
@@ -85,17 +84,14 @@ targets GPT-6-family behavior regardless of a temporary routing model ID.
 Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; native specialist route files use `gpt-6-luna`. Root dispatches concrete registered
 `Role.task` identities from the canonical inventory; role families and generic
 built-in agent types are not dispatch targets.
-HolyCodex manages the
-canonical scalar `features.context_management` and sets it to `true` for Root
-and every generated leaf because Codex does not enable it by default.
-The package migration converts owned historical
-`features.context_management.experimental_mode` state to the scalar key;
-removal restores the recorded prior value when unchanged.
+HolyCodex manages
+`features.context_management.experimental_mode = true` for Root and every
+generated leaf. Removal restores the recorded prior value when unchanged.
 
-Official OpenAI plugin identities may be observed as either
-`openai-curated` or the recognized `openai-curated-remote` marketplace. The
-allowlist covers build-web-apps and codex-security; arbitrary same-name
-third-party providers remain untrusted.
+The installer recognizes `openai-curated` and `openai-curated-remote` as
+equivalent only for the allowlisted build-web-apps and codex-security plugins.
+Browser, Computer Use, and Sites use their canonical `openai-bundled` provider
+identities. Same-name third-party providers remain untrusted.
 
 Interactive install resolves Codex home internally and does not ask for a
 `CODEX_HOME` path. Use `--codex-home <absolute-path>` only for explicit
@@ -151,3 +147,5 @@ and leaf TOML, stale owned legacy Root files, selected capability health, and
 preparing or conflicted transactions. It reports a resolved allowlisted
 official identity (for example `openai-curated-remote`) as healthy instead of
 requiring the canonical marketplace spelling.
+It does not install, update, or repair optional tooling. Missing Context7 is
+reported separately from core Codex target health.

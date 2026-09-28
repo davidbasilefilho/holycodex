@@ -37,12 +37,12 @@ Tier is independent service handling (CLI values are lowercase only):
 
 Options:
 ${INSTALL_OPTION_CATALOG.map((option) => `  ${option.usage.padEnd(48)} ${option.description}`).join("\n")}
-  --no-frontend / --no-security / --no-computer-use
+  --no-sites / --no-browser-use / --no-computer-use
                                                 Disable the corresponding plugin.
   --codex-home <absolute-path>              Use an isolated Codex home.
 
-Capability defaults: Frontend true (mapped to build-web-apps), Security true,
-and Computer Use false. --add-plugin may be repeated.
+Frontend and Security are required. ChatGPT Sites and Browser Use default on;
+Computer Use defaults off. --add-plugin may be repeated.
 On an interactive TTY, install opens one wizard and final review with Install,
 Change options / Redo, and Cancel. The wizard never asks for CODEX_HOME.
 Additional plugin IDs in the wizard are separated by whitespace; --add-plugin

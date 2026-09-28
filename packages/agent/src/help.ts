@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-const ROOT = `Usage: holycodex-agent <intent|plan|assignment> <command> [options]
+const ROOT = `Usage: holycodex-agent <intent|plan|assignment|state> <command> [options]
 
 Deterministic model-facing work-state API. JSON responses use holycodex-agent-response-1.
 All mutations require --revision and are atomic. No command prompts or emits ANSI.
@@ -9,11 +9,21 @@ Commands:
   intent      create, list, current, read, select, transition, evidence, integrate, complete, abandon
   plan        read, revise
   assignment  create, list, read, revise, supersede, start, recover, result
+  state       diagnose
 
 Use -h or --help at any command depth. Failures are classified and exit nonzero.
 `;
 
 const HELP: Readonly<Record<string, string>> = {
+  state: `Usage: holycodex-agent state diagnose --intent <ref> [--repo <path>]
+
+Read-only diagnosis of one Intent, its active Plan, Assignments, and repository baseline.
+`,
+  "state diagnose": `Usage: holycodex-agent state diagnose --intent <ref> [--repo <path>]
+
+Output: intent_id and deterministic issues with code, subject, and repair guidance.
+Does not recover transactions, acquire locks, or change persisted records.
+`,
   intent: `Usage: holycodex-agent intent <command> [options]
 
 Intent owns the durable global goal, lifecycle, baseline, blockers, gates, and readiness.

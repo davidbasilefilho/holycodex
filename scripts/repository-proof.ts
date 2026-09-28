@@ -114,15 +114,16 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
     "behavior must record the canonical Astra/Luna routes",
   );
   assert(
-    configurationContract.includes("manages the canonical scalar `features.context_management`") &&
-      configurationContract.includes("features.context_management.experimental_mode") &&
-      configurationContract.includes("An internal package migration converts"),
-    "configuration must define scalar context-management ownership and internal migration",
+    configurationContract.includes("features.context_management.experimental_mode = true") &&
+      configurationContract.includes("Removal restores the recorded prior value") &&
+      behaviorContract.includes("The package migration recognizes owned") &&
+      behaviorContract.includes("historical state only when ownership evidence is safe"),
+    "configuration and behavior must define nested context-management ownership and safe migration",
   );
   assert(
     behaviorContract.includes("Worker.validation") &&
-      behaviorContract.includes("features.context_management` and sets"),
-    "behavior must define validation and scalar context-management contracts",
+      behaviorContract.includes("features.context_management.experimental_mode = true"),
+    "behavior must define validation and nested context-management contracts",
   );
   for (const agentType of NATIVE_AGENT_TYPES) {
     assert(
@@ -150,11 +151,12 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
     "CLI contract must exclude the removed public upgrade command and scope dry-run to version",
   );
   assert(
-    packageVerification.includes("context_management = true") &&
+    packageVerification.includes("[features.context_management]") &&
+      packageVerification.includes("experimental_mode = true") &&
       packageVerification.includes("NATIVE_AGENT_TYPES") &&
       packageVerification.includes("upgrade") &&
       packageVerification.includes("non_tty_confirmation_required"),
-    "package proof must exercise scalar configuration, upgrade, and confirmation boundaries",
+    "package proof must exercise nested context-management configuration, upgrade, and confirmation boundaries",
   );
   assert(
     installationContract.includes("Existing serialized `plan` fields") &&
@@ -280,10 +282,12 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
         `${path} must publish through the current-major trusted-publishing npm CLI`,
       );
       assert(!workflow.includes("bun publish"), `${path} must not publish through Bun`);
-      assert(workflow.includes("--tag dev"), `${path} must publish development versions under dev`);
       assert(
-        workflow.includes("--tag latest"),
-        `${path} must publish stable versions under latest`,
+        workflow.includes('if [ "$RELEASE_CHANNEL" = dev ]') &&
+          /if \[ "\$RELEASE_CHANNEL" = dev \]; then\s+NPM_TAG=dev\s+else\s+NPM_TAG=latest\s+fi[\s\S]*--tag "\$NPM_TAG"/u.test(
+            workflow,
+          ),
+        `${path} must publish dev under dev and stable under latest using the selected npm tag`,
       );
       assert(
         workflow.includes("--prerelease"),

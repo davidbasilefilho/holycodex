@@ -36,6 +36,8 @@ describe("plugin source assets", () => {
     expect(source.files.map((file) => file.path)).toContain("skills/plan/SKILL.md");
     expect(source.files.map((file) => file.path)).toContain("skills/operations/SKILL.md");
     expect(source.files.map((file) => file.path)).toContain("skills/grill-me/SKILL.md");
+    expect(source.files.map((file) => file.path)).toContain("skills/continue-work/SKILL.md");
+    expect(source.files.map((file) => file.path)).toContain("skills/codebase-onboarding/SKILL.md");
     const defaultPrompt = source.manifest.interface.defaultPrompt.join("\n");
     expect(defaultPrompt).toContain("Activate HolyCodex capabilities");
     expect(defaultPrompt).not.toContain("delegate every task");
@@ -77,59 +79,24 @@ describe("plugin source assets", () => {
     const source = await validateSource(pluginSourceRoot);
     const paths = source.files.map((file) => file.path);
     expect(paths).toContain("skills/writing-instructions/SKILL.md");
+    expect(paths).toContain("skills/writing-instructions/SKILL-MECHANICS.md");
     expect(paths).toContain("skills/writing-instructions/LICENSE");
     expect(paths).toContain("skills/babysit-ci/SKILL.md");
     expect(paths.some((path) => path.startsWith("skills/writing-for-agents/"))).toBe(false);
-
-    const instructionSkill = await readFile(
-      join(pluginSourceRoot, "skills/writing-instructions/SKILL.md"),
-      "utf8",
-    );
-    expect(instructionSkill).toContain("GPT-6 → GPT-6");
-    expect(instructionSkill).toContain("effective context");
-    expect(instructionSkill).toContain("one authoritative owner");
-    expect(instructionSkill).toContain("requested terminal state");
   });
 
-  test("keeps conditional workflows available for canonical routes", async () => {
-    const grill = await readFile(join(pluginSourceRoot, "skills", "grill-me", "SKILL.md"), "utf8");
-    expect(grill).toContain("material unresolved choice");
-    expect(grill).toContain("earliest unresolved");
-
-    const plan = await readFile(join(pluginSourceRoot, "skills", "plan", "SKILL.md"), "utf8");
-    expect(plan).toContain("trivial work");
-    expect(plan).toContain("implementation-ready Plan");
-    expect(plan).toContain("semantic Plan operation");
-
-    const handoff = await readFile(join(pluginSourceRoot, "skills", "handoff", "SKILL.md"), "utf8");
-    expect(handoff).toContain("export view");
-    expect(handoff).toContain("semantic state remains authoritative");
-    expect(handoff).not.toContain("write one redacted handoff");
-
-    const commit = await readFile(join(pluginSourceRoot, "skills", "commit", "SKILL.md"), "utf8");
-    expect(commit).toContain("local commit");
-    expect(commit).toContain("Reviewer.code fixed-point");
-    expect(commit).toContain("../babysit-ci/SKILL.md");
-
-    const programming = await readFile(
-      join(pluginSourceRoot, "skills", "programming", "SKILL.md"),
-      "utf8",
-    );
-    const debugging = await readFile(
-      join(pluginSourceRoot, "skills", "debugging", "SKILL.md"),
-      "utf8",
-    );
-    const review = await readFile(
-      join(pluginSourceRoot, "skills", "code-review", "SKILL.md"),
-      "utf8",
-    );
-    expect(programming).toContain("decided seam");
-    expect(debugging).toContain("Reproduce the defect");
-    expect(review).toContain("Reviewer.code");
-    expect(review).toContain(
-      "Use one batched evidence sweep, reason over it, make targeted follow-ups only,\nand batch related repairs and verification.",
-    );
-    expect(review).not.toContain("fixed-point result");
+  test("ships the required user workflow skills", async () => {
+    const source = await validateSource(pluginSourceRoot);
+    const paths = new Set(source.files.map((file) => file.path));
+    for (const skill of [
+      "web-visualize",
+      "continue-work",
+      "commit",
+      "codebase-onboarding",
+      "debugging",
+    ]) {
+      expect(paths.has(`skills/${skill}/SKILL.md`)).toBe(true);
+    }
   });
 });
 

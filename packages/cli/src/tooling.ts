@@ -134,23 +134,113 @@ export async function ensureGitBash(
   return { status: "healthy", path: repaired, installed: true };
 }
 
-/** Reconcile ctx7@latest through the same package-manager family that launched HolyCodex. */
+/** Use a working PATH ctx7, installing a managed copy only when needed. */
 export async function ensureContext7(
   runtime: InstallerRuntime,
   mutate: boolean,
   previous?: Context7ToolState,
 ): Promise<Context7ToolState> {
+  const available = await inspectPathContext7(runtime);
+  if (available !== undefined) {
+    const manager =
+      detectContext7Manager(runtime.environment) ??
+      ({
+        launcher: "bunx",
+        family: "bun",
+        executable: "bun",
+      } as const);
+    const retainedOwnership =
+      previous?.ownership === "holycodex" &&
+      typeof previous.identity === "string" &&
+      (await sameInstallerFile(runtime, previous.executable, available.executable));
+    return {
+      manager: manager.family,
+      launcher: manager.launcher,
+      version: available.version,
+      executable: available.executable,
+      ownership: retainedOwnership ? "holycodex" : "user",
+      ...(retainedOwnership ? { identity: previous.identity } : {}),
+    };
+  }
   if (isBunRuntime(runtime)) {
     return ensureBunGlobalContext7(runtime, mutate, previous);
   }
-  // Injected runtimes from legacy callers may not expose a Bun launcher path. Keep
-  // that compatibility path isolated; the production runtime always takes the exact Bun
-  // global path above and never resolves a generic PATH executable or registry version.
+  // Injected runtimes from legacy launchers can use their own global package manager.
   return ensureContext7ViaLauncher(runtime, mutate, previous);
+}
+
+/** Inspect the available Context7 executable without registry access or managed changes. */
+export async function inspectContext7ReadOnly(
+  runtime: InstallerRuntime,
+  previous?: Context7ToolState,
+): Promise<Context7ToolState> {
+  const available = await inspectPathContext7(runtime);
+  if (available !== undefined) {
+    const manager =
+      detectContext7Manager(runtime.environment) ??
+      ({ launcher: "bunx", family: "bun", executable: "bun" } as const);
+    const retainedOwnership =
+      previous?.ownership === "holycodex" &&
+      typeof previous.identity === "string" &&
+      (await sameInstallerFile(runtime, previous.executable, available.executable));
+    return {
+      manager: manager.family,
+      launcher: manager.launcher,
+      version: available.version,
+      executable: available.executable,
+      ownership: retainedOwnership ? "holycodex" : "user",
+      ...(retainedOwnership ? { identity: previous.identity } : {}),
+    };
+  }
+
+  const manager = isBunRuntime(runtime)
+    ? ({ launcher: "bunx", family: "bun", executable: "bun" } as const)
+    : detectContext7Manager(runtime.environment);
+  if (manager === undefined) {
+    throw new ToolingError(
+      "context7_manager_unknown",
+      "No usable PATH Context7 executable or supported package manager is available.",
+    );
+  }
+  const inspected =
+    manager.family === "bun" && isBunRuntime(runtime)
+      ? await inspectBunGlobalContext7(runtime)
+      : await inspectContext7(runtime, manager);
+  if (inspected === undefined) {
+    throw new ToolingError(
+      "context7_unavailable",
+      "No usable managed Context7 executable is available.",
+    );
+  }
+  return {
+    manager: manager.family,
+    launcher: manager.launcher,
+    version: inspected.version,
+    executable: inspected.executable,
+    ownership: context7Ownership(previous, manager, inspected),
+    identity: inspected.identity,
+  } as Context7ToolState;
+}
+
+async function inspectPathContext7(
+  runtime: InstallerRuntime,
+): Promise<Pick<Context7Inspection, "version" | "executable"> | undefined> {
+  const executable = await resolvePathExecutable(
+    runtime.environment,
+    runtime.platform,
+    runtime.files ?? nodeFiles,
+  );
+  if (executable === undefined) return undefined;
+  const result = await runtime.run(executable, ["--version"]);
+  const version = result.exitCode === 0 ? parseVersion(result.stdout) : undefined;
+  return version === undefined ? undefined : { version, executable };
 }
 
 /** Verify that the exact package-manager global installation can be inspected before mutation. */
 export async function preflightContext7(runtime: InstallerRuntime): Promise<void> {
+  // An executable already available to the process is sufficient. Do not require a
+  // package-manager identity or registry access to preserve a working PATH tool.
+  if ((await inspectPathContext7(runtime)) !== undefined) return;
   if (isBunRuntime(runtime)) {
     await preflightBunGlobalContext7(runtime);
     return;
@@ -276,7 +366,7 @@ async function preflightBunGlobalContext7(runtime: InstallerRuntime): Promise<vo
     );
   }
   if (
-    !samePath(canonicalPackageRoot, packageRoot, runtime.platform) ||
+    !sameInstallerPath(canonicalPackageRoot, packageRoot, runtime.platform) ||
     !normalize(canonicalExecutable).startsWith(`${normalize(canonicalPackageRoot)}/`)
   ) {
     throw new ToolingError(
@@ -472,7 +562,7 @@ async function inspectBunGlobalContext7(
     return undefined;
   }
   if (
-    !samePath(canonicalPackageRoot, packageRoot, runtime.platform) ||
+    !sameInstallerPath(canonicalPackageRoot, packageRoot, runtime.platform) ||
     !normalize(canonicalExecutable).startsWith(`${normalize(canonicalPackageRoot)}/`)
   )
     return undefined;
@@ -533,7 +623,7 @@ async function removeOwnedBunGlobalContext7(
   if (
     current === undefined ||
     current.version !== previous.version ||
-    !samePath(current.executable, previous.executable, runtime.platform) ||
+    !(await sameInstallerFile(runtime, current.executable, previous.executable)) ||
     !isContext7Identity((previous as Context7StateWithIdentity).identity) ||
     current.identity !== (previous as Context7StateWithIdentity).identity
   ) {
@@ -571,7 +661,7 @@ async function removeOwnedContext7ViaLauncher(
   if (
     current === undefined ||
     current.version !== previous.version ||
-    !samePath(current.executable, previous.executable, runtime.platform) ||
+    !(await sameInstallerFile(runtime, current.executable, previous.executable)) ||
     !isContext7Identity((previous as Context7StateWithIdentity).identity) ||
     current.identity !== (previous as Context7StateWithIdentity).identity
   ) {
@@ -729,7 +819,7 @@ async function inspectContext7(
   const shadow = await resolvePathExecutable(runtime.environment, runtime.platform, files);
   if (
     shadow !== undefined &&
-    !samePath(await canonicalPath(files, shadow), canonicalShim, runtime.platform)
+    !sameInstallerPath(await canonicalPath(files, shadow), canonicalShim, runtime.platform)
   ) {
     throw new ToolingError(
       "context7_shadowed",
@@ -740,7 +830,6 @@ async function inspectContext7(
       },
     );
   }
-  if (shadow === undefined) return undefined;
   const version = await runtime.run(shim, ["--version"]);
   if (version.exitCode !== 0 || parseVersion(version.stdout) !== packageJson.version)
     return undefined;
@@ -897,9 +986,37 @@ function isExecutable(path: string, name: string): boolean {
   );
 }
 
-function samePath(left: string, right: string, platform: InstallerPlatform): boolean {
+/** Compare two resolved installer paths with the platform's path case rules. */
+export function sameInstallerPath(
+  left: string,
+  right: string,
+  platform: InstallerPlatform,
+): boolean {
   const pathApi = pathFor(platform);
-  return normalize(pathApi.resolve(left)) === normalize(pathApi.resolve(right));
+  const resolvedLeft = pathApi.resolve(left);
+  const resolvedRight = pathApi.resolve(right);
+  return platform === "win32"
+    ? normalize(resolvedLeft) === normalize(resolvedRight)
+    : resolvedLeft === resolvedRight;
+}
+
+/** Compare executable paths by filesystem identity when lexical paths differ. */
+export async function sameInstallerFile(
+  runtime: InstallerRuntime,
+  left: string,
+  right: string,
+): Promise<boolean> {
+  if (sameInstallerPath(left, right, runtime.platform)) return true;
+  const files = runtime.files ?? nodeFiles;
+  try {
+    const [canonicalLeft, canonicalRight] = await Promise.all([
+      files.realpath(left),
+      files.realpath(right),
+    ]);
+    return sameInstallerPath(canonicalLeft, canonicalRight, runtime.platform);
+  } catch {
+    return false;
+  }
 }
 
 function pathFor(platform: InstallerPlatform): typeof posix {

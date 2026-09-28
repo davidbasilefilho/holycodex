@@ -61,7 +61,11 @@ export {
   PathBoundaryError,
   STATE_SCHEMA,
 } from "./paths.ts";
-export { CodexOfficialPluginManager, OfficialPluginManagerError } from "./official-manager.ts";
+export {
+  CodexOfficialPluginManager,
+  OfficialPluginManagerError,
+  ReadOnlyCodexPluginStatus,
+} from "./official-manager.ts";
 export {
   CONTEXT7_SPEC,
   WINDOWS_GIT_BASH,

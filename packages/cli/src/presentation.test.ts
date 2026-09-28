@@ -31,7 +31,10 @@ describe("human CLI presentation", () => {
     const rendered = renderHelp("install", { stdoutIsTTY: true, env: {} });
     expect(topLevel).toContain("\u001b[1;38;2;122;162;247mHolyCodex\u001b[0m");
     expect(rendered).toContain("\u001b[1;38;2;122;162;247mUsage:\u001b[0m");
-    expect(rendered).toContain("\u001b[38;2;125;207;255m--frontend\u001b[0m");
+    expect(rendered).toContain("\u001b[38;2;125;207;255m--sites\u001b[0m");
+    expect(rendered).toContain("ChatGPT Sites (default: true).");
+    expect(rendered).toContain("Browser Use (default: true).");
+    expect(rendered).toContain("Computer Use plugins (default: false).");
     expect(renderHelp("install", { stdoutIsTTY: true, env: { NO_COLOR: "1" } })).not.toContain(
       "\u001b[",
     );
@@ -71,13 +74,16 @@ describe("human CLI presentation", () => {
             install_id: "private-id",
             digest: "private-digest",
             optional_selections: {
-              frontend: true,
-              security: true,
+              sites: true,
+              browser_use: true,
               computer_use: false,
             },
             capability_state: {
-              frontend: { status: "healthy" },
-              security: { status: "healthy" },
+              frontend: { selected: true, status: "healthy" },
+              security: { selected: true, status: "healthy" },
+              sites: { selected: true, status: "healthy" },
+              browser_use: { selected: true, status: "healthy" },
+              computer_use: { selected: false, status: "disabled" },
             },
           },
           preserved: [],
@@ -90,7 +96,7 @@ describe("human CLI presentation", () => {
     const rendered = renderHuman(result, { stdoutIsTTY: false, env: {} });
     expect(rendered).toContain("version: 1.2.3");
     expect(rendered).toContain("profile: default");
-    expect(rendered).toContain("capabilities: frontend, security");
+    expect(rendered).toContain("capabilities: frontend, security, sites, browser_use");
     expect(rendered).toContain("warning: review provider availability");
     expect(rendered).not.toContain("private-id");
     expect(rendered).not.toContain("private-digest");

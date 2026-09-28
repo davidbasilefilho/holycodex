@@ -19,16 +19,16 @@ export const INSTALL_OPTION_CATALOG = Object.freeze([
     description: "Select service handling (default: standard).",
   },
   {
-    name: "frontend",
+    name: "sites",
     kind: "boolean",
-    usage: "--frontend / --no-frontend",
-    description: "Frontend plugins via build-web-apps (default: true).",
+    usage: "--sites / --no-sites",
+    description: "ChatGPT Sites (default: true).",
   },
   {
-    name: "security",
+    name: "browser-use",
     kind: "boolean",
-    usage: "--security / --no-security",
-    description: "Security plugins (default: true).",
+    usage: "--browser-use / --no-browser-use",
+    description: "Browser Use (default: true).",
   },
   {
     name: "computer-use",
@@ -53,10 +53,10 @@ const BOOLEAN_OPTIONS = new Set([
   "dry-run",
   "computer-use",
   "no-computer-use",
-  "frontend",
-  "no-frontend",
-  "security",
-  "no-security",
+  "sites",
+  "no-sites",
+  "browser-use",
+  "no-browser-use",
 ]);
 
 /** Structured failure raised while parsing CLI arguments. */
@@ -207,8 +207,8 @@ function validateCommand(
   }
   for (const [positive, negative] of [
     ["computer-use", "no-computer-use"],
-    ["frontend", "no-frontend"],
-    ["security", "no-security"],
+    ["sites", "no-sites"],
+    ["browser-use", "no-browser-use"],
   ] as const) {
     if (options[positive] !== undefined && options[negative] !== undefined) {
       throw new ArgumentError(
@@ -226,10 +226,10 @@ function validateCommand(
       [
         "profile",
         "tier",
-        "frontend",
-        "no-frontend",
-        "security",
-        "no-security",
+        "sites",
+        "no-sites",
+        "browser-use",
+        "no-browser-use",
         "computer-use",
         "no-computer-use",
         "add-plugin",
@@ -254,8 +254,8 @@ function commandOptions(command: string): ReadonlySet<string> {
     case "install":
       return new Set([
         ...INSTALL_OPTION_CATALOG.map((option) => option.name),
-        "no-frontend",
-        "no-security",
+        "no-sites",
+        "no-browser-use",
         "no-computer-use",
         "codex-home",
         "verbose",
