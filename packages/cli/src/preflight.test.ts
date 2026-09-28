@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, mock, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,6 +12,7 @@ import {
   doctorHolyCodex,
   installRecordDigest,
   installHolyCodex,
+  InstallerError,
   readActiveInstallRecord,
   removeHolyCodex,
   resolveInstallerPaths,
@@ -222,6 +223,347 @@ async function installBaseline(codexHome: string, events: string[] = []) {
 }
 
 describe("installer preflight", () => {
+  test("surfaces malformed TOML with an exact location and a cancel-only conflict", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-invalid-config-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const conflicts: ManagedConflict[][] = [];
+    const source = "model = @\n";
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(paths.configFile, source);
+      await expect(
+        installHolyCodex(request, {
+          paths: { codexHome },
+          officialPluginManager: testManager(),
+          runtime: testRuntime(codexHome),
+          resolveConflicts: async (inventory) => {
+            conflicts.push([...inventory]);
+            return Object.fromEntries(inventory.map((conflict) => [conflict.identity!, "cancel"]));
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "state_corrupt",
+        message: expect.stringContaining(
+          `${paths.configFile} contains invalid TOML at line 1, column 9 (offset 8)`,
+        ),
+        details: { path: paths.configFile, offset: 8, line: 1, column: 9 },
+      });
+
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0]).toHaveLength(1);
+      expect(conflicts[0]?.[0]).toMatchObject({
+        category: "invalid-config",
+        path: paths.configFile,
+        defaultDecision: "cancel",
+        validDecisions: ["cancel"],
+      });
+      expect(conflicts[0]?.[0]).not.toHaveProperty("key");
+      expect(conflicts[0]?.[0]?.explanation).toContain("Fix the syntax at that location");
+      expect(await readFile(paths.configFile, "utf8")).toBe(source);
+      await expect(readFile(paths.activeRecord)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("identifies a non-table Codex section before managed configuration merge", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-invalid-table-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const conflicts: ManagedConflict[][] = [];
+    const source = "features = false\n";
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(paths.configFile, source);
+      await expect(
+        installHolyCodex(request, {
+          paths: { codexHome },
+          officialPluginManager: testManager(),
+          runtime: testRuntime(codexHome),
+          resolveConflicts: async (inventory) => {
+            conflicts.push([...inventory]);
+            return Object.fromEntries(inventory.map((conflict) => [conflict.identity!, "cancel"]));
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "confirmation_required",
+        message: expect.stringContaining("Conflict resolution was cancelled for features at"),
+        details: { path: paths.configFile, key: "features" },
+      });
+      expect(conflicts[0]).toMatchObject([
+        {
+          category: "invalid-config",
+          key: "features",
+          existing: false,
+          validDecisions: ["remove", "cancel"],
+          defaultDecision: "cancel",
+        },
+      ]);
+      expect(conflicts[0]?.[0]?.explanation).toContain(paths.configFile);
+      expect(await readFile(paths.configFile, "utf8")).toBe(source);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("reports the concrete invalid value when noninteractive resolution is unavailable", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-invalid-noninteractive-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const source = "features = false\n";
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(paths.configFile, source);
+      await expect(
+        installHolyCodex(request, {
+          paths: { codexHome },
+          officialPluginManager: testManager(),
+          runtime: testRuntime(codexHome),
+          resolveConflicts: async () => {
+            throw new InstallerError(
+              "confirmation_required",
+              "Invalid configuration needs an interactive review.",
+            );
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "confirmation_required",
+        message: expect.stringContaining("features at " + paths.configFile + " = false"),
+        details: {
+          conflicts: expect.stringContaining("features at " + paths.configFile + " = false"),
+        },
+      });
+      expect(await readFile(paths.configFile, "utf8")).toBe(source);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("removes a reviewed non-table section and records the decision in final review", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-remove-invalid-config-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const source = "features = false\n";
+    let conflicts: readonly ManagedConflict[] = [];
+    let review: InstallReview | undefined;
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(paths.configFile, source);
+      const result = await installHolyCodex(request, {
+        paths: { codexHome },
+        officialPluginManager: testManager(),
+        runtime: testRuntime(codexHome),
+        resolveConflicts: async (inventory) => {
+          conflicts = inventory;
+          return Object.fromEntries(inventory.map((conflict) => [conflict.identity!, "remove"]));
+        },
+        reviewInstall: async (value) => {
+          review = value;
+          return { action: "apply" };
+        },
+      });
+
+      expect(conflicts).toMatchObject([
+        {
+          category: "invalid-config",
+          target: "features",
+          key: "features",
+          existing: false,
+          desired: expect.stringContaining("create the required table"),
+          validDecisions: ["remove", "cancel"],
+        },
+      ]);
+      expect(review?.conflicts.find((conflict) => conflict.key === "features")).toMatchObject({
+        existing: false,
+        decision: "remove",
+        validDecisions: ["remove", "cancel"],
+      });
+      const document = parseConfig(await readFile(paths.configFile, "utf8"));
+      expect(readTestTomlTable(document["features"])["multi_agent_v2"]).toBe(false);
+      expect(result.record.managed_config?.managed["features.multi_agent_v2"]).toBeDefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("preserves an invalid section changed after its removal decision was reviewed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-invalid-config-race-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const source = "features = false\n";
+    const changed = "features = true\n";
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(paths.configFile, source);
+      await expect(
+        installHolyCodex(request, {
+          paths: { codexHome },
+          officialPluginManager: testManager(),
+          runtime: testRuntime(codexHome),
+          resolveConflicts: async (inventory) =>
+            Object.fromEntries(inventory.map((conflict) => [conflict.identity!, "remove"])),
+          reviewInstall: async () => {
+            await writeFile(paths.configFile, changed);
+            return { action: "apply" };
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "confirmation_required",
+        message: expect.stringContaining("Invalid configuration at features changed after review"),
+        details: { path: paths.configFile, key: "features" },
+      });
+      expect(await readFile(paths.configFile, "utf8")).toBe(changed);
+      await expect(readFile(paths.activeRecord)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("restores a reviewed non-table section when first-install plugin work fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-remove-invalid-rollback-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const source = "features = false\n";
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(paths.configFile, source);
+      await expect(
+        installHolyCodex(request, {
+          paths: { codexHome },
+          officialPluginManager: configWritingManager(paths, [], true),
+          runtime: testRuntime(codexHome),
+          resolveConflicts: async (inventory) =>
+            Object.fromEntries(inventory.map((conflict) => [conflict.identity!, "remove"])),
+        }),
+      ).rejects.toThrow("Codex could not add holycodex@holycodex");
+      expect(await readFile(paths.configFile, "utf8")).toBe(source);
+      await expect(readFile(paths.activeRecord)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("reports the exact user-owned preflight conflict when interactive resolution is unavailable", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-noninteractive-conflict-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const source = 'model = "gpt-5.6-terra"\n';
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(paths.configFile, source);
+      await expect(
+        installHolyCodex(request, {
+          paths: { codexHome },
+          officialPluginManager: testManager(),
+          runtime: testRuntime(codexHome),
+          resolveConflicts: async () => {
+            throw new InstallerError(
+              "confirmation_required",
+              "Managed conflicts require an interactive review or --yes.",
+            );
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "confirmation_required",
+        message: expect.stringContaining(`model at ${paths.configFile}`),
+        details: { conflicts: expect.stringContaining("model") },
+      });
+      expect(await readFile(paths.configFile, "utf8")).toBe(source);
+      await expect(readFile(paths.activeRecord)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("reviews and applies keep or replace for user-owned Codex settings on first install", async () => {
+    for (const decision of ["keep", "replace"] as const) {
+      const root = await mkdtemp(join(tmpdir(), `holycodex-preflight-first-install-${decision}-`));
+      const codexHome = join(root, "codex");
+      const paths = resolveInstallerPaths({ paths: { codexHome } });
+      const source =
+        'model = "gpt-5.6-terra"\n\n[plugins."holycodex@holycodex"]\nenabled = false\nuser_setting = "preserve"\n';
+      let review: InstallReview | undefined;
+      try {
+        await mkdir(codexHome, { recursive: true });
+        await writeFile(paths.configFile, source);
+        const result = await installHolyCodex(request, {
+          paths: { codexHome },
+          officialPluginManager: testManager(),
+          runtime: testRuntime(codexHome),
+          resolveConflicts: async (conflicts) =>
+            Object.fromEntries(
+              conflicts.map((conflict) => [
+                conflict.identity!,
+                conflict.key === "model" ? decision : "replace",
+              ]),
+            ),
+          reviewInstall: async (value) => {
+            review = value;
+            return { action: "apply" };
+          },
+        });
+
+        const modelConflict = review?.conflicts.find((conflict) => conflict.key === "model");
+        expect(modelConflict).toMatchObject({
+          existing: "gpt-5.6-terra",
+          defaultDecision: "keep",
+          decision,
+        });
+        expect(
+          review?.conflicts.find((conflict) => conflict.key === 'plugins."holycodex@holycodex"'),
+        ).toMatchObject({
+          defaultDecision: "replace",
+          decision: "replace",
+          validDecisions: ["replace", "cancel"],
+        });
+        const document = parseConfig(await readFile(paths.configFile, "utf8"));
+        expect(readTestConfigEntry(document, "plugins", "holycodex@holycodex")).toEqual({
+          enabled: true,
+        });
+        if (decision === "keep") {
+          expect(document["model"]).toBe("gpt-5.6-terra");
+          expect(result.record.managed_config?.managed["model"]).toBeUndefined();
+        } else {
+          expect(document["model"]).toBe("gpt-6-sol");
+          expect(result.record.managed_config?.managed["model"]).toBeDefined();
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  }, 30_000);
+
+  test("restores first-install user configuration after a plugin failure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-first-install-rollback-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const source =
+      'model = "gpt-5.6-terra"\n\n[plugins."holycodex@holycodex"]\nenabled = false\nuser_setting = "preserve"\n';
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(paths.configFile, source);
+      await expect(
+        installHolyCodex(request, {
+          paths: { codexHome },
+          officialPluginManager: configWritingManager(paths, [], true),
+          runtime: testRuntime(codexHome),
+          resolveConflicts: async (conflicts) =>
+            Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "replace"])),
+        }),
+      ).rejects.toThrow("Codex could not add holycodex@holycodex");
+      const restored = parseConfig(await readFile(paths.configFile, "utf8"));
+      expect(restored["model"]).toBe("gpt-5.6-terra");
+      expect(readTestConfigEntry(restored, "plugins", "holycodex@holycodex")).toEqual({
+        enabled: false,
+        user_setting: "preserve",
+      });
+      await expect(readFile(paths.activeRecord)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("diagnoses stale and incompatible transaction journals", () => {
     const stale = diagnoseInstallTransactions(
       { install_id: "active", digest: "a" },

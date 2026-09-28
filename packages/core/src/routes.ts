@@ -6,6 +6,7 @@ import { freezeDeep } from "./common.ts";
 
 /** Canonical user-facing routing profiles. */
 export const ProfileNameSchema = Schema.Literal("low", "default", "high");
+/** Type representing profile name in the core domain. */
 export type ProfileName = typeof ProfileNameSchema.Type;
 
 /** Historical product plan/profile spellings accepted only during migration. */
@@ -18,8 +19,11 @@ export const LegacyProfileNameSchema = Schema.Literal(
   "pro-5x",
   "pro-20x",
 );
+/** Type representing legacy profile name in the core domain. */
 export type LegacyProfileName = typeof LegacyProfileNameSchema.Type;
+/** Runtime schema validating profile name migration values at the receiving boundary. */
 export const ProfileNameMigrationSchema = Schema.Union(ProfileNameSchema, LegacyProfileNameSchema);
+/** Type representing profile name migration input in the core domain. */
 export type ProfileNameMigrationInput = typeof ProfileNameMigrationSchema.Type;
 
 /** Migrate persisted product profile names without silently choosing for removed values. */
@@ -42,10 +46,14 @@ export function migrateProfileName(input: ProfileNameMigrationInput): ProfileNam
   }
 }
 
+/** Runtime schema validating service tier values at the receiving boundary. */
 export const ServiceTierSchema = Schema.Literal("standard", "fast", "fast-all");
+/** Type representing service tier in the core domain. */
 export type ServiceTier = typeof ServiceTierSchema.Type;
 
+/** Runtime schema validating effort values at the receiving boundary. */
 export const EffortSchema = Schema.Literal("low", "medium", "high", "xhigh", "max");
+/** Type representing effort in the core domain. */
 export type Effort = typeof EffortSchema.Type;
 
 /** Canonical patch-quality rule for every source or artifact mutation. */
@@ -61,6 +69,7 @@ const LIBRARIAN_CONTEXT7_INSTRUCTION =
 
 /** Explicit fork policy for ordinary concrete specialist spawns. */
 export const ForkTurnsSchema = Schema.Literal("none");
+/** Type representing fork turns in the core domain. */
 export type ForkTurns = typeof ForkTurnsSchema.Type;
 
 /** Canonical Root orchestration phases for one bounded Intent. */
@@ -71,11 +80,15 @@ export const ROOT_ORCHESTRATION_PHASE_ORDER = Object.freeze([
   "integration",
   "vcs",
 ] as const);
+/** Type representing root orchestration phase in the core domain. */
 export type RootOrchestrationPhase = (typeof ROOT_ORCHESTRATION_PHASE_ORDER)[number];
 
+/** Canonical filesystem access schema used by core domain operations. */
 export const FILESYSTEM_ACCESS_SCHEMA = Schema.Literal("read-only", "workspace-write");
+/** Type representing filesystem access in the core domain. */
 export type FilesystemAccess = typeof FILESYSTEM_ACCESS_SCHEMA.Type;
 
+/** Canonical role definitions used by core domain operations. */
 export const ROLE_DEFINITIONS = [
   {
     role: "Explorer",
@@ -215,25 +228,36 @@ export const ROLE_DEFINITIONS = [
 ] as const;
 freezeDeep(ROLE_DEFINITIONS);
 
+/** Type representing role definition in the core domain. */
 export type RoleDefinition = (typeof ROLE_DEFINITIONS)[number];
+/** Type representing role in the core domain. */
 export type Role = RoleDefinition["role"];
+/** Type representing task for role in the core domain. */
 export type TaskForRole<R extends Role> = Extract<
   RoleDefinition,
   { readonly role: R }
 >["tasks"][number]["name"];
+/** Type representing explorer task in the core domain. */
 export type ExplorerTask = TaskForRole<"Explorer">;
+/** Type representing librarian task in the core domain. */
 export type LibrarianTask = TaskForRole<"Librarian">;
+/** Type representing worker task in the core domain. */
 export type WorkerTask = TaskForRole<"Worker">;
+/** Type representing reviewer task in the core domain. */
 export type ReviewerTask = TaskForRole<"Reviewer">;
+/** Type representing task slot in the core domain. */
 export type TaskSlot = RoleDefinition["tasks"][number]["name"];
+/** Type representing role task in the core domain. */
 export type RoleTask = {
   readonly [R in Role]: { readonly role: R; readonly task: TaskForRole<R> };
 }[Role];
+/** Type representing route key in the core domain. */
 export type RouteKey = RoleTask extends infer Pair
   ? Pair extends RoleTask
     ? `${Pair["role"]}:${Pair["task"]}`
     : never
   : never;
+/** Type representing native agent type in the core domain. */
 export type NativeAgentType = RoleTask extends infer Pair
   ? Pair extends RoleTask
     ? `${Pair["role"]}.${Pair["task"]}`
@@ -280,29 +304,39 @@ function isRouteKey(value: unknown): value is RouteKey {
   return typeof value === "string" && routeKeySet.has(value);
 }
 
+/** Runtime schema validating role values at the receiving boundary. */
 export const RoleSchema = Schema.declare(isRole);
+/** Runtime schema validating explorer task values at the receiving boundary. */
 export const ExplorerTaskSchema = Schema.declare((value: unknown): value is ExplorerTask =>
   isTaskForRole("Explorer", value),
 );
+/** Runtime schema validating librarian task values at the receiving boundary. */
 export const LibrarianTaskSchema = Schema.declare((value: unknown): value is LibrarianTask =>
   isTaskForRole("Librarian", value),
 );
+/** Runtime schema validating worker task values at the receiving boundary. */
 export const WorkerTaskSchema = Schema.declare((value: unknown): value is WorkerTask =>
   isTaskForRole("Worker", value),
 );
+/** Runtime schema validating reviewer task values at the receiving boundary. */
 export const ReviewerTaskSchema = Schema.declare((value: unknown): value is ReviewerTask =>
   isTaskForRole("Reviewer", value),
 );
+/** Runtime schema validating role task values at the receiving boundary. */
 export const RoleTaskSchema = Schema.declare(isRoleTask);
+/** Canonical route keys used by core domain operations. */
 export const ROUTE_KEYS: readonly RouteKey[] = Object.freeze(
   routeKeys.filter((key): key is RouteKey => isRouteKey(key)),
 );
+/** Runtime schema validating route key values at the receiving boundary. */
 export const RouteKeySchema = Schema.declare(isRouteKey);
+/** Canonical native agent types used by core domain operations. */
 export const NATIVE_AGENT_TYPES: readonly NativeAgentType[] = Object.freeze(
   nativeAgentTypes.filter((agentType): agentType is NativeAgentType =>
     nativeAgentTypeSet.has(agentType),
   ),
 );
+/** Runtime schema validating native agent type values at the receiving boundary. */
 export const NativeAgentTypeSchema = Schema.declare(
   (value: unknown): value is NativeAgentType =>
     typeof value === "string" && nativeAgentTypeSet.has(value),
@@ -315,6 +349,7 @@ export const GENERIC_BUILTIN_AGENT_TYPES = Object.freeze([
   "reviewer",
   "librarian",
 ] as const);
+/** Type representing generic builtin agent type in the core domain. */
 export type GenericBuiltinAgentType = (typeof GENERIC_BUILTIN_AGENT_TYPES)[number];
 
 /** Resolve a concrete route to its native Codex agent type. */
@@ -355,6 +390,7 @@ export function lookupRoleDefinition(role: Role): RoleDefinition {
 
 /** Effective least-privilege permissions for one concrete specialist task. */
 export interface SpecialistTaskPermissions {
+  /** Whether the task can use network access. */
   readonly network: boolean;
   /** Native sandbox/filesystem access; this does not imply source-mutation authority. */
   readonly filesystem: FilesystemAccess;
@@ -388,29 +424,43 @@ export function taskPermissionsFor(route: RoleTask): SpecialistTaskPermissions {
   });
 }
 
+/** Contract describing route definition. */
 export interface RouteDefinition {
+  /** Canonical route key. */
   readonly key: RouteKey;
+  /** Specialist role that owns this route or task. */
   readonly role: Role;
+  /** Concrete specialist task selected for this route. */
   readonly task: TaskSlot;
+  /** Model assigned to this route. */
   readonly model: "gpt-6-luna";
+  /** Reasoning effort assigned to this route. */
   readonly effort: Effort;
 }
 
+/** Contract describing profile definition. */
 export interface ProfileDefinition {
+  /** Canonical name for this definition. */
   readonly name: ProfileName;
+  /** Root model and effort configuration. */
   readonly root: {
     readonly model: "gpt-6-sol" | "gpt-6-astra";
     readonly effort: Effort;
   };
+  /** Specialist model recorded on this profile definition. */
   readonly specialistModel: "gpt-6-luna";
+  /** Default service tier recorded on this profile definition. */
   readonly defaultServiceTier: ServiceTier;
+  /** Specialist routes available in this profile. */
   readonly routes: readonly RouteDefinition[];
 }
 
+/** Runtime schema validating profile selection values at the receiving boundary. */
 export const ProfileSelectionSchema = Schema.Struct({
   profile: ProfileNameSchema,
   service_tier: Schema.optional(ServiceTierSchema),
 });
+/** Type representing profile selection in the core domain. */
 export type ProfileSelection = typeof ProfileSelectionSchema.Type;
 
 /**
@@ -429,17 +479,21 @@ export const ROOT_DIRECT_EXECUTION_EXCEPTIONS = Object.freeze([
   "git_vcs",
   "external_effects",
 ] as const);
+/** Runtime schema validating root direct execution exception values at the receiving boundary. */
 export const RootDirectExecutionExceptionSchema = Schema.Literal(
   ...ROOT_DIRECT_EXECUTION_EXCEPTIONS,
 );
+/** Type representing root direct execution exception in the core domain. */
 export type RootDirectExecutionException = typeof RootDirectExecutionExceptionSchema.Type;
 
 /** Effective authority for a Root work unit, including unavailable capabilities. */
 export const RootExecutionStateSchema = Schema.Literal("delegated", "root_direct", "unavailable");
+/** Type representing root execution state in the core domain. */
 export type RootExecutionState = typeof RootExecutionStateSchema.Type;
 
 /** Root-owned authority that cannot be transferred to a specialist Assignment. */
 export const RootOwnedAuthoritySchema = Schema.Literal(...ROOT_DIRECT_EXECUTION_EXCEPTIONS);
+/** Type representing root owned authority in the core domain. */
 export type RootOwnedAuthority = typeof RootOwnedAuthoritySchema.Type;
 
 /** Context7 evidence required from Librarian routes for current technical documentation. */
@@ -450,6 +504,7 @@ export const Context7EvidenceStateSchema = Schema.Literal(
   "auth_or_quota_failure",
   "source_conflict",
 );
+/** Type representing context7 evidence state in the core domain. */
 export type Context7EvidenceState = typeof Context7EvidenceStateSchema.Type;
 
 /** Canonical proportional proof rule for GPT-6-family instruction projections. */
@@ -499,13 +554,21 @@ export const LIBRARIAN_CONTEXT7_POLICY = Object.freeze({
 
 /** Assignment fields used to decide whether a Librarian result needs Context7 proof. */
 export interface Context7AssignmentSemantics {
+  /** Specialist role that owns this route or task. */
   readonly role: Role;
+  /** Concrete specialist task selected for this route. */
   readonly task: string;
+  /** Outcome this record is intended to achieve. */
   readonly objective: string;
+  /** Repository or task boundary covered by this record. */
   readonly scope: readonly string[];
+  /** Requirements that constrain this record. */
   readonly constraints: readonly string[];
+  /** Work explicitly outside this record. */
   readonly exclusions: readonly string[];
+  /** Records or work that must precede this one. */
   readonly dependencies: readonly string[];
+  /** Observable conditions required for acceptance. */
   readonly acceptanceCriteria: readonly string[];
 }
 

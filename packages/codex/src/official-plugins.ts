@@ -37,8 +37,12 @@ import {
 } from "./common";
 import { allowlistedEnvironment, BunStdioTransport, sanitizeDiagnostic } from "./transport";
 
+/** Canonical official curated marketplace name used by the Codex integration. */
 export const OFFICIAL_CURATED_MARKETPLACE_NAME = "openai-curated" as const;
+/** Canonical official curated marketplace source used by the Codex integration. */
 export const OFFICIAL_CURATED_MARKETPLACE_SOURCE = "https://github.com/openai/plugins.git" as const;
+const HOLYCODEX_MARKETPLACE_NAME = "holycodex";
+const HOLYCODEX_MARKETPLACE_SOURCE = "davidbasilefilho/holycodex";
 const OFFICIAL_CURATED_MARKETPLACE_DIRECTORY = ["plugins", "openai-plugins"] as const;
 const DEFAULT_MARKETPLACE_BOOTSTRAP_TIMEOUT_MS = 30_000;
 const DEFAULT_MARKETPLACE_BOOTSTRAP_POLL_INTERVAL_MS = 100;
@@ -49,11 +53,14 @@ const PluginVersionSchema = Schema.String.pipe(
 );
 const StringArraySchema = Schema.Array(Schema.String);
 
+/** Validates official plugin id values at the Codex boundary. */
 export const OfficialPluginIdSchema = Schema.String.pipe(
   Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$/u),
 );
+/** Type of official plugin id values. */
 export type OfficialPluginId = typeof OfficialPluginIdSchema.Type;
 
+/** Validates official plugin manifest values at the Codex boundary. */
 export const OfficialPluginManifestSchema = Schema.Struct({
   name: PluginNameSchema,
   version: PluginVersionSchema,
@@ -69,48 +76,73 @@ export const OfficialPluginManifestSchema = Schema.Struct({
   assets: Schema.optional(StringArraySchema),
   official: Schema.optional(Schema.Boolean),
 });
+/** Type of official plugin manifest values. */
 export type OfficialPluginManifest = typeof OfficialPluginManifestSchema.Type;
 
+/** Data contract for official plugin verification. */
 export interface OfficialPluginVerification {
+  /** Manifest in the official plugin verification contract. */
   readonly manifest: OfficialPluginManifest;
+  /** Manifest path in the official plugin verification contract. */
   readonly manifestPath?: string;
+  /** Explicitly selected in the official plugin verification contract. */
   readonly explicitlySelected: boolean;
 }
 
+/** Data contract for official marketplace plugin entry. */
 export interface OfficialMarketplacePluginEntry {
+  /** Human-readable name of the entity. */
   readonly name: string;
+  /** Source in the official marketplace plugin entry contract. */
   readonly source: string;
 }
 
+/** Data contract for official marketplace snapshot. */
 export interface OfficialMarketplaceSnapshot {
+  /** Human-readable name of the entity. */
   readonly name: typeof OFFICIAL_CURATED_MARKETPLACE_NAME;
+  /** Source in the official marketplace snapshot contract. */
   readonly source: typeof OFFICIAL_CURATED_MARKETPLACE_SOURCE;
+  /** Root path in the official marketplace snapshot contract. */
   readonly rootPath: string;
+  /** Manifest path in the official marketplace snapshot contract. */
   readonly manifestPath: string;
+  /** Plugins in the official marketplace snapshot contract. */
   readonly plugins: readonly OfficialMarketplacePluginEntry[];
 }
 
+/** Type of official marketplace runtime close values. */
 export type OfficialMarketplaceRuntimeClose = () => Promise<void>;
 
+/** Options for configuring official marketplace bootstrap. */
 export interface OfficialMarketplaceBootstrapOptions {
   /** The target CODEX_HOME. It is used only for reading the reserved snapshot. */
   readonly codexHome: string;
   /** An absolute Codex executable path discovered by the caller. */
   readonly executablePath: string;
+  /** Selected plugin ids in the official marketplace bootstrap options contract. */
   readonly selectedPluginIds: readonly string[];
+  /** Environment variables passed to the process. */
   readonly environment?: Readonly<Record<string, string | undefined>>;
+  /** Signal in the official marketplace bootstrap options contract. */
   readonly signal?: AbortSignal;
+  /** Timeout ms in the official marketplace bootstrap options contract. */
   readonly timeoutMs?: number;
+  /** Poll interval ms in the official marketplace bootstrap options contract. */
   readonly pollIntervalMs?: number;
   /** Test seam; production uses App Server initialize and keeps it alive while polling. */
   readonly initializeRuntime?: () => Promise<OfficialMarketplaceRuntimeClose | undefined>;
+  /** Read snapshot in the official marketplace bootstrap options contract. */
   readonly readSnapshot?: (codexHome: string) => Promise<OfficialMarketplaceSnapshot | undefined>;
+  /** Sleep in the official marketplace bootstrap options contract. */
   readonly sleep?: (milliseconds: number) => Promise<void>;
   /** Set false only for callers that explicitly do not want the Git fallback. */
   readonly gitFallback?: OfficialMarketplaceGitFallbackOptions | false;
 }
 
+/** Options for configuring official marketplace git fallback. */
 export interface OfficialMarketplaceGitFallbackOptions {
+  /** Git runner in the official marketplace git fallback options contract. */
   readonly gitRunner?: OfficialPluginCommandRunner;
   /** Test seam for deterministic staged snapshots; production performs a shallow clone. */
   readonly cloneSnapshot?: (source: string, destination: string) => Promise<void>;
@@ -225,12 +257,19 @@ export async function bootstrapOfficialMarketplace(
   );
 }
 
+/** Options for configuring official marketplace provision. */
 export interface OfficialMarketplaceProvisionOptions {
+  /** Codex home directory used by the server. */
   readonly codexHome: string;
+  /** Selected plugin ids in the official marketplace provision options contract. */
   readonly selectedPluginIds: readonly string[];
+  /** Environment variables passed to the process. */
   readonly environment?: Readonly<Record<string, string | undefined>>;
+  /** Signal in the official marketplace provision options contract. */
   readonly signal?: AbortSignal;
+  /** Timeout ms in the official marketplace provision options contract. */
   readonly timeoutMs?: number;
+  /** Git runner in the official marketplace provision options contract. */
   readonly gitRunner?: OfficialPluginCommandRunner;
   /** Test seam for a deterministic staged snapshot; production uses git clone. */
   readonly cloneSnapshot?: (source: string, destination: string) => Promise<void>;
@@ -978,10 +1017,12 @@ export async function verifyOfficialPluginManifestFile(
   return { ...verification, manifestPath };
 }
 
+/** Validates official plugin selection values at the Codex boundary. */
 export const OfficialPluginSelectionSchema = Schema.Struct({
   id: PluginNameSchema,
   selected: Schema.Literal(true),
 });
+/** Type of official plugin selection values. */
 export type OfficialPluginSelection = typeof OfficialPluginSelectionSchema.Type;
 
 /** Validate explicit official plugin selections and return their corresponding manifests. */
@@ -1019,6 +1060,7 @@ export function selectOfficialPlugins(
   return output;
 }
 
+/** Validates live official plugin entry values at the Codex boundary. */
 export const LiveOfficialPluginEntrySchema = Schema.Struct(
   {
     pluginId: OfficialPluginIdSchema,
@@ -1030,14 +1072,18 @@ export const LiveOfficialPluginEntrySchema = Schema.Struct(
   },
   Schema.Record({ key: Schema.String, value: Schema.Unknown }),
 );
+/** Type of live official plugin entry values. */
 export type LiveOfficialPluginEntry = typeof LiveOfficialPluginEntrySchema.Type;
 
+/** Validates live official plugin list envelope values at the Codex boundary. */
 export const LiveOfficialPluginListEnvelopeSchema = Schema.Struct({
   installed: Schema.Array(LiveOfficialPluginEntrySchema),
   available: Schema.Array(LiveOfficialPluginEntrySchema),
 });
+/** Type of live official plugin list envelope values. */
 export type LiveOfficialPluginListEnvelope = typeof LiveOfficialPluginListEnvelopeSchema.Type;
 
+/** Type of resolved official plugin entry values. */
 export type ResolvedOfficialPluginEntry = Readonly<{
   readonly identity: OfficialPluginIdentity;
   readonly entry: LiveOfficialPluginEntry;
@@ -1083,7 +1129,9 @@ export function parseLiveOfficialPluginList(
   return success(checked(LiveOfficialPluginListEnvelopeSchema, input, "live official plugin list"));
 }
 
+/** Data contract for official plugin command runner. */
 export interface OfficialPluginCommandRunner {
+  /** Run in the official plugin command runner contract. */
   readonly run: (
     args: readonly string[],
     options?: Readonly<{
@@ -1094,27 +1142,49 @@ export interface OfficialPluginCommandRunner {
   ) => Promise<Readonly<{ exitCode: number; stdout: string; stderr: string }>>;
 }
 
+/** Options for configuring official plugin adapter. */
 export interface OfficialPluginAdapterOptions {
+  /** Executable in the official plugin adapter options contract. */
   readonly executable: string;
+  /** Environment variables passed to the process. */
   readonly environment?: Readonly<Record<string, string>>;
+  /** Codex home directory used by the server. */
   readonly codexHome?: string;
+  /** Official marketplace fallback in the official plugin adapter options contract. */
   readonly officialMarketplaceFallback?: OfficialMarketplaceGitFallbackOptions | false;
+  /** Runner in the official plugin adapter options contract. */
   readonly runner?: OfficialPluginCommandRunner;
+  /** Timeout ms in the official plugin adapter options contract. */
   readonly timeoutMs?: number;
+  /** Stdout limit in the official plugin adapter options contract. */
   readonly stdoutLimit?: number;
+  /** Stderr limit in the official plugin adapter options contract. */
   readonly stderrLimit?: number;
 }
 
+/** Data contract for official plugin adapter. */
 export interface OfficialPluginAdapter {
+  /** List in the official plugin adapter contract. */
   readonly list: () => Promise<LiveOfficialPluginListEnvelope>;
+  /** Ensure official marketplace in the official plugin adapter contract. */
   readonly ensureOfficialMarketplace: (selectedPluginIds: readonly string[]) => Promise<void>;
+  /** Add the canonical HolyCodex marketplace or refresh it, then verify its registered source. */
   readonly addMarketplace: (source: string, signal?: AbortSignal) => Promise<void>;
+  /** Add in the official plugin adapter contract. */
   readonly add: (pluginId: string, signal?: AbortSignal) => Promise<void>;
+  /** Remove in the official plugin adapter contract. */
   readonly remove: (pluginId: string, signal?: AbortSignal) => Promise<void>;
+}
+
+interface MarketplaceListEntry {
+  readonly name: string;
+  readonly root: string;
+  readonly marketplaceSource?: Readonly<{ readonly sourceType: string; readonly source: string }>;
 }
 
 /** Structured failure raised by the official Codex plugin adapter. */
 export class OfficialPluginAdapterError extends Error {
+  /** Code in the official plugin adapter error contract. */
   readonly code:
     | "command_failed"
     | "timeout"
@@ -1126,6 +1196,7 @@ export class OfficialPluginAdapterError extends Error {
     | "marketplace_invalid"
     | "marketplace_timeout"
     | "marketplace_unavailable";
+  /** Details in the official plugin adapter error contract. */
   readonly details: Readonly<Record<string, string | number>>;
 
   constructor(
@@ -1172,6 +1243,57 @@ export function createOfficialPluginAdapter(
     }
     return decoded.value;
   };
+  const listMarketplaces = async (): Promise<readonly MarketplaceListEntry[]> => {
+    const result = await runner.run(["plugin", "marketplace", "list", "--json"]);
+    if (result.exitCode !== 0) throw commandError("marketplace list", result);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result.stdout) as unknown;
+    } catch {
+      throw new OfficialPluginAdapterError(
+        "command_failed",
+        "Codex returned invalid marketplace data.",
+      );
+    }
+    if (!isPlainObject(parsed) || !Array.isArray(parsed["marketplaces"])) {
+      throw new OfficialPluginAdapterError(
+        "command_failed",
+        "Codex returned an invalid marketplace list.",
+      );
+    }
+    return parsed["marketplaces"].map((value) => {
+      if (
+        !isPlainObject(value) ||
+        typeof value["name"] !== "string" ||
+        typeof value["root"] !== "string"
+      ) {
+        throw new OfficialPluginAdapterError(
+          "command_failed",
+          "Codex returned an invalid marketplace entry.",
+        );
+      }
+      const source = value["marketplaceSource"];
+      if (source === undefined) return { name: value["name"], root: value["root"] };
+      if (
+        !isPlainObject(source) ||
+        typeof source["sourceType"] !== "string" ||
+        typeof source["source"] !== "string"
+      ) {
+        throw new OfficialPluginAdapterError(
+          "command_failed",
+          `Codex returned an invalid source for marketplace ${value["name"]}.`,
+        );
+      }
+      return {
+        name: value["name"],
+        root: value["root"],
+        marketplaceSource: {
+          sourceType: source["sourceType"],
+          source: source["source"],
+        },
+      };
+    });
+  };
   return {
     list,
     ensureOfficialMarketplace: async (selectedPluginIds) => {
@@ -1203,12 +1325,49 @@ export function createOfficialPluginAdapter(
           "The reserved openai-curated marketplace must be populated by Codex runtime startup; it cannot be added manually.",
         );
       }
-      const result = await runner.run(
-        ["plugin", "marketplace", "add", checkedSource],
-        signal === undefined ? undefined : { signal },
-      );
-      if (result.exitCode !== 0 && !/already (?:exists|added)/iu.test(result.stderr)) {
-        throw commandError("marketplace add", result, checkedSource);
+      if (checkedSource !== HOLYCODEX_MARKETPLACE_SOURCE) {
+        throw new OfficialPluginAdapterError(
+          "marketplace_invalid",
+          `Unsupported managed marketplace source: ${checkedSource}.`,
+        );
+      }
+      const initial = await listMarketplaces();
+      const conflict = findMarketplaceConflict(initial, HOLYCODEX_MARKETPLACE_NAME);
+      if (conflict !== undefined) {
+        throw new OfficialPluginAdapterError("marketplace_invalid", conflict);
+      }
+      const existing = initial.find((entry) => entry.name === HOLYCODEX_MARKETPLACE_NAME);
+      if (existing === undefined) {
+        const result = await runner.run(
+          ["plugin", "marketplace", "add", checkedSource],
+          signal === undefined ? undefined : { signal },
+        );
+        if (result.exitCode !== 0) {
+          throw commandError("marketplace add", result, checkedSource);
+        }
+      } else {
+        const result = await runner.run(
+          ["plugin", "marketplace", "upgrade", HOLYCODEX_MARKETPLACE_NAME],
+          signal === undefined ? undefined : { signal },
+        );
+        if (result.exitCode !== 0) {
+          throw commandError("marketplace upgrade", result, HOLYCODEX_MARKETPLACE_NAME);
+        }
+      }
+      const readback = await listMarketplaces();
+      const readbackConflict = findMarketplaceConflict(readback, HOLYCODEX_MARKETPLACE_NAME);
+      if (readbackConflict !== undefined) {
+        throw new OfficialPluginAdapterError("marketplace_invalid", readbackConflict);
+      }
+      const verified = readback.find((entry) => entry.name === HOLYCODEX_MARKETPLACE_NAME);
+      if (
+        verified === undefined ||
+        !isCanonicalHolyCodexMarketplaceSource(verified.marketplaceSource)
+      ) {
+        throw new OfficialPluginAdapterError(
+          "readback_mismatch",
+          "Codex did not report the canonical HolyCodex marketplace after installation or refresh.",
+        );
       }
     },
     add: async (pluginId, signal) => {
@@ -1283,7 +1442,13 @@ export function createOfficialPluginAdapter(
 }
 
 function commandError(
-  operation: "list" | "add" | "remove" | "marketplace add",
+  operation:
+    | "list"
+    | "add"
+    | "remove"
+    | "marketplace add"
+    | "marketplace list"
+    | "marketplace upgrade",
   result: Readonly<{ exitCode: number; stdout: string; stderr: string }>,
   pluginId?: string,
 ): OfficialPluginAdapterError {
@@ -1293,6 +1458,42 @@ function commandError(
     "command_failed",
     `Codex plugin ${operation} failed${pluginId === undefined ? "" : ` for ${pluginId}`}${suffix}`,
     { exit_code: result.exitCode },
+  );
+}
+
+function findMarketplaceConflict(
+  entries: readonly MarketplaceListEntry[],
+  expectedName: string,
+): string | undefined {
+  const named = entries.filter((entry) => entry.name === expectedName);
+  if (named.length > 1) {
+    return `Multiple Codex marketplaces use the reserved name ${expectedName}; resolve the duplicate configuration before installing HolyCodex.`;
+  }
+  if (
+    named[0] !== undefined &&
+    !isCanonicalHolyCodexMarketplaceSource(named[0].marketplaceSource)
+  ) {
+    const observed = named[0].marketplaceSource?.source ?? "an unknown source";
+    return `Codex marketplace ${expectedName} points to ${observed}, not the canonical HolyCodex source ${HOLYCODEX_MARKETPLACE_SOURCE}; resolve the conflict before installing.`;
+  }
+  const alias = entries.find(
+    (entry) =>
+      entry.name !== expectedName && isCanonicalHolyCodexMarketplaceSource(entry.marketplaceSource),
+  );
+  if (alias !== undefined) {
+    return `The canonical HolyCodex source is already registered as Codex marketplace ${alias.name}; resolve the noncanonical marketplace name before installing.`;
+  }
+  return undefined;
+}
+
+function isCanonicalHolyCodexMarketplaceSource(
+  source: MarketplaceListEntry["marketplaceSource"],
+): boolean {
+  return (
+    source?.sourceType === "git" &&
+    (source.source === HOLYCODEX_MARKETPLACE_SOURCE ||
+      source.source === "https://github.com/davidbasilefilho/holycodex.git" ||
+      source.source === "https://github.com/davidbasilefilho/holycodex")
   );
 }
 

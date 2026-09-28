@@ -29,8 +29,11 @@ const AssignmentInterruptionRecoveryInputSchema = Schema.Struct({
 
 /** Injectable streams and working directory for deterministic CLI execution. */
 export interface AgentIo {
+  /** Working directory used as the default repository path. */
   readonly cwd?: string;
+  /** Writes one complete response line to standard output. */
   readonly writeStdout: (text: string) => void;
+  /** Writes one complete error line to standard error. */
   readonly writeStderr: (text: string) => void;
 }
 

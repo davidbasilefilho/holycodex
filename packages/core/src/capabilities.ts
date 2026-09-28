@@ -2,6 +2,7 @@
 
 import * as Schema from "effect/Schema";
 
+/** Runtime schema validating capability name values at the receiving boundary. */
 export const CapabilityNameSchema = Schema.Literal(
   "browser_use",
   "computer_use",
@@ -9,20 +10,27 @@ export const CapabilityNameSchema = Schema.Literal(
   "security",
   "sites",
 );
+/** Type representing capability name in the core domain. */
 export type CapabilityName = typeof CapabilityNameSchema.Type;
 
+/** Runtime schema validating optional capability name values at the receiving boundary. */
 export const OptionalCapabilityNameSchema = Schema.Literal("browser_use", "computer_use", "sites");
+/** Type representing optional capability name in the core domain. */
 export type OptionalCapabilityName = typeof OptionalCapabilityNameSchema.Type;
 
+/** Runtime schema validating capability provider status values at the receiving boundary. */
 export const CapabilityProviderStatusSchema = Schema.Literal(
   "installed",
   "disabled",
   "missing",
   "uncertain",
 );
+/** Type representing capability provider status in the core domain. */
 export type CapabilityProviderStatus = typeof CapabilityProviderStatusSchema.Type;
 
+/** Runtime schema validating capability health values at the receiving boundary. */
 export const CapabilityHealthSchema = Schema.Literal("healthy", "missing", "disabled", "uncertain");
+/** Type representing capability health in the core domain. */
 export type CapabilityHealth = typeof CapabilityHealthSchema.Type;
 
 /**
@@ -36,6 +44,7 @@ export const OFFICIAL_OPENAI_CURATED_MARKETPLACE_NAMES = Object.freeze([
   "openai-curated",
   "openai-curated-remote",
 ] as const);
+/** Type representing official open ai curated marketplace name in the core domain. */
 export type OfficialOpenAiCuratedMarketplaceName =
   | (typeof OFFICIAL_OPENAI_CURATED_MARKETPLACE_NAMES)[number]
   | "openai-bundled";
@@ -45,15 +54,18 @@ export const OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES = Object.freeze([
   "build-web-apps",
   "codex-security",
 ] as const);
+/** Canonical official openai bundled plugin names used by core domain operations. */
 export const OFFICIAL_OPENAI_BUNDLED_PLUGIN_NAMES = Object.freeze([
   "browser",
   "computer-use",
   "sites",
 ] as const);
+/** Type representing official open ai curated plugin name in the core domain. */
 export type OfficialOpenAiCuratedPluginName =
   | (typeof OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES)[number]
   | (typeof OFFICIAL_OPENAI_BUNDLED_PLUGIN_NAMES)[number];
 
+/** Type representing official plugin identity in the core domain. */
 export type OfficialPluginIdentity = Readonly<{
   readonly pluginName: OfficialOpenAiCuratedPluginName;
   readonly marketplaceName: OfficialOpenAiCuratedMarketplaceName;
@@ -166,6 +178,7 @@ export type CapabilityDefaults = Readonly<{
   readonly security: true;
 }>;
 
+/** Canonical default capability selections used by core domain operations. */
 export const DEFAULT_CAPABILITY_SELECTIONS: CapabilityDefaults = Object.freeze({
   coding: true,
   computer_use: false,
@@ -175,6 +188,7 @@ export const DEFAULT_CAPABILITY_SELECTIONS: CapabilityDefaults = Object.freeze({
   security: true,
 });
 
+/** Type representing capability definition in the core domain. */
 export type CapabilityDefinition = Readonly<{
   readonly name: CapabilityName;
   readonly pluginIds: readonly string[];
@@ -268,20 +282,25 @@ const registry: Record<CapabilityName, CapabilityDefinition> = {
   },
 };
 
+/** Canonical capability registry used by core domain operations. */
 export const CAPABILITY_REGISTRY: Readonly<Record<CapabilityName, CapabilityDefinition>> =
   Object.freeze(registry);
 
+/** Canonical optional capability names used by core domain operations. */
 export const OPTIONAL_CAPABILITY_NAMES: readonly OptionalCapabilityName[] = Object.freeze([
   "browser_use",
   "computer_use",
   "sites",
 ]);
+/** Canonical required capability names used by core domain operations. */
 export const REQUIRED_CAPABILITY_NAMES = Object.freeze(["frontend", "security"] as const);
+/** Canonical required capability plugin ids used by core domain operations. */
 export const REQUIRED_CAPABILITY_PLUGIN_IDS = Object.freeze([
   ...CAPABILITY_REGISTRY.frontend.pluginIds,
   ...CAPABILITY_REGISTRY.security.pluginIds,
 ] as const);
 
+/** Type representing optional capability selections in the core domain. */
 export type OptionalCapabilitySelections = Readonly<{
   readonly browser_use: boolean;
   readonly computer_use: boolean;
@@ -294,10 +313,12 @@ export const CORE_SEMANTIC_SKILL_IDS = Object.freeze([
   "babysit-ci",
 ] as const);
 
+/** Type representing explicit optional capability selections in the core domain. */
 export type ExplicitOptionalCapabilitySelections = Readonly<
   Partial<Record<OptionalCapabilityName, boolean | undefined>>
 >;
 
+/** Canonical default optional capability selections used by core domain operations. */
 export const DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS: OptionalCapabilitySelections = Object.freeze({
   browser_use: DEFAULT_CAPABILITY_SELECTIONS.browser_use,
   computer_use: DEFAULT_CAPABILITY_SELECTIONS.computer_use,

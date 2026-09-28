@@ -32,6 +32,7 @@ const PublicManifestSchema = Schema.declare(
 );
 type PublicManifest = typeof PublicManifestSchema.Type;
 
+/** Public CLI value for public manifest path. */
 export const publicManifestPath = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "../package.json",
@@ -126,6 +127,7 @@ export function resolveVersion(target: string, current: string): string {
 
 /** Structured failure raised while reading or validating an install manifest. */
 export class ManifestError extends Error {
+  /** The code in public manifest. */
   readonly code: "manifest_invalid" | "version_invalid";
 
   constructor(code: "manifest_invalid" | "version_invalid", message: string) {

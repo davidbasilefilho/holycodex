@@ -6,9 +6,11 @@ import * as Schema from "effect/Schema";
 import { type CoreResult, CoreError, failure, inputError, success } from "./errors.ts";
 import { decodeUnknown } from "./schema.ts";
 
+/** Runtime schema validating identifier text values at the receiving boundary. */
 export const identifierTextSchema = Schema.String.pipe(
   Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u),
 );
+/** Runtime schema validating digest text values at the receiving boundary. */
 export const digestTextSchema = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u));
 
 const RunIdSchema = identifierTextSchema.pipe(Schema.brand("RunId"));
@@ -16,9 +18,13 @@ const ProjectIdSchema = identifierTextSchema.pipe(Schema.brand("ProjectId"));
 const TrustIdSchema = identifierTextSchema.pipe(Schema.brand("TrustId"));
 const Sha256DigestSchema = digestTextSchema.pipe(Schema.brand("Sha256Digest"));
 
+/** Type representing run id in the core domain. */
 export type RunId = typeof RunIdSchema.Type;
+/** Type representing project id in the core domain. */
 export type ProjectId = typeof ProjectIdSchema.Type;
+/** Type representing trust id in the core domain. */
 export type TrustId = typeof TrustIdSchema.Type;
+/** Type representing sha256 digest in the core domain. */
 export type Sha256Digest = typeof Sha256DigestSchema.Type;
 
 function createIdentifier<T extends string>(
@@ -59,29 +65,38 @@ export function createSha256Digest(value: unknown): CoreResult<Sha256Digest> {
   return success(parsed.right);
 }
 
+/** Runtime schema validating run identity input values at the receiving boundary. */
 export const RunIdentityInputSchema = Schema.Struct({
   run_id: identifierTextSchema,
   objective_lineage: identifierTextSchema,
   parent_run_id: Schema.optional(Schema.Union(identifierTextSchema, Schema.Null)),
 });
+/** Type representing run identity input in the core domain. */
 export type RunIdentityInput = typeof RunIdentityInputSchema.Type;
 
+/** Runtime schema validating trust identity input values at the receiving boundary. */
 export const TrustIdentityInputSchema = Schema.Struct({
   project_id: identifierTextSchema,
   trust_id: identifierTextSchema,
   trust_digest: digestTextSchema,
 });
+/** Type representing trust identity input in the core domain. */
 export type TrustIdentityInput = typeof TrustIdentityInputSchema.Type;
 
+/** Runtime schema validating project identity input values at the receiving boundary. */
 export const ProjectIdentityInputSchema = Schema.Struct({
   project_id: identifierTextSchema,
   project_digest: digestTextSchema,
 });
+/** Type representing project identity input in the core domain. */
 export type ProjectIdentityInput = typeof ProjectIdentityInputSchema.Type;
 
+/** Type representing identity record in the core domain. */
 export type IdentityRecord = RunIdentityInput | TrustIdentityInput | ProjectIdentityInput;
 
+/** Runtime schema validating schema epoch id values at the receiving boundary. */
 export const SchemaEpochIdSchema = Schema.String.pipe(Schema.pattern(/^state-[0-9]+\.[0-9]+$/u));
+/** Type representing schema epoch id in the core domain. */
 export type SchemaEpochId = typeof SchemaEpochIdSchema.Type;
 
 /** Decode an unknown value as one of the supported run, trust, or project identities. */

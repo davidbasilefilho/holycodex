@@ -10,6 +10,144 @@ import {
 } from "./index.ts";
 
 describe("official plugin identity resolution", () => {
+  const canonicalMarketplace = {
+    name: "holycodex",
+    root: "/codex/plugins/marketplaces/holycodex",
+    marketplaceSource: {
+      sourceType: "git",
+      source: "davidbasilefilho/holycodex",
+    },
+  } as const;
+
+  const marketplaceList = (marketplaces: readonly unknown[]) => ({
+    exitCode: 0,
+    stdout: JSON.stringify({ marketplaces }),
+    stderr: "",
+  });
+
+  test("adds and verifies the canonical marketplace on first install", async () => {
+    const commands: string[][] = [];
+    const adapter = createOfficialPluginAdapter({
+      executable: "codex",
+      runner: {
+        run: async (args) => {
+          commands.push([...args]);
+          if (args[2] === "list") {
+            return marketplaceList(
+              commands.filter((command) => command[2] === "add").length
+                ? [canonicalMarketplace]
+                : [],
+            );
+          }
+          return { exitCode: 0, stdout: "{}", stderr: "" };
+        },
+      },
+    });
+    await adapter.addMarketplace("davidbasilefilho/holycodex");
+    expect(commands).toEqual([
+      ["plugin", "marketplace", "list", "--json"],
+      ["plugin", "marketplace", "add", "davidbasilefilho/holycodex"],
+      ["plugin", "marketplace", "list", "--json"],
+    ]);
+  });
+
+  test("refreshes an existing canonical marketplace on every install", async () => {
+    const commands: string[][] = [];
+    const adapter = createOfficialPluginAdapter({
+      executable: "codex",
+      runner: {
+        run: async (args) => {
+          commands.push([...args]);
+          return args[2] === "list"
+            ? marketplaceList([canonicalMarketplace])
+            : { exitCode: 0, stdout: "{}", stderr: "" };
+        },
+      },
+    });
+    await adapter.addMarketplace("davidbasilefilho/holycodex");
+    await adapter.addMarketplace("davidbasilefilho/holycodex");
+    expect(commands.filter((command) => command[2] === "upgrade")).toEqual([
+      ["plugin", "marketplace", "upgrade", "holycodex"],
+      ["plugin", "marketplace", "upgrade", "holycodex"],
+    ]);
+    expect(commands.some((command) => command[2] === "add")).toBe(false);
+  });
+
+  test("rejects name and source conflicts before mutating Codex", async () => {
+    const existing = [
+      { ...canonicalMarketplace, marketplaceSource: { sourceType: "git", source: "someone/else" } },
+    ];
+    const commands: string[][] = [];
+    const adapter = createOfficialPluginAdapter({
+      executable: "codex",
+      runner: {
+        run: async (args) => {
+          commands.push([...args]);
+          return marketplaceList(existing);
+        },
+      },
+    });
+    await expect(adapter.addMarketplace("davidbasilefilho/holycodex")).rejects.toMatchObject({
+      code: "marketplace_invalid",
+      message: expect.stringContaining("holycodex"),
+    });
+    expect(commands).toEqual([["plugin", "marketplace", "list", "--json"]]);
+
+    const alias = createOfficialPluginAdapter({
+      executable: "codex",
+      runner: {
+        run: async () => marketplaceList([{ ...canonicalMarketplace, name: "holycodex-copy" }]),
+      },
+    });
+    await expect(alias.addMarketplace("davidbasilefilho/holycodex")).rejects.toMatchObject({
+      code: "marketplace_invalid",
+      message: expect.stringContaining("holycodex-copy"),
+    });
+  });
+
+  test("fails actionably on command failure and mismatched readback", async () => {
+    const failed = createOfficialPluginAdapter({
+      executable: "codex",
+      runner: {
+        run: async (args) =>
+          args[2] === "list"
+            ? marketplaceList([])
+            : { exitCode: 1, stdout: "", stderr: "network unavailable" },
+      },
+    });
+    await expect(failed.addMarketplace("davidbasilefilho/holycodex")).rejects.toMatchObject({
+      code: "command_failed",
+      message: expect.stringContaining("marketplace add"),
+    });
+
+    const failedRefresh = createOfficialPluginAdapter({
+      executable: "codex",
+      runner: {
+        run: async (args) =>
+          args[2] === "list"
+            ? marketplaceList([canonicalMarketplace])
+            : { exitCode: 1, stdout: "", stderr: "refresh unavailable" },
+      },
+    });
+    await expect(failedRefresh.addMarketplace("davidbasilefilho/holycodex")).rejects.toMatchObject({
+      code: "command_failed",
+      message: expect.stringContaining("marketplace upgrade"),
+    });
+
+    const mismatch = createOfficialPluginAdapter({
+      executable: "codex",
+      runner: {
+        run: async (args) => {
+          if (args[2] === "list") return marketplaceList([]);
+          return { exitCode: 0, stdout: "{}", stderr: "" };
+        },
+      },
+    });
+    await expect(mismatch.addMarketplace("davidbasilefilho/holycodex")).rejects.toMatchObject({
+      code: "readback_mismatch",
+    });
+  });
+
   test("resolves an enabled Codex remote provider to its canonical identity", () => {
     const resolved = resolveOfficialPluginEntry(
       {

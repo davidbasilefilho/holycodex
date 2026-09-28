@@ -96,6 +96,7 @@ import type {
 } from "./protocol";
 import type { AsyncLineTransport } from "./transport";
 
+/** Handles an App Server request and returns its JSON response. */
 export type ServerRequestHandler = (request: ServerRequest) => JsonValue | Promise<JsonValue>;
 
 interface PendingRequest {
@@ -110,11 +111,17 @@ interface ServerRequestWork {
   active: boolean;
 }
 
+/** Options for configuring app server client. */
 export interface AppServerClientOptions {
+  /** Maximum accepted JSON-RPC line size in bytes. */
   readonly maxLineBytes?: number;
+  /** Optional timeout for an App Server request, in milliseconds. */
   readonly requestTimeoutMs?: number;
+  /** Abort signal that closes the client. */
   readonly signal?: AbortSignal;
+  /** Optional callback invoked when the client receives a notification. */
   readonly onNotification?: (notification: CodexNotification) => void;
+  /** Optional callback for requests initiated by the App Server. */
   readonly onServerRequest?: ServerRequestHandler;
 }
 

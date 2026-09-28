@@ -21,17 +21,27 @@ import {
 
 const EXTERNAL_COMMAND_TIMEOUT_MS = 30_000;
 
+/** Data contract for codex executable identity. */
 export interface CodexExecutableIdentity {
+  /** Filesystem path associated with the value. */
   readonly path: string;
+  /** Version reported for the executable or plugin. */
   readonly version: string;
+  /** SHA-256 digest of the value. */
   readonly sha256: Sha256Digest;
 }
 
+/** Options for configuring codex executable discovery. */
 export interface CodexExecutableDiscoveryOptions {
+  /** Executable path in the codex executable discovery options contract. */
   readonly executablePath?: string;
+  /** Path value in the codex executable discovery options contract. */
   readonly pathValue?: string;
+  /** Working directory used to resolve relative paths. */
   readonly cwd?: string;
+  /** Environment variables passed to the process. */
   readonly environment?: Readonly<Record<string, string | undefined>>;
+  /** Version runner in the codex executable discovery options contract. */
   readonly versionRunner?: (
     path: string,
     environment: Readonly<Record<string, string>>,
@@ -157,9 +167,13 @@ export async function discoverCodexExecutable(
   return { path, version, sha256: await digestFile(path) };
 }
 
+/** Result returned by the command operation. */
 export interface CommandResult {
+  /** Exit code returned by the process. */
   readonly exitCode: number;
+  /** Standard output captured from the process. */
   readonly stdout: string;
+  /** Standard error captured from the process. */
   readonly stderr: string;
 }
 
@@ -169,12 +183,17 @@ const CommandResultSchema = Schema.Struct({
   stderr: Schema.String.pipe(Schema.maxLength(1024 * 1024)),
 });
 
+/** Provenance recorded for schema output. */
 export interface SchemaOutputProvenance {
+  /** Filesystem path associated with the value. */
   readonly path: string;
+  /** Value size in bytes. */
   readonly size: number;
+  /** SHA-256 digest of the value. */
   readonly sha256: Sha256Digest;
 }
 
+/** Type of command runner values. */
 export type CommandRunner = (
   executablePath: string,
   args: readonly string[],
@@ -250,19 +269,31 @@ async function waitForChild<T>(
   }
 }
 
+/** Options for configuring schema generation. */
 export interface SchemaGenerationOptions {
+  /** Executable in the schema generation options contract. */
   readonly executable: CodexExecutableIdentity;
+  /** Output directory in the schema generation options contract. */
   readonly outputDirectory: string;
+  /** Environment variables passed to the process. */
   readonly environment?: Readonly<Record<string, string | undefined>>;
+  /** Command runner in the schema generation options contract. */
   readonly commandRunner?: CommandRunner;
 }
 
+/** Provenance recorded for schema generation. */
 export interface SchemaGenerationProvenance {
+  /** Executable in the schema generation provenance contract. */
   readonly executable: CodexExecutableIdentity;
+  /** Protocol epoch in the schema generation provenance contract. */
   readonly protocol_epoch: typeof CODEX_PROTOCOL_EPOCH;
+  /** Output directory in the schema generation provenance contract. */
   readonly outputDirectory: string;
+  /** Commands in the schema generation provenance contract. */
   readonly commands: readonly (readonly string[])[];
+  /** Output digest in the schema generation provenance contract. */
   readonly output_digest: Sha256Digest;
+  /** Outputs in the schema generation provenance contract. */
   readonly outputs: readonly SchemaOutputProvenance[];
 }
 

@@ -22,11 +22,16 @@ const FreshCloneOptionsSchema = Schema.Struct({
   fixture: Schema.Boolean,
   network: Schema.Boolean,
 });
+/** Inputs controlling fixture, dry-run, or explicitly networked fresh-clone validation. */
 export type FreshCloneOptions = typeof FreshCloneOptionsSchema.Type;
 
+/** Outcome of a fresh-clone validation run. */
 export interface FreshCloneResult {
+  /** Execution mode used for the clone check. */
   readonly mode: "fixture" | "dry-run" | "network";
+  /** Requested ref, or null when fixture mode supplies its own ref. */
   readonly ref: string | null;
+  /** Whether repository validation ran or was skipped by the selected mode. */
   readonly validation: "skipped" | "passed";
 }
 

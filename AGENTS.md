@@ -15,7 +15,16 @@ Read HOLYCODEX_BIBLE.md.
 
 ## Coding guidelines
 
-- Use JSDoc for all exposed/public/exported functions and APIs
+- Exposed, public, or exported API surface requires useful JSDoc. Inspect the
+  existing enforcement first and extend only its gaps.
+- Skill descriptions use `situation -> what it does`, with the situation first.
+
+## Repository authority
+
+- `AGENTS.md` and `HOLYCODEX_BIBLE.md` may be modified only when modification
+  of that file is included in the user's original instruction or the user
+  later explicitly allows it. Do not infer authorization from broader
+  repository work.
 
 ## Repository architecture
 
@@ -32,8 +41,7 @@ Read HOLYCODEX_BIBLE.md.
 ## Repository checks and editing
 
 - The repository checks are `bun test`, `bun run check`, and `bun run validate`.
-- Preserve package ownership and dependency direction. Use JSDoc for exported
-  APIs.
+- Preserve package ownership and dependency direction.
 - Type-checking is done by `oxlint` and `oxlint-tsgolint` via lint and check package scripts. Do not use `tsc` for type checking.
 - Keep the lockfile deterministic. Normal semver dependencies follow the
   current major compatibility line; zerover dependencies stay on their

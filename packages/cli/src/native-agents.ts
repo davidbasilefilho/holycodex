@@ -29,6 +29,7 @@ import { assertNoSymlink, isFsCode, pathWithin } from "./paths.ts";
 import { writeAtomicText } from "./storage.ts";
 import type { ConflictResolver, ManagedArtifact, ManagedConflict } from "./types.ts";
 
+/** Public CLI type describing native agent projection. */
 export type NativeAgentProjection = Readonly<{
   name: NativeAgentType;
   taskInstruction: string;
@@ -39,8 +40,10 @@ export type NativeAgentProjection = Readonly<{
   permissions: ReturnType<typeof taskPermissionsFor>;
 }>;
 
+/** Public CLI type describing native agent sandbox mode. */
 export type NativeAgentSandboxMode = "read-only" | "workspace-write";
 
+/** Options controlling native agent instruction behavior. */
 export type NativeAgentInstructionOptions = Readonly<{
   /** Verified Git-for-Windows Bash executable. Omit on non-Windows hosts. */
   windowsGitBashExecutable?: string;
@@ -66,6 +69,7 @@ export type RootDeveloperInstructionOptions = NativeAgentInstructionOptions &
     rootModel?: RootAgentProjection["model"];
   }>;
 
+/** Public CLI type describing root agent projection. */
 export type RootAgentProjection = Readonly<{
   name: "root";
   description: string;
@@ -114,20 +118,31 @@ const REVIEW_VALIDATION_PHASE_BARRIER =
 
 const ROOT_EVENT_WAIT_INSTRUCTION = `Wait for specialist results with ${ROOT_ORCHESTRATION_POLICY.routineWaitTool} at timeout_ms=${ROOT_ORCHESTRATION_POLICY.routineWaitMaximumTimeoutMs}; repeat after an idle timeout. Do not poll status or send routine progress messages. Release specialist leaves after accepting their terminal outcomes.`;
 
+/** Public data contract for native agent install result used by CLI operations. */
 export interface NativeAgentInstallResult {
+  /** The managed artifacts in native agent install result. */
   readonly managed_artifacts: readonly ManagedArtifact[];
+  /** The preserved in native agent install result. */
   readonly preserved: readonly string[];
+  /** The rollback in native agent install result. */
   readonly rollback: readonly NativeAgentRollbackEntry[];
 }
 
+/** Public data contract for native agent rollback entry used by CLI operations. */
 export interface NativeAgentRollbackEntry {
+  /** The path in native agent rollback entry. */
   readonly path: string;
+  /** The previous in native agent rollback entry. */
   readonly previous: string | undefined;
+  /** The installed digest in native agent rollback entry. */
   readonly installedDigest: string | undefined;
 }
 
+/** Public data contract for native agent removal result used by CLI operations. */
 export interface NativeAgentRemovalResult {
+  /** The removed in native agent removal result. */
   readonly removed: readonly string[];
+  /** The preserved in native agent removal result. */
   readonly preserved: readonly string[];
 }
 
@@ -692,6 +707,10 @@ export function renderNativeAgent(
     "",
     "[features]",
     "multi_agent = false",
+    "multi_agent_v2 = false",
+    "agent_message_board = false",
+    "[features.context_management]",
+    "experimental_mode = true",
     "",
     ...(nativeAgentSandboxMode(agent) === "workspace-write"
       ? ["[sandbox_workspace_write]", "network_access = true"]
@@ -705,7 +724,7 @@ export function windowsGitBashShellDirective(executable?: string): string {
   if (executable === undefined || executable.trim().length === 0) {
     throw new Error("Git Bash executable is required.");
   }
-  return `On Windows, run all shell actions in the verified Git for Windows Bash environment at ${JSON.stringify(executable)}. If that environment is unavailable or inactive, stop and report the mismatch; never fall back to another shell.`;
+  return `On Windows, set the shell parameter to exactly ${JSON.stringify(executable)} for every shell command, including read-only commands; never rely on the default shell. Run all shell actions in the verified Git for Windows Bash environment there. If that environment is unavailable or inactive, stop and report the mismatch; never fall back to another shell.`;
 }
 
 /** Return the Codex sandbox mode for a concrete task, including proof-only writable tasks. */

@@ -1,6 +1,6 @@
 ---
 name: web-visualize
-description: Use when the user requests an interactive visualization or approves a proposed one.
+description: Use when the user requests or approves an interactive visualization; create a user-facing visual experience from the supplied material.
 ---
 
 Use ChatGPT Sites to create an interactive, user-facing visualization that

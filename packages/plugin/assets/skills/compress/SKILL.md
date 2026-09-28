@@ -1,6 +1,6 @@
 ---
 name: compress
-description: Use when assigned text must be shortened without changing its contract or voice.
+description: Use when assigned text must be shortened without changing its contract or voice; preserve meaning and constraints in a more concise version.
 ---
 
 Shorten only the assigned text. Preserve meaning, constraints, technical terms,

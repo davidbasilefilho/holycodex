@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 
 import { freezeDeep } from "./common.ts";
 
+/** Runtime schema validating approval policy action values at the receiving boundary. */
 export const ApprovalPolicyActionSchema = Schema.Literal(
   "local.repository.edit",
   "local.repository.check",
@@ -16,13 +17,16 @@ export const ApprovalPolicyActionSchema = Schema.Literal(
   "vcs.server.ci-trigger",
   "unknown.effect",
 );
+/** Type representing approval policy action in the core domain. */
 export type ApprovalPolicyAction = typeof ApprovalPolicyActionSchema.Type;
 
+/** Runtime schema validating approval policy entry values at the receiving boundary. */
 export const ApprovalPolicyEntrySchema = Schema.Struct({
   identifier: ApprovalPolicyActionSchema,
   label: Schema.String,
   requiresRootApproval: Schema.Boolean,
 });
+/** Type representing approval policy entry in the core domain. */
 export type ApprovalPolicyEntry = typeof ApprovalPolicyEntrySchema.Type;
 
 function approvalPolicyEntrySchema<const Identifier extends ApprovalPolicyAction>(
@@ -35,6 +39,7 @@ function approvalPolicyEntrySchema<const Identifier extends ApprovalPolicyAction
   });
 }
 
+/** Runtime schema validating approval policy values at the receiving boundary. */
 export const ApprovalPolicySchema = Schema.Struct({
   localRepositoryEdit: approvalPolicyEntrySchema("local.repository.edit"),
   localRepositoryCheck: approvalPolicyEntrySchema("local.repository.check"),
@@ -47,8 +52,10 @@ export const ApprovalPolicySchema = Schema.Struct({
   versionControlServerCiTrigger: approvalPolicyEntrySchema("vcs.server.ci-trigger"),
   unknownEffect: approvalPolicyEntrySchema("unknown.effect"),
 });
+/** Type representing approval policy in the core domain. */
 export type ApprovalPolicy = typeof ApprovalPolicySchema.Type;
 
+/** Canonical approval policy used by core domain operations. */
 export const APPROVAL_POLICY = {
   localRepositoryEdit: {
     identifier: "local.repository.edit",
@@ -104,7 +111,9 @@ export const APPROVAL_POLICY = {
 
 freezeDeep(APPROVAL_POLICY);
 
+/** Runtime schema validating approval mode values at the receiving boundary. */
 export const ApprovalModeSchema = Schema.Literal("never", "root");
+/** Type representing approval mode in the core domain. */
 export type ApprovalMode = typeof ApprovalModeSchema.Type;
 
 const policyEntries = Object.values(APPROVAL_POLICY);
@@ -142,6 +151,7 @@ function capitalize(value: string): string {
 const noRootApprovalEntries = policyEntries.filter((entry) => !entry.requiresRootApproval);
 const rootApprovalEntries = policyEntries.filter((entry) => entry.requiresRootApproval);
 
+/** Canonical approval policy guidance used by core domain operations. */
 export const APPROVAL_POLICY_GUIDANCE = Object.freeze({
   noRootApproval: `${capitalize(formatActionList(noRootApprovalEntries))} actions do not require Root approval.`,
   rootApproval: `${capitalize(formatActionList(rootApprovalEntries))} require Root approval.`,

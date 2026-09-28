@@ -17,10 +17,12 @@ import * as Schema from "effect/Schema";
 
 import { isJsonValue } from "./json.ts";
 
+/** Schema for json object values. */
 export const JsonObjectSchema = Schema.declare(
   (value: unknown): value is JsonObject =>
     typeof value === "object" && value !== null && !Array.isArray(value) && isJsonValue(value),
 );
+/** Schema for json value values. */
 export const JsonValueSchema = Schema.declare(isJsonValue);
 /** The persisted and detected package version, including a release suffix. */
 export const VersionSchema = ReleaseVersionSchema;
@@ -28,32 +30,40 @@ export const VersionSchema = ReleaseVersionSchema;
 const ToolVersionSchema = Schema.String.pipe(
   Schema.pattern(/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u),
 );
+/** Schema for digest values. */
 export const DigestSchema = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u));
+/** Schema for identifier values. */
 export const IdentifierSchema = Schema.String.pipe(
   Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u),
 );
+/** Schema for official plugin id values. */
 export const OfficialPluginIdSchema = Schema.String.pipe(
   Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$/u),
 );
+/** Schema for date text values. */
 export const DateTextSchema = Schema.String.pipe(
   Schema.filter((value) => !Number.isNaN(Date.parse(value))),
 );
+/** Schema for managed artifact values. */
 export const ManagedArtifactSchema = Schema.Struct({
   path: Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$/u)),
   digest: DigestSchema,
 });
 
+/** Schema for optional selections values. */
 export const OptionalSelectionsSchema = Schema.Struct({
   browser_use: Schema.Boolean,
   computer_use: Schema.Boolean,
   sites: Schema.Boolean,
   coding: Schema.Literal(true),
 });
+/** Schema for explicit optional selections values. */
 export const ExplicitOptionalSelectionsSchema = Schema.Struct({
   browser_use: Schema.optional(Schema.Boolean),
   computer_use: Schema.optional(Schema.Boolean),
   sites: Schema.optional(Schema.Boolean),
 });
+/** Schema for install request values. */
 export const InstallRequestSchema = Schema.Struct({
   profile: Schema.optional(ProfileNameSchema),
   tier: Schema.optional(ServiceTierSchema),
@@ -63,6 +73,9 @@ export const InstallRequestSchema = Schema.Struct({
 /** Canonical validated domain schema shared by CLI flags and the TTY wizard. */
 export const InstallOptionsSchema = InstallRequestSchema;
 
+/** A decision allowed by the managed conflict review boundary. */
+export const ConflictDecisionSchema = Schema.Literal("keep", "remove", "replace", "cancel");
+
 /** Schema for the small, user-owned install options file. */
 export const PersistedInstallOptionsSchema = Schema.Struct({
   schema_version: Schema.Literal(1),
@@ -71,6 +84,7 @@ export const PersistedInstallOptionsSchema = Schema.Struct({
   capabilities: Schema.Array(OptionalCapabilityNameSchema),
   additional_plugins: Schema.Array(OfficialPluginIdSchema),
 });
+/** Schema for persisted install options migration values. */
 export const PersistedInstallOptionsMigrationSchema = Schema.Struct({
   schema_version: Schema.Literal(1),
   profile: ProfileNameSchema,
@@ -79,6 +93,7 @@ export const PersistedInstallOptionsMigrationSchema = Schema.Struct({
   additional_plugins: Schema.Array(OfficialPluginIdSchema),
 });
 
+/** Schema for capability install state values. */
 export const CapabilityInstallStateSchema = Schema.Struct({
   selected: Schema.Boolean,
   status: Schema.Literal(
@@ -93,6 +108,7 @@ export const CapabilityInstallStateSchema = Schema.Struct({
   plugin_ids: Schema.Array(OfficialPluginIdSchema),
   reason: Schema.optional(Schema.String),
 });
+/** Schema for capability state record values. */
 export const CapabilityStateRecordSchema = Schema.Struct({
   browser_use: CapabilityInstallStateSchema,
   computer_use: CapabilityInstallStateSchema,
@@ -160,6 +176,7 @@ const Context7ToolStateSchema = Schema.Struct({
   ownership: Schema.Literal("user", "holycodex"),
   identity: Schema.optional(DigestSchema),
 });
+/** Schema for installer tooling state values. */
 export const InstallerToolingStateSchema = Schema.Struct({
   git_bash: GitBashStateSchema,
   context7: Schema.optional(Context7ToolStateSchema),
@@ -179,6 +196,7 @@ const PluginConfigEntrySnapshotSchema = Schema.Struct({
     ),
   ),
 });
+/** Schema for plugin config snapshot values. */
 export const PluginConfigSnapshotSchema = Schema.Struct({
   plugin_id: Schema.Literal("holycodex@holycodex"),
   before: Schema.Struct({
@@ -240,6 +258,7 @@ const InstallRecordFields = {
   owned_plugins: Schema.optional(Schema.Array(OfficialPluginIdSchema)),
   tooling: Schema.optional(InstallerToolingStateSchema),
 } as const;
+/** Schema for install record values. */
 export const InstallRecordSchema = Schema.Struct(InstallRecordFields);
 const LegacyInstallRecordBaseFields = (({ profile: _profile, ...fields }) => fields)(
   InstallRecordFields,
@@ -286,7 +305,9 @@ export const InstallRecordMigrationSchema = Schema.Union(
   }),
 );
 
+/** Schema for install transaction status values. */
 export const InstallTransactionStatusSchema = Schema.Literal("preparing", "conflicted");
+/** Schema for install transaction step values. */
 export const InstallTransactionStepSchema = Schema.Literal(
   "validated",
   "plugins_snapshotted",
@@ -296,6 +317,7 @@ export const InstallTransactionStepSchema = Schema.Literal(
   "verified",
   "conflicted",
 );
+/** Schema for install transaction values. */
 export const InstallTransactionSchema = Schema.Struct({
   ...InstallRecordSchema.fields,
   status: InstallTransactionStatusSchema,

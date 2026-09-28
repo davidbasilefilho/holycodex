@@ -23,8 +23,11 @@ import {
 } from "./routes.ts";
 import { decodeUnknown } from "./schema.ts";
 
+/** Canonical astra model id used by core domain operations. */
 export const ASTRA_MODEL_ID = "gpt-6-astra" as const;
+/** Canonical sol model id used by core domain operations. */
 export const SOL_MODEL_ID = "gpt-6-sol" as const;
+/** Canonical luna model id used by core domain operations. */
 export const LUNA_MODEL_ID = "gpt-6-luna" as const;
 
 /** Decode the canonical product profile selection used by routing. */
@@ -229,6 +232,7 @@ function validateCatalog(definitions: readonly ProfileDefinition[]): void {
 
 validateCatalog(profileDefinitions);
 freezeDeep(profileDefinitions);
+/** Canonical profile catalog used by core domain operations. */
 export const PROFILE_CATALOG: readonly ProfileDefinition[] = profileDefinitions;
 
 const profilesByName = new Map<ProfileName, ProfileDefinition>();

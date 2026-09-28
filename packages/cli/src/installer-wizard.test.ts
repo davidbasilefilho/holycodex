@@ -28,9 +28,12 @@ import {
   type ManagedConflict,
 } from "./index.ts";
 import {
+  applyConflictScreenKey,
   applyInstallReviewKey,
+  renderConflictScreen,
   renderInstallReview,
   runOpenTuiInstallReview,
+  stateFromConflicts,
   type InstallReviewScreenState,
 } from "./installer-wizard.ts";
 import type { InstallReview } from "./types.ts";
@@ -589,6 +592,54 @@ describe("public install wizard contract", () => {
     }
   });
 
+  test("shows only valid decisions and cycles through them without losing prior choices", () => {
+    const conflicts: ManagedConflict[] = [
+      {
+        identity: "invalid-provider",
+        category: "configuration",
+        target: "providers.local.command",
+        path: "config.toml",
+        action: "replace",
+        existing: "missing-executable",
+        desired: "bunx provider",
+        explanation: "The configured executable cannot be found.",
+        validDecisions: ["keep", "replace"],
+        defaultDecision: "keep",
+      },
+      {
+        identity: "conflicting-key",
+        category: "configuration",
+        target: "model",
+        path: "config.toml",
+        action: "replace",
+        existing: "user-model",
+        desired: "managed-model",
+        validDecisions: ["keep", "cancel"],
+        defaultDecision: "keep",
+      },
+    ];
+    const state = stateFromConflicts(conflicts, { "invalid-provider": "replace" });
+    expect(state.decisions).toEqual({ "invalid-provider": "replace", "conflicting-key": "keep" });
+
+    const rendered = renderConflictScreen(conflicts, state.decisions);
+    expect(rendered).toContain("providers.local.command");
+    expect(rendered).toContain("The configured executable cannot be found.");
+    expect(rendered).toContain("choices:  keep | replace");
+    expect(rendered).toContain("choices:  keep | cancel");
+    expect(rendered).not.toContain("choices:  keep | replace | cancel");
+
+    expect(applyConflictScreenKey(state, 1, { name: "right" })).toEqual({
+      cursor: 1,
+      action: "render",
+    });
+    expect(state.decisions["conflicting-key"]).toBe("cancel");
+    expect(applyConflictScreenKey(state, 1, { name: "left" })).toEqual({
+      cursor: 1,
+      action: "render",
+    });
+    expect(state.decisions["conflicting-key"]).toBe("keep");
+  });
+
   test("keeps final native review controls visible at 80 columns by 24 rows", async () => {
     const rendered: FakeContent[] = [];
     const renderer = fakeRenderer([
@@ -685,9 +736,9 @@ describe("generated Root orchestration policy", () => {
     expect(leaf).toContain("bounded Assignment");
     expect(leaf).toContain("Patch quality:");
     expect(leaf).toContain("correctly, elegantly, and mergeably");
-    expect(leaf).not.toContain("agent_message_board");
+    expect(leaf).toContain("agent_message_board = false");
     expect(leaf).not.toContain("thread_tools");
-    expect(leaf).not.toContain("multi_agent_v2");
+    expect(leaf).toContain("multi_agent_v2 = false");
     expect(leaf).not.toContain("Your model and reasoning effort");
     const interactiveLeaf = renderNativeAgent(
       projectNativeAgents("default").find((agent) => agent.name === "Worker.implementation")!,

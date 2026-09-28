@@ -8,20 +8,34 @@ import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
 
 import type { InstallerOptions, InstallerPaths } from "./types.ts";
 
+/** Public CLI value for state root name. */
 export const STATE_ROOT_NAME = "holycodex";
+/** Public CLI value for active record name. */
 export const ACTIVE_RECORD_NAME = "active.json";
+/** Public CLI value for preparing record name. */
 export const PREPARING_RECORD_NAME = "preparing.json";
+/** Public CLI value for conflicted record name. */
 export const CONFLICTED_RECORD_NAME = "conflicted.json";
+/** Public CLI value for install options name. */
 export const INSTALL_OPTIONS_NAME = "install.toml";
+/** Public CLI value for state schema. */
 export const STATE_SCHEMA = STATE_SCHEMA_EPOCH;
 
+/** Public data contract for resolved installer paths used by CLI operations. */
 export interface ResolvedInstallerPaths extends InstallerPaths {
+  /** The state root in resolved installer paths. */
   readonly stateRoot: string;
+  /** The active record in resolved installer paths. */
   readonly activeRecord: string;
+  /** The preparing record in resolved installer paths. */
   readonly preparingRecord: string;
+  /** The conflicted record in resolved installer paths. */
   readonly conflictedRecord: string;
+  /** The install options in resolved installer paths. */
   readonly installOptions: string;
+  /** The role root in resolved installer paths. */
   readonly roleRoot: string;
+  /** The config file in resolved installer paths. */
   readonly configFile: string;
 }
 
@@ -48,6 +62,7 @@ export function resolveInstallerPaths(
 
 /** Structured failure raised when a managed path violates boundary rules. */
 export class PathBoundaryError extends Error {
+  /** The code in resolved installer paths. */
   readonly code: "invalid_path" | "unsafe_root_alias" | "path_symlink" | "broad_path";
 
   constructor(

@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Use when a caller needs a redacted projection of current Intent state for resume or export.
+description: Use when current Intent state must be resumed or exported; produce a compact redacted status projection with evidence and next action.
 ---
 
 Produce one compact projection of current Intent, Plan, and Assignment status,

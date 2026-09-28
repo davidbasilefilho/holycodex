@@ -2,6 +2,7 @@
 
 import { freezeDeep, type SafeDetails } from "./common.ts";
 
+/** Type representing core error code in the core domain. */
 export type CoreErrorCode =
   | "catalog_invalid"
   | "crypto_unavailable"
@@ -14,7 +15,9 @@ export type CoreErrorCode =
 
 /** Structured failure raised by a core domain boundary. */
 export class CoreError extends Error {
+  /** Machine-readable error classification. */
   readonly code: CoreErrorCode;
+  /** Structured safe diagnostic context. */
   readonly details: SafeDetails;
 
   constructor(
@@ -32,6 +35,7 @@ export class CoreError extends Error {
   }
 }
 
+/** Type representing core result in the core domain. */
 export type CoreResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: CoreError };

@@ -16,13 +16,18 @@ export type {
   ServerRequest as GeneratedServerRequest,
 } from "../generated/typescript";
 
+/** Method names accepted by the generated client request union. */
 export type GeneratedClientRequestMethod = ClientRequest["method"];
+/** Method names accepted by the generated server request union. */
 export type GeneratedServerRequestMethod = ServerRequest["method"];
+/** Method names accepted by the generated server notification union. */
 export type GeneratedServerNotificationMethod = ServerNotification["method"];
+/** Method names accepted by the generated client notification union. */
 export type GeneratedClientNotificationMethod = ClientNotification["method"];
 
 // Keep this list deliberately narrow: each entry is a supported App Server seam and is
 // checked against the generated request union so a new or misspelled RPC cannot compile.
+/** App Server methods implemented by the HolyCodex client. */
 export const GENERATED_SUPPORTED_CLIENT_METHODS = [
   "initialize",
   "thread/start",
@@ -40,6 +45,7 @@ export const GENERATED_SUPPORTED_CLIENT_METHODS = [
   "permissionProfile/list",
 ] as const satisfies readonly GeneratedClientRequestMethod[];
 
+/** Server-initiated request methods recognized by the App Server adapter. */
 export const GENERATED_SERVER_REQUEST_METHODS = [
   "item/commandExecution/requestApproval",
   "item/fileChange/requestApproval",
@@ -53,6 +59,7 @@ export const GENERATED_SERVER_REQUEST_METHODS = [
   "execCommandApproval",
 ] as const satisfies readonly GeneratedServerRequestMethod[];
 
+/** Server request methods that require an approval response. */
 export const GENERATED_APPROVAL_REQUEST_METHODS = [
   "item/commandExecution/requestApproval",
   "item/fileChange/requestApproval",
@@ -60,22 +67,27 @@ export const GENERATED_APPROVAL_REQUEST_METHODS = [
   "execCommandApproval",
 ] as const satisfies readonly GeneratedServerRequestMethod[];
 
+/** Server request methods that require a permission response. */
 export const GENERATED_PERMISSION_REQUEST_METHODS = [
   "item/permissions/requestApproval",
 ] as const satisfies readonly GeneratedServerRequestMethod[];
 
+/** Server request methods that elicit information from the client. */
 export const GENERATED_ELICITATION_REQUEST_METHODS = [
   "mcpServer/elicitation/request",
 ] as const satisfies readonly GeneratedServerRequestMethod[];
 
+/** Server request methods that invoke a dynamic tool. */
 export const GENERATED_DYNAMIC_TOOL_REQUEST_METHODS = [
   "item/tool/call",
 ] as const satisfies readonly GeneratedServerRequestMethod[];
 
+/** Client notification sent after the App Server handshake completes. */
 export const GENERATED_INITIALIZED_NOTIFICATION = {
   method: "initialized",
 } satisfies ClientNotification;
 
+/** Method name of the notification emitted when a turn completes. */
 export const GENERATED_TURN_COMPLETED_NOTIFICATION_METHOD =
   "turn/completed" satisfies GeneratedServerNotificationMethod;
 
@@ -87,9 +99,11 @@ type GeneratedV2LifecycleRequest = Extract<
   ClientRequest,
   { method: `${string}agent${string}` | `${string}collab${string}` }
 >;
+/** Verification status for V2 lifecycle methods in generated client bindings. */
 export type GeneratedMultiAgentV2LifecycleStatus = GeneratedV2LifecycleRequest extends never
   ? "verified" | "unverified"
   : never;
+/** Current verification result for the generated V2 lifecycle surface. */
 export const GENERATED_MULTI_AGENT_V2_LIFECYCLE_STATUS: GeneratedMultiAgentV2LifecycleStatus =
   "unverified";
 

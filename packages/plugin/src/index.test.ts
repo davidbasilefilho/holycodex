@@ -75,11 +75,25 @@ describe("plugin source assets", () => {
     }
   });
 
+  test("discovers every shipped skill description and checks situation-first wording", async () => {
+    const source = await validateSource(pluginSourceRoot);
+    const skillPaths = source.files
+      .map((file) => file.path)
+      .filter((path) => /^skills\/[^/]+\/SKILL\.md$/u.test(path));
+
+    expect(skillPaths.length).toBeGreaterThan(0);
+    for (const path of skillPaths) {
+      const body = await readFile(join(pluginSourceRoot, path), "utf8");
+      const description = /^description: (.+)$/mu.exec(body)?.[1];
+      expect(description, path).toMatch(/^Use when .+; .+\.$/u);
+    }
+  });
+
   test("ships canonical instruction and CI workflows without the retired alias", async () => {
     const source = await validateSource(pluginSourceRoot);
     const paths = source.files.map((file) => file.path);
     expect(paths).toContain("skills/writing-instructions/SKILL.md");
-    expect(paths).toContain("skills/writing-instructions/SKILL-MECHANICS.md");
+    expect(paths).not.toContain("skills/writing-instructions/SKILL-MECHANICS.md");
     expect(paths).toContain("skills/writing-instructions/LICENSE");
     expect(paths).toContain("skills/babysit-ci/SKILL.md");
     expect(paths.some((path) => path.startsWith("skills/writing-for-agents/"))).toBe(false);

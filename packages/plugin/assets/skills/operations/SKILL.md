@@ -1,6 +1,6 @@
 ---
 name: operations
-description: Use for a Worker.operations exact-ref/SHA observation Assignment.
+description: Use when assigned a Worker.operations observation of an exact ref and SHA; verify terminal gates and report evidence or blockers.
 ---
 
 Load [babysit-ci](../babysit-ci/SKILL.md) before observing the supplied exact ref

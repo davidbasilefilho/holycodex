@@ -270,13 +270,14 @@ describe("Windows native-agent instructions", () => {
       });
 
       const configText = await readFile(join(codexHome, "config.toml"), "utf8");
-      expect(configText).not.toContain("agent_message_board");
       expect(configText).not.toContain("thread_tools");
       expect(configText).not.toContain("holycodex-readonly-network");
       const config = parseConfig(configText);
       const rootInstructions = config["developer_instructions"];
       expect(typeof rootInstructions).toBe("string");
       expect(rootInstructions).toContain(windowsGitBashShellDirective(verifiedPathBash));
+      expect(rootInstructions).toContain("set the shell parameter to exactly");
+      expect(rootInstructions).toContain("for every shell command, including read-only commands");
       expect(rootInstructions).not.toContain(JSON.stringify(WINDOWS_GIT_BASH));
 
       const transport = new ConfigReadTransport(config);
@@ -284,6 +285,13 @@ describe("Windows native-agent instructions", () => {
       await appServer.initialize();
       const readback = await appServer.readConfig();
       expect(readTomlPath(readback.config, "developer_instructions")).toBe(rootInstructions);
+      expect(readTomlPath(readback.config, "features.default_mode_request_user_input")).toBe(true);
+      expect(readTomlPath(readback.config, "features.multi_agent")).toBe(true);
+      expect(readTomlPath(readback.config, "features.multi_agent_v2")).toBe(false);
+      expect(readTomlPath(readback.config, "features.agent_message_board")).toBe(false);
+      expect(readTomlPath(readback.config, "features.context_management.experimental_mode")).toBe(
+        true,
+      );
       const instructionOptions = {
         windowsGitBashExecutable: verifiedPathBash,
         browserUse: installed.record.optional_selections.browser_use,
@@ -304,14 +312,22 @@ describe("Windows native-agent instructions", () => {
         }
         expect(roleText).not.toContain("default_permissions =");
         expect(roleText).not.toContain("[permissions.");
-        expect(roleText).not.toContain("agent_message_board");
         expect(roleText).not.toContain("thread_tools");
+        const roleDocument = parseConfig(roleText);
+        expect(readTomlPath(roleDocument, "features.multi_agent")).toBe(false);
+        expect(readTomlPath(roleDocument, "features.multi_agent_v2")).toBe(false);
+        expect(readTomlPath(roleDocument, "features.agent_message_board")).toBe(false);
+        expect(readTomlPath(roleDocument, "features.context_management.experimental_mode")).toBe(
+          true,
+        );
         const roleInstructions = parseConfig(roleText)["developer_instructions"];
         expect(typeof roleInstructions).toBe("string");
         expect(roleInstructions).toMatch(
           /Read-only Git\/VCS, CI, and PR-comment inspection is allowed when relevant and within the Assignment; Git\/VCS writes remain Root-only/iu,
         );
         expect(roleInstructions).toContain(windowsGitBashShellDirective(verifiedPathBash));
+        expect(roleInstructions).toContain("set the shell parameter to exactly");
+        expect(roleInstructions).toContain("for every shell command, including read-only commands");
         expect(roleInstructions).not.toContain(WINDOWS_GIT_BASH);
         expect(readTomlPath(readback.config, `agents."${agent.name}".config_file`)).toBe(roleRef);
       }

@@ -8,6 +8,18 @@ const FUNCTION_TYPES = new Set([
 ]);
 const CLASS_TYPES = new Set(["ClassDeclaration", "ClassExpression"]);
 const METHOD_TYPES = new Set(["MethodDefinition", "TSAbstractMethodDefinition"]);
+const CLASS_PROPERTY_TYPES = new Set([
+  "AccessorProperty",
+  "PropertyDefinition",
+  "TSAbstractPropertyDefinition",
+]);
+const TYPE_MEMBER_TYPES = new Set([
+  "TSCallSignatureDeclaration",
+  "TSConstructSignatureDeclaration",
+  "TSIndexSignature",
+  "TSMethodSignature",
+  "TSPropertySignature",
+]);
 
 function isFunction(node) {
   return node !== null && FUNCTION_TYPES.has(node.type);
@@ -37,9 +49,15 @@ function identifierName(node) {
 }
 
 function jsdocBefore(context, node) {
-  return context.sourceCode
-    .getCommentsBefore(node)
-    .some((comment) => comment.type === "Block" && comment.value.trimStart().startsWith("*"));
+  return context.sourceCode.getCommentsBefore(node).some((comment) => {
+    if (comment.type !== "Block" || !comment.value.trimStart().startsWith("*")) return false;
+    const description = comment.value
+      .replace(/^\s*\*/, "")
+      .replace(/^\s*\*\s?/gm, "")
+      .split("\n")
+      .some((line) => line.trim() !== "" && !line.trimStart().startsWith("@"));
+    return description;
+  });
 }
 
 function functionName(node, fallback = "<anonymous>") {
@@ -48,7 +66,11 @@ function functionName(node, fallback = "<anonymous>") {
 
 function propertyName(node) {
   const key = node.key;
-  return identifierName(key) ?? (typeof key?.value === "string" ? key.value : "<computed>");
+  return (
+    identifierName(key) ??
+    identifierName(node.id) ??
+    (typeof key?.value === "string" ? key.value : "<computed>")
+  );
 }
 
 function bindingName(node) {
@@ -65,6 +87,31 @@ function methodIsPublic(node) {
   );
 }
 
+function classMemberIsPublic(node) {
+  if (METHOD_TYPES.has(node.type)) return methodIsPublic(node);
+  return (
+    CLASS_PROPERTY_TYPES.has(node.type) &&
+    node.accessibility !== "private" &&
+    node.accessibility !== "protected" &&
+    node.key.type !== "PrivateIdentifier"
+  );
+}
+
+function exportedDeclarationKind(node) {
+  switch (node.type) {
+    case "TSInterfaceDeclaration":
+      return "interface";
+    case "TSTypeAliasDeclaration":
+      return "type alias";
+    case "TSEnumDeclaration":
+      return "enum";
+    case "TSModuleDeclaration":
+      return "module";
+    default:
+      return "declaration";
+  }
+}
+
 function addDeclarationBindings(bindings, declaration) {
   if (declaration === null) return;
   if (isFunction(declaration) || isClass(declaration)) {
@@ -76,6 +123,18 @@ function addDeclarationBindings(bindings, declaration) {
         target: declaration,
         classNode: isClass(declaration) ? declaration : null,
       });
+    }
+    return;
+  }
+  if (
+    declaration.type === "TSInterfaceDeclaration" ||
+    declaration.type === "TSTypeAliasDeclaration" ||
+    declaration.type === "TSEnumDeclaration" ||
+    declaration.type === "TSModuleDeclaration"
+  ) {
+    const name = bindingName(declaration.id);
+    if (name !== null) {
+      bindings.set(name, { kind: "declaration", docsNode: declaration, target: declaration });
     }
     return;
   }
@@ -97,6 +156,12 @@ function addDeclarationBindings(bindings, declaration) {
         docsNode: declaration,
         target: declarator,
         classNode: initializer,
+      });
+    } else {
+      bindings.set(name, {
+        kind: "declaration",
+        docsNode: declaration,
+        target: declarator,
       });
     }
   }
@@ -133,7 +198,9 @@ function buildBindings(program) {
 function createRule(context) {
   const checkedFunctions = new WeakSet();
   const checkedClasses = new WeakSet();
-  const checkedMethods = new WeakSet();
+  const checkedClassMembers = new WeakSet();
+  const checkedDeclarations = new WeakSet();
+  const checkedTypeMembers = new WeakSet();
   let bindings = new Map();
 
   function checkFunction(target, docsNode, name) {
@@ -161,13 +228,57 @@ function createRule(context) {
       });
     }
     for (const member of classNode.body.body) {
-      if (!methodIsPublic(member) || checkedMethods.has(member)) continue;
-      checkedMethods.add(member);
+      if (!classMemberIsPublic(member) || checkedClassMembers.has(member)) continue;
+      checkedClassMembers.add(member);
+      if (!jsdocBefore(context, member)) {
+        const memberKind = METHOD_TYPES.has(member.type) ? "method" : "property";
+        context.report({
+          node: member,
+          message: `Public ${memberKind} "${propertyName(member)}" must have a JSDoc comment.`,
+        });
+      }
+    }
+  }
+
+  function checkTypeMembers(members) {
+    for (const member of members ?? []) {
+      if (!TYPE_MEMBER_TYPES.has(member.type) || checkedTypeMembers.has(member)) continue;
+      checkedTypeMembers.add(member);
       if (!jsdocBefore(context, member)) {
         context.report({
           node: member,
-          message: `Public method "${propertyName(member)}" must have a JSDoc comment.`,
+          message: `Public type member "${propertyName(member)}" must have a JSDoc comment.`,
         });
+      }
+    }
+  }
+
+  function checkDeclaration(declaration, docsNode, name, kind = "declaration") {
+    if (declaration === null || checkedDeclarations.has(declaration)) return;
+    checkedDeclarations.add(declaration);
+    if (!jsdocBefore(context, docsNode)) {
+      context.report({
+        node: docsNode,
+        message: `Exported ${kind} "${name ?? "<anonymous>"}" must have a JSDoc comment.`,
+      });
+    }
+    if (declaration.type === "TSInterfaceDeclaration") {
+      checkTypeMembers(declaration.body.body);
+    } else if (
+      declaration.type === "TSTypeAliasDeclaration" &&
+      declaration.typeAnnotation?.type === "TSTypeLiteral"
+    ) {
+      checkTypeMembers(declaration.typeAnnotation.members);
+    } else if (declaration.type === "TSEnumDeclaration") {
+      for (const member of declaration.body.members) {
+        if (checkedTypeMembers.has(member)) continue;
+        checkedTypeMembers.add(member);
+        if (!jsdocBefore(context, member)) {
+          context.report({
+            node: member,
+            message: `Public enum member "${propertyName(member)}" must have a JSDoc comment.`,
+          });
+        }
       }
     }
   }
@@ -183,6 +294,8 @@ function createRule(context) {
         checkClass(initializer, exportNode, name);
       } else if (target?.kind === "class") {
         checkClass(target.classNode, exportNode, name);
+      } else if (target?.kind === "declaration") {
+        checkDeclaration(target.target, exportNode, name, "value");
       }
     }
   }
@@ -192,6 +305,18 @@ function createRule(context) {
       checkFunction(declaration, node, functionName(declaration));
     } else if (isClass(declaration)) {
       checkClass(declaration, node);
+    } else if (
+      declaration?.type === "TSInterfaceDeclaration" ||
+      declaration?.type === "TSTypeAliasDeclaration" ||
+      declaration?.type === "TSEnumDeclaration" ||
+      declaration?.type === "TSModuleDeclaration"
+    ) {
+      checkDeclaration(
+        declaration,
+        node,
+        identifierName(declaration.id),
+        exportedDeclarationKind(declaration),
+      );
     } else if (declaration?.type === "VariableDeclaration") {
       checkVariableDeclaration(node, declaration);
     }
@@ -203,6 +328,18 @@ function createRule(context) {
       checkFunction(declaration, node, functionName(declaration));
     } else if (isClass(declaration)) {
       checkClass(declaration, node);
+    } else if (
+      declaration?.type === "TSInterfaceDeclaration" ||
+      declaration?.type === "TSTypeAliasDeclaration" ||
+      declaration?.type === "TSEnumDeclaration" ||
+      declaration?.type === "TSModuleDeclaration"
+    ) {
+      checkDeclaration(
+        declaration,
+        node,
+        identifierName(declaration.id),
+        exportedDeclarationKind(declaration),
+      );
     } else {
       const name = identifierName(declaration);
       const binding = name === null ? undefined : bindings.get(name);
@@ -210,6 +347,8 @@ function createRule(context) {
         checkFunction(binding.target, binding.docsNode, name);
       } else if (binding?.kind === "class") {
         checkClass(binding.classNode, binding.docsNode, name);
+      } else if (binding?.kind === "declaration") {
+        checkDeclaration(binding.target, binding.docsNode, name, "declaration");
       }
     }
   }
@@ -231,6 +370,8 @@ function createRule(context) {
           checkFunction(binding.target, binding.docsNode, exportedName);
         } else if (binding?.kind === "class") {
           checkClass(binding.classNode, binding.docsNode, exportedName);
+        } else if (binding?.kind === "declaration") {
+          checkDeclaration(binding.target, binding.docsNode, exportedName, "declaration");
         }
       }
     }
@@ -262,7 +403,7 @@ export default {
         type: "problem",
         docs: {
           description:
-            "Require JSDoc comments on exported functions, classes, and public class methods.",
+            "Require descriptive JSDoc comments on exported declarations and their public members.",
         },
       },
       create: createRule,

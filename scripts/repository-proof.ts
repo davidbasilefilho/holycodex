@@ -48,9 +48,13 @@ const adapterInventoryPath = resolve(workspaceRoot, "tests/fixtures/effect-promi
 
 const authoredCodeExtensions = new Set([".ts", ".yml", ".yaml"]);
 
+/** Evidence collected by the repository architecture and generated-artifact checks. */
 export interface RepositoryProof {
+  /** Names of the repository invariants that passed. */
   readonly checks: readonly string[];
+  /** Digest identifying the generated Codex artifact set. */
   readonly generatedArtifactDigest: string;
+  /** Number of generated Codex artifact files covered by the digest. */
   readonly generatedArtifactFiles: number;
 }
 

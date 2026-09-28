@@ -11,9 +11,12 @@ import { isPlainObject, invalidData } from "./common";
  * manipulates validated values and never implements a TOML parser.
  */
 export type TomlValue = string | number | boolean | null | readonly TomlValue[] | TomlTable;
+/** TOML table whose values use the managed configuration value model. */
 export interface TomlTable {
+  /** <computed> in the toml table contract. */
   readonly [key: string]: TomlValue;
 }
+/** Parsed TOML document represented as a root table. */
 export type TomlDocument = TomlTable;
 
 function isTomlValue(value: unknown, seen = new Set<object>()): value is TomlValue {
@@ -34,9 +37,11 @@ function isTomlTable(value: unknown): value is TomlTable {
   return isPlainObject(value) && isTomlValue(value);
 }
 
+/** Validates toml value values at the Codex boundary. */
 export const TomlValueSchema = Schema.declare((value: unknown): value is TomlValue =>
   isTomlValue(value),
 );
+/** Validates toml document values at the Codex boundary. */
 export const TomlDocumentSchema = Schema.declare((value: unknown): value is TomlDocument =>
   isTomlTable(value),
 );
@@ -167,6 +172,7 @@ export function deleteTomlPath(document: TomlDocument, keyPath: string): TomlDoc
   return output;
 }
 
+/** Canonical root config key paths used by the Codex integration. */
 export const ROOT_CONFIG_KEY_PATHS = [
   "model",
   "model_reasoning_effort",
@@ -178,8 +184,12 @@ export const ROOT_CONFIG_KEY_PATHS = [
   "developer_instructions",
   "suppress_unstable_features_warning",
   "features.multi_agent",
+  "features.default_mode_request_user_input",
+  "features.multi_agent_v2",
+  "features.agent_message_board",
   "features.context_management.experimental_mode",
 ] as const;
+/** Type of root config key path values. */
 export type RootConfigKeyPath = (typeof ROOT_CONFIG_KEY_PATHS)[number];
 
 /**
@@ -188,28 +198,32 @@ export type RootConfigKeyPath = (typeof ROOT_CONFIG_KEY_PATHS)[number];
  */
 export const LEGACY_ROOT_CONFIG_KEY_PATHS = [
   "model_auto_compact_token_limit",
-  "features.default_mode_request_user_input",
-  "features.agent_message_board",
-  "features.multi_agent_v2",
   "features.context_management",
 ] as const;
+/** Type of legacy root config key path values. */
 export type LegacyRootConfigKeyPath = (typeof LEGACY_ROOT_CONFIG_KEY_PATHS)[number];
 
+/** Canonical holycodex agent types used by the Codex integration. */
 export const HOLYCODEX_AGENT_TYPES = NATIVE_AGENT_TYPES;
+/** Type of holy codex agent type values. */
 export type HolyCodexAgentType = NativeAgentType;
+/** Type of agent config key path values. */
 export type AgentConfigKeyPath = `agents."${HolyCodexAgentType}".config_file`;
 type LegacyAgentConfigKeyPath =
   | "agents.explorer.config_file"
   | "agents.librarian.config_file"
   | "agents.worker.config_file"
   | "agents.reviewer.config_file";
+/** Type of managed config key path values. */
 export type ManagedConfigKeyPath =
   | RootConfigKeyPath
   | AgentConfigKeyPath
   | LegacyAgentConfigKeyPath;
 
+/** Type of managed config state key path values. */
 export type ManagedConfigStateKeyPath = ManagedConfigKeyPath | LegacyRootConfigKeyPath;
 
+/** Validates managed config key path values at the Codex boundary. */
 export const ManagedConfigKeyPathSchema = Schema.declare(
   (value: unknown): value is ManagedConfigKeyPath => isManagedConfigKeyPath(value),
 );
@@ -247,44 +261,63 @@ type ManagedEnum =
   | "medium"
   | "high";
 
+/** Type of managed config safe value values. */
 export type ManagedConfigSafeValue =
   | { readonly kind: "enum"; readonly value: ManagedEnum }
   | { readonly kind: "number"; readonly value: number }
   | { readonly kind: "boolean"; readonly value: boolean }
   | { readonly kind: "relative_path"; readonly value: string }
   | { readonly kind: "digest"; readonly value: Sha256Digest };
+/** Type of managed config original value values. */
 export type ManagedConfigOriginalValue = ManagedConfigSafeValue | { readonly kind: "absent" };
 
+/** Validates managed config safe value values at the Codex boundary. */
 export const ManagedConfigSafeValueSchema = Schema.declare(
   (value: unknown): value is ManagedConfigSafeValue => isManagedConfigSafeValue(value),
 );
+/** Validates managed config original value values at the Codex boundary. */
 export const ManagedConfigOriginalValueSchema = Schema.declare(
   (value: unknown): value is ManagedConfigOriginalValue => isManagedConfigOriginalValue(value),
 );
 
+/** Ownership record for one managed runtime configuration key. */
 export interface ManagedRuntimeConfigEntry {
+  /** Installation identity that owns this entry. */
   readonly owner: "holycodex";
+  /** Version of the persisted ownership-state schema. */
   readonly schema: string;
+  /** Identifier of the HolyCodex installation that owns this entry. */
   readonly installId: string;
+  /** Configuration key path tracked by this entry. */
   readonly keyPath: ManagedConfigStateKeyPath;
+  /** Safe value captured before HolyCodex managed the key. */
   readonly originalValue: ManagedConfigOriginalValue;
+  /** Last value written by HolyCodex for this key. */
   readonly lastManagedValue: ManagedConfigSafeValue;
 }
 
+/** Versioned ownership state for managed runtime configuration entries. */
 export interface ManagedRuntimeConfigState {
+  /** Installation identity that owns this state. */
   readonly owner: "holycodex";
+  /** Version of the persisted ownership-state schema. */
   readonly schema: string;
+  /** Identifier of the HolyCodex installation that owns this state. */
   readonly installId: string;
+  /** Configuration entries currently owned by this installation. */
   readonly managed: Readonly<Record<string, ManagedRuntimeConfigEntry>>;
 }
 
+/** Validates managed runtime config entry values at the Codex boundary. */
 export const ManagedRuntimeConfigEntrySchema = Schema.declare(
   (value: unknown): value is ManagedRuntimeConfigEntry => isManagedRuntimeConfigEntry(value),
 );
+/** Validates managed runtime config state values at the Codex boundary. */
 export const ManagedRuntimeConfigStateSchema = Schema.declare(
   (value: unknown): value is ManagedRuntimeConfigState => isManagedRuntimeConfigState(value),
 );
 
+/** Scalar value that can be written to a managed TOML configuration key. */
 export type ManagedConfigWriteValue = string | number | boolean;
 
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
@@ -522,6 +555,9 @@ function configKeyKind(
   if (
     keyPath === "suppress_unstable_features_warning" ||
     keyPath === "features.multi_agent" ||
+    keyPath === "features.default_mode_request_user_input" ||
+    keyPath === "features.multi_agent_v2" ||
+    keyPath === "features.agent_message_board" ||
     keyPath === "features.context_management.experimental_mode" ||
     (LEGACY_ROOT_CONFIG_KEY_PATHS as readonly string[]).includes(keyPath as string) ||
     keyPath === "sandbox_workspace_write.network_access"
@@ -580,9 +616,13 @@ function safeValueToToml(value: ManagedConfigSafeValue): string | number | boole
   return undefined;
 }
 
+/** Updated document and ownership state plus keys that drifted during merge. */
 export interface ManagedRuntimeConfigMerge {
+  /** Parsed TOML document after applying managed values. */
   readonly document: TomlDocument;
+  /** Updated ownership state for the merged configuration. */
   readonly state: ManagedRuntimeConfigState;
+  /** Keys whose current values differ from the last managed values. */
   readonly driftedKeys: readonly ManagedConfigKeyPath[];
 }
 
@@ -663,11 +703,17 @@ export async function mergeManagedRuntimeConfig(
   return { document: output, state, driftedKeys };
 }
 
+/** Data contract for managed runtime config cleanup. */
 export interface ManagedRuntimeConfigCleanup {
+  /** Document in the managed runtime config cleanup contract. */
   readonly document: TomlDocument;
+  /** State in the managed runtime config cleanup contract. */
   readonly state: ManagedRuntimeConfigState;
+  /** Restored keys in the managed runtime config cleanup contract. */
   readonly restoredKeys: readonly ManagedConfigStateKeyPath[];
+  /** Preserved keys in the managed runtime config cleanup contract. */
   readonly preservedKeys: readonly ManagedConfigStateKeyPath[];
+  /** Unresolved keys in the managed runtime config cleanup contract. */
   readonly unresolvedKeys: readonly ManagedConfigStateKeyPath[];
 }
 
@@ -734,10 +780,15 @@ export async function cleanupManagedRuntimeConfig(
   };
 }
 
+/** Data contract for managed config drift. */
 export interface ManagedConfigDrift {
+  /** Key path in the managed config drift contract. */
   readonly keyPath: ManagedConfigKeyPath;
+  /** Current lifecycle status of the entity. */
   readonly status: "unmanaged" | "unchanged" | "drifted";
+  /** Current in the managed config drift contract. */
   readonly current?: ManagedConfigSafeValue;
+  /** Expected in the managed config drift contract. */
   readonly expected?: ManagedConfigSafeValue;
 }
 

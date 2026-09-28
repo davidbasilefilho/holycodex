@@ -127,6 +127,7 @@ async function assertSafeArtifactDirectory(path: string, label: string): Promise
   }
 }
 
+/** Paths permitted in the packed public npm package. */
 export const PUBLIC_PACKAGE_ENTRY_ALLOWLIST = [
   "package.json",
   "README.md",
@@ -141,6 +142,7 @@ export function assertPublicPackageEntries(entries: readonly string[]): void {
   assertAllowedArtifactEntries(entries, PUBLIC_PACKAGE_ENTRY_ALLOWLIST, "the public package");
 }
 
+/** Paths permitted in the CI build upload artifact. */
 export const BUILD_UPLOAD_ENTRY_ALLOWLIST = [
   "index.js",
   "agent.js",

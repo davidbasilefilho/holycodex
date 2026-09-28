@@ -795,6 +795,24 @@ describe("Codex identity, configuration, and plugins", () => {
     const runner = {
       run: async (args: readonly string[]) => {
         recorded.push([...args]);
+        if (args[1] === "marketplace") {
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify({
+              marketplaces: [
+                {
+                  name: "holycodex",
+                  root: "/codex/plugins/marketplaces/holycodex",
+                  marketplaceSource: {
+                    sourceType: "git",
+                    source: "davidbasilefilho/holycodex",
+                  },
+                },
+              ],
+            }),
+            stderr: "",
+          };
+        }
         if (args[1] === "add") {
           return { exitCode: 0, stdout: "{}", stderr: "" };
         }
@@ -817,9 +835,13 @@ describe("Codex identity, configuration, and plugins", () => {
     const adapter = createOfficialPluginAdapter({ executable: "codex", runner });
     await adapter.addMarketplace("davidbasilefilho/holycodex");
     await adapter.add("documents@openai-primary-runtime");
-    expect(recorded[0]).toEqual(["plugin", "marketplace", "add", "davidbasilefilho/holycodex"]);
-    expect(recorded[1]).toEqual(["plugin", "add", "documents@openai-primary-runtime", "--json"]);
-    expect(recorded[2]).toEqual(["plugin", "list", "--json"]);
+    expect(recorded).toEqual([
+      ["plugin", "marketplace", "list", "--json"],
+      ["plugin", "marketplace", "upgrade", "holycodex"],
+      ["plugin", "marketplace", "list", "--json"],
+      ["plugin", "add", "documents@openai-primary-runtime", "--json"],
+      ["plugin", "list", "--json"],
+    ]);
   });
 
   test("reports an installed-disabled provider as unavailable", async () => {

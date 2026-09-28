@@ -136,7 +136,9 @@ export async function assertRegularDirectory(path: string): Promise<void> {
 
 /** Structured failure raised while reading or writing managed state. */
 export class StorageError extends Error {
+  /** The code in public cli contract. */
   readonly code: "state_corrupt" | "storage_failure";
+  /** The cause value in public cli contract. */
   readonly causeValue: unknown;
 
   constructor(code: "state_corrupt" | "storage_failure", message: string, causeValue?: unknown) {
