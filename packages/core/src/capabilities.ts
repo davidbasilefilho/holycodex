@@ -191,6 +191,10 @@ export const DEFAULT_CAPABILITY_SELECTIONS: CapabilityDefaults = Object.freeze({
 /** Type representing capability definition in the core domain. */
 export type CapabilityDefinition = Readonly<{
   readonly name: CapabilityName;
+  /**
+   * Native plugins HolyCodex must manage for this capability; empty means the Codex surface owns
+   * it.
+   */
   readonly pluginIds: readonly string[];
   readonly defaultSelected: boolean;
   readonly migrationKey?: OptionalCapabilityName;
@@ -264,7 +268,9 @@ const registry: Record<CapabilityName, CapabilityDefinition> = {
   },
   browser_use: {
     name: "browser_use",
-    pluginIds: ["browser@openai-bundled"],
+    // Browser Use is provisioned by the Codex Desktop surface. The CLI must not
+    // install, configure, claim, or remove this host-managed integration.
+    pluginIds: [],
     defaultSelected: DEFAULT_CAPABILITY_SELECTIONS.browser_use,
     migrationKey: "browser_use",
     semanticSkillIds: [],
@@ -311,6 +317,8 @@ export type OptionalCapabilitySelections = Readonly<{
 export const CORE_SEMANTIC_SKILL_IDS = Object.freeze([
   "writing-instructions",
   "babysit-ci",
+  "dev-server",
+  "visual-loop",
 ] as const);
 
 /** Type representing explicit optional capability selections in the core domain. */
@@ -368,6 +376,8 @@ export function pluginIdsForOptionalCapabilities(
     }
   }
   for (const pluginId of additionalPluginIds) {
+    // This provider is a Codex Desktop integration, never a HolyCodex plugin.
+    if (pluginId === "browser@openai-bundled") continue;
     if (!seen.has(pluginId)) {
       seen.add(pluginId);
       ids.push(pluginId);

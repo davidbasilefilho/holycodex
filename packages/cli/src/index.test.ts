@@ -290,7 +290,7 @@ describe("CLI boundaries", () => {
     }
   });
 
-  test("treats an interactive remove decline as successful cancellation", async () => {
+  test("returns a nonzero cancelled result for an interactive remove decline", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-cancel-"));
     try {
       const result = await runCli(["remove", "--codex-home", root], {
@@ -301,7 +301,7 @@ describe("CLI boundaries", () => {
         },
         installer: { officialPluginManager: fakeManager() },
       });
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode).toBe(1);
       expect(result.envelope).toMatchObject({ ok: true, data: { cancelled: true } });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -460,7 +460,6 @@ describe("native installation and removal", () => {
         "holycodex@holycodex",
         "build-web-apps@openai-curated",
         "codex-security@openai-curated",
-        "browser@openai-bundled",
         "sites@openai-bundled",
       ]);
       expect(install.record.managed_artifacts).toHaveLength(projectNativeAgents("default").length);
@@ -480,7 +479,7 @@ describe("native installation and removal", () => {
         ),
       ).toContain('model_reasoning_summary = "none"');
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
-      expect(config).toContain('model = "gpt-6-sol"');
+      expect(config).toContain('model = "gpt-6.1-sol"');
       expect(config).not.toContain("model_auto_compact_token_limit");
       expect(config).toContain("max_concurrent_threads_per_session = 21");
       expect(config).toContain("multi_agent = true");
@@ -493,7 +492,7 @@ describe("native installation and removal", () => {
       expect(config).toContain('web_search = "live"');
       expect(config).toContain("network_access = true");
       expect(config).toContain("You are the HolyCodex Root/session orchestrator");
-      expect(config).toContain("Browser Use and Computer Use execution are specialist-owned");
+      expect(config).toContain("Delegate ordinary browser and computer execution");
       expect(config).not.toContain("delegate GUI");
       expect(config).not.toContain("Interactive GUI, browser, and Computer Use execution");
       for (const agent of projectNativeAgents("default")) {
@@ -596,7 +595,7 @@ describe("native installation and removal", () => {
       );
       expect(install.record.official_plugins).toContain("computer-use@openai-bundled");
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
-      expect(config).toContain("Browser Use and Computer Use execution are specialist-owned");
+      expect(config).toContain("Delegate ordinary browser and computer execution");
       for (const agent of projectNativeAgents("default")) {
         const leaf = await readFile(
           managedRolePath(codexHome, install.record.managed_artifacts, agent.name),
@@ -647,11 +646,7 @@ describe("native installation and removal", () => {
         {},
         { paths: { codexHome }, officialPluginManager: manager },
       );
-      expect(install.record.owned_plugins).toEqual([
-        "holycodex@holycodex",
-        "browser@openai-bundled",
-        "sites@openai-bundled",
-      ]);
+      expect(install.record.owned_plugins).toEqual(["holycodex@holycodex", "sites@openai-bundled"]);
       const removed = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
@@ -835,23 +830,18 @@ describe("native installation and removal", () => {
           officialPluginManager: manager,
         },
       );
-      expect(events).toHaveLength(3);
+      expect(events).toHaveLength(2);
       expect(events).toContain("add:holycodex@holycodex");
-      expect(events).toContain("add:browser@openai-bundled");
+      expect(events).not.toContain("add:browser@openai-bundled");
       expect(events).toContain("add:sites@openai-bundled");
       expect(install.record.official_plugins).toEqual(
         expect.arrayContaining([
           "build-web-apps@openai-curated",
           "codex-security@openai-curated",
-          "browser@openai-bundled",
           "sites@openai-bundled",
         ]),
       );
-      expect(install.record.owned_plugins).toEqual([
-        "holycodex@holycodex",
-        "browser@openai-bundled",
-        "sites@openai-bundled",
-      ]);
+      expect(install.record.owned_plugins).toEqual(["holycodex@holycodex", "sites@openai-bundled"]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1668,7 +1658,7 @@ describe("native installation and removal", () => {
       );
       let current = await readFile(config, "utf8");
       expect(current).toContain('external_plugin = "keep"');
-      expect(current).toContain('model = "gpt-6-sol"');
+      expect(current).toContain('model = "gpt-6.1-sol"');
 
       const reinstalled = await installHolyCodex(
         { tier: "fast-all" },
@@ -1957,7 +1947,7 @@ describe("native installation and removal", () => {
     }
   });
 
-  test("does not report removal complete when interrupted recovery preserves state", async () => {
+  test("keeps interrupted removal conflicts with actionable guidance during noninteractive retry", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-recovery-progress-"));
     const codexHome = join(root, "codex");
     const config = join(codexHome, "config.toml");
@@ -1967,7 +1957,7 @@ describe("native installation and removal", () => {
       await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager });
       await writeFile(
         config,
-        (await readFile(config, "utf8")).replace('model = "gpt-6-sol"', 'model = "user-model"'),
+        (await readFile(config, "utf8")).replace('model = "gpt-6.1-sol"', 'model = "user-model"'),
       );
       const declined = await removeHolyCodex({
         paths: { codexHome },
@@ -1983,12 +1973,14 @@ describe("native installation and removal", () => {
         installer: { officialPluginManager: manager, runtime: testRuntime(codexHome) },
         onProgress: (event) => progress.push(event.message),
       });
-      expect(recovery.exitCode).toBe(4);
+      expect(recovery.exitCode).toBe(1);
       expect(recovery.envelope).toMatchObject({
         ok: false,
-        error: { code: "state_corrupt" },
+        error: {
+          code: "confirmation_required",
+          message: expect.stringContaining("--yes cannot resolve user-owned configuration"),
+        },
       });
-      expect(progress).toContain("HolyCodex removal preserved state for review");
       expect(progress).not.toContain("HolyCodex removal complete");
       await expect(readFile(preservedState, "utf8")).resolves.toBe("keep this user file\n");
     } finally {
@@ -2465,7 +2457,7 @@ describe("native installation and removal", () => {
         staleRoutePath,
         (await readFile(staleRoutePath, "utf8")).replace(
           `model = "${expectedRoute.model}"`,
-          'model = "gpt-6-sol"',
+          'model = "gpt-6.1-sol"',
         ),
       );
       const staleRoute = await doctorHolyCodex({

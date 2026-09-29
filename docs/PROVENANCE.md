@@ -27,8 +27,13 @@ parity with an unadmitted source.
 | `P-03` | Local implementation and repository-native proof | Implemented behavior, generated plugin assets, and local validation evidence                 |
 | `D-01` | Authored contract decisions                      | New observable choices required for a coherent implementation; not historical facts          |
 
-The GPT-6 model guidance and supplied Provencher article are behavioral inputs
-for HolyCodex's GPT-6 instruction contracts. The historical Matt Pocock
+The official [model guidance](https://developers.openai.com/api/docs/guides/latest-model),
+[GPT-6.1 Sol model page](https://developers.openai.com/api/docs/models/gpt-6.1-sol),
+and [Provencher article](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra)
+were fetched on 2026-09-29 as the primary behavioral authority for this audit.
+The prompting guidance is family-wide and describes Astra observations; it is
+not evidence of measured GPT-6.1 behavior. Low/default Root routes use GPT-6.1 Sol
+with their existing efforts; Astra and Luna retain their distinct workload roles. The historical Matt Pocock
 `writing-for-agents` source remains attributed under its original name and
 license; its current local form was consulted only as a documentation-writing
 reference. It does not govern skills, `developer_instructions`, Root policy,
@@ -36,16 +41,16 @@ specialist contracts, Role.task instructions, or other model-facing behavior.
 
 ## Recorded identities
 
-| Identity                 | Recorded value                                                                                                               | Evidence       |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| Source baseline          | `682adea6d6cba374251152af612489126e9c64c1`                                                                                   | `P-01`         |
-| Frozen behavioral oracle | `eb796235f2f29f2c67c869408a0e22c1a72c13eb`                                                                                   | `P-01`         |
-| Public version           | `packages/cli/package.json` `version`, synchronized to the plugin manifest                                                   | `P-01`, `P-03` |
-| Bun                      | `1.4.x`, resolved by `mise` and the lockfile                                                                                 | `P-01`, `P-03` |
-| TypeScript               | `7.0.2`                                                                                                                      | `P-01`, `P-03` |
-| OXC tooling              | `oxfmt`/`oxlint` compatibility lines resolved by Bun lockfile                                                                | `P-01`, `P-03` |
-| Effect                   | `3.22.2` with `effect/Schema`                                                                                                | `P-01`, `P-03` |
-| Codex protocol artifact  | Stable Codex CLI resolved by the `mise.toml` `latest` channel; inventory and digest recorded by the generated artifact proof | `P-02`, `P-03` |
+| Identity                 | Recorded value                                                                                                                                | Evidence       |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| Source baseline          | `682adea6d6cba374251152af612489126e9c64c1`                                                                                                    | `P-01`         |
+| Frozen behavioral oracle | `eb796235f2f29f2c67c869408a0e22c1a72c13eb`                                                                                                    | `P-01`         |
+| Public version           | `packages/cli/package.json` `version`, synchronized to the plugin manifest                                                                    | `P-01`, `P-03` |
+| Bun                      | `1.4.2`, pinned by root `packageManager`; `mise.toml` selects the `1.4` compatibility line                                                    | `P-01`, `P-03` |
+| TypeScript               | `7.0.2`                                                                                                                                       | `P-01`, `P-03` |
+| OXC tooling              | `oxfmt`/`oxlint` compatibility lines resolved by Bun lockfile                                                                                 | `P-01`, `P-03` |
+| Effect                   | `3.22.2` with `effect/Schema`                                                                                                                 | `P-01`, `P-03` |
+| Codex protocol artifact  | Root-locked `@openai/codex` CLI and native executable; version, native digest, inventory, and generated digest recorded by the artifact proof | `P-03`         |
 
 The manifest, lockfile, generated assets, and version script are the
 repository-native identity checks. Release publication is configured through
@@ -65,8 +70,8 @@ Bun package build/pack, plugin asset integrity, dependency attribution,
 isolated installation/removal, and diff hygiene. Checked-in CI adds
 supported-platform proof. `Worker.operations` may observe a triggering origin
 change only from the exact ref and SHA; observation does not prove an external
-mutation. Root delegates every task and retains integration/completion
-authority.
+mutation. Root delegates execution unless explicitly directed otherwise and retains
+judgment, visual inspection, server management, and integration/completion authority.
 A passing `Reviewer.code` fixed point is required before completion or VCS.
 Remote CI/release evidence is delegated against the exact ref and SHA and
 must be terminal.

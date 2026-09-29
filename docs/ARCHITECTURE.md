@@ -78,12 +78,16 @@ ChatGPT Sites and Browser Use are optional and default on; Computer Use is
 optional and default off. Selected unsupported capabilities fail explicitly
 without substitution. Native subagents receive bounded Assignments; Root
 retains scope, policy, material choices, lifecycle, integration, VCS, and final
-judgment. Root delegates Browser Use and Computer Use through the applicable
-concrete `Role.task` and accepts terminal evidence. Tool availability grants
-no authority. The typed orchestration policy in `core` is machine-testable.
+judgment. Browser Use is provisioned by Codex Desktop and is not installed,
+configured, or removed by the CLI; its selection only enables conditional
+specialist guidance. Root delegates ordinary browser and computer execution,
+while retaining visual judgment and the shared background dev server through
+visual-loop and dev-server. Tool availability grants no authority. The typed
+orchestration policy in core is machine-testable.
 After implementation or a major codebase change, `Reviewer.code` must reach a
-fixed point before completion or any VCS operation. Root obtains required Plan
-approval and checks existing authorization before remote VCS mutations. It
+fixed point before completion or VCS writes. Relevant proof can run concurrently
+on non-conflicting scopes and is reused. There is no automatic planning workflow.
+Root checks existing authorization before remote VCS mutations. It
 requests input when authorization or material information is missing.
 
 Repo-local work state is separate from Codex-home installation state. The

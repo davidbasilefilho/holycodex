@@ -1,6 +1,6 @@
 interface:
   display_name: "Grill me"
   short_description: "Ask only material, dependency-ordered clarification questions."
-  default_prompt: "Open the material-choice clarification workflow for this invocation."
+  default_prompt: "Use $grill-me for this task."
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

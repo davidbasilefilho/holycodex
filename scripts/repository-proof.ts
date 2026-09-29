@@ -76,7 +76,21 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
 
   assert(rootManifest.packageManager === "bun@1.4.2", "root packageManager must resolve Bun 1.4.2");
   assert(mise.includes('bun = "1.4"'), "mise must select the Bun 1.4 line");
-  assert(mise.includes('node = "26"'), "mise must select the Node 26 line");
+  assert(!/\bnode\s*=|npm:@openai\/codex/u.test(mise), "mise must manage Bun only");
+  assert(
+    rootManifest.devDependencies?.["@openai/codex"] !== undefined,
+    "the root development dependencies must own Codex generation",
+  );
+  const codexRange = rootManifest.devDependencies["@openai/codex"]!;
+  const codexBaseVersion = /^~(0\.\d+\.\d+)$/u.exec(codexRange)?.[1];
+  const lockedCodexVersion =
+    /^    "@openai\/codex": \["@openai\/codex@([0-9]+\.[0-9]+\.[0-9]+)"/mu.exec(lockfile)?.[1];
+  assert(
+    codexBaseVersion !== undefined &&
+      lockedCodexVersion !== undefined &&
+      lockedCodexVersion.startsWith(`${codexBaseVersion.split(".").slice(0, 2).join(".")}.`),
+    "bun.lock must resolve the root-owned Codex dependency within its declared compatibility line",
+  );
   assert(
     rootManifest.scripts?.["validate"] === "bun scripts/validate.ts",
     "validate must be the repository gate",
@@ -113,7 +127,7 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
   );
   assert(
     behaviorContract.includes("gpt-6-astra") &&
-      behaviorContract.includes("gpt-6-sol") &&
+      behaviorContract.includes("gpt-6.1-sol") &&
       behaviorContract.includes("gpt-6-luna"),
     "behavior must record the canonical Astra/Luna routes",
   );
@@ -310,8 +324,10 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
         `${path} must gate publication jobs`,
       );
       assert(
-        workflow.includes("if: github.event_name != 'pull_request'"),
-        `${path} must keep publication jobs disabled for pull requests`,
+        workflow.includes(
+          "if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository",
+        ),
+        `${path} must restrict PR publication to same-repository heads`,
       );
       assert(
         workflow.includes("contents: write"),

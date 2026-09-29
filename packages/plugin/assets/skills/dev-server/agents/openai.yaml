@@ -1,0 +1,6 @@
+interface:
+  display_name: "Dev server"
+  short_description: "Root manages one shared background development server."
+  default_prompt: "Use $dev-server for this task."
+policy:
+  allow_implicit_invocation: false

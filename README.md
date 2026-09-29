@@ -39,7 +39,7 @@ while `plus-low`, `plus`, and `plus-high` migrate to `low`, `default`, and
 `high`. Removed `pro-5x` and `pro-20x` values remain migration-only and
 require an explicit replacement.
 
-Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; native specialists use `gpt-6-luna` with their per-task effort matrix.
+Root uses `gpt-6.1-sol` for low/default and `gpt-6-astra` for high; native specialists use `gpt-6-luna` with their per-task effort matrix.
 Those routing identities are separate from the GPT-6-family behavior required
 by live skills and generated instructions.
 
@@ -63,13 +63,12 @@ and Assignment state under `.holycodex/` using semantic operations; it has no
 TUI, prompts, or ANSI output. Handoff is only a redacted projection of that
 state, never a second record.
 
-Root delegates every delegable action through a bounded Assignment and native
-specialist before inspection or execution, including Browser Use and Computer
-Use when enabled and available. Root decides when those capabilities are
-needed and accepts terminal evidence; tool availability does not grant
-authority. Root owns user interaction, Intent, material decisions,
-orchestration, lifecycle, integration acceptance, completion, Git/VCS, and
-external-effect decisions. Independent Assignments can run in parallel;
+Root delegates execution through bounded Assignments unless explicitly directed
+otherwise. Root owns user interaction, Intent, material decisions, orchestration,
+lifecycle, integration acceptance, completion, visual judgment, the shared
+background dev server, Git/VCS writes, and external-effect decisions. Specialists
+own implementation and read-only VCS/CI observation. There is no automatic
+planning workflow; existing Plan state remains recoverable. Independent Assignments run in parallel;
 dependent work and shared write seams are serialized. Post-integration CI and
 release verification follow babysit-ci against the exact ref/SHA; pending is
 not success.
@@ -89,7 +88,7 @@ details.
 The native surface has one canonical leaf for every route: `Explorer.map`, `Explorer.lookup`,
 `Explorer.trace`, `Librarian.lookup`, `Librarian.research`,
 `Worker.mechanical`, `Worker.implementation`, `Worker.integration`,
-`Worker.operations`, `Worker.validation`, `Worker.debugging`, `Reviewer.plan`, `Reviewer.code`, and
+`Worker.operations`, `Worker.validation`, `Worker.debugging`, `Reviewer.code`, and
 `Reviewer.artifact`. Each has one TOML and one `config.toml` registration.
 Root is the parent Codex session configured in `config.toml`; HolyCodex never
 creates `agents/root.toml`.
@@ -98,8 +97,8 @@ For repository development, use the pinned toolchain:
 
 ```sh
 mise install
-mise exec -- bun install --frozen-lockfile
-mise exec -- bun run validate
+bun install --frozen-lockfile
+bun run validate
 ```
 
 Read the owning contracts for [architecture](docs/ARCHITECTURE.md),

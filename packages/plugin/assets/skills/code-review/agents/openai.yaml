@@ -1,6 +1,0 @@
-interface:
-  display_name: "Code review"
-  short_description: "Review one implementation result to a fixed point."
-  default_prompt: "Open the code review workflow for this invocation."
-policy:
-  allow_implicit_invocation: false

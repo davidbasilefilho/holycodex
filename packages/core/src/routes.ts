@@ -72,7 +72,7 @@ export const ForkTurnsSchema = Schema.Literal("none");
 /** Type representing fork turns in the core domain. */
 export type ForkTurns = typeof ForkTurnsSchema.Type;
 
-/** Canonical Root orchestration phases for one bounded Intent. */
+/** Canonical work phases; actual dependencies determine ordering for each scope. */
 export const ROOT_ORCHESTRATION_PHASE_ORDER = Object.freeze([
   "implementation",
   "review",
@@ -168,7 +168,7 @@ export const ROLE_DEFINITIONS = [
       {
         name: "operations",
         description: "Exact-ref or SHA terminal operations observer.",
-        instruction: `Observe the assigned CI or release gate for the Root-supplied exact ref or SHA until it reaches a terminal state; report the matching result and failure evidence. ${NO_SOURCE_MUTATION_RULE}`,
+        instruction: `Use babysit-ci to observe the assigned CI or release gate for the Root-supplied exact ref or SHA until terminal; report the matching result and failure evidence. ${NO_SOURCE_MUTATION_RULE}`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
@@ -197,12 +197,6 @@ export const ROLE_DEFINITIONS = [
   {
     role: "Reviewer",
     tasks: [
-      {
-        name: "plan",
-        description: "Adversarial implementation-plan review specialist.",
-        instruction: `Adversarially inspect the assigned implementation plan for missing requirements, invalid assumptions, unsafe ordering, unowned seams, and inadequate proof. Return actionable plan findings or a fixed-point verdict; do not implement the plan. ${NO_SOURCE_MUTATION_RULE}`,
-        permissions: { network: true, filesystem: "read-only", sourceMutation: false },
-      },
       {
         name: "code",
         description: "Adversarial implemented-code review specialist.",
@@ -444,7 +438,7 @@ export interface ProfileDefinition {
   readonly name: ProfileName;
   /** Root model and effort configuration. */
   readonly root: {
-    readonly model: "gpt-6-sol" | "gpt-6-astra";
+    readonly model: "gpt-6.1-sol" | "gpt-6-astra";
     readonly effort: Effort;
   };
   /** Specialist model recorded on this profile definition. */
@@ -478,6 +472,8 @@ export const ROOT_DIRECT_EXECUTION_EXCEPTIONS = Object.freeze([
   "completion",
   "git_vcs",
   "external_effects",
+  "visual_judgment",
+  "dev_server",
 ] as const);
 /** Runtime schema validating root direct execution exception values at the receiving boundary. */
 export const RootDirectExecutionExceptionSchema = Schema.Literal(
@@ -509,7 +505,7 @@ export type Context7EvidenceState = typeof Context7EvidenceStateSchema.Type;
 
 /** Canonical proportional proof rule for GPT-6-family instruction projections. */
 export const TESTING_POLICY = Object.freeze({
-  rule: "Use the smallest meaningful proof proportionate to changed behavior, scope, and risk, plus repository-required gates. Avoid redundant equivalent checks and speculative edge-case tests.",
+  rule: "Use the smallest meaningful proof proportionate to changed behavior, scope, and risk, plus repository-required gates. Reuse current evidence; broaden or repeat checks only after relevant changes, failures, or unresolved concerns. Avoid tests that mirror implementation for reversible low-impact changes.",
   avoidImplementationMirrorTestsForLowImpactReversibleChanges: true,
   broadenOrRepeatOnlyAfter: Object.freeze([
     "source_change",
@@ -600,10 +596,12 @@ export function context7RequiredForAssignment(input: Context7AssignmentSemantics
   );
 }
 
-/** Specialist-owned rendered acceptance loop for selected user-visible frontend work. */
+/** Root visual judgment and specialist implementation for user-visible visual work. */
 export const FRONTEND_WORKFLOW_POLICY = Object.freeze({
   repositoryAndUserRequirementsPrecedePluginDefaults: true,
-  specialistsOwnInspectionImplementationAndRenderedAcceptance: true,
+  specialistsOwnImplementationAndInteractionProof: true,
+  rootOwnsVisualJudgment: true,
+  rootOwnsSharedDevServer: true,
   rootAcceptsTerminalVisualEvidence: true,
   sourceChangesInvalidateRenderEvidence: true,
   specialistReportsIncludeObservableRenderedEvidence: true,
@@ -611,8 +609,7 @@ export const FRONTEND_WORKFLOW_POLICY = Object.freeze({
   fixedPoint: Object.freeze([
     "specialist_implements",
     "specialist_renders_and_interacts",
-    "specialist_judges_current_result",
-    "root_accepts_terminal_evidence",
+    "root_judges_current_render",
     "root_assigns_discrepancies",
     "specialist_repairs",
     "root_rerenders_and_retests",
@@ -622,6 +619,7 @@ export const FRONTEND_WORKFLOW_POLICY = Object.freeze({
 /** Credential boundary for browser and GUI work performed under a specialist Assignment. */
 export const CREDENTIAL_INTERACTION_POLICY = Object.freeze({
   interactiveCapabilitiesRemainSpecialistOwned: true,
+  rootMayInspectForVisualJudgment: true,
   credentialEntryAndSubmissionRemainUserOwned: true,
   specialistsMustNeverHandleCredentials: true,
   missingAuthorizedPathIsCapabilityBlocker: true,
@@ -643,6 +641,7 @@ export const SECURITY_WORKFLOW_POLICY = Object.freeze({
 /** Root orchestration contract; only Root-owned authorities permit direct execution. */
 export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   requiresDelegation: true,
+  explicitUserDirectExecutionOverridesDelegation: true,
   assignmentStartAndDispatchPrecedeDelegableExecution: true,
   trivialWorkRequiresDelegation: true,
   preparatoryAndExploratoryWorkRequiresDelegation: true,
@@ -671,18 +670,15 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   directExecutionExceptions: ROOT_DIRECT_EXECUTION_EXCEPTIONS,
   rootOwnedAuthority: ROOT_DIRECT_EXECUTION_EXCEPTIONS satisfies readonly RootOwnedAuthority[],
   requestUserInputGates: Object.freeze([
-    "plan_approval",
-    "installation_profile_approval",
-    "remote_origin_server_vcs_mutation",
-    "public_publication_or_release",
+    "missing_authorization_for_consequential_effect",
     "ambiguity_or_missing_material_input",
   ] as const),
   surgicalMutationRule: SURGICAL_MUTATION_RULE,
   phaseOrder: ROOT_ORCHESTRATION_PHASE_ORDER,
   phaseGates: Object.freeze({
-    implementationLeavesTerminalBeforeReviewerCode: true,
-    reviewerCodeFixedPointBeforeWorkerValidation: true,
-    workerValidationBeforeRootIntegration: true,
+    implementedScopeStableBeforeReview: true,
+    reviewerCodeAndWorkerValidationMayOverlapOnNonConflictingScopes: true,
+    currentValidationBeforeRootIntegration: true,
     rootIntegrationBeforeVcs: true,
   }),
   initialDispatch: Object.freeze({
@@ -719,6 +715,14 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   normalSpawnForkTurns: "none" as ForkTurns,
   normalSpawnRequiresExplicitForkTurns: true,
   normalSpawnUsesConcreteRegisteredAgentType: true,
+  /** Canonical Root boundary for semantic work-state operations and persisted TOON state. */
+  semanticStateBoundary:
+    "Use holycodex-agent semantic operations for Intent and Assignment state. Do not edit TOON state. Resume the current Intent or create one for new work; record verification, acceptance, and readiness, and complete only when holycodex-agent confirms every completion predicate. There is no HolyCodex planning workflow or automatic Plan approval gate; preserve existing Plan state when resuming work that uses it.",
+  /** Verify registered route configuration once per generation before dispatch. */
+  routeConfigurationBeforeDispatch:
+    "Use the active profile's registered Role.task configuration, including model, effort, tier, permissions, shell, and capabilities. Verify the registration once per configuration generation; recheck after configuration changes or when resuming an unverified thread. Pass fields required by the dispatch tool; registered settings need not be copied into Assignment prose. Never inherit Root settings, substitute a generic route, or override the selected route. Report a missing or incompatible route before dispatch.",
+  assignmentInvocationLifecycle:
+    "Before each specialist spawn, persist the bounded Assignment and call holycodex-agent assignment start. Keep the returned active_invocation_id and capability in Root; give the specialist only the bounded Assignment, never the capability. After a terminal report, record the result with that invocation ID and capability. Recover an interrupted invocation only after confirming it stopped, using the matching Root-held capability; never share that capability.",
   assignmentContextIsTaskSpecificOnly: true,
   configuredRouteModelAndEffortPreserved: true,
   /** Root user updates contain useful or important information only. */
@@ -803,6 +807,8 @@ export function rootExecutionState(exception?: RootDirectExecutionException): Ro
     case "completion":
     case "git_vcs":
     case "external_effects":
+    case "visual_judgment":
+    case "dev_server":
       return "root_direct";
     default:
       return "delegated";

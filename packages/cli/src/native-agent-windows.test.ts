@@ -1,6 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "bun:test";
+
+test("Root visual fallback includes only selected capabilities in priority order", () => {
+  for (const browserUse of [false, true]) {
+    for (const computerUse of [false, true]) {
+      const instruction = rootDeveloperInstructions({ browserUse, computerUse })
+        .split("\n")
+        .find((line) => line.startsWith("For Root visual judgment,"))!;
+      expect(instruction.includes("in-app browser (IAB)")).toBe(browserUse);
+      expect(instruction.includes("Computer Use")).toBe(computerUse);
+      expect(instruction).toContain("other available rendered evidence");
+      if (browserUse && computerUse) {
+        expect(instruction.indexOf("IAB")).toBeLessThan(instruction.indexOf("Computer Use"));
+      }
+    }
+  }
+});
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -446,43 +462,64 @@ describe("Windows native-agent instructions", () => {
     const lowRoot = projectRootAgent("low");
     const defaultRoot = projectRootAgent("default");
     expect(highRoot).toMatchObject({ model: "gpt-6-astra", effort: "high" });
-    expect(lowRoot).toMatchObject({ model: "gpt-6-sol", effort: "medium" });
-    expect(defaultRoot).toMatchObject({ model: "gpt-6-sol", effort: "high" });
+    expect(lowRoot).toMatchObject({ model: "gpt-6.1-sol", effort: "medium" });
+    expect(defaultRoot).toMatchObject({ model: "gpt-6.1-sol", effort: "high" });
     const sol = rootDeveloperInstructions({
       frontend: false,
       security: false,
       rootModel: defaultRoot.model,
+      windowsGitBashExecutable: WINDOWS_GIT_BASH,
     });
     const astra = rootDeveloperInstructions({
       frontend: false,
       security: false,
       rootModel: highRoot.model,
+      windowsGitBashExecutable: WINDOWS_GIT_BASH,
     });
     const lowSol = rootDeveloperInstructions({
       frontend: false,
       security: false,
       rootModel: lowRoot.model,
+      windowsGitBashExecutable: WINDOWS_GIT_BASH,
     });
     for (const instructions of [lowSol, sol, astra]) {
+      expect(instructions.startsWith(windowsGitBashShellDirective(WINDOWS_GIT_BASH))).toBe(true);
       expect(instructions).toContain('fork_turns: "none"');
       expect(instructions).toContain("Never perform delegable work yourself");
       expect(instructions).toContain("bounded Assignment");
-      expect(instructions).toContain(
-        "derive the exact Role.task target and complete configuration",
-      );
-      expect(instructions).toContain("Verify the registration resolves to its canonical role file");
-      expect(instructions).toContain("pass every supported configuration field explicitly");
-      expect(instructions).toContain("Recheck resumed threads");
-      expect(instructions).toContain("If the complete route cannot be verified and passed");
+      expect(instructions).toContain("registered Role.task configuration");
+      expect(instructions).toContain("Verify the registration once per configuration generation");
       expect(instructions).toContain("holycodex-agent semantic operations");
+      expect(instructions).toContain("Do not edit TOON state");
       expect(instructions).toContain("Reviewer.code fixed point");
       expect(instructions).toContain("Worker.validation");
       expect(instructions).toContain("collaboration.wait_agent");
+      expect(instructions).toContain("Check existing authorization before asking again");
+      expect(instructions).toContain(
+        "Before each specialist spawn, persist the bounded Assignment",
+      );
+      expect(instructions).toContain("Root uses visual-loop");
+      expect(instructions).toContain("use dev-server");
+      expect(instructions).toContain("Reuse worker proof");
+      expect(instructions).toContain("across workflow phases");
+      expect(instructions).toContain("user explicitly requests direct execution");
+      expect(instructions).toContain(
+        "complete only when holycodex-agent confirms every completion predicate",
+      );
     }
     expect(astra).toBe(sol);
 
-    const leaf = renderNativeAgent(projectNativeAgents("default")[0]!);
+    const leaf = renderNativeAgent(projectNativeAgents("default")[0]!, {
+      windowsGitBashExecutable: WINDOWS_GIT_BASH,
+    });
+    const leafInstructions = readTomlPath(parseConfig(leaf), "developer_instructions");
+    expect(
+      typeof leafInstructions === "string" &&
+        leafInstructions.startsWith(windowsGitBashShellDirective(WINDOWS_GIT_BASH)),
+    ).toBe(true);
     expect(leaf).toContain("Do not message Root or peers during execution");
     expect(leaf).toContain("Return only one compact, evidence-first terminal outcome");
+    expect(leaf).toContain("Do not recover an Assignment");
+    expect(leaf).toContain("mutate another Assignment's lifecycle");
   });
 });

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, mock, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,9 +16,13 @@ import {
   readActiveInstallRecord,
   removeHolyCodex,
   resolveInstallerPaths,
+  runCli,
+  upgradeHolyCodex,
+  validateInstallOptions,
 } from "./index.ts";
 import type {
   InstallRequest,
+  InstallRecord,
   InstallerRuntime,
   ManagedConflict,
   OfficialPluginManager,
@@ -222,7 +226,192 @@ async function installBaseline(codexHome: string, events: string[] = []) {
   return { manager, result, runtime };
 }
 
+function withBrowserListed(manager: OfficialPluginManager): OfficialPluginManager {
+  const list = manager.list;
+  if (list === undefined) throw new Error("The test plugin manager must implement list().");
+  return {
+    ...manager,
+    list: async () => {
+      const live = await list();
+      return {
+        ...live,
+        installed: [
+          ...live.installed,
+          { pluginId: "browser@openai-bundled", installed: true, enabled: true },
+        ],
+      };
+    },
+  };
+}
+
+function fakeConflictResolverModule(
+  keys: readonly { readonly name: string; readonly ctrl?: boolean }[],
+): Record<string, unknown> {
+  class FakeStyledText {
+    constructor(readonly chunks: readonly { readonly text: string }[]) {}
+  }
+  class FakeTextRenderable {
+    content: unknown;
+
+    constructor(_renderer: unknown, options: { readonly content: unknown }) {
+      this.content = options.content;
+    }
+  }
+
+  let keypress: ((key: { readonly name: string; readonly ctrl?: boolean }) => void) | undefined;
+  const renderer = {
+    root: { add: (_value: unknown): void => undefined },
+    keyInput: {
+      on: (_event: string, listener: typeof keypress): void => {
+        keypress = listener;
+      },
+      off: (): void => {
+        keypress = undefined;
+      },
+    },
+    requestRender: (): void => undefined,
+    start: (): void => {
+      for (const key of keys) keypress?.(key);
+    },
+    destroy: (): void => undefined,
+  };
+  const identityStyle =
+    () =>
+    (value: unknown): unknown =>
+      value;
+  return {
+    createCliRenderer: async () => renderer,
+    TextRenderable: FakeTextRenderable,
+    StyledText: FakeStyledText,
+    stringToStyledText: (text: string) => new FakeStyledText([{ text }]),
+    fg: identityStyle,
+    bold: identityStyle,
+  };
+}
+
+async function writeLegacyBrowserOwnership(
+  paths: TestPaths,
+  baseline: InstallRecord,
+): Promise<InstallRecord> {
+  const browserId = "browser@openai-bundled";
+  await writeTestConfigValue(paths, `plugins."${browserId}"`, { enabled: true });
+  const record = {
+    ...baseline,
+    version: "0.16.9-1" as const,
+    official_plugins: [...new Set([...(baseline.official_plugins ?? []), browserId])],
+    capability_state: {
+      ...baseline.capability_state!,
+      browser_use: {
+        ...baseline.capability_state!.browser_use,
+        plugin_ids: [browserId],
+      },
+    },
+    provider_config: [
+      ...(baseline.provider_config ?? []),
+      {
+        plugin_id: browserId,
+        before: { presence: "absent" as const, digest: "0".repeat(64) },
+        after: {
+          presence: "present" as const,
+          digest: "1".repeat(64),
+          safe_value: { kind: "boolean" as const, value: true },
+        },
+      },
+    ],
+    plugin_snapshot: [
+      ...(baseline.plugin_snapshot ?? []),
+      { plugin_id: browserId, status: "missing" as const },
+    ],
+    owned_plugins: [...new Set([...(baseline.owned_plugins ?? []), browserId])],
+  };
+  const saved: InstallRecord = {
+    ...record,
+    digest: await installRecordDigest({
+      owner: record.owner,
+      install_id: record.install_id,
+      version: record.version,
+      profile: record.profile,
+      tier: record.tier,
+      optional_selections: record.optional_selections,
+      explicit_optional_selections: record.explicit_optional_selections,
+      official_plugins: record.official_plugins ?? [],
+      capability_state: record.capability_state ?? null,
+      managed_artifacts: record.managed_artifacts,
+      managed_config: record.managed_config,
+      plugin_config: record.plugin_config,
+      provider_config: record.provider_config,
+      plugin_snapshot: record.plugin_snapshot,
+      owned_plugins: record.owned_plugins,
+      tooling: record.tooling,
+    }),
+  };
+  await writeFile(paths.activeRecord, `${JSON.stringify(saved)}\n`);
+  return saved;
+}
+
 describe("installer preflight", () => {
+  test("rejects explicit requests to install the Codex Desktop Browser provider", async () => {
+    expect(() => validateInstallOptions({ officialPlugins: ["browser@openai-bundled"] })).toThrow(
+      "Browser Use is provided by Codex Desktop/runtime and cannot be installed by the HolyCodex CLI.",
+    );
+    const events: string[] = [];
+    const result = await runCli(
+      ["install", "--yes", "--json", "--add-plugin", "browser@openai-bundled"],
+      { env: { PATH: "/fake/bin" }, installer: { officialPluginManager: testManager(events) } },
+    );
+    expect(result.envelope).toMatchObject({
+      ok: false,
+      error: {
+        code: "install_failed",
+        message: expect.stringContaining("Select the Browser Use capability instead"),
+        details: { plugin_id: "browser@openai-bundled" },
+      },
+    });
+    expect(events).toEqual([]);
+  });
+
+  test("treats inherited plugin config keys as absent during install preflight", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-inherited-plugin-keys-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const events: string[] = [];
+    const resolvedConflicts: ManagedConflict[][] = [];
+    let review: InstallReview | undefined;
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(paths.configFile, '[plugins]\n"toString" = { enabled = false }\n');
+      await expect(
+        installHolyCodex(
+          { ...request, officialPlugins: ["constructor", "toString", "prototype"] },
+          {
+            paths: { codexHome },
+            officialPluginManager: testManager(events),
+            runtime: testRuntime(codexHome),
+            resolveConflicts: async (conflicts) => {
+              resolvedConflicts.push([...conflicts]);
+              return Object.fromEntries(
+                conflicts.map((conflict) => [conflict.identity!, "replace"]),
+              );
+            },
+            reviewInstall: async (value) => {
+              review = value;
+              return { action: "cancel" };
+            },
+          },
+        ),
+      ).rejects.toMatchObject({ code: "confirmation_required" });
+
+      const pluginConfigConflicts = resolvedConflicts
+        .flat()
+        .filter((conflict) => conflict.category === "config-key");
+      expect(pluginConfigConflicts.map((conflict) => conflict.key)).toEqual(['plugins."toString"']);
+      expect(review?.conflicts.map((conflict) => conflict.key)).toEqual(['plugins."toString"']);
+      expect(events).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("surfaces malformed TOML with an exact location and a cancel-only conflict", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-invalid-config-"));
     const codexHome = join(root, "codex");
@@ -420,6 +609,173 @@ describe("installer preflight", () => {
     }
   }, 30_000);
 
+  test("fails before removal mutations when Codex plugin state cannot be read", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-remove-plugin-list-failure-"));
+    const codexHome = join(root, "codex");
+    const { manager, runtime, result } = await installBaseline(codexHome);
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const configBefore = await readFile(paths.configFile, "utf8");
+    const roleFilesBefore = await Promise.all(
+      result.record.managed_artifacts.map(({ path }) => readFile(join(codexHome, path), "utf8")),
+    );
+    try {
+      await expect(
+        removeHolyCodex({
+          paths: { codexHome },
+          officialPluginManager: {
+            ...manager,
+            list: async () => {
+              throw new Error("Codex plugin list unavailable");
+            },
+          },
+          runtime,
+          resolveConflict: async () => "accept",
+        }),
+      ).rejects.toMatchObject({
+        code: "capability_denied",
+        message: "Codex plugin state could not be read before removing HolyCodex-owned plugins.",
+        details: {
+          operation: "read Codex plugin state",
+          plugins: expect.stringContaining("holycodex@holycodex"),
+          recovery: "Repair or expose Codex, then retry removal.",
+        },
+        causeValue: expect.objectContaining({ message: "Codex plugin list unavailable" }),
+      });
+
+      expect(await readFile(paths.configFile, "utf8")).toBe(configBefore);
+      expect(
+        await Promise.all(
+          result.record.managed_artifacts.map(({ path }) =>
+            readFile(join(codexHome, path), "utf8"),
+          ),
+        ),
+      ).toEqual(roleFilesBefore);
+      expect(await readActiveInstallRecord(paths)).toEqual(result.record);
+      await expect(readFile(paths.conflictedRecord)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("repeated removal of absent state succeeds without invoking Codex or creating files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-remove-absent-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    let managerCalls = 0;
+    const manager: OfficialPluginManager = {
+      list: async () => {
+        managerCalls += 1;
+        return { installed: [], available: [] };
+      },
+      addMarketplace: async () => {
+        managerCalls += 1;
+      },
+      add: async () => {
+        managerCalls += 1;
+      },
+      remove: async () => {
+        managerCalls += 1;
+      },
+    };
+    try {
+      const options = { paths: { codexHome }, officialPluginManager: manager };
+      const first = await removeHolyCodex(options);
+      const second = await removeHolyCodex(options);
+
+      expect(first).toEqual({ removed: [], preserved: [], reasons: [] });
+      expect(second).toEqual({ removed: [], preserved: [], reasons: [] });
+      expect(managerCalls).toBe(0);
+      await expect(access(codexHome)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(access(paths.configFile)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(access(paths.stateRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps safe diagnostics for unexpected CLI errors", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-unexpected-cli-error-"));
+    const codexHome = join(root, "codex");
+    try {
+      const result = await runCli(["install", "--yes", "--json", "--codex-home", codexHome], {
+        env: { PATH: "/fake/bin" },
+        io: { stdoutIsTTY: false, stderrIsTTY: false },
+        installer: {
+          officialPluginManager: testManager(),
+          runtime: testRuntime(codexHome),
+          reviewInstall: async () => {
+            throw new Error("Bearer top-secret token=abc123 injected review renderer failure");
+          },
+        },
+      });
+
+      expect(result.envelope).toMatchObject({
+        ok: false,
+        command: "install",
+        error: {
+          code: "internal_error",
+          message: "The install command failed unexpectedly.",
+          details: {
+            operation: "install",
+            cause: "Error: Bearer [redacted] token=[redacted] injected review renderer failure",
+          },
+        },
+      });
+      expect(JSON.stringify(result.envelope)).not.toContain("top-secret");
+      expect(JSON.stringify(result.envelope)).not.toContain("abc123");
+      await expect(
+        readFile(resolveInstallerPaths({ paths: { codexHome } }).activeRecord),
+      ).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("includes sanitized cause and operation for classifiable CLI failures", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-classified-cli-error-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(paths.configFile, 'model = "gpt-5.6-terra"\n');
+      const result = await runCli(["install", "--yes", "--json", "--codex-home", codexHome], {
+        env: { PATH: "/fake/bin" },
+        io: { stdoutIsTTY: false, stderrIsTTY: false },
+        installer: {
+          officialPluginManager: testManager(),
+          runtime: testRuntime(codexHome),
+          resolveConflicts: async () => {
+            throw new InstallerError(
+              "capability_denied",
+              "Codex plugin review failed: Bearer top-secret token=abc123",
+              new Error("Bearer top-secret token=abc123 plugin list unavailable"),
+              { operation: "list Codex plugins", subject: "holycodex@holycodex" },
+            );
+          },
+        },
+      });
+
+      expect(result.envelope).toMatchObject({
+        ok: false,
+        error: {
+          code: "capability_denied",
+          message: "Codex plugin review failed: Bearer [redacted] token=[redacted]",
+          details: {
+            operation: "list Codex plugins",
+            subject: "holycodex@holycodex",
+            cause: "Error: Bearer [redacted] token=[redacted] plugin list unavailable",
+          },
+        },
+      });
+      expect(JSON.stringify(result.envelope)).not.toContain("top-secret");
+      expect(JSON.stringify(result.envelope)).not.toContain("abc123");
+      expect(await readFile(paths.configFile, "utf8")).toBe('model = "gpt-5.6-terra"\n');
+      await expect(readFile(paths.activeRecord)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("restores a reviewed non-table section when first-install plugin work fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-remove-invalid-rollback-"));
     const codexHome = join(root, "codex");
@@ -476,6 +832,235 @@ describe("installer preflight", () => {
     }
   });
 
+  test("resolves multiple removal conflicts through one batch review", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-remove-batch-conflicts-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const { manager, runtime } = await installBaseline(codexHome);
+    let batchCalls = 0;
+    let singularCalls = 0;
+    let reviewed: readonly ManagedConflict[] = [];
+    try {
+      await writeTestConfigValue(paths, "model", "gpt-5.6-terra");
+      await writeTestConfigValue(paths, "features.multi_agent_v2", true);
+      const result = await removeHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+        resolveConflict: async () => {
+          singularCalls += 1;
+          return "decline";
+        },
+        resolveConflicts: async (conflicts) => {
+          batchCalls += 1;
+          reviewed = conflicts;
+          return Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"]));
+        },
+      });
+
+      expect(batchCalls).toBe(1);
+      expect(singularCalls).toBe(0);
+      expect(reviewed.length).toBeGreaterThanOrEqual(2);
+      expect(new Set(reviewed.map((conflict) => conflict.identity)).size).toBe(reviewed.length);
+      expect(result.preserved).toContain(paths.configFile);
+      expect(result.reasons).toContain("managed_config_changed");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("returns a nonzero partial result when removal review keeps edited state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-remove-kept-exit-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const { manager, runtime } = await installBaseline(codexHome);
+    try {
+      await writeTestConfigValue(paths, "model", "gpt-5.6-terra");
+      const result = await runCli(["remove", "--codex-home", codexHome], {
+        env: { CODEX_HOME: codexHome, PATH: "/fake/bin" },
+        io: {
+          stdoutIsTTY: true,
+          stderrIsTTY: true,
+          confirm: async () => "confirmed",
+        },
+        installer: {
+          officialPluginManager: manager,
+          runtime,
+          resolveConflicts: async (conflicts) =>
+            Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"])),
+        },
+      });
+
+      expect(result.exitCode).toBe(4);
+      expect(result.envelope).toMatchObject({
+        ok: true,
+        command: "remove",
+        data: {
+          removed: [],
+          preserved: expect.arrayContaining([paths.configFile]),
+          reasons: expect.arrayContaining(["managed_config_changed"]),
+        },
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("routes live removal review choices, Back, and Cancel without false success", async () => {
+    const scenarios = [
+      { name: "keep", keys: [{ name: "enter" }], exitCode: 4 },
+      { name: "remove", keys: [{ name: "r" }, { name: "enter" }], exitCode: 0 },
+      { name: "back", keys: [{ name: "escape" }], exitCode: 4 },
+      { name: "cancel", keys: [{ name: "c", ctrl: true }], exitCode: 1 },
+    ] as const;
+
+    for (const scenario of scenarios) {
+      const root = await mkdtemp(
+        join(tmpdir(), `holycodex-preflight-remove-resolver-${scenario.name}-`),
+      );
+      const codexHome = join(root, "codex");
+      const paths = resolveInstallerPaths({ paths: { codexHome } });
+      const { manager, runtime, result: baseline } = await installBaseline(codexHome);
+      try {
+        await writeTestConfigValue(paths, "model", "gpt-5.6-terra");
+        await mock.module("@opentui/core", () => fakeConflictResolverModule(scenario.keys));
+        let result: Awaited<ReturnType<typeof runCli>>;
+        try {
+          result = await runCli(["remove", "--codex-home", codexHome], {
+            io: {
+              stdoutIsTTY: true,
+              stderrIsTTY: true,
+              confirm: async () => "confirmed",
+            },
+            installer: { officialPluginManager: manager, runtime },
+          });
+        } finally {
+          mock.restore();
+        }
+
+        expect(result.exitCode).toBe(scenario.exitCode);
+        if (scenario.name === "cancel") {
+          expect(result.envelope).toMatchObject({
+            ok: false,
+            command: "remove",
+            error: { code: "confirmation_required" },
+          });
+          expect(await readActiveInstallRecord(paths)).toEqual(baseline.record);
+          expect(parseConfig(await readFile(paths.configFile, "utf8"))["model"]).toBe(
+            "gpt-5.6-terra",
+          );
+        } else if (scenario.name === "remove") {
+          expect(result.envelope).toMatchObject({
+            ok: true,
+            command: "remove",
+            data: { preserved: [], reasons: [] },
+          });
+          expect(await readActiveInstallRecord(paths)).toBeUndefined();
+          expect(parseConfig(await readFile(paths.configFile, "utf8"))["model"]).not.toBe(
+            "gpt-5.6-terra",
+          );
+        } else {
+          expect(result.envelope).toMatchObject({
+            ok: true,
+            command: "remove",
+            data: {
+              removed: [],
+              preserved: expect.arrayContaining([paths.configFile]),
+              reasons: expect.arrayContaining(["managed_config_changed"]),
+            },
+          });
+          expect(await readActiveInstallRecord(paths)).toEqual(baseline.record);
+          expect(parseConfig(await readFile(paths.configFile, "utf8"))["model"]).toBe(
+            "gpt-5.6-terra",
+          );
+        }
+      } finally {
+        mock.restore();
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  }, 30_000);
+
+  test("refuses a removal choice when a reviewed config value changes before application", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-remove-config-race-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const events: string[] = [];
+    const { manager, runtime, result } = await installBaseline(codexHome, events);
+    try {
+      await writeTestConfigValue(paths, "model", "gpt-5.6-terra");
+      let reviewed: readonly ManagedConflict[] = [];
+      await expect(
+        removeHolyCodex({
+          paths: { codexHome },
+          officialPluginManager: manager,
+          runtime,
+          resolveConflicts: async (conflicts) => {
+            reviewed = conflicts;
+            await writeTestConfigValue(paths, "model", "gpt-5.6-sol");
+            return Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "remove"]));
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "confirmation_required",
+        message: expect.stringContaining("changed before removal"),
+        details: {
+          operation: "remove HolyCodex",
+          path: paths.configFile,
+          key: "model",
+          recovery: expect.stringContaining("Run remove again"),
+        },
+      });
+
+      expect(reviewed).toContainEqual(
+        expect.objectContaining({ key: "model", validDecisions: ["keep", "remove", "cancel"] }),
+      );
+      expect(parseConfig(await readFile(paths.configFile, "utf8"))["model"]).toBe("gpt-5.6-sol");
+      expect(events).not.toContain("remove:holycodex@holycodex");
+      expect(await readActiveInstallRecord(paths)).toEqual(result.record);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("preserves a native file edited after its removal decision was reviewed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-remove-native-race-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const events: string[] = [];
+    const { manager, runtime, result } = await installBaseline(codexHome, events);
+    const rolePath = await managedRolePath(codexHome, "Explorer.lookup");
+    try {
+      await writeFile(rolePath, "user edit present before review\n");
+      let reviewed: readonly ManagedConflict[] = [];
+      await expect(
+        removeHolyCodex({
+          paths: { codexHome },
+          officialPluginManager: manager,
+          runtime,
+          resolveConflicts: async (conflicts) => {
+            reviewed = conflicts;
+            await writeFile(rolePath, "new user edit after review\n");
+            return Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "remove"]));
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "confirmation_required",
+        message: expect.stringContaining("changed before removal"),
+        details: { operation: "remove HolyCodex", path: rolePath },
+      });
+
+      expect(reviewed).toContainEqual(
+        expect.objectContaining({ path: rolePath, action: "remove" }),
+      );
+      expect(await readFile(rolePath, "utf8")).toBe("new user edit after review\n");
+      expect(events).not.toContain("remove:holycodex@holycodex");
+      expect(await readActiveInstallRecord(paths)).toEqual(result.record);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("reviews and applies keep or replace for user-owned Codex settings on first install", async () => {
     for (const decision of ["keep", "replace"] as const) {
       const root = await mkdtemp(join(tmpdir(), `holycodex-preflight-first-install-${decision}-`));
@@ -525,7 +1110,7 @@ describe("installer preflight", () => {
           expect(document["model"]).toBe("gpt-5.6-terra");
           expect(result.record.managed_config?.managed["model"]).toBeUndefined();
         } else {
-          expect(document["model"]).toBe("gpt-6-sol");
+          expect(document["model"]).toBe("gpt-6.1-sol");
           expect(result.record.managed_config?.managed["model"]).toBeDefined();
         }
       } finally {
@@ -794,6 +1379,154 @@ describe("installer preflight", () => {
     }
   });
 
+  test("doctor describes Browser Use as surface-managed without failing health", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-browser-doctor-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const { result, runtime } = await installBaseline(codexHome);
+    const legacy = await writeLegacyBrowserOwnership(paths, result.record);
+    const requested: string[][] = [];
+    const manager: OfficialPluginManager = {
+      ...testManager(),
+      status: async (ids) => {
+        requested.push([...ids]);
+        return Object.fromEntries(ids.map((id) => [id, "installed" as const]));
+      },
+    };
+    try {
+      const doctor = await doctorHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+      });
+
+      expect(legacy.owned_plugins).toContain("browser@openai-bundled");
+      expect((await readActiveInstallRecord(paths))?.version).toBe(legacy.version);
+      expect(doctor.healthy).toBe(true);
+      expect(doctor.checks["browser_use"]).toMatchObject({
+        status: "unsupported",
+        reasons: ["surface_managed_by_codex_desktop"],
+        details: {
+          selected: true,
+          owner: "Codex Desktop/runtime",
+          cli_provisioning: "HolyCodex CLI does not install, configure, or verify Browser.",
+        },
+      });
+      expect(requested.flat()).not.toContain("browser@openai-bundled");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("upgrade ignores historical Browser ownership and preserves host config", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-browser-upgrade-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const events: string[] = [];
+    const { result, runtime } = await installBaseline(codexHome, events);
+    await writeLegacyBrowserOwnership(paths, result.record);
+    const manager = withBrowserListed(testManager(events));
+    try {
+      const dryRun = await upgradeHolyCodex(
+        { paths: { codexHome }, officialPluginManager: manager, runtime },
+        process.env,
+        { dryRun: true, options: { optional: { sites: false } } },
+      );
+      expect(dryRun.conflicts?.some((conflict) => conflict.key?.includes("browser@"))).toBe(false);
+
+      const upgraded = await upgradeHolyCodex(
+        { paths: { codexHome }, officialPluginManager: manager, runtime },
+        process.env,
+        { options: { optional: { sites: false } } },
+      );
+      expect(upgraded.status).toBe("upgraded");
+      expect(events).not.toContain("remove:browser@openai-bundled");
+      expect(upgraded.record?.owned_plugins).not.toContain("browser@openai-bundled");
+      expect(upgraded.record?.official_plugins).not.toContain("browser@openai-bundled");
+      expect(upgraded.record?.provider_config?.map((entry) => entry.plugin_id)).not.toContain(
+        "browser@openai-bundled",
+      );
+      expect(
+        readTestConfigEntry(
+          parseConfig(await readFile(paths.configFile, "utf8")),
+          "plugins",
+          "browser@openai-bundled",
+        ),
+      ).toEqual({ enabled: true });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("remove ignores historical Browser ownership and preserves host config", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-browser-remove-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const events: string[] = [];
+    const { result, runtime } = await installBaseline(codexHome, events);
+    await writeLegacyBrowserOwnership(paths, result.record);
+    const manager = withBrowserListed(testManager(events));
+    try {
+      const removed = await removeHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+      });
+
+      expect(removed.reasons).toEqual([]);
+      expect(events).not.toContain("remove:browser@openai-bundled");
+      expect(
+        readTestConfigEntry(
+          parseConfig(await readFile(paths.configFile, "utf8")),
+          "plugins",
+          "browser@openai-bundled",
+        ),
+      ).toEqual({ enabled: true });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("creates a fresh Codex config only after review and before marketplace setup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-fresh-config-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const events: string[] = [];
+    const delegate = testManager(events);
+    const manager: OfficialPluginManager = {
+      ...delegate,
+      addMarketplace: async (source) => {
+        const config = await readFile(paths.configFile, "utf8").catch(() => undefined);
+        if (config === undefined) {
+          throw new Error("config.toml is missing before Codex marketplace setup");
+        }
+        if (config !== "") {
+          throw new Error("the temporary Codex config changed before marketplace setup");
+        }
+        await delegate.addMarketplace?.(source);
+      },
+    };
+    let configDuringReview: string | undefined;
+    try {
+      const result = await installHolyCodex(request, {
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime: testRuntime(codexHome),
+        reviewInstall: async () => {
+          configDuringReview = await readFile(paths.configFile, "utf8").catch(() => undefined);
+          return { action: "apply" };
+        },
+      });
+
+      expect(configDuringReview).toBeUndefined();
+      expect(await readFile(paths.configFile, "utf8")).toContain('model = "gpt-6.1-sol"');
+      expect(result.record.capability_state?.browser_use.selected).toBe(true);
+      expect(events.some((event) => event === "add:browser@openai-bundled")).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("warns Windows users to install Git for Bash during preflight review", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-windows-git-bash-"));
     const codexHome = join(root, "codex");
@@ -834,7 +1567,7 @@ describe("installer preflight", () => {
       await writeFile(
         paths.configFile,
         (await readFile(paths.configFile, "utf8"))
-          .replace('model = "gpt-6-sol"', 'model = "gpt-5.6-terra"')
+          .replace('model = "gpt-6.1-sol"', 'model = "gpt-5.6-terra"')
           .replace("experimental_mode = true", "experimental_mode = false"),
       );
       const rolePath = await managedRolePath(codexHome, "Worker.implementation");
@@ -889,7 +1622,7 @@ describe("installer preflight", () => {
       await writeFile(
         paths.configFile,
         (await readFile(paths.configFile, "utf8"))
-          .replace('model = "gpt-6-sol"', 'model = "gpt-5.6-terra"')
+          .replace('model = "gpt-6.1-sol"', 'model = "gpt-5.6-terra"')
           .replace("experimental_mode = true", 'experimental_mode = false\nunrelated = "keep"'),
       );
       const rolePath = await managedRolePath(codexHome, "Worker.implementation");
@@ -1284,6 +2017,93 @@ describe("installer preflight", () => {
       });
       expect(retry.record.status).toBe("active");
       expect(await readActiveInstallRecord(paths)).toEqual(retry.record);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("recovery batches multiple conflicts and stops before mutations when one is kept", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-preflight-recovery-batch-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const events: string[] = [];
+    const { manager, runtime, result } = await installBaseline(codexHome, events);
+    const configBeforeRetry = await readFile(paths.configFile, "utf8");
+    try {
+      await writeTestConfigValue(paths, "model", "gpt-5.6-terra");
+      await writeTestConfigValue(paths, "features.multi_agent_v2", true);
+      const conflictedConfig = await readFile(paths.configFile, "utf8");
+      await writeFile(
+        paths.conflictedRecord,
+        `${JSON.stringify({ ...result.record, status: "conflicted", step: "conflicted" })}\n`,
+      );
+      const eventsBeforeRetry = [...events];
+      let preserveReviewCalls = 0;
+      let preserveLegacyCalls = 0;
+      let preserveInventory: readonly ManagedConflict[] = [];
+
+      await expect(
+        installHolyCodex(request, {
+          paths: { codexHome },
+          officialPluginManager: manager,
+          runtime,
+          resolveConflict: async () => {
+            preserveLegacyCalls += 1;
+            return "accept";
+          },
+          resolveConflicts: async (conflicts) => {
+            preserveReviewCalls += 1;
+            preserveInventory = conflicts;
+            return Object.fromEntries(
+              conflicts.map((conflict) => [
+                conflict.identity!,
+                conflict.key === "model" ? "keep" : "remove",
+              ]),
+            );
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "state_corrupt",
+        message: expect.stringContaining("could not be reconciled safely"),
+      });
+
+      expect(preserveReviewCalls).toBe(1);
+      expect(preserveLegacyCalls).toBe(0);
+      expect(preserveInventory.length).toBeGreaterThanOrEqual(2);
+      expect(preserveInventory.map((conflict) => conflict.key)).toEqual(
+        expect.arrayContaining(["model", "features.multi_agent_v2"]),
+      );
+      expect(events).toEqual(eventsBeforeRetry);
+      expect(await readFile(paths.configFile, "utf8")).toBe(conflictedConfig);
+      expect(await readFile(paths.configFile, "utf8")).not.toBe(configBeforeRetry);
+      expect(await readActiveInstallRecord(paths)).toEqual(result.record);
+      await expect(readFile(paths.conflictedRecord)).resolves.toBeTruthy();
+
+      let replaceReviewCalls = 0;
+      let replaceLegacyCalls = 0;
+      let replaceInventory: readonly ManagedConflict[] = [];
+      const retried = await installHolyCodex(request, {
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime,
+        resolveConflict: async () => {
+          replaceLegacyCalls += 1;
+          return "accept";
+        },
+        resolveConflicts: async (conflicts) => {
+          replaceReviewCalls += 1;
+          replaceInventory = conflicts;
+          return Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "remove"]));
+        },
+      });
+
+      expect(replaceReviewCalls).toBe(1);
+      expect(replaceLegacyCalls).toBe(0);
+      expect(replaceInventory.length).toBeGreaterThanOrEqual(2);
+      expect(retried.record.status).toBe("active");
+      const resolvedConfig = parseConfig(await readFile(paths.configFile, "utf8"));
+      expect(resolvedConfig["model"]).toBe("gpt-6.1-sol");
+      expect(readTestTomlTable(resolvedConfig["features"])["multi_agent_v2"]).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -2,6 +2,9 @@
 
 import { describe, expect, test } from "bun:test";
 
+import * as Schema from "effect/Schema";
+
+import { OfficialPluginIdSchema } from "./official-plugins";
 import {
   cleanupManagedRuntimeConfig,
   compareManagedConfigKey,
@@ -21,7 +24,7 @@ const metadata = { schema: "state-0.16", installId: "install-1" } as const;
 describe("typed runtime configuration", () => {
   test("merges managed dotted keys while retaining unrelated TOML tables", async () => {
     const document = {
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
       unrelated: "preserve",
       features: { unrelated_feature: true },
     } as const;
@@ -42,7 +45,7 @@ describe("typed runtime configuration", () => {
     });
     expect(merged.state.managed["model"]?.originalValue).toEqual({
       kind: "enum",
-      value: "gpt-6-sol",
+      value: "gpt-6.1-sol",
     });
     expect(
       merged.state.managed["features.context_management.experimental_mode"]?.originalValue,
@@ -117,7 +120,12 @@ describe("typed runtime configuration", () => {
   });
 
   test("recognizes historical model IDs when restoring previously managed values", async () => {
-    for (const historicalModel of ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna"] as const) {
+    for (const historicalModel of [
+      "gpt-6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-sol",
+      "gpt-5.6-luna",
+    ] as const) {
       const initial = await mergeManagedRuntimeConfig(
         { model: historicalModel },
         createManagedRuntimeConfigState(metadata),
@@ -161,6 +169,68 @@ describe("typed runtime configuration", () => {
       kind: "boolean",
       value: true,
     });
+  });
+
+  test("reconciles scalar context feature settings without changing their meaning", async () => {
+    const keyPath = "features.context_management.experimental_mode" as const;
+    const alreadyEnabled = await mergeManagedRuntimeConfig(
+      { features: { context_management: true } },
+      createManagedRuntimeConfigState(metadata),
+      { [keyPath]: true },
+      metadata,
+    );
+    expect(readTomlPath(alreadyEnabled.document, keyPath)).toBe(true);
+    expect(alreadyEnabled.document).toEqual({ features: { context_management: true } });
+    expect(alreadyEnabled.state.managed[keyPath]?.originalValue).toEqual({
+      kind: "boolean",
+      value: true,
+    });
+    const unchangedCleanup = await cleanupManagedRuntimeConfig(
+      alreadyEnabled.document,
+      alreadyEnabled.state,
+      metadata,
+    );
+    expect(unchangedCleanup.document).toEqual({ features: { context_management: true } });
+
+    const disabled = await mergeManagedRuntimeConfig(
+      { features: { context_management: false } },
+      createManagedRuntimeConfigState(metadata),
+      { [keyPath]: true },
+      metadata,
+    );
+    expect(readTomlPath(disabled.document, keyPath)).toBe(true);
+    expect(disabled.state.managed[keyPath]?.originalValue).toEqual({
+      kind: "boolean",
+      value: false,
+    });
+    expect(disabled.document).toEqual({
+      features: { context_management: { experimental_mode: true } },
+    });
+    const disabledCleanup = await cleanupManagedRuntimeConfig(
+      disabled.document,
+      disabled.state,
+      metadata,
+    );
+    expect(readTomlPath(disabledCleanup.document, keyPath)).toBe(false);
+  });
+
+  test("represents all official-plugin IDs safely in quoted TOML paths", () => {
+    for (const pluginId of ["Example/Inspector:1@OpenAI-Curated", "constructor", "prototype"]) {
+      expect(Schema.is(OfficialPluginIdSchema)(pluginId)).toBe(true);
+      const keyPath = `plugins.${JSON.stringify(pluginId)}`;
+      const document = writeTomlPath({}, keyPath, { enabled: true });
+      expect(readTomlPath(document, keyPath)).toEqual({ enabled: true });
+      expect(document).toEqual({ plugins: { [pluginId]: { enabled: true } } });
+
+      const enabledPath = `${keyPath}.enabled`;
+      const nestedDocument = writeTomlPath({}, enabledPath, true);
+      expect(readTomlPath(nestedDocument, enabledPath)).toBe(true);
+      expect(nestedDocument).toEqual({ plugins: { [pluginId]: { enabled: true } } });
+    }
+
+    expect(() => writeTomlPath({}, 'plugins."__proto__"', true)).toThrow();
+    expect(() => writeTomlPath({}, 'other."constructor"', true)).toThrow();
+    expect(() => writeTomlPath({}, 'plugins."constructor".prototype', true)).toThrow();
   });
 
   test("manages supported Root feature flags explicitly", () => {
@@ -226,7 +296,7 @@ describe("typed runtime configuration", () => {
     const priorInstructions = "Bearer prior-secret-instructions";
     const installedInstructions = "HolyCodex instructions";
     const initial = await mergeManagedRuntimeConfig(
-      { model: "gpt-6-sol", developer_instructions: priorInstructions },
+      { model: "gpt-6.1-sol", developer_instructions: priorInstructions },
       createManagedRuntimeConfigState(metadata),
       { model: "gpt-6-luna", developer_instructions: installedInstructions },
       metadata,
@@ -236,7 +306,7 @@ describe("typed runtime configuration", () => {
     expect(serializedState).not.toContain(installedInstructions);
 
     const cleaned = await cleanupManagedRuntimeConfig(initial.document, initial.state, metadata);
-    expect(cleaned.document["model"]).toBe("gpt-6-sol");
+    expect(cleaned.document["model"]).toBe("gpt-6.1-sol");
     expect(readTomlPath(cleaned.document, "developer_instructions")).toBe(installedInstructions);
     expect(cleaned.restoredKeys).toEqual(["model"]);
     expect(cleaned.unresolvedKeys).toEqual(["developer_instructions"]);

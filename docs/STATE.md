@@ -19,7 +19,8 @@ ignored by default:
 ```
 
 `intent.toon` is the canonical compact global Intent. `plan.toon` is optional
-and answers how the Intent will be achieved. Each Assignment contains its
+compatibility state for existing work or a supplied plan; no automatic planning
+workflow creates it. Each Assignment contains its
 bounded scope, owner, status, invocation results, evidence, local blocker,
 and remaining risk. Global blockers belong to Intent; no standalone blocker,
 Decision, transcript, or handoff files exist. The `holycodex-agent` CLI is the

@@ -391,11 +391,11 @@ describe("Codex identity, configuration, and plugins", () => {
       { model: "gpt-6-astra", "features.context_management.experimental_mode": true },
       metadata,
     );
-    const userEdited = { ...merged.document, model: "gpt-6-sol" };
+    const userEdited = { ...merged.document, model: "gpt-6.1-sol" };
     const cleaned = await cleanupManagedConfig(userEdited, merged.state, metadata);
     expect(cleaned.document).toEqual({
       unrelated: "keep",
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
     });
     expect(cleaned.preservedKeys).toEqual(["model"]);
     const restored = await cleanupManagedConfig(merged.document, merged.state, metadata);

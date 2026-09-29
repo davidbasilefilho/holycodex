@@ -198,7 +198,7 @@ function verifyPublishedRouting(installed: InstalledCliModule): void {
   }
   assert(
     projectedRoutes === PROFILE_CATALOG.length * NATIVE_AGENT_TYPES.length,
-    "the packed module did not verify all 39 profile and specialist projections",
+    "the packed module did not verify all profile and specialist projections",
   );
 }
 
@@ -391,7 +391,8 @@ export async function verifyPublicPackage(
     "the installed plugin payload source",
   );
   for (const relativePath of [
-    "skills/plan/SKILL.md",
+    "skills/visual-loop/SKILL.md",
+    "skills/dev-server/SKILL.md",
     "skills/grill-me/SKILL.md",
     "skills/writing-instructions/SKILL.md",
     "skills/babysit-ci/SKILL.md",
@@ -615,7 +616,7 @@ export async function verifyPublicPackage(
   assert(
     typeof managedRootInstructions === "string" &&
       managedRootInstructions.includes(
-        "Start a bounded Assignment and dispatch the exact concrete registered Role.task agent_type",
+        "Dispatch each Assignment to its exact concrete registered Role.task agent_type",
       ) &&
       normalizedRootInstructions.includes("exact concrete registered role.task agent_type") &&
       ["explorer", "librarian", "worker", "reviewer", "labels"].every((term) =>
@@ -626,14 +627,12 @@ export async function verifyPublicPackage(
       ),
     "the packed high-profile Root configuration must preserve exact specialist dispatch",
   );
-  const fixedPointReviewPosition = normalizedRootInstructions.indexOf("reviewer.code fixed point");
-  const validationPosition = normalizedRootInstructions.indexOf("run worker.validation");
-  const integrationPosition = normalizedRootInstructions.indexOf("then integrate");
   assert(
-    fixedPointReviewPosition >= 0 &&
-      validationPosition > fixedPointReviewPosition &&
-      integrationPosition > validationPosition,
-    "the packed high-profile Root configuration must place validation after fixed-point review",
+    normalizedRootInstructions.includes("reviewer.code fixed point") &&
+      normalizedRootInstructions.includes("current relevant validation") &&
+      normalizedRootInstructions.includes("review and validation may overlap") &&
+      normalizedRootInstructions.includes("reuse worker proof"),
+    "the packed Root configuration must retain acceptance gates without redundant serial proof",
   );
   if (process.platform === "win32") {
     const tooling = objectProperty(activeRecord, "tooling");
@@ -676,7 +675,7 @@ export async function verifyPublicPackage(
   const installedPluginRoot = join(codexHome, "plugins/holycodex");
   for (const relativePath of [
     ".codex-plugin/plugin.json",
-    "skills/plan/SKILL.md",
+    "skills/visual-loop/SKILL.md",
     "skills/grill-me/SKILL.md",
     "skills/writing-instructions/SKILL.md",
     "skills/babysit-ci/SKILL.md",
@@ -762,7 +761,10 @@ export async function verifyPublicPackage(
       confirm: async () => "cancelled",
     },
   })) as { readonly envelope: typeof CliEnvelopeSchema.Type; readonly exitCode: number };
-  assert(cancelled.exitCode === 0, "interactive remove cancellation must succeed");
+  assert(
+    cancelled.exitCode === 1,
+    `interactive remove cancellation must return its documented nonzero status: ${JSON.stringify(cancelled.envelope)}`,
+  );
   assert(cancelled.envelope.ok, "interactive remove cancellation must return success");
   if (cancelled.envelope.ok) {
     assert(
@@ -1213,7 +1215,10 @@ async function verifyPreviousStableUpgrade(options: {
   await stageFixturePlugin(options.currentInstalledPackageRoot, fixturePluginSource);
   const beforeDryRun = await snapshotDirectoryBytes(codexHome);
   const dryRun = await runInternalUpgrade(options.currentEntry, codexHome, environment, true);
-  assert(dryRun.ok, "the real previous-stable upgrade dry-run failed");
+  assert(
+    dryRun.ok,
+    `the real previous-stable upgrade dry-run failed (${dryRun.ok ? "unexpected success" : `${dryRun.error.code}: ${dryRun.error.message}`})`,
+  );
   if (dryRun.ok) {
     assert(
       hasProperty(dryRun.data, "status") && dryRun.data["status"] === "dry_run",
@@ -1534,9 +1539,6 @@ async function runInstalledAgentHelp(
     ["intent", "evidence"],
     ["intent", "complete"],
     ["intent", "abandon"],
-    ["plan"],
-    ["plan", "read"],
-    ["plan", "revise"],
     ["assignment"],
     ["assignment", "create"],
     ["assignment", "list"],
@@ -2169,7 +2171,7 @@ function parseCodexPluginList(stdout: string): CodexPluginList {
 /** Source for the hermetic Codex executable used by package verification. */
 function fakeCodexProgram(codexCliVersion: string): string {
   const source = String.raw`const CODEX_VERSION = "CODEX_VERSION_PLACEHOLDER";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 
 const HOME = process.env.CODEX_HOME;
@@ -2350,7 +2352,10 @@ async function addPlugin(pluginId) {
     const source = join(HOME, "fixture-plugin-source");
     const manifest = JSON.parse(await readFile(join(source, ".codex-plugin", "plugin.json"), "utf8"));
     if (manifest.name !== "holycodex" || typeof manifest.version !== "string") fail("HolyCodex plugin manifest is invalid");
-    await readFile(join(source, "skills", "plan", "SKILL.md"), "utf8");
+    const skills = await readdir(join(source, "skills"), { withFileTypes: true });
+    const skill = skills.find((entry) => entry.isDirectory());
+    if (skill === undefined) fail("HolyCodex plugin source has no skills");
+    await readFile(join(source, "skills", skill.name, "SKILL.md"), "utf8");
     const destination = join(HOME, "plugins", "holycodex");
     await rm(destination, { recursive: true, force: true });
     await mkdir(join(HOME, "plugins"), { recursive: true, mode: 0o700 });
@@ -2424,9 +2429,10 @@ async function configRead() {
   const rootInstructions = rootStringSetting("developer_instructions").toLowerCase();
   if (
     !rootInstructions.includes("never perform delegable work yourself") ||
-    !rootInstructions.includes("before every delegable action, including trivial, preparatory, and exploratory work") ||
+    !rootInstructions.includes("through bounded assignments") ||
     !rootInstructions.includes("never inherit root settings, substitute a generic route") ||
-    !rootInstructions.includes("browser use and computer use execution are specialist-owned")
+    !rootInstructions.includes("root uses visual-loop") ||
+    !rootInstructions.includes("use dev-server")
   ) {
     fail("Codex config omitted the Root orchestration boundaries");
   }

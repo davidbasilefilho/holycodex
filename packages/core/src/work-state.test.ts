@@ -66,6 +66,40 @@ async function git(root: string, ...args: readonly string[]): Promise<string> {
 }
 
 describe("IntentStore", () => {
+  test("preserves retired reviewer records but rejects new dispatch", async () => {
+    const { root, store } = await fixture();
+    const intent = await store.createIntent({
+      title: "Legacy review",
+      goal: "Preserve state",
+      acceptanceCriteria: ["readable"],
+    });
+    const input = {
+      objective: "Review",
+      owner: { role: "Reviewer", task: "plan" },
+      scope: ["README.md"],
+      acceptanceCriteria: ["findings"],
+    };
+    await expect(
+      store.createAssignment(intent.id, input as never, intent.revision),
+    ).rejects.toMatchObject({ code: "schema_invalid" });
+    const assignment = await store.createAssignment(
+      intent.id,
+      { ...input, owner: { role: "Reviewer", task: "artifact" } },
+      intent.revision,
+    );
+    const directory = (await readFile(join(root, ".holycodex", "current"), "utf8")).trim();
+    const path = join(root, ".holycodex", directory, "assignments", `${assignment.id}.toon`);
+    const record = decode(await readFile(path, "utf8")) as Record<string, unknown>;
+    record["owner"] = input.owner;
+    await writeFile(path, `${encode(record)}\n`);
+    await expect(store.readAssignment(intent.id, assignment.id)).resolves.toMatchObject({
+      owner: input.owner,
+    });
+    await expect(
+      store.startAssignment(intent.id, assignment.id, assignment.revision),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    expect(decode(await readFile(path, "utf8")) as Record<string, unknown>).toEqual(record);
+  });
   test("diagnoses a valid target despite an unrelated invalid Intent record", async () => {
     const { root, store } = await fixture();
     const intent = await store.createIntent({
@@ -999,7 +1033,7 @@ describe("IntentStore", () => {
     const { store } = await fixture();
     const intent = await store.createIntent({
       title: "Interrupted invocation recovery",
-      goal: "Close an invocation whose authorization token was lost",
+      goal: "Close a confirmed stopped invocation using its Root-held capability",
       acceptanceCriteria: ["truthful failure"],
     });
     const assignment = await store.createAssignment(
@@ -1022,6 +1056,7 @@ describe("IntentStore", () => {
     const recoveryInput = {
       invocationId,
       startedAt,
+      capability: running.capability,
       interruptionReason: "The invocation was confirmed interrupted before returning a result.",
     };
     await expect(
@@ -1052,6 +1087,17 @@ describe("IntentStore", () => {
         recoveryInput,
       ),
     ).rejects.toMatchObject({ code: "stale_write" });
+    await expect(
+      store.recoverInterruptedAssignment(intent.id, assignment.id, running.revision, {
+        ...recoveryInput,
+        capability: "0".repeat(64),
+      }),
+    ).rejects.toMatchObject({ code: "invalid_transition" });
+    expect(await store.readAssignment(intent.id, assignment.id)).toMatchObject({
+      status: "executing",
+      revision: running.revision,
+      active_invocation_id: invocationId,
+    });
 
     const recovered = await store.recoverInterruptedAssignment(
       intent.id,
@@ -1116,6 +1162,7 @@ describe("IntentStore", () => {
       {
         invocationId: running.active_invocation_id,
         startedAt: running.active_started_at,
+        capability: running.capability,
         interruptionReason: "Invocation ended before returning evidence",
       },
     );

@@ -26,7 +26,7 @@ import { decodeUnknown } from "./schema.ts";
 /** Canonical astra model id used by core domain operations. */
 export const ASTRA_MODEL_ID = "gpt-6-astra" as const;
 /** Canonical sol model id used by core domain operations. */
-export const SOL_MODEL_ID = "gpt-6-sol" as const;
+export const SOL_MODEL_ID = "gpt-6.1-sol" as const;
 /** Canonical luna model id used by core domain operations. */
 export const LUNA_MODEL_ID = "gpt-6-luna" as const;
 
@@ -73,7 +73,6 @@ export const ROUTE_EFFORT_OVERRIDES = [
       "Worker:operations": "high",
       "Worker:validation": "medium",
       "Worker:debugging": "high",
-      "Reviewer:plan": "high",
       "Reviewer:code": "max",
       "Reviewer:artifact": "high",
     } satisfies Readonly<Record<RouteKey, Effort>>,
@@ -93,7 +92,6 @@ export const ROUTE_EFFORT_OVERRIDES = [
       "Worker:operations": "high",
       "Worker:validation": "high",
       "Worker:debugging": "xhigh",
-      "Reviewer:plan": "xhigh",
       "Reviewer:code": "max",
       "Reviewer:artifact": "xhigh",
     } satisfies Readonly<Record<RouteKey, Effort>>,
@@ -113,7 +111,6 @@ export const ROUTE_EFFORT_OVERRIDES = [
       "Worker:operations": "xhigh",
       "Worker:validation": "xhigh",
       "Worker:debugging": "max",
-      "Reviewer:plan": "max",
       "Reviewer:code": "max",
       "Reviewer:artifact": "max",
     } satisfies Readonly<Record<RouteKey, Effort>>,

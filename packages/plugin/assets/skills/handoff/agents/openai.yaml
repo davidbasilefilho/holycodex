@@ -1,6 +1,6 @@
 interface:
   display_name: "Handoff"
   short_description: "Export a redacted projection of current Intent state."
-  default_prompt: "Open the handoff workflow for this invocation."
+  default_prompt: "Use $handoff for this task."
 policy:
   allow_implicit_invocation: false

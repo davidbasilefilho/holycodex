@@ -1,6 +1,6 @@
 ---
 name: grill-me
-description: Use when an unspecified choice has multiple materially different outcomes; ask focused questions to resolve the decision before work depends on it.
+description: Use when Root needs an outcome-changing user decision; ask focused questions while independent work continues.
 ---
 
 # Grill me
@@ -10,12 +10,12 @@ behavior, UX, compatibility, dependencies, cost, security, external effects,
 or another meaningful user-visible result. Infer obvious safe defaults and
 continue without questioning routine omissions.
 
-Before asking, finish authorized discovery and reversible preparation that can
-narrow the choice without deciding it. Ask only for the earliest unresolved
-choice required by the next executable phase. After the answer, continue the
-discovery and ask the next dependent question only if it remains material.
-Avoid questionnaires about later phases whose relevance may change.
+Root only. Ask the smallest set of questions needed for the blocked decision,
+in waves and in the user's language, using existing evidence and authorization.
+Never ask what is already known. If no material questions remain, orchestrate
+immediately. Continue independent authorized
+work while awaiting the answer. Do not delay a necessary question for a
+discovery ritual or ask about hypothetical later phases.
 
-Persist the answer through the current Intent or Plan state model. Return to
-Root with the selected decision, its scope, and the evidence or dependency it
-unblocked; use `needs_root_input` when the choice remains unresolved.
+Record the decision in current Intent evidence. Use `needs_root_input` only
+when the missing answer prevents further progress.

@@ -14,7 +14,7 @@
     "fmt:check": "oxfmt --check",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
-    "build": "bun run --sequential generate:codex bun scripts/package-build.ts",
+    "build": "bun run generate:codex && bun scripts/package-build.ts",
     "test": "bun run generate:codex && bun test",
     "validate": "bun scripts/validate.ts",
     "version:patch": "bun scripts/version.ts patch",
@@ -22,6 +22,7 @@
     "version:set": "bun scripts/version.ts"
   },
   "devDependencies": {
+    "@openai/codex": "~0.158.0",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "effect": "catalog:",

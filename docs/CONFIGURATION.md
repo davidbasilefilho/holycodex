@@ -28,18 +28,17 @@ canonical `agents."{Role}.{task}".config_file` registration into
 `agents.max_concurrent_threads_per_session = 21` for every profile. Root is the
 parent session in that file; no `agents/root.toml` is generated or registered.
 Leaf TOMLs live under
-`<CODEX_HOME>/holycodex/agents/` and use native controls for their model,
+`<CODEX_HOME>/holycodex/agents/<generation>/` and use native controls for their model,
 reasoning effort, service tier, sandbox, approval, network, and delegation
 features. Task permissions are specific: observational `Worker.operations` has
 exact-ref/SHA network access without repository/source mutation;
-`Reviewer.plan` is observational and source-read-only; `Worker.validation` may
+`Worker.validation` may
 write caches, build output, and generated test state while retaining no
 authority to change the implementation under validation; and
 `Worker.debugging` is the bounded repair route. Every generated specialist has
-live web search and command network access. Leaves use the built-in
-`workspace-write` sandbox with `sandbox_workspace_write.network_access = true`;
-observation-only task instructions and `sourceMutation = false` preserve the
-repository/source boundary. Generated leaves do not set
+live web search and command network access. Task-specific sandbox modes are read-only or workspace-write. Writable leaves
+set `sandbox_workspace_write.network_access = true`; task instructions and
+`sourceMutation = false` preserve proof-only source boundaries. Generated leaves do not set
 `tool_output_token_limit`.
 
 These are HolyCodex configuration defaults. A stricter active session or
@@ -51,7 +50,7 @@ branch-specific workflow, while a delegation prompt supplies assignment facts.
 Runtime flags enforce hard capability boundaries where Codex supports them;
 prose does not stand in for a missing native control.
 
-Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; native specialist route files use `gpt-6-luna`. Root dispatches the exact registered
+Root uses `gpt-6.1-sol` for low/default and `gpt-6-astra` for high; native specialist route files use `gpt-6-luna`. Root dispatches the exact registered
 concrete `Role.task` selected from the canonical route inventory. The role
 families Explorer, Librarian, Worker, and Reviewer are labels only, and generic
 built-in `worker`, `explorer`, `reviewer`, and `librarian` types are forbidden
@@ -63,16 +62,18 @@ generated leaf. Removal restores the recorded prior value when unchanged, while
 a user edit is preserved and reported as drift. Intent, Plan, and Assignment
 persistence remains independent repo-local work state.
 
-Root MUST delegate every task, including trivial work, through a bounded
-Assignment. Git/VCS is Root-owned. Browser Use and Computer Use execution is
-delegated through the applicable specialist route when enabled and available;
-tool availability grants no authority. A passing `Reviewer.code` fixed-point review is
-required after implementation or a major codebase change and before completion
-or VCS. Root uses `request_user_input` for workflow Plan approval and
-installation profile approval. Before remote/origin/server VCS mutations or
-public publication, Root honors authorization already given in the current
-request or session and asks only when authorization or material information is
-missing; persist `needs_root_input` when required input remains unresolved.
+Root delegates implementation and observation through bounded Assignments,
+unless the user explicitly requests direct execution. Git/VCS writes, shared
+background server management, and visual judgment remain Root-owned. Ordinary
+browser and computer work is delegated; visual tasks use Root-only visual-loop.
+Root's visual fallback is generated from selected capabilities: Browser Use
+adds IAB first; Computer Use follows when selected, then other available
+rendered evidence. With only Computer Use selected, it comes first.
+Reviewer.code reaches a fixed point before acceptance or VCS writes. Relevant
+validation may run concurrently on non-conflicting scopes and reuse current
+worker proof. There is no automatic planning or Plan approval workflow. Root
+asks only for material missing information or missing authorization; existing
+authorization is retained.
 
 ## Profiles, tiers, and optional plugins
 

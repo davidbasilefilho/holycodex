@@ -111,11 +111,11 @@ export async function runFreshClone(options: FreshCloneOptions): Promise<FreshCl
     );
     assert(status.stdout.trim().length === 0, "fresh clone is not clean before validation");
 
-    await runChecked(["mise", "exec", "--", "bun", "install", "--frozen-lockfile"], {
+    await runChecked(["bun", "install", "--frozen-lockfile"], {
       cwd: cloneRoot,
       env: commandEnvironment,
     });
-    await runChecked(["mise", "exec", "--", "bun", "run", "validate"], {
+    await runChecked(["bun", "run", "validate"], {
       cwd: cloneRoot,
       env: commandEnvironment,
     });

@@ -33,8 +33,10 @@ describe("plugin source assets", () => {
     const source = await validateSource(pluginSourceRoot);
     expect(source.manifest.name).toBe("holycodex");
     expect(source.files.map((file) => file.path)).toContain(sourceManifestPath);
-    expect(source.files.map((file) => file.path)).toContain("skills/plan/SKILL.md");
-    expect(source.files.map((file) => file.path)).toContain("skills/operations/SKILL.md");
+    expect(source.files.map((file) => file.path)).not.toContain("skills/plan/SKILL.md");
+    expect(source.files.map((file) => file.path)).toContain("skills/dev-server/SKILL.md");
+    expect(source.files.map((file) => file.path)).toContain("skills/visual-loop/SKILL.md");
+    expect(source.files.map((file) => file.path)).toContain("skills/babysit-ci/SKILL.md");
     expect(source.files.map((file) => file.path)).toContain("skills/grill-me/SKILL.md");
     expect(source.files.map((file) => file.path)).toContain("skills/continue-work/SKILL.md");
     expect(source.files.map((file) => file.path)).toContain("skills/codebase-onboarding/SKILL.md");

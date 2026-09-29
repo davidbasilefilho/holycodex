@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { rm } from "node:fs/promises";
+import { lstat, open, rm } from "node:fs/promises";
+import { dirname } from "node:path";
 
 import {
   cleanupManagedRuntimeConfig,
@@ -132,6 +133,8 @@ export {
 export const HOLYCODEX_MARKETPLACE = "davidbasilefilho/holycodex";
 /** Public CLI value for holycodex plugin. */
 export const HOLYCODEX_PLUGIN = "holycodex@holycodex";
+/** Codex Desktop owns Browser Use provisioning and lifecycle. */
+export const CODEX_DESKTOP_BROWSER_PLUGIN_ID = "browser@openai-bundled";
 // Pre-boundary records used Astra for every Root profile; keep this fixed when later releases change.
 const ROOT_ROUTE_MIGRATION_BOUNDARY = "0.16.8" as const;
 const migratedActiveDigests = new WeakMap<InstallRecord, string>();
@@ -157,7 +160,19 @@ export function validateInstallOptions(input: unknown): InstallOptions {
   if (parsed === undefined) {
     throw new InstallerError("install_failed", "The installation options are invalid.");
   }
-  return parsed as InstallOptions;
+  const options = parsed as InstallOptions;
+  rejectCodexDesktopBrowserRequest(options);
+  return options;
+}
+
+function rejectCodexDesktopBrowserRequest(request: InstallRequest): void {
+  if (request.officialPlugins?.includes(CODEX_DESKTOP_BROWSER_PLUGIN_ID) !== true) return;
+  throw new InstallerError(
+    "install_failed",
+    "Browser Use is provided by Codex Desktop/runtime and cannot be installed by the HolyCodex CLI. Select the Browser Use capability instead; it is available only on supporting Codex surfaces.",
+    undefined,
+    { plugin_id: CODEX_DESKTOP_BROWSER_PLUGIN_ID },
+  );
 }
 
 /** The only values written to the user-facing install options file. */
@@ -246,7 +261,9 @@ export function installRequestFromPersistedOptions(value: PersistedInstallOption
       computer_use: value.capabilities.includes("computer_use"),
       sites: value.capabilities.includes("sites"),
     },
-    officialPlugins: [...value.additional_plugins],
+    officialPlugins: value.additional_plugins.filter(
+      (pluginId) => pluginId !== CODEX_DESKTOP_BROWSER_PLUGIN_ID,
+    ),
   };
 }
 
@@ -283,7 +300,9 @@ export function persistedOptionsForInstall(
     profile,
     tier,
     capabilities,
-    additional_plugins: [...new Set(additionalPlugins)],
+    additional_plugins: [...new Set(additionalPlugins)].filter(
+      (pluginId) => pluginId !== CODEX_DESKTOP_BROWSER_PLUGIN_ID,
+    ),
   };
 }
 
@@ -452,9 +471,11 @@ export async function installHolyCodex(
   options: InstallerOptions = {},
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<InstallResult> {
-  if (decodeSchema(InstallRequestSchema, request) === undefined) {
+  const validatedRequest = decodeSchema(InstallRequestSchema, request);
+  if (validatedRequest === undefined) {
     throw new InstallerError("install_failed", "The installation options are invalid.");
   }
+  rejectCodexDesktopBrowserRequest(validatedRequest as InstallRequest);
   const paths = resolveInstallerPaths(options, environment);
   const installOptionsBefore = await optionalTextFile(paths.installOptions);
   const activeRecordBefore = await optionalTextFile(paths.activeRecord);
@@ -610,7 +631,11 @@ export async function installHolyCodex(
     previous.owned_plugins?.includes(HOLYCODEX_PLUGIN) === true
       ? new Set([HOLYCODEX_PLUGIN])
       : new Set<string>();
-  const previousOwnedPlugins = new Set(previous?.owned_plugins ?? []);
+  const previousOwnedPlugins = new Set(
+    (previous?.owned_plugins ?? []).filter(
+      (pluginId) => pluginId !== CODEX_DESKTOP_BROWSER_PLUGIN_ID,
+    ),
+  );
   const desiredOwnedPlugins = new Set([HOLYCODEX_PLUGIN, ...providerPlugins]);
   const omittedOwnedPlugins = [...previousOwnedPlugins].filter(
     (pluginId) => !desiredOwnedPlugins.has(pluginId),
@@ -726,7 +751,9 @@ export async function installHolyCodex(
       ...(previous?.provider_config ?? []).map((entry) => entry.plugin_id),
       ...(previous?.owned_plugins ?? []),
     ]),
-  ].filter((pluginId) => pluginId !== HOLYCODEX_PLUGIN);
+  ].filter(
+    (pluginId) => pluginId !== HOLYCODEX_PLUGIN && pluginId !== CODEX_DESKTOP_BROWSER_PLUGIN_ID,
+  );
   const currentProviderConfig = await snapshotProviderPluginConfig(
     configInputDocument,
     providerConfigPluginIds,
@@ -1156,6 +1183,7 @@ export async function installHolyCodex(
   let transactionForRecovery: PreparingTransaction = preMutationTransaction;
   let pluginEffectsStarted = false;
   let configBeforeMutationDocument: TomlDocument | undefined;
+  let initialConfigIdentity: Readonly<{ dev: number; ino: number }> | undefined;
   let publishedConfigState = mergedConfig.state;
   let activeRecordWriteStarted = false;
   let installOptionsWriteStarted = false;
@@ -1328,6 +1356,32 @@ export async function installHolyCodex(
       provider_config: providerRecoveryConfig,
     };
     await writeTransaction(paths.preparingRecord, transactionForRecovery);
+    if (configBefore === undefined) {
+      try {
+        initialConfigIdentity = await createEmptyCodexConfig(paths.configFile);
+        const configNow = await optionalTextFile(paths.configFile);
+        if (initialConfigIdentity === undefined || configNow !== "") {
+          throw new InstallerError(
+            "confirmation_required",
+            "Codex config.toml appeared during installation; review the latest configuration and retry.",
+            undefined,
+            { operation: "initialize Codex configuration", path: paths.configFile },
+          );
+        }
+      } catch (error: unknown) {
+        if (error instanceof InstallerError) throw error;
+        throw new InstallerError(
+          "permission_denied",
+          "Codex config.toml could not be initialized before plugin setup.",
+          error,
+          {
+            operation: "initialize Codex configuration",
+            path: paths.configFile,
+            recovery: "Check CODEX_HOME permissions, then retry.",
+          },
+        );
+      }
+    }
     await manager.addMarketplace!(HOLYCODEX_MARKETPLACE);
     const nativeManager = {
       list: () => manager.list!(),
@@ -1678,6 +1732,16 @@ export async function installHolyCodex(
         }
       } catch {
         rollbackFailures.push("config");
+      }
+    }
+    if (rollbackFailures.length === 0 && configBefore === undefined) {
+      try {
+        const current = await optionalTextFile(paths.configFile);
+        if (current === "" && (await sameFileIdentity(paths.configFile, initialConfigIdentity))) {
+          await rm(paths.configFile, { force: false });
+        }
+      } catch {
+        rollbackFailures.push("config_initialization");
       }
     }
     if (native !== undefined) {
@@ -2574,7 +2638,7 @@ function readPluginConfigEntry(
   key: string,
 ): TomlValue | undefined {
   const table = document[parent];
-  if (!isTomlTable(table)) return undefined;
+  if (!isTomlTable(table) || !Object.hasOwn(table, key)) return undefined;
   return table[key];
 }
 
@@ -3336,10 +3400,50 @@ function additionalPluginsFromPrevious(
   previous: Pick<InstallRecord, "official_plugins" | "optional_selections"> | undefined,
 ): readonly string[] {
   return (previous?.official_plugins ?? []).filter((pluginId) => {
+    if (pluginId === CODEX_DESKTOP_BROWSER_PLUGIN_ID) return false;
     if (isLegacyWorkPlugin(pluginId)) return false;
     const capability = optionalCapabilityForPlugin(pluginId);
     return capability === undefined || previous?.optional_selections[capability] !== true;
   });
+}
+
+async function createEmptyCodexConfig(
+  path: string,
+): Promise<Readonly<{ dev: number; ino: number }> | undefined> {
+  await ensureOwnedDirectory(dirname(path));
+  let handle: Awaited<ReturnType<typeof open>>;
+  try {
+    handle = await open(path, "wx", 0o600);
+  } catch (error: unknown) {
+    if (isFsCode(error, "EEXIST")) return undefined;
+    throw error;
+  }
+  try {
+    const stat = await handle.stat();
+    await handle.sync();
+    return { dev: stat.dev, ino: stat.ino };
+  } finally {
+    await handle.close();
+  }
+}
+
+async function sameFileIdentity(
+  path: string,
+  identity: Readonly<{ dev: number; ino: number }> | undefined,
+): Promise<boolean> {
+  if (identity === undefined) return false;
+  try {
+    const stat = await lstat(path);
+    return (
+      stat.isFile() &&
+      !stat.isSymbolicLink() &&
+      stat.dev === identity.dev &&
+      stat.ino === identity.ino
+    );
+  } catch (error: unknown) {
+    if (isFsCode(error, "ENOENT")) return false;
+    throw error;
+  }
 }
 
 function isLegacyWorkPlugin(pluginId: string): boolean {

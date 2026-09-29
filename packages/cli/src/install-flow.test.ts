@@ -265,7 +265,7 @@ describe("command install and upgrade review flow", () => {
           },
           fakeEnvironment,
         );
-        expect(await readFile(paths.configFile, "utf8")).toContain('model = "gpt-6-sol"');
+        expect(await readFile(paths.configFile, "utf8")).toContain('model = "gpt-6.1-sol"');
       } finally {
         await rm(root, { recursive: true, force: true });
       }
@@ -556,8 +556,8 @@ describe("command install and upgrade review flow", () => {
       expect(
         reviews.map((review) => review.conflicts.find(({ path }) => path === rolePath)?.decision),
       ).toEqual(["keep", "keep", "keep"]);
-      expect(rendererScreens[1]).toContain("decision: keep");
-      expect(rendererScreens[2]).toContain("decision: keep");
+      expect(rendererScreens[1]).toContain("choice: keep");
+      expect(rendererScreens[2]).toContain("choice: keep");
       expect(await readFile(rolePath, "utf8")).toBe(userRole);
     } finally {
       mock.restore();
@@ -589,17 +589,19 @@ describe("command install and upgrade review flow", () => {
       const lowConfig = installedConfigs.get("low")!;
       const defaultConfig = installedConfigs.get("default")!;
       expect(astraConfig["model"]).toBe("gpt-6-astra");
-      expect(lowConfig["model"]).toBe("gpt-6-sol");
-      expect(defaultConfig["model"]).toBe("gpt-6-sol");
+      expect(lowConfig["model"]).toBe("gpt-6.1-sol");
+      expect(defaultConfig["model"]).toBe("gpt-6.1-sol");
 
       const astraInstructions = astraConfig["developer_instructions"] as string;
       const solInstructions = rootDeveloperInstructions({
+        browserUse: true,
         frontend: true,
         security: true,
-        rootModel: "gpt-6-sol",
+        rootModel: "gpt-6.1-sol",
       });
       expect(astraInstructions).toBe(
         rootDeveloperInstructions({
+          browserUse: true,
           frontend: true,
           security: true,
           rootModel: "gpt-6-astra",
@@ -867,24 +869,24 @@ describe("command install and upgrade review flow", () => {
     }
   }, 30_000);
 
-  test("removes deselected optional providers while preserving required and foreign plugins", async () => {
+  test("removes deselected provider-backed plugins and preserves host-managed Browser state", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-deselect-"));
     const codexHome = join(root, "codex");
     const paths = resolveInstallerPaths({ paths: { codexHome } });
     const foreignPlugin = "foreign-plugin@openai-curated";
-    let configAtBrowserRemoval: string | undefined;
     const manager = fakeManager({
       initial: {
         [additionalPlugin]: "available",
         [foreignPlugin]: "installed",
-      },
-      onRemove: async (pluginId) => {
-        if (pluginId === "browser@openai-bundled") {
-          configAtBrowserRemoval = await readFile(paths.configFile, "utf8");
-        }
+        "browser@openai-bundled": "installed",
       },
     });
     try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(
+        paths.configFile,
+        '[plugins."browser@openai-bundled"]\nenabled = true\nuser_setting = "keep"\n',
+      );
       const initial = await installHolyCodex(
         {
           optional: { computer_use: false },
@@ -938,14 +940,21 @@ describe("command install and upgrade review flow", () => {
           }),
         ]),
       });
-      expect((await manager.list!()).installed.map((entry) => entry.pluginId)).not.toContain(
-        "browser@openai-bundled",
+      expect((await manager.list!()).installed).toContainEqual(
+        expect.objectContaining({
+          pluginId: "browser@openai-bundled",
+          installed: true,
+          enabled: true,
+        }),
       );
       expect((await manager.list!()).installed.map((entry) => entry.pluginId)).not.toContain(
         "sites@openai-bundled",
       );
-      expect(configAtBrowserRemoval).toBeDefined();
-      const publishedConfig = parseConfig(configAtBrowserRemoval);
+      const publishedConfig = parseConfig(await readFile(paths.configFile, "utf8"));
+      expect(readTomlPath(publishedConfig, 'plugins."browser@openai-bundled".enabled')).toBe(true);
+      expect(readTomlPath(publishedConfig, 'plugins."browser@openai-bundled".user_setting')).toBe(
+        "keep",
+      );
       const publishedAgentRef = readTomlPath(publishedConfig, 'agents."Explorer.map".config_file');
       expect(publishedAgentRef).not.toBe(initialAgentRef);
       expect(typeof publishedAgentRef).toBe("string");
@@ -1109,7 +1118,7 @@ describe("command install and upgrade review flow", () => {
       await writeFile(
         paths.configFile,
         (await readFile(paths.configFile, "utf8")).replace(
-          'model = "gpt-6-sol"',
+          'model = "gpt-6.1-sol"',
           'model = "user-model"',
         ),
       );
@@ -1193,7 +1202,7 @@ describe("command install and upgrade review flow", () => {
       await writeFile(
         paths.configFile,
         (await readFile(paths.configFile, "utf8"))
-          .replace('model = "gpt-6-sol"', 'model = "gpt-5.6-terra"')
+          .replace('model = "gpt-6.1-sol"', 'model = "gpt-5.6-terra"')
           .replace("experimental_mode = true", 'experimental_mode = false\nunrelated = "keep"'),
       );
       rewriteOnAdd = true;

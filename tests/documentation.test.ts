@@ -73,10 +73,10 @@ describe("documentation invariants", () => {
     expect(readme).not.toMatch(/holycodex upgrade(?:\s|\[|$)/iu);
     expect(cliReadme).not.toMatch(/holycodex upgrade(?:\s|\[|$)/iu);
     expect(behavior).toMatch(/The live profiles are\s+`low`, `default`, and `high`/u);
-    expect(behavior).toContain("installation profile approval");
+    expect(behavior).toContain("no HolyCodex planning workflow");
     expect(behavior).toContain("features.context_management.experimental_mode = true");
     expect(configuration).toContain("features.context_management.experimental_mode = true");
-    expect(configuration).toMatch(/installation\s+profile approval/u);
+    expect(configuration).toContain("asks only for material missing information");
     expect(installation).toContain("Legacy `go`");
   });
 

@@ -7,7 +7,7 @@ confirmation behavior. Observable product behavior is in
 [INSTALLATION.md](INSTALLATION.md).
 
 The executable is `holycodex`. The published entry point is invoked with
-`bunx`; development uses `mise exec -- bun packages/cli/src/index.ts ...`.
+`bunx`; development uses `bun packages/cli/src/index.ts ...`.
 Bun is the repository runtime/toolchain. The canonical install and removal
 commands are `bunx holycodex install` and `bunx holycodex remove`.
 
@@ -52,8 +52,8 @@ instruction semantics. Historical route and profile values are migration-only.
 
 When Browser Use or Computer Use is enabled and available, applicable
 directives come from canonical shared specialist policy. Root decides when the
-capability is needed, delegates through the applicable `Role.task`, and
-accepts terminal evidence. Tool availability alone grants no authority.
+capability is needed and delegates ordinary execution through Role.task; Root
+retains visual inspection for visual tasks and shared dev-server management. Tool availability alone grants no authority.
 
 Official OpenAI plugin health accepts the allowlisted `openai-curated` and
 `openai-curated-remote` identities for build-web-apps and codex-security. An
@@ -73,12 +73,11 @@ Valid tier names are `standard`, `fast`, and `fast-all`; select them through
 
 `holycodex-agent` is a separate deterministic model-facing CLI. It has no TUI,
 prompts, or ANSI output and emits stable structured responses. It is the only
-normal mutation interface for repo-local `.holycodex/` Intent, Plan, and
+normal mutation interface for repo-local `.holycodex/` Intent and
 Assignment state; it does not replace the public human CLI.
 
 ```text
 holycodex-agent intent   create|list|current|read|select|transition|evidence|complete|abandon
-holycodex-agent plan     read|revise
 holycodex-agent assignment create|list|read|revise|supersede|start|recover|result
 holycodex-agent state diagnose --intent <ref> [--repo <path>]
 ```
@@ -97,9 +96,9 @@ completion evidence, or repository drift. It does not recover transactions,
 acquire locks, or change persisted records.
 
 Root's delegation, authority, review, and release boundaries are defined in
-[BEHAVIOR.md](BEHAVIOR.md). Workflow Plan approval and installation profile
-approval remain distinct from routing choices. Unresolved material input is
-recorded as `needs_root_input` in the relevant Intent or Plan; existing user
+[BEHAVIOR.md](BEHAVIOR.md). There is no automatic planning or Plan approval workflow. Plan commands remain
+for compatibility with existing work and supplied plans. Unresolved material
+input is recorded as needs_root_input when it blocks progress; existing user
 authorization is retained.
 
 ## Response envelopes

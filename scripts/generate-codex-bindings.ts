@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cp, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 
 import { canonicalJsonUtf8, domainSeparatedSha256 } from "../packages/core/src/canonical.ts";
@@ -17,8 +18,8 @@ const workspaceRoot = resolve(import.meta.dirname, "..");
 const generatedRoot = join(workspaceRoot, "packages/codex/generated");
 const generatedTypescriptRoot = join(generatedRoot, "typescript");
 const provenancePath = join(generatedRoot, "provenance.json");
-const miseConfigPath = join(workspaceRoot, "mise.toml");
-const CODEX_TOOL = "npm:@openai/codex";
+const require = createRequire(import.meta.url);
+const CODEX_PACKAGE = "@openai/codex";
 const STABLE_VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
 const CODEX_VERSION_OUTPUT = /^codex-cli (\d+\.\d+\.\d+)$/u;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
@@ -72,20 +73,9 @@ export interface GeneratedCacheIdentity {
   readonly codexCliDigest: string;
 }
 
-/** Build the mise lookup that bypasses ambiguous ambient executable resolution. */
-export function miseCodexExecutableCommand(): readonly string[] {
-  return ["mise", "which", "codex", "--tool", `${CODEX_TOOL}@latest`];
-}
-
-/** Reject a Codex installation that does not match the stable channel metadata. */
-export function assertLatestStableMatch(latestVersion: string, installedVersion: string): void {
-  assertStableVersion(latestVersion, "mise stable Codex metadata");
-  assertStableVersion(installedVersion, "the installed Codex CLI version");
-  if (latestVersion !== installedVersion) {
-    throw new Error(
-      `The installed Codex version ${installedVersion} is stale; mise stable metadata resolves ${latestVersion}. Run "mise install ${CODEX_TOOL}@latest" and retry.`,
-    );
-  }
+/** Return the Bun invocation for the workspace-locked Codex package. */
+export function codexExecutableCommand(): readonly string[] {
+  return ["bun", require.resolve("@openai/codex/bin/codex.js")];
 }
 
 /** Return whether cached generated output matches the resolved Codex identity. */
@@ -102,8 +92,8 @@ export function canReuseGeneratedOutput(
 let activeGeneration: Promise<EnsureCodexGeneratedResult> | undefined;
 
 /**
- * Ensure local generated bindings match the stable Codex CLI resolved by mise's npm channel. A
- * valid current tree is reused without invoking the generator again.
+ * Ensure generated bindings match the Codex CLI locked in this workspace. A valid current tree is
+ * reused without invoking the generator again.
  */
 export function ensureCodexGenerated(): Promise<EnsureCodexGeneratedResult> {
   if (activeGeneration !== undefined) {
@@ -130,11 +120,14 @@ async function ensureCodexGeneratedInternal(): Promise<EnsureCodexGeneratedResul
     const environment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
       CODEX_HOME: isolatedCodexHome,
     });
-    await runChecked([resolved.executable, "app-server", "generate-ts", "--out", outputDirectory], {
-      cwd: workspaceRoot,
-      env: environment,
-      maxOutputBytes: 1024 * 1024,
-    });
+    await runChecked(
+      [...codexExecutableCommand(), "app-server", "generate-ts", "--out", outputDirectory],
+      {
+        cwd: workspaceRoot,
+        env: environment,
+        maxOutputBytes: 1024 * 1024,
+      },
+    );
     await rm(isolatedCodexHome, { recursive: true, force: true });
     await normalizeGeneratedText(temporaryRoot);
     await writeProtocolConstants(outputDirectory, resolved.versionNumber);
@@ -175,32 +168,50 @@ async function resolveCodexTool(): Promise<{
   readonly codexCliVersion: string;
   readonly codexCliDigest: string;
 }> {
-  await readMiseLatestCodexConfig();
-  const expectedVersion = await resolveLatestMiseCodexVersion();
+  const command = codexExecutableCommand();
   let executable: string;
+  let packageVersion: string;
   try {
-    const result = await runChecked(miseCodexExecutableCommand(), {
-      cwd: workspaceRoot,
-      env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
-      maxOutputBytes: 16 * 1024,
-    });
-    executable = result.stdout.trim();
-    if (executable.length === 0 || executable.includes("\n") || executable.includes("\r")) {
-      throw new Error("mise returned an empty or ambiguous Codex executable path");
+    const packagePath = require.resolve(`${CODEX_PACKAGE}/package.json`);
+    const packageData: unknown = JSON.parse(await readFile(packagePath, "utf8"));
+    if (
+      typeof packageData !== "object" ||
+      packageData === null ||
+      !("version" in packageData) ||
+      typeof packageData.version !== "string"
+    ) {
+      throw new Error("the locked Codex package has no version metadata");
     }
-    executable = await realpath(executable);
+    packageVersion = packageData.version;
+    assertStableVersion(packageVersion, "the locked Codex package version");
+    const target = codexPlatformTarget(process.platform, process.arch);
+    const packageRequire = createRequire(packagePath);
+    const platformPackageRoot = dirname(
+      packageRequire.resolve(`${target.packageName}/package.json`),
+    );
+    executable = await realpath(
+      join(
+        platformPackageRoot,
+        "vendor",
+        target.targetTriple,
+        "bin",
+        process.platform === "win32" ? "codex.exe" : "codex",
+      ),
+    );
     const metadata = await lstat(executable);
     if (!metadata.isFile()) {
-      throw new Error("the mise Codex launcher is not a file");
+      throw new Error("the locked Codex native binary is not a file");
     }
   } catch (error: unknown) {
-    throw new Error(`The stable Codex executable is unavailable from mise (${safeError(error)}).`);
+    throw new Error(
+      `The workspace-locked Codex native binary is unavailable (${safeError(error)}).`,
+    );
   }
 
   const environment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
     CODEX_HOME: undefined,
   });
-  const result = await runChecked([executable, "--version"], {
+  const result = await runChecked([...command, "--version"], {
     cwd: workspaceRoot,
     env: environment,
     maxOutputBytes: 16 * 1024,
@@ -214,7 +225,11 @@ async function resolveCodexTool(): Promise<{
   }
   const versionNumber = match[1];
   assertStableVersion(versionNumber, "the Codex CLI version");
-  assertLatestStableMatch(expectedVersion, versionNumber);
+  if (versionNumber !== packageVersion) {
+    throw new Error(
+      `The workspace-locked Codex package reports ${packageVersion}, but its native executable reports ${versionNumber}.`,
+    );
+  }
   return {
     executable,
     versionNumber,
@@ -223,43 +238,36 @@ async function resolveCodexTool(): Promise<{
   };
 }
 
-/** Require the Codex npm package to use mise's stable latest channel. */
-export function assertMiseLatestCodexConfig(config: string): void {
-  if (!/^\s*"npm:@openai\/codex"\s*=\s*["']latest["']\s*$/mu.test(config)) {
-    throw new Error(`mise.toml must resolve ${CODEX_TOOL} from the "latest" stable channel`);
+/** Resolve Codex's locked optional native package and binary target for a supported host. */
+export function codexPlatformTarget(
+  platform: string,
+  architecture: string,
+): Readonly<{ packageName: string; targetTriple: string }> {
+  const architectureName =
+    architecture === "arm64" ? "arm64" : architecture === "x64" ? "x64" : undefined;
+  if (architectureName === undefined) {
+    throw new Error(`Codex has no native package for ${platform}/${architecture}.`);
   }
-}
-
-async function readMiseLatestCodexConfig(): Promise<void> {
-  try {
-    const config = await readFile(miseConfigPath, "utf8");
-    assertMiseLatestCodexConfig(config);
-  } catch (error: unknown) {
-    throw new Error(`The stable Codex mise channel is unavailable (${safeError(error)}).`);
+  switch (platform) {
+    case "win32":
+      return {
+        packageName: `@openai/codex-win32-${architectureName}`,
+        targetTriple: `${architectureName === "arm64" ? "aarch64" : "x86_64"}-pc-windows-msvc`,
+      };
+    case "darwin":
+      return {
+        packageName: `@openai/codex-darwin-${architectureName}`,
+        targetTriple: `${architectureName === "arm64" ? "aarch64" : "x86_64"}-apple-darwin`,
+      };
+    case "linux":
+    case "android":
+      return {
+        packageName: `@openai/codex-linux-${architectureName}`,
+        targetTriple: `${architectureName === "arm64" ? "aarch64" : "x86_64"}-unknown-linux-musl`,
+      };
+    default:
+      throw new Error(`Codex has no native package for ${platform}/${architecture}.`);
   }
-}
-
-async function resolveLatestMiseCodexVersion(): Promise<string> {
-  try {
-    const result = await runChecked(["mise", "latest", CODEX_TOOL], {
-      cwd: workspaceRoot,
-      env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
-      maxOutputBytes: 16 * 1024,
-    });
-    const output = result.stdout.trim();
-    return parseStableMiseCodexVersion(output);
-  } catch (error: unknown) {
-    throw new Error(
-      `The stable Codex latest-channel metadata is unavailable; check network/cache access (${safeError(error)}).`,
-    );
-  }
-}
-
-/** Parse mise's stable Codex version output, including Windows line endings. */
-export function parseStableMiseCodexVersion(output: string): string {
-  const version = output.trim();
-  assertStableVersion(version, "mise stable Codex metadata");
-  return version;
 }
 
 async function verifyCurrentOutput(resolved: {

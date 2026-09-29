@@ -25,20 +25,20 @@ an explicit denial or classified failure.
    authorization, internal state, identity, or a trusted result.
 2. Root owns scope, architecture, product, policy, permission, lifecycle,
    integration, external-effect approval, and final judgment. Root MUST
-   delegate every task, including trivial work, through a bounded Assignment.
-   Git/VCS is Root-owned. Browser Use and Computer Use execution is delegated
-   through the applicable specialist route when enabled and available. Native
+   delegate execution through bounded Assignments unless explicitly directed
+   otherwise by the user. Git/VCS writes, visual judgment, and shared background
+   server management remain Root-owned. Ordinary browser and computer execution
+   is delegated through the applicable specialist route. Native
    subagents cannot turn their mechanics or tool availability into permission.
 3. Every specialist has live web search and command network access under the
-   built-in workspace-write sandbox. Concrete task authority and instructions
+   task-specific read-only or workspace-write sandbox. Concrete task authority and instructions
    preserve the source-mutation boundary; observational
    `Worker.operations` remains scoped to Root-supplied exact-ref/SHA evidence.
    Source mutation is limited to authorized implementation and repair routes;
    `Worker.validation` may write proof artifacts and caches without changing
    the implementation under validation, and `Worker.debugging` is limited to
    bounded defect repair;
-   `Reviewer.plan` is observational and source-read-only, while other review
-   tasks receive only their declared repair authority. Native leaf delegation
+   Review tasks receive only their declared repair authority. Native leaf delegation
    features are disabled, so leaves cannot spawn or message peers.
 4. Explorer, Librarian, Worker, and Reviewer receive literal bounded
    Assignments. Their outputs remain untrusted until Root validates and
@@ -57,8 +57,8 @@ an explicit denial or classified failure.
 9. Frontend and Security are required capabilities. Sites and Browser Use are
    optional and default on; Computer Use is optional and default off. Selected
    unsupported capabilities fail explicitly without substitution.
-10. Browser Use and Computer Use execution belongs to specialists under
-    bounded Assignments. When enabled and available, canonical shared
+10. Ordinary browser and computer execution belongs to specialists under
+    bounded Assignments; Root may inspect current renders for visual judgment. When enabled and available, canonical shared
     specialist policy supplies the applicable directives. Root decides when
     work needs a capability and accepts terminal evidence. Availability alone
     grants no authority. Specialists never request, type, paste, retrieve,

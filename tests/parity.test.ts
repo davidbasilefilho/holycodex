@@ -178,15 +178,18 @@ describe("0.16 foundation parity contract", () => {
     const windowsRoot = assertRootText("C:\\Users\\fixture\\.codex", "CODEX_HOME", "win32");
     expect(pathWithin(windowsRoot, "C:\\Users\\fixture\\.codex\\runs", "win32")).toBe(true);
     await expect(
-      readFile(resolve(workspaceRoot, "packages/plugin/assets/skills/plan/SKILL.md"), "utf8"),
-    ).resolves.toContain("name: plan");
+      readFile(
+        resolve(workspaceRoot, "packages/plugin/assets/skills/visual-loop/SKILL.md"),
+        "utf8",
+      ),
+    ).resolves.toContain("name: visual-loop");
   });
 
   test("keeps every required practical surface mapped to an independent proof", async () => {
     const proofPaths = [
       "packages/cli/src/index.test.ts",
       "packages/codex/src/generated-artifact.test.ts",
-      "packages/plugin/assets/skills/plan/SKILL.md",
+      "packages/plugin/assets/skills/visual-loop/SKILL.md",
       "tests/fixtures/effect-promise-adapters.json",
       "scripts/fresh-clone.ts",
       "scripts/package-verification.ts",

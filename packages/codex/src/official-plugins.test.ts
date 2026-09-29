@@ -73,6 +73,46 @@ describe("official plugin identity resolution", () => {
     expect(commands.some((command) => command[2] === "add")).toBe(false);
   });
 
+  test("reconciles canonical HTTPS and SSH marketplace source forms", async () => {
+    const canonicalSources = [
+      "https://github.com/davidbasilefilho/holycodex.git",
+      "https://github.com/davidbasilefilho/holycodex",
+      "https://github.com/davidbasilefilho/holycodex.git/",
+      "https://github.com/davidbasilefilho/holycodex/",
+      "git@github.com:davidbasilefilho/holycodex.git",
+      "git@github.com:davidbasilefilho/holycodex",
+      "ssh://git@github.com/davidbasilefilho/holycodex.git",
+      "ssh://git@github.com/davidbasilefilho/holycodex",
+    ];
+
+    for (const source of canonicalSources) {
+      const commands: string[][] = [];
+      const adapter = createOfficialPluginAdapter({
+        executable: "codex",
+        runner: {
+          run: async (args) => {
+            commands.push([...args]);
+            return args[2] === "list"
+              ? marketplaceList([
+                  {
+                    ...canonicalMarketplace,
+                    marketplaceSource: { sourceType: "git", source },
+                  },
+                ])
+              : { exitCode: 0, stdout: "{}", stderr: "" };
+          },
+        },
+      });
+
+      await adapter.addMarketplace("davidbasilefilho/holycodex");
+      expect(commands).toEqual([
+        ["plugin", "marketplace", "list", "--json"],
+        ["plugin", "marketplace", "upgrade", "holycodex"],
+        ["plugin", "marketplace", "list", "--json"],
+      ]);
+    }
+  });
+
   test("rejects name and source conflicts before mutating Codex", async () => {
     const existing = [
       { ...canonicalMarketplace, marketplaceSource: { sourceType: "git", source: "someone/else" } },
@@ -103,6 +143,28 @@ describe("official plugin identity resolution", () => {
       code: "marketplace_invalid",
       message: expect.stringContaining("holycodex-copy"),
     });
+
+    for (const source of [
+      "https://github.com/davidbasilefilho/holycodex-fork.git",
+      "git@github.com:someone-else/holycodex.git",
+      "ssh://git@github.com/davidbasilefilho/holycodex-fork.git",
+    ]) {
+      const foreign = createOfficialPluginAdapter({
+        executable: "codex",
+        runner: {
+          run: async () =>
+            marketplaceList([
+              {
+                ...canonicalMarketplace,
+                marketplaceSource: { sourceType: "git", source },
+              },
+            ]),
+        },
+      });
+      await expect(foreign.addMarketplace("davidbasilefilho/holycodex")).rejects.toMatchObject({
+        code: "marketplace_invalid",
+      });
+    }
   });
 
   test("fails actionably on command failure and mismatched readback", async () => {

@@ -1,6 +1,6 @@
 interface:
   display_name: "Web visualize"
   short_description: "Turn useful information into an interactive user-facing visualization."
-  default_prompt: "Create the requested interactive visualization."
+  default_prompt: "Use $web-visualize for this task."
 policy:
   allow_implicit_invocation: true

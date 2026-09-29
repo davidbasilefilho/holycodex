@@ -1,6 +1,6 @@
 interface:
   display_name: "Debugging"
   short_description: "Diagnose an observable defect through reproduction or strong evidence."
-  default_prompt: "Open the debugging workflow for this invocation."
+  default_prompt: "Use $debugging for this task."
 policy:
   allow_implicit_invocation: false

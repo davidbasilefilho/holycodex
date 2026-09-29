@@ -298,11 +298,11 @@ export function stateFromConflicts(
   for (const conflict of conflicts) {
     const identity =
       conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
-    const valid = conflict.validDecisions ?? ["keep", "replace", "cancel"];
-    const preferred = priorDecisions[identity] ?? conflict.defaultDecision ?? "replace";
+    const valid = validConflictDecisions(conflict);
+    const preferred = priorDecisions[identity] ?? conflict.defaultDecision ?? "keep";
     decisions[identity] = valid.includes(preferred)
       ? preferred
-      : (valid.find((decision) => decision === "keep" || decision === "replace") ?? "keep");
+      : (valid.find((decision) => decision !== "cancel") ?? "cancel");
   }
   return { conflicts, decisions };
 }
@@ -330,11 +330,18 @@ export function applyConflictScreenKey(
   if (name === "return" || name === "enter" || name === "linefeed") {
     return { cursor, action: "continue" };
   }
-  if (name === "a" || rawName === "A") {
+  if (name === "a") {
     setDecisionForValidConflicts(state, "replace");
     return { cursor, action: "render" };
   }
+  if (name === "r") {
+    setDecisionForValidConflicts(state, "remove");
+    return { cursor, action: "render" };
+  }
   if ((name === "k" || rawName === "K") && key.ctrl !== true) {
+    if (name === "k" && !shifted) {
+      return { cursor: Math.max(0, cursor - 1), action: "render" };
+    }
     setDecisionForValidConflicts(state, "keep");
     return { cursor, action: "render" };
   }
@@ -359,13 +366,15 @@ export function renderConflictScreen(
   const state = { conflicts, decisions: { ...decisions } };
   const lines = [
     paintTerminal("HolyCodex · resolve conflicts", "heading", color),
-    paintTerminal("Only changes discovered during preflight are shown.", "hint", color),
+    paintTerminal(conflictSummary(conflicts), "hint", color),
+    paintTerminal(conflictRecommendation(conflicts), "hint", color),
+    paintTerminal(conflictShortcuts(conflicts), "hint", color),
+    paintTerminal("Enter continue   Esc back   Ctrl-C cancel", "hint", color),
     paintTerminal(
-      "↑/↓ or j/k navigate   ←/→ choose   Space toggle   A replace all   K keep all",
-      "hint",
+      `Choice ${conflicts.length === 0 ? 0 : cursor + 1} of ${conflicts.length}`,
+      "focus",
       color,
     ),
-    paintTerminal("Enter continue   Esc back   Ctrl-C cancel", "hint", color),
     "",
   ];
   let previousCategory: string | undefined;
@@ -385,9 +394,11 @@ export function renderConflictScreen(
     lines.push(
       paintTerminal(`${marker} ${target}`, index === cursor ? "focus" : "argument", color),
     );
-    lines.push(`    ${paintTerminal(`decision: ${decision}`, tone, color)}`);
+    lines.push(`    ${paintTerminal(`choice: ${decision}`, tone, color)}`);
     lines.push(`    existing: ${formatConflictValue(conflict.existing)}`);
-    lines.push(`    desired:  ${formatConflictValue(conflict.desired)}`);
+    if (conflict.action === "remove") lines.push(`    planned:  ${conflictRemovalLabel(conflict)}`);
+    else lines.push(`    desired:  ${formatConflictValue(conflict.desired)}`);
+    lines.push(`    ${paintTerminal(conflictConsequence(conflict, decision), "hint", color)}`);
     lines.push(`    choices:  ${formatConflictChoices(conflict)}`);
     if (conflict.explanation !== undefined)
       lines.push(`    ${paintTerminal(conflict.explanation, "hint", color)}`);
@@ -676,10 +687,10 @@ function installReviewActionLabel(
 
 function setDecisionForValidConflicts(
   state: ConflictScreenState,
-  decision: "keep" | "replace",
+  decision: "keep" | "remove" | "replace",
 ): void {
   for (const conflict of state.conflicts) {
-    const valid = conflict.validDecisions ?? ["keep", "replace", "cancel"];
+    const valid = validConflictDecisions(conflict);
     if (!valid.includes(decision)) continue;
     state.decisions[
       conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`
@@ -691,9 +702,10 @@ function toggleConflictDecision(state: ConflictScreenState, cursor: number): voi
   const conflict = state.conflicts[cursor];
   if (conflict === undefined) return;
   const identity = conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
-  const valid = conflict.validDecisions ?? ["keep", "replace", "cancel"];
+  const valid = validConflictDecisions(conflict);
   const current = state.decisions[identity] ?? "keep";
-  const next = current === "replace" ? "keep" : "replace";
+  const destructive = conflict.action === "remove" ? "remove" : "replace";
+  const next = current === destructive ? "keep" : destructive;
   if (valid.includes(next)) state.decisions[identity] = next;
 }
 
@@ -705,7 +717,7 @@ function cycleConflictDecision(
   const conflict = state.conflicts[cursor];
   if (conflict === undefined) return;
   const identity = conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
-  const choices = conflict.validDecisions ?? ["keep", "replace", "cancel"];
+  const choices = validConflictDecisions(conflict);
   if (choices.length === 0) return;
   const current = state.decisions[identity] ?? choices[0]!;
   const currentIndex = choices.indexOf(current);
@@ -715,7 +727,62 @@ function cycleConflictDecision(
 }
 
 function formatConflictChoices(conflict: ManagedConflict): string {
-  return (conflict.validDecisions ?? ["keep", "replace", "cancel"]).join(" | ");
+  return validConflictDecisions(conflict).join(" | ");
+}
+
+function validConflictDecisions(conflict: ManagedConflict): readonly ConflictDecision[] {
+  return (
+    conflict.validDecisions ??
+    (conflict.action === "remove" ? ["keep", "remove", "cancel"] : ["keep", "replace", "cancel"])
+  );
+}
+
+function conflictSummary(conflicts: readonly ManagedConflict[]): string {
+  if (conflicts.length === 0) return "No conflicts require a decision.";
+  const choices = new Set(conflicts.flatMap(validConflictDecisions));
+  const removableConflicts = conflicts.filter((conflict) =>
+    validConflictDecisions(conflict).includes("remove"),
+  );
+  const removeEffect =
+    removableConflicts.length === 0
+      ? undefined
+      : removableConflicts.every((conflict) => conflict.action === "remove")
+        ? "Remove deletes a selected item"
+        : removableConflicts.every((conflict) => conflict.action !== "remove")
+          ? "Remove drops the current value before applying the planned value"
+          : "Remove deletes a selected item or drops the current value";
+  const effects = [
+    choices.has("keep") ? "Keep preserves current state" : undefined,
+    choices.has("replace") ? "Replace applies the planned value" : undefined,
+    removeEffect,
+    choices.has("cancel") ? "Cancel stops this operation" : undefined,
+  ].filter((effect): effect is string => effect !== undefined);
+  return `${conflicts.length} item${conflicts.length === 1 ? "" : "s"} need a choice. ${effects.join("; ")}.`;
+}
+
+function conflictRecommendation(conflicts: readonly ManagedConflict[]): string {
+  const choices = new Set(conflicts.flatMap(validConflictDecisions));
+  if (
+    conflicts.length > 0 &&
+    conflicts.every((conflict) => conflict.action === "remove") &&
+    choices.has("keep") &&
+    choices.has("remove")
+  ) {
+    return "Keep is selected by default. Choose Remove only for edited items you want deleted.";
+  }
+  return "Review each available choice before continuing.";
+}
+
+function conflictShortcuts(conflicts: readonly ManagedConflict[]): string {
+  const choices = new Set(conflicts.flatMap(validConflictDecisions));
+  return [
+    "↑/↓ or j/k navigate",
+    "←/→ choose",
+    ...(choices.has("replace") || choices.has("remove") ? ["Space toggle"] : []),
+    ...(choices.has("replace") ? ["A replace all"] : []),
+    ...(choices.has("remove") ? ["R remove all"] : []),
+    ...(choices.has("keep") ? ["K keep all"] : []),
+  ].join("   ");
 }
 
 function categoryLabel(category: string): string {
@@ -1008,12 +1075,15 @@ function nativeConflictContent(
 ): OpenTuiStyledText {
   const lines: NativeLine[] = [
     nativeTextLine("HolyCodex · resolve conflicts", "heading"),
-    nativeTextLine("Only changes discovered during preflight are shown.", "hint"),
-    nativeTextLine(
-      "↑/↓ or j/k navigate   ←/→ choose   Space toggle   A replace all   K keep all",
-      "hint",
-    ),
+    nativeTextLine(conflictSummary(conflicts), "hint"),
+    nativeTextLine(conflictRecommendation(conflicts), "hint"),
+    nativeTextLine(conflictShortcuts(conflicts), "hint"),
     nativeTextLine("Enter continue   Esc back   Ctrl-C cancel", "hint"),
+    nativeTextLine(""),
+    nativeTextLine(
+      `Decision ${conflicts.length === 0 ? 0 : cursor + 1} of ${conflicts.length}`,
+      "focus",
+    ),
     nativeTextLine(""),
   ];
   let previousCategory: string | undefined;
@@ -1032,7 +1102,7 @@ function nativeConflictContent(
     lines.push(
       nativeLine(
         { text: `${marker} ${target}`, tone: index === cursor ? "focus" : "argument" },
-        { text: "  decision: " },
+        { text: "  choice: " },
         { text: decision, tone },
         { text: `   choices: ${formatConflictChoices(conflict)}`, tone: "hint" },
       ),
@@ -1045,13 +1115,52 @@ function nativeConflictContent(
     if (focused !== undefined) {
       const target = focused.target ?? focused.key ?? focused.path;
       lines.push(nativeTextLine(`Focused conflict: ${target}`, "focus"));
+      lines.push(
+        nativeTextLine(
+          conflictConsequence(focused, decisions[conflictIdentity(focused)] ?? "keep"),
+          "warning",
+        ),
+      );
       lines.push(nativeTextLine(`  existing: ${formatConflictValue(focused.existing)}`));
-      lines.push(nativeTextLine(`  desired:  ${formatConflictValue(focused.desired)}`));
+      if (focused.action === "remove")
+        lines.push(nativeTextLine(`  planned:  ${conflictRemovalLabel(focused)}`));
+      else lines.push(nativeTextLine(`  desired:  ${formatConflictValue(focused.desired)}`));
       if (focused.explanation !== undefined)
         lines.push(nativeTextLine(`  ${focused.explanation}`, "hint"));
     }
   }
   return nativeStyledText(opentui, lines, color);
+}
+
+function conflictConsequence(conflict: ManagedConflict, decision: ConflictDecision): string {
+  if (decision === "keep") {
+    return conflict.action === "remove"
+      ? "Effect: preserve this edited item in place; removal remains partial until you retry or leave it."
+      : "Effect: preserve the current file or setting and leave this change unapplied.";
+  }
+  if (decision === "cancel")
+    return "Effect: stop this operation before applying the reviewed changes.";
+  if (decision === "remove") {
+    if (conflict.category === "invalid-config") {
+      return "Effect: remove this reviewed user-owned value so HolyCodex can create the required table.";
+    }
+    return conflict.action === "remove"
+      ? "Effect: delete this modified HolyCodex-owned item after confirmation."
+      : "Effect: remove the current value and apply the reviewed HolyCodex value.";
+  }
+  return conflict.action === "remove"
+    ? "Effect: this removal does not offer Replace; use Remove or Keep."
+    : "Effect: replace the current item with the reviewed HolyCodex version.";
+}
+
+function conflictRemovalLabel(conflict: ManagedConflict): string {
+  return conflict.category === "invalid-config"
+    ? "remove this conflicting user-owned value"
+    : "remove this managed item";
+}
+
+function conflictIdentity(conflict: ManagedConflict): string {
+  return conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
 }
 
 function nativeInstallReviewContent(

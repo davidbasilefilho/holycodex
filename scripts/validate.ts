@@ -28,7 +28,7 @@ export async function runValidation(): Promise<ValidationResult> {
     cwd: workspaceRoot,
     env: commandEnvironment,
   });
-  assert(bun.stdout.trim().startsWith("1.4."), "validation requires mise-resolved Bun 1.4");
+  assert(bun.stdout.trim().startsWith("1.4."), "validation requires Bun 1.4");
   steps.push("bun 1.4");
 
   await runStep(["bun", "run", "fmt:check"], "format", steps);

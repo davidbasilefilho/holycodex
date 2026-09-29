@@ -43,6 +43,17 @@ export const OFFICIAL_CURATED_MARKETPLACE_NAME = "openai-curated" as const;
 export const OFFICIAL_CURATED_MARKETPLACE_SOURCE = "https://github.com/openai/plugins.git" as const;
 const HOLYCODEX_MARKETPLACE_NAME = "holycodex";
 const HOLYCODEX_MARKETPLACE_SOURCE = "davidbasilefilho/holycodex";
+const HOLYCODEX_MARKETPLACE_GIT_SOURCES = [
+  HOLYCODEX_MARKETPLACE_SOURCE,
+  "https://github.com/davidbasilefilho/holycodex.git",
+  "https://github.com/davidbasilefilho/holycodex",
+  "https://github.com/davidbasilefilho/holycodex.git/",
+  "https://github.com/davidbasilefilho/holycodex/",
+  "git@github.com:davidbasilefilho/holycodex.git",
+  "git@github.com:davidbasilefilho/holycodex",
+  "ssh://git@github.com/davidbasilefilho/holycodex.git",
+  "ssh://git@github.com/davidbasilefilho/holycodex",
+] as const;
 const OFFICIAL_CURATED_MARKETPLACE_DIRECTORY = ["plugins", "openai-plugins"] as const;
 const DEFAULT_MARKETPLACE_BOOTSTRAP_TIMEOUT_MS = 30_000;
 const DEFAULT_MARKETPLACE_BOOTSTRAP_POLL_INTERVAL_MS = 100;
@@ -1489,12 +1500,8 @@ function findMarketplaceConflict(
 function isCanonicalHolyCodexMarketplaceSource(
   source: MarketplaceListEntry["marketplaceSource"],
 ): boolean {
-  return (
-    source?.sourceType === "git" &&
-    (source.source === HOLYCODEX_MARKETPLACE_SOURCE ||
-      source.source === "https://github.com/davidbasilefilho/holycodex.git" ||
-      source.source === "https://github.com/davidbasilefilho/holycodex")
-  );
+  if (source?.sourceType !== "git") return false;
+  return HOLYCODEX_MARKETPLACE_GIT_SOURCES.some((canonical) => canonical === source.source);
 }
 
 function createNodeBunOfficialPluginCommandRunner(

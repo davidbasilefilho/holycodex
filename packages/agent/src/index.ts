@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  AssignmentInvocationCapabilitySchema,
   AssignmentResultInputSchema,
   AssignmentStartInputSchema,
   CreateAssignmentInputSchema,
@@ -9,7 +10,6 @@ import {
   IntentEvidenceInputSchema,
   IntentStore,
   IntentStoreError,
-  PlanInputSchema,
   ReviseAssignmentScopeInputSchema,
   SupersedeAssignmentInputSchema,
   VcsIntegrationInputSchema,
@@ -24,6 +24,7 @@ const ArgvSchema = Schema.Array(Schema.String);
 const AssignmentInterruptionRecoveryInputSchema = Schema.Struct({
   invocationId: Schema.String,
   startedAt: Schema.String,
+  capability: AssignmentInvocationCapabilitySchema,
   interruptionReason: Schema.String,
 });
 
@@ -48,6 +49,8 @@ export async function runAgentBinary(
 ): Promise<number> {
   try {
     const validatedArgv = decode(ArgvSchema, argv);
+    if (validatedArgv[0] === "plan")
+      throw new AgentCliError("invalid_usage", "Planning commands were removed. Use --help.");
     const path = validatedArgv.filter((value) => !value.startsWith("-")).slice(0, 2);
     if (agentHelpRequested(validatedArgv)) {
       io.writeStdout(agentHelp(path));
@@ -81,10 +84,12 @@ async function execute(
 ): Promise<unknown> {
   const intent = options["intent"];
   if (command === "intent") {
-    if (subcommand === "create")
-      return await store.createIntent(
-        decodeJson(CreateIntentInputSchema, required(options, "input")),
-      );
+    if (subcommand === "create") {
+      const input = decodeJson(CreateIntentInputSchema, required(options, "input"));
+      if (input.planRequired)
+        throw new AgentCliError("invalid_input", "New Intents cannot require a Plan.");
+      return await store.createIntent(input);
+    }
     if (subcommand === "list") return await store.listIntents();
     if (subcommand === "current") return await store.currentIntent();
     if (subcommand === "read") return await store.readIntent(requiredValue(intent, "intent"));
@@ -118,17 +123,6 @@ async function execute(
         });
       return result;
     }
-  }
-  if (command === "plan") {
-    if (subcommand === "read")
-      return (await store.readPlan(requiredValue(intent, "intent"))) ?? null;
-    if (subcommand === "revise")
-      return await store.revisePlan(
-        requiredValue(intent, "intent"),
-        decodeJson(PlanInputSchema, required(options, "input")),
-        revision(options),
-        optionalInteger(options["plan-revision"]),
-      );
   }
   if (command === "assignment") {
     if (subcommand === "create")
@@ -237,8 +231,6 @@ function allowedOptions(command: string, subcommand: string): ReadonlySet<string
     "intent integrate": ["intent", "revision", "input"],
     "intent complete": ["intent", "revision"],
     "intent abandon": ["intent", "revision"],
-    "plan read": ["intent"],
-    "plan revise": ["intent", "revision", "plan-revision", "input"],
     "assignment create": ["intent", "revision", "input"],
     "assignment revise": ["intent", "assignment", "revision", "input"],
     "assignment supersede": ["intent", "assignment", "revision", "input"],
@@ -294,9 +286,6 @@ function requiredInteger(value: string | undefined, name: string): number {
   if (!Number.isSafeInteger(parsed) || parsed < 1)
     throw new AgentCliError("invalid_input", `--${name} must be a positive integer.`);
   return parsed;
-}
-function optionalInteger(value: string | undefined): number | undefined {
-  return value === undefined ? undefined : requiredInteger(value, "plan-revision");
 }
 function classify(error: unknown): {
   readonly code: string;

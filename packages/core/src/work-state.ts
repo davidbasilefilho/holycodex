@@ -203,7 +203,10 @@ const AssignmentFields = {
   intent_id: Identifier,
   id: Identifier,
   objective: NonEmpty,
-  owner: AssignmentOwnerSchema,
+  owner: Schema.Union(
+    AssignmentOwnerSchema,
+    Schema.Struct({ role: Schema.Literal("Reviewer"), task: Schema.Literal("plan") }),
+  ),
   scope: StringList,
   constraints: StringList,
   exclusions: StringList,
@@ -520,6 +523,7 @@ export const AssignmentResultInputSchema = Schema.Struct({
 const AssignmentInterruptionRecoveryInputSchema = Schema.Struct({
   invocationId: NonEmpty,
   startedAt: DateText,
+  capability: AssignmentInvocationCapabilitySchema,
   interruptionReason: NonEmpty,
 });
 /** Machine-readable reasons a predicate-checked Intent completion was refused. */
@@ -654,7 +658,11 @@ export class IntentStore {
       add("plan_unreadable", "plan", "Repair the canonical Plan record before continuing.");
     }
     if (!planUnreadable && intent.plan_required && plan === undefined)
-      add("required_plan_missing", "plan", "Create the required Plan before continuing.");
+      add(
+        "required_plan_missing",
+        "plan",
+        "Preserve this legacy Intent and resolve its missing historical Plan during recovery; planning commands are retired.",
+      );
     if (plan !== undefined) {
       const digest = sha256(`${encodeToon(plan)}\n`);
       if (
@@ -1913,6 +1921,8 @@ export class IntentStore {
       assertIntentMutable(intent);
       const assignment = await this.#readPersistedAssignment(directory, intent, validatedId);
       assertRevision(assignment.revision, expectedRevision);
+      if (!Either.isRight(Schema.decodeUnknownEither(AssignmentOwnerSchema)(assignment.owner)))
+        throw invalidInput("This Assignment owner is retired; supersede it with a current route.");
       const scope = expandAssignmentScope(assignment.scope, validatedInput.scope);
       await this.#assertNoDrift(intent, scope);
       if (assignment.status === "completed")
@@ -1997,9 +2007,8 @@ export class IntentStore {
   }
 
   /**
-   * Records a capability-lost active invocation as failed after exact interruption checks.
-   * Repository-shared callers cannot be authenticated as Root; this operation records recovery
-   * evidence and can never claim successful completion.
+   * Records a confirmed stopped invocation as failed when its identity, start time, revision, and
+   * Root-held capability match.
    */
   async recoverInterruptedAssignment(
     reference: string,
@@ -2008,6 +2017,7 @@ export class IntentStore {
     input: {
       readonly invocationId: string;
       readonly startedAt: string;
+      readonly capability: AssignmentInvocationCapability;
       readonly interruptionReason: string;
     },
   ): Promise<{ readonly assignment: Assignment; readonly intent: Intent }> {
@@ -2024,12 +2034,13 @@ export class IntentStore {
       expectedRevision,
       {
         invocationId: validated.invocationId,
+        capability: validated.capability,
         outcome: "failed",
         startedAt: validated.startedAt,
         summary: `Interrupted invocation recovered as failed: ${reason}`,
         evidence: [recoveryEvidence],
       },
-      false,
+      true,
       { invocationId: validated.invocationId, startedAt: validated.startedAt },
     );
   }
@@ -2105,7 +2116,9 @@ export class IntentStore {
       )
         throw new IntentStoreError(
           "invalid_transition",
-          "Specialist Assignment results require the active invocation identity.",
+          recoveryMatch === undefined
+            ? "Specialist Assignment results require the active invocation identity."
+            : "Interruption recovery requires the active invocation identity.",
           { assignment_id: assignment.id },
         );
       if (
@@ -2115,7 +2128,9 @@ export class IntentStore {
       )
         throw new IntentStoreError(
           "invalid_transition",
-          "The active Assignment invocation has no capability to authorize a specialist result.",
+          recoveryMatch === undefined
+            ? "The active Assignment invocation has no capability to authorize a specialist result."
+            : "The active Assignment invocation has no capability to authorize interruption recovery.",
           { assignment_id: assignment.id },
         );
       if (

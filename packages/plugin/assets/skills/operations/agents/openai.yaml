@@ -1,6 +1,0 @@
-interface:
-  display_name: "Operations"
-  short_description: "Observe exact-ref CI or release state to terminal evidence."
-  default_prompt: "Open the terminal operations observation workflow for this invocation."
-policy:
-  allow_implicit_invocation: false

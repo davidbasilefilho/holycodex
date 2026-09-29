@@ -466,7 +466,10 @@ describe("public install wizard contract", () => {
     await mock.module("@opentui/core", () => fakeOpenTuiModule(sharedRenderer, sharedRendered));
     try {
       await expect(
-        runOpenTuiConflictResolver([conflict], { stdoutIsTTY: true, env: {} }),
+        runOpenTuiConflictResolver([{ ...conflict, defaultDecision: "replace" }], {
+          stdoutIsTTY: true,
+          env: {},
+        }),
       ).resolves.toMatchObject({ action: "continue" });
       const styledConflict = fakeStyledChunks(sharedRendered[0]!);
       expect(styledConflict.some((chunk) => chunk.text === "HolyCodex · resolve conflicts")).toBe(
@@ -540,7 +543,7 @@ describe("public install wizard contract", () => {
         explanation: "The managed lock is regenerated during install.",
       },
     ];
-    const defaults = Object.fromEntries(conflicts.map(({ identity }) => [identity, "replace"]));
+    const defaults = Object.fromEntries(conflicts.map(({ identity }) => [identity, "keep"]));
 
     const navigationRendered: FakeContent[] = [];
     const navigationRenderer = fakeRenderer([{ name: "down" }, { name: "k" }, { name: "enter" }]);
@@ -640,6 +643,129 @@ describe("public install wizard contract", () => {
     expect(state.decisions["conflicting-key"]).toBe("keep");
   });
 
+  test("summarizes only choices available in a keep-or-cancel review", () => {
+    const conflict: ManagedConflict = {
+      identity: "keep-or-cancel",
+      category: "configuration",
+      target: "model",
+      path: "config.toml",
+      action: "replace",
+      existing: "user-model",
+      desired: "managed-model",
+      validDecisions: ["keep", "cancel"],
+      defaultDecision: "keep",
+    };
+
+    const rendered = renderConflictScreen([conflict]);
+    expect(rendered).toContain("Keep preserves current state");
+    expect(rendered).toContain("Cancel stops this operation");
+    expect(rendered).not.toContain("Replace");
+    expect(rendered).not.toContain("Remove");
+  });
+
+  test("uses removal-specific choices and distinguishes the live resolver Back and Cancel actions", async () => {
+    const conflict: ManagedConflict = {
+      identity: "remove-role",
+      category: "role-asset",
+      target: "Explorer.lookup",
+      path: "agents/Explorer.lookup.toml",
+      action: "remove",
+      existing: { present: true, digest: "observed" },
+      validDecisions: ["keep", "remove", "cancel"],
+      defaultDecision: "keep",
+    };
+    const rendered: FakeContent[] = [];
+    const removeRenderer = fakeRenderer([{ name: "r" }, { name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(removeRenderer, rendered));
+    try {
+      await expect(
+        runOpenTuiConflictResolver([conflict], { stdoutIsTTY: true, env: {} }),
+      ).resolves.toEqual({ action: "continue", decisions: { "remove-role": "remove" } });
+      const screen = fakePlainText(rendered[0]!);
+      expect(screen).toContain("Remove deletes a selected item");
+      expect(screen).toContain("R remove all");
+      expect(screen).not.toContain("A replace all");
+      expect(screen).toContain("planned:  remove this managed item");
+      expect(screen).not.toContain("desired:  (unknown)");
+      expect(screen).toContain("choices: keep | remove | cancel");
+    } finally {
+      mock.restore();
+    }
+
+    const backRenderer = fakeRenderer([{ name: "escape" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(backRenderer, []));
+    try {
+      await expect(
+        runOpenTuiConflictResolver([conflict], { stdoutIsTTY: true, env: {} }),
+      ).resolves.toEqual({ action: "back" });
+    } finally {
+      mock.restore();
+    }
+
+    const cancelRenderer = fakeRenderer([{ name: "c", ctrl: true }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(cancelRenderer, []));
+    try {
+      await expect(
+        runOpenTuiConflictResolver([conflict], { stdoutIsTTY: true, env: {} }),
+      ).resolves.toEqual({ action: "cancel" });
+    } finally {
+      mock.restore();
+    }
+
+    const cancelledRemoval = await runCli(["remove"], {
+      io: {
+        stdoutIsTTY: true,
+        stderrIsTTY: true,
+        confirm: async () => "cancelled",
+      },
+    });
+    expect(cancelledRemoval.exitCode).toBe(1);
+    expect(cancelledRemoval.envelope).toMatchObject({
+      ok: true,
+      data: { cancelled: true },
+    });
+  });
+
+  test("describes invalid-table removal as a user-owned config choice", async () => {
+    const conflict: ManagedConflict = {
+      identity: "invalid-config:features",
+      category: "invalid-config",
+      target: "features",
+      path: "config.toml",
+      key: "features",
+      action: "remove",
+      existing: false,
+      desired: "Create the required features table.",
+      validDecisions: ["remove", "cancel"],
+      defaultDecision: "cancel",
+    };
+    const rendered: FakeContent[] = [];
+    const renderer = fakeRenderer([{ name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(renderer, rendered));
+    try {
+      await expect(
+        runOpenTuiConflictResolver(
+          [conflict],
+          { stdoutIsTTY: true, env: {} },
+          { "invalid-config:features": "remove" },
+        ),
+      ).resolves.toEqual({
+        action: "continue",
+        decisions: { "invalid-config:features": "remove" },
+      });
+      const screen = fakePlainText(rendered[0]!);
+      expect(screen).toContain("choices: remove | cancel");
+      expect(screen).toContain("planned:  remove this conflicting user-owned value");
+      expect(screen).toContain(
+        "Effect: remove this reviewed user-owned value so HolyCodex can create the required table.",
+      );
+      expect(screen).not.toContain("HolyCodex-owned");
+      expect(screen).not.toContain("managed item");
+    } finally {
+      mock.restore();
+    }
+  });
+
   test("keeps final native review controls visible at 80 columns by 24 rows", async () => {
     const rendered: FakeContent[] = [];
     const renderer = fakeRenderer([
@@ -688,38 +814,45 @@ describe("public install wizard contract", () => {
 
 describe("generated Root orchestration policy", () => {
   test("keeps delegation and Root authority explicit across profiles", () => {
-    const sol = rootDeveloperInstructions({ rootModel: "gpt-6-sol" });
+    const sol = rootDeveloperInstructions({ rootModel: "gpt-6.1-sol" });
     const astra = rootDeveloperInstructions({ rootModel: "gpt-6-astra" });
     expect(astra).toBe(sol);
     expect(sol).toContain("Never perform delegable work yourself");
-    expect(sol).toContain("Root may directly perform only user interaction; Intent");
-    expect(sol).toContain(
-      "before every delegable action, including trivial, preparatory, and exploratory work",
-    );
-    expect(sol).toContain("derive the exact Role.task target and complete configuration");
-    expect(sol).toContain("service tier, full developer instructions, shell/environment policy");
+    expect(sol).toContain("Root owns user interaction; Intent");
+    expect(sol).toContain("through bounded Assignments");
+    expect(sol).toContain("registered Role.task configuration");
+    expect(sol).toContain("Verify the registration once per configuration generation");
     expect(sol).toContain("Never inherit Root settings, substitute a generic route");
-    expect(sol).toContain("stop with needs_root_input before spawning");
     expect(sol).toContain('fork_turns: "none"');
-    expect(sol).toContain("If no matching route exists, return needs_root_input");
     expect(sol).toContain("Reviewer.code fixed point");
-    expect(sol).toContain("Worker.validation");
-    expect(sol).toContain("smallest meaningful proof");
+    expect(sol).toContain("current relevant validation");
+    expect(sol).toContain("give the specialist only the bounded Assignment, never the capability");
+    expect(sol).toContain("record the result with that invocation ID and capability");
+    expect(sol).toContain("Recover an interrupted invocation only after confirming it stopped");
+    expect(sol).toContain("Check existing authorization before asking again");
+    expect(sol).toContain("missing information materially changes the outcome");
+    expect(sol).toContain("Before each specialist spawn, persist the bounded Assignment");
+    expect(sol).toContain("record verification, acceptance, and readiness");
+    expect(sol).toContain("complete only when holycodex-agent confirms every completion predicate");
+    expect(sol).toContain(
+      "Use holycodex-agent semantic operations for Intent and Assignment state.",
+    );
+    expect(sol).toContain("Do not edit TOON state.");
     expect(sol).not.toContain(
       "Your model and reasoning effort come from the selected Root profile",
     );
     expect(sol).not.toContain("Context7 states");
     for (const agentType of NATIVE_AGENT_TYPES) expect(sol).toContain(agentType);
     expect(projectRootAgent("default")).toMatchObject({
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
       effort: "high",
     });
   });
 
   test("selects conditional capability guidance and preserves specialist boundaries", () => {
     const root = rootDeveloperInstructions(true);
-    expect(root).toContain("Root decides when interface work is needed");
-    expect(root).toContain("without operating the browser or computer");
+    expect(root).toContain("Root uses visual-loop");
+    expect(root).toContain("use dev-server");
     expect(root).not.toContain("Root-only browser");
     expect(root).not.toContain("never request, enter, retrieve, expose, or store credentials");
     expect(root).toContain("babysit-ci");
@@ -727,8 +860,16 @@ describe("generated Root orchestration policy", () => {
       expect(root).toContain(mapping.skillId);
       expect(root).toContain(mapping.appliesWhen);
     }
-    expect(rootDeveloperInstructions({ frontend: false, security: false })).not.toContain(
+    const rootWithoutContextualGuidance = rootDeveloperInstructions({
+      frontend: false,
+      security: false,
+    });
+    expect(rootWithoutContextualGuidance).not.toContain(
       CAPABILITY_REGISTRY.frontend.applicability[0]!.skillId,
+    );
+    expect(rootWithoutContextualGuidance).not.toContain("For security-sensitive changes");
+    expect(rootDeveloperInstructions({ frontend: false, security: true })).toContain(
+      "For security-sensitive changes",
     );
     const leaf = renderNativeAgent(
       projectNativeAgents("default").find((agent) => agent.name === "Worker.implementation")!,
@@ -748,16 +889,17 @@ describe("generated Root orchestration policy", () => {
     expect(interactiveLeaf).toContain("Use Computer Use only for this Assignment");
     expect(leaf).not.toContain("Use Browser Use only for this Assignment");
     expect(leaf).not.toContain("Use Computer Use only for this Assignment");
+    expect(leaf).not.toContain("active_invocation_id");
+    expect(leaf).not.toContain("never the capability");
+    expect(leaf).toContain("Do not recover an Assignment");
+    expect(leaf).toContain("mutate another Assignment's lifecycle");
+    expect(leaf).toContain("Root keeps active invocation capabilities");
 
     for (const agent of projectNativeAgents("default")) {
       const rendered = renderNativeAgent(agent);
       expect(rendered).toContain(`sandbox_mode = ${JSON.stringify(agent.permissions.filesystem)}`);
       expect(rendered).toContain('web_search = "live"');
-      if (
-        agent.permissions.filesystem === "workspace-write" ||
-        agent.name === "Reviewer.code" ||
-        agent.name === "Reviewer.artifact"
-      ) {
+      if (agent.permissions.sourceMutation) {
         expect(rendered).toContain("Patch quality:");
       } else {
         expect(rendered).not.toContain("Patch quality:");

@@ -2,9 +2,13 @@
 
 import { canonicalJsonUtf8, domainSeparatedSha256, type Sha256Digest } from "@holycodex/core";
 import { NATIVE_AGENT_TYPES, type Effort, type NativeAgentType } from "@holycodex/core";
+
+// Retired registrations remain parseable for owned-state cleanup and restoration.
+const PERSISTED_NATIVE_AGENT_TYPES: readonly string[] = [...NATIVE_AGENT_TYPES, "Reviewer.plan"];
 import * as Schema from "effect/Schema";
 
 import { isPlainObject, invalidData } from "./common";
+import { OfficialPluginIdSchema } from "./official-plugins";
 
 /**
  * A parsed TOML value. Parsing and serialization stay with the Codex boundary; this package only
@@ -56,9 +60,27 @@ function pathParts(keyPath: string): readonly string[] {
     if (index === keyPath.length || (character === "." && !quoted)) {
       const raw = keyPath.slice(start, index);
       const part = raw.startsWith('"') ? parseQuotedKeyPart(raw) : raw;
+      const quotedPart = raw.startsWith('"');
+      const quotedPluginId =
+        quotedPart &&
+        parts.length === 1 &&
+        parts[0] === "plugins" &&
+        Schema.is(OfficialPluginIdSchema)(part);
+      const quotedNativeAgent =
+        quotedPart &&
+        parts.length === 1 &&
+        parts[0] === "agents" &&
+        PERSISTED_NATIVE_AGENT_TYPES.includes(part);
       if (
-        !/^[A-Za-z][A-Za-z0-9_-]*$/u.test(part) &&
-        !NATIVE_AGENT_TYPES.includes(part as NativeAgentType)
+        quotedPart
+          ? !quotedPluginId && !quotedNativeAgent
+          : !/^[A-Za-z][A-Za-z0-9_-]*$/u.test(part) && !PERSISTED_NATIVE_AGENT_TYPES.includes(part)
+      ) {
+        throw invalidData("TOML key path", keyPath);
+      }
+      if (
+        part === "__proto__" ||
+        ((part === "constructor" || part === "prototype") && !quotedPluginId)
       ) {
         throw invalidData("TOML key path", keyPath);
       }
@@ -75,11 +97,6 @@ function pathParts(keyPath: string): readonly string[] {
     }
   }
   if (quoted || escaped || parts.length === 0) throw invalidData("TOML key path", keyPath);
-  if (
-    parts.some((part) => part === "__proto__" || part === "constructor" || part === "prototype")
-  ) {
-    throw invalidData("TOML key path", keyPath);
-  }
   return parts;
 }
 
@@ -97,11 +114,22 @@ function parseQuotedKeyPart(value: string): string {
 export function readTomlPath(document: TomlDocument, keyPath: string): TomlValue | undefined {
   if (!isTomlTable(document)) throw invalidData("TOML document", document);
   let current: TomlValue = document;
-  for (const part of pathParts(keyPath)) {
+  const parts = pathParts(keyPath);
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index]!;
     if (!isTomlTable(current) || !Object.prototype.hasOwnProperty.call(current, part)) {
       return undefined;
     }
     current = current[part]!;
+    if (
+      index === 1 &&
+      parts[0] === "features" &&
+      part === "context_management" &&
+      typeof current === "boolean" &&
+      parts[2] === "experimental_mode"
+    ) {
+      return current;
+    }
   }
   return current;
 }
@@ -133,11 +161,24 @@ export function writeTomlPath(
   const output: Record<string, TomlValue> = { ...cloneTomlTable(document) };
   let current = output;
   for (const part of parts.slice(0, -1)) {
-    const nested = current[part];
+    const nested = Object.prototype.hasOwnProperty.call(current, part) ? current[part] : undefined;
     if (nested !== undefined && !isTomlTable(nested)) {
-      throw invalidData("TOML table path", keyPath);
+      if (
+        part !== "context_management" ||
+        typeof nested !== "boolean" ||
+        current !== output["features"]
+      ) {
+        throw invalidData("TOML table path", keyPath);
+      }
+      if (parts.at(-1) === "experimental_mode" && nested === value) return output;
+      current[part] = { experimental_mode: nested };
     }
-    const next: Record<string, TomlValue> = nested === undefined ? {} : { ...nested };
+    const next: Record<string, TomlValue> =
+      nested === undefined
+        ? {}
+        : isTomlTable(current[part])
+          ? { ...(current[part] as TomlTable) }
+          : {};
     current[part] = next;
     current = next;
   }
@@ -210,6 +251,7 @@ export type HolyCodexAgentType = NativeAgentType;
 /** Type of agent config key path values. */
 export type AgentConfigKeyPath = `agents."${HolyCodexAgentType}".config_file`;
 type LegacyAgentConfigKeyPath =
+  | 'agents."Reviewer.plan".config_file'
   | "agents.explorer.config_file"
   | "agents.librarian.config_file"
   | "agents.worker.config_file"
@@ -233,7 +275,9 @@ export function isManagedConfigKeyPath(value: unknown): value is ManagedConfigKe
   if (typeof value !== "string") return false;
   if ((ROOT_CONFIG_KEY_PATHS as readonly string[]).includes(value)) return true;
   if (/^agents\.(?:explorer|librarian|worker|reviewer)\.config_file$/u.test(value)) return true;
-  return NATIVE_AGENT_TYPES.some((agentType) => value === `agents."${agentType}".config_file`);
+  return PERSISTED_NATIVE_AGENT_TYPES.some(
+    (agentType) => value === `agents."${agentType}".config_file`,
+  );
 }
 
 function isManagedConfigStateKeyPath(value: unknown): value is ManagedConfigStateKeyPath {
@@ -245,6 +289,7 @@ function isManagedConfigStateKeyPath(value: unknown): value is ManagedConfigStat
 
 type ManagedEnum =
   | "gpt-6-astra"
+  | "gpt-6.1-sol"
   | "gpt-6-sol"
   | "gpt-6-luna"
   | "gpt-5.6-terra"
@@ -329,6 +374,7 @@ function isSafeMetadataText(value: unknown): value is string {
 function isManagedEnum(value: unknown): value is ManagedEnum {
   return (
     value === "gpt-6-astra" ||
+    value === "gpt-6.1-sol" ||
     value === "gpt-6-sol" ||
     value === "gpt-6-luna" ||
     value === "gpt-5.6-terra" ||
@@ -403,6 +449,7 @@ function isSafeValueForKey(
       if (keyPath === "model") {
         return (
           value.value === "gpt-6-astra" ||
+          value.value === "gpt-6.1-sol" ||
           value.value === "gpt-6-sol" ||
           value.value === "gpt-6-luna" ||
           value.value === "gpt-5.6-terra" ||
@@ -574,7 +621,7 @@ function isExpectedValueForKey(keyPath: ManagedConfigKeyPath, value: TomlValue):
   if (kind === "relative_path") return typeof value === "string" && isRelativeConfigPath(value);
   if (kind === "digest") return typeof value === "string";
   if (keyPath === "model") {
-    return value === "gpt-6-astra" || value === "gpt-6-sol" || value === "gpt-6-luna";
+    return value === "gpt-6-astra" || value === "gpt-6.1-sol" || value === "gpt-6-luna";
   }
   return typeof value === "string" && isManagedEnum(value);
 }

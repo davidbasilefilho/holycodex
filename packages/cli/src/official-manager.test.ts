@@ -41,4 +41,14 @@ describe("read-only official plugin status", () => {
       "sites@openai-bundled": "sites@openai-curated-remote",
     });
   });
+
+  test("reports missing providers for a fresh Codex home without config.toml", async () => {
+    temporaryHome = await mkdtemp(join(tmpdir(), "holycodex-fresh-plugin-status-"));
+    const manager = new ReadOnlyCodexPluginStatus(temporaryHome);
+    expect(await manager.status(["browser@openai-bundled", "holycodex@holycodex"])).toEqual({
+      "browser@openai-bundled": "missing",
+      "holycodex@holycodex": "missing",
+    });
+    expect(manager.getObservedIdentities()).toEqual({});
+  });
 });

@@ -7,17 +7,17 @@ behavior is in [BEHAVIOR.md](BEHAVIOR.md), and evidence limits are in
 
 ## Toolchain
 
-`mise.toml` selects the Bun compatibility line and project tools. Use Bun as
+`mise.toml` selects the Bun compatibility line. Use Bun as
 the local runtime, package manager, script runner, native test runner, build
 tool, and pack tool:
 
 ```sh
 mise install
-mise exec -- bun install --frozen-lockfile
-mise exec -- bun run check
-mise exec -- bun test
-mise exec -- bun run build
-mise exec -- bun pm pack
+bun install --frozen-lockfile
+bun run check
+bun test
+bun run build
+bun pm pack
 ```
 
 OXC owns formatting, linting, and the repository's type-aware checks through
@@ -59,27 +59,20 @@ This rule does not weaken mandatory repository gates or `Reviewer.code`.
 Run the checks proportional to the changed seam and inspect the final diff:
 
 ```sh
-mise exec -- bun run check
-mise exec -- bun test
-mise exec -- bun run fmt:check
-mise exec -- bun run lint
-mise exec -- bun run validate
+bun run check
+bun test
+bun run fmt:check
+bun run lint
+bun run validate
 git diff --check
 ```
 
-Root MUST delegate every task, including trivial work, through a bounded
-Assignment and native specialist. Git/VCS is Root-owned. Browser Use and
-Computer Use execution is delegated through the applicable specialist route
-when enabled and available; tool availability does not grant authority. Root
-delegates implementation, tests, review, and CI/release observation, then
-integrates evidence and performs the VCS step. Discover the repository's actual
-development/release topology from its own configuration; pending checks are
-not green. A passing `Reviewer.code` fixed-point review is mandatory after
-implementation or a major codebase change and before completion or any VCS
-operation. Root obtains workflow Plan and installation profile approval when
-required and checks existing authorization before remote VCS mutation or public
-release. It asks only when authorization or material input is missing and
-persists the resulting `needs_root_input` state.
+Follow the authority and acceptance policy in [BEHAVIOR.md](BEHAVIOR.md).
+Root owns judgment, lifecycle, the shared dev server, visual inspection, and VCS
+writes; specialists own execution and read-only VCS/CI observation. Explicit
+user instructions may request direct execution. Reuse current evidence and
+parallelize independent work; only actual dependencies and conflicting writes
+require ordering. There is no automatic planning or Plan approval workflow.
 
 Apply the canonical core surgical-mutation rule to source-mutating specialist
 tasks:

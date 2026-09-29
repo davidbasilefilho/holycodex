@@ -20,11 +20,11 @@ Remove these announcement phrases. State the content directly.
 - "Here's what I find interesting"
 - "Here's the problem though"
 
-Any "here's what/this/that" construction is throat-clearing before the point. Cut it and state the point.
+Cut an opener when it adds no information.
 
 ## Emphasis Crutches
 
-These add no meaning. Delete them.
+Delete these when they add no meaning.
 
 - "Full stop." / "Period."
 - "Let that sink in."
@@ -52,7 +52,8 @@ Replace with plain language.
 
 ## Adverbs
 
-Kill all adverbs. No -ly words. No softeners, no intensifiers, no hedges.
+Remove empty intensifiers and redundant hedges. Keep adverbs and qualifiers
+that convey degree, timing, uncertainty, or a technical distinction.
 
 Specific offenders:
 

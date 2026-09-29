@@ -156,7 +156,16 @@ export class ReadOnlyCodexPluginStatus implements Pick<
   async status(
     selected: readonly string[],
   ): Promise<Readonly<Record<string, OfficialPluginStatus>>> {
-    const text = await readFile(join(this.codexHome, "config.toml"), "utf8");
+    let text: string;
+    try {
+      text = await readFile(join(this.codexHome, "config.toml"), "utf8");
+    } catch (error: unknown) {
+      if (isMissingPath(error)) {
+        this.observedIdentities = Object.freeze({});
+        return Object.fromEntries(selected.map((pluginId) => [pluginId, "missing"]));
+      }
+      throw error;
+    }
     const bun = (globalThis as { Bun?: { TOML?: { parse: (value: string) => unknown } } }).Bun;
     if (!bun?.TOML?.parse) throw new Error("A TOML parser is unavailable.");
     const config = decodeSchema(TomlDocumentSchema, bun.TOML.parse(text));

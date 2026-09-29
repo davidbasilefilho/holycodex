@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { sanitizeDiagnostics } from "@holycodex/codex";
 import {
   CLI_SCHEMA_VERSION,
   parseCliEnvelope,
@@ -301,21 +302,34 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
   };
   const resolveConflict: NonNullable<InstallerOptions["resolveConflict"]> =
     base.resolveConflict ??
-    (parsed.options["yes"] === true
-      ? async () => "accept" as const
-      : async (conflict) => {
-          const target =
-            conflict.key === undefined ? conflict.path : `${conflict.path} (${conflict.key})`;
-          const result = await confirmIfAvailable(
-            context,
-            `${conflict.action === "remove" ? "Remove" : "Replace"} modified HolyCodex-owned state at ${target}?`,
-          );
-          return result === "confirmed"
-            ? ("accept" as const)
-            : result === "cancelled"
-              ? ("decline" as const)
-              : ("cancel" as const);
-        });
+    (async (conflict) => {
+      if (parsed.options["yes"] === true) return "decline";
+      if (
+        parsed.options["json"] === true ||
+        context.io?.stdoutIsTTY !== true ||
+        context.io?.stderrIsTTY !== true
+      ) {
+        throw new InstallerError(
+          "confirmation_required",
+          `Review the modified HolyCodex-owned state at ${conflict.key === undefined ? conflict.path : `${conflict.path} (${conflict.key})`} in an interactive terminal; --yes preserves user changes.`,
+          undefined,
+          { path: conflict.path, ...(conflict.key === undefined ? {} : { key: conflict.key }) },
+        );
+      }
+      const identity = conflictIdentity(conflict);
+      const result = await runOpenTuiConflictResolver(
+        [conflict],
+        {},
+        Object.fromEntries(selectedConflictDecisions),
+      );
+      if (result.action === "back") return "decline";
+      if (result.action !== "continue") return "cancel";
+      const decision = result.decisions[identity];
+      if (decision !== undefined) selectedConflictDecisions.set(identity, decision);
+      if (decision === "replace" || decision === "remove") return "accept";
+      if (decision === "keep") return "decline";
+      return "cancel";
+    });
   const configuredResolveConflicts: NonNullable<InstallerOptions["resolveConflicts"]> =
     base.resolveConflicts ??
     (parsed.options["yes"] === true
@@ -354,13 +368,20 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
             Object.fromEntries(selectedConflictDecisions),
           );
           if (result.action === "back") {
-            return Object.fromEntries(
+            const decisions: Record<string, ConflictDecision> = Object.fromEntries(
               conflicts.map((conflict) => {
-                const identity = conflictIdentity(conflict);
-                const selected = selectedConflictDecisions.get(identity);
-                return [identity, selected ?? defaultConflictDecision(conflict)];
+                const valid =
+                  conflict.validDecisions ??
+                  (conflict.action === "remove"
+                    ? ["keep", "remove", "cancel"]
+                    : ["keep", "replace", "cancel"]);
+                return [
+                  conflictIdentity(conflict),
+                  valid.includes("keep") ? ("keep" as const) : ("cancel" as const),
+                ];
               }),
             );
+            return recordConflictDecisions(conflicts, decisions);
           }
           if (result.action === "cancel")
             throw new InstallerError("confirmation_required", "Conflict review was cancelled.");
@@ -434,19 +455,6 @@ function conflictIdentity(conflict: ManagedConflict): string {
   return conflict.identity ?? conflict.path;
 }
 
-function defaultConflictDecision(conflict: ManagedConflict): ConflictDecision {
-  const preferred = conflict.defaultDecision ?? "replace";
-  if (preferred === "keep" || preferred === "replace" || preferred === "cancel") {
-    if (conflict.validDecisions === undefined || conflict.validDecisions.includes(preferred)) {
-      return preferred;
-    }
-  }
-  return (
-    conflict.validDecisions?.find((decision) => decision === "keep" || decision === "replace") ??
-    "keep"
-  );
-}
-
 function withSelectedConflictDecisions(
   plan: InstallReview,
   selected: ReadonlyMap<string, ConflictDecision>,
@@ -480,7 +488,7 @@ function successEnvelope(command: string, data: JsonValue): CliEnvelope {
 }
 
 function failureEnvelope(command: string, error: unknown): CommandResult {
-  const mapped = mapError(error);
+  const mapped = mapError(error, command);
   const parsed = parseCliEnvelope({
     schema_version: CLI_SCHEMA_VERSION,
     ok: false,
@@ -508,11 +516,18 @@ function failureEnvelope(command: string, error: unknown): CommandResult {
 }
 
 function successExitCode(command: string, data: JsonValue): number {
-  return command === "doctor" && isJsonObject(data) && data["healthy"] === false ? 4 : 0;
+  if (command === "doctor" && isJsonObject(data) && data["healthy"] === false) return 4;
+  if (command === "remove" && isJsonObject(data)) {
+    if (data["cancelled"] === true) return 1;
+    if (arrayValue(data, "preserved").length > 0 || arrayValue(data, "reasons").length > 0)
+      return 4;
+  }
+  return 0;
 }
 
 function mapError(
   error: unknown,
+  operation: string,
 ): Readonly<{ code: string; message: string; details: JsonObject; exitCode: number }> {
   if (error instanceof ArgumentError)
     return {
@@ -547,8 +562,8 @@ function mapError(
             : 3;
     return {
       code: installerError.code,
-      message: sanitizeMessage(installerError.message),
-      details: installerError.details,
+      message: sanitizeDiagnosticMessage(installerError.message),
+      details: detailsWithCause(installerError.details, installerError.causeValue, operation),
       exitCode,
     };
   }
@@ -562,28 +577,59 @@ function mapError(
       error.code === "command_failed";
     return {
       code: uncertain ? "effect_uncertain" : denied ? "capability_denied" : "install_failed",
-      message: sanitizeMessage(error.message),
-      details: error.details,
+      message: sanitizeDiagnosticMessage(error.message),
+      details: detailsWithCause(error.details, error.causeValue, operation),
       exitCode: uncertain ? 4 : denied ? 2 : 3,
     };
   }
   if (error instanceof StorageError)
-    return { code: error.code, message: sanitizeMessage(error.message), details: {}, exitCode: 4 };
+    return {
+      code: error.code,
+      message: sanitizeDiagnosticMessage(error.message),
+      details: detailsWithCause({}, error.causeValue, operation),
+      exitCode: 4,
+    };
   if (error instanceof ManifestError)
     return { code: error.code, message: sanitizeMessage(error.message), details: {}, exitCode: 1 };
   if (error instanceof Error)
     return {
       code: "internal_error",
-      message: "The command failed unexpectedly.",
-      details: {},
+      message: `The ${operation} command failed unexpectedly.`,
+      details: {
+        operation,
+        cause: sanitizeDiagnostics(`${error.name}: ${error.message}`).join(" ").slice(0, 512),
+      },
       exitCode: 5,
     };
   return {
     code: "internal_error",
-    message: "The command failed unexpectedly.",
-    details: {},
+    message: `The ${operation} command failed unexpectedly.`,
+    details: { operation, cause: "A non-Error value was thrown." },
     exitCode: 5,
   };
+}
+
+function detailsWithCause(
+  details: Readonly<Record<string, JsonValue>>,
+  cause: unknown,
+  operation: string,
+): JsonObject {
+  const result: Record<string, JsonValue> = { ...details };
+  if (cause !== undefined) {
+    if (typeof result["operation"] !== "string") result["operation"] = operation;
+    result["cause"] = sanitizeDiagnostics(causeSummary(cause)).join(" ").slice(0, 512);
+  }
+  return result;
+}
+
+function causeSummary(cause: unknown): string {
+  if (cause instanceof Error) return `${cause.name}: ${cause.message}`;
+  if (typeof cause === "string") return cause;
+  return "The operation failed with a non-Error cause.";
+}
+
+function sanitizeDiagnosticMessage(message: string): string {
+  return sanitizeMessage(sanitizeDiagnostics(message).join(" "));
 }
 
 function inferCommand(argv: readonly string[]): string {
@@ -702,8 +748,10 @@ function renderRemove(data: JsonValue, color: boolean): string {
     preserved.length === 0
       ? "none"
       : `${preserved.length} item${preserved.length === 1 ? "" : "s"} (review before retrying)`;
+  const incomplete = preserved.length > 0 || reasons.length > 0;
+  const heading = incomplete ? "remove incomplete" : "remove";
   const lines = [
-    `${paint("✔", "green", color)} ${paint("remove", "heading", color)}`,
+    `${paint(incomplete ? "!" : "✔", incomplete ? "warning" : "green", color)} ${paint(heading, incomplete ? "warning" : "heading", color)}`,
     `  ${paint("removed", "option", color)}: ${removed.length} owned item${removed.length === 1 ? "" : "s"}`,
     `  ${paint("preserved", "option", color)}: ${preservedSummary}`,
     ...reasons.map((reason) => `  ${paint("reason", "option", color)}: ${humanizeReason(reason)}`),

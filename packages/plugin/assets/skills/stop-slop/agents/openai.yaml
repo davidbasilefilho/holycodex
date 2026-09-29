@@ -1,6 +1,6 @@
 interface:
   display_name: "Stop Slop"
   short_description: "Edit assigned prose to remove predictable AI patterns."
-  default_prompt: "Open the assigned prose editing workflow for this invocation."
+  default_prompt: "Use $stop-slop for this task."
 policy:
   allow_implicit_invocation: true

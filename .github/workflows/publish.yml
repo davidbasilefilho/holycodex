@@ -56,7 +56,7 @@ jobs:
           cache: false
 
       - name: Install the frozen workspace
-        run: mise exec -- bun install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Resolve the exact channel, tag, and source SHA
         id: release
@@ -82,11 +82,11 @@ jobs:
             if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
               test "$GITHUB_REF" = "refs/heads/main"
             fi
-            VERSION="$(mise exec -- bun scripts/release-version.ts dev "$GITHUB_RUN_NUMBER" "$GITHUB_RUN_ATTEMPT")"
+            VERSION="$(bun scripts/release-version.ts dev "$GITHUB_RUN_NUMBER" "$GITHUB_RUN_ATTEMPT")"
           elif [ "$CHANNEL" = "stable" ]; then
             test "$GITHUB_REF_TYPE" = "tag"
             test "$(git rev-parse "${GITHUB_REF}^{commit}")" = "$GITHUB_SHA"
-            VERSION="$(mise exec -- bun scripts/release-version.ts stable "$GITHUB_REF_NAME")"
+            VERSION="$(bun scripts/release-version.ts stable "$GITHUB_REF_NAME")"
           else
             echo "Unsupported release channel: $CHANNEL" >&2
             exit 1
@@ -108,7 +108,7 @@ jobs:
 
   publish_npm:
     name: publish exact npm artifact
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     needs: [prepare, validation]
     runs-on: ubuntu-latest
     permissions:
@@ -137,7 +137,7 @@ jobs:
         id: npm_state
         run: |
           set -euo pipefail
-          STATUS="$(mise exec -- bun scripts/package-release.ts check-npm \
+          STATUS="$(bun scripts/package-release.ts check-npm \
             "$RUNNER_TEMP/release" "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$SOURCE_SHA" "$EXPECTED_SHA256")"
           case "$STATUS" in
             absent|matching) echo "status=$STATUS" >> "$GITHUB_OUTPUT" ;;
@@ -153,11 +153,11 @@ jobs:
           else
             NPM_TAG=latest
           fi
-          mise exec -- bunx npm@12 publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag "$NPM_TAG"
+          bunx npm@12 publish "$RUNNER_TEMP/release/holycodex-${RELEASE_VERSION}.tgz" --access public --tag "$NPM_TAG"
 
   publish_github:
     name: publish exact GitHub release
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     needs: [prepare, validation, publish_npm]
     runs-on: ubuntu-latest
     permissions:
@@ -187,7 +187,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          STATUS="$(mise exec -- bun scripts/package-release.ts check-github \
+          STATUS="$(bun scripts/package-release.ts check-github \
             "$RUNNER_TEMP/release" "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$SOURCE_SHA" "$EXPECTED_SHA256" "$GITHUB_REPOSITORY")"
           case "$STATUS" in
             absent|matching) echo "status=$STATUS" >> "$GITHUB_OUTPUT" ;;
@@ -196,7 +196,7 @@ jobs:
 
       - name: Create the identity-marked release notes
         if: steps.github_state.outputs.status == 'absent'
-        run: mise exec -- bun scripts/package-release.ts notes "$RUNNER_TEMP/release" "$RUNNER_TEMP/release-notes.md"
+        run: bun scripts/package-release.ts notes "$RUNNER_TEMP/release" "$RUNNER_TEMP/release-notes.md"
 
       - name: Create the release from the verified source
         if: steps.github_state.outputs.status == 'absent'

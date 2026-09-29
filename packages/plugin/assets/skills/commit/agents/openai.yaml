@@ -1,6 +1,6 @@
 interface:
   display_name: "Commit"
   short_description: "Create coherent local commits with exact scope proof."
-  default_prompt: "Open the commit workflow for this invocation."
+  default_prompt: "Use $commit for this task."
 policy:
   allow_implicit_invocation: false
