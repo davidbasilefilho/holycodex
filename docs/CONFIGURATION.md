@@ -50,7 +50,9 @@ branch-specific workflow, while a delegation prompt supplies assignment facts.
 Runtime flags enforce hard capability boundaries where Codex supports them;
 prose does not stand in for a missing native control.
 
-Root uses `gpt-6.1-sol` for low/default and `gpt-6-astra` for high; native specialist route files use `gpt-6-luna`. Root dispatches the exact registered
+Root uses `gpt-6.1-sol` at low, medium, and high reasoning effort for the
+`low`, `default`, and `high` profiles respectively; native specialist route
+files use `gpt-6-luna`. Root dispatches the exact registered
 concrete `Role.task` selected from the canonical route inventory. The role
 families Explorer, Librarian, Worker, and Reviewer are labels only, and generic
 built-in `worker`, `explorer`, `reviewer`, and `librarian` types are forbidden

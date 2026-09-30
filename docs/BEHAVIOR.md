@@ -62,11 +62,12 @@ Root asks only for missing input that materially changes the outcome, while
 independent work proceeds. Root waits for terminal outcomes when no such update or question
 is needed and sends out-of-boundary work back as a new bounded Assignment. For
 every routine wait, Root uses `collaboration.wait_agent` with
-`timeout_ms = 1200000` (20 minutes, within the cache lifetime); early specialist
+`timeout_ms = 600000` (10 minutes); early specialist
 completion wakes the wait and the collective mailbox already contains the
-relevant agents. If that wait expires while idle, Root waits again with the same
-timeout. Short waits, status or list polling, and message loops on idle timeout
-are not routine coordination.
+relevant agents. On timeout, inspect only for actionable failures, blockers, or
+stalls; continue useful independent work or wait again only while relevant
+specialist results remain a live dependency. Status or list polling and message
+loops on idle timeout are not routine coordination.
 Specialist and Reviewer terminal reports are concise, structured, and
 evidence-first: changed paths, checks, observable evidence, blockers, Root
 decisions needed, and remaining risk. Root reads large transcripts or
@@ -90,7 +91,9 @@ of important flows, then synthesizes the project's purpose, structure,
 conventions, and useful starting points. Orientation remains read-only unless
 the user requests a persistent document.
 
-Root uses `gpt-6.1-sol` for low/default and `gpt-6-astra` for high; every native specialist route uses `gpt-6-luna` with the effort matrix below. These are
+The Root profile mapping is `low = gpt-6.1-sol/low`,
+`default = gpt-6.1-sol/medium`, and `high = gpt-6.1-sol/high`; every native
+specialist route uses `gpt-6-luna` with the effort matrix below. These are
 routing identities; live skills and generated instructions target GPT-6-family
 behavior. Root dispatches the exact registered concrete `Role.task` identity
 selected from this inventory. Explorer, Librarian, Worker, and Reviewer are
@@ -143,8 +146,8 @@ route identities with this reasoning-effort matrix:
 
 | Route                 | `low`  | `default` | `high` |
 | --------------------- | ------ | --------- | ------ |
-| Root model            | Sol    | Sol       | Astra  |
-| Root/session agent    | medium | high      | high   |
+| Root model            | Sol    | Sol       | Sol    |
+| Root/session agent    | low    | medium    | high   |
 | Specialist model      | Luna   | Luna      | Luna   |
 | Explorer.map          | medium | high      | high   |
 | Explorer.lookup       | medium | medium    | medium |

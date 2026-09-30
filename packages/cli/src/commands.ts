@@ -36,7 +36,11 @@ import {
 import { asJsonValue } from "./json.ts";
 import { doctorHolyCodex, inspectRemovalConflicts, removeHolyCodex } from "./maintenance.ts";
 import { readPublicVersion, updateCanonicalVersion, ManifestError } from "./manifest.ts";
-import { OfficialPluginManagerError, ReadOnlyCodexPluginStatus } from "./official-manager.ts";
+import {
+  CodexOfficialPluginManager,
+  OfficialPluginManagerError,
+  ReadOnlyCodexPluginStatus,
+} from "./official-manager.ts";
 import { PathBoundaryError, resolveInstallerPaths } from "./paths.ts";
 import { StorageError } from "./storage.ts";
 import type {
@@ -49,6 +53,7 @@ import type {
   InstallReviewResult,
   InstallerOptions,
   ManagedConflict,
+  OfficialPluginManager,
   ParsedCommand,
 } from "./types.ts";
 
@@ -98,7 +103,8 @@ export async function executeCommand(
           {
             ...options,
             officialPluginManager:
-              options.officialPluginManager ?? new ReadOnlyCodexPluginStatus(paths.codexHome),
+              options.officialPluginManager ??
+              (await createDoctorPluginStatusManager(paths.codexHome, context.env)),
           },
           context.env,
         ),
@@ -113,6 +119,27 @@ export async function executeCommand(
     default:
       throw new CliCommandError("invalid_argument", "Unknown command.");
   }
+}
+
+async function createDoctorPluginStatusManager(
+  codexHome: string,
+  environment: Readonly<Record<string, string | undefined>> | undefined,
+): Promise<Pick<OfficialPluginManager, "status" | "getObservedIdentities">> {
+  try {
+    return await CodexOfficialPluginManager.discover(environment);
+  } catch (error: unknown) {
+    if (isCodexExecutableUnavailable(error)) return new ReadOnlyCodexPluginStatus(codexHome);
+    throw error;
+  }
+}
+
+function isCodexExecutableUnavailable(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    error.code === "discovery_failed" &&
+    error.message.startsWith("No Codex executable was found")
+  );
 }
 
 async function executeInstall(parsed: ParsedCommand, context: CliContext) {
@@ -303,7 +330,11 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
   const resolveConflict: NonNullable<InstallerOptions["resolveConflict"]> =
     base.resolveConflict ??
     (async (conflict) => {
-      if (parsed.options["yes"] === true) return "decline";
+      if (parsed.options["yes"] === true) {
+        const decision = yesConflictDecision(conflict);
+        warnAboutYesConflictDecisions(context, [conflict]);
+        return decision === "keep" ? "decline" : decision === "cancel" ? "cancel" : "accept";
+      }
       if (
         parsed.options["json"] === true ||
         context.io?.stdoutIsTTY !== true ||
@@ -334,22 +365,14 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
     base.resolveConflicts ??
     (parsed.options["yes"] === true
       ? async (conflicts) => {
-          if (conflicts.length > 0) {
-            const summary = conflicts
-              .map((conflict) => {
-                const target =
-                  conflict.key === undefined ? conflict.path : `${conflict.path} (${conflict.key})`;
-                return `${target}: ${conflict.explanation ?? "user-owned state requires review"}`;
-              })
-              .join("; ");
-            throw new InstallerError(
-              "confirmation_required",
-              `--yes cannot resolve user-owned configuration without overwriting it. Conflicts: ${summary}.`,
-              undefined,
-              { conflicts: summary },
-            );
-          }
-          return {};
+          const decisions = Object.fromEntries(
+            conflicts.map((conflict) => [
+              conflictIdentity(conflict),
+              yesConflictDecision(conflict),
+            ]),
+          );
+          warnAboutYesConflictDecisions(context, conflicts);
+          return decisions;
         }
       : async (conflicts) => {
           if (
@@ -440,6 +463,45 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
     ...(reviewInstall === undefined ? {} : { reviewInstall }),
     ...(context.now ? { now: context.now } : {}),
   };
+}
+
+function yesConflictDecision(conflict: ManagedConflict): ConflictDecision {
+  const valid =
+    conflict.validDecisions ??
+    (conflict.action === "remove" ? ["keep", "remove", "cancel"] : ["keep", "replace", "cancel"]);
+  const action = conflict.action === "remove" ? "remove" : "replace";
+  const decision = valid.includes(action) ? action : undefined;
+  if (decision === undefined) {
+    throw new InstallerError(
+      "confirmation_required",
+      `--yes cannot resolve ${conflict.target ?? conflict.key ?? conflict.path}; choose ${valid.join(", ")}.`,
+      undefined,
+      {
+        path: conflict.path,
+        ...(conflict.key === undefined ? {} : { key: conflict.key }),
+      },
+    );
+  }
+  return decision;
+}
+
+function warnAboutYesConflictDecisions(
+  context: CliContext,
+  conflicts: readonly ManagedConflict[],
+): void {
+  if (conflicts.length === 0) return;
+  const decisions = conflicts
+    .map((conflict) => {
+      const action = yesConflictDecision(conflict);
+      const target =
+        conflict.key === undefined ? conflict.path : `${conflict.path} (${conflict.key})`;
+      return action === "keep" ? undefined : `${action} ${target}`;
+    })
+    .filter((decision): decision is string => decision !== undefined);
+  if (decisions.length === 0) return;
+  context.io?.writeStderr?.(
+    `Warning: --yes will apply these conflict decisions: ${decisions.join("; ")}. This may overwrite existing Codex configuration.\n`,
+  );
 }
 
 function installRequestFromReview(plan: InstallReview): InstallRequest {

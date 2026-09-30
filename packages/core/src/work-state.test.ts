@@ -179,7 +179,6 @@ describe("IntentStore", () => {
       "missing_active_invocation",
       "stale_dependency",
       "pending_transaction",
-      "required_plan_missing",
     ]);
     expect(await readFile(assignmentPath, "utf8")).toBe(before);
     expect(await readFile(transactionPath, "utf8")).toBe(transactionBefore);
@@ -556,7 +555,7 @@ describe("IntentStore", () => {
     await expect(readdir(join(root, ".holycodex"))).resolves.not.toContain(".intent-store");
   });
 
-  test("enforces readiness, blockers, review re-entry, abandonment, and completion predicates", async () => {
+  test("allows legacy plan-required Intents through retired planning while enforcing lifecycle gates", async () => {
     const { store } = await fixture();
     let intent = await store.createIntent({
       title: "Lifecycle",
@@ -564,12 +563,6 @@ describe("IntentStore", () => {
       acceptanceCriteria: ["readable"],
       planRequired: true,
     });
-    await expect(store.transitionIntent(intent.id, "ready", intent.revision)).rejects.toMatchObject(
-      { code: "not_ready" },
-    );
-    intent = await store
-      .revisePlan(intent.id, { approach: "delegate" }, intent.revision)
-      .then((result) => result.intent);
     intent = await store.transitionIntent(intent.id, "ready", intent.revision);
     intent = await store.transitionIntent(intent.id, "executing", intent.revision);
     intent = await store.transitionIntent(
@@ -673,6 +666,7 @@ describe("IntentStore", () => {
       title: "Complete",
       goal: "Persist work",
       acceptanceCriteria: ["readable"],
+      planRequired: true,
     });
     const assignment = await store.createAssignment(
       intent.id,

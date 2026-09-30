@@ -600,6 +600,8 @@ export function context7RequiredForAssignment(input: Context7AssignmentSemantics
 export const FRONTEND_WORKFLOW_POLICY = Object.freeze({
   repositoryAndUserRequirementsPrecedePluginDefaults: true,
   specialistsOwnImplementationAndInteractionProof: true,
+  specialistVisualImplementationInstruction:
+    "When an Assignment changes visual output, inspect and visually judge the current render, repair actionable defects, and recheck before returning; this local loop supplements Root's higher-level visual acceptance. If assigned capabilities provide no way to judge the render, report that blocker.",
   rootOwnsVisualJudgment: true,
   rootOwnsSharedDevServer: true,
   rootAcceptsTerminalVisualEvidence: true,
@@ -608,6 +610,7 @@ export const FRONTEND_WORKFLOW_POLICY = Object.freeze({
   logicOnlyChangesRequireVisualAcceptance: false,
   fixedPoint: Object.freeze([
     "specialist_implements",
+    "specialist_inspects_judges_and_repairs_current_render",
     "specialist_renders_and_interacts",
     "root_judges_current_render",
     "root_assigns_discrepancies",
@@ -742,7 +745,7 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   /** Root waits and batches lifecycle work instead of polling or coordinating status-only loops. */
   routineWaitTool: "collaboration.wait_agent" as const,
   /** Keep routine waits within the cache lifetime; specialist completion wakes early. */
-  routineWaitMaximumTimeoutMs: 1_200_000,
+  routineWaitMaximumTimeoutMs: 600_000,
   routineWaitUsesMaximumRuntimeTimeout: true,
   earlySpecialistCompletionWakesWait: true,
   collectiveMailboxIncludesRelevantAgents: true,

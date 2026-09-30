@@ -25,9 +25,9 @@ Usage:
   holycodex install [options]
 
 Profiles control routing only:
-  low     Root gpt-6.1-sol/medium; specialists use the low route matrix.
-  default Root gpt-6.1-sol/high; recommended default routing.
-  high    Root gpt-6-astra/high; specialists use the high route matrix.
+  low     Root gpt-6.1-sol/low; specialists use the low route matrix.
+  default Root gpt-6.1-sol/medium; recommended default routing.
+  high    Root gpt-6.1-sol/high; specialists use the high route matrix.
   Default profile: default.
 
 Tier is independent service handling (CLI values are lowercase only):

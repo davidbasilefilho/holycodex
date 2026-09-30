@@ -131,10 +131,12 @@ describe("release version authority", () => {
     const rootManifest = JSON.parse(await readFile(`${workspaceRoot}/package.json`, "utf8")) as {
       catalog?: Readonly<Record<string, string>>;
       devDependencies?: Readonly<Record<string, string>>;
+      dependencies?: Readonly<Record<string, string>>;
     };
     const dependencyRanges = new Set([
       ...Object.values(rootManifest.catalog ?? {}),
       ...Object.values(rootManifest.devDependencies ?? {}),
+      ...Object.values(rootManifest.dependencies ?? {}),
     ]);
     const legacyBrowserOwnerFixture = await readFile(
       `${workspaceRoot}/${legacyBrowserOwnerFixturePath}`,

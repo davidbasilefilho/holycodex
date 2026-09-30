@@ -657,12 +657,6 @@ export class IntentStore {
       planUnreadable = true;
       add("plan_unreadable", "plan", "Repair the canonical Plan record before continuing.");
     }
-    if (!planUnreadable && intent.plan_required && plan === undefined)
-      add(
-        "required_plan_missing",
-        "plan",
-        "Preserve this legacy Intent and resolve its missing historical Plan during recovery; planning commands are retired.",
-      );
     if (plan !== undefined) {
       const digest = sha256(`${encodeToon(plan)}\n`);
       if (
@@ -1289,8 +1283,6 @@ export class IntentStore {
       const assignments = await this.#listPersistedAssignments(directory, intent);
       const reasons: string[] = [];
       if (intent.state !== "reviewing") reasons.push("intent_not_reviewing");
-      if (intent.plan_required && intent.active_plan_revision === undefined)
-        reasons.push("required_plan_missing");
       if (intent.blockers.length) reasons.push("global_blockers_unresolved");
       if (assignments.length === 0) reasons.push("assignment_required");
       if (
@@ -2360,8 +2352,6 @@ export class IntentStore {
       const reasons: string[] = [];
       if (!intent.goal.trim()) reasons.push("goal_missing");
       if (!intent.acceptance_criteria.length) reasons.push("acceptance_criteria_missing");
-      if (intent.plan_required && intent.active_plan_revision === undefined)
-        reasons.push("required_plan_missing");
       const plan =
         intent.active_plan_revision === undefined ? undefined : await this.readPlan(intent.id);
       if (plan?.open_questions.length) reasons.push("material_open_questions");

@@ -19,7 +19,6 @@ import {
   runOpenTuiConflictResolver,
   runOpenTuiInstallWizard,
   readInstallationVersion,
-  windowsGitBashShellDirective,
   runCli,
   toInstallOptions,
   stateFromRequest,
@@ -477,7 +476,7 @@ describe("public install wizard contract", () => {
       );
       expect(
         styledConflict.some(
-          (chunk) => chunk.text === "replace" && chunk.styles?.includes("#e0af68") === true,
+          (chunk) => chunk.text.includes("replace") && chunk.styles?.includes("#e0af68") === true,
         ),
       ).toBe(true);
     } finally {
@@ -543,7 +542,7 @@ describe("public install wizard contract", () => {
         explanation: "The managed lock is regenerated during install.",
       },
     ];
-    const defaults = Object.fromEntries(conflicts.map(({ identity }) => [identity, "keep"]));
+    const defaults = Object.fromEntries(conflicts.map(({ identity }) => [identity, "replace"]));
 
     const navigationRendered: FakeContent[] = [];
     const navigationRenderer = fakeRenderer([{ name: "down" }, { name: "k" }, { name: "enter" }]);
@@ -554,8 +553,8 @@ describe("public install wizard contract", () => {
       await expect(
         runOpenTuiConflictResolver(conflicts, { stdoutIsTTY: true, env: {} }),
       ).resolves.toEqual({ action: "continue", decisions: defaults });
-      expect(fakePlainText(navigationRendered[1]!)).toContain("Focused conflict: Worker");
-      expect(fakePlainText(navigationRendered[2]!)).toContain("Focused conflict: model");
+      expect(fakePlainText(navigationRendered[1]!)).toContain("> replace   Worker");
+      expect(fakePlainText(navigationRendered[2]!)).toContain("> replace   model");
       expect(
         navigationRendered.every((screen) => fakePlainText(screen).split("\n").length - 1 <= 24),
       ).toBe(true);
@@ -568,7 +567,11 @@ describe("public install wizard contract", () => {
     await mock.module("@opentui/core", () => fakeOpenTuiModule(keepRenderer, keepRendered));
     try {
       await expect(
-        runOpenTuiConflictResolver(conflicts, { stdoutIsTTY: true, env: {} }),
+        runOpenTuiConflictResolver(
+          conflicts,
+          { stdoutIsTTY: true, env: {} },
+          Object.fromEntries(conflicts.map(({ identity }) => [identity, "replace"])),
+        ),
       ).resolves.toEqual({
         action: "continue",
         decisions: Object.fromEntries(conflicts.map(({ identity }) => [identity, "keep"])),
@@ -583,8 +586,9 @@ describe("public install wizard contract", () => {
     try {
       await expect(
         runOpenTuiConflictResolver(
-          conflicts.map((conflict) => ({ ...conflict, defaultDecision: "keep" })),
+          conflicts,
           { stdoutIsTTY: true, env: {} },
+          Object.fromEntries(conflicts.map(({ identity }) => [identity, "keep"])),
         ),
       ).resolves.toEqual({
         action: "continue",
@@ -595,7 +599,7 @@ describe("public install wizard contract", () => {
     }
   });
 
-  test("shows only valid decisions and cycles through them without losing prior choices", () => {
+  test("defaults to the executable action and only cycles through actions that can continue", () => {
     const conflicts: ManagedConflict[] = [
       {
         identity: "invalid-provider",
@@ -626,24 +630,23 @@ describe("public install wizard contract", () => {
 
     const rendered = renderConflictScreen(conflicts, state.decisions);
     expect(rendered).toContain("providers.local.command");
-    expect(rendered).toContain("The configured executable cannot be found.");
-    expect(rendered).toContain("choices:  keep | replace");
-    expect(rendered).toContain("choices:  keep | cancel");
-    expect(rendered).not.toContain("choices:  keep | replace | cancel");
+    expect(rendered).toContain("> replace   providers.local.command");
+    expect(rendered).not.toContain("choices:");
+    expect(rendered).not.toContain("cancel     ");
 
-    expect(applyConflictScreenKey(state, 1, { name: "right" })).toEqual({
-      cursor: 1,
+    expect(applyConflictScreenKey(state, 0, { name: "right" })).toEqual({
+      cursor: 0,
       action: "render",
     });
-    expect(state.decisions["conflicting-key"]).toBe("cancel");
-    expect(applyConflictScreenKey(state, 1, { name: "left" })).toEqual({
-      cursor: 1,
+    expect(state.decisions["invalid-provider"]).toBe("keep");
+    expect(applyConflictScreenKey(state, 0, { name: "left" })).toEqual({
+      cursor: 0,
       action: "render",
     });
-    expect(state.decisions["conflicting-key"]).toBe("keep");
+    expect(state.decisions["invalid-provider"]).toBe("replace");
   });
 
-  test("summarizes only choices available in a keep-or-cancel review", () => {
+  test("does not expose per-item cancellation when Keep is the only executable action", () => {
     const conflict: ManagedConflict = {
       identity: "keep-or-cancel",
       category: "configuration",
@@ -657,10 +660,30 @@ describe("public install wizard contract", () => {
     };
 
     const rendered = renderConflictScreen([conflict]);
-    expect(rendered).toContain("Keep preserves current state");
-    expect(rendered).toContain("Cancel stops this operation");
-    expect(rendered).not.toContain("Replace");
-    expect(rendered).not.toContain("Remove");
+    expect(rendered).toContain("> keep      model");
+    expect(rendered).toContain("Ctrl-C cancel");
+    expect(rendered).not.toContain("cancel      model");
+    expect(rendered).not.toContain("Replace the current");
+  });
+
+  test("blocks a conflict with no executable action instead of offering per-item Cancel", () => {
+    const conflict: ManagedConflict = {
+      identity: "blocked",
+      target: "marketplace",
+      path: "config.toml",
+      action: "replace",
+      validDecisions: ["cancel"],
+    };
+    const state = stateFromConflicts([conflict]);
+    const rendered = renderConflictScreen([conflict], state.decisions);
+
+    expect(rendered).toContain("> blocked   marketplace");
+    expect(rendered).toContain("No available action can continue this operation.");
+    expect(rendered).not.toContain("cancel   marketplace");
+    expect(applyConflictScreenKey(state, 0, { name: "enter" })).toEqual({
+      cursor: 0,
+      action: "cancel",
+    });
   });
 
   test("uses removal-specific choices and distinguishes the live resolver Back and Cancel actions", async () => {
@@ -675,19 +698,18 @@ describe("public install wizard contract", () => {
       defaultDecision: "keep",
     };
     const rendered: FakeContent[] = [];
-    const removeRenderer = fakeRenderer([{ name: "r" }, { name: "enter" }]);
+    const removeRenderer = fakeRenderer([{ name: "right" }, { name: "enter" }]);
     await mock.module("@opentui/core", () => fakeOpenTuiModule(removeRenderer, rendered));
     try {
       await expect(
         runOpenTuiConflictResolver([conflict], { stdoutIsTTY: true, env: {} }),
       ).resolves.toEqual({ action: "continue", decisions: { "remove-role": "remove" } });
       const screen = fakePlainText(rendered[0]!);
-      expect(screen).toContain("Remove deletes a selected item");
-      expect(screen).toContain("R remove all");
-      expect(screen).not.toContain("A replace all");
-      expect(screen).toContain("planned:  remove this managed item");
-      expect(screen).not.toContain("desired:  (unknown)");
-      expect(screen).toContain("choices: keep | remove | cancel");
+      expect(screen).toContain("> keep      Explorer.lookup");
+      expect(fakePlainText(rendered[1]!)).toContain("> remove    Explorer.lookup");
+      expect(fakePlainText(rendered[1]!)).toContain("install   remove this managed item");
+      expect(fakePlainText(rendered[1]!)).toContain("Remove the managed item.");
+      expect(screen).not.toContain("choices:");
     } finally {
       mock.restore();
     }
@@ -726,7 +748,7 @@ describe("public install wizard contract", () => {
     });
   });
 
-  test("describes invalid-table removal as a user-owned config choice", async () => {
+  test("defaults invalid-table conflicts to Remove and explains the focused effect", async () => {
     const conflict: ManagedConflict = {
       identity: "invalid-config:features",
       category: "invalid-config",
@@ -744,26 +766,89 @@ describe("public install wizard contract", () => {
     await mock.module("@opentui/core", () => fakeOpenTuiModule(renderer, rendered));
     try {
       await expect(
-        runOpenTuiConflictResolver(
-          [conflict],
-          { stdoutIsTTY: true, env: {} },
-          { "invalid-config:features": "remove" },
-        ),
+        runOpenTuiConflictResolver([conflict], { stdoutIsTTY: true, env: {} }),
       ).resolves.toEqual({
         action: "continue",
         decisions: { "invalid-config:features": "remove" },
       });
       const screen = fakePlainText(rendered[0]!);
-      expect(screen).toContain("choices: remove | cancel");
-      expect(screen).toContain("planned:  remove this conflicting user-owned value");
+      expect(screen).toContain("> remove    features");
+      expect(screen).toContain("install   Create the required features table.");
       expect(screen).toContain(
-        "Effect: remove this reviewed user-owned value so HolyCodex can create the required table.",
+        "Remove the invalid value so HolyCodex can create the required table.",
       );
       expect(screen).not.toContain("HolyCodex-owned");
       expect(screen).not.toContain("managed item");
     } finally {
       mock.restore();
     }
+  });
+
+  test("bulk Replace and Keep apply only decisions that can continue", () => {
+    const conflicts: ManagedConflict[] = [
+      {
+        identity: "normal",
+        target: "model",
+        path: "config.toml",
+        action: "replace",
+        validDecisions: ["keep", "replace", "cancel"],
+      },
+      {
+        identity: "invalid-config",
+        category: "invalid-config",
+        target: "features",
+        path: "config.toml",
+        action: "remove",
+        validDecisions: ["remove", "cancel"],
+      },
+    ];
+    const state = stateFromConflicts(conflicts, { normal: "keep" });
+    expect(state.decisions).toEqual({ normal: "keep", "invalid-config": "remove" });
+
+    applyConflictScreenKey(state, 0, { name: "a", shift: true });
+    expect(state.decisions).toEqual({ normal: "replace", "invalid-config": "remove" });
+    applyConflictScreenKey(state, 0, { name: "K", shift: true });
+    expect(state.decisions).toEqual({ normal: "keep", "invalid-config": "remove" });
+  });
+
+  test("renders all 15 conflicts in an aligned 80-column native and text layout", async () => {
+    const conflicts: ManagedConflict[] = Array.from({ length: 15 }, (_, index) => ({
+      identity: `config:${index}`,
+      category: "config-key",
+      target: `setting-${String(index).padStart(2, "0")}`,
+      path: "config.toml",
+      action: "replace",
+      existing: `current-${index}`,
+      desired: `install-${index}`,
+    }));
+    const text = renderConflictScreen(conflicts);
+    const native: FakeContent[] = [];
+    const renderer = fakeRenderer([{ name: "enter" }]);
+    await mock.module("@opentui/core", () => fakeOpenTuiModule(renderer, native));
+    try {
+      await expect(
+        runOpenTuiConflictResolver(conflicts, {
+          width: 80,
+          height: 24,
+          stdoutIsTTY: false,
+          env: {},
+        }),
+      ).resolves.toMatchObject({ action: "continue" });
+    } finally {
+      mock.restore();
+    }
+
+    const rendered = fakePlainText(native[0]!);
+    expect(rendered).toBe(text);
+    expect(rendered).toContain("15 conflicts");
+    expect(rendered).toContain("↑/↓ navigate   ←/→ change action   A replace all   K keep all");
+    expect(
+      rendered.split("\n").filter((line) => /^[> ] replace   setting-/u.test(line)),
+    ).toHaveLength(15);
+    expect(rendered).toContain("current   current-0");
+    expect(rendered).not.toContain("current-1");
+    expect(rendered.split("\n").every((line) => line.length <= 80)).toBe(true);
+    expect(rendered.split("\n").length - 1).toBe(24);
   });
 
   test("keeps final native review controls visible at 80 columns by 24 rows", async () => {
@@ -830,7 +915,7 @@ describe("generated Root orchestration policy", () => {
     expect(sol).toContain("record the result with that invocation ID and capability");
     expect(sol).toContain("Recover an interrupted invocation only after confirming it stopped");
     expect(sol).toContain("Check existing authorization before asking again");
-    expect(sol).toContain("missing information materially changes the outcome");
+    expect(sol).toContain("For a blocking material user decision, Root alone uses grill-me");
     expect(sol).toContain("Before each specialist spawn, persist the bounded Assignment");
     expect(sol).toContain("record verification, acceptance, and readiness");
     expect(sol).toContain("complete only when holycodex-agent confirms every completion predicate");
@@ -845,7 +930,7 @@ describe("generated Root orchestration policy", () => {
     for (const agentType of NATIVE_AGENT_TYPES) expect(sol).toContain(agentType);
     expect(projectRootAgent("default")).toMatchObject({
       model: "gpt-6.1-sol",
-      effort: "high",
+      effort: "medium",
     });
   });
 
@@ -905,20 +990,6 @@ describe("generated Root orchestration policy", () => {
         expect(rendered).not.toContain("Patch quality:");
       }
     }
-  });
-
-  test("projects the verified Windows shell only when selected", () => {
-    const executable = "C:\\Program Files\\Git\\bin\\bash.exe";
-    const directive = windowsGitBashShellDirective(executable);
-    expect(rootDeveloperInstructions({ windowsGitBashExecutable: executable })).toContain(
-      directive,
-    );
-    expect(
-      renderNativeAgent(projectNativeAgents("default")[0]!, {
-        windowsGitBashExecutable: executable,
-      }),
-    ).toContain(JSON.stringify(directive).slice(1, -1));
-    expect(rootDeveloperInstructions(false)).not.toContain(directive);
   });
 });
 

@@ -4,12 +4,10 @@ import { describe, expect, test } from "bun:test";
 import { win32 } from "node:path";
 
 import {
-  WINDOWS_GIT_BASH,
   ToolingError,
   context7InstallCommand,
   detectContext7Manager,
   ensureContext7,
-  ensureGitBash,
   inspectContext7ReadOnly,
   preflightContext7,
   removeOwnedContext7,
@@ -144,7 +142,7 @@ describe("installer tooling", () => {
   test("maps ctx7@latest to every supported manager family", () => {
     expect(context7InstallCommand("bun")).toEqual({
       executable: "bun",
-      args: ["add", "-g", "ctx7@latest"],
+      args: ["add", "--global", "ctx7@latest"],
     });
     expect(context7InstallCommand("npm")).toEqual({
       executable: "npm",
@@ -200,8 +198,23 @@ describe("installer tooling", () => {
       executable: fixture.shim,
     });
     expect(fixture.installs()).toBe(1);
-    expect(fixture.calls).toContain("bun add -g ctx7@latest");
+    expect(fixture.calls).toContain("bun add --global --cwd=C:\\ ctx7@latest");
     expect(fixture.calls).toContain("bun pm view ctx7 version");
+  });
+
+  test("runs Bun global installs outside the invoking project directory", async () => {
+    const fixture = context7Runtime({
+      family: "bun",
+      processPath: "C:\\Program Files\\Bun\\bun.exe",
+      latest: "2.0.0",
+    });
+    await expect(ensureContext7(fixture.runtime, true)).resolves.toMatchObject({
+      version: "2.0.0",
+      executable: fixture.shim,
+    });
+    expect(fixture.calls).toContain(
+      "C:\\Program Files\\Bun\\bun.exe add --global --cwd=C:\\Program Files\\Bun ctx7@latest",
+    );
   });
 
   test("defers a Bun package installation failure until the transaction", async () => {
@@ -217,7 +230,7 @@ describe("installer tooling", () => {
       details: { stderr: "install failed" },
     });
     expect(fixture.installs()).toBe(1);
-    expect(fixture.calls).toContain("bun add -g ctx7@latest");
+    expect(fixture.calls).toContain("bun add --global --cwd=C:\\ ctx7@latest");
     expect(fixture.calls).toContain("bun pm view ctx7 version");
   });
 
@@ -251,7 +264,7 @@ describe("installer tooling", () => {
       code: "context7_shadowed",
     });
     expect(fixture.installs()).toBe(0);
-    expect(fixture.calls.some((call) => call.includes("add -g ctx7@latest"))).toBe(false);
+    expect(fixture.calls.some((call) => call.includes("add --global --cwd="))).toBe(false);
   });
 
   test("reports discoverable Bun preflight failures before mutation", async () => {
@@ -275,7 +288,7 @@ describe("installer tooling", () => {
         code: "context7_unavailable",
       });
       expect(fixture.installs()).toBe(0);
-      expect(fixture.calls.some((call) => call.includes("add -g ctx7@latest"))).toBe(false);
+      expect(fixture.calls.some((call) => call.includes("add --global --cwd="))).toBe(false);
       expect(fixture.calls.some((call) => call.includes("pm view ctx7 version"))).toBe(false);
     }
   });
@@ -294,64 +307,7 @@ describe("installer tooling", () => {
       executable: fixture.shim,
     });
     expect(fixture.installs()).toBe(1);
-    expect(fixture.calls).toContain("bun add -g ctx7@latest");
-  });
-
-  test("checks the canonical Git Bash path before PATH", async () => {
-    const fixture = gitRuntime({ canonical: "healthy", pathCandidate: "healthy" });
-    await expect(ensureGitBash(fixture.runtime, true)).resolves.toEqual({
-      status: "healthy",
-      path: WINDOWS_GIT_BASH,
-      installed: false,
-    });
-    expect(fixture.calls.some((call) => call.startsWith("winget "))).toBe(false);
-    expect(fixture.calls.some((call) => call.startsWith("C:\\Other\\Git"))).toBe(false);
-  });
-
-  test("accepts a verified Git-for-Windows Bash found on PATH", async () => {
-    const fixture = gitRuntime({ canonical: "missing", pathCandidate: "healthy" });
-    await expect(ensureGitBash(fixture.runtime, false)).resolves.toEqual({
-      status: "healthy",
-      path: "C:\\Other\\Git\\bin\\bash.exe",
-      installed: false,
-    });
-  });
-
-  test.each(["Linux", "CYGWIN_NT-10.0", "MSYS_NT-10.0"])(
-    "rejects a non-Git-for-Windows PATH Bash reporting %s",
-    async (uname) => {
-      const fixture = gitRuntime({ canonical: "missing", pathCandidate: uname });
-      await expect(ensureGitBash(fixture.runtime, false)).resolves.toEqual({
-        status: "missing",
-      });
-    },
-  );
-
-  test("repairs missing Git Bash through WinGet and reverifies it", async () => {
-    const fixture = gitRuntime({ canonical: "repairable", pathCandidate: "missing" });
-    await expect(ensureGitBash(fixture.runtime, true)).resolves.toEqual({
-      status: "healthy",
-      path: WINDOWS_GIT_BASH,
-      installed: true,
-    });
-    expect(fixture.calls.filter((call) => call.startsWith("winget "))).toEqual([
-      "winget install --id Git.Git -e --source winget",
-    ]);
-  });
-
-  test("reports WinGet failure and failed post-install verification", async () => {
-    const installFailure = gitRuntime({
-      canonical: "missing",
-      pathCandidate: "missing",
-      wingetFails: true,
-    });
-    await expect(ensureGitBash(installFailure.runtime, true)).rejects.toMatchObject({
-      code: "git_bash_unavailable",
-      details: { stderr: "winget failed" },
-    });
-
-    const verifyFailure = gitRuntime({ canonical: "missing", pathCandidate: "missing" });
-    await expect(ensureGitBash(verifyFailure.runtime, true)).rejects.toThrow("was installed, but");
+    expect(fixture.calls).toContain("bun add --global --cwd=C:\\ ctx7@latest");
   });
 
   for (const family of ["bun", "npm", "pnpm"] as const) {
@@ -393,7 +349,7 @@ describe("installer tooling", () => {
     });
     expect(fixture.installs()).toBe(0);
     expect(fixture.calls).toContain("bun pm view ctx7 version");
-    expect(fixture.calls).not.toContain("bun add -g ctx7@latest");
+    expect(fixture.calls.some((call) => call.includes("add --global --cwd="))).toBe(false);
   });
 
   test("records a new install as HolyCodex-owned and preserves prior user origin on repair", async () => {
@@ -573,6 +529,7 @@ describe("installer tooling", () => {
     const owned = context7Runtime({ family: "bun", installed: "2.0.0", latest: "2.0.0" });
     await expect(removeOwnedContext7(owned.runtime, ownedState)).resolves.toBe(true);
     expect(owned.removes()).toBe(1);
+    expect(owned.calls).toContain("bun remove --global --cwd=C:\\ ctx7");
 
     const user = context7Runtime({ family: "bun", installed: "2.0.0", latest: "2.0.0" });
     await expect(removeOwnedContext7(user.runtime, context7State(user.shim, "user"))).resolves.toBe(
@@ -626,55 +583,6 @@ describe("installer tooling", () => {
   });
 });
 
-function gitRuntime(options: {
-  readonly canonical: "healthy" | "missing" | "repairable";
-  readonly pathCandidate: string;
-  readonly wingetFails?: boolean;
-}): { readonly runtime: InstallerRuntime; readonly calls: string[] } {
-  const calls: string[] = [];
-  let repaired = false;
-  const fallback = "C:\\Other\\Git\\bin\\bash.exe";
-  const runtime: InstallerRuntime = {
-    platform: "win32",
-    environment: { PATH: "C:\\Other\\Git\\bin" },
-    processPath: "node",
-    run: async (executable, args) => {
-      calls.push(`${executable} ${args.join(" ")}`);
-      if (executable === "winget") {
-        if (options.wingetFails) return failure("winget failed");
-        if (options.canonical === "repairable") repaired = true;
-        return success();
-      }
-      const canonicalHealthy = options.canonical === "healthy" || repaired;
-      const state =
-        executable === WINDOWS_GIT_BASH
-          ? canonicalHealthy
-            ? "healthy"
-            : "missing"
-          : executable === fallback
-            ? options.pathCandidate
-            : executable.toLowerCase().endsWith("\\cmd\\git.exe")
-              ? executable.toLowerCase().includes("\\other\\git")
-                ? options.pathCandidate
-                : canonicalHealthy
-                  ? "healthy"
-                  : "missing"
-              : "missing";
-      if (state === "missing") return failure("missing");
-      if (args[0] === "--version") {
-        return success(
-          executable.endsWith("git.exe") ? "git version 2.51.0.windows.1" : "GNU bash, version 5.2",
-        );
-      }
-      if (args.at(-1) === "uname -s") {
-        return success(state === "healthy" ? "MINGW64_NT-10.0" : String(state));
-      }
-      return failure();
-    },
-  };
-  return { runtime, calls };
-}
-
 type ContextFixtureOptions = Readonly<{
   family: Context7Manager["family"];
   processPath?: string;
@@ -709,6 +617,7 @@ function context7Runtime(options: ContextFixtureOptions): {
   const manager = managerFor(options.family);
   const calls: string[] = [];
   let current = options.installed;
+  const processPath = options.processPath ?? "node";
   const packageRevision = options.packageRevision ?? "original";
   const root = options.root ?? "C:\\Users\\test";
   let installCount = 0;
@@ -779,11 +688,14 @@ function context7Runtime(options: ContextFixtureOptions): {
   const runtime: InstallerRuntime = {
     platform: "win32",
     environment,
-    processPath: options.processPath ?? "node",
+    processPath,
     files,
     run: async (executable, args) => {
       calls.push(`${executable} ${args.join(" ")}`);
-      if (executable === manager.executable) {
+      if (
+        executable === manager.executable ||
+        (options.family === "bun" && executable === processPath)
+      ) {
         const words = args.join(" ");
         if (words === manager.binCommand) {
           if (options.globalBinFails) return failure("bun global location unavailable");
@@ -802,14 +714,26 @@ function context7Runtime(options: ContextFixtureOptions): {
             ? failure("latest failed")
             : success(options.latest ?? "2.0.0");
         }
-        if (words === manager.installCommand) {
+        const bunGlobalInstall =
+          options.family === "bun" &&
+          args[0] === "add" &&
+          args[1] === "--global" &&
+          args[2]?.startsWith("--cwd=") === true &&
+          args[3] === "ctx7@latest";
+        if (words === manager.installCommand || bunGlobalInstall) {
           installCount += 1;
           if (options.installFails) return failure("install failed");
           current = options.latest ?? "2.0.0";
           if (options.missingProjectInitially) projectAvailable = true;
           return success();
         }
-        if (words === manager.removeCommand) {
+        const bunGlobalRemove =
+          options.family === "bun" &&
+          args[0] === "remove" &&
+          args[1] === "--global" &&
+          args[2]?.startsWith("--cwd=") === true &&
+          args[3] === "ctx7";
+        if (words === manager.removeCommand || bunGlobalRemove) {
           removeCount += 1;
           if (options.removeFails) return failure("remove failed");
           if (!options.removeLeavesPackage) current = undefined;
@@ -852,7 +776,7 @@ function managerFor(family: Context7Manager["family"]): {
         environment: { npm_execpath: "C:/bun/bin/bunx.exe" },
         binCommand: "pm bin -g",
         latestCommand: "pm view ctx7 version",
-        installCommand: "add -g ctx7@latest",
+        installCommand: "add --global ctx7@latest",
         removeCommand: "remove --global ctx7",
       };
     case "npm":

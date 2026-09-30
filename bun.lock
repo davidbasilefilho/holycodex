@@ -24,7 +24,7 @@
     },
     "packages/cli": {
       "name": "holycodex",
-      "version": "0.16.9-1",
+      "version": "0.16.9-2",
       "bin": {
         "holycodex": "./dist/index.js",
         "holycodex-agent": "./dist/agent.js",

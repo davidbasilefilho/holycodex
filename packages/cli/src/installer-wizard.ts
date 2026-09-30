@@ -296,18 +296,18 @@ export function stateFromConflicts(
 ): ConflictScreenState {
   const decisions: Record<string, ConflictDecision> = {};
   for (const conflict of conflicts) {
-    const identity =
-      conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
-    const valid = validConflictDecisions(conflict);
-    const preferred = priorDecisions[identity] ?? conflict.defaultDecision ?? "keep";
-    decisions[identity] = valid.includes(preferred)
-      ? preferred
-      : (valid.find((decision) => decision !== "cancel") ?? "cancel");
+    const identity = conflictIdentity(conflict);
+    const valid = actionableConflictDecisions(conflict);
+    const prior = priorDecisions[identity];
+    const preferred = valid.includes(prior ?? "cancel")
+      ? prior!
+      : defaultConflictDecision(conflict, valid);
+    decisions[identity] = valid.includes(preferred) ? preferred : (valid[0] ?? "cancel");
   }
   return { conflicts, decisions };
 }
 
-/** Apply one keyboard action to the grouped conflict review screen. */
+/** Apply one keyboard action to the conflict review screen. */
 export function applyConflictScreenKey(
   state: ConflictScreenState,
   cursor: number,
@@ -328,14 +328,15 @@ export function applyConflictScreenKey(
     };
   }
   if (name === "return" || name === "enter" || name === "linefeed") {
-    return { cursor, action: "continue" };
+    return {
+      cursor,
+      action: state.conflicts.some((conflict) => actionableConflictDecisions(conflict).length === 0)
+        ? "cancel"
+        : "continue",
+    };
   }
-  if (name === "a") {
+  if (name === "a" && key.ctrl !== true) {
     setDecisionForValidConflicts(state, "replace");
-    return { cursor, action: "render" };
-  }
-  if (name === "r") {
-    setDecisionForValidConflicts(state, "remove");
     return { cursor, action: "render" };
   }
   if ((name === "k" || rawName === "K") && key.ctrl !== true) {
@@ -345,17 +346,13 @@ export function applyConflictScreenKey(
     setDecisionForValidConflicts(state, "keep");
     return { cursor, action: "render" };
   }
-  if (name === "space") {
-    toggleConflictDecision(state, cursor);
-    return { cursor, action: "render" };
-  }
   if (name === "left" || name === "right") {
     cycleConflictDecision(state, cursor, name === "left" ? -1 : 1);
   }
   return { cursor, action: "render" };
 }
 
-/** Render only the conflicts discovered during preflight, grouped by managed category. */
+/** Render the complete conflict list and the focused conflict's current action. */
 export function renderConflictScreen(
   conflicts: readonly ManagedConflict[],
   decisions: Readonly<Record<string, ConflictDecision>> = stateFromConflicts(conflicts).decisions,
@@ -363,49 +360,19 @@ export function renderConflictScreen(
   options: HumanRenderOptions = {},
 ): string {
   const color = colorEnabled({ ...options, stream: "stdout" });
-  const state = { conflicts, decisions: { ...decisions } };
-  const lines = [
-    paintTerminal("HolyCodex · resolve conflicts", "heading", color),
-    paintTerminal(conflictSummary(conflicts), "hint", color),
-    paintTerminal(conflictRecommendation(conflicts), "hint", color),
-    paintTerminal(conflictShortcuts(conflicts), "hint", color),
-    paintTerminal("Enter continue   Esc back   Ctrl-C cancel", "hint", color),
-    paintTerminal(
-      `Choice ${conflicts.length === 0 ? 0 : cursor + 1} of ${conflicts.length}`,
-      "focus",
-      color,
-    ),
-    "",
-  ];
-  let previousCategory: string | undefined;
-  conflicts.forEach((conflict, index) => {
-    const category = conflict.category ?? "managed";
-    if (category !== previousCategory) {
-      if (previousCategory !== undefined) lines.push("");
-      lines.push(paintTerminal(categoryLabel(category), "heading", color));
-      previousCategory = category;
-    }
-    const identity =
-      conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
-    const decision = state.decisions[identity] ?? "keep";
-    const target = conflict.target ?? conflict.key ?? conflict.path;
-    const marker = index === cursor ? "❯" : " ";
-    const tone = decision === "replace" ? "warning" : decision === "keep" ? "disabled" : "error";
-    lines.push(
-      paintTerminal(`${marker} ${target}`, index === cursor ? "focus" : "argument", color),
-    );
-    lines.push(`    ${paintTerminal(`choice: ${decision}`, tone, color)}`);
-    lines.push(`    existing: ${formatConflictValue(conflict.existing)}`);
-    if (conflict.action === "remove") lines.push(`    planned:  ${conflictRemovalLabel(conflict)}`);
-    else lines.push(`    desired:  ${formatConflictValue(conflict.desired)}`);
-    lines.push(`    ${paintTerminal(conflictConsequence(conflict, decision), "hint", color)}`);
-    lines.push(`    choices:  ${formatConflictChoices(conflict)}`);
-    if (conflict.explanation !== undefined)
-      lines.push(`    ${paintTerminal(conflict.explanation, "hint", color)}`);
-  });
-  if (conflicts.length === 0)
-    lines.push(paintTerminal("No conflicts require a decision.", "success", color));
-  return `${lines.join("\n")}\n`;
+  const width = process.stdout.columns ?? 80;
+  const height = process.stdout.rows ?? 24;
+  return `${conflictScreenLines(conflicts, decisions, cursor, width, height)
+    .map((line) =>
+      line
+        .map((segment) =>
+          segment.tone === undefined
+            ? segment.text
+            : paintTerminal(segment.text, segment.tone, color),
+        )
+        .join(""),
+    )
+    .join("\n")}\n`;
 }
 
 /** Run the one native OpenTUI conflict review and return all selected decisions. */
@@ -423,7 +390,15 @@ export async function runOpenTuiConflictResolver(
   });
   const color = nativeColorEnabled(rendererOptions);
   const text = new opentui.TextRenderable(renderer, {
-    content: nativeConflictContent(opentui, state.conflicts, state.decisions, 0, color),
+    content: nativeConflictContent(
+      opentui,
+      state.conflicts,
+      state.decisions,
+      0,
+      color,
+      rendererOptions.width ?? process.stdout.columns ?? 80,
+      rendererOptions.height ?? process.stdout.rows ?? 24,
+    ),
   });
   renderer.root.add(text);
   return await new Promise<ConflictScreenResult>((resolve, reject) => {
@@ -450,6 +425,8 @@ export async function runOpenTuiConflictResolver(
         state.decisions,
         cursor,
         color,
+        rendererOptions.width ?? process.stdout.columns ?? 80,
+        rendererOptions.height ?? process.stdout.rows ?? 24,
       );
       renderer.requestRender();
     };
@@ -687,26 +664,19 @@ function installReviewActionLabel(
 
 function setDecisionForValidConflicts(
   state: ConflictScreenState,
-  decision: "keep" | "remove" | "replace",
+  decision: "keep" | "replace",
 ): void {
   for (const conflict of state.conflicts) {
-    const valid = validConflictDecisions(conflict);
-    if (!valid.includes(decision)) continue;
-    state.decisions[
-      conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`
-    ] = decision;
+    const valid = actionableConflictDecisions(conflict);
+    const selected =
+      decision === "replace" &&
+      conflict.category === "invalid-config" &&
+      !valid.includes("replace") &&
+      valid.includes("remove")
+        ? "remove"
+        : decision;
+    if (valid.includes(selected)) state.decisions[conflictIdentity(conflict)] = selected;
   }
-}
-
-function toggleConflictDecision(state: ConflictScreenState, cursor: number): void {
-  const conflict = state.conflicts[cursor];
-  if (conflict === undefined) return;
-  const identity = conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
-  const valid = validConflictDecisions(conflict);
-  const current = state.decisions[identity] ?? "keep";
-  const destructive = conflict.action === "remove" ? "remove" : "replace";
-  const next = current === destructive ? "keep" : destructive;
-  if (valid.includes(next)) state.decisions[identity] = next;
 }
 
 function cycleConflictDecision(
@@ -716,18 +686,14 @@ function cycleConflictDecision(
 ): void {
   const conflict = state.conflicts[cursor];
   if (conflict === undefined) return;
-  const identity = conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
-  const choices = validConflictDecisions(conflict);
+  const identity = conflictIdentity(conflict);
+  const choices = actionableConflictDecisions(conflict);
   if (choices.length === 0) return;
-  const current = state.decisions[identity] ?? choices[0]!;
+  const current = state.decisions[identity] ?? defaultConflictDecision(conflict, choices);
   const currentIndex = choices.indexOf(current);
   const index = currentIndex < 0 ? 0 : currentIndex;
   state.decisions[identity] =
     choices[(index + direction + choices.length) % choices.length] ?? choices[0]!;
-}
-
-function formatConflictChoices(conflict: ManagedConflict): string {
-  return validConflictDecisions(conflict).join(" | ");
 }
 
 function validConflictDecisions(conflict: ManagedConflict): readonly ConflictDecision[] {
@@ -737,52 +703,106 @@ function validConflictDecisions(conflict: ManagedConflict): readonly ConflictDec
   );
 }
 
-function conflictSummary(conflicts: readonly ManagedConflict[]): string {
-  if (conflicts.length === 0) return "No conflicts require a decision.";
-  const choices = new Set(conflicts.flatMap(validConflictDecisions));
-  const removableConflicts = conflicts.filter((conflict) =>
-    validConflictDecisions(conflict).includes("remove"),
-  );
-  const removeEffect =
-    removableConflicts.length === 0
-      ? undefined
-      : removableConflicts.every((conflict) => conflict.action === "remove")
-        ? "Remove deletes a selected item"
-        : removableConflicts.every((conflict) => conflict.action !== "remove")
-          ? "Remove drops the current value before applying the planned value"
-          : "Remove deletes a selected item or drops the current value";
-  const effects = [
-    choices.has("keep") ? "Keep preserves current state" : undefined,
-    choices.has("replace") ? "Replace applies the planned value" : undefined,
-    removeEffect,
-    choices.has("cancel") ? "Cancel stops this operation" : undefined,
-  ].filter((effect): effect is string => effect !== undefined);
-  return `${conflicts.length} item${conflicts.length === 1 ? "" : "s"} need a choice. ${effects.join("; ")}.`;
+function actionableConflictDecisions(conflict: ManagedConflict): readonly ConflictDecision[] {
+  return validConflictDecisions(conflict).filter((decision) => decision !== "cancel");
 }
 
-function conflictRecommendation(conflicts: readonly ManagedConflict[]): string {
-  const choices = new Set(conflicts.flatMap(validConflictDecisions));
-  if (
-    conflicts.length > 0 &&
-    conflicts.every((conflict) => conflict.action === "remove") &&
-    choices.has("keep") &&
-    choices.has("remove")
-  ) {
-    return "Keep is selected by default. Choose Remove only for edited items you want deleted.";
+function defaultConflictDecision(
+  conflict: ManagedConflict,
+  valid: readonly ConflictDecision[],
+): ConflictDecision {
+  const preferred =
+    conflict.category === "invalid-config"
+      ? "remove"
+      : conflict.action === "remove"
+        ? "keep"
+        : "replace";
+  return valid.includes(preferred) ? preferred : (valid[0] ?? "cancel");
+}
+
+function selectedConflictDecision(
+  conflict: ManagedConflict,
+  decisions: Readonly<Record<string, ConflictDecision>>,
+): ConflictDecision {
+  const valid = actionableConflictDecisions(conflict);
+  const selected = decisions[conflictIdentity(conflict)];
+  return valid.includes(selected ?? "cancel")
+    ? selected!
+    : defaultConflictDecision(conflict, valid);
+}
+
+function conflictScreenLines(
+  conflicts: readonly ManagedConflict[],
+  decisions: Readonly<Record<string, ConflictDecision>>,
+  cursor: number,
+  width: number,
+  height: number,
+): readonly NativeLine[] {
+  const selected = Math.min(Math.max(cursor, 0), Math.max(0, conflicts.length - 1));
+  const dense = conflicts.length + 11 > height;
+  const lines: NativeLine[] = [
+    nativeTextLine("HolyCodex · resolve conflicts", "heading"),
+    nativeTextLine(`${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"}`, "hint"),
+    nativeTextLine("↑/↓ navigate   ←/→ change action   A replace all   K keep all", "hint"),
+    nativeTextLine("Enter continue   Esc back   Ctrl-C cancel", "hint"),
+  ];
+  if (!dense) lines.push(nativeTextLine(""));
+  lines.push(nativeTextLine("  ACTION    CONFIG", "heading"));
+
+  conflicts.forEach((conflict, index) => {
+    const valid = actionableConflictDecisions(conflict);
+    const decision = selectedConflictDecision(conflict, decisions);
+    const marker = index === selected ? ">" : " ";
+    const label = valid.length === 0 ? "blocked" : decision;
+    const tone: NativeTone =
+      valid.length === 0
+        ? "error"
+        : decision === "replace"
+          ? "warning"
+          : decision === "keep"
+            ? "disabled"
+            : "error";
+    const target = fitConflictText(conflict.target ?? conflict.key ?? conflict.path, width - 12);
+    lines.push(
+      nativeLine(
+        { text: `${marker} ${label.padEnd(7)}   `, tone },
+        { text: target, tone: index === selected ? "focus" : "argument" },
+      ),
+    );
+  });
+
+  if (conflicts.length === 0) {
+    lines.push(nativeTextLine("No conflicts require a decision.", "success"));
+    return lines;
   }
-  return "Review each available choice before continuing.";
+
+  if (!dense) lines.push(nativeTextLine(""));
+  const focused = conflicts[selected]!;
+  const decision = selectedConflictDecision(focused, decisions);
+  const current = fitConflictText(formatConflictValue(focused.existing), width - 10);
+  const desired =
+    focused.desired === undefined && focused.action === "remove"
+      ? conflictRemovalLabel(focused)
+      : formatConflictValue(focused.desired);
+  const install = fitConflictText(desired, width - 10);
+  lines.push(
+    nativeTextLine(fitConflictText(focused.target ?? focused.key ?? focused.path, width), "focus"),
+  );
+  lines.push(nativeLine({ text: "current   ", tone: "hint" }, { text: current }));
+  lines.push(nativeLine({ text: "install   ", tone: "hint" }, { text: install }));
+  lines.push(
+    nativeTextLine(fitConflictText(conflictConsequence(focused, decision), width), "hint"),
+  );
+  return lines;
 }
 
-function conflictShortcuts(conflicts: readonly ManagedConflict[]): string {
-  const choices = new Set(conflicts.flatMap(validConflictDecisions));
-  return [
-    "↑/↓ or j/k navigate",
-    "←/→ choose",
-    ...(choices.has("replace") || choices.has("remove") ? ["Space toggle"] : []),
-    ...(choices.has("replace") ? ["A replace all"] : []),
-    ...(choices.has("remove") ? ["R remove all"] : []),
-    ...(choices.has("keep") ? ["K keep all"] : []),
-  ].join("   ");
+function fitConflictText(value: string, width: number): string {
+  const compact = value
+    .replace(/[\r\n\t]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  const maxLength = Math.max(1, width);
+  return compact.length <= maxLength ? compact : `${compact.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
 function categoryLabel(category: string): string {
@@ -800,6 +820,27 @@ function formatConflictValue(value: unknown): string {
   } catch {
     return "(unavailable)";
   }
+}
+
+function conflictConsequence(conflict: ManagedConflict, decision: ConflictDecision): string {
+  if (decision === "keep") return "Keep the current value.";
+  if (decision === "remove") {
+    return conflict.category === "invalid-config"
+      ? "Remove the invalid value so HolyCodex can create the required table."
+      : "Remove the managed item.";
+  }
+  if (decision === "cancel") return "No available action can continue this operation.";
+  return "Replace the current value with the HolyCodex value.";
+}
+
+function conflictRemovalLabel(conflict: ManagedConflict): string {
+  return conflict.category === "invalid-config"
+    ? "remove this conflicting user-owned value"
+    : "remove this managed item";
+}
+
+function conflictIdentity(conflict: ManagedConflict): string {
+  return conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
 }
 
 /** Apply one configuration-screen key using the shared install TUI keyboard contract. */
@@ -1072,95 +1113,14 @@ function nativeConflictContent(
   decisions: Readonly<Record<string, ConflictDecision>>,
   cursor: number,
   color: boolean,
+  width: number,
+  height: number,
 ): OpenTuiStyledText {
-  const lines: NativeLine[] = [
-    nativeTextLine("HolyCodex · resolve conflicts", "heading"),
-    nativeTextLine(conflictSummary(conflicts), "hint"),
-    nativeTextLine(conflictRecommendation(conflicts), "hint"),
-    nativeTextLine(conflictShortcuts(conflicts), "hint"),
-    nativeTextLine("Enter continue   Esc back   Ctrl-C cancel", "hint"),
-    nativeTextLine(""),
-    nativeTextLine(
-      `Decision ${conflicts.length === 0 ? 0 : cursor + 1} of ${conflicts.length}`,
-      "focus",
-    ),
-    nativeTextLine(""),
-  ];
-  let previousCategory: string | undefined;
-  conflicts.forEach((conflict, index) => {
-    const category = conflict.category ?? "managed";
-    if (category !== previousCategory) {
-      lines.push(nativeTextLine(categoryLabel(category), "heading"));
-      previousCategory = category;
-    }
-    const identity =
-      conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
-    const decision = decisions[identity] ?? "keep";
-    const target = conflict.target ?? conflict.key ?? conflict.path;
-    const marker = index === cursor ? "❯" : " ";
-    const tone = decision === "replace" ? "warning" : decision === "keep" ? "disabled" : "error";
-    lines.push(
-      nativeLine(
-        { text: `${marker} ${target}`, tone: index === cursor ? "focus" : "argument" },
-        { text: "  choice: " },
-        { text: decision, tone },
-        { text: `   choices: ${formatConflictChoices(conflict)}`, tone: "hint" },
-      ),
-    );
-  });
-  if (conflicts.length === 0) {
-    lines.push(nativeTextLine("No conflicts require a decision.", "success"));
-  } else {
-    const focused = conflicts[Math.min(Math.max(cursor, 0), conflicts.length - 1)];
-    if (focused !== undefined) {
-      const target = focused.target ?? focused.key ?? focused.path;
-      lines.push(nativeTextLine(`Focused conflict: ${target}`, "focus"));
-      lines.push(
-        nativeTextLine(
-          conflictConsequence(focused, decisions[conflictIdentity(focused)] ?? "keep"),
-          "warning",
-        ),
-      );
-      lines.push(nativeTextLine(`  existing: ${formatConflictValue(focused.existing)}`));
-      if (focused.action === "remove")
-        lines.push(nativeTextLine(`  planned:  ${conflictRemovalLabel(focused)}`));
-      else lines.push(nativeTextLine(`  desired:  ${formatConflictValue(focused.desired)}`));
-      if (focused.explanation !== undefined)
-        lines.push(nativeTextLine(`  ${focused.explanation}`, "hint"));
-    }
-  }
-  return nativeStyledText(opentui, lines, color);
-}
-
-function conflictConsequence(conflict: ManagedConflict, decision: ConflictDecision): string {
-  if (decision === "keep") {
-    return conflict.action === "remove"
-      ? "Effect: preserve this edited item in place; removal remains partial until you retry or leave it."
-      : "Effect: preserve the current file or setting and leave this change unapplied.";
-  }
-  if (decision === "cancel")
-    return "Effect: stop this operation before applying the reviewed changes.";
-  if (decision === "remove") {
-    if (conflict.category === "invalid-config") {
-      return "Effect: remove this reviewed user-owned value so HolyCodex can create the required table.";
-    }
-    return conflict.action === "remove"
-      ? "Effect: delete this modified HolyCodex-owned item after confirmation."
-      : "Effect: remove the current value and apply the reviewed HolyCodex value.";
-  }
-  return conflict.action === "remove"
-    ? "Effect: this removal does not offer Replace; use Remove or Keep."
-    : "Effect: replace the current item with the reviewed HolyCodex version.";
-}
-
-function conflictRemovalLabel(conflict: ManagedConflict): string {
-  return conflict.category === "invalid-config"
-    ? "remove this conflicting user-owned value"
-    : "remove this managed item";
-}
-
-function conflictIdentity(conflict: ManagedConflict): string {
-  return conflict.identity ?? `${conflict.path}:${conflict.key ?? ""}:${conflict.action}`;
+  return nativeStyledText(
+    opentui,
+    conflictScreenLines(conflicts, decisions, cursor, width, height),
+    color,
+  );
 }
 
 function nativeInstallReviewContent(

@@ -15,16 +15,10 @@ the parent session configured in `config.toml`; `agents/root.toml` is never
 created or registered. Migration and removal may delete only a known,
 unchanged HolyCodex-owned legacy Root file.
 
-## Required tooling
+## Optional tooling
 
-On Windows, installation, the package migration, and doctor require a verified Git for Windows
-Bash executable. HolyCodex checks `C:\\Program Files\\Git\\bin\\bash.exe`
-first and then a `bash` resolved from `PATH`; it accepts only a compatible Git
-for Windows installation. When none is healthy, install or the package migration runs
-`winget install --id Git.Git -e --source winget` and verifies the executable
-directly. Failure returns an actionable capability error. Existing Git for
-Windows state is shared user/system state and is not replaced, reconfigured,
-or removed merely because HolyCodex uses it.
+On Windows, Codex selects the shell environment for its commands. HolyCodex
+does not require, install, or verify Git for Windows Bash.
 
 Context7 is optional. HolyCodex accepts a usable `ctx7` on the effective
 `PATH`. If none is available, it attempts to install `ctx7@latest` with Bun.
@@ -84,7 +78,9 @@ without fallback.
 Profiles select configured Root and specialist route identities with the task
 effort matrix in [BEHAVIOR.md](BEHAVIOR.md). Every generated instruction
 targets GPT-6-family behavior regardless of a temporary routing model ID.
-Root uses `gpt-6.1-sol` for low/default and `gpt-6-astra` for high; native specialist route files use `gpt-6-luna`. Root dispatches concrete registered
+Root uses `gpt-6.1-sol` at low, medium, and high reasoning effort for the
+`low`, `default`, and `high` profiles respectively; native specialist route
+files use `gpt-6-luna`. Root dispatches concrete registered
 `Role.task` identities from the canonical inventory; role families and generic
 built-in agent types are not dispatch targets.
 HolyCodex manages

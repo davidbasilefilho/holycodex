@@ -42,6 +42,33 @@ describe("read-only official plugin status", () => {
     });
   });
 
+  test("matches a canonical configured provider to its remote cache identity", async () => {
+    temporaryHome = await mkdtemp(join(tmpdir(), "holycodex-plugin-remote-cache-status-"));
+    await writeFile(
+      join(temporaryHome, "config.toml"),
+      '[plugins."build-web-apps@openai-curated"]\nenabled = true\n',
+    );
+    const cacheDirectory = join(
+      temporaryHome,
+      "plugins",
+      "cache",
+      "openai-curated-remote",
+      "build-web-apps",
+      "fixture-cache",
+      ".codex-plugin",
+    );
+    await mkdir(cacheDirectory, { recursive: true });
+    await writeFile(join(cacheDirectory, "plugin.json"), "{}\n");
+
+    const manager = new ReadOnlyCodexPluginStatus(temporaryHome);
+    expect(await manager.status(["build-web-apps@openai-curated"])).toEqual({
+      "build-web-apps@openai-curated": "installed",
+    });
+    expect(manager.getObservedIdentities()).toEqual({
+      "build-web-apps@openai-curated": "build-web-apps@openai-curated-remote",
+    });
+  });
+
   test("reports missing providers for a fresh Codex home without config.toml", async () => {
     temporaryHome = await mkdtemp(join(tmpdir(), "holycodex-fresh-plugin-status-"));
     const manager = new ReadOnlyCodexPluginStatus(temporaryHome);

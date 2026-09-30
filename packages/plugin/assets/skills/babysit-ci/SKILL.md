@@ -21,10 +21,12 @@ relevant bot reviews, inline threads, issue comments, and commit comments. A
 new push requires CI and review evidence for the new head; reuse unchanged
 topology and local proof that remains applicable.
 
-Use bounded observer waits. Distinguish a bot that is absent or not configured
-from a known bot with no terminal signal, and both from a clean terminal
-disposition. Absence or no signal is an evidence gap. Green checks do not
-resolve outstanding review findings or threads.
+Use bounded observer waits at the longest supported event interval. If the provider
+offers only snapshots, avoid repeated reads before state can change; stop as
+soon as the exact target reaches a terminal result. Distinguish a bot that is absent
+or not configured from a known bot with no terminal signal, and both from a clean
+terminal disposition. Absence or no signal is an evidence gap.
+Green checks do not resolve outstanding review findings or threads.
 Include target-branch or pull-request mergeability evidence when exposed;
 green checks alone do not prove mergeability.
 

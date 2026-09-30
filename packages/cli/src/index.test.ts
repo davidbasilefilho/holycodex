@@ -86,11 +86,11 @@ function testRuntime(codexHome: string): InstallerRuntime {
       if (command === "bun pm bin -g") return { exitCode: 0, stdout: `${binRoot}\n`, stderr: "" };
       if (command === "bun pm view ctx7 version")
         return { exitCode: 0, stdout: "2.0.0\n", stderr: "" };
-      if (command === "bun add -g ctx7@latest") {
+      if (executable === "bun" && args[0] === "add" && args.includes("ctx7@latest")) {
         state.installed = true;
         return { exitCode: 0, stdout: "", stderr: "" };
       }
-      if (command === "bun remove -g ctx7") {
+      if (executable === "bun" && args[0] === "remove" && args.at(-1) === "ctx7") {
         state.installed = false;
         return { exitCode: 0, stdout: "", stderr: "" };
       }
@@ -758,6 +758,248 @@ describe("native installation and removal", () => {
     }
   });
 
+  test("repairs an incomplete HolyCodex marketplace before plugin state validation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-marketplace-recovery-"));
+    const codexHome = join(root, "codex");
+    await mkdir(codexHome, { recursive: true });
+    await writeFile(
+      join(codexHome, "config.toml"),
+      '[marketplaces.holycodex]\nsource_type = "git"\nsource = "https://github.com/davidbasilefilho/holycodex.git"\n',
+    );
+    const events: string[] = [];
+    const base = fakeManager();
+    let failFirstList = true;
+    const manager: OfficialPluginManager = {
+      ...base,
+      list: async () => {
+        events.push("list");
+        if (failFirstList) {
+          failFirstList = false;
+          throw new Error(
+            "Codex plugin list failed: failed to load marketplace(s): - `holycodex` at C:/codex/plugins/marketplaces/holycodex: marketplace root does not contain a supported manifest",
+          );
+        }
+        return base.list!();
+      },
+      addMarketplace: async (source) => {
+        events.push(`marketplace:${source}`);
+      },
+    };
+    try {
+      await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager });
+      expect(events.slice(0, 3)).toEqual([
+        "list",
+        `marketplace:${"davidbasilefilho/holycodex"}`,
+        "list",
+      ]);
+      expect(events.filter((event) => event.startsWith("marketplace:"))).toHaveLength(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("warns and replaces an incomplete marketplace configured with a foreign source", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-marketplace-foreign-source-"));
+    const codexHome = join(root, "codex");
+    await mkdir(codexHome, { recursive: true });
+    const configFile = join(codexHome, "config.toml");
+    const originalConfig =
+      '[marketplaces.holycodex]\nsource_type = "git"\nsource = "https://example.com/foreign.git"\n';
+    await writeFile(configFile, originalConfig);
+    const base = fakeManager();
+    const events: string[] = [];
+    const stderr: string[] = [];
+    let failFirstList = true;
+    const manager: OfficialPluginManager = {
+      ...base,
+      list: async () => {
+        events.push("list");
+        if (failFirstList) {
+          failFirstList = false;
+          throw new Error(
+            "Codex plugin list failed: failed to load marketplace(s): - `holycodex` at C:/codex/plugins/marketplaces/holycodex: marketplace root does not contain a supported manifest",
+          );
+        }
+        return base.list!();
+      },
+      addMarketplace: async (source) => {
+        events.push("marketplace");
+        expect(source).toBe("davidbasilefilho/holycodex");
+        expect(await readFile(configFile, "utf8")).toContain(
+          'source = "https://github.com/davidbasilefilho/holycodex.git"',
+        );
+      },
+    };
+    try {
+      const result = await runCli(["install", "--yes", "--json", "--codex-home", codexHome], {
+        io: {
+          stdoutIsTTY: false,
+          stderrIsTTY: false,
+          writeStderr: (message) => {
+            stderr.push(message);
+            if (message.includes("Warning: --yes")) events.push("warning");
+          },
+        },
+        installer: { officialPluginManager: manager, runtime: testRuntime(codexHome) },
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.envelope.ok).toBe(true);
+      expect(stderr.join("")).toContain("replace");
+      expect(stderr.join("")).toContain("marketplaces.holycodex");
+      expect(events.indexOf("warning")).toBeLessThan(events.indexOf("marketplace"));
+      expect(await readFile(configFile, "utf8")).not.toBe(originalConfig);
+      expect(await readFile(configFile, "utf8")).toContain(
+        'source = "https://github.com/davidbasilefilho/holycodex.git"',
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("restores the reviewed marketplace source when cache repair fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-marketplace-repair-rollback-"));
+    const codexHome = join(root, "codex");
+    await mkdir(codexHome, { recursive: true });
+    const configFile = join(codexHome, "config.toml");
+    const originalConfig =
+      '[marketplaces.holycodex]\nsource_type = "git"\nsource = "https://example.com/foreign.git"\n';
+    await writeFile(configFile, originalConfig);
+    const base = fakeManager();
+    let addMarketplaceCalls = 0;
+    const manager: OfficialPluginManager = {
+      ...base,
+      list: async () => {
+        throw new Error(
+          "Codex plugin list failed: failed to load marketplace(s): - `holycodex` at C:/codex/plugins/marketplaces/holycodex: marketplace root does not contain a supported manifest",
+        );
+      },
+      addMarketplace: async () => {
+        addMarketplaceCalls += 1;
+        expect(await readFile(configFile, "utf8")).toContain(
+          'source = "https://github.com/davidbasilefilho/holycodex.git"',
+        );
+      },
+    };
+    try {
+      await expect(
+        installHolyCodex(
+          {},
+          {
+            paths: { codexHome },
+            officialPluginManager: manager,
+            runtime: testRuntime(codexHome),
+            resolveConflicts: async (conflicts) =>
+              Object.fromEntries(
+                conflicts.map((conflict) => [conflict.identity!, conflict.defaultDecision!]),
+              ),
+          },
+        ),
+      ).rejects.toMatchObject({ code: "capability_denied" });
+      expect(addMarketplaceCalls).toBe(1);
+      expect(await readFile(configFile, "utf8")).toBe(originalConfig);
+      await expect(readFile(join(codexHome, "holycodex", "active.json"))).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("repairs an incomplete marketplace for a canonical SSH alias before the config replacement warning", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-marketplace-ssh-source-"));
+    const codexHome = join(root, "codex");
+    await mkdir(codexHome, { recursive: true });
+    const configFile = join(codexHome, "config.toml");
+    await writeFile(
+      configFile,
+      '[marketplaces.holycodex]\nsource_type = "git"\nsource = "git@github.com:davidbasilefilho/holycodex.git"\n',
+    );
+    const events: string[] = [];
+    const stderr: string[] = [];
+    const base = fakeManager();
+    let failFirstList = true;
+    const manager: OfficialPluginManager = {
+      ...base,
+      list: async () => {
+        events.push("list");
+        if (failFirstList) {
+          failFirstList = false;
+          throw new Error(
+            "Codex plugin list failed: failed to load marketplace(s): - `holycodex` at C:/codex/plugins/marketplaces/holycodex: marketplace root does not contain a supported manifest",
+          );
+        }
+        return base.list!();
+      },
+      addMarketplace: async () => {
+        events.push("marketplace");
+        expect(await readFile(configFile, "utf8")).toContain(
+          'source = "https://github.com/davidbasilefilho/holycodex.git"',
+        );
+      },
+    };
+    try {
+      const result = await runCli(["install", "--yes", "--json", "--codex-home", codexHome], {
+        io: {
+          stdoutIsTTY: false,
+          stderrIsTTY: false,
+          writeStderr: (message) => {
+            stderr.push(message);
+            if (message.includes("Warning: --yes")) events.push("warning");
+          },
+        },
+        installer: { officialPluginManager: manager, runtime: testRuntime(codexHome) },
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.envelope.ok).toBe(true);
+      expect(events.indexOf("marketplace")).toBeLessThan(events.indexOf("warning"));
+      expect(stderr.join("")).toContain("replace");
+      expect(stderr.join("")).toContain("marketplaces.holycodex");
+      expect(await readFile(configFile, "utf8")).toContain(
+        'source = "https://github.com/davidbasilefilho/holycodex.git"',
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("does not repair an incomplete marketplace after config changes during plugin preflight", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-marketplace-source-race-"));
+    const codexHome = join(root, "codex");
+    await mkdir(codexHome, { recursive: true });
+    const configFile = join(codexHome, "config.toml");
+    await writeFile(
+      configFile,
+      '[marketplaces.holycodex]\nsource_type = "git"\nsource = "https://github.com/davidbasilefilho/holycodex.git"\n',
+    );
+    const foreignConfig =
+      '[marketplaces.holycodex]\nsource_type = "git"\nsource = "https://example.com/foreign.git"\n';
+    const base = fakeManager();
+    let addMarketplaceCalls = 0;
+    const manager: OfficialPluginManager = {
+      ...base,
+      list: async () => {
+        await writeFile(configFile, foreignConfig);
+        throw new Error(
+          "Codex plugin list failed: failed to load marketplace(s): - `holycodex` at C:/codex/plugins/marketplaces/holycodex: marketplace root does not contain a supported manifest",
+        );
+      },
+      addMarketplace: async () => {
+        addMarketplaceCalls += 1;
+      },
+    };
+    try {
+      await expect(
+        installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager }),
+      ).rejects.toMatchObject({
+        code: "confirmation_required",
+        message: expect.stringContaining("changed before the required marketplace repair"),
+      });
+      expect(addMarketplaceCalls).toBe(0);
+      expect(await readFile(configFile, "utf8")).toBe(foreignConfig);
+      await expect(readFile(join(codexHome, "holycodex", "active.json"))).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("bootstraps Codex-owned provider marketplaces before native plugin mutations", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-marketplace-bootstrap-"));
     const codexHome = join(root, "codex");
@@ -863,7 +1105,7 @@ describe("native installation and removal", () => {
       await writeFile(rolePath, 'name = "not-worker"\n');
       await expect(
         installHolyCodex({}, { paths: { codexHome }, officialPluginManager: fakeManager() }),
-      ).rejects.toMatchObject({ code: "install_failed" });
+      ).rejects.toMatchObject({ code: "confirmation_required" });
       await expect(readFile(join(codexHome, "holycodex", "active.json"))).rejects.toThrow();
       expect(await readFile(rolePath, "utf8")).toBe('name = "not-worker"\n');
     } finally {
@@ -1598,6 +1840,7 @@ describe("native installation and removal", () => {
         provider_config: legacyRecord.provider_config,
         plugin_snapshot: legacyRecord.plugin_snapshot,
         owned_plugins: legacyRecord.owned_plugins,
+        tooling: legacyRecord.tooling,
       });
       await writeFile(paths.activeRecord, `${JSON.stringify(legacyRecord)}\n`);
       const configPath = join(codexHome, "config.toml");
@@ -1609,8 +1852,9 @@ describe("native installation and removal", () => {
 
       await expect(
         upgradeHolyCodex({ paths: { codexHome }, officialPluginManager: manager }),
-      ).rejects.toMatchObject({ code: "state_corrupt" });
+      ).rejects.toMatchObject({ code: "confirmation_required" });
       expect(await readFile(configPath, "utf8")).toContain("experimental_mode = false");
+      expect((await readActiveInstallRecord(paths))?.version).toBe("0.1.0");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1769,10 +2013,8 @@ describe("native installation and removal", () => {
     const manager: OfficialPluginManager = {
       ...fakeManager(),
       addMarketplace: async () => {
-        await writeFile(
-          config,
-          `${await readFile(config, "utf8")}\n[marketplaces.holycodex]\nsource_type = "git"\nsource = "https://github.com/davidbasilefilho/holycodex.git"\n`,
-        );
+        const current = await readFile(config, "utf8");
+        await writeFile(config, current);
         throw new Error("marketplace readback failed");
       },
     };
@@ -1884,7 +2126,7 @@ describe("native installation and removal", () => {
           { optional: {} },
           { paths: { codexHome }, officialPluginManager: fakeManager() },
         ),
-      ).rejects.toMatchObject({ code: "install_failed" });
+      ).rejects.toMatchObject({ code: "confirmation_required" });
       expect(await readFile(malformedWorker, "utf8")).toBe("not valid HolyCodex role data\n");
       for (const agentType of ["Explorer.lookup", "Librarian.lookup", "Reviewer.code"] as const) {
         await expect(
@@ -1897,7 +2139,7 @@ describe("native installation and removal", () => {
     }
   });
 
-  test("fails closed when reinstall keeps a registered role edit and preserves it on remove", async () => {
+  test("rejects keeping a registered role edit and preserves it on remove", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-"));
     const codexHome = join(root, "codex");
     const manager = fakeManager();
@@ -1926,7 +2168,10 @@ describe("native installation and removal", () => {
             resolveConflict: async () => "decline",
           },
         ),
-      ).rejects.toMatchObject({ code: "install_failed" });
+      ).rejects.toMatchObject({
+        code: "confirmation_required",
+        message: expect.stringContaining("cannot be kept; choose replace, cancel"),
+      });
       expect(await readFile(leaf, "utf8")).toBe(editedLeaf);
       expect(await readFile(config, "utf8")).toContain('approval_policy = "on-request"');
       expect(await readFile(config, "utf8")).toContain('service_tier = "default"');
@@ -1973,12 +2218,16 @@ describe("native installation and removal", () => {
         installer: { officialPluginManager: manager, runtime: testRuntime(codexHome) },
         onProgress: (event) => progress.push(event.message),
       });
-      expect(recovery.exitCode).toBe(1);
+      expect(recovery.exitCode).toBe(4);
       expect(recovery.envelope).toMatchObject({
         ok: false,
         error: {
-          code: "confirmation_required",
-          message: expect.stringContaining("--yes cannot resolve user-owned configuration"),
+          code: "state_corrupt",
+          message: expect.stringContaining("could not be reconciled safely"),
+          details: {
+            preserved: expect.stringContaining("holycodex"),
+            reasons: "state_directory_not_empty",
+          },
         },
       });
       expect(progress).not.toContain("HolyCodex removal complete");
@@ -1988,7 +2237,7 @@ describe("native installation and removal", () => {
     }
   });
 
-  test("fails closed when a kept native conflict remains registered", async () => {
+  test("rejects keeping a conflicting native role and preserves its state", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-native-conflicts-"));
     const codexHome = join(root, "codex");
     const manager = fakeManager();
@@ -2016,7 +2265,10 @@ describe("native installation and removal", () => {
             resolveConflict: async () => "decline",
           },
         ),
-      ).rejects.toMatchObject({ code: "install_failed" });
+      ).rejects.toMatchObject({
+        code: "confirmation_required",
+        message: expect.stringContaining("cannot be kept; choose replace, cancel"),
+      });
       expect(await readFile(declinedPath, "utf8")).toBe(declinedEdit);
       await expect(
         readFile(resolveInstallerPaths({ paths: { codexHome } }).configFile, "utf8"),
@@ -2120,7 +2372,7 @@ describe("native installation and removal", () => {
     }
   });
 
-  test("CLI doctor observes configured plugin status without running Codex or mutating config", async () => {
+  test("CLI doctor uses the local plugin cache when Codex is unavailable", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-doctor-readonly-plugin-status-"));
     const codexHome = join(root, "codex");
     const manager = fakeManager();
@@ -2135,18 +2387,26 @@ describe("native installation and removal", () => {
         ...(installed.record.owned_plugins ?? []),
       ];
       const configPath = join(codexHome, "config.toml");
-      let config = await readFile(configPath, "utf8");
+      const expectedObservedIdentities: Record<string, string> = {};
       for (const pluginId of new Set(pluginIds)) {
         const separator = pluginId.lastIndexOf("@");
         const name = pluginId.slice(0, separator);
         const marketplace = pluginId.slice(separator + 1);
-        const pluginVersionRoot = join(codexHome, "plugins", "cache", marketplace, name, "fixture");
+        const cacheMarketplace =
+          marketplace === "openai-curated" ? "openai-curated-remote" : marketplace;
+        const pluginVersionRoot = join(
+          codexHome,
+          "plugins",
+          "cache",
+          cacheMarketplace,
+          name,
+          "fixture",
+        );
         const manifest = join(pluginVersionRoot, ".codex-plugin", "plugin.json");
         await mkdir(join(pluginVersionRoot, ".codex-plugin"), { recursive: true });
         await writeFile(manifest, "{}\n");
-        config += `\n[plugins."${pluginId}"]\nenabled = true\n`;
+        expectedObservedIdentities[pluginId] = `${name}@${cacheMarketplace}`;
       }
-      await writeFile(configPath, config);
       const beforeConfig = await readFile(join(codexHome, "config.toml"), "utf8");
       const result = await runCli(["doctor", "--json", "--codex-home", codexHome], {
         env: { CODEX_HOME: codexHome, PATH: "" },
@@ -2156,7 +2416,13 @@ describe("native installation and removal", () => {
       if (result.envelope.ok) {
         expect(result.envelope.data).toMatchObject({
           healthy: true,
-          checks: { native_plugins: { status: "healthy" } },
+          checks: {
+            native_plugins: {
+              status: "healthy",
+              details: { observed_identities: expectedObservedIdentities },
+            },
+            browser_use: { status: "unsupported" },
+          },
         });
       }
       expect(await readFile(join(codexHome, "config.toml"), "utf8")).toBe(beforeConfig);
@@ -2354,7 +2620,7 @@ describe("native installation and removal", () => {
       expect(refreshed.record.tooling?.context7).toEqual(ownedContext7);
 
       await removeHolyCodex(options);
-      expect(calls).toContain("bun remove -g ctx7");
+      expect(calls).toContain("bun remove --global --cwd=/ ctx7");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -2385,12 +2651,18 @@ describe("native installation and removal", () => {
             installed: true,
             enabled: true,
           })),
-          ...["browser", "sites"].map((name) => ({
+          ...["browser"].map((name) => ({
             pluginId: `${name}@openai-bundled`,
             marketplaceName: "openai-bundled",
             installed: true,
             enabled: true,
           })),
+          {
+            pluginId: "sites@openai-curated-remote",
+            marketplaceName: "openai-curated-remote",
+            installed: true,
+            enabled: true,
+          },
         ],
         available: [],
       };
@@ -2409,6 +2681,7 @@ describe("native installation and removal", () => {
       expect(doctor.checks["native_plugins"]?.details["observed_identities"]).toMatchObject({
         "build-web-apps@openai-curated": "build-web-apps@openai-curated-remote",
         "codex-security@openai-curated": "codex-security@openai-curated-remote",
+        "sites@openai-bundled": "sites@openai-curated-remote",
       });
     } finally {
       await rm(root, { recursive: true, force: true });

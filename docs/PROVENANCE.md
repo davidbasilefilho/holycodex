@@ -32,8 +32,9 @@ The official [model guidance](https://developers.openai.com/api/docs/guides/late
 and [Provencher article](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra)
 were fetched on 2026-09-29 as the primary behavioral authority for this audit.
 The prompting guidance is family-wide and describes Astra observations; it is
-not evidence of measured GPT-6.1 behavior. Low/default Root routes use GPT-6.1 Sol
-with their existing efforts; Astra and Luna retain their distinct workload roles. The historical Matt Pocock
+not evidence of measured GPT-6.1 behavior. All Root profiles use GPT-6.1 Sol,
+with low, medium, and high reasoning effort for the `low`, `default`, and `high`
+profiles; Luna remains the specialist route. The historical Matt Pocock
 `writing-for-agents` source remains attributed under its original name and
 license; its current local form was consulted only as a documentation-writing
 reference. It does not govern skills, `developer_instructions`, Root policy,

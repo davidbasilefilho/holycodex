@@ -126,10 +126,11 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
     "behavior must define only the live low/default/high profiles",
   );
   assert(
-    behaviorContract.includes("gpt-6-astra") &&
-      behaviorContract.includes("gpt-6.1-sol") &&
+    behaviorContract.includes("low = gpt-6.1-sol/low") &&
+      behaviorContract.includes("default = gpt-6.1-sol/medium") &&
+      behaviorContract.includes("high = gpt-6.1-sol/high") &&
       behaviorContract.includes("gpt-6-luna"),
-    "behavior must record the canonical Astra/Luna routes",
+    "behavior must record the canonical GPT-6.1 Sol profile mapping and Luna specialist route",
   );
   assert(
     configurationContract.includes("features.context_management.experimental_mode = true") &&

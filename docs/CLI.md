@@ -96,8 +96,8 @@ completion evidence, or repository drift. It does not recover transactions,
 acquire locks, or change persisted records.
 
 Root's delegation, authority, review, and release boundaries are defined in
-[BEHAVIOR.md](BEHAVIOR.md). There is no automatic planning or Plan approval workflow. Plan commands remain
-for compatibility with existing work and supplied plans. Unresolved material
+[BEHAVIOR.md](BEHAVIOR.md). There is no planning or Plan approval workflow. Historical
+Plan records remain readable for compatibility; Plan commands are rejected. Unresolved material
 input is recorded as needs_root_input when it blocks progress; existing user
 authorization is retained.
 

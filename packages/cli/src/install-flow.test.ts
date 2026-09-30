@@ -77,11 +77,11 @@ function testRuntime(codexHome: string): InstallerRuntime {
       if (command === "bun pm bin -g") return { exitCode: 0, stdout: `${binRoot}\n`, stderr: "" };
       if (command === "bun pm view ctx7 version")
         return { exitCode: 0, stdout: "2.0.0\n", stderr: "" };
-      if (command === "bun add -g ctx7@latest") {
+      if (executable === "bun" && args[0] === "add" && args.includes("ctx7@latest")) {
         state.installed = true;
         return { exitCode: 0, stdout: "", stderr: "" };
       }
-      if (command === "bun remove -g ctx7") {
+      if (executable === "bun" && args[0] === "remove" && args.at(-1) === "ctx7") {
         state.installed = false;
         return { exitCode: 0, stdout: "", stderr: "" };
       }
@@ -176,7 +176,11 @@ async function makeLegacy(codexHome: string, version = LEGACY_VERSION): Promise<
   await rm(paths.installOptions, { force: true });
 }
 
-async function setLegacyRootModel(codexHome: string, model: string): Promise<void> {
+async function setLegacyRootModel(
+  codexHome: string,
+  model: string,
+  version = PRE_ROUTE_MIGRATION_VERSION,
+): Promise<void> {
   const paths = resolveInstallerPaths({ paths: { codexHome } });
   const current = await readActiveInstallRecord(paths);
   if (current?.managed_config === undefined) throw new Error("the seed has no managed config");
@@ -192,7 +196,7 @@ async function setLegacyRootModel(codexHome: string, model: string): Promise<voi
   };
   const legacy = {
     ...current,
-    version: PRE_ROUTE_MIGRATION_VERSION,
+    version,
     managed_config: managedConfig,
   };
   const digest = await installRecordDigest({
@@ -292,6 +296,59 @@ describe("command install and upgrade review flow", () => {
     }
   }, 30_000);
 
+  test("migrates boundary-version managed Root routes while replacing an edited value with --yes warning", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-root-boundary-migration-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const manager = fakeManager();
+    const stderr: string[] = [];
+    try {
+      await seedInstall(
+        root,
+        { profile: "high", tier: "fast-all", optional: { computer_use: false } },
+        manager,
+      );
+      await setLegacyRootModel(codexHome, "gpt-6-astra", LEGACY_VERSION);
+
+      const migrated = await upgradeHolyCodex(
+        installerOptions(codexHome, manager),
+        fakeEnvironment,
+      );
+      expect(migrated.status).toBe("upgraded");
+      expect(parseConfig(await readFile(paths.configFile, "utf8"))).toMatchObject({
+        model: "gpt-6.1-sol",
+        model_reasoning_effort: "high",
+      });
+
+      await setLegacyRootModel(codexHome, "gpt-6-astra", LEGACY_VERSION);
+      await writeFile(
+        paths.configFile,
+        (await readFile(paths.configFile, "utf8")).replace(
+          'model = "gpt-6-astra"',
+          'model = "gpt-5.6-terra"',
+        ),
+      );
+      const replaced = await runCli(["install", "--yes", "--json", "--codex-home", codexHome], {
+        env: fakeEnvironment,
+        io: {
+          stdoutIsTTY: false,
+          stderrIsTTY: false,
+          writeStderr: (text) => stderr.push(text),
+        },
+        installer: installerOptions(codexHome, manager),
+      });
+      expect(replaced.exitCode).toBe(0);
+      expect(stderr.join("")).toContain("Warning: --yes will apply these conflict decisions");
+      expect(stderr.join("")).toContain("replace");
+      expect(parseConfig(await readFile(paths.configFile, "utf8"))).toMatchObject({
+        model: "gpt-6.1-sol",
+        model_reasoning_effort: "high",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("keeps recovery state when rollback cannot remove newly installed Context7", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-context7-rollback-"));
     const codexHome = join(root, "codex");
@@ -326,7 +383,7 @@ describe("command install and upgrade review flow", () => {
           fakeEnvironment,
         ),
       ).rejects.toBeDefined();
-      expect(context7RemoveCalls).toEqual(["bun remove -g ctx7"]);
+      expect(context7RemoveCalls).toEqual(["bun remove --global --cwd=/ ctx7"]);
       const recovery = JSON.parse(await readFile(paths.conflictedRecord, "utf8")) as {
         readonly managed_config?: { readonly managed?: Readonly<Record<string, unknown>> };
         readonly tooling?: { readonly context7?: { readonly ownership?: string } };
@@ -453,16 +510,11 @@ describe("command install and upgrade review flow", () => {
     }
   }, 30_000);
 
-  test("fails closed when final review keeps a conflicting registered role", async () => {
+  test("does not offer keep for a conflicting registered role", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-reopen-conflicts-"));
     const codexHome = join(root, "codex");
     const manager = fakeManager();
-    const rendererKeys = [
-      [{ name: "K", shift: true }, { name: "enter" }],
-      [{ name: "A", shift: true }, { name: "escape" }],
-      [{ name: "enter" }],
-    ] as const;
-    const rendererScreens: string[] = [];
+    const rendererKeys = [[{ name: "A", shift: true }, { name: "enter" }]] as const;
     let rendererIndex = 0;
     const renderers = rendererKeys.map((keys) => {
       let keypress: ((key: (typeof keys)[number]) => void) | undefined;
@@ -487,9 +539,7 @@ describe("command install and upgrade review flow", () => {
       constructor(readonly chunks: readonly { readonly text: string }[]) {}
     }
     class TestTextRenderable {
-      constructor(_renderer: unknown, options: { readonly content: TestStyledText }) {
-        rendererScreens.push(options.content.chunks.map(({ text }) => text).join(""));
-      }
+      constructor(_renderer: unknown, _options: { readonly content: TestStyledText }) {}
     }
     const styled = (text: string) => new TestStyledText([{ text }]);
     await mock.module("@opentui/core", () => ({
@@ -527,7 +577,7 @@ describe("command install and upgrade review flow", () => {
       await writeFile(rolePath, userRole);
 
       const reviews: InstallReview[] = [];
-      const reviewActions = ["resolve", "resolve", "apply"] as const;
+      const reviewActions = ["apply"] as const;
       const result = await runCli(["install", "--codex-home", codexHome], {
         env: fakeEnvironment,
         io: {
@@ -541,24 +591,17 @@ describe("command install and upgrade review flow", () => {
         },
         installer: installerOptions(codexHome, manager),
       });
-
-      expect(result.exitCode).toBe(3);
-      expect(result.envelope).toMatchObject({
-        ok: false,
-        error: {
-          code: "install_failed",
-          message: expect.stringContaining(
-            "role file was kept after a conflict and cannot be activated",
-          ),
-        },
-      });
-      expect(reviews).toHaveLength(3);
+      expect(result.exitCode).toBe(0);
+      expect(result.envelope).toMatchObject({ ok: true, command: "install" });
+      expect(reviews).toHaveLength(1);
+      expect(reviews[0]?.conflicts.find(({ path }) => path === rolePath)?.validDecisions).toEqual([
+        "replace",
+        "cancel",
+      ]);
       expect(
         reviews.map((review) => review.conflicts.find(({ path }) => path === rolePath)?.decision),
-      ).toEqual(["keep", "keep", "keep"]);
-      expect(rendererScreens[1]).toContain("choice: keep");
-      expect(rendererScreens[2]).toContain("choice: keep");
-      expect(await readFile(rolePath, "utf8")).toBe(userRole);
+      ).toEqual(["replace"]);
+      expect(await readFile(rolePath, "utf8")).not.toBe(userRole);
     } finally {
       mock.restore();
       await rm(root, { recursive: true, force: true });
@@ -585,34 +628,37 @@ describe("command install and upgrade review flow", () => {
         );
       }
 
-      const astraConfig = installedConfigs.get("high")!;
+      const highConfig = installedConfigs.get("high")!;
       const lowConfig = installedConfigs.get("low")!;
       const defaultConfig = installedConfigs.get("default")!;
-      expect(astraConfig["model"]).toBe("gpt-6-astra");
+      expect(highConfig["model"]).toBe("gpt-6.1-sol");
       expect(lowConfig["model"]).toBe("gpt-6.1-sol");
       expect(defaultConfig["model"]).toBe("gpt-6.1-sol");
+      expect(lowConfig["model_reasoning_effort"]).toBe("low");
+      expect(defaultConfig["model_reasoning_effort"]).toBe("medium");
+      expect(highConfig["model_reasoning_effort"]).toBe("high");
 
-      const astraInstructions = astraConfig["developer_instructions"] as string;
+      const highInstructions = highConfig["developer_instructions"] as string;
       const solInstructions = rootDeveloperInstructions({
         browserUse: true,
         frontend: true,
         security: true,
         rootModel: "gpt-6.1-sol",
       });
-      expect(astraInstructions).toBe(
+      expect(highInstructions).toBe(
         rootDeveloperInstructions({
           browserUse: true,
           frontend: true,
           security: true,
-          rootModel: "gpt-6-astra",
+          rootModel: "gpt-6.1-sol",
         }),
       );
-      expect(astraInstructions).toContain("Never perform delegable work yourself");
-      expect(astraInstructions).toContain("collaboration.wait_agent at timeout_ms=1200000");
-      expect(astraInstructions).toContain("repeat after an idle timeout");
+      expect(highInstructions).toContain("Never perform delegable work yourself");
+      expect(highInstructions).toContain("collaboration.wait_agent at timeout_ms=600000");
+      expect(highInstructions).toContain("On timeout, inspect only for actionable failures");
       expect(lowConfig["developer_instructions"]).toBe(solInstructions);
       expect(defaultConfig["developer_instructions"]).toBe(solInstructions);
-      expect(solInstructions).toBe(astraInstructions);
+      expect(solInstructions).toBe(highInstructions);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1064,7 +1110,7 @@ describe("command install and upgrade review flow", () => {
           fakeEnvironment,
         );
         expect(parseConfig(await readFile(routePaths.configFile, "utf8"))["model"]).toBe(
-          "gpt-6-astra",
+          "gpt-6.1-sol",
         );
       } finally {
         mock.restore();
@@ -1108,11 +1154,12 @@ describe("command install and upgrade review flow", () => {
     }
   }, 30_000);
 
-  test("does not let --yes overwrite user-owned managed configuration", async () => {
+  test("lets --yes replace conflicting managed configuration and warns before overwrite", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-flow-yes-conflict-"));
     const codexHome = join(root, "codex");
     const paths = resolveInstallerPaths({ paths: { codexHome } });
     const manager = fakeManager();
+    const stderr: string[] = [];
     try {
       await seedInstall(root, {}, manager);
       await writeFile(
@@ -1124,14 +1171,18 @@ describe("command install and upgrade review flow", () => {
       );
       const result = await runCli(["install", "--yes", "--json", "--codex-home", codexHome], {
         env: fakeEnvironment,
-        io: { stdoutIsTTY: false, stderrIsTTY: false },
+        io: {
+          stdoutIsTTY: false,
+          stderrIsTTY: false,
+          writeStderr: (text) => stderr.push(text),
+        },
         installer: installerOptions(codexHome, manager),
       });
-      expect(result.envelope).toMatchObject({
-        ok: false,
-        error: { code: "confirmation_required" },
-      });
-      expect(await readFile(paths.configFile, "utf8")).toContain('model = "user-model"');
+      expect(result.exitCode).toBe(0);
+      expect(result.envelope).toMatchObject({ ok: true, command: "install" });
+      expect(stderr.join("")).toContain("Warning: --yes will apply these conflict decisions");
+      expect(stderr.join("")).toContain("replace");
+      expect(await readFile(paths.configFile, "utf8")).toContain('model = "gpt-6.1-sol"');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

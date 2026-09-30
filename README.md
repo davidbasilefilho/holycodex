@@ -39,7 +39,9 @@ while `plus-low`, `plus`, and `plus-high` migrate to `low`, `default`, and
 `high`. Removed `pro-5x` and `pro-20x` values remain migration-only and
 require an explicit replacement.
 
-Root uses `gpt-6.1-sol` for low/default and `gpt-6-astra` for high; native specialists use `gpt-6-luna` with their per-task effort matrix.
+Root uses `gpt-6.1-sol` at low, medium, and high reasoning effort for the
+`low`, `default`, and `high` profiles respectively. Native specialists use
+`gpt-6-luna` with their per-task effort matrix.
 Those routing identities are separate from the GPT-6-family behavior required
 by live skills and generated instructions.
 
@@ -80,8 +82,8 @@ HolyCodex's `writing-instructions` skill owns model-facing instruction changes.
 Historical route and profile values remain only in explicit migration or
 cleanup handling for old installations.
 
-Windows installations require verified Git for Windows Bash. Context7 is
-optional: a usable `ctx7` on `PATH` is accepted, and managed installation
+Windows installations use the shell environment selected by Codex. Context7
+is optional: a usable `ctx7` on `PATH` is accepted, and managed installation
 failure is reported as a warning. See [installation](docs/INSTALLATION.md) for
 details.
 

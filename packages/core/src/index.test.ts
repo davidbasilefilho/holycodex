@@ -74,9 +74,9 @@ describe("core profile catalog", () => {
   test("contains every profile with the exact Root model and effort policy", () => {
     expect(PROFILE_CATALOG.map((profile) => profile.name)).toEqual([...profileNames]);
     expect(PROFILE_CATALOG.map((profile) => profile.root)).toEqual([
+      { model: "gpt-6.1-sol", effort: "low" },
       { model: "gpt-6.1-sol", effort: "medium" },
       { model: "gpt-6.1-sol", effort: "high" },
-      { model: "gpt-6-astra", effort: "high" },
     ]);
     for (const profile of PROFILE_CATALOG) {
       expect(profile).not.toHaveProperty("budget");
@@ -487,7 +487,7 @@ describe("core profile catalog", () => {
       assignmentContextIsTaskSpecificOnly: true,
       configuredRouteModelAndEffortPreserved: true,
       routineWaitTool: "collaboration.wait_agent",
-      routineWaitMaximumTimeoutMs: 1_200_000,
+      routineWaitMaximumTimeoutMs: 600_000,
       routineWaitUsesMaximumRuntimeTimeout: true,
       earlySpecialistCompletionWakesWait: true,
       collectiveMailboxIncludesRelevantAgents: true,

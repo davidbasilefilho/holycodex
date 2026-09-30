@@ -71,13 +71,15 @@ describe("0.16 foundation parity contract", () => {
     }
   });
 
-  test("records the Astra/Luna profile routing boundary", async () => {
+  test("records the GPT-6.1 Sol/Luna profile routing boundary", async () => {
     const [behavior, configuration, cli] = await Promise.all([
       readFile(resolve(workspaceRoot, "docs/BEHAVIOR.md"), "utf8"),
       readFile(resolve(workspaceRoot, "docs/CONFIGURATION.md"), "utf8"),
       readFile(resolve(workspaceRoot, "docs/CLI.md"), "utf8"),
     ]);
-    expect(behavior).toContain("gpt-6-astra");
+    expect(behavior).toContain("low = gpt-6.1-sol/low");
+    expect(behavior).toContain("default = gpt-6.1-sol/medium");
+    expect(behavior).toContain("high = gpt-6.1-sol/high");
     expect(behavior).toContain("gpt-6-luna");
     expect(behavior).toMatch(/The live profiles are\s+`low`, `default`, and `high`/u);
     expect(behavior).toContain("Legacy `go`");

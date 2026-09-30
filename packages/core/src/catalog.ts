@@ -159,9 +159,9 @@ function createProfile(
 }
 
 const profileDefinitions: ProfileDefinition[] = [
-  createProfile({ name: "low", rootModel: SOL_MODEL_ID, rootEffort: "medium" }),
-  createProfile({ name: "default", rootModel: SOL_MODEL_ID, rootEffort: "high" }),
-  createProfile({ name: "high", rootModel: ASTRA_MODEL_ID, rootEffort: "high" }),
+  createProfile({ name: "low", rootModel: SOL_MODEL_ID, rootEffort: "low" }),
+  createProfile({ name: "default", rootModel: SOL_MODEL_ID, rootEffort: "medium" }),
+  createProfile({ name: "high", rootModel: SOL_MODEL_ID, rootEffort: "high" }),
 ];
 
 function validateCatalog(definitions: readonly ProfileDefinition[]): void {
@@ -176,8 +176,9 @@ function validateCatalog(definitions: readonly ProfileDefinition[]): void {
     if (!definition || definition.name !== expectedProfile) {
       throw new CoreError("catalog_invalid", "The profile catalog order is invalid.", { index });
     }
-    const expectedModel = expectedProfile === "high" ? ASTRA_MODEL_ID : SOL_MODEL_ID;
-    const expectedEffort = expectedProfile === "low" ? "medium" : "high";
+    const expectedModel = SOL_MODEL_ID;
+    const expectedEffort =
+      expectedProfile === "low" ? "low" : expectedProfile === "default" ? "medium" : "high";
     if (
       definition.root.model !== expectedModel ||
       definition.root.effort !== expectedEffort ||

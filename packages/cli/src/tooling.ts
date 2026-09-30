@@ -10,15 +10,11 @@ import { canonicalJsonUtf8, domainSeparatedSha256 } from "@holycodex/core";
 import type {
   Context7Manager,
   Context7ToolState,
-  GitBashState,
   InstallerFileSystem,
   InstallerPlatform,
-  InstallerProcessRunner,
   InstallerRuntime,
 } from "./types.ts";
 
-/** Public CLI value for windows git bash. */
-export const WINDOWS_GIT_BASH = "C:\\Program Files\\Git\\bin\\bash.exe";
 /** Public CLI value for context7 spec. */
 export const CONTEXT7_SPEC = "ctx7@latest";
 
@@ -39,7 +35,7 @@ const nodeFiles: InstallerFileSystem = {
   realpath,
 };
 
-/** Create the injectable platform/process boundary used by shared prerequisite management. */
+/** Create the injectable platform/process boundary used by optional tooling management. */
 export function createInstallerRuntime(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): InstallerRuntime {
@@ -100,40 +96,6 @@ export function detectContext7Manager(
     return { launcher: "npx", family: "npm", executable: "npm" };
   }
   return undefined;
-}
-
-/** Verify Git for Windows, installing it through WinGet when Windows has no healthy Git Bash. */
-export async function ensureGitBash(
-  runtime: InstallerRuntime,
-  mutate: boolean,
-): Promise<GitBashState> {
-  if (runtime.platform !== "win32") return { status: "not_applicable" };
-  const existing = await discoverGitBash(runtime);
-  if (existing !== undefined) return { status: "healthy", path: existing, installed: false };
-  if (!mutate) return { status: "missing" };
-  const installed = await runtime.run("winget", [
-    "install",
-    "--id",
-    "Git.Git",
-    "-e",
-    "--source",
-    "winget",
-  ]);
-  if (installed.exitCode !== 0) {
-    throw new ToolingError(
-      "git_bash_unavailable",
-      "Git Bash is required. WinGet could not install Git for Windows; install Git.Git and retry.",
-      { stderr: installed.stderr.slice(0, 512) },
-    );
-  }
-  const repaired = await discoverGitBash(runtime);
-  if (repaired === undefined) {
-    throw new ToolingError(
-      "git_bash_unavailable",
-      `Git for Windows was installed, but ${WINDOWS_GIT_BASH} could not be verified. Repair Git for Windows and retry.`,
-    );
-  }
-  return { status: "healthy", path: repaired, installed: true };
 }
 
 /** Use a working PATH ctx7, installing a managed copy only when needed. */
@@ -419,7 +381,13 @@ async function ensureContext7ViaLauncher(
   }
   const ownership = context7Ownership(previous, manager, before);
   if (mutate && before?.version !== latest && ownership === "holycodex") {
-    const command = context7InstallCommand(manager.family);
+    const command =
+      manager.family === "bun"
+        ? {
+            executable: "bun",
+            args: bunGlobalCommandArguments(runtime, "add", CONTEXT7_SPEC),
+          }
+        : context7InstallCommand(manager.family);
     const result = await runtime.run(command.executable, command.args);
     if (result.exitCode !== 0) {
       throw new ToolingError(
@@ -478,7 +446,10 @@ async function ensureBunGlobalContext7(
   }
   const ownership = context7Ownership(previous, manager, before);
   if (mutate && before?.version !== latest && ownership === "holycodex") {
-    const result = await runtime.run(runtime.processPath, ["add", "-g", CONTEXT7_SPEC]);
+    const result = await runtime.run(
+      runtime.processPath,
+      bunGlobalCommandArguments(runtime, "add", CONTEXT7_SPEC),
+    );
     if (result.exitCode !== 0) {
       throw new ToolingError(
         "context7_install_failed",
@@ -631,7 +602,10 @@ async function removeOwnedBunGlobalContext7(
   ) {
     return false;
   }
-  const result = await runtime.run(runtime.processPath, ["remove", "-g", "ctx7"]);
+  const result = await runtime.run(
+    runtime.processPath,
+    bunGlobalCommandArguments(runtime, "remove", "ctx7"),
+  );
   if (result.exitCode !== 0) {
     throw new ToolingError("context7_remove_failed", "Bun could not remove ctx7.", {
       stderr: result.stderr.slice(0, 512),
@@ -669,7 +643,13 @@ async function removeOwnedContext7ViaLauncher(
   ) {
     return false;
   }
-  const command = context7RemoveCommand(manager.family);
+  const command =
+    manager.family === "bun"
+      ? {
+          executable: "bun",
+          args: bunGlobalCommandArguments(runtime, "remove", "ctx7"),
+        }
+      : context7RemoveCommand(manager.family);
   const result = await runtime.run(command.executable, command.args);
   if (result.exitCode !== 0) {
     throw new ToolingError("context7_remove_failed", `${manager.family} could not remove ctx7.`, {
@@ -700,12 +680,27 @@ export function context7InstallCommand(family: Context7Manager["family"]): {
 } {
   switch (family) {
     case "bun":
-      return { executable: "bun", args: ["add", "-g", CONTEXT7_SPEC] };
+      return { executable: "bun", args: ["add", "--global", CONTEXT7_SPEC] };
     case "npm":
       return { executable: "npm", args: ["install", "--global", CONTEXT7_SPEC] };
     case "pnpm":
       return { executable: "pnpm", args: ["add", "--global", CONTEXT7_SPEC] };
   }
+}
+
+function bunGlobalCommandArguments(
+  runtime: InstallerRuntime,
+  operation: "add" | "remove",
+  packageName: string,
+): readonly string[] {
+  const pathApi = pathFor(runtime.platform);
+  const executableDirectory = pathApi.dirname(runtime.processPath);
+  const cwd = pathApi.isAbsolute(executableDirectory)
+    ? executableDirectory
+    : runtime.platform === "win32"
+      ? "C:\\"
+      : "/";
+  return [operation, "--global", `--cwd=${cwd}`, packageName];
 }
 
 function context7RemoveCommand(family: Context7Manager["family"]): {
@@ -720,37 +715,6 @@ function context7RemoveCommand(family: Context7Manager["family"]): {
     case "pnpm":
       return { executable: "pnpm", args: ["remove", "--global", "ctx7"] };
   }
-}
-
-async function discoverGitBash(runtime: InstallerRuntime): Promise<string | undefined> {
-  if (await verifyGitBash(runtime.run, WINDOWS_GIT_BASH, runtime.platform)) return WINDOWS_GIT_BASH;
-  for (const directory of (runtime.environment["PATH"] ?? "").split(";")) {
-    if (directory.length === 0) continue;
-    const candidate = pathFor(runtime.platform).join(directory, "bash.exe");
-    if (await verifyGitBash(runtime.run, candidate, runtime.platform)) return candidate;
-  }
-  return undefined;
-}
-
-async function verifyGitBash(
-  run: InstallerProcessRunner,
-  candidate: string,
-  platform: InstallerPlatform,
-): Promise<boolean> {
-  const gitPath = gitForBash(candidate, platform);
-  const [bash, platformResult, git] = await Promise.all([
-    run(candidate, ["--version"]),
-    run(candidate, ["--noprofile", "--norc", "-c", "uname -s"]),
-    run(gitPath, ["--version"]),
-  ]);
-  return (
-    bash.exitCode === 0 &&
-    /gnu bash/iu.test(bash.stdout) &&
-    platformResult.exitCode === 0 &&
-    /^mingw(?:32|64|)/iu.test(platformResult.stdout.trim()) &&
-    git.exitCode === 0 &&
-    /^git version \d/iu.test(git.stdout.trim())
-  );
 }
 
 async function inspectContext7(
@@ -973,15 +937,6 @@ async function latestContext7Version(
   return parseVersion(result.stdout);
 }
 
-function gitForBash(candidate: string, platform: InstallerPlatform): string {
-  const pathApi = pathFor(platform);
-  const bin = pathApi.dirname(candidate);
-  const root = normalize(bin).endsWith("/usr/bin")
-    ? pathApi.resolve(bin, "..", "..")
-    : pathApi.resolve(bin, "..");
-  return pathApi.resolve(root, "cmd", "git.exe");
-}
-
 function isExecutable(path: string, name: string): boolean {
   return [name, `${name}.exe`, `${name}.cmd`, `${name}.js`, `${name}.cjs`].some((candidate) =>
     path.endsWith(`/${candidate}`),
@@ -1037,7 +992,6 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 export class ToolingError extends Error {
   constructor(
     readonly code:
-      | "git_bash_unavailable"
       | "context7_manager_unknown"
       | "context7_unavailable"
       | "context7_install_failed"

@@ -75,7 +75,6 @@ import { decodeSchema, InstallTransactionSchema } from "./schema.ts";
 import { optionalTextFile, writeAtomicJson, writeAtomicText } from "./storage.ts";
 import {
   createInstallerRuntime,
-  ensureGitBash,
   inspectContext7ReadOnly,
   removeOwnedContext7,
   sameInstallerFile,
@@ -179,20 +178,14 @@ export async function doctorHolyCodex(
 
   if (active) {
     checks["runtime_config"] = await doctorRuntimeConfig(paths, active);
-    checks["native_roles"] = await doctorNativeRoles(
-      paths,
-      active.profile,
-      active.tier,
-      active.tooling?.git_bash.status === "healthy" ? active.tooling.git_bash.path : undefined,
-      {
-        browserUse:
-          active.capability_state?.browser_use.status === "healthy" &&
-          active.capability_state.browser_use.selected,
-        computerUse:
-          active.capability_state?.computer_use.status === "healthy" &&
-          active.capability_state.computer_use.selected,
-      },
-    );
+    checks["native_roles"] = await doctorNativeRoles(paths, active.profile, active.tier, {
+      browserUse:
+        active.capability_state?.browser_use.status === "healthy" &&
+        active.capability_state.browser_use.selected,
+      computerUse:
+        active.capability_state?.computer_use.status === "healthy" &&
+        active.capability_state.computer_use.selected,
+    });
     const failedCapability = Object.entries(active.capability_state ?? {}).find(
       ([name, value]) => name !== "browser_use" && value.selected && value.status !== "healthy",
     );
@@ -217,15 +210,6 @@ export async function doctorHolyCodex(
   }
 
   const runtime = options.runtime ?? createInstallerRuntime(environment);
-  try {
-    const gitBash = await ensureGitBash(runtime, false);
-    checks["git_bash"] =
-      gitBash.status === "missing"
-        ? failedCheck(["git_bash_missing"])
-        : healthyCheck(gitBash.status === "healthy" ? { path: gitBash.path } : {});
-  } catch (error: unknown) {
-    checks["git_bash"] = failedCheck(["git_bash_unavailable"], { error: safeMessage(error) });
-  }
   try {
     const context7 = await inspectContext7ReadOnly(runtime, active?.tooling?.context7);
     checks["context7"] = healthyCheck({
@@ -258,8 +242,8 @@ export async function doctorHolyCodex(
     });
   }
 
-  // Codex's plugin listing can initialize its marketplace cache. Doctor must only
-  // inspect managers explicitly supplied as observational test boundaries.
+  // Live Codex inventory is required to observe remote provider aliases; the CLI
+  // supplies it when available and falls back to installed manifests otherwise.
   const manager = options.officialPluginManager;
   if (active && manager?.status) {
     const selected = [
@@ -354,7 +338,9 @@ export async function inspectRemovalConflicts(
     }
   }
   if (recovery.plugin_config !== undefined) {
-    const cleanup = await cleanupHolyCodexPluginConfig(document, recovery.plugin_config);
+    const cleanup = await cleanupHolyCodexPluginConfig(document, recovery.plugin_config, {
+      allowBeforeState: true,
+    });
     for (const name of cleanup.preserved) {
       const key =
         name === "preference" ? 'plugins."holycodex@holycodex"' : "marketplaces.holycodex";
@@ -374,6 +360,7 @@ export async function inspectRemovalConflicts(
       document,
       withoutCodexDesktopManagedPlugins(recovery.provider_config),
       new Set(ownedPluginsForRemoval(recovery)),
+      { allowBeforeState: true },
     );
     for (const pluginId of cleanup.preserved) {
       const key = `plugins.${JSON.stringify(pluginId)}`;
@@ -490,6 +477,7 @@ export async function removeHolyCodex(
     const cleanup = await cleanupHolyCodexPluginConfig(
       configBeforeDocument,
       recovery.plugin_config,
+      { allowBeforeState: true },
     );
     if (cleanup.preserved.length > 0) {
       const conflicts = cleanup.preserved.map((name) => ({
@@ -517,6 +505,7 @@ export async function removeHolyCodex(
       configBeforeDocument,
       withoutCodexDesktopManagedPlugins(recovery.provider_config),
       ownedPlugins,
+      { allowBeforeState: true },
     );
     if (cleanup.preserved.length > 0) {
       const conflicts = cleanup.preserved.map((id) => ({
@@ -1025,7 +1014,6 @@ export async function upgradeHolyCodex(
       source.profile,
       source.managed_artifacts,
       source.tier,
-      source.tooling?.git_bash.status === "healthy" ? source.tooling.git_bash.path : undefined,
       {
         browserUse: source.optional_selections.browser_use,
         computerUse: source.optional_selections.computer_use,
@@ -1035,12 +1023,10 @@ export async function upgradeHolyCodex(
       dryRunConflictInventory.push(conflict);
     }
   }
-  let toolingDrift = source.tooling === undefined;
-  const toolingDriftReasons: string[] = source.tooling === undefined ? ["record missing"] : [];
+  let toolingDrift = false;
+  const toolingDriftReasons: string[] = [];
   try {
     const runtime = options.runtime ?? createInstallerRuntime(environment);
-    const gitBash = await ensureGitBash(runtime, false);
-    if (gitBash.status === "missing") toolingDriftReasons.push("Git Bash unavailable");
     let context7: Awaited<ReturnType<typeof inspectContext7ReadOnly>> | undefined;
     try {
       context7 = await inspectContext7ReadOnly(runtime, source.tooling?.context7);
@@ -1389,9 +1375,6 @@ async function doctorRuntimeConfig(
       computerUse: active.optional_selections.computer_use,
       frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
       security: DEFAULT_CAPABILITY_SELECTIONS.security,
-      ...(active.tooling?.git_bash.status === "healthy"
-        ? { windowsGitBashExecutable: active.tooling.git_bash.path }
-        : {}),
     });
     const drift: string[] = [];
     for (const keyPath of Object.keys(expected)) {
@@ -1416,7 +1399,6 @@ async function doctorNativeRoles(
   paths: ResolvedInstallerPaths,
   profile: InstallRecord["profile"],
   tier: InstallRecord["tier"],
-  windowsGitBashExecutable?: string,
   capabilities: Readonly<{ browserUse: boolean; computerUse: boolean }> = {
     browserUse: false,
     computerUse: false,
@@ -1425,10 +1407,7 @@ async function doctorNativeRoles(
   try {
     const document = parseConfig(await optionalTextFile(paths.configFile));
     const failures: string[] = [];
-    const generationId = nativeAgentGenerationId(profile, tier, {
-      ...capabilities,
-      ...(windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable }),
-    });
+    const generationId = nativeAgentGenerationId(profile, tier, capabilities);
     for (const agent of projectNativeAgents(profile, tier)) {
       const ref = readTomlPath(document, `agents."${agent.name}".config_file`);
       const expected = resolveAgentConfigPath(
@@ -1447,13 +1426,7 @@ async function doctorNativeRoles(
         failures.push(`${agent.name}:missing`);
         continue;
       }
-      if (
-        roleText !==
-        renderNativeAgent(agent, {
-          ...capabilities,
-          ...(windowsGitBashExecutable === undefined ? {} : { windowsGitBashExecutable }),
-        })
-      ) {
+      if (roleText !== renderNativeAgent(agent, capabilities)) {
         failures.push(`${agent.name}:changed`);
         continue;
       }

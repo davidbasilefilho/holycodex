@@ -7,9 +7,11 @@ import {
   cleanupManagedRuntimeConfig,
   compareManagedConfigKey,
   createManagedRuntimeConfigState,
+  isManagedRuntimeConfigState,
   deleteTomlPath,
   LEGACY_ROOT_CONFIG_KEY_PATHS,
   mergeManagedRuntimeConfig,
+  isCanonicalHolyCodexMarketplaceGitSource,
   readTomlPath,
   resolveAgentConfigPath,
   resolveOfficialPluginEntry,
@@ -88,14 +90,7 @@ import {
 } from "./schema.ts";
 import { optionalJsonFile, optionalTextFile, writeAtomicJson, writeAtomicText } from "./storage.ts";
 import { parseToml, stringifyToml } from "./toml.ts";
-import {
-  createInstallerRuntime,
-  ensureContext7,
-  ensureGitBash,
-  removeOwnedContext7,
-  ToolingError,
-  WINDOWS_GIT_BASH,
-} from "./tooling.ts";
+import { createInstallerRuntime, ensureContext7, removeOwnedContext7 } from "./tooling.ts";
 import type {
   CapabilityInstallState,
   CapabilityStateRecord,
@@ -112,7 +107,6 @@ import type {
   ProviderPluginConfigSnapshot,
   InstallTransactionStep,
   InstallProgressEvent,
-  GitBashState,
   Context7ToolState,
   ConflictDecision,
   ManagedConflict,
@@ -135,7 +129,7 @@ export const HOLYCODEX_MARKETPLACE = "davidbasilefilho/holycodex";
 export const HOLYCODEX_PLUGIN = "holycodex@holycodex";
 /** Codex Desktop owns Browser Use provisioning and lifecycle. */
 export const CODEX_DESKTOP_BROWSER_PLUGIN_ID = "browser@openai-bundled";
-// Pre-boundary records used Astra for every Root profile; keep this fixed when later releases change.
+// Records through the boundary release used Astra for every Root profile.
 const ROOT_ROUTE_MIGRATION_BOUNDARY = "0.16.8" as const;
 const migratedActiveDigests = new WeakMap<InstallRecord, string>();
 
@@ -561,7 +555,6 @@ export async function installHolyCodex(
     persistedRequest?.officialPlugins ??
     additionalPluginsFromPrevious(previous);
   const runtime = options.runtime ?? createInstallerRuntime(environment);
-  const discoveredGitBash = await ensureGitBash(runtime, false);
   const context7PreflightReady = await ensureContext7(
     runtime,
     false,
@@ -570,7 +563,6 @@ export async function installHolyCodex(
     () => true,
     () => false,
   );
-  let gitBash: GitBashState = discoveredGitBash;
   let context7: Context7ToolState | undefined;
   let context7Warning: string | undefined;
   const providerPlugins = [
@@ -602,27 +594,6 @@ export async function installHolyCodex(
       "Native Codex plugin installation and verification are unavailable.",
     );
   }
-  let preflightLive: Awaited<ReturnType<NonNullable<OfficialPluginManager["list"]>>>;
-  try {
-    preflightLive = await manager.list();
-  } catch (error: unknown) {
-    throw new InstallerError(
-      "capability_denied",
-      "Native Codex plugin state could not be read safely.",
-      error,
-    );
-  }
-  const unresolvedOfficialProviderPlugins = providerPlugins.filter((pluginId) => {
-    if (!pluginId.endsWith("@openai-curated")) return false;
-    const entry = findPlugin(preflightLive, pluginId);
-    return !(entry?.installed && entry.enabled);
-  });
-  reportProgress(options, {
-    stage: "validation",
-    status: "completed",
-    message: "Codex target validated",
-  });
-
   const installId = previous?.install_id ?? crypto.randomUUID().replaceAll("-", "");
   const version = await readInstallationVersion();
   const refreshPluginIds =
@@ -654,12 +625,6 @@ export async function installHolyCodex(
     computerUse: optional.computer_use,
     frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
     security: DEFAULT_CAPABILITY_SELECTIONS.security,
-    ...(runtime.platform === "win32"
-      ? {
-          windowsGitBashExecutable:
-            discoveredGitBash.status === "healthy" ? discoveredGitBash.path : WINDOWS_GIT_BASH,
-        }
-      : {}),
   });
   const configBefore = await optionalTextFile(paths.configFile);
   let parsedConfigDocument: TomlDocument;
@@ -687,6 +652,171 @@ export async function installHolyCodex(
   let configInputDocument = preflightInvalidConfig.document;
   const preflightInvalidConfigConflicts = preflightInvalidConfig.conflicts;
   const preflightInvalidConfigDecisions = preflightInvalidConfig.decisions;
+  let reviewedInvalidConfigDocument =
+    preflightInvalidConfigConflicts.length === 0
+      ? parsedConfigDocument
+      : applyInvalidConfigConflictDecisions(
+          parsedConfigDocument,
+          preflightInvalidConfigConflicts,
+          preflightInvalidConfigDecisions,
+        );
+  let temporaryPreflightConfig: string | undefined;
+  if (preflightInvalidConfigConflicts.length > 0) {
+    const currentConfig = await optionalTextFile(paths.configFile);
+    if (currentConfig !== configBefore) {
+      throw new InstallerError(
+        "confirmation_required",
+        "Codex configuration changed after the invalid-table review; review the latest configuration and retry.",
+        undefined,
+        { path: paths.configFile },
+      );
+    }
+    temporaryPreflightConfig = serializeConfig(reviewedInvalidConfigDocument);
+    await writeAtomicText(paths.configFile, temporaryPreflightConfig);
+  }
+
+  let preflightLive: Awaited<ReturnType<NonNullable<OfficialPluginManager["list"]>>>;
+  let marketplaceRepairedDuringPreflight = false;
+  let preflightMarketplaceConflict: ManagedConflict | undefined;
+  let preflightMarketplaceDecisions: ReadonlyMap<string, ConflictDecision> = new Map();
+  try {
+    preflightLive = await manager.list();
+  } catch (error: unknown) {
+    if (temporaryPreflightConfig !== undefined) {
+      await restoreTemporaryPreflightConfig(
+        paths.configFile,
+        configBefore,
+        temporaryPreflightConfig,
+      );
+      temporaryPreflightConfig = undefined;
+    }
+    if (!isIncompleteHolyCodexMarketplaceError(error)) {
+      throw new InstallerError(
+        "capability_denied",
+        "Native Codex plugin state could not be read safely.",
+        error,
+      );
+    }
+    if ((await optionalTextFile(paths.configFile)) !== configBefore) {
+      throw new InstallerError(
+        "confirmation_required",
+        "Codex configuration changed before the required marketplace repair; review the current marketplace source and retry.",
+        error,
+        { path: paths.configFile, key: "marketplaces.holycodex" },
+      );
+    }
+    const configuredMarketplace = readTomlPath(configInputDocument, "marketplaces.holycodex");
+    const reviewedMarketplaceContainerRemoval = preflightInvalidConfigConflicts.some(
+      (conflict) =>
+        conflict.key === "marketplaces" &&
+        preflightInvalidConfigDecisions.get(conflict.identity!) === "remove",
+    );
+    if (configuredMarketplace === undefined && !reviewedMarketplaceContainerRemoval) {
+      throw new InstallerError(
+        "confirmation_required",
+        "Codex reported an incomplete marketplace named holycodex, but config.toml does not contain a reviewable marketplace source. Review the source before retrying; no automatic replacement was attempted.",
+        error,
+        { path: paths.configFile, key: "marketplaces.holycodex" },
+      );
+    }
+    if (
+      configuredMarketplace !== undefined &&
+      !hasCanonicalHolyCodexMarketplaceSource(configuredMarketplace)
+    ) {
+      preflightMarketplaceConflict = structureConflict({
+        path: paths.configFile,
+        key: "marketplaces.holycodex",
+        action: "replace",
+        category: "config-key",
+        target: "marketplaces.holycodex",
+        existing: configuredMarketplace,
+        desired: { source_type: "git", source: HOLYCODEX_MARKETPLACE_URL },
+        explanation:
+          "The existing HolyCodex marketplace source must be reviewed before rebuilding its incomplete cache from the required canonical source.",
+        defaultDecision: "replace",
+        validDecisions: ["replace", "cancel"],
+      });
+      const resolution = await resolveOwnedConflictInventory(
+        options,
+        [preflightMarketplaceConflict],
+        true,
+      );
+      preflightMarketplaceDecisions = resolution.decisions;
+    }
+    const configuredMarketplaceIsCanonicalUrl =
+      isTomlTable(configuredMarketplace) &&
+      Object.keys(configuredMarketplace).length === 2 &&
+      configuredMarketplace["source_type"] === "git" &&
+      configuredMarketplace["source"] === HOLYCODEX_MARKETPLACE_URL;
+    if (!configuredMarketplaceIsCanonicalUrl) {
+      if ((await optionalTextFile(paths.configFile)) !== configBefore) {
+        throw new InstallerError(
+          "confirmation_required",
+          "Codex configuration changed before marketplace repair; review the current source and retry.",
+          error,
+          { path: paths.configFile, key: "marketplaces.holycodex" },
+        );
+      }
+      const replacementDocument = writePluginConfigEntry(
+        configInputDocument,
+        "marketplaces",
+        HOLYCODEX_MARKETPLACE_CONFIG_KEY,
+        { source_type: "git", source: HOLYCODEX_MARKETPLACE_URL },
+      );
+      temporaryPreflightConfig = serializeConfig(replacementDocument);
+      await writeAtomicText(paths.configFile, temporaryPreflightConfig);
+    }
+    if (manager.addMarketplace === undefined) {
+      throw new InstallerError(
+        "capability_denied",
+        "Native Codex plugin state could not be read safely.",
+        error,
+      );
+    }
+    try {
+      await manager.addMarketplace(HOLYCODEX_MARKETPLACE);
+      preflightLive = await manager.list();
+      marketplaceRepairedDuringPreflight = true;
+    } catch (repairError: unknown) {
+      if (temporaryPreflightConfig !== undefined) {
+        try {
+          await restoreTemporaryPreflightConfig(
+            paths.configFile,
+            configBefore,
+            temporaryPreflightConfig,
+          );
+          temporaryPreflightConfig = undefined;
+        } catch (restoreError: unknown) {
+          throw new InstallerError(
+            "confirmation_required",
+            "The marketplace repair failed and the reviewed temporary Codex configuration could not be restored safely; review config.toml before retrying.",
+            restoreError,
+            { path: paths.configFile, key: "marketplaces.holycodex" },
+          );
+        }
+      }
+      throw new InstallerError(
+        "capability_denied",
+        "The required HolyCodex marketplace could not be repaired before plugin validation.",
+        repairError,
+      );
+    }
+  }
+  if (temporaryPreflightConfig !== undefined) {
+    await restoreTemporaryPreflightConfig(paths.configFile, configBefore, temporaryPreflightConfig);
+    temporaryPreflightConfig = undefined;
+  }
+  const unresolvedOfficialProviderPlugins = providerPlugins.filter((pluginId) => {
+    if (!pluginId.endsWith("@openai-curated")) return false;
+    const entry = findPlugin(preflightLive, pluginId);
+    return !(entry?.installed && entry.enabled);
+  });
+  reportProgress(options, {
+    stage: "validation",
+    status: "completed",
+    message: "Codex target validated",
+  });
+
   const currentHolyCodexPluginConfig = await snapshotHolyCodexPluginConfig(configInputDocument);
   const initialPluginConfigBefore = previous?.plugin_config?.before ?? currentHolyCodexPluginConfig;
   let pluginConfigBefore = initialPluginConfigBefore;
@@ -736,10 +866,8 @@ export async function installHolyCodex(
         existing: current.safe_value ?? { presence: current.presence },
         desired,
         explanation: `The existing ${key} entry does not match the HolyCodex plugin configuration.`,
-        ...(name === "preference" &&
-        pluginConfigEntryIsDisabled(configInputDocument, "plugins", HOLYCODEX_PLUGIN_CONFIG_KEY)
-          ? { validDecisions: ["replace", "cancel"] as const, defaultDecision: "replace" as const }
-          : {}),
+        validDecisions: ["replace", "cancel"] as const,
+        defaultDecision: "replace" as const,
       });
       return conflict;
     });
@@ -786,8 +914,7 @@ export async function installHolyCodex(
         existing: entry.before.safe_value ?? { presence: entry.before.presence },
         desired: { kind: "boolean", value: true },
         explanation: `The existing provider plugin entry ${entry.plugin_id} does not match the selected plugin configuration.`,
-        ...(providerPlugins.includes(entry.plugin_id) &&
-        pluginConfigEntryIsDisabled(configInputDocument, "plugins", entry.plugin_id)
+        ...(providerPlugins.includes(entry.plugin_id)
           ? { validDecisions: ["replace", "cancel"] as const, defaultDecision: "replace" as const }
           : {}),
       });
@@ -830,9 +957,6 @@ export async function installHolyCodex(
       computerUse: previous.optional_selections.computer_use,
       frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
       security: DEFAULT_CAPABILITY_SELECTIONS.security,
-      ...(previous.tooling?.git_bash.status === "healthy"
-        ? { windowsGitBashExecutable: previous.tooling.git_bash.path }
-        : {}),
     });
     const previousBaseVersion = canonicalBaseVersion(previous.version.split("-", 1)[0]!);
     for (const agentType of NATIVE_AGENT_TYPES) {
@@ -842,7 +966,7 @@ export async function installHolyCodex(
       previousDesiredConfig[`agents."${agentType}".config_file`] =
         previousArtifact?.path ?? `holycodex/agents/${agentType}.toml`;
     }
-    if (compareReleaseVersions(previousBaseVersion, ROOT_ROUTE_MIGRATION_BOUNDARY) < 0) {
+    if (compareReleaseVersions(previousBaseVersion, ROOT_ROUTE_MIGRATION_BOUNDARY) <= 0) {
       // Interpret the prior managed values using the route contract active at installation.
       previousDesiredConfig.model = "gpt-6-astra";
       previousDesiredConfig.model_reasoning_effort =
@@ -912,7 +1036,7 @@ export async function installHolyCodex(
         existing,
         desired: desiredValue,
         explanation: `The existing Codex setting ${key} is user-owned and differs from the HolyCodex install value.`,
-        defaultDecision: "keep",
+        defaultDecision: "replace",
         validDecisions: ["keep", "replace", "cancel"],
       }),
     ];
@@ -926,11 +1050,6 @@ export async function installHolyCodex(
       profile,
       previous?.managed_artifacts,
       tier,
-      runtime.platform === "win32"
-        ? discoveredGitBash.status === "healthy"
-          ? discoveredGitBash.path
-          : WINDOWS_GIT_BASH
-        : undefined,
       { browserUse: optional.browser_use, computerUse: optional.computer_use },
     );
   } catch (error: unknown) {
@@ -945,12 +1064,14 @@ export async function installHolyCodex(
     ...managedConfigConflicts,
     ...nativeConflicts.map(structureConflict),
   ];
-  const preResolvedIdentities = new Set(
-    preflightInvalidConfigConflicts.map((conflict) => conflict.identity!),
-  );
-  const initialReviewConflicts = useBatchConflictResolution
-    ? pendingConflicts
-    : allConflicts.filter((conflict) => !preResolvedIdentities.has(conflict.identity!));
+  const initiallyMergedManaged = { ...mergedConfig.state.managed };
+  const preResolvedIdentities = new Set([
+    ...preflightInvalidConfigConflicts.map((conflict) => conflict.identity!),
+    ...(preflightMarketplaceConflict === undefined ? [] : [preflightMarketplaceConflict.identity!]),
+  ]);
+  const initialReviewConflicts = (
+    useBatchConflictResolution ? pendingConflicts : allConflicts
+  ).filter((conflict) => !preResolvedIdentities.has(conflict.identity!));
   const initialResolution = await resolveOwnedConflictInventory(
     options,
     initialReviewConflicts,
@@ -958,7 +1079,11 @@ export async function installHolyCodex(
   );
   let resolvedConflicts: Awaited<ReturnType<typeof resolveOwnedConflictInventory>> = {
     ...initialResolution,
-    decisions: new Map([...preflightInvalidConfigDecisions, ...initialResolution.decisions]),
+    decisions: new Map([
+      ...preflightInvalidConfigDecisions,
+      ...preflightMarketplaceDecisions,
+      ...initialResolution.decisions,
+    ]),
   };
   let reviewedNativeConflicts: readonly ManagedConflict[] = [];
   let resolvedDesiredConfig: Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> = {
@@ -1025,6 +1150,9 @@ export async function installHolyCodex(
             ...existing,
             lastManagedValue: await summarizeManagedConfigValue(configKey, desiredValue),
           };
+        } else {
+          const preflightEntry = initiallyMergedManaged[configKey];
+          if (preflightEntry !== undefined) acceptedManaged[configKey] = preflightEntry;
         }
       } else {
         delete effectiveDesiredConfig[configKey];
@@ -1033,10 +1161,16 @@ export async function installHolyCodex(
           delete acceptedManaged[configKey];
           continue;
         }
-        acceptedManaged[configKey] = {
+        const keptEntry = {
           ...existing,
           lastManagedValue: await summarizeManagedConfigValue(configKey, live),
         };
+        const candidateState = {
+          ...currentManagedConfig,
+          managed: { ...acceptedManaged, [configKey]: keptEntry },
+        };
+        if (isManagedRuntimeConfigState(candidateState)) acceptedManaged[configKey] = keptEntry;
+        else delete acceptedManaged[configKey];
       }
     }
     mergedConfig = await mergeManagedRuntimeConfig(
@@ -1053,16 +1187,7 @@ export async function installHolyCodex(
     for (const conflict of [...initialUserConfigConflicts, ...managedConfigConflicts]) {
       const key = conflict.key as ManagedConfigKeyPath | undefined;
       if (key === undefined) continue;
-      const live = readTomlPath(configDocument, key);
-      const existing = stabilityManaged[key];
-      if (existing !== undefined && live === undefined) {
-        delete stabilityManaged[key];
-      } else if (existing !== undefined && live !== undefined) {
-        stabilityManaged[key] = {
-          ...existing,
-          lastManagedValue: await summarizeManagedConfigValue(key, live),
-        };
-      }
+      delete stabilityManaged[key];
     }
     resolvedManagedConfig = stabilityManaged;
   };
@@ -1084,12 +1209,7 @@ export async function installHolyCodex(
     );
   let reviewConflicts = projectReviewConflicts();
   let reviewConflictCounts = projectReviewConflictCounts(reviewConflicts);
-  const reviewTools = installReviewTools(
-    discoveredGitBash,
-    context7PreflightReady,
-    preflightLive,
-    providerPlugins,
-  );
+  const reviewTools = installReviewTools(context7PreflightReady, preflightLive, providerPlugins);
   if (options.reviewInstall !== undefined) {
     while (true) {
       const review = await options.reviewInstall({
@@ -1165,7 +1285,9 @@ export async function installHolyCodex(
     },
     provider_config: providerConfigBefore,
     owned_plugins: [...previousOwnedPlugins],
-    ...(previous?.tooling === undefined ? {} : { tooling: previous.tooling }),
+    ...(previous?.tooling?.context7 === undefined
+      ? {}
+      : { tooling: { context7: previous.tooling.context7 } }),
   };
   await ensureOwnedDirectory(paths.stateRoot);
   await writeTransaction(paths.preparingRecord, preMutationTransaction);
@@ -1174,11 +1296,12 @@ export async function installHolyCodex(
 
   let native: NativeAgentInstallResult | undefined;
   let configPublished = false;
+  let invalidConfigApplied = false;
   const addedPlugins = new Set<string>();
   const removedPlugins = new Set<string>();
   const uncertainPluginRemovals = new Set<string>();
   const ownedPlugins = new Set(previousOwnedPlugins);
-  const rollbackOwnedPlugins = new Set(previousOwnedPlugins);
+  const rollbackOwnedPlugins = new Set([...previousOwnedPlugins, ...providerPlugins]);
   const uncertainPluginMutations = new Set<string>();
   let transactionForRecovery: PreparingTransaction = preMutationTransaction;
   let pluginEffectsStarted = false;
@@ -1188,13 +1311,23 @@ export async function installHolyCodex(
   let activeRecordWriteStarted = false;
   let installOptionsWriteStarted = false;
   try {
-    try {
-      gitBash = await ensureGitBash(runtime, true);
-    } catch (error: unknown) {
-      if (error instanceof ToolingError) {
-        throw new InstallerError("capability_denied", error.message, error, error.details);
+    if (preflightInvalidConfigConflicts.length > 0) {
+      const configAtMutation = await optionalTextFile(paths.configFile);
+      reviewedInvalidConfigDocument = applyInvalidConfigConflictDecisions(
+        parseConfig(configAtMutation, paths.configFile),
+        preflightInvalidConfigConflicts,
+        preflightInvalidConfigDecisions,
+      );
+      if ((await optionalTextFile(paths.configFile)) !== configAtMutation) {
+        throw new InstallerError(
+          "confirmation_required",
+          "Codex configuration changed during conflict resolution; review the latest configuration and retry.",
+          undefined,
+          { path: paths.configFile },
+        );
       }
-      throw error;
+      await writeAtomicText(paths.configFile, serializeConfig(reviewedInvalidConfigDocument));
+      invalidConfigApplied = true;
     }
     try {
       context7 = await ensureContext7(runtime, true, previous?.tooling?.context7);
@@ -1202,11 +1335,11 @@ export async function installHolyCodex(
       context7Warning = `Optional ctx7 is unavailable: ${safeMessage(error)}`;
     }
     const recordedContext7 = context7 ?? previous?.tooling?.context7;
-    const tooling = {
-      git_bash: gitBash,
-      ...(recordedContext7 === undefined ? {} : { context7: recordedContext7 }),
-    } as const;
-    let transaction: PreparingTransaction = { ...preMutationTransaction, tooling };
+    const tooling = recordedContext7 === undefined ? undefined : { context7: recordedContext7 };
+    let transaction: PreparingTransaction = {
+      ...preMutationTransaction,
+      ...(tooling === undefined ? {} : { tooling }),
+    };
     transactionForRecovery = transaction;
     await writeTransaction(paths.preparingRecord, transactionForRecovery);
     if (
@@ -1238,8 +1371,9 @@ export async function installHolyCodex(
     transaction = { ...transaction, plugin_snapshot: pluginSnapshot };
     transactionForRecovery = transaction;
     await writeTransaction(paths.preparingRecord, transactionForRecovery);
+    let configTextBeforePluginSetup = await optionalTextFile(paths.configFile);
     const parsedLiveConfigBeforeMutation = parseConfig(
-      await optionalTextFile(paths.configFile),
+      configTextBeforePluginSetup,
       paths.configFile,
     );
     const liveConfigBeforeMutation = applyInvalidConfigConflictDecisions(
@@ -1283,7 +1417,6 @@ export async function installHolyCodex(
       profile,
       previous?.managed_artifacts,
       tier,
-      gitBash.status === "healthy" ? gitBash.path : undefined,
       nativeConflicts.length === 0 ? options.resolveConflict : undefined,
       reviewedNativeConflicts,
       { browserUse: optional.browser_use, computerUse: optional.computer_use },
@@ -1368,6 +1501,7 @@ export async function installHolyCodex(
             { operation: "initialize Codex configuration", path: paths.configFile },
           );
         }
+        configTextBeforePluginSetup = "";
       } catch (error: unknown) {
         if (error instanceof InstallerError) throw error;
         throw new InstallerError(
@@ -1382,7 +1516,19 @@ export async function installHolyCodex(
         );
       }
     }
-    await manager.addMarketplace!(HOLYCODEX_MARKETPLACE);
+    if ((await optionalTextFile(paths.configFile)) !== configTextBeforePluginSetup) {
+      throw new InstallerError(
+        "confirmation_required",
+        "Codex configuration changed during plugin setup; review the latest configuration and retry.",
+        undefined,
+        { path: paths.configFile },
+      );
+    }
+    await writeAtomicText(paths.configFile, serializeConfig(pluginRecoveryTargetDocument));
+    configPublished = true;
+    if (!marketplaceRepairedDuringPreflight) {
+      await manager.addMarketplace!(HOLYCODEX_MARKETPLACE);
+    }
     const nativeManager = {
       list: () => manager.list!(),
       add: (id: string) => manager.add!(id),
@@ -1499,9 +1645,21 @@ export async function installHolyCodex(
       },
       provider_config: providerRollbackConfig,
     };
+    const configConflictKeys = new Set(
+      [...initialUserConfigConflicts, ...managedConfigConflicts].flatMap((conflict) =>
+        conflict.key === undefined ? [] : [conflict.key],
+      ),
+    );
     const postPluginBaselineManaged: Record<string, ManagedRuntimeConfigState["managed"][string]> =
-      {};
-    for (const [rawKeyPath, entry] of Object.entries(resolvedManagedConfig)) {
+      { ...resolvedManagedConfig };
+    for (const conflict of [...initialUserConfigConflicts, ...managedConfigConflicts]) {
+      const key = conflict.key;
+      if (key === undefined) continue;
+      const entry = mergedConfig.state.managed[key as ManagedConfigKeyPath];
+      if (entry !== undefined) postPluginBaselineManaged[key] = entry;
+    }
+    for (const [rawKeyPath, entry] of Object.entries(postPluginBaselineManaged)) {
+      if (configConflictKeys.has(rawKeyPath)) continue;
       const keyPath = rawKeyPath as ManagedConfigKeyPath;
       const value = readTomlPath(configBeforeMutationDocument, keyPath);
       postPluginBaselineManaged[keyPath] = {
@@ -1512,15 +1670,23 @@ export async function installHolyCodex(
       };
     }
     const postPluginBaseline: ManagedRuntimeConfigState = {
-      ...currentManagedConfig,
+      ...mergedConfig.state,
       managed: postPluginBaselineManaged,
     };
     await assertPostPluginConfigStable(
       stablePostPluginDocument,
       configBeforeMutationDocument,
-      postPluginBaseline,
+      { ...postPluginBaseline, managed: resolvedManagedConfig },
       resolvedDesiredConfig,
     );
+    for (const conflict of [...initialUserConfigConflicts, ...managedConfigConflicts]) {
+      const key = conflict.key as ManagedConfigKeyPath | undefined;
+      if (key === undefined) continue;
+      const decision = resolvedConflicts.decisions.get(conflict.identity!);
+      const value = decision === "replace" ? desiredConfig[key] : readTomlPath(configDocument, key);
+      if (value !== undefined)
+        stablePostPluginDocument = writeTomlPath(stablePostPluginDocument, key, value);
+    }
     const postPluginConfig = await mergeManagedRuntimeConfig(
       stablePostPluginDocument,
       postPluginBaseline,
@@ -1605,7 +1771,6 @@ export async function installHolyCodex(
         computerUse: optional.computer_use,
         frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
         security: DEFAULT_CAPABILITY_SELECTIONS.security,
-        ...(gitBash.status === "healthy" ? { windowsGitBashExecutable: gitBash.path } : {}),
       },
       publishedConfigState,
       native.preserved,
@@ -1637,7 +1802,7 @@ export async function installHolyCodex(
       provider_config: providerConfig,
       plugin_snapshot: pluginSnapshot,
       owned_plugins: [...ownedPlugins],
-      tooling,
+      ...(tooling === undefined ? {} : { tooling }),
     });
     const record: InstallRecord = {
       owner: "holycodex",
@@ -1664,7 +1829,7 @@ export async function installHolyCodex(
       },
       provider_config: providerConfig,
       owned_plugins: [...ownedPlugins],
-      tooling,
+      ...(tooling === undefined ? {} : { tooling }),
     };
     if (decodeSchema(InstallRecordSchema, record) === undefined) {
       throw new InstallerError("state_corrupt", "The HolyCodex configuration is invalid.");
@@ -1694,6 +1859,7 @@ export async function installHolyCodex(
     };
   } catch (error: unknown) {
     const rollbackFailures: string[] = [];
+    let rollbackConfigIdentity: Readonly<{ dev: number; ino: number }> | undefined;
     if (activeRecordWriteStarted) {
       try {
         if (activeRecordBefore === undefined) {
@@ -1723,7 +1889,7 @@ export async function installHolyCodex(
     if (pluginEffectsStarted || configPublished) {
       try {
         if (configBeforeMutationDocument !== undefined) {
-          await rollbackConfigTransaction(
+          rollbackConfigIdentity = await rollbackConfigTransaction(
             paths.configFile,
             transactionForRecovery,
             configBeforeMutationDocument,
@@ -1734,14 +1900,11 @@ export async function installHolyCodex(
         rollbackFailures.push("config");
       }
     }
-    if (rollbackFailures.length === 0 && configBefore === undefined) {
+    if (invalidConfigApplied) {
       try {
-        const current = await optionalTextFile(paths.configFile);
-        if (current === "" && (await sameFileIdentity(paths.configFile, initialConfigIdentity))) {
-          await rm(paths.configFile, { force: false });
-        }
+        await restoreReviewedInvalidConfig(paths.configFile, preflightInvalidConfigConflicts);
       } catch {
-        rollbackFailures.push("config_initialization");
+        rollbackFailures.push("invalid_config");
       }
     }
     if (native !== undefined) {
@@ -1807,6 +1970,22 @@ export async function installHolyCodex(
         }
       } catch {
         rollbackFailures.push("context7");
+      }
+    }
+    if (rollbackFailures.length === 0 && configBefore === undefined) {
+      try {
+        const current = await optionalTextFile(paths.configFile);
+        if (
+          current?.trim().length === 0 &&
+          (await sameFileIdentity(
+            paths.configFile,
+            rollbackConfigIdentity ?? initialConfigIdentity,
+          ))
+        ) {
+          await rm(paths.configFile, { force: false });
+        }
+      } catch {
+        rollbackFailures.push("config_initialization");
       }
     }
     if (rollbackFailures.length > 0) {
@@ -2301,7 +2480,7 @@ async function resolveInvalidConfigTables(
       path,
       key: issue.key,
       action: "remove",
-      defaultDecision: "cancel",
+      defaultDecision: "remove",
       validDecisions: ["remove", "cancel"],
     });
   });
@@ -2353,6 +2532,73 @@ function applyInvalidConfigConflictDecisions(
     output = deleteTomlPath(output, conflict.key);
   }
   return output;
+}
+
+async function restoreTemporaryPreflightConfig(
+  path: string,
+  originalText: string | undefined,
+  temporaryText: string,
+): Promise<void> {
+  if ((await optionalTextFile(path)) !== temporaryText) {
+    throw new InstallerError(
+      "confirmation_required",
+      "Codex configuration changed during preflight validation; review the latest configuration and retry.",
+      undefined,
+      { path },
+    );
+  }
+  if (originalText === undefined) {
+    await rm(path, { force: false }).catch((error: unknown) => {
+      if (!isFsCode(error, "ENOENT")) throw error;
+    });
+    return;
+  }
+  await writeAtomicText(path, originalText);
+}
+
+async function restoreReviewedInvalidConfig(
+  path: string,
+  conflicts: readonly ManagedConflict[],
+): Promise<void> {
+  const liveText = await optionalTextFile(path);
+  const liveDocument = parseConfig(liveText, path);
+  let restoredDocument = liveDocument;
+  for (const conflict of conflicts) {
+    if (conflict.key === undefined || conflict.existing === undefined) continue;
+    const liveValue = readTomlPath(restoredDocument, conflict.key);
+    if (liveValue !== undefined) {
+      if (JSON.stringify(liveValue) === JSON.stringify(conflict.existing)) continue;
+      const isEmptyTable =
+        typeof liveValue === "object" &&
+        liveValue !== null &&
+        !Array.isArray(liveValue) &&
+        Object.keys(liveValue).length === 0;
+      if (!isEmptyTable) {
+        throw new InstallerError(
+          "confirmation_required",
+          `Codex configuration at ${conflict.key} changed during rollback; preserve it and review the current value.`,
+          undefined,
+          { path, key: conflict.key },
+        );
+      }
+      restoredDocument = deleteTomlPath(restoredDocument, conflict.key);
+    }
+    restoredDocument = writeTomlPath(
+      restoredDocument,
+      conflict.key,
+      conflict.existing as TomlValue,
+    );
+  }
+  if (restoredDocument === liveDocument) return;
+  if ((await optionalTextFile(path)) !== liveText) {
+    throw new InstallerError(
+      "confirmation_required",
+      "Codex configuration changed during rollback; preserve it and review the current value.",
+      undefined,
+      { path },
+    );
+  }
+  await writeAtomicText(path, serializeConfig(restoredDocument));
 }
 
 function locateTomlParseFailure(
@@ -2642,15 +2888,6 @@ function readPluginConfigEntry(
   return table[key];
 }
 
-function pluginConfigEntryIsDisabled(
-  document: TomlDocument,
-  parent: "plugins" | "marketplaces",
-  key: string,
-): boolean {
-  const value = readPluginConfigEntry(document, parent, key);
-  return isTomlTable(value) && value["enabled"] === false;
-}
-
 function pluginConfigSafeValue(
   parent: "plugins" | "marketplaces",
   value: TomlValue | undefined,
@@ -2936,7 +3173,6 @@ export function desiredRootConfig(
         computerUse?: boolean;
         frontend?: boolean;
         security?: boolean;
-        windowsGitBashExecutable?: string;
       }> = false,
 ): Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> {
   const root = projectRootAgent(profile, tier);
@@ -2947,9 +3183,6 @@ export function desiredRootConfig(
       typeof capabilities === "boolean"
         ? capabilities
         : (rootOptions.computerUse ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.computer_use),
-    ...(rootOptions.windowsGitBashExecutable === undefined
-      ? {}
-      : { windowsGitBashExecutable: rootOptions.windowsGitBashExecutable }),
   };
   const generationId = nativeAgentGenerationId(profile, tier, nativeOptions);
   const desired: Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> = {
@@ -3165,7 +3398,7 @@ async function rollbackConfigTransaction(
   transaction: PreparingTransaction,
   baseline: TomlDocument,
   ownedPlugins: ReadonlySet<string>,
-): Promise<void> {
+): Promise<Readonly<{ dev: number; ino: number }> | undefined> {
   const currentText = await optionalTextFile(path);
   if (currentText === undefined) return;
   let document = parseConfig(currentText, path);
@@ -3255,8 +3488,12 @@ async function rollbackConfigTransaction(
     (providerCleanup !== undefined &&
       (providerCleanup.restored.length > 0 || providerCleanup.removed.length > 0)) ||
     unsupportedConfigRestored > 0;
-  if (!changed) return;
+  if (!changed) return undefined;
   await writeAtomicText(path, serializeConfig(document));
+  const restored = await lstat(path);
+  return restored.isFile() && !restored.isSymbolicLink()
+    ? { dev: restored.dev, ino: restored.ino }
+    : undefined;
 }
 
 /** Verify effective Root configuration and every canonical native specialist profile. */
@@ -3269,7 +3506,6 @@ export async function verifyEffectiveInstall(
     computerUse: boolean;
     frontend: boolean;
     security: boolean;
-    windowsGitBashExecutable?: string;
   }>,
   state: ManagedRuntimeConfigState,
   preservedArtifacts: readonly string[] = [],
@@ -3304,9 +3540,6 @@ export async function verifyEffectiveInstall(
   const nativeOptions = {
     browserUse: capabilities.browserUse ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.browser_use,
     computerUse: capabilities.computerUse,
-    ...(capabilities.windowsGitBashExecutable === undefined
-      ? {}
-      : { windowsGitBashExecutable: capabilities.windowsGitBashExecutable }),
   };
   const generationId = nativeAgentGenerationId(profile, tier, nativeOptions);
   const projected = projectNativeAgents(profile, tier);
@@ -3722,7 +3955,11 @@ type InstallRecordDigestInput = {
 /** Compute the domain-separated digest that authenticates an install ownership record. */
 export async function installRecordDigest(value: InstallRecordDigestInput): Promise<string> {
   const { profile, plan, ...rest } = value;
-  const payload = plan === undefined ? { ...rest, profile } : { ...rest, plan };
+  const payload = Object.fromEntries(
+    Object.entries(plan === undefined ? { ...rest, profile } : { ...rest, plan }).filter(
+      ([, entry]) => entry !== undefined,
+    ),
+  );
   return await domainSeparatedSha256("install-record", [canonicalJsonUtf8(asJsonValue(payload))]);
 }
 
@@ -3781,22 +4018,31 @@ function safeMessage(error: unknown): string {
   return error instanceof Error ? error.message.slice(0, 256) : "operation failed";
 }
 
+function isIncompleteHolyCodexMarketplaceError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const invalidMarketplace =
+    /(?:^|[\n:])\s*-\s*`([^`]+)`\s+at\s+[^\r\n]*:\s*marketplace root does not contain a supported manifest/iu.exec(
+      error.message,
+    );
+  return invalidMarketplace?.[1] === "holycodex";
+}
+
+function hasCanonicalHolyCodexMarketplaceSource(value: TomlValue | undefined): boolean {
+  return (
+    isTomlTable(value) &&
+    Object.keys(value).length === 2 &&
+    value["source_type"] === "git" &&
+    typeof value["source"] === "string" &&
+    isCanonicalHolyCodexMarketplaceGitSource(value["source"])
+  );
+}
+
 function installReviewTools(
-  gitBash: GitBashState,
   context7Ready: boolean,
   live: Awaited<ReturnType<NonNullable<OfficialPluginManager["list"]>>>,
   providerPlugins: readonly string[],
 ): InstallReview["tools"] {
   const tools: InstallReview["tools"][number][] = [
-    {
-      name: "git-bash",
-      status: gitBash.status,
-      ...(gitBash.status === "healthy"
-        ? { detail: gitBash.path }
-        : gitBash.status === "missing"
-          ? { detail: "Git is required for Bash; install with: winget install Git.Git" }
-          : {}),
-    },
     {
       name: "context7",
       status: context7Ready ? "ready" : "unavailable",
