@@ -25,8 +25,10 @@ import type {
   NativeAgentProjection,
   RootAgentProjection,
 } from "../packages/cli/src/native-agents.ts";
+import { decodeStateText, writeAtomicState } from "../packages/cli/src/storage.ts";
 import { AppServerClient, BunStdioTransport, readTomlPath } from "../packages/codex/src/index.ts";
 import { PROFILE_CATALOG } from "../packages/core/src/catalog.ts";
+import type { JsonValue } from "../packages/core/src/common.ts";
 import { CliEnvelopeSchema } from "../packages/core/src/envelopes.ts";
 import { NATIVE_AGENT_TYPES } from "../packages/core/src/routes.ts";
 import {
@@ -122,11 +124,12 @@ const LEGACY_WORK_PROVIDER_PLUGINS = [
 ] as const;
 // These identities authenticate the immutable published previous-stable package used by the
 // upgrade proof. Update them only after verifying the exact published artifact.
-const PREVIOUS_STABLE_SOURCE_SHA = "0cbca341dfa44a5e34c704744afadf0eeec20c15";
+const PREVIOUS_STABLE_VERSION = "0.16.9-2";
+const PREVIOUS_STABLE_SOURCE_SHA = "7b803e5dbb5f7baaa570b6ba184166cecd764506";
 const PREVIOUS_STABLE_CLI_SHA256 =
-  "99469e8fb8ff20c56df9e7661425625ebd86cf240ba5185ab84d1dc2943494e4";
+  "654152d5f955cbcb4d11878b37927ba2f32090bebd69675716d564bee9c728cd";
 const PREVIOUS_STABLE_AGENT_SHA256 =
-  "b2fb78eab0aca307be8be0c62c480a41b8b493278a98f3b9c7cb3f08060af773";
+  "8ccec61622ae854a4da3c66b3f3f0fe6b76283459f5a1d4714825571c944d09c";
 
 type CodexPluginListEntry = Readonly<{
   readonly pluginId: string;
@@ -181,7 +184,7 @@ function verifyPublishedRouting(installed: InstalledCliModule): void {
       JSON.stringify([
         ["low", "gpt-6.1-sol", "low"],
         ["default", "gpt-6.1-sol", "medium"],
-        ["high", "gpt-6.1-sol", "high"],
+        ["high", "gpt-6.1-sol", "medium"],
       ]),
     "the packed profile catalog must preserve the canonical Root model and effort mapping",
   );
@@ -640,10 +643,10 @@ export async function verifyPublicPackage(
     reinstallEnvelope.ok,
     "packed package reinstall failed to refresh and verify its existing marketplace",
   );
-  const activeRecordPath = join(stateRoot, "active.json");
+  const activeRecordPath = join(stateRoot, "active.toml");
   const activeRecord = decode(
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-    JSON.parse(await readFile(activeRecordPath, "utf8")),
+    parseInstallRecord(await readFile(activeRecordPath, "utf8")),
     "the active installation record",
   );
   assert(
@@ -921,7 +924,10 @@ export async function verifyPublicPackage(
     ["preparing", "preparing"],
     ["conflicted", "conflicted"],
   ] as const) {
-    const current = JSON.parse(await readFile(activeRecordPath, "utf8")) as Record<string, unknown>;
+    const current = parseInstallRecord(await readFile(activeRecordPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
     await writeJson(join(stateRoot, `${name}.json`), {
       ...current,
       status,
@@ -984,9 +990,9 @@ export async function verifyPublicPackage(
     codexEnvironment,
   );
   assert(removeEnvelope.ok, "packed package remove command failed");
-  assert(!(await exists(join(stateRoot, "active.json"))), "remove left the active install record");
+  assert(!(await exists(join(stateRoot, "active.toml"))), "remove left the active install record");
   assert(
-    !(await exists(join(stateRoot, "conflicted.json"))),
+    !(await exists(join(stateRoot, "conflicted.toml"))),
     "remove left the conflicted install record",
   );
   const removedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
@@ -1149,7 +1155,7 @@ async function verifyPreviousStableUpgrade(options: PreviousStableUpgradeOptions
 async function verifyPreviousStableUpgradeWithBunState(
   options: PreviousStableUpgradeOptions & { readonly bunStateRoot: string },
 ): Promise<void> {
-  const previousVersion = previousPatchVersion(options.currentVersion);
+  const previousVersion = PREVIOUS_STABLE_VERSION;
   const previousInstalledRoot = join(options.temporaryRoot, "previous-installed");
   await mkdir(previousInstalledRoot, { recursive: true });
   const previousBunStateRoot = options.bunStateRoot;
@@ -1334,7 +1340,7 @@ async function verifyPreviousStableUpgradeWithBunState(
     await rm(previousBunGlobalInstallWorkingDirectory, { recursive: true, force: true });
   }
   assert(previousInstall.ok, "the previous stable package install failed");
-  const activeRecordPath = join(codexHome, "holycodex/active.json");
+  let activeRecordPath = join(codexHome, "holycodex/active.json");
   const previousModule = (await import(pathToFileURL(previousEntry).href)) as InstalledCliModule;
   const previousHighRoot = previousModule.projectRootAgent("high", "fast-all");
   const legacyConfigMarker = join(codexHome, ".holycodex-legacy-config");
@@ -1351,8 +1357,24 @@ async function verifyPreviousStableUpgradeWithBunState(
   } finally {
     await rm(legacyConfigMarker, { force: true });
   }
+  const genuinePreviousRecord = parseInstallRecord(await readFile(activeRecordPath, "utf8"));
+  assert(
+    objectProperty(genuinePreviousRecord, "optional_selections")?.["coding"] === true,
+    "the previous stable coding selection is invalid",
+  );
+  const genuinePreviousDryRun = await runInternalUpgrade(
+    options.currentEntry,
+    codexHome,
+    environment,
+    true,
+  );
+  assert(
+    genuinePreviousDryRun.ok,
+    `the unmodified previous-stable record failed upgrade dry-run (${genuinePreviousDryRun.ok ? "unexpected success" : genuinePreviousDryRun.error.message})`,
+  );
+  activeRecordPath = join(codexHome, "holycodex/active.toml");
   await rewriteActiveRecord(activeRecordPath, previousModule, rewriteForLegacyWork);
-  const previousRecord = JSON.parse(await readFile(activeRecordPath, "utf8")) as Record<
+  const previousRecord = parseInstallRecord(await readFile(activeRecordPath, "utf8")) as Record<
     string,
     unknown
   >;
@@ -1394,7 +1416,8 @@ async function verifyPreviousStableUpgradeWithBunState(
     upgraded.ok,
     `the real previous-stable package upgrade failed (${upgraded.ok ? "unexpected success" : `${upgraded.error.code}: ${upgraded.error.message}`})`,
   );
-  const upgradedRecord = JSON.parse(await readFile(activeRecordPath, "utf8")) as Record<
+  activeRecordPath = join(codexHome, "holycodex/active.toml");
+  const upgradedRecord = parseInstallRecord(await readFile(activeRecordPath, "utf8")) as Record<
     string,
     unknown
   >;
@@ -1515,7 +1538,7 @@ async function verifyPreviousStableUpgradeWithBunState(
         sameBaseReconciliation.data["to_version"] === options.currentVersion,
       "a same-base development package must reconcile its stable install record",
     );
-    const reconciledRecord = JSON.parse(await readFile(activeRecordPath, "utf8")) as Record<
+    const reconciledRecord = parseInstallRecord(await readFile(activeRecordPath, "utf8")) as Record<
       string,
       unknown
     >;
@@ -1589,12 +1612,16 @@ async function runCliResult(
   };
 }
 
+function parseInstallRecord(source: string): Record<string, unknown> {
+  return decodeStateText(source, Schema.Record({ key: Schema.String, value: Schema.Unknown }));
+}
+
 async function rewriteActiveRecord(
   path: string,
   installedModule: InstalledCliModule,
   rewrite: (record: Record<string, unknown>) => Record<string, unknown>,
 ): Promise<void> {
-  const current = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+  const current = parseInstallRecord(await readFile(path, "utf8"));
   const rewritten = rewrite(current);
   const digestKeys = [
     "owner",
@@ -1618,10 +1645,9 @@ async function rewriteActiveRecord(
   const digestInput = Object.fromEntries(
     digestKeys.flatMap((key) => (key in rewritten ? [[key, rewritten[key]] as const] : [])),
   );
-  await writeJson(path, {
-    ...rewritten,
-    digest: await installedModule.installRecordDigest(digestInput),
-  });
+  const record = { ...rewritten, digest: await installedModule.installRecordDigest(digestInput) };
+  if (path.endsWith(".json")) await writeJson(path, record);
+  else await writeAtomicState(path, record as JsonValue);
 }
 
 function rewriteForLegacyWork(record: Record<string, unknown>): Record<string, unknown> {
@@ -1632,9 +1658,17 @@ function rewriteForLegacyWork(record: Record<string, unknown>): Record<string, u
   const ownedPlugins = arrayProperty(record, "owned_plugins") ?? [];
   return {
     ...record,
-    optional_selections: { ...optionalSelections, work: true },
+    optional_selections: {
+      frontend: false,
+      security: false,
+      ...optionalSelections,
+      coding: true,
+      work: true,
+    },
     explicit_optional_selections: { ...explicitOptionalSelections, work: true },
     capability_state: {
+      frontend: { selected: false, status: "disabled", plugin_ids: [] },
+      security: { selected: false, status: "disabled", plugin_ids: [] },
       ...capabilityState,
       work: {
         selected: true,
@@ -2172,8 +2206,9 @@ async function assertCodexAppServerReadback(
     assert(highProfile !== undefined, "the high profile is missing from the route catalog");
     assert(
       readback.config["model"] === (expectedRootModel ?? highProfile.root.model) &&
-        readback.config["model_reasoning_effort"] === "high",
-      `Codex App Server config readback changed the high-profile Root route (expected ${JSON.stringify(expectedRootModel ?? highProfile.root.model)}/high, received ${JSON.stringify(readback.config["model"])}/${JSON.stringify(readback.config["model_reasoning_effort"])})`,
+        readback.config["model_reasoning_effort"] ===
+          (legacyRootOnly ? "high" : highProfile.root.effort),
+      `Codex App Server config readback changed the high-profile Root route (expected ${JSON.stringify(expectedRootModel ?? highProfile.root.model)}/${legacyRootOnly ? "high" : highProfile.root.effort}, received ${JSON.stringify(readback.config["model"])}/${JSON.stringify(readback.config["model_reasoning_effort"])})`,
     );
     if (legacyRootOnly) return;
     const rootInstructions = readback.config["developer_instructions"];
@@ -2206,8 +2241,8 @@ async function assertCodexAppServerReadback(
       const readbackPath = isAbsolute(configuredPath)
         ? resolve(configuredPath)
         : resolve(codexHome, configuredPath);
-      const active = JSON.parse(
-        await readFile(join(codexHome, "holycodex/active.json"), "utf8"),
+      const active = parseInstallRecord(
+        await readFile(join(codexHome, "holycodex/active.toml"), "utf8"),
       ) as { managed_artifacts?: readonly { path: string }[] };
       const expectedReference = active.managed_artifacts?.find((artifact) =>
         artifact.path.endsWith(`/${agentType}.toml`),
@@ -2525,7 +2560,10 @@ async function configRead() {
   const text = await readFile(join(HOME, "config.toml"), "utf8");
   const rootDocument = Bun.TOML.parse(text);
   const rootFeature = (key) => readFeatureBoolean(rootDocument, "features", key);
-  const active = JSON.parse(await readFile(join(HOME, "holycodex", "active.json"), "utf8"));
+  const activeToml = await readFile(join(HOME, "holycodex", "active.toml"), "utf8").catch(() => undefined);
+  const active = activeToml === undefined
+    ? JSON.parse(await readFile(join(HOME, "holycodex", "active.json"), "utf8"))
+    : Bun.TOML.parse(activeToml).record;
   const allowLegacyConfig =
     (await readFile(join(HOME, ".holycodex-legacy-config"), "utf8").catch(() => "")) === "1\n";
   function rootStringSetting(name) {

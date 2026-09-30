@@ -8,7 +8,7 @@ HolyCodex installs one native leaf for each canonical identity:
 `Explorer.map`, `Explorer.lookup`, `Explorer.trace`, `Librarian.lookup`,
 `Librarian.research`, `Worker.mechanical`, `Worker.implementation`,
 `Worker.integration`, `Worker.operations`, `Worker.validation`,
-`Worker.debugging`, `Reviewer.code`, and `Reviewer.artifact`.
+`Worker.debugging`, `Worker.visual`, `Reviewer.visual`, `Reviewer.code`, and `Reviewer.artifact`.
 Each leaf has one TOML under
 `<CODEX_HOME>/holycodex/agents/` and one `config.toml` registration. Root is
 the parent session configured in `config.toml`; `agents/root.toml` is never
@@ -78,7 +78,7 @@ without fallback.
 Profiles select configured Root and specialist route identities with the task
 effort matrix in [BEHAVIOR.md](BEHAVIOR.md). Every generated instruction
 targets GPT-6-family behavior regardless of a temporary routing model ID.
-Root uses `gpt-6.1-sol` at low, medium, and high reasoning effort for the
+Root uses `gpt-6.1-sol` at low, medium, and medium reasoning effort for the
 `low`, `default`, and `high` profiles respectively; native specialist route
 files use `gpt-6-luna`. Root dispatches concrete registered
 `Role.task` identities from the canonical inventory; role families and generic
@@ -90,7 +90,8 @@ generated leaf. Removal restores the recorded prior value when unchanged.
 The installer recognizes `openai-curated` and `openai-curated-remote` as
 equivalent only for the allowlisted build-web-apps and codex-security plugins.
 Browser, Computer Use, and Sites use their canonical `openai-bundled` provider
-identities. Same-name third-party providers remain untrusted.
+identities; Computer Use also accepts its supported `unified-computer-use` migration
+identity. Same-name third-party providers remain untrusted.
 
 Interactive install resolves Codex home internally and does not ask for a
 `CODEX_HOME` path. Use `--codex-home <absolute-path>` only for explicit
@@ -105,7 +106,11 @@ state.
 
 Install and internal migration collect options, load the current managed state,
 and run a complete preflight before applying changes. Interactive conflict review
-groups only actual managed conflicts and then shows one final review with the
+groups only actual managed conflicts, defaults to Replace, and scrolls the complete
+list within the terminal viewport. Replacement backs up only replaced entries,
+preserves unrelated configuration, and removes invalid managed entries when required.
+Interrupted installs reconcile owned generation artifacts safely on retry. It then
+shows one final review with the
 selected options, conflict count, and planned tool operations. The approved
 transaction applies without another prompt. The internal migration boundary
 reuses persisted choices unless a caller supplies a reviewed replacement.

@@ -27,6 +27,8 @@ const generatedPluginManifestPath = "packages/plugin/assets/.codex-plugin/plugin
 const rootRouteMigrationPath = "packages/cli/src/installer.ts";
 const legacyBrowserOwnerFixturePath = "packages/cli/src/preflight.test.ts";
 const legacyBrowserOwnerVersion = "0.16.9-1";
+const legacyRootFixturePath = "packages/cli/src/install-flow.test.ts";
+const previousStableFixturePath = "scripts/package-verification.ts";
 const RELEASE_LITERAL =
   /(?<![0-9A-Za-z])0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*)|-dev\.\d+\.\d+)?(?![0-9A-Za-z])/gu;
 const CliManifest = Schema.Struct({
@@ -143,13 +145,31 @@ describe("release version authority", () => {
       "utf8",
     );
     expect(countLiteral(legacyBrowserOwnerFixture, legacyBrowserOwnerVersion)).toBe(1);
+    const installer = await readFile(`${workspaceRoot}/${rootRouteMigrationPath}`, "utf8");
+    const highEffortBoundary = /const ROOT_HIGH_EFFORT_LEGACY_BOUNDARY = "([^"]+)" as const;/u.exec(
+      installer,
+    )?.[1];
+    expect(highEffortBoundary).toBeDefined();
+    expect(countLiteral(installer, highEffortBoundary!)).toBe(1);
+    const previousFixture = await readFile(`${workspaceRoot}/${previousStableFixturePath}`, "utf8");
+    const previousStable = /const PREVIOUS_STABLE_VERSION = "([^"]+)";/u.exec(previousFixture)?.[1];
+    expect(isCanonicalVersion(previousStable)).toBe(true);
+    expect(countLiteral(previousFixture, previousStable!)).toBe(1);
+    const legacyRootFixture = await readFile(`${workspaceRoot}/${legacyRootFixturePath}`, "utf8");
+    expect(countLiteral(legacyRootFixture, routeBoundary)).toBe(2);
     const violations: string[] = [];
     for (const relativePath of await listFiles(workspaceRoot)) {
       if (relativePath === "tests/version-authority.test.ts") continue;
       const content = await readFile(`${workspaceRoot}/${relativePath}`, "utf8");
       for (const match of content.matchAll(RELEASE_LITERAL)) {
         const literal = match[0];
-        if (relativePath === rootRouteMigrationPath && literal === routeBoundary) continue;
+        if (
+          relativePath === rootRouteMigrationPath &&
+          (literal === routeBoundary || literal === highEffortBoundary)
+        )
+          continue;
+        if (relativePath === legacyRootFixturePath && literal === routeBoundary) continue;
+        if (relativePath === previousStableFixturePath && literal === previousStable) continue;
         if (relativePath === legacyBrowserOwnerFixturePath && literal === legacyBrowserOwnerVersion)
           continue;
         if (

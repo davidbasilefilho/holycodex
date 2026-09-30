@@ -79,7 +79,7 @@ describe("0.16 foundation parity contract", () => {
     ]);
     expect(behavior).toContain("low = gpt-6.1-sol/low");
     expect(behavior).toContain("default = gpt-6.1-sol/medium");
-    expect(behavior).toContain("high = gpt-6.1-sol/high");
+    expect(behavior).toContain("high = gpt-6.1-sol/medium");
     expect(behavior).toContain("gpt-6-luna");
     expect(behavior).toMatch(/The live profiles are\s+`low`, `default`, and `high`/u);
     expect(behavior).toContain("Legacy `go`");

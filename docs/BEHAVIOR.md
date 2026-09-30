@@ -38,6 +38,8 @@ one Codex registration at `agents."<Role.task>"` in `config.toml`:
 | `Worker.operations`     | Exact-ref/SHA-bounded CI or release observation        |
 | `Worker.validation`     | Local behavioral proof with no implementation mutation |
 | `Worker.debugging`      | Reproducible defect repair and regression proof        |
+| `Worker.visual`         | Visual implementation and rendered interaction proof   |
+| `Reviewer.visual`       | Independent visual review without repairs              |
 | `Reviewer.code`         | Bounded code inspection and repair                     |
 | `Reviewer.artifact`     | Bounded artifact inspection and repair                 |
 
@@ -92,7 +94,7 @@ conventions, and useful starting points. Orientation remains read-only unless
 the user requests a persistent document.
 
 The Root profile mapping is `low = gpt-6.1-sol/low`,
-`default = gpt-6.1-sol/medium`, and `high = gpt-6.1-sol/high`; every native
+`default = gpt-6.1-sol/medium`, and `high = gpt-6.1-sol/medium`; every native
 specialist route uses `gpt-6-luna` with the effort matrix below. These are
 routing identities; live skills and generated instructions target GPT-6-family
 behavior. Root dispatches the exact registered concrete `Role.task` identity
@@ -144,24 +146,31 @@ The product profile catalog controls routing only. The live profiles are
 the native multi-agent surface and selects configured Root and specialist
 route identities with this reasoning-effort matrix:
 
-| Route                 | `low`  | `default` | `high` |
-| --------------------- | ------ | --------- | ------ |
-| Root model            | Sol    | Sol       | Sol    |
-| Root/session agent    | low    | medium    | high   |
-| Specialist model      | Luna   | Luna      | Luna   |
-| Explorer.map          | medium | high      | high   |
-| Explorer.lookup       | medium | medium    | medium |
-| Explorer.trace        | high   | xhigh     | max    |
-| Librarian.lookup      | medium | medium    | medium |
-| Librarian.research    | high   | xhigh     | max    |
-| Worker.mechanical     | high   | high      | xhigh  |
-| Worker.implementation | high   | xhigh     | max    |
-| Worker.integration    | max    | max       | max    |
-| Worker.operations     | high   | high      | xhigh  |
-| Worker.validation     | medium | high      | xhigh  |
-| Worker.debugging      | high   | xhigh     | max    |
-| Reviewer.code         | max    | max       | max    |
-| Reviewer.artifact     | high   | xhigh     | max    |
+| Route                 | low    | default | high   |
+| --------------------- | ------ | ------- | ------ |
+| Root — GPT-6.1 Sol    | low    | medium  | medium |
+| Explorer.map          | medium | medium  | high   |
+| Explorer.lookup       | medium | medium  | medium |
+| Explorer.trace        | high   | high    | high   |
+| Librarian.lookup      | medium | medium  | high   |
+| Librarian.research    | high   | high    | max    |
+| Worker.mechanical     | medium | medium  | high   |
+| Worker.implementation | high   | high    | max    |
+| Worker.integration    | high   | high    | max    |
+| Worker.operations     | medium | medium  | high   |
+| Worker.validation     | medium | high    | high   |
+| Worker.debugging      | high   | high    | max    |
+| Worker.visual         | high   | high    | max    |
+| Reviewer.code         | high   | high    | high   |
+| Reviewer.artifact     | high   | high    | max    |
+| Reviewer.visual       | high   | high    | high   |
+
+All specialists use GPT-6 Luna. Profiles optimize whole-task successful completion
+per usage: tokens, agentic turns, latency, retries, and repair. More reasoning is
+not inherently better. Low is the cheapest practical configuration above Luna's
+useful agentic threshold. Default balances Sol medium orchestration with Luna
+medium/high execution. High reserves Luna max for difficult long-horizon work
+while Root remains Sol medium.
 
 The Root/session route has no `xhigh` or `max` effort. All live skills and
 generated Root, specialist, and Role.task instructions target GPT-6-family
@@ -193,14 +202,15 @@ installs and verifies provider-backed capabilities through native plugin
 management. Browser Use is host-managed by Codex Desktop: the CLI neither
 installs nor removes `browser@openai-bundled`, changes its configuration, nor
 claims that the active surface exposes Browser tools. Its selection only
-projects the conditional specialist instruction; Doctor identifies it as
+projects only selected capability instructions; Doctor identifies it as
 surface-managed. Sites availability can depend on account, region, workspace
 policy, or supported Codex surface. Computer Use has stronger platform and
 surface restrictions and greater external-action capability.
 Official OpenAI provider identities are matched by an allowlist:
 `openai-curated` and `openai-curated-remote` are recognized equivalents for
 build-web-apps and codex-security. Bundled Computer Use and Sites providers
-use their canonical `openai-bundled` identities. Browser's Desktop integration
+use allowlisted `openai-bundled` identities. Computer Use recognizes both
+`computer-use` and `unified-computer-use` without disabling the selected capability. Browser's Desktop integration
 is not a CLI plugin provider to reconcile. An arbitrary same-name plugin from
 another marketplace is not equivalent. Doctor reports the observed identity
 for managed providers and the surface-managed status for Browser Use. Root
@@ -288,3 +298,28 @@ types, route-only profiles, independent tiers, optional capability denial,
 installation ownership, secret exclusions, and fail-closed results are
 observable and unambiguous. Each claim must have one owner and trace to the
 evidence limits in [PROVENANCE.md](PROVENANCE.md).
+
+## Visual execution and portable artifacts
+
+The canonical visual loop is Worker.visual → Reviewer.visual → Root visual pass.
+Worker.visual produces mergeable implementation and inspects the actual result.
+Reviewer.visual independently reviews implementation and rendered interactions
+without repairs. Root remains final visual authority and independently seeks
+missed issues. A material discrepancy receives bounded visual repair followed
+only by affected review and judgment; unaffected evidence is reused. Logic-only
+work without a material rendered consequence does not run this loop.
+
+Visual acceptance includes quality, UI, UX, accessibility, responsiveness,
+interaction, task adherence, and reference adherence. Unnecessary text, headings,
+typography hierarchy, cards, pills, badges, containers, labels, microcopy,
+repetition, and grouping are design defects. These primitives remain useful when
+they improve hierarchy, comprehension, composition, interaction, or content.
+
+The handoff skill writes Markdown beneath an environment-resolved temporary
+directory and returns its portable relative location in a Markdown code block.
+The user decides how to use it; the skill does not create another chat.
+Web-visualize writes standalone HTML beneath an environment-resolved host temporary
+directory. Installation projects Browser Use/IAB inspection first, Computer Use
+for interaction Browser cannot perform, or HTML delivery when neither is selected.
+Sites is not its path when Browser Use is selected. No capability-selection
+conditionals remain in the projected model instructions.

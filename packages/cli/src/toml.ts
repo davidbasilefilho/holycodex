@@ -13,7 +13,7 @@ export function parseToml(text: string): TomlDocument {
   for (const sourceLine of text.split(/\r?\n/u)) {
     const line = stripComment(sourceLine).trim();
     if (line.length === 0) continue;
-    if (line.startsWith("[[") || line.endsWith("]]")) {
+    if (line.startsWith("[[")) {
       throw new Error("Array-of-tables are not supported by the validated fallback.");
     }
     if (line.startsWith("[") && line.endsWith("]")) {
@@ -231,5 +231,7 @@ function formatValue(value: TomlValue): string {
   }
   if (Array.isArray(value)) return `[${value.map(formatValue).join(", ")}]`;
   if (value === null) throw new Error("TOML null is not serializable.");
-  throw new Error("TOML nested values must be tables.");
+  return `{ ${Object.entries(value)
+    .map(([key, item]) => `${formatKey(key)} = ${formatValue(item)}`)
+    .join(", ")} }`;
 }

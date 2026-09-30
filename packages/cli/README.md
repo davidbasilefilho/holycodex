@@ -22,7 +22,7 @@ Profiles select configured Root and specialist route identities and the
 per-task effort matrix documented in [BEHAVIOR.md](../../docs/BEHAVIOR.md).
 Every generated instruction targets GPT-6-family behavior regardless of a
 temporary routing model ID. Historical values are migration-only.
-Root uses `gpt-6.1-sol` with low, medium, and high reasoning effort for the
+Root uses `gpt-6.1-sol` with low, medium, and medium reasoning effort for the
 `low`, `default`, and `high` profiles respectively; native specialist route
 files use `gpt-6-luna`. Routing identity remains separate from instruction
 behavior.

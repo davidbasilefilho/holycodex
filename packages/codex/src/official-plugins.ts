@@ -1487,9 +1487,12 @@ export function createOfficialPluginAdapter(
     add: async (pluginId, signal) => {
       const checkedPluginId = checked(OfficialPluginIdSchema, pluginId, "official plugin id");
       const candidates = officialPluginIdCandidates(checkedPluginId);
-      const orderedCandidates = candidates.includes(checkedPluginId)
-        ? [checkedPluginId, ...candidates.filter((candidate) => candidate !== checkedPluginId)]
-        : [checkedPluginId];
+      const orderedCandidates =
+        canonicalOfficialPluginId(checkedPluginId) === "computer-use@openai-bundled"
+          ? candidates
+          : candidates.includes(checkedPluginId)
+            ? [checkedPluginId, ...candidates.filter((candidate) => candidate !== checkedPluginId)]
+            : [checkedPluginId];
       let installed = false;
       for (const [index, candidate] of orderedCandidates.entries()) {
         const result = await runner.run(

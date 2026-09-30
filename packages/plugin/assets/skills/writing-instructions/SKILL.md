@@ -5,33 +5,26 @@ description: Use when model-facing instructions need authorship or review; make 
 
 # Writing instructions
 
-Identify the receiver's effective context: instruction hierarchy, repository
-rules, Root or Role.task policy, selected skills, tools, configuration, and
-Assignment facts. Add only the missing constraints; resolve contradictions
-against the governing authority. User instructions override skill guidelines.
+Treat every model-facing instruction as an execution contract.
 
-Give each meaning one owner: Root/session policy for orchestration and judgment,
-AGENTS.md for repository conventions, the specialist baseline for shared
-boundaries, Role.task for task authority, and skills for conditional workflows
-or tool knowledge. Generated projections derive from that owner. Metadata
-selects the workflow; it does not duplicate its policy.
+The receiver must be able to determine the goal or required end-state, the observable conditions that constitute success, and the evidence required to prove that success.
 
-State the outcome, bounded authority, material constraints, completion evidence,
-and escalation conditions. Preserve known facts needed to act; point to sources
-for details the receiver can discover reliably. Routine safe in-scope choices
-should proceed without questions. Carry authorized work through repair and proof.
+Use this mental model:
 
-Remove redundant policy, older-model scaffolding, broad reading rituals, rigid
-recipes without a real dependency, hypothetical gates, and repeated testing.
-Preserve lifecycle invariants and required checks. Use configuration for default
-verbosity; use prompts for task-specific evidence and output requirements.
+goal -> success criteria -> optional required method -> proof of success
 
-Keep skill descriptions short and situation-first. Audit triggers alongside
-nearby skills; avoid skills that merely restate a task contract. Keep coherent
-shared guidance together and link uncommon branch-specific mechanics only from
-the condition that needs them. Metadata default prompts invoke the named skill
-without embedding another instruction source. Preserve upstream attribution.
+Identify the receiver's effective context: instruction hierarchy, repository rules, Root or Role.task authority, relevant skills, tools, projected capabilities, configuration, and Assignment facts. Add only missing constraints and resolve contradictions against governing authority.
 
-Validate the effective projection, not exact prose: the receiver can act within
-its authority, recognize completion and blockers, and return sufficient evidence
-without contradictory rules. Reuse the canonical testing policy.
+Give each meaning one authoritative owner. Project policy from that owner instead of duplicating it across prompts, metadata, skills, generated instructions, or nearby policies.
+
+State a required means, procedure, tool, ordering, or implementation detail only when it materially constrains correct execution. Otherwise leave routine safe implementation choices to the receiver.
+
+Completion evidence must prove the success criteria. Use the smallest meaningful proof proportionate to behavior, scope, risk, uncertainty, and acceptance criteria. Reuse current evidence. Broaden or repeat validation only after relevant changes, failures, elevated risk, or unresolved material concerns. Preserve required repository gates and necessary high-risk regression coverage.
+
+Remove redundant policy, stale model scaffolding, broad reading rituals, rigid recipes without a real dependency, hypothetical gates, repeated testing, and prose that merely restates choices the receiver can safely make itself.
+
+Carry authorized work through repair and proof.
+
+Validate the effective contract rather than exact wording: the receiver can identify the goal, recognize success and blockers, act within authority, and return sufficient evidence without contradictory rules.
+
+Keep skill descriptions short and situation-first. Audit triggers alongside nearby skills; keep coherent shared guidance together and link uncommon mechanics from the condition that needs them. Display and invocation metadata selects the workflow; it does not duplicate model-facing behavior. Metadata default prompts invoke the named skill without embedding another instruction source. Preserve upstream attribution.

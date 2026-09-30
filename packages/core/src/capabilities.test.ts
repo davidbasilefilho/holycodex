@@ -12,6 +12,25 @@ import {
 } from "./index.ts";
 
 describe("official curated capability identities", () => {
+  test("resolves the Computer Use provider migration without accepting untrusted aliases", () => {
+    expect(canonicalOfficialPluginId("unified-computer-use@openai-bundled")).toBe(
+      "computer-use@openai-bundled",
+    );
+    expect(officialPluginIdCandidates("computer-use@openai-bundled")).toEqual([
+      "unified-computer-use@openai-bundled",
+      "computer-use@openai-bundled",
+    ]);
+    expect(
+      resolveOfficialPluginIdentity("unified-computer-use@openai-bundled", "openai-bundled"),
+    ).toMatchObject({
+      pluginName: "computer-use",
+      canonicalPluginId: "computer-use@openai-bundled",
+    });
+    expect(
+      resolveOfficialPluginIdentity("unified-computer-use@openai-bundled", "other"),
+    ).toBeUndefined();
+    expect(canonicalOfficialPluginId("unified-computer-use@other")).toBeUndefined();
+  });
   test("keeps Browser Use selected without managing Codex Desktop-owned provider state", () => {
     expect(DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.browser_use).toBe(true);
     expect(CAPABILITY_REGISTRY.browser_use.pluginIds).toEqual([]);

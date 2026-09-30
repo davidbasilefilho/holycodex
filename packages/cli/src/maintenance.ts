@@ -72,7 +72,7 @@ import {
   type ResolvedInstallerPaths,
 } from "./paths.ts";
 import { decodeSchema, InstallTransactionSchema } from "./schema.ts";
-import { optionalTextFile, writeAtomicJson, writeAtomicText } from "./storage.ts";
+import { optionalTextFile, writeAtomicState, writeAtomicText } from "./storage.ts";
 import {
   createInstallerRuntime,
   inspectContext7ReadOnly,
@@ -1497,7 +1497,7 @@ async function writeConflictState(
     owned_plugins: active.owned_plugins ?? [],
   };
   if (decodeSchema(InstallTransactionSchema, transaction) !== undefined) {
-    await writeAtomicJson(paths.conflictedRecord, asJsonValue(transaction));
+    await writeAtomicState(paths.conflictedRecord, asJsonValue(transaction));
   }
 }
 

@@ -22,6 +22,8 @@ import {
   upgradeHolyCodex,
 } from "./index.ts";
 import { parseConfig } from "./installer.ts";
+import { JsonObjectSchema } from "./schema.ts";
+import { decodeStateText } from "./storage.ts";
 
 const CURRENT_VERSION = await readInstallationVersion();
 const [CURRENT_MAJOR, CURRENT_MINOR, CURRENT_PATCH] = CURRENT_VERSION.split("-", 1)[0]!.split(".");
@@ -192,6 +194,14 @@ async function setLegacyRootModel(
     managed: {
       ...managed,
       model: { ...modelEntry, lastManagedValue: await summarizeManagedConfigValue("model", model) },
+      ...(current.profile === "high"
+        ? {
+            model_reasoning_effort: {
+              ...managed["model_reasoning_effort"]!,
+              lastManagedValue: await summarizeManagedConfigValue("model_reasoning_effort", "high"),
+            },
+          }
+        : {}),
     },
   };
   const legacy = {
@@ -221,7 +231,12 @@ async function setLegacyRootModel(
   const config = await readFile(paths.configFile, "utf8");
   await writeFile(
     paths.configFile,
-    config.replace(/model = "[^"]+"/u, `model = ${JSON.stringify(model)}`),
+    config
+      .replace(/model = "[^"]+"/u, `model = ${JSON.stringify(model)}`)
+      .replace(
+        /model_reasoning_effort = "[^"]+"/u,
+        `model_reasoning_effort = "${current.profile === "high" ? "high" : current.profile === "low" ? "low" : "medium"}"`,
+      ),
   );
 }
 
@@ -308,7 +323,7 @@ describe("command install and upgrade review flow", () => {
         { profile: "high", tier: "fast-all", optional: { computer_use: false } },
         manager,
       );
-      await setLegacyRootModel(codexHome, "gpt-6-astra", LEGACY_VERSION);
+      await setLegacyRootModel(codexHome, "gpt-6-astra", "0.16.8");
 
       const migrated = await upgradeHolyCodex(
         installerOptions(codexHome, manager),
@@ -317,10 +332,10 @@ describe("command install and upgrade review flow", () => {
       expect(migrated.status).toBe("upgraded");
       expect(parseConfig(await readFile(paths.configFile, "utf8"))).toMatchObject({
         model: "gpt-6.1-sol",
-        model_reasoning_effort: "high",
+        model_reasoning_effort: "medium",
       });
 
-      await setLegacyRootModel(codexHome, "gpt-6-astra", LEGACY_VERSION);
+      await setLegacyRootModel(codexHome, "gpt-6-astra", "0.16.8");
       await writeFile(
         paths.configFile,
         (await readFile(paths.configFile, "utf8")).replace(
@@ -342,7 +357,7 @@ describe("command install and upgrade review flow", () => {
       expect(stderr.join("")).toContain("replace");
       expect(parseConfig(await readFile(paths.configFile, "utf8"))).toMatchObject({
         model: "gpt-6.1-sol",
-        model_reasoning_effort: "high",
+        model_reasoning_effort: "medium",
       });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -384,7 +399,10 @@ describe("command install and upgrade review flow", () => {
         ),
       ).rejects.toBeDefined();
       expect(context7RemoveCalls).toEqual(["bun remove --global --cwd=/ ctx7"]);
-      const recovery = JSON.parse(await readFile(paths.conflictedRecord, "utf8")) as {
+      const recovery = decodeStateText(
+        await readFile(paths.conflictedRecord, "utf8"),
+        JsonObjectSchema,
+      ) as {
         readonly managed_config?: { readonly managed?: Readonly<Record<string, unknown>> };
         readonly tooling?: { readonly context7?: { readonly ownership?: string } };
       };
@@ -488,7 +506,10 @@ describe("command install and upgrade review flow", () => {
       expect(addCalls).toBeGreaterThan(0);
       expect(readbackFailures).toBe(1);
 
-      const recovery = JSON.parse(await readFile(paths.conflictedRecord, "utf8")) as {
+      const recovery = decodeStateText(
+        await readFile(paths.conflictedRecord, "utf8"),
+        JsonObjectSchema,
+      ) as {
         readonly managed_config: {
           readonly managed: Readonly<Record<string, { readonly lastManagedValue: unknown }>>;
         };
@@ -636,7 +657,7 @@ describe("command install and upgrade review flow", () => {
       expect(defaultConfig["model"]).toBe("gpt-6.1-sol");
       expect(lowConfig["model_reasoning_effort"]).toBe("low");
       expect(defaultConfig["model_reasoning_effort"]).toBe("medium");
-      expect(highConfig["model_reasoning_effort"]).toBe("high");
+      expect(highConfig["model_reasoning_effort"]).toBe("medium");
 
       const highInstructions = highConfig["developer_instructions"] as string;
       const solInstructions = rootDeveloperInstructions({
@@ -655,7 +676,9 @@ describe("command install and upgrade review flow", () => {
       );
       expect(highInstructions).toContain("Never perform delegable work yourself");
       expect(highInstructions).toContain("collaboration.wait_agent at timeout_ms=600000");
-      expect(highInstructions).toContain("On timeout, inspect only for actionable failures");
+      expect(highInstructions).toContain(
+        "inspect only bounded evidence when a material stall or failure is plausible",
+      );
       expect(lowConfig["developer_instructions"]).toBe(solInstructions);
       expect(defaultConfig["developer_instructions"]).toBe(solInstructions);
       expect(solInstructions).toBe(highInstructions);

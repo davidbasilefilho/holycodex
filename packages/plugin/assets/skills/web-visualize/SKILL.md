@@ -1,16 +1,8 @@
 ---
 name: web-visualize
-description: Use when the user requests or approves an interactive visualization; create a user-facing visual experience from the supplied material.
+description: Use when the user requests or approves an interactive visualization; create a standalone HTML experience from the supplied material.
 ---
 
-Use ChatGPT Sites to create an interactive, user-facing visualization that
-turns the supplied plan, analysis, design, structured information, or other
-useful material into a clear, usable result. A visualization request authorizes
-its preparation. Root delegates implementation and judges the rendered result
-with visual-loop; follow the active capability's publication boundary.
+Create a standalone .html file in the host temporary directory, resolved through environment variables such as TMPDIR, TMP, or TEMP. Do not hardcode machine or user paths. The result must turn the supplied material into a clear, usable interactive visualization that answers the request.
 
-Return the visualization and enough context to verify that it answers the
-request. If the requested result cannot be completed with an authorized,
-available capability, return the specific blocker to Root. Publication,
-sharing, and other consequential external effects require their usual
-authorization.
+Root assigns visual implementation and judges acceptance through visual-loop. Use the installed capability projection's web-visualize inspection and delivery workflow. Return the HTML artifact and sufficient evidence that its content and interactions meet the acceptance criteria. Publication, sharing, and consequential external effects retain their authorization boundary.

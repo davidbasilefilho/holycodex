@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createHash } from "node:crypto";
-import { lstat, readFile, rm } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { lstat, readFile, rm, rmdir } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 
 import { readTomlPath, type TomlDocument } from "@holycodex/codex";
 import {
@@ -49,6 +49,8 @@ export type NativeAgentInstructionOptions = Readonly<{
   browserUse?: boolean;
   /** Whether the assignment may use an installed and available Computer Use capability. */
   computerUse?: boolean;
+  /** Whether the required frontend skill provider is projected. */
+  frontend?: boolean;
 }>;
 
 /** Selected interactive capabilities that can be used within specialist Assignments. */
@@ -77,7 +79,7 @@ export type RootAgentProjection = Readonly<{
 }>;
 
 const SPECIALIST_BASELINE_POLICY = [
-  `Execute the bounded Assignment through its acceptance criteria; make routine in-scope choices without asking. ${TESTING_POLICY.rule} Return material decisions, scope expansion, or required user input to Root; never ask the user. Do not message Root or peers during execution, delegate, change Intent lifecycle, or perform external effects. Read-only Git/VCS, CI, and PR-comment inspection is allowed when relevant and within the Assignment; Git/VCS writes remain Root-only. Source mutation requires permission from the concrete task; proof and cache writes do not grant it. Preserve others' work in the shared tree and adapt to their changes. Root owns the shared background dev server and higher-level visual acceptance. ${FRONTEND_WORKFLOW_POLICY.specialistVisualImplementationInstruction} Do not run dev-server or visual-loop.`,
+  `Execute the bounded Assignment through its acceptance criteria; make routine in-scope choices without asking. ${TESTING_POLICY.rule} Return material decisions, scope expansion, or required user input to Root; never ask the user. Do not message Root or peers during execution, delegate, change Intent lifecycle, or perform external effects. Read-only Git/VCS, CI, and PR-comment inspection is allowed when relevant and within the Assignment; Git/VCS writes remain Root-only. Source mutation requires permission from the concrete task; proof and cache writes do not grant it. Preserve others' work in the shared tree and adapt to their changes. Root owns the shared background dev server and final visual acceptance. Do not run dev-server or visual-loop.`,
   "Do not recover an Assignment or mutate another Assignment's lifecycle. Root keeps active invocation capabilities and records terminal results; never request or use those capabilities.",
   `Return only one compact, evidence-first terminal outcome (${ROOT_ORCHESTRATION_POLICY.specialistOutcomes.map((outcome) => `\`${outcome}\``).join(", ")}) with ${ROOT_ORCHESTRATION_POLICY.specialistReportFields.join(", ")}.`,
 ].join(" ");
@@ -117,7 +119,7 @@ const DELEGABLE_ACTION_LABELS = {
 const REVIEW_VALIDATION_PHASE_BARRIER =
   "Before acceptance or VCS writes, require a Reviewer.code fixed point and current relevant validation. Review and validation may overlap on non-conflicting scopes; serialize repairs against checks of the same source. Reuse worker proof and assign Worker.validation only for independent proof or an evidence gap. Repairs invalidate only affected evidence.";
 
-const ROOT_EVENT_WAIT_INSTRUCTION = `Wait collectively for specialist results with ${ROOT_ORCHESTRATION_POLICY.routineWaitTool} at timeout_ms=${ROOT_ORCHESTRATION_POLICY.routineWaitMaximumTimeoutMs}, subject to mandatory active tool/runtime limits. Routine 60-second waits waste requests and tokens; use ten-minute collective event waits, which wake when specialists finish. On timeout, inspect only for actionable failures, blockers, or stalls; continue useful independent work or wait again only while relevant specialist results remain a live dependency. Do not poll status or send routine progress messages. Release specialist leaves after accepting their terminal outcomes.`;
+const ROOT_EVENT_WAIT_INSTRUCTION = `After dispatching useful independent work, wait collectively for specialist results with ${ROOT_ORCHESTRATION_POLICY.routineWaitTool} at timeout_ms=${ROOT_ORCHESTRATION_POLICY.routineWaitMaximumTimeoutMs}, subject to mandatory active tool/runtime limits. Do not create unnecessary work to avoid waiting, busy-poll, or repeatedly use short waits when a longer event wait is appropriate. A long-running specialist is not stalled merely because others finished; inspect only bounded evidence when a material stall or failure is plausible, then repair, restart, or redispatch only the necessary scope. Batch specialist completion updates rather than reporting each completion separately. Continue useful independent work or wait again while live dependencies remain. Release specialist leaves after accepting terminal outcomes.`;
 
 /** Public data contract for native agent install result used by CLI operations. */
 export interface NativeAgentInstallResult {
@@ -358,7 +360,16 @@ export function rootDeveloperInstructions(
   }
   const instructions = [
     `You are the HolyCodex Root/session orchestrator. Never perform delegable work yourself unless the user explicitly requests direct execution or forbids delegation. Root owns ${ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority.map((authority) => ROOT_AUTHORITY_LABELS[authority]).join("; ")}, within authorization and capability boundaries.`,
-    `Delegate ${ROOT_ORCHESTRATION_POLICY.delegableActions.map((action) => DELEGABLE_ACTION_LABELS[action]).join("; ")} through bounded Assignments. Bundle related trivial and preparatory steps into a coherent Assignment rather than spawning per action.`,
+    `Delegate ${ROOT_ORCHESTRATION_POLICY.delegableActions
+      .filter(
+        (action) =>
+          (action !== "browser_use" || options.browserUse) &&
+          (action !== "computer_use" || options.computerUse),
+      )
+      .map((action) => DELEGABLE_ACTION_LABELS[action])
+      .join(
+        "; ",
+      )} through bounded Assignments. Bundle related trivial and preparatory steps into a coherent Assignment rather than spawning per action.`,
     ROOT_ORCHESTRATION_POLICY.routeConfigurationBeforeDispatch,
     ROOT_ORCHESTRATION_POLICY.assignmentInvocationLifecycle,
     `For normal specialist spawns, set fork_turns: "${ROOT_ORCHESTRATION_POLICY.normalSpawnForkTurns}". Give each specialist a self-contained Assignment with objective, bounded scope, constraints, dependencies, acceptance criteria, and evidence needed for acceptance.`,
@@ -366,8 +377,9 @@ export function rootDeveloperInstructions(
     ROOT_ORCHESTRATION_POLICY.semanticStateBoundary,
     "User instructions take precedence over skill guidelines. Treat later user steering as current when it changes scope, ownership, or delegation; do not carry forward earlier conflicting constraints. Infer intent from the request and session; carry authorized work through its requested terminal state. Routine omissions get safe defaults. For a blocking material user decision, Root alone uses grill-me, which must ask through request_user_input; ask only what remains unresolved, never turn clarification into planning. Specialists return material input needs to Root as needs_root_input and never ask the user. Dispatch immediately when no decision blocks the next step, and continue independent work while an answer is pending. Check existing authorization before asking again; prepare the concrete reviewable result before requesting approval for a consequential effect. Credential entry remains user-owned.",
     "Dispatch independent non-conflicting Assignments concurrently as soon as their inputs are ready, including across workflow phases. Give each overlapping write or shared-mutable seam one specialist owner and send follow-ups to that owner instead of spawning competing writers; start dependent review or validation once its source is stable. Reuse accepted findings instead of repeating discovery. Batch independent tool reads and lifecycle work where supported; keep revisions and dependent writes ordered. Resolve material contradictions before acceptance.",
-    "Delegate ordinary browser and computer execution. For visual tasks, Root uses visual-loop to inspect the current render and judge it, then assigns repairs; use dev-server when a shared background server is needed. Use only selected capabilities available in the active surface and honor its tool precedence. Report a capability blocker without inventing a provider or widening authority.",
+    "For visual tasks, Root uses visual-loop: Worker.visual implementation, Reviewer.visual independent review, then Root independent visual pass; use dev-server when a shared background server is needed. Honor active-surface tool precedence. Report a capability blocker without inventing a provider or widening authority.",
     renderVisualInspectionInstruction(options),
+    FRONTEND_WORKFLOW_POLICY.designJudgment,
     "Use writing-instructions for model-facing contracts. Keep each meaning with one authoritative owner and add only the missing semantic delta for the receiver.",
     "Give the user useful updates for significant findings, decisions, blockers, input needs, and release milestones; avoid per-tool, status-only, heartbeat, or fixed-cadence messages.",
     ROOT_EVENT_WAIT_INSTRUCTION,
@@ -385,13 +397,21 @@ export function rootDeveloperInstructions(
   return instructions.join("\n");
 }
 
-function renderVisualInspectionInstruction(options: NativeAgentInstructionOptions): string {
-  const methods = [
-    ...(options.browserUse ? ["the in-app browser (IAB)"] : []),
-    ...(options.computerUse ? ["Computer Use"] : []),
-    "other available rendered evidence such as screenshots or image tools",
-  ];
-  return `For Root visual judgment, use ${methods.join("; if unavailable, use ")}. Unselected capabilities are not fallbacks. Honor higher-priority active-surface tool rules.`;
+function renderVisualInspectionInstruction(
+  options: NativeAgentInstructionOptions,
+  receiver: "Root" | "specialist" = "Root",
+): string {
+  const inspection = options.browserUse
+    ? `Inspect and interact with rendered visual work using Browser Use / the in-app browser (IAB). ${options.computerUse ? "Use Computer Use when Browser Use cannot perform the required interaction. " : ""}Use other available rendered evidence for remaining inspection gaps.`
+    : options.computerUse
+      ? "Inspect and interact with rendered visual work using Computer Use, then other available rendered evidence for remaining inspection gaps."
+      : "Inspect rendered visual work using other available rendered evidence such as screenshots or image tools.";
+  const visualization = options.browserUse
+    ? `For web-visualize, open and inspect the standalone temporary HTML with Browser Use / IAB.${options.computerUse ? " Use Computer Use for HTML interactions Browser Use cannot perform." : ""}`
+    : options.computerUse
+      ? "For web-visualize, open and inspect the standalone temporary HTML with Computer Use."
+      : "For web-visualize, give the standalone temporary HTML file to the user.";
+  return `For ${receiver === "Root" ? "Root visual judgment" : "visual implementation and review"}, ${inspection} ${visualization} Honor higher-priority active-surface tool rules.`;
 }
 
 function renderFrontendCapabilityInstruction(): string {
@@ -408,11 +428,14 @@ function renderFrontendCapabilityInstruction(): string {
   ) {
     throw new Error("The Frontend workflow policy is incomplete.");
   }
-  const capability = CAPABILITY_REGISTRY.frontend;
-  const mappings = capability.applicability
+  return `${renderFrontendSkillInstruction()} Follow the repository stack, design system, and user requirements. ${FRONTEND_WORKFLOW_POLICY.specialistVisualImplementationInstruction} Refresh affected visual evidence after relevant changes. Logic-only changes do not require a visual loop. Check responsive layout, accessibility, and interactions in proportion to the change.`;
+}
+
+function renderFrontendSkillInstruction(): string {
+  const mappings = CAPABILITY_REGISTRY.frontend.applicability
     .map(({ skillId, appliesWhen }) => `${appliesWhen} uses ${skillId}`)
     .join("; ");
-  return `For frontend work, ${mappings}. Follow the repository stack, design system, and user requirements. ${FRONTEND_WORKFLOW_POLICY.specialistVisualImplementationInstruction} Specialists prove interactions; Root judges current renders with visual-loop and assigns discrepancies. Refresh affected visual evidence after relevant changes. Logic-only changes do not require a visual loop. Check responsive layout, accessibility, and interactions in proportion to the change.`;
+  return `Use Build Web Apps for applicable web-app construction and Frontend App Builder for applicable frontend work. For frontend work, ${mappings}.`;
 }
 
 /** Publish canonical native profiles while preserving foreign or modified files. */
@@ -645,6 +668,21 @@ export async function removeManagedNativeAgents(
   const legacyRootStatus = await removeLegacyRootIfOwned(legacyRoot);
   if (legacyRootStatus === "removed") removed.push(legacyRoot);
   if (legacyRootStatus === "preserved") preserved.push(legacyRoot);
+  // Snapshot file paths because pruning appends removed directories to the same result.
+  const removedFiles = removed.slice();
+  for (const target of removedFiles) {
+    let parent = dirname(target);
+    while (parent !== managedRoot && pathWithin(managedRoot, parent)) {
+      try {
+        await assertNoSymlink(parent);
+        await rmdir(parent);
+        removed.push(parent);
+      } catch (error: unknown) {
+        if (!isFsCode(error, "ENOENT")) break;
+      }
+      parent = dirname(parent);
+    }
+  }
   return { removed, preserved };
 }
 
@@ -656,6 +694,12 @@ export function renderNativeAgent(
   const instructions = [
     SPECIALIST_BASELINE_POLICY,
     agent.taskInstruction,
+    ...(agent.name === "Worker.visual" || agent.name === "Reviewer.visual"
+      ? [
+          renderVisualInspectionInstruction(instructionOptions, "specialist"),
+          ...((instructionOptions.frontend ?? true) ? [renderFrontendSkillInstruction()] : []),
+        ]
+      : []),
     ...(agent.permissions.sourceMutation ? [`Patch quality: ${SURGICAL_MUTATION_RULE}`] : []),
     ...(instructionOptions.browserUse
       ? [

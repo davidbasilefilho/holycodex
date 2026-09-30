@@ -496,7 +496,7 @@ describe("Windows native-agent instructions", () => {
     const highRoot = projectRootAgent("high");
     const lowRoot = projectRootAgent("low");
     const defaultRoot = projectRootAgent("default");
-    expect(highRoot).toMatchObject({ model: "gpt-6.1-sol", effort: "high" });
+    expect(highRoot).toMatchObject({ model: "gpt-6.1-sol", effort: "medium" });
     expect(lowRoot).toMatchObject({ model: "gpt-6.1-sol", effort: "low" });
     expect(defaultRoot).toMatchObject({ model: "gpt-6.1-sol", effort: "medium" });
     const sol = rootDeveloperInstructions({
@@ -557,7 +557,7 @@ describe("Windows native-agent instructions", () => {
     expect(leaf).toContain("Do not recover an Assignment");
     expect(leaf).toContain("mutate another Assignment's lifecycle");
     expect(leaf).toContain("never ask the user");
-    expect(leaf).toContain("visually judge the current render");
-    expect(leaf).toContain("supplements Root's higher-level visual acceptance");
+    expect(leaf).not.toContain("actual rendered");
+    expect(leaf).toContain("final visual acceptance");
   });
 });

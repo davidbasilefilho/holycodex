@@ -715,7 +715,7 @@ function defaultConflictDecision(
     conflict.category === "invalid-config"
       ? "remove"
       : conflict.action === "remove"
-        ? "keep"
+        ? "remove"
         : "replace";
   return valid.includes(preferred) ? preferred : (valid[0] ?? "cancel");
 }
@@ -749,11 +749,14 @@ function conflictScreenLines(
   if (!dense) lines.push(nativeTextLine(""));
   lines.push(nativeTextLine("  ACTION    CONFIG", "heading"));
 
-  conflicts.forEach((conflict, index) => {
+  const visibleCount = Math.max(1, height - (dense ? 9 : 12));
+  const start = Math.max(0, Math.min(selected - visibleCount + 1, conflicts.length - visibleCount));
+  conflicts.slice(start, start + visibleCount).forEach((conflict, offset) => {
+    const index = start + offset;
     const valid = actionableConflictDecisions(conflict);
     const decision = selectedConflictDecision(conflict, decisions);
     const marker = index === selected ? ">" : " ";
-    const label = valid.length === 0 ? "blocked" : decision;
+    const label = valid.length === 0 ? "blocked" : decision === "remove" ? "replace" : decision;
     const tone: NativeTone =
       valid.length === 0
         ? "error"

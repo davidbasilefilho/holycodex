@@ -34,6 +34,8 @@ import {
   parseConfig,
   serializeConfig,
 } from "./installer.ts";
+import { JsonObjectSchema } from "./schema.ts";
+import { decodeStateText } from "./storage.ts";
 import type { InstallReview } from "./types.ts";
 
 const realFs = await import("node:fs/promises");
@@ -992,8 +994,8 @@ describe("installer preflight", () => {
 
   test("routes live removal review choices, Back, and Cancel without false success", async () => {
     const scenarios = [
-      { name: "keep", keys: [{ name: "enter" }], exitCode: 4 },
-      { name: "remove", keys: [{ name: "right" }, { name: "enter" }], exitCode: 0 },
+      { name: "keep", keys: [{ name: "right" }, { name: "enter" }], exitCode: 4 },
+      { name: "remove", keys: [{ name: "enter" }], exitCode: 0 },
       { name: "back", keys: [{ name: "escape" }], exitCode: 4 },
       { name: "cancel", keys: [{ name: "c", ctrl: true }], exitCode: 1 },
     ] as const;
@@ -1297,10 +1299,10 @@ describe("installer preflight", () => {
       const { manager, runtime } = await installBaseline(codexHome, events);
       const paths = resolveInstallerPaths({ paths: { codexHome } });
       const configBefore = await readFile(paths.configFile, "utf8");
-      const active = JSON.parse(await readFile(paths.activeRecord, "utf8")) as Record<
-        string,
-        unknown
-      >;
+      const active = decodeStateText(
+        await readFile(paths.activeRecord, "utf8"),
+        JsonObjectSchema,
+      ) as Record<string, unknown>;
       await writeFile(
         paths.preparingRecord,
         JSON.stringify({
@@ -2028,7 +2030,7 @@ describe("installer preflight", () => {
         readTestConfigEntry(rolledBackConfig, "plugins", "build-web-apps@openai-curated"),
       ).toBeUndefined();
       expect(await readActiveInstallRecord(paths)).toBeUndefined();
-      expect(await readFile(paths.conflictedRecord, "utf8")).toContain('"status":"conflicted"');
+      expect(await readFile(paths.conflictedRecord, "utf8")).toContain('status = "conflicted"');
       await expect(readFile(paths.preparingRecord)).rejects.toThrow();
 
       const removal = await removeHolyCodex({
@@ -2150,7 +2152,10 @@ describe("installer preflight", () => {
     const providerPlugin = "build-web-apps@openai-curated";
     const manager = configWritingManager(paths, events, false, providerPlugin, async (pluginId) => {
       if (pluginId !== providerPlugin) return;
-      const preparing = JSON.parse(await readFile(paths.preparingRecord, "utf8")) as {
+      const preparing = decodeStateText(
+        await readFile(paths.preparingRecord, "utf8"),
+        JsonObjectSchema,
+      ) as {
         owned_plugins?: string[];
       };
       observedOwnedPlugins.push(preparing.owned_plugins ?? []);
@@ -2169,7 +2174,10 @@ describe("installer preflight", () => {
       ).rejects.toMatchObject({ code: "capability_denied" });
 
       expect(observedOwnedPlugins).toEqual([["holycodex@holycodex"]]);
-      const conflicted = JSON.parse(await readFile(paths.conflictedRecord, "utf8")) as {
+      const conflicted = decodeStateText(
+        await readFile(paths.conflictedRecord, "utf8"),
+        JsonObjectSchema,
+      ) as {
         owned_plugins?: string[];
       };
       expect(conflicted.owned_plugins).toEqual(["holycodex@holycodex", providerPlugin]);
@@ -2282,7 +2290,7 @@ describe("installer preflight", () => {
       await expect(readFile(paths.activeRecord, "utf8")).rejects.toThrow();
       await expect(readFile(paths.installOptions, "utf8")).resolves.toBeTruthy();
       await expect(readFile(paths.conflictedRecord, "utf8")).resolves.toContain(
-        '"status":"conflicted"',
+        'status = "conflicted"',
       );
 
       const retry = await maintenance.removeHolyCodex({

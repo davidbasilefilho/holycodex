@@ -3,11 +3,13 @@
 import { lstat, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import type { TomlDocument, TomlValue } from "@holycodex/codex";
 import { canonicalJson, type JsonObject, type JsonValue } from "@holycodex/core";
 import * as Schema from "effect/Schema";
 
 import { assertNoSymlink, ensureOwnedDirectory, isFsCode } from "./paths.ts";
 import { decodeSchema, JsonObjectSchema } from "./schema.ts";
+import { parseToml, stringifyToml } from "./toml.ts";
 
 const IGNORED_SYNC_CODES = new Set(["EBADF", "EINVAL", "ENOSYS", "ENOTSUP", "EISDIR"]);
 const JsonObjectBoundarySchema = JsonObjectSchema;
@@ -39,6 +41,107 @@ export async function syncDirectory(path: string): Promise<void> {
 /** Write a JSON value through a synced temporary file and atomic rename. */
 export async function writeAtomicJson(path: string, value: JsonValue): Promise<void> {
   await writeAtomicText(path, `${canonicalJson(value)}\n`);
+}
+
+/** Persist installer configuration as TOML, preserving nullable snapshot values explicitly. */
+export async function writeAtomicState(path: string, value: JsonValue): Promise<void> {
+  const nullPaths: string[][] = [];
+  function encode(input: JsonValue, trail: string[]): TomlValue {
+    if (input === null) {
+      nullPaths.push(trail);
+      return "";
+    }
+    if (Array.isArray(input))
+      return input.map((item, index) => encode(item, [...trail, String(index)]));
+    if (typeof input === "object")
+      return Object.fromEntries(
+        Object.entries(input).map(([key, item]) => [key, encode(item, [...trail, key])]),
+      );
+    return input;
+  }
+  const document = {
+    format_version: 1,
+    null_paths: nullPaths,
+    record: encode(value, []),
+  };
+  await writeAtomicText(path, stringifyToml(document as TomlDocument));
+}
+
+/** Read canonical TOML or legacy JSON without changing persisted state. */
+export async function optionalStateFile<T>(
+  path: string,
+  schema: Schema.Schema<T>,
+): Promise<T | undefined> {
+  const source = await optionalTextFile(path);
+  if (source === undefined) {
+    const legacyPath = path.replace(/\.toml$/u, ".json");
+    return await optionalJsonFile(legacyPath, schema);
+  }
+  return decodeStateText(source, schema);
+}
+
+/** Migrate legacy bytes only after the installer validates the complete record and its integrity. */
+export async function migrateValidatedState(path: string, value: JsonValue): Promise<void> {
+  if ((await optionalTextFile(path)) !== undefined) return;
+  const legacyPath = path.replace(/\.toml$/u, ".json");
+  const legacySource = await optionalTextFile(legacyPath);
+  if (legacySource === undefined) return;
+  await writeAtomicState(path, value);
+  if ((await optionalTextFile(legacyPath)) !== legacySource) {
+    throw new StorageError("state_corrupt", "Legacy state changed during migration.");
+  }
+  await unlink(legacyPath);
+}
+
+/** Decode and validate installer TOML text without filesystem effects. */
+export function decodeStateText<T>(source: string, schema: Schema.Schema<T>): T {
+  let raw: unknown;
+  try {
+    // Accept prior JSON fixtures at the receiving edge, but never write JSON state.
+    if (source.trimStart().startsWith("{")) raw = JSON.parse(source) as unknown;
+    else {
+      const document = parseToml(source);
+      if (document["format_version"] !== 1 || !Array.isArray(document["null_paths"]))
+        throw new Error("Invalid state format");
+      raw = document["record"];
+      for (const trail of document["null_paths"]) {
+        if (
+          !Array.isArray(trail) ||
+          trail.length === 0 ||
+          trail.some(
+            (key) =>
+              typeof key !== "string" || ["__proto__", "constructor", "prototype"].includes(key),
+          )
+        )
+          throw new Error("Invalid null path");
+        let target = raw as Record<string, unknown>;
+        for (const key of trail.slice(0, -1)) {
+          if (
+            typeof target !== "object" ||
+            target === null ||
+            !Object.hasOwn(target, key as string)
+          )
+            throw new Error("Invalid null path");
+          target = target[key as string] as Record<string, unknown>;
+        }
+        const leaf = trail.at(-1) as string;
+        if (
+          typeof target !== "object" ||
+          target === null ||
+          !Object.hasOwn(target, leaf) ||
+          target[leaf] !== ""
+        )
+          throw new Error("Invalid null placeholder");
+        target[leaf] = null;
+      }
+    }
+  } catch (error: unknown) {
+    throw new StorageError("state_corrupt", "A persisted state file is not valid TOML.", error);
+  }
+  const parsed = decodeSchema(schema, raw);
+  if (parsed === undefined)
+    throw new StorageError("state_corrupt", "A persisted file failed schema validation.");
+  return parsed;
 }
 
 /** Write text through a synced temporary file and atomic rename. */

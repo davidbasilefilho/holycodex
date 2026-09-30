@@ -128,7 +128,7 @@ export async function runRepositoryProof(): Promise<RepositoryProof> {
   assert(
     behaviorContract.includes("low = gpt-6.1-sol/low") &&
       behaviorContract.includes("default = gpt-6.1-sol/medium") &&
-      behaviorContract.includes("high = gpt-6.1-sol/high") &&
+      behaviorContract.includes("high = gpt-6.1-sol/medium") &&
       behaviorContract.includes("gpt-6-luna"),
     "behavior must record the canonical GPT-6.1 Sol profile mapping and Luna specialist route",
   );

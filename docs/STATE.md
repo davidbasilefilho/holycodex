@@ -56,9 +56,12 @@ HolyCodex stores one owned configuration beneath the selected Codex home:
 
 ```text
 <CODEX_HOME>/
-└── holycodex/active.json
+└── holycodex/active.toml
 ```
 
+The installation record is non-model-facing TOML. Model-facing Intent and
+Assignment state remains TOON, exposed through the semantic agent CLI. Legacy
+active.json records are accepted only for validated migration to active.toml.
 The record contains the schema epoch, version, digest, selected product
 profile, service
 tier, optional plugin selections, install identity, managed Root configuration,

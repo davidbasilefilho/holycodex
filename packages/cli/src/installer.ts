@@ -88,7 +88,13 @@ import {
   ConflictDecisionSchema,
   JsonObjectSchema,
 } from "./schema.ts";
-import { optionalJsonFile, optionalTextFile, writeAtomicJson, writeAtomicText } from "./storage.ts";
+import {
+  optionalStateFile,
+  migrateValidatedState,
+  optionalTextFile,
+  writeAtomicState,
+  writeAtomicText,
+} from "./storage.ts";
 import { parseToml, stringifyToml } from "./toml.ts";
 import { createInstallerRuntime, ensureContext7, removeOwnedContext7 } from "./tooling.ts";
 import type {
@@ -131,6 +137,7 @@ export const HOLYCODEX_PLUGIN = "holycodex@holycodex";
 export const CODEX_DESKTOP_BROWSER_PLUGIN_ID = "browser@openai-bundled";
 // Records through the boundary release used Astra for every Root profile.
 const ROOT_ROUTE_MIGRATION_BOUNDARY = "0.16.8" as const;
+const ROOT_HIGH_EFFORT_LEGACY_BOUNDARY = "0.16.9" as const;
 const migratedActiveDigests = new WeakMap<InstallRecord, string>();
 
 /** Public data contract for install request used by CLI operations. */
@@ -472,7 +479,6 @@ export async function installHolyCodex(
   rejectCodexDesktopBrowserRequest(validatedRequest as InstallRequest);
   const paths = resolveInstallerPaths(options, environment);
   const installOptionsBefore = await optionalTextFile(paths.installOptions);
-  const activeRecordBefore = await optionalTextFile(paths.activeRecord);
   const persistedOptions = decodeInstallOptionsText(installOptionsBefore, paths.installOptions);
   const persistedRequest =
     persistedOptions === undefined
@@ -484,6 +490,7 @@ export async function installHolyCodex(
     message: "Validating Codex target",
   });
   const previous = await readActiveInstallRecord(paths);
+  const activeRecordBefore = await optionalTextFile(paths.activeRecord);
   if (previous !== undefined && !(await recordDigestMatches(previous))) {
     throw new InstallerError(
       "state_corrupt",
@@ -971,6 +978,12 @@ export async function installHolyCodex(
       previousDesiredConfig.model = "gpt-6-astra";
       previousDesiredConfig.model_reasoning_effort =
         previous.profile === "low" ? "low" : previous.profile === "default" ? "medium" : "high";
+    } else if (
+      previous.profile === "high" &&
+      compareReleaseVersions(previousBaseVersion, ROOT_HIGH_EFFORT_LEGACY_BOUNDARY) <= 0
+    ) {
+      // The prior high profile used Sol high; recognize it as managed rather than a user override.
+      previousDesiredConfig.model_reasoning_effort = "high";
     }
     // Developer instructions contain host-boundary policy that must follow the
     // current runtime, even when an older record treated its value as managed.
@@ -1835,7 +1848,7 @@ export async function installHolyCodex(
       throw new InstallerError("state_corrupt", "The HolyCodex configuration is invalid.");
     }
     activeRecordWriteStarted = true;
-    await writeAtomicJson(paths.activeRecord, asJsonValue(record));
+    await writeAtomicState(paths.activeRecord, asJsonValue(record));
     installOptionsWriteStarted = true;
     await writeInstallOptions(
       paths,
@@ -2073,7 +2086,7 @@ export async function installHolyCodex(
 export async function readActiveInstallRecord(
   paths: ResolvedInstallerPaths,
 ): Promise<InstallRecord | undefined> {
-  const raw = await optionalJsonFile(paths.activeRecord, JsonObjectSchema);
+  const raw = await optionalStateFile(paths.activeRecord, JsonObjectSchema);
   if (raw === undefined) return undefined;
   const rawSelections = raw["optional_selections"];
   const hasLegacyWork =
@@ -2082,7 +2095,15 @@ export async function readActiveInstallRecord(
     !Array.isArray(rawSelections) &&
     Object.prototype.hasOwnProperty.call(rawSelections, "work");
   const current = hasLegacyWork ? undefined : decodeSchema(InstallRecordSchema, raw);
-  if (current !== undefined) return current;
+  if (current !== undefined) {
+    if (!(await recordDigestMatches(current)))
+      throw new InstallerError(
+        "state_corrupt",
+        "The existing HolyCodex configuration has an invalid digest.",
+      );
+    await migrateValidatedState(paths.activeRecord, raw);
+    return current;
+  }
   const legacy = decodeSchema(InstallRecordMigrationSchema, raw);
   if (legacy === undefined) {
     throw new InstallerError("state_corrupt", "The HolyCodex configuration is invalid.");
@@ -2208,6 +2229,9 @@ export async function readActiveInstallRecord(
     }),
   } as InstallRecord;
   migratedActiveDigests.set(migrated, legacy.digest);
+  // Retain the validated legacy shape until install commits current state: its original digest
+  // must still bind legacy recovery journals after a process interruption.
+  await migrateValidatedState(paths.activeRecord, raw);
   return migrated;
 }
 
@@ -2222,7 +2246,7 @@ export async function readInstallTransaction(
     })
   | undefined
 > {
-  const raw = await optionalJsonFile(path, JsonObjectSchema);
+  const raw = await optionalStateFile(path, JsonObjectSchema);
   if (raw === undefined) return undefined;
   const current = decodeSchema(InstallTransactionSchema, raw) as
     | (Omit<InstallRecord, "status" | "step"> & {
@@ -2230,7 +2254,10 @@ export async function readInstallTransaction(
         readonly step: InstallTransactionStep;
       })
     | undefined;
-  if (current !== undefined) return current;
+  if (current !== undefined) {
+    await migrateValidatedState(path, raw);
+    return current;
+  }
   const legacy = decodeSchema(InstallTransactionMigrationSchema, raw);
   if (legacy === undefined) {
     throw new InstallerError(
@@ -2334,6 +2361,7 @@ export async function readInstallTransaction(
       },
     );
   }
+  await migrateValidatedState(path, raw);
   return transaction;
 }
 
@@ -3384,7 +3412,7 @@ async function writeTransaction(path: string, value: unknown): Promise<void> {
   if (decodeSchema(InstallTransactionSchema, value) === undefined) {
     throw new InstallerError("state_corrupt", "The HolyCodex transaction state is invalid.");
   }
-  await writeAtomicJson(path, asJsonValue(value));
+  await writeAtomicState(path, asJsonValue(value));
 }
 
 async function removeTransaction(path: string): Promise<void> {

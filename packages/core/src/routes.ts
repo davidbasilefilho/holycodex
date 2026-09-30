@@ -60,6 +60,10 @@ export type Effort = typeof EffortSchema.Type;
 export const SURGICAL_MUTATION_RULE =
   "Satisfy the complete requested outcome correctly, elegantly, and mergeably; never weaken or reinterpret it to shrink the patch. Then make the smallest coherent patch within the authorized boundary. Prefer simple, cohesive, idiomatic solutions with appropriate abstraction and minimal accidental complexity. Avoid unrelated code, prose, configuration, documentation, instructions, tests, restructuring, formatting churn, files, and operations. Preserve unrelated work; return material scope expansion to Root.";
 
+/** Canonical design judgment shared by Root and visual specialists. */
+export const VISUAL_DESIGN_JUDGMENT =
+  "Treat unnecessary text, headings, subheadings, typography hierarchy, cards, pills, badges, decorative containers, labels, microcopy, repeated information, and grouping without information or interaction value as design defects. Use these primitives when they materially improve hierarchy, comprehension, composition, interaction, or content. Every visible item must be necessary or usefully complementary to the content and design.";
+
 /** Literal boundary for specialist tasks that may inspect or prove work but cannot mutate source. */
 export const NO_SOURCE_MUTATION_RULE =
   "Do not modify repository source or the implementation under validation; observation, analysis, and proof artifacts only.";
@@ -160,6 +164,12 @@ export const ROLE_DEFINITIONS = [
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
       {
+        name: "visual",
+        description: "Rendered visual implementation and interaction specialist.",
+        instruction: `Produce mergeable visual implementation within the Assignment, including frontend, 3D, browser-driven UI, and interactive visualization. Inspect the actual rendered and interacted-with result against acceptance criteria and references; iterate on material discrepancies in visual quality, UI, UX, accessibility, responsiveness, interaction, task adherence, and reference adherence. Use the projected skills appropriate to this visual work. Return changed paths and observable rendered/interaction evidence for independent Reviewer.visual review. ${VISUAL_DESIGN_JUDGMENT}`,
+        permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
+      },
+      {
         name: "integration",
         description: "Decided seam integration specialist.",
         instruction: `Connect already-decided component seams, resolve interface mismatches within the assigned boundary, and verify their combined behavior.`,
@@ -202,6 +212,12 @@ export const ROLE_DEFINITIONS = [
         description: "Adversarial implemented-code review specialist.",
         instruction: `Review and repair the implemented code to a fixed point. Batch relevant evidence, then follow up on concrete uncertainty. Check correctness, safety, compatibility, test quality, generated-artifact hygiene, and the canonical patch-quality rule.`,
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
+      },
+      {
+        name: "visual",
+        description: "Independent rendered visual, UI, UX, and interaction review specialist.",
+        instruction: `Independently inspect the implementation and actual rendered/interacted-with result against acceptance criteria and references. Review visual quality, UI, UX, accessibility, responsiveness, interactions, task adherence, and reference adherence. Do not implement repairs. Return concrete reproducible discrepancies or sufficient acceptance evidence to Root for its final independent visual pass. ${VISUAL_DESIGN_JUDGMENT} ${NO_SOURCE_MUTATION_RULE}`,
+        permissions: { network: true, filesystem: "workspace-write", sourceMutation: false },
       },
       {
         name: "artifact",
@@ -505,7 +521,7 @@ export type Context7EvidenceState = typeof Context7EvidenceStateSchema.Type;
 
 /** Canonical proportional proof rule for GPT-6-family instruction projections. */
 export const TESTING_POLICY = Object.freeze({
-  rule: "Use the smallest meaningful proof proportionate to changed behavior, scope, and risk, plus repository-required gates. Reuse current evidence; broaden or repeat checks only after relevant changes, failures, or unresolved concerns. Avoid tests that mirror implementation for reversible low-impact changes.",
+  rule: "Prove success with the smallest meaningful validation proportionate to changed behavior, scope, risk, uncertainty, and acceptance criteria; preserve required repository gates. Reuse already-conclusive evidence. Do not manufacture proof work, add redundant tests, or test unrelated surfaces merely to increase confidence. Broaden or repeat validation only after relevant changes, failures, elevated risk, or unresolved material concerns. Avoid tests that mirror implementation for reversible low-impact changes.",
   avoidImplementationMirrorTestsForLowImpactReversibleChanges: true,
   broadenOrRepeatOnlyAfter: Object.freeze([
     "source_change",
@@ -601,21 +617,20 @@ export const FRONTEND_WORKFLOW_POLICY = Object.freeze({
   repositoryAndUserRequirementsPrecedePluginDefaults: true,
   specialistsOwnImplementationAndInteractionProof: true,
   specialistVisualImplementationInstruction:
-    "When an Assignment changes visual output, inspect and visually judge the current render, repair actionable defects, and recheck before returning; this local loop supplements Root's higher-level visual acceptance. If assigned capabilities provide no way to judge the render, report that blocker.",
+    "Assign material rendered implementation to Worker.visual, independent rendered review to Reviewer.visual, then perform Root's independent visual pass. Root remains final visual authority and actively looks for issues both specialists missed. Dispatch only bounded repairs for material discrepancies, repeat only affected review and judgment, and reuse unaffected evidence.",
   rootOwnsVisualJudgment: true,
+  designJudgment: VISUAL_DESIGN_JUDGMENT,
   rootOwnsSharedDevServer: true,
   rootAcceptsTerminalVisualEvidence: true,
   sourceChangesInvalidateRenderEvidence: true,
   specialistReportsIncludeObservableRenderedEvidence: true,
   logicOnlyChangesRequireVisualAcceptance: false,
   fixedPoint: Object.freeze([
-    "specialist_implements",
-    "specialist_inspects_judges_and_repairs_current_render",
-    "specialist_renders_and_interacts",
-    "root_judges_current_render",
-    "root_assigns_discrepancies",
-    "specialist_repairs",
-    "root_rerenders_and_retests",
+    "worker_visual_implements_and_inspects",
+    "reviewer_visual_independently_reviews",
+    "root_independently_judges",
+    "root_assigns_bounded_visual_repair",
+    "repeat_affected_review_and_judgment",
   ] as const),
 });
 

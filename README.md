@@ -39,7 +39,7 @@ while `plus-low`, `plus`, and `plus-high` migrate to `low`, `default`, and
 `high`. Removed `pro-5x` and `pro-20x` values remain migration-only and
 require an explicit replacement.
 
-Root uses `gpt-6.1-sol` at low, medium, and high reasoning effort for the
+Root uses `gpt-6.1-sol` at low, medium, and medium reasoning effort for the
 `low`, `default`, and `high` profiles respectively. Native specialists use
 `gpt-6-luna` with their per-task effort matrix.
 Those routing identities are separate from the GPT-6-family behavior required
@@ -90,7 +90,7 @@ details.
 The native surface has one canonical leaf for every route: `Explorer.map`, `Explorer.lookup`,
 `Explorer.trace`, `Librarian.lookup`, `Librarian.research`,
 `Worker.mechanical`, `Worker.implementation`, `Worker.integration`,
-`Worker.operations`, `Worker.validation`, `Worker.debugging`, `Reviewer.code`, and
+`Worker.operations`, `Worker.validation`, `Worker.debugging`, `Worker.visual`, `Reviewer.visual`, `Reviewer.code`, and
 `Reviewer.artifact`. Each has one TOML and one `config.toml` registration.
 Root is the parent Codex session configured in `config.toml`; HolyCodex never
 creates `agents/root.toml`.
