@@ -992,7 +992,7 @@ export async function verifyPublicPackage(
   assert(removeEnvelope.ok, "packed package remove command failed");
   assert(!(await exists(join(stateRoot, "active.toml"))), "remove left the active install record");
   assert(
-    !(await exists(join(stateRoot, "conflicted.json"))),
+    !(await exists(join(stateRoot, "conflicted.toml"))),
     "remove left the conflicted install record",
   );
   const removedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
