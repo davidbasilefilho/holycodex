@@ -58,6 +58,19 @@ async function runAgent(cwd: string, argv: readonly string[]) {
 }
 
 describe("holycodex-agent", () => {
+  test("rejects retired planning commands without creating state", async () => {
+    const cwd = await createTemporaryDirectory("holycodex-agent-retired-plan-");
+    for (const argv of [
+      ["plan", "read"],
+      ["plan", "revise"],
+      ["plan", "--help"],
+    ]) {
+      const result = await runAgent(cwd, argv);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("invalid_usage");
+    }
+    expect(await readdir(cwd)).toEqual([]);
+  });
   test("exposes read-only work-state diagnosis", async () => {
     const cwd = await createTemporaryDirectory("holycodex-agent-diagnose-");
     await initRepository(cwd);
@@ -69,7 +82,6 @@ describe("holycodex-agent", () => {
         title: "Diagnosis",
         goal: "Check state",
         acceptanceCriteria: ["done"],
-        planRequired: true,
       }),
     ]);
     expect(created.exitCode).toBe(0);
@@ -78,7 +90,7 @@ describe("holycodex-agent", () => {
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
       operation: "state.diagnose",
-      data: { intent_id: intentId, issues: [{ code: "required_plan_missing" }] },
+      data: { intent_id: intentId, issues: [] },
     });
   });
   test("supports equivalent side-effect-free help at every command depth", async () => {
@@ -96,9 +108,6 @@ describe("holycodex-agent", () => {
       ["intent", "integrate"],
       ["intent", "complete"],
       ["intent", "abandon"],
-      ["plan"],
-      ["plan", "read"],
-      ["plan", "revise"],
       ["assignment"],
       ["assignment", "create"],
       ["assignment", "list"],
@@ -129,7 +138,10 @@ describe("holycodex-agent", () => {
     const assignmentHelp = io(cwd);
     expect(await runAgentBinary(["assignment", "--help"], assignmentHelp.io)).toBe(0);
     expect(assignmentHelp.value().stdout).toContain(
-      "Root may use recover only to record a confirmed interrupted invocation as failed.",
+      "Specialists must never recover an Assignment or mutate another Assignment's lifecycle.",
+    );
+    expect(assignmentHelp.value().stdout).toContain(
+      "active invocation capabilities and never shares them with specialists.",
     );
 
     const resultHelp = io(cwd);
@@ -144,13 +156,27 @@ describe("holycodex-agent", () => {
       "neither a persisted verifier nor a raw capability.",
     );
 
+    const startHelp = io(cwd);
+    expect(await runAgentBinary(["assignment", "start", "--help"], startHelp.io)).toBe(0);
+    expect(startHelp.value().stdout).toContain(
+      "Output: executing Assignment with active_invocation_id, active_started_at, and capability.",
+    );
+    expect(startHelp.value().stdout).toContain(
+      "Root keeps the capability for the matching terminal result; never give it to the specialist.",
+    );
+
     const recoveryHelp = io(cwd);
     expect(await runAgentBinary(["assignment", "recover", "--help"], recoveryHelp.io)).toBe(0);
     expect(recoveryHelp.value().stdout).toMatch(
       /Exact invocation\s+identity and revision must match\./,
     );
     expect(recoveryHelp.value().stdout).toContain("It cannot record success");
-    expect(recoveryHelp.value().stdout).toContain("does not authenticate that its caller is Root");
+    expect(recoveryHelp.value().stdout).toContain(
+      "capability returned when that exact invocation started",
+    );
+    expect(recoveryHelp.value().stdout).toContain("start time and Root-held capability");
+    expect(recoveryHelp.value().stdout).toContain("also match.");
+    expect(recoveryHelp.value().stdout).toContain("Specialists must never use recover.");
     await expect(readdir(join(cwd, ".holycodex"))).rejects.toThrow();
   });
 
@@ -472,7 +498,7 @@ describe("holycodex-agent", () => {
     });
   }, 30_000);
 
-  test("records interruption recovery through the CLI when the persisted verifier remains", async () => {
+  test("records interruption recovery through the CLI with its matching active capability", async () => {
     const cwd = await createTemporaryDirectory("holycodex-agent-recovery-");
     await initRepository(cwd);
 
@@ -482,7 +508,7 @@ describe("holycodex-agent", () => {
       "--input",
       JSON.stringify({
         title: "Interrupted CLI recovery",
-        goal: "Record a lost-capability invocation as interrupted",
+        goal: "Record a confirmed stopped invocation as interrupted",
         acceptanceCriteria: ["truthful terminal state"],
       }),
     ]);
@@ -524,9 +550,14 @@ describe("holycodex-agent", () => {
       readonly revision: number;
       readonly active_invocation_id?: string;
       readonly active_started_at?: string;
+      readonly capability?: string;
     };
-    if (running.active_invocation_id === undefined || running.active_started_at === undefined)
-      throw new Error("assignment start did not return exact invocation identity");
+    if (
+      running.active_invocation_id === undefined ||
+      running.active_started_at === undefined ||
+      running.capability === undefined
+    )
+      throw new Error("assignment start did not return exact invocation authority");
 
     const intentDirectory = (await readdir(join(cwd, ".holycodex"))).find(
       (entry) => entry !== "current" && entry !== ".intent-store",
@@ -542,7 +573,7 @@ describe("holycodex-agent", () => {
     const persisted = await readFile(assignmentPath, "utf8");
     expect(persisted).toMatch(/^active_invocation_capability_verifier:/mu);
 
-    const missingReason = await runAgent(cwd, [
+    const missingCapability = await runAgent(cwd, [
       "assignment",
       "recover",
       "--intent",
@@ -555,13 +586,52 @@ describe("holycodex-agent", () => {
       JSON.stringify({
         invocationId: running.active_invocation_id,
         startedAt: running.active_started_at,
+        interruptionReason: "The invocation stopped before returning a result.",
       }),
     ]);
-    expect(missingReason.exitCode).toBe(2);
-    expect(JSON.parse(missingReason.stderr)).toMatchObject({
+    expect(missingCapability.exitCode).toBe(2);
+    expect(JSON.parse(missingCapability.stderr)).toMatchObject({
       ok: false,
       error: { code: "invalid_input" },
     });
+
+    const wrongCapability = await runAgent(cwd, [
+      "assignment",
+      "recover",
+      "--intent",
+      intent.id,
+      "--assignment",
+      assignment.id,
+      "--revision",
+      String(running.revision),
+      "--input",
+      JSON.stringify({
+        invocationId: running.active_invocation_id,
+        startedAt: running.active_started_at,
+        capability: "0".repeat(64),
+        interruptionReason: "The invocation stopped before returning a result.",
+      }),
+    ]);
+    expect(wrongCapability.exitCode).toBe(1);
+    expect(JSON.parse(wrongCapability.stderr)).toMatchObject({
+      ok: false,
+      error: { code: "invalid_transition" },
+    });
+    const stillExecuting = await runAgent(cwd, [
+      "assignment",
+      "read",
+      "--intent",
+      intent.id,
+      "--assignment",
+      assignment.id,
+    ]);
+    expect(JSON.parse(stillExecuting.stdout).data).toMatchObject({
+      status: "executing",
+      revision: running.revision,
+      active_invocation_id: running.active_invocation_id,
+    });
+    const unchangedIntent = await runAgent(cwd, ["intent", "read", "--intent", intent.id]);
+    expect(JSON.parse(unchangedIntent.stdout).data.revision).toBe(intent.revision);
 
     const recovered = await runAgent(cwd, [
       "assignment",
@@ -576,6 +646,7 @@ describe("holycodex-agent", () => {
       JSON.stringify({
         invocationId: running.active_invocation_id,
         startedAt: running.active_started_at,
+        capability: running.capability,
         interruptionReason: "The invocation stopped before returning its capability-bound result.",
       }),
     ]);
@@ -617,6 +688,7 @@ describe("holycodex-agent", () => {
       JSON.stringify({
         invocationId: running.active_invocation_id,
         startedAt: running.active_started_at,
+        capability: running.capability,
         interruptionReason: "attempt success",
         outcome: "completed",
       }),

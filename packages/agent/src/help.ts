@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
-const ROOT = `Usage: holycodex-agent <intent|plan|assignment|state> <command> [options]
+const ROOT = `Usage: holycodex-agent <intent|assignment|state> <command> [options]
 
 Deterministic model-facing work-state API. JSON responses use holycodex-agent-response-1.
-All mutations require --revision and are atomic. No command prompts or emits ANSI.
+Updates to existing records require --revision and are atomic. No command prompts or emits ANSI.
 
 Commands:
   intent      create, list, current, read, select, transition, evidence, integrate, complete, abandon
-  plan        read, revise
   assignment  create, list, read, revise, supersede, start, recover, result
   state       diagnose
 
@@ -32,8 +31,7 @@ Reads emit validated JSON. Mutations are atomic; stale revisions and invalid tra
 `,
   "intent create": `Usage: holycodex-agent intent create --input <json> [--repo <path>]
 
-Input: {"title":string,"goal":string,"acceptanceCriteria":string[],"planRequired"?:boolean,
-"verificationRequired"?:boolean,"reviewRequired"?:boolean}. Output: created Intent.
+Input: {"title":string,"goal":string,"acceptanceCriteria":string[],"verificationRequired"?:boolean,"reviewRequired"?:boolean}. Output: created Intent.
 Effect: creates .holycodex/{slug}-{short-id}/intent.toon and selects it as current.
 Fails for invalid input, inaccessible Git repository, collision exhaustion, or I/O failure.
 `,
@@ -80,24 +78,11 @@ Effect: completes only after assignments, blockers, verification, review, accept
 
 Output: abandoned Intent. Effect: closes incomplete work without claiming completion.
 `,
-  plan: `Usage: holycodex-agent plan <read|revise> [options]
-
-Plan is optional and describes execution. revise archives an existing canonical plan first.
-`,
-  "plan read": `Usage: holycodex-agent plan read --intent <ref> [--repo <path>]
-
-Output: current validated Plan or null. No mutation.
-`,
-  "plan revise": `Usage: holycodex-agent plan revise --intent <ref> --revision <n> [--plan-revision <n>] --input <json> [--repo <path>]
-
-Input requires approach and may include scope, assignments, dependencies, architecture, risks,
-assumptions, openQuestions, verification, and recovery. Effect: archives plan.old-NNN.toon
-immutably before atomic replacement. Fails on stale Intent or Plan revision.
-`,
   assignment: `Usage: holycodex-agent assignment <create|list|read|revise|supersede|start|recover|result> [options]
 
-Assignments are bounded specialist contracts. Their results never own global lifecycle state.
-Root may use recover only to record a confirmed interrupted invocation as failed.
+Assignments are bounded specialist contracts. Their results never own global Intent lifecycle state.
+Specialists must never recover an Assignment or mutate another Assignment's lifecycle. Root keeps
+active invocation capabilities and never shares them with specialists.
 `,
   "assignment create": `Usage: holycodex-agent assignment create --intent <ref> --revision <n> --input <json> [--repo <path>]
 
@@ -126,17 +111,20 @@ predecessor from completion blockers. Completed, active, or already superseded w
 `,
   "assignment start": `Usage: holycodex-agent assignment start --intent <ref> --assignment <id> --revision <n> [--input <json>] [--repo <path>]
 
+Output: executing Assignment with active_invocation_id, active_started_at, and capability. Root keeps the capability for the matching terminal result; never give it to the specialist.
 Effect: marks a pending/blocked/failed Assignment executing and records its active invocation.
 Optional input is {"scope":string[]} for an explicit bounded superset expansion. An already
 executing Assignment must receive its result before another start.
 `,
   "assignment recover": `Usage: holycodex-agent assignment recover --intent <ref> --assignment <id> --revision <n> --input <json> [--repo <path>]
 
-Input: {"invocationId":string,"startedAt":string,"interruptionReason":string}. Root uses this
-only after confirming the active invocation stopped before returning a result. Exact invocation
-identity and revision must match. Effect: records the invocation and Assignment as failed, clears
-active invocation state, and adds failed recovery evidence. It cannot record success; this CLI
-does not authenticate that its caller is Root. Use assignment result for a returned result.
+Input: {"invocationId":string,"startedAt":string,"capability":string,"interruptionReason":string}.
+Root uses this only after confirming the active invocation stopped before returning a result, with
+the capability returned when that exact invocation started.
+Exact invocation identity and revision must match. Its start time and Root-held capability must
+also match. Specialists must never use recover. Effect: records the
+invocation and Assignment as failed, clears active invocation state, and adds failed recovery
+evidence. It cannot record success. Use assignment result for a returned result.
 `,
   "assignment result": `Usage: holycodex-agent assignment result --intent <ref> --assignment <id> --revision <n> --input <json> [--repo <path>]
 

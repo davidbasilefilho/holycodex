@@ -1,6 +1,6 @@
 interface:
   display_name: "Context7 CLI"
   short_description: "Find assigned current library and API documentation first."
-  default_prompt: "Open the current documentation lookup workflow for this invocation."
+  default_prompt: "Use $context7-cli for this task."
 policy:
   allow_implicit_invocation: false

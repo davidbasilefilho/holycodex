@@ -33,8 +33,10 @@ describe("plugin source assets", () => {
     const source = await validateSource(pluginSourceRoot);
     expect(source.manifest.name).toBe("holycodex");
     expect(source.files.map((file) => file.path)).toContain(sourceManifestPath);
-    expect(source.files.map((file) => file.path)).toContain("skills/plan/SKILL.md");
-    expect(source.files.map((file) => file.path)).toContain("skills/operations/SKILL.md");
+    expect(source.files.map((file) => file.path)).not.toContain("skills/plan/SKILL.md");
+    expect(source.files.map((file) => file.path)).toContain("skills/dev-server/SKILL.md");
+    expect(source.files.map((file) => file.path)).toContain("skills/visual-loop/SKILL.md");
+    expect(source.files.map((file) => file.path)).toContain("skills/babysit-ci/SKILL.md");
     expect(source.files.map((file) => file.path)).toContain("skills/grill-me/SKILL.md");
     expect(source.files.map((file) => file.path)).toContain("skills/continue-work/SKILL.md");
     expect(source.files.map((file) => file.path)).toContain("skills/codebase-onboarding/SKILL.md");
@@ -58,13 +60,7 @@ describe("plugin source assets", () => {
         join(pluginSourceRoot, "skills", skill, "agents", "openai.yaml"),
         "utf8",
       );
-      if (skill === "stop-slop") {
-        expect(body).toContain("references/phrases.md");
-        expect(body).toContain("references/structures.md");
-        expect(body).toContain("references/examples.md");
-      } else {
-        expect(body).toMatch(new RegExp(`^---\\nname: ${skill}\\ndescription: .+\\n---`, "u"));
-      }
+      expect(body).toMatch(new RegExp(`^---\\nname: ${skill}\\ndescription: .+\\n---`, "u"));
       expect(`${body}\n${metadata}`).not.toMatch(/GPT-5\.6|\b(?:Luna|Sol|Terra)\b/u);
       expect(`${body}\n${metadata}`).not.toContain("writing-for-agents");
       expect(metadata).toContain("interface:");
@@ -73,6 +69,22 @@ describe("plugin source assets", () => {
       expect(`${body}\n${metadata}`.toLowerCase()).not.toContain("mcp");
       expect(`${body}\n${metadata}`).not.toContain(["0", "15", "0"].join("."));
     }
+  });
+
+  test("requires Root clarification through request_user_input and local visual review", async () => {
+    const grillMe = await readFile(
+      join(pluginSourceRoot, "skills", "grill-me", "SKILL.md"),
+      "utf8",
+    );
+    const visualLoop = await readFile(
+      join(pluginSourceRoot, "skills", "visual-loop", "SKILL.md"),
+      "utf8",
+    );
+    expect(grillMe).toContain("call `request_user_input`");
+    expect(grillMe).toContain("Specialists must not ask the user");
+    expect(grillMe).toContain("`needs_root_input` outcome to Root");
+    expect(visualLoop).toContain("inspect and judge their own current");
+    expect(visualLoop).toContain("higher-level visual acceptance");
   });
 
   test("discovers every shipped skill description and checks situation-first wording", async () => {

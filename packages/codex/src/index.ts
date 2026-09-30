@@ -225,6 +225,7 @@ export {
   readOfficialMarketplaceSnapshot,
   resolveOfficialPluginEntry,
   isRecognizedOfficialPluginName,
+  isCanonicalHolyCodexMarketplaceGitSource,
   OFFICIAL_CURATED_MARKETPLACE_NAME,
   OFFICIAL_CURATED_MARKETPLACE_SOURCE,
 } from "./official-plugins";

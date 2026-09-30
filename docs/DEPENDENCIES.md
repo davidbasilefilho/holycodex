@@ -19,12 +19,13 @@ bypasses an owning package.
 
 ## Development dependencies
 
-| Package                    | Purpose                  | License    | Source                                                           |
-| -------------------------- | ------------------------ | ---------- | ---------------------------------------------------------------- |
-| `oxfmt`                    | Formatting               | MIT        | [OXC repository](https://github.com/oxc-project/oxc)             |
-| `oxlint`                   | Linting                  | MIT        | [OXC repository](https://github.com/oxc-project/oxc)             |
-| `typescript`               | Strict TypeScript checks | Apache-2.0 | [TypeScript repository](https://github.com/microsoft/TypeScript) |
-| `@types/bun` / `bun-types` | Bun declarations         | MIT        | [Bun repository](https://github.com/oven-sh/bun)                 |
+| Package                    | Purpose                   | License    | Source                                                           |
+| -------------------------- | ------------------------- | ---------- | ---------------------------------------------------------------- |
+| `oxfmt`                    | Formatting                | MIT        | [OXC repository](https://github.com/oxc-project/oxc)             |
+| `oxlint`                   | Linting                   | MIT        | [OXC repository](https://github.com/oxc-project/oxc)             |
+| `typescript`               | Strict TypeScript checks  | Apache-2.0 | [TypeScript repository](https://github.com/microsoft/TypeScript) |
+| `@types/bun` / `bun-types` | Bun declarations          | MIT        | [Bun repository](https://github.com/oven-sh/bun)                 |
+| `@openai/codex`            | Codex bindings generation | Apache-2.0 | [Codex repository](https://github.com/openai/codex)              |
 
 The workspace packages are authored under the repository Apache-2.0 license
 and are not third-party dependencies. Update this rationale with any approved
@@ -48,8 +49,8 @@ GitHub Action commit-SHA pins.
 
 ## Generated Codex protocol artifact
 
-The generated files under `packages/codex/generated/` are protocol types, not
-package dependencies. They are regenerated from the stable Codex CLI resolved
-by mise's `npm:@openai/codex` latest channel before validation and packaging.
-Their executable identity, inventory, and digest are verified by the generated
-artifact proof.
+The generated files under `packages/codex/generated/` are protocol types. They
+are regenerated through Bun from the root-locked `@openai/codex` dependency.
+Provenance records the exact CLI version, native executable digest, protocol
+epoch, generated file inventory, and digest; repository proofs regenerate and
+verify the artifact before validation and packaging.

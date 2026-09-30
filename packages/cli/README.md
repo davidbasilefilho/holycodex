@@ -22,8 +22,10 @@ Profiles select configured Root and specialist route identities and the
 per-task effort matrix documented in [BEHAVIOR.md](../../docs/BEHAVIOR.md).
 Every generated instruction targets GPT-6-family behavior regardless of a
 temporary routing model ID. Historical values are migration-only.
-Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; native specialist route files use `gpt-6-luna`. Routing identity remains separate from
-instruction behavior.
+Root uses `gpt-6.1-sol` with low, medium, and high reasoning effort for the
+`low`, `default`, and `high` profiles respectively; native specialist route
+files use `gpt-6-luna`. Routing identity remains separate from instruction
+behavior.
 
 Frontend and Security are required. ChatGPT Sites and Browser Use are optional
 and default on; Computer Use is optional and default off. Each selected
@@ -37,13 +39,13 @@ Reinstalling with the current package reconciles a previous installation.
 Use `--json` for one validated machine-readable envelope. Human output reports
 the version, profile, tier, selected capabilities, and actionable warnings without
 printing the internal installation record. Browser Use and Computer Use are
-specialist capabilities: Root delegates authorized execution and accepts the
-specialist's terminal evidence.
+delegated capabilities for ordinary execution. Root retains visual inspection
+for visual tasks and manages the shared background dev server.
 
 The development entry point is:
 
 ```sh
-mise exec -- bun packages/cli/src/index.ts install --yes
+bun packages/cli/src/index.ts install --yes
 ```
 
 Command syntax and response contracts are owned by [CLI.md](../../docs/CLI.md).

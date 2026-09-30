@@ -44,6 +44,9 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
     const adapter = createOfficialPluginAdapter({
       executable: executable.path,
       environment: createAllowlistedEnvironment(environment),
+      onMarketplaceConflict: (message) => {
+        console.warn(`HolyCodex warning: ${message}`);
+      },
       ...(environment["CODEX_HOME"] === undefined ? {} : { codexHome: environment["CODEX_HOME"] }),
     });
     return new CodexOfficialPluginManager(adapter);
@@ -156,7 +159,16 @@ export class ReadOnlyCodexPluginStatus implements Pick<
   async status(
     selected: readonly string[],
   ): Promise<Readonly<Record<string, OfficialPluginStatus>>> {
-    const text = await readFile(join(this.codexHome, "config.toml"), "utf8");
+    let text: string;
+    try {
+      text = await readFile(join(this.codexHome, "config.toml"), "utf8");
+    } catch (error: unknown) {
+      if (isMissingPath(error)) {
+        this.observedIdentities = Object.freeze({});
+        return Object.fromEntries(selected.map((pluginId) => [pluginId, "missing"]));
+      }
+      throw error;
+    }
     const bun = (globalThis as { Bun?: { TOML?: { parse: (value: string) => unknown } } }).Bun;
     if (!bun?.TOML?.parse) throw new Error("A TOML parser is unavailable.");
     const config = decodeSchema(TomlDocumentSchema, bun.TOML.parse(text));
@@ -185,13 +197,23 @@ export class ReadOnlyCodexPluginStatus implements Pick<
 
           const enabled = configured.filter((entry) => entry.enabled === true);
           const cachedEnabled = await Promise.all(
-            enabled.map(async (entry) => ({
-              ...entry,
-              cached: await hasInstalledPluginCache(this.codexHome, [entry.id]),
-            })),
+            enabled.map(async (entry) => {
+              const candidates = officialPluginIdCandidates(entry.id);
+              const orderedCandidates = [
+                entry.id,
+                ...candidates.filter((candidate) => candidate !== entry.id),
+              ];
+              return {
+                ...entry,
+                cachedIdentity: await findInstalledPluginCacheIdentity(
+                  this.codexHome,
+                  orderedCandidates,
+                ),
+              };
+            }),
           );
-          const installed = cachedEnabled.find((entry) => entry.cached);
-          const observed = installed?.id ?? enabled[0]?.id ?? configured[0]?.id;
+          const installed = cachedEnabled.find((entry) => entry.cachedIdentity !== undefined);
+          const observed = installed?.cachedIdentity ?? enabled[0]?.id ?? configured[0]?.id;
           if (observed !== undefined) identities[pluginId] = observed;
           if (installed !== undefined) return [pluginId, "installed"];
           if (enabled.length > 0) return [pluginId, "missing"];
@@ -210,10 +232,10 @@ export class ReadOnlyCodexPluginStatus implements Pick<
   }
 }
 
-async function hasInstalledPluginCache(
+async function findInstalledPluginCacheIdentity(
   codexHome: string,
   pluginIds: readonly string[],
-): Promise<boolean> {
+): Promise<string | undefined> {
   for (const pluginId of pluginIds) {
     const separator = pluginId.lastIndexOf("@");
     if (separator <= 0 || separator === pluginId.length - 1) continue;
@@ -230,7 +252,7 @@ async function hasInstalledPluginCache(
         if (!version.isDirectory()) continue;
         try {
           await access(join(pluginRoot, version.name, ".codex-plugin", "plugin.json"));
-          return true;
+          return pluginId;
         } catch (error: unknown) {
           if (!isMissingPath(error)) throw error;
         }
@@ -240,7 +262,7 @@ async function hasInstalledPluginCache(
       throw error;
     }
   }
-  return false;
+  return undefined;
 }
 
 function isMissingPath(error: unknown): boolean {

@@ -116,7 +116,7 @@ export interface InstallRecord {
   readonly provider_config?: readonly ProviderPluginConfigSnapshot[] | undefined;
   /** The owned plugins in install record. */
   readonly owned_plugins?: readonly string[] | undefined;
-  /** Verified state of installer prerequisites such as Git Bash. */
+  /** Optional external tooling managed or inspected by the installer. */
   readonly tooling?: InstallerToolingState | undefined;
 }
 
@@ -276,7 +276,7 @@ export type Context7Manager = Readonly<{
   readonly executable: "bun" | "npm" | "pnpm";
 }>;
 
-/** Public CLI type describing git bash state. */
+/** Legacy Git Bash discovery state accepted while reading earlier install records. */
 export type GitBashState =
   | Readonly<{ readonly status: "not_applicable" }>
   | Readonly<{ readonly status: "missing" }>
@@ -299,7 +299,8 @@ export type Context7ToolState = Readonly<{
 
 /** Public CLI type describing installer tooling state. */
 export type InstallerToolingState = Readonly<{
-  readonly git_bash: GitBashState;
+  /** Legacy state accepted while reading earlier install records. */
+  readonly git_bash?: GitBashState | undefined;
   readonly context7?: Context7ToolState | undefined;
 }>;
 
@@ -378,7 +379,7 @@ export interface InstallerOptions {
   readonly officialPluginManager?: OfficialPluginManager;
   /** Injectable clock used for deterministic timestamps. */
   readonly now?: () => Date;
-  /** Injectable platform/process boundary for prerequisite discovery and repair. */
+  /** Injectable platform/process boundary for optional tooling inspection and repair. */
   readonly runtime?: InstallerRuntime;
   /** Resolve modifications to state whose HolyCodex ownership is proven by persisted metadata. */
   readonly resolveConflict?: ConflictResolver;

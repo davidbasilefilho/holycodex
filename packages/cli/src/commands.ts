@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { sanitizeDiagnostics } from "@holycodex/codex";
 import {
   CLI_SCHEMA_VERSION,
   parseCliEnvelope,
@@ -35,7 +36,11 @@ import {
 import { asJsonValue } from "./json.ts";
 import { doctorHolyCodex, inspectRemovalConflicts, removeHolyCodex } from "./maintenance.ts";
 import { readPublicVersion, updateCanonicalVersion, ManifestError } from "./manifest.ts";
-import { OfficialPluginManagerError, ReadOnlyCodexPluginStatus } from "./official-manager.ts";
+import {
+  CodexOfficialPluginManager,
+  OfficialPluginManagerError,
+  ReadOnlyCodexPluginStatus,
+} from "./official-manager.ts";
 import { PathBoundaryError, resolveInstallerPaths } from "./paths.ts";
 import { StorageError } from "./storage.ts";
 import type {
@@ -48,6 +53,7 @@ import type {
   InstallReviewResult,
   InstallerOptions,
   ManagedConflict,
+  OfficialPluginManager,
   ParsedCommand,
 } from "./types.ts";
 
@@ -97,7 +103,8 @@ export async function executeCommand(
           {
             ...options,
             officialPluginManager:
-              options.officialPluginManager ?? new ReadOnlyCodexPluginStatus(paths.codexHome),
+              options.officialPluginManager ??
+              (await createDoctorPluginStatusManager(paths.codexHome, context.env)),
           },
           context.env,
         ),
@@ -112,6 +119,27 @@ export async function executeCommand(
     default:
       throw new CliCommandError("invalid_argument", "Unknown command.");
   }
+}
+
+async function createDoctorPluginStatusManager(
+  codexHome: string,
+  environment: Readonly<Record<string, string | undefined>> | undefined,
+): Promise<Pick<OfficialPluginManager, "status" | "getObservedIdentities">> {
+  try {
+    return await CodexOfficialPluginManager.discover(environment);
+  } catch (error: unknown) {
+    if (isCodexExecutableUnavailable(error)) return new ReadOnlyCodexPluginStatus(codexHome);
+    throw error;
+  }
+}
+
+function isCodexExecutableUnavailable(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    error.code === "discovery_failed" &&
+    error.message.startsWith("No Codex executable was found")
+  );
 }
 
 async function executeInstall(parsed: ParsedCommand, context: CliContext) {
@@ -301,41 +329,50 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
   };
   const resolveConflict: NonNullable<InstallerOptions["resolveConflict"]> =
     base.resolveConflict ??
-    (parsed.options["yes"] === true
-      ? async () => "accept" as const
-      : async (conflict) => {
-          const target =
-            conflict.key === undefined ? conflict.path : `${conflict.path} (${conflict.key})`;
-          const result = await confirmIfAvailable(
-            context,
-            `${conflict.action === "remove" ? "Remove" : "Replace"} modified HolyCodex-owned state at ${target}?`,
-          );
-          return result === "confirmed"
-            ? ("accept" as const)
-            : result === "cancelled"
-              ? ("decline" as const)
-              : ("cancel" as const);
-        });
+    (async (conflict) => {
+      if (parsed.options["yes"] === true) {
+        const decision = yesConflictDecision(conflict);
+        warnAboutYesConflictDecisions(context, [conflict]);
+        return decision === "keep" ? "decline" : decision === "cancel" ? "cancel" : "accept";
+      }
+      if (
+        parsed.options["json"] === true ||
+        context.io?.stdoutIsTTY !== true ||
+        context.io?.stderrIsTTY !== true
+      ) {
+        throw new InstallerError(
+          "confirmation_required",
+          `Review the modified HolyCodex-owned state at ${conflict.key === undefined ? conflict.path : `${conflict.path} (${conflict.key})`} in an interactive terminal; --yes preserves user changes.`,
+          undefined,
+          { path: conflict.path, ...(conflict.key === undefined ? {} : { key: conflict.key }) },
+        );
+      }
+      const identity = conflictIdentity(conflict);
+      const result = await runOpenTuiConflictResolver(
+        [conflict],
+        {},
+        Object.fromEntries(selectedConflictDecisions),
+      );
+      if (result.action === "back") return "decline";
+      if (result.action !== "continue") return "cancel";
+      const decision = result.decisions[identity];
+      if (decision !== undefined) selectedConflictDecisions.set(identity, decision);
+      if (decision === "replace" || decision === "remove") return "accept";
+      if (decision === "keep") return "decline";
+      return "cancel";
+    });
   const configuredResolveConflicts: NonNullable<InstallerOptions["resolveConflicts"]> =
     base.resolveConflicts ??
     (parsed.options["yes"] === true
       ? async (conflicts) => {
-          if (conflicts.length > 0) {
-            const summary = conflicts
-              .map((conflict) => {
-                const target =
-                  conflict.key === undefined ? conflict.path : `${conflict.path} (${conflict.key})`;
-                return `${target}: ${conflict.explanation ?? "user-owned state requires review"}`;
-              })
-              .join("; ");
-            throw new InstallerError(
-              "confirmation_required",
-              `--yes cannot resolve user-owned configuration without overwriting it. Conflicts: ${summary}.`,
-              undefined,
-              { conflicts: summary },
-            );
-          }
-          return {};
+          const decisions = Object.fromEntries(
+            conflicts.map((conflict) => [
+              conflictIdentity(conflict),
+              yesConflictDecision(conflict),
+            ]),
+          );
+          warnAboutYesConflictDecisions(context, conflicts);
+          return decisions;
         }
       : async (conflicts) => {
           if (
@@ -354,13 +391,20 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
             Object.fromEntries(selectedConflictDecisions),
           );
           if (result.action === "back") {
-            return Object.fromEntries(
+            const decisions: Record<string, ConflictDecision> = Object.fromEntries(
               conflicts.map((conflict) => {
-                const identity = conflictIdentity(conflict);
-                const selected = selectedConflictDecisions.get(identity);
-                return [identity, selected ?? defaultConflictDecision(conflict)];
+                const valid =
+                  conflict.validDecisions ??
+                  (conflict.action === "remove"
+                    ? ["keep", "remove", "cancel"]
+                    : ["keep", "replace", "cancel"]);
+                return [
+                  conflictIdentity(conflict),
+                  valid.includes("keep") ? ("keep" as const) : ("cancel" as const),
+                ];
               }),
             );
+            return recordConflictDecisions(conflicts, decisions);
           }
           if (result.action === "cancel")
             throw new InstallerError("confirmation_required", "Conflict review was cancelled.");
@@ -421,6 +465,45 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
   };
 }
 
+function yesConflictDecision(conflict: ManagedConflict): ConflictDecision {
+  const valid =
+    conflict.validDecisions ??
+    (conflict.action === "remove" ? ["keep", "remove", "cancel"] : ["keep", "replace", "cancel"]);
+  const action = conflict.action === "remove" ? "remove" : "replace";
+  const decision = valid.includes(action) ? action : undefined;
+  if (decision === undefined) {
+    throw new InstallerError(
+      "confirmation_required",
+      `--yes cannot resolve ${conflict.target ?? conflict.key ?? conflict.path}; choose ${valid.join(", ")}.`,
+      undefined,
+      {
+        path: conflict.path,
+        ...(conflict.key === undefined ? {} : { key: conflict.key }),
+      },
+    );
+  }
+  return decision;
+}
+
+function warnAboutYesConflictDecisions(
+  context: CliContext,
+  conflicts: readonly ManagedConflict[],
+): void {
+  if (conflicts.length === 0) return;
+  const decisions = conflicts
+    .map((conflict) => {
+      const action = yesConflictDecision(conflict);
+      const target =
+        conflict.key === undefined ? conflict.path : `${conflict.path} (${conflict.key})`;
+      return action === "keep" ? undefined : `${action} ${target}`;
+    })
+    .filter((decision): decision is string => decision !== undefined);
+  if (decisions.length === 0) return;
+  context.io?.writeStderr?.(
+    `Warning: --yes will apply these conflict decisions: ${decisions.join("; ")}. This may overwrite existing Codex configuration.\n`,
+  );
+}
+
 function installRequestFromReview(plan: InstallReview): InstallRequest {
   return validateInstallOptions({
     profile: plan.profile,
@@ -432,19 +515,6 @@ function installRequestFromReview(plan: InstallReview): InstallRequest {
 
 function conflictIdentity(conflict: ManagedConflict): string {
   return conflict.identity ?? conflict.path;
-}
-
-function defaultConflictDecision(conflict: ManagedConflict): ConflictDecision {
-  const preferred = conflict.defaultDecision ?? "replace";
-  if (preferred === "keep" || preferred === "replace" || preferred === "cancel") {
-    if (conflict.validDecisions === undefined || conflict.validDecisions.includes(preferred)) {
-      return preferred;
-    }
-  }
-  return (
-    conflict.validDecisions?.find((decision) => decision === "keep" || decision === "replace") ??
-    "keep"
-  );
 }
 
 function withSelectedConflictDecisions(
@@ -480,7 +550,7 @@ function successEnvelope(command: string, data: JsonValue): CliEnvelope {
 }
 
 function failureEnvelope(command: string, error: unknown): CommandResult {
-  const mapped = mapError(error);
+  const mapped = mapError(error, command);
   const parsed = parseCliEnvelope({
     schema_version: CLI_SCHEMA_VERSION,
     ok: false,
@@ -508,11 +578,18 @@ function failureEnvelope(command: string, error: unknown): CommandResult {
 }
 
 function successExitCode(command: string, data: JsonValue): number {
-  return command === "doctor" && isJsonObject(data) && data["healthy"] === false ? 4 : 0;
+  if (command === "doctor" && isJsonObject(data) && data["healthy"] === false) return 4;
+  if (command === "remove" && isJsonObject(data)) {
+    if (data["cancelled"] === true) return 1;
+    if (arrayValue(data, "preserved").length > 0 || arrayValue(data, "reasons").length > 0)
+      return 4;
+  }
+  return 0;
 }
 
 function mapError(
   error: unknown,
+  operation: string,
 ): Readonly<{ code: string; message: string; details: JsonObject; exitCode: number }> {
   if (error instanceof ArgumentError)
     return {
@@ -547,8 +624,8 @@ function mapError(
             : 3;
     return {
       code: installerError.code,
-      message: sanitizeMessage(installerError.message),
-      details: installerError.details,
+      message: sanitizeDiagnosticMessage(installerError.message),
+      details: detailsWithCause(installerError.details, installerError.causeValue, operation),
       exitCode,
     };
   }
@@ -562,28 +639,59 @@ function mapError(
       error.code === "command_failed";
     return {
       code: uncertain ? "effect_uncertain" : denied ? "capability_denied" : "install_failed",
-      message: sanitizeMessage(error.message),
-      details: error.details,
+      message: sanitizeDiagnosticMessage(error.message),
+      details: detailsWithCause(error.details, error.causeValue, operation),
       exitCode: uncertain ? 4 : denied ? 2 : 3,
     };
   }
   if (error instanceof StorageError)
-    return { code: error.code, message: sanitizeMessage(error.message), details: {}, exitCode: 4 };
+    return {
+      code: error.code,
+      message: sanitizeDiagnosticMessage(error.message),
+      details: detailsWithCause({}, error.causeValue, operation),
+      exitCode: 4,
+    };
   if (error instanceof ManifestError)
     return { code: error.code, message: sanitizeMessage(error.message), details: {}, exitCode: 1 };
   if (error instanceof Error)
     return {
       code: "internal_error",
-      message: "The command failed unexpectedly.",
-      details: {},
+      message: `The ${operation} command failed unexpectedly.`,
+      details: {
+        operation,
+        cause: sanitizeDiagnostics(`${error.name}: ${error.message}`).join(" ").slice(0, 512),
+      },
       exitCode: 5,
     };
   return {
     code: "internal_error",
-    message: "The command failed unexpectedly.",
-    details: {},
+    message: `The ${operation} command failed unexpectedly.`,
+    details: { operation, cause: "A non-Error value was thrown." },
     exitCode: 5,
   };
+}
+
+function detailsWithCause(
+  details: Readonly<Record<string, JsonValue>>,
+  cause: unknown,
+  operation: string,
+): JsonObject {
+  const result: Record<string, JsonValue> = { ...details };
+  if (cause !== undefined) {
+    if (typeof result["operation"] !== "string") result["operation"] = operation;
+    result["cause"] = sanitizeDiagnostics(causeSummary(cause)).join(" ").slice(0, 512);
+  }
+  return result;
+}
+
+function causeSummary(cause: unknown): string {
+  if (cause instanceof Error) return `${cause.name}: ${cause.message}`;
+  if (typeof cause === "string") return cause;
+  return "The operation failed with a non-Error cause.";
+}
+
+function sanitizeDiagnosticMessage(message: string): string {
+  return sanitizeMessage(sanitizeDiagnostics(message).join(" "));
 }
 
 function inferCommand(argv: readonly string[]): string {
@@ -702,8 +810,10 @@ function renderRemove(data: JsonValue, color: boolean): string {
     preserved.length === 0
       ? "none"
       : `${preserved.length} item${preserved.length === 1 ? "" : "s"} (review before retrying)`;
+  const incomplete = preserved.length > 0 || reasons.length > 0;
+  const heading = incomplete ? "remove incomplete" : "remove";
   const lines = [
-    `${paint("✔", "green", color)} ${paint("remove", "heading", color)}`,
+    `${paint(incomplete ? "!" : "✔", incomplete ? "warning" : "green", color)} ${paint(heading, incomplete ? "warning" : "heading", color)}`,
     `  ${paint("removed", "option", color)}: ${removed.length} owned item${removed.length === 1 ? "" : "s"}`,
     `  ${paint("preserved", "option", color)}: ${preservedSummary}`,
     ...reasons.map((reason) => `  ${paint("reason", "option", color)}: ${humanizeReason(reason)}`),

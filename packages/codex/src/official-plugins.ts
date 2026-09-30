@@ -17,6 +17,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   canonicalOfficialPluginId,
   OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES,
+  officialPluginIdCandidates,
   resolveOfficialPluginIdentity,
   type OfficialPluginIdentity,
 } from "@holycodex/core";
@@ -43,9 +44,21 @@ export const OFFICIAL_CURATED_MARKETPLACE_NAME = "openai-curated" as const;
 export const OFFICIAL_CURATED_MARKETPLACE_SOURCE = "https://github.com/openai/plugins.git" as const;
 const HOLYCODEX_MARKETPLACE_NAME = "holycodex";
 const HOLYCODEX_MARKETPLACE_SOURCE = "davidbasilefilho/holycodex";
+const HOLYCODEX_MARKETPLACE_GIT_SOURCES = [
+  HOLYCODEX_MARKETPLACE_SOURCE,
+  "https://github.com/davidbasilefilho/holycodex.git",
+  "https://github.com/davidbasilefilho/holycodex",
+  "https://github.com/davidbasilefilho/holycodex.git/",
+  "https://github.com/davidbasilefilho/holycodex/",
+  "git@github.com:davidbasilefilho/holycodex.git",
+  "git@github.com:davidbasilefilho/holycodex",
+  "ssh://git@github.com/davidbasilefilho/holycodex.git",
+  "ssh://git@github.com/davidbasilefilho/holycodex",
+] as const;
 const OFFICIAL_CURATED_MARKETPLACE_DIRECTORY = ["plugins", "openai-plugins"] as const;
 const DEFAULT_MARKETPLACE_BOOTSTRAP_TIMEOUT_MS = 30_000;
 const DEFAULT_MARKETPLACE_BOOTSTRAP_POLL_INTERVAL_MS = 100;
+const WINDOWS_SNAPSHOT_RENAME_RETRY_DELAYS_MS = [25, 50, 100, 200] as const;
 
 const PluginNameSchema = Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9._-]{1,63}$/u));
 const PluginVersionSchema = Schema.String.pipe(
@@ -149,12 +162,10 @@ export interface OfficialMarketplaceGitFallbackOptions {
 }
 
 /**
- * Ensure the reserved provider snapshot has been populated by Codex itself.
- *
- * The openai-curated marketplace is owned by Codex. In particular, callers must never clone its
- * repository or register it with `plugin marketplace add`. A normal App Server initialize starts
- * Codex's supported marketplace sync; this function waits for that async work and only returns
- * after validating the reserved snapshot and the selected plugin entries.
+ * Populate and validate the reserved OpenAI provider snapshot in CODEX_HOME. App Server startup
+ * gets the first opportunity to populate Codex's cache; when it does not, the official Git source
+ * is staged at Codex's reserved snapshot path and validated before publication. This snapshot is
+ * separate from the configurable marketplace catalog used by the CLI plugin commands.
  */
 export async function bootstrapOfficialMarketplace(
   options: OfficialMarketplaceBootstrapOptions,
@@ -273,6 +284,8 @@ export interface OfficialMarketplaceProvisionOptions {
   readonly gitRunner?: OfficialPluginCommandRunner;
   /** Test seam for a deterministic staged snapshot; production uses git clone. */
   readonly cloneSnapshot?: (source: string, destination: string) => Promise<void>;
+  /** Test seam for transient publication failures; production uses an atomic filesystem rename. */
+  readonly renameSnapshot?: (source: string, destination: string) => Promise<void>;
 }
 
 /**
@@ -361,7 +374,15 @@ export async function provisionOfficialMarketplaceSnapshot(
       }
     } else {
       const result = await gitRunner.run(
-        ["clone", "--depth=1", "--no-tags", OFFICIAL_CURATED_MARKETPLACE_SOURCE, stagingRoot],
+        [
+          "-c",
+          "core.longpaths=true",
+          "clone",
+          "--depth=1",
+          "--no-tags",
+          OFFICIAL_CURATED_MARKETPLACE_SOURCE,
+          stagingRoot,
+        ],
         { ...(options.signal === undefined ? {} : { signal: options.signal }), timeoutMs },
       );
       if (result.exitCode !== 0) {
@@ -413,7 +434,11 @@ export async function provisionOfficialMarketplaceSnapshot(
         "The reserved official marketplace path appeared during staging; refusing to overwrite it.",
       );
     }
-    await rename(stagingRoot, targetRoot);
+    await publishOfficialMarketplaceSnapshot(
+      stagingRoot,
+      targetRoot,
+      options.renameSnapshot ?? rename,
+    );
     const published = await readOfficialMarketplaceSnapshot(
       options.codexHome,
       options.selectedPluginIds,
@@ -435,6 +460,52 @@ export async function provisionOfficialMarketplaceSnapshot(
   } finally {
     await rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+async function publishOfficialMarketplaceSnapshot(
+  stagingRoot: string,
+  targetRoot: string,
+  publish: (source: string, destination: string) => Promise<void>,
+): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await publish(stagingRoot, targetRoot);
+      return;
+    } catch (error: unknown) {
+      const retryDelay = WINDOWS_SNAPSHOT_RENAME_RETRY_DELAYS_MS[attempt];
+      if (
+        process.platform !== "win32" ||
+        retryDelay === undefined ||
+        !isTransientWindowsRenameError(error)
+      ) {
+        throw error;
+      }
+      const collision = await lstat(targetRoot).catch((inspectionError: unknown) => {
+        if (isFileMissing(inspectionError)) return undefined;
+        throw marketplaceBootstrapError(
+          "marketplace_invalid",
+          "The reserved official marketplace path could not be checked before retrying publication.",
+          inspectionError,
+        );
+      });
+      if (collision !== undefined) {
+        throw marketplaceBootstrapError(
+          "marketplace_invalid",
+          "The reserved official marketplace path appeared during publication; refusing to overwrite it.",
+        );
+      }
+      await sleep(retryDelay);
+    }
+  }
+}
+
+function isTransientWindowsRenameError(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error.code === "EPERM" || error.code === "EBUSY")
+  );
 }
 
 async function resolveOfficialMarketplaceHead(
@@ -1160,6 +1231,8 @@ export interface OfficialPluginAdapterOptions {
   readonly stdoutLimit?: number;
   /** Stderr limit in the official plugin adapter options contract. */
   readonly stderrLimit?: number;
+  /** Report a required marketplace replacement before Codex state is changed. */
+  readonly onMarketplaceConflict?: (message: string) => void;
 }
 
 /** Data contract for official plugin adapter. */
@@ -1331,12 +1404,53 @@ export function createOfficialPluginAdapter(
           `Unsupported managed marketplace source: ${checkedSource}.`,
         );
       }
-      const initial = await listMarketplaces();
-      const conflict = findMarketplaceConflict(initial, HOLYCODEX_MARKETPLACE_NAME);
-      if (conflict !== undefined) {
-        throw new OfficialPluginAdapterError("marketplace_invalid", conflict);
+      let initial: readonly MarketplaceListEntry[];
+      let bootstrapped = false;
+      try {
+        initial = await listMarketplaces();
+      } catch (error: unknown) {
+        if (!isIncompleteHolyCodexMarketplaceSnapshot(error)) throw error;
+        options.onMarketplaceConflict?.(
+          "The registered HolyCodex marketplace cache is incomplete; Codex will rebuild it from the canonical source.",
+        );
+        const result = await runner.run(
+          ["plugin", "marketplace", "add", checkedSource],
+          signal === undefined ? undefined : { signal },
+        );
+        if (result.exitCode !== 0) {
+          throw commandError("marketplace add", result, checkedSource);
+        }
+        initial = await listMarketplaces();
+        bootstrapped = true;
       }
-      const existing = initial.find((entry) => entry.name === HOLYCODEX_MARKETPLACE_NAME);
+      const conflict = findMarketplaceConflict(initial, HOLYCODEX_MARKETPLACE_NAME);
+      const conflictingNames = marketplaceConflictNames(initial, HOLYCODEX_MARKETPLACE_NAME);
+      if (conflict !== undefined && conflictingNames.length > 0) {
+        options.onMarketplaceConflict?.(
+          `${conflict} HolyCodex will remove the conflicting registration and restore its required source.`,
+        );
+        for (const name of conflictingNames) {
+          const result = await runner.run(
+            ["plugin", "marketplace", "remove", name],
+            signal === undefined ? undefined : { signal },
+          );
+          if (result.exitCode !== 0) {
+            throw commandError("marketplace remove", result, name);
+          }
+        }
+      }
+      const afterReconciliation =
+        conflictingNames.length === 0 ? initial : await listMarketplaces();
+      const remainingConflict = findMarketplaceConflict(
+        afterReconciliation,
+        HOLYCODEX_MARKETPLACE_NAME,
+      );
+      if (remainingConflict !== undefined) {
+        throw new OfficialPluginAdapterError("marketplace_invalid", remainingConflict);
+      }
+      const existing = afterReconciliation.find(
+        (entry) => entry.name === HOLYCODEX_MARKETPLACE_NAME,
+      );
       if (existing === undefined) {
         const result = await runner.run(
           ["plugin", "marketplace", "add", checkedSource],
@@ -1345,7 +1459,7 @@ export function createOfficialPluginAdapter(
         if (result.exitCode !== 0) {
           throw commandError("marketplace add", result, checkedSource);
         }
-      } else {
+      } else if (!bootstrapped) {
         const result = await runner.run(
           ["plugin", "marketplace", "upgrade", HOLYCODEX_MARKETPLACE_NAME],
           signal === undefined ? undefined : { signal },
@@ -1372,12 +1486,33 @@ export function createOfficialPluginAdapter(
     },
     add: async (pluginId, signal) => {
       const checkedPluginId = checked(OfficialPluginIdSchema, pluginId, "official plugin id");
-      const result = await runner.run(
-        ["plugin", "add", checkedPluginId, "--json"],
-        signal === undefined ? undefined : { signal },
-      );
-      if (result.exitCode !== 0) {
-        throw commandError("add", result, checkedPluginId);
+      const candidates = officialPluginIdCandidates(checkedPluginId);
+      const orderedCandidates = candidates.includes(checkedPluginId)
+        ? [checkedPluginId, ...candidates.filter((candidate) => candidate !== checkedPluginId)]
+        : [checkedPluginId];
+      let installed = false;
+      for (const [index, candidate] of orderedCandidates.entries()) {
+        const result = await runner.run(
+          ["plugin", "add", candidate, "--json"],
+          signal === undefined ? undefined : { signal },
+        );
+        if (result.exitCode === 0) {
+          installed = true;
+          break;
+        }
+        if (
+          index < orderedCandidates.length - 1 &&
+          isPluginUnavailableFromMarketplace(result.stderr)
+        ) {
+          continue;
+        }
+        throw commandError("add", result, candidate);
+      }
+      if (!installed) {
+        throw new OfficialPluginAdapterError(
+          "command_failed",
+          `Codex could not install ${checkedPluginId} from its recognized marketplace sources.`,
+        );
       }
       const live = await list();
       const resolved = resolveOfficialPluginEntry(live, checkedPluginId);
@@ -1447,6 +1582,7 @@ function commandError(
     | "add"
     | "remove"
     | "marketplace add"
+    | "marketplace remove"
     | "marketplace list"
     | "marketplace upgrade",
   result: Readonly<{ exitCode: number; stdout: string; stderr: string }>,
@@ -1459,6 +1595,21 @@ function commandError(
     `Codex plugin ${operation} failed${pluginId === undefined ? "" : ` for ${pluginId}`}${suffix}`,
     { exit_code: result.exitCode },
   );
+}
+
+function isPluginUnavailableFromMarketplace(stderr: string): boolean {
+  return /plugin\b.+\bnot found in marketplace\b/iu.test(sanitizeDiagnostic(stderr));
+}
+
+function isIncompleteHolyCodexMarketplaceSnapshot(error: unknown): boolean {
+  if (!(error instanceof OfficialPluginAdapterError) || error.code !== "command_failed") {
+    return false;
+  }
+  const invalidMarketplace =
+    /(?:^|[\n:])\s*-\s*`([^`]+)`\s+at\s+[^\r\n]*:\s*marketplace root does not contain a supported manifest/iu.exec(
+      error.message,
+    );
+  return invalidMarketplace?.[1] === HOLYCODEX_MARKETPLACE_NAME;
 }
 
 function findMarketplaceConflict(
@@ -1486,15 +1637,38 @@ function findMarketplaceConflict(
   return undefined;
 }
 
+function marketplaceConflictNames(
+  entries: readonly MarketplaceListEntry[],
+  expectedName: string,
+): readonly string[] {
+  const named = entries.filter((entry) => entry.name === expectedName);
+  const duplicateReservedName = named.length > 1;
+  return [
+    ...new Set(
+      entries
+        .filter(
+          (entry) =>
+            (entry.name === expectedName &&
+              (duplicateReservedName ||
+                !isCanonicalHolyCodexMarketplaceSource(entry.marketplaceSource))) ||
+            (entry.name !== expectedName &&
+              isCanonicalHolyCodexMarketplaceSource(entry.marketplaceSource)),
+        )
+        .map((entry) => entry.name),
+    ),
+  ];
+}
+
 function isCanonicalHolyCodexMarketplaceSource(
   source: MarketplaceListEntry["marketplaceSource"],
 ): boolean {
-  return (
-    source?.sourceType === "git" &&
-    (source.source === HOLYCODEX_MARKETPLACE_SOURCE ||
-      source.source === "https://github.com/davidbasilefilho/holycodex.git" ||
-      source.source === "https://github.com/davidbasilefilho/holycodex")
-  );
+  if (source?.sourceType !== "git") return false;
+  return isCanonicalHolyCodexMarketplaceGitSource(source.source);
+}
+
+/** Return whether a Git URL is a recognized canonical source for the HolyCodex marketplace. */
+export function isCanonicalHolyCodexMarketplaceGitSource(source: string): boolean {
+  return HOLYCODEX_MARKETPLACE_GIT_SOURCES.some((canonical) => canonical === source);
 }
 
 function createNodeBunOfficialPluginCommandRunner(

@@ -178,7 +178,7 @@ const Context7ToolStateSchema = Schema.Struct({
 });
 /** Schema for installer tooling state values. */
 export const InstallerToolingStateSchema = Schema.Struct({
-  git_bash: GitBashStateSchema,
+  git_bash: Schema.optional(GitBashStateSchema),
   context7: Schema.optional(Context7ToolStateSchema),
 });
 

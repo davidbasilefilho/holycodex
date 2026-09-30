@@ -1,8 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { access, chmod, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { realpath } from "node:fs/promises";
-import { delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 
@@ -10,7 +21,6 @@ import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 
 import { parseConfig } from "../packages/cli/src/installer.ts";
-import { windowsGitBashShellDirective } from "../packages/cli/src/native-agents.ts";
 import type {
   NativeAgentProjection,
   RootAgentProjection,
@@ -47,6 +57,33 @@ import {
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
 const cliRoot = join(workspaceRoot, "packages/cli");
+
+function externalTemporaryRoot(): string {
+  const configuredTemporaryRoot = resolve(tmpdir());
+  const configuredTemporaryRelativePath = relative(workspaceRoot, configuredTemporaryRoot);
+  const configuredTemporaryRootIsWorkspaceLocal =
+    configuredTemporaryRelativePath === "" ||
+    (!isAbsolute(configuredTemporaryRelativePath) &&
+      configuredTemporaryRelativePath !== ".." &&
+      !configuredTemporaryRelativePath.startsWith(`..${sep}`));
+  const temporaryRoot =
+    process.platform === "win32"
+      ? process.env["LOCALAPPDATA"] !== undefined
+        ? join(process.env["LOCALAPPDATA"], "Temp")
+        : join(process.env["SystemRoot"] ?? process.env["SYSTEMROOT"] ?? "C:\\Windows", "Temp")
+      : configuredTemporaryRootIsWorkspaceLocal
+        ? "/tmp"
+        : configuredTemporaryRoot;
+  const temporaryRelativePath = relative(workspaceRoot, resolve(temporaryRoot));
+  assert(
+    temporaryRelativePath === ".." ||
+      temporaryRelativePath.startsWith(`..${sep}`) ||
+      isAbsolute(temporaryRelativePath),
+    "isolated Bun package state must be outside the repository",
+  );
+  return temporaryRoot;
+}
+
 const ReleaseStampSchema = Schema.Struct({
   schemaVersion: Schema.Literal("holycodex-release-v1"),
   channel: ReleaseChannelSchema,
@@ -121,12 +158,33 @@ type InstalledCliModule = Readonly<{
   readonly renderNativeAgent: (agent: NativeAgentProjection) => string;
 }>;
 
+type PreviousStableUpgradeOptions = Readonly<{
+  readonly temporaryRoot: string;
+  readonly currentCanonicalVersion: string;
+  readonly currentVersion: string;
+  readonly currentInstalledRoot: string;
+  readonly currentInstalledPackageRoot: string;
+  readonly currentEntry: string;
+  readonly codexCliVersion: string;
+  readonly bunEnvironment: Readonly<Record<string, string | undefined>>;
+  readonly commands: string[];
+}>;
+
 type InternalUpgradeOutcome =
   | Readonly<{ ok: true; data: Record<string, unknown> }>
   | Readonly<{ ok: false; error: Readonly<{ code: string; message: string }> }>;
 
 function verifyPublishedRouting(installed: InstalledCliModule): void {
   let projectedRoutes = 0;
+  assert(
+    JSON.stringify(PROFILE_CATALOG.map(({ name, root }) => [name, root.model, root.effort])) ===
+      JSON.stringify([
+        ["low", "gpt-6.1-sol", "low"],
+        ["default", "gpt-6.1-sol", "medium"],
+        ["high", "gpt-6.1-sol", "high"],
+      ]),
+    "the packed profile catalog must preserve the canonical Root model and effort mapping",
+  );
   for (const profile of PROFILE_CATALOG) {
     const roots = [
       installed.projectRootAgent(profile.name, "standard"),
@@ -198,7 +256,7 @@ function verifyPublishedRouting(installed: InstalledCliModule): void {
   }
   assert(
     projectedRoutes === PROFILE_CATALOG.length * NATIVE_AGENT_TYPES.length,
-    "the packed module did not verify all 39 profile and specialist projections",
+    "the packed module did not verify all profile and specialist projections",
   );
 }
 
@@ -354,10 +412,20 @@ export async function verifyPublicPackage(
     dependencies: { holycodex: `file:${packed.tarballPath.replaceAll("\\", "/")}` },
   });
   const bunStateRoot = join(temporaryRoot, "bun-state");
-  const bunInstallRoot = join(bunStateRoot, "install");
+  const bunHomeRoot = join(bunStateRoot, "home");
+  const bunInstallRoot = join(bunHomeRoot, ".bun");
+  const bunGlobalDirectory = join(bunInstallRoot, "install/global");
+  const bunGlobalBinDirectory = join(bunInstallRoot, "bin");
   const bunTempRoot = join(bunStateRoot, "tmp");
   const bunEnvironment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
+    HOME: bunHomeRoot,
+    USERPROFILE: bunHomeRoot,
+    APPDATA: join(bunHomeRoot, "AppData/Roaming"),
+    LOCALAPPDATA: join(bunHomeRoot, "AppData/Local"),
     BUN_INSTALL: bunInstallRoot,
+    BUN_INSTALL_GLOBAL_DIR: bunGlobalDirectory,
+    BUN_INSTALL_BIN: bunGlobalBinDirectory,
+    XDG_CONFIG_HOME: join(bunHomeRoot, "config"),
     BUN_TMPDIR: bunTempRoot,
     TEMP: bunTempRoot,
     TMP: bunTempRoot,
@@ -366,9 +434,17 @@ export async function verifyPublicPackage(
     npm_command: "exec",
     npm_config_user_agent: `bun/${Bun.version}`,
   });
+  await mkdir(bunHomeRoot, { recursive: true });
   await mkdir(bunInstallRoot, { recursive: true });
+  await mkdir(bunGlobalDirectory, { recursive: true });
+  await mkdir(bunGlobalBinDirectory, { recursive: true });
   await mkdir(bunTempRoot, { recursive: true });
-  bunEnvironment["PATH"] = [join(bunInstallRoot, "bin"), bunEnvironment["PATH"]]
+  await writeFile(
+    join(bunHomeRoot, ".bunfig.toml"),
+    `[install]\nglobalDir = ${JSON.stringify(bunGlobalDirectory.replaceAll("\\", "/"))}\nglobalBinDir = ${JSON.stringify(bunGlobalBinDirectory.replaceAll("\\", "/"))}\n`,
+    { encoding: "utf8" },
+  );
+  bunEnvironment["PATH"] = [bunGlobalBinDirectory, bunEnvironment["PATH"]]
     .filter((value): value is string => value !== undefined && value.length > 0)
     .join(delimiter);
   const preexistingContext7 = await findCommandOnPath("ctx7", bunEnvironment["PATH"]).then(
@@ -391,7 +467,8 @@ export async function verifyPublicPackage(
     "the installed plugin payload source",
   );
   for (const relativePath of [
-    "skills/plan/SKILL.md",
+    "skills/visual-loop/SKILL.md",
+    "skills/dev-server/SKILL.md",
     "skills/grill-me/SKILL.md",
     "skills/writing-instructions/SKILL.md",
     "skills/babysit-ci/SKILL.md",
@@ -442,6 +519,11 @@ export async function verifyPublicPackage(
 
   const codexEnvironment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
     CODEX_HOME: codexHome,
+    HOME: bunEnvironment["HOME"],
+    USERPROFILE: bunEnvironment["USERPROFILE"],
+    APPDATA: bunEnvironment["APPDATA"],
+    LOCALAPPDATA: bunEnvironment["LOCALAPPDATA"],
+    XDG_CONFIG_HOME: bunEnvironment["XDG_CONFIG_HOME"],
     PATH: [
       codexFixture.binDirectory,
       join(workspaceRoot, "node_modules/.bin"),
@@ -450,6 +532,8 @@ export async function verifyPublicPackage(
       .filter((value): value is string => value !== undefined && value.length > 0)
       .join(delimiter),
     BUN_INSTALL: bunInstallRoot,
+    BUN_INSTALL_GLOBAL_DIR: bunGlobalDirectory,
+    BUN_INSTALL_BIN: bunGlobalBinDirectory,
     BUN_TMPDIR: bunTempRoot,
     TEMP: bunTempRoot,
     TMP: bunTempRoot,
@@ -606,16 +690,16 @@ export async function verifyPublicPackage(
   const normalizedRootInstructions =
     typeof managedRootInstructions === "string" ? managedRootInstructions.toLowerCase() : "";
   assert(
-    readTomlPath(managedConfig, "model") === "gpt-6-astra" &&
+    readTomlPath(managedConfig, "model") === "gpt-6.1-sol" &&
       managedConfigText.includes("[features.context_management]") &&
       managedConfigText.includes("experimental_mode = true") &&
-      !/\b(?:Sol|Terra)\b/u.test(managedConfigText),
-    "the managed Codex configuration must use Astra and experimental context management",
+      !/\bTerra\b/u.test(managedConfigText),
+    "the managed Codex configuration must use GPT-6.1 Sol and experimental context management",
   );
   assert(
     typeof managedRootInstructions === "string" &&
       managedRootInstructions.includes(
-        "Start a bounded Assignment and dispatch the exact concrete registered Role.task agent_type",
+        "Dispatch each Assignment to its exact concrete registered Role.task agent_type",
       ) &&
       normalizedRootInstructions.includes("exact concrete registered role.task agent_type") &&
       ["explorer", "librarian", "worker", "reviewer", "labels"].every((term) =>
@@ -626,31 +710,13 @@ export async function verifyPublicPackage(
       ),
     "the packed high-profile Root configuration must preserve exact specialist dispatch",
   );
-  const fixedPointReviewPosition = normalizedRootInstructions.indexOf("reviewer.code fixed point");
-  const validationPosition = normalizedRootInstructions.indexOf("run worker.validation");
-  const integrationPosition = normalizedRootInstructions.indexOf("then integrate");
   assert(
-    fixedPointReviewPosition >= 0 &&
-      validationPosition > fixedPointReviewPosition &&
-      integrationPosition > validationPosition,
-    "the packed high-profile Root configuration must place validation after fixed-point review",
+    normalizedRootInstructions.includes("reviewer.code fixed point") &&
+      normalizedRootInstructions.includes("current relevant validation") &&
+      normalizedRootInstructions.includes("review and validation may overlap") &&
+      normalizedRootInstructions.includes("reuse worker proof"),
+    "the packed Root configuration must retain acceptance gates without redundant serial proof",
   );
-  if (process.platform === "win32") {
-    const tooling = objectProperty(activeRecord, "tooling");
-    const gitBash = objectProperty(tooling, "git_bash");
-    assert(
-      gitBash?.["status"] === "healthy" &&
-        typeof gitBash["path"] === "string" &&
-        /[\\/]bash\.exe$/iu.test(gitBash["path"]),
-      "the packed Windows install record must retain a verified Git Bash executable",
-    );
-    assert(
-      typeof managedRootInstructions === "string" &&
-        managedRootInstructions.includes(windowsGitBashShellDirective(gitBash["path"] as string)),
-      "the packed Windows Root configuration must project the verified Git Bash boundary",
-    );
-  }
-
   const pluginListEnvelope = parseCodexPluginList(
     (
       await runChecked([codexFixture.executable, "plugin", "list", "--json"], {
@@ -676,7 +742,7 @@ export async function verifyPublicPackage(
   const installedPluginRoot = join(codexHome, "plugins/holycodex");
   for (const relativePath of [
     ".codex-plugin/plugin.json",
-    "skills/plan/SKILL.md",
+    "skills/visual-loop/SKILL.md",
     "skills/grill-me/SKILL.md",
     "skills/writing-instructions/SKILL.md",
     "skills/babysit-ci/SKILL.md",
@@ -762,7 +828,10 @@ export async function verifyPublicPackage(
       confirm: async () => "cancelled",
     },
   })) as { readonly envelope: typeof CliEnvelopeSchema.Type; readonly exitCode: number };
-  assert(cancelled.exitCode === 0, "interactive remove cancellation must succeed");
+  assert(
+    cancelled.exitCode === 1,
+    `interactive remove cancellation must return its documented nonzero status: ${JSON.stringify(cancelled.envelope)}`,
+  );
   assert(cancelled.envelope.ok, "interactive remove cancellation must return success");
   if (cancelled.envelope.ok) {
     assert(
@@ -1066,25 +1135,38 @@ export async function runPackageVerification(): Promise<PackageVerificationResul
   });
 }
 
-async function verifyPreviousStableUpgrade(options: {
-  readonly temporaryRoot: string;
-  readonly currentCanonicalVersion: string;
-  readonly currentVersion: string;
-  readonly currentInstalledRoot: string;
-  readonly currentInstalledPackageRoot: string;
-  readonly currentEntry: string;
-  readonly codexCliVersion: string;
-  readonly bunEnvironment: Readonly<Record<string, string | undefined>>;
-  readonly commands: string[];
-}): Promise<void> {
+async function verifyPreviousStableUpgrade(options: PreviousStableUpgradeOptions): Promise<void> {
+  const temporaryRoot = externalTemporaryRoot();
+  await mkdir(temporaryRoot, { recursive: true });
+  const bunStateRoot = await mkdtemp(join(temporaryRoot, "holycodex-previous-stable-bun-state-"));
+  try {
+    await verifyPreviousStableUpgradeWithBunState({ ...options, bunStateRoot });
+  } finally {
+    await rm(bunStateRoot, { recursive: true, force: true });
+  }
+}
+
+async function verifyPreviousStableUpgradeWithBunState(
+  options: PreviousStableUpgradeOptions & { readonly bunStateRoot: string },
+): Promise<void> {
   const previousVersion = previousPatchVersion(options.currentVersion);
   const previousInstalledRoot = join(options.temporaryRoot, "previous-installed");
   await mkdir(previousInstalledRoot, { recursive: true });
-  const previousBunStateRoot = join(options.temporaryRoot, "previous-bun-state");
-  const previousBunInstallRoot = join(previousBunStateRoot, "install");
+  const previousBunStateRoot = options.bunStateRoot;
+  const previousBunHomeRoot = join(previousBunStateRoot, "home");
+  const previousBunInstallRoot = join(previousBunHomeRoot, ".bun");
+  const previousBunGlobalDirectory = join(previousBunInstallRoot, "install/global");
+  const previousBunGlobalBinDirectory = join(previousBunInstallRoot, "bin");
   const previousBunTempRoot = join(previousBunStateRoot, "tmp");
   const previousBunEnvironment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
+    HOME: previousBunHomeRoot,
+    USERPROFILE: previousBunHomeRoot,
+    APPDATA: join(previousBunHomeRoot, "AppData/Roaming"),
+    LOCALAPPDATA: join(previousBunHomeRoot, "AppData/Local"),
     BUN_INSTALL: previousBunInstallRoot,
+    BUN_INSTALL_GLOBAL_DIR: previousBunGlobalDirectory,
+    BUN_INSTALL_BIN: previousBunGlobalBinDirectory,
+    XDG_CONFIG_HOME: join(previousBunHomeRoot, "config"),
     BUN_TMPDIR: previousBunTempRoot,
     TEMP: previousBunTempRoot,
     TMP: previousBunTempRoot,
@@ -1093,12 +1175,17 @@ async function verifyPreviousStableUpgrade(options: {
     npm_command: "exec",
     npm_config_user_agent: `bun/${Bun.version}`,
   });
+  await mkdir(previousBunHomeRoot, { recursive: true });
   await mkdir(previousBunInstallRoot, { recursive: true });
+  await mkdir(previousBunGlobalDirectory, { recursive: true });
+  await mkdir(previousBunGlobalBinDirectory, { recursive: true });
   await mkdir(previousBunTempRoot, { recursive: true });
-  previousBunEnvironment["PATH"] = [
-    join(previousBunInstallRoot, "bin"),
-    options.bunEnvironment["PATH"],
-  ]
+  await writeFile(
+    join(previousBunHomeRoot, ".bunfig.toml"),
+    `[install]\nglobalDir = ${JSON.stringify(previousBunGlobalDirectory.replaceAll("\\", "/"))}\nglobalBinDir = ${JSON.stringify(previousBunGlobalBinDirectory.replaceAll("\\", "/"))}\n`,
+    { encoding: "utf8" },
+  );
+  previousBunEnvironment["PATH"] = [previousBunGlobalBinDirectory, options.bunEnvironment["PATH"]]
     .filter((value): value is string => value !== undefined && value.length > 0)
     .join(delimiter);
   const bunxLauncher = await findCommandOnPath("bunx", previousBunEnvironment["PATH"]);
@@ -1145,8 +1232,23 @@ async function verifyPreviousStableUpgrade(options: {
   const fixturePluginSource = join(codexHome, "fixture-plugin-source");
   await stageFixturePlugin(previousPackageRoot, fixturePluginSource);
   const codexFixture = await createCodexFixture(codexHome, options.codexCliVersion);
+  // Legacy `bun add -g` can still discover an ancestor repository from a nested CWD.
+  const systemTemporaryRoot = externalTemporaryRoot();
+  await mkdir(systemTemporaryRoot, { recursive: true });
+  const previousCliWorkingDirectory = await mkdtemp(
+    join(systemTemporaryRoot, "holycodex-previous-stable-command-"),
+  );
+  const previousBunGlobalInstallWorkingDirectory = await mkdtemp(
+    join(systemTemporaryRoot, "holycodex-previous-stable-bun-global-"),
+  );
   const environment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
     CODEX_HOME: codexHome,
+    HOME: previousBunEnvironment["HOME"],
+    USERPROFILE: previousBunEnvironment["USERPROFILE"],
+    APPDATA: previousBunEnvironment["APPDATA"],
+    LOCALAPPDATA: previousBunEnvironment["LOCALAPPDATA"],
+    XDG_CONFIG_HOME: previousBunEnvironment["XDG_CONFIG_HOME"],
+    PWD: previousCliWorkingDirectory,
     PATH: [
       codexFixture.binDirectory,
       join(workspaceRoot, "node_modules/.bin"),
@@ -1155,6 +1257,8 @@ async function verifyPreviousStableUpgrade(options: {
       .filter((value): value is string => value !== undefined && value.length > 0)
       .join(delimiter),
     BUN_INSTALL: previousBunEnvironment["BUN_INSTALL"],
+    BUN_INSTALL_GLOBAL_DIR: previousBunEnvironment["BUN_INSTALL_GLOBAL_DIR"],
+    BUN_INSTALL_BIN: previousBunEnvironment["BUN_INSTALL_BIN"],
     BUN_TMPDIR: previousBunEnvironment["BUN_TMPDIR"],
     TEMP: previousBunEnvironment["TEMP"],
     TMP: previousBunEnvironment["TMP"],
@@ -1167,29 +1271,86 @@ async function verifyPreviousStableUpgrade(options: {
     HOLYCODEX_DEBUG_INSTALLER: "1",
   });
 
-  const previousInstall = await runCli(
-    previousEntry,
-    [
-      "install",
-      "--yes",
-      "--json",
-      "--profile",
-      "high",
-      "--tier",
-      "fast-all",
-      ...LEGACY_WORK_PROVIDER_PLUGINS.flatMap((pluginId) => ["--add-plugin", pluginId]),
-      "--add-plugin",
-      ADDITIONAL_FIXTURE_PLUGIN,
-      "--codex-home",
-      codexHome,
-    ],
-    previousInstalledRoot,
-    options.commands,
-    environment,
-  );
+  let previousInstall: typeof CliEnvelopeSchema.Type;
+  try {
+    // Bun needs a package manifest for `pm view`, but a global add from that package CWD
+    // resolves locally. Seed the isolated global installation from a manifest-free directory.
+    await runChecked(["bun", "add", "--global", "ctx7@latest"], {
+      cwd: previousBunGlobalInstallWorkingDirectory,
+      env: {
+        ...previousBunEnvironment,
+        PWD: previousBunGlobalInstallWorkingDirectory,
+      },
+    });
+    const previousCommandBunConfigPath = join(previousCliWorkingDirectory, "bunfig.toml");
+    await writeFile(
+      previousCommandBunConfigPath,
+      `[install]\nglobalDir = ${JSON.stringify(previousBunGlobalDirectory.replaceAll("\\", "/"))}\nglobalBinDir = ${JSON.stringify(previousBunGlobalBinDirectory.replaceAll("\\", "/"))}\n`,
+      { encoding: "utf8" },
+    );
+    const previousCommandBunConfig = Bun.TOML.parse(
+      await readFile(previousCommandBunConfigPath, "utf8"),
+    );
+    const previousCommandInstallConfig = objectProperty(previousCommandBunConfig, "install");
+    assert(
+      previousCommandInstallConfig?.["globalDir"] ===
+        previousBunGlobalDirectory.replaceAll("\\", "/") &&
+        previousCommandInstallConfig["globalBinDir"] ===
+          previousBunGlobalBinDirectory.replaceAll("\\", "/"),
+      "the previous stable CLI Bun config does not isolate global install paths",
+    );
+    await writeJson(join(previousCliWorkingDirectory, "package.json"), {
+      name: "holycodex-previous-stable-command",
+      private: true,
+    });
+    await writeJson(join(previousCliWorkingDirectory, "bun.lock"), {
+      lockfileVersion: 2,
+      configVersion: 1,
+      workspaces: { "": { name: "holycodex-previous-stable-command" } },
+      packages: {},
+    });
+    previousInstall = await runCli(
+      previousEntry,
+      [
+        "install",
+        "--yes",
+        "--json",
+        "--profile",
+        "high",
+        "--tier",
+        "fast-all",
+        ...LEGACY_WORK_PROVIDER_PLUGINS.flatMap((pluginId) => ["--add-plugin", pluginId]),
+        "--add-plugin",
+        ADDITIONAL_FIXTURE_PLUGIN,
+        "--codex-home",
+        codexHome,
+      ],
+      previousCliWorkingDirectory,
+      options.commands,
+      environment,
+    );
+  } finally {
+    await rm(previousCliWorkingDirectory, { recursive: true, force: true });
+    await rm(previousBunGlobalInstallWorkingDirectory, { recursive: true, force: true });
+  }
   assert(previousInstall.ok, "the previous stable package install failed");
   const activeRecordPath = join(codexHome, "holycodex/active.json");
   const previousModule = (await import(pathToFileURL(previousEntry).href)) as InstalledCliModule;
+  const previousHighRoot = previousModule.projectRootAgent("high", "fast-all");
+  const legacyConfigMarker = join(codexHome, ".holycodex-legacy-config");
+  await writeFile(legacyConfigMarker, "1\n", { encoding: "utf8" });
+  try {
+    await assertCodexAppServerReadback(
+      codexFixture.executable,
+      environment,
+      codexHome,
+      options.codexCliVersion,
+      previousHighRoot.model,
+      true,
+    );
+  } finally {
+    await rm(legacyConfigMarker, { force: true });
+  }
   await rewriteActiveRecord(activeRecordPath, previousModule, rewriteForLegacyWork);
   const previousRecord = JSON.parse(await readFile(activeRecordPath, "utf8")) as Record<
     string,
@@ -1213,7 +1374,10 @@ async function verifyPreviousStableUpgrade(options: {
   await stageFixturePlugin(options.currentInstalledPackageRoot, fixturePluginSource);
   const beforeDryRun = await snapshotDirectoryBytes(codexHome);
   const dryRun = await runInternalUpgrade(options.currentEntry, codexHome, environment, true);
-  assert(dryRun.ok, "the real previous-stable upgrade dry-run failed");
+  assert(
+    dryRun.ok,
+    `the real previous-stable upgrade dry-run failed (${dryRun.ok ? "unexpected success" : `${dryRun.error.code}: ${dryRun.error.message}`})`,
+  );
   if (dryRun.ok) {
     assert(
       hasProperty(dryRun.data, "status") && dryRun.data["status"] === "dry_run",
@@ -1534,9 +1698,6 @@ async function runInstalledAgentHelp(
     ["intent", "evidence"],
     ["intent", "complete"],
     ["intent", "abandon"],
-    ["plan"],
-    ["plan", "read"],
-    ["plan", "revise"],
     ["assignment"],
     ["assignment", "create"],
     ["assignment", "list"],
@@ -1990,6 +2151,8 @@ async function assertCodexAppServerReadback(
   environment: Readonly<Record<string, string | undefined>>,
   codexHome: string,
   codexCliVersion: string,
+  expectedRootModel?: string,
+  legacyRootOnly = false,
 ): Promise<void> {
   const transport = new BunStdioTransport({ executablePath: executable, environment });
   const client = new AppServerClient(transport, { requestTimeoutMs: 10_000 });
@@ -2005,42 +2168,27 @@ async function assertCodexAppServerReadback(
       "Codex App Server returned a protocol version different from generated provenance",
     );
     const readback = await client.readConfig({ includeLayers: true, cwd: codexHome });
+    const highProfile = PROFILE_CATALOG.find((profile) => profile.name === "high");
+    assert(highProfile !== undefined, "the high profile is missing from the route catalog");
     assert(
-      readback.config["model"] === "gpt-6-astra" &&
+      readback.config["model"] === (expectedRootModel ?? highProfile.root.model) &&
         readback.config["model_reasoning_effort"] === "high",
-      "Codex App Server config readback changed the high-profile Root route",
+      `Codex App Server config readback changed the high-profile Root route (expected ${JSON.stringify(expectedRootModel ?? highProfile.root.model)}/high, received ${JSON.stringify(readback.config["model"])}/${JSON.stringify(readback.config["model_reasoning_effort"])})`,
     );
+    if (legacyRootOnly) return;
     const rootInstructions = readback.config["developer_instructions"];
     assert(
       typeof rootInstructions === "string" &&
         rootInstructions.toLowerCase().includes("bounded assignment") &&
         rootInstructions.toLowerCase().includes("exact concrete registered role.task agent_type"),
-      "Codex App Server config readback changed the Astra-specific Root instruction projection",
+      "Codex App Server config readback changed the high-profile Root instruction projection",
     );
-    if (process.platform === "win32") {
-      const active = JSON.parse(
-        await readFile(join(codexHome, "holycodex/active.json"), "utf8"),
-      ) as {
-        tooling?: { git_bash?: { path?: string } };
-      };
-      const verifiedShell = active.tooling?.git_bash?.path;
-      assert(
-        typeof verifiedShell === "string" &&
-          typeof readback.config["developer_instructions"] === "string" &&
-          readback.config["developer_instructions"].includes(
-            windowsGitBashShellDirective(verifiedShell),
-          ),
-        "Codex App Server config readback changed the verified Git Bash executable",
-      );
-    }
     const agents = readback.config["agents"];
     assert(
       typeof agents === "object" && agents !== null && !Array.isArray(agents),
       "Codex App Server config readback omitted role registrations",
     );
     const agentTable = agents as Record<string, unknown>;
-    const highProfile = PROFILE_CATALOG.find((profile) => profile.name === "high");
-    assert(highProfile !== undefined, "the high profile is missing from the route catalog");
     for (const agentType of NATIVE_AGENT_TYPES) {
       const registration = agentTable[agentType];
       assert(
@@ -2092,19 +2240,6 @@ async function assertCodexAppServerReadback(
           readTomlPath(roleDocument, "model_reasoning_effort") === expectedRoute.effort,
         `Codex App Server config readback changed the ${agentType} route TOML`,
       );
-      if (process.platform === "win32") {
-        const active = JSON.parse(
-          await readFile(join(codexHome, "holycodex/active.json"), "utf8"),
-        ) as { tooling?: { git_bash?: { path?: string } } };
-        const verifiedShell = active.tooling?.git_bash?.path;
-        const instructions = readTomlPath(roleDocument, "developer_instructions");
-        assert(
-          typeof verifiedShell === "string" &&
-            typeof instructions === "string" &&
-            instructions.includes(windowsGitBashShellDirective(verifiedShell)),
-          `Codex App Server config readback changed the verified Git Bash boundary for ${agentType}`,
-        );
-      }
     }
   } catch (error: unknown) {
     const diagnostics = transport.diagnostics.join("; ");
@@ -2113,11 +2248,7 @@ async function assertCodexAppServerReadback(
     const configSnippet = configText
       .slice(shellIndex < 0 ? 0 : shellIndex, shellIndex < 0 ? 512 : shellIndex + 1024)
       .replaceAll(/\s+/gu, " ");
-    const active = JSON.parse(await readFile(join(codexHome, "holycodex/active.json"), "utf8")) as {
-      tooling?: { git_bash?: { path?: string } };
-    };
-    const verifiedShell = active.tooling?.git_bash?.path;
-    const configProbe = `configShell=${verifiedShell !== undefined && configText.includes("On Windows, use Git for Windows Bash")} configDeveloper=${configText.includes("developer_instructions")} configSnippet=${configSnippet}`;
+    const configProbe = `configDeveloper=${configText.includes("developer_instructions")} configSnippet=${configSnippet}`;
     const installerDebug = await readFile(join(codexHome, ".holycodex-debug.log"), "utf8").catch(
       () => "",
     );
@@ -2169,7 +2300,7 @@ function parseCodexPluginList(stdout: string): CodexPluginList {
 /** Source for the hermetic Codex executable used by package verification. */
 function fakeCodexProgram(codexCliVersion: string): string {
   const source = String.raw`const CODEX_VERSION = "CODEX_VERSION_PLACEHOLDER";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 
 const HOME = process.env.CODEX_HOME;
@@ -2350,7 +2481,10 @@ async function addPlugin(pluginId) {
     const source = join(HOME, "fixture-plugin-source");
     const manifest = JSON.parse(await readFile(join(source, ".codex-plugin", "plugin.json"), "utf8"));
     if (manifest.name !== "holycodex" || typeof manifest.version !== "string") fail("HolyCodex plugin manifest is invalid");
-    await readFile(join(source, "skills", "plan", "SKILL.md"), "utf8");
+    const skills = await readdir(join(source, "skills"), { withFileTypes: true });
+    const skill = skills.find((entry) => entry.isDirectory());
+    if (skill === undefined) fail("HolyCodex plugin source has no skills");
+    await readFile(join(source, "skills", skill.name, "SKILL.md"), "utf8");
     const destination = join(HOME, "plugins", "holycodex");
     await rm(destination, { recursive: true, force: true });
     await mkdir(join(HOME, "plugins"), { recursive: true, mode: 0o700 });
@@ -2392,7 +2526,26 @@ async function configRead() {
   const rootDocument = Bun.TOML.parse(text);
   const rootFeature = (key) => readFeatureBoolean(rootDocument, "features", key);
   const active = JSON.parse(await readFile(join(HOME, "holycodex", "active.json"), "utf8"));
-  const verifiedShell = active.tooling?.git_bash?.path;
+  const allowLegacyConfig =
+    (await readFile(join(HOME, ".holycodex-legacy-config"), "utf8").catch(() => "")) === "1\n";
+  function rootStringSetting(name) {
+    const prefix = name + " = ";
+    const line = text.split(/\r?\n/u).find((candidate) => candidate.startsWith(prefix));
+    if (line === undefined) fail("Codex config omitted " + name);
+    const value = JSON.parse(line.slice(prefix.length));
+    if (typeof value !== "string") fail("Codex config has an invalid " + name);
+    return value;
+  }
+  if (allowLegacyConfig) {
+    return {
+      config: {
+        model: rootStringSetting("model"),
+        model_reasoning_effort: rootStringSetting("model_reasoning_effort"),
+      },
+      origins: {},
+      layers: null,
+    };
+  }
   if (rootFeature("multi_agent") !== true) {
     fail("Codex config omitted the canonical Root multi-agent mode");
   }
@@ -2407,26 +2560,19 @@ async function configRead() {
   }
   const experimentalContextManagement =
     readFeatureBoolean(rootDocument, "features.context_management", "experimental_mode") === true;
-  if (!experimentalContextManagement) {
+  if (!experimentalContextManagement && !allowLegacyConfig) {
     fail("Codex config omitted context management");
   }
   if (/thread_tools/u.test(text)) {
     fail("Codex config contains an unsupported feature setting");
   }
-  function rootStringSetting(name) {
-    const prefix = name + " = ";
-    const line = text.split(/\r?\n/u).find((candidate) => candidate.startsWith(prefix));
-    if (line === undefined) fail("Codex config omitted " + name);
-    const value = JSON.parse(line.slice(prefix.length));
-    if (typeof value !== "string") fail("Codex config has an invalid " + name);
-    return value;
-  }
   const rootInstructions = rootStringSetting("developer_instructions").toLowerCase();
   if (
     !rootInstructions.includes("never perform delegable work yourself") ||
-    !rootInstructions.includes("before every delegable action, including trivial, preparatory, and exploratory work") ||
+    !rootInstructions.includes("through bounded assignments") ||
     !rootInstructions.includes("never inherit root settings, substitute a generic route") ||
-    !rootInstructions.includes("browser use and computer use execution are specialist-owned")
+    !rootInstructions.includes("root uses visual-loop") ||
+    !rootInstructions.includes("use dev-server")
   ) {
     fail("Codex config omitted the Root orchestration boundaries");
   }
@@ -2438,19 +2584,6 @@ async function configRead() {
     !rootInstructions.includes("generic built-in agent_type values worker, explorer, reviewer, librarian are forbidden")
   ) {
     fail("Codex config retained ambiguous specialist dispatch policy");
-  }
-  if (
-    process.platform === "win32" &&
-    (typeof verifiedShell !== "string" ||
-      !rootStringSetting("developer_instructions").includes(
-        "On Windows, set the shell parameter to exactly",
-      ) ||
-      !rootStringSetting("developer_instructions").includes(
-        "for every shell command, including read-only commands; never rely on the default shell",
-      ) ||
-      !rootStringSetting("developer_instructions").includes(JSON.stringify(verifiedShell)))
-  ) {
-    fail("Codex config omitted the Windows Git Bash boundary");
   }
   const config = {
     model: rootStringSetting("model"),
@@ -2528,20 +2661,6 @@ async function configRead() {
       !roleInstructions.toLowerCase().includes("one compact, evidence-first terminal outcome")
     ) {
       fail("Codex role file omitted terminal-only specialist reporting boundaries");
-    }
-    if (
-      process.platform === "win32" &&
-      (typeof verifiedShell !== "string" ||
-        typeof roleInstructions !== "string" ||
-        !roleInstructions.includes(
-          "On Windows, set the shell parameter to exactly",
-        ) ||
-        !roleInstructions.includes(
-          "for every shell command, including read-only commands; never rely on the default shell",
-        ) ||
-        !roleInstructions.includes(JSON.stringify(verifiedShell)))
-    ) {
-      fail("Codex role file omitted the Windows Git Bash boundary");
     }
     config.agents[agentType] = { config_file: configFile };
   }

@@ -5,10 +5,9 @@ description: Use when the user requests or approves an interactive visualization
 
 Use ChatGPT Sites to create an interactive, user-facing visualization that
 turns the supplied plan, analysis, design, structured information, or other
-useful material into a clear, usable result. When the user explicitly requests
-a visualization, create it without asking again. If you believe one would
-materially improve a task but the user did not request it, ask Root to obtain
-approval before creating it.
+useful material into a clear, usable result. A visualization request authorizes
+its preparation. Root delegates implementation and judges the rendered result
+with visual-loop; follow the active capability's publication boundary.
 
 Return the visualization and enough context to verify that it answers the
 request. If the requested result cannot be completed with an authorized,

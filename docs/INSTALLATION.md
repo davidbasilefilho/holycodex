@@ -8,23 +8,17 @@ HolyCodex installs one native leaf for each canonical identity:
 `Explorer.map`, `Explorer.lookup`, `Explorer.trace`, `Librarian.lookup`,
 `Librarian.research`, `Worker.mechanical`, `Worker.implementation`,
 `Worker.integration`, `Worker.operations`, `Worker.validation`,
-`Worker.debugging`, `Reviewer.plan`, `Reviewer.code`, and `Reviewer.artifact`.
+`Worker.debugging`, `Reviewer.code`, and `Reviewer.artifact`.
 Each leaf has one TOML under
 `<CODEX_HOME>/holycodex/agents/` and one `config.toml` registration. Root is
 the parent session configured in `config.toml`; `agents/root.toml` is never
 created or registered. Migration and removal may delete only a known,
 unchanged HolyCodex-owned legacy Root file.
 
-## Required tooling
+## Optional tooling
 
-On Windows, installation, the package migration, and doctor require a verified Git for Windows
-Bash executable. HolyCodex checks `C:\\Program Files\\Git\\bin\\bash.exe`
-first and then a `bash` resolved from `PATH`; it accepts only a compatible Git
-for Windows installation. When none is healthy, install or the package migration runs
-`winget install --id Git.Git -e --source winget` and verifies the executable
-directly. Failure returns an actionable capability error. Existing Git for
-Windows state is shared user/system state and is not replaced, reconfigured,
-or removed merely because HolyCodex uses it.
+On Windows, Codex selects the shell environment for its commands. HolyCodex
+does not require, install, or verify Git for Windows Bash.
 
 Context7 is optional. HolyCodex accepts a usable `ctx7` on the effective
 `PATH`. If none is available, it attempts to install `ctx7@latest` with Bun.
@@ -58,16 +52,19 @@ only. The tier is independent.
 Frontend and Security are required capabilities. ChatGPT Sites and Browser Use
 are optional and default on; Computer Use is optional and default off. Sites
 availability can depend on account, region, workspace policy, or supported
-Codex surface. Browser Use depends on Codex surface/runtime and may be
-unsupported. Computer Use has stronger platform/surface restrictions and
-greater external-action capability. The CLI preflights required and selected
-capabilities and runtime compatibility, invokes only their canonical official
-Codex providers, verifies readback, and publishes routing, capability state,
-plugins, and generated configuration coherently. Selected unsupported or
-unavailable capabilities and `--add-plugin` IDs fail explicitly; no silent
-omission or substitute is accepted. An unrelated unavailable official-provider
-marketplace does not abort a valid selected set. Failed installs leave a
-recoverable transaction; retrying reconciles it before publishing new state.
+Codex surface. Browser Use is provisioned by Codex Desktop; the CLI preserves
+any host state and records the selection without installing, configuring, or
+claiming the provider. Its actual availability is checked only at the Codex
+surface where a specialist uses it. Computer Use has stronger platform/surface
+restrictions and greater external-action capability. The CLI preflights
+provider-backed capabilities and runtime compatibility, invokes only their
+canonical official Codex providers, verifies readback, and publishes routing,
+capability state, plugins, and generated configuration coherently. Selected
+unsupported provider-backed capabilities and `--add-plugin` IDs fail
+explicitly; no silent omission or substitute is accepted. An unrelated
+unavailable official-provider marketplace does not abort a valid selected set.
+Failed installs leave a recoverable transaction; retrying reconciles it before
+publishing new state.
 
 Root's selected model, reasoning effort, service tier, developer instructions,
 required feature flags, and every canonical leaf registration converge in
@@ -81,7 +78,9 @@ without fallback.
 Profiles select configured Root and specialist route identities with the task
 effort matrix in [BEHAVIOR.md](BEHAVIOR.md). Every generated instruction
 targets GPT-6-family behavior regardless of a temporary routing model ID.
-Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; native specialist route files use `gpt-6-luna`. Root dispatches concrete registered
+Root uses `gpt-6.1-sol` at low, medium, and high reasoning effort for the
+`low`, `default`, and `high` profiles respectively; native specialist route
+files use `gpt-6-luna`. Root dispatches concrete registered
 `Role.task` identities from the canonical inventory; role families and generic
 built-in agent types are not dispatch targets.
 HolyCodex manages

@@ -3,12 +3,32 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  CAPABILITY_REGISTRY,
   canonicalOfficialPluginId,
+  DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
   officialPluginIdCandidates,
+  pluginIdsForOptionalCapabilities,
   resolveOfficialPluginIdentity,
 } from "./index.ts";
 
 describe("official curated capability identities", () => {
+  test("keeps Browser Use selected without managing Codex Desktop-owned provider state", () => {
+    expect(DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.browser_use).toBe(true);
+    expect(CAPABILITY_REGISTRY.browser_use.pluginIds).toEqual([]);
+    const required = pluginIdsForOptionalCapabilities({
+      ...DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
+      computer_use: false,
+      sites: false,
+    });
+    expect(required).not.toContain("browser@openai-bundled");
+    expect(
+      pluginIdsForOptionalCapabilities(
+        { ...DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS, computer_use: false, sites: false },
+        ["browser@openai-bundled"],
+      ),
+    ).not.toContain("browser@openai-bundled");
+  });
+
   test("keeps canonical and Codex remote identities equivalent", () => {
     expect(canonicalOfficialPluginId("build-web-apps@openai-curated")).toBe(
       "build-web-apps@openai-curated",

@@ -26,7 +26,7 @@ import { decodeUnknown } from "./schema.ts";
 /** Canonical astra model id used by core domain operations. */
 export const ASTRA_MODEL_ID = "gpt-6-astra" as const;
 /** Canonical sol model id used by core domain operations. */
-export const SOL_MODEL_ID = "gpt-6-sol" as const;
+export const SOL_MODEL_ID = "gpt-6.1-sol" as const;
 /** Canonical luna model id used by core domain operations. */
 export const LUNA_MODEL_ID = "gpt-6-luna" as const;
 
@@ -73,7 +73,6 @@ export const ROUTE_EFFORT_OVERRIDES = [
       "Worker:operations": "high",
       "Worker:validation": "medium",
       "Worker:debugging": "high",
-      "Reviewer:plan": "high",
       "Reviewer:code": "max",
       "Reviewer:artifact": "high",
     } satisfies Readonly<Record<RouteKey, Effort>>,
@@ -93,7 +92,6 @@ export const ROUTE_EFFORT_OVERRIDES = [
       "Worker:operations": "high",
       "Worker:validation": "high",
       "Worker:debugging": "xhigh",
-      "Reviewer:plan": "xhigh",
       "Reviewer:code": "max",
       "Reviewer:artifact": "xhigh",
     } satisfies Readonly<Record<RouteKey, Effort>>,
@@ -113,7 +111,6 @@ export const ROUTE_EFFORT_OVERRIDES = [
       "Worker:operations": "xhigh",
       "Worker:validation": "xhigh",
       "Worker:debugging": "max",
-      "Reviewer:plan": "max",
       "Reviewer:code": "max",
       "Reviewer:artifact": "max",
     } satisfies Readonly<Record<RouteKey, Effort>>,
@@ -162,9 +159,9 @@ function createProfile(
 }
 
 const profileDefinitions: ProfileDefinition[] = [
-  createProfile({ name: "low", rootModel: SOL_MODEL_ID, rootEffort: "medium" }),
-  createProfile({ name: "default", rootModel: SOL_MODEL_ID, rootEffort: "high" }),
-  createProfile({ name: "high", rootModel: ASTRA_MODEL_ID, rootEffort: "high" }),
+  createProfile({ name: "low", rootModel: SOL_MODEL_ID, rootEffort: "low" }),
+  createProfile({ name: "default", rootModel: SOL_MODEL_ID, rootEffort: "medium" }),
+  createProfile({ name: "high", rootModel: SOL_MODEL_ID, rootEffort: "high" }),
 ];
 
 function validateCatalog(definitions: readonly ProfileDefinition[]): void {
@@ -179,8 +176,9 @@ function validateCatalog(definitions: readonly ProfileDefinition[]): void {
     if (!definition || definition.name !== expectedProfile) {
       throw new CoreError("catalog_invalid", "The profile catalog order is invalid.", { index });
     }
-    const expectedModel = expectedProfile === "high" ? ASTRA_MODEL_ID : SOL_MODEL_ID;
-    const expectedEffort = expectedProfile === "low" ? "medium" : "high";
+    const expectedModel = SOL_MODEL_ID;
+    const expectedEffort =
+      expectedProfile === "low" ? "low" : expectedProfile === "default" ? "medium" : "high";
     if (
       definition.root.model !== expectedModel ||
       definition.root.effort !== expectedEffort ||

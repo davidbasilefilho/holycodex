@@ -1,21 +1,21 @@
 ---
 name: grill-me
-description: Use when an unspecified choice has multiple materially different outcomes; ask focused questions to resolve the decision before work depends on it.
+description: Use when a material user decision blocks authorized work; ask Root's concise question through request_user_input.
 ---
 
 # Grill me
 
-Use this skill only for a material unresolved choice involving architecture,
-behavior, UX, compatibility, dependencies, cost, security, external effects,
-or another meaningful user-visible result. Infer obvious safe defaults and
-continue without questioning routine omissions.
+Use this skill only when an unresolved material user decision blocks the next
+step. It is not for routine omissions, safe implementation choices, or
+planning.
 
-Before asking, finish authorized discovery and reversible preparation that can
-narrow the choice without deciding it. Ask only for the earliest unresolved
-choice required by the next executable phase. After the answer, continue the
-discovery and ask the next dependent question only if it remains material.
-Avoid questionnaires about later phases whose relevance may change.
+Root only. For every clarification, call `request_user_input` with the smallest
+set of questions needed to resolve the decision, in the user's language and
+grounded in known evidence. Never ask what the session already establishes.
+If no material question remains, continue without invoking this skill.
 
-Persist the answer through the current Intent or Plan state model. Return to
-Root with the selected decision, its scope, and the evidence or dependency it
-unblocked; use `needs_root_input` when the choice remains unresolved.
+Continue independent authorized work while awaiting the answer. Do not ask
+about hypothetical later phases. Specialists must not ask the user; they
+return a `needs_root_input` outcome to Root with the specific decision and
+why it blocks their Assignment. Root uses that outcome only when the answer
+prevents further progress.

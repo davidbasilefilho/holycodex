@@ -36,7 +36,6 @@ historical origin in Matt Pocock's `writing-for-agents`; the original upstream
 project has not been renamed. Its current GPT-6 instruction contract is
 HolyCodex-authored. Matt Pocock's current skill is used only as a documentation
 writing reference, not to design HolyCodex model-facing instructions.
-Hardik Pandya's adapted `stop-slop` skill retains its upstream MIT license.
 Evidence and reference scope are recorded in [PROVENANCE.md](docs/PROVENANCE.md).
 
 HolyCodex-authored material is licensed under [Apache-2.0](LICENSE).

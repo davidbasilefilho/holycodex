@@ -1,11 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "bun:test";
+
+test("Root visual fallback includes only selected capabilities in priority order", () => {
+  for (const browserUse of [false, true]) {
+    for (const computerUse of [false, true]) {
+      const instruction = rootDeveloperInstructions({ browserUse, computerUse })
+        .split("\n")
+        .find((line) => line.startsWith("For Root visual judgment,"))!;
+      expect(instruction.includes("in-app browser (IAB)")).toBe(browserUse);
+      expect(instruction.includes("Computer Use")).toBe(computerUse);
+      expect(instruction).toContain("other available rendered evidence");
+      if (browserUse && computerUse) {
+        expect(instruction.indexOf("IAB")).toBeLessThan(instruction.indexOf("Computer Use"));
+      }
+    }
+  }
+});
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, win32 } from "node:path";
+import { dirname, join, win32 } from "node:path";
 
 import {
   AppServerClient,
@@ -20,8 +36,6 @@ import {
   projectRootAgent,
   renderNativeAgent,
   rootDeveloperInstructions,
-  windowsGitBashShellDirective,
-  WINDOWS_GIT_BASH,
   type InstallerRuntime,
   type OfficialPluginManager,
 } from "./index.ts";
@@ -33,9 +47,8 @@ import {
   nativeAgentGenerationId,
   nativeAgentSandboxConfigurationMatches,
   nativeAgentSandboxMode,
+  rollbackNativeAgentInstall,
 } from "./native-agents.ts";
-
-const verifiedPathBash = "C:\\Other\\Git\\bin\\bash.exe";
 
 class ConfigReadTransport implements AsyncLineTransport {
   private readonly queued: string[] = [];
@@ -106,7 +119,6 @@ function windowsRuntime(): InstallerRuntime {
   );
   const packageExecutable = win32.join(packageRoot, "dist", "index.js");
   const shim = win32.join(binRoot, "ctx7.exe");
-  const gitExecutable = "C:\\Other\\Git\\cmd\\git.exe";
   const files = {
     access: async (path: string): Promise<void> => {
       if ([binRoot, projectRoot, packageRoot, packageExecutable, shim].includes(path)) {
@@ -137,15 +149,6 @@ function windowsRuntime(): InstallerRuntime {
       }
       if (executable === shim && args[0] === "--version") {
         return { exitCode: 0, stdout: "ctx7 2.0.0\n", stderr: "" };
-      }
-      if (executable === verifiedPathBash && args[0] === "--version") {
-        return { exitCode: 0, stdout: "GNU bash, version 5.2.26(1)-release\n", stderr: "" };
-      }
-      if (executable === verifiedPathBash && args.includes("uname -s")) {
-        return { exitCode: 0, stdout: "MINGW64_NT-10.0\n", stderr: "" };
-      }
-      if (executable === gitExecutable && args[0] === "--version") {
-        return { exitCode: 0, stdout: "git version 2.46.0.windows.1\n", stderr: "" };
       }
       return { exitCode: 1, stdout: "", stderr: "unavailable" };
     },
@@ -252,7 +255,7 @@ describe("Windows native-agent instructions", () => {
     }
   }, 30_000);
 
-  test("uses the verified PATH Bash in Root generation, App Server readback, and install verification", async () => {
+  test("keeps shell selection with Codex through Root generation and App Server readback", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "holycodex-native-windows-"));
     const codexHome = join(temporaryRoot, "codex");
     try {
@@ -264,10 +267,7 @@ describe("Windows native-agent instructions", () => {
           officialPluginManager: pluginManager(),
         },
       );
-      expect(installed.record.tooling?.git_bash).toMatchObject({
-        status: "healthy",
-        path: verifiedPathBash,
-      });
+      expect(installed.record.tooling).not.toHaveProperty("git_bash");
 
       const configText = await readFile(join(codexHome, "config.toml"), "utf8");
       expect(configText).not.toContain("thread_tools");
@@ -275,10 +275,8 @@ describe("Windows native-agent instructions", () => {
       const config = parseConfig(configText);
       const rootInstructions = config["developer_instructions"];
       expect(typeof rootInstructions).toBe("string");
-      expect(rootInstructions).toContain(windowsGitBashShellDirective(verifiedPathBash));
-      expect(rootInstructions).toContain("set the shell parameter to exactly");
-      expect(rootInstructions).toContain("for every shell command, including read-only commands");
-      expect(rootInstructions).not.toContain(JSON.stringify(WINDOWS_GIT_BASH));
+      expect(rootInstructions).not.toContain("set the shell parameter to exactly");
+      expect(rootInstructions).not.toContain("Git for Windows Bash environment");
 
       const transport = new ConfigReadTransport(config);
       const appServer = new AppServerClient(transport);
@@ -293,7 +291,6 @@ describe("Windows native-agent instructions", () => {
         true,
       );
       const instructionOptions = {
-        windowsGitBashExecutable: verifiedPathBash,
         browserUse: installed.record.optional_selections.browser_use,
         computerUse: installed.record.optional_selections.computer_use,
       };
@@ -325,10 +322,8 @@ describe("Windows native-agent instructions", () => {
         expect(roleInstructions).toMatch(
           /Read-only Git\/VCS, CI, and PR-comment inspection is allowed when relevant and within the Assignment; Git\/VCS writes remain Root-only/iu,
         );
-        expect(roleInstructions).toContain(windowsGitBashShellDirective(verifiedPathBash));
-        expect(roleInstructions).toContain("set the shell parameter to exactly");
-        expect(roleInstructions).toContain("for every shell command, including read-only commands");
-        expect(roleInstructions).not.toContain(WINDOWS_GIT_BASH);
+        expect(roleInstructions).not.toContain("set the shell parameter to exactly");
+        expect(roleInstructions).not.toContain("Git for Windows Bash environment");
         expect(readTomlPath(readback.config, `agents."${agent.name}".config_file`)).toBe(roleRef);
       }
       await appServer.close();
@@ -339,7 +334,6 @@ describe("Windows native-agent instructions", () => {
           "default",
           installed.record.managed_artifacts,
           "standard",
-          verifiedPathBash,
           {
             browserUse: installed.record.optional_selections.browser_use,
             computerUse: installed.record.optional_selections.computer_use,
@@ -356,7 +350,6 @@ describe("Windows native-agent instructions", () => {
         "default",
         installed.record.managed_artifacts,
         "standard",
-        verifiedPathBash,
         {
           browserUse: installed.record.optional_selections.browser_use,
           computerUse: installed.record.optional_selections.computer_use,
@@ -369,7 +362,66 @@ describe("Windows native-agent instructions", () => {
     }
   }, 30_000);
 
-  test("switches Windows profile registrations to the matching Bash-bound generation", async () => {
+  test("warns before replacing an unrecorded generated role file and supports cancellation", async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "holycodex-native-role-conflict-"));
+    const codexHome = join(temporaryRoot, "codex");
+    const agent = projectNativeAgents("default")[0];
+    if (agent === undefined) throw new Error("The default profile has no native agents.");
+    const rolePath = join(
+      codexHome,
+      ...nativeAgentConfigPath(agent.name, nativeAgentGenerationId("default")).split("/"),
+    );
+    const foreignContents = "user-owned role contents\n";
+    try {
+      await mkdir(dirname(rolePath), { recursive: true });
+      await writeFile(rolePath, foreignContents);
+
+      const conflicts = await inspectNativeAgentConflicts(codexHome, "default");
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0]).toMatchObject({
+        path: rolePath,
+        action: "replace",
+        defaultDecision: "replace",
+        validDecisions: ["replace", "cancel"],
+        existing: { present: true },
+        desired: { present: true },
+      });
+
+      const cancelledInstall = installNativeAgents(
+        codexHome,
+        "default",
+        [],
+        "standard",
+        async () => "cancel",
+      );
+      await expect(cancelledInstall).rejects.toThrow(
+        "Native-agent conflict resolution was cancelled",
+      );
+      expect(await readFile(rolePath, "utf8")).toBe(foreignContents);
+
+      const installed = await installNativeAgents(
+        codexHome,
+        "default",
+        [],
+        "standard",
+        async (conflict) => {
+          expect(conflict.path).toBe(rolePath);
+          return "accept";
+        },
+      );
+      expect(await readFile(rolePath, "utf8")).toBe(renderNativeAgent(agent));
+      expect(installed.rollback.find(({ path }) => path === rolePath)).toMatchObject({
+        path: rolePath,
+        previous: foreignContents,
+      });
+      await rollbackNativeAgentInstall(installed.rollback);
+      expect(await readFile(rolePath, "utf8")).toBe(foreignContents);
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("switches Windows profile registrations to the matching native generation", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "holycodex-native-windows-profile-"));
     const codexHome = join(temporaryRoot, "codex");
     try {
@@ -387,7 +439,6 @@ describe("Windows native-agent instructions", () => {
       const generation = nativeAgentGenerationId("low", "standard", {
         browserUse: upgraded.record.optional_selections.browser_use,
         computerUse: upgraded.record.optional_selections.computer_use,
-        windowsGitBashExecutable: verifiedPathBash,
       });
       for (const agent of projectNativeAgents("low")) {
         expect(readTomlPath(config, `agents."${agent.name}".config_file`)).toBe(
@@ -441,19 +492,19 @@ describe("Windows native-agent instructions", () => {
     }
   });
 
-  test("retains Astra Root governing boundaries", () => {
+  test("retains Root profile routing and governing boundaries", () => {
     const highRoot = projectRootAgent("high");
     const lowRoot = projectRootAgent("low");
     const defaultRoot = projectRootAgent("default");
-    expect(highRoot).toMatchObject({ model: "gpt-6-astra", effort: "high" });
-    expect(lowRoot).toMatchObject({ model: "gpt-6-sol", effort: "medium" });
-    expect(defaultRoot).toMatchObject({ model: "gpt-6-sol", effort: "high" });
+    expect(highRoot).toMatchObject({ model: "gpt-6.1-sol", effort: "high" });
+    expect(lowRoot).toMatchObject({ model: "gpt-6.1-sol", effort: "low" });
+    expect(defaultRoot).toMatchObject({ model: "gpt-6.1-sol", effort: "medium" });
     const sol = rootDeveloperInstructions({
       frontend: false,
       security: false,
       rootModel: defaultRoot.model,
     });
-    const astra = rootDeveloperInstructions({
+    const high = rootDeveloperInstructions({
       frontend: false,
       security: false,
       rootModel: highRoot.model,
@@ -463,26 +514,50 @@ describe("Windows native-agent instructions", () => {
       security: false,
       rootModel: lowRoot.model,
     });
-    for (const instructions of [lowSol, sol, astra]) {
+    for (const instructions of [lowSol, sol, high]) {
+      expect(instructions).not.toContain("set the shell parameter to exactly");
       expect(instructions).toContain('fork_turns: "none"');
       expect(instructions).toContain("Never perform delegable work yourself");
       expect(instructions).toContain("bounded Assignment");
-      expect(instructions).toContain(
-        "derive the exact Role.task target and complete configuration",
-      );
-      expect(instructions).toContain("Verify the registration resolves to its canonical role file");
-      expect(instructions).toContain("pass every supported configuration field explicitly");
-      expect(instructions).toContain("Recheck resumed threads");
-      expect(instructions).toContain("If the complete route cannot be verified and passed");
+      expect(instructions).toContain("registered Role.task configuration");
+      expect(instructions).toContain("Verify the registration once per configuration generation");
       expect(instructions).toContain("holycodex-agent semantic operations");
+      expect(instructions).toContain("Do not edit TOON state");
       expect(instructions).toContain("Reviewer.code fixed point");
       expect(instructions).toContain("Worker.validation");
       expect(instructions).toContain("collaboration.wait_agent");
+      expect(instructions).toContain("Check existing authorization before asking again");
+      expect(instructions).toContain(
+        "Before each specialist spawn, persist the bounded Assignment",
+      );
+      expect(instructions).toContain("Root uses visual-loop");
+      expect(instructions).toContain("grill-me, which must ask through request_user_input");
+      expect(instructions).toContain("needs_root_input and never ask the user");
+      expect(instructions).toContain("Treat later user steering as current");
+      expect(instructions).toContain("collaboration.wait_agent at timeout_ms=600000");
+      expect(instructions).toContain(
+        "Give each overlapping write or shared-mutable seam one specialist owner",
+      );
+      expect(instructions).toContain("use dev-server");
+      expect(instructions).toContain("Reuse worker proof");
+      expect(instructions).toContain("across workflow phases");
+      expect(instructions).toContain("user explicitly requests direct execution");
+      expect(instructions).toContain(
+        "complete only when holycodex-agent confirms every completion predicate",
+      );
     }
-    expect(astra).toBe(sol);
+    expect(high).toBe(sol);
 
     const leaf = renderNativeAgent(projectNativeAgents("default")[0]!);
+    const leafInstructions = readTomlPath(parseConfig(leaf), "developer_instructions");
+    expect(typeof leafInstructions).toBe("string");
+    expect(leafInstructions).not.toContain("set the shell parameter to exactly");
     expect(leaf).toContain("Do not message Root or peers during execution");
     expect(leaf).toContain("Return only one compact, evidence-first terminal outcome");
+    expect(leaf).toContain("Do not recover an Assignment");
+    expect(leaf).toContain("mutate another Assignment's lifecycle");
+    expect(leaf).toContain("never ask the user");
+    expect(leaf).toContain("visually judge the current render");
+    expect(leaf).toContain("supplements Root's higher-level visual acceptance");
   });
 });

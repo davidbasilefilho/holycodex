@@ -18,7 +18,7 @@ const RootManifestSchema = Schema.Struct({
 });
 
 describe("repository validation machinery", () => {
-  test("keeps one mise/Bun validation command and a deterministic step order", async () => {
+  test("keeps one Bun validation command and a deterministic step order", async () => {
     const manifestRaw: unknown = JSON.parse(
       await readFile(resolve(workspaceRoot, "package.json"), "utf8"),
     );
@@ -45,6 +45,10 @@ describe("repository validation machinery", () => {
       previous = index;
     }
     expect(validation).not.toMatch(/\["vp"/u);
+    const freshClone = await readFile(resolve(workspaceRoot, "scripts/fresh-clone.ts"), "utf8");
+    expect(freshClone).toContain('["bun", "install", "--frozen-lockfile"]');
+    expect(freshClone).toContain('["bun", "run", "validate"]');
+    expect(freshClone).not.toContain('"mise", "exec"');
   });
 
   test("keeps CI reusable, least-privilege, cross-platform, and exact-SHA based", async () => {
@@ -103,7 +107,7 @@ describe("repository validation machinery", () => {
       /inline threads/iu,
       /issue comments/iu,
       /commit comments/iu,
-      /new push invalidates/iu,
+      /new push requires CI and review evidence for the new head/iu,
       /bot that is absent/iu,
       /no terminal signal/iu,
       /bounded observer waits/iu,
@@ -154,7 +158,9 @@ describe("repository validation machinery", () => {
     expect(workflow).toContain("release-version.ts dev");
     expect(workflow).toContain("release-version.ts stable");
     expect(workflow).toContain("bunx npm@12 publish");
-    expect(await readFile(resolve(workspaceRoot, "mise.toml"), "utf8")).toContain('node = "26"');
+    expect(await readFile(resolve(workspaceRoot, "mise.toml"), "utf8")).not.toMatch(
+      /\bnode\s*=|npm:@openai\/codex/u,
+    );
     expect(workflow).not.toContain("bun publish");
     expect(workflow).toContain("./.github/actions/download-release-artifact");
     expect(workflow).toContain("EXPECTED_SHA256");
@@ -185,13 +191,17 @@ describe("repository validation machinery", () => {
     expect(publishNpm).toContain("absent|matching");
     expect(publishNpm).toContain("contents: read");
     expect(publishNpm).toContain("id-token: write");
-    expect(publishNpm).toContain("mise exec -- bunx npm@12 publish");
-    expect(publishNpm).toContain("if: github.event_name != 'pull_request'");
+    expect(publishNpm).toContain("bunx npm@12 publish");
+    expect(publishNpm).toContain(
+      "if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository",
+    );
     expect(publishNpm).toContain("persist-credentials: false");
     expect(publishNpm).not.toContain("NPM_TOKEN");
     expect(publishNpm).not.toContain("NPM_CONFIG_TOKEN");
     expect(publishGithub).toContain("needs: [prepare, validation, publish_npm]");
-    expect(publishGithub).toContain("if: github.event_name != 'pull_request'");
+    expect(publishGithub).toContain(
+      "if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository",
+    );
     expect(publishGithub).toContain("persist-credentials: false");
     expect(workflow.slice(0, workflow.indexOf("  publish_npm:"))).not.toContain("id-token: write");
     expect(publishGithub).not.toContain("id-token: write");

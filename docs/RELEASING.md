@@ -14,9 +14,9 @@ that value synchronized with
 `packages/plugin/assets/.codex-plugin/plugin.json`:
 
 ```sh
-mise exec -- bun run version:patch
-mise exec -- bun run version:minor
-mise exec -- bun run version:set 0.x.y[-n]
+bun run version:patch
+bun run version:minor
+bun run version:set 0.x.y[-n]
 ```
 
 Patch increments the patch component. Minor increments the minor component and
@@ -62,8 +62,10 @@ of inventing a second verification path.
 
 `.github/workflows/publish.yml` handles both channels. Pull requests run the
 development validation and create a downloadable, identity-marked package
-artifact for the exact PR head SHA; they do not publish to npm or create a
-GitHub release. A push to `main` publishes a development package under the
+artifact for the exact PR head SHA. Same-repository PRs publish that artifact
+under npm's `dev` tag and create a matching GitHub prerelease. Fork PRs
+remain validation-only because their tokens cannot publish. Main also publishes
+a development package under the
 `dev` tag. A stable release accepts
 only an exact `vX.Y.Z` or numeric-suffix `vX.Y.Z-n` tag whose tag object
 resolves to the checked-out SHA and whose version matches the canonical CLI

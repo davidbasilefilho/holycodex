@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import {
   mkdir,
   mkdtemp,
+  rename,
   readFile,
   readdir,
   realpath,
@@ -391,11 +392,11 @@ describe("Codex identity, configuration, and plugins", () => {
       { model: "gpt-6-astra", "features.context_management.experimental_mode": true },
       metadata,
     );
-    const userEdited = { ...merged.document, model: "gpt-6-sol" };
+    const userEdited = { ...merged.document, model: "gpt-6.1-sol" };
     const cleaned = await cleanupManagedConfig(userEdited, merged.state, metadata);
     expect(cleaned.document).toEqual({
       unrelated: "keep",
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
     });
     expect(cleaned.preservedKeys).toEqual(["model"]);
     const restored = await cleanupManagedConfig(merged.document, merged.state, metadata);
@@ -566,11 +567,28 @@ describe("Codex identity, configuration, and plugins", () => {
     const codexHome = join(root, "codex");
     const head = "a".repeat(40);
     const commands: string[][] = [];
+    let renameAttempts = 0;
     const runner = {
       run: async (args: readonly string[]) => {
         commands.push([...args]);
         if (args[0] === "ls-remote") {
           return { exitCode: 0, stdout: `${head}\tHEAD\n`, stderr: "" };
+        }
+        if (args[2] === "clone") {
+          const destination = args.at(-1);
+          if (destination === undefined) throw new Error("clone destination is missing");
+          await mkdir(join(destination, ".agents", "plugins"), { recursive: true });
+          await writeFile(
+            join(destination, ".agents", "plugins", "marketplace.json"),
+            JSON.stringify({
+              name: OFFICIAL_CURATED_MARKETPLACE_NAME,
+              plugins: [
+                { name: "build-web-apps", source: "./build-web-apps" },
+                { name: "codex-security", source: "./codex-security" },
+              ],
+            }),
+          );
+          return { exitCode: 0, stdout: "", stderr: "" };
         }
         if (args[0] === "rev-parse") {
           return { exitCode: 0, stdout: `${head}\n`, stderr: "" };
@@ -583,32 +601,76 @@ describe("Codex identity, configuration, and plugins", () => {
         codexHome,
         selectedPluginIds: ["build-web-apps@openai-curated", "codex-security@openai-curated"],
         gitRunner: runner,
-        cloneSnapshot: async (source, destination) => {
-          expect(source).toBe(OFFICIAL_CURATED_MARKETPLACE_SOURCE);
-          await mkdir(join(destination, ".agents", "plugins"), { recursive: true });
-          await writeFile(
-            join(destination, ".agents", "plugins", "marketplace.json"),
-            JSON.stringify({
-              name: OFFICIAL_CURATED_MARKETPLACE_NAME,
-              plugins: [
-                { name: "build-web-apps", source: "./build-web-apps" },
-                { name: "codex-security", source: "./codex-security" },
-              ],
-            }),
-          );
+        renameSnapshot: async (source, destination) => {
+          renameAttempts += 1;
+          if (process.platform === "win32" && renameAttempts < 3) {
+            throw Object.assign(new Error("simulated Windows sharing violation"), {
+              code: renameAttempts === 1 ? "EPERM" : "EBUSY",
+            });
+          }
+          await rename(source, destination);
         },
       });
       expect(snapshot.rootPath).toBe(await realpath(join(codexHome, "plugins", "openai-plugins")));
-      expect(commands).toEqual([
-        ["ls-remote", OFFICIAL_CURATED_MARKETPLACE_SOURCE, "HEAD"],
-        ["rev-parse", "HEAD"],
+      expect(commands[0]).toEqual(["ls-remote", OFFICIAL_CURATED_MARKETPLACE_SOURCE, "HEAD"]);
+      expect(commands[1]?.slice(0, -1)).toEqual([
+        "-c",
+        "core.longpaths=true",
+        "clone",
+        "--depth=1",
+        "--no-tags",
+        OFFICIAL_CURATED_MARKETPLACE_SOURCE,
       ]);
+      expect(commands[1]?.at(-1)).toContain(".openai-plugins-stage-");
+      expect(commands[2]).toEqual(["rev-parse", "HEAD"]);
+      expect(renameAttempts).toBe(process.platform === "win32" ? 3 : 1);
       await expect(
         readFile(
           join(codexHome, "plugins", "openai-plugins", ".agents", "plugins", "marketplace.json"),
           "utf8",
         ),
       ).resolves.toContain(OFFICIAL_CURATED_MARKETPLACE_NAME);
+
+      if (process.platform === "win32") {
+        const racedCodexHome = join(root, "codex-raced");
+        const racedTarget = join(racedCodexHome, "plugins", "openai-plugins");
+        const marker = join(racedTarget, "user-owned.marker");
+        let racedAttempts = 0;
+        await expect(
+          provisionOfficialMarketplaceSnapshot({
+            codexHome: racedCodexHome,
+            selectedPluginIds: ["build-web-apps@openai-curated"],
+            gitRunner: runner,
+            renameSnapshot: async () => {
+              racedAttempts += 1;
+              await mkdir(racedTarget, { recursive: true });
+              await writeFile(marker, "preserve");
+              throw Object.assign(new Error("simulated Windows sharing violation"), {
+                code: "EPERM",
+              });
+            },
+          }),
+        ).rejects.toMatchObject({ code: "marketplace_invalid" });
+        expect(racedAttempts).toBe(1);
+        await expect(readFile(marker, "utf8")).resolves.toBe("preserve");
+      }
+
+      const failedCodexHome = join(root, "codex-failed");
+      let failedAttempts = 0;
+      await expect(
+        provisionOfficialMarketplaceSnapshot({
+          codexHome: failedCodexHome,
+          selectedPluginIds: ["build-web-apps@openai-curated"],
+          gitRunner: runner,
+          renameSnapshot: async () => {
+            failedAttempts += 1;
+            throw Object.assign(new Error("persistent Windows sharing violation"), {
+              code: "EPERM",
+            });
+          },
+        }),
+      ).rejects.toMatchObject({ code: "marketplace_unavailable" });
+      expect(failedAttempts).toBe(process.platform === "win32" ? 5 : 1);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

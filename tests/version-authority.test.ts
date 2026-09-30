@@ -25,6 +25,8 @@ const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const canonicalManifestPath = "packages/cli/package.json";
 const generatedPluginManifestPath = "packages/plugin/assets/.codex-plugin/plugin.json";
 const rootRouteMigrationPath = "packages/cli/src/installer.ts";
+const legacyBrowserOwnerFixturePath = "packages/cli/src/preflight.test.ts";
+const legacyBrowserOwnerVersion = "0.16.9-1";
 const RELEASE_LITERAL =
   /(?<![0-9A-Za-z])0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*)|-dev\.\d+\.\d+)?(?![0-9A-Za-z])/gu;
 const CliManifest = Schema.Struct({
@@ -128,8 +130,19 @@ describe("release version authority", () => {
     const routeBoundary = await readRootRouteMigrationBoundary();
     const rootManifest = JSON.parse(await readFile(`${workspaceRoot}/package.json`, "utf8")) as {
       catalog?: Readonly<Record<string, string>>;
+      devDependencies?: Readonly<Record<string, string>>;
+      dependencies?: Readonly<Record<string, string>>;
     };
-    const dependencyRanges = new Set(Object.values(rootManifest.catalog ?? {}));
+    const dependencyRanges = new Set([
+      ...Object.values(rootManifest.catalog ?? {}),
+      ...Object.values(rootManifest.devDependencies ?? {}),
+      ...Object.values(rootManifest.dependencies ?? {}),
+    ]);
+    const legacyBrowserOwnerFixture = await readFile(
+      `${workspaceRoot}/${legacyBrowserOwnerFixturePath}`,
+      "utf8",
+    );
+    expect(countLiteral(legacyBrowserOwnerFixture, legacyBrowserOwnerVersion)).toBe(1);
     const violations: string[] = [];
     for (const relativePath of await listFiles(workspaceRoot)) {
       if (relativePath === "tests/version-authority.test.ts") continue;
@@ -137,6 +150,8 @@ describe("release version authority", () => {
       for (const match of content.matchAll(RELEASE_LITERAL)) {
         const literal = match[0];
         if (relativePath === rootRouteMigrationPath && literal === routeBoundary) continue;
+        if (relativePath === legacyBrowserOwnerFixturePath && literal === legacyBrowserOwnerVersion)
+          continue;
         if (
           (relativePath === canonicalManifestPath ||
             relativePath === generatedPluginManifestPath) &&

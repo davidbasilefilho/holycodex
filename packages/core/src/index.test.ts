@@ -74,9 +74,9 @@ describe("core profile catalog", () => {
   test("contains every profile with the exact Root model and effort policy", () => {
     expect(PROFILE_CATALOG.map((profile) => profile.name)).toEqual([...profileNames]);
     expect(PROFILE_CATALOG.map((profile) => profile.root)).toEqual([
-      { model: "gpt-6-sol", effort: "medium" },
-      { model: "gpt-6-sol", effort: "high" },
-      { model: "gpt-6-astra", effort: "high" },
+      { model: "gpt-6.1-sol", effort: "low" },
+      { model: "gpt-6.1-sol", effort: "medium" },
+      { model: "gpt-6.1-sol", effort: "high" },
     ]);
     for (const profile of PROFILE_CATALOG) {
       expect(profile).not.toHaveProperty("budget");
@@ -99,7 +99,6 @@ describe("core profile catalog", () => {
           "Worker:operations": "high",
           "Worker:validation": "medium",
           "Worker:debugging": "high",
-          "Reviewer:plan": "high",
           "Reviewer:code": "max",
           "Reviewer:artifact": "high",
         },
@@ -118,7 +117,6 @@ describe("core profile catalog", () => {
           "Worker:operations": "high",
           "Worker:validation": "high",
           "Worker:debugging": "xhigh",
-          "Reviewer:plan": "xhigh",
           "Reviewer:code": "max",
           "Reviewer:artifact": "xhigh",
         },
@@ -137,7 +135,6 @@ describe("core profile catalog", () => {
           "Worker:operations": "xhigh",
           "Worker:validation": "xhigh",
           "Worker:debugging": "max",
-          "Reviewer:plan": "max",
           "Reviewer:code": "max",
           "Reviewer:artifact": "max",
         },
@@ -249,12 +246,7 @@ describe("core profile catalog", () => {
         networkScope: "current_sources",
       });
     }
-    expect(taskPermissionsFor({ role: "Reviewer", task: "plan" })).toEqual({
-      network: true,
-      filesystem: "read-only",
-      sourceMutation: false,
-      networkScope: "current_sources",
-    });
+    expect(() => taskPermissionsFor({ role: "Reviewer", task: "plan" } as never)).toThrow();
     expect(taskPermissionsFor({ role: "Librarian", task: "lookup" })).toEqual({
       network: true,
       filesystem: "read-only",
@@ -300,7 +292,12 @@ describe("core profile catalog", () => {
     }
     expect(DEFAULT_CAPABILITY_SELECTIONS).not.toHaveProperty("work");
     expect(CAPABILITY_REGISTRY).not.toHaveProperty("work");
-    expect(CORE_SEMANTIC_SKILL_IDS).toEqual(["writing-instructions", "babysit-ci"]);
+    expect(CORE_SEMANTIC_SKILL_IDS).toEqual([
+      "writing-instructions",
+      "babysit-ci",
+      "dev-server",
+      "visual-loop",
+    ]);
   });
 
   test("keeps public profile lookup canonical while classifying legacy state", () => {
@@ -336,9 +333,9 @@ describe("core profile catalog", () => {
       authorizedWorkContinuesThroughRequestedTerminalState: true,
       phaseOrder: ROOT_ORCHESTRATION_PHASE_ORDER,
       phaseGates: {
-        implementationLeavesTerminalBeforeReviewerCode: true,
-        reviewerCodeFixedPointBeforeWorkerValidation: true,
-        workerValidationBeforeRootIntegration: true,
+        implementedScopeStableBeforeReview: true,
+        reviewerCodeAndWorkerValidationMayOverlapOnNonConflictingScopes: true,
+        currentValidationBeforeRootIntegration: true,
         rootIntegrationBeforeVcs: true,
       },
       initialDispatch: {
@@ -388,6 +385,8 @@ describe("core profile catalog", () => {
       "completion",
       "git_vcs",
       "external_effects",
+      "visual_judgment",
+      "dev_server",
     ] as const;
     expect(ROOT_ORCHESTRATION_POLICY.directExecutionExceptions).toEqual(rootOnlyActions);
     expect(ROOT_ORCHESTRATION_POLICY.delegableActions).toEqual([
@@ -420,6 +419,8 @@ describe("core profile catalog", () => {
     expect(rootDirectExecutionAllowed("integration_acceptance")).toBe(true);
     expect(rootDirectExecutionAllowed("completion")).toBe(true);
     expect(rootDirectExecutionAllowed("external_effects")).toBe(true);
+    expect(rootExecutionState("visual_judgment")).toBe("root_direct");
+    expect(rootExecutionState("dev_server")).toBe("root_direct");
     expect(Either.isLeft(decodeUnknown(RootDirectExecutionExceptionSchema, "gui_browser"))).toBe(
       true,
     );
@@ -429,10 +430,7 @@ describe("core profile catalog", () => {
     expect(rootExecutionState()).toBe("delegated");
     expect(rootExecutionState("git_vcs")).toBe("root_direct");
     expect(ROOT_ORCHESTRATION_POLICY.requestUserInputGates).toEqual([
-      "plan_approval",
-      "installation_profile_approval",
-      "remote_origin_server_vcs_mutation",
-      "public_publication_or_release",
+      "missing_authorization_for_consequential_effect",
       "ambiguity_or_missing_material_input",
     ]);
     expect(ROOT_ORCHESTRATION_POLICY.surgicalMutationRule).toBe(SURGICAL_MUTATION_RULE);
@@ -485,10 +483,11 @@ describe("core profile catalog", () => {
       normalSpawnForkTurns: "none",
       normalSpawnRequiresExplicitForkTurns: true,
       normalSpawnUsesConcreteRegisteredAgentType: true,
+
       assignmentContextIsTaskSpecificOnly: true,
       configuredRouteModelAndEffortPreserved: true,
       routineWaitTool: "collaboration.wait_agent",
-      routineWaitMaximumTimeoutMs: 1_200_000,
+      routineWaitMaximumTimeoutMs: 600_000,
       routineWaitUsesMaximumRuntimeTimeout: true,
       earlySpecialistCompletionWakesWait: true,
       collectiveMailboxIncludesRelevantAgents: true,
@@ -571,9 +570,7 @@ describe("core profile catalog", () => {
     expect(LIBRARIAN_CONTEXT7_POLICY.unresolvedConflictAfterFirstPartyAllowsFallback).toBe(true);
     expect(FRONTEND_WORKFLOW_POLICY.sourceChangesInvalidateRenderEvidence).toBe(true);
     expect(FRONTEND_WORKFLOW_POLICY.rootAcceptsTerminalVisualEvidence).toBe(true);
-    expect(
-      FRONTEND_WORKFLOW_POLICY.specialistsOwnInspectionImplementationAndRenderedAcceptance,
-    ).toBe(true);
+    expect(FRONTEND_WORKFLOW_POLICY.specialistsOwnImplementationAndInteractionProof).toBe(true);
     expect(CREDENTIAL_INTERACTION_POLICY.credentialEntryAndSubmissionRemainUserOwned).toBe(true);
     expect(CREDENTIAL_INTERACTION_POLICY.specialistsMustNeverHandleCredentials).toBe(true);
     expect(CREDENTIAL_INTERACTION_POLICY.interactiveCapabilitiesRemainSpecialistOwned).toBe(true);

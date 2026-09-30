@@ -69,13 +69,11 @@ export {
 } from "./official-manager.ts";
 export {
   CONTEXT7_SPEC,
-  WINDOWS_GIT_BASH,
   ToolingError,
   context7InstallCommand,
   createInstallerRuntime,
   detectContext7Manager,
   ensureContext7,
-  ensureGitBash,
   preflightContext7,
   removeOwnedContext7,
 } from "./tooling.ts";
@@ -88,7 +86,6 @@ export {
   removeManagedNativeAgents,
   renderNativeAgent,
   rootDeveloperInstructions,
-  windowsGitBashShellDirective,
 } from "./native-agents.ts";
 export type {
   NativeAgentInstallResult,

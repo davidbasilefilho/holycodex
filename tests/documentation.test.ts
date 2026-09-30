@@ -51,7 +51,7 @@ describe("documentation invariants", () => {
     expect(cli).toContain("capability_denied");
   });
 
-  test("keeps the product profile migration and Astra routing explicit", async () => {
+  test("keeps the product profile migration and GPT-6.1 routing explicit", async () => {
     const [readme, cliReadme, cli, behavior, configuration, installation] = await Promise.all([
       readFile(resolve(workspaceRoot, "README.md"), "utf8"),
       readFile(resolve(workspaceRoot, "packages/cli/README.md"), "utf8"),
@@ -61,7 +61,7 @@ describe("documentation invariants", () => {
       readFile(resolve(workspaceRoot, "docs/INSTALLATION.md"), "utf8"),
     ]);
     for (const content of [readme, cliReadme, behavior, configuration, installation]) {
-      expect(content).toContain("gpt-6-astra");
+      expect(content).toContain("gpt-6.1-sol");
       expect(content).toContain("gpt-6-luna");
       expect(content).not.toContain("The live plans are");
     }
@@ -73,10 +73,13 @@ describe("documentation invariants", () => {
     expect(readme).not.toMatch(/holycodex upgrade(?:\s|\[|$)/iu);
     expect(cliReadme).not.toMatch(/holycodex upgrade(?:\s|\[|$)/iu);
     expect(behavior).toMatch(/The live profiles are\s+`low`, `default`, and `high`/u);
-    expect(behavior).toContain("installation profile approval");
+    expect(behavior).toContain("low = gpt-6.1-sol/low");
+    expect(behavior).toContain("default = gpt-6.1-sol/medium");
+    expect(behavior).toContain("high = gpt-6.1-sol/high");
+    expect(behavior).toContain("no HolyCodex planning workflow");
     expect(behavior).toContain("features.context_management.experimental_mode = true");
     expect(configuration).toContain("features.context_management.experimental_mode = true");
-    expect(configuration).toMatch(/installation\s+profile approval/u);
+    expect(configuration).toContain("asks only for material missing information");
     expect(installation).toContain("Legacy `go`");
   });
 

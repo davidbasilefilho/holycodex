@@ -22,7 +22,7 @@ the evidence-backed root cause, makes the narrow repair, and proves the
 regression is gone; material redesign returns to Root.
 
 The native specialist inventory is fixed. Each identity below has one
-HolyCodex-owned TOML at `<CODEX_HOME>/holycodex/agents/<Role.task>.toml` and
+HolyCodex-owned TOML at `<CODEX_HOME>/holycodex/agents/<generation>/<Role.task>.toml` and
 one Codex registration at `agents."<Role.task>"` in `config.toml`:
 
 | Canonical identity      | Capability boundary                                    |
@@ -38,7 +38,6 @@ one Codex registration at `agents."<Role.task>"` in `config.toml`:
 | `Worker.operations`     | Exact-ref/SHA-bounded CI or release observation        |
 | `Worker.validation`     | Local behavioral proof with no implementation mutation |
 | `Worker.debugging`      | Reproducible defect repair and regression proof        |
-| `Reviewer.plan`         | Bounded plan inspection                                |
 | `Reviewer.code`         | Bounded code inspection and repair                     |
 | `Reviewer.artifact`     | Bounded artifact inspection and repair                 |
 
@@ -59,22 +58,23 @@ important information: it does not output after every tool use or subagent
 update, emit routine status-only chatter or heartbeat messages, or follow a
 fixed update cadence. Material updates include significant findings or
 decisions, consequential blockers or input needs, and release milestones.
-Native Astra Default questions remain available, including while independent
-work proceeds. Root waits for terminal outcomes when no such update or question
+Root asks only for missing input that materially changes the outcome, while
+independent work proceeds. Root waits for terminal outcomes when no such update or question
 is needed and sends out-of-boundary work back as a new bounded Assignment. For
 every routine wait, Root uses `collaboration.wait_agent` with
-`timeout_ms = 1200000` (20 minutes, within the cache lifetime); early specialist
+`timeout_ms = 600000` (10 minutes); early specialist
 completion wakes the wait and the collective mailbox already contains the
-relevant agents. If that wait expires while idle, Root waits again with the same
-timeout. Short waits, status or list polling, and message loops on idle timeout
-are not routine coordination.
+relevant agents. On timeout, inspect only for actionable failures, blockers, or
+stalls; continue useful independent work or wait again only while relevant
+specialist results remain a live dependency. Status or list polling and message
+loops on idle timeout are not routine coordination.
 Specialist and Reviewer terminal reports are concise, structured, and
 evidence-first: changed paths, checks, observable evidence, blockers, Root
 decisions needed, and remaining risk. Root reads large transcripts or
 artifacts only for material decisions, conflicts, failures, or findings;
 stable facts are reused and each meaning has one authoritative owner. Stable
-bounded component scopes are canonical ownership boundaries. The lifecycle
-worker owns deterministic Intent, Plan, and Assignment API decisions; Root
+bounded component scopes are canonical ownership boundaries. The agent package owns deterministic Intent, compatibility Plan, and Assignment
+operations; Root
 retains material decisions, integration, and completion.
 Root's managed configuration enables
 `multi_agent = true`, disables `multi_agent_v2`, and sets
@@ -91,22 +91,23 @@ of important flows, then synthesizes the project's purpose, structure,
 conventions, and useful starting points. Orientation remains read-only unless
 the user requests a persistent document.
 
-Root uses `gpt-6-sol` for low/default and `gpt-6-astra` for high; every native specialist route uses `gpt-6-luna` with the effort matrix below. These are
+The Root profile mapping is `low = gpt-6.1-sol/low`,
+`default = gpt-6.1-sol/medium`, and `high = gpt-6.1-sol/high`; every native
+specialist route uses `gpt-6-luna` with the effort matrix below. These are
 routing identities; live skills and generated instructions target GPT-6-family
 behavior. Root dispatches the exact registered concrete `Role.task` identity
 selected from this inventory. Explorer, Librarian, Worker, and Reviewer are
 role-family labels only; generic built-in `worker`, `explorer`, `reviewer`, and
 `librarian` agent types are forbidden for HolyCodex specialist Assignments.
 
-Root uses `request_user_input` only when fresh information or approval is
-genuinely required, including a material scope or product choice or an
-externally consequential, destructive, or remote effect. Root MUST orchestrate
-and delegate every task, including trivial work, through a bounded Assignment
-and native specialist. Root never performs implementation, testing, review,
-research, or CI operations locally. Git/VCS is Root-owned. Browser Use and
-Computer Use are specialist capabilities: when enabled and available, Root
-delegates their execution through the applicable concrete `Role.task` and
-accepts terminal evidence. Availability alone grants no authority. Root retains
+Root asks for fresh input only when it materially changes the outcome or a
+consequential effect lacks authorization. Existing authorization persists.
+Root delegates execution through bounded Assignments unless the user explicitly
+requests direct work or forbids delegation. Git/VCS writes are Root-owned;
+relevant read-only VCS and CI inspection belongs to specialists. Root owns
+visual judgment and the shared background dev server through Root-only
+`visual-loop` and `dev-server`. The visual loop applies only to visual tasks;
+ordinary browser and computer execution remains delegated. Root retains
 lifecycle, material decisions, integration acceptance, and completion.
 
 After integration, Root performs the approved VCS action, delegates
@@ -120,13 +121,14 @@ release gates, one pipeline, or no formal separation; do not assume GitHub or
 a branch topology. With one or no distinct release gate, record that topology
 and use only the repository's available terminal evidence.
 
-Root obtains workflow Plan and installation profile approval when required.
-Before remote VCS mutation or public release, it checks authorization already
-given in the current request or session and asks only if authorization or
-material input is missing; unresolved input is persisted as `needs_root_input`
-on the Intent or Plan. A passing `Reviewer.code` fixed-point review is mandatory after
-implementation or a major codebase change and before completion or any VCS
-operation.
+There is no HolyCodex planning workflow or automatic Plan approval gate.
+Existing Plan and retired reviewer Assignment records remain recoverable.
+Requested review of a supplied plan belongs to Reviewer.artifact. Before remote mutation or publication, Root checks
+existing authorization and asks only when it is missing. A Reviewer.code fixed
+point and current relevant validation are required for implementation before
+acceptance or VCS writes. Review and validation may overlap on independent
+scopes; affected proof is refreshed after repairs. Reuse worker proof instead
+of automatically dispatching duplicate validation.
 
 The canonical core `SURGICAL_MUTATION_RULE` is the single instruction-level
 source for source-mutating specialist tasks: make the smallest complete edit
@@ -144,8 +146,8 @@ route identities with this reasoning-effort matrix:
 
 | Route                 | `low`  | `default` | `high` |
 | --------------------- | ------ | --------- | ------ |
-| Root model            | Sol    | Sol       | Astra  |
-| Root/session agent    | medium | high      | high   |
+| Root model            | Sol    | Sol       | Sol    |
+| Root/session agent    | low    | medium    | high   |
 | Specialist model      | Luna   | Luna      | Luna   |
 | Explorer.map          | medium | high      | high   |
 | Explorer.lookup       | medium | medium    | medium |
@@ -158,7 +160,6 @@ route identities with this reasoning-effort matrix:
 | Worker.operations     | high   | high      | xhigh  |
 | Worker.validation     | medium | high      | xhigh  |
 | Worker.debugging      | high   | xhigh     | max    |
-| Reviewer.plan         | high   | xhigh     | max    |
 | Reviewer.code         | max    | max       | max    |
 | Reviewer.artifact     | high   | xhigh     | max    |
 
@@ -187,22 +188,25 @@ persisted, CLI, Codex, and specialist value before business logic sees it.
 
 Frontend and Security are required capabilities. ChatGPT Sites and Browser Use
 are optional and default on; Computer Use is optional and default off.
-Selection does not claim availability or grant authority. Every selected
-capability and additional plugin must be supported, installed, and enabled by
-native plugin management; unsupported or unavailable selections produce an
-explicit failure instead of a silent omission or substitute. Sites availability
-can depend on account, region, workspace policy, or supported Codex surface.
-Browser Use depends on the Codex surface/runtime. Computer Use has stronger
-platform and surface restrictions and greater external-action capability.
+Selection does not grant authority or prove runtime availability. HolyCodex
+installs and verifies provider-backed capabilities through native plugin
+management. Browser Use is host-managed by Codex Desktop: the CLI neither
+installs nor removes `browser@openai-bundled`, changes its configuration, nor
+claims that the active surface exposes Browser tools. Its selection only
+projects the conditional specialist instruction; Doctor identifies it as
+surface-managed. Sites availability can depend on account, region, workspace
+policy, or supported Codex surface. Computer Use has stronger platform and
+surface restrictions and greater external-action capability.
 Official OpenAI provider identities are matched by an allowlist:
 `openai-curated` and `openai-curated-remote` are recognized equivalents for
-build-web-apps and codex-security. Bundled Browser, Computer Use, and Sites
-providers use their canonical `openai-bundled` identities. An arbitrary
-same-name plugin from another marketplace is not equivalent. Doctor reports
-the observed official identity. Root delegates Browser Use and Computer Use
-execution to the applicable specialist route; if a selected provider or
-surface is unavailable, the capability fails explicitly. No substitute is
-silently installed or used.
+build-web-apps and codex-security. Bundled Computer Use and Sites providers
+use their canonical `openai-bundled` identities. Browser's Desktop integration
+is not a CLI plugin provider to reconcile. An arbitrary same-name plugin from
+another marketplace is not equivalent. Doctor reports the observed identity
+for managed providers and the surface-managed status for Browser Use. Root
+delegates ordinary browser and computer execution to specialists and retains
+visual inspection for visual tasks; missing tools are reported as unavailable.
+No substitute is silently installed or used.
 
 Frontend selection adds workflow behavior. The core capability registry maps a
 new visually-driven UI or meaningful redesign to
@@ -210,12 +214,11 @@ new visually-driven UI or meaningful redesign to
 `build-web-apps:frontend-testing-debugging`, and a relevant React or Next
 implementation or review to `build-web-apps:react-best-practices`. Repository
 stack, existing design system, and explicit user requirements govern over
-generic plugin defaults. Specialists inspect, implement, repair, and perform
-authorized interactive rendering through Browser Use or Computer Use. Root
-accepts their evidence, delegates concrete discrepancies, and repeats until it
-accepts the requested result. Any source
-change invalidates earlier render evidence. Logic-only changes do not require
-visual ceremony.
+generic plugin defaults. Specialists implement, repair, and prove interactions.
+Root inspects current renders with visual-loop, judges the appearance, and
+assigns concrete discrepancies until acceptance. Root manages one shared
+background development server with dev-server. Relevant changes invalidate
+affected render evidence; logic-only changes do not require visual inspection.
 
 Security selection adds proportional gates. Changes to trust boundaries,
 authentication, authorization, privileged actions, sensitive-data flow,

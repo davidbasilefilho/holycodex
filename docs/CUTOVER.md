@@ -49,8 +49,8 @@ git status --short --branch
 git diff --check
 git rev-parse "$FROZEN_ORACLE_SHA^{commit}"
 git rev-parse "$BASE_SHA^{commit}"
-mise exec -- bun packages/cli/src/index.ts version
-mise exec -- bun run validate
+bun packages/cli/src/index.ts version
+bun run validate
 gh repo view "$LEGACY_REPO" --json nameWithOwner,isArchived,defaultBranchRef,description,homepage,licenseInfo
 gh repo view "$NEXT_REPO" --json nameWithOwner,isArchived,defaultBranchRef,description,homepage,licenseInfo
 gh api "repos/$LEGACY_REPO/branches/$BRANCH/protection"
@@ -172,7 +172,7 @@ network gate, then run the real network clone against the new canonical
 repository and the exact branch ref:
 
 ```sh
-mise exec -- bun scripts/fresh-clone.ts \
+bun scripts/fresh-clone.ts \
   --url "$NEW_REMOTE" \
   --ref "refs/heads/$BRANCH" \
   --network
