@@ -50,7 +50,7 @@ branch-specific workflow, while a delegation prompt supplies assignment facts.
 Runtime flags enforce hard capability boundaries where Codex supports them;
 prose does not stand in for a missing native control.
 
-Root uses `gpt-6.1-sol` at low, medium, and high reasoning effort for the
+Root uses `gpt-6.1-sol` at low, medium, and medium reasoning effort for the
 `low`, `default`, and `high` profiles respectively; native specialist route
 files use `gpt-6-luna`. Root dispatches the exact registered
 concrete `Role.task` selected from the canonical route inventory. The role
@@ -112,7 +112,8 @@ for the selected set; an unrelated unavailable provider does not abort the
 install. Official `openai-curated` and `openai-curated-remote` identities are
 equivalent only for allowlisted build-web-apps and codex-security plugins.
 Bundled Browser, Computer Use, and Sites use their canonical
-`openai-bundled` identities. A same-name third-party marketplace is not
+`openai-bundled` identities, including the supported Computer Use migration to
+`unified-computer-use`. A same-name third-party marketplace is not
 trusted.
 
 ## Paths and ownership
@@ -129,8 +130,9 @@ plugin and configuration state.
 Every managed write carries an owner, schema, install identity, and digest.
 Before destructive mutation, installation validates selected capabilities and
 runtime compatibility, then records a recoverable transaction. The CLI
-compares existing managed fields and refuses to overwrite a changed or foreign
-value. Matching state is retained. Writes are atomic and validated before
+compares existing managed fields. Install defaults to Replace for HolyCodex-managed
+conflicts, backing up only replaced entries and preserving unrelated additions and
+modifications. Matching state is retained. Writes are atomic and validated before
 persistence; an uncertain result is preserved and reported. Retrying
 installation reconciles incomplete transaction state safely.
 

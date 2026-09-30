@@ -88,6 +88,17 @@ export function resolveOfficialPluginIdentity(
   const pluginName = pluginId.slice(0, separator);
   const idMarketplaceName = pluginId.slice(separator + 1);
   if (
+    pluginName === "unified-computer-use" &&
+    idMarketplaceName === "openai-bundled" &&
+    marketplaceName === idMarketplaceName
+  ) {
+    return {
+      pluginName: "computer-use",
+      marketplaceName: idMarketplaceName,
+      canonicalPluginId: "computer-use@openai-bundled",
+    };
+  }
+  if (
     pluginName === "sites" &&
     idMarketplaceName === "openai-curated-remote" &&
     marketplaceName === idMarketplaceName
@@ -129,6 +140,8 @@ export function canonicalOfficialPluginId(pluginId: string): string | undefined 
   if (separator <= 0) return undefined;
   const pluginName = pluginId.slice(0, separator);
   const marketplaceName = pluginId.slice(separator + 1);
+  if (pluginName === "unified-computer-use" && marketplaceName === "openai-bundled")
+    return "computer-use@openai-bundled";
   if (pluginName === "sites" && marketplaceName === "openai-curated-remote")
     return "sites@openai-bundled";
   if (
@@ -148,6 +161,9 @@ export function canonicalOfficialPluginId(pluginId: string): string | undefined 
 export function officialPluginIdCandidates(pluginId: string): readonly string[] {
   const canonical = canonicalOfficialPluginId(pluginId);
   if (canonical === undefined) return [];
+  if (canonical === "computer-use@openai-bundled") {
+    return Object.freeze(["unified-computer-use@openai-bundled", canonical]);
+  }
   if (canonical === "sites@openai-bundled") {
     return Object.freeze([canonical, "sites@openai-curated-remote"]);
   }

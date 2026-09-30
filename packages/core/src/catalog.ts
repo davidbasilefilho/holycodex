@@ -48,71 +48,72 @@ function route(role: Role, task: TaskForRole<Role>, effort: Effort): RouteDefini
 }
 
 const routeKeys = new Set<RouteKey>(ROUTE_KEYS);
-const effortRank: Readonly<Record<Effort, number>> = {
-  low: 0,
-  medium: 1,
-  high: 2,
-  xhigh: 3,
-  max: 4,
-};
-
 /** Single source of truth for the specialist effort matrix for live profiles. */
 export const ROUTE_EFFORT_OVERRIDES = [
   {
     profile: "low",
-    rationale: "The low profile keeps bounded specialist work economical.",
+    rationale:
+      "Cheapest practical configuration without dropping Luna below its useful agentic threshold.",
     efforts: {
       "Explorer:map": "medium",
       "Explorer:lookup": "medium",
       "Explorer:trace": "high",
       "Librarian:lookup": "medium",
       "Librarian:research": "high",
-      "Worker:mechanical": "high",
+      "Worker:mechanical": "medium",
       "Worker:implementation": "high",
-      "Worker:integration": "max",
-      "Worker:operations": "high",
+      "Worker:integration": "high",
+      "Worker:operations": "medium",
       "Worker:validation": "medium",
       "Worker:debugging": "high",
-      "Reviewer:code": "max",
+      "Worker:visual": "high",
+      "Reviewer:code": "high",
       "Reviewer:artifact": "high",
+      "Reviewer:visual": "high",
     } satisfies Readonly<Record<RouteKey, Effort>>,
   },
   {
     profile: "default",
-    rationale: "The default profile is the recommended balanced route.",
+    rationale:
+      "Best general whole-task cost/performance: Sol medium orchestration and Luna medium/high execution.",
     efforts: {
-      "Explorer:map": "high",
+      "Explorer:map": "medium",
       "Explorer:lookup": "medium",
-      "Explorer:trace": "xhigh",
+      "Explorer:trace": "high",
       "Librarian:lookup": "medium",
-      "Librarian:research": "xhigh",
-      "Worker:mechanical": "high",
-      "Worker:implementation": "xhigh",
-      "Worker:integration": "max",
-      "Worker:operations": "high",
+      "Librarian:research": "high",
+      "Worker:mechanical": "medium",
+      "Worker:implementation": "high",
+      "Worker:integration": "high",
+      "Worker:operations": "medium",
       "Worker:validation": "high",
-      "Worker:debugging": "xhigh",
-      "Reviewer:code": "max",
-      "Reviewer:artifact": "xhigh",
+      "Worker:debugging": "high",
+      "Worker:visual": "high",
+      "Reviewer:code": "high",
+      "Reviewer:artifact": "high",
+      "Reviewer:visual": "high",
     } satisfies Readonly<Record<RouteKey, Effort>>,
   },
   {
     profile: "high",
-    rationale: "The high profile maximizes specialist reasoning where specified.",
+    rationale:
+      "Highest practical reliability without indiscriminate reasoning waste; reserve Luna max for difficult long-horizon work.",
     efforts: {
       "Explorer:map": "high",
       "Explorer:lookup": "medium",
-      "Explorer:trace": "max",
-      "Librarian:lookup": "medium",
+      "Explorer:trace": "high",
+      "Librarian:lookup": "high",
       "Librarian:research": "max",
-      "Worker:mechanical": "xhigh",
+      "Worker:mechanical": "high",
       "Worker:implementation": "max",
       "Worker:integration": "max",
-      "Worker:operations": "xhigh",
-      "Worker:validation": "xhigh",
+      "Worker:operations": "high",
+      "Worker:validation": "high",
       "Worker:debugging": "max",
-      "Reviewer:code": "max",
+      "Worker:visual": "max",
+      "Reviewer:code": "high",
       "Reviewer:artifact": "max",
+      "Reviewer:visual": "high",
     } satisfies Readonly<Record<RouteKey, Effort>>,
   },
 ] as const;
@@ -161,7 +162,7 @@ function createProfile(
 const profileDefinitions: ProfileDefinition[] = [
   createProfile({ name: "low", rootModel: SOL_MODEL_ID, rootEffort: "low" }),
   createProfile({ name: "default", rootModel: SOL_MODEL_ID, rootEffort: "medium" }),
-  createProfile({ name: "high", rootModel: SOL_MODEL_ID, rootEffort: "high" }),
+  createProfile({ name: "high", rootModel: SOL_MODEL_ID, rootEffort: "medium" }),
 ];
 
 function validateCatalog(definitions: readonly ProfileDefinition[]): void {
@@ -177,8 +178,7 @@ function validateCatalog(definitions: readonly ProfileDefinition[]): void {
       throw new CoreError("catalog_invalid", "The profile catalog order is invalid.", { index });
     }
     const expectedModel = SOL_MODEL_ID;
-    const expectedEffort =
-      expectedProfile === "low" ? "low" : expectedProfile === "default" ? "medium" : "high";
+    const expectedEffort = expectedProfile === "low" ? "low" : "medium";
     if (
       definition.root.model !== expectedModel ||
       definition.root.effort !== expectedEffort ||
@@ -211,19 +211,6 @@ function validateCatalog(definitions: readonly ProfileDefinition[]): void {
       throw new CoreError("catalog_invalid", "A profile is missing a specialist route.", {
         profile: definition.name,
       });
-    }
-  }
-
-  for (let routeIndex = 0; routeIndex < ROUTE_KEYS.length; routeIndex += 1) {
-    let previousRank = -1;
-    for (const definition of definitions) {
-      const routeDefinition = definition.routes[routeIndex];
-      if (!routeDefinition || effortRank[routeDefinition.effort] < previousRank) {
-        throw new CoreError("catalog_invalid", "Profile route effort is not monotonic.", {
-          route: ROUTE_KEYS[routeIndex] ?? "unknown",
-        });
-      }
-      previousRank = effortRank[routeDefinition.effort];
     }
   }
 }

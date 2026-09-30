@@ -423,6 +423,38 @@ describe("official plugin identity resolution", () => {
     ]);
   });
 
+  test("installs the migrated Computer Use provider and verifies its trusted identity", async () => {
+    const commands: string[][] = [];
+    const adapter = createOfficialPluginAdapter({
+      executable: "codex",
+      runner: {
+        run: async (args) => {
+          commands.push([...args]);
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify({
+              installed: [
+                {
+                  pluginId: "unified-computer-use@openai-bundled",
+                  installed: true,
+                  enabled: true,
+                  marketplaceName: "openai-bundled",
+                },
+              ],
+              available: [],
+            }),
+            stderr: "",
+          };
+        },
+      },
+    });
+    await adapter.add("computer-use@openai-bundled");
+    expect(commands).toEqual([
+      ["plugin", "add", "unified-computer-use@openai-bundled", "--json"],
+      ["plugin", "list", "--json"],
+    ]);
+  });
+
   test("uses the supported remote catalog selector when the reserved CLI catalog has no entry", async () => {
     const commands: string[][] = [];
     const adapter = createOfficialPluginAdapter({

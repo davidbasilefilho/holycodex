@@ -698,17 +698,17 @@ describe("public install wizard contract", () => {
       defaultDecision: "keep",
     };
     const rendered: FakeContent[] = [];
-    const removeRenderer = fakeRenderer([{ name: "right" }, { name: "enter" }]);
+    const removeRenderer = fakeRenderer([{ name: "enter" }]);
     await mock.module("@opentui/core", () => fakeOpenTuiModule(removeRenderer, rendered));
     try {
       await expect(
         runOpenTuiConflictResolver([conflict], { stdoutIsTTY: true, env: {} }),
       ).resolves.toEqual({ action: "continue", decisions: { "remove-role": "remove" } });
       const screen = fakePlainText(rendered[0]!);
-      expect(screen).toContain("> keep      Explorer.lookup");
-      expect(fakePlainText(rendered[1]!)).toContain("> remove    Explorer.lookup");
-      expect(fakePlainText(rendered[1]!)).toContain("install   remove this managed item");
-      expect(fakePlainText(rendered[1]!)).toContain("Remove the managed item.");
+      expect(screen).toContain("> replace   Explorer.lookup");
+      expect(fakePlainText(rendered[0]!)).toContain("> replace   Explorer.lookup");
+      expect(fakePlainText(rendered[0]!)).toContain("install   remove this managed item");
+      expect(fakePlainText(rendered[0]!)).toContain("Remove the managed item.");
       expect(screen).not.toContain("choices:");
     } finally {
       mock.restore();
@@ -748,7 +748,7 @@ describe("public install wizard contract", () => {
     });
   });
 
-  test("defaults invalid-table conflicts to Remove and explains the focused effect", async () => {
+  test("defaults invalid-table conflicts to Replace and explains the focused effect", async () => {
     const conflict: ManagedConflict = {
       identity: "invalid-config:features",
       category: "invalid-config",
@@ -772,7 +772,7 @@ describe("public install wizard contract", () => {
         decisions: { "invalid-config:features": "remove" },
       });
       const screen = fakePlainText(rendered[0]!);
-      expect(screen).toContain("> remove    features");
+      expect(screen).toContain("> replace   features");
       expect(screen).toContain("install   Create the required features table.");
       expect(screen).toContain(
         "Remove the invalid value so HolyCodex can create the required table.",
@@ -849,6 +849,23 @@ describe("public install wizard contract", () => {
     expect(rendered).not.toContain("current-1");
     expect(rendered.split("\n").every((line) => line.length <= 80)).toBe(true);
     expect(rendered.split("\n").length - 1).toBe(24);
+  });
+
+  test("scrolls every conflict into the fixed terminal viewport", () => {
+    const conflicts: ManagedConflict[] = Array.from({ length: 40 }, (_, index) => ({
+      identity: `conflict-${index}`,
+      category: "config-key",
+      target: `setting-${index}`,
+      path: "config.toml",
+      action: "replace",
+      existing: `old-${index}`,
+      desired: `new-${index}`,
+    }));
+    for (let cursor = 0; cursor < conflicts.length; cursor += 1) {
+      const screen = renderConflictScreen(conflicts, {}, cursor);
+      expect(screen).toContain(`> replace   setting-${cursor}\n`);
+      expect(screen.split("\n").length - 1).toBeLessThanOrEqual(24);
+    }
   });
 
   test("keeps final native review controls visible at 80 columns by 24 rows", async () => {

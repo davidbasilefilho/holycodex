@@ -83,8 +83,8 @@ describe("plugin source assets", () => {
     expect(grillMe).toContain("call `request_user_input`");
     expect(grillMe).toContain("Specialists must not ask the user");
     expect(grillMe).toContain("`needs_root_input` outcome to Root");
-    expect(visualLoop).toContain("inspect and judge their own current");
-    expect(visualLoop).toContain("higher-level visual acceptance");
+    expect(visualLoop).toContain("Worker.visual → Reviewer.visual → Root visual pass");
+    expect(visualLoop).toContain("remains final visual authority");
   });
 
   test("discovers every shipped skill description and checks situation-first wording", async () => {

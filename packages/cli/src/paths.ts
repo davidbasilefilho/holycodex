@@ -11,11 +11,11 @@ import type { InstallerOptions, InstallerPaths } from "./types.ts";
 /** Public CLI value for state root name. */
 export const STATE_ROOT_NAME = "holycodex";
 /** Public CLI value for active record name. */
-export const ACTIVE_RECORD_NAME = "active.json";
+export const ACTIVE_RECORD_NAME = "active.toml";
 /** Public CLI value for preparing record name. */
-export const PREPARING_RECORD_NAME = "preparing.json";
+export const PREPARING_RECORD_NAME = "preparing.toml";
 /** Public CLI value for conflicted record name. */
-export const CONFLICTED_RECORD_NAME = "conflicted.json";
+export const CONFLICTED_RECORD_NAME = "conflicted.toml";
 /** Public CLI value for install options name. */
 export const INSTALL_OPTIONS_NAME = "install.toml";
 /** Public CLI value for state schema. */

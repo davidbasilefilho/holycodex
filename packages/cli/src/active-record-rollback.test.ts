@@ -8,6 +8,8 @@ import { join } from "node:path";
 import { writeTomlPath, type TomlDocument, type TomlValue } from "@holycodex/codex";
 
 import { resolveInstallerPaths, type ResolvedInstallerPaths } from "./paths.ts";
+import { JsonObjectSchema } from "./schema.ts";
+import { decodeStateText } from "./storage.ts";
 import type { InstallerRuntime, OfficialPluginManager } from "./types.ts";
 
 const realFs = await import("node:fs/promises");
@@ -138,7 +140,7 @@ async function snapshotManagedArtifacts(
   recordText: string,
   codexHome: string,
 ): Promise<readonly (readonly [string, string])[]> {
-  const record = JSON.parse(recordText) as {
+  const record = decodeStateText(recordText, JsonObjectSchema) as {
     readonly managed_artifacts: readonly { readonly path: string }[];
   };
   return await Promise.all(

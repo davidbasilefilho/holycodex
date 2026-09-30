@@ -76,14 +76,14 @@ describe("core profile catalog", () => {
     expect(PROFILE_CATALOG.map((profile) => profile.root)).toEqual([
       { model: "gpt-6.1-sol", effort: "low" },
       { model: "gpt-6.1-sol", effort: "medium" },
-      { model: "gpt-6.1-sol", effort: "high" },
+      { model: "gpt-6.1-sol", effort: "medium" },
     ]);
     for (const profile of PROFILE_CATALOG) {
       expect(profile).not.toHaveProperty("budget");
     }
   });
 
-  test("contains all current route slots and exact parity-floor efforts", () => {
+  test("contains all current route slots and exact whole-task efficiency efforts", () => {
     expect(ROUTE_EFFORT_OVERRIDES.map(({ profile, efforts }) => ({ profile, efforts }))).toEqual([
       {
         profile: "low",
@@ -93,32 +93,36 @@ describe("core profile catalog", () => {
           "Explorer:trace": "high",
           "Librarian:lookup": "medium",
           "Librarian:research": "high",
-          "Worker:mechanical": "high",
+          "Worker:mechanical": "medium",
           "Worker:implementation": "high",
-          "Worker:integration": "max",
-          "Worker:operations": "high",
+          "Worker:integration": "high",
+          "Worker:operations": "medium",
           "Worker:validation": "medium",
           "Worker:debugging": "high",
-          "Reviewer:code": "max",
+          "Worker:visual": "high",
+          "Reviewer:code": "high",
           "Reviewer:artifact": "high",
+          "Reviewer:visual": "high",
         },
       },
       {
         profile: "default",
         efforts: {
-          "Explorer:map": "high",
+          "Explorer:map": "medium",
           "Explorer:lookup": "medium",
-          "Explorer:trace": "xhigh",
+          "Explorer:trace": "high",
           "Librarian:lookup": "medium",
-          "Librarian:research": "xhigh",
-          "Worker:mechanical": "high",
-          "Worker:implementation": "xhigh",
-          "Worker:integration": "max",
-          "Worker:operations": "high",
+          "Librarian:research": "high",
+          "Worker:mechanical": "medium",
+          "Worker:implementation": "high",
+          "Worker:integration": "high",
+          "Worker:operations": "medium",
           "Worker:validation": "high",
-          "Worker:debugging": "xhigh",
-          "Reviewer:code": "max",
-          "Reviewer:artifact": "xhigh",
+          "Worker:debugging": "high",
+          "Worker:visual": "high",
+          "Reviewer:code": "high",
+          "Reviewer:artifact": "high",
+          "Reviewer:visual": "high",
         },
       },
       {
@@ -126,17 +130,19 @@ describe("core profile catalog", () => {
         efforts: {
           "Explorer:map": "high",
           "Explorer:lookup": "medium",
-          "Explorer:trace": "max",
-          "Librarian:lookup": "medium",
+          "Explorer:trace": "high",
+          "Librarian:lookup": "high",
           "Librarian:research": "max",
-          "Worker:mechanical": "xhigh",
+          "Worker:mechanical": "high",
           "Worker:implementation": "max",
           "Worker:integration": "max",
-          "Worker:operations": "xhigh",
-          "Worker:validation": "xhigh",
+          "Worker:operations": "high",
+          "Worker:validation": "high",
           "Worker:debugging": "max",
-          "Reviewer:code": "max",
+          "Worker:visual": "max",
+          "Reviewer:code": "high",
           "Reviewer:artifact": "max",
+          "Reviewer:visual": "high",
         },
       },
     ]);
@@ -204,10 +210,29 @@ describe("core profile catalog", () => {
     expect(NATIVE_AGENT_TYPES).not.toContain("Worker.research" as never);
   });
 
+  test("keeps rendered implementation and independent visual review separate", () => {
+    expect(NATIVE_AGENT_TYPES).toContain("Worker.visual");
+    expect(NATIVE_AGENT_TYPES).toContain("Reviewer.visual");
+    expect(taskPermissionsFor({ role: "Worker", task: "visual" }).sourceMutation).toBe(true);
+    expect(taskPermissionsFor({ role: "Reviewer", task: "visual" }).sourceMutation).toBe(false);
+    expect(taskInstructionFor({ role: "Worker", task: "visual" })).toContain("actual rendered");
+    expect(taskInstructionFor({ role: "Reviewer", task: "visual" })).toContain(
+      "Do not implement repairs",
+    );
+    expect(FRONTEND_WORKFLOW_POLICY.fixedPoint.slice(0, 3)).toEqual([
+      "worker_visual_implements_and_inspects",
+      "reviewer_visual_independently_reviews",
+      "root_independently_judges",
+    ]);
+    expect(FRONTEND_WORKFLOW_POLICY.designJudgment).toContain(
+      "grouping without information or interaction value",
+    );
+  });
+
   test("keeps debugging effort and reviewer quality contracts canonical", () => {
     expect(ROUTE_EFFORT_OVERRIDES.map((override) => override.efforts["Worker:debugging"])).toEqual([
       "high",
-      "xhigh",
+      "high",
       "max",
     ]);
     const debuggingInstruction = taskInstructionFor({ role: "Worker", task: "debugging" });
@@ -446,9 +471,9 @@ describe("core profile catalog", () => {
     ]);
     expect(ROOT_ORCHESTRATION_POLICY.testingPolicy).toBe(TESTING_POLICY);
     expect(TESTING_POLICY.rule).toContain(
-      "smallest meaningful proof proportionate to changed behavior, scope, and risk",
+      "smallest meaningful validation proportionate to changed behavior, scope, risk, uncertainty, and acceptance criteria",
     );
-    expect(TESTING_POLICY.rule).toContain("repository-required gates");
+    expect(TESTING_POLICY.rule).toContain("required repository gates");
     expect(TESTING_POLICY.broadenOrRepeatOnlyAfter).toEqual([
       "source_change",
       "proof_failure",
