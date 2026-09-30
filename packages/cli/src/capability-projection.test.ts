@@ -23,6 +23,8 @@ test("projects only selected visual providers into Root and both visual speciali
         expect(projection.includes("Browser Use / ")).toBe(browserUse);
         expect(projection.includes("Computer Use")).toBe(computerUse);
         expect(projection).not.toContain("if Browser Use is installed");
+        expect(projection).not.toContain("only when the capability");
+        expect(projection).not.toContain("actually available");
         if (browserUse) {
           expect(projection).toContain(
             "open and inspect the standalone temporary HTML with Browser Use / IAB",

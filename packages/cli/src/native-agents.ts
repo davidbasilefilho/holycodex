@@ -703,12 +703,12 @@ export function renderNativeAgent(
     ...(agent.permissions.sourceMutation ? [`Patch quality: ${SURGICAL_MUTATION_RULE}`] : []),
     ...(instructionOptions.browserUse
       ? [
-          "Use Browser Use only for this Assignment and only when the capability is actually available in the current Codex surface/runtime. Never assume support or substitute another provider; report unavailability as a blocker. Tool availability does not grant authority, and consequential external effects remain Root-owned.",
+          "Use Browser Use only for this Assignment, following active-surface tool rules. Return tool failures that prevent required evidence as a blocker. Tool availability does not grant authority, and consequential external effects remain Root-owned.",
         ]
       : []),
     ...(instructionOptions.computerUse
       ? [
-          "Use Computer Use only for this Assignment and only when the capability is actually available in the current Codex surface/runtime. Its platform restrictions and ability to cause external actions require explicit task authority. Never assume support or substitute another provider; report unavailability as a blocker. Tool availability does not grant authority. Credential entry and submission remain user-owned; never request, enter, retrieve, expose, or store credentials.",
+          "Use Computer Use only for this Assignment, following active-surface tool rules and platform restrictions. External actions require explicit task authority. Return tool failures that prevent required evidence as a blocker. Tool availability does not grant authority. Credential entry and submission remain user-owned; never request, enter, retrieve, expose, or store credentials.",
         ]
       : []),
   ].join("\n");
