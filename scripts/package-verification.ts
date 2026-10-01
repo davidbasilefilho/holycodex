@@ -3089,7 +3089,9 @@ function findCommandOnPath(
         if (yield* exists(candidate)) return candidate;
       }
     }
-    throw new Error(`the ${name} launcher is missing from the package verification PATH`);
+    return yield* Effect.fail(
+      new Error(`the ${name} launcher is missing from the package verification PATH`),
+    );
   });
 }
 function createReleaseStamp(options: PackageReleaseOptions): typeof ReleaseStampSchema.Type {

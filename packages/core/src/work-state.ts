@@ -4070,6 +4070,12 @@ function readLockOwner(lockPath: string): Effect.Effect<LockOwnerState, unknown>
               Effect.gen(function* () {
                 if (isFsCode(error, "ENOENT"))
                   return { kind: "return", value: { kind: "missing" } } as const;
+                // On Windows, an active writer may briefly make its owner file
+                // unavailable to readers while publishing or closing it. Keep
+                // the lock opaque and retry; never reclaim it without proof
+                // that its owner is gone.
+                if (isFsCode(error, "EPERM") || isFsCode(error, "EACCES"))
+                  return { kind: "return", value: { kind: "unknown" } } as const;
                 return yield* Effect.fail(storeIo(error));
                 return { kind: "none" } as const;
               }),

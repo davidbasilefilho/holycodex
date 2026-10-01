@@ -115,6 +115,16 @@ function testRuntime(codexHome: string): InstallerRuntime {
   };
 }
 
+function expectedUpgradeVersionChanges(from: string, to: string): readonly string[] {
+  if (from === to) return [];
+  const sameBaseChannelTransition =
+    from.split("-", 1)[0] === to.split("-", 1)[0] &&
+    from.includes("-dev.") !== to.includes("-dev.");
+  return sameBaseChannelTransition
+    ? ["version"]
+    : ["version", "Root/session configuration", "specialist role definitions"];
+}
+
 function withRuntime(options: InstallerOptions): InstallerOptions {
   const codexHome = options.paths?.codexHome;
   return codexHome === undefined || options.runtime !== undefined
@@ -1907,13 +1917,21 @@ describe("native installation and removal", () => {
       await expect(
         upgradeHolyCodex({ paths: { codexHome }, officialPluginManager: manager }),
       ).rejects.toMatchObject({ code: "not_installed" });
-      await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager });
+      const install = await installHolyCodex(
+        {},
+        { paths: { codexHome }, officialPluginManager: manager },
+      );
       const first = await upgradeHolyCodex(
         { paths: { codexHome }, officialPluginManager: manager },
         {},
       );
-      expect(first.status).toBe("current");
-      expect(first.changes).toEqual([]);
+      const expectedChanges = expectedUpgradeVersionChanges(
+        install.record.version,
+        first.to_version,
+      );
+      expect(first.from_version).toBe(install.record.version);
+      expect(first.status).toBe(expectedChanges.length > 0 ? "upgraded" : "current");
+      expect(first.changes).toEqual(expectedChanges);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -2640,8 +2658,13 @@ describe("native installation and removal", () => {
       const install = await installHolyCodex({}, options);
       expect(install.record.tooling?.context7).toBeUndefined();
       const upgrade = await upgradeHolyCodex(options);
-      expect(upgrade.status).toBe("current");
-      expect(upgrade.changes).toEqual([]);
+      const expectedChanges = expectedUpgradeVersionChanges(
+        install.record.version,
+        upgrade.to_version,
+      );
+      expect(upgrade.from_version).toBe(install.record.version);
+      expect(upgrade.status).toBe(expectedChanges.length > 0 ? "upgraded" : "current");
+      expect(upgrade.changes).toEqual(expectedChanges);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
