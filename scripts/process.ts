@@ -120,7 +120,7 @@ export function allowlistedEnvironment(
 }
 
 /** Run a subprocess with bounded output and an allowlisted environment. */
-export async function runCommand(
+export function runCommand(
   command: readonly string[],
   options: Readonly<{
     readonly cwd?: string;
@@ -128,7 +128,7 @@ export async function runCommand(
     readonly maxOutputBytes?: number;
   }> = {},
 ): Promise<CommandResult> {
-  return await Effect.runPromise(runCommandEffect(command, options));
+  return Effect.runPromise(runCommandEffect(command, options));
 }
 
 /** Run a subprocess inside an Effect workflow without crossing the Promise adapter. */
@@ -188,7 +188,7 @@ export function runCommandEffect(
 }
 
 /** Run a subprocess and throw a redacted error when it exits unsuccessfully. */
-export async function runChecked(
+export function runChecked(
   command: readonly string[],
   options: Readonly<{
     readonly cwd?: string;
@@ -197,7 +197,7 @@ export async function runChecked(
     readonly failureDiagnostics?: FailureDiagnosticMode;
   }> = {},
 ): Promise<CommandResult> {
-  return await Effect.runPromise(runCheckedEffect(command, options));
+  return Effect.runPromise(runCheckedEffect(command, options));
 }
 
 /** Run a checked subprocess inside an Effect workflow. */
@@ -236,11 +236,11 @@ export function runCheckedEffect(
 }
 
 /** Run an operation inside a temporary directory and remove it afterward. */
-export async function withTemporaryDirectory<T>(
+export function withTemporaryDirectory<T>(
   prefix: string,
   operation: (directory: string) => Promise<T>,
 ): Promise<T> {
-  return await Effect.runPromise(
+  return Effect.runPromise(
     withTemporaryDirectoryEffect(prefix, (directory) =>
       Effect.tryPromise({
         try: () => operation(directory),
@@ -298,8 +298,8 @@ export function assertTemporaryPath(path: string, label: string): string {
 }
 
 /** Write one JSON value with a terminal newline and restrictive file mode. */
-export async function writeJson(path: string, value: unknown): Promise<void> {
-  await Effect.runPromise(
+export function writeJson(path: string, value: unknown): Promise<void> {
+  return Effect.runPromise(
     Effect.tryPromise({
       try: () => writeFile(path, `${JSON.stringify(value)}\n`, { encoding: "utf8", mode: 0o600 }),
       catch: (error) => error,

@@ -304,7 +304,7 @@ function verifyGeneratedArtifactInternal(
 }
 
 /** Verify generated Codex artifact inventory, provenance, protocol, and lifecycle status. */
-export async function verifyGeneratedArtifact(
+export function verifyGeneratedArtifact(
   options: GeneratedArtifactVerificationOptions = {},
 ): Promise<GeneratedArtifactVerification> {
   return Effect.runPromise(

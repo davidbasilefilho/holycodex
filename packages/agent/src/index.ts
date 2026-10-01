@@ -347,4 +347,6 @@ function classify(error: unknown): {
 
 export { agentHelp, agentHelpRequested } from "./help.ts";
 
-if (import.meta.main) process.exitCode = await runAgentBinary();
+if (import.meta.main) {
+  process.exitCode = await runAgentBinary();
+}

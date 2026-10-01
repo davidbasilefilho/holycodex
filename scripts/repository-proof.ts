@@ -154,6 +154,23 @@ export function runRepositoryProof(): Effect.Effect<RepositoryProof, unknown> {
       "behavior must require the exact ten-minute timeout for every Root wait_agent call",
     );
     assert(
+      behaviorContract.includes(
+        "it does not message, poll, request status from, or follow up with a running",
+      ) &&
+        behaviorContract.includes("does not use `sleep` or status loops") &&
+        behaviorContract.includes("prefers a suitable warm specialist") &&
+        behaviorContract.includes("already-known independent Assignments before waiting"),
+      "behavior must define report-driven Root coordination, exact wait discipline, and warm reuse",
+    );
+    assert(
+      behaviorContract.includes(
+        "shared specialist baseline automatically projects all-tool efficiency",
+      ) &&
+        behaviorContract.includes("no arbitrary output cap") &&
+        behaviorContract.includes("Complete mergeable work and required proof"),
+      "behavior must define automatic shared specialist efficiency guidance without weakening proof",
+    );
+    assert(
       configurationContract.includes("features.context_management.experimental_mode = true") &&
         configurationContract.includes("Removal restores the recorded prior value") &&
         behaviorContract.includes("The package migration recognizes owned") &&

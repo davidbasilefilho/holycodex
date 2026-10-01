@@ -41,7 +41,7 @@ function effectResolver<Args extends readonly unknown[], Value>(
     >;
 }
 const LEGACY_VERSION = `${CURRENT_MAJOR}.${CURRENT_MINOR}.${Number(CURRENT_PATCH) - 1}`;
-const PRE_ROUTE_MIGRATION_VERSION = `${CURRENT_MAJOR}.${CURRENT_MINOR}.${Number(CURRENT_PATCH) - 2}`;
+const PRE_ROUTE_MIGRATION_VERSION = "0.16.8";
 import type {
   InstallRequest,
   InstallerOptions,
@@ -382,7 +382,7 @@ describe("command install and upgrade review flow", () => {
         { profile: "high", tier: "fast-all", optional: { computer_use: false } },
         manager,
       );
-      await setLegacyRootModel(codexHome, "gpt-6-astra", "0.16.8");
+      await setLegacyRootModel(codexHome, "gpt-6-astra");
 
       const migrated = await upgradeHolyCodex(
         installerOptions(codexHome, manager),
@@ -394,7 +394,7 @@ describe("command install and upgrade review flow", () => {
         model_reasoning_effort: "medium",
       });
 
-      await setLegacyRootModel(codexHome, "gpt-6-astra", "0.16.8");
+      await setLegacyRootModel(codexHome, "gpt-6-astra");
       await writeFile(
         paths.configFile,
         (await readFile(paths.configFile, "utf8")).replace(
@@ -743,7 +743,8 @@ describe("command install and upgrade review flow", () => {
       );
       expect(highInstructions).not.toContain("routine wait");
       expect(highInstructions).not.toContain("when a longer event wait is appropriate");
-      expect(highInstructions).toContain(
+      expect(highInstructions).toContain("After dispatch, do not inspect a running specialist.");
+      expect(highInstructions).not.toContain(
         "inspect only bounded evidence when a material stall or failure is plausible",
       );
       expect(lowConfig["developer_instructions"]).toBe(solInstructions);

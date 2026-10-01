@@ -231,65 +231,81 @@ function nativeStyledText(
  * interactive install. This keeps JSON, CI, and injected test paths independent of native terminal
  * initialization.
  */
-export async function runOpenTuiInstallWizard(
+export function runOpenTuiInstallWizard(
   initial: InstallRequest = {},
   rendererOptions: OpenTuiInstallWizardOptions = {},
 ): Promise<InstallWizardResult> {
-  const validatedInitial = validateInstallOptions(initial);
-  const opentui = await import("@opentui/core");
-  const state = stateFromRequest(validatedInitial);
-  const renderer = await opentui.createCliRenderer({
-    ...nativeRendererOptions(rendererOptions),
-    exitOnCtrlC: true,
-    clearOnShutdown: true,
-  });
-  const color = nativeColorEnabled(rendererOptions);
-  const text = new opentui.TextRenderable(renderer, {
-    content: nativeWizardContent(opentui, state, 0, color),
-  });
-  renderer.root.add(text);
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const validatedInitial = validateInstallOptions(initial);
+      const opentui = yield* Effect.tryPromise({
+        try: () => import("@opentui/core"),
+        catch: (error) => error,
+      });
+      const state = stateFromRequest(validatedInitial);
+      const renderer = yield* Effect.tryPromise({
+        try: () =>
+          opentui.createCliRenderer({
+            ...nativeRendererOptions(rendererOptions),
+            exitOnCtrlC: true,
+            clearOnShutdown: true,
+          }),
+        catch: (error) => error,
+      });
+      const color = nativeColorEnabled(rendererOptions);
+      const text = new opentui.TextRenderable(renderer, {
+        content: nativeWizardContent(opentui, state, 0, color),
+      });
+      renderer.root.add(text);
 
-  return runKeyInputScreen(renderer, (key) => {
-    let cursor = 0;
-    let reviewing = false;
-    let reviewChoice = 0;
-    const refresh = (): void => {
-      text.content = reviewing
-        ? nativeReviewContent(opentui, state, reviewChoice, color)
-        : nativeWizardContent(opentui, state, cursor, color);
-      renderer.requestRender();
-    };
-    const name = key.name.toLowerCase();
-    if (key.ctrl === true && name === "c") return { action: "cancel" };
-    if (reviewing) {
-      if (name === "escape") {
-        reviewing = false;
-        refresh();
-        return undefined;
-      }
-      if (name === "up" || name === "k") reviewChoice = (reviewChoice + 2) % 3;
-      else if (name === "down" || name === "j") reviewChoice = (reviewChoice + 1) % 3;
-      else if (name === "return" || name === "enter" || name === "linefeed") {
-        if (reviewChoice === 0) return { action: "install", request: toInstallOptions(state) };
-        if (reviewChoice === 1) {
-          reviewing = false;
-          cursor = 0;
-        } else return { action: "cancel" };
-      }
-      refresh();
-      return undefined;
-    }
+      let cursor = 0;
+      let reviewing = false;
+      let reviewChoice = 0;
+      return yield* Effect.tryPromise({
+        try: () =>
+          runKeyInputScreen<InstallWizardResult>(renderer, (key) => {
+            const refresh = (): void => {
+              text.content = reviewing
+                ? nativeReviewContent(opentui, state, reviewChoice, color)
+                : nativeWizardContent(opentui, state, cursor, color);
+              renderer.requestRender();
+            };
+            const name = key.name.toLowerCase();
+            if (key.ctrl === true && name === "c") return { action: "cancel" };
+            if (reviewing) {
+              if (name === "escape") {
+                reviewing = false;
+                refresh();
+                return undefined;
+              }
+              if (name === "up" || name === "k") reviewChoice = (reviewChoice + 2) % 3;
+              else if (name === "down" || name === "j") reviewChoice = (reviewChoice + 1) % 3;
+              else if (name === "return" || name === "enter" || name === "linefeed") {
+                if (reviewChoice === 0)
+                  return { action: "install", request: toInstallOptions(state) };
+                if (reviewChoice === 1) {
+                  reviewing = false;
+                  cursor = 0;
+                } else return { action: "cancel" };
+              }
+              refresh();
+              return undefined;
+            }
 
-    const transition = applyWizardConfigurationKey(state, cursor, key);
-    cursor = transition.cursor;
-    if (transition.action === "cancel") return { action: "cancel" };
-    if (transition.action === "review") {
-      reviewing = true;
-      reviewChoice = 0;
-    }
-    refresh();
-    return undefined;
-  });
+            const transition = applyWizardConfigurationKey(state, cursor, key);
+            cursor = transition.cursor;
+            if (transition.action === "cancel") return { action: "cancel" };
+            if (transition.action === "review") {
+              reviewing = true;
+              reviewChoice = 0;
+            }
+            refresh();
+            return undefined;
+          }),
+        catch: (error) => error,
+      });
+    }),
+  );
 }
 
 /** Build one conflict review state, retaining valid prior decisions before applying defaults. */
@@ -379,54 +395,69 @@ export function renderConflictScreen(
 }
 
 /** Run the one native OpenTUI conflict review and return all selected decisions. */
-export async function runOpenTuiConflictResolver(
+export function runOpenTuiConflictResolver(
   conflicts: readonly ManagedConflict[],
   rendererOptions: OpenTuiInstallWizardOptions = {},
   priorDecisions: Readonly<Record<string, ConflictDecision>> = {},
 ): Promise<ConflictScreenResult> {
-  const opentui = await import("@opentui/core");
-  const state = stateFromConflicts(conflicts, priorDecisions);
-  const renderer = await opentui.createCliRenderer({
-    ...nativeRendererOptions(rendererOptions),
-    exitOnCtrlC: true,
-    clearOnShutdown: true,
-  });
-  const color = nativeColorEnabled(rendererOptions);
-  const text = new opentui.TextRenderable(renderer, {
-    content: nativeConflictContent(
-      opentui,
-      state.conflicts,
-      state.decisions,
-      0,
-      color,
-      rendererOptions.width ?? process.stdout.columns ?? 80,
-      rendererOptions.height ?? process.stdout.rows ?? 24,
-    ),
-  });
-  renderer.root.add(text);
-  return runKeyInputScreen(renderer, (key) => {
-    let cursor = 0;
-    const refresh = (): void => {
-      text.content = nativeConflictContent(
-        opentui,
-        state.conflicts,
-        state.decisions,
-        cursor,
-        color,
-        rendererOptions.width ?? process.stdout.columns ?? 80,
-        rendererOptions.height ?? process.stdout.rows ?? 24,
-      );
-      renderer.requestRender();
-    };
-    const transition = applyConflictScreenKey(state, cursor, key);
-    cursor = transition.cursor;
-    if (transition.action === "continue")
-      return { action: "continue", decisions: { ...state.decisions } };
-    if (transition.action === "back" || transition.action === "cancel")
-      return { action: transition.action };
-    refresh();
-    return undefined;
-  });
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const opentui = yield* Effect.tryPromise({
+        try: () => import("@opentui/core"),
+        catch: (error) => error,
+      });
+      const state = stateFromConflicts(conflicts, priorDecisions);
+      const renderer = yield* Effect.tryPromise({
+        try: () =>
+          opentui.createCliRenderer({
+            ...nativeRendererOptions(rendererOptions),
+            exitOnCtrlC: true,
+            clearOnShutdown: true,
+          }),
+        catch: (error) => error,
+      });
+      const color = nativeColorEnabled(rendererOptions);
+      const text = new opentui.TextRenderable(renderer, {
+        content: nativeConflictContent(
+          opentui,
+          state.conflicts,
+          state.decisions,
+          0,
+          color,
+          rendererOptions.width ?? process.stdout.columns ?? 80,
+          rendererOptions.height ?? process.stdout.rows ?? 24,
+        ),
+      });
+      renderer.root.add(text);
+      let cursor = 0;
+      return yield* Effect.tryPromise({
+        try: () =>
+          runKeyInputScreen<ConflictScreenResult>(renderer, (key) => {
+            const refresh = (): void => {
+              text.content = nativeConflictContent(
+                opentui,
+                state.conflicts,
+                state.decisions,
+                cursor,
+                color,
+                rendererOptions.width ?? process.stdout.columns ?? 80,
+                rendererOptions.height ?? process.stdout.rows ?? 24,
+              );
+              renderer.requestRender();
+            };
+            const transition = applyConflictScreenKey(state, cursor, key);
+            cursor = transition.cursor;
+            if (transition.action === "continue")
+              return { action: "continue", decisions: { ...state.decisions } };
+            if (transition.action === "back" || transition.action === "cancel")
+              return { action: transition.action };
+            refresh();
+            return undefined;
+          }),
+        catch: (error) => error,
+      });
+    }),
+  );
 }
 
 /** Render the complete final transaction review shown immediately before approval. */
@@ -551,36 +582,52 @@ export function applyInstallReviewKey(
 }
 
 /** Run the one native OpenTUI final review and return the selected action. */
-export async function runOpenTuiInstallReview(
+export function runOpenTuiInstallReview(
   review: InstallReview,
   rendererOptions: OpenTuiInstallWizardOptions = {},
 ): Promise<InstallReviewResult> {
-  const opentui = await import("@opentui/core");
-  const state: InstallReviewScreenState = { review, selected: 0 };
-  const renderer = await opentui.createCliRenderer({
-    ...nativeRendererOptions(rendererOptions),
-    exitOnCtrlC: true,
-    clearOnShutdown: true,
-  });
-  const color = nativeColorEnabled(rendererOptions);
-  const text = new opentui.TextRenderable(renderer, {
-    content: nativeInstallReviewContent(opentui, review, state.selected, color),
-  });
-  renderer.root.add(text);
-  return runKeyInputScreen(renderer, (key) => {
-    let selected = state.selected;
-    const refresh = (): void => {
-      text.content = nativeInstallReviewContent(opentui, review, selected, color);
-      renderer.requestRender();
-    };
-    const transition = applyInstallReviewKey({ review, selected }, key);
-    selected = transition.selected;
-    if (transition.action === "cancel") return { action: "cancel" };
-    if (transition.action === "back") return { action: "change" };
-    if (transition.action === "choose") return { action: installReviewActions(review)[selected]! };
-    refresh();
-    return undefined;
-  });
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const opentui = yield* Effect.tryPromise({
+        try: () => import("@opentui/core"),
+        catch: (error) => error,
+      });
+      const state: InstallReviewScreenState = { review, selected: 0 };
+      const renderer = yield* Effect.tryPromise({
+        try: () =>
+          opentui.createCliRenderer({
+            ...nativeRendererOptions(rendererOptions),
+            exitOnCtrlC: true,
+            clearOnShutdown: true,
+          }),
+        catch: (error) => error,
+      });
+      const color = nativeColorEnabled(rendererOptions);
+      const text = new opentui.TextRenderable(renderer, {
+        content: nativeInstallReviewContent(opentui, review, state.selected, color),
+      });
+      renderer.root.add(text);
+      let selected = state.selected;
+      return yield* Effect.tryPromise({
+        try: () =>
+          runKeyInputScreen<InstallReviewResult>(renderer, (key) => {
+            const refresh = (): void => {
+              text.content = nativeInstallReviewContent(opentui, review, selected, color);
+              renderer.requestRender();
+            };
+            const transition = applyInstallReviewKey({ review, selected }, key);
+            selected = transition.selected;
+            if (transition.action === "cancel") return { action: "cancel" };
+            if (transition.action === "back") return { action: "change" };
+            if (transition.action === "choose")
+              return { action: installReviewActions(review)[selected]! };
+            refresh();
+            return undefined;
+          }),
+        catch: (error) => error,
+      });
+    }),
+  );
 }
 
 function installReviewActions(

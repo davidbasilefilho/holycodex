@@ -193,7 +193,7 @@ describe("release version authority", () => {
     expect(isCanonicalVersion(previousStable)).toBe(true);
     expect(countLiteral(previousFixture, previousStable!)).toBe(1);
     const legacyRootFixture = await readFile(`${workspaceRoot}/${legacyRootFixturePath}`, "utf8");
-    expect(countLiteral(legacyRootFixture, routeBoundary)).toBe(2);
+    expect(countLiteral(legacyRootFixture, routeBoundary)).toBe(1);
     const violations: string[] = [];
     for (const relativePath of await listFiles(workspaceRoot)) {
       if (relativePath === "tests/version-authority.test.ts") continue;

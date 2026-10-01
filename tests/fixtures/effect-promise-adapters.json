@@ -5,6 +5,136 @@
       "path": "packages/cli/src/native-agents.ts",
       "markers": ["installNativeAgents"],
       "reason": "The CLI native-agent projection writes bounded Codex profile files through the owned storage adapter."
+    },
+    {
+      "path": "packages/agent/src/index.ts",
+      "markers": ["runAgentBinary"],
+      "reason": "The agent CLI exposes its Effect program through the Promise-based executable boundary."
+    },
+    {
+      "path": "packages/cli/src/binary.ts",
+      "markers": ["runBinary", "processIo"],
+      "reason": "The CLI binary adapts its Effect program and process-backed streams to the executable Promise boundary."
+    },
+    {
+      "path": "packages/cli/src/commands.ts",
+      "markers": ["runCli", "executeCommand"],
+      "reason": "The public CLI command API adapts typed Effect workflows for Promise-based callers and inherits the host environment when an embedder omits one."
+    },
+    {
+      "path": "packages/cli/src/installer.ts",
+      "markers": ["installHolyCodex", "installHolyCodexEffect"],
+      "reason": "The installer exposes its transaction workflow to the Promise-based CLI and integration callers."
+    },
+    {
+      "path": "packages/cli/src/maintenance.ts",
+      "markers": ["doctorHolyCodex", "removeHolyCodex", "upgradeHolyCodex"],
+      "reason": "CLI maintenance entry points adapt Effect workflows to the Promise-based command interface."
+    },
+    {
+      "path": "packages/cli/src/installer-wizard.ts",
+      "markers": ["runKeyInputScreen"],
+      "reason": "The OpenTUI event callback adapter returns Promise results while its keyboard state and rendering remain Effect-managed."
+    },
+    {
+      "path": "packages/cli/src/storage.ts",
+      "markers": ["writeAtomicState", "optionalStateFile"],
+      "reason": "The CLI storage adapter exposes asynchronous filesystem operations to Promise-based installer integrations."
+    },
+    {
+      "path": "packages/cli/src/paths.ts",
+      "markers": ["ensureOwnedDirectory", "assertNoSymlink"],
+      "reason": "The CLI path adapter exposes asynchronous filesystem checks required by installer integrations."
+    },
+    {
+      "path": "packages/cli/src/tooling.ts",
+      "markers": ["ensureContext7", "preflightContext7"],
+      "reason": "The CLI tooling adapter coordinates external package-manager processes and filesystem observations through Promise APIs."
+    },
+    {
+      "path": "packages/cli/src/official-manager.ts",
+      "markers": ["listEffect", "statusEffect"],
+      "reason": "The CLI official-plugin manager adapts Codex process operations for the Promise-based installer interface."
+    },
+    {
+      "path": "packages/cli/src/manifest.ts",
+      "markers": ["readPublicManifest", "updateCanonicalVersion"],
+      "reason": "The CLI manifest adapter exposes filesystem reads and version updates through Promise APIs."
+    },
+    {
+      "path": "packages/codex/scripts/verify-generated-artifact.ts",
+      "markers": ["verification"],
+      "reason": "The generated-artifact verifier is a standalone Bun process entry point that runs its Effect program."
+    },
+    {
+      "path": "packages/codex/src/client.ts",
+      "markers": ["class AppServerClient"],
+      "reason": "The Codex App Server client exposes Promise operations over the process transport boundary."
+    },
+    {
+      "path": "packages/codex/src/executable.ts",
+      "markers": ["discoverCodexExecutable", "generateCodexSchemas"],
+      "reason": "The Codex executable adapter exposes process discovery and schema generation to Promise-based callers."
+    },
+    {
+      "path": "packages/codex/src/generated-artifact.ts",
+      "markers": ["verifyGeneratedArtifact"],
+      "reason": "The generated-artifact API adapts its typed verification Effect to Promise-based package callers."
+    },
+    {
+      "path": "packages/codex/src/managed-config.ts",
+      "markers": ["compareBeforeManagedWrite"],
+      "reason": "The Codex managed-config compatibility API adapts a typed comparison Effect for Promise-based CLI callers."
+    },
+    {
+      "path": "packages/codex/src/official-plugins.ts",
+      "markers": ["bootstrapOfficialMarketplace", "createOfficialPluginAdapter"],
+      "reason": "The official-plugin adapter provides Promise operations to CLI integrations while encapsulating Codex process and filesystem boundaries."
+    },
+    {
+      "path": "packages/codex/src/transport.ts",
+      "markers": ["readLine", "writeLine", "close"],
+      "reason": "The App Server line transport bridges process streams to the Promise methods consumed by the Codex client."
+    },
+    {
+      "path": "packages/codex/src/runtime-config.ts",
+      "markers": ["mergeManagedRuntimeConfig", "cleanupManagedRuntimeConfig"],
+      "reason": "Managed runtime configuration operations expose Promise APIs to the CLI package integration boundary."
+    },
+    {
+      "path": "packages/core/src/canonical.ts",
+      "markers": ["canonicalJsonUtf8", "domainSeparatedSha256"],
+      "reason": "Core canonicalization and digest helpers expose stable Promise APIs over WebCrypto for package integrations."
+    },
+    {
+      "path": "packages/core/src/work-state.ts",
+      "markers": ["readRepositorySnapshot"],
+      "reason": "Core work-state snapshot reading adapts the filesystem-backed Effect operation for Promise-based callers."
+    },
+    {
+      "path": "packages/plugin/src/assembly.ts",
+      "markers": ["assemblePayload"],
+      "reason": "The plugin assembly API adapts its validated Effect workflow for Promise-based release and packaging callers."
+    },
+    {
+      "path": "packages/plugin/src/planning.ts",
+      "markers": ["validateSource", "planAssembly"],
+      "reason": "The plugin planning API exposes Effect-backed source validation and assembly plans to Promise-based callers."
+    },
+    {
+      "path": "packages/plugin/src/schemas.ts",
+      "markers": ["readSourceManifest", "readGeneratedManifest"],
+      "reason": "Plugin manifest readers adapt validated filesystem operations for the source and packaging integrations."
+    },
+    {
+      "path": "packages/plugin/src/source.ts",
+      "markers": ["walkSource", "readSourceFile"],
+      "reason": "Plugin source-tree readers expose filesystem traversal and file reads to Promise-based assembly callers."
+    },
+    {
+      "path": "packages/plugin/src/verification.ts",
+      "markers": ["verifyPayload", "sha256"],
+      "reason": "Plugin payload verification exposes Effect-backed filesystem and digest checks to Promise-based packaging callers."
     }
   ]
 }

@@ -184,8 +184,8 @@ export function assertNoSymlink(path: string): Promise<void> {
 }
 
 /** Validate that an existing managed path and its ancestors contain no symlink. */
-export async function assertNoSymlinkTree(path: string): Promise<void> {
-  await assertNoSymlink(path);
+export function assertNoSymlinkTree(path: string): Promise<void> {
+  return assertNoSymlink(path);
 }
 
 /** Return whether a child path is strictly contained within a root path. */

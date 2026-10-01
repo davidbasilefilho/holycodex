@@ -69,6 +69,7 @@ import type {
 
 /** Parse and execute CLI arguments, returning a validated envelope and exit code. */
 export function runCli(argv: readonly string[], context: CliContext = {}): Promise<CommandResult> {
+  const effectiveContext = context.env === undefined ? { ...context, env: process.env } : context;
   if (argv.length === 0 || helpRequested(argv) || argv[0] === "help") {
     const topic =
       argv[0] === "help"
@@ -82,7 +83,7 @@ export function runCli(argv: readonly string[], context: CliContext = {}): Promi
   }
   const command = Effect.try({ try: () => parseArgv(argv), catch: (error) => error }).pipe(
     Effect.flatMap((parsed) =>
-      executeCommandEffect(parsed, context).pipe(
+      executeCommandEffect(parsed, effectiveContext).pipe(
         Effect.flatMap((data) =>
           successEnvelopeEffect(parsed.command, data).pipe(
             Effect.map((envelope) => ({
@@ -101,28 +102,27 @@ export function runCli(argv: readonly string[], context: CliContext = {}): Promi
 
 /** Dispatch a parsed command to its installer, maintenance, or version operation. */
 export function executeCommand(parsed: ParsedCommand, context: CliContext): Promise<JsonValue> {
-  return Effect.runPromise(executeCommandEffect(parsed, context));
+  const effectiveContext = context.env === undefined ? { ...context, env: process.env } : context;
+  return Effect.runPromise(executeCommandEffect(parsed, effectiveContext));
 }
 
 function executeCommandEffect(
   parsed: ParsedCommand,
   context: CliContext,
 ): Effect.Effect<JsonValue, unknown> {
+  const environment = context.env ?? {};
   return Effect.gen(function* () {
     switch (parsed.command) {
       case "install":
         return asJsonValue(yield* executeInstallEffect(parsed, context));
       case "doctor": {
         const options = installerOptions(parsed, context);
-        const paths = resolveInstallerPaths(options, context.env);
+        const paths = resolveInstallerPaths(options, environment);
         const officialPluginManager =
           options.officialPluginManager ??
-          (yield* createDoctorPluginStatusManagerEffect(paths.codexHome, context.env));
+          (yield* createDoctorPluginStatusManagerEffect(paths.codexHome, environment));
         return asJsonValue(
-          yield* doctorHolyCodexEffect(
-            { ...options, officialPluginManager },
-            context.env ?? process.env,
-          ),
+          yield* doctorHolyCodexEffect({ ...options, officialPluginManager }, environment),
         );
       }
       case "remove":
@@ -190,7 +190,7 @@ function resolveInstallRequestEffect(
     return Effect.gen(function* () {
       const previous = yield* readEffectiveInstallRequestEffect(
         installerOptions(parsed, context),
-        context.env ?? process.env,
+        context.env ?? {},
       );
       const result = yield* Effect.tryPromise({
         try: () =>
@@ -262,7 +262,7 @@ function executeRemoveEffect(
     if (confirmationResult === "unavailable") {
       const conflicts = yield* inspectRemovalConflictsEffect(
         installerOptions(parsed, context),
-        context.env ?? process.env,
+        context.env ?? {},
       );
       const conflict = conflicts[0];
       if (conflict !== undefined) {
@@ -286,10 +286,7 @@ function executeRemoveEffect(
         ),
       );
     }
-    return yield* removeHolyCodexEffect(
-      installerOptions(parsed, context),
-      context.env ?? process.env,
-    );
+    return yield* removeHolyCodexEffect(installerOptions(parsed, context), context.env ?? {});
   });
 }
 

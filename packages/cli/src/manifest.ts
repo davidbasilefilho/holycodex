@@ -35,7 +35,7 @@ export const publicManifestPath = resolve(
 );
 
 /** Read and validate the public package manifest at the supplied path. */
-export async function readPublicManifest(
+export function readPublicManifest(
   path = publicManifestPath,
 ): Promise<PublicManifest & JsonObject> {
   return Effect.runPromise(readPublicManifestEffect(path));
@@ -58,7 +58,7 @@ export function readPublicManifestEffect(
 }
 
 /** Read the exact public release version, including a development release suffix. */
-export async function readPublicVersion(path = publicManifestPath): Promise<ReleaseVersion> {
+export function readPublicVersion(path = publicManifestPath): Promise<ReleaseVersion> {
   return Effect.runPromise(readPublicVersionEffect(path));
 }
 
@@ -70,7 +70,7 @@ export function readPublicVersionEffect(
 }
 
 /** Read the canonical public package version from the validated manifest. */
-export async function readCanonicalVersion(path = publicManifestPath): Promise<CanonicalVersion> {
+export function readCanonicalVersion(path = publicManifestPath): Promise<CanonicalVersion> {
   return Effect.runPromise(readCanonicalVersionEffect(path));
 }
 
@@ -91,7 +91,7 @@ export function readCanonicalVersionEffect(
 }
 
 /** Read the canonical version without an optional release suffix. */
-export async function readCanonicalBaseVersion(path = publicManifestPath): Promise<BaseVersion> {
+export function readCanonicalBaseVersion(path = publicManifestPath): Promise<BaseVersion> {
   return Effect.runPromise(readCanonicalBaseVersionEffect(path));
 }
 
@@ -113,7 +113,7 @@ export function readCanonicalBaseVersionEffect(
 }
 
 /** Read the exact release version recorded for an installation. */
-export async function readInstallationVersion(path = publicManifestPath): Promise<ReleaseVersion> {
+export function readInstallationVersion(path = publicManifestPath): Promise<ReleaseVersion> {
   return Effect.runPromise(readInstallationVersionEffect(path));
 }
 
@@ -125,7 +125,7 @@ export function readInstallationVersionEffect(
 }
 
 /** Resolve and optionally persist a canonical package version update. */
-export async function updateCanonicalVersion(
+export function updateCanonicalVersion(
   target: string,
   dryRun: boolean,
   path = publicManifestPath,

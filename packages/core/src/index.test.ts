@@ -41,6 +41,7 @@ import {
   ROUTE_EFFORT_OVERRIDES,
   ROOT_ORCHESTRATION_PHASE_ORDER,
   ROOT_ORCHESTRATION_POLICY,
+  SPECIALIST_EFFICIENCY_POLICY,
   FRONTEND_WORKFLOW_POLICY,
   LIBRARIAN_CONTEXT7_POLICY,
   NO_SOURCE_MUTATION_RULE,
@@ -568,6 +569,17 @@ describe("core profile catalog", () => {
       configuredRouteModelAndEffortPreserved: true,
       rootWaitTool: "collaboration.wait_agent",
       rootWaitTimeoutMs: 600_000,
+      reportDrivenSpecialistCoordination: true,
+      runningSpecialistMessagesForbidden: true,
+      runningSpecialistInspectionForbidden: true,
+      runningSpecialistFollowupForbidden: true,
+      followupRequiresTerminalReport: true,
+      rootSleepForSpecialistCoordinationForbidden: true,
+      pollingAndStatusLoopsForbidden: true,
+      warmSpecialistReusePreferred: true,
+      warmReuseRequiresContextAndOwnershipFit: true,
+      independentAssignmentsDispatchedBeforeWait: true,
+      rootDecisionBoundariesMinimized: true,
       rootWaitRequiresExactTimeout: true,
       earlySpecialistCompletionWakesWait: true,
       collectiveMailboxIncludesRelevantAgents: true,
@@ -599,6 +611,17 @@ describe("core profile catalog", () => {
       "Root decisions needed",
       "remaining risk",
     ]);
+    expect(ROOT_ORCHESTRATION_POLICY.specialistCoordinationInstruction).toContain(
+      "After dispatch, do not inspect a running specialist. Do not message, poll, request status from, or follow up with a running specialist.",
+    );
+    expect(ROOT_ORCHESTRATION_POLICY.specialistCoordinationInstruction).toContain(
+      "The only exception is a genuine lifecycle interruption or supersession",
+    );
+    expect(ROOT_ORCHESTRATION_POLICY.specialistCoordinationInstruction).toContain(
+      "prefer the same warm specialist",
+    );
+    expect(SPECIALIST_EFFICIENCY_POLICY).toContain("across every tool");
+    expect(SPECIALIST_EFFICIENCY_POLICY).toContain("impose no arbitrary hard output caps");
     expect(ROOT_ORCHESTRATION_POLICY.rootLargeReadsOnlyFor).toEqual([
       "material decisions",
       "conflicts",

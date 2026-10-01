@@ -145,4 +145,6 @@ export type {
 } from "./types.ts";
 export type { InstallOptions, InstallRequest } from "./installer.ts";
 
-if (import.meta.main) process.exitCode = await runBinary();
+if (import.meta.main) {
+  process.exitCode = await runBinary();
+}

@@ -186,6 +186,29 @@ function fakeManager(
 }
 
 describe("CLI boundaries", () => {
+  test("inherits the host environment when an embedding caller omits context.env", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-env-default-"));
+    const codexHome = join(root, "codex");
+    const previous = process.env["CODEX_HOME"];
+    process.env["CODEX_HOME"] = codexHome;
+    try {
+      const result = await runCli(["install", "--yes", "--json"], {
+        installer: {
+          runtime: testRuntime(codexHome),
+          officialPluginManager: fakeManager(),
+        },
+      });
+      expect(result.exitCode).toBe(0);
+      expect(await readFile(join(codexHome, "holycodex", "active.toml"), "utf8")).toContain(
+        "version",
+      );
+    } finally {
+      if (previous === undefined) delete process.env["CODEX_HOME"];
+      else process.env["CODEX_HOME"] = previous;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("prints top-level help and succeeds without arguments", async () => {
     const cli = await runCli([], {
       io: { stdoutIsTTY: false, stderrIsTTY: false },

@@ -10,6 +10,7 @@ import {
   NATIVE_AGENT_TYPES,
   GENERIC_BUILTIN_AGENT_TYPES,
   ROOT_ORCHESTRATION_POLICY,
+  SPECIALIST_EFFICIENCY_POLICY,
   FRONTEND_WORKFLOW_POLICY,
   TESTING_POLICY,
   SURGICAL_MUTATION_RULE,
@@ -80,6 +81,7 @@ export type RootAgentProjection = Readonly<{
 }>;
 
 const SPECIALIST_BASELINE_POLICY = [
+  SPECIALIST_EFFICIENCY_POLICY,
   `Execute the bounded Assignment through its acceptance criteria; make routine in-scope choices without asking. ${TESTING_POLICY.rule} Return material decisions, scope expansion, or required user input to Root; never ask the user. Do not message Root or peers during execution, delegate, change Intent lifecycle, or perform external effects. Read-only Git/VCS, CI, and PR-comment inspection is allowed when relevant and within the Assignment; Git/VCS writes remain Root-only. Source mutation requires permission from the concrete task; proof and cache writes do not grant it. Preserve others' work in the shared tree and adapt to their changes. Root owns the shared background dev server and final visual acceptance. Do not run dev-server or visual-loop.`,
   "Do not recover an Assignment or mutate another Assignment's lifecycle. Root keeps active invocation capabilities and records terminal results; never request or use those capabilities.",
   `Return only one compact, evidence-first terminal outcome (${ROOT_ORCHESTRATION_POLICY.specialistOutcomes.map((outcome) => `\`${outcome}\``).join(", ")}) with ${ROOT_ORCHESTRATION_POLICY.specialistReportFields.join(", ")}.`,
@@ -120,7 +122,7 @@ const DELEGABLE_ACTION_LABELS = {
 const REVIEW_VALIDATION_PHASE_BARRIER =
   "Before acceptance or VCS writes, require a Reviewer.code fixed point and current relevant validation. Review and validation may overlap on non-conflicting scopes; serialize repairs against checks of the same source. Reuse worker proof and assign Worker.validation only for independent proof or an evidence gap. Repairs invalidate only affected evidence.";
 
-const ROOT_EVENT_WAIT_INSTRUCTION = `Always call ${ROOT_ORCHESTRATION_POLICY.rootWaitTool} with timeout_ms=${ROOT_ORCHESTRATION_POLICY.rootWaitTimeoutMs} for every Root wait. Never use a 10-second timeout or any other duration, regardless of the situation. Specialist completion wakes the call early. On timeout, use ${ROOT_ORCHESTRATION_POLICY.rootWaitTimeoutMs} again while any specialist result remains a live dependency; continue independent work between waits. Do not busy-poll, create unnecessary work to avoid waiting, or inspect a long-running specialist merely because others finished; inspect only bounded evidence when a material stall or failure is plausible, then repair, restart, or redispatch only the necessary scope. Batch specialist completion updates rather than reporting each completion separately. Continue useful independent work while live dependencies remain. Release specialist leaves after accepting terminal outcomes.`;
+const ROOT_EVENT_WAIT_INSTRUCTION = `Always call ${ROOT_ORCHESTRATION_POLICY.rootWaitTool} with timeout_ms=${ROOT_ORCHESTRATION_POLICY.rootWaitTimeoutMs} for every Root wait. Never use a 10-second timeout or any other duration, regardless of the situation. Specialist completion wakes the call early. On timeout, use ${ROOT_ORCHESTRATION_POLICY.rootWaitTimeoutMs} again while any specialist result remains a live dependency; continue independent work between waits. Do not busy-poll or create unnecessary work to avoid waiting. Batch specialist completion updates rather than reporting each completion separately. Continue useful independent work while live dependencies remain. Release specialist leaves after accepting terminal outcomes.`;
 
 /** Public data contract for native agent install result used by CLI operations. */
 export interface NativeAgentInstallResult {
@@ -151,90 +153,144 @@ export interface NativeAgentRemovalResult {
 }
 
 /** Inspect every canonical native-agent path without changing the filesystem. */
-export async function inspectNativeAgentConflicts(
+export function inspectNativeAgentConflicts(
   codexHome: string,
   profile: ProfileName,
   previous: readonly ManagedArtifact[] = [],
   tier: ServiceTier = "standard",
   capabilities: NativeAgentCapabilityOptions = {},
 ): Promise<readonly ManagedConflict[]> {
-  const generationId = nativeAgentGenerationId(profile, tier, capabilities);
-  const root = join(codexHome, "holycodex", "agents", generationId);
-  const projections = projectNativeAgents(profile, tier).map((agent) => ({
-    path: join(root, `${agent.name}.toml`),
-    contents: renderNativeAgent(agent, capabilities),
-  }));
-  const previousByPath = new Map(
-    previous.map((artifact) => [join(codexHome, artifact.path), artifact]),
+  return Effect.runPromise(
+    inspectNativeAgentConflictsEffect(codexHome, profile, previous, tier, capabilities),
   );
-  const conflicts: ManagedConflict[] = [];
-  for (const projection of projections) {
-    const current = await readRegularFile(projection.path);
-    const previousArtifact = previousByPath.get(projection.path);
-    const conflict =
-      current === undefined
-        ? undefined
-        : await nativeRoleConflict(projection, current, previousArtifact);
-    if (conflict !== undefined) conflicts.push(conflict);
-  }
-  return conflicts;
+}
+
+function inspectNativeAgentConflictsEffect(
+  codexHome: string,
+  profile: ProfileName,
+  previous: readonly ManagedArtifact[],
+  tier: ServiceTier,
+  capabilities: NativeAgentCapabilityOptions,
+): Effect.Effect<readonly ManagedConflict[], unknown> {
+  return Effect.gen(function* () {
+    const generationId = nativeAgentGenerationId(profile, tier, capabilities);
+    const root = join(codexHome, "holycodex", "agents", generationId);
+    const projections = projectNativeAgents(profile, tier).map((agent) => ({
+      path: join(root, `${agent.name}.toml`),
+      contents: renderNativeAgent(agent, capabilities),
+    }));
+    const previousByPath = new Map(
+      previous.map((artifact) => [join(codexHome, artifact.path), artifact]),
+    );
+    const conflicts: ManagedConflict[] = [];
+    for (const projection of projections) {
+      const current = yield* Effect.tryPromise({
+        try: () => readRegularFile(projection.path),
+        catch: (error) => error,
+      });
+      const previousArtifact = previousByPath.get(projection.path);
+      const conflict =
+        current === undefined
+          ? undefined
+          : yield* nativeRoleConflict(projection, current, previousArtifact);
+      if (conflict !== undefined) conflicts.push(conflict);
+    }
+    return conflicts;
+  });
 }
 
 /** Inspect modified, recorded native-agent artifacts before removal mutates any path. */
-export async function inspectNativeAgentRemovalConflicts(
+export function inspectNativeAgentRemovalConflicts(
   codexHome: string,
   artifacts: readonly ManagedArtifact[],
 ): Promise<readonly (ManagedConflict & { readonly action: "remove" })[]> {
-  const root = join(codexHome, "agents");
-  const managedRoot = join(codexHome, "holycodex", "agents");
-  const conflicts: (ManagedConflict & { readonly action: "remove" })[] = [];
-  for (const artifact of artifacts) {
-    const target = join(codexHome, artifact.path);
-    if (
-      !pathWithin(codexHome, target) ||
-      (!pathWithin(root, target) &&
-        !pathWithin(managedRoot, target) &&
-        target !== join(codexHome, "config.toml"))
-    ) {
-      continue;
-    }
-    const current = await readRegularFile(target);
-    if (current !== undefined && (await sha256(current)) !== artifact.digest) {
-      conflicts.push({
-        ...nativeConflict(
-          target,
-          "remove",
-          { present: true, digest: await sha256(current) },
-          { present: false },
-          "The managed native artifact changed outside HolyCodex and would be removed.",
-        ),
-        action: "remove",
+  return Effect.runPromise(inspectNativeAgentRemovalConflictsEffect(codexHome, artifacts));
+}
+
+function inspectNativeAgentRemovalConflictsEffect(
+  codexHome: string,
+  artifacts: readonly ManagedArtifact[],
+): Effect.Effect<readonly (ManagedConflict & { readonly action: "remove" })[], unknown> {
+  return Effect.gen(function* () {
+    const root = join(codexHome, "agents");
+    const managedRoot = join(codexHome, "holycodex", "agents");
+    const conflicts: (ManagedConflict & { readonly action: "remove" })[] = [];
+    for (const artifact of artifacts) {
+      const target = join(codexHome, artifact.path);
+      if (
+        !pathWithin(codexHome, target) ||
+        (!pathWithin(root, target) &&
+          !pathWithin(managedRoot, target) &&
+          target !== join(codexHome, "config.toml"))
+      ) {
+        continue;
+      }
+      const current = yield* Effect.tryPromise({
+        try: () => readRegularFile(target),
+        catch: (error) => error,
       });
+      if (
+        current !== undefined &&
+        (yield* Effect.tryPromise({ try: () => sha256(current), catch: (error) => error })) !==
+          artifact.digest
+      ) {
+        const currentDigest = yield* Effect.tryPromise({
+          try: () => sha256(current),
+          catch: (error) => error,
+        });
+        conflicts.push({
+          ...nativeConflict(
+            target,
+            "remove",
+            { present: true, digest: currentDigest },
+            { present: false },
+            "The managed native artifact changed outside HolyCodex and would be removed.",
+          ),
+          action: "remove",
+        });
+      }
     }
-  }
-  return conflicts;
+    return conflicts;
+  });
 }
 
 /** Return reviewed native files whose contents changed or can no longer be safely read. */
-export async function changedNativeAgentRemovalConflicts(
+export function changedNativeAgentRemovalConflicts(
   codexHome: string,
   reviewedDigests: ReadonlyMap<string, string>,
 ): Promise<readonly string[]> {
-  const root = join(codexHome, "agents");
-  const managedRoot = join(codexHome, "holycodex", "agents");
-  const changed: string[] = [];
-  for (const [target, reviewedDigest] of reviewedDigests) {
-    if (
-      !pathWithin(codexHome, target) ||
-      (!pathWithin(root, target) && !pathWithin(managedRoot, target))
-    ) {
-      changed.push(target);
-      continue;
+  return Effect.runPromise(changedNativeAgentRemovalConflictsEffect(codexHome, reviewedDigests));
+}
+
+function changedNativeAgentRemovalConflictsEffect(
+  codexHome: string,
+  reviewedDigests: ReadonlyMap<string, string>,
+): Effect.Effect<readonly string[], unknown> {
+  return Effect.gen(function* () {
+    const root = join(codexHome, "agents");
+    const managedRoot = join(codexHome, "holycodex", "agents");
+    const changed: string[] = [];
+    for (const [target, reviewedDigest] of reviewedDigests) {
+      if (
+        !pathWithin(codexHome, target) ||
+        (!pathWithin(root, target) && !pathWithin(managedRoot, target))
+      ) {
+        changed.push(target);
+        continue;
+      }
+      const current = yield* Effect.tryPromise({
+        try: () => readRegularFile(target),
+        catch: (error) => error,
+      });
+      if (
+        current !== undefined &&
+        (yield* Effect.tryPromise({ try: () => sha256(current), catch: (error) => error })) !==
+          reviewedDigest
+      )
+        changed.push(target);
     }
-    const current = await readRegularFile(target);
-    if (current !== undefined && (await sha256(current)) !== reviewedDigest) changed.push(target);
-  }
-  return changed;
+    return changed;
+  });
 }
 
 /** Project every canonical specialist profile and service tier. */
@@ -345,6 +401,17 @@ export function rootDeveloperInstructions(
     !ROOT_ORCHESTRATION_POLICY.collectiveMailboxIncludesRelevantAgents ||
     !ROOT_ORCHESTRATION_POLICY.idleRootWaitRepeatsRequiredTimeout ||
     !ROOT_ORCHESTRATION_POLICY.shortRootWaitsForbidden ||
+    !ROOT_ORCHESTRATION_POLICY.reportDrivenSpecialistCoordination ||
+    !ROOT_ORCHESTRATION_POLICY.runningSpecialistMessagesForbidden ||
+    !ROOT_ORCHESTRATION_POLICY.runningSpecialistInspectionForbidden ||
+    !ROOT_ORCHESTRATION_POLICY.runningSpecialistFollowupForbidden ||
+    !ROOT_ORCHESTRATION_POLICY.followupRequiresTerminalReport ||
+    !ROOT_ORCHESTRATION_POLICY.rootSleepForSpecialistCoordinationForbidden ||
+    !ROOT_ORCHESTRATION_POLICY.pollingAndStatusLoopsForbidden ||
+    !ROOT_ORCHESTRATION_POLICY.warmSpecialistReusePreferred ||
+    !ROOT_ORCHESTRATION_POLICY.warmReuseRequiresContextAndOwnershipFit ||
+    !ROOT_ORCHESTRATION_POLICY.independentAssignmentsDispatchedBeforeWait ||
+    !ROOT_ORCHESTRATION_POLICY.rootDecisionBoundariesMinimized ||
     !ROOT_ORCHESTRATION_POLICY.evidenceFirstConciseStructuredReports ||
     (ROOT_ORCHESTRATION_POLICY.specialistReportFields as readonly string[]).length === 0 ||
     (ROOT_ORCHESTRATION_POLICY.rootLargeReadsOnlyFor as readonly string[]).length === 0 ||
@@ -382,6 +449,7 @@ export function rootDeveloperInstructions(
     "Use writing-instructions for model-facing contracts. Keep each meaning with one authoritative owner and add only the missing semantic delta for the receiver.",
     "Give the user useful updates for significant findings, decisions, blockers, input needs, and release milestones; avoid per-tool, status-only, heartbeat, or fixed-cadence messages.",
     ROOT_EVENT_WAIT_INSTRUCTION,
+    ROOT_ORCHESTRATION_POLICY.specialistCoordinationInstruction,
     `${TESTING_POLICY.rule} ${REVIEW_VALIDATION_PHASE_BARRIER}`,
     "After integration, Root owns approved VCS writes. For PR or release gates use babysit-ci and dispatch Worker.operations for exact-ref terminal evidence. Pending gates are not complete.",
   ];
@@ -495,15 +563,10 @@ export function installNativeAgents(
       }
       const previousArtifact = previousByPath.get(projection.path);
       if (current !== undefined && preResolved === undefined) {
-        const conflict = yield* Effect.tryPromise({
-          try: () => nativeRoleConflict(projection, current, previousArtifact),
-          catch: (error) => error,
-        });
+        const conflict = yield* nativeRoleConflict(projection, current, previousArtifact);
         if (conflict !== undefined) {
           const resolution =
-            resolveConflict === undefined
-              ? undefined
-              : yield* resolveConflict(conflict);
+            resolveConflict === undefined ? undefined : yield* resolveConflict(conflict);
           if (resolution === "cancel") {
             return yield* Effect.fail(
               new Error(`Native-agent conflict resolution was cancelled: ${projection.path}`),
@@ -651,63 +714,87 @@ export function installNativeAgents(
 }
 
 /** Restore only files that still match the just-published native-agent state. */
-export async function rollbackNativeAgentInstall(
+export function rollbackNativeAgentInstall(
   entries: readonly NativeAgentRollbackEntry[],
 ): Promise<NativeAgentRemovalResult> {
-  const removed: string[] = [];
-  const preserved: string[] = [];
-  for (const entry of [...entries].reverse()) {
-    const current = await readRegularFile(entry.path);
-    const unchanged =
-      entry.installedDigest === undefined
-        ? current === undefined
-        : current !== undefined && (await sha256(current)) === entry.installedDigest;
-    if (!unchanged) {
-      preserved.push(entry.path);
-      continue;
-    }
-    if (entry.previous === undefined) {
-      await Effect.runPromise(
-        Effect.catchIf(
+  return Effect.runPromise(rollbackNativeAgentInstallEffect(entries));
+}
+
+function rollbackNativeAgentInstallEffect(
+  entries: readonly NativeAgentRollbackEntry[],
+): Effect.Effect<NativeAgentRemovalResult, unknown> {
+  return Effect.gen(function* () {
+    const removed: string[] = [];
+    const preserved: string[] = [];
+    for (const entry of [...entries].reverse()) {
+      const current = yield* Effect.tryPromise({
+        try: () => readRegularFile(entry.path),
+        catch: (error) => error,
+      });
+      const unchanged =
+        entry.installedDigest === undefined
+          ? current === undefined
+          : current !== undefined &&
+            (yield* Effect.tryPromise({ try: () => sha256(current), catch: (error) => error })) ===
+              entry.installedDigest;
+      if (!unchanged) {
+        preserved.push(entry.path);
+        continue;
+      }
+      if (entry.previous === undefined) {
+        yield* Effect.catchIf(
           Effect.tryPromise({
             try: () => rm(entry.path, { force: false }),
             catch: (error) => error,
           }),
           (error) => isFsCode(error, "ENOENT"),
           () => Effect.void,
-        ),
-      );
-      removed.push(entry.path);
-    } else {
-      await writeAtomicText(entry.path, entry.previous);
+        );
+        removed.push(entry.path);
+      } else {
+        yield* Effect.tryPromise({
+          try: () => writeAtomicText(entry.path, entry.previous!),
+          catch: (error) => error,
+        });
+      }
     }
-  }
-  return { removed, preserved };
+    return { removed, preserved };
+  });
 }
 
 /** Remove only unchanged native profiles recorded as HolyCodex-owned artifacts. */
-export async function removeManagedNativeAgents(
+export function removeManagedNativeAgents(
   codexHome: string,
   artifacts: readonly ManagedArtifact[],
   acceptedConflictDigests: ReadonlyMap<string, string> = new Map(),
 ): Promise<NativeAgentRemovalResult> {
-  const removed: string[] = [];
-  const preserved: string[] = [];
-  const root = join(codexHome, "agents");
-  const managedRoot = join(codexHome, "holycodex", "agents");
-  for (const artifact of artifacts) {
-    const target = join(codexHome, artifact.path);
-    if (
-      !pathWithin(codexHome, target) ||
-      (!pathWithin(root, target) &&
-        !pathWithin(managedRoot, target) &&
-        target !== join(codexHome, "config.toml"))
-    ) {
-      preserved.push(target);
-      continue;
-    }
-    const result = await Effect.runPromise(
-      Effect.result(
+  return Effect.runPromise(
+    removeManagedNativeAgentsEffect(codexHome, artifacts, acceptedConflictDigests),
+  );
+}
+
+function removeManagedNativeAgentsEffect(
+  codexHome: string,
+  artifacts: readonly ManagedArtifact[],
+  acceptedConflictDigests: ReadonlyMap<string, string>,
+): Effect.Effect<NativeAgentRemovalResult, unknown> {
+  return Effect.gen(function* () {
+    const removed: string[] = [];
+    const preserved: string[] = [];
+    const root = join(codexHome, "agents");
+    const managedRoot = join(codexHome, "holycodex", "agents");
+    for (const artifact of artifacts) {
+      const target = join(codexHome, artifact.path);
+      if (
+        !pathWithin(codexHome, target) ||
+        (!pathWithin(root, target) &&
+          !pathWithin(managedRoot, target) &&
+          target !== join(codexHome, "config.toml"))
+      ) {
+        preserved.push(target);
+        continue;
+      }
+      const result = yield* Effect.result(
         Effect.gen(function* () {
           yield* Effect.tryPromise({ try: () => assertNoSymlink(target), catch: (error) => error });
           const entry = yield* Effect.tryPromise({
@@ -732,26 +819,27 @@ export async function removeManagedNativeAgents(
           });
           return "removed" as const;
         }),
-      ),
-    );
-    if (result._tag === "Success") {
-      if (result.success === "removed") removed.push(target);
-      else preserved.push(target);
-    } else if (!isFsCode(result.failure, "ENOENT")) {
-      preserved.push(target);
+      );
+      if (result._tag === "Success") {
+        if (result.success === "removed") removed.push(target);
+        else preserved.push(target);
+      } else if (!isFsCode(result.failure, "ENOENT")) {
+        preserved.push(target);
+      }
     }
-  }
-  const legacyRoot = join(codexHome, "agents", "root.toml");
-  const legacyRootStatus = await removeLegacyRootIfOwned(legacyRoot);
-  if (legacyRootStatus === "removed") removed.push(legacyRoot);
-  if (legacyRootStatus === "preserved") preserved.push(legacyRoot);
-  // Snapshot file paths because pruning appends removed directories to the same result.
-  const removedFiles = removed.slice();
-  for (const target of removedFiles) {
-    let parent = dirname(target);
-    while (parent !== managedRoot && pathWithin(managedRoot, parent)) {
-      const removedDirectory = await Effect.runPromise(
-        Effect.result(
+    const legacyRoot = join(codexHome, "agents", "root.toml");
+    const legacyRootStatus = yield* Effect.tryPromise({
+      try: () => removeLegacyRootIfOwned(legacyRoot),
+      catch: (error) => error,
+    });
+    if (legacyRootStatus === "removed") removed.push(legacyRoot);
+    if (legacyRootStatus === "preserved") preserved.push(legacyRoot);
+    // Snapshot file paths because pruning appends removed directories to the same result.
+    const removedFiles = removed.slice();
+    for (const target of removedFiles) {
+      let parent = dirname(target);
+      while (parent !== managedRoot && pathWithin(managedRoot, parent)) {
+        const removedDirectory = yield* Effect.result(
           Effect.gen(function* () {
             yield* Effect.tryPromise({
               try: () => assertNoSymlink(parent),
@@ -759,15 +847,15 @@ export async function removeManagedNativeAgents(
             });
             yield* Effect.tryPromise({ try: () => rmdir(parent), catch: (error) => error });
           }),
-        ),
-      );
-      if (removedDirectory._tag === "Failure") {
-        if (!isFsCode(removedDirectory.failure, "ENOENT")) break;
-      } else removed.push(parent);
-      parent = dirname(parent);
+        );
+        if (removedDirectory._tag === "Failure") {
+          if (!isFsCode(removedDirectory.failure, "ENOENT")) break;
+        } else removed.push(parent);
+        parent = dirname(parent);
+      }
     }
-  }
-  return { removed, preserved };
+    return { removed, preserved };
+  });
 }
 
 /** Render one canonical native specialist profile as Codex TOML. */
@@ -963,24 +1051,33 @@ function nativeConflict(
   };
 }
 
-async function nativeRoleConflict(
+function nativeRoleConflict(
   projection: Readonly<{ path: string; contents: string }>,
   current: string,
   previousArtifact: ManagedArtifact | undefined,
-): Promise<ManagedConflict | undefined> {
-  if (current === projection.contents) return undefined;
-  const digest = await sha256(current);
-  if (previousArtifact !== undefined && digest === previousArtifact.digest) return undefined;
-  const conflict = nativeConflict(
-    projection.path,
-    "replace",
-    { present: true, digest },
-    { present: true, digest: await sha256(projection.contents) },
-    previousArtifact === undefined
-      ? "A pre-existing generated native role file is not recorded as managed by this installation."
-      : "The managed native role file changed outside the previous HolyCodex transaction.",
-  );
-  return { ...conflict, validDecisions: ["replace", "cancel"] };
+): Effect.Effect<ManagedConflict | undefined, unknown> {
+  if (current === projection.contents) return Effect.succeed(undefined);
+  return Effect.gen(function* () {
+    const digest = yield* Effect.tryPromise({
+      try: () => sha256(current),
+      catch: (error) => error,
+    });
+    if (previousArtifact !== undefined && digest === previousArtifact.digest) return undefined;
+    const projectedDigest = yield* Effect.tryPromise({
+      try: () => sha256(projection.contents),
+      catch: (error) => error,
+    });
+    const conflict = nativeConflict(
+      projection.path,
+      "replace",
+      { present: true, digest },
+      { present: true, digest: projectedDigest },
+      previousArtifact === undefined
+        ? "A pre-existing generated native role file is not recorded as managed by this installation."
+        : "The managed native role file changed outside the previous HolyCodex transaction.",
+    );
+    return { ...conflict, validDecisions: ["replace", "cancel"] };
+  });
 }
 
 function conflictDigest(conflict: ManagedConflict): string | undefined {

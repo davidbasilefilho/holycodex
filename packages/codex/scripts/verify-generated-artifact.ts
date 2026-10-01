@@ -39,4 +39,6 @@ const verification = Effect.tryPromise({
   }),
 );
 
-await Effect.runPromise(verification);
+if (import.meta.main) {
+  await Effect.runPromise(verification);
+}

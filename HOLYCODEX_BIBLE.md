@@ -1,6 +1,6 @@
 # THE HOLYCODEX BIBLE
 
-HolyCodex exists to produce good work with the least necessary complexity, context, and cost.
+Correctness and completeness come first. HolyCodex seeks good work with the least necessary complexity, context, cost, and model decision boundaries.
 
 These commandments are engineering doctrine. They do not replace narrower authority. Repository directives remain in `AGENTS.md`; Root/session policy remains in the Root contract; specialist authority remains in the specialist baseline and concrete `Role.task`; workflow procedure remains in skills; task facts remain in the bounded Assignment. When a narrower contract is more specific, it governs.
 
@@ -28,7 +28,7 @@ Root does not perform delegable execution itself. Its simplicity comes from deci
 
 ### Specialists
 
-A specialist executes the Assignment it was given. It should make the fewest useful reads, perform the fewest necessary operations, and produce the smallest complete edit set inside its boundary.
+A specialist executes the Assignment with the fewest useful reads, the smallest complete edit set, and only the proof needed to establish its criteria. Keep safe routine decisions within the Assignment; an operation ending by itself does not require another model decision.
 
 If completing the work requires a material expansion of scope, return that decision to Root instead of quietly growing the task.
 
@@ -78,17 +78,23 @@ Minimize input sent to Root without starving its judgment. Root should receive d
 
 The cheapest token is one Root never needs to read.
 
+Root is report-driven, not a conversational supervisor. After dispatching an Assignment, it waits for a terminal report and does not steer a running specialist unless user intent materially changes or the Assignment becomes invalid. It dispatches already-known independent Assignments before waiting, then judges reports and preferentially reuses an appropriate warm specialist when the concrete task, useful context, review independence, parallelism, and write ownership allow it. Root model turns serve decisions, orchestration boundaries, integration, contradiction resolution, and completion; polling, heartbeat traffic, and incremental steering are not reasons to return to the model. Exact coordination mechanics belong to the canonical Root policy, not this doctrine.
+
 Root should also avoid unnecessary orchestration turns. Independent Assignments may run concurrently when their seams do not collide; dependent work and shared write seams should remain ordered. Routine heartbeat traffic has no value.
 
 ### Specialists
 
-Specialists do the work Root commands, then report back. They do not become alternate Roots, make material product decisions, widen scope, delegate further, or keep Root occupied with progress narration.
+Specialists complete the work Root commands, then report back. They do not become alternate Roots, make material product decisions, widen scope, delegate further, or keep Root occupied with progress narration.
+
+Specialist economics follow information dependencies, not tool boundaries: known independent work can be grouped, and a new model decision is useful when an intermediate result can change the next action. Deterministic capability discovery should travel with the operation it enables. Output should be dense with decision-relevant evidence, without an arbitrary limit that hides necessary proof. The shared specialist baseline owns the operational policy and its automatic projection; economy never weakens complete work, evidence, testing, security, or review.
 
 A specialist report should be compact but sufficient for judgment: outcome, changed paths or exact evidence, verification, residual risk, and the precise blocker or Root-owned decision when one exists. Evidence should be compressed, not omitted.
 
 ### Caching
 
 Caching serves two distinct goals. First, reduce total model work: token use, context growth, continuations, and repeated evidence. Second, optimize `cached_input_rate = cached_input_tokens / total_input_tokens` across request groups, rather than maximize absolute cached volume. Repeated stable context should approach 100% cached and 0% uncached wherever technically practical.
+
+Substantial reusable workloads target at least 99% cached input, and warm request groups should approach 100% wherever practical. Optimize cache rate together with request count: every unnecessary request rereads cached context, and warm specialist context should be reused instead of discarded without reason. A high cache percentage does not excuse unnecessary model calls.
 
 Preserve byte-stable reusable prefixes and deterministic ordering. Give each instruction one canonical owner, avoid duplication, and place task-variable content after stable context where the architecture permits. Assess weak request groups where evidence is available; aggregate results can mask avoidable cache misses.
 

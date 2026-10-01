@@ -14,9 +14,9 @@ import {
   allowlistedEnvironment,
   DEFAULT_COMMAND_ENVIRONMENT_KEYS,
   redactDiagnostics,
-  runCommand,
-  runChecked,
-  withTemporaryDirectory,
+  runCommandEffect,
+  runCheckedEffect,
+  withTemporaryDirectoryEffect,
   writeJson,
 } from "./process.ts";
 import {
@@ -78,126 +78,147 @@ const ArgumentsSchema = Schema.Array(Schema.String);
 type ArtifactMetadata = typeof ArtifactMetadataSchema.Type;
 
 /** Build, package, and verify a release artifact for the requested version. */
-export async function createReleaseArtifact(
+export function createReleaseArtifact(
   outputDirectory: string,
   options: PackageReleaseOptions,
 ): Promise<ArtifactMetadata> {
-  const { packPublicPackage, verifyPublicPackage } = await loadPackageVerification();
-  const canonicalVersion = await Effect.runPromise(readCanonicalVersion());
-  assertReleaseVersion(canonicalVersion, options.channel, options.version);
-  const output = resolve(decode(ArtifactPathSchema, outputDirectory, "the artifact directory"));
-  await mkdir(output, { recursive: true });
-  return await withTemporaryDirectory("holycodex-package-release", async (temporaryRoot) => {
-    const packed = await packPublicPackage(temporaryRoot, options);
-    const verification = await verifyPublicPackage(packed);
-    const metadata: ArtifactMetadata = {
-      schemaVersion: "holycodex-artifact-v1",
-      name: "holycodex",
-      baseVersion: packed.baseVersion,
-      version: packed.packageVersion,
-      channel: options.channel,
-      sourceSha: options.sourceSha,
-      tarball: packed.tarball,
-      tarballSha256: packed.tarballSha256,
-      entries: [...packed.entries],
-      verificationCommands: [...verification.commands],
-    };
-    await cp(packed.tarballPath, join(output, packed.tarball));
-    await writeJson(join(output, "release-metadata.json"), metadata);
-    await assertReleaseOutputDirectory(output, packed.tarball);
-    return metadata;
-  });
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const { packPublicPackage, verifyPublicPackage } = yield* loadPackageVerificationEffect();
+      const canonicalVersion = yield* readCanonicalVersion();
+      assertReleaseVersion(canonicalVersion, options.channel, options.version);
+      const output = resolve(decode(ArtifactPathSchema, outputDirectory, "the artifact directory"));
+      yield* promiseEffect(() => mkdir(output, { recursive: true }));
+      return yield* withTemporaryDirectoryEffect("holycodex-package-release", (temporaryRoot) =>
+        Effect.gen(function* () {
+          const packed = yield* promiseEffect(() => packPublicPackage(temporaryRoot, options));
+          const verification = yield* promiseEffect(() => verifyPublicPackage(packed));
+          const metadata: ArtifactMetadata = {
+            schemaVersion: "holycodex-artifact-v1",
+            name: "holycodex",
+            baseVersion: packed.baseVersion,
+            version: packed.packageVersion,
+            channel: options.channel,
+            sourceSha: options.sourceSha,
+            tarball: packed.tarball,
+            tarballSha256: packed.tarballSha256,
+            entries: [...packed.entries],
+            verificationCommands: [...verification.commands],
+          };
+          yield* promiseEffect(() => cp(packed.tarballPath, join(output, packed.tarball)));
+          yield* promiseEffect(() => writeJson(join(output, "release-metadata.json"), metadata));
+          yield* promiseEffect(() => assertReleaseOutputDirectory(output, packed.tarball));
+          return metadata;
+        }),
+      );
+    }),
+  );
 }
 
 /** Verify release metadata, tarball identity, and packaged entries. */
-export async function verifyReleaseArtifact(
+export function verifyReleaseArtifact(
   outputDirectory: string,
   version: string,
   channel: ReleaseChannel,
   sourceSha: string,
   expectedSha256: string,
 ): Promise<ArtifactMetadata> {
-  const { assertPackedEntries, sha256File } = await loadPackageVerification();
-  const output = resolve(decode(ArtifactPathSchema, outputDirectory, "the artifact directory"));
-  const metadata = await readArtifactMetadata(output);
-  await assertReleaseOutputDirectory(output, metadata.tarball);
-  const canonicalVersion = await Effect.runPromise(readCanonicalVersion());
-  assertReleaseVersion(canonicalVersion, channel, version);
-  assert(
-    metadata.baseVersion === baseVersionFromRelease(canonicalVersion),
-    "the artifact base version is not canonical",
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const { assertPackedEntries, sha256File } = yield* loadPackageVerificationEffect();
+      const output = resolve(decode(ArtifactPathSchema, outputDirectory, "the artifact directory"));
+      const metadata = yield* readArtifactMetadataEffect(output);
+      yield* promiseEffect(() => assertReleaseOutputDirectory(output, metadata.tarball));
+      const canonicalVersion = yield* readCanonicalVersion();
+      assertReleaseVersion(canonicalVersion, channel, version);
+      assert(
+        metadata.baseVersion === baseVersionFromRelease(canonicalVersion),
+        "the artifact base version is not canonical",
+      );
+      assert(
+        metadata.version === version,
+        "the artifact version does not match the release version",
+      );
+      assert(
+        metadata.channel === channel,
+        "the artifact channel does not match the release channel",
+      );
+      assert(
+        metadata.sourceSha === sourceSha,
+        "the artifact source SHA does not match the checkout",
+      );
+      assert(
+        metadata.tarball === `holycodex-${version}.tgz`,
+        "the artifact tarball name does not match the release version",
+      );
+      assert(
+        metadata.tarballSha256 === expectedSha256,
+        "the artifact digest does not match the validated release output",
+      );
+      const tarballPath = join(output, metadata.tarball);
+      yield* requireFileEffect(tarballPath, "the downloaded release tarball");
+      yield* promiseEffect(() =>
+        assertSafeArtifactFile(tarballPath, metadata.tarball, "the release tarball"),
+      );
+      const actualSha256 = yield* promiseEffect(() => sha256File(tarballPath));
+      assert(actualSha256 === metadata.tarballSha256, "the release tarball digest is not stable");
+      yield* promiseEffect(() => assertPackedEntries(tarballPath, metadata.entries));
+      return metadata;
+    }),
   );
-  assert(metadata.version === version, "the artifact version does not match the release version");
-  assert(metadata.channel === channel, "the artifact channel does not match the release channel");
-  assert(metadata.sourceSha === sourceSha, "the artifact source SHA does not match the checkout");
-  assert(
-    metadata.tarball === `holycodex-${version}.tgz`,
-    "the artifact tarball name does not match the release version",
-  );
-  assert(
-    metadata.tarballSha256 === expectedSha256,
-    "the artifact digest does not match the validated release output",
-  );
-  const tarballPath = join(output, metadata.tarball);
-  await requireFile(tarballPath, "the downloaded release tarball");
-  await assertSafeArtifactFile(tarballPath, metadata.tarball, "the release tarball");
-  const actualSha256 = await sha256File(tarballPath);
-  assert(actualSha256 === metadata.tarballSha256, "the release tarball digest is not stable");
-  await assertPackedEntries(tarballPath, metadata.entries);
-  return metadata;
 }
 
 /** Check whether the matching release artifact is already published on npm. */
-export async function checkNpmPublication(
+export function checkNpmPublication(
   outputDirectory: string,
   version: string,
   channel: ReleaseChannel,
   sourceSha: string,
   expectedSha256: string,
 ): Promise<"absent" | "matching"> {
-  const metadata = await verifyReleaseArtifact(
-    outputDirectory,
-    version,
-    channel,
-    sourceSha,
-    expectedSha256,
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const metadata = yield* promiseEffect(() =>
+        verifyReleaseArtifact(outputDirectory, version, channel, sourceSha, expectedSha256),
+      );
+      const response = yield* promiseEffect(() =>
+        fetch(`https://registry.npmjs.org/holycodex/${encodeURIComponent(version)}`),
+      );
+      if (response.status === 404) {
+        return "absent";
+      }
+      if (!response.ok) {
+        throw new Error(`npm registry lookup failed with HTTP ${response.status}.`);
+      }
+      const raw: unknown = yield* promiseEffect(() => response.json());
+      const published = decode(RegistryMetadataSchema, raw, "the npm publication metadata");
+      assert(
+        published.version === version,
+        "the existing npm version does not match the release version",
+      );
+      assert(
+        published.release.channel === channel && published.release.sourceSha === sourceSha,
+        "the existing npm version has a different channel or source SHA",
+      );
+      const tarballResponse = yield* promiseEffect(() => fetch(published.dist.tarball));
+      if (!tarballResponse.ok) {
+        throw new Error(
+          `the existing npm tarball could not be downloaded: HTTP ${tarballResponse.status}`,
+        );
+      }
+      const bytes = new Uint8Array(yield* promiseEffect(() => tarballResponse.arrayBuffer()));
+      const actualSha256 = yield* sha256BytesEffect(bytes);
+      assert(
+        actualSha256 === metadata.tarballSha256,
+        "the existing npm version has a different artifact identity",
+      );
+      return "matching";
+    }),
   );
-  const response = await fetch(
-    `https://registry.npmjs.org/holycodex/${encodeURIComponent(version)}`,
-  );
-  if (response.status === 404) {
-    return "absent";
-  }
-  if (!response.ok) {
-    throw new Error(`npm registry lookup failed with HTTP ${response.status}.`);
-  }
-  const raw: unknown = await response.json();
-  const published = decode(RegistryMetadataSchema, raw, "the npm publication metadata");
-  assert(
-    published.version === version,
-    "the existing npm version does not match the release version",
-  );
-  assert(
-    published.release.channel === channel && published.release.sourceSha === sourceSha,
-    "the existing npm version has a different channel or source SHA",
-  );
-  const tarballResponse = await fetch(published.dist.tarball);
-  if (!tarballResponse.ok) {
-    throw new Error(
-      `the existing npm tarball could not be downloaded: HTTP ${tarballResponse.status}`,
-    );
-  }
-  const bytes = new Uint8Array(await tarballResponse.arrayBuffer());
-  const actualSha256 = await sha256Bytes(bytes);
-  assert(
-    actualSha256 === metadata.tarballSha256,
-    "the existing npm version has a different artifact identity",
-  );
-  return "matching";
 }
 
 /** Check whether the matching release artifact is already published on GitHub. */
-export async function checkGitHubPublication(
+export function checkGitHubPublication(
   outputDirectory: string,
   version: string,
   channel: ReleaseChannel,
@@ -205,130 +226,148 @@ export async function checkGitHubPublication(
   expectedSha256: string,
   repository: string,
 ): Promise<"absent" | "matching"> {
-  const metadata = await verifyReleaseArtifact(
-    outputDirectory,
-    version,
-    channel,
-    sourceSha,
-    expectedSha256,
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const metadata = yield* promiseEffect(() =>
+        verifyReleaseArtifact(outputDirectory, version, channel, sourceSha, expectedSha256),
+      );
+      const tag = `v${version}`;
+      const githubEnvironment = allowlistedEnvironment([
+        ...DEFAULT_COMMAND_ENVIRONMENT_KEYS,
+        "GH_TOKEN",
+      ]);
+      const viewed = yield* runCommandEffect(
+        [
+          "gh",
+          "release",
+          "view",
+          tag,
+          "--repo",
+          repository,
+          "--json",
+          "tagName,isPrerelease,isDraft,body,assets",
+        ],
+        { env: githubEnvironment },
+      );
+      if (viewed.exitCode !== 0) {
+        if (/(?:not found|HTTP 404|404 Not Found)/iu.test(viewed.stderr)) {
+          return "absent";
+        }
+        throw new Error(
+          `GitHub release lookup failed: ${redactDiagnostics(viewed.stderr || viewed.stdout, githubEnvironment)}`,
+        );
+      }
+      const raw: unknown = JSON.parse(viewed.stdout);
+      const release = decode(GitHubReleaseSchema, raw, "the GitHub release metadata");
+      assert(release.tagName === tag, "the existing GitHub release has a different tag");
+      assert(!release.isDraft, "the existing GitHub release is still a draft");
+      assert(
+        release.isPrerelease === (channel === "dev" || version.includes("-")),
+        "the existing GitHub release has the wrong prerelease state",
+      );
+      const marker = parseReleaseMarker(release.body);
+      assert(
+        marker.version === metadata.version,
+        "the existing GitHub release has a different version",
+      );
+      assert(
+        marker.channel === metadata.channel,
+        "the existing GitHub release has a different channel",
+      );
+      assert(
+        marker.sourceSha === metadata.sourceSha,
+        "the existing GitHub release has a different source SHA",
+      );
+      assert(
+        marker.tarballSha256 === metadata.tarballSha256,
+        "the existing GitHub release has a different artifact identity",
+      );
+      assert(
+        release.assets.some((asset) => asset.name === metadata.tarball),
+        "the existing GitHub release is missing the validated tarball",
+      );
+      yield* withTemporaryDirectoryEffect("holycodex-release-verify", (directory) =>
+        Effect.gen(function* () {
+          yield* runCheckedEffect(
+            [
+              "gh",
+              "release",
+              "download",
+              tag,
+              "--repo",
+              repository,
+              "--pattern",
+              metadata.tarball,
+              "--dir",
+              directory,
+              "--clobber",
+            ],
+            { env: githubEnvironment },
+          );
+          const downloaded = join(directory, metadata.tarball);
+          const { sha256File } = yield* loadPackageVerificationEffect();
+          assert(
+            (yield* promiseEffect(() => sha256File(downloaded))) === metadata.tarballSha256,
+            "the existing GitHub asset has a different artifact identity",
+          );
+        }),
+      );
+      return "matching";
+    }),
   );
-  const tag = `v${version}`;
-  const githubEnvironment = allowlistedEnvironment([
-    ...DEFAULT_COMMAND_ENVIRONMENT_KEYS,
-    "GH_TOKEN",
-  ]);
-  const viewed = await runCommand(
-    [
-      "gh",
-      "release",
-      "view",
-      tag,
-      "--repo",
-      repository,
-      "--json",
-      "tagName,isPrerelease,isDraft,body,assets",
-    ],
-    { env: githubEnvironment },
-  );
-  if (viewed.exitCode !== 0) {
-    if (/(?:not found|HTTP 404|404 Not Found)/iu.test(viewed.stderr)) {
-      return "absent";
-    }
-    throw new Error(
-      `GitHub release lookup failed: ${redactDiagnostics(viewed.stderr || viewed.stdout, githubEnvironment)}`,
-    );
-  }
-  const raw: unknown = JSON.parse(viewed.stdout);
-  const release = decode(GitHubReleaseSchema, raw, "the GitHub release metadata");
-  assert(release.tagName === tag, "the existing GitHub release has a different tag");
-  assert(!release.isDraft, "the existing GitHub release is still a draft");
-  assert(
-    release.isPrerelease === (channel === "dev" || version.includes("-")),
-    "the existing GitHub release has the wrong prerelease state",
-  );
-  const marker = parseReleaseMarker(release.body);
-  assert(
-    marker.version === metadata.version,
-    "the existing GitHub release has a different version",
-  );
-  assert(
-    marker.channel === metadata.channel,
-    "the existing GitHub release has a different channel",
-  );
-  assert(
-    marker.sourceSha === metadata.sourceSha,
-    "the existing GitHub release has a different source SHA",
-  );
-  assert(
-    marker.tarballSha256 === metadata.tarballSha256,
-    "the existing GitHub release has a different artifact identity",
-  );
-  assert(
-    release.assets.some((asset) => asset.name === metadata.tarball),
-    "the existing GitHub release is missing the validated tarball",
-  );
-  await withTemporaryDirectory("holycodex-release-verify", async (directory) => {
-    await runChecked(
-      [
-        "gh",
-        "release",
-        "download",
-        tag,
-        "--repo",
-        repository,
-        "--pattern",
-        metadata.tarball,
-        "--dir",
-        directory,
-        "--clobber",
-      ],
-      { env: githubEnvironment },
-    );
-    const downloaded = join(directory, metadata.tarball);
-    const { sha256File } = await loadPackageVerification();
-    assert(
-      (await sha256File(downloaded)) === metadata.tarballSha256,
-      "the existing GitHub asset has a different artifact identity",
-    );
-  });
-  return "matching";
 }
 
 /** Write release notes into the release output directory after validation. */
-export async function writeReleaseNotes(outputDirectory: string, notesPath: string): Promise<void> {
-  const metadata = await readArtifactMetadata(resolve(outputDirectory));
-  const marker = JSON.stringify({
-    schemaVersion: metadata.schemaVersion,
-    name: metadata.name,
-    version: metadata.version,
-    channel: metadata.channel,
-    sourceSha: metadata.sourceSha,
-    tarball: metadata.tarball,
-    tarballSha256: metadata.tarballSha256,
-  });
-  const notes = [
-    `<!-- holycodex-release: ${marker} -->`,
-    `Validated ${metadata.channel} artifact for ${metadata.name}@${metadata.version}.`,
-    `Source SHA: ${metadata.sourceSha}`,
-    `Tarball SHA-256: ${metadata.tarballSha256}`,
-    "",
-  ].join("\n");
-  await writeFile(resolve(decode(ArtifactPathSchema, notesPath, "the release notes path")), notes, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-}
-
-async function loadPackageVerification(): Promise<typeof import("./package-verification.ts")> {
-  await ensureCodexGenerated();
-  return await import("./package-verification.ts");
-}
-
-async function readArtifactMetadata(outputDirectory: string): Promise<ArtifactMetadata> {
-  const raw: unknown = JSON.parse(
-    await readFile(join(outputDirectory, "release-metadata.json"), "utf8"),
+export function writeReleaseNotes(outputDirectory: string, notesPath: string): Promise<void> {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const metadata = yield* readArtifactMetadataEffect(resolve(outputDirectory));
+      const marker = JSON.stringify({
+        schemaVersion: metadata.schemaVersion,
+        name: metadata.name,
+        version: metadata.version,
+        channel: metadata.channel,
+        sourceSha: metadata.sourceSha,
+        tarball: metadata.tarball,
+        tarballSha256: metadata.tarballSha256,
+      });
+      const notes = [
+        `<!-- holycodex-release: ${marker} -->`,
+        `Validated ${metadata.channel} artifact for ${metadata.name}@${metadata.version}.`,
+        `Source SHA: ${metadata.sourceSha}`,
+        `Tarball SHA-256: ${metadata.tarballSha256}`,
+        "",
+      ].join("\n");
+      yield* promiseEffect(() =>
+        writeFile(resolve(decode(ArtifactPathSchema, notesPath, "the release notes path")), notes, {
+          encoding: "utf8",
+          mode: 0o600,
+        }),
+      );
+    }),
   );
-  return decode(ArtifactMetadataSchema, raw, "the release artifact metadata");
+}
+
+function loadPackageVerificationEffect(): Effect.Effect<
+  typeof import("./package-verification.ts"),
+  unknown
+> {
+  return Effect.gen(function* () {
+    yield* ensureCodexGenerated();
+    return yield* promiseEffect(() => import("./package-verification.ts"));
+  });
+}
+
+function readArtifactMetadataEffect(
+  outputDirectory: string,
+): Effect.Effect<ArtifactMetadata, unknown> {
+  return Effect.tryPromise({
+    try: () => readFile(join(outputDirectory, "release-metadata.json"), "utf8"),
+    catch: (error) => error,
+  }).pipe(
+    Effect.map((text) => JSON.parse(text) as unknown),
+    Effect.map((raw) => decode(ArtifactMetadataSchema, raw, "the release artifact metadata")),
+  );
 }
 
 function parseReleaseMarker(body: string): typeof ReleaseMarkerSchema.Type {
@@ -340,20 +379,28 @@ function parseReleaseMarker(body: string): typeof ReleaseMarkerSchema.Type {
   return decode(ReleaseMarkerSchema, raw, "the GitHub release identity marker");
 }
 
-async function sha256Bytes(bytes: Uint8Array): Promise<string> {
+function sha256BytesEffect(bytes: Uint8Array): Effect.Effect<string, unknown> {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
-  const digest = await crypto.subtle.digest("SHA-256", copy);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Effect.tryPromise({
+    try: () => crypto.subtle.digest("SHA-256", copy),
+    catch: (error) => error,
+  }).pipe(
+    Effect.map((digest) =>
+      [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
+    ),
+  );
 }
 
-async function requireFile(path: string, label: string): Promise<void> {
-  await Effect.runPromise(
-    Effect.tryPromise({
-      try: () => readFile(path),
-      catch: () => new Error(`${label} is missing: ${path}`),
-    }).pipe(Effect.asVoid),
-  );
+function requireFileEffect(path: string, label: string): Effect.Effect<void, unknown> {
+  return Effect.tryPromise({
+    try: () => readFile(path),
+    catch: () => new Error(`${label} is missing: ${path}`),
+  }).pipe(Effect.asVoid);
+}
+
+function promiseEffect<A>(operation: () => Promise<A>): Effect.Effect<A, unknown> {
+  return Effect.tryPromise({ try: operation, catch: (error) => error });
 }
 
 function decode<A>(schema: Schema.Decoder<A>, value: unknown, label: string): A {
@@ -430,8 +477,11 @@ if (import.meta.main) {
       } else if (command === "digest") {
         expectArgumentCount(parsed, 2);
         console.log(
-          (await readArtifactMetadata(resolve(argument(parsed, 1, "artifact directory"))))
-            .tarballSha256,
+          (
+            await Effect.runPromise(
+              readArtifactMetadataEffect(resolve(argument(parsed, 1, "artifact directory"))),
+            )
+          ).tarballSha256,
         );
       } else if (command === "notes") {
         expectArgumentCount(parsed, 3);

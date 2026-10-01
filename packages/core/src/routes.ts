@@ -805,6 +805,9 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   rootWaitTool: "collaboration.wait_agent" as const,
   /** Required duration for every Root wait_agent call; specialist completion wakes early. */
   rootWaitTimeoutMs: 600_000,
+  /** Root coordination rules projected into the effective session instructions. */
+  specialistCoordinationInstruction:
+    "Coordinate through terminal reports, not conversation. After dispatch, do not inspect a running specialist. Do not message, poll, request status from, or follow up with a running specialist. The only exception is a genuine lifecycle interruption or supersession caused by materially changed user intent, cancellation, or Assignment invalidation that makes continuation incorrect; use the lifecycle mechanism without normal steering. Do not use Root sleep for specialist coordination or create polling/status loops. Wait with the exact required timeout and let specialist completion wake the collective wait. Dispatch already-known independent Assignments before waiting. After a specialist reports, judge its evidence; when compatible follow-up work remains, prefer the same warm specialist if its concrete task fits, its context is useful, independent review and parallelism remain sound, and write ownership does not conflict. Reuse relevant warm context rather than discarding it without reason. Minimize Root model turns: return to judgment for decisions, orchestration boundaries, integration, contradictions, and completion, not for polling, heartbeat traffic, or incremental steering.",
   rootWaitRequiresExactTimeout: true,
   earlySpecialistCompletionWakesWait: true,
   collectiveMailboxIncludesRelevantAgents: true,
@@ -836,6 +839,17 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
     "findings",
   ] as const),
   stableFactsReused: true,
+  reportDrivenSpecialistCoordination: true,
+  runningSpecialistMessagesForbidden: true,
+  runningSpecialistInspectionForbidden: true,
+  runningSpecialistFollowupForbidden: true,
+  followupRequiresTerminalReport: true,
+  rootSleepForSpecialistCoordinationForbidden: true,
+  pollingAndStatusLoopsForbidden: true,
+  warmSpecialistReusePreferred: true,
+  warmReuseRequiresContextAndOwnershipFit: true,
+  independentAssignmentsDispatchedBeforeWait: true,
+  rootDecisionBoundariesMinimized: true,
   duplicatePolicyForbidden: true,
   stableBoundedComponentScopesAreCanonical: true,
   lifecycleWorkerOwnsDeterministicApi: true,
@@ -851,6 +865,10 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   externalVerificationMustBeTerminal: true,
   postVcsFlow: "discover_topology_observe_repair_repeat" as const,
 });
+
+/** Shared execution policy automatically projected to every generated specialist. */
+export const SPECIALIST_EFFICIENCY_POLICY =
+  "Minimize model decision boundaries across every tool. Group and parallelize safe operations according to information dependencies, reorder safe known work to expose batching, and continue known work before returning to the model; return only when an intermediate result must be interpreted to choose the next action. Fuse deterministic capability or backend discovery with its operation where practical. Minimize unnecessary tool calls and specialist model calls while preserving correctness, mergeability, required evidence, testing, security, and review. Make tool output decision-relevant and allow all output needed for evidence; impose no arbitrary hard output caps. Do not send progress messages to Root or peers. Finish complete mergeable work and provide necessary proof within the Assignment.";
 
 /** Returns whether Root may execute a named Root-owned action directly. */
 export function rootDirectExecutionAllowed(exception: RootDirectExecutionException): boolean {

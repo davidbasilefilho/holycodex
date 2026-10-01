@@ -126,17 +126,37 @@ function jsonRequested(argv: readonly string[]): boolean {
   return requested;
 }
 
-async function* stdinChunks(): AsyncIterable<string> {
+function stdinChunks(): AsyncIterable<string> {
   const decoder = new TextDecoder();
-  for await (const chunk of process.stdin) {
-    if (typeof chunk === "string") {
-      yield chunk;
-    } else {
-      yield decoder.decode(chunk, { stream: true });
-    }
-  }
-  const tail = decoder.decode();
-  if (tail.length > 0) {
-    yield tail;
-  }
+  const input = process.stdin[Symbol.asyncIterator]();
+  let finished = false;
+  return {
+    [Symbol.asyncIterator]() {
+      return {
+        next: () =>
+          Effect.runPromise(
+            Effect.gen(function* () {
+              while (!finished) {
+                const next = yield* Effect.tryPromise({
+                  try: () => input.next(),
+                  catch: (error) => error,
+                });
+                if (next.done) {
+                  finished = true;
+                  const tail = decoder.decode();
+                  return tail.length > 0
+                    ? { done: false, value: tail }
+                    : { done: true, value: undefined };
+                }
+                const chunk = next.value;
+                const value =
+                  typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
+                if (value.length > 0) return { done: false, value };
+              }
+              return { done: true, value: undefined };
+            }),
+          ),
+      };
+    },
+  };
 }
