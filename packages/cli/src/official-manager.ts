@@ -10,14 +10,14 @@ import {
   OfficialPluginAdapterError,
   resolveOfficialPluginEntry,
   TomlDocumentSchema,
-  type ResolvedOfficialPluginEntry,
   type LiveOfficialPluginEntry,
   type LiveOfficialPluginListEnvelope,
   type OfficialPluginCommandRunner,
 } from "@holycodex/codex";
 import { canonicalOfficialPluginId, officialPluginIdCandidates } from "@holycodex/core";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
-import { decodeSchema } from "./schema.ts";
 import type { OfficialPluginManager, OfficialPluginStatus } from "./types.ts";
 
 export type { OfficialPluginCommandRunner } from "@holycodex/codex";
@@ -37,104 +37,155 @@ export class CodexOfficialPluginManager implements OfficialPluginManager {
   }
 
   /** Discover a Codex executable and create an official plugin manager for it. */
-  static async discover(
+  static discover(
     environment: Readonly<Record<string, string | undefined>> = process.env,
   ): Promise<CodexOfficialPluginManager> {
-    const executable = await discoverCodexExecutable({ environment });
-    const adapter = createOfficialPluginAdapter({
-      executable: executable.path,
-      environment: createAllowlistedEnvironment(environment),
-      onMarketplaceConflict: (message) => {
-        console.warn(`HolyCodex warning: ${message}`);
+    return Effect.runPromise(CodexOfficialPluginManager.discoverEffect(environment));
+  }
+
+  /** Discover Codex and construct its official plugin manager in Effect. */
+  static discoverEffect(
+    environment: Readonly<Record<string, string | undefined>> = process.env,
+  ): Effect.Effect<CodexOfficialPluginManager, unknown> {
+    return Effect.map(
+      Effect.tryPromise({
+        try: () => discoverCodexExecutable({ environment }),
+        catch: (error) => error,
+      }),
+      (executable) => {
+        const adapter = createOfficialPluginAdapter({
+          executable: executable.path,
+          environment: createAllowlistedEnvironment(environment),
+          onMarketplaceConflict: (message) => {
+            console.warn(`HolyCodex warning: ${message}`);
+          },
+          ...(environment["CODEX_HOME"] === undefined
+            ? {}
+            : { codexHome: environment["CODEX_HOME"] }),
+        });
+        return new CodexOfficialPluginManager(adapter);
       },
-      ...(environment["CODEX_HOME"] === undefined ? {} : { codexHome: environment["CODEX_HOME"] }),
-    });
-    return new CodexOfficialPluginManager(adapter);
+    );
   }
 
   /** List installed and available official Codex plugins. */
-  async list(): Promise<LiveOfficialPluginListEnvelope> {
-    try {
-      return await this.adapter.list();
-    } catch (error: unknown) {
-      throw wrapManagerError("list", error);
-    }
+  list(): Promise<LiveOfficialPluginListEnvelope> {
+    return Effect.runPromise(this.listEffect());
+  }
+
+  /** List installed and available official Codex plugins in Effect. */
+  listEffect(): Effect.Effect<LiveOfficialPluginListEnvelope, OfficialPluginManagerError> {
+    return Effect.tryPromise({
+      try: () => this.adapter.list(),
+      catch: (error) => wrapManagerError("list", error),
+    });
   }
 
   /** Add an official Codex plugin by its identifier. */
-  async add(pluginId: string): Promise<void> {
-    try {
-      await this.adapter.add(pluginId);
-    } catch (error: unknown) {
-      throw wrapManagerError("add", error, pluginId);
-    }
+  add(pluginId: string): Promise<void> {
+    return Effect.runPromise(this.addEffect(pluginId));
+  }
+
+  /** Add an official Codex plugin in Effect. */
+  addEffect(pluginId: string): Effect.Effect<void, OfficialPluginManagerError> {
+    return Effect.tryPromise({
+      try: () => this.adapter.add(pluginId),
+      catch: (error) => wrapManagerError("add", error, pluginId),
+    });
   }
 
   /** Ensure Codex-owned provider marketplaces required by selected plugins are available. */
-  async ensureOfficialMarketplace(selectedPluginIds: readonly string[]): Promise<void> {
-    if (this.adapter.ensureOfficialMarketplace === undefined) return;
-    try {
-      await this.adapter.ensureOfficialMarketplace(selectedPluginIds);
-    } catch (error: unknown) {
-      throw wrapManagerError("bootstrap", error);
-    }
+  ensureOfficialMarketplace(selectedPluginIds: readonly string[]): Promise<void> {
+    return Effect.runPromise(this.ensureOfficialMarketplaceEffect(selectedPluginIds));
+  }
+
+  /** Ensure required Codex-owned provider marketplaces in Effect. */
+  ensureOfficialMarketplaceEffect(
+    selectedPluginIds: readonly string[],
+  ): Effect.Effect<void, OfficialPluginManagerError> {
+    const ensure = this.adapter.ensureOfficialMarketplace;
+    if (ensure === undefined) return Effect.void;
+    return Effect.tryPromise({
+      try: () => ensure(selectedPluginIds),
+      catch: (error) => wrapManagerError("bootstrap", error),
+    });
   }
 
   /** Remove an official Codex plugin by its identifier. */
-  async remove(pluginId: string): Promise<void> {
-    try {
-      await this.adapter.remove(pluginId);
-    } catch (error: unknown) {
-      throw wrapManagerError("remove", error, pluginId);
-    }
+  remove(pluginId: string): Promise<void> {
+    return Effect.runPromise(this.removeEffect(pluginId));
+  }
+
+  /** Remove an official Codex plugin in Effect. */
+  removeEffect(pluginId: string): Effect.Effect<void, OfficialPluginManagerError> {
+    return Effect.tryPromise({
+      try: () => this.adapter.remove(pluginId),
+      catch: (error) => wrapManagerError("remove", error, pluginId),
+    });
   }
 
   /** Ensure the official marketplace is registered, refreshed, and verified by Codex readback. */
-  async addMarketplace(source: string): Promise<void> {
-    try {
-      await this.adapter.addMarketplace(source);
-    } catch (error: unknown) {
-      throw wrapManagerError("add", error, source);
-    }
+  addMarketplace(source: string): Promise<void> {
+    return Effect.runPromise(this.addMarketplaceEffect(source));
+  }
+
+  /** Ensure an official marketplace through Codex in Effect. */
+  addMarketplaceEffect(source: string): Effect.Effect<void, OfficialPluginManagerError> {
+    return Effect.tryPromise({
+      try: () => this.adapter.addMarketplace(source),
+      catch: (error) => wrapManagerError("add", error, source),
+    });
   }
 
   /** Resolve the installed state of selected official plugins. */
-  async status(
+  status(selected: readonly string[]): Promise<Readonly<Record<string, OfficialPluginStatus>>> {
+    return Effect.runPromise(this.statusEffect(selected));
+  }
+
+  /** Resolve selected official plugin states in Effect. */
+  statusEffect(
     selected: readonly string[],
-  ): Promise<Readonly<Record<string, OfficialPluginStatus>>> {
-    const live = await this.list();
-    const observed: Record<string, string> = {};
-    const byId = new Map<string, LiveOfficialPluginEntry>();
-    for (const entry of [...live.installed, ...live.available]) {
-      if (!byId.has(entry.pluginId) || entry.installed) {
-        byId.set(entry.pluginId, entry);
+  ): Effect.Effect<Readonly<Record<string, OfficialPluginStatus>>, OfficialPluginManagerError> {
+    const adapter = this.adapter;
+    const effect = Effect.gen(function* () {
+      const live = yield* Effect.tryPromise({
+        try: () => adapter.list(),
+        catch: (error) => wrapManagerError("list", error),
+      });
+      const observed: Record<string, string> = {};
+      const byId = new Map<string, LiveOfficialPluginEntry>();
+      for (const entry of [...live.installed, ...live.available]) {
+        if (!byId.has(entry.pluginId) || entry.installed) byId.set(entry.pluginId, entry);
       }
-    }
-    const statuses = Object.fromEntries(
-      await Promise.all(
-        selected.map(async (pluginId) => {
-          const resolved = resolveOfficialPluginEntry(live, pluginId);
-          const canonical = canonicalOfficialPluginId(pluginId);
-          const exact = byId.get(pluginId);
-          const entry =
-            resolved?.entry ??
-            (canonical === undefined || exact?.marketplaceName == null ? exact : undefined);
-          const identity: ResolvedOfficialPluginEntry | undefined = resolved;
-          if (entry !== undefined) observed[pluginId] = identity?.entry.pluginId ?? entry.pluginId;
-          const status: OfficialPluginStatus =
-            entry === undefined
-              ? "missing"
-              : entry.installed && entry.enabled
-                ? "installed"
-                : entry.installed
-                  ? "disabled"
-                  : "missing";
-          return [pluginId, status];
-        }),
-      ),
-    );
-    this.observedIdentities = Object.freeze(observed);
-    return statuses;
+      const entries = yield* Effect.all(
+        selected.map((pluginId) =>
+          Effect.sync(() => {
+            const resolved = resolveOfficialPluginEntry(live, pluginId);
+            const canonical = canonicalOfficialPluginId(pluginId);
+            const exact = byId.get(pluginId);
+            const entry =
+              resolved?.entry ??
+              (canonical === undefined || exact?.marketplaceName == null ? exact : undefined);
+            if (entry !== undefined)
+              observed[pluginId] = resolved?.entry.pluginId ?? entry.pluginId;
+            const status: OfficialPluginStatus =
+              entry === undefined
+                ? "missing"
+                : entry.installed && entry.enabled
+                  ? "installed"
+                  : entry.installed
+                    ? "disabled"
+                    : "missing";
+            return [pluginId, status] as const;
+          }),
+        ),
+      );
+      return { observed, statuses: Object.fromEntries(entries) };
+    });
+    return Effect.map(effect, ({ observed, statuses }) => {
+      this.observedIdentities = Object.freeze(observed);
+      return statuses;
+    });
   }
 
   /** Return the live plugin id observed for each canonical provider in the last status check. */
@@ -156,74 +207,104 @@ export class ReadOnlyCodexPluginStatus implements Pick<
   constructor(private readonly codexHome: string) {}
 
   /** Return the current configured status for selected plugin identities. */
-  async status(
-    selected: readonly string[],
-  ): Promise<Readonly<Record<string, OfficialPluginStatus>>> {
-    let text: string;
-    try {
-      text = await readFile(join(this.codexHome, "config.toml"), "utf8");
-    } catch (error: unknown) {
-      if (isMissingPath(error)) {
-        this.observedIdentities = Object.freeze({});
-        return Object.fromEntries(selected.map((pluginId) => [pluginId, "missing"]));
-      }
-      throw error;
-    }
-    const bun = (globalThis as { Bun?: { TOML?: { parse: (value: string) => unknown } } }).Bun;
-    if (!bun?.TOML?.parse) throw new Error("A TOML parser is unavailable.");
-    const config = decodeSchema(TomlDocumentSchema, bun.TOML.parse(text));
-    if (config === undefined) throw new Error("Codex configuration is invalid.");
-    const pluginValue = config["plugins"];
-    const plugins: Readonly<Record<string, unknown>> | undefined =
-      typeof pluginValue === "object" && pluginValue !== null && !Array.isArray(pluginValue)
-        ? (pluginValue as Readonly<Record<string, unknown>>)
-        : undefined;
-    const identities: Record<string, string> = {};
-    const statuses = Object.fromEntries(
-      await Promise.all(
-        selected.map(async (pluginId) => {
-          const candidates = officialPluginIdCandidates(pluginId);
-          const configuredIds = candidates.length > 0 ? candidates : [pluginId];
-          const configured = configuredIds.flatMap((id) => {
-            if (plugins === undefined || !Object.hasOwn(plugins, id)) return [];
-            const value = plugins?.[id];
-            const enabled =
-              typeof value === "object" && value !== null && !Array.isArray(value)
-                ? (value as Record<string, unknown>)["enabled"]
-                : undefined;
-            return [{ id, enabled }];
-          });
-          if (configured.length === 0) return [pluginId, "missing"];
+  status(selected: readonly string[]): Promise<Readonly<Record<string, OfficialPluginStatus>>> {
+    return Effect.runPromise(this.statusEffect(selected));
+  }
 
-          const enabled = configured.filter((entry) => entry.enabled === true);
-          const cachedEnabled = await Promise.all(
-            enabled.map(async (entry) => {
-              const candidates = officialPluginIdCandidates(entry.id);
-              const orderedCandidates = [
-                entry.id,
-                ...candidates.filter((candidate) => candidate !== entry.id),
-              ];
-              return {
-                ...entry,
-                cachedIdentity: await findInstalledPluginCacheIdentity(
-                  this.codexHome,
-                  orderedCandidates,
-                ),
-              };
-            }),
-          );
-          const installed = cachedEnabled.find((entry) => entry.cachedIdentity !== undefined);
-          const observed = installed?.cachedIdentity ?? enabled[0]?.id ?? configured[0]?.id;
-          if (observed !== undefined) identities[pluginId] = observed;
-          if (installed !== undefined) return [pluginId, "installed"];
-          if (enabled.length > 0) return [pluginId, "missing"];
-          if (configured.every((entry) => entry.enabled === false)) return [pluginId, "disabled"];
-          return [pluginId, "unknown"];
+  /** Resolve selected plugin states from local config and cache in Effect. */
+  statusEffect(
+    selected: readonly string[],
+  ): Effect.Effect<Readonly<Record<string, OfficialPluginStatus>>, unknown> {
+    const codexHome = this.codexHome;
+    const effect = Effect.gen(function* () {
+      const text = yield* Effect.catchIf(
+        Effect.tryPromise({
+          try: () => readFile(join(codexHome, "config.toml"), "utf8"),
+          catch: (error) => error,
         }),
-      ),
-    ) as Readonly<Record<string, OfficialPluginStatus>>;
-    this.observedIdentities = Object.freeze(identities);
-    return statuses;
+        isMissingPath,
+        () => Effect.succeed(undefined),
+      );
+      if (text === undefined) {
+        return {
+          identities: {},
+          statuses: Object.fromEntries(
+            selected.map((pluginId) => [pluginId, "missing"] as const),
+          ) as Readonly<Record<string, OfficialPluginStatus>>,
+        };
+      }
+      const bun = (globalThis as { Bun?: { TOML?: { parse: (value: string) => unknown } } }).Bun;
+      if (bun?.TOML?.parse === undefined)
+        return yield* Effect.fail(new Error("A TOML parser is unavailable."));
+      const toml = bun.TOML;
+      const parsedToml = yield* Effect.try({
+        try: () => toml.parse(text),
+        catch: (error) => error,
+      });
+      const config = yield* Effect.try({
+        try: () => Schema.decodeUnknownSync(TomlDocumentSchema)(parsedToml),
+        catch: () => new Error("Codex configuration is invalid."),
+      });
+      const pluginRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
+      const pluginConfigSchema = Schema.Struct({ enabled: Schema.optional(Schema.Boolean) });
+      const plugins = Schema.is(pluginRecordSchema)(config["plugins"])
+        ? config["plugins"]
+        : undefined;
+      const identities: Record<string, string> = {};
+      const statuses = yield* Effect.all(
+        selected.map((pluginId) =>
+          Effect.gen(function* () {
+            const candidates = officialPluginIdCandidates(pluginId);
+            const configuredIds = candidates.length > 0 ? candidates : [pluginId];
+            const configured = configuredIds.flatMap((id) => {
+              if (plugins === undefined || !Object.hasOwn(plugins, id)) return [];
+              const value = plugins[id];
+              return [
+                {
+                  id,
+                  enabled: Schema.is(pluginConfigSchema)(value) ? value.enabled : undefined,
+                },
+              ];
+            });
+            if (configured.length === 0) return [pluginId, "missing"] as const;
+
+            const enabled = configured.filter((entry) => entry.enabled === true);
+            const cachedEnabled = yield* Effect.all(
+              enabled.map((entry) => {
+                const candidates = officialPluginIdCandidates(entry.id);
+                const orderedCandidates = [
+                  entry.id,
+                  ...candidates.filter((candidate) => candidate !== entry.id),
+                ];
+                return Effect.map(
+                  findInstalledPluginCacheIdentityEffect(codexHome, orderedCandidates),
+                  (cachedIdentity) => ({
+                    ...entry,
+                    cachedIdentity,
+                  }),
+                );
+              }),
+            );
+            const installed = cachedEnabled.find((entry) => entry.cachedIdentity !== undefined);
+            const observed = installed?.cachedIdentity ?? enabled[0]?.id ?? configured[0]?.id;
+            if (observed !== undefined) identities[pluginId] = observed;
+            if (installed !== undefined) return [pluginId, "installed"] as const;
+            if (enabled.length > 0) return [pluginId, "missing"] as const;
+            if (configured.every((entry) => entry.enabled === false))
+              return [pluginId, "disabled"] as const;
+            return [pluginId, "unknown"] as const;
+          }),
+        ),
+      );
+      return {
+        identities,
+        statuses: Object.fromEntries(statuses) as Readonly<Record<string, OfficialPluginStatus>>,
+      };
+    });
+    return Effect.map(effect, ({ identities, statuses }) => {
+      this.observedIdentities = Object.freeze(identities);
+      return statuses;
+    });
   }
 
   /** Return the config identities matched during the last status read. */
@@ -232,41 +313,54 @@ export class ReadOnlyCodexPluginStatus implements Pick<
   }
 }
 
-async function findInstalledPluginCacheIdentity(
+function findInstalledPluginCacheIdentityEffect(
   codexHome: string,
   pluginIds: readonly string[],
-): Promise<string | undefined> {
-  for (const pluginId of pluginIds) {
-    const separator = pluginId.lastIndexOf("@");
-    if (separator <= 0 || separator === pluginId.length - 1) continue;
-    const pluginRoot = join(
-      codexHome,
-      "plugins",
-      "cache",
-      pluginId.slice(separator + 1),
-      pluginId.slice(0, separator),
-    );
-    try {
-      const versions = await readdir(pluginRoot, { withFileTypes: true, encoding: "utf8" });
+): Effect.Effect<string | undefined, unknown> {
+  return Effect.gen(function* () {
+    for (const pluginId of pluginIds) {
+      const separator = pluginId.lastIndexOf("@");
+      if (separator <= 0 || separator === pluginId.length - 1) continue;
+      const pluginRoot = join(
+        codexHome,
+        "plugins",
+        "cache",
+        pluginId.slice(separator + 1),
+        pluginId.slice(0, separator),
+      );
+      const versions = yield* Effect.catchIf(
+        Effect.tryPromise({
+          try: () => readdir(pluginRoot, { withFileTypes: true, encoding: "utf8" }),
+          catch: (error) => error,
+        }),
+        isMissingPath,
+        () => Effect.succeed(undefined),
+      );
+      if (versions === undefined) continue;
       for (const version of versions) {
         if (!version.isDirectory()) continue;
-        try {
-          await access(join(pluginRoot, version.name, ".codex-plugin", "plugin.json"));
-          return pluginId;
-        } catch (error: unknown) {
-          if (!isMissingPath(error)) throw error;
-        }
+        const installed = yield* Effect.catchIf(
+          Effect.as(
+            Effect.tryPromise({
+              try: () => access(join(pluginRoot, version.name, ".codex-plugin", "plugin.json")),
+              catch: (error) => error,
+            }),
+            true,
+          ),
+          isMissingPath,
+          () => Effect.succeed(false),
+        );
+        if (installed) return pluginId;
       }
-    } catch (error: unknown) {
-      if (isMissingPath(error)) continue;
-      throw error;
     }
-  }
-  return undefined;
+    return undefined;
+  });
 }
 
+const MissingPathSchema = Schema.Struct({ code: Schema.Literals(["ENOENT"]) });
+
 function isMissingPath(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+  return Schema.is(MissingPathSchema)(error);
 }
 
 type OfficialPluginAdapterShape = Readonly<{

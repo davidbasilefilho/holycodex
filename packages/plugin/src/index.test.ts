@@ -71,7 +71,7 @@ describe("plugin source assets", () => {
     }
   });
 
-  test("requires Root clarification through request_user_input and local visual review", async () => {
+  test("routes Root decision questions through supported input tools and keeps visual review local", async () => {
     const grillMe = await readFile(
       join(pluginSourceRoot, "skills", "grill-me", "SKILL.md"),
       "utf8",
@@ -80,7 +80,12 @@ describe("plugin source assets", () => {
       join(pluginSourceRoot, "skills", "visual-loop", "SKILL.md"),
       "utf8",
     );
-    expect(grillMe).toContain("call `request_user_input`");
+    expect(grillMe).toContain("through prose");
+    expect(grillMe).toContain(
+      "input-tool priority and\npending-answer rules in Root's canonical developer instructions",
+    );
+    expect(grillMe).toContain("when uncertainty about intent, implementation, or findings");
+    expect(grillMe).toContain("when the request is\nclear enough to proceed");
     expect(grillMe).toContain("Specialists must not ask the user");
     expect(grillMe).toContain("`needs_root_input` outcome to Root");
     expect(visualLoop).toContain("Worker.visual → Reviewer.visual → Root visual pass");

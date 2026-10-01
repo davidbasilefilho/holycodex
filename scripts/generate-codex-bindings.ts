@@ -1,8 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { cp, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
+
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 
 import { canonicalJsonUtf8, domainSeparatedSha256 } from "../packages/core/src/canonical.ts";
 import {
@@ -10,8 +25,8 @@ import {
   DEFAULT_COMMAND_ENVIRONMENT_KEYS,
   isSensitiveEnvironmentKey,
   redactDiagnostics,
-  runChecked,
-  withTemporaryDirectory,
+  runCheckedEffect,
+  assertTemporaryPath,
 } from "./process.ts";
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
@@ -20,10 +35,36 @@ const generatedTypescriptRoot = join(generatedRoot, "typescript");
 const provenancePath = join(generatedRoot, "provenance.json");
 const require = createRequire(import.meta.url);
 const CODEX_PACKAGE = "@openai/codex";
-const STABLE_VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
-const CODEX_VERSION_OUTPUT = /^codex-cli (\d+\.\d+\.\d+)$/u;
+const StableVersionSchema = Schema.String.check(
+  Schema.isPattern(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u),
+);
+const TemporaryDirectoryPrefixSchema = Schema.String.check(
+  Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,48}$/u),
+);
+const PlatformSchema = Schema.Literals(["win32", "darwin", "linux", "android"]);
+const ArchitectureSchema = Schema.Literals(["arm64", "x64"]);
+const CodexVersionOutputSchema = Schema.String.check(
+  Schema.isPattern(/^codex-cli (\d+\.\d+\.\d+)$/u),
+);
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
+const CodexPackageManifestSchema = Schema.Struct({ version: Schema.String });
+const GeneratedProvenanceSchema = Schema.Struct({
+  schema_version: Schema.Literals(["holycodex-generated-v2"]),
+  artifact_root: Schema.Literals(["packages/codex/generated"]),
+  codex_cli_version: Schema.String.check(Schema.isPattern(/^codex-cli \d+\.\d+\.\d+$/u)),
+  codex_cli_digest: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u)),
+  protocol_epoch: Schema.String.check(Schema.isPattern(/^codex-app-server-\d+\.\d+\.\d+$/u)),
+  generator: Schema.Struct({
+    command: Schema.Tuple([Schema.Literals(["app-server"]), Schema.Literals(["generate-ts"])]),
+    supported_surface: Schema.Literals(["codex app-server generators"]),
+  }),
+  typescript_root: Schema.Literals(["typescript"]),
+  files: Schema.Struct({
+    count: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+    digest: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u)),
+  }),
+});
 
 interface GeneratedFile {
   readonly path: string;
@@ -89,153 +130,155 @@ export function canReuseGeneratedOutput(
   );
 }
 
-let activeGeneration: Promise<EnsureCodexGeneratedResult> | undefined;
-
 /**
  * Ensure generated bindings match the Codex CLI locked in this workspace. A valid current tree is
  * reused without invoking the generator again.
  */
-export function ensureCodexGenerated(): Promise<EnsureCodexGeneratedResult> {
-  if (activeGeneration !== undefined) {
-    return activeGeneration;
-  }
-  activeGeneration = ensureCodexGeneratedInternal().finally(() => {
-    activeGeneration = undefined;
-  });
-  return activeGeneration;
-}
+export function ensureCodexGenerated(): Effect.Effect<EnsureCodexGeneratedResult, unknown> {
+  return Effect.gen(function* () {
+    const resolved = yield* resolveCodexTool();
+    const current = yield* verifyCurrentOutput(resolved);
+    if (current !== undefined) return { status: "reused" as const, ...resolved, ...current };
 
-async function ensureCodexGeneratedInternal(): Promise<EnsureCodexGeneratedResult> {
-  const resolved = await resolveCodexTool();
-  const current = await verifyCurrentOutput(resolved);
-  if (current !== undefined) {
-    return { status: "reused", ...resolved, ...current };
-  }
+    return yield* withTemporaryDirectoryEffect("holycodex-generation", (temporaryRoot) =>
+      Effect.gen(function* () {
+        const outputDirectory = join(temporaryRoot, "typescript");
+        const isolatedCodexHome = join(temporaryRoot, "codex-home");
+        yield* io(() => mkdir(outputDirectory, { recursive: true }));
+        yield* io(() => mkdir(isolatedCodexHome, { recursive: true }));
+        const environment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
+          CODEX_HOME: isolatedCodexHome,
+        });
+        yield* runCheckedEffect(
+          [...codexExecutableCommand(), "app-server", "generate-ts", "--out", outputDirectory],
+          {
+            cwd: workspaceRoot,
+            env: environment,
+            maxOutputBytes: 1024 * 1024,
+          },
+        );
+        yield* io(() => rm(isolatedCodexHome, { recursive: true, force: true }));
+        yield* normalizeGeneratedText(temporaryRoot);
+        yield* writeProtocolConstants(outputDirectory, resolved.versionNumber);
+        yield* assertSecretFree(temporaryRoot);
+        const inventory = yield* collectInventory(temporaryRoot);
+        yield* assertExpectedSurface(inventory);
 
-  return await withTemporaryDirectory("holycodex-generation", async (temporaryRoot) => {
-    const outputDirectory = join(temporaryRoot, "typescript");
-    const isolatedCodexHome = join(temporaryRoot, "codex-home");
-    await mkdir(outputDirectory, { recursive: true });
-    await mkdir(isolatedCodexHome, { recursive: true });
-    const environment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
-      CODEX_HOME: isolatedCodexHome,
-    });
-    await runChecked(
-      [...codexExecutableCommand(), "app-server", "generate-ts", "--out", outputDirectory],
-      {
-        cwd: workspaceRoot,
-        env: environment,
-        maxOutputBytes: 1024 * 1024,
-      },
+        yield* io(() => rm(generatedRoot, { recursive: true, force: true }));
+        yield* io(() => cp(temporaryRoot, generatedRoot, { recursive: true, dereference: true }));
+        const provenance: GeneratedProvenance = {
+          schema_version: "holycodex-generated-v2",
+          artifact_root: "packages/codex/generated",
+          codex_cli_version: resolved.codexCliVersion as `codex-cli ${string}`,
+          codex_cli_digest: resolved.codexCliDigest,
+          protocol_epoch: `codex-app-server-${resolved.versionNumber}`,
+          generator: {
+            command: ["app-server", "generate-ts"],
+            supported_surface: "codex app-server generators",
+          },
+          typescript_root: "typescript",
+          files: { count: inventory.count, digest: inventory.digest },
+        };
+        yield* io(() =>
+          writeFile(provenancePath, `${JSON.stringify(provenance, null, 2)}\n`, {
+            encoding: "utf8",
+            mode: 0o600,
+          }),
+        );
+        const verified = yield* verifyCurrentOutput(resolved);
+        if (verified === undefined) {
+          return yield* Effect.fail(
+            new Error("Generated Codex bindings failed their post-generation verification."),
+          );
+        }
+        return { status: "generated" as const, ...resolved, ...verified };
+      }),
     );
-    await rm(isolatedCodexHome, { recursive: true, force: true });
-    await normalizeGeneratedText(temporaryRoot);
-    await writeProtocolConstants(outputDirectory, resolved.versionNumber);
-    await assertSecretFree(temporaryRoot);
-    const inventory = await collectInventory(temporaryRoot);
-    assertExpectedSurface(inventory);
-
-    await rm(generatedRoot, { recursive: true, force: true });
-    await cp(temporaryRoot, generatedRoot, { recursive: true, dereference: true });
-    const provenance: GeneratedProvenance = {
-      schema_version: "holycodex-generated-v2",
-      artifact_root: "packages/codex/generated",
-      codex_cli_version: resolved.codexCliVersion as `codex-cli ${string}`,
-      codex_cli_digest: resolved.codexCliDigest,
-      protocol_epoch: `codex-app-server-${resolved.versionNumber}`,
-      generator: {
-        command: ["app-server", "generate-ts"],
-        supported_surface: "codex app-server generators",
-      },
-      typescript_root: "typescript",
-      files: { count: inventory.count, digest: inventory.digest },
-    };
-    await writeFile(provenancePath, `${JSON.stringify(provenance, null, 2)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-    const verified = await verifyCurrentOutput(resolved);
-    if (verified === undefined) {
-      throw new Error("Generated Codex bindings failed their post-generation verification.");
-    }
-    return { status: "generated", ...resolved, ...verified };
   });
 }
 
-async function resolveCodexTool(): Promise<{
-  readonly executable: string;
-  readonly versionNumber: string;
-  readonly codexCliVersion: string;
-  readonly codexCliDigest: string;
-}> {
+function resolveCodexTool(): Effect.Effect<
+  {
+    readonly executable: string;
+    readonly versionNumber: string;
+    readonly codexCliVersion: string;
+    readonly codexCliDigest: string;
+  },
+  unknown
+> {
   const command = codexExecutableCommand();
-  let executable: string;
-  let packageVersion: string;
-  try {
-    const packagePath = require.resolve(`${CODEX_PACKAGE}/package.json`);
-    const packageData: unknown = JSON.parse(await readFile(packagePath, "utf8"));
-    if (
-      typeof packageData !== "object" ||
-      packageData === null ||
-      !("version" in packageData) ||
-      typeof packageData.version !== "string"
-    ) {
-      throw new Error("the locked Codex package has no version metadata");
-    }
-    packageVersion = packageData.version;
-    assertStableVersion(packageVersion, "the locked Codex package version");
-    const target = codexPlatformTarget(process.platform, process.arch);
-    const packageRequire = createRequire(packagePath);
-    const platformPackageRoot = dirname(
-      packageRequire.resolve(`${target.packageName}/package.json`),
+  return Effect.gen(function* () {
+    const packagePath = yield* Effect.try({
+      try: () => require.resolve(`${CODEX_PACKAGE}/package.json`),
+      catch: (error) => error,
+    });
+    const packageData = yield* readJson(CodexPackageManifestSchema, packagePath);
+    const packageVersion = yield* Schema.decodeUnknownEffect(StableVersionSchema)(
+      packageData.version,
     );
-    executable = await realpath(
-      join(
-        platformPackageRoot,
-        "vendor",
-        target.targetTriple,
-        "bin",
-        process.platform === "win32" ? "codex.exe" : "codex",
+    const target = yield* codexPlatformTargetEffect(process.platform, process.arch);
+    const platformPackageRoot = yield* Effect.try({
+      try: () => {
+        const packageRequire = createRequire(packagePath);
+        return dirname(packageRequire.resolve(`${target.packageName}/package.json`));
+      },
+      catch: (error) => error,
+    });
+    const executable = yield* io(() =>
+      realpath(
+        join(
+          platformPackageRoot,
+          "vendor",
+          target.targetTriple,
+          "bin",
+          process.platform === "win32" ? "codex.exe" : "codex",
+        ),
       ),
     );
-    const metadata = await lstat(executable);
-    if (!metadata.isFile()) {
-      throw new Error("the locked Codex native binary is not a file");
-    }
-  } catch (error: unknown) {
-    throw new Error(
-      `The workspace-locked Codex native binary is unavailable (${safeError(error)}).`,
-    );
-  }
+    const metadata = yield* io(() => lstat(executable));
+    if (!metadata.isFile())
+      return yield* Effect.fail(new Error("The locked Codex native binary is not a file."));
 
-  const environment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
-    CODEX_HOME: undefined,
-  });
-  const result = await runChecked([...command, "--version"], {
-    cwd: workspaceRoot,
-    env: environment,
-    maxOutputBytes: 16 * 1024,
-  });
-  const versionOutput = result.stdout.trim();
-  const match = CODEX_VERSION_OUTPUT.exec(versionOutput);
-  if (match === null || match[1] === undefined) {
-    throw new Error(
-      `The resolved Codex tool did not report an exact stable version (received ${redactDiagnostics(versionOutput || result.stderr, environment)}).`,
+    const environment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
+      CODEX_HOME: undefined,
+    });
+    const result = yield* runCheckedEffect([...command, "--version"], {
+      cwd: workspaceRoot,
+      env: environment,
+      maxOutputBytes: 16 * 1024,
+    });
+    const versionOutput = result.stdout.trim();
+    const output = yield* Schema.decodeUnknownEffect(CodexVersionOutputSchema)(versionOutput).pipe(
+      Effect.mapError(
+        () =>
+          new Error(
+            `The resolved Codex tool did not report an exact stable version (received ${redactDiagnostics(versionOutput || result.stderr, environment)}).`,
+          ),
+      ),
     );
-  }
-  const versionNumber = match[1];
-  assertStableVersion(versionNumber, "the Codex CLI version");
-  if (versionNumber !== packageVersion) {
-    throw new Error(
-      `The workspace-locked Codex package reports ${packageVersion}, but its native executable reports ${versionNumber}.`,
+    const versionNumber = yield* Schema.decodeUnknownEffect(StableVersionSchema)(
+      output.slice("codex-cli ".length),
     );
-  }
-  return {
-    executable,
-    versionNumber,
-    codexCliVersion: `codex-cli ${versionNumber}`,
-    codexCliDigest: await sha256File(executable),
-  };
+    if (versionNumber !== packageVersion) {
+      return yield* Effect.fail(
+        new Error(
+          `The workspace-locked Codex package reports ${packageVersion}, but its native executable reports ${versionNumber}.`,
+        ),
+      );
+    }
+    const codexCliDigest = yield* sha256File(executable);
+    return {
+      executable,
+      versionNumber,
+      codexCliVersion: `codex-cli ${versionNumber}`,
+      codexCliDigest,
+    };
+  }).pipe(
+    Effect.mapError(
+      (error) =>
+        new Error(`The workspace-locked Codex native binary is unavailable (${safeError(error)}).`),
+    ),
+  );
 }
 
 /** Resolve Codex's locked optional native package and binary target for a supported host. */
@@ -243,12 +286,17 @@ export function codexPlatformTarget(
   platform: string,
   architecture: string,
 ): Readonly<{ packageName: string; targetTriple: string }> {
-  const architectureName =
-    architecture === "arm64" ? "arm64" : architecture === "x64" ? "x64" : undefined;
-  if (architectureName === undefined) {
+  const parsedArchitecture = Schema.decodeUnknownResult(ArchitectureSchema)(architecture);
+  if (Result.isFailure(parsedArchitecture)) {
     throw new Error(`Codex has no native package for ${platform}/${architecture}.`);
   }
-  switch (platform) {
+  const architectureName = parsedArchitecture.success;
+  const parsedPlatform = Schema.decodeUnknownResult(PlatformSchema)(platform);
+  if (Result.isFailure(parsedPlatform)) {
+    throw new Error(`Codex has no native package for ${platform}/${architecture}.`);
+  }
+  const platformName = parsedPlatform.success;
+  switch (platformName) {
     case "win32":
       return {
         packageName: `@openai/codex-win32-${architectureName}`,
@@ -265,121 +313,135 @@ export function codexPlatformTarget(
         packageName: `@openai/codex-linux-${architectureName}`,
         targetTriple: `${architectureName === "arm64" ? "aarch64" : "x86_64"}-unknown-linux-musl`,
       };
-    default:
-      throw new Error(`Codex has no native package for ${platform}/${architecture}.`);
   }
 }
 
-async function verifyCurrentOutput(resolved: {
+function codexPlatformTargetEffect(
+  platform: string,
+  architecture: string,
+): Effect.Effect<Readonly<{ packageName: string; targetTriple: string }>, unknown> {
+  return Effect.gen(function* () {
+    const platformName = yield* Schema.decodeUnknownEffect(PlatformSchema)(platform);
+    const architectureName = yield* Schema.decodeUnknownEffect(ArchitectureSchema)(architecture);
+    return codexPlatformTarget(platformName, architectureName);
+  });
+}
+
+function verifyCurrentOutput(resolved: {
   readonly codexCliVersion: string;
   readonly codexCliDigest: string;
-}): Promise<{ readonly artifactDigest: string; readonly artifactFiles: number } | undefined> {
-  let provenance: GeneratedProvenance;
-  try {
-    provenance = JSON.parse(await readFile(provenancePath, "utf8")) as GeneratedProvenance;
-  } catch {
-    return undefined;
-  }
-  if (
-    provenance.schema_version !== "holycodex-generated-v2" ||
-    provenance.artifact_root !== "packages/codex/generated" ||
-    !canReuseGeneratedOutput(
-      {
-        codexCliVersion: provenance.codex_cli_version,
-        codexCliDigest: provenance.codex_cli_digest,
-      },
-      resolved,
-    ) ||
-    provenance.protocol_epoch !==
-      `codex-app-server-${resolved.codexCliVersion.slice("codex-cli ".length)}` ||
-    provenance.generator?.command?.join(" ") !== "app-server generate-ts" ||
-    provenance.generator.supported_surface !== "codex app-server generators" ||
-    provenance.typescript_root !== "typescript"
-  ) {
-    return undefined;
-  }
-  const protocolSource = await readTextIfPresent(join(generatedTypescriptRoot, "protocol.ts"));
-  if (
-    protocolSource !== protocolSourceForVersion(resolved.codexCliVersion.slice("codex-cli ".length))
-  ) {
-    return undefined;
-  }
-  try {
-    const inventory = await collectInventory(generatedRoot);
-    assertExpectedSurface(inventory);
-    await assertSecretFree(generatedRoot);
+}): Effect.Effect<
+  Readonly<{ artifactDigest: string; artifactFiles: number }> | undefined,
+  unknown
+> {
+  return Effect.gen(function* () {
+    const provenance = yield* readJson(GeneratedProvenanceSchema, provenancePath).pipe(
+      Effect.catch(() => Effect.succeed(undefined)),
+    );
+    if (provenance === undefined) return undefined;
     if (
-      inventory.count !== provenance.files?.count ||
-      inventory.digest !== provenance.files?.digest
-    ) {
+      !canReuseGeneratedOutput(
+        {
+          codexCliVersion: provenance.codex_cli_version,
+          codexCliDigest: provenance.codex_cli_digest,
+        },
+        resolved,
+      ) ||
+      provenance.protocol_epoch !==
+        `codex-app-server-${resolved.codexCliVersion.slice("codex-cli ".length)}`
+    )
       return undefined;
-    }
-    return { artifactDigest: inventory.digest, artifactFiles: inventory.count };
-  } catch {
-    return undefined;
-  }
+    const protocolSource = yield* readTextIfPresent(join(generatedTypescriptRoot, "protocol.ts"));
+    if (
+      protocolSource !==
+      protocolSourceForVersion(resolved.codexCliVersion.slice("codex-cli ".length))
+    )
+      return undefined;
+    const result = yield* collectInventory(generatedRoot).pipe(
+      Effect.flatMap((inventory) =>
+        assertExpectedSurface(inventory).pipe(
+          Effect.andThen(assertSecretFree(generatedRoot)),
+          Effect.andThen(() =>
+            inventory.count === provenance.files.count &&
+            inventory.digest === provenance.files.digest
+              ? Effect.succeed({ artifactDigest: inventory.digest, artifactFiles: inventory.count })
+              : Effect.succeed(undefined),
+          ),
+        ),
+      ),
+      Effect.catch(() => Effect.succeed(undefined)),
+    );
+    return result;
+  });
 }
 
-async function writeProtocolConstants(root: string, version: string): Promise<void> {
-  await writeFile(join(root, "protocol.ts"), protocolSourceForVersion(version), {
-    encoding: "utf8",
-    mode: 0o600,
-  });
+function writeProtocolConstants(root: string, version: string): Effect.Effect<void, unknown> {
+  return io(() =>
+    writeFile(join(root, "protocol.ts"), protocolSourceForVersion(version), {
+      encoding: "utf8",
+      mode: 0o600,
+    }),
+  );
 }
 
 function protocolSourceForVersion(version: string): string {
   return `// GENERATED CODE! DO NOT MODIFY BY HAND!\n\nexport const CODEX_PROTOCOL_VERSION = "codex-cli-${version}" as const;\nexport const CODEX_PROTOCOL_EPOCH = "codex-app-server-${version}" as const;\n`;
 }
 
-async function collectInventory(root: string): Promise<GeneratedInventory> {
-  await assertNoSymlinkBoundary(root);
-  const files: GeneratedFile[] = [];
-  let totalBytes = 0;
-  const visit = async (directory: string): Promise<void> => {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const absolute = join(directory, entry.name);
-      const metadata = await lstat(absolute);
-      if (metadata.isSymbolicLink()) {
-        throw new Error("Generated Codex bindings may not contain symlinks.");
-      }
-      if (metadata.isDirectory()) {
-        await visit(absolute);
-        continue;
-      }
-      if (!metadata.isFile()) {
-        throw new Error("Generated Codex bindings contain a non-file entry.");
-      }
-      const relativePath = relative(root, absolute).split("\\").join("/");
-      if (relativePath === "provenance.json") {
-        continue;
-      }
-      if (!relativePath.startsWith("typescript/")) {
-        throw new Error(`Generated Codex binding is outside typescript/: ${relativePath}`);
-      }
-      if (metadata.size <= 0 || metadata.size > MAX_FILE_BYTES) {
-        throw new Error(`Generated Codex binding has an invalid size: ${relativePath}`);
-      }
-      totalBytes += metadata.size;
-      if (totalBytes > MAX_TOTAL_BYTES) {
-        throw new Error("Generated Codex bindings exceed the size bound.");
-      }
-      files.push({
-        path: relativePath,
-        size: metadata.size,
-        sha256: await sha256File(absolute),
+function collectInventory(root: string): Effect.Effect<GeneratedInventory, unknown> {
+  return Effect.gen(function* () {
+    yield* assertNoSymlinkBoundary(root);
+    const files: GeneratedFile[] = [];
+    let totalBytes = 0;
+    const visit = (directory: string): Effect.Effect<void, unknown> =>
+      Effect.gen(function* () {
+        const entries = yield* io(() => readdir(directory, { withFileTypes: true }));
+        for (const entry of entries) {
+          const absolute = join(directory, entry.name);
+          const metadata = yield* io(() => lstat(absolute));
+          if (metadata.isSymbolicLink())
+            return yield* Effect.fail(
+              new Error("Generated Codex bindings may not contain symlinks."),
+            );
+          if (metadata.isDirectory()) {
+            yield* visit(absolute);
+            continue;
+          }
+          if (!metadata.isFile())
+            return yield* Effect.fail(
+              new Error("Generated Codex bindings contain a non-file entry."),
+            );
+          const relativePath = relative(root, absolute).split("\\").join("/");
+          if (relativePath === "provenance.json") continue;
+          if (!relativePath.startsWith("typescript/"))
+            return yield* Effect.fail(
+              new Error(`Generated Codex binding is outside typescript/: ${relativePath}`),
+            );
+          if (metadata.size <= 0 || metadata.size > MAX_FILE_BYTES)
+            return yield* Effect.fail(
+              new Error(`Generated Codex binding has an invalid size: ${relativePath}`),
+            );
+          totalBytes += metadata.size;
+          if (totalBytes > MAX_TOTAL_BYTES)
+            return yield* Effect.fail(new Error("Generated Codex bindings exceed the size bound."));
+          files.push({
+            path: relativePath,
+            size: metadata.size,
+            sha256: yield* sha256File(absolute),
+          });
+        }
       });
-    }
-  };
-  await visit(root);
-  files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
-  return {
-    count: files.length,
-    digest: await domainSeparatedSha256("codex-schema-output", [canonicalJsonUtf8(files)]),
-    files,
-  };
+    yield* visit(root);
+    files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+    const digest = yield* Effect.tryPromise({
+      try: () => domainSeparatedSha256("codex-schema-output", [canonicalJsonUtf8(files)]),
+      catch: (error) => error,
+    });
+    return { count: files.length, digest, files };
+  });
 }
 
-function assertExpectedSurface(inventory: GeneratedInventory): void {
+function assertExpectedSurface(inventory: GeneratedInventory): Effect.Effect<void, Error> {
   const paths = new Set(inventory.files.map((file) => file.path));
   for (const required of [
     "typescript/index.ts",
@@ -390,12 +452,15 @@ function assertExpectedSurface(inventory: GeneratedInventory): void {
     "typescript/protocol.ts",
   ]) {
     if (!paths.has(required)) {
-      throw new Error(`Generated Codex bindings are missing required surface ${required}.`);
+      return Effect.fail(
+        new Error(`Generated Codex bindings are missing required surface ${required}.`),
+      );
     }
   }
+  return Effect.void;
 }
 
-async function assertSecretFree(root: string): Promise<void> {
+function assertSecretFree(root: string): Effect.Effect<void, unknown> {
   const sensitiveValues = Object.entries(process.env)
     .filter(
       (entry): entry is [string, string] =>
@@ -403,61 +468,104 @@ async function assertSecretFree(root: string): Promise<void> {
     )
     .map(([, value]) => value);
   if (sensitiveValues.length === 0) {
-    return;
+    return Effect.void;
   }
-  const inventory = await collectInventory(root);
-  for (const file of inventory.files) {
-    const content = await readFile(join(root, file.path), "utf8");
-    if (sensitiveValues.some((secret) => content.includes(secret))) {
-      throw new Error("Generated Codex bindings contain an environment secret value.");
+  return Effect.gen(function* () {
+    const inventory = yield* collectInventory(root);
+    for (const file of inventory.files) {
+      const content = yield* io(() => readFile(join(root, file.path), "utf8"));
+      if (sensitiveValues.some((secret) => content.includes(secret)))
+        return yield* Effect.fail(
+          new Error("Generated Codex bindings contain an environment secret value."),
+        );
     }
-  }
+  });
 }
 
-async function assertNoSymlinkBoundary(path: string): Promise<void> {
-  let current = resolve(path);
-  while (true) {
-    const metadata = await lstat(current);
-    if (metadata.isSymbolicLink()) {
-      throw new Error("Generated Codex bindings may not contain symlinked roots.");
+function assertNoSymlinkBoundary(path: string): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    let current = resolve(path);
+    while (true) {
+      const metadata = yield* io(() => lstat(current));
+      if (metadata.isSymbolicLink())
+        return yield* Effect.fail(
+          new Error("Generated Codex bindings may not contain symlinked roots."),
+        );
+      const parent = dirname(current);
+      if (parent === current) break;
+      current = parent;
     }
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
-  }
+  });
 }
 
-async function normalizeGeneratedText(root: string): Promise<void> {
-  const inventory = await collectInventory(root);
-  for (const file of inventory.files) {
-    const path = join(root, file.path);
-    const content = await readFile(path, "utf8");
-    const normalized = content.replaceAll("\\r\\n", "\\n");
-    if (normalized !== content) {
-      await writeFile(path, normalized, { encoding: "utf8", mode: 0o600 });
+function normalizeGeneratedText(root: string): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const inventory = yield* collectInventory(root);
+    for (const file of inventory.files) {
+      const path = join(root, file.path);
+      const content = yield* io(() => readFile(path, "utf8"));
+      const normalized = content.replaceAll("\\r\\n", "\\n");
+      if (normalized !== content)
+        yield* io(() => writeFile(path, normalized, { encoding: "utf8", mode: 0o600 }));
     }
-  }
+  });
 }
 
-async function sha256File(path: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", await readFile(path));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+function sha256File(path: string): Effect.Effect<string, unknown> {
+  return Effect.gen(function* () {
+    const contents = yield* io(() => readFile(path));
+    const digest = yield* Effect.tryPromise({
+      try: () => crypto.subtle.digest("SHA-256", contents),
+      catch: (error) => error,
+    });
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  });
 }
 
-async function readTextIfPresent(path: string): Promise<string | undefined> {
-  try {
-    return await readFile(path, "utf8");
-  } catch {
-    return undefined;
-  }
+function readTextIfPresent(path: string): Effect.Effect<string | undefined, unknown> {
+  return io(() => readFile(path, "utf8")).pipe(
+    Effect.catch((error) =>
+      isFsCode(error, "ENOENT") ? Effect.succeed(undefined) : Effect.fail(error),
+    ),
+  );
 }
 
-function assertStableVersion(version: string, label: string): void {
-  if (!STABLE_VERSION.test(version)) {
-    throw new Error(
-      `${label} must be a stable semantic version, received ${redactDiagnostics(version)}.`,
+function readJson<A>(schema: Schema.Decoder<A>, path: string): Effect.Effect<A, unknown> {
+  return io(() => readFile(path, "utf8")).pipe(
+    Effect.flatMap((text) => Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(text)),
+  );
+}
+
+function io<A>(operation: () => PromiseLike<A>): Effect.Effect<A, unknown> {
+  return Effect.tryPromise({ try: operation, catch: (error) => error });
+}
+
+function withTemporaryDirectoryEffect<A, E>(
+  prefix: string,
+  operation: (directory: string) => Effect.Effect<A, E>,
+): Effect.Effect<A, unknown> {
+  return Effect.gen(function* () {
+    const validatedPrefix = yield* Schema.decodeUnknownEffect(TemporaryDirectoryPrefixSchema)(
+      prefix,
     );
-  }
+    return yield* Effect.acquireUseRelease(
+      io(() => mkdtemp(join(tmpdir(), `${validatedPrefix}-`))).pipe(
+        Effect.map((path) => assertTemporaryPath(path, "generated bindings temporary directory")),
+      ),
+      operation,
+      (directory) =>
+        io(() =>
+          rm(assertTemporaryPath(directory, "generated bindings temporary directory"), {
+            recursive: true,
+            force: true,
+          }),
+        ).pipe(Effect.orDie),
+    );
+  });
+}
+
+function isFsCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
 function safeError(error: unknown): string {
@@ -465,15 +573,15 @@ function safeError(error: unknown): string {
 }
 
 if (import.meta.main) {
-  try {
-    console.log(JSON.stringify(await ensureCodexGenerated()));
-  } catch (error: unknown) {
-    console.error(
-      JSON.stringify({
-        status: "failed",
-        message: safeError(error),
-      }),
-    );
-    process.exitCode = 1;
-  }
+  await Effect.runPromise(
+    ensureCodexGenerated().pipe(
+      Effect.tap((result) => Effect.sync(() => console.log(JSON.stringify(result)))),
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          console.error(JSON.stringify({ status: "failed", message: safeError(error) }));
+          process.exitCode = 1;
+        }),
+      ),
+    ),
+  );
 }

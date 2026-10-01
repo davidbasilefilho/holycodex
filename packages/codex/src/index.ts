@@ -165,7 +165,9 @@ export type {
 
 export {
   cleanupManagedRuntimeConfig,
+  cleanupManagedRuntimeConfigEffect,
   compareManagedConfigKey,
+  compareManagedConfigKeyEffect,
   createManagedRuntimeConfigState,
   deleteTomlPath,
   HOLYCODEX_AGENT_TYPES,
@@ -178,10 +180,12 @@ export {
   ManagedRuntimeConfigEntrySchema,
   ManagedRuntimeConfigStateSchema,
   mergeManagedRuntimeConfig,
+  mergeManagedRuntimeConfigEffect,
   normalizeRelativeConfigPath,
   readTomlPath,
   resolveAgentConfigPath,
   summarizeManagedConfigValue,
+  summarizeManagedConfigValueEffect,
   TomlDocumentSchema,
   TomlValueSchema,
   writeTomlPath,

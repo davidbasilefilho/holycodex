@@ -4,14 +4,7 @@ import type { JsonObject, JsonValue } from "@holycodex/core";
 import * as Schema from "effect/Schema";
 
 import type { v2 as GeneratedV2 } from "../generated/typescript";
-import {
-  isJsonValue,
-  isPlainObject,
-  JsonObjectSchema,
-  JsonValueSchema,
-  NonNegativeNumberSchema,
-  TextSchema,
-} from "./common";
+import { JsonObjectSchema, JsonValueSchema, NonNegativeNumberSchema, TextSchema } from "./common";
 import {
   GENERATED_APPROVAL_REQUEST_METHODS,
   GENERATED_DYNAMIC_TOOL_REQUEST_METHODS,
@@ -20,25 +13,28 @@ import {
 } from "./generated-wire";
 import { TomlDocumentSchema } from "./runtime-config";
 
-const ProtocolMethodSchema = Schema.String.pipe(
-  Schema.pattern(/^[A-Za-z][A-Za-z0-9_./:-]{0,127}$/u),
+const ProtocolMethodSchema = Schema.String.check(
+  Schema.isPattern(/^[A-Za-z][A-Za-z0-9_./:-]{0,127}$/u),
 );
+const JsonObjectRest = [Schema.Record(Schema.String, JsonValueSchema)] as const;
+const Identifier = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u));
+const NonEmptyString = Schema.String.check(Schema.isMinLength(1));
 /** Validates request id values at the Codex boundary. */
-export const RequestIdSchema = Schema.Union(
-  Schema.String.pipe(Schema.minLength(1)),
-  Schema.Number.pipe(Schema.filter((value) => Number.isSafeInteger(value))),
-);
+export const RequestIdSchema = Schema.Union([
+  Schema.String.check(Schema.isMinLength(1)),
+  Schema.Number.check(Schema.makeFilter((value) => Number.isSafeInteger(value))),
+]);
 /** String or numeric identifier used to correlate a JSON-RPC request and response. */
 export type RequestId = typeof RequestIdSchema.Type;
 
 const JsonRpcErrorObjectSchema = Schema.Struct({
-  code: Schema.Number.pipe(Schema.filter((value) => Number.isSafeInteger(value))),
+  code: Schema.Number.check(Schema.makeFilter((value) => Number.isSafeInteger(value))),
   message: Schema.String,
   data: Schema.optional(JsonValueSchema),
 });
 
 /** Validates json rpc response values at the Codex boundary. */
-export const JsonRpcResponseSchema = Schema.Union(
+export const JsonRpcResponseSchema = Schema.Union([
   Schema.Struct({
     id: RequestIdSchema,
     result: JsonValueSchema,
@@ -47,7 +43,7 @@ export const JsonRpcResponseSchema = Schema.Union(
     id: RequestIdSchema,
     error: JsonRpcErrorObjectSchema,
   }),
-);
+]);
 /** Successful JSON-RPC result or structured JSON-RPC error response. */
 export type JsonRpcResponse = typeof JsonRpcResponseSchema.Type;
 
@@ -106,43 +102,27 @@ export interface SupportedUsage {
   readonly total_tokens?: number;
 }
 
-function isNonNegativeFinite(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
-}
-
-function isSupportedUsageVariant(
-  value: Record<string, unknown>,
-  tokenKeys: readonly string[],
-  totalKey: string,
-): boolean {
-  const allowedKeys = new Set([...tokenKeys, totalKey]);
-  const presentKeys = Object.keys(value);
-  if (Object.keys(value).some((key) => !allowedKeys.has(key))) {
-    return false;
-  }
-  return presentKeys.length > 0 && presentKeys.every((key) => isNonNegativeFinite(value[key]));
-}
-
-function isSupportedUsage(value: unknown): value is SupportedUsage {
-  if (!isPlainObject(value) || !isJsonValue(value)) {
-    return false;
-  }
-  return (
-    isSupportedUsageVariant(
-      value,
-      ["inputTokens", "cachedInputTokens", "outputTokens", "reasoningOutputTokens"],
-      "totalTokens",
-    ) ||
-    isSupportedUsageVariant(
-      value,
-      ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"],
-      "total_tokens",
-    )
-  );
-}
+const UsageCountSchema = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0));
+const CamelCaseUsageSchema = Schema.Struct({
+  inputTokens: Schema.optionalKey(UsageCountSchema),
+  cachedInputTokens: Schema.optionalKey(UsageCountSchema),
+  outputTokens: Schema.optionalKey(UsageCountSchema),
+  reasoningOutputTokens: Schema.optionalKey(UsageCountSchema),
+  totalTokens: Schema.optionalKey(UsageCountSchema),
+}).check(Schema.makeFilter((value) => Object.values(value).some((count) => count !== undefined)));
+const SnakeCaseUsageSchema = Schema.Struct({
+  input_tokens: Schema.optionalKey(UsageCountSchema),
+  cached_input_tokens: Schema.optionalKey(UsageCountSchema),
+  output_tokens: Schema.optionalKey(UsageCountSchema),
+  reasoning_output_tokens: Schema.optionalKey(UsageCountSchema),
+  total_tokens: Schema.optionalKey(UsageCountSchema),
+}).check(Schema.makeFilter((value) => Object.values(value).some((count) => count !== undefined)));
 
 /** Validates supported usage values at the Codex boundary. */
-export const SupportedUsageSchema = Schema.declare(isSupportedUsage);
+export const SupportedUsageSchema: Schema.Codec<SupportedUsage, unknown> = Schema.Union([
+  CamelCaseUsageSchema,
+  SnakeCaseUsageSchema,
+]);
 /** Validates usage completeness values at the Codex boundary. */
 export const UsageCompletenessSchema = SupportedUsageSchema;
 /** Token usage counters attached to a Codex turn. */
@@ -153,20 +133,20 @@ export const InitializeParamsSchema = Schema.Struct({
   clientInfo: Schema.Struct({
     name: TextSchema,
     version: TextSchema,
-    title: Schema.Union(TextSchema, Schema.Null),
+    title: Schema.Union([TextSchema, Schema.Null]),
   }),
-  capabilities: Schema.Union(
+  capabilities: Schema.Union([
     Schema.Struct({
       experimentalApi: Schema.Boolean,
       requestAttestation: Schema.Boolean,
       mcpServerOpenaiFormElicitation: Schema.optional(Schema.Boolean),
       optOutNotificationMethods: Schema.optional(
-        Schema.Union(Schema.Array(Schema.String), Schema.Null),
+        Schema.Union([Schema.Array(Schema.String), Schema.Null]),
       ),
       extensions: Schema.optional(JsonObjectSchema),
     }),
     Schema.Null,
-  ),
+  ]),
 });
 /** Parameters accepted by the initialize operation. */
 export type InitializeParams = typeof InitializeParamsSchema.Type;
@@ -190,19 +170,22 @@ export interface InitializeResult {
 }
 
 /** Validates initialize result values at the Codex boundary. */
-export const InitializeResultSchema = Schema.declare(
-  (value: unknown): value is InitializeResult =>
-    isPlainObject(value) &&
-    isJsonValue(value) &&
-    typeof value["userAgent"] === "string" &&
-    typeof value["codexHome"] === "string" &&
-    typeof value["platformFamily"] === "string" &&
-    typeof value["platformOs"] === "string",
+export const InitializeResultSchema = Schema.StructWithRest(
+  Schema.Struct({
+    userAgent: Schema.String,
+    codexHome: Schema.String,
+    platformFamily: Schema.String,
+    platformOs: Schema.String,
+    serverInfo: Schema.optionalKey(JsonObjectSchema),
+    capabilities: Schema.optionalKey(JsonObjectSchema),
+    protocolVersion: Schema.optionalKey(Schema.String),
+  }),
+  JsonObjectRest,
 );
 
 /** Validates initialized notification values at the Codex boundary. */
 export const InitializedNotificationSchema = Schema.Struct({
-  method: Schema.Literal("initialized"),
+  method: Schema.Literals(["initialized"]),
 });
 
 /** Stable identity and display metadata for a Codex conversation thread. */
@@ -225,35 +208,20 @@ export interface ThreadIdentity {
   readonly metadata?: JsonObject;
 }
 
-function isThreadIdentity(value: unknown): value is ThreadIdentity {
-  return (
-    isPlainObject(value) &&
-    isJsonValue(value) &&
-    typeof value["id"] === "string" &&
-    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(value["id"])
-  );
-}
-
 /** Validates thread identity values at the Codex boundary. */
-export const ThreadIdentitySchema = Schema.declare(isThreadIdentity);
-
-function isObjectWithThread(
-  value: unknown,
-): value is JsonObject & { readonly thread: ThreadIdentity } {
-  return isPlainObject(value) && isJsonValue(value) && isThreadIdentity(value["thread"]);
-}
-
-function isObjectWithId(value: unknown): value is JsonObject & { readonly id: string } {
-  return isPlainObject(value) && isJsonValue(value) && typeof value["id"] === "string";
-}
+export const ThreadIdentitySchema = Schema.StructWithRest(
+  Schema.Struct({ id: Identifier }),
+  JsonObjectRest,
+);
 
 /** Validates thread start result values at the Codex boundary. */
-export const ThreadStartResultSchema = Schema.declare(
-  (
-    value: unknown,
-  ): value is JsonObject & { readonly thread?: ThreadIdentity; readonly id?: string } =>
-    isObjectWithThread(value) || isObjectWithId(value),
-);
+export const ThreadStartResultSchema = Schema.Union([
+  Schema.StructWithRest(
+    Schema.Struct({ thread: ThreadIdentitySchema, id: Schema.optionalKey(Schema.String) }),
+    JsonObjectRest,
+  ),
+  Schema.StructWithRest(Schema.Struct({ id: Schema.String }), JsonObjectRest),
+]);
 /** Validates thread resume result values at the Codex boundary. */
 export const ThreadResumeResultSchema = ThreadStartResultSchema;
 /** Validates thread fork result values at the Codex boundary. */
@@ -266,92 +234,70 @@ export type ThreadResumeResult = typeof ThreadResumeResultSchema.Type;
 export type ThreadForkResult = typeof ThreadForkResultSchema.Type;
 
 /** Validates thread unsubscribe params values at the Codex boundary. */
-export const ThreadUnsubscribeParamsSchema = Schema.declare(hasThreadId);
+export const ThreadUnsubscribeParamsSchema = Schema.StructWithRest(
+  Schema.Struct({ threadId: NonEmptyString }),
+  JsonObjectRest,
+);
 /** Parameters accepted by the thread unsubscribe operation. */
 export type ThreadUnsubscribeParams = typeof ThreadUnsubscribeParamsSchema.Type;
 
 /** Validates thread unsubscribe result values at the Codex boundary. */
-export const ThreadUnsubscribeResultSchema = Schema.declare(
-  (
-    value: unknown,
-  ): value is JsonObject & {
-    readonly status: "notLoaded" | "notSubscribed" | "unsubscribed";
-  } =>
-    isPlainObject(value) &&
-    isJsonValue(value) &&
-    (value["status"] === "notLoaded" ||
-      value["status"] === "notSubscribed" ||
-      value["status"] === "unsubscribed"),
+export const ThreadUnsubscribeResultSchema = Schema.StructWithRest(
+  Schema.Struct({ status: Schema.Literals(["notLoaded", "notSubscribed", "unsubscribed"]) }),
+  JsonObjectRest,
 );
 /** Result returned by the thread unsubscribe operation. */
 export type ThreadUnsubscribeResult = typeof ThreadUnsubscribeResultSchema.Type;
 
 /** Validates thread read result values at the Codex boundary. */
-export const ThreadReadResultSchema = Schema.declare(
-  (value: unknown): value is JsonObject & { readonly thread: ThreadIdentity } =>
-    isObjectWithThread(value),
+export const ThreadReadResultSchema = Schema.StructWithRest(
+  Schema.Struct({ thread: ThreadIdentitySchema }),
+  JsonObjectRest,
 );
 /** Result returned by the thread read operation. */
 export type ThreadReadResult = typeof ThreadReadResultSchema.Type;
 
 /** Validates thread list result values at the Codex boundary. */
-export const ThreadListResultSchema = Schema.declare(
-  (
-    value: unknown,
-  ): value is
-    | (JsonObject & { readonly data: readonly ThreadIdentity[] })
-    | (JsonObject & { readonly threads: readonly ThreadIdentity[] }) => {
-    if (!isPlainObject(value) || !isJsonValue(value)) {
-      return false;
-    }
-    const hasData =
-      Array.isArray(value["data"]) && value["data"].every((thread) => isThreadIdentity(thread));
-    const hasThreads =
-      Array.isArray(value["threads"]) &&
-      value["threads"].every((thread) => isThreadIdentity(thread));
-    return (
-      (hasData && value["threads"] === undefined) || (hasThreads && value["data"] === undefined)
-    );
-  },
-);
+export const ThreadListResultSchema: Schema.Codec<ThreadListResult, unknown> =
+  JsonObjectSchema.check(
+    Schema.makeFilter(
+      (value) =>
+        (Array.isArray(value["data"]) &&
+          value["threads"] === undefined &&
+          Schema.is(Schema.Array(ThreadIdentitySchema))(value["data"])) ||
+        (Array.isArray(value["threads"]) &&
+          value["data"] === undefined &&
+          Schema.is(Schema.Array(ThreadIdentitySchema))(value["threads"])),
+    ),
+  ) as Schema.Codec<ThreadListResult, unknown>;
 /** Result returned by the thread list operation. */
 export type ThreadListResult =
   | (JsonObject & { readonly data: readonly ThreadIdentity[] })
   | (JsonObject & { readonly threads: readonly ThreadIdentity[] });
 
 /** Validates thread start params values at the Codex boundary. */
-export const ThreadStartParamsSchema = Schema.declare(
-  (value: unknown): value is JsonObject => isPlainObject(value) && isJsonValue(value),
-);
+export const ThreadStartParamsSchema = JsonObjectSchema;
 /** Parameters accepted by the thread start operation. */
 export type ThreadStartParams = typeof ThreadStartParamsSchema.Type;
 
-function hasThreadId(value: unknown): value is JsonObject & { readonly threadId: string } {
-  return (
-    isPlainObject(value) &&
-    isJsonValue(value) &&
-    typeof value["threadId"] === "string" &&
-    value["threadId"].length > 0
-  );
-}
-
 /** Validates thread resume params values at the Codex boundary. */
-export const ThreadResumeParamsSchema = Schema.declare(hasThreadId);
+export const ThreadResumeParamsSchema = Schema.StructWithRest(
+  Schema.Struct({ threadId: NonEmptyString }),
+  JsonObjectRest,
+);
 /** Parameters accepted by the thread resume operation. */
 export type ThreadResumeParams = typeof ThreadResumeParamsSchema.Type;
 /** Validates thread read params values at the Codex boundary. */
-export const ThreadReadParamsSchema = Schema.declare(hasThreadId);
+export const ThreadReadParamsSchema = ThreadResumeParamsSchema;
 /** Parameters accepted by the thread read operation. */
 export type ThreadReadParams = typeof ThreadReadParamsSchema.Type;
 /** Validates thread fork params values at the Codex boundary. */
-export const ThreadForkParamsSchema = Schema.declare(hasThreadId);
+export const ThreadForkParamsSchema = ThreadResumeParamsSchema;
 /** Parameters accepted by the thread fork operation. */
 export type ThreadForkParams = typeof ThreadForkParamsSchema.Type;
 
 /** Validates thread list params values at the Codex boundary. */
-export const ThreadListParamsSchema = Schema.declare(
-  (value: unknown): value is JsonObject => isPlainObject(value) && isJsonValue(value),
-);
+export const ThreadListParamsSchema = JsonObjectSchema;
 /** Parameters accepted by the thread list operation. */
 export type ThreadListParams = typeof ThreadListParamsSchema.Type;
 
@@ -367,105 +313,97 @@ export interface TurnIdentity {
   readonly error?: JsonValue;
 }
 
-function isTurnIdentity(value: unknown): value is TurnIdentity {
-  return (
-    isPlainObject(value) &&
-    isJsonValue(value) &&
-    typeof value["id"] === "string" &&
-    value["id"].length > 0 &&
-    (value["usage"] === undefined || isSupportedUsage(value["usage"]))
-  );
-}
+const TurnIdentitySchema = Schema.StructWithRest(
+  Schema.Struct({
+    id: NonEmptyString,
+    status: Schema.optionalKey(Schema.String),
+    usage: Schema.optionalKey(SupportedUsageSchema),
+    error: Schema.optionalKey(JsonValueSchema),
+  }),
+  JsonObjectRest,
+);
 
 /** Validates turn start params values at the Codex boundary. */
-export const TurnStartParamsSchema = Schema.declare(
-  (
-    value: unknown,
-  ): value is JsonObject & {
-    readonly threadId: string;
-    readonly input?: JsonValue;
-    readonly prompt?: string;
-  } =>
-    hasThreadId(value) &&
-    ((Array.isArray(value["input"]) && value["input"].every((item) => isJsonValue(item))) ||
-      (typeof value["prompt"] === "string" && value["prompt"].length > 0)),
+export const TurnStartParamsSchema = JsonObjectSchema.check(
+  Schema.makeFilter(
+    (value) =>
+      typeof value["threadId"] === "string" &&
+      value["threadId"].length > 0 &&
+      ((Array.isArray(value["input"]) &&
+        Schema.is(Schema.Array(JsonValueSchema))(value["input"])) ||
+        (typeof value["prompt"] === "string" && value["prompt"].length > 0)),
+  ),
 );
 /** Parameters accepted by the turn start operation. */
 export type TurnStartParams = typeof TurnStartParamsSchema.Type;
 
 /** Validates turn steer params values at the Codex boundary. */
-export const TurnSteerParamsSchema = Schema.declare(
-  (
-    value: unknown,
-  ): value is JsonObject & { readonly threadId: string; readonly expectedTurnId: string } =>
-    hasThreadId(value) &&
-    typeof value["expectedTurnId"] === "string" &&
-    Array.isArray(value["input"]) &&
-    value["input"].every((item) => isJsonValue(item)),
+export const TurnSteerParamsSchema = JsonObjectSchema.check(
+  Schema.makeFilter(
+    (value) =>
+      typeof value["threadId"] === "string" &&
+      value["threadId"].length > 0 &&
+      typeof value["expectedTurnId"] === "string" &&
+      value["expectedTurnId"].length > 0 &&
+      Array.isArray(value["input"]) &&
+      Schema.is(Schema.Array(JsonValueSchema))(value["input"]),
+  ),
 );
 /** Parameters accepted by the turn steer operation. */
 export type TurnSteerParams = typeof TurnSteerParamsSchema.Type;
 
 /** Validates turn start result values at the Codex boundary. */
-export const TurnStartResultSchema = Schema.declare(
-  (
-    value: unknown,
-  ): value is JsonObject & { readonly turn?: TurnIdentity; readonly turnId?: string } =>
-    isPlainObject(value) &&
-    isJsonValue(value) &&
-    ((value["turn"] !== undefined && isTurnIdentity(value["turn"])) ||
+export const TurnStartResultSchema = JsonObjectSchema.check(
+  Schema.makeFilter(
+    (value) =>
+      (value["turn"] !== undefined && Schema.is(TurnIdentitySchema)(value["turn"])) ||
       (typeof value["turnId"] === "string" && value["turnId"].length > 0) ||
-      (typeof value["id"] === "string" && value["id"].length > 0)),
+      (typeof value["id"] === "string" && value["id"].length > 0),
+  ),
 );
 /** Result returned by the turn start operation. */
 export type TurnStartResult = typeof TurnStartResultSchema.Type;
 
 /** Validates turn steer result values at the Codex boundary. */
-export const TurnSteerResultSchema = Schema.declare(
-  (value: unknown): value is JsonObject & { readonly turnId: string } =>
-    isPlainObject(value) &&
-    isJsonValue(value) &&
-    typeof value["turnId"] === "string" &&
-    value["turnId"].length > 0,
+export const TurnSteerResultSchema = JsonObjectSchema.check(
+  Schema.makeFilter((value) => typeof value["turnId"] === "string" && value["turnId"].length > 0),
 );
 /** Result returned by the turn steer operation. */
 export type TurnSteerResult = typeof TurnSteerResultSchema.Type;
 
 /** Validates turn interrupt params values at the Codex boundary. */
-export const TurnInterruptParamsSchema = Schema.declare(
-  (value: unknown): value is JsonObject & { readonly threadId: string; readonly turnId: string } =>
-    hasThreadId(value) && typeof value["turnId"] === "string" && value["turnId"].length > 0,
+export const TurnInterruptParamsSchema = JsonObjectSchema.check(
+  Schema.makeFilter(
+    (value) =>
+      typeof value["threadId"] === "string" &&
+      value["threadId"].length > 0 &&
+      typeof value["turnId"] === "string" &&
+      value["turnId"].length > 0,
+  ),
 );
 /** Parameters accepted by the turn interrupt operation. */
 export type TurnInterruptParams = typeof TurnInterruptParamsSchema.Type;
 
 /** Validates turn interrupt result values at the Codex boundary. */
-export const TurnInterruptResultSchema = Schema.declare(
-  (value: unknown): value is JsonObject => isPlainObject(value) && isJsonValue(value),
-);
+export const TurnInterruptResultSchema = JsonObjectSchema;
 /** Result returned by the turn interrupt operation. */
 export type TurnInterruptResult = typeof TurnInterruptResultSchema.Type;
 
 /** Validates turn completed notification values at the Codex boundary. */
-export const TurnCompletedNotificationSchema = Schema.declare(
-  (
-    value: unknown,
-  ): value is JsonObject & {
-    readonly threadId: string;
-    readonly turn?: TurnIdentity;
-    readonly turnId?: string;
-  } =>
-    hasThreadId(value) &&
-    ((value["turn"] !== undefined && isTurnIdentity(value["turn"])) ||
-      (typeof value["turnId"] === "string" && value["turnId"].length > 0)),
+export const TurnCompletedNotificationSchema = JsonObjectSchema.check(
+  Schema.makeFilter(
+    (value) =>
+      typeof value["threadId"] === "string" &&
+      value["threadId"].length > 0 &&
+      ((value["turn"] !== undefined && Schema.is(TurnIdentitySchema)(value["turn"])) ||
+        (typeof value["turnId"] === "string" && value["turnId"].length > 0)),
+  ),
 );
 /** Type of turn completed notification values. */
 export type TurnCompletedNotification = typeof TurnCompletedNotificationSchema.Type;
 
 /** Validates model list params values at the Codex boundary. */
-export const ModelListParamsSchema = Schema.declare(
-  (value: unknown): value is JsonObject => isPlainObject(value) && isJsonValue(value),
-);
+export const ModelListParamsSchema = JsonObjectSchema;
 /** Parameters accepted by the model list operation. */
 export type ModelListParams = typeof ModelListParamsSchema.Type;
 
@@ -485,40 +423,32 @@ export interface ModelCapability {
   readonly multiAgentVersion?: GeneratedV2.MultiAgentVersion | null;
 }
 
-function isModelCapability(value: unknown): value is ModelCapability {
-  return (
-    isPlainObject(value) &&
-    isJsonValue(value) &&
-    typeof value["id"] === "string" &&
-    typeof value["model"] === "string" &&
-    (value["supportedReasoningEfforts"] === undefined ||
-      (Array.isArray(value["supportedReasoningEfforts"]) &&
-        value["supportedReasoningEfforts"].every(
-          (entry) => isPlainObject(entry) && typeof entry["reasoningEffort"] === "string",
-        ))) &&
-    (value["serviceTiers"] === undefined ||
-      (Array.isArray(value["serviceTiers"]) &&
-        value["serviceTiers"].every(
-          (entry) => isPlainObject(entry) && typeof entry["id"] === "string",
-        ))) &&
-    (value["defaultServiceTier"] === undefined ||
-      value["defaultServiceTier"] === null ||
-      typeof value["defaultServiceTier"] === "string") &&
-    (value["multiAgentVersion"] === undefined ||
-      value["multiAgentVersion"] === null ||
-      value["multiAgentVersion"] === "disabled" ||
-      value["multiAgentVersion"] === "v1" ||
-      value["multiAgentVersion"] === "v2")
-  );
-}
+const ModelReasoningEffortSchema = Schema.StructWithRest(
+  Schema.Struct({ reasoningEffort: Schema.String }),
+  JsonObjectRest,
+);
+const ModelServiceTierSchema = Schema.StructWithRest(
+  Schema.Struct({ id: Schema.String }),
+  JsonObjectRest,
+);
+const ModelCapabilitySchema = Schema.StructWithRest(
+  Schema.Struct({
+    id: Schema.String,
+    model: Schema.String,
+    supportedReasoningEfforts: Schema.optionalKey(Schema.Array(ModelReasoningEffortSchema)),
+    serviceTiers: Schema.optionalKey(Schema.Array(ModelServiceTierSchema)),
+    defaultServiceTier: Schema.optionalKey(Schema.Union([Schema.String, Schema.Null])),
+    multiAgentVersion: Schema.optionalKey(
+      Schema.Union([Schema.Literals(["disabled", "v1", "v2"]), Schema.Null]),
+    ),
+  }),
+  JsonObjectRest,
+);
 
 /** Validates model list result values at the Codex boundary. */
-export const ModelListResultSchema = Schema.declare(
-  (value: unknown): value is JsonObject & { readonly data: readonly ModelCapability[] } =>
-    isPlainObject(value) &&
-    isJsonValue(value) &&
-    Array.isArray(value["data"]) &&
-    value["data"].every((model) => isModelCapability(model)),
+export const ModelListResultSchema = Schema.StructWithRest(
+  Schema.Struct({ data: Schema.Array(ModelCapabilitySchema) }),
+  JsonObjectRest,
 );
 /** Result returned by the model list operation. */
 export type ModelListResult = typeof ModelListResultSchema.Type;
@@ -535,7 +465,7 @@ export type ModelProviderCapabilitiesResult = typeof ModelProviderCapabilitiesRe
 /** Validates config read params values at the Codex boundary. */
 export const ConfigReadParamsSchema = Schema.Struct({
   includeLayers: Schema.optional(Schema.Boolean),
-  cwd: Schema.optional(Schema.Union(Schema.String, Schema.Null)),
+  cwd: Schema.optional(Schema.Union([Schema.String, Schema.Null])),
 });
 /** Parameters accepted by the config read operation. */
 export type ConfigReadParams = typeof ConfigReadParamsSchema.Type;
@@ -543,7 +473,7 @@ export type ConfigReadParams = typeof ConfigReadParamsSchema.Type;
 export const ConfigReadResultSchema = Schema.Struct({
   config: TomlDocumentSchema,
   origins: JsonObjectSchema,
-  layers: Schema.Union(Schema.Array(JsonObjectSchema), Schema.Null),
+  layers: Schema.Union([Schema.Array(JsonObjectSchema), Schema.Null]),
 });
 /** Result returned by the config read operation. */
 export type ConfigReadResult = typeof ConfigReadResultSchema.Type;
@@ -587,19 +517,14 @@ export type ElicitationRequest = ServerRequest & { readonly category: "elicitati
 export type DynamicToolRequest = ServerRequest & { readonly category: "dynamic_tool" };
 
 /** Validates server request values at the Codex boundary. */
-export const ServerRequestSchema = Schema.declare(
-  (value: unknown): value is ServerRequest =>
-    isPlainObject(value) &&
-    isJsonValue(value) &&
-    (typeof value["id"] === "string" ||
-      (typeof value["id"] === "number" && Number.isSafeInteger(value["id"]))) &&
-    typeof value["method"] === "string" &&
-    isPlainObject(value["params"]) &&
-    (value["category"] === "approval" ||
-      value["category"] === "dynamic_tool" ||
-      value["category"] === "elicitation" ||
-      value["category"] === "other" ||
-      value["category"] === "permissions"),
+export const ServerRequestSchema = Schema.StructWithRest(
+  Schema.Struct({
+    id: RequestIdSchema,
+    method: Schema.String,
+    params: JsonObjectSchema,
+    category: Schema.Literals(["approval", "dynamic_tool", "elicitation", "other", "permissions"]),
+  }),
+  JsonObjectRest,
 );
 
 /** Validates server response values at the Codex boundary. */
@@ -620,12 +545,14 @@ export interface CodexNotification {
 }
 
 /** Validates codex notification values at the Codex boundary. */
-export const CodexNotificationSchema = Schema.declare(
-  (value: unknown): value is CodexNotification =>
-    isPlainObject(value) &&
-    isJsonValue(value) &&
-    typeof value["kind"] === "string" &&
-    typeof value["method"] === "string",
+export const CodexNotificationSchema = Schema.StructWithRest(
+  Schema.Struct({
+    kind: Schema.Literals(["multi_agent", "turn_completed", "server_request", "unknown"]),
+    method: Schema.String,
+    params: Schema.optionalKey(JsonValueSchema),
+    metadata: Schema.optionalKey(JsonObjectSchema),
+  }),
+  JsonObjectRest,
 );
 
 /** Classify a server request method by its interaction category. */
@@ -646,15 +573,12 @@ export function classifyServerRequest(method: string): ServerRequestCategory {
 }
 
 /** Validates capability value values at the Codex boundary. */
-export const CapabilityValueSchema = Schema.Union(
-  Schema.Literal("stable", "experimental", "disabled"),
+export const CapabilityValueSchema = Schema.Union([
+  Schema.Literals(["stable", "experimental", "disabled"]),
   Schema.Boolean,
-);
+]);
 /** Validates capability matrix values at the Codex boundary. */
-export const CapabilityMatrixSchema = Schema.Record({
-  key: Schema.String,
-  value: CapabilityValueSchema,
-});
+export const CapabilityMatrixSchema = Schema.Record(Schema.String, CapabilityValueSchema);
 /** Type of capability matrix values. */
 export type CapabilityMatrix = typeof CapabilityMatrixSchema.Type;
 

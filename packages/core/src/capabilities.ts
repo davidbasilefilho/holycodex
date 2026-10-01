@@ -3,33 +3,42 @@
 import * as Schema from "effect/Schema";
 
 /** Runtime schema validating capability name values at the receiving boundary. */
-export const CapabilityNameSchema = Schema.Literal(
+export const CapabilityNameSchema = Schema.Literals([
   "browser_use",
   "computer_use",
   "frontend",
   "security",
   "sites",
-);
+]);
 /** Type representing capability name in the core domain. */
 export type CapabilityName = typeof CapabilityNameSchema.Type;
 
 /** Runtime schema validating optional capability name values at the receiving boundary. */
-export const OptionalCapabilityNameSchema = Schema.Literal("browser_use", "computer_use", "sites");
+export const OptionalCapabilityNameSchema = Schema.Literals([
+  "browser_use",
+  "computer_use",
+  "sites",
+]);
 /** Type representing optional capability name in the core domain. */
 export type OptionalCapabilityName = typeof OptionalCapabilityNameSchema.Type;
 
 /** Runtime schema validating capability provider status values at the receiving boundary. */
-export const CapabilityProviderStatusSchema = Schema.Literal(
+export const CapabilityProviderStatusSchema = Schema.Literals([
   "installed",
   "disabled",
   "missing",
   "uncertain",
-);
+]);
 /** Type representing capability provider status in the core domain. */
 export type CapabilityProviderStatus = typeof CapabilityProviderStatusSchema.Type;
 
 /** Runtime schema validating capability health values at the receiving boundary. */
-export const CapabilityHealthSchema = Schema.Literal("healthy", "missing", "disabled", "uncertain");
+export const CapabilityHealthSchema = Schema.Literals([
+  "healthy",
+  "missing",
+  "disabled",
+  "uncertain",
+]);
 /** Type representing capability health in the core domain. */
 export type CapabilityHealth = typeof CapabilityHealthSchema.Type;
 
@@ -44,6 +53,9 @@ export const OFFICIAL_OPENAI_CURATED_MARKETPLACE_NAMES = Object.freeze([
   "openai-curated",
   "openai-curated-remote",
 ] as const);
+const OfficialOpenAiCuratedMarketplaceNameSchema = Schema.Literals(
+  OFFICIAL_OPENAI_CURATED_MARKETPLACE_NAMES,
+);
 /** Type representing official open ai curated marketplace name in the core domain. */
 export type OfficialOpenAiCuratedMarketplaceName =
   | (typeof OFFICIAL_OPENAI_CURATED_MARKETPLACE_NAMES)[number]
@@ -54,12 +66,14 @@ export const OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES = Object.freeze([
   "build-web-apps",
   "codex-security",
 ] as const);
+const OfficialOpenAiCuratedPluginNameSchema = Schema.Literals(OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES);
 /** Canonical official openai bundled plugin names used by core domain operations. */
 export const OFFICIAL_OPENAI_BUNDLED_PLUGIN_NAMES = Object.freeze([
   "browser",
   "computer-use",
   "sites",
 ] as const);
+const OfficialOpenAiBundledPluginNameSchema = Schema.Literals(OFFICIAL_OPENAI_BUNDLED_PLUGIN_NAMES);
 /** Type representing official open ai curated plugin name in the core domain. */
 export type OfficialOpenAiCuratedPluginName =
   | (typeof OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES)[number]
@@ -110,7 +124,7 @@ export function resolveOfficialPluginIdentity(
     };
   }
   if (
-    (OFFICIAL_OPENAI_BUNDLED_PLUGIN_NAMES as readonly string[]).includes(pluginName) &&
+    isOfficialOpenAiBundledPluginName(pluginName) &&
     idMarketplaceName === "openai-bundled" &&
     marketplaceName === idMarketplaceName
   ) {
@@ -149,10 +163,7 @@ export function canonicalOfficialPluginId(pluginId: string): string | undefined 
     isOfficialOpenAiCuratedMarketplaceName(marketplaceName)
   )
     return `${pluginName}@openai-curated`;
-  if (
-    (OFFICIAL_OPENAI_BUNDLED_PLUGIN_NAMES as readonly string[]).includes(pluginName) &&
-    marketplaceName === "openai-bundled"
-  )
+  if (isOfficialOpenAiBundledPluginName(pluginName) && marketplaceName === "openai-bundled")
     return `${pluginName}@openai-bundled`;
   return undefined;
 }
@@ -174,14 +185,20 @@ export function officialPluginIdCandidates(pluginId: string): readonly string[] 
 
 function isOfficialOpenAiCuratedMarketplaceName(
   value: string,
-): value is OfficialOpenAiCuratedMarketplaceName {
-  return (OFFICIAL_OPENAI_CURATED_MARKETPLACE_NAMES as readonly string[]).includes(value);
+): value is (typeof OFFICIAL_OPENAI_CURATED_MARKETPLACE_NAMES)[number] {
+  return Schema.is(OfficialOpenAiCuratedMarketplaceNameSchema)(value);
 }
 
 function isOfficialOpenAiCuratedPluginName(
   value: string,
-): value is OfficialOpenAiCuratedPluginName {
-  return (OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES as readonly string[]).includes(value);
+): value is (typeof OFFICIAL_OPENAI_CURATED_PLUGIN_NAMES)[number] {
+  return Schema.is(OfficialOpenAiCuratedPluginNameSchema)(value);
+}
+
+function isOfficialOpenAiBundledPluginName(
+  value: string,
+): value is (typeof OFFICIAL_OPENAI_BUNDLED_PLUGIN_NAMES)[number] {
+  return Schema.is(OfficialOpenAiBundledPluginNameSchema)(value);
 }
 
 /** Canonical capability selection defaults consumed by installers and state migration. */

@@ -5,12 +5,12 @@ import * as Schema from "effect/Schema";
 import { freezeDeep } from "./common.ts";
 
 /** Canonical user-facing routing profiles. */
-export const ProfileNameSchema = Schema.Literal("low", "default", "high");
+export const ProfileNameSchema = Schema.Literals(["low", "default", "high"]);
 /** Type representing profile name in the core domain. */
 export type ProfileName = typeof ProfileNameSchema.Type;
 
 /** Historical product plan/profile spellings accepted only during migration. */
-export const LegacyProfileNameSchema = Schema.Literal(
+export const LegacyProfileNameSchema = Schema.Literals([
   "go",
   "Go",
   "plus-low",
@@ -18,11 +18,14 @@ export const LegacyProfileNameSchema = Schema.Literal(
   "plus-high",
   "pro-5x",
   "pro-20x",
-);
+]);
 /** Type representing legacy profile name in the core domain. */
 export type LegacyProfileName = typeof LegacyProfileNameSchema.Type;
 /** Runtime schema validating profile name migration values at the receiving boundary. */
-export const ProfileNameMigrationSchema = Schema.Union(ProfileNameSchema, LegacyProfileNameSchema);
+export const ProfileNameMigrationSchema = Schema.Union([
+  ProfileNameSchema,
+  LegacyProfileNameSchema,
+]);
 /** Type representing profile name migration input in the core domain. */
 export type ProfileNameMigrationInput = typeof ProfileNameMigrationSchema.Type;
 
@@ -47,12 +50,12 @@ export function migrateProfileName(input: ProfileNameMigrationInput): ProfileNam
 }
 
 /** Runtime schema validating service tier values at the receiving boundary. */
-export const ServiceTierSchema = Schema.Literal("standard", "fast", "fast-all");
+export const ServiceTierSchema = Schema.Literals(["standard", "fast", "fast-all"]);
 /** Type representing service tier in the core domain. */
 export type ServiceTier = typeof ServiceTierSchema.Type;
 
-/** Runtime schema validating effort values at the receiving boundary. */
-export const EffortSchema = Schema.Literal("low", "medium", "high", "xhigh", "max");
+/** Runtime schema validating live route effort values at the receiving boundary. */
+export const EffortSchema = Schema.Literals(["low", "medium", "high", "xhigh"]);
 /** Type representing effort in the core domain. */
 export type Effort = typeof EffortSchema.Type;
 
@@ -72,7 +75,7 @@ const LIBRARIAN_CONTEXT7_INSTRUCTION =
   "For current library, framework, SDK, API, CLI, or cloud-service facts, resolve the library identity and query Context7 narrowly before model memory or web search. Return the typed context7 evidence state with version/source evidence. Use web search only when Context7 is unavailable, lacks relevant coverage or the required version, fails for authentication or quota, or a conflict remains after checking authoritative first-party documentation.";
 
 /** Explicit fork policy for ordinary concrete specialist spawns. */
-export const ForkTurnsSchema = Schema.Literal("none");
+export const ForkTurnsSchema = Schema.Literals(["none"]);
 /** Type representing fork turns in the core domain. */
 export type ForkTurns = typeof ForkTurnsSchema.Type;
 
@@ -88,7 +91,7 @@ export const ROOT_ORCHESTRATION_PHASE_ORDER = Object.freeze([
 export type RootOrchestrationPhase = (typeof ROOT_ORCHESTRATION_PHASE_ORDER)[number];
 
 /** Canonical filesystem access schema used by core domain operations. */
-export const FILESYSTEM_ACCESS_SCHEMA = Schema.Literal("read-only", "workspace-write");
+export const FILESYSTEM_ACCESS_SCHEMA = Schema.Literals(["read-only", "workspace-write"]);
 /** Type representing filesystem access in the core domain. */
 export type FilesystemAccess = typeof FILESYSTEM_ACCESS_SCHEMA.Type;
 
@@ -96,23 +99,24 @@ export type FilesystemAccess = typeof FILESYSTEM_ACCESS_SCHEMA.Type;
 export const ROLE_DEFINITIONS = [
   {
     role: "Explorer",
+    sharedInstruction: `Keep discovery within the assigned repository scope and return exact paths, symbols, callers, tests, and constraints. ${NO_SOURCE_MUTATION_RULE}`,
     tasks: [
       {
         name: "map",
         description: "Bounded repository structure mapping specialist.",
-        instruction: `Map the assigned repository area: locate its relevant packages, entry points, ownership boundaries, and nearby tests or docs. Return a compact path map and identify where a follow-up lookup or trace should start; do not trace runtime behavior or resolve an unrelated fact. ${NO_SOURCE_MUTATION_RULE}`,
+        instruction: `Map the assigned repository area: locate its relevant packages, entry points, ownership boundaries, and nearby tests or docs. Return a compact path map and identify where a follow-up lookup or trace should start; do not trace runtime behavior or resolve an unrelated fact.`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "lookup",
         description: "Repository fact lookup specialist.",
-        instruction: `Find the specific requested repository fact and cite its exact path or symbol; keep the search narrower than a structure map or execution trace. ${NO_SOURCE_MUTATION_RULE}`,
+        instruction: `Find the specific requested repository fact and cite its exact path or symbol; keep the search narrower than a structure map or execution trace.`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "trace",
         description: "Repository execution and reference tracing specialist.",
-        instruction: `Follow the assigned execution or reference path across callers, boundaries, and tests; explain the evidence-backed flow and stop at the assigned boundary. ${NO_SOURCE_MUTATION_RULE}`,
+        instruction: `Follow the assigned execution or reference path across callers, boundaries, and tests; explain the evidence-backed flow and stop at the assigned boundary.`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
     ],
@@ -126,17 +130,18 @@ export const ROLE_DEFINITIONS = [
   },
   {
     role: "Librarian",
+    sharedInstruction: `${LIBRARIAN_CONTEXT7_INSTRUCTION} ${NO_SOURCE_MUTATION_RULE}`,
     tasks: [
       {
         name: "lookup",
         description: "Authoritative external fact lookup specialist.",
-        instruction: `Answer the specific external fact with its current authoritative source. ${NO_SOURCE_MUTATION_RULE}`,
+        instruction: `Answer the specific external fact with its current authoritative source.`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
       {
         name: "research",
         description: "Current authoritative-source research specialist.",
-        instruction: `Compare and synthesize the assigned current sources with citations, noting conflicts and uncertainty. ${NO_SOURCE_MUTATION_RULE}`,
+        instruction: `Compare and synthesize the assigned current sources with citations, noting conflicts and uncertainty.`,
         permissions: { network: true, filesystem: "read-only", sourceMutation: false },
       },
     ],
@@ -150,6 +155,8 @@ export const ROLE_DEFINITIONS = [
   },
   {
     role: "Worker",
+    sharedInstruction:
+      "Keep all implementation, repair, or proof within the assigned scope and return concise evidence proportionate to the work.",
     tasks: [
       {
         name: "mechanical",
@@ -206,11 +213,20 @@ export const ROLE_DEFINITIONS = [
   },
   {
     role: "Reviewer",
+    sharedInstruction:
+      "Challenge the assigned target against its acceptance criteria and return reproducible evidence. Repair concrete defects to a fixed point when the concrete task permits source mutation; review-only tasks remain observational.",
     tasks: [
       {
         name: "code",
         description: "Adversarial implemented-code review specialist.",
         instruction: `Review and repair the implemented code to a fixed point. Batch relevant evidence, then follow up on concrete uncertainty. Check correctness, safety, compatibility, test quality, generated-artifact hygiene, and the canonical patch-quality rule.`,
+        permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
+      },
+      {
+        name: "testing",
+        description: "Broad test review, repair, and proof specialist.",
+        instruction:
+          "Review testing across the assigned scope, repair concrete test or behavior defects within the Assignment, and prove the affected behavior. Return material testing strategy or architecture decisions to Root.",
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
       {
@@ -223,6 +239,20 @@ export const ROLE_DEFINITIONS = [
         name: "artifact",
         description: "Adversarial produced-artifact review specialist.",
         instruction: `Inspect the assigned produced artifact against its requested content, usability, and delivery constraints; repair concrete defects within the artifact boundary and repeat inspection until no actionable findings remain.`,
+        permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
+      },
+      {
+        name: "audit",
+        description: "Bounded audit and repair specialist.",
+        instruction:
+          "Review the assigned code for the requested concerns, repair concrete findings within the Assignment to a fixed point, and verify affected behavior.",
+        permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
+      },
+      {
+        name: "security",
+        description: "Codex Security review and bounded repair specialist.",
+        instruction:
+          "Use the installed `codex-security:security-diff-scan` skill for an assigned change or `codex-security:security-scan` for an assigned repository scope, then follow applicable `codex-security:validation` and `codex-security:fix-finding` guidance rather than repeating their procedures. Repair validated vulnerabilities within the Assignment and verify affected behavior. Return material security risk, product, and architecture decisions to Root.",
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
     ],
@@ -277,79 +307,92 @@ export type NativeAgentType = RoleTask extends infer Pair
 const roleDefinitionsByName = new Map<Role, RoleDefinition>(
   ROLE_DEFINITIONS.map((definition) => [definition.role, definition]),
 );
-const roleNameSet = new Set<string>(ROLE_DEFINITIONS.map((definition) => definition.role));
 const routeKeys = ROLE_DEFINITIONS.flatMap((definition) =>
   definition.tasks.map((task) => `${definition.role}:${task.name}`),
 );
-const routeKeySet = new Set<string>(routeKeys);
 const nativeAgentTypes = routeKeys.map((key) => key.replace(":", "."));
-const nativeAgentTypeSet = new Set(nativeAgentTypes);
-
-function isRole(value: unknown): value is Role {
-  return typeof value === "string" && roleNameSet.has(value);
-}
-
-function isRoleTask(value: unknown): value is RoleTask {
-  if (typeof value !== "object" || value === null || !("role" in value) || !("task" in value)) {
-    return false;
-  }
-  const role = value.role;
-  const task = value.task;
-  if (!isRole(role) || typeof task !== "string") {
-    return false;
-  }
-  return (
-    roleDefinitionsByName.get(role)?.tasks.some((candidate) => candidate.name === task) === true
-  );
-}
-
-function isTaskForRole(role: Role, value: unknown): boolean {
-  return (
-    typeof value === "string" &&
-    roleDefinitionsByName.get(role)?.tasks.some((candidate) => candidate.name === value) === true
-  );
-}
-
-function isRouteKey(value: unknown): value is RouteKey {
-  return typeof value === "string" && routeKeySet.has(value);
-}
 
 /** Runtime schema validating role values at the receiving boundary. */
-export const RoleSchema = Schema.declare(isRole);
+export const RoleSchema = Schema.Literals(["Explorer", "Librarian", "Worker", "Reviewer"]);
 /** Runtime schema validating explorer task values at the receiving boundary. */
-export const ExplorerTaskSchema = Schema.declare((value: unknown): value is ExplorerTask =>
-  isTaskForRole("Explorer", value),
-);
+export const ExplorerTaskSchema = Schema.Literals(["map", "lookup", "trace"]);
 /** Runtime schema validating librarian task values at the receiving boundary. */
-export const LibrarianTaskSchema = Schema.declare((value: unknown): value is LibrarianTask =>
-  isTaskForRole("Librarian", value),
-);
+export const LibrarianTaskSchema = Schema.Literals(["lookup", "research"]);
 /** Runtime schema validating worker task values at the receiving boundary. */
-export const WorkerTaskSchema = Schema.declare((value: unknown): value is WorkerTask =>
-  isTaskForRole("Worker", value),
-);
+export const WorkerTaskSchema = Schema.Literals([
+  "mechanical",
+  "implementation",
+  "visual",
+  "integration",
+  "operations",
+  "validation",
+  "debugging",
+]);
 /** Runtime schema validating reviewer task values at the receiving boundary. */
-export const ReviewerTaskSchema = Schema.declare((value: unknown): value is ReviewerTask =>
-  isTaskForRole("Reviewer", value),
-);
+export const ReviewerTaskSchema = Schema.Literals([
+  "code",
+  "testing",
+  "visual",
+  "artifact",
+  "audit",
+  "security",
+]);
 /** Runtime schema validating role task values at the receiving boundary. */
-export const RoleTaskSchema = Schema.declare(isRoleTask);
+export const RoleTaskSchema = Schema.Union([
+  Schema.Struct({ role: Schema.Literals(["Explorer"]), task: ExplorerTaskSchema }),
+  Schema.Struct({ role: Schema.Literals(["Librarian"]), task: LibrarianTaskSchema }),
+  Schema.Struct({ role: Schema.Literals(["Worker"]), task: WorkerTaskSchema }),
+  Schema.Struct({ role: Schema.Literals(["Reviewer"]), task: ReviewerTaskSchema }),
+]);
+/** Runtime schema validating route key values at the receiving boundary. */
+export const RouteKeySchema = Schema.Literals([
+  "Explorer:map",
+  "Explorer:lookup",
+  "Explorer:trace",
+  "Librarian:lookup",
+  "Librarian:research",
+  "Worker:mechanical",
+  "Worker:implementation",
+  "Worker:visual",
+  "Worker:integration",
+  "Worker:operations",
+  "Worker:validation",
+  "Worker:debugging",
+  "Reviewer:code",
+  "Reviewer:testing",
+  "Reviewer:visual",
+  "Reviewer:artifact",
+  "Reviewer:audit",
+  "Reviewer:security",
+]);
+/** Runtime schema validating native agent type values at the receiving boundary. */
+export const NativeAgentTypeSchema = Schema.Literals([
+  "Explorer.map",
+  "Explorer.lookup",
+  "Explorer.trace",
+  "Librarian.lookup",
+  "Librarian.research",
+  "Worker.mechanical",
+  "Worker.implementation",
+  "Worker.visual",
+  "Worker.integration",
+  "Worker.operations",
+  "Worker.validation",
+  "Worker.debugging",
+  "Reviewer.code",
+  "Reviewer.testing",
+  "Reviewer.visual",
+  "Reviewer.artifact",
+  "Reviewer.audit",
+  "Reviewer.security",
+]);
 /** Canonical route keys used by core domain operations. */
 export const ROUTE_KEYS: readonly RouteKey[] = Object.freeze(
-  routeKeys.filter((key): key is RouteKey => isRouteKey(key)),
+  routeKeys.map((key) => Schema.decodeUnknownSync(RouteKeySchema)(key)),
 );
-/** Runtime schema validating route key values at the receiving boundary. */
-export const RouteKeySchema = Schema.declare(isRouteKey);
 /** Canonical native agent types used by core domain operations. */
 export const NATIVE_AGENT_TYPES: readonly NativeAgentType[] = Object.freeze(
-  nativeAgentTypes.filter((agentType): agentType is NativeAgentType =>
-    nativeAgentTypeSet.has(agentType),
-  ),
-);
-/** Runtime schema validating native agent type values at the receiving boundary. */
-export const NativeAgentTypeSchema = Schema.declare(
-  (value: unknown): value is NativeAgentType =>
-    typeof value === "string" && nativeAgentTypeSet.has(value),
+  nativeAgentTypes.map((agentType) => Schema.decodeUnknownSync(NativeAgentTypeSchema)(agentType)),
 );
 
 /** Generic built-in agent names that must never receive HolyCodex specialist Assignments. */
@@ -365,19 +408,16 @@ export type GenericBuiltinAgentType = (typeof GENERIC_BUILTIN_AGENT_TYPES)[numbe
 /** Resolve a concrete route to its native Codex agent type. */
 export function nativeAgentTypeFor(route: RoleTask): NativeAgentType {
   const value = `${route.role}.${route.task}`;
-  if (!nativeAgentTypeSet.has(value)) throw new Error("Unknown native specialist agent type.");
-  return value as NativeAgentType;
+  return Schema.decodeUnknownSync(NativeAgentTypeSchema)(value);
 }
 
 /** Return the model-facing instruction assigned to a concrete specialist route. */
 export function taskInstructionFor(route: RoleTask): string {
-  const task = roleDefinitionsByName
-    .get(route.role)
-    ?.tasks.find((candidate) => candidate.name === route.task);
+  const definition = roleDefinitionsByName.get(route.role);
+  if (definition === undefined) throw new Error("Unknown specialist task policy.");
+  const task = definition.tasks.find((candidate) => candidate.name === route.task);
   if (task === undefined) throw new Error("Unknown specialist task policy.");
-  return route.role === "Librarian"
-    ? `${LIBRARIAN_CONTEXT7_INSTRUCTION} ${task.instruction}`
-    : task.instruction;
+  return `${task.instruction} ${definition.sharedInstruction}`;
 }
 
 /** Return the human-facing description assigned to a concrete specialist route. */
@@ -492,30 +532,34 @@ export const ROOT_DIRECT_EXECUTION_EXCEPTIONS = Object.freeze([
   "dev_server",
 ] as const);
 /** Runtime schema validating root direct execution exception values at the receiving boundary. */
-export const RootDirectExecutionExceptionSchema = Schema.Literal(
+export const RootDirectExecutionExceptionSchema = Schema.Literals([
   ...ROOT_DIRECT_EXECUTION_EXCEPTIONS,
-);
+]);
 /** Type representing root direct execution exception in the core domain. */
 export type RootDirectExecutionException = typeof RootDirectExecutionExceptionSchema.Type;
 
 /** Effective authority for a Root work unit, including unavailable capabilities. */
-export const RootExecutionStateSchema = Schema.Literal("delegated", "root_direct", "unavailable");
+export const RootExecutionStateSchema = Schema.Literals([
+  "delegated",
+  "root_direct",
+  "unavailable",
+]);
 /** Type representing root execution state in the core domain. */
 export type RootExecutionState = typeof RootExecutionStateSchema.Type;
 
 /** Root-owned authority that cannot be transferred to a specialist Assignment. */
-export const RootOwnedAuthoritySchema = Schema.Literal(...ROOT_DIRECT_EXECUTION_EXCEPTIONS);
+export const RootOwnedAuthoritySchema = Schema.Literals([...ROOT_DIRECT_EXECUTION_EXCEPTIONS]);
 /** Type representing root owned authority in the core domain. */
 export type RootOwnedAuthority = typeof RootOwnedAuthoritySchema.Type;
 
 /** Context7 evidence required from Librarian routes for current technical documentation. */
-export const Context7EvidenceStateSchema = Schema.Literal(
+export const Context7EvidenceStateSchema = Schema.Literals([
   "used",
   "no_coverage",
   "unavailable",
   "auth_or_quota_failure",
   "source_conflict",
-);
+]);
 /** Type representing context7 evidence state in the core domain. */
 export type Context7EvidenceState = typeof Context7EvidenceStateSchema.Type;
 
@@ -757,16 +801,15 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
     "release_milestones",
   ] as const),
   outOfBoundaryRequiresNewAssignment: true,
-  /** Root waits and batches lifecycle work instead of polling or coordinating status-only loops. */
-  routineWaitTool: "collaboration.wait_agent" as const,
-  /** Keep routine waits within the cache lifetime; specialist completion wakes early. */
-  routineWaitMaximumTimeoutMs: 600_000,
-  routineWaitUsesMaximumRuntimeTimeout: true,
+  /** Root waits and batches lifecycle work instead of polling or status-only loops. */
+  rootWaitTool: "collaboration.wait_agent" as const,
+  /** Required duration for every Root wait_agent call; specialist completion wakes early. */
+  rootWaitTimeoutMs: 600_000,
+  rootWaitRequiresExactTimeout: true,
   earlySpecialistCompletionWakesWait: true,
   collectiveMailboxIncludesRelevantAgents: true,
-  idleTimeoutRepeatsMaximumWait: true,
-  shortRoutineWaitsForbidden: true,
-  longestPracticalEventWait: true,
+  idleRootWaitRepeatsRequiredTimeout: true,
+  shortRootWaitsForbidden: true,
   busyPollingForbidden: true,
   statusOnlyCoordinationLoopsForbidden: true,
   batchIndependentLifecycleActions: true,

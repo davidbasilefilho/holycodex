@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { lookupProfile } from "@holycodex/core";
+import { ProfileNameSchema, ServiceTierSchema } from "@holycodex/core";
+import * as Schema from "effect/Schema";
 
 import type { ParsedCommand } from "./types.ts";
 
@@ -186,7 +187,10 @@ function validateCommand(
     throw new ArgumentError("invalid_argument", `Invalid positional arguments for ${command}.`);
   }
   const profile = options["profile"];
-  if (typeof profile === "string" && !lookupProfile(profile).ok) {
+  if (profile !== undefined && !Schema.is(ProfileNameSchema)(profile)) {
+    if (typeof profile !== "string") {
+      throw new ArgumentError("invalid_argument", "The profile is not supported.");
+    }
     const replacement = LEGACY_PROFILE_REPLACEMENTS[profile];
     if (replacement !== undefined) {
       throw new ArgumentError(
@@ -205,7 +209,7 @@ function validateCommand(
     throw new ArgumentError("invalid_argument", "The profile is not supported.", { profile });
   }
   const tier = options["tier"];
-  if (typeof tier === "string" && tier !== "standard" && tier !== "fast" && tier !== "fast-all") {
+  if (tier !== undefined && !Schema.is(ServiceTierSchema)(tier)) {
     throw new ArgumentError("invalid_argument", "The tier is not supported.", { tier });
   }
   for (const [positive, negative] of [

@@ -2,7 +2,9 @@
 
 import { describe, expect, test } from "bun:test";
 
-import * as Either from "effect/Either";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
+import * as SchemaAST from "effect/SchemaAST";
 
 import {
   CliFailureEnvelopeSchema,
@@ -27,6 +29,13 @@ import {
   ProfileNameSchema,
   ProfileSelectionSchema,
   RoleTaskSchema,
+  RoleSchema,
+  ExplorerTaskSchema,
+  LibrarianTaskSchema,
+  WorkerTaskSchema,
+  ReviewerTaskSchema,
+  NativeAgentTypeSchema,
+  type RoleTask,
   ROLE_DEFINITIONS,
   ROUTE_KEYS,
   ROUTE_EFFORT_OVERRIDES,
@@ -69,6 +78,16 @@ import {
 } from "./index";
 import { decodeUnknown } from "./schema";
 
+function literalValues(schema: { readonly ast: SchemaAST.AST }): readonly unknown[] {
+  const ast = schema.ast;
+  if (SchemaAST.isLiteral(ast)) return [ast.literal];
+  if (!SchemaAST.isUnion(ast)) throw new Error("Expected a literal union schema.");
+  return ast.types.map((member) => {
+    if (!SchemaAST.isLiteral(member)) throw new Error("Expected a literal member.");
+    return member.literal;
+  });
+}
+
 const profileNames = ["low", "default", "high"] as const;
 describe("core profile catalog", () => {
   test("contains every profile with the exact Root model and effort policy", () => {
@@ -101,6 +120,9 @@ describe("core profile catalog", () => {
           "Worker:debugging": "high",
           "Worker:visual": "high",
           "Reviewer:code": "high",
+          "Reviewer:testing": "medium",
+          "Reviewer:audit": "medium",
+          "Reviewer:security": "high",
           "Reviewer:artifact": "high",
           "Reviewer:visual": "high",
         },
@@ -121,6 +143,9 @@ describe("core profile catalog", () => {
           "Worker:debugging": "high",
           "Worker:visual": "high",
           "Reviewer:code": "high",
+          "Reviewer:testing": "high",
+          "Reviewer:audit": "high",
+          "Reviewer:security": "high",
           "Reviewer:artifact": "high",
           "Reviewer:visual": "high",
         },
@@ -132,16 +157,19 @@ describe("core profile catalog", () => {
           "Explorer:lookup": "medium",
           "Explorer:trace": "high",
           "Librarian:lookup": "high",
-          "Librarian:research": "max",
+          "Librarian:research": "high",
           "Worker:mechanical": "high",
-          "Worker:implementation": "max",
-          "Worker:integration": "max",
+          "Worker:implementation": "high",
+          "Worker:integration": "high",
           "Worker:operations": "high",
           "Worker:validation": "high",
-          "Worker:debugging": "max",
-          "Worker:visual": "max",
+          "Worker:debugging": "high",
+          "Worker:visual": "high",
           "Reviewer:code": "high",
-          "Reviewer:artifact": "max",
+          "Reviewer:testing": "high",
+          "Reviewer:audit": "high",
+          "Reviewer:security": "high",
+          "Reviewer:artifact": "high",
           "Reviewer:visual": "high",
         },
       },
@@ -151,6 +179,9 @@ describe("core profile catalog", () => {
     for (const profile of PROFILE_CATALOG) {
       expect(profile.routes.map((route) => route.key)).toEqual([...ROUTE_KEYS]);
       expect(profile.routes.every((route) => route.model === profile.specialistModel)).toBe(true);
+      expect([profile.root.effort, ...profile.routes.map((route) => route.effort)]).not.toContain(
+        "max",
+      );
     }
 
     for (const expected of ROUTE_EFFORT_OVERRIDES) {
@@ -208,6 +239,28 @@ describe("core profile catalog", () => {
     expect(NATIVE_AGENT_TYPES).toContain("Worker.validation");
     expect(NATIVE_AGENT_TYPES).toContain("Worker.debugging");
     expect(NATIVE_AGENT_TYPES).not.toContain("Worker.research" as never);
+    expect(NATIVE_AGENT_TYPES).toContain("Reviewer.audit");
+    expect(NATIVE_AGENT_TYPES).toContain("Reviewer.testing");
+    expect(NATIVE_AGENT_TYPES).toContain("Reviewer.security");
+  });
+
+  test("renders each task instruction before reusable shared role guidance", () => {
+    for (const definition of ROLE_DEFINITIONS) {
+      expect(definition.sharedInstruction.length).toBeGreaterThan(0);
+      for (const task of definition.tasks) {
+        const instruction = taskInstructionFor({
+          role: definition.role,
+          task: task.name,
+        } as RoleTask);
+        expect(instruction.indexOf(task.instruction)).toBe(0);
+        expect(instruction.endsWith(definition.sharedInstruction)).toBe(true);
+      }
+    }
+
+    const auditInstruction = taskInstructionFor({ role: "Reviewer", task: "audit" });
+    expect(auditInstruction).toContain("requested concerns");
+    expect(auditInstruction).toContain("repair concrete findings");
+    expect(taskPermissionsFor({ role: "Reviewer", task: "audit" }).sourceMutation).toBe(true);
   });
 
   test("keeps rendered implementation and independent visual review separate", () => {
@@ -233,7 +286,7 @@ describe("core profile catalog", () => {
     expect(ROUTE_EFFORT_OVERRIDES.map((override) => override.efforts["Worker:debugging"])).toEqual([
       "high",
       "high",
-      "max",
+      "high",
     ]);
     const debuggingInstruction = taskInstructionFor({ role: "Worker", task: "debugging" });
     expect(debuggingInstruction).toContain("debugging skill");
@@ -326,12 +379,12 @@ describe("core profile catalog", () => {
   });
 
   test("keeps public profile lookup canonical while classifying legacy state", () => {
-    expect(Either.isRight(decodeUnknown(ProfileNameSchema, "default"))).toBe(true);
-    expect(Either.isLeft(decodeUnknown(ProfileNameSchema, "go"))).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(ProfileNameSchema, "default"))).toBe(true);
+    expect(Result.isFailure(decodeUnknown(ProfileNameSchema, "go"))).toBe(true);
     expect(lookupProfile("default").ok).toBe(true);
     expect(lookupProfile("go").ok).toBe(false);
-    expect(Either.isRight(decodeUnknown(LegacyProfileNameSchema, "Go"))).toBe(true);
-    expect(Either.isRight(decodeUnknown(ProfileNameMigrationSchema, "Go"))).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(LegacyProfileNameSchema, "Go"))).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(ProfileNameMigrationSchema, "Go"))).toBe(true);
     expect(() => migrateProfileName("Go")).toThrow(/requires an explicit replacement/u);
     expect(migrateProfileName("plus-low")).toBe("low");
     expect(migrateProfileName("plus")).toBe("default");
@@ -434,8 +487,10 @@ describe("core profile catalog", () => {
       ROOT_ORCHESTRATION_POLICY.directExecutionExceptions,
     );
     expect(ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority).toEqual(rootOnlyActions);
-    expect(Either.isRight(decodeUnknown(RootDirectExecutionExceptionSchema, "git_vcs"))).toBe(true);
-    expect(Either.isLeft(decodeUnknown(RootDirectExecutionExceptionSchema, "shell"))).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(RootDirectExecutionExceptionSchema, "git_vcs"))).toBe(
+      true,
+    );
+    expect(Result.isFailure(decodeUnknown(RootDirectExecutionExceptionSchema, "shell"))).toBe(true);
     expect(rootDirectExecutionAllowed("git_vcs")).toBe(true);
     expect(rootDirectExecutionAllowed("user_interaction")).toBe(true);
     expect(rootDirectExecutionAllowed("intent")).toBe(true);
@@ -446,12 +501,12 @@ describe("core profile catalog", () => {
     expect(rootDirectExecutionAllowed("external_effects")).toBe(true);
     expect(rootExecutionState("visual_judgment")).toBe("root_direct");
     expect(rootExecutionState("dev_server")).toBe("root_direct");
-    expect(Either.isLeft(decodeUnknown(RootDirectExecutionExceptionSchema, "gui_browser"))).toBe(
+    expect(Result.isFailure(decodeUnknown(RootDirectExecutionExceptionSchema, "gui_browser"))).toBe(
       true,
     );
-    expect(Either.isLeft(decodeUnknown(RootDirectExecutionExceptionSchema, "computer_use"))).toBe(
-      true,
-    );
+    expect(
+      Result.isFailure(decodeUnknown(RootDirectExecutionExceptionSchema, "computer_use")),
+    ).toBe(true);
     expect(rootExecutionState()).toBe("delegated");
     expect(rootExecutionState("git_vcs")).toBe("root_direct");
     expect(ROOT_ORCHESTRATION_POLICY.requestUserInputGates).toEqual([
@@ -502,8 +557,8 @@ describe("core profile catalog", () => {
   });
 
   test("keeps efficient specialist dispatch and terminal communication canonical", () => {
-    expect(Either.isRight(decodeUnknown(ForkTurnsSchema, "none"))).toBe(true);
-    expect(Either.isLeft(decodeUnknown(ForkTurnsSchema, "all"))).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(ForkTurnsSchema, "none"))).toBe(true);
+    expect(Result.isFailure(decodeUnknown(ForkTurnsSchema, "all"))).toBe(true);
     expect(ROOT_ORCHESTRATION_POLICY).toMatchObject({
       normalSpawnForkTurns: "none",
       normalSpawnRequiresExplicitForkTurns: true,
@@ -511,13 +566,13 @@ describe("core profile catalog", () => {
 
       assignmentContextIsTaskSpecificOnly: true,
       configuredRouteModelAndEffortPreserved: true,
-      routineWaitTool: "collaboration.wait_agent",
-      routineWaitMaximumTimeoutMs: 600_000,
-      routineWaitUsesMaximumRuntimeTimeout: true,
+      rootWaitTool: "collaboration.wait_agent",
+      rootWaitTimeoutMs: 600_000,
+      rootWaitRequiresExactTimeout: true,
       earlySpecialistCompletionWakesWait: true,
       collectiveMailboxIncludesRelevantAgents: true,
-      idleTimeoutRepeatsMaximumWait: true,
-      shortRoutineWaitsForbidden: true,
+      idleRootWaitRepeatsRequiredTimeout: true,
+      shortRootWaitsForbidden: true,
       normalProgressMessages: false,
       normalHeartbeatMessages: false,
       normalIntermediateEvidence: false,
@@ -526,7 +581,6 @@ describe("core profile catalog", () => {
       routineStatusOnlyChatterForbidden: true,
       fixedCadenceUserUpdatesForbidden: true,
       outOfBoundaryRequiresNewAssignment: true,
-      longestPracticalEventWait: true,
       busyPollingForbidden: true,
       statusOnlyCoordinationLoopsForbidden: true,
       batchIndependentLifecycleActions: true,
@@ -560,9 +614,9 @@ describe("core profile catalog", () => {
 
   test("keeps Context7, frontend, credential, and security policies typed and canonical", () => {
     for (const state of LIBRARIAN_CONTEXT7_POLICY.evidenceStates) {
-      expect(Either.isRight(decodeUnknown(Context7EvidenceStateSchema, state))).toBe(true);
+      expect(Result.isSuccess(decodeUnknown(Context7EvidenceStateSchema, state))).toBe(true);
       expect(
-        Either.isRight(
+        Result.isSuccess(
           decodeUnknown(Context7EvidenceSchema, {
             state,
             evidence: [`Context7 ${state} evidence`],
@@ -571,10 +625,10 @@ describe("core profile catalog", () => {
       ).toBe(true);
     }
     expect(
-      Either.isLeft(decodeUnknown(Context7EvidenceSchema, { state: "used", evidence: [] })),
+      Result.isFailure(decodeUnknown(Context7EvidenceSchema, { state: "used", evidence: [] })),
     ).toBe(true);
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decodeUnknown(Context7EvidenceSchema, {
           state: "used",
           evidence: ["ctx7 package docs, version 4.2"],
@@ -635,6 +689,37 @@ describe("core profile catalog", () => {
 });
 
 describe("core route and boundary schemas", () => {
+  test("keeps literal route schemas exactly aligned with canonical role definitions", () => {
+    const taskSchemas = {
+      Explorer: ExplorerTaskSchema,
+      Librarian: LibrarianTaskSchema,
+      Worker: WorkerTaskSchema,
+      Reviewer: ReviewerTaskSchema,
+    };
+    const expectedRouteKeys = ROLE_DEFINITIONS.flatMap((definition) =>
+      definition.tasks.map((task) => `${definition.role}:${task.name}`),
+    );
+    const expectedNativeTypes = expectedRouteKeys.map((key) => key.replace(":", "."));
+
+    expect(literalValues(RoleSchema)).toEqual(ROLE_DEFINITIONS.map(({ role }) => role));
+    for (const definition of ROLE_DEFINITIONS) {
+      expect(literalValues(taskSchemas[definition.role])).toEqual(
+        definition.tasks.map(({ name }) => name),
+      );
+      const taskNames = [
+        ...new Set(ROLE_DEFINITIONS.flatMap(({ tasks }) => tasks.map(({ name }) => name))),
+      ];
+      for (const task of taskNames) {
+        const shouldAccept = definition.tasks.some((candidate) => candidate.name === task);
+        expect(Schema.is(RoleTaskSchema)({ role: definition.role, task })).toBe(shouldAccept);
+      }
+    }
+    expect(literalValues(RouteKeySchema)).toEqual(expectedRouteKeys);
+    expect(ROUTE_KEYS.map(String)).toEqual(expectedRouteKeys);
+    expect(literalValues(NativeAgentTypeSchema)).toEqual(expectedNativeTypes);
+    expect(NATIVE_AGENT_TYPES.map(String)).toEqual(expectedNativeTypes);
+  });
+
   test("owns capability registry references and one V2 result boundary", () => {
     expect(CAPABILITY_REGISTRY.frontend.semanticSkillIds).toEqual([
       "build-web-apps:frontend-app-builder",
@@ -667,13 +752,13 @@ describe("core route and boundary schemas", () => {
       status: "completed",
       summary: "frontend completed",
     } as const;
-    expect(Either.isRight(decodeUnknown(CapabilityResultV2Schema, result))).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(CapabilityResultV2Schema, result))).toBe(true);
     const parsed = parseCapabilityResultV2(result);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     for (const capability of ["removed_capability", "unknown_capability"] as const) {
       expect(
-        Either.isRight(decodeUnknown(CapabilityResultV2Schema, { ...result, capability })),
+        Result.isSuccess(decodeUnknown(CapabilityResultV2Schema, { ...result, capability })),
       ).toBe(false);
     }
     const normalized = specialistOutcomeFromCapabilityResult(parsed.value, "frontend", {
@@ -709,39 +794,39 @@ describe("core route and boundary schemas", () => {
     expect(removedGoRoute.ok).toBe(false);
 
     expect(
-      Either.isRight(decodeUnknown(RoleTaskSchema, { role: "Worker", task: "implementation" })),
+      Result.isSuccess(decodeUnknown(RoleTaskSchema, { role: "Worker", task: "implementation" })),
     ).toBe(true);
-    expect(Either.isLeft(decodeUnknown(RoleTaskSchema, { role: "Worker", task: "research" }))).toBe(
-      true,
-    );
-    expect(Either.isRight(decodeUnknown(RouteKeySchema, "Reviewer:artifact"))).toBe(true);
-    expect(Either.isLeft(decodeUnknown(RouteKeySchema, "Reviewer:research"))).toBe(true);
+    expect(
+      Result.isFailure(decodeUnknown(RoleTaskSchema, { role: "Worker", task: "research" })),
+    ).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(RouteKeySchema, "Reviewer:artifact"))).toBe(true);
+    expect(Result.isFailure(decodeUnknown(RouteKeySchema, "Reviewer:research"))).toBe(true);
   });
 
   test("accepts and rejects external profile selections and identities", () => {
-    expect(Either.isRight(decodeUnknown(ProfileNameSchema, "default"))).toBe(true);
-    expect(Either.isLeft(decodeUnknown(ProfileNameSchema, "pro-20x"))).toBe(true);
-    expect(Either.isRight(decodeUnknown(EffortSchema, "xhigh"))).toBe(true);
-    expect(Either.isRight(decodeUnknown(EffortSchema, "max"))).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(ProfileNameSchema, "default"))).toBe(true);
+    expect(Result.isFailure(decodeUnknown(ProfileNameSchema, "pro-20x"))).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(EffortSchema, "xhigh"))).toBe(true);
+    expect(Result.isFailure(decodeUnknown(EffortSchema, "max"))).toBe(true);
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decodeUnknown(ProfileSelectionSchema, { profile: "default", service_tier: "fast" }),
       ),
     ).toBe(true);
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decodeUnknown(ProfileSelectionSchema, { profile: "default", service_tier: "fast-all" }),
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeUnknown(ProfileSelectionSchema, { profile: "default", service_tier: "Turbo" }),
       ),
     ).toBe(true);
 
     const digest = "a".repeat(64);
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decodeUnknown(RunIdentityInputSchema, {
           run_id: "run-1",
           objective_lineage: "lineage-1",
@@ -750,7 +835,7 @@ describe("core route and boundary schemas", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decodeUnknown(TrustIdentityInputSchema, {
           project_id: "project-1",
           trust_id: "trust-1",
@@ -759,7 +844,7 @@ describe("core route and boundary schemas", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeUnknown(RunIdentityInputSchema, {
           run_id: "run-1",
           objective_lineage: "lineage-1",
@@ -797,7 +882,7 @@ describe("core route and boundary schemas", () => {
       verification: ["bun test"],
       verification_passed: true,
     };
-    expect(Either.isRight(decodeUnknown(SpecialistOutcomeSchema, outcome))).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(SpecialistOutcomeSchema, outcome))).toBe(true);
     expect(parseSpecialistOutcome({ ...outcome, status: "unknown" }).ok).toBe(false);
   });
 
@@ -981,8 +1066,8 @@ describe("core CLI envelopes", () => {
       error: { code: "permission_denied", message: "Permission denied.", details: {} },
       warnings: ["read-only"],
     };
-    expect(Either.isRight(decodeUnknown(CliSuccessEnvelopeSchema, successEnvelope))).toBe(true);
-    expect(Either.isRight(decodeUnknown(CliFailureEnvelopeSchema, failureEnvelope))).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(CliSuccessEnvelopeSchema, successEnvelope))).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(CliFailureEnvelopeSchema, failureEnvelope))).toBe(true);
     expect(parseCliEnvelope(successEnvelope).ok).toBe(true);
     expect(parseCliEnvelope({ ...successEnvelope, ok: false }).ok).toBe(false);
     expect(parseCliEnvelope({ ...failureEnvelope, schema_version: "0.14" }).ok).toBe(false);
@@ -999,6 +1084,12 @@ describe("core canonical identity and hashing", () => {
   test("rejects cycles, non-finite values, and non-JSON values", () => {
     const cyclic: { self?: unknown } = {};
     cyclic.self = cyclic;
+    const symbolProperty = Object.defineProperty({ visible: true }, Symbol("hidden"), {
+      value: true,
+    });
+    const hiddenProperty = Object.defineProperty({ visible: true }, "hidden", { value: true });
+    const accessorProperty = Object.defineProperty({}, "value", { get: () => true });
+    const arrayWithExtraProperty = Object.assign([1], { extra: true });
     const invalidValues: readonly unknown[] = [
       undefined,
       Number.NaN,
@@ -1008,6 +1099,10 @@ describe("core canonical identity and hashing", () => {
       Symbol("secret"),
       new Date(0),
       cyclic,
+      symbolProperty,
+      hiddenProperty,
+      accessorProperty,
+      arrayWithExtraProperty,
     ];
     for (const value of invalidValues) {
       expect(() => canonicalJson(value)).toThrowError(CoreError);

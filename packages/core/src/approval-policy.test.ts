@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import * as Either from "effect/Either";
+import * as Result from "effect/Result";
 
 import {
   APPROVAL_POLICY,
@@ -67,9 +67,9 @@ describe("core approval policy", () => {
   });
 
   test("validates the exported policy through Effect Schema", () => {
-    expect(Either.isRight(decodeUnknown(ApprovalPolicySchema, APPROVAL_POLICY))).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(ApprovalPolicySchema, APPROVAL_POLICY))).toBe(true);
     expect(
-      Either.isLeft(
+      Result.isFailure(
         decodeUnknown(ApprovalPolicySchema, {
           ...APPROVAL_POLICY,
           localRepositoryEdit: {

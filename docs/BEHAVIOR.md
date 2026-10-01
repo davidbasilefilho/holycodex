@@ -41,6 +41,9 @@ one Codex registration at `agents."<Role.task>"` in `config.toml`:
 | `Worker.visual`         | Visual implementation and rendered interaction proof   |
 | `Reviewer.visual`       | Independent visual review without repairs              |
 | `Reviewer.code`         | Bounded code inspection and repair                     |
+| `Reviewer.testing`      | Broad testing review, bounded repair, and proof        |
+| `Reviewer.audit`        | Assigned audit with bounded repair                     |
+| `Reviewer.security`     | Codex Security review and bounded repair               |
 | `Reviewer.artifact`     | Bounded artifact inspection and repair                 |
 
 The canonical identity is `{Role}.{task}` throughout domain values, files,
@@ -63,10 +66,12 @@ decisions, consequential blockers or input needs, and release milestones.
 Root asks only for missing input that materially changes the outcome, while
 independent work proceeds. Root waits for terminal outcomes when no such update or question
 is needed and sends out-of-boundary work back as a new bounded Assignment. For
-every routine wait, Root uses `collaboration.wait_agent` with
-`timeout_ms = 600000` (10 minutes); early specialist
-completion wakes the wait and the collective mailbox already contains the
-relevant agents. On timeout, inspect only for actionable failures, blockers, or
+every Root `collaboration.wait_agent` call uses
+`timeout_ms = 600000` (10 minutes), regardless of the situation; shorter waits,
+including 10 seconds, are forbidden. Specialist completion wakes the wait
+early, and the collective mailbox already contains the relevant agents. On
+timeout, use `600000` again while any specialist result remains live. Inspect
+only for actionable failures, blockers, or
 stalls; continue useful independent work or wait again only while relevant
 specialist results remain a live dependency. Status or list polling and message
 loops on idle timeout are not routine coordination.
@@ -153,26 +158,29 @@ route identities with this reasoning-effort matrix:
 | Explorer.lookup       | medium | medium  | medium |
 | Explorer.trace        | high   | high    | high   |
 | Librarian.lookup      | medium | medium  | high   |
-| Librarian.research    | high   | high    | max    |
+| Librarian.research    | high   | high    | high   |
 | Worker.mechanical     | medium | medium  | high   |
-| Worker.implementation | high   | high    | max    |
-| Worker.integration    | high   | high    | max    |
+| Worker.implementation | high   | high    | high   |
+| Worker.integration    | high   | high    | high   |
 | Worker.operations     | medium | medium  | high   |
 | Worker.validation     | medium | high    | high   |
-| Worker.debugging      | high   | high    | max    |
-| Worker.visual         | high   | high    | max    |
+| Worker.debugging      | high   | high    | high   |
+| Worker.visual         | high   | high    | high   |
 | Reviewer.code         | high   | high    | high   |
-| Reviewer.artifact     | high   | high    | max    |
+| Reviewer.testing      | medium | high    | high   |
+| Reviewer.audit        | medium | high    | high   |
+| Reviewer.security     | high   | high    | high   |
+| Reviewer.artifact     | high   | high    | high   |
 | Reviewer.visual       | high   | high    | high   |
 
 All specialists use GPT-6 Luna. Profiles optimize whole-task successful completion
 per usage: tokens, agentic turns, latency, retries, and repair. More reasoning is
 not inherently better. Low is the cheapest practical configuration above Luna's
 useful agentic threshold. Default balances Sol medium orchestration with Luna
-medium/high execution. High reserves Luna max for difficult long-horizon work
-while Root remains Sol medium.
+medium/high execution. High uses Luna high across live routes while Root remains
+Sol medium.
 
-The Root/session route has no `xhigh` or `max` effort. All live skills and
+No live Root or specialist route uses `xhigh` or `max` effort. All live skills and
 generated Root, specialist, and Role.task instructions target GPT-6-family
 behavior. Temporary routing model IDs are an independent implementation
 setting and do not create a compatibility instruction layer. Historical route

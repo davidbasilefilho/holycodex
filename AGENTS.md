@@ -10,6 +10,10 @@ Read HOLYCODEX_BIBLE.md.
 - OXC owns formatting and linting. TypeScript owns strict typechecking.
 - Effect and Effect Schema define typed domain, external, CLI, Codex, and
   persisted boundaries; validate values at the receiving edge.
+- Use Effect for project-logic composition and error handling; do not add handwritten
+  Promise orchestration, try/catch, or manual boundary validation. Use Effect.Schema
+  for validation. Keep `Effect.runPromise` and third-party Promise APIs at integration
+  boundaries.
 - Keep dependencies on the existing package graph. Do not add Jest, Vitest,
   Zod, another package manager, bundler, or linter for overlapping capability.
 
@@ -18,6 +22,10 @@ Read HOLYCODEX_BIBLE.md.
 - Exposed, public, or exported API surface requires useful JSDoc. Inspect the
   existing enforcement first and extend only its gaps.
 - Skill descriptions use `situation -> what it does`, with the situation first.
+- Keep role guidance canonical and reusable: define task-specific instructions
+  first, then append shared role-family guidance once. When changing role
+  inventory, update and test routing, projections, install/reconcile/removal,
+  and documentation together.
 
 ## Repository authority
 
@@ -43,8 +51,16 @@ Read HOLYCODEX_BIBLE.md.
 - The repository checks are `bun test`, `bun run check`, and `bun run validate`.
 - Preserve package ownership and dependency direction.
 - Type-checking is done by `oxlint` and `oxlint-tsgolint` via lint and check package scripts. Do not use `tsc` for type checking.
-- Keep the lockfile deterministic. Normal semver dependencies follow the
-  current major compatibility line; zerover dependencies stay on their
-  current minor line. Exact pins require a concrete technical, security, or
-  reproducibility reason beside their source of truth. GitHub Action commit
-  SHAs remain content-addressed.
+- Keep the lockfile deterministic and dependencies at current latest stable
+  releases. Normal versioned dependencies use caret ranges anchored at the
+  latest appropriate release, including `^0.x.y` and `^0.0.x` where required
+  by package versioning. Exact pins or other ranges require a concrete
+  technical, security, or reproducibility reason beside their source of truth.
+  Keep `@openai/codex` as a development dependency on the `latest` dist-tag;
+  do not pin its resolved release. GitHub Action commit SHAs remain
+  content-addressed.
+- Installation/configuration changes must pass the isolated `CODEX_HOME`
+  installation test in `packages/cli/src/permission-installation.test.ts`.
+  That test must validate installed configuration, profiles, and route
+  registrations without creating Codex sessions or making model requests that
+  consume usage; config-only diagnostics are allowed.

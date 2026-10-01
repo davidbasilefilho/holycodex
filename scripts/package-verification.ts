@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-
 import {
   access,
   chmod,
@@ -17,7 +16,9 @@ import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "no
 import { pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 
-import * as Either from "effect/Either";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import { parseConfig } from "../packages/cli/src/installer.ts";
@@ -44,7 +45,6 @@ import {
   redactDiagnostics,
   runCommand,
   runChecked,
-  withTemporaryDirectory,
   writeJson,
 } from "./process.ts";
 import {
@@ -56,10 +56,8 @@ import {
   SourceShaSchema,
   type ReleaseChannel,
 } from "./release-version.ts";
-
 const workspaceRoot = resolve(import.meta.dirname, "..");
 const cliRoot = join(workspaceRoot, "packages/cli");
-
 function externalTemporaryRoot(): string {
   const configuredTemporaryRoot = resolve(tmpdir());
   const configuredTemporaryRelativePath = relative(workspaceRoot, configuredTemporaryRoot);
@@ -85,29 +83,28 @@ function externalTemporaryRoot(): string {
   );
   return temporaryRoot;
 }
-
 const ReleaseStampSchema = Schema.Struct({
-  schemaVersion: Schema.Literal("holycodex-release-v1"),
+  schemaVersion: Schema.Literals(["holycodex-release-v1"]),
   channel: ReleaseChannelSchema,
   sourceSha: SourceShaSchema,
 });
 const PublicManifestSchema = Schema.Struct({
-  name: Schema.Literal("holycodex"),
+  name: Schema.Literals(["holycodex"]),
   version: ReleaseVersionSchema,
-  bin: Schema.Record({ key: Schema.String, value: Schema.String }),
-  files: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
-  type: Schema.Literal("module"),
-  exports: Schema.Record({ key: Schema.String, value: Schema.String }),
-  dependencies: Schema.Record({ key: Schema.String, value: Schema.String }),
-  repository: Schema.Struct({ type: Schema.Literal("git"), url: Schema.String }),
-  publishConfig: Schema.Struct({ access: Schema.Literal("public") }),
+  bin: Schema.Record(Schema.String, Schema.String),
+  files: Schema.Array(Schema.String.check(Schema.isMinLength(1))),
+  type: Schema.Literals(["module"]),
+  exports: Schema.Record(Schema.String, Schema.String),
+  dependencies: Schema.Record(Schema.String, Schema.String),
+  repository: Schema.Struct({ type: Schema.Literals(["git"]), url: Schema.String }),
+  publishConfig: Schema.Struct({ access: Schema.Literals(["public"]) }),
   release: Schema.optional(ReleaseStampSchema),
 });
 const WorkspaceManifestSchema = Schema.Struct({
-  catalog: Schema.Record({ key: Schema.String, value: Schema.String }),
+  catalog: Schema.Record(Schema.String, Schema.String),
 });
 const InstalledPluginManifestSchema = Schema.Struct({
-  version: Schema.String.pipe(Schema.minLength(1)),
+  version: Schema.String.check(Schema.isMinLength(1)),
 });
 const EXPECTED_CODEX_PROVIDER_PLUGINS = [
   "build-web-apps@openai-curated",
@@ -130,7 +127,6 @@ const PREVIOUS_STABLE_CLI_SHA256 =
   "654152d5f955cbcb4d11878b37927ba2f32090bebd69675716d564bee9c728cd";
 const PREVIOUS_STABLE_AGENT_SHA256 =
   "8ccec61622ae854a4da3c66b3f3f0fe6b76283459f5a1d4714825571c944d09c";
-
 type CodexPluginListEntry = Readonly<{
   readonly pluginId: string;
   readonly installed: boolean;
@@ -140,14 +136,15 @@ type CodexPluginList = Readonly<{
   readonly installed: readonly CodexPluginListEntry[];
   readonly available: readonly CodexPluginListEntry[];
 }>;
-
 type PublicManifest = typeof PublicManifestSchema.Type;
 type InstalledCliModule = Readonly<{
   readonly runCli: (argv: readonly string[], context?: unknown) => Promise<unknown>;
   readonly upgradeHolyCodex: (
     options: unknown,
     environment: Readonly<Record<string, string | undefined>>,
-    request: { readonly dryRun?: boolean },
+    request: {
+      readonly dryRun?: boolean;
+    },
   ) => Promise<Record<string, unknown>>;
   readonly installRecordDigest: (value: Record<string, unknown>) => Promise<string>;
   readonly projectNativeAgents: (
@@ -160,7 +157,6 @@ type InstalledCliModule = Readonly<{
   ) => RootAgentProjection;
   readonly renderNativeAgent: (agent: NativeAgentProjection) => string;
 }>;
-
 type PreviousStableUpgradeOptions = Readonly<{
   readonly temporaryRoot: string;
   readonly currentCanonicalVersion: string;
@@ -172,11 +168,18 @@ type PreviousStableUpgradeOptions = Readonly<{
   readonly bunEnvironment: Readonly<Record<string, string | undefined>>;
   readonly commands: string[];
 }>;
-
 type InternalUpgradeOutcome =
-  | Readonly<{ ok: true; data: Record<string, unknown> }>
-  | Readonly<{ ok: false; error: Readonly<{ code: string; message: string }> }>;
-
+  | Readonly<{
+      ok: true;
+      data: Record<string, unknown>;
+    }>
+  | Readonly<{
+      ok: false;
+      error: Readonly<{
+        code: string;
+        message: string;
+      }>;
+    }>;
 function verifyPublishedRouting(installed: InstalledCliModule): void {
   let projectedRoutes = 0;
   assert(
@@ -189,6 +192,11 @@ function verifyPublishedRouting(installed: InstalledCliModule): void {
     "the packed profile catalog must preserve the canonical Root model and effort mapping",
   );
   for (const profile of PROFILE_CATALOG) {
+    assert(
+      String(profile.root.effort) !== "max" &&
+        profile.routes.every((route) => String(route.effort) !== "max"),
+      `the packed ${profile.name} live routes must not use max effort`,
+    );
     const roots = [
       installed.projectRootAgent(profile.name, "standard"),
       installed.projectRootAgent(profile.name, "fast"),
@@ -206,7 +214,6 @@ function verifyPublishedRouting(installed: InstalledCliModule): void {
         roots[2]?.serviceTier === "fast",
       `the packed ${profile.name} Root service-tier projection is invalid`,
     );
-
     const standard = installed.projectNativeAgents(profile.name, "standard");
     const fast = installed.projectNativeAgents(profile.name, "fast");
     const fastAll = installed.projectNativeAgents(profile.name, "fast-all");
@@ -216,7 +223,13 @@ function verifyPublishedRouting(installed: InstalledCliModule): void {
         fastAll.length === standard.length,
       `the packed ${profile.name} route projection is incomplete`,
     );
-
+    for (const name of ["Reviewer.audit", "Reviewer.testing", "Reviewer.security"] as const) {
+      const reviewer = standard.find((agent) => agent.name === name);
+      assert(
+        reviewer !== undefined && reviewer.permissions.sourceMutation,
+        `the packed ${profile.name} projection omitted writable ${name}`,
+      );
+    }
     for (const route of profile.routes) {
       const name = `${route.role}.${route.task}`;
       const standardAgent = standard.find((agent) => agent.name === name);
@@ -240,7 +253,6 @@ function verifyPublishedRouting(installed: InstalledCliModule): void {
           fastAllAgent.serviceTier === "fast",
         `the packed ${profile.name} route for ${name} changed service tier`,
       );
-
       for (const [agent, expectedTier] of [
         [standardAgent, "default"],
         [fastAllAgent, "fast"],
@@ -262,37 +274,46 @@ function verifyPublishedRouting(installed: InstalledCliModule): void {
     "the packed module did not verify all profile and specialist projections",
   );
 }
-
 /** Exercise the packed package's migration boundary without a public CLI command. */
-async function runInternalUpgrade(
+function runInternalUpgrade(
   entry: string,
   codexHome: string,
   environment: Readonly<Record<string, string | undefined>>,
   dryRun = false,
-): Promise<InternalUpgradeOutcome> {
-  const installed = (await import(pathToFileURL(entry).href)) as InstalledCliModule;
-  try {
-    return {
-      ok: true,
-      data: await installed.upgradeHolyCodex({ paths: { codexHome } }, environment, { dryRun }),
-    };
-  } catch (error: unknown) {
-    return {
-      ok: false,
-      error: {
-        code:
-          typeof error === "object" &&
-          error !== null &&
-          "code" in error &&
-          typeof error.code === "string"
-            ? error.code
-            : "internal_error",
-        message: error instanceof Error ? (error.stack ?? error.message) : String(error),
-      },
-    };
-  }
+): Effect.Effect<InternalUpgradeOutcome, unknown> {
+  return Effect.gen(function* () {
+    return yield* (() =>
+      Effect.gen(function* () {
+        const installed = (yield* Effect.tryPromise(
+          () => import(pathToFileURL(entry).href),
+        )) as InstalledCliModule;
+        return yield* Effect.tryPromise({
+          try: () => installed.upgradeHolyCodex({ paths: { codexHome } }, environment, { dryRun }),
+          catch: (error) => error,
+        });
+      }))().pipe(
+      Effect.match({
+        onFailure: (error): InternalUpgradeOutcome => ({
+          ok: false,
+          error: {
+            code:
+              typeof error === "object" &&
+              error !== null &&
+              "code" in error &&
+              typeof error.code === "string"
+                ? error.code
+                : "internal_error",
+            message:
+              error instanceof Error
+                ? `${error.stack ?? error.message}${error.cause instanceof Error ? `\nCaused by: ${error.cause.stack ?? error.cause.message}` : ""}`
+                : String(error),
+          },
+        }),
+        onSuccess: (data): InternalUpgradeOutcome => ({ ok: true, data }),
+      }),
+    );
+  });
 }
-
 /** Release metadata used when packing a channel-specific public package. */
 export interface PackageReleaseOptions {
   /** Version to embed in the packed package. */
@@ -302,7 +323,6 @@ export interface PackageReleaseOptions {
   /** Full source commit SHA recorded in package provenance. */
   readonly sourceSha: string;
 }
-
 /** Verified package tarball details produced by the release packer. */
 export interface PackageVerificationResult {
   /** Version read back from the packaged manifest. */
@@ -316,7 +336,6 @@ export interface PackageVerificationResult {
   /** Commands executed while building and verifying the package. */
   readonly commands: readonly string[];
 }
-
 /** Packed public package identity and the verified tarball's filesystem location. */
 export interface PackedPublicPackage {
   /** Canonical HolyCodex release version from the source manifest. */
@@ -334,753 +353,809 @@ export interface PackedPublicPackage {
   /** Archive entries accepted by the public package allowlist. */
   readonly entries: readonly string[];
 }
-
 /** Pack the public package into a verified tarball in a temporary directory. */
-export async function packPublicPackage(
+export function packPublicPackageEffect(
   temporaryRoot: string,
   options?: PackageReleaseOptions,
-): Promise<PackedPublicPackage> {
-  const manifest = await readPublicManifest();
-  const canonicalVersion = decode(
-    CanonicalVersionSchema,
-    manifest.version,
-    "the canonical package version",
-  );
-  const baseVersion = baseVersionFromRelease(canonicalVersion);
-  const version = options?.version ?? canonicalVersion;
-  const release = options === undefined ? undefined : createReleaseStamp(options);
-  if (options !== undefined && release !== undefined) {
-    assertReleaseVersion(canonicalVersion, release.channel, version);
-  }
-
-  await requireFile(join(cliRoot, "dist/index.js"), "the packed CLI entry point");
-  await requireFile(join(cliRoot, "dist/agent.js"), "the packed agent CLI entry point");
-  const buildEntries = await listSafeArtifactEntries(join(cliRoot, "dist"), "the build output");
-  assertBuildUploadEntries(buildEntries);
-  const packageRoot = join(temporaryRoot, "package");
-  await mkdir(packageRoot, { recursive: true });
-  await cp(join(cliRoot, "dist"), join(packageRoot, "dist"), {
-    recursive: true,
-    dereference: true,
+): Effect.Effect<PackedPublicPackage, unknown> {
+  return Effect.gen(function* () {
+    const manifest = yield* readPublicManifest();
+    const canonicalVersion = decode(
+      CanonicalVersionSchema,
+      manifest.version,
+      "the canonical package version",
+    );
+    const baseVersion = baseVersionFromRelease(canonicalVersion);
+    const version = options?.version ?? canonicalVersion;
+    const release = options === undefined ? undefined : createReleaseStamp(options);
+    if (options !== undefined && release !== undefined) {
+      assertReleaseVersion(canonicalVersion, release.channel, version);
+    }
+    yield* requireFile(join(cliRoot, "dist/index.js"), "the packed CLI entry point");
+    yield* requireFile(join(cliRoot, "dist/agent.js"), "the packed agent CLI entry point");
+    const buildEntries = yield* Effect.tryPromise(() =>
+      listSafeArtifactEntries(join(cliRoot, "dist"), "the build output"),
+    );
+    assertBuildUploadEntries(buildEntries);
+    const packageRoot = join(temporaryRoot, "package");
+    yield* Effect.tryPromise(() => mkdir(packageRoot, { recursive: true }));
+    yield* Effect.tryPromise(() =>
+      cp(join(cliRoot, "dist"), join(packageRoot, "dist"), {
+        recursive: true,
+        dereference: true,
+      }),
+    );
+    const readme = join(cliRoot, "README.md");
+    if (yield* exists(readme)) {
+      yield* Effect.tryPromise(() => cp(readme, join(packageRoot, "README.md")));
+    }
+    const stagedManifest = release === undefined ? manifest : { ...manifest, version, release };
+    yield* Effect.tryPromise(() => writeJson(join(packageRoot, "package.json"), stagedManifest));
+    const entries = yield* listPackageEntries(packageRoot);
+    assertPublicPackageEntries(entries);
+    assertAllowedEntries(entries, stagedManifest);
+    const tarball = `holycodex-${version}.tgz`;
+    yield* Effect.tryPromise(() =>
+      runChecked(["bun", "pm", "pack", "--destination", temporaryRoot, "--quiet"], {
+        cwd: packageRoot,
+        env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
+      }),
+    );
+    const tarballPath = join(temporaryRoot, tarball);
+    yield* requireFile(tarballPath, "the package tarball");
+    yield* Effect.tryPromise(() =>
+      assertSafeArtifactFile(tarballPath, tarball, "the package tarball"),
+    );
+    yield* assertPackedEntriesEffect(tarballPath, entries);
+    const tarballSha256 = yield* sha256FileEffect(tarballPath);
+    return {
+      canonicalVersion,
+      baseVersion,
+      packageVersion: version,
+      tarball,
+      tarballPath,
+      tarballSha256,
+      entries,
+    };
   });
-  const readme = join(cliRoot, "README.md");
-  if (await exists(readme)) {
-    await cp(readme, join(packageRoot, "README.md"));
-  }
-  const stagedManifest = release === undefined ? manifest : { ...manifest, version, release };
-  await writeJson(join(packageRoot, "package.json"), stagedManifest);
-  const entries = await listPackageEntries(packageRoot);
-  assertPublicPackageEntries(entries);
-  assertAllowedEntries(entries, stagedManifest);
-
-  const tarball = `holycodex-${version}.tgz`;
-  await runChecked(["bun", "pm", "pack", "--destination", temporaryRoot, "--quiet"], {
-    cwd: packageRoot,
-    env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
-  });
-  const tarballPath = join(temporaryRoot, tarball);
-  await requireFile(tarballPath, "the package tarball");
-  await assertSafeArtifactFile(tarballPath, tarball, "the package tarball");
-  await assertPackedEntries(tarballPath, entries);
-  const tarballSha256 = await sha256File(tarballPath);
-  return {
-    canonicalVersion,
-    baseVersion,
-    packageVersion: version,
-    tarball,
-    tarballPath,
-    tarballSha256,
-    entries,
-  };
 }
-
 /** Install and exercise a packed public package in an isolated environment. */
-export async function verifyPublicPackage(
+export function verifyPublicPackageEffect(
   packed: PackedPublicPackage,
   codexCliVersion?: string,
-): Promise<PackageVerificationResult> {
-  const resolvedCodexCliVersion = codexCliVersion ?? (await ensureCodexGenerated()).codexCliVersion;
-  assert(
-    /^codex-cli \d+\.\d+\.\d+$/u.test(resolvedCodexCliVersion),
-    "the generated Codex version authority is not a stable CLI version",
-  );
-  const version = packed.packageVersion;
-  const temporaryRoot = dirname(packed.tarballPath);
-  const installedRoot = join(temporaryRoot, "installed");
-  await mkdir(installedRoot, { recursive: true });
-  await writeJson(join(installedRoot, "package.json"), {
-    name: "holycodex-package-verification",
-    private: true,
-    type: "module",
-    dependencies: { holycodex: `file:${packed.tarballPath.replaceAll("\\", "/")}` },
-  });
-  const bunStateRoot = join(temporaryRoot, "bun-state");
-  const bunHomeRoot = join(bunStateRoot, "home");
-  const bunInstallRoot = join(bunHomeRoot, ".bun");
-  const bunGlobalDirectory = join(bunInstallRoot, "install/global");
-  const bunGlobalBinDirectory = join(bunInstallRoot, "bin");
-  const bunTempRoot = join(bunStateRoot, "tmp");
-  const bunEnvironment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
-    HOME: bunHomeRoot,
-    USERPROFILE: bunHomeRoot,
-    APPDATA: join(bunHomeRoot, "AppData/Roaming"),
-    LOCALAPPDATA: join(bunHomeRoot, "AppData/Local"),
-    BUN_INSTALL: bunInstallRoot,
-    BUN_INSTALL_GLOBAL_DIR: bunGlobalDirectory,
-    BUN_INSTALL_BIN: bunGlobalBinDirectory,
-    XDG_CONFIG_HOME: join(bunHomeRoot, "config"),
-    BUN_TMPDIR: bunTempRoot,
-    TEMP: bunTempRoot,
-    TMP: bunTempRoot,
-    TMPDIR: bunTempRoot,
-    npm_execpath: process.execPath,
-    npm_command: "exec",
-    npm_config_user_agent: `bun/${Bun.version}`,
-  });
-  await mkdir(bunHomeRoot, { recursive: true });
-  await mkdir(bunInstallRoot, { recursive: true });
-  await mkdir(bunGlobalDirectory, { recursive: true });
-  await mkdir(bunGlobalBinDirectory, { recursive: true });
-  await mkdir(bunTempRoot, { recursive: true });
-  await writeFile(
-    join(bunHomeRoot, ".bunfig.toml"),
-    `[install]\nglobalDir = ${JSON.stringify(bunGlobalDirectory.replaceAll("\\", "/"))}\nglobalBinDir = ${JSON.stringify(bunGlobalBinDirectory.replaceAll("\\", "/"))}\n`,
-    { encoding: "utf8" },
-  );
-  bunEnvironment["PATH"] = [bunGlobalBinDirectory, bunEnvironment["PATH"]]
-    .filter((value): value is string => value !== undefined && value.length > 0)
-    .join(delimiter);
-  const preexistingContext7 = await findCommandOnPath("ctx7", bunEnvironment["PATH"]).then(
-    () => true,
-    () => false,
-  );
-  const expectedContext7Ownership = preexistingContext7 ? "user" : "holycodex";
-  await runChecked(["bun", "install", "--no-save", "--ignore-scripts", "--no-progress"], {
-    cwd: installedRoot,
-    env: bunEnvironment,
-  });
-
-  const installedPackageRoot = join(installedRoot, "node_modules/holycodex");
-  const installedEntry = join(installedPackageRoot, "dist/index.js");
-  const installedAgentEntry = join(installedPackageRoot, "dist/agent.js");
-  await requireFile(installedEntry, "the installed package entry point");
-  await requireFile(installedAgentEntry, "the installed agent CLI entry point");
-  await requireFile(
-    join(installedPackageRoot, "dist/assets/plugin/plugin.json"),
-    "the installed plugin payload source",
-  );
-  for (const relativePath of [
-    "skills/visual-loop/SKILL.md",
-    "skills/dev-server/SKILL.md",
-    "skills/grill-me/SKILL.md",
-    "skills/writing-instructions/SKILL.md",
-    "skills/babysit-ci/SKILL.md",
-  ]) {
-    await requireFile(
-      join(installedPackageRoot, "dist/assets/plugin", relativePath),
-      `the installed plugin asset ${relativePath}`,
-    );
-  }
-  const installedManifest = await readInstalledManifest(join(installedPackageRoot, "package.json"));
-  assert(
-    Object.keys(installedManifest.dependencies).length > 0,
-    "the installed package must retain runtime dependencies",
-  );
-  assert(
-    Object.values(installedManifest.dependencies).every(
-      (dependency) => !dependency.startsWith("workspace:"),
-    ),
-    "the installed package must not retain workspace dependency ranges",
-  );
-  const codexHome = join(temporaryRoot, "codex-home");
-  const commands: string[] = [];
-  await runInstalledOpenTuiProbe(installedRoot, installedEntry, commands, bunEnvironment);
-  const stateRoot = join(codexHome, "holycodex");
-  await mkdir(codexHome, { recursive: true });
-  const unrelatedConfig =
-    '[features]\nunrelated = "keep"\n\n[features.context_management]\nexperimental_mode = true\n\napproval_policy = "on-request"\n';
-  await writeFile(join(codexHome, "config.toml"), unrelatedConfig, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  // Exercise Codex discovery, App Server bootstrap, and plugin readback with
-  // an isolated executable.  No local marketplace is pre-seeded and no
-  // network or user Codex state can affect this package proof.
-  const fixturePluginSource = join(codexHome, "fixture-plugin-source");
-  await cp(join(installedPackageRoot, "dist/assets/plugin"), fixturePluginSource, {
-    recursive: true,
-    dereference: true,
-  });
-  // The npm payload keeps the manifest at the asset root; Codex's native
-  // plugin manager reads the canonical .codex-plugin location.
-  await mkdir(join(fixturePluginSource, ".codex-plugin"), { recursive: true });
-  await cp(
-    join(fixturePluginSource, "plugin.json"),
-    join(fixturePluginSource, ".codex-plugin/plugin.json"),
-  );
-  const codexFixture = await createCodexFixture(codexHome, resolvedCodexCliVersion);
-
-  const codexEnvironment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
-    CODEX_HOME: codexHome,
-    HOME: bunEnvironment["HOME"],
-    USERPROFILE: bunEnvironment["USERPROFILE"],
-    APPDATA: bunEnvironment["APPDATA"],
-    LOCALAPPDATA: bunEnvironment["LOCALAPPDATA"],
-    XDG_CONFIG_HOME: bunEnvironment["XDG_CONFIG_HOME"],
-    PATH: [
-      codexFixture.binDirectory,
-      join(workspaceRoot, "node_modules/.bin"),
-      bunEnvironment["PATH"],
-    ]
-      .filter((value): value is string => value !== undefined && value.length > 0)
-      .join(delimiter),
-    BUN_INSTALL: bunInstallRoot,
-    BUN_INSTALL_GLOBAL_DIR: bunGlobalDirectory,
-    BUN_INSTALL_BIN: bunGlobalBinDirectory,
-    BUN_TMPDIR: bunTempRoot,
-    TEMP: bunTempRoot,
-    TMP: bunTempRoot,
-    TMPDIR: bunTempRoot,
-    npm_execpath: process.execPath,
-    npm_command: "exec",
-    npm_config_user_agent: `bun/${Bun.version}`,
-  });
-  const installedModule = (await import(pathToFileURL(installedEntry).href)) as InstalledCliModule;
-  verifyPublishedRouting(installedModule);
-  await verifyPreviousStableUpgrade({
-    temporaryRoot,
-    currentCanonicalVersion: packed.canonicalVersion,
-    currentVersion: packed.packageVersion,
-    currentInstalledRoot: installedRoot,
-    currentInstalledPackageRoot: installedPackageRoot,
-    currentEntry: installedEntry,
-    codexCliVersion: resolvedCodexCliVersion,
-    bunEnvironment,
-    commands,
-  });
-  const versionEnvelope = await runCli(
-    installedEntry,
-    ["version", "--json"],
-    installedRoot,
-    commands,
-  );
-  assert(versionEnvelope.ok, "installed package version command failed");
-  if (versionEnvelope.ok) {
-    const versionData = versionEnvelope.data;
-    assert(hasProperty(versionData, "version"), "installed package version data is invalid");
-    assert(versionData["version"] === version, "installed package version is not canonical");
-  }
-  const removedUpgrade = await runCliResult(
-    installedEntry,
-    ["upgrade", "--json"],
-    installedRoot,
-    commands,
-    codexEnvironment,
-  );
-  assert(
-    removedUpgrade.exitCode === 1 &&
-      !removedUpgrade.envelope.ok &&
-      removedUpgrade.envelope.error.code === "unknown_command",
-    "the packed public CLI must reject the removed upgrade command",
-  );
-
-  await runInstalledAgentHelp(installedAgentEntry, installedRoot, commands);
-
-  const executable = await findInstalledExecutable(installedRoot);
-  const executableEnvelope = await runInstalledExecutable(
-    executable,
-    installedRoot,
-    commands,
-    codexEnvironment,
-  );
-  assert(executableEnvelope.ok, "installed executable bin failed");
-  if (executableEnvelope.ok) {
-    const executableData = executableEnvelope.data;
-    assert(hasProperty(executableData, "version"), "installed executable data is invalid");
-    assert(executableData["version"] === version, "installed executable version is not canonical");
-  }
-
-  const installEnvelope = await runCli(
-    installedEntry,
-    [
-      "install",
-      "--yes",
-      "--json",
-      "--profile",
-      "high",
-      "--tier",
-      "fast-all",
-      "--add-plugin",
-      ADDITIONAL_FIXTURE_PLUGIN,
-      "--codex-home",
-      codexHome,
-    ],
-    installedRoot,
-    commands,
-    codexEnvironment,
-  );
-  assert(installEnvelope.ok, "packed package install failed");
-  const reinstallEnvelope = await runCli(
-    installedEntry,
-    [
-      "install",
-      "--yes",
-      "--json",
-      "--profile",
-      "high",
-      "--tier",
-      "fast-all",
-      "--add-plugin",
-      ADDITIONAL_FIXTURE_PLUGIN,
-      "--codex-home",
-      codexHome,
-    ],
-    installedRoot,
-    commands,
-    codexEnvironment,
-  );
-  assert(
-    reinstallEnvelope.ok,
-    "packed package reinstall failed to refresh and verify its existing marketplace",
-  );
-  const activeRecordPath = join(stateRoot, "active.toml");
-  const activeRecord = decode(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-    parseInstallRecord(await readFile(activeRecordPath, "utf8")),
-    "the active installation record",
-  );
-  assert(
-    activeRecord["profile"] === "high" &&
-      activeRecord["tier"] === "fast-all" &&
-      activeRecord["plan"] === undefined &&
-      arrayProperty(activeRecord, "official_plugins")?.includes(ADDITIONAL_FIXTURE_PLUGIN) === true,
-    "the active installation record must use the current profile field",
-  );
-  const selections = objectProperty(activeRecord, "optional_selections");
-  assert(
-    selections?.["sites"] === true &&
-      selections["browser_use"] === true &&
-      selections["computer_use"] === false &&
-      selections["coding"] === true &&
-      !Object.prototype.hasOwnProperty.call(selections, "work"),
-    "the packed install record must retain the current optional capability selections",
-  );
-  const capabilityState = objectProperty(activeRecord, "capability_state");
-  for (const [name, selected, status] of [
-    ["computer_use", false, "disabled"],
-    ["frontend", true, "healthy"],
-    ["security", true, "healthy"],
-  ] as const) {
-    const state = objectProperty(capabilityState, name);
+): Effect.Effect<PackageVerificationResult, unknown> {
+  return Effect.gen(function* () {
+    const resolvedCodexCliVersion =
+      codexCliVersion ?? (yield* ensureCodexGenerated()).codexCliVersion;
     assert(
-      state?.["selected"] === selected &&
-        state["status"] === status &&
-        Array.isArray(state["plugin_ids"]),
-      `the packed install record must include the ${name} capability state`,
+      /^codex-cli \d+\.\d+\.\d+$/u.test(resolvedCodexCliVersion),
+      "the generated Codex version authority is not a stable CLI version",
     );
-  }
-  await assertPersistedContext7(
-    activeRecord,
-    installedRoot,
-    bunEnvironment,
-    commands,
-    "packed install",
-    expectedContext7Ownership,
-  );
-  const managedConfigText = await readFile(join(codexHome, "config.toml"), "utf8");
-  const managedConfig = parseConfig(managedConfigText);
-  const managedRootInstructions = readTomlPath(managedConfig, "developer_instructions");
-  const normalizedRootInstructions =
-    typeof managedRootInstructions === "string" ? managedRootInstructions.toLowerCase() : "";
-  assert(
-    readTomlPath(managedConfig, "model") === "gpt-6.1-sol" &&
-      managedConfigText.includes("[features.context_management]") &&
-      managedConfigText.includes("experimental_mode = true") &&
-      !/\bTerra\b/u.test(managedConfigText),
-    "the managed Codex configuration must use GPT-6.1 Sol and experimental context management",
-  );
-  assert(
-    typeof managedRootInstructions === "string" &&
-      managedRootInstructions.includes(
-        "Dispatch each Assignment to its exact concrete registered Role.task agent_type",
-      ) &&
-      normalizedRootInstructions.includes("exact concrete registered role.task agent_type") &&
-      ["explorer", "librarian", "worker", "reviewer", "labels"].every((term) =>
-        normalizedRootInstructions.includes(term),
-      ) &&
-      normalizedRootInstructions.includes(
-        "generic built-in agent_type values worker, explorer, reviewer, librarian are forbidden",
-      ),
-    "the packed high-profile Root configuration must preserve exact specialist dispatch",
-  );
-  assert(
-    normalizedRootInstructions.includes("reviewer.code fixed point") &&
-      normalizedRootInstructions.includes("current relevant validation") &&
-      normalizedRootInstructions.includes("review and validation may overlap") &&
-      normalizedRootInstructions.includes("reuse worker proof"),
-    "the packed Root configuration must retain acceptance gates without redundant serial proof",
-  );
-  const pluginListEnvelope = parseCodexPluginList(
-    (
-      await runChecked([codexFixture.executable, "plugin", "list", "--json"], {
-        cwd: workspaceRoot,
-        env: codexEnvironment,
-      })
-    ).stdout,
-  );
-  for (const pluginId of EXPECTED_CODEX_PROVIDER_PLUGINS) {
-    assert(
-      pluginListEnvelope.installed.some((entry) => entry.pluginId === pluginId),
-      `Codex plugin list did not report selected provider ${pluginId}`,
+    const version = packed.packageVersion;
+    const temporaryRoot = dirname(packed.tarballPath);
+    const installedRoot = join(temporaryRoot, "installed");
+    yield* Effect.tryPromise(() => mkdir(installedRoot, { recursive: true }));
+    yield* Effect.tryPromise(() =>
+      writeJson(join(installedRoot, "package.json"), {
+        name: "holycodex-package-verification",
+        private: true,
+        type: "module",
+        dependencies: { holycodex: `file:${packed.tarballPath.replaceAll("\\", "/")}` },
+      }),
     );
-  }
-  assert(
-    pluginListEnvelope.installed.some((entry) => entry.pluginId === CODEX_HOLYCODEX_PLUGIN),
-    "Codex plugin list did not report HolyCodex",
-  );
-  assert(
-    pluginListEnvelope.installed.some((entry) => entry.pluginId === ADDITIONAL_FIXTURE_PLUGIN),
-    "Codex plugin list did not report the explicitly selected additional plugin",
-  );
-  const installedPluginRoot = join(codexHome, "plugins/holycodex");
-  for (const relativePath of [
-    ".codex-plugin/plugin.json",
-    "skills/visual-loop/SKILL.md",
-    "skills/grill-me/SKILL.md",
-    "skills/writing-instructions/SKILL.md",
-    "skills/babysit-ci/SKILL.md",
-  ]) {
-    await requireFile(
-      join(installedPluginRoot, relativePath),
-      `installed Codex plugin asset ${relativePath}`,
-    );
-  }
-  const installedPluginManifest = decode(
-    InstalledPluginManifestSchema,
-    JSON.parse(await readFile(join(installedPluginRoot, ".codex-plugin/plugin.json"), "utf8")),
-    "installed Codex plugin manifest",
-  );
-  assert(
-    installedPluginManifest.version === packed.canonicalVersion,
-    "installed Codex plugin manifest version is not canonical",
-  );
-  const writingInstructions = await readFile(
-    join(installedPluginRoot, "skills/writing-instructions/SKILL.md"),
-    "utf8",
-  );
-  assert(
-    !/GPT-5\.6|\b(?:Luna|Sol|Terra)\b|writing-for-agents|load before first dispatch|reload when lost|reuse while/iu.test(
-      writingInstructions,
-    ),
-    "writing-instructions must target GPT-6 without obsolete context-residency rituals",
-  );
-  assert(
-    !(await exists(join(installedPluginRoot, "skills/writing-for-agents"))),
-    "the retired instruction skill alias must not ship",
-  );
-  await assertCodexAppServerReadback(
-    codexFixture.executable,
-    codexEnvironment,
-    codexHome,
-    resolvedCodexCliVersion,
-  );
-
-  // The fixture intentionally has a closed command surface.  Prove an
-  // unexpected command is rejected without exposing process environment data.
-  const rejected = await runCommand([codexFixture.executable, "unexpected-command"], {
-    cwd: workspaceRoot,
-    env: codexEnvironment,
-  });
-  assert(rejected.exitCode !== 0, "the Codex fixture accepted an unexpected command");
-
-  const doctorEnvelope = await runCli(
-    installedEntry,
-    ["doctor", "--json", "--codex-home", codexHome],
-    installedRoot,
-    commands,
-    codexEnvironment,
-  );
-  assert(doctorEnvelope.ok, "packed package doctor command failed");
-  if (doctorEnvelope.ok) {
-    const doctorData = doctorEnvelope.data;
-    assert(hasProperty(doctorData, "healthy"), "packed package doctor data is invalid");
-    assert(doctorData["healthy"] === true, "packed package doctor did not report healthy");
-  }
-
-  const currentUpgrade = await runInternalUpgrade(installedEntry, codexHome, codexEnvironment);
-  assert(currentUpgrade.ok, "packed package current upgrade command failed");
-  if (currentUpgrade.ok) {
-    assert(
-      hasProperty(currentUpgrade.data, "status") && currentUpgrade.data["status"] === "current",
-      `already-current upgrade must report current (${JSON.stringify({
-        status: currentUpgrade.data["status"],
-        from_version: currentUpgrade.data["from_version"],
-        to_version: currentUpgrade.data["to_version"],
-        changes: currentUpgrade.data["changes"],
-      })})`,
-    );
-  }
-
-  const beforeCancellationConfig = await readFile(join(codexHome, "config.toml"), "utf8");
-  const beforeCancellationRecord = await readFile(activeRecordPath, "utf8");
-  const cancelled = (await installedModule.runCli(["remove", "--codex-home", codexHome], {
-    env: codexEnvironment,
-    io: {
-      stdoutIsTTY: true,
-      stderrIsTTY: true,
-      confirm: async () => "cancelled",
-    },
-  })) as { readonly envelope: typeof CliEnvelopeSchema.Type; readonly exitCode: number };
-  assert(
-    cancelled.exitCode === 1,
-    `interactive remove cancellation must return its documented nonzero status: ${JSON.stringify(cancelled.envelope)}`,
-  );
-  assert(cancelled.envelope.ok, "interactive remove cancellation must return success");
-  if (cancelled.envelope.ok) {
-    assert(
-      hasProperty(cancelled.envelope.data, "cancelled") &&
-        cancelled.envelope.data["cancelled"] === true,
-      "interactive remove cancellation must be explicit",
-    );
-  }
-  assert(
-    (await readFile(join(codexHome, "config.toml"), "utf8")) === beforeCancellationConfig &&
-      (await readFile(activeRecordPath, "utf8")) === beforeCancellationRecord,
-    "interactive remove cancellation must not mutate the installation",
-  );
-
-  await rewriteActiveRecord(activeRecordPath, installedModule, (record) => ({
-    ...record,
-    version: previousPatchVersion(version),
-  }));
-  const dryRunBeforeConfig = await readFile(join(codexHome, "config.toml"), "utf8");
-  const dryRunBeforeRecord = await readFile(activeRecordPath, "utf8");
-  const dryRun = await runInternalUpgrade(installedEntry, codexHome, codexEnvironment, true);
-  assert(dryRun.ok, "packed package upgrade dry-run failed");
-  if (dryRun.ok) {
-    assert(
-      hasProperty(dryRun.data, "status") && dryRun.data["status"] === "dry_run",
-      "upgrade dry-run must report dry_run",
-    );
-    assert(
-      hasProperty(dryRun.data, "changes") &&
-        arrayProperty(dryRun.data, "changes")?.includes(
-          "context-management configuration migration",
-        ) !== true,
-      "upgrade dry-run must preserve current experimental context-management configuration",
-    );
-  }
-  assert(
-    (await readFile(join(codexHome, "config.toml"), "utf8")) === dryRunBeforeConfig &&
-      (await readFile(activeRecordPath, "utf8")) === dryRunBeforeRecord,
-    "upgrade dry-run must not mutate state",
-  );
-  const upgraded = await runInternalUpgrade(installedEntry, codexHome, codexEnvironment);
-  assert(upgraded.ok, "packed package legacy upgrade failed");
-  if (upgraded.ok) {
-    assert(
-      hasProperty(upgraded.data, "status") && upgraded.data["status"] === "upgraded",
-      "legacy upgrade must report upgraded",
-    );
-    const upgradedRecord = objectProperty(upgraded.data, "record");
-    assert(
-      upgradedRecord?.["profile"] === "high" &&
-        upgradedRecord["tier"] === "fast-all" &&
-        arrayProperty(upgradedRecord, "official_plugins")?.includes(ADDITIONAL_FIXTURE_PLUGIN) ===
-          true,
-      "upgrade must preserve profile, tier, and additional plugin selection",
-    );
-  }
-  const migratedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
-  assert(
-    migratedConfig.includes("[features.context_management]") &&
-      migratedConfig.includes("experimental_mode = true") &&
-      migratedConfig.includes('unrelated = "keep"'),
-    "upgrade must preserve experimental context management and unrelated config",
-  );
-  await assertCodexAppServerReadback(
-    codexFixture.executable,
-    codexEnvironment,
-    codexHome,
-    resolvedCodexCliVersion,
-  );
-
-  await rewriteActiveRecord(activeRecordPath, installedModule, (record) => ({
-    ...record,
-    version: nextPatchVersion(version),
-  }));
-  const downgrade = await runInternalUpgrade(installedEntry, codexHome, codexEnvironment);
-  assert(!downgrade.ok, "downgrade upgrade must fail");
-  assert(
-    !downgrade.ok && downgrade.error.code === "upgrade_downgrade",
-    "downgrade upgrade must return a semantic refusal",
-  );
-  await rewriteActiveRecord(activeRecordPath, installedModule, (record) => ({
-    ...record,
-    version: packed.baseVersion,
-  }));
-
-  for (const [name, status] of [
-    ["preparing", "preparing"],
-    ["conflicted", "conflicted"],
-  ] as const) {
-    const current = parseInstallRecord(await readFile(activeRecordPath, "utf8")) as Record<
-      string,
-      unknown
-    >;
-    await writeJson(join(stateRoot, `${name}.json`), {
-      ...current,
-      status,
-      step: status === "preparing" ? "validated" : "conflicted",
+    const bunStateRoot = join(temporaryRoot, "bun-state");
+    const bunHomeRoot = join(bunStateRoot, "home");
+    const bunInstallRoot = join(bunHomeRoot, ".bun");
+    const bunGlobalDirectory = join(bunInstallRoot, "install/global");
+    const bunGlobalBinDirectory = join(bunInstallRoot, "bin");
+    const bunTempRoot = join(bunStateRoot, "tmp");
+    const bunEnvironment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
+      HOME: bunHomeRoot,
+      USERPROFILE: bunHomeRoot,
+      APPDATA: join(bunHomeRoot, "AppData/Roaming"),
+      LOCALAPPDATA: join(bunHomeRoot, "AppData/Local"),
+      BUN_INSTALL: bunInstallRoot,
+      BUN_INSTALL_GLOBAL_DIR: bunGlobalDirectory,
+      BUN_INSTALL_BIN: bunGlobalBinDirectory,
+      XDG_CONFIG_HOME: join(bunHomeRoot, "config"),
+      BUN_TMPDIR: bunTempRoot,
+      TEMP: bunTempRoot,
+      TMP: bunTempRoot,
+      TMPDIR: bunTempRoot,
+      npm_execpath: process.execPath,
+      npm_command: "exec",
+      npm_config_user_agent: `bun/${Bun.version}`,
     });
-    const recovered = await runInternalUpgrade(installedEntry, codexHome, codexEnvironment);
-    assert(recovered.ok, `${name} transaction recovery failed`);
-    assert(
-      !(await exists(join(stateRoot, `${name}.json`))),
-      `${name} transaction state must be cleared after recovery`,
+    yield* Effect.tryPromise(() => mkdir(bunHomeRoot, { recursive: true }));
+    yield* Effect.tryPromise(() => mkdir(bunInstallRoot, { recursive: true }));
+    yield* Effect.tryPromise(() => mkdir(bunGlobalDirectory, { recursive: true }));
+    yield* Effect.tryPromise(() => mkdir(bunGlobalBinDirectory, { recursive: true }));
+    yield* Effect.tryPromise(() => mkdir(bunTempRoot, { recursive: true }));
+    yield* Effect.tryPromise(() =>
+      writeFile(
+        join(bunHomeRoot, ".bunfig.toml"),
+        `[install]\nglobalDir = ${JSON.stringify(bunGlobalDirectory.replaceAll("\\", "/"))}\nglobalBinDir = ${JSON.stringify(bunGlobalBinDirectory.replaceAll("\\", "/"))}\n`,
+        { encoding: "utf8" },
+      ),
     );
-  }
-
-  const notInstalledHome = join(temporaryRoot, "not-installed-codex-home");
-  const notInstalled = await runInternalUpgrade(installedEntry, notInstalledHome, {
-    ...codexEnvironment,
-    CODEX_HOME: notInstalledHome,
-  });
-  assert(
-    !notInstalled.ok && notInstalled.error.code === "not_installed",
-    "upgrade without an installation must return not_installed",
-  );
-
-  const invalidConfigHome = join(temporaryRoot, "invalid-config-codex-home");
-  await mkdir(invalidConfigHome, { recursive: true });
-  await writeFile(
-    join(invalidConfigHome, "config.toml"),
-    "[features.context_management]\nexperimental_mode =\n",
-    { encoding: "utf8", mode: 0o600 },
-  );
-  const invalidConfigEvents: string[] = [];
-  const invalidConfigInstall = (await installedModule.runCli(
-    ["install", "--yes", "--codex-home", invalidConfigHome],
-    {
-      env: { ...codexEnvironment, CODEX_HOME: invalidConfigHome },
-      io: {
-        stdoutIsTTY: true,
-        stderrIsTTY: true,
-        writeStderr: (message: string) => invalidConfigEvents.push(message),
-      },
-    },
-  )) as { readonly envelope: typeof CliEnvelopeSchema.Type; readonly exitCode: number };
-  assert(invalidConfigInstall.exitCode !== 0, "invalid config install must fail");
-  assert(
-    !invalidConfigInstall.envelope.ok &&
-      invalidConfigInstall.envelope.error.code === "state_corrupt",
-    "invalid config install must return a semantic error",
-  );
-  assert(
-    invalidConfigEvents.some((message) => message.includes("Validating Codex target")) &&
-      !invalidConfigEvents.some((message) => message.includes("Installing subagent roles")),
-    "failed install progress must stop at the real validation boundary",
-  );
-
-  const removeEnvelope = await runCli(
-    installedEntry,
-    ["remove", "--yes", "--json", "--codex-home", codexHome],
-    installedRoot,
-    commands,
-    codexEnvironment,
-  );
-  assert(removeEnvelope.ok, "packed package remove command failed");
-  assert(!(await exists(join(stateRoot, "active.toml"))), "remove left the active install record");
-  assert(
-    !(await exists(join(stateRoot, "conflicted.toml"))),
-    "remove left the conflicted install record",
-  );
-  const removedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
-  assert(
-    removedConfig.includes("[features.context_management]") &&
-      removedConfig.includes("experimental_mode = true") &&
-      removedConfig.includes('unrelated = "keep"') &&
-      removedConfig.includes('approval_policy = "on-request"'),
-    "remove did not restore unrelated Codex configuration",
-  );
-  const afterRemove = parseCodexPluginList(
-    (
-      await runChecked([codexFixture.executable, "plugin", "list", "--json"], {
+    bunEnvironment["PATH"] = [bunGlobalBinDirectory, bunEnvironment["PATH"]]
+      .filter((value): value is string => value !== undefined && value.length > 0)
+      .join(delimiter);
+    const preexistingContext7 = yield* findCommandOnPath("ctx7", bunEnvironment["PATH"]).pipe(
+      Effect.match({ onFailure: () => false, onSuccess: () => true }),
+    );
+    const expectedContext7Ownership = preexistingContext7 ? "user" : "holycodex";
+    yield* Effect.tryPromise(() =>
+      runChecked(["bun", "install", "--no-save", "--ignore-scripts", "--no-progress"], {
+        cwd: installedRoot,
+        env: bunEnvironment,
+      }),
+    );
+    const installedPackageRoot = join(installedRoot, "node_modules/holycodex");
+    const installedEntry = join(installedPackageRoot, "dist/index.js");
+    const installedAgentEntry = join(installedPackageRoot, "dist/agent.js");
+    yield* requireFile(installedEntry, "the installed package entry point");
+    yield* requireFile(installedAgentEntry, "the installed agent CLI entry point");
+    yield* requireFile(
+      join(installedPackageRoot, "dist/assets/plugin/plugin.json"),
+      "the installed plugin payload source",
+    );
+    for (const relativePath of [
+      "skills/visual-loop/SKILL.md",
+      "skills/dev-server/SKILL.md",
+      "skills/grill-me/SKILL.md",
+      "skills/writing-instructions/SKILL.md",
+      "skills/babysit-ci/SKILL.md",
+    ]) {
+      yield* requireFile(
+        join(installedPackageRoot, "dist/assets/plugin", relativePath),
+        `the installed plugin asset ${relativePath}`,
+      );
+    }
+    const installedManifest = yield* readInstalledManifest(
+      join(installedPackageRoot, "package.json"),
+    );
+    assert(
+      Object.keys(installedManifest.dependencies).length > 0,
+      "the installed package must retain runtime dependencies",
+    );
+    assert(
+      Object.values(installedManifest.dependencies).every(
+        (dependency) => !dependency.startsWith("workspace:"),
+      ),
+      "the installed package must not retain workspace dependency ranges",
+    );
+    const codexHome = join(temporaryRoot, "codex-home");
+    const commands: string[] = [];
+    yield* runInstalledOpenTuiProbe(installedRoot, installedEntry, commands, bunEnvironment);
+    const stateRoot = join(codexHome, "holycodex");
+    yield* Effect.tryPromise(() => mkdir(codexHome, { recursive: true }));
+    const unrelatedConfig =
+      '[features]\nunrelated = "keep"\n\n[features.context_management]\nexperimental_mode = true\n\napproval_policy = "on-request"\n';
+    yield* Effect.tryPromise(() =>
+      writeFile(join(codexHome, "config.toml"), unrelatedConfig, {
+        encoding: "utf8",
+        mode: 0o600,
+      }),
+    );
+    // Exercise Codex discovery, App Server bootstrap, and plugin readback with
+    // an isolated executable.  No local marketplace is pre-seeded and no
+    // network or user Codex state can affect this package proof.
+    const fixturePluginSource = join(codexHome, "fixture-plugin-source");
+    yield* Effect.tryPromise(() =>
+      cp(join(installedPackageRoot, "dist/assets/plugin"), fixturePluginSource, {
+        recursive: true,
+        dereference: true,
+      }),
+    );
+    // The npm payload keeps the manifest at the asset root; Codex's native
+    // plugin manager reads the canonical .codex-plugin location.
+    yield* Effect.tryPromise(() =>
+      mkdir(join(fixturePluginSource, ".codex-plugin"), { recursive: true }),
+    );
+    yield* Effect.tryPromise(() =>
+      cp(
+        join(fixturePluginSource, "plugin.json"),
+        join(fixturePluginSource, ".codex-plugin/plugin.json"),
+      ),
+    );
+    const codexFixture = yield* createCodexFixture(codexHome, resolvedCodexCliVersion);
+    const codexEnvironment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
+      CODEX_HOME: codexHome,
+      HOME: bunEnvironment["HOME"],
+      USERPROFILE: bunEnvironment["USERPROFILE"],
+      APPDATA: bunEnvironment["APPDATA"],
+      LOCALAPPDATA: bunEnvironment["LOCALAPPDATA"],
+      XDG_CONFIG_HOME: bunEnvironment["XDG_CONFIG_HOME"],
+      PATH: [
+        codexFixture.binDirectory,
+        join(workspaceRoot, "node_modules/.bin"),
+        bunEnvironment["PATH"],
+      ]
+        .filter((value): value is string => value !== undefined && value.length > 0)
+        .join(delimiter),
+      BUN_INSTALL: bunInstallRoot,
+      BUN_INSTALL_GLOBAL_DIR: bunGlobalDirectory,
+      BUN_INSTALL_BIN: bunGlobalBinDirectory,
+      BUN_TMPDIR: bunTempRoot,
+      TEMP: bunTempRoot,
+      TMP: bunTempRoot,
+      TMPDIR: bunTempRoot,
+      npm_execpath: process.execPath,
+      npm_command: "exec",
+      npm_config_user_agent: `bun/${Bun.version}`,
+    });
+    const installedModule = (yield* Effect.tryPromise(
+      () => import(pathToFileURL(installedEntry).href),
+    )) as InstalledCliModule;
+    verifyPublishedRouting(installedModule);
+    yield* verifyPreviousStableUpgrade({
+      temporaryRoot,
+      currentCanonicalVersion: packed.canonicalVersion,
+      currentVersion: packed.packageVersion,
+      currentInstalledRoot: installedRoot,
+      currentInstalledPackageRoot: installedPackageRoot,
+      currentEntry: installedEntry,
+      codexCliVersion: resolvedCodexCliVersion,
+      bunEnvironment,
+      commands,
+    });
+    const versionEnvelope = yield* runCli(
+      installedEntry,
+      ["version", "--json"],
+      installedRoot,
+      commands,
+    );
+    assert(versionEnvelope.ok, "installed package version command failed");
+    if (versionEnvelope.ok) {
+      const versionData = versionEnvelope.data;
+      assert(hasProperty(versionData, "version"), "installed package version data is invalid");
+      assert(versionData["version"] === version, "installed package version is not canonical");
+    }
+    const removedUpgrade = yield* runCliResult(
+      installedEntry,
+      ["upgrade", "--json"],
+      installedRoot,
+      commands,
+      codexEnvironment,
+    );
+    assert(
+      removedUpgrade.exitCode === 1 &&
+        !removedUpgrade.envelope.ok &&
+        removedUpgrade.envelope.error.code === "unknown_command",
+      "the packed public CLI must reject the removed upgrade command",
+    );
+    yield* runInstalledAgentHelp(installedAgentEntry, installedRoot, commands);
+    const executable = yield* findInstalledExecutable(installedRoot);
+    const executableEnvelope = yield* runInstalledExecutable(
+      executable,
+      installedRoot,
+      commands,
+      codexEnvironment,
+    );
+    assert(executableEnvelope.ok, "installed executable bin failed");
+    if (executableEnvelope.ok) {
+      const executableData = executableEnvelope.data;
+      assert(hasProperty(executableData, "version"), "installed executable data is invalid");
+      assert(
+        executableData["version"] === version,
+        "installed executable version is not canonical",
+      );
+    }
+    const installEnvelope = yield* runCli(
+      installedEntry,
+      [
+        "install",
+        "--yes",
+        "--json",
+        "--profile",
+        "high",
+        "--tier",
+        "fast-all",
+        "--add-plugin",
+        ADDITIONAL_FIXTURE_PLUGIN,
+        "--codex-home",
+        codexHome,
+      ],
+      installedRoot,
+      commands,
+      codexEnvironment,
+    );
+    assert(installEnvelope.ok, "packed package install failed");
+    const reinstallEnvelope = yield* runCli(
+      installedEntry,
+      [
+        "install",
+        "--yes",
+        "--json",
+        "--profile",
+        "high",
+        "--tier",
+        "fast-all",
+        "--add-plugin",
+        ADDITIONAL_FIXTURE_PLUGIN,
+        "--codex-home",
+        codexHome,
+      ],
+      installedRoot,
+      commands,
+      codexEnvironment,
+    );
+    assert(
+      reinstallEnvelope.ok,
+      "packed package reinstall failed to refresh and verify its existing marketplace",
+    );
+    const activeRecordPath = join(stateRoot, "active.toml");
+    const activeRecord = decode(
+      Schema.Record(Schema.String, Schema.Unknown),
+      parseInstallRecord(yield* Effect.tryPromise(() => readFile(activeRecordPath, "utf8"))),
+      "the active installation record",
+    );
+    assert(
+      activeRecord["profile"] === "high" &&
+        activeRecord["tier"] === "fast-all" &&
+        activeRecord["plan"] === undefined &&
+        arrayProperty(activeRecord, "official_plugins")?.includes(ADDITIONAL_FIXTURE_PLUGIN) ===
+          true,
+      "the active installation record must use the current profile field",
+    );
+    const selections = objectProperty(activeRecord, "optional_selections");
+    assert(
+      selections?.["sites"] === true &&
+        selections["browser_use"] === true &&
+        selections["computer_use"] === false &&
+        selections["coding"] === true &&
+        !Object.prototype.hasOwnProperty.call(selections, "work"),
+      "the packed install record must retain the current optional capability selections",
+    );
+    const capabilityState = objectProperty(activeRecord, "capability_state");
+    for (const [name, selected, status] of [
+      ["computer_use", false, "disabled"],
+      ["frontend", true, "healthy"],
+      ["security", true, "healthy"],
+    ] as const) {
+      const state = objectProperty(capabilityState, name);
+      assert(
+        state?.["selected"] === selected &&
+          state["status"] === status &&
+          Array.isArray(state["plugin_ids"]),
+        `the packed install record must include the ${name} capability state`,
+      );
+    }
+    yield* assertPersistedContext7(
+      activeRecord,
+      installedRoot,
+      bunEnvironment,
+      commands,
+      "packed install",
+      expectedContext7Ownership,
+    );
+    const managedConfigText = yield* Effect.tryPromise(() =>
+      readFile(join(codexHome, "config.toml"), "utf8"),
+    );
+    const managedConfig = parseConfig(managedConfigText);
+    const managedRootInstructions = readTomlPath(managedConfig, "developer_instructions");
+    const normalizedRootInstructions =
+      typeof managedRootInstructions === "string" ? managedRootInstructions.toLowerCase() : "";
+    assert(
+      readTomlPath(managedConfig, "model") === "gpt-6.1-sol" &&
+        managedConfigText.includes("[features.context_management]") &&
+        managedConfigText.includes("experimental_mode = true") &&
+        !/\bTerra\b/u.test(managedConfigText),
+      "the managed Codex configuration must use GPT-6.1 Sol and experimental context management",
+    );
+    assert(
+      typeof managedRootInstructions === "string" &&
+        managedRootInstructions.includes(
+          "Dispatch each Assignment to its exact concrete registered Role.task agent_type",
+        ) &&
+        normalizedRootInstructions.includes("exact concrete registered role.task agent_type") &&
+        ["explorer", "librarian", "worker", "reviewer", "labels"].every((term) =>
+          normalizedRootInstructions.includes(term),
+        ) &&
+        normalizedRootInstructions.includes(
+          "generic built-in agent_type values worker, explorer, reviewer, librarian are forbidden",
+        ),
+      "the packed high-profile Root configuration must preserve exact specialist dispatch",
+    );
+    assert(
+      normalizedRootInstructions.includes("reviewer.code fixed point") &&
+        normalizedRootInstructions.includes("current relevant validation") &&
+        normalizedRootInstructions.includes("review and validation may overlap") &&
+        normalizedRootInstructions.includes("reuse worker proof"),
+      "the packed Root configuration must retain acceptance gates without redundant serial proof",
+    );
+    const pluginListEnvelope = parseCodexPluginList(
+      (yield* Effect.tryPromise(() =>
+        runChecked([codexFixture.executable, "plugin", "list", "--json"], {
+          cwd: workspaceRoot,
+          env: codexEnvironment,
+        }),
+      )).stdout,
+    );
+    for (const pluginId of EXPECTED_CODEX_PROVIDER_PLUGINS) {
+      assert(
+        pluginListEnvelope.installed.some((entry) => entry.pluginId === pluginId),
+        `Codex plugin list did not report selected provider ${pluginId}`,
+      );
+    }
+    assert(
+      pluginListEnvelope.installed.some((entry) => entry.pluginId === CODEX_HOLYCODEX_PLUGIN),
+      "Codex plugin list did not report HolyCodex",
+    );
+    assert(
+      pluginListEnvelope.installed.some((entry) => entry.pluginId === ADDITIONAL_FIXTURE_PLUGIN),
+      "Codex plugin list did not report the explicitly selected additional plugin",
+    );
+    const installedPluginRoot = join(codexHome, "plugins/holycodex");
+    for (const relativePath of [
+      ".codex-plugin/plugin.json",
+      "skills/visual-loop/SKILL.md",
+      "skills/grill-me/SKILL.md",
+      "skills/writing-instructions/SKILL.md",
+      "skills/babysit-ci/SKILL.md",
+    ]) {
+      yield* requireFile(
+        join(installedPluginRoot, relativePath),
+        `installed Codex plugin asset ${relativePath}`,
+      );
+    }
+    const installedPluginManifest = decode(
+      InstalledPluginManifestSchema,
+      JSON.parse(
+        yield* Effect.tryPromise(() =>
+          readFile(join(installedPluginRoot, ".codex-plugin/plugin.json"), "utf8"),
+        ),
+      ),
+      "installed Codex plugin manifest",
+    );
+    assert(
+      installedPluginManifest.version === packed.canonicalVersion,
+      "installed Codex plugin manifest version is not canonical",
+    );
+    const writingInstructions = yield* Effect.tryPromise(() =>
+      readFile(join(installedPluginRoot, "skills/writing-instructions/SKILL.md"), "utf8"),
+    );
+    assert(
+      !/GPT-5\.6|\b(?:Luna|Sol|Terra)\b|writing-for-agents|load before first dispatch|reload when lost|reuse while/iu.test(
+        writingInstructions,
+      ),
+      "writing-instructions must target GPT-6 without obsolete context-residency rituals",
+    );
+    assert(
+      !(yield* exists(join(installedPluginRoot, "skills/writing-for-agents"))),
+      "the retired instruction skill alias must not ship",
+    );
+    yield* assertCodexAppServerReadback(
+      codexFixture.executable,
+      codexEnvironment,
+      codexHome,
+      resolvedCodexCliVersion,
+    );
+    // The fixture intentionally has a closed command surface.  Prove an
+    // unexpected command is rejected without exposing process environment data.
+    const rejected = yield* Effect.tryPromise(() =>
+      runCommand([codexFixture.executable, "unexpected-command"], {
         cwd: workspaceRoot,
         env: codexEnvironment,
-      })
-    ).stdout,
-  );
-  assert(
-    !afterRemove.installed.some((entry) => entry.pluginId === CODEX_HOLYCODEX_PLUGIN),
-    "Codex plugin list retained HolyCodex after removal",
-  );
-  assert(
-    !afterRemove.installed.some((entry) => entry.pluginId === ADDITIONAL_FIXTURE_PLUGIN),
-    "remove retained the explicitly selected additional plugin",
-  );
-  const repeatedRemove = await runCli(
-    installedEntry,
-    ["remove", "--yes", "--json", "--codex-home", codexHome],
-    installedRoot,
-    commands,
-    codexEnvironment,
-  );
-  assert(repeatedRemove.ok, "repeated remove command failed");
-  if (repeatedRemove.ok) {
-    assert(
-      hasProperty(repeatedRemove.data, "removed") &&
-        Array.isArray(repeatedRemove.data["removed"]) &&
-        repeatedRemove.data["removed"].length === 0,
-      "repeated remove must report zero removed items",
+      }),
     );
-  }
-  const repeatedRemovedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
-  assert(
-    repeatedRemovedConfig.includes("[features.context_management]") &&
-      repeatedRemovedConfig.includes("experimental_mode = true") &&
-      repeatedRemovedConfig.includes('unrelated = "keep"') &&
-      repeatedRemovedConfig.includes('approval_policy = "on-request"'),
-    "repeated remove must preserve unrelated Codex configuration",
-  );
-  const nonTtyRemove = await runCliResult(
-    installedEntry,
-    ["remove", "--json", "--codex-home", codexHome],
-    installedRoot,
-    commands,
-    codexEnvironment,
-  );
-  assert(
-    !nonTtyRemove.envelope.ok &&
-      nonTtyRemove.envelope.error.code === "non_tty_confirmation_required",
-    "non-TTY remove without --yes must return the confirmation error",
-  );
-  return {
-    packageVersion: version,
-    tarball: packed.tarball,
-    tarballSha256: packed.tarballSha256,
-    entries: packed.entries,
-    commands,
-  };
+    assert(rejected.exitCode !== 0, "the Codex fixture accepted an unexpected command");
+    const doctorEnvelope = yield* runCli(
+      installedEntry,
+      ["doctor", "--json", "--codex-home", codexHome],
+      installedRoot,
+      commands,
+      codexEnvironment,
+    );
+    assert(doctorEnvelope.ok, "packed package doctor command failed");
+    if (doctorEnvelope.ok) {
+      const doctorData = doctorEnvelope.data;
+      assert(hasProperty(doctorData, "healthy"), "packed package doctor data is invalid");
+      assert(doctorData["healthy"] === true, "packed package doctor did not report healthy");
+    }
+    const currentUpgrade = yield* runInternalUpgrade(installedEntry, codexHome, codexEnvironment);
+    assert(currentUpgrade.ok, "packed package current upgrade command failed");
+    if (currentUpgrade.ok) {
+      assert(
+        hasProperty(currentUpgrade.data, "status") && currentUpgrade.data["status"] === "current",
+        `already-current upgrade must report current (${JSON.stringify({
+          status: currentUpgrade.data["status"],
+          from_version: currentUpgrade.data["from_version"],
+          to_version: currentUpgrade.data["to_version"],
+          changes: currentUpgrade.data["changes"],
+        })})`,
+      );
+    }
+    const beforeCancellationConfig = yield* Effect.tryPromise(() =>
+      readFile(join(codexHome, "config.toml"), "utf8"),
+    );
+    const beforeCancellationRecord = yield* Effect.tryPromise(() =>
+      readFile(activeRecordPath, "utf8"),
+    );
+    const cancelled = (yield* Effect.tryPromise(() =>
+      installedModule.runCli(["remove", "--codex-home", codexHome], {
+        env: codexEnvironment,
+        io: {
+          stdoutIsTTY: true,
+          stderrIsTTY: true,
+          // The packed CLI IO interface is a third-party Promise callback boundary.
+          confirm: () => Effect.runPromise(Effect.succeed("cancelled")),
+        },
+      }),
+    )) as {
+      readonly envelope: typeof CliEnvelopeSchema.Type;
+      readonly exitCode: number;
+    };
+    assert(
+      cancelled.exitCode === 1,
+      `interactive remove cancellation must return its documented nonzero status: ${JSON.stringify(cancelled.envelope)}`,
+    );
+    assert(cancelled.envelope.ok, "interactive remove cancellation must return success");
+    if (cancelled.envelope.ok) {
+      assert(
+        hasProperty(cancelled.envelope.data, "cancelled") &&
+          cancelled.envelope.data["cancelled"] === true,
+        "interactive remove cancellation must be explicit",
+      );
+    }
+    assert(
+      (yield* Effect.tryPromise(() => readFile(join(codexHome, "config.toml"), "utf8"))) ===
+        beforeCancellationConfig &&
+        (yield* Effect.tryPromise(() => readFile(activeRecordPath, "utf8"))) ===
+          beforeCancellationRecord,
+      "interactive remove cancellation must not mutate the installation",
+    );
+    yield* rewriteActiveRecord(activeRecordPath, installedModule, (record) => ({
+      ...record,
+      version: previousPatchVersion(version),
+    }));
+    const dryRunBeforeConfig = yield* Effect.tryPromise(() =>
+      readFile(join(codexHome, "config.toml"), "utf8"),
+    );
+    const dryRunBeforeRecord = yield* Effect.tryPromise(() => readFile(activeRecordPath, "utf8"));
+    const dryRun = yield* runInternalUpgrade(installedEntry, codexHome, codexEnvironment, true);
+    assert(dryRun.ok, "packed package upgrade dry-run failed");
+    if (dryRun.ok) {
+      assert(
+        hasProperty(dryRun.data, "status") && dryRun.data["status"] === "dry_run",
+        "upgrade dry-run must report dry_run",
+      );
+      assert(
+        hasProperty(dryRun.data, "changes") &&
+          arrayProperty(dryRun.data, "changes")?.includes(
+            "context-management configuration migration",
+          ) !== true,
+        "upgrade dry-run must preserve current experimental context-management configuration",
+      );
+    }
+    assert(
+      (yield* Effect.tryPromise(() => readFile(join(codexHome, "config.toml"), "utf8"))) ===
+        dryRunBeforeConfig &&
+        (yield* Effect.tryPromise(() => readFile(activeRecordPath, "utf8"))) === dryRunBeforeRecord,
+      "upgrade dry-run must not mutate state",
+    );
+    const upgraded = yield* runInternalUpgrade(installedEntry, codexHome, codexEnvironment);
+    assert(upgraded.ok, "packed package legacy upgrade failed");
+    if (upgraded.ok) {
+      assert(
+        hasProperty(upgraded.data, "status") && upgraded.data["status"] === "upgraded",
+        "legacy upgrade must report upgraded",
+      );
+      const upgradedRecord = objectProperty(upgraded.data, "record");
+      assert(
+        upgradedRecord?.["profile"] === "high" &&
+          upgradedRecord["tier"] === "fast-all" &&
+          arrayProperty(upgradedRecord, "official_plugins")?.includes(ADDITIONAL_FIXTURE_PLUGIN) ===
+            true,
+        "upgrade must preserve profile, tier, and additional plugin selection",
+      );
+    }
+    const migratedConfig = yield* Effect.tryPromise(() =>
+      readFile(join(codexHome, "config.toml"), "utf8"),
+    );
+    assert(
+      migratedConfig.includes("[features.context_management]") &&
+        migratedConfig.includes("experimental_mode = true") &&
+        migratedConfig.includes('unrelated = "keep"'),
+      "upgrade must preserve experimental context management and unrelated config",
+    );
+    yield* assertCodexAppServerReadback(
+      codexFixture.executable,
+      codexEnvironment,
+      codexHome,
+      resolvedCodexCliVersion,
+    );
+    yield* rewriteActiveRecord(activeRecordPath, installedModule, (record) => ({
+      ...record,
+      version: nextPatchVersion(version),
+    }));
+    const downgrade = yield* runInternalUpgrade(installedEntry, codexHome, codexEnvironment);
+    assert(!downgrade.ok, "downgrade upgrade must fail");
+    assert(
+      !downgrade.ok && downgrade.error.code === "upgrade_downgrade",
+      "downgrade upgrade must return a semantic refusal",
+    );
+    yield* rewriteActiveRecord(activeRecordPath, installedModule, (record) => ({
+      ...record,
+      version: packed.baseVersion,
+    }));
+    for (const [name, status] of [
+      ["preparing", "preparing"],
+      ["conflicted", "conflicted"],
+    ] as const) {
+      const current = parseInstallRecord(
+        yield* Effect.tryPromise(() => readFile(activeRecordPath, "utf8")),
+      ) as Record<string, unknown>;
+      yield* Effect.tryPromise(() =>
+        writeJson(join(stateRoot, `${name}.json`), {
+          ...current,
+          status,
+          step: status === "preparing" ? "validated" : "conflicted",
+        }),
+      );
+      const recovered = yield* runInternalUpgrade(installedEntry, codexHome, codexEnvironment);
+      assert(
+        recovered.ok,
+        `${name} transaction recovery failed${recovered.ok ? "" : ` (${recovered.error.code}: ${recovered.error.message})`}`,
+      );
+      assert(
+        !(yield* exists(join(stateRoot, `${name}.json`))),
+        `${name} transaction state must be cleared after recovery`,
+      );
+    }
+    const notInstalledHome = join(temporaryRoot, "not-installed-codex-home");
+    const notInstalled = yield* runInternalUpgrade(installedEntry, notInstalledHome, {
+      ...codexEnvironment,
+      CODEX_HOME: notInstalledHome,
+    });
+    assert(
+      !notInstalled.ok && notInstalled.error.code === "not_installed",
+      "upgrade without an installation must return not_installed",
+    );
+    const invalidConfigHome = join(temporaryRoot, "invalid-config-codex-home");
+    yield* Effect.tryPromise(() => mkdir(invalidConfigHome, { recursive: true }));
+    yield* Effect.tryPromise(() =>
+      writeFile(
+        join(invalidConfigHome, "config.toml"),
+        "[features.context_management]\nexperimental_mode =\n",
+        { encoding: "utf8", mode: 0o600 },
+      ),
+    );
+    const invalidConfigEvents: string[] = [];
+    const invalidConfigInstall = (yield* Effect.tryPromise(() =>
+      installedModule.runCli(["install", "--yes", "--codex-home", invalidConfigHome], {
+        env: { ...codexEnvironment, CODEX_HOME: invalidConfigHome },
+        io: {
+          stdoutIsTTY: true,
+          stderrIsTTY: true,
+          writeStderr: (message: string) => invalidConfigEvents.push(message),
+        },
+      }),
+    )) as {
+      readonly envelope: typeof CliEnvelopeSchema.Type;
+      readonly exitCode: number;
+    };
+    assert(invalidConfigInstall.exitCode !== 0, "invalid config install must fail");
+    assert(
+      !invalidConfigInstall.envelope.ok &&
+        invalidConfigInstall.envelope.error.code === "state_corrupt",
+      "invalid config install must return a semantic error",
+    );
+    assert(
+      invalidConfigEvents.some((message) => message.includes("Validating Codex target")) &&
+        !invalidConfigEvents.some((message) => message.includes("Installing subagent roles")),
+      "failed install progress must stop at the real validation boundary",
+    );
+    const removeEnvelope = yield* runCli(
+      installedEntry,
+      ["remove", "--yes", "--json", "--codex-home", codexHome],
+      installedRoot,
+      commands,
+      codexEnvironment,
+    );
+    assert(removeEnvelope.ok, "packed package remove command failed");
+    assert(
+      !(yield* exists(join(stateRoot, "active.toml"))),
+      "remove left the active install record",
+    );
+    assert(
+      !(yield* exists(join(stateRoot, "conflicted.toml"))),
+      "remove left the conflicted install record",
+    );
+    const removedConfig = yield* Effect.tryPromise(() =>
+      readFile(join(codexHome, "config.toml"), "utf8"),
+    );
+    assert(
+      removedConfig.includes("[features.context_management]") &&
+        removedConfig.includes("experimental_mode = true") &&
+        removedConfig.includes('unrelated = "keep"') &&
+        removedConfig.includes('approval_policy = "on-request"'),
+      "remove did not restore unrelated Codex configuration",
+    );
+    const afterRemove = parseCodexPluginList(
+      (yield* Effect.tryPromise(() =>
+        runChecked([codexFixture.executable, "plugin", "list", "--json"], {
+          cwd: workspaceRoot,
+          env: codexEnvironment,
+        }),
+      )).stdout,
+    );
+    assert(
+      !afterRemove.installed.some((entry) => entry.pluginId === CODEX_HOLYCODEX_PLUGIN),
+      "Codex plugin list retained HolyCodex after removal",
+    );
+    assert(
+      !afterRemove.installed.some((entry) => entry.pluginId === ADDITIONAL_FIXTURE_PLUGIN),
+      "remove retained the explicitly selected additional plugin",
+    );
+    const repeatedRemove = yield* runCli(
+      installedEntry,
+      ["remove", "--yes", "--json", "--codex-home", codexHome],
+      installedRoot,
+      commands,
+      codexEnvironment,
+    );
+    assert(repeatedRemove.ok, "repeated remove command failed");
+    if (repeatedRemove.ok) {
+      assert(
+        hasProperty(repeatedRemove.data, "removed") &&
+          Array.isArray(repeatedRemove.data["removed"]) &&
+          repeatedRemove.data["removed"].length === 0,
+        "repeated remove must report zero removed items",
+      );
+    }
+    const repeatedRemovedConfig = yield* Effect.tryPromise(() =>
+      readFile(join(codexHome, "config.toml"), "utf8"),
+    );
+    assert(
+      repeatedRemovedConfig.includes("[features.context_management]") &&
+        repeatedRemovedConfig.includes("experimental_mode = true") &&
+        repeatedRemovedConfig.includes('unrelated = "keep"') &&
+        repeatedRemovedConfig.includes('approval_policy = "on-request"'),
+      "repeated remove must preserve unrelated Codex configuration",
+    );
+    const nonTtyRemove = yield* runCliResult(
+      installedEntry,
+      ["remove", "--json", "--codex-home", codexHome],
+      installedRoot,
+      commands,
+      codexEnvironment,
+    );
+    assert(
+      !nonTtyRemove.envelope.ok &&
+        nonTtyRemove.envelope.error.code === "non_tty_confirmation_required",
+      "non-TTY remove without --yes must return the confirmation error",
+    );
+    return {
+      packageVersion: version,
+      tarball: packed.tarball,
+      tarballSha256: packed.tarballSha256,
+      entries: packed.entries,
+      commands,
+    };
+  });
 }
-
 /** Assert that a package tarball contains exactly the expected entries. */
-export async function assertPackedEntries(
+export function assertPackedEntriesEffect(
   tarballPath: string,
   expectedEntries: readonly string[],
-): Promise<void> {
-  const actualEntries = listTarEntries(gunzipSync(await readFile(tarballPath)))
-    .map((entry) => entry.replace(/^\.\//u, ""))
-    .filter((entry) => entry !== "package" && entry !== "package/")
-    .map((entry) => (entry.startsWith("package/") ? entry.slice("package/".length) : entry))
-    .sort();
-  const expected = [...expectedEntries].sort();
-  assert(
-    JSON.stringify(actualEntries) === JSON.stringify(expected),
-    `the package tarball entries are not allowlisted: ${JSON.stringify(actualEntries)}`,
-  );
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const actualEntries = listTarEntries(
+      gunzipSync(yield* Effect.tryPromise(() => readFile(tarballPath))),
+    )
+      .map((entry) => entry.replace(/^\.\//u, ""))
+      .filter((entry) => entry !== "package" && entry !== "package/")
+      .map((entry) => (entry.startsWith("package/") ? entry.slice("package/".length) : entry))
+      .sort();
+    const expected = [...expectedEntries].sort();
+    assert(
+      JSON.stringify(actualEntries) === JSON.stringify(expected),
+      `the package tarball entries are not allowlisted: ${JSON.stringify(actualEntries)}`,
+    );
+  });
 }
-
 function listTarEntries(archive: Uint8Array): string[] {
   const entries: string[] = [];
   const textDecoder = new TextDecoder();
@@ -1105,12 +1180,10 @@ function listTarEntries(archive: Uint8Array): string[] {
   }
   return entries;
 }
-
 function readTarText(decoder: TextDecoder, bytes: Uint8Array): string {
   const nul = bytes.indexOf(0);
   return decoder.decode(nul < 0 ? bytes : bytes.subarray(0, nul)).trim();
 }
-
 function readTarSize(decoder: TextDecoder, bytes: Uint8Array): number {
   const value = readTarText(decoder, bytes).replaceAll(String.fromCharCode(0), "");
   if (value.length === 0) {
@@ -1122,455 +1195,511 @@ function readTarSize(decoder: TextDecoder, bytes: Uint8Array): number {
   }
   return size;
 }
-
 /** Compute the SHA-256 digest of a regular file. */
-export async function sha256File(path: string): Promise<string> {
-  const bytes = await readFile(path);
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  const digest = await crypto.subtle.digest("SHA-256", copy);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+export function sha256FileEffect(path: string): Effect.Effect<string, unknown> {
+  return Effect.gen(function* () {
+    const bytes = yield* Effect.tryPromise(() => readFile(path));
+    const copy = new Uint8Array(bytes.byteLength);
+    copy.set(bytes);
+    const digest = yield* Effect.tryPromise(() => crypto.subtle.digest("SHA-256", copy));
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  });
 }
-
 /** Pack and verify the public package using the current generated Codex bindings. */
-export async function runPackageVerification(): Promise<PackageVerificationResult> {
-  return await withTemporaryDirectory("holycodex-package-verification", async (temporaryRoot) => {
-    const generated = await ensureCodexGenerated();
-    const packed = await packPublicPackage(temporaryRoot);
-    return await verifyPublicPackage(packed, generated.codexCliVersion);
+export function runPackageVerificationEffect(): Effect.Effect<PackageVerificationResult, unknown> {
+  return Effect.gen(function* () {
+    return yield* withVerificationDirectory("holycodex-package-verification", (temporaryRoot) =>
+      Effect.gen(function* () {
+        const generated = yield* ensureCodexGenerated();
+        const packed = yield* packPublicPackageEffect(temporaryRoot);
+        return yield* verifyPublicPackageEffect(packed, generated.codexCliVersion);
+      }),
+    );
   });
 }
-
-async function verifyPreviousStableUpgrade(options: PreviousStableUpgradeOptions): Promise<void> {
-  const temporaryRoot = externalTemporaryRoot();
-  await mkdir(temporaryRoot, { recursive: true });
-  const bunStateRoot = await mkdtemp(join(temporaryRoot, "holycodex-previous-stable-bun-state-"));
-  try {
-    await verifyPreviousStableUpgradeWithBunState({ ...options, bunStateRoot });
-  } finally {
-    await rm(bunStateRoot, { recursive: true, force: true });
-  }
+function verifyPreviousStableUpgrade(
+  options: PreviousStableUpgradeOptions,
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const temporaryRoot = externalTemporaryRoot();
+    yield* Effect.tryPromise(() => mkdir(temporaryRoot, { recursive: true }));
+    return yield* Effect.acquireUseRelease(
+      Effect.tryPromise(() => mkdtemp(join(temporaryRoot, "holycodex-previous-stable-bun-state-"))),
+      (bunStateRoot) => verifyPreviousStableUpgradeWithBunState({ ...options, bunStateRoot }),
+      (bunStateRoot) => Effect.tryPromise(() => rm(bunStateRoot, { recursive: true, force: true })),
+    );
+  });
 }
-
-async function verifyPreviousStableUpgradeWithBunState(
-  options: PreviousStableUpgradeOptions & { readonly bunStateRoot: string },
-): Promise<void> {
-  const previousVersion = PREVIOUS_STABLE_VERSION;
-  const previousInstalledRoot = join(options.temporaryRoot, "previous-installed");
-  await mkdir(previousInstalledRoot, { recursive: true });
-  const previousBunStateRoot = options.bunStateRoot;
-  const previousBunHomeRoot = join(previousBunStateRoot, "home");
-  const previousBunInstallRoot = join(previousBunHomeRoot, ".bun");
-  const previousBunGlobalDirectory = join(previousBunInstallRoot, "install/global");
-  const previousBunGlobalBinDirectory = join(previousBunInstallRoot, "bin");
-  const previousBunTempRoot = join(previousBunStateRoot, "tmp");
-  const previousBunEnvironment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
-    HOME: previousBunHomeRoot,
-    USERPROFILE: previousBunHomeRoot,
-    APPDATA: join(previousBunHomeRoot, "AppData/Roaming"),
-    LOCALAPPDATA: join(previousBunHomeRoot, "AppData/Local"),
-    BUN_INSTALL: previousBunInstallRoot,
-    BUN_INSTALL_GLOBAL_DIR: previousBunGlobalDirectory,
-    BUN_INSTALL_BIN: previousBunGlobalBinDirectory,
-    XDG_CONFIG_HOME: join(previousBunHomeRoot, "config"),
-    BUN_TMPDIR: previousBunTempRoot,
-    TEMP: previousBunTempRoot,
-    TMP: previousBunTempRoot,
-    TMPDIR: previousBunTempRoot,
-    npm_execpath: process.execPath,
-    npm_command: "exec",
-    npm_config_user_agent: `bun/${Bun.version}`,
-  });
-  await mkdir(previousBunHomeRoot, { recursive: true });
-  await mkdir(previousBunInstallRoot, { recursive: true });
-  await mkdir(previousBunGlobalDirectory, { recursive: true });
-  await mkdir(previousBunGlobalBinDirectory, { recursive: true });
-  await mkdir(previousBunTempRoot, { recursive: true });
-  await writeFile(
-    join(previousBunHomeRoot, ".bunfig.toml"),
-    `[install]\nglobalDir = ${JSON.stringify(previousBunGlobalDirectory.replaceAll("\\", "/"))}\nglobalBinDir = ${JSON.stringify(previousBunGlobalBinDirectory.replaceAll("\\", "/"))}\n`,
-    { encoding: "utf8" },
-  );
-  previousBunEnvironment["PATH"] = [previousBunGlobalBinDirectory, options.bunEnvironment["PATH"]]
-    .filter((value): value is string => value !== undefined && value.length > 0)
-    .join(delimiter);
-  const bunxLauncher = await findCommandOnPath("bunx", previousBunEnvironment["PATH"]);
-  await writeJson(join(previousInstalledRoot, "package.json"), {
-    name: "holycodex-previous-stable-verification",
-    private: true,
-    type: "module",
-    dependencies: { holycodex: previousVersion },
-  });
-  const installCommand = ["bun", "install", "--ignore-scripts", "--no-progress"];
-  options.commands.push(`${installCommand.join(" ")} (${previousVersion})`);
-  await runChecked(installCommand, {
-    cwd: previousInstalledRoot,
-    env: previousBunEnvironment,
-  });
-
-  const previousPackageRoot = join(previousInstalledRoot, "node_modules/holycodex");
-  const previousManifest = await readInstalledManifest(join(previousPackageRoot, "package.json"));
-  assert(previousManifest.version === previousVersion, "the previous package version is not exact");
-  assert(
-    previousManifest.release?.channel === "stable" &&
-      previousManifest.release.sourceSha === PREVIOUS_STABLE_SOURCE_SHA,
-    "the previous package does not have the expected stable source identity",
-  );
-  const previousEntry = join(previousPackageRoot, "dist/index.js");
-  const previousAgentEntry = join(previousPackageRoot, "dist/agent.js");
-  assert(
-    (await sha256File(previousEntry)) === PREVIOUS_STABLE_CLI_SHA256,
-    "the previous stable CLI bytes do not match the published fixture identity",
-  );
-  assert(
-    (await sha256File(previousAgentEntry)) === PREVIOUS_STABLE_AGENT_SHA256,
-    "the previous stable agent bytes do not match the published fixture identity",
-  );
-
-  const proofRoot = join(options.temporaryRoot, "previous-upgrade-proof");
-  const codexHome = join(proofRoot, "codex-home");
-  await mkdir(codexHome, { recursive: true });
-  await writeFile(
-    join(codexHome, "config.toml"),
-    '[features]\nunrelated = "keep"\n\napproval_policy = "on-request"\n',
-    { encoding: "utf8", mode: 0o600 },
-  );
-  const fixturePluginSource = join(codexHome, "fixture-plugin-source");
-  await stageFixturePlugin(previousPackageRoot, fixturePluginSource);
-  const codexFixture = await createCodexFixture(codexHome, options.codexCliVersion);
-  // Legacy `bun add -g` can still discover an ancestor repository from a nested CWD.
-  const systemTemporaryRoot = externalTemporaryRoot();
-  await mkdir(systemTemporaryRoot, { recursive: true });
-  const previousCliWorkingDirectory = await mkdtemp(
-    join(systemTemporaryRoot, "holycodex-previous-stable-command-"),
-  );
-  const previousBunGlobalInstallWorkingDirectory = await mkdtemp(
-    join(systemTemporaryRoot, "holycodex-previous-stable-bun-global-"),
-  );
-  const environment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
-    CODEX_HOME: codexHome,
-    HOME: previousBunEnvironment["HOME"],
-    USERPROFILE: previousBunEnvironment["USERPROFILE"],
-    APPDATA: previousBunEnvironment["APPDATA"],
-    LOCALAPPDATA: previousBunEnvironment["LOCALAPPDATA"],
-    XDG_CONFIG_HOME: previousBunEnvironment["XDG_CONFIG_HOME"],
-    PWD: previousCliWorkingDirectory,
-    PATH: [
-      codexFixture.binDirectory,
-      join(workspaceRoot, "node_modules/.bin"),
-      previousBunEnvironment["PATH"],
-    ]
+function verifyPreviousStableUpgradeWithBunState(
+  options: PreviousStableUpgradeOptions & {
+    readonly bunStateRoot: string;
+  },
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const previousVersion = PREVIOUS_STABLE_VERSION;
+    const previousInstalledRoot = join(options.temporaryRoot, "previous-installed");
+    yield* Effect.tryPromise(() => mkdir(previousInstalledRoot, { recursive: true }));
+    const previousBunStateRoot = options.bunStateRoot;
+    const previousBunHomeRoot = join(previousBunStateRoot, "home");
+    const previousBunInstallRoot = join(previousBunHomeRoot, ".bun");
+    const previousBunGlobalDirectory = join(previousBunInstallRoot, "install/global");
+    const previousBunGlobalBinDirectory = join(previousBunInstallRoot, "bin");
+    const previousBunTempRoot = join(previousBunStateRoot, "tmp");
+    const previousBunEnvironment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
+      HOME: previousBunHomeRoot,
+      USERPROFILE: previousBunHomeRoot,
+      APPDATA: join(previousBunHomeRoot, "AppData/Roaming"),
+      LOCALAPPDATA: join(previousBunHomeRoot, "AppData/Local"),
+      BUN_INSTALL: previousBunInstallRoot,
+      BUN_INSTALL_GLOBAL_DIR: previousBunGlobalDirectory,
+      BUN_INSTALL_BIN: previousBunGlobalBinDirectory,
+      XDG_CONFIG_HOME: join(previousBunHomeRoot, "config"),
+      BUN_TMPDIR: previousBunTempRoot,
+      TEMP: previousBunTempRoot,
+      TMP: previousBunTempRoot,
+      TMPDIR: previousBunTempRoot,
+      npm_execpath: process.execPath,
+      npm_command: "exec",
+      npm_config_user_agent: `bun/${Bun.version}`,
+    });
+    yield* Effect.tryPromise(() => mkdir(previousBunHomeRoot, { recursive: true }));
+    yield* Effect.tryPromise(() => mkdir(previousBunInstallRoot, { recursive: true }));
+    yield* Effect.tryPromise(() => mkdir(previousBunGlobalDirectory, { recursive: true }));
+    yield* Effect.tryPromise(() => mkdir(previousBunGlobalBinDirectory, { recursive: true }));
+    yield* Effect.tryPromise(() => mkdir(previousBunTempRoot, { recursive: true }));
+    yield* Effect.tryPromise(() =>
+      writeFile(
+        join(previousBunHomeRoot, ".bunfig.toml"),
+        `[install]\nglobalDir = ${JSON.stringify(previousBunGlobalDirectory.replaceAll("\\", "/"))}\nglobalBinDir = ${JSON.stringify(previousBunGlobalBinDirectory.replaceAll("\\", "/"))}\n`,
+        { encoding: "utf8" },
+      ),
+    );
+    previousBunEnvironment["PATH"] = [previousBunGlobalBinDirectory, options.bunEnvironment["PATH"]]
       .filter((value): value is string => value !== undefined && value.length > 0)
-      .join(delimiter),
-    BUN_INSTALL: previousBunEnvironment["BUN_INSTALL"],
-    BUN_INSTALL_GLOBAL_DIR: previousBunEnvironment["BUN_INSTALL_GLOBAL_DIR"],
-    BUN_INSTALL_BIN: previousBunEnvironment["BUN_INSTALL_BIN"],
-    BUN_TMPDIR: previousBunEnvironment["BUN_TMPDIR"],
-    TEMP: previousBunEnvironment["TEMP"],
-    TMP: previousBunEnvironment["TMP"],
-    TMPDIR: previousBunEnvironment["TMPDIR"],
-    // The previous stable package predates direct Bun runtime detection and requires the
-    // launcher identity that real `bunx holycodex` execution supplies.
-    npm_execpath: bunxLauncher,
-    npm_command: "exec",
-    npm_config_user_agent: `bun/${Bun.version}`,
-    HOLYCODEX_DEBUG_INSTALLER: "1",
-  });
-
-  let previousInstall: typeof CliEnvelopeSchema.Type;
-  try {
-    // Bun needs a package manifest for `pm view`, but a global add from that package CWD
-    // resolves locally. Seed the isolated global installation from a manifest-free directory.
-    await runChecked(["bun", "add", "--global", "ctx7@latest"], {
-      cwd: previousBunGlobalInstallWorkingDirectory,
-      env: {
-        ...previousBunEnvironment,
-        PWD: previousBunGlobalInstallWorkingDirectory,
-      },
-    });
-    const previousCommandBunConfigPath = join(previousCliWorkingDirectory, "bunfig.toml");
-    await writeFile(
-      previousCommandBunConfigPath,
-      `[install]\nglobalDir = ${JSON.stringify(previousBunGlobalDirectory.replaceAll("\\", "/"))}\nglobalBinDir = ${JSON.stringify(previousBunGlobalBinDirectory.replaceAll("\\", "/"))}\n`,
-      { encoding: "utf8" },
+      .join(delimiter);
+    const bunxLauncher = yield* findCommandOnPath("bunx", previousBunEnvironment["PATH"]);
+    yield* Effect.tryPromise(() =>
+      writeJson(join(previousInstalledRoot, "package.json"), {
+        name: "holycodex-previous-stable-verification",
+        private: true,
+        type: "module",
+        dependencies: { holycodex: previousVersion },
+      }),
     );
-    const previousCommandBunConfig = Bun.TOML.parse(
-      await readFile(previousCommandBunConfigPath, "utf8"),
+    const installCommand = ["bun", "install", "--ignore-scripts", "--no-progress"];
+    options.commands.push(`${installCommand.join(" ")} (${previousVersion})`);
+    yield* Effect.tryPromise(() =>
+      runChecked(installCommand, {
+        cwd: previousInstalledRoot,
+        env: previousBunEnvironment,
+      }),
     );
-    const previousCommandInstallConfig = objectProperty(previousCommandBunConfig, "install");
+    const previousPackageRoot = join(previousInstalledRoot, "node_modules/holycodex");
+    const previousManifest = yield* readInstalledManifest(
+      join(previousPackageRoot, "package.json"),
+    );
     assert(
-      previousCommandInstallConfig?.["globalDir"] ===
-        previousBunGlobalDirectory.replaceAll("\\", "/") &&
-        previousCommandInstallConfig["globalBinDir"] ===
-          previousBunGlobalBinDirectory.replaceAll("\\", "/"),
-      "the previous stable CLI Bun config does not isolate global install paths",
+      previousManifest.version === previousVersion,
+      "the previous package version is not exact",
     );
-    await writeJson(join(previousCliWorkingDirectory, "package.json"), {
-      name: "holycodex-previous-stable-command",
-      private: true,
+    assert(
+      previousManifest.release?.channel === "stable" &&
+        previousManifest.release.sourceSha === PREVIOUS_STABLE_SOURCE_SHA,
+      "the previous package does not have the expected stable source identity",
+    );
+    const previousEntry = join(previousPackageRoot, "dist/index.js");
+    const previousAgentEntry = join(previousPackageRoot, "dist/agent.js");
+    assert(
+      (yield* sha256FileEffect(previousEntry)) === PREVIOUS_STABLE_CLI_SHA256,
+      "the previous stable CLI bytes do not match the published fixture identity",
+    );
+    assert(
+      (yield* sha256FileEffect(previousAgentEntry)) === PREVIOUS_STABLE_AGENT_SHA256,
+      "the previous stable agent bytes do not match the published fixture identity",
+    );
+    const proofRoot = join(options.temporaryRoot, "previous-upgrade-proof");
+    const codexHome = join(proofRoot, "codex-home");
+    yield* Effect.tryPromise(() => mkdir(codexHome, { recursive: true }));
+    yield* Effect.tryPromise(() =>
+      writeFile(
+        join(codexHome, "config.toml"),
+        '[features]\nunrelated = "keep"\n\napproval_policy = "on-request"\n',
+        { encoding: "utf8", mode: 0o600 },
+      ),
+    );
+    const fixturePluginSource = join(codexHome, "fixture-plugin-source");
+    yield* stageFixturePlugin(previousPackageRoot, fixturePluginSource);
+    const codexFixture = yield* createCodexFixture(codexHome, options.codexCliVersion);
+    // Legacy `bun add -g` can still discover an ancestor repository from a nested CWD.
+    const systemTemporaryRoot = externalTemporaryRoot();
+    yield* Effect.tryPromise(() => mkdir(systemTemporaryRoot, { recursive: true }));
+    const previousCliWorkingDirectory = yield* Effect.tryPromise(() =>
+      mkdtemp(join(systemTemporaryRoot, "holycodex-previous-stable-command-")),
+    );
+    const previousBunGlobalInstallWorkingDirectory = yield* Effect.tryPromise(() =>
+      mkdtemp(join(systemTemporaryRoot, "holycodex-previous-stable-bun-global-")),
+    );
+    const environment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
+      CODEX_HOME: codexHome,
+      HOME: previousBunEnvironment["HOME"],
+      USERPROFILE: previousBunEnvironment["USERPROFILE"],
+      APPDATA: previousBunEnvironment["APPDATA"],
+      LOCALAPPDATA: previousBunEnvironment["LOCALAPPDATA"],
+      XDG_CONFIG_HOME: previousBunEnvironment["XDG_CONFIG_HOME"],
+      PWD: previousCliWorkingDirectory,
+      PATH: [
+        codexFixture.binDirectory,
+        join(workspaceRoot, "node_modules/.bin"),
+        previousBunEnvironment["PATH"],
+      ]
+        .filter((value): value is string => value !== undefined && value.length > 0)
+        .join(delimiter),
+      BUN_INSTALL: previousBunEnvironment["BUN_INSTALL"],
+      BUN_INSTALL_GLOBAL_DIR: previousBunEnvironment["BUN_INSTALL_GLOBAL_DIR"],
+      BUN_INSTALL_BIN: previousBunEnvironment["BUN_INSTALL_BIN"],
+      BUN_TMPDIR: previousBunEnvironment["BUN_TMPDIR"],
+      TEMP: previousBunEnvironment["TEMP"],
+      TMP: previousBunEnvironment["TMP"],
+      TMPDIR: previousBunEnvironment["TMPDIR"],
+      // The previous stable package predates direct Bun runtime detection and requires the
+      // launcher identity that real `bunx holycodex` execution supplies.
+      npm_execpath: bunxLauncher,
+      npm_command: "exec",
+      npm_config_user_agent: `bun/${Bun.version}`,
+      HOLYCODEX_DEBUG_INSTALLER: "1",
     });
-    await writeJson(join(previousCliWorkingDirectory, "bun.lock"), {
-      lockfileVersion: 2,
-      configVersion: 1,
-      workspaces: { "": { name: "holycodex-previous-stable-command" } },
-      packages: {},
-    });
-    previousInstall = await runCli(
-      previousEntry,
-      [
-        "install",
-        "--yes",
-        "--json",
-        "--profile",
-        "high",
-        "--tier",
-        "fast-all",
-        ...LEGACY_WORK_PROVIDER_PLUGINS.flatMap((pluginId) => ["--add-plugin", pluginId]),
-        "--add-plugin",
-        ADDITIONAL_FIXTURE_PLUGIN,
-        "--codex-home",
-        codexHome,
-      ],
-      previousCliWorkingDirectory,
-      options.commands,
+    let previousInstall: typeof CliEnvelopeSchema.Type;
+    previousInstall = yield* runWithCleanup(
+      () =>
+        Effect.gen(function* () {
+          // Bun needs a package manifest for `pm view`, but a global add from that package CWD
+          // resolves locally. Seed the isolated global installation from a manifest-free directory.
+          yield* Effect.tryPromise(() =>
+            runChecked(["bun", "add", "--global", "ctx7@latest"], {
+              cwd: previousBunGlobalInstallWorkingDirectory,
+              env: {
+                ...previousBunEnvironment,
+                PWD: previousBunGlobalInstallWorkingDirectory,
+              },
+            }),
+          );
+          const previousCommandBunConfigPath = join(previousCliWorkingDirectory, "bunfig.toml");
+          yield* Effect.tryPromise(() =>
+            writeFile(
+              previousCommandBunConfigPath,
+              `[install]\nglobalDir = ${JSON.stringify(previousBunGlobalDirectory.replaceAll("\\", "/"))}\nglobalBinDir = ${JSON.stringify(previousBunGlobalBinDirectory.replaceAll("\\", "/"))}\n`,
+              { encoding: "utf8" },
+            ),
+          );
+          const previousCommandBunConfig = Bun.TOML.parse(
+            yield* Effect.tryPromise(() => readFile(previousCommandBunConfigPath, "utf8")),
+          );
+          const previousCommandInstallConfig = objectProperty(previousCommandBunConfig, "install");
+          assert(
+            previousCommandInstallConfig?.["globalDir"] ===
+              previousBunGlobalDirectory.replaceAll("\\", "/") &&
+              previousCommandInstallConfig["globalBinDir"] ===
+                previousBunGlobalBinDirectory.replaceAll("\\", "/"),
+            "the previous stable CLI Bun config does not isolate global install paths",
+          );
+          yield* Effect.tryPromise(() =>
+            writeJson(join(previousCliWorkingDirectory, "package.json"), {
+              name: "holycodex-previous-stable-command",
+              private: true,
+            }),
+          );
+          yield* Effect.tryPromise(() =>
+            writeJson(join(previousCliWorkingDirectory, "bun.lock"), {
+              lockfileVersion: 2,
+              configVersion: 1,
+              workspaces: { "": { name: "holycodex-previous-stable-command" } },
+              packages: {},
+            }),
+          );
+          return yield* runCli(
+            previousEntry,
+            [
+              "install",
+              "--yes",
+              "--json",
+              "--profile",
+              "high",
+              "--tier",
+              "fast-all",
+              ...LEGACY_WORK_PROVIDER_PLUGINS.flatMap((pluginId) => ["--add-plugin", pluginId]),
+              "--add-plugin",
+              ADDITIONAL_FIXTURE_PLUGIN,
+              "--codex-home",
+              codexHome,
+            ],
+            previousCliWorkingDirectory,
+            options.commands,
+            environment,
+          );
+        }),
+      () =>
+        Effect.gen(function* () {
+          yield* Effect.tryPromise(() =>
+            rm(previousCliWorkingDirectory, { recursive: true, force: true }),
+          );
+          yield* Effect.tryPromise(() =>
+            rm(previousBunGlobalInstallWorkingDirectory, { recursive: true, force: true }),
+          );
+        }),
+    );
+    assert(previousInstall.ok, "the previous stable package install failed");
+    let activeRecordPath = join(codexHome, "holycodex/active.json");
+    const previousModule = (yield* Effect.tryPromise(
+      () => import(pathToFileURL(previousEntry).href),
+    )) as InstalledCliModule;
+    const previousHighRoot = previousModule.projectRootAgent("high", "fast-all");
+    const legacyConfigMarker = join(codexHome, ".holycodex-legacy-config");
+    yield* Effect.tryPromise(() => writeFile(legacyConfigMarker, "1\n", { encoding: "utf8" }));
+    yield* runWithCleanup(
+      () =>
+        Effect.gen(function* () {
+          yield* assertCodexAppServerReadback(
+            codexFixture.executable,
+            environment,
+            codexHome,
+            options.codexCliVersion,
+            previousHighRoot.model,
+            true,
+          );
+        }),
+      () =>
+        Effect.gen(function* () {
+          yield* Effect.tryPromise(() => rm(legacyConfigMarker, { force: true }));
+        }),
+    );
+    const genuinePreviousRecord = parseInstallRecord(
+      yield* Effect.tryPromise(() => readFile(activeRecordPath, "utf8")),
+    );
+    assert(
+      objectProperty(genuinePreviousRecord, "optional_selections")?.["coding"] === true,
+      "the previous stable coding selection is invalid",
+    );
+    const genuinePreviousDryRun = yield* runInternalUpgrade(
+      options.currentEntry,
+      codexHome,
       environment,
+      true,
     );
-  } finally {
-    await rm(previousCliWorkingDirectory, { recursive: true, force: true });
-    await rm(previousBunGlobalInstallWorkingDirectory, { recursive: true, force: true });
-  }
-  assert(previousInstall.ok, "the previous stable package install failed");
-  let activeRecordPath = join(codexHome, "holycodex/active.json");
-  const previousModule = (await import(pathToFileURL(previousEntry).href)) as InstalledCliModule;
-  const previousHighRoot = previousModule.projectRootAgent("high", "fast-all");
-  const legacyConfigMarker = join(codexHome, ".holycodex-legacy-config");
-  await writeFile(legacyConfigMarker, "1\n", { encoding: "utf8" });
-  try {
-    await assertCodexAppServerReadback(
+    assert(
+      genuinePreviousDryRun.ok,
+      `the unmodified previous-stable record failed upgrade dry-run (${genuinePreviousDryRun.ok ? "unexpected success" : genuinePreviousDryRun.error.message})`,
+    );
+    activeRecordPath = join(codexHome, "holycodex/active.toml");
+    yield* rewriteActiveRecord(activeRecordPath, previousModule, rewriteForLegacyWork);
+    const previousRecord = parseInstallRecord(
+      yield* Effect.tryPromise(() => readFile(activeRecordPath, "utf8")),
+    ) as Record<string, unknown>;
+    // The PATH executable may be the previous managed installation, so derive upgrade ownership
+    // from the persisted record rather than treating every PATH match as user-owned.
+    const previousContext7 = objectProperty(objectProperty(previousRecord, "tooling"), "context7");
+    const expectedContext7Ownership = previousContext7?.["ownership"];
+    assert(
+      expectedContext7Ownership === "holycodex" || expectedContext7Ownership === "user",
+      "the previous package did not persist Context7 ownership",
+    );
+    assert(
+      previousRecord["version"] === previousVersion,
+      "the previous install record is not exact",
+    );
+    assert(
+      objectProperty(previousRecord, "optional_selections")?.["work"] === true,
+      "the previous package did not install the legacy Work capability",
+    );
+    yield* Effect.tryPromise(() => rm(fixturePluginSource, { recursive: true, force: true }));
+    yield* stageFixturePlugin(options.currentInstalledPackageRoot, fixturePluginSource);
+    const beforeDryRun = yield* snapshotDirectoryBytes(codexHome);
+    const dryRun = yield* runInternalUpgrade(options.currentEntry, codexHome, environment, true);
+    assert(
+      dryRun.ok,
+      `the real previous-stable upgrade dry-run failed (${dryRun.ok ? "unexpected success" : `${dryRun.error.code}: ${dryRun.error.message}`})`,
+    );
+    if (dryRun.ok) {
+      assert(
+        hasProperty(dryRun.data, "status") && dryRun.data["status"] === "dry_run",
+        "the real previous-stable upgrade dry-run did not report dry_run",
+      );
+    }
+    assert(
+      JSON.stringify(yield* snapshotDirectoryBytes(codexHome)) === JSON.stringify(beforeDryRun),
+      "the real previous-stable upgrade dry-run changed isolated Codex-home bytes",
+    );
+    const upgraded = yield* runInternalUpgrade(options.currentEntry, codexHome, environment);
+    assert(
+      upgraded.ok,
+      `the real previous-stable package upgrade failed (${upgraded.ok ? "unexpected success" : `${upgraded.error.code}: ${upgraded.error.message}`})`,
+    );
+    activeRecordPath = join(codexHome, "holycodex/active.toml");
+    const upgradedRecord = parseInstallRecord(
+      yield* Effect.tryPromise(() => readFile(activeRecordPath, "utf8")),
+    ) as Record<string, unknown>;
+    assert(
+      upgradedRecord["version"] === options.currentVersion,
+      "upgrade did not reach current version",
+    );
+    for (const key of [
+      "optional_selections",
+      "explicit_optional_selections",
+      "capability_state",
+    ] as const) {
+      assert(
+        !Object.prototype.hasOwnProperty.call(objectProperty(upgradedRecord, key) ?? {}, "work"),
+        `upgrade retained legacy Work state in ${key}`,
+      );
+    }
+    for (const key of ["official_plugins", "owned_plugins"] as const) {
+      const plugins = arrayProperty(upgradedRecord, key) ?? [];
+      assert(
+        LEGACY_WORK_PROVIDER_PLUGINS.every((pluginId) => !plugins.includes(pluginId)),
+        `upgrade retained legacy Work ownership in ${key}`,
+      );
+    }
+    const tooling = objectProperty(upgradedRecord, "tooling");
+    const context7 = objectProperty(tooling, "context7");
+    const previousContext7Executable = previousContext7?.["executable"];
+    const upgradedContext7Executable = context7?.["executable"];
+    const expectedUpgradeContext7Ownership =
+      expectedContext7Ownership === "holycodex" &&
+      previousContext7?.["manager"] === context7?.["manager"] &&
+      typeof previousContext7?.["identity"] === "string" &&
+      /^[0-9a-f]{64}$/u.test(previousContext7["identity"]) &&
+      typeof previousContext7Executable === "string" &&
+      typeof upgradedContext7Executable === "string" &&
+      (yield* sameVerificationFile(previousContext7Executable, upgradedContext7Executable))
+        ? "holycodex"
+        : "user";
+    assert(
+      context7?.["manager"] === "bun" && context7["launcher"] === "bunx",
+      "upgrade did not persist the injected Bun launcher identity for Context7",
+    );
+    yield* assertPersistedContext7(
+      upgradedRecord,
+      options.currentInstalledRoot,
+      environment,
+      options.commands,
+      "previous stable upgrade",
+      expectedUpgradeContext7Ownership,
+    );
+    const upgradedConfig = yield* Effect.tryPromise(() =>
+      readFile(join(codexHome, "config.toml"), "utf8"),
+    );
+    assert(
+      upgradedConfig.includes("[features.context_management]") &&
+        upgradedConfig.includes("experimental_mode = true") &&
+        upgradedConfig.includes('unrelated = "keep"'),
+      "upgrade did not publish canonical configuration while preserving unrelated config",
+    );
+    const pluginList = parseCodexPluginList(
+      (yield* Effect.tryPromise(() =>
+        runChecked([codexFixture.executable, "plugin", "list", "--json"], {
+          cwd: workspaceRoot,
+          env: environment,
+        }),
+      )).stdout,
+    );
+    assert(
+      LEGACY_WORK_PROVIDER_PLUGINS.every((pluginId) =>
+        pluginList.installed.some((entry) => entry.pluginId === pluginId),
+      ),
+      "upgrade removed shared plugins formerly selected through Work",
+    );
+    const installedPluginManifest = decode(
+      InstalledPluginManifestSchema,
+      JSON.parse(
+        yield* Effect.tryPromise(() =>
+          readFile(join(codexHome, "plugins/holycodex/.codex-plugin/plugin.json"), "utf8"),
+        ),
+      ),
+      "installed Codex plugin manifest",
+    );
+    assert(
+      installedPluginManifest.version === options.currentCanonicalVersion,
+      "upgrade did not publish the current HolyCodex plugin payload",
+    );
+    yield* assertCodexAppServerReadback(
       codexFixture.executable,
       environment,
       codexHome,
       options.codexCliVersion,
-      previousHighRoot.model,
-      true,
     );
-  } finally {
-    await rm(legacyConfigMarker, { force: true });
-  }
-  const genuinePreviousRecord = parseInstallRecord(await readFile(activeRecordPath, "utf8"));
-  assert(
-    objectProperty(genuinePreviousRecord, "optional_selections")?.["coding"] === true,
-    "the previous stable coding selection is invalid",
-  );
-  const genuinePreviousDryRun = await runInternalUpgrade(
-    options.currentEntry,
-    codexHome,
-    environment,
-    true,
-  );
-  assert(
-    genuinePreviousDryRun.ok,
-    `the unmodified previous-stable record failed upgrade dry-run (${genuinePreviousDryRun.ok ? "unexpected success" : genuinePreviousDryRun.error.message})`,
-  );
-  activeRecordPath = join(codexHome, "holycodex/active.toml");
-  await rewriteActiveRecord(activeRecordPath, previousModule, rewriteForLegacyWork);
-  const previousRecord = parseInstallRecord(await readFile(activeRecordPath, "utf8")) as Record<
-    string,
-    unknown
-  >;
-  // The PATH executable may be the previous managed installation, so derive upgrade ownership
-  // from the persisted record rather than treating every PATH match as user-owned.
-  const previousContext7 = objectProperty(objectProperty(previousRecord, "tooling"), "context7");
-  const expectedContext7Ownership = previousContext7?.["ownership"];
-  assert(
-    expectedContext7Ownership === "holycodex" || expectedContext7Ownership === "user",
-    "the previous package did not persist Context7 ownership",
-  );
-  assert(previousRecord["version"] === previousVersion, "the previous install record is not exact");
-  assert(
-    objectProperty(previousRecord, "optional_selections")?.["work"] === true,
-    "the previous package did not install the legacy Work capability",
-  );
-
-  await rm(fixturePluginSource, { recursive: true, force: true });
-  await stageFixturePlugin(options.currentInstalledPackageRoot, fixturePluginSource);
-  const beforeDryRun = await snapshotDirectoryBytes(codexHome);
-  const dryRun = await runInternalUpgrade(options.currentEntry, codexHome, environment, true);
-  assert(
-    dryRun.ok,
-    `the real previous-stable upgrade dry-run failed (${dryRun.ok ? "unexpected success" : `${dryRun.error.code}: ${dryRun.error.message}`})`,
-  );
-  if (dryRun.ok) {
-    assert(
-      hasProperty(dryRun.data, "status") && dryRun.data["status"] === "dry_run",
-      "the real previous-stable upgrade dry-run did not report dry_run",
-    );
-  }
-  assert(
-    JSON.stringify(await snapshotDirectoryBytes(codexHome)) === JSON.stringify(beforeDryRun),
-    "the real previous-stable upgrade dry-run changed isolated Codex-home bytes",
-  );
-
-  const upgraded = await runInternalUpgrade(options.currentEntry, codexHome, environment);
-  assert(
-    upgraded.ok,
-    `the real previous-stable package upgrade failed (${upgraded.ok ? "unexpected success" : `${upgraded.error.code}: ${upgraded.error.message}`})`,
-  );
-  activeRecordPath = join(codexHome, "holycodex/active.toml");
-  const upgradedRecord = parseInstallRecord(await readFile(activeRecordPath, "utf8")) as Record<
-    string,
-    unknown
-  >;
-  assert(
-    upgradedRecord["version"] === options.currentVersion,
-    "upgrade did not reach current version",
-  );
-  for (const key of [
-    "optional_selections",
-    "explicit_optional_selections",
-    "capability_state",
-  ] as const) {
-    assert(
-      !Object.prototype.hasOwnProperty.call(objectProperty(upgradedRecord, key) ?? {}, "work"),
-      `upgrade retained legacy Work state in ${key}`,
-    );
-  }
-  for (const key of ["official_plugins", "owned_plugins"] as const) {
-    const plugins = arrayProperty(upgradedRecord, key) ?? [];
-    assert(
-      LEGACY_WORK_PROVIDER_PLUGINS.every((pluginId) => !plugins.includes(pluginId)),
-      `upgrade retained legacy Work ownership in ${key}`,
-    );
-  }
-  const tooling = objectProperty(upgradedRecord, "tooling");
-  const context7 = objectProperty(tooling, "context7");
-  const previousContext7Executable = previousContext7?.["executable"];
-  const upgradedContext7Executable = context7?.["executable"];
-  const expectedUpgradeContext7Ownership =
-    expectedContext7Ownership === "holycodex" &&
-    previousContext7?.["manager"] === context7?.["manager"] &&
-    typeof previousContext7?.["identity"] === "string" &&
-    /^[0-9a-f]{64}$/u.test(previousContext7["identity"]) &&
-    typeof previousContext7Executable === "string" &&
-    typeof upgradedContext7Executable === "string" &&
-    (await sameVerificationFile(previousContext7Executable, upgradedContext7Executable))
-      ? "holycodex"
-      : "user";
-  assert(
-    context7?.["manager"] === "bun" && context7["launcher"] === "bunx",
-    "upgrade did not persist the injected Bun launcher identity for Context7",
-  );
-  await assertPersistedContext7(
-    upgradedRecord,
-    options.currentInstalledRoot,
-    environment,
-    options.commands,
-    "previous stable upgrade",
-    expectedUpgradeContext7Ownership,
-  );
-  const upgradedConfig = await readFile(join(codexHome, "config.toml"), "utf8");
-  assert(
-    upgradedConfig.includes("[features.context_management]") &&
-      upgradedConfig.includes("experimental_mode = true") &&
-      upgradedConfig.includes('unrelated = "keep"'),
-    "upgrade did not publish canonical configuration while preserving unrelated config",
-  );
-  const pluginList = parseCodexPluginList(
-    (
-      await runChecked([codexFixture.executable, "plugin", "list", "--json"], {
-        cwd: workspaceRoot,
-        env: environment,
-      })
-    ).stdout,
-  );
-  assert(
-    LEGACY_WORK_PROVIDER_PLUGINS.every((pluginId) =>
-      pluginList.installed.some((entry) => entry.pluginId === pluginId),
-    ),
-    "upgrade removed shared plugins formerly selected through Work",
-  );
-  const installedPluginManifest = decode(
-    InstalledPluginManifestSchema,
-    JSON.parse(
-      await readFile(join(codexHome, "plugins/holycodex/.codex-plugin/plugin.json"), "utf8"),
-    ),
-    "installed Codex plugin manifest",
-  );
-  assert(
-    installedPluginManifest.version === options.currentCanonicalVersion,
-    "upgrade did not publish the current HolyCodex plugin payload",
-  );
-  await assertCodexAppServerReadback(
-    codexFixture.executable,
-    environment,
-    codexHome,
-    options.codexCliVersion,
-  );
-  const doctor = await runCli(
-    options.currentEntry,
-    ["doctor", "--json", "--codex-home", codexHome],
-    options.currentInstalledRoot,
-    options.commands,
-    environment,
-  );
-  assert(
-    doctor.ok && hasProperty(doctor.data, "healthy") && doctor.data["healthy"] === true,
-    "the real previous-stable upgrade did not end doctor-healthy",
-  );
-
-  if (options.currentVersion !== options.currentCanonicalVersion) {
-    const currentModule = (await import(
-      pathToFileURL(options.currentEntry).href
-    )) as InstalledCliModule;
-    await rewriteActiveRecord(activeRecordPath, currentModule, (record) => ({
-      ...record,
-      version: options.currentCanonicalVersion,
-    }));
-    const sameBaseReconciliation = await runInternalUpgrade(
+    const doctor = yield* runCli(
       options.currentEntry,
-      codexHome,
+      ["doctor", "--json", "--codex-home", codexHome],
+      options.currentInstalledRoot,
+      options.commands,
       environment,
     );
     assert(
-      sameBaseReconciliation.ok &&
-        sameBaseReconciliation.data["status"] === "upgraded" &&
-        sameBaseReconciliation.data["from_version"] === options.currentCanonicalVersion &&
-        sameBaseReconciliation.data["to_version"] === options.currentVersion,
-      "a same-base development package must reconcile its stable install record",
+      doctor.ok && hasProperty(doctor.data, "healthy") && doctor.data["healthy"] === true,
+      "the real previous-stable upgrade did not end doctor-healthy",
     );
-    const reconciledRecord = parseInstallRecord(await readFile(activeRecordPath, "utf8")) as Record<
-      string,
-      unknown
-    >;
-    assert(
-      reconciledRecord["version"] === options.currentVersion,
-      "same-base development reconciliation must record the running development artifact",
-    );
-  }
-}
-
-async function stageFixturePlugin(packageRoot: string, destination: string): Promise<void> {
-  await cp(join(packageRoot, "dist/assets/plugin"), destination, {
-    recursive: true,
-    dereference: true,
+    if (options.currentVersion !== options.currentCanonicalVersion) {
+      const currentModule = (yield* Effect.tryPromise(
+        () => import(pathToFileURL(options.currentEntry).href),
+      )) as InstalledCliModule;
+      yield* rewriteActiveRecord(activeRecordPath, currentModule, (record) => ({
+        ...record,
+        version: options.currentCanonicalVersion,
+      }));
+      const sameBaseReconciliation = yield* runInternalUpgrade(
+        options.currentEntry,
+        codexHome,
+        environment,
+      );
+      assert(
+        sameBaseReconciliation.ok &&
+          sameBaseReconciliation.data["status"] === "upgraded" &&
+          sameBaseReconciliation.data["from_version"] === options.currentCanonicalVersion &&
+          sameBaseReconciliation.data["to_version"] === options.currentVersion,
+        "a same-base development package must reconcile its stable install record",
+      );
+      const reconciledRecord = parseInstallRecord(
+        yield* Effect.tryPromise(() => readFile(activeRecordPath, "utf8")),
+      ) as Record<string, unknown>;
+      assert(
+        reconciledRecord["version"] === options.currentVersion,
+        "same-base development reconciliation must record the running development artifact",
+      );
+    }
   });
-  await mkdir(join(destination, ".codex-plugin"), { recursive: true });
-  await cp(join(destination, "plugin.json"), join(destination, ".codex-plugin/plugin.json"));
 }
-
-async function snapshotDirectoryBytes(
+function stageFixturePlugin(
+  packageRoot: string,
+  destination: string,
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    yield* Effect.tryPromise(() =>
+      cp(join(packageRoot, "dist/assets/plugin"), destination, {
+        recursive: true,
+        dereference: true,
+      }),
+    );
+    yield* Effect.tryPromise(() => mkdir(join(destination, ".codex-plugin"), { recursive: true }));
+    yield* Effect.tryPromise(() =>
+      cp(join(destination, "plugin.json"), join(destination, ".codex-plugin/plugin.json")),
+    );
+  });
+}
+function snapshotDirectoryBytes(
   root: string,
-): Promise<readonly (readonly [string, string])[]> {
-  const entries = await listPackageEntries(root);
-  return await Promise.all(
-    entries.map(
-      async (entry) =>
-        [entry, Buffer.from(await readFile(join(root, entry))).toString("base64")] as const,
-    ),
-  );
+): Effect.Effect<readonly (readonly [string, string])[], unknown> {
+  return Effect.gen(function* () {
+    const entries = yield* listPackageEntries(root);
+    return yield* Effect.forEach(
+      entries,
+      (entry) =>
+        Effect.tryPromise(() => readFile(join(root, entry))).pipe(
+          Effect.map((bytes) => [entry, Buffer.from(bytes).toString("base64")] as const),
+        ),
+      { concurrency: "unbounded" },
+    );
+  });
 }
-
-async function runCli(
+function runCli(
   entry: string,
   args: readonly string[],
   cwd: string,
@@ -1578,16 +1707,17 @@ async function runCli(
   environment: Readonly<Record<string, string | undefined>> = allowlistedEnvironment(
     DEFAULT_COMMAND_ENVIRONMENT_KEYS,
   ),
-): Promise<typeof CliEnvelopeSchema.Type> {
-  const result = await runCliResult(entry, args, cwd, commands, environment);
-  assert(
-    result.exitCode === 0,
-    `CLI command ${["bun", entry, ...args].join(" ")} failed with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
-  );
-  return result.envelope;
+): Effect.Effect<typeof CliEnvelopeSchema.Type, unknown> {
+  return Effect.gen(function* () {
+    const result = yield* runCliResult(entry, args, cwd, commands, environment);
+    assert(
+      result.exitCode === 0,
+      `CLI command ${["bun", entry, ...args].join(" ")} failed with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
+    );
+    return result.envelope;
+  });
 }
-
-async function runCliResult(
+function runCliResult(
   entry: string,
   args: readonly string[],
   cwd: string,
@@ -1595,61 +1725,68 @@ async function runCliResult(
   environment: Readonly<Record<string, string | undefined>> = allowlistedEnvironment(
     DEFAULT_COMMAND_ENVIRONMENT_KEYS,
   ),
-): Promise<{
-  readonly envelope: typeof CliEnvelopeSchema.Type;
-  readonly exitCode: number;
-  readonly stdout: string;
-  readonly stderr: string;
-}> {
-  const command = ["bun", entry, ...args];
-  commands.push(command.join(" "));
-  const result = await runCommand(command, { cwd, env: environment });
-  return {
-    envelope: parseEnvelope(result.stdout),
-    exitCode: result.exitCode,
-    stdout: result.stdout,
-    stderr: result.stderr,
-  };
+): Effect.Effect<
+  {
+    readonly envelope: typeof CliEnvelopeSchema.Type;
+    readonly exitCode: number;
+    readonly stdout: string;
+    readonly stderr: string;
+  },
+  unknown
+> {
+  return Effect.gen(function* () {
+    const command = ["bun", entry, ...args];
+    commands.push(command.join(" "));
+    const result = yield* Effect.tryPromise(() => runCommand(command, { cwd, env: environment }));
+    return {
+      envelope: parseEnvelope(result.stdout),
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  });
 }
-
 function parseInstallRecord(source: string): Record<string, unknown> {
-  return decodeStateText(source, Schema.Record({ key: Schema.String, value: Schema.Unknown }));
+  return decodeStateText(source, Schema.Record(Schema.String, Schema.Unknown));
 }
-
-async function rewriteActiveRecord(
+function rewriteActiveRecord(
   path: string,
   installedModule: InstalledCliModule,
   rewrite: (record: Record<string, unknown>) => Record<string, unknown>,
-): Promise<void> {
-  const current = parseInstallRecord(await readFile(path, "utf8"));
-  const rewritten = rewrite(current);
-  const digestKeys = [
-    "owner",
-    "install_id",
-    "version",
-    "profile",
-    "plan",
-    "tier",
-    "optional_selections",
-    "explicit_optional_selections",
-    "official_plugins",
-    "capability_state",
-    "managed_artifacts",
-    "managed_config",
-    "plugin_config",
-    "provider_config",
-    "plugin_snapshot",
-    "owned_plugins",
-    "tooling",
-  ] as const;
-  const digestInput = Object.fromEntries(
-    digestKeys.flatMap((key) => (key in rewritten ? [[key, rewritten[key]] as const] : [])),
-  );
-  const record = { ...rewritten, digest: await installedModule.installRecordDigest(digestInput) };
-  if (path.endsWith(".json")) await writeJson(path, record);
-  else await writeAtomicState(path, record as JsonValue);
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const current = parseInstallRecord(yield* Effect.tryPromise(() => readFile(path, "utf8")));
+    const rewritten = rewrite(current);
+    const digestKeys = [
+      "owner",
+      "install_id",
+      "version",
+      "profile",
+      "plan",
+      "tier",
+      "optional_selections",
+      "explicit_optional_selections",
+      "official_plugins",
+      "capability_state",
+      "managed_artifacts",
+      "managed_config",
+      "plugin_config",
+      "provider_config",
+      "plugin_snapshot",
+      "owned_plugins",
+      "tooling",
+    ] as const;
+    const digestInput = Object.fromEntries(
+      digestKeys.flatMap((key) => (key in rewritten ? [[key, rewritten[key]] as const] : [])),
+    );
+    const record = {
+      ...rewritten,
+      digest: yield* Effect.tryPromise(() => installedModule.installRecordDigest(digestInput)),
+    };
+    if (path.endsWith(".json")) yield* Effect.tryPromise(() => writeJson(path, record));
+    else yield* Effect.tryPromise(() => writeAtomicState(path, record as JsonValue));
+  });
 }
-
 function rewriteForLegacyWork(record: Record<string, unknown>): Record<string, unknown> {
   const optionalSelections = objectProperty(record, "optional_selections");
   const explicitOptionalSelections = objectProperty(record, "explicit_optional_selections");
@@ -1680,7 +1817,6 @@ function rewriteForLegacyWork(record: Record<string, unknown>): Record<string, u
     owned_plugins: [...new Set([...ownedPlugins, ...LEGACY_WORK_PROVIDER_PLUGINS])],
   };
 }
-
 function previousPatchVersion(version: string): string {
   const [major, minor, patch] = baseVersionFromRelease(version).split(".");
   if (major === undefined || minor === undefined || patch === undefined) {
@@ -1689,7 +1825,6 @@ function previousPatchVersion(version: string): string {
   const patchNumber = BigInt(patch);
   return `${major}.${minor}.${patchNumber > 0n ? patchNumber - 1n : 0n}`;
 }
-
 function nextPatchVersion(version: string): string {
   const [major, minor, patch] = baseVersionFromRelease(version).split(".");
   if (major === undefined || minor === undefined || patch === undefined) {
@@ -1697,122 +1832,127 @@ function nextPatchVersion(version: string): string {
   }
   return `${major}.${minor}.${BigInt(patch) + 1n}`;
 }
-
-async function runInstalledExecutable(
+function runInstalledExecutable(
   executable: string,
   cwd: string,
   commands: string[],
   environment: Readonly<Record<string, string | undefined>>,
-): Promise<typeof CliEnvelopeSchema.Type> {
-  const args = ["version", "--json"];
-  const command = [executable, ...args];
-  commands.push(command.join(" "));
-  const result = await runCommand(command, { cwd, env: environment });
-  assert(
-    result.exitCode === 0,
-    `executable bin failed with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
-  );
-  return parseEnvelope(result.stdout);
+): Effect.Effect<typeof CliEnvelopeSchema.Type, unknown> {
+  return Effect.gen(function* () {
+    const args = ["version", "--json"];
+    const command = [executable, ...args];
+    commands.push(command.join(" "));
+    const result = yield* Effect.tryPromise(() => runCommand(command, { cwd, env: environment }));
+    assert(
+      result.exitCode === 0,
+      `executable bin failed with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
+    );
+    return parseEnvelope(result.stdout);
+  });
 }
-
-async function runInstalledAgentHelp(
+function runInstalledAgentHelp(
   entry: string,
   cwd: string,
   commands: string[],
-): Promise<void> {
-  const helpPaths: readonly (readonly string[])[] = [
-    [],
-    ["intent"],
-    ["intent", "create"],
-    ["intent", "list"],
-    ["intent", "current"],
-    ["intent", "read"],
-    ["intent", "select"],
-    ["intent", "transition"],
-    ["intent", "evidence"],
-    ["intent", "complete"],
-    ["intent", "abandon"],
-    ["assignment"],
-    ["assignment", "create"],
-    ["assignment", "list"],
-    ["assignment", "read"],
-    ["assignment", "start"],
-    ["assignment", "result"],
-  ];
-  const environment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS);
-  for (const path of helpPaths) {
-    for (const option of ["-h", "--help"] as const) {
-      const args = [...path, option];
-      const command = ["bun", entry, ...args];
-      commands.push(command.join(" "));
-      const result = await runCommand(command, { cwd, env: environment });
-      assert(
-        result.exitCode === 0,
-        `agent CLI help failed for ${args.join(" ")} with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
-      );
-      assert(result.stderr.length === 0, "agent CLI help wrote diagnostics to stderr");
-      assert(!result.stdout.includes("\u001b"), "agent CLI help emitted ANSI");
-      assert(result.stdout.includes("holycodex-agent"), "agent CLI help omitted its command name");
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const helpPaths: readonly (readonly string[])[] = [
+      [],
+      ["intent"],
+      ["intent", "create"],
+      ["intent", "list"],
+      ["intent", "current"],
+      ["intent", "read"],
+      ["intent", "select"],
+      ["intent", "transition"],
+      ["intent", "evidence"],
+      ["intent", "complete"],
+      ["intent", "abandon"],
+      ["assignment"],
+      ["assignment", "create"],
+      ["assignment", "list"],
+      ["assignment", "read"],
+      ["assignment", "start"],
+      ["assignment", "result"],
+    ];
+    const environment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS);
+    for (const path of helpPaths) {
+      for (const option of ["-h", "--help"] as const) {
+        const args = [...path, option];
+        const command = ["bun", entry, ...args];
+        commands.push(command.join(" "));
+        const result = yield* Effect.tryPromise(() =>
+          runCommand(command, { cwd, env: environment }),
+        );
+        assert(
+          result.exitCode === 0,
+          `agent CLI help failed for ${args.join(" ")} with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
+        );
+        assert(result.stderr.length === 0, "agent CLI help wrote diagnostics to stderr");
+        assert(!result.stdout.includes("\u001b"), "agent CLI help emitted ANSI");
+        assert(
+          result.stdout.includes("holycodex-agent"),
+          "agent CLI help omitted its command name",
+        );
+      }
     }
-  }
+  });
 }
-
-async function runInstalledOpenTuiProbe(
+function runInstalledOpenTuiProbe(
   cwd: string,
   entry: string,
   commands: string[],
   env: Readonly<Record<string, string | undefined>>,
-): Promise<void> {
-  const command = [process.execPath, "-e", 'await import("@opentui/core");'];
-  commands.push(command.join(" "));
-  const result = await runCommand(command, { cwd, env });
-
-  assert(
-    result.exitCode === 0,
-    `installed OpenTUI runtime could not resolve: ${redactDiagnostics(result.stderr || result.stdout, env)}`,
-  );
-  assert(result.stderr.length === 0, "installed OpenTUI runtime wrote diagnostics to stderr");
-
-  const interactive = await runInstalledOpenTuiBehaviorProbe(cwd, entry, env);
-  assert(interactive.exitCode === 0, "installed OpenTUI wizard behavior probe failed");
-  assert(
-    interactive.stderr.length === 0,
-    `installed OpenTUI wizard behavior probe wrote diagnostics: ${interactive.stderr.slice(0, 512)}`,
-  );
-
-  const probeMarker = "__HOLYCODEX_OPENTUI_PROBE__";
-  const markerIndex = interactive.stdout.lastIndexOf(probeMarker);
-  assert(markerIndex >= 0, "installed OpenTUI wizard behavior probe omitted its result");
-
-  const probePayload = interactive.stdout
-    .slice(markerIndex + probeMarker.length)
-    .split(/\r?\n/u, 1)[0];
-  assert(
-    probePayload !== undefined && probePayload.length > 0,
-    "installed OpenTUI wizard behavior probe emitted an empty result",
-  );
-
-  const probe = JSON.parse(probePayload) as Record<string, unknown>;
-  assert(probe["result"] === "cancel", "installed OpenTUI wizard did not support cancellation");
-  assert(probe["review"] === true, "installed OpenTUI wizard did not reach review after Enter");
-  assert(
-    probe["tier"] === "fast",
-    "installed OpenTUI wizard arrows did not change the service tier",
-  );
-  assert(
-    probe["computerUse"] === "enabled",
-    "installed OpenTUI wizard Space did not enable Computer Use",
-  );
-  assert(probe["hints"] === true, "installed OpenTUI wizard omitted its navigation hints");
-  assert(probe["noColor"] === true, "installed OpenTUI wizard ignored NO_COLOR");
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const command = [process.execPath, "-e", 'await import("@opentui/core");'];
+    commands.push(command.join(" "));
+    const result = yield* Effect.tryPromise(() => runCommand(command, { cwd, env }));
+    assert(
+      result.exitCode === 0,
+      `installed OpenTUI runtime could not resolve: ${redactDiagnostics(result.stderr || result.stdout, env)}`,
+    );
+    assert(result.stderr.length === 0, "installed OpenTUI runtime wrote diagnostics to stderr");
+    const interactive = yield* runInstalledOpenTuiBehaviorProbe(cwd, entry, env);
+    assert(
+      interactive.exitCode === 0,
+      `installed OpenTUI wizard behavior probe failed: ${redactDiagnostics(interactive.stderr || interactive.stdout, env)}`,
+    );
+    assert(
+      interactive.stderr.length === 0,
+      `installed OpenTUI wizard behavior probe wrote diagnostics: ${interactive.stderr.slice(0, 512)}`,
+    );
+    const probeMarker = "__HOLYCODEX_OPENTUI_PROBE__";
+    const markerIndex = interactive.stdout.lastIndexOf(probeMarker);
+    assert(markerIndex >= 0, "installed OpenTUI wizard behavior probe omitted its result");
+    const probePayload = interactive.stdout
+      .slice(markerIndex + probeMarker.length)
+      .split(/\r?\n/u, 1)[0];
+    assert(
+      probePayload !== undefined && probePayload.length > 0,
+      "installed OpenTUI wizard behavior probe emitted an empty result",
+    );
+    const probe = JSON.parse(probePayload) as Record<string, unknown>;
+    assert(probe["result"] === "cancel", "installed OpenTUI wizard did not support cancellation");
+    assert(probe["review"] === true, "installed OpenTUI wizard did not reach review after Enter");
+    assert(probe["hints"] === true, "installed OpenTUI wizard omitted its navigation hints");
+    assert(probe["noColor"] === true, "installed OpenTUI wizard ignored NO_COLOR");
+  });
 }
-
-async function runInstalledOpenTuiBehaviorProbe(
+function runInstalledOpenTuiBehaviorProbe(
   cwd: string,
   entry: string,
   env: Readonly<Record<string, string | undefined>>,
-): Promise<{ readonly exitCode: number; readonly stdout: string; readonly stderr: string }> {
-  const source = String.raw`
+): Effect.Effect<
+  {
+    readonly exitCode: number;
+    readonly stdout: string;
+    readonly stderr: string;
+  },
+  unknown
+> {
+  return Effect.gen(function* () {
+    const source = String.raw`
 import { PassThrough, Writable } from "node:stream";
 const realStdout = process.stdout;
 const input = new PassThrough();
@@ -1968,6 +2108,10 @@ const consumeOutput = (chunk) => {
 };
 const visibleOutput = () => screen.map((line) => line.join("")).join("\n");
 const currentOutput = () => Buffer.concat(outputChunks).toString("utf8");
+const probeTimeout = setTimeout(() => {
+  process.stderr.write("OpenTUI probe timed out. Visible screen:\n" + visibleOutput());
+  process.exit(2);
+}, 120000);
 const configurationHint =
   "↑/↓ focus   ←/→ change choice   Space toggle   Enter review   Esc cancel";
 const reviewHint = "↑/↓ choose   Enter confirm   Esc back";
@@ -1997,26 +2141,14 @@ const wizard = runOpenTuiInstallWizard({}, { stdin: input, stdout: output });
 
 await waitForText("HolyCodex  ·  install");
 await waitForText(configurationHint);
-await pushUntilVisible("\x1b[B", () => visibleOutput().includes("❯ Service tier"));
-await pushUntilVisible("\x1b[C", () => /Service tier\s+fast/u.test(visibleOutput()));
-await pushUntilVisible("\x1b[B", () => visibleOutput().includes("❯ ChatGPT Sites"));
-await pushUntilVisible("\x1b[B", () => visibleOutput().includes("❯ Browser Use"));
-await pushUntilVisible("\x1b[B", () => visibleOutput().includes("❯ Computer Use"));
-await pushUntilVisible(" ", () => /Computer Use\s+\[x\] enabled/u.test(visibleOutput()));
 await pushUntilVisible(
   "\r",
   () => visibleOutput().includes("Review configuration") && visibleOutput().includes(reviewHint),
 );
-await pushUntilVisible("\x1b", () => visibleOutput().includes("❯ Computer Use"));
-await pushUntilVisible(
-  "\r",
-  () => visibleOutput().includes("Review configuration") && visibleOutput().includes(reviewHint),
-);
-await pushUntilVisible("\x1b[B", () => visibleOutput().includes("› Change options / Redo"));
-await pushUntilVisible("\x1b[B", () => visibleOutput().includes("› Cancel"));
-input.push("\r");
+input.push(Buffer.from([3]));
 
 const result = await wizard;
+clearTimeout(probeTimeout);
 const rendered = currentOutput();
 const visible = visibleOutput();
 realStdout.write(
@@ -2024,282 +2156,325 @@ realStdout.write(
     JSON.stringify({
       result: result.action,
       review: visible.includes("Review configuration"),
-      tier: visible.match(/Service tier:\s+(\S+)/u)?.[1],
-      computerUse: visible.match(/Computer Use:\s+(\S+)/u)?.[1],
       hints: currentOutput().includes(configurationHint) && visible.includes(reviewHint),
       noColor: !/\x1b\[(?:1|2|36|1;36|32|33|31)m/u.test(rendered),
     }) +
     "\n",
 );
 `;
-  const command = [process.execPath, "-e", source];
-  const result = Bun.spawn(command, {
-    cwd,
-    env: { ...env, NO_COLOR: "1" },
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
+    const command = [process.execPath, "-e", source];
+    const result = Bun.spawn(command, {
+      cwd,
+      env: { ...env, NO_COLOR: "1" },
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (!(result.stdout instanceof ReadableStream) || !(result.stderr instanceof ReadableStream)) {
+      throw new Error("the OpenTUI behavior probe did not expose bounded output streams");
+    }
+    return yield* Effect.all(
+      [
+        readBoundedStreamEffect(result.stdout, 256 * 1024),
+        readBoundedStreamEffect(result.stderr, 256 * 1024),
+        Effect.tryPromise(() => result.exited),
+      ],
+      { concurrency: 3 },
+    ).pipe(Effect.map(([stdout, stderr, exitCode]) => ({ exitCode, stdout, stderr })));
   });
-  if (!(result.stdout instanceof ReadableStream) || !(result.stderr instanceof ReadableStream)) {
-    throw new Error("the OpenTUI behavior probe did not expose bounded output streams");
-  }
-  const [stdout, stderr, exitCode] = await Promise.all([
-    readBoundedStream(result.stdout, 256 * 1024),
-    readBoundedStream(result.stderr, 256 * 1024),
-    result.exited,
-  ]);
-  return { exitCode, stdout, stderr };
 }
-
-async function readBoundedStream(
+function readBoundedStreamEffect(
   stream: ReadableStream<Uint8Array>,
   limit: number,
-): Promise<string> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      total += next.value.byteLength;
-      if (total > limit) throw new Error("OpenTUI behavior probe output exceeded its limit");
-      chunks.push(next.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
+): Effect.Effect<string, unknown> {
+  return Effect.acquireUseRelease(
+    Effect.sync(() => stream.getReader()),
+    (reader) =>
+      Effect.gen(function* () {
+        const chunks: Uint8Array[] = [];
+        let total = 0;
+        while (true) {
+          const next = yield* Effect.tryPromise(() => reader.read());
+          if (next.done) break;
+          total += next.value.byteLength;
+          if (total > limit) {
+            return yield* Effect.fail(
+              new Error("OpenTUI behavior probe output exceeded its limit"),
+            );
+          }
+          chunks.push(next.value);
+        }
+        const bytes = new Uint8Array(total);
+        let offset = 0;
+        for (const chunk of chunks) {
+          bytes.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        return new TextDecoder().decode(bytes);
+      }),
+    (reader) => Effect.sync(() => reader.releaseLock()),
+  );
 }
-
-async function sameVerificationFile(left: string, right: string): Promise<boolean> {
-  const resolvedLeft = resolve(left);
-  const resolvedRight = resolve(right);
-  const samePath = (leftPath: string, rightPath: string): boolean =>
-    process.platform === "win32"
-      ? resolve(leftPath).toLowerCase() === resolve(rightPath).toLowerCase()
-      : resolve(leftPath) === resolve(rightPath);
-  if (samePath(resolvedLeft, resolvedRight)) return true;
-  try {
-    const [canonicalLeft, canonicalRight] = await Promise.all([realpath(left), realpath(right)]);
-    return samePath(canonicalLeft, canonicalRight);
-  } catch {
-    return false;
-  }
+function sameVerificationFile(left: string, right: string): Effect.Effect<boolean, unknown> {
+  return Effect.gen(function* () {
+    const resolvedLeft = resolve(left);
+    const resolvedRight = resolve(right);
+    const samePath = (leftPath: string, rightPath: string): boolean =>
+      process.platform === "win32"
+        ? resolve(leftPath).toLowerCase() === resolve(rightPath).toLowerCase()
+        : resolve(leftPath) === resolve(rightPath);
+    if (samePath(resolvedLeft, resolvedRight)) return true;
+    return yield* Effect.all(
+      [Effect.tryPromise(() => realpath(left)), Effect.tryPromise(() => realpath(right))],
+      {
+        concurrency: 2,
+      },
+    ).pipe(
+      Effect.match({
+        onFailure: () => false,
+        onSuccess: ([canonicalLeft, canonicalRight]) => samePath(canonicalLeft, canonicalRight),
+      }),
+    );
+  });
 }
-
-async function assertPersistedContext7(
+function assertPersistedContext7(
   record: Record<string, unknown>,
   cwd: string,
   environment: Readonly<Record<string, string | undefined>>,
   commands: string[],
   label: string,
   expectedOwnership: "holycodex" | "user" = "holycodex",
-): Promise<void> {
-  assert(record["owner"] === "holycodex", `${label} record has the wrong installation owner`);
-  const context7 = objectProperty(objectProperty(record, "tooling"), "context7");
-  assert(context7 !== undefined, `${label} did not persist Context7 tooling state`);
-  assert(
-    context7["manager"] === "bun" && context7["launcher"] === "bunx",
-    `${label} did not persist the Bun Context7 manager and launcher`,
-  );
-  assert(
-    context7["ownership"] === expectedOwnership,
-    `${label} did not persist the expected Context7 ownership (${expectedOwnership})`,
-  );
-  assert(
-    typeof context7["version"] === "string" &&
-      /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u.test(context7["version"]),
-    `${label} did not persist a resolved Context7 version`,
-  );
-  assert(
-    typeof context7["executable"] === "string" && context7["executable"].length > 0,
-    `${label} did not persist the resolved Context7 executable`,
-  );
-  const version = context7["version"];
-  const executable = context7["executable"];
-  assert(typeof version === "string", `${label} Context7 version was lost during verification`);
-  assert(
-    typeof executable === "string",
-    `${label} Context7 executable was lost during verification`,
-  );
-  const command = [executable, "--version"];
-  commands.push(command.join(" "));
-  const result = await runCommand(command, { cwd, env: environment });
-  assert(
-    result.exitCode === 0 && result.stderr.length === 0,
-    `${label} Context7 executable could not be invoked: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
-  );
-  assert(
-    result.stdout.includes(version),
-    `${label} Context7 executable version does not match persisted state`,
-  );
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    assert(record["owner"] === "holycodex", `${label} record has the wrong installation owner`);
+    const context7 = objectProperty(objectProperty(record, "tooling"), "context7");
+    assert(context7 !== undefined, `${label} did not persist Context7 tooling state`);
+    assert(
+      context7["manager"] === "bun" && context7["launcher"] === "bunx",
+      `${label} did not persist the Bun Context7 manager and launcher`,
+    );
+    assert(
+      context7["ownership"] === expectedOwnership,
+      `${label} did not persist the expected Context7 ownership (${expectedOwnership})`,
+    );
+    assert(
+      typeof context7["version"] === "string" &&
+        /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u.test(context7["version"]),
+      `${label} did not persist a resolved Context7 version`,
+    );
+    assert(
+      typeof context7["executable"] === "string" && context7["executable"].length > 0,
+      `${label} did not persist the resolved Context7 executable`,
+    );
+    const version = context7["version"];
+    const executable = context7["executable"];
+    assert(typeof version === "string", `${label} Context7 version was lost during verification`);
+    assert(
+      typeof executable === "string",
+      `${label} Context7 executable was lost during verification`,
+    );
+    const command = [executable, "--version"];
+    commands.push(command.join(" "));
+    const result = yield* Effect.tryPromise(() => runCommand(command, { cwd, env: environment }));
+    assert(
+      result.exitCode === 0 && result.stderr.length === 0,
+      `${label} Context7 executable could not be invoked: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
+    );
+    assert(
+      result.stdout.includes(version),
+      `${label} Context7 executable version does not match persisted state`,
+    );
+  });
 }
-
-async function createCodexFixture(
+function createCodexFixture(
   codexHome: string,
   codexCliVersion: string,
-): Promise<Readonly<{ binDirectory: string; executable: string }>> {
-  const binDirectory = join(dirname(codexHome), "fake-codex-bin");
-  await mkdir(binDirectory, { recursive: true });
-  const programPath = join(binDirectory, "fake-codex.mjs");
-  await writeFile(programPath, fakeCodexProgram(codexCliVersion), {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  if (process.platform === "win32") {
-    const executable = join(binDirectory, "codex.exe");
-    await runChecked(
-      [
-        process.execPath,
-        "build",
-        "--compile",
-        "--windows-hide-console",
-        `--outfile=${executable}`,
-        programPath,
-      ],
-      {
-        cwd: workspaceRoot,
-        env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
-      },
+): Effect.Effect<
+  Readonly<{
+    binDirectory: string;
+    executable: string;
+  }>,
+  unknown
+> {
+  return Effect.gen(function* () {
+    const binDirectory = join(dirname(codexHome), "fake-codex-bin");
+    yield* Effect.tryPromise(() => mkdir(binDirectory, { recursive: true }));
+    const programPath = join(binDirectory, "fake-codex.mjs");
+    yield* Effect.tryPromise(() =>
+      writeFile(programPath, fakeCodexProgram(codexCliVersion), {
+        encoding: "utf8",
+        mode: 0o600,
+      }),
     );
+    if (process.platform === "win32") {
+      const executable = join(binDirectory, "codex.exe");
+      yield* Effect.tryPromise(() =>
+        runChecked(
+          [
+            process.execPath,
+            "build",
+            "--compile",
+            "--windows-hide-console",
+            `--outfile=${executable}`,
+            programPath,
+          ],
+          {
+            cwd: workspaceRoot,
+            env: allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS),
+          },
+        ),
+      );
+      return { binDirectory, executable };
+    }
+    const executable = join(binDirectory, "codex");
+    yield* Effect.tryPromise(() =>
+      writeFile(executable, `#!/usr/bin/env bun\n${fakeCodexProgram(codexCliVersion)}`, {
+        encoding: "utf8",
+        mode: 0o700,
+      }),
+    );
+    yield* Effect.tryPromise(() => chmod(executable, 0o700));
     return { binDirectory, executable };
-  }
-  const executable = join(binDirectory, "codex");
-  await writeFile(executable, `#!/usr/bin/env bun\n${fakeCodexProgram(codexCliVersion)}`, {
-    encoding: "utf8",
-    mode: 0o700,
   });
-  await chmod(executable, 0o700);
-  return { binDirectory, executable };
 }
-
-async function assertCodexAppServerReadback(
+function assertCodexAppServerReadback(
   executable: string,
   environment: Readonly<Record<string, string | undefined>>,
   codexHome: string,
   codexCliVersion: string,
   expectedRootModel?: string,
   legacyRootOnly = false,
-): Promise<void> {
-  const transport = new BunStdioTransport({ executablePath: executable, environment });
-  const client = new AppServerClient(transport, { requestTimeoutMs: 10_000 });
-  try {
-    const initialize = await client.initialize();
-    assert(
-      initialize.userAgent === codexCliVersion,
-      "Codex App Server returned a version different from generated provenance",
-    );
-    assert(
-      initialize.protocolVersion ===
-        `codex-app-server-${codexCliVersion.slice("codex-cli ".length)}`,
-      "Codex App Server returned a protocol version different from generated provenance",
-    );
-    const readback = await client.readConfig({ includeLayers: true, cwd: codexHome });
-    const highProfile = PROFILE_CATALOG.find((profile) => profile.name === "high");
-    assert(highProfile !== undefined, "the high profile is missing from the route catalog");
-    assert(
-      readback.config["model"] === (expectedRootModel ?? highProfile.root.model) &&
-        readback.config["model_reasoning_effort"] ===
-          (legacyRootOnly ? "high" : highProfile.root.effort),
-      `Codex App Server config readback changed the high-profile Root route (expected ${JSON.stringify(expectedRootModel ?? highProfile.root.model)}/${legacyRootOnly ? "high" : highProfile.root.effort}, received ${JSON.stringify(readback.config["model"])}/${JSON.stringify(readback.config["model_reasoning_effort"])})`,
-    );
-    if (legacyRootOnly) return;
-    const rootInstructions = readback.config["developer_instructions"];
-    assert(
-      typeof rootInstructions === "string" &&
-        rootInstructions.toLowerCase().includes("bounded assignment") &&
-        rootInstructions.toLowerCase().includes("exact concrete registered role.task agent_type"),
-      "Codex App Server config readback changed the high-profile Root instruction projection",
-    );
-    const agents = readback.config["agents"];
-    assert(
-      typeof agents === "object" && agents !== null && !Array.isArray(agents),
-      "Codex App Server config readback omitted role registrations",
-    );
-    const agentTable = agents as Record<string, unknown>;
-    for (const agentType of NATIVE_AGENT_TYPES) {
-      const registration = agentTable[agentType];
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const transport = new BunStdioTransport({ executablePath: executable, environment });
+    const client = new AppServerClient(transport, { requestTimeoutMs: 120000 });
+    const verification = Effect.gen(function* () {
+      const initialize = yield* Effect.tryPromise(() => client.initialize());
       assert(
-        typeof registration === "object" &&
-          registration !== null &&
-          !Array.isArray(registration) &&
-          typeof (registration as Record<string, unknown>)["config_file"] === "string",
-        `Codex App Server config readback omitted the ${agentType} registration`,
+        initialize.userAgent === codexCliVersion,
+        "Codex App Server returned a version different from generated provenance",
       );
       assert(
-        typeof (registration as Record<string, unknown>)["name"] === "undefined",
-        `Codex App Server config readback unexpectedly materialized ${agentType} metadata`,
+        initialize.protocolVersion ===
+          `codex-app-server-${codexCliVersion.slice("codex-cli ".length)}`,
+        "Codex App Server returned a protocol version different from generated provenance",
       );
-      const configuredPath = (registration as Record<string, string>)["config_file"]!;
-      const readbackPath = isAbsolute(configuredPath)
-        ? resolve(configuredPath)
-        : resolve(codexHome, configuredPath);
-      const active = parseInstallRecord(
-        await readFile(join(codexHome, "holycodex/active.toml"), "utf8"),
-      ) as { managed_artifacts?: readonly { path: string }[] };
-      const expectedReference = active.managed_artifacts?.find((artifact) =>
-        artifact.path.endsWith(`/${agentType}.toml`),
-      )?.path;
+      const readback = yield* Effect.tryPromise(() =>
+        client.readConfig({ includeLayers: true, cwd: codexHome }),
+      );
+      const highProfile = PROFILE_CATALOG.find((profile) => profile.name === "high");
+      assert(highProfile !== undefined, "the high profile is missing from the route catalog");
       assert(
-        typeof expectedReference === "string" &&
-          /^holycodex\/agents\/[a-f0-9]{20}\//u.test(expectedReference) &&
-          configuredPath === expectedReference,
-        `Codex App Server config readback changed the active ${agentType} artifact reference`,
+        readback.config["model"] === (expectedRootModel ?? highProfile.root.model) &&
+          readback.config["model_reasoning_effort"] ===
+            (legacyRootOnly ? "high" : highProfile.root.effort),
+        `Codex App Server config readback changed the high-profile Root route (expected ${JSON.stringify(expectedRootModel ?? highProfile.root.model)}/${legacyRootOnly ? "high" : highProfile.root.effort}, received ${JSON.stringify(readback.config["model"])}/${JSON.stringify(readback.config["model_reasoning_effort"])})`,
       );
-      const expectedPath = isAbsolute(expectedReference)
-        ? resolve(expectedReference)
-        : resolve(codexHome, expectedReference);
-      const comparableReadbackPath =
-        process.platform === "win32" ? readbackPath.toLowerCase() : readbackPath;
-      const comparableExpectedPath =
-        process.platform === "win32" ? expectedPath.toLowerCase() : expectedPath;
+      if (legacyRootOnly) return;
+      const rootInstructions = readback.config["developer_instructions"];
       assert(
-        comparableReadbackPath === comparableExpectedPath,
-        `Codex App Server config readback resolved ${agentType} outside the active installed generation`,
+        typeof rootInstructions === "string" &&
+          rootInstructions.toLowerCase().includes("bounded assignment") &&
+          rootInstructions.toLowerCase().includes("exact concrete registered role.task agent_type"),
+        "Codex App Server config readback changed the high-profile Root instruction projection",
       );
-      const roleDocument = parseConfig(await readFile(readbackPath, "utf8"));
-      const expectedRoute = highProfile.routes.find(
-        (route) => `${route.role}.${route.task}` === agentType,
-      );
-      assert(expectedRoute !== undefined, `the high route catalog omitted ${agentType}`);
+      const agents = readback.config["agents"];
       assert(
-        readTomlPath(roleDocument, "model") === "gpt-6-luna" &&
-          readTomlPath(roleDocument, "model") === expectedRoute.model &&
-          readTomlPath(roleDocument, "model_reasoning_effort") === expectedRoute.effort,
-        `Codex App Server config readback changed the ${agentType} route TOML`,
+        typeof agents === "object" && agents !== null && !Array.isArray(agents),
+        "Codex App Server config readback omitted role registrations",
       );
-    }
-  } catch (error: unknown) {
-    const diagnostics = transport.diagnostics.join("; ");
-    const configText = await readFile(join(codexHome, "config.toml"), "utf8").catch(() => "");
-    const shellIndex = configText.indexOf("developer_instructions");
-    const configSnippet = configText
-      .slice(shellIndex < 0 ? 0 : shellIndex, shellIndex < 0 ? 512 : shellIndex + 1024)
-      .replaceAll(/\s+/gu, " ");
-    const configProbe = `configDeveloper=${configText.includes("developer_instructions")} configSnippet=${configSnippet}`;
-    const installerDebug = await readFile(join(codexHome, ".holycodex-debug.log"), "utf8").catch(
-      () => "",
+      const agentTable = agents as Record<string, unknown>;
+      for (const agentType of NATIVE_AGENT_TYPES) {
+        const registration = agentTable[agentType];
+        assert(
+          typeof registration === "object" &&
+            registration !== null &&
+            !Array.isArray(registration) &&
+            typeof (registration as Record<string, unknown>)["config_file"] === "string",
+          `Codex App Server config readback omitted the ${agentType} registration`,
+        );
+        assert(
+          typeof (registration as Record<string, unknown>)["name"] === "undefined",
+          `Codex App Server config readback unexpectedly materialized ${agentType} metadata`,
+        );
+        const configuredPath = (registration as Record<string, string>)["config_file"]!;
+        const readbackPath = isAbsolute(configuredPath)
+          ? resolve(configuredPath)
+          : resolve(codexHome, configuredPath);
+        const active = parseInstallRecord(
+          yield* Effect.tryPromise(() =>
+            readFile(join(codexHome, "holycodex/active.toml"), "utf8"),
+          ),
+        ) as {
+          managed_artifacts?: readonly {
+            path: string;
+          }[];
+        };
+        const expectedReference = active.managed_artifacts?.find((artifact) =>
+          artifact.path.endsWith(`/${agentType}.toml`),
+        )?.path;
+        assert(
+          typeof expectedReference === "string" &&
+            /^holycodex\/agents\/[a-f0-9]{20}\//u.test(expectedReference) &&
+            configuredPath === expectedReference,
+          `Codex App Server config readback changed the active ${agentType} artifact reference`,
+        );
+        const expectedPath = isAbsolute(expectedReference)
+          ? resolve(expectedReference)
+          : resolve(codexHome, expectedReference);
+        const comparableReadbackPath =
+          process.platform === "win32" ? readbackPath.toLowerCase() : readbackPath;
+        const comparableExpectedPath =
+          process.platform === "win32" ? expectedPath.toLowerCase() : expectedPath;
+        assert(
+          comparableReadbackPath === comparableExpectedPath,
+          `Codex App Server config readback resolved ${agentType} outside the active installed generation`,
+        );
+        const roleDocument = parseConfig(
+          yield* Effect.tryPromise(() => readFile(readbackPath, "utf8")),
+        );
+        const expectedRoute = highProfile.routes.find(
+          (route) => `${route.role}.${route.task}` === agentType,
+        );
+        assert(expectedRoute !== undefined, `the high route catalog omitted ${agentType}`);
+        assert(
+          readTomlPath(roleDocument, "model") === "gpt-6-luna" &&
+            readTomlPath(roleDocument, "model") === expectedRoute.model &&
+            readTomlPath(roleDocument, "model_reasoning_effort") === expectedRoute.effort,
+          `Codex App Server config readback changed the ${agentType} route TOML`,
+        );
+      }
+    });
+    const withDiagnostics = verification.pipe(
+      Effect.catchCause((cause) =>
+        Effect.gen(function* () {
+          const diagnostics = transport.diagnostics.join("; ");
+          const configText = yield* Effect.tryPromise(() =>
+            readFile(join(codexHome, "config.toml"), "utf8"),
+          ).pipe(Effect.match({ onFailure: () => "", onSuccess: (text) => text }));
+          const shellIndex = configText.indexOf("developer_instructions");
+          const configSnippet = configText
+            .slice(shellIndex < 0 ? 0 : shellIndex, shellIndex < 0 ? 512 : shellIndex + 1024)
+            .replaceAll(/\s+/gu, " ");
+          const configProbe = `configDeveloper=${configText.includes("developer_instructions")} configSnippet=${configSnippet}`;
+          const installerDebug = yield* Effect.tryPromise(() =>
+            readFile(join(codexHome, ".holycodex-debug.log"), "utf8"),
+          ).pipe(Effect.match({ onFailure: () => "", onSuccess: (text) => text }));
+          const suffix =
+            diagnostics.length > 0
+              ? `${diagnostics}; ${configProbe}; ${installerDebug}`
+              : `${configProbe}; ${installerDebug}`;
+          return yield* Effect.fail(new Error(`${Cause.pretty(cause)} (${suffix})`));
+        }),
+      ),
     );
-    if (diagnostics.length > 0) {
-      throw new Error(
-        `${error instanceof Error ? error.message : String(error)} (${diagnostics}; ${configProbe}; ${installerDebug})`,
-      );
-    }
-    throw new Error(
-      `${error instanceof Error ? error.message : String(error)} (${configProbe}; ${installerDebug})`,
+    return yield* Effect.acquireUseRelease(
+      Effect.succeed(undefined),
+      () => withDiagnostics,
+      () => Effect.tryPromise(() => client.close()),
     );
-  } finally {
-    await client.close();
-  }
+  });
 }
-
 function parseCodexPluginList(stdout: string): CodexPluginList {
   const raw: unknown = JSON.parse(stdout);
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
@@ -2331,7 +2506,6 @@ function parseCodexPluginList(stdout: string): CodexPluginList {
     });
   return { installed: parseEntries(installed), available: parseEntries(available) };
 }
-
 /** Source for the hermetic Codex executable used by package verification. */
 function fakeCodexProgram(codexCliVersion: string): string {
   const source = String.raw`const CODEX_VERSION = "CODEX_VERSION_PLACEHOLDER";
@@ -2800,68 +2974,75 @@ main().catch((error) => {
     .replace('"CODEX_VERSION_PLACEHOLDER"', JSON.stringify(codexCliVersion))
     .replace("AGENT_TYPES_PLACEHOLDER", JSON.stringify(NATIVE_AGENT_TYPES));
 }
-
-async function readPublicManifest(): Promise<PublicManifest> {
-  const raw: unknown = JSON.parse(await readFile(join(cliRoot, "package.json"), "utf8"));
-  const parsed = Schema.decodeUnknownEither(PublicManifestSchema, {
-    onExcessProperty: "ignore",
-  })(raw);
-  if (Either.isLeft(parsed)) {
-    throw new Error(`The public package manifest is invalid: ${String(parsed.left)}`);
-  }
-  const workspaceRaw: unknown = JSON.parse(
-    await readFile(join(workspaceRoot, "package.json"), "utf8"),
-  );
-  const workspace = Schema.decodeUnknownEither(WorkspaceManifestSchema, {
-    onExcessProperty: "ignore",
-  })(workspaceRaw);
-  if (Either.isLeft(workspace)) {
-    throw new Error(`The workspace manifest is invalid: ${String(workspace.left)}`);
-  }
-  const dependencies: Record<string, string> = {};
-  for (const [name, version] of Object.entries(parsed.right.dependencies)) {
-    if (version !== "catalog:") {
-      dependencies[name] = version;
-      continue;
+function readPublicManifest(): Effect.Effect<PublicManifest, unknown> {
+  return Effect.gen(function* () {
+    const raw: unknown = JSON.parse(
+      yield* Effect.tryPromise(() => readFile(join(cliRoot, "package.json"), "utf8")),
+    );
+    const parsed = Schema.decodeUnknownResult(PublicManifestSchema, {
+      onExcessProperty: "ignore",
+    })(raw);
+    if (Result.isFailure(parsed)) {
+      throw new Error(`The public package manifest is invalid: ${String(parsed.failure)}`);
     }
-    const catalogVersion = workspace.right.catalog[name];
-    if (catalogVersion === undefined) {
-      throw new Error(`The workspace catalog is missing ${name}.`);
+    const workspaceRaw: unknown = JSON.parse(
+      yield* Effect.tryPromise(() => readFile(join(workspaceRoot, "package.json"), "utf8")),
+    );
+    const workspace = Schema.decodeUnknownResult(WorkspaceManifestSchema, {
+      onExcessProperty: "ignore",
+    })(workspaceRaw);
+    if (Result.isFailure(workspace)) {
+      throw new Error(`The workspace manifest is invalid: ${String(workspace.failure)}`);
     }
-    dependencies[name] = catalogVersion;
-  }
-  return { ...parsed.right, dependencies };
+    const dependencies: Record<string, string> = {};
+    for (const [name, version] of Object.entries(parsed.success.dependencies)) {
+      if (version !== "catalog:") {
+        dependencies[name] = version;
+        continue;
+      }
+      const catalogVersion = workspace.success.catalog[name];
+      if (catalogVersion === undefined) {
+        throw new Error(`The workspace catalog is missing ${name}.`);
+      }
+      dependencies[name] = catalogVersion;
+    }
+    return { ...parsed.success, dependencies };
+  });
 }
-
-async function readInstalledManifest(path: string): Promise<PublicManifest> {
-  const raw: unknown = JSON.parse(await readFile(path, "utf8"));
-  const parsed = Schema.decodeUnknownEither(PublicManifestSchema, {
-    onExcessProperty: "preserve",
-  })(raw);
-  if (Either.isLeft(parsed)) {
-    throw new Error(`The installed package manifest is invalid: ${String(parsed.left)}`);
-  }
-  return parsed.right;
-}
-
-async function listPackageEntries(root: string, current = root): Promise<readonly string[]> {
-  const files: string[] = [];
-  for (const entry of await readdir(current, { withFileTypes: true })) {
-    const absolute = join(current, entry.name);
-    if (entry.isSymbolicLink()) {
-      throw new Error(`The staged package may not contain symlinks: ${absolute}`);
+function readInstalledManifest(path: string): Effect.Effect<PublicManifest, unknown> {
+  return Effect.gen(function* () {
+    const raw: unknown = JSON.parse(yield* Effect.tryPromise(() => readFile(path, "utf8")));
+    const parsed = Schema.decodeUnknownResult(PublicManifestSchema, {
+      onExcessProperty: "ignore",
+    })(raw);
+    if (Result.isFailure(parsed)) {
+      throw new Error(`The installed package manifest is invalid: ${String(parsed.failure)}`);
     }
-    if (entry.isDirectory()) {
-      files.push(...(await listPackageEntries(root, absolute)));
-    } else if (entry.isFile()) {
-      files.push(relative(root, absolute).split("\\").join("/"));
-    } else {
-      throw new Error(`The staged package contains a non-file entry: ${absolute}`);
-    }
-  }
-  return files.sort();
+    return parsed.success;
+  });
 }
-
+function listPackageEntries(
+  root: string,
+  current = root,
+): Effect.Effect<readonly string[], unknown> {
+  return Effect.gen(function* () {
+    const files: string[] = [];
+    for (const entry of yield* Effect.tryPromise(() => readdir(current, { withFileTypes: true }))) {
+      const absolute = join(current, entry.name);
+      if (entry.isSymbolicLink()) {
+        throw new Error(`The staged package may not contain symlinks: ${absolute}`);
+      }
+      if (entry.isDirectory()) {
+        files.push(...(yield* listPackageEntries(root, absolute)));
+      } else if (entry.isFile()) {
+        files.push(relative(root, absolute).split("\\").join("/"));
+      } else {
+        throw new Error(`The staged package contains a non-file entry: ${absolute}`);
+      }
+    }
+    return files.sort();
+  });
+}
 function assertAllowedEntries(entries: readonly string[], manifest: PublicManifest): void {
   for (const entry of entries) {
     const allowed =
@@ -2870,111 +3051,160 @@ function assertAllowedEntries(entries: readonly string[], manifest: PublicManife
     assert(allowed, `the staged package contains an undeclared entry: ${entry}`);
   }
 }
-
-async function findInstalledExecutable(installedRoot: string): Promise<string> {
-  for (const candidate of [
-    join(installedRoot, "node_modules/.bin/holycodex"),
-    join(installedRoot, "node_modules/.bin/holycodex.cmd"),
-    join(installedRoot, "node_modules/.bin/holycodex.exe"),
-  ]) {
-    if (await exists(candidate)) {
-      return candidate;
+function findInstalledExecutable(installedRoot: string): Effect.Effect<string, unknown> {
+  return Effect.gen(function* () {
+    for (const candidate of [
+      join(installedRoot, "node_modules/.bin/holycodex"),
+      join(installedRoot, "node_modules/.bin/holycodex.cmd"),
+      join(installedRoot, "node_modules/.bin/holycodex.exe"),
+    ]) {
+      if (yield* exists(candidate)) {
+        return candidate;
+      }
     }
-  }
-  throw new Error("the installed executable bin is missing");
+    throw new Error("the installed executable bin is missing");
+  });
 }
-
-async function findCommandOnPath(name: string, searchPath: string | undefined): Promise<string> {
-  const extensions = process.platform === "win32" ? ["", ".exe", ".cmd", ".bat"] : [""];
-  for (const directory of (searchPath ?? "").split(delimiter)) {
-    for (const extension of extensions) {
-      const candidate = join(directory, `${name}${extension}`);
-      if (await exists(candidate)) return candidate;
+function findCommandOnPath(
+  name: string,
+  searchPath: string | undefined,
+): Effect.Effect<string, unknown> {
+  return Effect.gen(function* () {
+    const extensions = process.platform === "win32" ? ["", ".exe", ".cmd", ".bat"] : [""];
+    for (const directory of (searchPath ?? "").split(delimiter)) {
+      for (const extension of extensions) {
+        const candidate = join(directory, `${name}${extension}`);
+        if (yield* exists(candidate)) return candidate;
+      }
     }
-  }
-  throw new Error(`the ${name} launcher is missing from the package verification PATH`);
+    throw new Error(`the ${name} launcher is missing from the package verification PATH`);
+  });
 }
-
 function createReleaseStamp(options: PackageReleaseOptions): typeof ReleaseStampSchema.Type {
-  const parsed = Schema.decodeUnknownEither(ReleaseStampSchema)({
+  const parsed = Schema.decodeUnknownResult(ReleaseStampSchema)({
     schemaVersion: "holycodex-release-v1",
     channel: options.channel,
     sourceSha: options.sourceSha,
   });
-  if (Either.isLeft(parsed)) {
-    throw new Error(`The release stamp is invalid: ${String(parsed.left)}`);
+  if (Result.isFailure(parsed)) {
+    throw new Error(`The release stamp is invalid: ${String(parsed.failure)}`);
   }
-  return parsed.right;
+  return parsed.success;
 }
-
 function parseEnvelope(stdout: string): typeof CliEnvelopeSchema.Type {
   const raw: unknown = JSON.parse(stdout);
-  const parsed = Schema.decodeUnknownEither(CliEnvelopeSchema)(raw);
-  if (Either.isLeft(parsed)) {
-    throw new Error(`CLI package verification envelope failed validation: ${String(parsed.left)}`);
+  const parsed = Schema.decodeUnknownResult(CliEnvelopeSchema)(raw);
+  if (Result.isFailure(parsed)) {
+    throw new Error(
+      `CLI package verification envelope failed validation: ${String(parsed.failure)}`,
+    );
   }
-  return parsed.right;
+  return parsed.success;
 }
-
-function decode<A>(schema: Schema.Schema<A>, value: unknown, label: string): A {
-  const parsed = Schema.decodeUnknownEither(schema)(value);
-  if (Either.isLeft(parsed)) {
-    throw new Error(`${label} is invalid: ${String(parsed.left)}`);
+function decode<A>(schema: Schema.Decoder<A>, value: unknown, label: string): A {
+  const parsed = Schema.decodeUnknownResult(schema)(value);
+  if (Result.isFailure(parsed)) {
+    throw new Error(`${label} is invalid: ${String(parsed.failure)}`);
   }
-  return parsed.right;
+  return parsed.success;
 }
-
-async function requireFile(path: string, label: string): Promise<void> {
-  try {
-    await access(path);
-  } catch {
-    throw new Error(`${label} is missing: ${path}`);
-  }
+function requireFile(path: string, label: string): Effect.Effect<void, unknown> {
+  return Effect.tryPromise(() => access(path)).pipe(
+    Effect.mapError(() => new Error(label + " is missing: " + path)),
+  );
 }
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
+function exists(path: string): Effect.Effect<boolean, unknown> {
+  return Effect.tryPromise(() => access(path)).pipe(
+    Effect.match({ onFailure: () => false, onSuccess: () => true }),
+  );
 }
-
+function runWithCleanup<A>(
+  action: () => Effect.Effect<A, unknown>,
+  cleanup: () => Effect.Effect<void, unknown>,
+): Effect.Effect<A, unknown> {
+  return Effect.acquireUseRelease(Effect.succeed(undefined), action, cleanup);
+}
 function assert(condition: boolean, message: string): asserts condition {
   if (!condition) {
     throw new Error(message);
   }
 }
-
+const VerificationObjectSchema = Schema.Record(Schema.String, Schema.Unknown);
+const VerificationArraySchema = Schema.Array(Schema.Unknown);
 function hasProperty(value: unknown, key: string): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value) && key in value;
+  const parsed = Schema.decodeUnknownResult(VerificationObjectSchema)(value);
+  return Result.isSuccess(parsed) && Object.hasOwn(parsed.success, key);
 }
-
 function objectProperty(value: unknown, key: string): Record<string, unknown> | undefined {
   if (!hasProperty(value, key)) return undefined;
-  const child = value[key];
-  return typeof child === "object" && child !== null && !Array.isArray(child)
-    ? (child as Record<string, unknown>)
-    : undefined;
+  const parsed = Schema.decodeUnknownResult(VerificationObjectSchema)(value[key]);
+  return Result.isSuccess(parsed) ? parsed.success : undefined;
 }
-
 function arrayProperty(value: unknown, key: string): readonly unknown[] | undefined {
   if (!hasProperty(value, key)) return undefined;
-  return Array.isArray(value[key]) ? value[key] : undefined;
+  const parsed = Schema.decodeUnknownResult(VerificationArraySchema)(value[key]);
+  return Result.isSuccess(parsed) ? parsed.success : undefined;
+}
+if (import.meta.main) {
+  await Effect.runPromise(
+    runPackageVerificationEffect().pipe(
+      Effect.match({
+        onFailure: (error) => {
+          console.error(
+            JSON.stringify({
+              status: "failed",
+              message: error instanceof Error ? error.message : "package verification failed",
+            }),
+          );
+          process.exitCode = 1;
+        },
+        onSuccess: (result) => console.log(JSON.stringify({ status: "verified", ...result })),
+      }),
+    ),
+  );
 }
 
-if (import.meta.main) {
-  try {
-    const result = await runPackageVerification();
-    console.log(JSON.stringify({ status: "verified", ...result }));
-  } catch (error: unknown) {
-    console.error(
-      JSON.stringify({
-        status: "failed",
-        message: error instanceof Error ? error.message : "package verification failed",
-      }),
-    );
-    process.exitCode = 1;
-  }
+/** Promise adapter for the published package-verification API boundary. */
+export function packPublicPackage(
+  temporaryRoot: string,
+  options?: PackageReleaseOptions,
+): Promise<PackedPublicPackage> {
+  return Effect.runPromise(packPublicPackageEffect(temporaryRoot, options));
+}
+
+/** Promise adapter for the published package-verification API boundary. */
+export function verifyPublicPackage(
+  packed: PackedPublicPackage,
+  codexCliVersion?: string,
+): Promise<PackageVerificationResult> {
+  return Effect.runPromise(verifyPublicPackageEffect(packed, codexCliVersion));
+}
+
+/** Promise adapter for the published package-verification API boundary. */
+export function assertPackedEntries(
+  tarballPath: string,
+  expectedEntries: readonly string[],
+): Promise<void> {
+  return Effect.runPromise(assertPackedEntriesEffect(tarballPath, expectedEntries));
+}
+
+/** Promise adapter for the published package-verification API boundary. */
+export function sha256File(path: string): Promise<string> {
+  return Effect.runPromise(sha256FileEffect(path));
+}
+
+/** Promise adapter for the published package-verification API boundary. */
+export function runPackageVerification(): Promise<PackageVerificationResult> {
+  return Effect.runPromise(runPackageVerificationEffect());
+}
+
+function withVerificationDirectory<A>(
+  prefix: string,
+  use: (path: string) => Effect.Effect<A, unknown>,
+): Effect.Effect<A, unknown> {
+  return Effect.acquireUseRelease(
+    Effect.tryPromise(() => mkdtemp(join(tmpdir(), prefix + "-"))),
+    use,
+    (path) => Effect.tryPromise(() => rm(path, { recursive: true, force: true })),
+  );
 }

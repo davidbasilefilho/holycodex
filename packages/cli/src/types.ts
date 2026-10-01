@@ -11,6 +11,7 @@ import type {
   ProfileName,
   ServiceTier,
 } from "@holycodex/core";
+import type * as Effect from "effect/Effect";
 
 import type { InstallRequest } from "./installer.ts";
 
@@ -329,11 +330,13 @@ export type ConflictResolution = "accept" | "decline" | "cancel";
 /** A user-selected action available for one managed conflict. */
 export type ConflictDecision = "keep" | "remove" | "replace" | "cancel";
 /** Public CLI type describing conflict resolver. */
-export type ConflictResolver = (conflict: ManagedConflict) => Promise<ConflictResolution>;
+export type ConflictResolver = (
+  conflict: ManagedConflict,
+) => Effect.Effect<ConflictResolution, unknown>;
 /** Resolve the complete conflict inventory in one user interaction. */
 export type ConflictBatchResolver = (
   conflicts: readonly ManagedConflict[],
-) => Promise<Readonly<Record<string, ConflictDecision>>>;
+) => Effect.Effect<Readonly<Record<string, ConflictDecision>>, unknown>;
 
 /** A single prerequisite shown in the final install or upgrade review. */
 export type InstallReviewTool = Readonly<{
@@ -367,7 +370,11 @@ export type InstallReviewResult =
   | Readonly<{ readonly action: "cancel" }>;
 
 /** Resolve the final plan in one interaction before any managed mutation begins. */
-export type InstallReviewResolver = (review: InstallReview) => Promise<InstallReviewResult>;
+export type InstallReviewResolver = (
+  review: InstallReview,
+) => Effect.Effect<InstallReviewResult, unknown>;
+/** Promise-facing review callback used by injected terminal I/O adapters. */
+export type InstallReviewIoResolver = (review: InstallReview) => Promise<InstallReviewResult>;
 
 /** Public data contract for installer options used by CLI operations. */
 export interface InstallerOptions {
@@ -474,7 +481,7 @@ export interface CliIo {
   /** Injectable interactive installer boundary used by tests and embedders. */
   readonly installWizard?: (initial: InstallRequest) => Promise<InstallWizardResult>;
   /** Injectable final install or upgrade review boundary used by tests and embedders. */
-  readonly installReview?: InstallReviewResolver;
+  readonly installReview?: InstallReviewIoResolver;
   /** The write stdout in cli io. */
   readonly writeStdout?: (text: string) => void;
   /** The write stderr in cli io. */

@@ -5,7 +5,10 @@ import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import * as Either from "effect/Either";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import { runFreshClone } from "../scripts/fresh-clone.ts";
@@ -13,8 +16,8 @@ import { verifyGeneratedArtifactPortable } from "../scripts/repository-proof.ts"
 
 const workspaceRoot = resolve(import.meta.dirname, "..");
 const RootManifestSchema = Schema.Struct({
-  packageManager: Schema.Literal("bun@1.4.2"),
-  scripts: Schema.Record({ key: Schema.String, value: Schema.String }),
+  packageManager: Schema.Literals(["bun@1.4.2"]),
+  scripts: Schema.Record(Schema.String, Schema.String),
 });
 
 describe("repository validation machinery", () => {
@@ -22,12 +25,12 @@ describe("repository validation machinery", () => {
     const manifestRaw: unknown = JSON.parse(
       await readFile(resolve(workspaceRoot, "package.json"), "utf8"),
     );
-    const manifest = Schema.decodeUnknownEither(RootManifestSchema)(manifestRaw);
-    expect(Either.isRight(manifest)).toBe(true);
-    if (Either.isLeft(manifest)) {
-      throw new Error(String(manifest.left));
+    const manifest = Schema.decodeUnknownResult(RootManifestSchema)(manifestRaw);
+    expect(Result.isSuccess(manifest)).toBe(true);
+    if (Result.isFailure(manifest)) {
+      throw new Error(String(manifest.failure));
     }
-    expect(manifest.right.scripts["validate"]).toBe("bun scripts/validate.ts");
+    expect(manifest.success.scripts["validate"]).toBe("bun scripts/validate.ts");
     const validation = await readFile(resolve(workspaceRoot, "scripts/validate.ts"), "utf8");
     const order = [
       /runStep\(\["bun", "run", "fmt:check"/u,
@@ -265,15 +268,23 @@ describe("repository validation machinery", () => {
     try {
       const rootLink = join(temporaryRoot, "root-link");
       await symlink(generatedRoot, rootLink, process.platform === "win32" ? "junction" : "dir");
-      await expect(verifyGeneratedArtifactPortable(rootLink)).rejects.toThrow("symlinked roots");
+      const rootFailure = await Effect.runPromise(
+        Effect.exit(verifyGeneratedArtifactPortable(rootLink)),
+      );
+      expect(Exit.isFailure(rootFailure)).toBe(true);
+      if (Exit.isFailure(rootFailure))
+        expect(Cause.pretty(rootFailure.cause)).toContain("symlinked roots");
 
       const targetParent = join(temporaryRoot, "target-parent");
       const linkedParent = join(temporaryRoot, "linked-parent");
       await mkdir(join(targetParent, "generated"), { recursive: true });
       await symlink(targetParent, linkedParent, process.platform === "win32" ? "junction" : "dir");
-      await expect(
-        verifyGeneratedArtifactPortable(join(linkedParent, "generated")),
-      ).rejects.toThrow("symlinked roots");
+      const parentFailure = await Effect.runPromise(
+        Effect.exit(verifyGeneratedArtifactPortable(join(linkedParent, "generated"))),
+      );
+      expect(Exit.isFailure(parentFailure)).toBe(true);
+      if (Exit.isFailure(parentFailure))
+        expect(Cause.pretty(parentFailure.cause)).toContain("symlinked roots");
     } finally {
       await rm(temporaryRoot, { recursive: true, force: true });
     }

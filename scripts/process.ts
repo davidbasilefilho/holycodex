@@ -4,15 +4,28 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 
-import * as Either from "effect/Either";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 const CommandResultSchema = Schema.Struct({
-  command: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
-  exitCode: Schema.Number.pipe(Schema.int()),
+  command: Schema.Array(Schema.String.check(Schema.isMinLength(1))),
+  exitCode: Schema.Number.check(Schema.isInt()),
   stdout: Schema.String,
   stderr: Schema.String,
 });
+const CommandSchema = Schema.Array(Schema.String.check(Schema.isMinLength(1))).check(
+  Schema.isMinLength(1),
+);
+const EnvironmentKeySchema = Schema.String.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/u));
+const TemporaryDirectoryPrefixSchema = Schema.String.check(
+  Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,48}$/u),
+);
+const OutputLimitSchema = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isGreaterThan(0),
+  Schema.makeFilter(Number.isSafeInteger),
+);
 
 /** Captured output and exit status from a completed subprocess. */
 export type CommandResult = typeof CommandResultSchema.Type;
@@ -67,7 +80,6 @@ export const DEFAULT_COMMAND_ENVIRONMENT_KEYS = [
   "GIT_CONFIG_NOSYSTEM",
 ] as const;
 
-const ENVIRONMENT_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const SENSITIVE_ENVIRONMENT_KEY_PATTERN =
   /(?:^|_)(?:ACCESS[_-]?KEY|API[_-]?KEY|AUTH(?:ORIZATION)?|CERT(?:IFICATE)?|COOKIE|CREDENTIALS?|PASSWORD|PASSWD|PRIVATE[_-]?KEY|SECRET|TOKEN)(?:$|_)/iu;
 
@@ -89,9 +101,7 @@ export function allowlistedEnvironment(
 ): Record<string, string> {
   const result: Record<string, string> = {};
   for (const key of [...keys, ...Object.keys(overrides)]) {
-    if (!ENVIRONMENT_KEY_PATTERN.test(key)) {
-      throw new Error(`Invalid subprocess environment key: ${key}`);
-    }
+    Schema.decodeUnknownSync(EnvironmentKeySchema)(key);
   }
   for (const key of keys) {
     const value = process.env[key];
@@ -118,37 +128,63 @@ export async function runCommand(
     readonly maxOutputBytes?: number;
   }> = {},
 ): Promise<CommandResult> {
-  if (command.length === 0 || command.some((part) => part.length === 0)) {
-    throw new Error("A subprocess command must contain non-empty arguments.");
-  }
-  const env =
-    options.env === undefined
-      ? allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS)
-      : definedEnvironment(options.env);
-  const child = Bun.spawn([...command], {
-    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    ...(env === undefined ? {} : { env }),
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
+  return await Effect.runPromise(runCommandEffect(command, options));
+}
+
+/** Run a subprocess inside an Effect workflow without crossing the Promise adapter. */
+export function runCommandEffect(
+  command: readonly string[],
+  options: Readonly<{
+    readonly cwd?: string;
+    readonly env?: Readonly<Record<string, string | undefined>>;
+    readonly maxOutputBytes?: number;
+  }> = {},
+): Effect.Effect<CommandResult, unknown> {
+  return Effect.gen(function* () {
+    const validatedCommand = Schema.decodeUnknownSync(CommandSchema)(command);
+    const env =
+      options.env === undefined
+        ? allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS)
+        : definedEnvironment(options.env);
+    const child = yield* Effect.try({
+      try: () =>
+        Bun.spawn([...validatedCommand], {
+          ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+          ...(env === undefined ? {} : { env }),
+          stdin: "ignore",
+          stdout: "pipe",
+          stderr: "pipe",
+        }),
+      catch: (error) => error,
+    });
+    if (!(child.stdout instanceof ReadableStream) || !(child.stderr instanceof ReadableStream)) {
+      return yield* Effect.fail(new Error("The subprocess did not expose bounded output streams."));
+    }
+    const maxOutputBytes = Schema.decodeUnknownSync(OutputLimitSchema)(
+      options.maxOutputBytes ?? DEFAULT_OUTPUT_LIMIT,
+    );
+    const [stdout, stderr, exitCode] = yield* Effect.all(
+      [
+        readStreamEffect(child.stdout, maxOutputBytes),
+        readStreamEffect(child.stderr, maxOutputBytes),
+        Effect.tryPromise({
+          try: () => child.exited,
+          catch: (error) => error,
+        }),
+      ],
+      { concurrency: 3 },
+    );
+    const candidate = { command: [...validatedCommand], exitCode, stdout, stderr };
+    const parsed = Schema.decodeUnknownResult(CommandResultSchema, {
+      onExcessProperty: "error",
+    })(candidate);
+    if (Result.isFailure(parsed)) {
+      return yield* Effect.fail(
+        new Error(`The subprocess result failed validation: ${String(parsed.failure)}`),
+      );
+    }
+    return parsed.success;
   });
-  if (!(child.stdout instanceof ReadableStream) || !(child.stderr instanceof ReadableStream)) {
-    throw new Error("The subprocess did not expose bounded output streams.");
-  }
-  const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_OUTPUT_LIMIT;
-  const [stdout, stderr, exitCode] = await Promise.all([
-    readStream(child.stdout, maxOutputBytes),
-    readStream(child.stderr, maxOutputBytes),
-    child.exited,
-  ]);
-  const candidate = { command: [...command], exitCode, stdout, stderr };
-  const parsed = Schema.decodeUnknownEither(CommandResultSchema, {
-    onExcessProperty: "error",
-  })(candidate);
-  if (Either.isLeft(parsed)) {
-    throw new Error(`The subprocess result failed validation: ${String(parsed.left)}`);
-  }
-  return parsed.right;
 }
 
 /** Run a subprocess and throw a redacted error when it exits unsuccessfully. */
@@ -161,23 +197,42 @@ export async function runChecked(
     readonly failureDiagnostics?: FailureDiagnosticMode;
   }> = {},
 ): Promise<CommandResult> {
-  const environment =
-    options.env === undefined
-      ? allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS)
-      : definedEnvironment(options.env);
-  const result = await runCommand(command, { ...options, env: environment });
-  if (result.exitCode !== 0) {
-    if (options.failureDiagnostics === "full") {
-      const diagnostic = redactUnboundedDiagnostics(formatCommandOutput(result), environment);
-      if (diagnostic.length > 0) {
-        console.error(`[holycodex] full subprocess diagnostics:\n${diagnostic}`);
+  return await Effect.runPromise(runCheckedEffect(command, options));
+}
+
+/** Run a checked subprocess inside an Effect workflow. */
+export function runCheckedEffect(
+  command: readonly string[],
+  options: Readonly<{
+    readonly cwd?: string;
+    readonly env?: Readonly<Record<string, string | undefined>>;
+    readonly maxOutputBytes?: number;
+    readonly failureDiagnostics?: FailureDiagnosticMode;
+  }> = {},
+): Effect.Effect<CommandResult, unknown> {
+  return Effect.gen(function* () {
+    const environment =
+      options.env === undefined
+        ? allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS)
+        : definedEnvironment(options.env);
+    const result = yield* runCommandEffect(command, { ...options, env: environment });
+    if (result.exitCode !== 0) {
+      if (options.failureDiagnostics === "full") {
+        const diagnostic = redactUnboundedDiagnostics(formatCommandOutput(result), environment);
+        if (diagnostic.length > 0) {
+          yield* Effect.sync(() =>
+            console.error(`[holycodex] full subprocess diagnostics:\n${diagnostic}`),
+          );
+        }
       }
+      return yield* Effect.fail(
+        new Error(
+          `${redactDiagnostics(command.join(" "), environment)} failed with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
+        ),
+      );
     }
-    throw new Error(
-      `${redactDiagnostics(command.join(" "), environment)} failed with exit ${result.exitCode}: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
-    );
-  }
-  return result;
+    return result;
+  });
 }
 
 /** Run an operation inside a temporary directory and remove it afterward. */
@@ -185,21 +240,43 @@ export async function withTemporaryDirectory<T>(
   prefix: string,
   operation: (directory: string) => Promise<T>,
 ): Promise<T> {
-  if (!/^[a-z0-9][a-z0-9-]{0,48}$/u.test(prefix)) {
-    throw new Error("Temporary directory prefixes must be short, lowercase identifiers.");
-  }
-  const directory = assertTemporaryPath(
-    await mkdtemp(join(tmpdir(), `${prefix}-`)),
-    "temporary directory",
+  return await Effect.runPromise(
+    withTemporaryDirectoryEffect(prefix, (directory) =>
+      Effect.tryPromise({
+        try: () => operation(directory),
+        catch: (error) => error,
+      }),
+    ),
   );
-  try {
-    return await operation(directory);
-  } finally {
-    await rm(assertTemporaryPath(directory, "temporary directory"), {
-      recursive: true,
-      force: true,
-    });
-  }
+}
+
+/** Run an Effect workflow in a temporary directory and remove it afterward. */
+export function withTemporaryDirectoryEffect<T, E>(
+  prefix: string,
+  operation: (directory: string) => Effect.Effect<T, E>,
+): Effect.Effect<T, unknown> {
+  Schema.decodeUnknownSync(TemporaryDirectoryPrefixSchema)(prefix);
+  return Effect.gen(function* () {
+    const directory = assertTemporaryPath(
+      yield* Effect.tryPromise({
+        try: () => mkdtemp(join(tmpdir(), `${prefix}-`)),
+        catch: (error) => error,
+      }),
+      "temporary directory",
+    );
+    return yield* operation(directory).pipe(
+      Effect.ensuring(
+        Effect.tryPromise({
+          try: () =>
+            rm(assertTemporaryPath(directory, "temporary directory"), {
+              recursive: true,
+              force: true,
+            }),
+          catch: (error) => error,
+        }).pipe(Effect.orDie),
+      ),
+    );
+  });
 }
 
 /** Assert that a path remains below the system temporary directory. */
@@ -207,20 +284,27 @@ export function assertTemporaryPath(path: string, label: string): string {
   const resolved = resolve(path);
   const root = resolve(tmpdir());
   const relativePath = relative(root, resolved);
-  if (
-    resolved === root ||
-    relativePath === "" ||
-    relativePath === ".." ||
-    relativePath.startsWith(`..${sep}`)
-  ) {
-    throw new Error(`${label} must remain below the system temporary directory.`);
-  }
-  return resolved;
+  const pathSchema = Schema.String.check(
+    Schema.makeFilter(
+      () =>
+        resolved !== root &&
+        relativePath !== "" &&
+        relativePath !== ".." &&
+        !relativePath.startsWith(`..${sep}`),
+      { message: `${label} must remain below the system temporary directory.` },
+    ),
+  );
+  return Schema.decodeUnknownSync(pathSchema)(resolved);
 }
 
 /** Write one JSON value with a terminal newline and restrictive file mode. */
 export async function writeJson(path: string, value: unknown): Promise<void> {
-  await writeFile(path, `${JSON.stringify(value)}\n`, { encoding: "utf8", mode: 0o600 });
+  await Effect.runPromise(
+    Effect.tryPromise({
+      try: () => writeFile(path, `${JSON.stringify(value)}\n`, { encoding: "utf8", mode: 0o600 }),
+      catch: (error) => error,
+    }),
+  );
 }
 
 /** Redact sensitive values from diagnostics and bound the resulting text. */
@@ -299,6 +383,7 @@ function definedEnvironment(
 ): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(environment)) {
+    Schema.decodeUnknownSync(EnvironmentKeySchema)(key);
     if (value !== undefined) {
       result[key] = value;
     }
@@ -306,33 +391,42 @@ function definedEnvironment(
   return result;
 }
 
-async function readStream(stream: ReadableStream<Uint8Array>, limit: number): Promise<string> {
-  if (!Number.isSafeInteger(limit) || limit < 1) {
-    throw new Error("Subprocess output limits must be positive safe integers.");
-  }
+function readStreamEffect(
+  stream: ReadableStream<Uint8Array>,
+  limit: number,
+): Effect.Effect<string, unknown> {
+  Schema.decodeUnknownSync(OutputLimitSchema)(limit);
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  try {
+  const read = Effect.gen(function* () {
     while (true) {
-      const next = await reader.read();
+      const next = yield* Effect.tryPromise({
+        try: () => reader.read(),
+        catch: (error) => error,
+      });
       if (next.done) {
         break;
       }
       total += next.value.byteLength;
       if (total > limit) {
-        throw new Error("Subprocess output exceeded its bounded diagnostic limit.");
+        return yield* Effect.fail(
+          new Error("Subprocess output exceeded its bounded diagnostic limit."),
+        );
       }
       chunks.push(next.value);
     }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
+  });
+  return read.pipe(
+    Effect.map(() => {
+      const bytes = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return new TextDecoder().decode(bytes);
+    }),
+    Effect.ensuring(Effect.sync(() => reader.releaseLock())),
+  );
 }

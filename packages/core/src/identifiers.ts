@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Either from "effect/Either";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import { type CoreResult, CoreError, failure, inputError, success } from "./errors.ts";
 import { decodeUnknown } from "./schema.ts";
 
 /** Runtime schema validating identifier text values at the receiving boundary. */
-export const identifierTextSchema = Schema.String.pipe(
-  Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u),
+export const identifierTextSchema = Schema.String.check(
+  Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u),
 );
 /** Runtime schema validating digest text values at the receiving boundary. */
-export const digestTextSchema = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u));
+export const digestTextSchema = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/u));
 
 const RunIdSchema = identifierTextSchema.pipe(Schema.brand("RunId"));
 const ProjectIdSchema = identifierTextSchema.pipe(Schema.brand("ProjectId"));
@@ -28,16 +28,16 @@ export type TrustId = typeof TrustIdSchema.Type;
 export type Sha256Digest = typeof Sha256DigestSchema.Type;
 
 function createIdentifier<T extends string>(
-  schema: Schema.Schema<T, string>,
+  schema: Schema.Codec<T, string>,
   value: unknown,
   field: string,
 ): CoreResult<T> {
   const parsed = decodeUnknown(schema, value);
-  if (Either.isLeft(parsed)) {
-    return failure(inputError(field, parsed.left));
+  if (Result.isFailure(parsed)) {
+    return failure(inputError(field, parsed.failure));
   }
   // The schema establishes the non-empty, bounded identifier invariant.
-  return success(parsed.right);
+  return success(parsed.success);
 }
 
 /** Validate an unknown value as a bounded run identifier. */
@@ -58,18 +58,18 @@ export function createTrustId(value: unknown): CoreResult<TrustId> {
 /** Validate an unknown value as a lowercase 64-character SHA-256 digest. */
 export function createSha256Digest(value: unknown): CoreResult<Sha256Digest> {
   const parsed = decodeUnknown(Sha256DigestSchema, value);
-  if (Either.isLeft(parsed)) {
-    return failure(inputError("sha256 digest", parsed.left));
+  if (Result.isFailure(parsed)) {
+    return failure(inputError("sha256 digest", parsed.failure));
   }
   // The schema establishes the exact lowercase 32-byte hexadecimal form.
-  return success(parsed.right);
+  return success(parsed.success);
 }
 
 /** Runtime schema validating run identity input values at the receiving boundary. */
 export const RunIdentityInputSchema = Schema.Struct({
   run_id: identifierTextSchema,
   objective_lineage: identifierTextSchema,
-  parent_run_id: Schema.optional(Schema.Union(identifierTextSchema, Schema.Null)),
+  parent_run_id: Schema.optional(Schema.Union([identifierTextSchema, Schema.Null])),
 });
 /** Type representing run identity input in the core domain. */
 export type RunIdentityInput = typeof RunIdentityInputSchema.Type;
@@ -95,34 +95,34 @@ export type ProjectIdentityInput = typeof ProjectIdentityInputSchema.Type;
 export type IdentityRecord = RunIdentityInput | TrustIdentityInput | ProjectIdentityInput;
 
 /** Runtime schema validating schema epoch id values at the receiving boundary. */
-export const SchemaEpochIdSchema = Schema.String.pipe(Schema.pattern(/^state-[0-9]+\.[0-9]+$/u));
+export const SchemaEpochIdSchema = Schema.String.check(Schema.isPattern(/^state-[0-9]+\.[0-9]+$/u));
 /** Type representing schema epoch id in the core domain. */
 export type SchemaEpochId = typeof SchemaEpochIdSchema.Type;
 
 /** Decode an unknown value as one of the supported run, trust, or project identities. */
 export function parseIdentityInput(input: unknown): CoreResult<IdentityRecord> {
   const run = decodeUnknown(RunIdentityInputSchema, input);
-  if (Either.isRight(run)) {
-    return success(run.right);
+  if (Result.isSuccess(run)) {
+    return success(run.success);
   }
 
   const trust = decodeUnknown(TrustIdentityInputSchema, input);
-  if (Either.isRight(trust)) {
-    return success(trust.right);
+  if (Result.isSuccess(trust)) {
+    return success(trust.success);
   }
 
   const project = decodeUnknown(ProjectIdentityInputSchema, input);
-  if (Either.isRight(project)) {
-    return success(project.right);
+  if (Result.isSuccess(project)) {
+    return success(project.success);
   }
 
-  return failure(inputError("identity input", project.left));
+  return failure(inputError("identity input", project.failure));
 }
 
 /** Validate an unknown value as a state schema epoch identifier. */
 export function parseSchemaEpochId(input: unknown): CoreResult<SchemaEpochId> {
   const parsed = decodeUnknown(SchemaEpochIdSchema, input);
-  if (Either.isLeft(parsed)) {
+  if (Result.isFailure(parsed)) {
     return failure(
       new CoreError(
         "invalid_schema_epoch",
@@ -130,9 +130,9 @@ export function parseSchemaEpochId(input: unknown): CoreResult<SchemaEpochId> {
         {
           field: "schema_epoch",
         },
-        { cause: parsed.left },
+        { cause: parsed.failure },
       ),
     );
   }
-  return success(parsed.right);
+  return success(parsed.success);
 }

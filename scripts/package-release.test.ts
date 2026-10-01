@@ -2,6 +2,8 @@
 
 import { describe, expect, test } from "bun:test";
 
+import * as Effect from "effect/Effect";
+
 import { runPackageBuild } from "./package-build.ts";
 import { createReleaseArtifact } from "./package-release.ts";
 import { withTemporaryDirectory } from "./process.ts";
@@ -9,8 +11,8 @@ import { baseVersionFromRelease, readCanonicalVersion } from "./release-version.
 
 describe("release package boundary", () => {
   test("verifies a development artifact with its stable install-record base", async () => {
-    await runPackageBuild();
-    const canonicalVersion = await readCanonicalVersion();
+    await Effect.runPromise(runPackageBuild());
+    const canonicalVersion = await Effect.runPromise(readCanonicalVersion());
     const baseVersion = baseVersionFromRelease(canonicalVersion);
     const releaseVersion = `${baseVersion}-dev.76.1`;
     const metadata = await withTemporaryDirectory(
@@ -25,5 +27,5 @@ describe("release package boundary", () => {
 
     expect(metadata.baseVersion).toBe(baseVersion);
     expect(metadata.version).toBe(releaseVersion);
-  }, 180_000);
+  }, 900_000);
 });

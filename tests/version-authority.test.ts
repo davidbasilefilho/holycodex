@@ -5,7 +5,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import * as Either from "effect/Either";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import {
@@ -14,9 +14,11 @@ import {
   isCanonicalVersion,
   resolveCanonicalVersion,
 } from "../packages/core/src/version.ts";
+import { SourceManifestSchema } from "../packages/plugin/src/schemas.ts";
 import {
   assertReleaseVersion,
   baseVersionFromRelease,
+  decodeVersionedManifest,
   developmentVersion,
   stableVersionFromTag,
 } from "../scripts/release-version.ts";
@@ -32,7 +34,7 @@ const previousStableFixturePath = "scripts/package-verification.ts";
 const RELEASE_LITERAL =
   /(?<![0-9A-Za-z])0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*)|-dev\.\d+\.\d+)?(?![0-9A-Za-z])/gu;
 const CliManifest = Schema.Struct({
-  name: Schema.Literal("holycodex"),
+  name: Schema.Literals(["holycodex"]),
   version: CanonicalVersionSchema,
 });
 type CliManifest = typeof CliManifest.Type;
@@ -70,6 +72,41 @@ describe("release version authority", () => {
     const manifest = await readCanonicalManifest();
 
     expect(isCanonicalVersion(manifest.version)).toBe(true);
+  });
+
+  test("preserves CLI and plugin manifest metadata when validating version updates", async () => {
+    const currentVersion = (await readCanonicalManifest()).version;
+    const cliManifest = {
+      name: "holycodex",
+      version: currentVersion,
+      bin: { holycodex: "dist/index.js" },
+      scripts: { test: "bun test" },
+      customMetadata: { retained: true },
+    };
+    const pluginManifestPath = `${workspaceRoot}/${generatedPluginManifestPath}`;
+    const pluginManifestRaw: unknown = JSON.parse(await readFile(pluginManifestPath, "utf8"));
+    const pluginManifest = {
+      ...Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(pluginManifestRaw),
+      version: currentVersion,
+      additionalMetadata: ["retained"],
+    };
+
+    const decodedCliManifest = decodeVersionedManifest(cliManifest);
+    const decodedPluginManifest = decodeVersionedManifest(pluginManifest, SourceManifestSchema);
+
+    expect(Result.isSuccess(decodedCliManifest)).toBe(true);
+    expect(Result.isSuccess(decodedPluginManifest)).toBe(true);
+    if (Result.isSuccess(decodedCliManifest)) {
+      expect(decodedCliManifest.success).toMatchObject(cliManifest);
+    }
+    if (Result.isSuccess(decodedPluginManifest)) {
+      expect(decodedPluginManifest.success).toMatchObject(pluginManifest);
+    }
+    expect(
+      Result.isFailure(
+        decodeVersionedManifest({ ...pluginManifest, version: "invalid" }, SourceManifestSchema),
+      ),
+    ).toBe(true);
   });
 
   test("keeps shared dependency versions in the root Bun catalog", async () => {
@@ -118,7 +155,7 @@ describe("release version authority", () => {
     const catalog = rootManifest.catalog ?? {};
     for (const [name, range] of Object.entries(catalog)) {
       expect(range, `${name} must use a compatibility range`).toMatch(
-        /^(?:\^[1-9]\d*\.\d+\.\d+|~0\.\d+\.\d+)$/u,
+        /^\^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u,
       );
     }
     const lockfile = await readFile(`${workspaceRoot}/bun.lock`, "utf8");
@@ -198,13 +235,15 @@ describe("release version authority", () => {
   test("accepts numeric release suffixes as canonical versions and rejects malformed forms", () => {
     for (const version of ["0.1.2-0", "0.1.2-1", "0.1.2-17"]) {
       expect(isCanonicalVersion(version)).toBe(true);
-      expect(Either.isRight(Schema.decodeUnknownEither(CanonicalVersionSchema)(version))).toBe(
+      expect(Result.isSuccess(Schema.decodeUnknownResult(CanonicalVersionSchema)(version))).toBe(
         true,
       );
     }
     for (const version of ["0.1.2-", "0.1.2-01", "0.1.2-1-2", "0.1.2-dev.1.1"]) {
       expect(isCanonicalVersion(version)).toBe(false);
-      expect(Either.isLeft(Schema.decodeUnknownEither(CanonicalVersionSchema)(version))).toBe(true);
+      expect(Result.isFailure(Schema.decodeUnknownResult(CanonicalVersionSchema)(version))).toBe(
+        true,
+      );
     }
   });
 
@@ -309,6 +348,7 @@ function isGeneratedOrPackageManagerPath(relativePath: string): boolean {
 
   const segments = normalizedPath.split("/");
   return (
+    normalizedPath.startsWith(".tmp-holycodex-") ||
     normalizedPath === "bun.lock" ||
     normalizedPath === "bun.lockb" ||
     generatedPrefixes.some((prefix) => normalizedPath.startsWith(prefix)) ||
@@ -320,11 +360,11 @@ async function readCanonicalManifest(): Promise<CliManifest> {
   const raw: unknown = JSON.parse(
     await readFile(`${workspaceRoot}/${canonicalManifestPath}`, "utf8"),
   );
-  const parsed = Schema.decodeUnknownEither(CliManifest)(raw);
-  if (Either.isLeft(parsed)) {
-    throw new Error(String(parsed.left));
+  const parsed = Schema.decodeUnknownResult(CliManifest)(raw);
+  if (Result.isFailure(parsed)) {
+    throw new Error(String(parsed.failure));
   }
-  return parsed.right;
+  return parsed.success;
 }
 
 async function readRootRouteMigrationBoundary(): Promise<string> {

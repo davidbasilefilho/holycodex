@@ -2,7 +2,8 @@
 
 import { join } from "node:path";
 
-import * as Either from "effect/Either";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import {
@@ -16,8 +17,8 @@ import {
 } from "./process.ts";
 
 const FreshCloneOptionsSchema = Schema.Struct({
-  url: Schema.Union(Schema.String.pipe(Schema.minLength(1)), Schema.Null),
-  ref: Schema.Union(Schema.String.pipe(Schema.minLength(1)), Schema.Null),
+  url: Schema.Union([Schema.String.check(Schema.isMinLength(1)), Schema.Null]),
+  ref: Schema.Union([Schema.String.check(Schema.isMinLength(1)), Schema.Null]),
   dryRun: Schema.Boolean,
   fixture: Schema.Boolean,
   network: Schema.Boolean,
@@ -156,17 +157,17 @@ function parseOptions(argv: readonly string[]): FreshCloneOptions {
         throw new Error(`Unknown fresh-clone option: ${argument ?? ""}`);
     }
   }
-  const parsed = Schema.decodeUnknownEither(FreshCloneOptionsSchema)({
+  const parsed = Schema.decodeUnknownResult(FreshCloneOptionsSchema)({
     url,
     ref,
     dryRun,
     fixture,
     network,
   });
-  if (Either.isLeft(parsed)) {
-    throw new Error(`Fresh-clone options are invalid: ${String(parsed.left)}`);
+  if (Result.isFailure(parsed)) {
+    throw new Error(`Fresh-clone options are invalid: ${String(parsed.failure)}`);
   }
-  return parsed.right;
+  return parsed.success;
 }
 
 function requiredValue(argv: readonly string[], index: number, option: string): string {
@@ -227,16 +228,26 @@ function assert(condition: boolean, message: string): asserts condition {
 }
 
 if (import.meta.main) {
-  try {
-    const result = await runFreshClone(parseOptions(Bun.argv.slice(2)));
-    console.log(JSON.stringify({ status: "verified", ...result }));
-  } catch (error: unknown) {
-    console.error(
-      JSON.stringify({
-        status: "failed",
-        message: redactDiagnostics(error instanceof Error ? error.message : "fresh-clone failed"),
+  const program = Effect.tryPromise({
+    try: () => runFreshClone(parseOptions(Bun.argv.slice(2))),
+    catch: (error) => error,
+  }).pipe(
+    Effect.tap((result) =>
+      Effect.sync(() => console.log(JSON.stringify({ status: "verified", ...result }))),
+    ),
+    Effect.catch((error) =>
+      Effect.sync(() => {
+        console.error(
+          JSON.stringify({
+            status: "failed",
+            message: redactDiagnostics(
+              error instanceof Error ? error.message : "fresh-clone failed",
+            ),
+          }),
+        );
+        process.exitCode = 1;
       }),
-    );
-    process.exitCode = 1;
-  }
+    ),
+  );
+  await Effect.runPromise(program);
 }

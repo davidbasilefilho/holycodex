@@ -1,37 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { canonicalJson, type JsonValue } from "@holycodex/core";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+
+const JsonValueSchema = Schema.Json;
 
 /** Validate and return a value that can be emitted as canonical JSON. */
 export function asJsonValue(value: unknown): JsonValue {
-  if (!isJsonValue(value)) {
-    throw new Error("The value is not JSON serializable.");
-  }
-  canonicalJson(value);
-  return value;
+  return Effect.runSync(
+    Effect.try({
+      try: () => {
+        Schema.decodeUnknownSync(JsonValueSchema)(value);
+        canonicalJson(value);
+        return value as JsonValue;
+      },
+      catch: () => new Error("The value is not JSON serializable."),
+    }),
+  ) as JsonValue;
 }
 
 /** Return whether a value is a finite, acyclic JSON value. */
-export function isJsonValue(value: unknown, seen = new Set<object>()): value is JsonValue {
-  if (value === null || typeof value === "string" || typeof value === "boolean") {
-    return true;
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value);
-  }
-  if (typeof value !== "object" || seen.has(value)) {
-    return false;
-  }
-  seen.add(value);
-  try {
-    if (Array.isArray(value)) {
-      return value.every((item) => isJsonValue(item, seen));
-    }
-    return (
-      Object.getPrototypeOf(value) === Object.prototype &&
-      Object.values(value).every((item) => isJsonValue(item, seen))
-    );
-  } finally {
-    seen.delete(value);
-  }
+export function isJsonValue(value: unknown): value is JsonValue {
+  return Schema.is(JsonValueSchema)(value);
 }

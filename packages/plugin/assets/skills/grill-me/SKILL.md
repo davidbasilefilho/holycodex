@@ -1,18 +1,21 @@
 ---
 name: grill-me
-description: Use when a material user decision blocks authorized work; ask Root's concise question through request_user_input.
+description: Use when intent, implementation, or findings are materially unclear and need the user's project decision; ask Root's smallest unresolved question through the supported input tool.
 ---
 
 # Grill me
 
-Use this skill only when an unresolved material user decision blocks the next
-step. It is not for routine omissions, safe implementation choices, or
-planning.
+Use this skill only when uncertainty about intent, implementation, or findings
+requires the user's project decision. Do not invoke it when the request is
+clear enough to proceed with a safe in-scope choice; it is not for routine
+omissions or planning.
 
-Root only. For every clarification, call `request_user_input` with the smallest
-set of questions needed to resolve the decision, in the user's language and
-grounded in known evidence. Never ask what the session already establishes.
-If no material question remains, continue without invoking this skill.
+Root only. Route every permitted question through the input-tool priority and
+pending-answer rules in Root's canonical developer instructions; never ask
+through prose. Follow each tool's contract, including restrictions on
+permission requests. Ask only what remains unresolved, in the user's language
+and grounded in known evidence. If no material decision remains, continue
+without invoking this skill.
 
 Continue independent authorized work while awaiting the answer. Do not ask
 about hypothetical later phases. Specialists must not ask the user; they

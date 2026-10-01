@@ -3,7 +3,8 @@
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-import * as Either from "effect/Either";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import { assertReleaseOutputDirectory, assertSafeArtifactFile } from "./artifact-security.ts";
@@ -31,28 +32,28 @@ import {
 } from "./release-version.ts";
 
 const ReleaseStampSchema = Schema.Struct({
-  schemaVersion: Schema.Literal("holycodex-release-v1"),
+  schemaVersion: Schema.Literals(["holycodex-release-v1"]),
   channel: ReleaseChannelSchema,
   sourceSha: SourceShaSchema,
 });
 const ArtifactMetadataSchema = Schema.Struct({
-  schemaVersion: Schema.Literal("holycodex-artifact-v1"),
-  name: Schema.Literal("holycodex"),
+  schemaVersion: Schema.Literals(["holycodex-artifact-v1"]),
+  name: Schema.Literals(["holycodex"]),
   baseVersion: BaseVersionSchema,
   version: ReleaseVersionSchema,
   channel: ReleaseChannelSchema,
   sourceSha: SourceShaSchema,
-  tarball: Schema.String.pipe(Schema.pattern(/^holycodex-[^/\\]+\.tgz$/u)),
+  tarball: Schema.String.check(Schema.isPattern(/^holycodex-[^/\\]+\.tgz$/u)),
   tarballSha256: Sha256Schema,
-  entries: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
+  entries: Schema.Array(Schema.String.check(Schema.isMinLength(1))),
   verificationCommands: Schema.Array(Schema.String),
 });
 const RegistryMetadataSchema = Schema.Struct({
-  name: Schema.Literal("holycodex"),
+  name: Schema.Literals(["holycodex"]),
   version: ReleaseVersionSchema,
   release: ReleaseStampSchema,
   dist: Schema.Struct({
-    tarball: Schema.String.pipe(Schema.pattern(/^https?:\/\//u)),
+    tarball: Schema.String.check(Schema.isPattern(/^https?:\/\//u)),
   }),
 });
 const GitHubReleaseSchema = Schema.Struct({
@@ -63,15 +64,15 @@ const GitHubReleaseSchema = Schema.Struct({
   assets: Schema.Array(Schema.Struct({ name: Schema.String })),
 });
 const ReleaseMarkerSchema = Schema.Struct({
-  schemaVersion: Schema.Literal("holycodex-artifact-v1"),
-  name: Schema.Literal("holycodex"),
+  schemaVersion: Schema.Literals(["holycodex-artifact-v1"]),
+  name: Schema.Literals(["holycodex"]),
   version: ReleaseVersionSchema,
   channel: ReleaseChannelSchema,
   sourceSha: SourceShaSchema,
-  tarball: Schema.String.pipe(Schema.pattern(/^holycodex-[^/\\]+\.tgz$/u)),
+  tarball: Schema.String.check(Schema.isPattern(/^holycodex-[^/\\]+\.tgz$/u)),
   tarballSha256: Sha256Schema,
 });
-const ArtifactPathSchema = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(4096));
+const ArtifactPathSchema = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096));
 const ArgumentsSchema = Schema.Array(Schema.String);
 
 type ArtifactMetadata = typeof ArtifactMetadataSchema.Type;
@@ -82,7 +83,7 @@ export async function createReleaseArtifact(
   options: PackageReleaseOptions,
 ): Promise<ArtifactMetadata> {
   const { packPublicPackage, verifyPublicPackage } = await loadPackageVerification();
-  const canonicalVersion = await readCanonicalVersion();
+  const canonicalVersion = await Effect.runPromise(readCanonicalVersion());
   assertReleaseVersion(canonicalVersion, options.channel, options.version);
   const output = resolve(decode(ArtifactPathSchema, outputDirectory, "the artifact directory"));
   await mkdir(output, { recursive: true });
@@ -120,7 +121,7 @@ export async function verifyReleaseArtifact(
   const output = resolve(decode(ArtifactPathSchema, outputDirectory, "the artifact directory"));
   const metadata = await readArtifactMetadata(output);
   await assertReleaseOutputDirectory(output, metadata.tarball);
-  const canonicalVersion = await readCanonicalVersion();
+  const canonicalVersion = await Effect.runPromise(readCanonicalVersion());
   assertReleaseVersion(canonicalVersion, channel, version);
   assert(
     metadata.baseVersion === baseVersionFromRelease(canonicalVersion),
@@ -347,19 +348,20 @@ async function sha256Bytes(bytes: Uint8Array): Promise<string> {
 }
 
 async function requireFile(path: string, label: string): Promise<void> {
-  try {
-    await readFile(path);
-  } catch {
-    throw new Error(`${label} is missing: ${path}`);
-  }
+  await Effect.runPromise(
+    Effect.tryPromise({
+      try: () => readFile(path),
+      catch: () => new Error(`${label} is missing: ${path}`),
+    }).pipe(Effect.asVoid),
+  );
 }
 
-function decode<A>(schema: Schema.Schema<A>, value: unknown, label: string): A {
-  const parsed = Schema.decodeUnknownEither(schema)(value);
-  if (Either.isLeft(parsed)) {
-    throw new Error(`${label} is invalid: ${String(parsed.left)}`);
+function decode<A>(schema: Schema.Decoder<A>, value: unknown, label: string): A {
+  const parsed = Schema.decodeUnknownResult(schema)(value);
+  if (Result.isFailure(parsed)) {
+    throw new Error(`${label} is invalid: ${String(parsed.failure)}`);
   }
-  return parsed.right;
+  return parsed.success;
 }
 
 function assert(condition: boolean, message: string): asserts condition {
@@ -400,88 +402,96 @@ function releaseOptions(args: readonly string[], start: number): PackageReleaseO
 }
 
 if (import.meta.main) {
-  try {
-    const parsed = decode(ArgumentsSchema, Bun.argv.slice(2), "release packaging arguments");
-    const command = argument(parsed, 0, "release packaging command");
-    if (command === "create") {
-      expectArgumentCount(parsed, 5);
-      const result = await createReleaseArtifact(
-        argument(parsed, 1, "artifact directory"),
-        releaseOptions(parsed, 2),
-      );
-      console.log(JSON.stringify(result));
-    } else if (command === "verify") {
-      expectArgumentCount(parsed, 6);
-      const result = await verifyReleaseArtifact(
-        argument(parsed, 1, "artifact directory"),
-        releaseOptions(parsed, 2).version,
-        releaseOptions(parsed, 2).channel,
-        releaseOptions(parsed, 2).sourceSha,
-        decode(
-          Sha256Schema,
-          argument(parsed, 5, "expected artifact digest"),
-          "the expected artifact digest",
-        ),
-      );
-      console.log(JSON.stringify({ status: "verified", ...result }));
-    } else if (command === "digest") {
-      expectArgumentCount(parsed, 2);
-      console.log(
-        (await readArtifactMetadata(resolve(argument(parsed, 1, "artifact directory"))))
-          .tarballSha256,
-      );
-    } else if (command === "notes") {
-      expectArgumentCount(parsed, 3);
-      await writeReleaseNotes(
-        argument(parsed, 1, "artifact directory"),
-        argument(parsed, 2, "notes path"),
-      );
-      console.log("written");
-    } else if (command === "check-npm") {
-      expectArgumentCount(parsed, 6);
-      const options = releaseOptions(parsed, 2);
-      console.log(
-        await checkNpmPublication(
+  const program = Effect.tryPromise({
+    try: async () => {
+      const parsed = decode(ArgumentsSchema, Bun.argv.slice(2), "release packaging arguments");
+      const command = argument(parsed, 0, "release packaging command");
+      if (command === "create") {
+        expectArgumentCount(parsed, 5);
+        const result = await createReleaseArtifact(
           argument(parsed, 1, "artifact directory"),
-          options.version,
-          options.channel,
-          options.sourceSha,
+          releaseOptions(parsed, 2),
+        );
+        console.log(JSON.stringify(result));
+      } else if (command === "verify") {
+        expectArgumentCount(parsed, 6);
+        const result = await verifyReleaseArtifact(
+          argument(parsed, 1, "artifact directory"),
+          releaseOptions(parsed, 2).version,
+          releaseOptions(parsed, 2).channel,
+          releaseOptions(parsed, 2).sourceSha,
           decode(
             Sha256Schema,
             argument(parsed, 5, "expected artifact digest"),
             "the expected artifact digest",
           ),
-        ),
-      );
-    } else if (command === "check-github") {
-      expectArgumentCount(parsed, 7);
-      const options = releaseOptions(parsed, 2);
-      console.log(
-        await checkGitHubPublication(
+        );
+        console.log(JSON.stringify({ status: "verified", ...result }));
+      } else if (command === "digest") {
+        expectArgumentCount(parsed, 2);
+        console.log(
+          (await readArtifactMetadata(resolve(argument(parsed, 1, "artifact directory"))))
+            .tarballSha256,
+        );
+      } else if (command === "notes") {
+        expectArgumentCount(parsed, 3);
+        await writeReleaseNotes(
           argument(parsed, 1, "artifact directory"),
-          options.version,
-          options.channel,
-          options.sourceSha,
-          decode(
-            Sha256Schema,
-            argument(parsed, 5, "expected artifact digest"),
-            "the expected artifact digest",
+          argument(parsed, 2, "notes path"),
+        );
+        console.log("written");
+      } else if (command === "check-npm") {
+        expectArgumentCount(parsed, 6);
+        const options = releaseOptions(parsed, 2);
+        console.log(
+          await checkNpmPublication(
+            argument(parsed, 1, "artifact directory"),
+            options.version,
+            options.channel,
+            options.sourceSha,
+            decode(
+              Sha256Schema,
+              argument(parsed, 5, "expected artifact digest"),
+              "the expected artifact digest",
+            ),
           ),
-          argument(parsed, 6, "GitHub repository"),
-        ),
-      );
-    } else {
-      throw new Error(
-        "Usage: bun scripts/package-release.ts <create|verify|digest|notes|check-npm|check-github> ...",
-      );
-    }
-  } catch (error: unknown) {
-    console.error(
-      JSON.stringify({
-        status: "failed",
-        message: error instanceof Error ? error.message : "release packaging failed",
+        );
+      } else if (command === "check-github") {
+        expectArgumentCount(parsed, 7);
+        const options = releaseOptions(parsed, 2);
+        console.log(
+          await checkGitHubPublication(
+            argument(parsed, 1, "artifact directory"),
+            options.version,
+            options.channel,
+            options.sourceSha,
+            decode(
+              Sha256Schema,
+              argument(parsed, 5, "expected artifact digest"),
+              "the expected artifact digest",
+            ),
+            argument(parsed, 6, "GitHub repository"),
+          ),
+        );
+      } else {
+        throw new Error(
+          "Usage: bun scripts/package-release.ts <create|verify|digest|notes|check-npm|check-github> ...",
+        );
+      }
+    },
+    catch: (error) => error,
+  }).pipe(
+    Effect.catch((error) =>
+      Effect.sync(() => {
+        console.error(
+          JSON.stringify({
+            status: "failed",
+            message: error instanceof Error ? error.message : "release packaging failed",
+          }),
+        );
+        process.exitCode = 1;
       }),
-    );
-    process.exitCode = 1;
-  }
+    ),
+  );
+  await Effect.runPromise(program);
 }

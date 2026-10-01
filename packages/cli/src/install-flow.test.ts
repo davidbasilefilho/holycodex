@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import { readTomlPath, summarizeManagedConfigValue } from "@holycodex/codex";
 import { resolveCanonicalVersion } from "@holycodex/core";
+import * as Effect from "effect/Effect";
 
 import {
   executeCommand,
@@ -24,9 +25,21 @@ import {
 import { parseConfig } from "./installer.ts";
 import { JsonObjectSchema } from "./schema.ts";
 import { decodeStateText } from "./storage.ts";
+import type { ConflictResolution } from "./types.ts";
 
 const CURRENT_VERSION = await readInstallationVersion();
+
 const [CURRENT_MAJOR, CURRENT_MINOR, CURRENT_PATCH] = CURRENT_VERSION.split("-", 1)[0]!.split(".");
+
+function effectResolver<Args extends readonly unknown[], Value>(
+  resolver: (...args: Args) => Promise<Value>,
+): (...args: Args) => Effect.Effect<Value extends string ? ConflictResolution : Value, never> {
+  return (...args) =>
+    Effect.tryPromise({ try: () => resolver(...args), catch: (error) => error }) as Effect.Effect<
+      Value extends string ? ConflictResolution : Value,
+      never
+    >;
+}
 const LEGACY_VERSION = `${CURRENT_MAJOR}.${CURRENT_MINOR}.${Number(CURRENT_PATCH) - 1}`;
 const PRE_ROUTE_MIGRATION_VERSION = `${CURRENT_MAJOR}.${CURRENT_MINOR}.${Number(CURRENT_PATCH) - 2}`;
 import type {
@@ -249,6 +262,52 @@ function commandContext(codexHome: string, manager: OfficialPluginManager, io: C
 }
 
 describe("command install and upgrade review flow", () => {
+  test("installs the HolyCodex permission preset as a selectable default and preserves later choices", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-permissions-default-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const manager = fakeManager();
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(
+        paths.configFile,
+        'default_permissions = ":read-only"\n\n[permissions.custom]\nextends = ":read-only"\n',
+      );
+      const installed = await installHolyCodex(
+        { profile: "default", optional: { computer_use: false } },
+        installerOptions(codexHome, manager),
+        { ...fakeEnvironment, CODEX_HOME: codexHome },
+      );
+      const initial = parseConfig(await readFile(paths.configFile, "utf8"));
+      expect(readTomlPath(initial, "default_permissions")).toBe("holycodex");
+      expect(readTomlPath(initial, "permissions.holycodex.extends")).toBe(":workspace");
+      expect(readTomlPath(initial, "permissions.holycodex.network.enabled")).toBe(true);
+      expect(readTomlPath(initial, "approval_policy")).toBe("on-request");
+      expect(readTomlPath(initial, "approvals_reviewer")).toBe("auto_review");
+      expect(readTomlPath(initial, "web_search")).toBe("live");
+      expect(readTomlPath(initial, "permissions.custom.extends")).toBe(":read-only");
+      expect(installed.record.managed_config?.managed["default_permissions"]).toBeUndefined();
+
+      await writeFile(
+        paths.configFile,
+        (await readFile(paths.configFile, "utf8")).replace(
+          'default_permissions = "holycodex"',
+          'default_permissions = "custom"',
+        ),
+      );
+      await installHolyCodex(
+        { optional: { computer_use: false } },
+        installerOptions(codexHome, manager),
+        { ...fakeEnvironment, CODEX_HOME: codexHome },
+      );
+      expect(
+        readTomlPath(parseConfig(await readFile(paths.configFile, "utf8")), "default_permissions"),
+      ).toBe("custom");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("installer debug mode does not persist configuration diagnostics", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-debug-log-"));
     const codexHome = join(root, "codex");
@@ -280,7 +339,7 @@ describe("command install and upgrade review flow", () => {
           { optional: { computer_use: false } },
           {
             ...installerOptions(codexHome, manager),
-            reviewInstall: async () => ({ action: "apply" }),
+            reviewInstall: effectResolver(async () => ({ action: "apply" })),
           },
           fakeEnvironment,
         );
@@ -301,7 +360,7 @@ describe("command install and upgrade review flow", () => {
         { optional: { computer_use: false } },
         {
           ...installerOptions(codexHome, manager),
-          reviewInstall: async () => ({ action: "apply" }),
+          reviewInstall: effectResolver(async () => ({ action: "apply" })),
         },
         fakeEnvironment,
       );
@@ -495,9 +554,10 @@ describe("command install and upgrade review flow", () => {
           {},
           {
             ...installerOptions(codexHome, interruptedManager),
-            resolveConflicts: async (conflicts) =>
+            resolveConflicts: effectResolver(async (conflicts) =>
               Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"])),
-            reviewInstall: async () => ({ action: "apply" }),
+            ),
+            reviewInstall: effectResolver(async () => ({ action: "apply" })),
           },
           fakeEnvironment,
         ),
@@ -521,7 +581,7 @@ describe("command install and upgrade review flow", () => {
       await removeHolyCodex(
         {
           ...installerOptions(codexHome, interruptedManager),
-          resolveConflict: async () => "decline",
+          resolveConflict: effectResolver(async () => "decline"),
         },
         fakeEnvironment,
       );
@@ -675,7 +735,14 @@ describe("command install and upgrade review flow", () => {
         }),
       );
       expect(highInstructions).toContain("Never perform delegable work yourself");
-      expect(highInstructions).toContain("collaboration.wait_agent at timeout_ms=600000");
+      expect(highInstructions).toContain(
+        "Always call collaboration.wait_agent with timeout_ms=600000 for every Root wait.",
+      );
+      expect(highInstructions).toContain(
+        "Never use a 10-second timeout or any other duration, regardless of the situation.",
+      );
+      expect(highInstructions).not.toContain("routine wait");
+      expect(highInstructions).not.toContain("when a longer event wait is appropriate");
       expect(highInstructions).toContain(
         "inspect only bounded evidence when a material stall or failure is plausible",
       );
@@ -805,7 +872,7 @@ describe("command install and upgrade review flow", () => {
           { optional: { computer_use: false } },
           {
             ...installerOptions(codexHome, fakeManager()),
-            reviewInstall: async () => ({ action: "unexpected" }) as never,
+            reviewInstall: effectResolver(async () => ({ action: "unexpected" }) as never),
           },
           fakeEnvironment,
         ),
@@ -837,11 +904,11 @@ describe("command install and upgrade review flow", () => {
             },
             {
               ...installerOptions(codexHome, fakeManager()),
-              reviewInstall: async () => {
+              reviewInstall: effectResolver(async () => {
                 const current = await readFile(paths.configFile, "utf8").catch(() => "");
                 await writeFile(paths.configFile, `${current}\n${changedEntry}`);
                 return { action: "apply" };
-              },
+              }),
             },
             fakeEnvironment,
           ),
@@ -880,9 +947,10 @@ describe("command install and upgrade review flow", () => {
           {},
           {
             ...installerOptions(codexHome, manager),
-            resolveConflicts: async (conflicts) =>
+            resolveConflicts: effectResolver(async (conflicts) =>
               Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"])),
-            reviewInstall: async () => ({ action: "apply" }),
+            ),
+            reviewInstall: effectResolver(async () => ({ action: "apply" })),
           },
           fakeEnvironment,
         ),
@@ -918,7 +986,7 @@ describe("command install and upgrade review flow", () => {
           {},
           {
             ...installerOptions(codexHome, manager),
-            reviewInstall: async () => {
+            reviewInstall: effectResolver(async () => {
               const current = await readFile(paths.configFile, "utf8");
               const marker = `[plugins."${additionalPlugin}"]\nenabled = true`;
               expect(current).toContain(marker);
@@ -927,7 +995,7 @@ describe("command install and upgrade review flow", () => {
                 current.replace(marker, marker.replace("true", "false")),
               );
               return { action: "apply" };
-            },
+            }),
           },
           fakeEnvironment,
         ),
@@ -1128,7 +1196,7 @@ describe("command install and upgrade review flow", () => {
           },
           {
             ...installerOptions(routeCodexHome, manager),
-            reviewInstall: async () => ({ action: "apply" }),
+            reviewInstall: effectResolver(async () => ({ action: "apply" })),
           },
           fakeEnvironment,
         );
@@ -1230,7 +1298,7 @@ describe("command install and upgrade review flow", () => {
       const result = await upgradeHolyCodex(
         {
           ...installerOptions(codexHome, manager),
-          reviewInstall: async (review) => {
+          reviewInstall: effectResolver(async (review) => {
             reviewRequest = {
               profile: review.profile,
               tier: review.tier,
@@ -1238,7 +1306,7 @@ describe("command install and upgrade review flow", () => {
               officialPlugins: review.additionalPlugins,
             };
             return { action: "apply" };
-          },
+          }),
         },
         fakeEnvironment,
       );
@@ -1285,7 +1353,7 @@ describe("command install and upgrade review flow", () => {
         { optional: { computer_use: false } },
         {
           ...installerOptions(codexHome, manager),
-          resolveConflicts: async (conflicts) =>
+          resolveConflicts: effectResolver(async (conflicts) =>
             Object.fromEntries(
               conflicts.map((conflict) => [
                 conflict.identity!,
@@ -1294,7 +1362,8 @@ describe("command install and upgrade review flow", () => {
                   : "keep",
               ]),
             ),
-          reviewInstall: async () => ({ action: "apply" }),
+          ),
+          reviewInstall: effectResolver(async () => ({ action: "apply" })),
         },
         fakeEnvironment,
       );
@@ -1309,7 +1378,7 @@ describe("command install and upgrade review flow", () => {
         { optional: { computer_use: false } },
         {
           ...installerOptions(codexHome, manager),
-          reviewInstall: async () => ({ action: "apply" }),
+          reviewInstall: effectResolver(async () => ({ action: "apply" })),
         },
         fakeEnvironment,
       );
@@ -1332,9 +1401,10 @@ describe("command install and upgrade review flow", () => {
         { optional: { computer_use: false } },
         {
           ...installerOptions(codexHome, manager),
-          resolveConflicts: async (conflicts) =>
+          resolveConflicts: effectResolver(async (conflicts) =>
             Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"])),
-          reviewInstall: async () => ({ action: "apply" }),
+          ),
+          reviewInstall: effectResolver(async () => ({ action: "apply" })),
         },
         fakeEnvironment,
       );
@@ -1379,7 +1449,7 @@ describe("command install and upgrade review flow", () => {
       const result = await upgradeHolyCodex(
         {
           ...installerOptions(codexHome, manager),
-          reviewInstall: async (review) => {
+          reviewInstall: effectResolver(async (review) => {
             reviewRequest = {
               profile: review.profile,
               tier: review.tier,
@@ -1387,7 +1457,7 @@ describe("command install and upgrade review flow", () => {
               officialPlugins: review.additionalPlugins,
             };
             return { action: "apply" };
-          },
+          }),
         },
         fakeEnvironment,
         { options: selected },

@@ -6,6 +6,7 @@ import {
   type ProfileName,
   type ServiceTier,
 } from "@holycodex/core";
+import * as Effect from "effect/Effect";
 
 import { colorEnabled, paintTerminal, TERMINAL_THEME } from "./help.ts";
 import { validateInstallOptions, type InstallOptions, type InstallRequest } from "./installer.ts";
@@ -26,6 +27,49 @@ const CAPABILITY_NAMES: readonly OptionalCapabilityName[] = [
   "browser_use",
   "computer_use",
 ];
+
+type KeyInputRenderer = Readonly<{
+  keyInput: Readonly<{
+    on: (event: "keypress", listener: (key: WizardKey) => void) => unknown;
+    off: (event: "keypress", listener: (key: WizardKey) => void) => unknown;
+  }>;
+  start: () => void;
+  destroy: () => void;
+}>;
+
+function runKeyInputScreen<A>(
+  renderer: KeyInputRenderer,
+  transition: (key: WizardKey) => A | undefined,
+): Promise<A> {
+  return Effect.runPromise(
+    Effect.callback<A, unknown>((resume) => {
+      let settled = false;
+      const onKey = (key: WizardKey): void => {
+        const result = Effect.runSync(
+          Effect.result(Effect.try({ try: () => transition(key), catch: (error) => error })),
+        );
+        if (result._tag === "Failure") finish(Effect.fail(result.failure));
+        else if (result.success !== undefined) finish(Effect.succeed(result.success));
+      };
+      const cleanup = (): void => {
+        renderer.keyInput.off("keypress", onKey);
+        renderer.destroy();
+      };
+      const finish = (effect: Effect.Effect<A, unknown>): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resume(effect);
+      };
+      renderer.keyInput.on("keypress", onKey);
+      const started = Effect.runSync(
+        Effect.result(Effect.try({ try: () => renderer.start(), catch: (error) => error })),
+      );
+      if (started._tag === "Failure") finish(Effect.fail(started.failure));
+      return Effect.sync(cleanup);
+    }),
+  );
+}
 
 /** Public CLI type describing wizard state. */
 export type WizardState = {
@@ -205,87 +249,46 @@ export async function runOpenTuiInstallWizard(
   });
   renderer.root.add(text);
 
-  return await new Promise<InstallWizardResult>((resolve, reject) => {
+  return runKeyInputScreen(renderer, (key) => {
     let cursor = 0;
     let reviewing = false;
     let reviewChoice = 0;
-    let settled = false;
-
-    const settle = (result: InstallWizardResult): void => {
-      if (settled) return;
-      settled = true;
-      renderer.keyInput.off("keypress", onKey);
-      renderer.destroy();
-      resolve(result);
-    };
-
-    const fail = (error: unknown): void => {
-      if (settled) return;
-      settled = true;
-      renderer.keyInput.off("keypress", onKey);
-      renderer.destroy();
-      reject(error);
-    };
-
     const refresh = (): void => {
       text.content = reviewing
         ? nativeReviewContent(opentui, state, reviewChoice, color)
         : nativeWizardContent(opentui, state, cursor, color);
       renderer.requestRender();
     };
-
-    const onKey = (key: WizardKey): void => {
-      try {
-        const name = key.name.toLowerCase();
-        if (key.ctrl === true && name === "c") {
-          settle({ action: "cancel" });
-          return;
-        }
-        if (reviewing) {
-          if (name === "escape") {
-            reviewing = false;
-            refresh();
-            return;
-          }
-          if (name === "up" || name === "k") reviewChoice = (reviewChoice + 2) % 3;
-          else if (name === "down" || name === "j") reviewChoice = (reviewChoice + 1) % 3;
-          else if (name === "return" || name === "enter" || name === "linefeed") {
-            if (reviewChoice === 0) {
-              settle({ action: "install", request: toInstallOptions(state) });
-            } else if (reviewChoice === 1) {
-              reviewing = false;
-              cursor = 0;
-            } else {
-              settle({ action: "cancel" });
-            }
-            return;
-          }
-          refresh();
-          return;
-        }
-
-        const transition = applyWizardConfigurationKey(state, cursor, key);
-        cursor = transition.cursor;
-        if (transition.action === "cancel") {
-          settle({ action: "cancel" });
-          return;
-        }
-        if (transition.action === "review") {
-          reviewing = true;
-          reviewChoice = 0;
-        }
+    const name = key.name.toLowerCase();
+    if (key.ctrl === true && name === "c") return { action: "cancel" };
+    if (reviewing) {
+      if (name === "escape") {
+        reviewing = false;
         refresh();
-      } catch (error: unknown) {
-        fail(error);
+        return undefined;
       }
-    };
-
-    renderer.keyInput.on("keypress", onKey);
-    try {
-      renderer.start();
-    } catch (error: unknown) {
-      fail(error);
+      if (name === "up" || name === "k") reviewChoice = (reviewChoice + 2) % 3;
+      else if (name === "down" || name === "j") reviewChoice = (reviewChoice + 1) % 3;
+      else if (name === "return" || name === "enter" || name === "linefeed") {
+        if (reviewChoice === 0) return { action: "install", request: toInstallOptions(state) };
+        if (reviewChoice === 1) {
+          reviewing = false;
+          cursor = 0;
+        } else return { action: "cancel" };
+      }
+      refresh();
+      return undefined;
     }
+
+    const transition = applyWizardConfigurationKey(state, cursor, key);
+    cursor = transition.cursor;
+    if (transition.action === "cancel") return { action: "cancel" };
+    if (transition.action === "review") {
+      reviewing = true;
+      reviewChoice = 0;
+    }
+    refresh();
+    return undefined;
   });
 }
 
@@ -401,23 +404,8 @@ export async function runOpenTuiConflictResolver(
     ),
   });
   renderer.root.add(text);
-  return await new Promise<ConflictScreenResult>((resolve, reject) => {
+  return runKeyInputScreen(renderer, (key) => {
     let cursor = 0;
-    let settled = false;
-    const settle = (result: ConflictScreenResult): void => {
-      if (settled) return;
-      settled = true;
-      renderer.keyInput.off("keypress", onKey);
-      renderer.destroy();
-      resolve(result);
-    };
-    const fail = (error: unknown): void => {
-      if (settled) return;
-      settled = true;
-      renderer.keyInput.off("keypress", onKey);
-      renderer.destroy();
-      reject(error);
-    };
     const refresh = (): void => {
       text.content = nativeConflictContent(
         opentui,
@@ -430,25 +418,14 @@ export async function runOpenTuiConflictResolver(
       );
       renderer.requestRender();
     };
-    const onKey = (key: WizardKey): void => {
-      try {
-        const transition = applyConflictScreenKey(state, cursor, key);
-        cursor = transition.cursor;
-        if (transition.action === "continue")
-          settle({ action: "continue", decisions: { ...state.decisions } });
-        else if (transition.action === "back" || transition.action === "cancel")
-          settle({ action: transition.action });
-        else refresh();
-      } catch (error: unknown) {
-        fail(error);
-      }
-    };
-    renderer.keyInput.on("keypress", onKey);
-    try {
-      renderer.start();
-    } catch (error: unknown) {
-      fail(error);
-    }
+    const transition = applyConflictScreenKey(state, cursor, key);
+    cursor = transition.cursor;
+    if (transition.action === "continue")
+      return { action: "continue", decisions: { ...state.decisions } };
+    if (transition.action === "back" || transition.action === "cancel")
+      return { action: transition.action };
+    refresh();
+    return undefined;
   });
 }
 
@@ -590,49 +567,19 @@ export async function runOpenTuiInstallReview(
     content: nativeInstallReviewContent(opentui, review, state.selected, color),
   });
   renderer.root.add(text);
-  return await new Promise<InstallReviewResult>((resolve, reject) => {
+  return runKeyInputScreen(renderer, (key) => {
     let selected = state.selected;
-    let settled = false;
-    const settle = (result: InstallReviewResult): void => {
-      if (settled) return;
-      settled = true;
-      renderer.keyInput.off("keypress", onKey);
-      renderer.destroy();
-      resolve(result);
-    };
-    const fail = (error: unknown): void => {
-      if (settled) return;
-      settled = true;
-      renderer.keyInput.off("keypress", onKey);
-      renderer.destroy();
-      reject(error);
-    };
     const refresh = (): void => {
       text.content = nativeInstallReviewContent(opentui, review, selected, color);
       renderer.requestRender();
     };
-    const onKey = (key: WizardKey): void => {
-      try {
-        const transition = applyInstallReviewKey({ review, selected }, key);
-        selected = transition.selected;
-        if (transition.action === "cancel") {
-          settle({ action: "cancel" });
-        } else if (transition.action === "back") {
-          settle({ action: "change" });
-        } else if (transition.action === "choose") {
-          const action = installReviewActions(review)[selected]!;
-          settle({ action });
-        } else refresh();
-      } catch (error: unknown) {
-        fail(error);
-      }
-    };
-    renderer.keyInput.on("keypress", onKey);
-    try {
-      renderer.start();
-    } catch (error: unknown) {
-      fail(error);
-    }
+    const transition = applyInstallReviewKey({ review, selected }, key);
+    selected = transition.selected;
+    if (transition.action === "cancel") return { action: "cancel" };
+    if (transition.action === "back") return { action: "change" };
+    if (transition.action === "choose") return { action: installReviewActions(review)[selected]! };
+    refresh();
+    return undefined;
   });
 }
 
@@ -818,11 +765,10 @@ function categoryLabel(category: string): string {
 function formatConflictValue(value: unknown): string {
   if (value === undefined) return "(unknown)";
   if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return "(unavailable)";
-  }
+  const rendered = Effect.runSync(
+    Effect.result(Effect.try({ try: () => JSON.stringify(value), catch: (error) => error })),
+  );
+  return rendered._tag === "Success" ? rendered.success : "(unavailable)";
 }
 
 function conflictConsequence(conflict: ManagedConflict, decision: ConflictDecision): string {

@@ -8,9 +8,13 @@ import {
   type JsonObject,
   type JsonValue,
   type ProfileName,
+  ProfileNameSchema,
   type ServiceTier,
+  ServiceTierSchema,
 } from "@holycodex/core";
-import { lookupProfile } from "@holycodex/core";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 
 import { ArgumentError, parseArgv } from "./args.ts";
 import {
@@ -27,14 +31,18 @@ import {
   runOpenTuiInstallWizard,
 } from "./installer-wizard.ts";
 import {
-  installHolyCodex,
+  installHolyCodexEffect,
   InstallerError,
-  readEffectiveInstallRequest,
+  readEffectiveInstallRequestEffect,
   validateInstallOptions,
   type InstallRequest,
 } from "./installer.ts";
 import { asJsonValue } from "./json.ts";
-import { doctorHolyCodex, inspectRemovalConflicts, removeHolyCodex } from "./maintenance.ts";
+import {
+  doctorHolyCodexEffect,
+  inspectRemovalConflictsEffect,
+  removeHolyCodexEffect,
+} from "./maintenance.ts";
 import { readPublicVersion, updateCanonicalVersion, ManifestError } from "./manifest.ts";
 import {
   CodexOfficialPluginManager,
@@ -50,7 +58,9 @@ import type {
   HumanRenderOptions,
   InstallProgressEvent,
   InstallReview,
+  InstallReviewResolver,
   InstallReviewResult,
+  InstallResult,
   InstallerOptions,
   ManagedConflict,
   OfficialPluginManager,
@@ -58,79 +68,87 @@ import type {
 } from "./types.ts";
 
 /** Parse and execute CLI arguments, returning a validated envelope and exit code. */
-export async function runCli(
-  argv: readonly string[],
-  context: CliContext = {},
-): Promise<CommandResult> {
+export function runCli(argv: readonly string[], context: CliContext = {}): Promise<CommandResult> {
   if (argv.length === 0 || helpRequested(argv) || argv[0] === "help") {
     const topic =
       argv[0] === "help"
         ? argv.slice(1).filter((value) => !value.startsWith("-"))[0]
         : helpTopic(argv);
-    return {
-      envelope: successEnvelope(topic === undefined ? "help" : `${topic} help`, {
+    return Effect.runPromise(
+      successEnvelopeEffect(topic === undefined ? "help" : `${topic} help`, {
         help: helpText(topic),
-      }),
-      exitCode: 0,
-    };
+      }).pipe(Effect.map((envelope) => ({ envelope, exitCode: 0 }))),
+    );
   }
-  let parsed: ParsedCommand | undefined;
-  try {
-    parsed = parseArgv(argv);
-    const data = await executeCommand(parsed, context);
-    return {
-      envelope: successEnvelope(parsed.command, data),
-      exitCode: successExitCode(parsed.command, data),
-    };
-  } catch (error: unknown) {
-    return failureEnvelope(parsed?.command ?? inferCommand(argv), error);
-  }
+  const command = Effect.try({ try: () => parseArgv(argv), catch: (error) => error }).pipe(
+    Effect.flatMap((parsed) =>
+      executeCommandEffect(parsed, context).pipe(
+        Effect.flatMap((data) =>
+          successEnvelopeEffect(parsed.command, data).pipe(
+            Effect.map((envelope) => ({
+              envelope,
+              exitCode: successExitCode(parsed.command, data),
+            })),
+          ),
+        ),
+        Effect.catch((error) => Effect.succeed(failureEnvelope(parsed.command, error))),
+      ),
+    ),
+    Effect.catch((error) => Effect.succeed(failureEnvelope(inferCommand(argv), error))),
+  );
+  return Effect.runPromise(command);
 }
 
 /** Dispatch a parsed command to its installer, maintenance, or version operation. */
-export async function executeCommand(
-  parsed: ParsedCommand,
-  context: CliContext,
-): Promise<JsonValue> {
-  switch (parsed.command) {
-    case "install":
-      return asJsonValue(await executeInstall(parsed, context));
-    case "doctor": {
-      const options = installerOptions(parsed, context);
-      const paths = resolveInstallerPaths(options, context.env);
-      return asJsonValue(
-        await doctorHolyCodex(
-          {
-            ...options,
-            officialPluginManager:
-              options.officialPluginManager ??
-              (await createDoctorPluginStatusManager(paths.codexHome, context.env)),
-          },
-          context.env,
-        ),
-      );
-    }
-    case "remove":
-      return asJsonValue(await executeRemove(parsed, context));
-    case "version":
-      return asJsonValue(await executeVersion(parsed, context));
-    case "help":
-      return { help: helpText(parsed.positionals[0]) };
-    default:
-      throw new CliCommandError("invalid_argument", "Unknown command.");
-  }
+export function executeCommand(parsed: ParsedCommand, context: CliContext): Promise<JsonValue> {
+  return Effect.runPromise(executeCommandEffect(parsed, context));
 }
 
-async function createDoctorPluginStatusManager(
+function executeCommandEffect(
+  parsed: ParsedCommand,
+  context: CliContext,
+): Effect.Effect<JsonValue, unknown> {
+  return Effect.gen(function* () {
+    switch (parsed.command) {
+      case "install":
+        return asJsonValue(yield* executeInstallEffect(parsed, context));
+      case "doctor": {
+        const options = installerOptions(parsed, context);
+        const paths = resolveInstallerPaths(options, context.env);
+        const officialPluginManager =
+          options.officialPluginManager ??
+          (yield* createDoctorPluginStatusManagerEffect(paths.codexHome, context.env));
+        return asJsonValue(
+          yield* doctorHolyCodexEffect(
+            { ...options, officialPluginManager },
+            context.env ?? process.env,
+          ),
+        );
+      }
+      case "remove":
+        return asJsonValue(yield* executeRemoveEffect(parsed, context));
+      case "version":
+        return asJsonValue(yield* executeVersionEffect(parsed));
+      case "help":
+        return { help: helpText(parsed.positionals[0]) };
+      default:
+        return yield* Effect.fail(new CliCommandError("invalid_argument", "Unknown command."));
+    }
+  });
+}
+
+function createDoctorPluginStatusManagerEffect(
   codexHome: string,
   environment: Readonly<Record<string, string | undefined>> | undefined,
-): Promise<Pick<OfficialPluginManager, "status" | "getObservedIdentities">> {
-  try {
-    return await CodexOfficialPluginManager.discover(environment);
-  } catch (error: unknown) {
-    if (isCodexExecutableUnavailable(error)) return new ReadOnlyCodexPluginStatus(codexHome);
-    throw error;
-  }
+): Effect.Effect<Pick<OfficialPluginManager, "status" | "getObservedIdentities">, unknown> {
+  return Effect.tryPromise({
+    try: () => CodexOfficialPluginManager.discover(environment),
+    catch: (error) => error,
+  }).pipe(
+    Effect.catchIf(isCodexExecutableUnavailable, () =>
+      Effect.succeed(new ReadOnlyCodexPluginStatus(codexHome)),
+    ),
+  );
 }
 
 function isCodexExecutableUnavailable(error: unknown): boolean {
@@ -142,55 +160,76 @@ function isCodexExecutableUnavailable(error: unknown): boolean {
   );
 }
 
-async function executeInstall(parsed: ParsedCommand, context: CliContext) {
-  const initialRequest = installRequestFromParsed(parsed);
-  const request = await resolveInstallRequest(parsed, context, initialRequest);
-  if ("cancelled" in request) return request;
-  const result = await installHolyCodex(request, installerOptions(parsed, context), context.env);
-  return result;
+function executeInstallEffect(
+  parsed: ParsedCommand,
+  context: CliContext,
+): Effect.Effect<InstallResult | { readonly cancelled: true }, unknown> {
+  return Effect.gen(function* () {
+    const initialRequest = yield* Effect.try({
+      try: () => installRequestFromParsed(parsed),
+      catch: (error) => error,
+    });
+    const request = yield* resolveInstallRequestEffect(parsed, context, initialRequest);
+    if ("cancelled" in request) return request;
+    return yield* installHolyCodexEffect(request, installerOptions(parsed, context), context.env);
+  });
 }
 
 /** Resolve one validated install request from flags or the interactive wizard. */
-async function resolveInstallRequest(
+function resolveInstallRequestEffect(
   parsed: ParsedCommand,
   context: CliContext,
   initial: InstallRequest,
-): Promise<InstallRequest | { readonly cancelled: true }> {
+): Effect.Effect<InstallRequest | { readonly cancelled: true }, unknown> {
   const interactive =
     parsed.options["json"] !== true &&
     parsed.options["yes"] !== true &&
     context.io?.stdoutIsTTY === true &&
     context.io?.stderrIsTTY === true;
   if (interactive) {
-    const previous = await readEffectiveInstallRequest(
-      installerOptions(parsed, context),
-      context.env,
-    );
-    const result = await (context.io?.installWizard ?? runOpenTuiInstallWizard)({
-      ...previous,
-      ...initial,
-      ...(previous.optional === undefined && initial.optional === undefined
-        ? {}
-        : { optional: { ...previous.optional, ...initial.optional } }),
+    return Effect.gen(function* () {
+      const previous = yield* readEffectiveInstallRequestEffect(
+        installerOptions(parsed, context),
+        context.env ?? process.env,
+      );
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          (context.io?.installWizard ?? runOpenTuiInstallWizard)({
+            ...previous,
+            ...initial,
+            ...(previous.optional === undefined && initial.optional === undefined
+              ? {}
+              : { optional: { ...previous.optional, ...initial.optional } }),
+          }),
+        catch: (error) => error,
+      });
+      if (result.action === "cancel") return { cancelled: true };
+      return yield* Effect.try({
+        try: () => validateInstallOptions(result.request),
+        catch: (error) => error,
+      });
     });
-    if (result.action === "cancel") {
-      return { cancelled: true };
-    }
-    return validateInstallOptions(result.request);
   }
-  const confirmationResult = await confirmation(
-    parsed,
-    context,
-    "Install HolyCodex into the selected Codex home?",
-  );
-  if (confirmationResult === "cancelled") return { cancelled: true };
-  if (confirmationResult === "unavailable") {
-    throw new CliCommandError(
-      "non_tty_confirmation_required",
-      "Install requires --yes in non-interactive mode.",
+  return Effect.gen(function* () {
+    const confirmationResult = yield* confirmationEffect(
+      parsed,
+      context,
+      "Install HolyCodex into the selected Codex home?",
     );
-  }
-  return validateInstallOptions(initial);
+    if (confirmationResult === "cancelled") return { cancelled: true };
+    if (confirmationResult === "unavailable") {
+      return yield* Effect.fail(
+        new CliCommandError(
+          "non_tty_confirmation_required",
+          "Install requires --yes in non-interactive mode.",
+        ),
+      );
+    }
+    return yield* Effect.try({
+      try: () => validateInstallOptions(initial),
+      catch: (error) => error,
+    });
+  });
 }
 
 function installRequestFromParsed(parsed: ParsedCommand): InstallRequest {
@@ -207,69 +246,98 @@ function installRequestFromParsed(parsed: ParsedCommand): InstallRequest {
   });
 }
 
-async function executeRemove(parsed: ParsedCommand, context: CliContext) {
-  const confirmationResult = await confirmation(
-    parsed,
-    context,
-    "Remove HolyCodex-owned Codex state?",
-  );
-  if (confirmationResult === "cancelled") {
-    return { cancelled: true, removed: [], preserved: [], reasons: ["cancelled"] };
-  }
-  if (confirmationResult === "unavailable") {
-    const conflict = (
-      await inspectRemovalConflicts(installerOptions(parsed, context), context.env)
-    )[0];
-    if (conflict !== undefined) {
-      throw new InstallerError(
-        "confirmation_required",
-        "Modified HolyCodex-owned state requires confirmation before removal.",
-        undefined,
-        {
-          path: conflict.path,
-          ...(conflict.key === undefined ? {} : { key: conflict.key }),
-          action: conflict.action,
-        },
+function executeRemoveEffect(
+  parsed: ParsedCommand,
+  context: CliContext,
+): Effect.Effect<unknown, unknown> {
+  return Effect.gen(function* () {
+    const confirmationResult = yield* confirmationEffect(
+      parsed,
+      context,
+      "Remove HolyCodex-owned Codex state?",
+    );
+    if (confirmationResult === "cancelled") {
+      return { cancelled: true, removed: [], preserved: [], reasons: ["cancelled"] };
+    }
+    if (confirmationResult === "unavailable") {
+      const conflicts = yield* inspectRemovalConflictsEffect(
+        installerOptions(parsed, context),
+        context.env ?? process.env,
+      );
+      const conflict = conflicts[0];
+      if (conflict !== undefined) {
+        return yield* Effect.fail(
+          new InstallerError(
+            "confirmation_required",
+            "Modified HolyCodex-owned state requires confirmation before removal.",
+            undefined,
+            {
+              path: conflict.path,
+              ...(conflict.key === undefined ? {} : { key: conflict.key }),
+              action: conflict.action,
+            },
+          ),
+        );
+      }
+      return yield* Effect.fail(
+        new CliCommandError(
+          "non_tty_confirmation_required",
+          "Remove requires --yes in non-interactive mode.",
+        ),
       );
     }
-    throw new CliCommandError(
-      "non_tty_confirmation_required",
-      "Remove requires --yes in non-interactive mode.",
+    return yield* removeHolyCodexEffect(
+      installerOptions(parsed, context),
+      context.env ?? process.env,
+    );
+  });
+}
+
+function executeVersionEffect(parsed: ParsedCommand): Effect.Effect<unknown, unknown> {
+  const target = parsed.positionals[0];
+  if (!target) {
+    return Effect.tryPromise({ try: () => readPublicVersion(), catch: (error) => error }).pipe(
+      Effect.map((version) => ({ version })),
     );
   }
-  const result = await removeHolyCodex(installerOptions(parsed, context), context.env);
-  return result;
+  return Effect.tryPromise({
+    try: () => updateCanonicalVersion(target, parsed.options["dry-run"] === true),
+    catch: (error) => error,
+  });
 }
 
-async function executeVersion(parsed: ParsedCommand, _context: CliContext) {
-  const target = parsed.positionals[0];
-  if (!target) return { version: await readPublicVersion() };
-  return await updateCanonicalVersion(target, parsed.options["dry-run"] === true);
-}
-
-async function confirmation(
+function confirmationEffect(
   parsed: ParsedCommand,
   context: CliContext,
   message: string,
-): Promise<ConfirmationResult> {
-  if (parsed.options["yes"] === true) return "confirmed";
+): Effect.Effect<ConfirmationResult, unknown> {
+  if (parsed.options["yes"] === true) return Effect.succeed("confirmed");
   if (
     parsed.options["json"] === true ||
     context.io?.stdoutIsTTY !== true ||
     context.io?.stderrIsTTY !== true
   )
-    return "unavailable";
-  return await confirmIfAvailable(context, message);
+    return Effect.succeed("unavailable");
+  return confirmIfAvailableEffect(context, message);
 }
 
-async function confirmIfAvailable(
+function confirmIfAvailableEffect(
   context: CliContext,
   message: string,
-): Promise<ConfirmationResult> {
-  if (context.io?.confirm === undefined) return "unavailable";
-  const result = await context.io.confirm(message);
-  if (result === "confirmed" || result === "cancelled" || result === "unavailable") return result;
-  return result ? "confirmed" : "cancelled";
+): Effect.Effect<ConfirmationResult, unknown> {
+  if (context.io?.confirm === undefined) return Effect.succeed("unavailable");
+  return Effect.tryPromise({
+    try: () => context.io!.confirm!(message),
+    catch: (error) => error,
+  }).pipe(
+    Effect.map((result) =>
+      result === "confirmed" || result === "cancelled" || result === "unavailable"
+        ? result
+        : result
+          ? "confirmed"
+          : "cancelled",
+    ),
+  );
 }
 
 function optionalSelections(parsed: ParsedCommand) {
@@ -284,22 +352,18 @@ function optionalSelections(parsed: ParsedCommand) {
 }
 
 function optionProfile(parsed: ParsedCommand): ProfileName | undefined {
-  const value = parsed.options["profile"];
-  if (typeof value !== "string") return undefined;
-  const result = lookupProfile(value);
-  return result.ok ? result.value.name : undefined;
+  const result = Schema.decodeUnknownResult(ProfileNameSchema)(parsed.options["profile"]);
+  return Result.isSuccess(result) ? result.success : undefined;
 }
 
 function optionTier(parsed: ParsedCommand): ServiceTier | undefined {
-  const value = parsed.options["tier"];
-  return value === "standard" || value === "fast" || value === "fast-all" ? value : undefined;
+  const result = Schema.decodeUnknownResult(ServiceTierSchema)(parsed.options["tier"]);
+  return Result.isSuccess(result) ? result.success : undefined;
 }
 
 function optionStrings(parsed: ParsedCommand, key: string): readonly string[] {
-  const value = parsed.options[key];
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
+  const result = Schema.decodeUnknownResult(Schema.Array(Schema.String))(parsed.options[key]);
+  return Result.isSuccess(result) ? result.success : [];
 }
 
 function installerOptions(parsed: ParsedCommand, context: CliContext) {
@@ -329,121 +393,169 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
   };
   const resolveConflict: NonNullable<InstallerOptions["resolveConflict"]> =
     base.resolveConflict ??
-    (async (conflict) => {
-      if (parsed.options["yes"] === true) {
-        const decision = yesConflictDecision(conflict);
-        warnAboutYesConflictDecisions(context, [conflict]);
-        return decision === "keep" ? "decline" : decision === "cancel" ? "cancel" : "accept";
-      }
-      if (
-        parsed.options["json"] === true ||
-        context.io?.stdoutIsTTY !== true ||
-        context.io?.stderrIsTTY !== true
-      ) {
-        throw new InstallerError(
-          "confirmation_required",
-          `Review the modified HolyCodex-owned state at ${conflict.key === undefined ? conflict.path : `${conflict.path} (${conflict.key})`} in an interactive terminal; --yes preserves user changes.`,
-          undefined,
-          { path: conflict.path, ...(conflict.key === undefined ? {} : { key: conflict.key }) },
-        );
-      }
-      const identity = conflictIdentity(conflict);
-      const result = await runOpenTuiConflictResolver(
-        [conflict],
-        {},
-        Object.fromEntries(selectedConflictDecisions),
-      );
-      if (result.action === "back") return "decline";
-      if (result.action !== "continue") return "cancel";
-      const decision = result.decisions[identity];
-      if (decision !== undefined) selectedConflictDecisions.set(identity, decision);
-      if (decision === "replace" || decision === "remove") return "accept";
-      if (decision === "keep") return "decline";
-      return "cancel";
-    });
+    ((conflict) =>
+      Effect.gen(function* () {
+        if (parsed.options["yes"] === true) {
+          const decision = yield* yesConflictDecisionEffect(conflict);
+          yield* warnAboutYesConflictDecisionsEffect(context, [conflict]);
+          return decision === "keep" ? "decline" : decision === "cancel" ? "cancel" : "accept";
+        }
+        if (
+          parsed.options["json"] === true ||
+          context.io?.stdoutIsTTY !== true ||
+          context.io?.stderrIsTTY !== true
+        ) {
+          return yield* Effect.fail(
+            new InstallerError(
+              "confirmation_required",
+              `Review the modified HolyCodex-owned state at ${conflict.key === undefined ? conflict.path : `${conflict.path} (${conflict.key})`} in an interactive terminal; --yes preserves user changes.`,
+              undefined,
+              {
+                path: conflict.path,
+                ...(conflict.key === undefined ? {} : { key: conflict.key }),
+              },
+            ),
+          );
+        }
+        const identity = conflictIdentity(conflict);
+        const result = yield* Effect.tryPromise({
+          try: () =>
+            runOpenTuiConflictResolver(
+              [conflict],
+              {},
+              Object.fromEntries(selectedConflictDecisions),
+            ),
+          catch: (error) => error,
+        });
+        if (result.action === "back") return "decline";
+        if (result.action !== "continue") return "cancel";
+        const decision = result.decisions[identity];
+        if (decision !== undefined) selectedConflictDecisions.set(identity, decision);
+        if (decision === "replace" || decision === "remove") return "accept";
+        if (decision === "keep") return "decline";
+        return "cancel";
+      }));
   const configuredResolveConflicts: NonNullable<InstallerOptions["resolveConflicts"]> =
     base.resolveConflicts ??
     (parsed.options["yes"] === true
-      ? async (conflicts) => {
-          const decisions = Object.fromEntries(
-            conflicts.map((conflict) => [
-              conflictIdentity(conflict),
-              yesConflictDecision(conflict),
-            ]),
-          );
-          warnAboutYesConflictDecisions(context, conflicts);
-          return decisions;
-        }
-      : async (conflicts) => {
-          if (
-            parsed.options["json"] === true ||
-            context.io?.stdoutIsTTY !== true ||
-            context.io?.stderrIsTTY !== true
-          ) {
-            throw new InstallerError(
-              "confirmation_required",
-              "Managed conflicts require an interactive review or --yes.",
+      ? (conflicts) =>
+          Effect.gen(function* () {
+            const decisions: Record<string, ConflictDecision> = {};
+            for (const conflict of conflicts) {
+              decisions[conflictIdentity(conflict)] = yield* yesConflictDecisionEffect(conflict);
+            }
+            yield* warnAboutYesConflictDecisionsEffect(context, conflicts);
+            return decisions;
+          })
+      : (conflicts) =>
+          Effect.gen(function* () {
+            if (
+              parsed.options["json"] === true ||
+              context.io?.stdoutIsTTY !== true ||
+              context.io?.stderrIsTTY !== true
+            ) {
+              return yield* Effect.fail(
+                new InstallerError(
+                  "confirmation_required",
+                  "Managed conflicts require an interactive review or --yes.",
+                ),
+              );
+            }
+            const result = yield* Effect.tryPromise({
+              try: () =>
+                runOpenTuiConflictResolver(
+                  conflicts,
+                  {},
+                  Object.fromEntries(selectedConflictDecisions),
+                ),
+              catch: (error) => error,
+            });
+            if (result.action === "back") {
+              const decisions: Record<string, ConflictDecision> = Object.fromEntries(
+                conflicts.map((conflict) => {
+                  const valid =
+                    conflict.validDecisions ??
+                    (conflict.action === "remove"
+                      ? ["keep", "remove", "cancel"]
+                      : ["keep", "replace", "cancel"]);
+                  return [
+                    conflictIdentity(conflict),
+                    valid.includes("keep") ? ("keep" as const) : ("cancel" as const),
+                  ];
+                }),
+              );
+              return recordConflictDecisions(conflicts, decisions);
+            }
+            if (result.action === "cancel")
+              return yield* Effect.fail(
+                new InstallerError("confirmation_required", "Conflict review was cancelled."),
+              );
+            if (result.action === "continue") return result.decisions;
+            return yield* Effect.fail(
+              new InstallerError("confirmation_required", "Conflict review was reopened."),
             );
-          }
-          const result = await runOpenTuiConflictResolver(
-            conflicts,
-            {},
-            Object.fromEntries(selectedConflictDecisions),
-          );
-          if (result.action === "back") {
-            const decisions: Record<string, ConflictDecision> = Object.fromEntries(
-              conflicts.map((conflict) => {
-                const valid =
-                  conflict.validDecisions ??
-                  (conflict.action === "remove"
-                    ? ["keep", "remove", "cancel"]
-                    : ["keep", "replace", "cancel"]);
-                return [
-                  conflictIdentity(conflict),
-                  valid.includes("keep") ? ("keep" as const) : ("cancel" as const),
-                ];
-              }),
-            );
-            return recordConflictDecisions(conflicts, decisions);
-          }
-          if (result.action === "cancel")
-            throw new InstallerError("confirmation_required", "Conflict review was cancelled.");
-          if (result.action === "continue") return result.decisions;
-          throw new InstallerError("confirmation_required", "Conflict review was reopened.");
-        });
-  const resolveConflicts: NonNullable<InstallerOptions["resolveConflicts"]> = async (conflicts) =>
-    recordConflictDecisions(conflicts, await configuredResolveConflicts(conflicts));
-  const configuredReview = base.reviewInstall ?? context.io?.installReview;
-  const review =
+          }));
+  const resolveConflicts: NonNullable<InstallerOptions["resolveConflicts"]> = (conflicts) =>
+    configuredResolveConflicts(conflicts).pipe(
+      Effect.map((decisions) => recordConflictDecisions(conflicts, decisions)),
+    );
+  const configuredReview: InstallReviewResolver | undefined =
+    base.reviewInstall ??
+    (context.io?.installReview === undefined
+      ? undefined
+      : (plan: InstallReview) =>
+          Effect.tryPromise({
+            try: () => context.io!.installReview!(plan),
+            catch: (error) => error,
+          }));
+  const review: InstallReviewResolver | undefined =
     configuredReview ??
     (parsed.options["yes"] === true
-      ? async (): Promise<InstallReviewResult> => ({ action: "apply" })
+      ? (): Effect.Effect<InstallReviewResult> => Effect.succeed({ action: "apply" })
       : interactiveReview
-        ? async (plan: InstallReview): Promise<InstallReviewResult> =>
-            await runOpenTuiInstallReview(plan)
+        ? (plan: InstallReview) =>
+            Effect.tryPromise({ try: () => runOpenTuiInstallReview(plan), catch: (error) => error })
         : undefined);
-  const reviewInstall =
+  const reviewInstall: InstallReviewResolver | undefined =
     review === undefined
       ? undefined
-      : async (plan: InstallReview): Promise<InstallReviewResult> => {
-          const reviewedPlan = withSelectedConflictDecisions(plan, selectedConflictDecisions);
-          const result = await review(installReviewForCli(reviewedPlan));
-          if (result.action !== "change") return result;
-          if (result.request !== undefined) {
-            return { action: "change", request: validateInstallOptions(result.request) };
-          }
-          if (!interactiveReview) {
-            throw new InstallerError(
-              "confirmation_required",
-              "Changing install options requires an interactive review.",
-            );
-          }
-          const changed = await (context.io?.installWizard ?? runOpenTuiInstallWizard)(
-            installRequestFromReview(reviewedPlan),
-          );
-          if (changed.action === "cancel") return { action: "cancel" };
-          return { action: "change", request: validateInstallOptions(changed.request) };
-        };
+      : (plan: InstallReview) =>
+          Effect.gen(function* () {
+            const reviewedPlan = withSelectedConflictDecisions(plan, selectedConflictDecisions);
+            const result = yield* review(installReviewForCli(reviewedPlan));
+            if (result.action !== "change") return result;
+            if (result.request !== undefined) {
+              return yield* Effect.try({
+                try: () =>
+                  ({
+                    action: "change",
+                    request: validateInstallOptions(result.request),
+                  }) as const,
+                catch: (error) => error,
+              });
+            }
+            if (!interactiveReview) {
+              return yield* Effect.fail(
+                new InstallerError(
+                  "confirmation_required",
+                  "Changing install options requires an interactive review.",
+                ),
+              );
+            }
+            const changed = yield* Effect.tryPromise({
+              try: () =>
+                (context.io?.installWizard ?? runOpenTuiInstallWizard)(
+                  installRequestFromReview(reviewedPlan),
+                ),
+              catch: (error) => error,
+            });
+            if (changed.action === "cancel") return { action: "cancel" };
+            return yield* Effect.try({
+              try: () =>
+                ({ action: "change", request: validateInstallOptions(changed.request) }) as const,
+              catch: (error) => error,
+            });
+          });
   const codexHome = parsed.options["codex-home"];
   if (typeof codexHome !== "string")
     return {
@@ -465,43 +577,48 @@ function installerOptions(parsed: ParsedCommand, context: CliContext) {
   };
 }
 
-function yesConflictDecision(conflict: ManagedConflict): ConflictDecision {
+function yesConflictDecisionEffect(
+  conflict: ManagedConflict,
+): Effect.Effect<ConflictDecision, InstallerError> {
   const valid =
     conflict.validDecisions ??
     (conflict.action === "remove" ? ["keep", "remove", "cancel"] : ["keep", "replace", "cancel"]);
   const action = conflict.action === "remove" ? "remove" : "replace";
   const decision = valid.includes(action) ? action : undefined;
   if (decision === undefined) {
-    throw new InstallerError(
-      "confirmation_required",
-      `--yes cannot resolve ${conflict.target ?? conflict.key ?? conflict.path}; choose ${valid.join(", ")}.`,
-      undefined,
-      {
-        path: conflict.path,
-        ...(conflict.key === undefined ? {} : { key: conflict.key }),
-      },
+    return Effect.fail(
+      new InstallerError(
+        "confirmation_required",
+        `--yes cannot resolve ${conflict.target ?? conflict.key ?? conflict.path}; choose ${valid.join(", ")}.`,
+        undefined,
+        {
+          path: conflict.path,
+          ...(conflict.key === undefined ? {} : { key: conflict.key }),
+        },
+      ),
     );
   }
-  return decision;
+  return Effect.succeed(decision);
 }
 
-function warnAboutYesConflictDecisions(
+function warnAboutYesConflictDecisionsEffect(
   context: CliContext,
   conflicts: readonly ManagedConflict[],
-): void {
-  if (conflicts.length === 0) return;
-  const decisions = conflicts
-    .map((conflict) => {
-      const action = yesConflictDecision(conflict);
+): Effect.Effect<void, InstallerError> {
+  if (conflicts.length === 0) return Effect.void;
+  return Effect.gen(function* () {
+    const decisions: string[] = [];
+    for (const conflict of conflicts) {
+      const action = yield* yesConflictDecisionEffect(conflict);
       const target =
         conflict.key === undefined ? conflict.path : `${conflict.path} (${conflict.key})`;
-      return action === "keep" ? undefined : `${action} ${target}`;
-    })
-    .filter((decision): decision is string => decision !== undefined);
-  if (decisions.length === 0) return;
-  context.io?.writeStderr?.(
-    `Warning: --yes will apply these conflict decisions: ${decisions.join("; ")}. This may overwrite existing Codex configuration.\n`,
-  );
+      if (action !== "keep") decisions.push(`${action} ${target}`);
+    }
+    if (decisions.length === 0) return;
+    context.io?.writeStderr?.(
+      `Warning: --yes will apply these conflict decisions: ${decisions.join("; ")}. This may overwrite existing Codex configuration.\n`,
+    );
+  });
 }
 
 function installRequestFromReview(plan: InstallReview): InstallRequest {
@@ -536,7 +653,10 @@ function installReviewForCli(plan: InstallReview): InstallReview {
   return { ...installPlan, operation: "install" };
 }
 
-function successEnvelope(command: string, data: JsonValue): CliEnvelope {
+function successEnvelopeEffect(
+  command: string,
+  data: JsonValue,
+): Effect.Effect<CliEnvelope, CliCommandError> {
   const parsed = parseCliEnvelope({
     schema_version: CLI_SCHEMA_VERSION,
     ok: true,
@@ -545,8 +665,10 @@ function successEnvelope(command: string, data: JsonValue): CliEnvelope {
     warnings: [],
   });
   if (!parsed.ok)
-    throw new CliCommandError("internal_error", "The success envelope failed validation.");
-  return parsed.value;
+    return Effect.fail(
+      new CliCommandError("internal_error", "The success envelope failed validation."),
+    );
+  return Effect.succeed(parsed.value);
 }
 
 function failureEnvelope(command: string, error: unknown): CommandResult {

@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import { writeTomlPath } from "@holycodex/codex";
 import type { TomlDocument, TomlValue } from "@holycodex/codex";
+import * as Effect from "effect/Effect";
 
 import {
   doctorHolyCodex,
@@ -36,7 +37,17 @@ import {
 } from "./installer.ts";
 import { JsonObjectSchema } from "./schema.ts";
 import { decodeStateText } from "./storage.ts";
-import type { InstallReview } from "./types.ts";
+import type { ConflictResolution, InstallReview } from "./types.ts";
+
+function effectResolver<Args extends readonly unknown[], Value>(
+  resolver: (...args: Args) => Promise<Value>,
+): (...args: Args) => Effect.Effect<Value extends string ? ConflictResolution : Value, never> {
+  return (...args) =>
+    Effect.tryPromise({ try: () => resolver(...args), catch: (error) => error }) as Effect.Effect<
+      Value extends string ? ConflictResolution : Value,
+      never
+    >;
+}
 
 const realFs = await import("node:fs/promises");
 const realRm = realFs.rm;
@@ -389,16 +400,16 @@ describe("installer preflight", () => {
             paths: { codexHome },
             officialPluginManager: testManager(events),
             runtime: testRuntime(codexHome),
-            resolveConflicts: async (conflicts) => {
+            resolveConflicts: effectResolver(async (conflicts) => {
               resolvedConflicts.push([...conflicts]);
               return Object.fromEntries(
                 conflicts.map((conflict) => [conflict.identity!, "replace"]),
               );
-            },
-            reviewInstall: async (value) => {
+            }),
+            reviewInstall: effectResolver(async (value) => {
               review = value;
               return { action: "cancel" };
-            },
+            }),
           },
         ),
       ).rejects.toMatchObject({ code: "confirmation_required" });
@@ -428,10 +439,10 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: testManager(),
           runtime: testRuntime(codexHome),
-          resolveConflicts: async (inventory) => {
+          resolveConflicts: effectResolver(async (inventory) => {
             conflicts.push([...inventory]);
             return Object.fromEntries(inventory.map((conflict) => [conflict.identity!, "cancel"]));
-          },
+          }),
         }),
       ).rejects.toMatchObject({
         code: "state_corrupt",
@@ -472,10 +483,10 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: testManager(),
           runtime: testRuntime(codexHome),
-          resolveConflicts: async (inventory) => {
+          resolveConflicts: effectResolver(async (inventory) => {
             conflicts.push([...inventory]);
             return Object.fromEntries(inventory.map((conflict) => [conflict.identity!, "cancel"]));
-          },
+          }),
         }),
       ).rejects.toMatchObject({
         code: "confirmation_required",
@@ -511,12 +522,12 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: testManager(),
           runtime: testRuntime(codexHome),
-          resolveConflicts: async () => {
+          resolveConflicts: effectResolver(async () => {
             throw new InstallerError(
               "confirmation_required",
               "Invalid configuration needs an interactive review.",
             );
-          },
+          }),
         }),
       ).rejects.toMatchObject({
         code: "confirmation_required",
@@ -553,14 +564,14 @@ describe("installer preflight", () => {
           },
         },
         runtime: testRuntime(codexHome),
-        resolveConflicts: async (inventory) => {
+        resolveConflicts: effectResolver(async (inventory) => {
           conflicts = inventory;
           return Object.fromEntries(inventory.map((conflict) => [conflict.identity!, "remove"]));
-        },
-        reviewInstall: async (value) => {
+        }),
+        reviewInstall: effectResolver(async (value) => {
           review = value;
           return { action: "apply" };
-        },
+        }),
       });
 
       expect(conflicts).toMatchObject([
@@ -610,9 +621,10 @@ describe("installer preflight", () => {
             },
           },
           runtime: testRuntime(codexHome),
-          resolveConflicts: async (inventory) =>
+          resolveConflicts: effectResolver(async (inventory) =>
             Object.fromEntries(inventory.map((conflict) => [conflict.identity!, "remove"])),
-          reviewInstall: async () => ({ action: "cancel" }),
+          ),
+          reviewInstall: effectResolver(async () => ({ action: "cancel" })),
         }),
       ).rejects.toMatchObject({ code: "confirmation_required" });
 
@@ -646,8 +658,9 @@ describe("installer preflight", () => {
             },
           },
           runtime: testRuntime(codexHome),
-          resolveConflicts: async (inventory) =>
+          resolveConflicts: effectResolver(async (inventory) =>
             Object.fromEntries(inventory.map((conflict) => [conflict.identity!, "remove"])),
+          ),
         }),
       ).rejects.toMatchObject({
         code: "capability_denied",
@@ -676,12 +689,13 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: testManager(),
           runtime: testRuntime(codexHome),
-          resolveConflicts: async (inventory) =>
+          resolveConflicts: effectResolver(async (inventory) =>
             Object.fromEntries(inventory.map((conflict) => [conflict.identity!, "remove"])),
-          reviewInstall: async () => {
+          ),
+          reviewInstall: effectResolver(async () => {
             await writeFile(paths.configFile, changed);
             return { action: "apply" };
-          },
+          }),
         }),
       ).rejects.toMatchObject({
         code: "confirmation_required",
@@ -715,7 +729,7 @@ describe("installer preflight", () => {
             },
           },
           runtime,
-          resolveConflict: async () => "accept",
+          resolveConflict: effectResolver(async () => "accept"),
         }),
       ).rejects.toMatchObject({
         code: "capability_denied",
@@ -789,9 +803,9 @@ describe("installer preflight", () => {
         installer: {
           officialPluginManager: testManager(),
           runtime: testRuntime(codexHome),
-          reviewInstall: async () => {
+          reviewInstall: effectResolver(async () => {
             throw new Error("Bearer top-secret token=abc123 injected review renderer failure");
-          },
+          }),
         },
       });
 
@@ -830,14 +844,14 @@ describe("installer preflight", () => {
         installer: {
           officialPluginManager: testManager(),
           runtime: testRuntime(codexHome),
-          resolveConflicts: async () => {
+          resolveConflicts: effectResolver(async () => {
             throw new InstallerError(
               "capability_denied",
               "Codex plugin review failed: Bearer top-secret token=abc123",
               new Error("Bearer top-secret token=abc123 plugin list unavailable"),
               { operation: "list Codex plugins", subject: "holycodex@holycodex" },
             );
-          },
+          }),
         },
       });
 
@@ -875,8 +889,9 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: configWritingManager(paths, [], true),
           runtime: testRuntime(codexHome),
-          resolveConflicts: async (inventory) =>
+          resolveConflicts: effectResolver(async (inventory) =>
             Object.fromEntries(inventory.map((conflict) => [conflict.identity!, "remove"])),
+          ),
         }),
       ).rejects.toThrow("Codex could not add holycodex@holycodex");
       expect(await readFile(paths.configFile, "utf8")).toBe(source);
@@ -899,12 +914,12 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: testManager(),
           runtime: testRuntime(codexHome),
-          resolveConflicts: async () => {
+          resolveConflicts: effectResolver(async () => {
             throw new InstallerError(
               "confirmation_required",
               "Managed conflicts require an interactive review or --yes.",
             );
-          },
+          }),
         }),
       ).rejects.toMatchObject({
         code: "confirmation_required",
@@ -933,15 +948,15 @@ describe("installer preflight", () => {
         paths: { codexHome },
         officialPluginManager: manager,
         runtime,
-        resolveConflict: async () => {
+        resolveConflict: effectResolver(async () => {
           singularCalls += 1;
           return "decline";
-        },
-        resolveConflicts: async (conflicts) => {
+        }),
+        resolveConflicts: effectResolver(async (conflicts) => {
           batchCalls += 1;
           reviewed = conflicts;
           return Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"]));
-        },
+        }),
       });
 
       expect(batchCalls).toBe(1);
@@ -972,8 +987,9 @@ describe("installer preflight", () => {
         installer: {
           officialPluginManager: manager,
           runtime,
-          resolveConflicts: async (conflicts) =>
+          resolveConflicts: effectResolver(async (conflicts) =>
             Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"])),
+          ),
         },
       });
 
@@ -1081,11 +1097,11 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: manager,
           runtime,
-          resolveConflicts: async (conflicts) => {
+          resolveConflicts: effectResolver(async (conflicts) => {
             reviewed = conflicts;
             await writeTestConfigValue(paths, "model", "gpt-5.6-sol");
             return Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "remove"]));
-          },
+          }),
         }),
       ).rejects.toMatchObject({
         code: "confirmation_required",
@@ -1124,11 +1140,11 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: manager,
           runtime,
-          resolveConflicts: async (conflicts) => {
+          resolveConflicts: effectResolver(async (conflicts) => {
             reviewed = conflicts;
             await writeFile(rolePath, "new user edit after review\n");
             return Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "remove"]));
-          },
+          }),
         }),
       ).rejects.toMatchObject({
         code: "confirmation_required",
@@ -1162,17 +1178,18 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: testManager(),
           runtime: testRuntime(codexHome),
-          resolveConflicts: async (conflicts) =>
+          resolveConflicts: effectResolver(async (conflicts) =>
             Object.fromEntries(
               conflicts.map((conflict) => [
                 conflict.identity!,
                 conflict.key === "model" ? decision : "replace",
               ]),
             ),
-          reviewInstall: async (value) => {
+          ),
+          reviewInstall: effectResolver(async (value) => {
             review = value;
             return { action: "apply" };
-          },
+          }),
         });
 
         const modelConflict = review?.conflicts.find((conflict) => conflict.key === "model");
@@ -1219,8 +1236,9 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: configWritingManager(paths, [], true),
           runtime: testRuntime(codexHome),
-          resolveConflicts: async (conflicts) =>
+          resolveConflicts: effectResolver(async (conflicts) =>
             Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "replace"])),
+          ),
         }),
       ).rejects.toThrow("Codex could not add holycodex@holycodex");
       const restored = parseConfig(await readFile(paths.configFile, "utf8"));
@@ -1440,10 +1458,10 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: manager,
           runtime,
-          reviewInstall: async (value) => {
+          reviewInstall: effectResolver(async (value) => {
             review = value;
             return { action: "cancel" };
-          },
+          }),
         }),
       ).rejects.toMatchObject({ code: "confirmation_required" });
       expect(review?.conflicts).toEqual([]);
@@ -1605,10 +1623,10 @@ describe("installer preflight", () => {
         paths: { codexHome },
         officialPluginManager: manager,
         runtime: testRuntime(codexHome),
-        reviewInstall: async () => {
+        reviewInstall: effectResolver(async () => {
           configDuringReview = await readFile(paths.configFile, "utf8").catch(() => undefined);
           return { action: "apply" };
-        },
+        }),
       });
 
       expect(configDuringReview).toBeUndefined();
@@ -1631,10 +1649,10 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: testManager(),
           runtime,
-          reviewInstall: async (value) => {
+          reviewInstall: effectResolver(async (value) => {
             review = value;
             return { action: "cancel" };
-          },
+          }),
         }),
       ).rejects.toMatchObject({ code: "confirmation_required" });
       expect(review?.tools.some(({ name }) => name === "git-bash")).toBe(false);
@@ -1669,12 +1687,13 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: manager,
           runtime,
-          resolveConflict: async (conflict) =>
+          resolveConflict: effectResolver(async (conflict) =>
             conflict.category === "role-asset" || conflict.key === "model" ? "decline" : "accept",
-          reviewInstall: async (value) => {
+          ),
+          reviewInstall: effectResolver(async (value) => {
             review = value;
             return { action: "apply" };
-          },
+          }),
         }),
       ).rejects.toMatchObject({
         code: "confirmation_required",
@@ -1722,7 +1741,7 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: manager,
           runtime,
-          resolveConflicts: async (conflicts) => {
+          resolveConflicts: effectResolver(async (conflicts) => {
             batchConflicts.push([...conflicts]);
             callbackConfigs.push(await readFile(paths.configFile, "utf8"));
             callbackRoles.push(await readFile(rolePath, "utf8"));
@@ -1733,14 +1752,14 @@ describe("installer preflight", () => {
                 conflict.category === "config-key" && conflict.key === "model" ? "replace" : "keep",
               ]),
             );
-          },
-          reviewInstall: async (review) => {
+          }),
+          reviewInstall: effectResolver(async (review) => {
             reviews.push(review);
             expect(await readFile(paths.configFile, "utf8")).toBe(preflightConfig);
             expect(await readFile(rolePath, "utf8")).toBe(preflightRole);
             expect(events).toEqual([]);
             return { action: "apply" };
-          },
+          }),
         }),
       ).rejects.toMatchObject({
         code: "confirmation_required",
@@ -1800,14 +1819,15 @@ describe("installer preflight", () => {
         paths: { codexHome },
         officialPluginManager: manager,
         runtime,
-        resolveConflicts: async (conflicts) =>
+        resolveConflicts: effectResolver(async (conflicts) =>
           Object.fromEntries(
             conflicts.map((conflict) => [
               conflict.identity!,
               conflict.key === "features.context_management.experimental_mode" ? "replace" : "keep",
             ]),
           ),
-        reviewInstall: async () => ({ action: "apply" }),
+        ),
+        reviewInstall: effectResolver(async () => ({ action: "apply" })),
       });
 
       const finalConfig = await readFile(paths.configFile, "utf8");
@@ -1846,15 +1866,16 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: manager,
           runtime,
-          resolveConflicts: async (conflicts) =>
+          resolveConflicts: effectResolver(async (conflicts) =>
             Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "replace"])),
-          reviewInstall: async (review) => {
+          ),
+          reviewInstall: effectResolver(async (review) => {
             expect(review.conflicts.find((conflict) => conflict.path === rolePath)?.decision).toBe(
               "replace",
             );
             await writeFile(rolePath, latestRole);
             return { action: "apply" };
-          },
+          }),
         }),
       ).rejects.toMatchObject({ code: "install_failed" });
 
@@ -1895,9 +1916,10 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: manager,
           runtime,
-          resolveConflicts: async (conflicts) =>
+          resolveConflicts: effectResolver(async (conflicts) =>
             Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "replace"])),
-          reviewInstall: async (review) => {
+          ),
+          reviewInstall: effectResolver(async (review) => {
             expect(review.conflicts.map((conflict) => conflict.key)).toEqual(
               expect.arrayContaining([
                 'plugins."holycodex@holycodex"',
@@ -1911,7 +1933,7 @@ describe("installer preflight", () => {
               latestProviderConfig,
             );
             return { action: "apply" };
-          },
+          }),
         }),
       ).rejects.toMatchObject({ code: "confirmation_required" });
 
@@ -1987,8 +2009,9 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: manager,
           runtime: testRuntime(codexHome),
-          resolveConflicts: async (conflicts) =>
+          resolveConflicts: effectResolver(async (conflicts) =>
             Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"])),
+          ),
         }),
       ).rejects.toMatchObject({
         code: "confirmation_required",
@@ -2037,7 +2060,7 @@ describe("installer preflight", () => {
         paths: { codexHome },
         officialPluginManager: manager,
         runtime,
-        resolveConflict: async () => "accept",
+        resolveConflict: effectResolver(async () => "accept"),
       });
       expect(removal.reasons).toEqual([]);
       expect(events).toContain("remove:holycodex@holycodex");
@@ -2081,11 +2104,11 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: manager,
           runtime,
-          resolveConflict: async () => {
+          resolveConflict: effectResolver(async () => {
             preserveLegacyCalls += 1;
             return "accept";
-          },
-          resolveConflicts: async (conflicts) => {
+          }),
+          resolveConflicts: effectResolver(async (conflicts) => {
             preserveReviewCalls += 1;
             preserveInventory = conflicts;
             return Object.fromEntries(
@@ -2094,7 +2117,7 @@ describe("installer preflight", () => {
                 conflict.key === "model" ? "keep" : "remove",
               ]),
             );
-          },
+          }),
         }),
       ).rejects.toMatchObject({
         code: "state_corrupt",
@@ -2120,15 +2143,15 @@ describe("installer preflight", () => {
         paths: { codexHome },
         officialPluginManager: manager,
         runtime,
-        resolveConflict: async () => {
+        resolveConflict: effectResolver(async () => {
           replaceLegacyCalls += 1;
           return "accept";
-        },
-        resolveConflicts: async (conflicts) => {
+        }),
+        resolveConflicts: effectResolver(async (conflicts) => {
           replaceReviewCalls += 1;
           replaceInventory = conflicts;
           return Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "remove"]));
-        },
+        }),
       });
 
       expect(replaceReviewCalls).toBe(1);
@@ -2186,7 +2209,7 @@ describe("installer preflight", () => {
         paths: { codexHome },
         officialPluginManager: manager,
         runtime,
-        resolveConflict: async () => "accept",
+        resolveConflict: effectResolver(async () => "accept"),
       });
       expect(removal.reasons).toEqual([]);
       expect(events).toContain(`remove:${providerPlugin}`);
@@ -2283,7 +2306,7 @@ describe("installer preflight", () => {
         paths: { codexHome },
         officialPluginManager: manager,
         runtime,
-        resolveConflict: async () => "accept",
+        resolveConflict: effectResolver(async () => "accept"),
       });
       expect(failedRemoval.preserved).toContain(paths.installOptions);
       expect(failedRemoval.reasons).toContain("state_remove_failed");
@@ -2297,7 +2320,7 @@ describe("installer preflight", () => {
         paths: { codexHome },
         officialPluginManager: manager,
         runtime,
-        resolveConflict: async () => "accept",
+        resolveConflict: effectResolver(async () => "accept"),
       });
       expect(retry.preserved).toEqual([]);
       expect(retry.reasons).toEqual([]);
@@ -2344,11 +2367,11 @@ describe("installer preflight", () => {
           paths: { codexHome },
           officialPluginManager: manager,
           runtime,
-          resolveConflicts: async (conflicts) => {
+          resolveConflicts: effectResolver(async (conflicts) => {
             reviewedConflicts = conflicts;
             conflictKeys.push(...conflicts.map((conflict) => conflict.key ?? ""));
             return Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, decision]));
-          },
+          }),
         });
 
         expect(conflictKeys).toEqual(
@@ -2438,8 +2461,9 @@ describe("installer preflight", () => {
             paths: { codexHome },
             officialPluginManager: manager,
             runtime,
-            resolveConflicts: async (conflicts) =>
+            resolveConflicts: effectResolver(async (conflicts) =>
               Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"])),
+            ),
           }),
         ).rejects.toMatchObject({ code: "confirmation_required" });
 

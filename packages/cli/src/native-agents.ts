@@ -24,6 +24,7 @@ import {
   type RoleTask,
   type RootOwnedAuthority,
 } from "@holycodex/core";
+import * as Effect from "effect/Effect";
 
 import { assertNoSymlink, isFsCode, pathWithin } from "./paths.ts";
 import { writeAtomicText } from "./storage.ts";
@@ -119,7 +120,7 @@ const DELEGABLE_ACTION_LABELS = {
 const REVIEW_VALIDATION_PHASE_BARRIER =
   "Before acceptance or VCS writes, require a Reviewer.code fixed point and current relevant validation. Review and validation may overlap on non-conflicting scopes; serialize repairs against checks of the same source. Reuse worker proof and assign Worker.validation only for independent proof or an evidence gap. Repairs invalidate only affected evidence.";
 
-const ROOT_EVENT_WAIT_INSTRUCTION = `After dispatching useful independent work, wait collectively for specialist results with ${ROOT_ORCHESTRATION_POLICY.routineWaitTool} at timeout_ms=${ROOT_ORCHESTRATION_POLICY.routineWaitMaximumTimeoutMs}, subject to mandatory active tool/runtime limits. Do not create unnecessary work to avoid waiting, busy-poll, or repeatedly use short waits when a longer event wait is appropriate. A long-running specialist is not stalled merely because others finished; inspect only bounded evidence when a material stall or failure is plausible, then repair, restart, or redispatch only the necessary scope. Batch specialist completion updates rather than reporting each completion separately. Continue useful independent work or wait again while live dependencies remain. Release specialist leaves after accepting terminal outcomes.`;
+const ROOT_EVENT_WAIT_INSTRUCTION = `Always call ${ROOT_ORCHESTRATION_POLICY.rootWaitTool} with timeout_ms=${ROOT_ORCHESTRATION_POLICY.rootWaitTimeoutMs} for every Root wait. Never use a 10-second timeout or any other duration, regardless of the situation. Specialist completion wakes the call early. On timeout, use ${ROOT_ORCHESTRATION_POLICY.rootWaitTimeoutMs} again while any specialist result remains a live dependency; continue independent work between waits. Do not busy-poll, create unnecessary work to avoid waiting, or inspect a long-running specialist merely because others finished; inspect only bounded evidence when a material stall or failure is plausible, then repair, restart, or redispatch only the necessary scope. Batch specialist completion updates rather than reporting each completion separately. Continue useful independent work while live dependencies remain. Release specialist leaves after accepting terminal outcomes.`;
 
 /** Public data contract for native agent install result used by CLI operations. */
 export interface NativeAgentInstallResult {
@@ -333,19 +334,17 @@ export function rootDeveloperInstructions(
     ) ||
     !ROOT_ORCHESTRATION_POLICY.materialUserUpdateKinds.includes("release_milestones") ||
     !ROOT_ORCHESTRATION_POLICY.outOfBoundaryRequiresNewAssignment ||
-    !ROOT_ORCHESTRATION_POLICY.longestPracticalEventWait ||
     !ROOT_ORCHESTRATION_POLICY.busyPollingForbidden ||
     !ROOT_ORCHESTRATION_POLICY.statusOnlyCoordinationLoopsForbidden ||
     !ROOT_ORCHESTRATION_POLICY.batchIndependentLifecycleActions ||
     !ROOT_ORCHESTRATION_POLICY.releaseLeavesAfterAcceptedOutcome ||
-    ROOT_ORCHESTRATION_POLICY.routineWaitTool !== "collaboration.wait_agent" ||
-    !Number.isSafeInteger(ROOT_ORCHESTRATION_POLICY.routineWaitMaximumTimeoutMs) ||
-    ROOT_ORCHESTRATION_POLICY.routineWaitMaximumTimeoutMs <= 0 ||
-    !ROOT_ORCHESTRATION_POLICY.routineWaitUsesMaximumRuntimeTimeout ||
+    ROOT_ORCHESTRATION_POLICY.rootWaitTool !== "collaboration.wait_agent" ||
+    ROOT_ORCHESTRATION_POLICY.rootWaitTimeoutMs !== 600_000 ||
+    !ROOT_ORCHESTRATION_POLICY.rootWaitRequiresExactTimeout ||
     !ROOT_ORCHESTRATION_POLICY.earlySpecialistCompletionWakesWait ||
     !ROOT_ORCHESTRATION_POLICY.collectiveMailboxIncludesRelevantAgents ||
-    !ROOT_ORCHESTRATION_POLICY.idleTimeoutRepeatsMaximumWait ||
-    !ROOT_ORCHESTRATION_POLICY.shortRoutineWaitsForbidden ||
+    !ROOT_ORCHESTRATION_POLICY.idleRootWaitRepeatsRequiredTimeout ||
+    !ROOT_ORCHESTRATION_POLICY.shortRootWaitsForbidden ||
     !ROOT_ORCHESTRATION_POLICY.evidenceFirstConciseStructuredReports ||
     (ROOT_ORCHESTRATION_POLICY.specialistReportFields as readonly string[]).length === 0 ||
     (ROOT_ORCHESTRATION_POLICY.rootLargeReadsOnlyFor as readonly string[]).length === 0 ||
@@ -375,7 +374,7 @@ export function rootDeveloperInstructions(
     `For normal specialist spawns, set fork_turns: "${ROOT_ORCHESTRATION_POLICY.normalSpawnForkTurns}". Give each specialist a self-contained Assignment with objective, bounded scope, constraints, dependencies, acceptance criteria, and evidence needed for acceptance.`,
     `Dispatch each Assignment to its exact concrete registered Role.task agent_type. Registered targets: ${ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes.join(", ")}. Explorer, Librarian, Worker, and Reviewer are labels only; generic built-in agent_type values ${ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes.join(", ")} are forbidden.`,
     ROOT_ORCHESTRATION_POLICY.semanticStateBoundary,
-    "User instructions take precedence over skill guidelines. Treat later user steering as current when it changes scope, ownership, or delegation; do not carry forward earlier conflicting constraints. Infer intent from the request and session; carry authorized work through its requested terminal state. Routine omissions get safe defaults. For a blocking material user decision, Root alone uses grill-me, which must ask through request_user_input; ask only what remains unresolved, never turn clarification into planning. Specialists return material input needs to Root as needs_root_input and never ask the user. Dispatch immediately when no decision blocks the next step, and continue independent work while an answer is pending. Check existing authorization before asking again; prepare the concrete reviewable result before requesting approval for a consequential effect. Credential entry remains user-owned.",
+    "User instructions take precedence over skill guidelines. Treat later user steering as current when it changes scope, ownership, or delegation; do not carry forward earlier conflicting constraints. Infer intent from the request and session; carry authorized work through its requested terminal state. Routine omissions get safe defaults. Root routes every user-facing question or doubt through the supported input tools, never prose. Prefer request_user_input_async for clarifications and approvals; use request_user_input only when async would harm the situation or cause unnecessary work, and only when the synchronous tool contract permits that question. Never use a tool for permission requests when its contract forbids them. Invoke grill-me only when uncertainty about intent, implementation, or findings requires the user's project decision; when the request is clear enough, proceed without asking. Ask only what remains unresolved, never turn clarification into planning. While a question is pending, do only work independent of its answer; never do dependent or speculative work that must be redone after the answer. Required answers remain pending until an actual response; elapsed time is not an answer or approval. Specialists return material input needs to Root as needs_root_input and never ask the user. Dispatch immediately when no decision blocks the next step, and continue independent work while an answer is pending. Check existing authorization before asking again; prepare the concrete reviewable result before requesting approval for a consequential effect. Credential entry remains user-owned.",
     "Dispatch independent non-conflicting Assignments concurrently as soon as their inputs are ready, including across workflow phases. Give each overlapping write or shared-mutable seam one specialist owner and send follow-ups to that owner instead of spawning competing writers; start dependent review or validation once its source is stable. Reuse accepted findings instead of repeating discovery. Batch independent tool reads and lifecycle work where supported; keep revisions and dependent writes ordered. Resolve material contradictions before acceptance.",
     "For visual tasks, Root uses visual-loop: Worker.visual implementation, Reviewer.visual independent review, then Root independent visual pass; use dev-server when a shared background server is needed. Honor active-surface tool precedence. Report a capability blocker without inventing a provider or widening authority.",
     renderVisualInspectionInstruction(options),
@@ -439,7 +438,7 @@ function renderFrontendSkillInstruction(): string {
 }
 
 /** Publish canonical native profiles while preserving foreign or modified files. */
-export async function installNativeAgents(
+export function installNativeAgents(
   codexHome: string,
   profile: ProfileName,
   previous: readonly ManagedArtifact[] = [],
@@ -448,146 +447,207 @@ export async function installNativeAgents(
   preResolvedConflicts: readonly ManagedConflict[] = [],
   capabilities: NativeAgentCapabilityOptions = {},
 ): Promise<NativeAgentInstallResult> {
-  const generationId = nativeAgentGenerationId(profile, tier, capabilities);
-  const root = join(codexHome, "holycodex", "agents", generationId);
-  const preserved: string[] = [];
   const rollback: NativeAgentRollbackEntry[] = [];
-  const projections = projectNativeAgents(profile, tier).map((agent) => ({
-    path: join(root, `${agent.name}.toml`),
-    contents: renderNativeAgent(agent, capabilities),
-  }));
-  const previousByPath = new Map(
-    previous.map((artifact) => [join(codexHome, artifact.path), artifact]),
-  );
-  const currentByPath = new Map<string, string | undefined>();
-  const acceptedConflicts = new Set<string>();
-  const preservedConflicts = new Set<string>();
-  const conflictSnapshotDigests = new Map<string, string>();
-  for (const projection of projections) {
-    const current = await readRegularFile(projection.path);
-    currentByPath.set(projection.path, current);
-    const preResolved = preResolvedConflicts.find(
-      (candidate) =>
-        candidate.path === projection.path &&
-        candidate.action === "replace" &&
-        candidate.key === undefined,
+  const operation = Effect.gen(function* () {
+    const generationId = nativeAgentGenerationId(profile, tier, capabilities);
+    const root = join(codexHome, "holycodex", "agents", generationId);
+    const preserved: string[] = [];
+    const projections = projectNativeAgents(profile, tier).map((agent) => ({
+      path: join(root, `${agent.name}.toml`),
+      contents: renderNativeAgent(agent, capabilities),
+    }));
+    const previousByPath = new Map(
+      previous.map((artifact) => [join(codexHome, artifact.path), artifact]),
     );
-    if (preResolved !== undefined) {
-      const reviewedDigest = conflictDigest(preResolved);
-      if (
-        reviewedDigest === undefined ||
-        current === undefined ||
-        (await sha256(current)) !== reviewedDigest
-      ) {
-        throw new Error(
-          `The native role conflict changed after review; review the latest file and retry: ${projection.path}`,
-        );
-      }
-      conflictSnapshotDigests.set(projection.path, reviewedDigest);
-      if (preResolved.decision === "keep") preservedConflicts.add(projection.path);
-      else acceptedConflicts.add(projection.path);
-    }
-    const previousArtifact = previousByPath.get(projection.path);
-    if (current !== undefined && preResolved === undefined) {
-      const conflict = await nativeRoleConflict(projection, current, previousArtifact);
-      if (conflict !== undefined) {
-        const resolution = await resolveConflict?.(conflict);
-        if (resolution === "cancel") {
-          throw new Error(`Native-agent conflict resolution was cancelled: ${projection.path}`);
-        }
-        if (resolution === undefined) {
-          preservedConflicts.add(projection.path);
-        } else {
-          const reviewedDigest = conflictDigest(conflict);
-          const latest = await readRegularFile(projection.path);
-          if (
-            reviewedDigest === undefined ||
-            latest === undefined ||
-            (await sha256(latest)) !== reviewedDigest
-          ) {
-            throw new Error(
-              `The native role conflict changed after review; review the latest file and retry: ${projection.path}`,
-            );
-          }
-          conflictSnapshotDigests.set(projection.path, reviewedDigest);
-          if (resolution === "accept") acceptedConflicts.add(projection.path);
-          else preservedConflicts.add(projection.path);
-        }
-      }
-    }
-  }
-  const managed_artifacts: ManagedArtifact[] = [];
-  try {
+    const currentByPath = new Map<string, string | undefined>();
+    const acceptedConflicts = new Set<string>();
+    const preservedConflicts = new Set<string>();
+    const conflictSnapshotDigests = new Map<string, string>();
     for (const projection of projections) {
-      const current = currentByPath.get(projection.path);
-      const previousArtifact = previousByPath.get(projection.path);
-      const reviewedDigest = conflictSnapshotDigests.get(projection.path);
-      if (reviewedDigest !== undefined) {
-        const latest = await readRegularFile(projection.path);
-        if (latest === undefined || (await sha256(latest)) !== reviewedDigest) {
-          throw new Error(
-            `The native role conflict changed after review; review the latest file and retry: ${projection.path}`,
+      const current = yield* Effect.tryPromise({
+        try: () => readRegularFile(projection.path),
+        catch: (error) => error,
+      });
+      currentByPath.set(projection.path, current);
+      const preResolved = preResolvedConflicts.find(
+        (candidate) =>
+          candidate.path === projection.path &&
+          candidate.action === "replace" &&
+          candidate.key === undefined,
+      );
+      if (preResolved !== undefined) {
+        const reviewedDigest = conflictDigest(preResolved);
+        if (
+          reviewedDigest === undefined ||
+          current === undefined ||
+          (yield* Effect.tryPromise({ try: () => sha256(current), catch: (error) => error })) !==
+            reviewedDigest
+        ) {
+          return yield* Effect.fail(
+            new Error(
+              `The native role conflict changed after review; review the latest file and retry: ${projection.path}`,
+            ),
           );
         }
+        conflictSnapshotDigests.set(projection.path, reviewedDigest);
+        if (preResolved.decision === "keep") preservedConflicts.add(projection.path);
+        else acceptedConflicts.add(projection.path);
       }
-      if (preservedConflicts.has(projection.path)) {
-        preserved.push(projection.path);
-        if (previousArtifact !== undefined) {
-          managed_artifacts.push(previousArtifact);
+      const previousArtifact = previousByPath.get(projection.path);
+      if (current !== undefined && preResolved === undefined) {
+        const conflict = yield* Effect.tryPromise({
+          try: () => nativeRoleConflict(projection, current, previousArtifact),
+          catch: (error) => error,
+        });
+        if (conflict !== undefined) {
+          const resolution =
+            resolveConflict === undefined
+              ? undefined
+              : yield* resolveConflict(conflict);
+          if (resolution === "cancel") {
+            return yield* Effect.fail(
+              new Error(`Native-agent conflict resolution was cancelled: ${projection.path}`),
+            );
+          }
+          if (resolution === undefined) {
+            preservedConflicts.add(projection.path);
+          } else {
+            const reviewedDigest = conflictDigest(conflict);
+            const latest = yield* Effect.tryPromise({
+              try: () => readRegularFile(projection.path),
+              catch: (error) => error,
+            });
+            if (
+              reviewedDigest === undefined ||
+              latest === undefined ||
+              (yield* Effect.tryPromise({ try: () => sha256(latest), catch: (error) => error })) !==
+                reviewedDigest
+            ) {
+              return yield* Effect.fail(
+                new Error(
+                  `The native role conflict changed after review; review the latest file and retry: ${projection.path}`,
+                ),
+              );
+            }
+            conflictSnapshotDigests.set(projection.path, reviewedDigest);
+            if (resolution === "accept") acceptedConflicts.add(projection.path);
+            else preservedConflicts.add(projection.path);
+          }
         }
-        continue;
       }
-      if (current !== undefined && previousArtifact !== undefined) {
-        const digest = await sha256(current);
-        if (
-          digest !== previousArtifact.digest &&
-          current !== projection.contents &&
-          !acceptedConflicts.has(projection.path)
-        ) {
-          preserved.push(projection.path);
+    }
+    const managed_artifacts: ManagedArtifact[] = [];
+    const transaction = yield* Effect.result(
+      Effect.gen(function* () {
+        for (const projection of projections) {
+          const current = currentByPath.get(projection.path);
+          const previousArtifact = previousByPath.get(projection.path);
+          const reviewedDigest = conflictSnapshotDigests.get(projection.path);
+          if (reviewedDigest !== undefined) {
+            const latest = yield* Effect.tryPromise({
+              try: () => readRegularFile(projection.path),
+              catch: (error) => error,
+            });
+            if (
+              latest === undefined ||
+              (yield* Effect.tryPromise({ try: () => sha256(latest), catch: (error) => error })) !==
+                reviewedDigest
+            ) {
+              return yield* Effect.fail(
+                new Error(
+                  `The native role conflict changed after review; review the latest file and retry: ${projection.path}`,
+                ),
+              );
+            }
+          }
+          if (preservedConflicts.has(projection.path)) {
+            preserved.push(projection.path);
+            if (previousArtifact !== undefined) {
+              managed_artifacts.push(previousArtifact);
+            }
+            continue;
+          }
+          if (current !== undefined && previousArtifact !== undefined) {
+            const digest = yield* Effect.tryPromise({
+              try: () => sha256(current),
+              catch: (error) => error,
+            });
+            if (
+              digest !== previousArtifact.digest &&
+              current !== projection.contents &&
+              !acceptedConflicts.has(projection.path)
+            ) {
+              preserved.push(projection.path);
+              managed_artifacts.push({
+                path: relative(codexHome, projection.path).replaceAll("\\", "/"),
+                digest: previousArtifact.digest,
+              });
+              continue;
+            }
+          }
+          if (current === undefined || current !== projection.contents) {
+            yield* Effect.tryPromise({
+              try: () => writeAtomicText(projection.path, projection.contents),
+              catch: (error) => error,
+            });
+            rollback.push({
+              path: projection.path,
+              previous: current,
+              installedDigest: yield* Effect.tryPromise({
+                try: () => sha256(projection.contents),
+                catch: (error) => error,
+              }),
+            });
+          }
           managed_artifacts.push({
             path: relative(codexHome, projection.path).replaceAll("\\", "/"),
-            digest: previousArtifact.digest,
+            digest: yield* Effect.tryPromise({
+              try: () => sha256(projection.contents),
+              catch: (error) => error,
+            }),
           });
-          continue;
         }
-      }
-      if (current === undefined || current !== projection.contents) {
-        await writeAtomicText(projection.path, projection.contents);
-        rollback.push({
-          path: projection.path,
-          previous: current,
-          installedDigest: await sha256(projection.contents),
+        // A legacy root role was invalid by construction. Remove it only when its
+        // content carries the old HolyCodex marker; an unrelated user root role is
+        // preserved.
+        const legacyRoot = join(codexHome, "agents", "root.toml");
+        const legacyRootContents = yield* Effect.tryPromise({
+          try: () => readRegularFile(legacyRoot),
+          catch: (error) => error,
         });
-      }
-      managed_artifacts.push({
-        path: relative(codexHome, projection.path).replaceAll("\\", "/"),
-        digest: await sha256(projection.contents),
+        const legacyRootStatus = yield* Effect.tryPromise({
+          try: () => removeLegacyRootIfOwned(legacyRoot),
+          catch: (error) => error,
+        });
+        if (legacyRootStatus === "preserved") preserved.push(legacyRoot);
+        if (legacyRootStatus === "removed" && legacyRootContents !== undefined) {
+          rollback.push({
+            path: legacyRoot,
+            previous: legacyRootContents,
+            installedDigest: undefined,
+          });
+        }
+        for (const artifact of previous) {
+          const absolute = join(codexHome, artifact.path);
+          if (!projections.some((candidate) => candidate.path === absolute)) {
+            managed_artifacts.push(artifact);
+          }
+        }
+        return { managed_artifacts, preserved, rollback };
+      }),
+    );
+    if (transaction._tag === "Failure") {
+      // The caller cannot receive a result when a write fails midway. Restore
+      // everything already published while preserving concurrent user edits.
+      yield* Effect.tryPromise({
+        try: () => rollbackNativeAgentInstall(rollback),
+        catch: () => undefined,
       });
+      return yield* Effect.fail(transaction.failure);
     }
-    // A legacy root role was invalid by construction. Remove it only when its
-    // content carries the old HolyCodex marker; an unrelated user root role is
-    // preserved.
-    const legacyRoot = join(codexHome, "agents", "root.toml");
-    const legacyRootContents = await readRegularFile(legacyRoot);
-    const legacyRootStatus = await removeLegacyRootIfOwned(legacyRoot);
-    if (legacyRootStatus === "preserved") preserved.push(legacyRoot);
-    if (legacyRootStatus === "removed" && legacyRootContents !== undefined) {
-      rollback.push({ path: legacyRoot, previous: legacyRootContents, installedDigest: undefined });
-    }
-    for (const artifact of previous) {
-      const absolute = join(codexHome, artifact.path);
-      if (!projections.some((candidate) => candidate.path === absolute)) {
-        managed_artifacts.push(artifact);
-      }
-    }
-    return { managed_artifacts, preserved, rollback };
-  } catch (error: unknown) {
-    // The caller cannot receive a result when a write fails midway. Restore
-    // everything already published while preserving concurrent user edits.
-    await rollbackNativeAgentInstall(rollback).catch(() => undefined);
-    throw error;
-  }
+    return transaction.success;
+  });
+  return Effect.runPromise(operation);
 }
 
 /** Restore only files that still match the just-published native-agent state. */
@@ -607,9 +667,16 @@ export async function rollbackNativeAgentInstall(
       continue;
     }
     if (entry.previous === undefined) {
-      await rm(entry.path, { force: false }).catch((error: unknown) => {
-        if (!isFsCode(error, "ENOENT")) throw error;
-      });
+      await Effect.runPromise(
+        Effect.catchIf(
+          Effect.tryPromise({
+            try: () => rm(entry.path, { force: false }),
+            catch: (error) => error,
+          }),
+          (error) => isFsCode(error, "ENOENT"),
+          () => Effect.void,
+        ),
+      );
       removed.push(entry.path);
     } else {
       await writeAtomicText(entry.path, entry.previous);
@@ -639,29 +706,39 @@ export async function removeManagedNativeAgents(
       preserved.push(target);
       continue;
     }
-    try {
-      await assertNoSymlink(target);
-      const entry = await lstat(target);
-      if (entry.isSymbolicLink() || !entry.isFile()) {
-        preserved.push(target);
-        continue;
-      }
-      const current = await readFile(target);
-      const currentDigest = await sha256(current);
-      if (currentDigest !== artifact.digest) {
-        const reviewedDigest = acceptedConflictDigests.get(target);
-        if (reviewedDigest !== undefined && currentDigest === reviewedDigest) {
-          await rm(target, { force: false });
-          removed.push(target);
-          continue;
-        }
-        preserved.push(target);
-        continue;
-      }
-      await rm(target, { force: false });
-      removed.push(target);
-    } catch (error: unknown) {
-      if (!isFsCode(error, "ENOENT")) preserved.push(target);
+    const result = await Effect.runPromise(
+      Effect.result(
+        Effect.gen(function* () {
+          yield* Effect.tryPromise({ try: () => assertNoSymlink(target), catch: (error) => error });
+          const entry = yield* Effect.tryPromise({
+            try: () => lstat(target),
+            catch: (error) => error,
+          });
+          if (entry.isSymbolicLink() || !entry.isFile()) return "preserved" as const;
+          const current = yield* Effect.tryPromise({
+            try: () => readFile(target),
+            catch: (error) => error,
+          });
+          const currentDigest = yield* Effect.tryPromise({
+            try: () => sha256(current),
+            catch: (error) => error,
+          });
+          const reviewedDigest = acceptedConflictDigests.get(target);
+          if (currentDigest !== artifact.digest && currentDigest !== reviewedDigest)
+            return "preserved" as const;
+          yield* Effect.tryPromise({
+            try: () => rm(target, { force: false }),
+            catch: (error) => error,
+          });
+          return "removed" as const;
+        }),
+      ),
+    );
+    if (result._tag === "Success") {
+      if (result.success === "removed") removed.push(target);
+      else preserved.push(target);
+    } else if (!isFsCode(result.failure, "ENOENT")) {
+      preserved.push(target);
     }
   }
   const legacyRoot = join(codexHome, "agents", "root.toml");
@@ -673,13 +750,20 @@ export async function removeManagedNativeAgents(
   for (const target of removedFiles) {
     let parent = dirname(target);
     while (parent !== managedRoot && pathWithin(managedRoot, parent)) {
-      try {
-        await assertNoSymlink(parent);
-        await rmdir(parent);
-        removed.push(parent);
-      } catch (error: unknown) {
-        if (!isFsCode(error, "ENOENT")) break;
-      }
+      const removedDirectory = await Effect.runPromise(
+        Effect.result(
+          Effect.gen(function* () {
+            yield* Effect.tryPromise({
+              try: () => assertNoSymlink(parent),
+              catch: (error) => error,
+            });
+            yield* Effect.tryPromise({ try: () => rmdir(parent), catch: (error) => error });
+          }),
+        ),
+      );
+      if (removedDirectory._tag === "Failure") {
+        if (!isFsCode(removedDirectory.failure, "ENOENT")) break;
+      } else removed.push(parent);
       parent = dirname(parent);
     }
   }
@@ -720,9 +804,6 @@ export function renderNativeAgent(
     `service_tier = ${JSON.stringify(agent.serviceTier)}`,
     'model_reasoning_summary = "none"',
     'model_verbosity = "low"',
-    `sandbox_mode = ${JSON.stringify(nativeAgentSandboxMode(agent))}`,
-    'approval_policy = "never"',
-    'web_search = "live"',
     `developer_instructions = ${JSON.stringify(instructions)}`,
     "",
     "[agents]",
@@ -736,10 +817,6 @@ export function renderNativeAgent(
     "[features.context_management]",
     "experimental_mode = true",
     "",
-    ...(nativeAgentSandboxMode(agent) === "workspace-write"
-      ? ["[sandbox_workspace_write]", "network_access = true"]
-      : []),
-    "",
   ].join("\n");
 }
 
@@ -748,17 +825,18 @@ export function nativeAgentSandboxMode(agent: NativeAgentProjection): NativeAgen
   return agent.permissions.filesystem;
 }
 
-/** Check the generated sandbox and command-network controls for one specialist. */
+/** Check that a generated specialist inherits its parent permission profile. */
 export function nativeAgentSandboxConfigurationMatches(
-  agent: NativeAgentProjection,
+  _agent: NativeAgentProjection,
   document: TomlDocument,
 ): boolean {
   return (
-    document["sandbox_mode"] === nativeAgentSandboxMode(agent) &&
+    document["sandbox_mode"] === undefined &&
+    document["approval_policy"] === undefined &&
+    document["approvals_reviewer"] === undefined &&
+    document["web_search"] === undefined &&
     document["default_permissions"] === undefined &&
-    (nativeAgentSandboxMode(agent) === "workspace-write"
-      ? readTomlPath(document, "sandbox_workspace_write.network_access") === true
-      : readTomlPath(document, "sandbox_workspace_write.network_access") === undefined)
+    readTomlPath(document, "sandbox_workspace_write.network_access") === undefined
   );
 }
 
@@ -802,39 +880,66 @@ export function isKnownLegacyRootRoleContent(content: string): boolean {
   return LEGACY_ROOT_ROLE_CONTENTS.has(content);
 }
 
-async function removeLegacyRootIfOwned(path: string): Promise<"removed" | "preserved" | "absent"> {
-  try {
-    await assertNoSymlink(path);
-    const entry = await lstat(path);
-    if (!entry.isFile() || entry.isSymbolicLink()) return "preserved";
-    const content = await readFile(path, "utf8");
-    if (!isKnownLegacyRootRoleContent(content)) {
-      return "preserved";
-    }
-    await rm(path, { force: false });
-    return "removed";
-  } catch (error: unknown) {
-    if (isFsCode(error, "ENOENT")) return "absent";
-    throw error;
-  }
+function removeLegacyRootIfOwned(path: string): Promise<"removed" | "preserved" | "absent"> {
+  return Effect.runPromise(
+    Effect.catchIf(
+      Effect.gen(function* () {
+        yield* Effect.tryPromise({ try: () => assertNoSymlink(path), catch: (error) => error });
+        const entry = yield* Effect.tryPromise({ try: () => lstat(path), catch: (error) => error });
+        if (!entry.isFile() || entry.isSymbolicLink()) return "preserved" as const;
+        const content = yield* Effect.tryPromise({
+          try: () => readFile(path, "utf8"),
+          catch: (error) => error,
+        });
+        if (!isKnownLegacyRootRoleContent(content)) return "preserved" as const;
+        yield* Effect.tryPromise({
+          try: () => rm(path, { force: false }),
+          catch: (error) => error,
+        });
+        return "removed" as const;
+      }),
+      (error) => isFsCode(error, "ENOENT"),
+      () => Effect.succeed("absent" as const),
+    ),
+  );
 }
 
-async function readRegularFile(path: string): Promise<string | undefined> {
-  try {
-    await assertNoSymlink(path);
-    const entry = await lstat(path);
-    if (entry.isSymbolicLink() || !entry.isFile()) throw new Error(`Invalid managed path: ${path}`);
-    return new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path));
-  } catch (error: unknown) {
-    if (isFsCode(error, "ENOENT")) return undefined;
-    throw error;
-  }
+function readRegularFile(path: string): Promise<string | undefined> {
+  return Effect.runPromise(
+    Effect.catchIf(
+      Effect.gen(function* () {
+        yield* Effect.tryPromise({ try: () => assertNoSymlink(path), catch: (error) => error });
+        const entry = yield* Effect.tryPromise({ try: () => lstat(path), catch: (error) => error });
+        if (entry.isSymbolicLink() || !entry.isFile()) {
+          return yield* Effect.fail(new Error(`Invalid managed path: ${path}`));
+        }
+        const contents = yield* Effect.tryPromise({
+          try: () => readFile(path),
+          catch: (error) => error,
+        });
+        return yield* Effect.try({
+          try: () => new TextDecoder("utf-8", { fatal: true }).decode(contents),
+          catch: (error) => error,
+        });
+      }),
+      (error) => isFsCode(error, "ENOENT"),
+      () => Effect.succeed(undefined),
+    ),
+  );
 }
 
-async function sha256(value: Uint8Array | string): Promise<string> {
+function sha256(value: Uint8Array | string): Promise<string> {
   const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value;
-  const digest = await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Effect.runPromise(
+    Effect.map(
+      Effect.tryPromise({
+        try: () => crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>),
+        catch: (error) => error,
+      }),
+      (digest) =>
+        Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(""),
+    ),
+  );
 }
 
 function nativeConflict(

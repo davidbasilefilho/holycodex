@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  canonicalJson,
   CLI_SCHEMA_VERSION,
   decodeUnknown,
   type JsonObject,
   type JsonValue,
 } from "@holycodex/core";
-import * as Either from "effect/Either";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import { CODEX_PROTOCOL_EPOCH, CODEX_PROTOCOL_VERSION } from "../generated/typescript/protocol";
@@ -35,33 +34,24 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
 
 /** Return whether a value can be represented as JSON. */
 export function isJsonValue(value: unknown): value is JsonValue {
-  try {
-    canonicalJson(value);
-    return true;
-  } catch {
-    return false;
-  }
+  return Result.isSuccess(Schema.decodeUnknownResult(Schema.Json)(value));
 }
 
 /** Validates JSON-compatible values accepted at Codex boundaries. */
-export const JsonValueSchema = Schema.declare((value: unknown): value is JsonValue =>
-  isJsonValue(value),
-);
+export const JsonValueSchema: Schema.Codec<JsonValue, unknown> = Schema.Json;
 /** Validates plain JSON objects accepted at Codex boundaries. */
-export const JsonObjectSchema = Schema.declare(
-  (value: unknown): value is JsonObject => isPlainObject(value) && isJsonValue(value),
-);
+export const JsonObjectSchema: Schema.Codec<JsonObject, unknown> = Schema.JsonObject;
 /** Validates bounded identifiers used by Codex contracts. */
-export const IdentifierSchema = Schema.String.pipe(
-  Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u),
+export const IdentifierSchema = Schema.String.check(
+  Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u),
 );
 /** Validates non-empty, bounded text used by Codex contracts. */
-export const TextSchema = Schema.String.pipe(
-  Schema.filter((value) => value.length > 0 && value.length <= 4096),
+export const TextSchema = Schema.String.check(
+  Schema.makeFilter((value) => value.length > 0 && value.length <= 4096),
 );
 /** Validates finite, non-negative numbers used by Codex contracts. */
-export const NonNegativeNumberSchema = Schema.Number.pipe(
-  Schema.filter((value) => Number.isFinite(value) && value >= 0),
+export const NonNegativeNumberSchema = Schema.Number.check(
+  Schema.makeFilter((value) => Number.isFinite(value) && value >= 0),
 );
 
 /** Stable error codes returned when a Codex operation fails. */
@@ -239,20 +229,15 @@ export function invalidData(label: string, input: unknown, cause?: unknown): Cod
 }
 
 /** Decode input with a schema or throw a structured invalid-data error. */
-export function checked<T>(schema: Schema.Schema<T>, input: unknown, label: string): T {
+export function checked<T>(schema: Schema.Codec<T, unknown>, input: unknown, label: string): T {
   const parsed = decodeUnknown(schema, input);
-  if (Either.isLeft(parsed)) {
-    throw invalidData(label, input, String(parsed.left));
+  if (Result.isFailure(parsed)) {
+    throw invalidData(label, input, String(parsed.failure));
   }
-  return parsed.right;
+  return parsed.success;
 }
 
 /** Return whether input conforms to a schema. */
-export function isValid<T>(schema: Schema.Schema<T>, input: unknown): input is T {
-  try {
-    checked(schema, input, "value");
-    return true;
-  } catch {
-    return false;
-  }
+export function isValid<T>(schema: Schema.Codec<T, unknown>, input: unknown): input is T {
+  return Result.isSuccess(decodeUnknown(schema, input));
 }

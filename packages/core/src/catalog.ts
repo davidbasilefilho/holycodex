@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Either from "effect/Either";
+import * as Result from "effect/Result";
 
 import { freezeDeep } from "./common.ts";
 import { CoreError, type CoreResult, failure, inputError, success } from "./errors.ts";
@@ -33,8 +33,8 @@ export const LUNA_MODEL_ID = "gpt-6-luna" as const;
 /** Decode the canonical product profile selection used by routing. */
 export function parseProfileSelection(input: unknown): CoreResult<ProfileSelection> {
   const parsed = decodeUnknown(ProfileSelectionSchema, input);
-  if (Either.isLeft(parsed)) return failure(inputError("profile selection", parsed.left));
-  return success(parsed.right);
+  if (Result.isFailure(parsed)) return failure(inputError("profile selection", parsed.failure));
+  return success(parsed.success);
 }
 
 function route(role: Role, task: TaskForRole<Role>, effort: Effort): RouteDefinition {
@@ -68,6 +68,9 @@ export const ROUTE_EFFORT_OVERRIDES = [
       "Worker:debugging": "high",
       "Worker:visual": "high",
       "Reviewer:code": "high",
+      "Reviewer:testing": "medium",
+      "Reviewer:audit": "medium",
+      "Reviewer:security": "high",
       "Reviewer:artifact": "high",
       "Reviewer:visual": "high",
     } satisfies Readonly<Record<RouteKey, Effort>>,
@@ -90,6 +93,9 @@ export const ROUTE_EFFORT_OVERRIDES = [
       "Worker:debugging": "high",
       "Worker:visual": "high",
       "Reviewer:code": "high",
+      "Reviewer:testing": "high",
+      "Reviewer:audit": "high",
+      "Reviewer:security": "high",
       "Reviewer:artifact": "high",
       "Reviewer:visual": "high",
     } satisfies Readonly<Record<RouteKey, Effort>>,
@@ -97,22 +103,25 @@ export const ROUTE_EFFORT_OVERRIDES = [
   {
     profile: "high",
     rationale:
-      "Highest practical reliability without indiscriminate reasoning waste; reserve Luna max for difficult long-horizon work.",
+      "Highest practical reliability without indiscriminate reasoning waste; use high effort consistently across all live routes.",
     efforts: {
       "Explorer:map": "high",
       "Explorer:lookup": "medium",
       "Explorer:trace": "high",
       "Librarian:lookup": "high",
-      "Librarian:research": "max",
+      "Librarian:research": "high",
       "Worker:mechanical": "high",
-      "Worker:implementation": "max",
-      "Worker:integration": "max",
+      "Worker:implementation": "high",
+      "Worker:integration": "high",
       "Worker:operations": "high",
       "Worker:validation": "high",
-      "Worker:debugging": "max",
-      "Worker:visual": "max",
+      "Worker:debugging": "high",
+      "Worker:visual": "high",
       "Reviewer:code": "high",
-      "Reviewer:artifact": "max",
+      "Reviewer:testing": "high",
+      "Reviewer:audit": "high",
+      "Reviewer:security": "high",
+      "Reviewer:artifact": "high",
       "Reviewer:visual": "high",
     } satisfies Readonly<Record<RouteKey, Effort>>,
   },
@@ -232,20 +241,20 @@ for (const definition of PROFILE_CATALOG) {
 /** Look up one current product profile. Legacy values are rejected here by design. */
 export function lookupProfile(input: unknown): CoreResult<ProfileDefinition> {
   const parsed = decodeUnknown(ProfileNameSchema, input);
-  if (Either.isLeft(parsed)) {
+  if (Result.isFailure(parsed)) {
     return failure(
       new CoreError(
         "invalid_profile",
         "Unknown profile selection.",
         { field: "profile" },
-        { cause: parsed.left },
+        { cause: parsed.failure },
       ),
     );
   }
-  const definition = profilesByName.get(parsed.right);
+  const definition = profilesByName.get(parsed.success);
   if (!definition) {
     return failure(
-      new CoreError("invalid_profile", "Unknown profile selection.", { profile: parsed.right }),
+      new CoreError("invalid_profile", "Unknown profile selection.", { profile: parsed.success }),
     );
   }
   return success(definition);
@@ -253,10 +262,10 @@ export function lookupProfile(input: unknown): CoreResult<ProfileDefinition> {
 
 function parseRouteKey(input: unknown): CoreResult<RouteKey> {
   const parsedKey = decodeUnknown(RouteKeySchema, input);
-  if (Either.isRight(parsedKey)) return success(parsedKey.right);
+  if (Result.isSuccess(parsedKey)) return success(parsedKey.success);
   const parsedRoleTask = decodeUnknown(RoleTaskSchema, input);
-  if (Either.isRight(parsedRoleTask)) {
-    const key = `${parsedRoleTask.right.role}:${parsedRoleTask.right.task}`;
+  if (Result.isSuccess(parsedRoleTask)) {
+    const key = `${parsedRoleTask.success.role}:${parsedRoleTask.success.task}`;
     if (routeKeys.has(key as RouteKey)) return success(key as RouteKey);
   }
   return failure(
@@ -264,7 +273,7 @@ function parseRouteKey(input: unknown): CoreResult<RouteKey> {
       "invalid_route",
       "Unknown specialist route.",
       { field: "route" },
-      { cause: parsedKey.left },
+      { cause: parsedKey.failure },
     ),
   );
 }

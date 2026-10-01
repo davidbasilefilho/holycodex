@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
+
+import type { JsonObject, JsonValue } from "./common.ts";
 import { CoreError } from "./errors.ts";
 import { parseIdentityInput, type Sha256Digest } from "./identifiers.ts";
 
@@ -10,114 +15,98 @@ function canonicalError(path: string, reason: string): CoreError {
   });
 }
 
-function canonicalize(value: unknown, path: string, ancestors: Set<object>): string {
+function isCanonicalJsonValue(value: unknown, ancestors = new Set<object>()): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value !== "object") return false;
+  if (ancestors.has(value)) return false;
+
+  const nestedAncestors = new Set(ancestors);
+  nestedAncestors.add(value);
+  if (Array.isArray(value)) {
+    if (Object.getOwnPropertySymbols(value).length > 0) return false;
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (
+        !descriptor ||
+        !descriptor.enumerable ||
+        !("value" in descriptor) ||
+        !isCanonicalJsonValue(descriptor.value, nestedAncestors)
+      )
+        return false;
+    }
+    return Object.getOwnPropertyNames(value).every((key) => {
+      if (key === "length") return true;
+      const index = Number(key);
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return (
+        Number.isInteger(index) &&
+        index >= 0 &&
+        index < value.length &&
+        String(index) === key &&
+        descriptor !== undefined &&
+        descriptor.enumerable &&
+        "value" in descriptor
+      );
+    });
+  }
+
+  if (
+    (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) ||
+    Object.getOwnPropertySymbols(value).length > 0
+  )
+    return false;
+  return Object.getOwnPropertyNames(value).every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return (
+      descriptor !== undefined &&
+      descriptor.enumerable &&
+      "value" in descriptor &&
+      isCanonicalJsonValue(descriptor.value, nestedAncestors)
+    );
+  });
+}
+
+const CanonicalJsonSchema = Schema.Json.check(
+  Schema.makeFilter((value) => isCanonicalJsonValue(value)),
+);
+const DigestDomainSchema = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isPattern(/^[^\0]+$/u),
+);
+
+function canonicalize(value: JsonValue): string {
   if (value === null) {
     return "null";
   }
   switch (typeof value) {
-    case "string": {
-      const encoded = JSON.stringify(value);
-      if (encoded === undefined) {
-        throw canonicalError(path, "invalid string");
-      }
-      return encoded;
-    }
+    case "string":
+      return JSON.stringify(value);
     case "boolean":
       return value ? "true" : "false";
-    case "number": {
-      if (!Number.isFinite(value)) {
-        throw canonicalError(path, "non-finite number");
-      }
-      const encoded = JSON.stringify(value);
-      if (encoded === undefined) {
-        throw canonicalError(path, "invalid number");
-      }
-      return encoded;
-    }
-    case "undefined":
-      throw canonicalError(path, "undefined is not JSON");
-    case "bigint":
-      throw canonicalError(path, "bigint is not JSON");
-    case "function":
-      throw canonicalError(path, "function is not JSON");
-    case "symbol":
-      throw canonicalError(path, "symbol is not JSON");
+    case "number":
+      return JSON.stringify(value);
     case "object":
       break;
   }
 
-  if (ancestors.has(value)) {
-    throw canonicalError(path, "cyclic value");
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalize).join(",")}]`;
   }
-  ancestors.add(value);
-  try {
-    if (Array.isArray(value)) {
-      for (const symbol of Object.getOwnPropertySymbols(value)) {
-        throw canonicalError(path, `symbol property ${String(symbol)}`);
-      }
-      const arrayValue: readonly unknown[] = value;
-      const items: string[] = [];
-      for (let index = 0; index < arrayValue.length; index += 1) {
-        const descriptor = Object.getOwnPropertyDescriptor(arrayValue, String(index));
-        if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) {
-          throw canonicalError(`${path}[${index}]`, "sparse or accessor array item");
-        }
-        items.push(canonicalize(descriptor.value, `${path}[${index}]`, ancestors));
-      }
-      for (const key of Object.getOwnPropertyNames(arrayValue)) {
-        if (key === "length") {
-          continue;
-        }
-        const index = Number(key);
-        if (
-          !Number.isInteger(index) ||
-          index < 0 ||
-          index >= arrayValue.length ||
-          String(index) !== key
-        ) {
-          throw canonicalError(path, `non-index array property ${key}`);
-        }
-        const descriptor = Object.getOwnPropertyDescriptor(arrayValue, key);
-        if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) {
-          throw canonicalError(`${path}[${index}]`, "non-enumerable or accessor array item");
-        }
-      }
-      return `[${items.join(",")}]`;
-    }
 
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) {
-      throw canonicalError(path, "only plain objects are supported");
-    }
-    for (const symbol of Object.getOwnPropertySymbols(value)) {
-      throw canonicalError(path, `symbol property ${String(symbol)}`);
-    }
-    for (const key of Object.getOwnPropertyNames(value)) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) {
-        throw canonicalError(`${path}.${key}`, "non-enumerable or accessor property");
-      }
-    }
-
-    const fields: string[] = [];
-    for (const key of Object.keys(value).sort()) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      if (!descriptor || !("value" in descriptor)) {
-        throw canonicalError(`${path}.${key}`, "accessor property");
-      }
-      fields.push(
-        `${JSON.stringify(key)}:${canonicalize(descriptor.value, `${path}.${key}`, ancestors)}`,
-      );
-    }
-    return `{${fields.join(",")}}`;
-  } finally {
-    ancestors.delete(value);
-  }
+  const objectValue = value as JsonObject;
+  const fields = Object.keys(objectValue)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalize(objectValue[key]!)}`);
+  return `{${fields.join(",")}}`;
 }
 
 /** Canonicalize a JSON-compatible value with sorted object keys and strict structure checks. */
 export function canonicalJson(value: unknown): string {
-  return canonicalize(value, "$", new Set<object>());
+  const parsed = Schema.decodeUnknownResult(CanonicalJsonSchema)(value);
+  if (Result.isFailure(parsed))
+    throw canonicalError("$", `invalid JSON value: ${String(parsed.failure)}`);
+  return canonicalize(parsed.success as JsonValue);
 }
 
 /** Encode the canonical JSON representation of a value as UTF-8 bytes. */
@@ -136,13 +125,14 @@ export function canonicalIdentityUtf8(input: unknown): Uint8Array {
 
 /** Frame a domain and ordered byte parts into the deterministic SHA-256 input format. */
 export function composeDigestInput(domain: string, parts: readonly Uint8Array[]): Uint8Array {
-  if (domain.length === 0 || domain.includes("\u0000")) {
+  const parsedDomain = Schema.decodeUnknownResult(DigestDomainSchema)(domain);
+  if (Result.isFailure(parsedDomain)) {
     throw new CoreError("invalid_digest_domain", "Digest domains must be non-empty and NUL-free.", {
       field: "domain",
     });
   }
   const prefix = new TextEncoder().encode("holycodex-sha256\u0000");
-  const domainBytes = new TextEncoder().encode(domain);
+  const domainBytes = new TextEncoder().encode(parsedDomain.success);
   let totalLength = prefix.byteLength + 8 + domainBytes.byteLength;
   for (const part of parts) {
     if (part.byteLength > 0xffffffff || totalLength > 0xffffffff - 4 - part.byteLength) {
@@ -179,7 +169,7 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 /** Hash framed byte parts under a validated HolyCodex digest domain. */
-export async function domainSeparatedSha256(
+export function domainSeparatedSha256(
   domain: string,
   parts: readonly Uint8Array[],
 ): Promise<Sha256Digest> {
@@ -187,9 +177,17 @@ export async function domainSeparatedSha256(
   if (!subtle) {
     throw new CoreError("crypto_unavailable", "The standards-based crypto API is unavailable.");
   }
-  const digest = await subtle.digest("SHA-256", toCryptoBuffer(composeDigestInput(domain, parts)));
-  // SHA-256 always returns 32 bytes; the hex encoding is therefore a digest.
-  return bytesToHex(new Uint8Array(digest)) as Sha256Digest;
+  return Effect.runPromise(
+    Effect.map(
+      Effect.tryPromise(() =>
+        subtle.digest("SHA-256", toCryptoBuffer(composeDigestInput(domain, parts)).buffer),
+      ),
+      (digest) => {
+        // SHA-256 always returns 32 bytes; the hex encoding is therefore a digest.
+        return bytesToHex(new Uint8Array(digest)) as Sha256Digest;
+      },
+    ),
+  );
 }
 
 function toCryptoBuffer(bytes: Uint8Array): Uint8Array<ArrayBuffer> {

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { PROFILE_CATALOG, ROUTE_KEYS, ROUTE_EFFORT_OVERRIDES } from "@holycodex/core";
+import * as Effect from "effect/Effect";
 
 import * as publicCli from "./index.ts";
 import {
@@ -39,8 +40,19 @@ import { desiredRootConfig } from "./installer.ts";
 import { nativeAgentGenerationId } from "./native-agents.ts";
 import { JsonObjectSchema } from "./schema.ts";
 import { decodeStateText } from "./storage.ts";
+import type { ConflictResolution } from "./types.ts";
 
 const toolingStates = new Map<string, { installed: boolean }>();
+
+function effectResolver<Args extends readonly unknown[], Value>(
+  resolver: (...args: Args) => Promise<Value>,
+): (...args: Args) => Effect.Effect<Value extends string ? ConflictResolution : Value, never> {
+  return (...args) =>
+    Effect.tryPromise({ try: () => resolver(...args), catch: (error) => error }) as Effect.Effect<
+      Value extends string ? ConflictResolution : Value,
+      never
+    >;
+}
 
 function managedRolePath(
   codexHome: string,
@@ -492,7 +504,7 @@ describe("native installation and removal", () => {
       expect(config).toContain("agent_message_board = false");
       expect(config).not.toContain("thread_tools");
       expect(config).toContain('web_search = "live"');
-      expect(config).toContain("network_access = true");
+      expect(config).toContain("[permissions.holycodex.network]");
       expect(config).toContain("You are the HolyCodex Root/session orchestrator");
       expect(config).toContain("Worker.visual implementation, Reviewer.visual independent review");
       expect(config).not.toContain("delegate GUI");
@@ -509,10 +521,10 @@ describe("native installation and removal", () => {
       expect(leaf).toContain('service_tier = "default"');
       expect(leaf).toContain('model_verbosity = "low"');
       expect(leaf).not.toContain("tool_output_token_limit");
-      expect(leaf).toContain('sandbox_mode = "workspace-write"');
-      expect(leaf).toContain("network_access = true");
-      expect(leaf).toContain('approval_policy = "never"');
-      expect(leaf).toContain('web_search = "live"');
+      expect(leaf).not.toContain("sandbox_mode =");
+      expect(leaf).not.toContain("network_access =");
+      expect(leaf).not.toContain("approval_policy =");
+      expect(leaf).not.toContain("web_search =");
       expect(leaf).toContain("[agents]");
       expect(leaf).toContain("enabled = false");
       expect(leaf).toContain("interrupt_message = false");
@@ -652,7 +664,7 @@ describe("native installation and removal", () => {
       const removed = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
-        resolveConflict: async () => "accept",
+        resolveConflict: effectResolver(async () => "accept"),
       });
       expect(removed.preserved).toEqual([]);
       expect(removed.removed).not.toContain(frontend);
@@ -727,7 +739,7 @@ describe("native installation and removal", () => {
       const removed = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
-        resolveConflict: async () => "accept",
+        resolveConflict: effectResolver(async () => "accept"),
       });
       expect(removed.preserved).toEqual([]);
       expect(removed.removed).toContain(provider);
@@ -890,10 +902,11 @@ describe("native installation and removal", () => {
             paths: { codexHome },
             officialPluginManager: manager,
             runtime: testRuntime(codexHome),
-            resolveConflicts: async (conflicts) =>
+            resolveConflicts: effectResolver(async (conflicts) =>
               Object.fromEntries(
                 conflicts.map((conflict) => [conflict.identity!, conflict.defaultDecision!]),
               ),
+            ),
           },
         ),
       ).rejects.toMatchObject({ code: "capability_denied" });
@@ -1390,16 +1403,17 @@ describe("native installation and removal", () => {
         {
           paths: { codexHome },
           officialPluginManager: manager,
-          resolveConflicts: async (conflicts) =>
+          resolveConflicts: effectResolver(async (conflicts) =>
             Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "replace"])),
-          reviewInstall: async (review) => {
+          ),
+          reviewInstall: effectResolver(async (review) => {
             expect(
               review.conflicts.find(
                 (conflict) => conflict.key === "features.context_management.experimental_mode",
               ),
             ).toMatchObject({ decision: "replace" });
             return { action: "apply" };
-          },
+          }),
         },
       );
       expect(await readFile(config, "utf8")).toContain("experimental_mode = true");
@@ -2064,14 +2078,15 @@ describe("native installation and removal", () => {
         {
           paths: { codexHome },
           officialPluginManager: manager,
-          resolveConflicts: async (conflicts) =>
+          resolveConflicts: effectResolver(async (conflicts) =>
             Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "replace"])),
-          reviewInstall: async (review) => {
+          ),
+          reviewInstall: effectResolver(async (review) => {
             expect(
               review.conflicts.find((conflict) => conflict.key === 'plugins."holycodex@holycodex"'),
             ).toMatchObject({ decision: "replace" });
             return { action: "apply" };
-          },
+          }),
         },
       );
       expect(install.record.plugin_config?.before.preference.safe_value).toEqual({
@@ -2090,7 +2105,7 @@ describe("native installation and removal", () => {
       const conflict = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
-        resolveConflict: async () => "decline",
+        resolveConflict: effectResolver(async () => "decline"),
       });
       expect(conflict.preserved).toContain(config);
       expect(conflict.reasons).toContain("plugin_config_changed");
@@ -2146,7 +2161,6 @@ describe("native installation and removal", () => {
     const codexHome = join(root, "codex");
     const manager = fakeManager();
     let leaf = "";
-    const config = join(codexHome, "config.toml");
     try {
       await installHolyCodex({}, { paths: { codexHome }, officialPluginManager: manager });
       const current = await readActiveInstallRecord(
@@ -2159,15 +2173,13 @@ describe("native installation and removal", () => {
         'model_reasoning_summary = "detailed"',
       );
       await writeFile(leaf, editedLeaf);
-      const managedConfig = await readFile(config, "utf8");
-      await writeFile(config, `approval_policy = "on-request"\n${managedConfig}`);
       await expect(
         installHolyCodex(
           {},
           {
             paths: { codexHome },
             officialPluginManager: manager,
-            resolveConflict: async () => "decline",
+            resolveConflict: effectResolver(async () => "decline"),
           },
         ),
       ).rejects.toMatchObject({
@@ -2175,19 +2187,15 @@ describe("native installation and removal", () => {
         message: expect.stringContaining("cannot be kept; choose replace, cancel"),
       });
       expect(await readFile(leaf, "utf8")).toBe(editedLeaf);
-      expect(await readFile(config, "utf8")).toContain('approval_policy = "on-request"');
-      expect(await readFile(config, "utf8")).toContain('service_tier = "default"');
 
       const result = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
-        resolveConflict: async () => "decline",
+        resolveConflict: effectResolver(async () => "decline"),
       });
       expect(result.preserved).toContain(leaf);
-      expect(result.preserved).not.toContain(config);
       expect(result.reasons).toContain("managed_artifact_changed");
       expect(await readFile(leaf, "utf8")).toBe(editedLeaf);
-      expect(await readFile(config, "utf8")).toContain('approval_policy = "on-request"');
       await expect(readFile(join(codexHome, "agents", "root.toml"), "utf8")).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -2209,7 +2217,7 @@ describe("native installation and removal", () => {
       const declined = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
-        resolveConflict: async () => "decline",
+        resolveConflict: effectResolver(async () => "decline"),
       });
       expect(declined.reasons).toContain("managed_config_changed");
       await writeFile(preservedState, "keep this user file\n");
@@ -2264,7 +2272,7 @@ describe("native installation and removal", () => {
           {
             paths: { codexHome },
             officialPluginManager: manager,
-            resolveConflict: async () => "decline",
+            resolveConflict: effectResolver(async () => "decline"),
           },
         ),
       ).rejects.toMatchObject({

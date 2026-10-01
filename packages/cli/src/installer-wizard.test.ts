@@ -932,7 +932,22 @@ describe("generated Root orchestration policy", () => {
     expect(sol).toContain("record the result with that invocation ID and capability");
     expect(sol).toContain("Recover an interrupted invocation only after confirming it stopped");
     expect(sol).toContain("Check existing authorization before asking again");
-    expect(sol).toContain("For a blocking material user decision, Root alone uses grill-me");
+    expect(sol).toContain(
+      "Root routes every user-facing question or doubt through the supported input tools",
+    );
+    expect(sol).toContain("Prefer request_user_input_async for clarifications and approvals");
+    expect(sol).toContain("use request_user_input only when async would harm the situation");
+    expect(sol.indexOf("Prefer request_user_input_async")).toBeLessThan(
+      sol.indexOf("use request_user_input only when async would harm the situation"),
+    );
+    expect(sol).toContain("never prose");
+    expect(sol).toContain(
+      "Invoke grill-me only when uncertainty about intent, implementation, or findings",
+    );
+    expect(sol).toContain("when the request is clear enough, proceed without asking");
+    expect(sol).toContain("While a question is pending, do only work independent of its answer");
+    expect(sol).toContain("Required answers remain pending until an actual response");
+    expect(sol).toContain("elapsed time is not an answer or approval");
     expect(sol).toContain("Before each specialist spawn, persist the bounded Assignment");
     expect(sol).toContain("record verification, acceptance, and readiness");
     expect(sol).toContain("complete only when holycodex-agent confirms every completion predicate");
@@ -940,6 +955,15 @@ describe("generated Root orchestration policy", () => {
       "Use holycodex-agent semantic operations for Intent and Assignment state.",
     );
     expect(sol).toContain("Do not edit TOON state.");
+    expect(sol).toContain(
+      "Always call collaboration.wait_agent with timeout_ms=600000 for every Root wait.",
+    );
+    expect(sol).toContain(
+      "Never use a 10-second timeout or any other duration, regardless of the situation.",
+    );
+    expect(sol).toContain("On timeout, use 600000 again while any specialist result remains");
+    expect(sol).not.toContain("routine wait");
+    expect(sol).not.toContain("when a longer event wait is appropriate");
     expect(sol).not.toContain(
       "Your model and reasoning effort come from the selected Root profile",
     );
@@ -949,6 +973,30 @@ describe("generated Root orchestration policy", () => {
       model: "gpt-6.1-sol",
       effort: "medium",
     });
+  });
+
+  test("projects broad audit, testing, and security review-and-repair roles", () => {
+    const agents = projectNativeAgents("default");
+    for (const name of ["Reviewer.audit", "Reviewer.testing", "Reviewer.security"] as const) {
+      const agent = agents.find((candidate) => candidate.name === name);
+      if (agent === undefined) throw new Error(`${name} route is missing.`);
+      expect(agent.permissions.sourceMutation).toBe(true);
+      const rendered = renderNativeAgent(agent);
+      expect(rendered).toContain(`name = ${JSON.stringify(name)}`);
+      expect(rendered).not.toContain("Always call collaboration.wait_agent");
+      if (name === "Reviewer.security") {
+        expect(rendered).toContain("codex-security:security-diff-scan");
+        expect(rendered).toContain("codex-security:fix-finding");
+      }
+    }
+
+    const audit = agents.find((agent) => agent.name === "Reviewer.audit");
+    if (audit === undefined) throw new Error("Reviewer.audit route is missing.");
+    const rendered = renderNativeAgent(audit);
+    expect(rendered.indexOf("Review the assigned code")).toBeLessThan(
+      rendered.indexOf("Challenge the assigned target"),
+    );
+    expect(rendered).not.toContain("Always call collaboration.wait_agent");
   });
 
   test("selects conditional capability guidance and preserves specialist boundaries", () => {
@@ -999,8 +1047,9 @@ describe("generated Root orchestration policy", () => {
 
     for (const agent of projectNativeAgents("default")) {
       const rendered = renderNativeAgent(agent);
-      expect(rendered).toContain(`sandbox_mode = ${JSON.stringify(agent.permissions.filesystem)}`);
-      expect(rendered).toContain('web_search = "live"');
+      expect(rendered).not.toContain("sandbox_mode =");
+      expect(rendered).not.toContain("approval_policy =");
+      expect(rendered).not.toContain("web_search =");
       if (agent.permissions.sourceMutation) {
         expect(rendered).toContain("Patch quality:");
       } else {

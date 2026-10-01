@@ -23,9 +23,9 @@ import {
 
 /** Compatibility metadata for callers that previously used this module. */
 export const ManagedConfigMetadataSchema = Schema.Struct({
-  owner: Schema.Literal("holycodex"),
-  schema: Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u)),
-  installId: Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u)),
+  owner: Schema.Literals(["holycodex"]),
+  schema: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u)),
+  installId: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u)),
 });
 /** Type of managed config metadata values. */
 export type ManagedConfigMetadata = typeof ManagedConfigMetadataSchema.Type;

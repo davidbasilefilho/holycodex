@@ -5,20 +5,20 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import * as Either from "effect/Either";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import { isCanonicalVersion } from "../packages/core/src/version.ts";
 
-const PackageScriptName = Schema.String.pipe(Schema.maxLength(256));
-const PackageScriptCommand = Schema.String.pipe(Schema.maxLength(4096));
+const PackageScriptName = Schema.String.check(Schema.isMaxLength(256));
+const PackageScriptCommand = Schema.String.check(Schema.isMaxLength(4096));
 const PackageManifest = Schema.Struct({
   name: Schema.String,
   private: Schema.Boolean,
   type: Schema.optional(Schema.String),
   version: Schema.optional(Schema.String),
-  dependencies: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
-  devDependencies: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  devDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   bin: Schema.optional(
     Schema.Struct({
       holycodex: Schema.optional(Schema.String),
@@ -27,9 +27,11 @@ const PackageManifest = Schema.Struct({
   ),
   exports: Schema.optional(Schema.Struct({ ".": Schema.optional(Schema.String) })),
   files: Schema.optional(Schema.Array(Schema.String)),
-  repository: Schema.optional(Schema.Struct({ type: Schema.Literal("git"), url: Schema.String })),
-  publishConfig: Schema.optional(Schema.Struct({ access: Schema.Literal("public") })),
-  scripts: Schema.optional(Schema.Record({ key: PackageScriptName, value: PackageScriptCommand })),
+  repository: Schema.optional(
+    Schema.Struct({ type: Schema.Literals(["git"]), url: Schema.String }),
+  ),
+  publishConfig: Schema.optional(Schema.Struct({ access: Schema.Literals(["public"]) })),
+  scripts: Schema.optional(Schema.Record(PackageScriptName, PackageScriptCommand)),
 });
 type PackageManifest = typeof PackageManifest.Type;
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -109,15 +111,15 @@ async function readManifests(): Promise<Map<string, PackageManifest>> {
 
   for (const [packageName, relativePath] of Object.entries(packagePaths)) {
     const raw: unknown = JSON.parse(await readFile(`${workspaceRoot}/${relativePath}`, "utf8"));
-    const parsed = Schema.decodeUnknownEither(PackageManifest, {
+    const parsed = Schema.decodeUnknownResult(PackageManifest, {
       onExcessProperty: "error",
     })(raw);
 
-    if (Either.isLeft(parsed)) {
-      throw new Error(`${relativePath}: ${String(parsed.left)}`);
+    if (Result.isFailure(parsed)) {
+      throw new Error(`${relativePath}: ${String(parsed.failure)}`);
     }
 
-    manifests.set(packageName, parsed.right);
+    manifests.set(packageName, parsed.success);
   }
 
   return manifests;

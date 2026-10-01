@@ -2,6 +2,10 @@
 
 import { isAbsolute } from "node:path";
 
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+
 import {
   CodexError,
   DEFAULT_MAX_DIAGNOSTIC_BYTES,
@@ -42,49 +46,80 @@ export function createAllowlistedEnvironment(
 }
 
 /** Read a byte stream while enforcing a maximum output size. */
-export async function readBoundedStream(
+export function readBoundedStream(
   stream: ReadableStream<Uint8Array>,
   maxBytes: number,
 ): Promise<Uint8Array> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      const result = await reader.read();
-      if (result.done) {
-        break;
+  return Effect.runPromise(readBoundedStreamEffect(stream, maxBytes));
+}
+
+function readBoundedStreamEffect(
+  stream: ReadableStream<Uint8Array>,
+  maxBytes: number,
+): Effect.Effect<Uint8Array, CodexError> {
+  return Effect.gen(function* () {
+    const reader = yield* Effect.try({
+      try: () => stream.getReader(),
+      catch: (error) =>
+        new CodexError(
+          "transport_failure",
+          "A subprocess stream could not be read.",
+          {},
+          { cause: error },
+        ),
+    });
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    const read = Effect.gen(function* () {
+      while (true) {
+        const result = yield* Effect.tryPromise({
+          try: () => reader.read(),
+          catch: (error) =>
+            new CodexError(
+              "transport_failure",
+              "A subprocess stream could not be read.",
+              {},
+              { cause: error },
+            ),
+        });
+        if (result.done) break;
+        total += result.value.byteLength;
+        if (total > maxBytes) {
+          return yield* Effect.fail(
+            new CodexError("invalid_transport_line", "A subprocess stream exceeded its limit."),
+          );
+        }
+        chunks.push(result.value);
       }
-      total += result.value.byteLength;
-      if (total > maxBytes) {
-        throw new CodexError("invalid_transport_line", "A subprocess stream exceeded its limit.");
+      const output = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        output.set(chunk, offset);
+        offset += chunk.byteLength;
       }
-      chunks.push(result.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const output = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return output;
+      return output;
+    });
+    return yield* Effect.ensuring(
+      read,
+      Effect.sync(() => reader.releaseLock()),
+    );
+  });
 }
 
 /** Decode bytes as strict UTF-8 and report malformed transport data. */
 export function decodeUtf8(bytes: Uint8Array, label: string): string {
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch (error: unknown) {
-    throw new CodexError(
-      "invalid_transport_line",
-      `Invalid UTF-8 in ${label}.`,
-      {},
-      { cause: error },
-    );
-  }
+  return Effect.runSync(
+    Effect.try({
+      try: () => new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      catch: (error) =>
+        new CodexError(
+          "invalid_transport_line",
+          `Invalid UTF-8 in ${label}.`,
+          {},
+          { cause: error },
+        ),
+    }),
+  );
 }
 
 /** Redact credentials and bound a single diagnostic line. */
@@ -136,7 +171,8 @@ export class BunStdioTransport implements AsyncLineTransport {
   private readonly lineDecoder = new TextDecoder("utf-8", { fatal: true });
   private readonly stderrDiagnostics: string[] = [];
   private stdoutBuffer = new Uint8Array(0);
-  private stderrPromise: Promise<void>;
+  private readonly stderrFiber: Fiber.Fiber<void, never>;
+  private closeEffect: Effect.Effect<void> | undefined;
   private closed = false;
 
   constructor(options: BunStdioTransportOptions) {
@@ -167,7 +203,7 @@ export class BunStdioTransport implements AsyncLineTransport {
     this.stdin = this.process.stdin;
     this.stdoutReader = this.process.stdout;
     this.stderrStream = this.process.stderr;
-    this.stderrPromise = this.collectStderr();
+    this.stderrFiber = Effect.runFork(this.collectStderrEffect());
     if (options.signal) {
       if (options.signal.aborted) {
         void this.close();
@@ -183,133 +219,205 @@ export class BunStdioTransport implements AsyncLineTransport {
   }
 
   /** Read the next protocol line from the subprocess. */
-  async readLine(): Promise<string | null> {
+  readLine(): Promise<string | null> {
+    return Effect.runPromise(this.readLineEffect());
+  }
+
+  private readLineEffect(): Effect.Effect<string | null, CodexError> {
     if (this.closed && this.stdoutBuffer.byteLength === 0) {
-      return null;
+      return Effect.succeed(null);
     }
-    const reader = this.stdoutReader.getReader();
-    try {
-      while (true) {
-        const newline = this.stdoutBuffer.indexOf(10);
-        if (newline >= 0) {
-          if (newline > this.maxLineBytes) {
-            await this.close();
-            throw new CodexError(
-              "invalid_transport_line",
-              "The App Server emitted an overlong line.",
-            );
-          }
-          const bytes = this.stdoutBuffer.slice(0, newline);
-          this.stdoutBuffer = this.stdoutBuffer.slice(newline + 1);
-          const lineBytes = bytes.at(-1) === 13 ? bytes.slice(0, -1) : bytes;
-          return this.lineDecoder.decode(lineBytes);
-        }
-        if (this.stdoutBuffer.byteLength > this.maxLineBytes) {
-          await this.close();
-          throw new CodexError(
-            "invalid_transport_line",
-            "The App Server emitted an overlong line.",
-          );
-        }
-        const result = await reader.read();
-        if (result.done) {
-          if (this.stdoutBuffer.byteLength === 0) {
-            return null;
+    return Effect.gen({ self: this }, function* () {
+      const reader = yield* Effect.try({
+        try: () => this.stdoutReader.getReader(),
+        catch: (error) =>
+          new CodexError(
+            "transport_failure",
+            "The App Server stdout could not be read.",
+            {},
+            { cause: error },
+          ),
+      });
+      const read = Effect.gen({ self: this }, function* () {
+        while (true) {
+          const newline = this.stdoutBuffer.indexOf(10);
+          if (newline >= 0) {
+            if (newline > this.maxLineBytes) {
+              yield* Effect.ignore(
+                Effect.tryPromise({ try: () => this.close(), catch: () => undefined }),
+              );
+              return yield* Effect.fail(
+                new CodexError(
+                  "invalid_transport_line",
+                  "The App Server emitted an overlong line.",
+                ),
+              );
+            }
+            const bytes = this.stdoutBuffer.slice(0, newline);
+            this.stdoutBuffer = this.stdoutBuffer.slice(newline + 1);
+            const lineBytes = bytes.at(-1) === 13 ? bytes.slice(0, -1) : bytes;
+            return yield* decodeTransportLine(lineBytes, this.lineDecoder);
           }
           if (this.stdoutBuffer.byteLength > this.maxLineBytes) {
-            await this.close();
-            throw new CodexError(
-              "invalid_transport_line",
-              "The App Server emitted an overlong line.",
+            yield* Effect.ignore(
+              Effect.tryPromise({ try: () => this.close(), catch: () => undefined }),
+            );
+            return yield* Effect.fail(
+              new CodexError("invalid_transport_line", "The App Server emitted an overlong line."),
             );
           }
-          const bytes = this.stdoutBuffer;
-          this.stdoutBuffer = new Uint8Array(0);
-          return this.lineDecoder.decode(bytes);
+          const result = yield* Effect.tryPromise({
+            try: () => reader.read(),
+            catch: (error) =>
+              new CodexError(
+                "transport_failure",
+                "The App Server stdout could not be read.",
+                {},
+                { cause: error },
+              ),
+          });
+          if (result.done) {
+            if (this.stdoutBuffer.byteLength === 0) {
+              return null;
+            }
+            if (this.stdoutBuffer.byteLength > this.maxLineBytes) {
+              yield* Effect.ignore(
+                Effect.tryPromise({ try: () => this.close(), catch: () => undefined }),
+              );
+              return yield* Effect.fail(
+                new CodexError(
+                  "invalid_transport_line",
+                  "The App Server emitted an overlong line.",
+                ),
+              );
+            }
+            const bytes = this.stdoutBuffer;
+            this.stdoutBuffer = new Uint8Array(0);
+            return yield* decodeTransportLine(bytes, this.lineDecoder);
+          }
+          const next = new Uint8Array(this.stdoutBuffer.byteLength + result.value.byteLength);
+          next.set(this.stdoutBuffer, 0);
+          next.set(result.value, this.stdoutBuffer.byteLength);
+          this.stdoutBuffer = next;
         }
-        const next = new Uint8Array(this.stdoutBuffer.byteLength + result.value.byteLength);
-        next.set(this.stdoutBuffer, 0);
-        next.set(result.value, this.stdoutBuffer.byteLength);
-        this.stdoutBuffer = next;
-      }
-    } catch (error: unknown) {
-      if (error instanceof CodexError) {
-        throw error;
-      }
-      throw new CodexError(
-        "transport_failure",
-        "The App Server stdout could not be read.",
-        {},
-        {
-          cause: error,
-        },
+      });
+      return yield* Effect.ensuring(
+        read,
+        Effect.sync(() => reader.releaseLock()),
       );
-    } finally {
-      reader.releaseLock();
-    }
+    });
   }
 
   /** Write one protocol line to the subprocess. */
-  async writeLine(line: string): Promise<void> {
+  writeLine(line: string): Promise<void> {
+    return Effect.runPromise(this.writeLineEffect(line));
+  }
+
+  private writeLineEffect(line: string): Effect.Effect<void, CodexError> {
     if (this.closed) {
-      throw new CodexError("closed", "The App Server transport is closed.");
+      return Effect.fail(new CodexError("closed", "The App Server transport is closed."));
     }
     if (new TextEncoder().encode(line).byteLength > this.maxLineBytes) {
-      throw new CodexError(
-        "invalid_transport_line",
-        "The App Server request exceeded the line limit.",
+      return Effect.fail(
+        new CodexError("invalid_transport_line", "The App Server request exceeded the line limit."),
       );
     }
-    try {
-      await this.stdin.write(`${line}\n`);
-      await this.stdin.flush();
-    } catch (error: unknown) {
-      throw new CodexError(
-        "transport_failure",
-        "The App Server stdin could not be written.",
-        {},
-        {
-          cause: error,
-        },
-      );
-    }
+    return Effect.gen({ self: this }, function* () {
+      yield* Effect.tryPromise({
+        try: () => Promise.resolve(this.stdin.write(`${line}\n`)),
+        catch: (error) =>
+          new CodexError(
+            "transport_failure",
+            "The App Server stdin could not be written.",
+            {},
+            { cause: error },
+          ),
+      });
+      yield* Effect.tryPromise({
+        try: () => Promise.resolve(this.stdin.flush()),
+        catch: (error) =>
+          new CodexError(
+            "transport_failure",
+            "The App Server stdin could not be written.",
+            {},
+            { cause: error },
+          ),
+      });
+    });
   }
 
   /** Close the subprocess and release its transport resources. */
-  async close(): Promise<void> {
-    if (this.closed) {
-      return;
+  close(): Promise<void> {
+    if (this.closeEffect === undefined) {
+      if (this.closed) return Promise.resolve();
+      this.closed = true;
+      this.closeEffect = Effect.runSync(Effect.cached(this.closeTransportEffect()));
     }
-    this.closed = true;
-    try {
-      await Promise.resolve(this.stdin.end());
-    } catch {
-      // The subprocess may already have closed its stdin.
-    }
-    try {
-      this.process.kill();
-    } catch {
-      // Termination is best effort after the close boundary is set.
-    }
-    await Promise.race([
-      this.process.exited,
-      new Promise<number>((resolveExit) => setTimeout(() => resolveExit(-1), 1000)),
-    ]);
-    await this.stderrPromise.catch(() => undefined);
+    return Effect.runPromise(this.closeEffect);
   }
 
-  private async collectStderr(): Promise<void> {
-    try {
-      const bytes = await readBoundedStream(this.stderrStream, this.maxDiagnosticBytes);
-      const text = decodeUtf8(bytes, "Codex stderr");
+  private closeTransportEffect(): Effect.Effect<void> {
+    return Effect.gen({ self: this }, function* () {
+      yield* Effect.ignore(
+        Effect.tryPromise({
+          try: () => Promise.resolve(this.stdin.end()),
+          catch: () => undefined,
+        }),
+      );
+      yield* Effect.ignore(Effect.try({ try: () => this.process.kill(), catch: () => undefined }));
+      yield* Effect.race(
+        Effect.ignore(
+          Effect.tryPromise({ try: () => this.process.exited, catch: () => undefined }),
+        ),
+        Effect.sleep(1000),
+      );
+      yield* Effect.ignore(Fiber.await(this.stderrFiber));
+    });
+  }
+
+  private collectStderrEffect(): Effect.Effect<void> {
+    return Effect.gen({ self: this }, function* () {
+      const exit = yield* Effect.exit(
+        readBoundedStreamEffect(this.stderrStream, this.maxDiagnosticBytes),
+      );
+      if (Exit.isFailure(exit)) {
+        this.stderrDiagnostics.push("[stderr unavailable]");
+        return;
+      }
+      const text = yield* Effect.try({
+        try: () => decodeUtf8(exit.value, "Codex stderr"),
+        catch: (error) =>
+          error instanceof CodexError
+            ? error
+            : new CodexError(
+                "transport_failure",
+                "Codex stderr could not be decoded.",
+                {},
+                { cause: error },
+              ),
+      });
       for (const line of text.split(/\r?\n/u).slice(0, 128)) {
         const sanitized = sanitizeDiagnostic(line);
         if (sanitized.length > 0) {
           this.stderrDiagnostics.push(sanitized);
         }
       }
-    } catch {
-      this.stderrDiagnostics.push("[stderr unavailable]");
-    }
+    }).pipe(Effect.orDie);
   }
+}
+
+function decodeTransportLine(
+  bytes: Uint8Array,
+  decoder: TextDecoder,
+): Effect.Effect<string, CodexError> {
+  return Effect.try({
+    try: () => decoder.decode(bytes),
+    catch: (error) =>
+      new CodexError(
+        "invalid_transport_line",
+        "The App Server emitted invalid UTF-8.",
+        {},
+        { cause: error },
+      ),
+  });
 }

@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema";
 
 import { OfficialPluginIdSchema } from "./official-plugins";
 import {
+  LEGACY_ROOT_CONFIG_KEY_PATHS,
   cleanupManagedRuntimeConfig,
   compareManagedConfigKey,
   createManagedRuntimeConfigState,
@@ -381,24 +382,50 @@ describe("typed runtime configuration", () => {
     });
   });
 
-  test("manages live web search and workspace command network access", async () => {
+  test("manages the HolyCodex permission profile and automatic approval review", async () => {
     const webSearch = "web_search" as const;
     const networkAccess = "sandbox_workspace_write.network_access" as const;
     expect(isManagedConfigKeyPath(webSearch)).toBe(true);
-    expect(isManagedConfigKeyPath(networkAccess)).toBe(true);
+    expect(isManagedConfigKeyPath(networkAccess)).toBe(false);
+    expect(LEGACY_ROOT_CONFIG_KEY_PATHS).toContain(networkAccess);
+    const approvalPolicy = "approval_policy" as const;
+    const approvalsReviewer = "approvals_reviewer" as const;
+    const profileParent = "permissions.holycodex.extends" as const;
+    const profileNetwork = "permissions.holycodex.network.enabled" as const;
     const merged = await mergeManagedRuntimeConfig(
       {},
       createManagedRuntimeConfigState(metadata),
-      { [webSearch]: "live", [networkAccess]: true },
+      {
+        [webSearch]: "live",
+        [approvalPolicy]: "on-request",
+        [approvalsReviewer]: "auto_review",
+        [profileParent]: ":workspace",
+        [profileNetwork]: true,
+      },
       metadata,
     );
     expect(readTomlPath(merged.document, webSearch)).toBe("live");
-    expect(readTomlPath(merged.document, networkAccess)).toBe(true);
+    expect(readTomlPath(merged.document, approvalPolicy)).toBe("on-request");
+    expect(readTomlPath(merged.document, approvalsReviewer)).toBe("auto_review");
+    expect(readTomlPath(merged.document, profileParent)).toBe(":workspace");
+    expect(readTomlPath(merged.document, profileNetwork)).toBe(true);
     expect(merged.state.managed[webSearch]?.lastManagedValue).toEqual({
       kind: "enum",
       value: "live",
     });
-    expect(merged.state.managed[networkAccess]?.lastManagedValue).toEqual({
+    expect(merged.state.managed[approvalPolicy]?.lastManagedValue).toEqual({
+      kind: "enum",
+      value: "on-request",
+    });
+    expect(merged.state.managed[approvalsReviewer]?.lastManagedValue).toEqual({
+      kind: "enum",
+      value: "auto_review",
+    });
+    expect(merged.state.managed[profileParent]?.lastManagedValue).toEqual({
+      kind: "enum",
+      value: ":workspace",
+    });
+    expect(merged.state.managed[profileNetwork]?.lastManagedValue).toEqual({
       kind: "boolean",
       value: true,
     });

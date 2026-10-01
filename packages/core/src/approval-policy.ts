@@ -5,7 +5,7 @@ import * as Schema from "effect/Schema";
 import { freezeDeep } from "./common.ts";
 
 /** Runtime schema validating approval policy action values at the receiving boundary. */
-export const ApprovalPolicyActionSchema = Schema.Literal(
+export const ApprovalPolicyActionSchema = Schema.Literals([
   "local.repository.edit",
   "local.repository.check",
   "local.repository.lint",
@@ -16,7 +16,7 @@ export const ApprovalPolicyActionSchema = Schema.Literal(
   "vcs.server.mutation",
   "vcs.server.ci-trigger",
   "unknown.effect",
-);
+]);
 /** Type representing approval policy action in the core domain. */
 export type ApprovalPolicyAction = typeof ApprovalPolicyActionSchema.Type;
 
@@ -33,7 +33,7 @@ function approvalPolicyEntrySchema<const Identifier extends ApprovalPolicyAction
   identifier: Identifier,
 ) {
   return Schema.Struct({
-    identifier: Schema.Literal(identifier),
+    identifier: Schema.Literals([identifier]),
     label: Schema.String,
     requiresRootApproval: Schema.Boolean,
   });
@@ -112,7 +112,7 @@ export const APPROVAL_POLICY = {
 freezeDeep(APPROVAL_POLICY);
 
 /** Runtime schema validating approval mode values at the receiving boundary. */
-export const ApprovalModeSchema = Schema.Literal("never", "root");
+export const ApprovalModeSchema = Schema.Literals(["never", "root"]);
 /** Type representing approval mode in the core domain. */
 export type ApprovalMode = typeof ApprovalModeSchema.Type;
 

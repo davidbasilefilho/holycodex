@@ -8,12 +8,23 @@ HolyCodex installs one native leaf for each canonical identity:
 `Explorer.map`, `Explorer.lookup`, `Explorer.trace`, `Librarian.lookup`,
 `Librarian.research`, `Worker.mechanical`, `Worker.implementation`,
 `Worker.integration`, `Worker.operations`, `Worker.validation`,
-`Worker.debugging`, `Worker.visual`, `Reviewer.visual`, `Reviewer.code`, and `Reviewer.artifact`.
+`Worker.debugging`, `Worker.visual`, `Reviewer.visual`, `Reviewer.code`,
+`Reviewer.testing`, `Reviewer.audit`, `Reviewer.security`, and
+`Reviewer.artifact`.
 Each leaf has one TOML under
 `<CODEX_HOME>/holycodex/agents/` and one `config.toml` registration. Root is
 the parent session configured in `config.toml`; `agents/root.toml` is never
 created or registered. Migration and removal may delete only a known,
 unchanged HolyCodex-owned legacy Root file.
+
+## Codex permissions
+
+Installation defines the `holycodex` Codex permission profile with workspace
+read/write access, network access, live web search, and automatic review for
+eligible permission requests. Codex may request narrowly scoped additional
+filesystem access when work requires paths outside the workspace. A fresh
+HolyCodex installation selects this profile once; later updates preserve the
+user's current Codex permission selection.
 
 ## Optional tooling
 

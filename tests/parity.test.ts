@@ -5,7 +5,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import * as Either from "effect/Either";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import { runBinary, runCli, assertRootText, pathWithin } from "../packages/cli/src/index.ts";
@@ -16,25 +16,27 @@ const cleanRoomBase = "682adea6d6cba374251152af612489126e9c64c1";
 const frozenOracle = "eb796235f2f29f2c67c869408a0e22c1a72c13eb";
 const parityTarget = "Foundation version";
 const ParityFixturesSchema = Schema.Struct({
-  schema_epoch: Schema.Literal("holycodex-parity-fixtures-1"),
-  normalization: Schema.String.pipe(Schema.minLength(1)),
+  schema_epoch: Schema.Literals(["holycodex-parity-fixtures-1"]),
+  normalization: Schema.String.check(Schema.isMinLength(1)),
   matrix: Schema.Array(
     Schema.Struct({
-      id: Schema.String.pipe(Schema.minLength(1)),
-      classification: Schema.Literal("PRESERVED", "SUPERSEDED", "REMOVED-BY-REQUIREMENT"),
-      owner: Schema.String.pipe(Schema.minLength(1)),
-      proof: Schema.String.pipe(Schema.minLength(1)),
+      id: Schema.String.check(Schema.isMinLength(1)),
+      classification: Schema.Literals(["PRESERVED", "SUPERSEDED", "REMOVED-BY-REQUIREMENT"]),
+      owner: Schema.String.check(Schema.isMinLength(1)),
+      proof: Schema.String.check(Schema.isMinLength(1)),
     }),
   ),
   surfaces: Schema.Array(
     Schema.Struct({
-      id: Schema.String.pipe(Schema.minLength(1)),
-      owner: Schema.String.pipe(Schema.minLength(1)),
-      expected: Schema.String.pipe(Schema.minLength(1)),
+      id: Schema.String.check(Schema.isMinLength(1)),
+      owner: Schema.String.check(Schema.isMinLength(1)),
+      expected: Schema.String.check(Schema.isMinLength(1)),
     }),
   ),
 });
-const ManifestVersionSchema = Schema.Struct({ version: Schema.String.pipe(Schema.minLength(1)) });
+const ManifestVersionSchema = Schema.Struct({
+  version: Schema.String.check(Schema.isMinLength(1)),
+});
 
 const expectedSurfaceIds = [
   "cli-help",
@@ -113,21 +115,21 @@ describe("0.16 foundation parity contract", () => {
     const raw: unknown = JSON.parse(
       await readFile(resolve(workspaceRoot, "tests/fixtures/parity-surfaces.json"), "utf8"),
     );
-    const parsed = Schema.decodeUnknownEither(ParityFixturesSchema)(raw);
-    expect(Either.isRight(parsed)).toBe(true);
-    if (Either.isLeft(parsed)) {
-      throw new Error(String(parsed.left));
+    const parsed = Schema.decodeUnknownResult(ParityFixturesSchema)(raw);
+    expect(Result.isSuccess(parsed)).toBe(true);
+    if (Result.isFailure(parsed)) {
+      throw new Error(String(parsed.failure));
     }
-    expect(parsed.right.normalization).toContain("JSON decoding");
-    expect(parsed.right.matrix).toHaveLength(17);
-    expect(new Set(parsed.right.matrix.map((row) => row.id)).size).toBe(17);
-    for (const row of parsed.right.matrix) {
+    expect(parsed.success.normalization).toContain("JSON decoding");
+    expect(parsed.success.matrix).toHaveLength(17);
+    expect(new Set(parsed.success.matrix.map((row) => row.id)).size).toBe(17);
+    for (const row of parsed.success.matrix) {
       await expect(readFile(resolve(workspaceRoot, row.owner), "utf8")).resolves.toBeTruthy();
       await expect(readFile(resolve(workspaceRoot, row.proof), "utf8")).resolves.toBeTruthy();
     }
-    const actualSurfaceIds: string[] = parsed.right.surfaces.map((surface) => surface.id);
+    const actualSurfaceIds: string[] = parsed.success.surfaces.map((surface) => surface.id);
     expect(actualSurfaceIds).toEqual([...expectedSurfaceIds]);
-    expect(parsed.right.surfaces.find((surface) => surface.id === "cutover-runbook")).toEqual({
+    expect(parsed.success.surfaces.find((surface) => surface.id === "cutover-runbook")).toEqual({
       id: "cutover-runbook",
       owner: "release",
       expected: "approval-gated",
@@ -145,14 +147,14 @@ describe("0.16 foundation parity contract", () => {
     const manifestRaw: unknown = JSON.parse(
       await readFile(resolve(workspaceRoot, "packages/cli/package.json"), "utf8"),
     );
-    const manifest = Schema.decodeUnknownEither(ManifestVersionSchema)(manifestRaw);
-    expect(Either.isRight(manifest)).toBe(true);
-    if (Either.isLeft(manifest)) {
-      throw new Error(String(manifest.left));
+    const manifest = Schema.decodeUnknownResult(ManifestVersionSchema)(manifestRaw);
+    expect(Result.isSuccess(manifest)).toBe(true);
+    if (Result.isFailure(manifest)) {
+      throw new Error(String(manifest.failure));
     }
     const version = await runCli(["version"]);
     expect(version.exitCode).toBe(0);
-    expect(JSON.stringify(version.envelope)).toContain(manifest.right.version);
+    expect(JSON.stringify(version.envelope)).toContain(manifest.success.version);
 
     const stdout: string[] = [];
     const stderr: string[] = [];

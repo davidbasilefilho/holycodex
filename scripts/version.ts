@@ -1,91 +1,81 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Either from "effect/Either";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import { CanonicalVersionSchema, resolveCanonicalVersion } from "../packages/core/src/version.ts";
+import { SourceManifestSchema } from "../packages/plugin/src/schemas.ts";
+import { decodeVersionedManifest } from "./release-version.ts";
 
-const strictParseOptions = { onExcessProperty: "error" } as const;
-const manifestParseOptions = { onExcessProperty: "preserve" } as const;
-const VersionArgumentsSchema = Schema.Struct({
-  target: Schema.Union(Schema.Literal("patch", "minor"), CanonicalVersionSchema),
-  dryRun: Schema.Boolean,
-});
-const CliManifestSchema = Schema.Struct({
-  name: Schema.Literal("holycodex"),
-  version: CanonicalVersionSchema,
-});
-
-type VersionArguments = typeof VersionArgumentsSchema.Type;
-type CliManifest = typeof CliManifestSchema.Type;
-
-const rawArguments = Bun.argv.slice(2);
-const dryRun = rawArguments.includes("--dry-run");
-const positionalArguments = rawArguments.filter((argument) => argument !== "--dry-run");
-
-if (positionalArguments.length !== 1) {
-  throw new Error("Usage: bun scripts/version.ts <0.x.y[-n]|patch|minor> [--dry-run]");
-}
-
-const targetArgument = positionalArguments[0];
-if (targetArgument === undefined) {
-  throw new Error("Usage: bun scripts/version.ts <0.x.y[-n]|patch|minor> [--dry-run]");
-}
-const parsedArguments = Schema.decodeUnknownEither(
-  VersionArgumentsSchema,
-  strictParseOptions,
-)({
-  target: targetArgument,
-  dryRun,
-});
-
-if (Either.isLeft(parsedArguments)) {
-  throw new Error(
-    `${parsedArguments.left.message}\nUsage: bun scripts/version.ts <0.x.y[-n]|patch|minor> [--dry-run]`,
-  );
-}
+const VersionTargetSchema = Schema.Union([
+  Schema.Literals(["patch", "minor"]),
+  CanonicalVersionSchema,
+]);
+const VersionArgumentsSchema = Schema.Union([
+  Schema.Tuple([VersionTargetSchema]),
+  Schema.Tuple([Schema.Literals(["--dry-run"]), VersionTargetSchema]),
+  Schema.Tuple([VersionTargetSchema, Schema.Literals(["--dry-run"])]),
+]);
+type VersionTarget = typeof VersionTargetSchema.Type;
 
 const cliManifestPath = `${import.meta.dir}/../packages/cli/package.json`;
 const pluginManifestPath = `${import.meta.dir}/../packages/plugin/assets/.codex-plugin/plugin.json`;
-const rawManifest: unknown = await Bun.file(cliManifestPath).json();
-const currentManifest = Schema.decodeUnknownEither(
-  CliManifestSchema,
-  manifestParseOptions,
-)(rawManifest);
 
-if (Either.isLeft(currentManifest)) {
-  throw new Error(currentManifest.left.message);
+/** Validate and optionally update the canonical CLI and plugin manifest versions. */
+export function runVersionUpdate(argv: readonly string[] = Bun.argv.slice(2)) {
+  return Effect.gen(function* () {
+    const parsedArguments = yield* Schema.decodeUnknownEffect(VersionArgumentsSchema)(argv);
+    const dryRun = parsedArguments.includes("--dry-run");
+    const target = parsedArguments[0] === "--dry-run" ? parsedArguments[1] : parsedArguments[0];
+    const rawManifest = yield* Effect.tryPromise(() => Bun.file(cliManifestPath).json());
+    const currentManifest = yield* decodeManifest(rawManifest);
+    const currentVersion = currentManifest.version;
+    const nextVersion = resolveVersion(target as VersionTarget, currentVersion);
+
+    if (!dryRun) {
+      const pluginInput = yield* Effect.tryPromise(() => Bun.file(pluginManifestPath).json());
+      const pluginManifest = yield* decodeManifest(pluginInput, SourceManifestSchema);
+      yield* Effect.tryPromise(() =>
+        Bun.write(
+          cliManifestPath,
+          `${JSON.stringify({ ...currentManifest, version: nextVersion }, null, 2)}\n`,
+        ),
+      );
+      yield* Effect.tryPromise(() =>
+        Bun.write(
+          pluginManifestPath,
+          `${JSON.stringify({ ...pluginManifest, version: nextVersion }, null, 2)}\n`,
+        ),
+      );
+    }
+
+    console.log(
+      `${dryRun ? "would set" : "set"} holycodex from ${currentVersion} to ${nextVersion}`,
+    );
+    return { currentVersion, nextVersion, dryRun };
+  }).pipe(
+    Effect.catch((error) =>
+      Effect.sync(() => {
+        console.error(error instanceof Error ? error.message : "version update failed");
+        process.exitCode = 1;
+      }),
+    ),
+  );
 }
 
-const currentVersion = currentManifest.right.version;
-const nextVersion = resolveVersion(parsedArguments.right, currentVersion);
-
-if (!parsedArguments.right.dryRun) {
-  const pluginManifest: unknown = await Bun.file(pluginManifestPath).json();
-  const parsedPluginManifest = Schema.decodeUnknownEither(
-    CliManifestSchema,
-    manifestParseOptions,
-  )(pluginManifest);
-  if (Either.isLeft(parsedPluginManifest)) {
-    throw new Error(parsedPluginManifest.left.message);
-  }
-  await Bun.write(
-    cliManifestPath,
-    `${JSON.stringify({ ...currentManifest.right, version: nextVersion }, null, 2)}\n`,
-  );
-  await Bun.write(
-    pluginManifestPath,
-    `${JSON.stringify({ ...parsedPluginManifest.right, version: nextVersion }, null, 2)}\n`,
-  );
+function decodeManifest(
+  input: unknown,
+  schema?: Schema.Decoder<Readonly<{ name: string; version: string }>>,
+) {
+  const decoded = decodeVersionedManifest(input, schema);
+  return Result.isSuccess(decoded) ? Effect.succeed(decoded.success) : Effect.fail(decoded.failure);
 }
 
-console.log(
-  `${parsedArguments.right.dryRun ? "would set" : "set"} holycodex from ${currentVersion} to ${nextVersion}`,
-);
+function resolveVersion(target: VersionTarget, current: string): string {
+  return resolveCanonicalVersion(target, current);
+}
 
-function resolveVersion(
-  arguments_: VersionArguments,
-  current: CliManifest["version"],
-): CliManifest["version"] {
-  return resolveCanonicalVersion(arguments_.target, current);
+if (import.meta.main) {
+  await Effect.runPromise(runVersionUpdate());
 }

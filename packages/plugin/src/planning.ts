@@ -2,6 +2,8 @@
 
 import { resolve } from "node:path";
 
+import * as Effect from "effect/Effect";
+
 import {
   DEFAULT_SCHEMA_EPOCH,
   MAX_FILE_SIZE,
@@ -10,114 +12,158 @@ import {
   SOURCE_MANIFEST_PATH,
 } from "./constants.ts";
 import { pluginError } from "./errors.ts";
+import type { PluginError } from "./errors.ts";
 import {
   GeneratedManifestSchema,
   decodeSchema,
   parseAssemblyRequest,
   parseDirectoryText,
-  readSourceManifest,
+  readSourceManifestEffect,
   declaredSourcePaths,
 } from "./schemas.ts";
 import type { GeneratedManifest } from "./schemas.ts";
-import { compareFiles, readSourceFile, resolveSourceRoot, walkSource } from "./source.ts";
+import {
+  compareFiles,
+  readSourceFileEffect,
+  resolveSourceRootEffect,
+  walkSourceEffect,
+} from "./source.ts";
 import type { AssemblyPlan, SourceFile, SourceValidation } from "./types.ts";
-import { canonicalJsonBytes, createIdentity, digestPayload, sha256 } from "./verification.ts";
+import {
+  canonicalJsonBytes,
+  createIdentity,
+  digestPayloadEffect,
+  sha256Effect,
+} from "./verification.ts";
 
 /** Validate a plugin source tree against its manifest and file size bounds. */
-export async function validateSource(input: unknown = pluginSourceRoot): Promise<SourceValidation> {
-  const sourceRoot = parseDirectoryText(input, "sourceRoot");
-  const root = await resolveSourceRoot(sourceRoot);
-  const walkedFiles: string[] = [];
-  await walkSource(root, "", walkedFiles);
+export function validateSource(input: unknown = pluginSourceRoot): Promise<SourceValidation> {
+  return Effect.runPromise(validateSourceEffect(input));
+}
 
-  const manifest = await readSourceManifest(root);
-  const declaredPaths = declaredSourcePaths(manifest, walkedFiles);
-  const walkedSet = new Set(walkedFiles);
-
-  const skillDirectories = new Set(
-    walkedFiles
-      .map((path) => /^skills\/([^/]+)\//u.exec(path)?.[1])
-      .filter((name): name is string => name !== undefined),
-  );
-  for (const skill of skillDirectories) {
-    if (!walkedSet.has(`skills/${skill}/SKILL.md`)) {
-      throw pluginError("source_invalid", "A skill directory is missing SKILL.md.", { skill });
+/** Validate the plugin source tree in the plugin effect domain. */
+export function validateSourceEffect(
+  input: unknown = pluginSourceRoot,
+): Effect.Effect<SourceValidation, PluginError> {
+  return Effect.gen(function* () {
+    const sourceRoot = yield* Effect.try({
+      try: () => parseDirectoryText(input, "sourceRoot"),
+      catch: (error) => error as PluginError,
+    });
+    const root = yield* resolveSourceRootEffect(sourceRoot);
+    const walkedFiles: string[] = [];
+    yield* walkSourceEffect(root, "", walkedFiles);
+    const manifest = yield* readSourceManifestEffect(root);
+    const declaredPaths = declaredSourcePaths(manifest, walkedFiles);
+    const walkedSet = new Set(walkedFiles);
+    const skillDirectories = new Set(
+      walkedFiles
+        .map((path) => /^skills\/([^/]+)\//u.exec(path)?.[1])
+        .filter((name): name is string => name !== undefined),
+    );
+    for (const skill of skillDirectories) {
+      if (!walkedSet.has(`skills/${skill}/SKILL.md`)) {
+        return yield* Effect.fail(
+          pluginError("source_invalid", "A skill directory is missing SKILL.md.", { skill }),
+        );
+      }
     }
-  }
-
-  for (const declaredPath of declaredPaths) {
-    if (!walkedSet.has(declaredPath)) {
-      throw pluginError("source_invalid", "A manifest-declared asset is missing.", {
-        path: declaredPath,
-      });
+    for (const declaredPath of declaredPaths) {
+      if (!walkedSet.has(declaredPath)) {
+        return yield* Effect.fail(
+          pluginError("source_invalid", "A manifest-declared asset is missing.", {
+            path: declaredPath,
+          }),
+        );
+      }
     }
-  }
-
-  for (const walkedPath of walkedFiles) {
-    if (!declaredPaths.has(walkedPath)) {
-      throw pluginError("source_invalid", "The plugin source contains an undeclared file.", {
-        path: walkedPath,
-      });
+    for (const walkedPath of walkedFiles) {
+      if (!declaredPaths.has(walkedPath)) {
+        return yield* Effect.fail(
+          pluginError("source_invalid", "The plugin source contains an undeclared file.", {
+            path: walkedPath,
+          }),
+        );
+      }
     }
-  }
-
-  const files: SourceFile[] = [];
-  let totalSize = 0;
-  for (const path of [...walkedSet].sort()) {
-    const bytes = await readSourceFile(root, path);
-    const size = bytes.byteLength;
-    if (size > MAX_FILE_SIZE) {
-      throw pluginError("source_invalid", "A plugin source file exceeds the size limit.", {
-        path,
-        size,
-        limit: MAX_FILE_SIZE,
-      });
+    const files: SourceFile[] = [];
+    let totalSize = 0;
+    for (const path of [...walkedSet].sort()) {
+      const bytes = yield* readSourceFileEffect(root, path);
+      const size = bytes.byteLength;
+      if (size > MAX_FILE_SIZE) {
+        return yield* Effect.fail(
+          pluginError("source_invalid", "A plugin source file exceeds the size limit.", {
+            path,
+            size,
+            limit: MAX_FILE_SIZE,
+          }),
+        );
+      }
+      totalSize += size;
+      if (totalSize > MAX_TOTAL_SIZE) {
+        return yield* Effect.fail(
+          pluginError("source_invalid", "The plugin source exceeds the total size limit.", {
+            limit: MAX_TOTAL_SIZE,
+          }),
+        );
+      }
+      files.push({ path, size, sha256: yield* sha256Effect(bytes) });
     }
-    totalSize += size;
-    if (totalSize > MAX_TOTAL_SIZE) {
-      throw pluginError("source_invalid", "The plugin source exceeds the total size limit.", {
-        limit: MAX_TOTAL_SIZE,
-      });
-    }
-    files.push({ path, size, sha256: await sha256(bytes) });
-  }
-
-  return { sourceRoot: root, manifest, files };
+    return { sourceRoot: root, manifest, files };
+  });
 }
 
 /** Build the deterministic file, digest, identity, and staging plan for a plugin payload. */
-export async function planAssembly(input: unknown): Promise<AssemblyPlan> {
-  const request = parseAssemblyRequest(input);
-  const source = await validateSource(request.sourceRoot);
-  const schemaEpoch = request.schemaEpoch ?? DEFAULT_SCHEMA_EPOCH;
-  const manifest = createGeneratedManifest(source.manifest, request.version);
-  const manifestBytes = canonicalJsonBytes(manifest);
-  const generatedManifestFile: SourceFile = {
-    path: SOURCE_MANIFEST_PATH,
-    size: manifestBytes.byteLength,
-    sha256: await sha256(manifestBytes),
-  };
-  const sourceFiles = source.files.filter((file) => file.path !== SOURCE_MANIFEST_PATH);
-  const files = [...sourceFiles, generatedManifestFile].sort(compareFiles);
-  assertFileBounds(files);
-  const payloadDigest = await digestPayload(request.version, schemaEpoch, files, async (path) => {
-    if (path === SOURCE_MANIFEST_PATH) {
-      return manifestBytes;
-    }
-    return readSourceFile(source.sourceRoot, path);
-  });
-  const identity = createIdentity(request.version, payloadDigest, schemaEpoch);
+export function planAssembly(input: unknown): Promise<AssemblyPlan> {
+  return Effect.runPromise(planAssemblyEffect(input));
+}
 
-  return {
-    sourceRoot: source.sourceRoot,
-    stagingDirectory: resolve(request.stagingDirectory),
-    version: request.version,
-    schemaEpoch,
-    manifest,
-    files,
-    payloadDigest,
-    identity,
-  };
+/** Build the payload staging plan in the plugin effect domain. */
+export function planAssemblyEffect(input: unknown): Effect.Effect<AssemblyPlan, PluginError> {
+  return Effect.gen(function* () {
+    const request = yield* Effect.try({
+      try: () => parseAssemblyRequest(input),
+      catch: (error) => error as PluginError,
+    });
+    const source = yield* validateSourceEffect(request.sourceRoot);
+    const schemaEpoch = request.schemaEpoch ?? DEFAULT_SCHEMA_EPOCH;
+    const manifest = yield* Effect.try({
+      try: () => createGeneratedManifest(source.manifest, request.version),
+      catch: (error) => error as PluginError,
+    });
+    const manifestBytes = canonicalJsonBytes(manifest);
+    const generatedManifestFile: SourceFile = {
+      path: SOURCE_MANIFEST_PATH,
+      size: manifestBytes.byteLength,
+      sha256: yield* sha256Effect(manifestBytes),
+    };
+    const sourceFiles = source.files.filter((file) => file.path !== SOURCE_MANIFEST_PATH);
+    const files = [...sourceFiles, generatedManifestFile].sort(compareFiles);
+    yield* Effect.try({
+      try: () => assertFileBounds(files),
+      catch: (error) => error as PluginError,
+    });
+    const payloadDigest = yield* digestPayloadEffect(request.version, schemaEpoch, files, (path) =>
+      path === SOURCE_MANIFEST_PATH
+        ? Effect.succeed(manifestBytes)
+        : readSourceFileEffect(source.sourceRoot, path),
+    );
+    const identity = yield* Effect.try({
+      try: () => createIdentity(request.version, payloadDigest, schemaEpoch),
+      catch: (error) => error as PluginError,
+    });
+    return {
+      sourceRoot: source.sourceRoot,
+      stagingDirectory: resolve(request.stagingDirectory),
+      version: request.version,
+      schemaEpoch,
+      manifest,
+      files,
+      payloadDigest,
+      identity,
+    };
+  });
 }
 
 /** Create the generated manifest for a validated source tree and target version. */

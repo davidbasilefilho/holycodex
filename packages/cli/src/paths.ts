@@ -5,6 +5,9 @@ import { homedir } from "node:os";
 import { dirname, join, posix, resolve, sep, win32 } from "node:path";
 
 import { STATE_SCHEMA_EPOCH } from "@holycodex/core";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 
 import type { InstallerOptions, InstallerPaths } from "./types.ts";
 
@@ -81,25 +84,47 @@ export function assertRootText(
   label: string,
   platform: "posix" | "win32" = process.platform === "win32" ? "win32" : "posix",
 ): string {
-  if (typeof value !== "string" || hasControlCharacter(value)) {
-    throw new PathBoundaryError("invalid_path", `${label} contains invalid characters.`);
-  }
+  const validText = decodePathSchema(
+    Schema.String.check(Schema.makeFilter((text) => !hasControlCharacter(text))),
+    value,
+    "invalid_path",
+    `${label} contains invalid characters.`,
+  );
   const api = platform === "win32" ? win32 : posix;
-  const candidate = normalizePlatformPath(value, platform);
-  if (typeof candidate !== "string" || candidate.length === 0 || !api.isAbsolute(candidate)) {
-    throw new PathBoundaryError("invalid_path", `${label} must be an absolute path.`);
-  }
+  const candidate = normalizePlatformPath(validText, platform);
+  decodePathSchema(
+    Schema.String.check(Schema.makeFilter((text) => text.length > 0 && api.isAbsolute(text))),
+    candidate,
+    "invalid_path",
+    `${label} must be an absolute path.`,
+  );
   const normalized = api.normalize(candidate);
-  const segments = normalized
-    .split(platform === "win32" ? "\\" : sep)
-    .filter((segment) => segment.length > 0);
-  if (segments.length === 0 || normalized === api.dirname(normalized)) {
-    throw new PathBoundaryError("broad_path", `${label} is too broad.`);
-  }
-  if (candidate.split(/[\\/]/u).some((segment) => segment === "..")) {
-    throw new PathBoundaryError("invalid_path", `${label} cannot contain traversal.`);
-  }
+  decodePathSchema(
+    Schema.String.check(Schema.makeFilter((text) => text !== api.dirname(text))),
+    normalized,
+    "broad_path",
+    `${label} is too broad.`,
+  );
+  decodePathSchema(
+    Schema.String.check(
+      Schema.makeFilter((text) => !text.split(/[\\/]/u).some((segment) => segment === "..")),
+    ),
+    candidate,
+    "invalid_path",
+    `${label} cannot contain traversal.`,
+  );
   return api.resolve(normalized);
+}
+
+function decodePathSchema(
+  schema: Schema.Codec<string, unknown>,
+  value: unknown,
+  code: PathBoundaryError["code"],
+  message: string,
+): string {
+  const result = Schema.decodeUnknownResult(schema)(value);
+  if (Result.isSuccess(result)) return result.success;
+  throw new PathBoundaryError(code, message);
 }
 
 function hasControlCharacter(value: string): boolean {
@@ -111,38 +136,51 @@ function hasControlCharacter(value: string): boolean {
 }
 
 /** Create a managed directory after confirming that its path contains no symlink. */
-export async function ensureOwnedDirectory(path: string): Promise<void> {
-  assertRootText(path, "owned path");
-  // Check before mkdir as well as after it. Otherwise a symlinked ancestor
-  // could cause recursive mkdir to create the managed tree outside CODEX_HOME
-  // before the postcondition check rejects it.
-  await assertNoSymlink(path);
-  await mkdir(path, { recursive: true });
-  await assertNoSymlink(path);
+export function ensureOwnedDirectoryEffect(path: string): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    assertRootText(path, "owned path");
+    // Check before mkdir as well as after it. Otherwise a symlinked ancestor
+    // could cause recursive mkdir to create the managed tree outside CODEX_HOME
+    // before the postcondition check rejects it.
+    yield* assertNoSymlinkEffect(path);
+    yield* Effect.tryPromise({
+      try: () => mkdir(path, { recursive: true }),
+      catch: (error) => error,
+    });
+    yield* assertNoSymlinkEffect(path);
+  });
+}
+
+/** Ensure a managed directory using the Promise-facing filesystem adapter. */
+export function ensureOwnedDirectory(path: string): Promise<void> {
+  return Effect.runPromise(ensureOwnedDirectoryEffect(path));
 }
 
 /** Reject a path whose existing components contain a symbolic link. */
-export async function assertNoSymlink(path: string): Promise<void> {
-  const absolute = resolve(path);
-  let current = absolute;
-  while (true) {
-    try {
-      const entry = await lstat(current);
-      if (entry.isSymbolicLink()) {
-        throw new PathBoundaryError("path_symlink", "A managed path cannot contain a symlink.");
+export function assertNoSymlinkEffect(path: string): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    let current = resolve(path);
+    while (true) {
+      const entry = yield* Effect.catchIf(
+        Effect.tryPromise({ try: () => lstat(current), catch: (error) => error }),
+        (error) => isFsCode(error, "ENOENT"),
+        () => Effect.succeed(undefined),
+      );
+      if (entry?.isSymbolicLink()) {
+        return yield* Effect.fail(
+          new PathBoundaryError("path_symlink", "A managed path cannot contain a symlink."),
+        );
       }
-    } catch (error: unknown) {
-      if (error instanceof PathBoundaryError) {
-        throw error;
-      }
-      if (!isFsCode(error, "ENOENT")) {
-        throw error;
-      }
+      const parent = dirname(current);
+      if (parent === current) return;
+      current = parent;
     }
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
-  }
+  });
+}
+
+/** Reject a symlinked managed path through the Promise-facing filesystem adapter. */
+export function assertNoSymlink(path: string): Promise<void> {
+  return Effect.runPromise(assertNoSymlinkEffect(path));
 }
 
 /** Validate that an existing managed path and its ancestors contain no symlink. */

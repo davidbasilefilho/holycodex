@@ -2,6 +2,8 @@
 
 import { describe, expect, test } from "bun:test";
 
+import * as Effect from "effect/Effect";
+
 test("Root visual fallback includes only selected capabilities in priority order", () => {
   for (const browserUse of [false, true]) {
     for (const computerUse of [false, true]) {
@@ -46,7 +48,6 @@ import {
   nativeAgentConfigPath,
   nativeAgentGenerationId,
   nativeAgentSandboxConfigurationMatches,
-  nativeAgentSandboxMode,
   rollbackNativeAgentInstall,
 } from "./native-agents.ts";
 
@@ -300,13 +301,11 @@ describe("Windows native-agent instructions", () => {
         const rolePath = join(codexHome, ...roleRef.split("/"));
         const roleText = await readFile(rolePath, "utf8");
         expect(roleText).toBe(renderNativeAgent(agent, instructionOptions));
-        expect(roleText).toContain(`sandbox_mode = "${nativeAgentSandboxMode(agent)}"`);
         expect(nativeAgentSandboxConfigurationMatches(agent, parseConfig(roleText))).toBe(true);
-        if (nativeAgentSandboxMode(agent) === "workspace-write") {
-          expect(roleText).toContain("network_access = true");
-        } else {
-          expect(roleText).not.toContain("[sandbox_workspace_write]");
-        }
+        expect(roleText).not.toContain("sandbox_mode =");
+        expect(roleText).not.toContain("approval_policy =");
+        expect(roleText).not.toContain("web_search =");
+        expect(roleText).not.toContain("sandbox_workspace_write");
         expect(roleText).not.toContain("default_permissions =");
         expect(roleText).not.toContain("[permissions.");
         expect(roleText).not.toContain("thread_tools");
@@ -387,12 +386,8 @@ describe("Windows native-agent instructions", () => {
         desired: { present: true },
       });
 
-      const cancelledInstall = installNativeAgents(
-        codexHome,
-        "default",
-        [],
-        "standard",
-        async () => "cancel",
+      const cancelledInstall = installNativeAgents(codexHome, "default", [], "standard", () =>
+        Effect.succeed("cancel"),
       );
       await expect(cancelledInstall).rejects.toThrow(
         "Native-agent conflict resolution was cancelled",
@@ -404,10 +399,11 @@ describe("Windows native-agent instructions", () => {
         "default",
         [],
         "standard",
-        async (conflict) => {
-          expect(conflict.path).toBe(rolePath);
-          return "accept";
-        },
+        (conflict) =>
+          Effect.sync(() => {
+            expect(conflict.path).toBe(rolePath);
+            return "accept";
+          }),
       );
       expect(await readFile(rolePath, "utf8")).toBe(renderNativeAgent(agent));
       expect(installed.rollback.find(({ path }) => path === rolePath)).toMatchObject({
@@ -460,15 +456,10 @@ describe("Windows native-agent instructions", () => {
       const agent = projectNativeAgents("default").find(({ name }) => name === "Explorer.lookup");
       if (agent === undefined) throw new Error("Explorer.lookup route is missing.");
       const current = renderNativeAgent(agent);
-      const legacy = current
-        .replace(
-          'sandbox_mode = "workspace-write"',
-          'default_permissions = "holycodex-readonly-network"',
-        )
-        .replace(
-          "[sandbox_workspace_write]\nnetwork_access = true",
-          '[permissions."holycodex-readonly-network"]\nextends = ":read-only"\n\n[permissions."holycodex-readonly-network".network]\nenabled = true',
-        );
+      const legacy = `${current.replace(
+        "\n\n[agents]",
+        '\nsandbox_mode = "workspace-write"\napproval_policy = "never"\nweb_search = "live"\n\n[agents]',
+      )}\n[sandbox_workspace_write]\nnetwork_access = true\n`;
       await mkdir(join(codexHome, "holycodex", "agents"), { recursive: true });
       await writeFile(legacyRolePath, legacy);
       await writeFile(configPath, userConfig);
@@ -531,10 +522,26 @@ describe("Windows native-agent instructions", () => {
         "Before each specialist spawn, persist the bounded Assignment",
       );
       expect(instructions).toContain("Root uses visual-loop");
-      expect(instructions).toContain("grill-me, which must ask through request_user_input");
+      expect(instructions).toContain(
+        "Prefer request_user_input_async for clarifications and approvals",
+      );
+      expect(instructions).toContain(
+        "use request_user_input only when async would harm the situation",
+      );
+      expect(instructions).toContain(
+        "While a question is pending, do only work independent of its answer",
+      );
+      expect(instructions).toContain(
+        "Invoke grill-me only when uncertainty about intent, implementation, or findings",
+      );
       expect(instructions).toContain("needs_root_input and never ask the user");
       expect(instructions).toContain("Treat later user steering as current");
-      expect(instructions).toContain("collaboration.wait_agent at timeout_ms=600000");
+      expect(instructions).toContain(
+        "Always call collaboration.wait_agent with timeout_ms=600000 for every Root wait.",
+      );
+      expect(instructions).toContain(
+        "Never use a 10-second timeout or any other duration, regardless of the situation.",
+      );
       expect(instructions).toContain(
         "Give each overlapping write or shared-mutable seam one specialist owner",
       );

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { CanonicalVersionSchema, decodeUnknown } from "@holycodex/core";
-import * as Either from "effect/Either";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import {
@@ -12,40 +13,38 @@ import {
   SOURCE_MANIFEST_PATH,
 } from "./constants.ts";
 import { pluginError } from "./errors.ts";
-import { readPayloadFile, readSourceFile, assertSafePath, comparePathText } from "./source.ts";
+import type { PluginError, PluginErrorCode } from "./errors.ts";
+import {
+  readPayloadFileEffect,
+  readSourceFileEffect,
+  assertSafePath,
+  comparePathText,
+  isNormalizableRelativePath,
+} from "./source.ts";
 import { normalizeRelativePath } from "./source.ts";
 
-const PluginNameSchema = Schema.String.pipe(Schema.pattern(PLUGIN_NAME_PATTERN));
+const PluginNameSchema = Schema.String.check(Schema.isPattern(PLUGIN_NAME_PATTERN));
 const VersionSchema = CanonicalVersionSchema;
-const SchemaEpochSchema = Schema.String.pipe(Schema.pattern(EPOCH_PATTERN));
-const DigestSchema = Schema.String.pipe(Schema.pattern(DIGEST_PATTERN));
-const PathSchema = Schema.String.pipe(
-  Schema.filter((value) => {
-    try {
-      normalizeRelativePath(value);
-      return true;
-    } catch {
-      return false;
-    }
-  }),
+const SchemaEpochSchema = Schema.String.check(Schema.isPattern(EPOCH_PATTERN));
+const DigestSchema = Schema.String.check(Schema.isPattern(DIGEST_PATTERN));
+const PathSchema = Schema.String.check(Schema.makeFilter(isNormalizableRelativePath));
+const DescriptionSchema = Schema.String.check(
+  Schema.makeFilter((value) => value.length > 0 && value.length <= 300),
 );
-const DescriptionSchema = Schema.String.pipe(
-  Schema.filter((value) => value.length > 0 && value.length <= 300),
-);
-const SkillRootSchema = Schema.Literal("skills", "./skills", "skills/");
+const SkillRootSchema = Schema.Literals(["skills", "./skills", "skills/"]);
 const AuthorSchema = Schema.Struct({
-  name: Schema.String.pipe(Schema.minLength(1)),
+  name: Schema.String.check(Schema.isMinLength(1)),
   email: Schema.optional(Schema.String),
   url: Schema.optional(Schema.String),
 });
 const InterfaceSchema = Schema.Struct({
-  displayName: Schema.String.pipe(Schema.minLength(1)),
-  shortDescription: Schema.String.pipe(Schema.minLength(1)),
-  longDescription: Schema.String.pipe(Schema.minLength(1)),
-  developerName: Schema.String.pipe(Schema.minLength(1)),
-  category: Schema.String.pipe(Schema.minLength(1)),
-  capabilities: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
-  defaultPrompt: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
+  displayName: Schema.String.check(Schema.isMinLength(1)),
+  shortDescription: Schema.String.check(Schema.isMinLength(1)),
+  longDescription: Schema.String.check(Schema.isMinLength(1)),
+  developerName: Schema.String.check(Schema.isMinLength(1)),
+  category: Schema.String.check(Schema.isMinLength(1)),
+  capabilities: Schema.Array(Schema.String.check(Schema.isMinLength(1))),
+  defaultPrompt: Schema.Array(Schema.String.check(Schema.isMinLength(1))),
 });
 /** Schema for the checked-in plugin manifest accepted as packaging input. */
 export const SourceManifestSchema = Schema.Struct({
@@ -56,7 +55,7 @@ export const SourceManifestSchema = Schema.Struct({
   homepage: Schema.optional(Schema.String),
   repository: Schema.optional(Schema.String),
   license: Schema.optional(Schema.String),
-  keywords: Schema.optional(Schema.Array(Schema.String.pipe(Schema.minLength(1)))),
+  keywords: Schema.optional(Schema.Array(Schema.String.check(Schema.isMinLength(1)))),
   skills: SkillRootSchema,
   interface: InterfaceSchema,
 });
@@ -72,7 +71,7 @@ export const GeneratedManifestSchema = Schema.Struct({
   homepage: Schema.optional(Schema.String),
   repository: Schema.optional(Schema.String),
   license: Schema.optional(Schema.String),
-  keywords: Schema.optional(Schema.Array(Schema.String.pipe(Schema.minLength(1)))),
+  keywords: Schema.optional(Schema.Array(Schema.String.check(Schema.isMinLength(1)))),
   skills: SkillRootSchema,
   interface: InterfaceSchema,
 });
@@ -87,7 +86,9 @@ export type GeneratedPluginManifest = GeneratedManifest;
 
 const PayloadFileSchema = Schema.Struct({
   path: PathSchema,
-  size: Schema.Number.pipe(Schema.filter((value) => Number.isSafeInteger(value) && value >= 0)),
+  size: Schema.Number.check(
+    Schema.makeFilter((value) => Number.isSafeInteger(value) && value >= 0),
+  ),
   sha256: DigestSchema,
 });
 const PayloadFilesSchema = Schema.Array(PayloadFileSchema);
@@ -117,8 +118,8 @@ export const PayloadManifestSchema = Schema.Struct({
 export type PayloadManifest = typeof PayloadManifestSchema.Type;
 
 const AssemblyRequestSchema = Schema.Struct({
-  sourceRoot: Schema.String.pipe(Schema.filter(isUsableDirectoryText)),
-  stagingDirectory: Schema.String.pipe(Schema.filter(isUsableDirectoryText)),
+  sourceRoot: Schema.String.check(Schema.makeFilter(isUsableDirectoryText)),
+  stagingDirectory: Schema.String.check(Schema.makeFilter(isUsableDirectoryText)),
   version: VersionSchema,
   schemaEpoch: Schema.optional(SchemaEpochSchema),
 });
@@ -126,9 +127,9 @@ const AssemblyRequestSchema = Schema.Struct({
 export type AssemblyRequest = typeof AssemblyRequestSchema.Type;
 
 /** Decode unknown input with an Effect Schema and return undefined on rejection. */
-export function decodeSchema<T>(schema: Schema.Schema<T>, input: unknown): T | undefined {
+export function decodeSchema<T>(schema: Schema.Codec<T, unknown>, input: unknown): T | undefined {
   const parsed = decodeUnknown(schema, input);
-  return Either.isRight(parsed) ? parsed.right : undefined;
+  return Result.isSuccess(parsed) ? parsed.success : undefined;
 }
 
 /** Parse and validate an assembly request at the plugin boundary. */
@@ -144,7 +145,7 @@ export function parseAssemblyRequest(input: unknown): AssemblyRequest {
 
 /** Parse a non-empty directory path supplied through an unknown boundary value. */
 export function parseDirectoryText(input: unknown, field: string): string {
-  const parsed = decodeSchema(Schema.String.pipe(Schema.filter(isUsableDirectoryText)), input);
+  const parsed = decodeSchema(Schema.String.check(Schema.makeFilter(isUsableDirectoryText)), input);
   if (parsed === undefined) {
     throw pluginError("source_invalid", `The ${field} path is invalid.`, { field });
   }
@@ -153,12 +154,14 @@ export function parseDirectoryText(input: unknown, field: string): string {
 
 /** Parse a staged payload location from a string or request-shaped value. */
 export function parsePayloadLocation(input: unknown): string {
-  const direct = decodeSchema(Schema.String.pipe(Schema.filter(isUsableDirectoryText)), input);
+  const direct = decodeSchema(Schema.String.check(Schema.makeFilter(isUsableDirectoryText)), input);
   if (direct !== undefined) {
     return direct;
   }
   const parsed = decodeSchema(
-    Schema.Struct({ stagingDirectory: Schema.String.pipe(Schema.filter(isUsableDirectoryText)) }),
+    Schema.Struct({
+      stagingDirectory: Schema.String.check(Schema.makeFilter(isUsableDirectoryText)),
+    }),
     input,
   );
   if (parsed === undefined) {
@@ -170,102 +173,144 @@ export function parsePayloadLocation(input: unknown): string {
 }
 
 /** Read and validate the checked-in source plugin manifest. */
-export async function readSourceManifest(root: string): Promise<SourceManifest> {
-  const bytes = await readSourceFile(root, SOURCE_MANIFEST_PATH);
-  let input: unknown;
-  try {
-    input = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
-  } catch (error: unknown) {
-    throw pluginError(
+export function readSourceManifest(root: string): Promise<SourceManifest> {
+  return Effect.runPromise(readSourceManifestEffect(root));
+}
+
+/** Read and decode the checked-in source manifest in the plugin effect domain. */
+export function readSourceManifestEffect(root: string): Effect.Effect<SourceManifest, PluginError> {
+  return Effect.gen(function* () {
+    const bytes = yield* readSourceFileEffect(root, SOURCE_MANIFEST_PATH);
+    const input = yield* decodeManifestJson(
+      bytes,
       "manifest_invalid",
       "The source plugin manifest is not valid JSON.",
-      {},
-      error,
     );
-  }
-  const parsed = decodeSchema(SourceManifestSchema, input);
-  if (parsed === undefined) {
-    throw pluginError("manifest_invalid", "The source plugin manifest is invalid.", {
-      summary: "Effect Schema rejected the source manifest.",
+    const parsed = decodeSchema(SourceManifestSchema, input);
+    if (parsed === undefined) {
+      return yield* Effect.fail(
+        pluginError("manifest_invalid", "The source plugin manifest is invalid.", {
+          summary: "Effect Schema rejected the source manifest.",
+        }),
+      );
+    }
+    if (containsMcpDeclaration(input)) {
+      return yield* Effect.fail(
+        pluginError("manifest_invalid", "Plugin source manifests cannot declare external servers."),
+      );
+    }
+    if (
+      typeof input === "object" &&
+      input !== null &&
+      !Array.isArray(input) &&
+      Object.keys(input).some((key) => !OFFICIAL_MANIFEST_KEYS.has(key))
+    ) {
+      return yield* Effect.fail(
+        pluginError("manifest_invalid", "The source plugin manifest contains unsupported fields."),
+      );
+    }
+    yield* Effect.try({
+      try: () => validateManifestDeclarations(parsed),
+      catch: (error) => error as PluginError,
     });
-  }
-  if (containsMcpDeclaration(input)) {
-    throw pluginError(
-      "manifest_invalid",
-      "Plugin source manifests cannot declare external servers.",
-    );
-  }
-  if (
-    typeof input === "object" &&
-    input !== null &&
-    !Array.isArray(input) &&
-    Object.keys(input).some((key) => !OFFICIAL_MANIFEST_KEYS.has(key))
-  ) {
-    throw pluginError(
-      "manifest_invalid",
-      "The source plugin manifest contains unsupported fields.",
-    );
-  }
-  validateManifestDeclarations(parsed);
-  return parsed;
+    return parsed;
+  });
 }
 
 /** Read and validate the generated plugin manifest from a staged payload. */
-export async function readGeneratedManifest(root: string): Promise<GeneratedManifest> {
-  const bytes = await readPayloadFile(root, SOURCE_MANIFEST_PATH);
-  let input: unknown;
-  try {
-    input = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
-  } catch (error: unknown) {
-    throw pluginError(
+export function readGeneratedManifest(root: string): Promise<GeneratedManifest> {
+  return Effect.runPromise(readGeneratedManifestEffect(root));
+}
+
+/** Read and decode generated metadata in the plugin effect domain. */
+export function readGeneratedManifestEffect(
+  root: string,
+): Effect.Effect<GeneratedManifest, PluginError> {
+  return Effect.gen(function* () {
+    const bytes = yield* readPayloadFileEffect(root, SOURCE_MANIFEST_PATH);
+    const input = yield* decodeManifestJson(
+      bytes,
       "payload_invalid",
       "The generated plugin manifest is not valid JSON.",
-      {},
-      error,
     );
-  }
-  const parsed = decodeSchema(GeneratedManifestSchema, input);
-  if (parsed === undefined) {
-    throw pluginError("payload_invalid", "The generated plugin manifest is invalid.", {
-      summary: "Effect Schema rejected the generated manifest.",
+    const parsed = decodeSchema(GeneratedManifestSchema, input);
+    if (parsed === undefined) {
+      return yield* Effect.fail(
+        pluginError("payload_invalid", "The generated plugin manifest is invalid.", {
+          summary: "Effect Schema rejected the generated manifest.",
+        }),
+      );
+    }
+    if (containsMcpDeclaration(input)) {
+      return yield* Effect.fail(
+        pluginError(
+          "payload_invalid",
+          "Generated plugin manifests cannot declare external servers.",
+        ),
+      );
+    }
+    yield* Effect.try({
+      try: () => validateManifestDeclarations(parsed),
+      catch: (error) => error as PluginError,
     });
-  }
-  if (containsMcpDeclaration(input)) {
-    throw pluginError(
-      "payload_invalid",
-      "Generated plugin manifests cannot declare external servers.",
-    );
-  }
-  validateManifestDeclarations(parsed);
-  return parsed;
+    return parsed;
+  });
 }
 
 /** Read and validate the payload file manifest from a staging directory. */
-export async function readPayloadManifest(root: string): Promise<PayloadManifest> {
-  const bytes = await readPayloadFile(root, PAYLOAD_MANIFEST_PATH);
-  let input: unknown;
-  try {
-    input = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
-  } catch (error: unknown) {
-    throw pluginError("payload_invalid", "The payload manifest is not valid JSON.", {}, error);
-  }
-  const parsed = decodeSchema(PayloadManifestSchema, input);
-  if (parsed === undefined) {
-    throw pluginError("payload_invalid", "The payload manifest is invalid.", {
-      summary: "Effect Schema rejected the payload manifest.",
+export function readPayloadManifest(root: string): Promise<PayloadManifest> {
+  return Effect.runPromise(readPayloadManifestEffect(root));
+}
+
+/** Read and verify the staged file inventory in the plugin effect domain. */
+export function readPayloadManifestEffect(
+  root: string,
+): Effect.Effect<PayloadManifest, PluginError> {
+  return Effect.gen(function* () {
+    const bytes = yield* readPayloadFileEffect(root, PAYLOAD_MANIFEST_PATH);
+    const input = yield* decodeManifestJson(
+      bytes,
+      "payload_invalid",
+      "The payload manifest is not valid JSON.",
+    );
+    const parsed = decodeSchema(PayloadManifestSchema, input);
+    if (parsed === undefined) {
+      return yield* Effect.fail(
+        pluginError("payload_invalid", "The payload manifest is invalid.", {
+          summary: "Effect Schema rejected the payload manifest.",
+        }),
+      );
+    }
+    const paths = parsed.files.map((file) => file.path);
+    yield* Effect.try({
+      try: () => {
+        for (const path of paths) assertSafePath(path);
+      },
+      catch: (error) => error as PluginError,
     });
-  }
-  const paths = parsed.files.map((file) => file.path);
-  for (const path of paths) {
-    assertSafePath(path);
-  }
-  if (paths.some((path, index) => path !== [...paths].sort(comparePathText)[index])) {
-    throw pluginError("payload_invalid", "The payload file manifest is not sorted.");
-  }
-  if (new Set(paths).size !== paths.length || paths.includes(PAYLOAD_MANIFEST_PATH)) {
-    throw pluginError("payload_invalid", "The payload file manifest contains invalid paths.");
-  }
-  return parsed;
+    if (paths.some((path, index) => path !== [...paths].sort(comparePathText)[index])) {
+      return yield* Effect.fail(
+        pluginError("payload_invalid", "The payload file manifest is not sorted."),
+      );
+    }
+    if (new Set(paths).size !== paths.length || paths.includes(PAYLOAD_MANIFEST_PATH)) {
+      return yield* Effect.fail(
+        pluginError("payload_invalid", "The payload file manifest contains invalid paths."),
+      );
+    }
+    return parsed;
+  });
+}
+
+function decodeManifestJson(
+  bytes: Uint8Array,
+  code: PluginErrorCode,
+  message: string,
+): Effect.Effect<unknown, PluginError> {
+  return Effect.try({
+    try: () => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown,
+    catch: (error) => pluginError(code, message, {}, error),
+  });
 }
 
 /** Validate manifest declarations that control the plugin asset tree. */

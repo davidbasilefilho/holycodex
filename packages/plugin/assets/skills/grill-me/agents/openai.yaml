@@ -1,6 +1,6 @@
 interface:
   display_name: "Grill me"
-  short_description: "Ask Root-only material questions through request_user_input."
+  short_description: "Ask Root-only material questions through supported input tools."
   default_prompt: "Use $grill-me for this task."
 policy:
   allow_implicit_invocation: false

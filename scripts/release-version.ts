@@ -3,7 +3,9 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import * as Either from "effect/Either";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import {
@@ -23,39 +25,42 @@ export {
 const workspaceRoot = resolve(import.meta.dirname, "..");
 
 /** Accepted release publication channels. */
-export const ReleaseChannelSchema = Schema.Literal("dev", "stable");
+export const ReleaseChannelSchema = Schema.Literals(["dev", "stable"]);
 /** Schema for a full Git commit SHA used as release source identity. */
-export const SourceShaSchema = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{40}$/u));
+export const SourceShaSchema = Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u));
 /** Schema for a lowercase SHA-256 digest. */
-export const Sha256Schema = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u));
+export const Sha256Schema = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
 
 const CanonicalManifestSchema = Schema.Struct({
-  name: Schema.Literal("holycodex"),
+  name: Schema.Literals(["holycodex"]),
   version: CanonicalVersionSchema,
 });
-const PositiveIntegerTextSchema = Schema.String.pipe(
-  Schema.pattern(/^[1-9]\d*$/u),
-  Schema.maxLength(15),
+const ManifestRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
+const PositiveIntegerTextSchema = Schema.String.check(
+  Schema.isPattern(/^[1-9]\d*$/u),
+  Schema.isMaxLength(15),
 );
-const StableTagSchema = Schema.String.pipe(
-  Schema.filter((value) => value.startsWith("v") && isCanonicalVersion(value.slice(1))),
+const StableTagSchema = Schema.String.check(
+  Schema.makeFilter((value) => value.startsWith("v") && isCanonicalVersion(value.slice(1))),
 );
 
 /** Release publication channel accepted by the release workflows. */
 export type ReleaseChannel = typeof ReleaseChannelSchema.Type;
 
 /** Read and validate the canonical public package version. */
-export async function readCanonicalVersion(): Promise<string> {
-  const raw: unknown = JSON.parse(
-    await readFile(resolve(workspaceRoot, "packages/cli/package.json"), "utf8"),
-  );
-  const parsed = Schema.decodeUnknownEither(CanonicalManifestSchema, {
-    onExcessProperty: "preserve",
-  })(raw);
-  if (Either.isLeft(parsed)) {
-    throw new Error(`The canonical public package manifest is invalid: ${String(parsed.left)}`);
-  }
-  return parsed.right.version;
+export function readCanonicalVersion(): Effect.Effect<string, unknown> {
+  return Effect.gen(function* () {
+    const manifestText = yield* Effect.tryPromise(() =>
+      readFile(resolve(workspaceRoot, "packages/cli/package.json"), "utf8"),
+    );
+    const manifest = yield* Schema.decodeUnknownEffect(
+      Schema.fromJsonString(CanonicalManifestSchema),
+      {
+        onExcessProperty: "ignore",
+      },
+    )(manifestText);
+    return manifest.version;
+  });
 }
 
 /** Build and validate a development version from a base and run number. */
@@ -107,37 +112,57 @@ export function baseVersionFromRelease(version: string): string {
   return decode(BaseVersionSchema, base, "the release base version");
 }
 
-function decode<A>(schema: Schema.Schema<A>, value: unknown, label: string): A {
-  const parsed = Schema.decodeUnknownEither(schema)(value);
-  if (Either.isLeft(parsed)) {
-    throw new Error(`${label} is invalid: ${String(parsed.left)}`);
+function decode<A>(schema: Schema.Decoder<A>, value: unknown, label: string): A {
+  const parsed = Schema.decodeUnknownResult(schema)(value);
+  if (Result.isFailure(parsed)) {
+    throw new Error(`${label} is invalid: ${String(parsed.failure)}`);
   }
-  return parsed.right;
+  return parsed.success;
+}
+
+/** Decode the version fields while preserving manifest extension fields for updates. */
+export function decodeVersionedManifest(
+  input: unknown,
+  schema: Schema.Decoder<Readonly<{ name: string; version: string }>> = CanonicalManifestSchema,
+): Result.Result<
+  Readonly<Record<string, unknown>> & Readonly<{ name: string; version: string }>,
+  Schema.SchemaError
+> {
+  const record = Schema.decodeUnknownResult(ManifestRecordSchema, { onExcessProperty: "error" })(
+    input,
+  );
+  if (Result.isFailure(record)) return Result.fail(record.failure);
+  const manifest = Schema.decodeUnknownResult(schema, {
+    onExcessProperty: "ignore",
+  })(record.success);
+  if (Result.isFailure(manifest)) return Result.fail(manifest.failure);
+  return Result.succeed({ ...record.success, ...manifest.success });
 }
 
 if (import.meta.main) {
-  try {
-    const rawArguments: unknown = Bun.argv.slice(2);
-    const parsed = Schema.decodeUnknownEither(
-      Schema.Union(
-        Schema.Tuple(Schema.Literal("dev"), PositiveIntegerTextSchema, PositiveIntegerTextSchema),
-        Schema.Tuple(Schema.Literal("stable"), StableTagSchema),
-      ),
-      { onExcessProperty: "error" },
-    )(rawArguments);
-    if (Either.isLeft(parsed)) {
-      throw new Error(
-        "Usage: bun scripts/release-version.ts <dev run-number run-attempt|stable vX.Y.Z[-n]>",
-      );
-    }
-    const canonicalVersion = await readCanonicalVersion();
+  const argumentsSchema = Schema.Union([
+    Schema.Tuple([Schema.Literals(["dev"]), PositiveIntegerTextSchema, PositiveIntegerTextSchema]),
+    Schema.Tuple([Schema.Literals(["stable"]), StableTagSchema]),
+  ]);
+  const program = Effect.gen(function* () {
+    const parsed = yield* Schema.decodeUnknownEffect(argumentsSchema)(Bun.argv.slice(2));
+    const canonicalVersion = yield* readCanonicalVersion();
     const version =
-      parsed.right[0] === "dev"
-        ? developmentVersion(canonicalVersion, parsed.right[1], parsed.right[2])
-        : stableVersionFromTag(canonicalVersion, parsed.right[1]);
+      parsed[0] === "dev"
+        ? developmentVersion(canonicalVersion, parsed[1], parsed[2])
+        : stableVersionFromTag(canonicalVersion, parsed[1]);
     console.log(version);
-  } catch (error: unknown) {
-    console.error(error instanceof Error ? error.message : "release version resolution failed");
-    process.exitCode = 1;
-  }
+  });
+  await Effect.runPromise(
+    program.pipe(
+      Effect.catchCause((cause) =>
+        Effect.sync(() => {
+          console.error(
+            `Usage: bun scripts/release-version.ts <dev run-number run-attempt|stable vX.Y.Z[-n]>\n${Cause.pretty(cause)}`,
+          );
+          process.exitCode = 1;
+        }),
+      ),
+    ),
+  );
 }

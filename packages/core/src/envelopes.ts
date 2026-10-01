@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Either from "effect/Either";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
-import { canonicalJson } from "./canonical.ts";
 import { CapabilityNameSchema } from "./capabilities.ts";
-import { CLI_SCHEMA_VERSION, isObject, type JsonObject, type JsonValue } from "./common.ts";
+import { CLI_SCHEMA_VERSION, type JsonObject, type JsonValue } from "./common.ts";
 import { type CoreResult, failure, inputError, success } from "./errors.ts";
 import { identifierTextSchema } from "./identifiers.ts";
 import {
@@ -18,40 +17,32 @@ import {
 import { decodeUnknown } from "./schema.ts";
 
 /** Runtime schema validating specialist status values at the receiving boundary. */
-export const SpecialistStatusSchema = Schema.Literal("blocked", "completed", "failed", "partial");
+export const SpecialistStatusSchema = Schema.Literals([
+  "blocked",
+  "completed",
+  "failed",
+  "partial",
+]);
 /** Type representing specialist status in the core domain. */
 export type SpecialistStatus = typeof SpecialistStatusSchema.Type;
 
 /** Runtime schema validating suggested luna effort values at the receiving boundary. */
-export const SuggestedLunaEffortSchema = Schema.Union(
-  Schema.Literal("high", "max", "xhigh"),
+export const SuggestedLunaEffortSchema = Schema.Union([
+  Schema.Literals(["high", "max", "xhigh"]),
   Schema.Null,
-);
+]);
 /** Type representing suggested luna effort in the core domain. */
 export type SuggestedLunaEffort = typeof SuggestedLunaEffortSchema.Type;
 
-function isSupportedJsonValue(value: unknown): value is JsonValue {
-  try {
-    return canonicalJson(value) !== undefined;
-  } catch {
-    return false;
-  }
-}
-
-const JsonValueSchema = Schema.declare((value: unknown): value is JsonValue =>
-  isSupportedJsonValue(value),
-);
-const JsonObjectSchema = Schema.declare(
-  (value: unknown): value is JsonObject =>
-    isObject(value) && !Array.isArray(value) && isSupportedJsonValue(value),
-);
+const JsonValueSchema = Schema.Json as Schema.Codec<JsonValue, unknown>;
+const JsonObjectSchema = Schema.JsonObject as Schema.Codec<JsonObject, unknown>;
 
 /** Runtime schema validating specialist outcome values at the receiving boundary. */
 export const SpecialistOutcomeSchema = Schema.Struct({
   blocked: Schema.Boolean,
   changed_files: Schema.Array(Schema.String),
   confidence: Schema.Number,
-  context_owner: Schema.Union(Schema.String, Schema.Null),
+  context_owner: Schema.Union([Schema.String, Schema.Null]),
   material_findings: Schema.Array(Schema.String),
   needs_more_context: Schema.Boolean,
   needs_root_decision: Schema.Boolean,
@@ -60,9 +51,9 @@ export const SpecialistOutcomeSchema = Schema.Struct({
   remaining_risk: Schema.Array(Schema.String),
   reuse_recommended: Schema.Boolean,
   status: SpecialistStatusSchema,
-  suggested_followup: Schema.Union(Schema.String, Schema.Null),
+  suggested_followup: Schema.Union([Schema.String, Schema.Null]),
   suggested_luna_effort: SuggestedLunaEffortSchema,
-  suggested_specialist: Schema.Union(RoleSchema, Schema.Null),
+  suggested_specialist: Schema.Union([RoleSchema, Schema.Null]),
   verification: Schema.Array(Schema.String),
   verification_passed: Schema.Boolean,
 });
@@ -71,12 +62,12 @@ export type SpecialistOutcome = typeof SpecialistOutcomeSchema.Type;
 
 /** Canonical specialist outcome version used by core domain operations. */
 export const SPECIALIST_OUTCOME_VERSION = "holycodex-specialist-outcome-2";
-const OutcomeTextSchema = Schema.String.pipe(Schema.minLength(1));
+const OutcomeTextSchema = Schema.String.check(Schema.isMinLength(1));
 
 /** Typed Context7 proof returned by a Librarian Assignment for current technical facts. */
 export const Context7EvidenceSchema = Schema.Struct({
   state: Context7EvidenceStateSchema,
-  evidence: Schema.Array(OutcomeTextSchema).pipe(Schema.minItems(1)),
+  evidence: Schema.Array(OutcomeTextSchema).check(Schema.isMinLength(1)),
   library: Schema.optional(OutcomeTextSchema),
   version: Schema.optional(OutcomeTextSchema),
 });
@@ -84,7 +75,7 @@ export const Context7EvidenceSchema = Schema.Struct({
 export type Context7Evidence = typeof Context7EvidenceSchema.Type;
 
 const SpecialistOutcomeV2BaseFields = {
-  protocol_version: Schema.Literal(SPECIALIST_OUTCOME_VERSION),
+  protocol_version: Schema.Literals([SPECIALIST_OUTCOME_VERSION]),
   route: RoleTaskSchema,
   evidence: Schema.Array(OutcomeTextSchema),
   context7: Schema.optional(Context7EvidenceSchema),
@@ -96,18 +87,18 @@ export type SpecialistOutcomeV2Base = typeof SpecialistOutcomeV2BaseSchema.Type;
 
 const SpecialistOutcomeV2CompletedSchema = Schema.Struct({
   ...SpecialistOutcomeV2BaseFields,
-  status: Schema.Literal("completed"),
+  status: Schema.Literals(["completed"]),
   summary: OutcomeTextSchema,
 });
 const SpecialistOutcomeV2BlockedSchema = Schema.Struct({
   ...SpecialistOutcomeV2BaseFields,
-  status: Schema.Literal("blocked"),
+  status: Schema.Literals(["blocked"]),
   reason: OutcomeTextSchema,
   needs_root_decision: Schema.Boolean,
 });
 const SpecialistOutcomeV2PartialSchema = Schema.Struct({
   ...SpecialistOutcomeV2BaseFields,
-  status: Schema.Literal("partial"),
+  status: Schema.Literals(["partial"]),
   summary: OutcomeTextSchema,
   completed: Schema.Array(OutcomeTextSchema),
   remaining: Schema.Array(OutcomeTextSchema),
@@ -115,17 +106,17 @@ const SpecialistOutcomeV2PartialSchema = Schema.Struct({
 });
 const SpecialistOutcomeV2FailedSchema = Schema.Struct({
   ...SpecialistOutcomeV2BaseFields,
-  status: Schema.Literal("failed"),
+  status: Schema.Literals(["failed"]),
   error: OutcomeTextSchema,
 });
 
 /** Runtime schema validating specialist outcome v2 values at the receiving boundary. */
-export const SpecialistOutcomeV2Schema = Schema.Union(
+export const SpecialistOutcomeV2Schema = Schema.Union([
   SpecialistOutcomeV2CompletedSchema,
   SpecialistOutcomeV2BlockedSchema,
   SpecialistOutcomeV2PartialSchema,
   SpecialistOutcomeV2FailedSchema,
-);
+]);
 /** Type representing specialist outcome v2 in the core domain. */
 export type SpecialistOutcomeV2 = typeof SpecialistOutcomeV2Schema.Type;
 /** Type representing specialist outcome v2 for role in the core domain. */
@@ -145,27 +136,27 @@ export type WorkerOutcome = PublicOutcomeAliases["WorkerOutcome"];
 export type ReviewerOutcome = PublicOutcomeAliases["ReviewerOutcome"];
 
 const CapabilityResultV2BaseFields = {
-  protocol_version: Schema.Literal(SPECIALIST_OUTCOME_VERSION),
+  protocol_version: Schema.Literals([SPECIALIST_OUTCOME_VERSION]),
   capability: CapabilityNameSchema,
-  route: Schema.Union(RoleTaskSchema, Schema.Null),
+  route: Schema.Union([RoleTaskSchema, Schema.Null]),
   evidence: Schema.Array(OutcomeTextSchema),
   context7: Schema.optional(Context7EvidenceSchema),
   data: JsonValueSchema,
 } as const;
 const CapabilityResultV2CompletedSchema = Schema.Struct({
   ...CapabilityResultV2BaseFields,
-  status: Schema.Literal("completed"),
+  status: Schema.Literals(["completed"]),
   summary: OutcomeTextSchema,
 });
 const CapabilityResultV2BlockedSchema = Schema.Struct({
   ...CapabilityResultV2BaseFields,
-  status: Schema.Literal("blocked"),
+  status: Schema.Literals(["blocked"]),
   reason: OutcomeTextSchema,
   needs_root_decision: Schema.Boolean,
 });
 const CapabilityResultV2PartialSchema = Schema.Struct({
   ...CapabilityResultV2BaseFields,
-  status: Schema.Literal("partial"),
+  status: Schema.Literals(["partial"]),
   summary: OutcomeTextSchema,
   completed: Schema.Array(OutcomeTextSchema),
   remaining: Schema.Array(OutcomeTextSchema),
@@ -173,27 +164,27 @@ const CapabilityResultV2PartialSchema = Schema.Struct({
 });
 const CapabilityResultV2FailedSchema = Schema.Struct({
   ...CapabilityResultV2BaseFields,
-  status: Schema.Literal("failed"),
+  status: Schema.Literals(["failed"]),
   error: OutcomeTextSchema,
 });
 
 /** Common V2 envelope for typed host capabilities and specialist-compatible results. */
-export const CapabilityResultV2Schema = Schema.Union(
+export const CapabilityResultV2Schema = Schema.Union([
   CapabilityResultV2CompletedSchema,
   CapabilityResultV2BlockedSchema,
   CapabilityResultV2PartialSchema,
   CapabilityResultV2FailedSchema,
-);
+]);
 /** Type representing capability result v2 in the core domain. */
 export type CapabilityResultV2 = typeof CapabilityResultV2Schema.Type;
 
 /** Decode an unknown value as a typed V2 capability result envelope. */
 export function parseCapabilityResultV2(input: unknown): CoreResult<CapabilityResultV2> {
   const parsed = decodeUnknown(CapabilityResultV2Schema, input);
-  if (Either.isLeft(parsed)) {
-    return failure(inputError("capability result v2", parsed.left));
+  if (Result.isFailure(parsed)) {
+    return failure(inputError("capability result v2", parsed.failure));
   }
-  return success(parsed.right);
+  return success(parsed.success);
 }
 
 /** Adapt a capability result into a specialist outcome for the expected route. */
@@ -239,10 +230,10 @@ export function specialistOutcomeFromCapabilityResult(
 }
 
 const CliWarningSchema = Schema.Array(Schema.String);
-const CliCommandSchema = Schema.String.pipe(
-  Schema.pattern(/^[a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*)*$/u),
+const CliCommandSchema = Schema.String.check(
+  Schema.isPattern(/^[a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*)*$/u),
 );
-const CliSchemaVersionSchema = Schema.Literal(CLI_SCHEMA_VERSION);
+const CliSchemaVersionSchema = Schema.Literals([CLI_SCHEMA_VERSION]);
 const CliErrorSchema = Schema.Struct({
   code: identifierTextSchema,
   message: Schema.String,
@@ -252,7 +243,7 @@ const CliErrorSchema = Schema.Struct({
 /** Runtime schema validating cli success envelope values at the receiving boundary. */
 export const CliSuccessEnvelopeSchema = Schema.Struct({
   schema_version: CliSchemaVersionSchema,
-  ok: Schema.Literal(true),
+  ok: Schema.Literals([true]),
   command: CliCommandSchema,
   data: JsonValueSchema,
   warnings: CliWarningSchema,
@@ -263,7 +254,7 @@ export type CliSuccessEnvelope = typeof CliSuccessEnvelopeSchema.Type;
 /** Runtime schema validating cli failure envelope values at the receiving boundary. */
 export const CliFailureEnvelopeSchema = Schema.Struct({
   schema_version: CliSchemaVersionSchema,
-  ok: Schema.Literal(false),
+  ok: Schema.Literals([false]),
   command: CliCommandSchema,
   error: CliErrorSchema,
   warnings: CliWarningSchema,
@@ -272,7 +263,7 @@ export const CliFailureEnvelopeSchema = Schema.Struct({
 export type CliFailureEnvelope = typeof CliFailureEnvelopeSchema.Type;
 
 /** Runtime schema validating cli envelope values at the receiving boundary. */
-export const CliEnvelopeSchema = Schema.Union(CliSuccessEnvelopeSchema, CliFailureEnvelopeSchema);
+export const CliEnvelopeSchema = Schema.Union([CliSuccessEnvelopeSchema, CliFailureEnvelopeSchema]);
 /** Type representing cli envelope in the core domain. */
 export type CliEnvelope = typeof CliEnvelopeSchema.Type;
 
@@ -283,19 +274,19 @@ export type CliEnvelope = typeof CliEnvelopeSchema.Type;
  */
 export function parseSpecialistOutcome(input: unknown): CoreResult<SpecialistOutcome> {
   const parsed = decodeUnknown(SpecialistOutcomeSchema, input);
-  if (Either.isLeft(parsed)) {
-    return failure(inputError("specialist outcome", parsed.left));
+  if (Result.isFailure(parsed)) {
+    return failure(inputError("specialist outcome", parsed.failure));
   }
-  return success(parsed.right);
+  return success(parsed.success);
 }
 
 /** Decode an unknown value as a typed V2 specialist outcome envelope. */
 export function parseSpecialistOutcomeV2(input: unknown): CoreResult<SpecialistOutcomeV2> {
   const parsed = decodeUnknown(SpecialistOutcomeV2Schema, input);
-  if (Either.isLeft(parsed)) {
-    return failure(inputError("specialist outcome v2", parsed.left));
+  if (Result.isFailure(parsed)) {
+    return failure(inputError("specialist outcome v2", parsed.failure));
   }
-  return success(parsed.right);
+  return success(parsed.success);
 }
 
 function sameRoute(left: RoleTask, right: RoleTask): boolean {
@@ -369,28 +360,28 @@ export function normalizeSpecialistOutcome(
   expectedRoute: RoleTask,
 ): CoreResult<SpecialistOutcomeV2> {
   const route = decodeUnknown(RoleTaskSchema, expectedRoute);
-  if (Either.isLeft(route)) {
-    return failure(inputError("specialist outcome route", route.left));
+  if (Result.isFailure(route)) {
+    return failure(inputError("specialist outcome route", route.failure));
   }
   const v2 = decodeUnknown(SpecialistOutcomeV2Schema, input);
-  if (Either.isRight(v2) && sameRoute(v2.right.route, route.right)) {
-    return success(v2.right);
+  if (Result.isSuccess(v2) && sameRoute(v2.success.route, route.success)) {
+    return success(v2.success);
   }
   const legacy = decodeUnknown(SpecialistOutcomeSchema, input);
-  if (Either.isRight(legacy)) {
-    if (legacy.right.blocked !== (legacy.right.status === "blocked")) {
+  if (Result.isSuccess(legacy)) {
+    if (legacy.success.blocked !== (legacy.success.status === "blocked")) {
       return failure(inputError("specialist outcome status", "Legacy blocked/status mismatch."));
     }
-    return success(normalizeLegacyOutcome(legacy.right, route.right));
+    return success(normalizeLegacyOutcome(legacy.success, route.success));
   }
-  return failure(inputError("specialist outcome", legacy.left));
+  return failure(inputError("specialist outcome", legacy.failure));
 }
 
 /** Decode an unknown value as the validated CLI success or failure envelope. */
 export function parseCliEnvelope(input: unknown): CoreResult<CliEnvelope> {
   const parsed = decodeUnknown(CliEnvelopeSchema, input);
-  if (Either.isLeft(parsed)) {
-    return failure(inputError("CLI envelope", parsed.left));
+  if (Result.isFailure(parsed)) {
+    return failure(inputError("CLI envelope", parsed.failure));
   }
-  return success(parsed.right);
+  return success(parsed.success);
 }

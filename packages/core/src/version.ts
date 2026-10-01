@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import * as Either from "effect/Either";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 /** The canonical zerover form, including an optional numeric release suffix. */
 export const CANONICAL_VERSION_PATTERN = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u;
 
 /** Validate the canonical public package version. */
-export const CanonicalVersionSchema = Schema.String.pipe(Schema.pattern(CANONICAL_VERSION_PATTERN));
+export const CanonicalVersionSchema = Schema.String.check(
+  Schema.isPattern(CANONICAL_VERSION_PATTERN),
+);
 /** Type representing canonical version in the core domain. */
 export type CanonicalVersion = typeof CanonicalVersionSchema.Type;
 
 function decodeCanonicalVersion(value: unknown): CanonicalVersion | undefined {
-  const parsed = Schema.decodeUnknownEither(CanonicalVersionSchema)(value);
-  return Either.isRight(parsed) ? parsed.right : undefined;
+  const parsed = Schema.decodeUnknownResult(CanonicalVersionSchema)(value);
+  return Result.isSuccess(parsed) ? parsed.success : undefined;
 }
 
 /** Return whether an unknown value is a canonical public package version. */
@@ -26,7 +28,7 @@ function isBaseVersion(value: string): boolean {
 }
 
 /** Validate a canonical version without a numeric release suffix. */
-export const BaseVersionSchema = Schema.String.pipe(Schema.filter(isBaseVersion));
+export const BaseVersionSchema = Schema.String.check(Schema.makeFilter(isBaseVersion));
 /** Type representing base version in the core domain. */
 export type BaseVersion = typeof BaseVersionSchema.Type;
 
@@ -53,12 +55,17 @@ function isDevelopmentVersion(value: string): boolean {
 }
 
 /** Validate a collision-safe development release version. */
-export const DevelopmentVersionSchema = Schema.String.pipe(Schema.filter(isDevelopmentVersion));
+export const DevelopmentVersionSchema = Schema.String.check(
+  Schema.makeFilter(isDevelopmentVersion),
+);
 /** Type representing development version in the core domain. */
 export type DevelopmentVersion = typeof DevelopmentVersionSchema.Type;
 
 /** Validate either a canonical stable version or a development release version. */
-export const ReleaseVersionSchema = Schema.Union(CanonicalVersionSchema, DevelopmentVersionSchema);
+export const ReleaseVersionSchema = Schema.Union([
+  CanonicalVersionSchema,
+  DevelopmentVersionSchema,
+]);
 /** Type representing release version in the core domain. */
 export type ReleaseVersion = typeof ReleaseVersionSchema.Type;
 

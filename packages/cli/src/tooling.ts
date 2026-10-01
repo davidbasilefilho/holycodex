@@ -6,6 +6,9 @@ import { posix, win32 } from "node:path";
 import { promisify } from "node:util";
 
 import { canonicalJsonUtf8, domainSeparatedSha256 } from "@holycodex/core";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 
 import type {
   Context7Manager,
@@ -29,6 +32,22 @@ type Context7Inspection = Readonly<{
 }>;
 
 const execFileAsync = promisify(execFile);
+const effectResult = <A>(effect: Effect.Effect<A, unknown>) =>
+  Effect.runPromise(Effect.result(effect));
+const ProcessErrorOutputSchema = Schema.Struct({
+  code: Schema.optional(Schema.Union([Schema.Number, Schema.String])),
+  stdout: Schema.optional(Schema.String),
+  stderr: Schema.optional(Schema.String),
+});
+const Context7PackageSchema = Schema.StructWithRest(
+  Schema.Struct({
+    version: Schema.optional(Schema.String),
+    bin: Schema.optional(
+      Schema.Union([Schema.String, Schema.Record(Schema.String, Schema.String)]),
+    ),
+  }),
+  [Schema.Record(Schema.String, Schema.Unknown)],
+);
 const nodeFiles: InstallerFileSystem = {
   access,
   readText: (path) => readFile(path, "utf8"),
@@ -45,28 +64,30 @@ export function createInstallerRuntime(
     processPath: process.execPath,
     files: nodeFiles,
     run: async (executable, args) => {
-      try {
-        const result = await execFileAsync(executable, [...args], {
-          encoding: "utf8",
-          windowsHide: true,
-          env: { ...process.env, ...environment },
-          timeout: 120_000,
-          maxBuffer: 4 * 1024 * 1024,
-        });
-        return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
-      } catch (error: unknown) {
-        const value = error as { code?: unknown; stdout?: unknown; stderr?: unknown };
-        return {
-          exitCode: typeof value.code === "number" ? value.code : 1,
-          stdout: typeof value.stdout === "string" ? value.stdout : "",
-          stderr:
-            typeof value.stderr === "string"
-              ? value.stderr
-              : error instanceof Error
-                ? error.message
-                : "process failed",
-        };
-      }
+      const result = await effectResult(
+        Effect.tryPromise({
+          try: () =>
+            execFileAsync(executable, [...args], {
+              encoding: "utf8",
+              windowsHide: true,
+              env: { ...process.env, ...environment },
+              timeout: 120_000,
+              maxBuffer: 4 * 1024 * 1024,
+            }),
+          catch: (error) => error,
+        }),
+      );
+      if (result._tag === "Success")
+        return { exitCode: 0, stdout: result.success.stdout, stderr: result.success.stderr };
+      const errorOutput = Schema.decodeUnknownResult(ProcessErrorOutputSchema)(result.failure);
+      const details = Result.isSuccess(errorOutput) ? errorOutput.success : {};
+      return {
+        exitCode: typeof details.code === "number" ? details.code : 1,
+        stdout: details.stdout ?? "",
+        stderr:
+          details.stderr ??
+          (result.failure instanceof Error ? result.failure.message : "process failed"),
+      };
     },
   };
 }
@@ -255,60 +276,62 @@ async function preflightBunGlobalContext7(runtime: InstallerRuntime): Promise<vo
   const packageJsonPath = pathApi.join(packageRoot, "package.json");
   const shim = pathApi.join(binRoot, runtime.platform === "win32" ? "ctx7.exe" : "ctx7");
 
-  try {
-    await files.access(binRoot);
-    await files.access(projectRoot);
-  } catch (error: unknown) {
+  const globalPaths = await effectResult(
+    Effect.gen(function* () {
+      yield* Effect.tryPromise({ try: () => files.access(binRoot), catch: (error) => error });
+      yield* Effect.tryPromise({ try: () => files.access(projectRoot), catch: (error) => error });
+    }),
+  );
+  if (globalPaths._tag === "Failure") {
     throw new ToolingError(
       "context7_unavailable",
       "Bun's managed global location or project is unavailable before managed changes.",
-      { reason: safeToolingErrorMessage(error) },
+      { reason: safeToolingErrorMessage(globalPaths.failure) },
     );
   }
 
-  let packageJsonText: string;
-  try {
-    await files.access(packageRoot);
-  } catch (error: unknown) {
+  const packageAccess = await effectResult(
+    Effect.tryPromise({ try: () => files.access(packageRoot), catch: (error) => error }),
+  );
+  if (packageAccess._tag === "Failure") {
     // An absent package is the one expected pre-mutation state: Bun will create
     // it with the transactional `bun add -g ctx7@latest` below.
-    if (isMissingFile(error)) return;
+    if (isMissingFile(packageAccess.failure)) return;
     throw new ToolingError(
       "context7_unavailable",
       "Bun's managed ctx7 package could not be inspected before managed changes.",
-      { reason: safeToolingErrorMessage(error) },
+      { reason: safeToolingErrorMessage(packageAccess.failure) },
     );
   }
-  try {
-    packageJsonText = await files.readText(packageJsonPath);
-  } catch (error: unknown) {
+  const packageJsonText = await effectResult(
+    Effect.tryPromise({ try: () => files.readText(packageJsonPath), catch: (error) => error }),
+  );
+  if (packageJsonText._tag === "Failure") {
     throw new ToolingError(
       "context7_unavailable",
       "Bun's managed ctx7 package metadata could not be inspected before managed changes.",
-      { reason: safeToolingErrorMessage(error) },
+      { reason: safeToolingErrorMessage(packageJsonText.failure) },
     );
   }
 
-  let packageJson: { readonly version?: unknown; readonly bin?: unknown };
-  try {
-    packageJson = JSON.parse(packageJsonText) as typeof packageJson;
-  } catch (error: unknown) {
+  const packageJson = Effect.runSync(Effect.result(decodeContext7Package(packageJsonText.success)));
+  if (packageJson._tag === "Failure") {
     throw new ToolingError(
       "context7_unavailable",
       "Bun's managed ctx7 package metadata is invalid before managed changes.",
-      { reason: safeToolingErrorMessage(error) },
+      { reason: safeToolingErrorMessage(packageJson.failure) },
     );
   }
   if (
-    typeof packageJson.version !== "string" ||
-    parseVersion(packageJson.version) !== packageJson.version
+    packageJson.success.version === undefined ||
+    parseVersion(packageJson.success.version) !== packageJson.success.version
   ) {
     throw new ToolingError(
       "context7_unavailable",
       "Bun's managed ctx7 package has no exact semver version before managed changes.",
     );
   }
-  const bin = context7PackageBin(packageJson);
+  const bin = context7PackageBin(packageJson.success);
   if (bin === undefined) {
     throw new ToolingError(
       "context7_unavailable",
@@ -316,19 +339,31 @@ async function preflightBunGlobalContext7(runtime: InstallerRuntime): Promise<vo
     );
   }
   const packageExecutable = pathApi.resolve(packageRoot, bin);
-  let canonicalPackageRoot: string;
-  let canonicalExecutable: string;
-  try {
-    await files.access(packageExecutable);
-    canonicalPackageRoot = await files.realpath(packageRoot);
-    canonicalExecutable = await files.realpath(packageExecutable);
-  } catch (error: unknown) {
+  const packagePaths = await effectResult(
+    Effect.gen(function* () {
+      yield* Effect.tryPromise({
+        try: () => files.access(packageExecutable),
+        catch: (error) => error,
+      });
+      const canonicalPackageRoot = yield* Effect.tryPromise({
+        try: () => files.realpath(packageRoot),
+        catch: (error) => error,
+      });
+      const canonicalExecutable = yield* Effect.tryPromise({
+        try: () => files.realpath(packageExecutable),
+        catch: (error) => error,
+      });
+      return { canonicalPackageRoot, canonicalExecutable };
+    }),
+  );
+  if (packagePaths._tag === "Failure") {
     throw new ToolingError(
       "context7_unavailable",
       "Bun's managed ctx7 executable is unavailable before managed changes.",
-      { reason: safeToolingErrorMessage(error) },
+      { reason: safeToolingErrorMessage(packagePaths.failure) },
     );
   }
+  const { canonicalPackageRoot, canonicalExecutable } = packagePaths.success;
   if (
     !sameInstallerPath(canonicalPackageRoot, packageRoot, runtime.platform) ||
     !normalize(canonicalExecutable).startsWith(`${normalize(canonicalPackageRoot)}/`)
@@ -339,18 +374,21 @@ async function preflightBunGlobalContext7(runtime: InstallerRuntime): Promise<vo
     );
   }
 
-  try {
-    await files.access(shim);
-    await files.realpath(shim);
-  } catch (error: unknown) {
+  const shimAccess = await effectResult(
+    Effect.gen(function* () {
+      yield* Effect.tryPromise({ try: () => files.access(shim), catch: (error) => error });
+      return yield* Effect.tryPromise({ try: () => files.realpath(shim), catch: (error) => error });
+    }),
+  );
+  if (shimAccess._tag === "Failure") {
     throw new ToolingError(
       "context7_unavailable",
       "Bun's managed ctx7 shim is unavailable before managed changes.",
-      { reason: safeToolingErrorMessage(error) },
+      { reason: safeToolingErrorMessage(shimAccess.failure) },
     );
   }
   const version = await runtime.run(shim, ["--version"]);
-  if (version.exitCode !== 0 || parseVersion(version.stdout) !== packageJson.version) {
+  if (version.exitCode !== 0 || parseVersion(version.stdout) !== packageJson.success.version) {
     throw new ToolingError(
       "context7_unavailable",
       "Bun's managed ctx7 shim does not report the package version before managed changes.",
@@ -504,14 +542,17 @@ async function inspectBunGlobalContext7(
     "node_modules",
     "ctx7",
   );
-  let packageJson: { readonly version?: unknown; readonly bin?: unknown };
-  try {
-    packageJson = JSON.parse(
-      await files.readText(pathApi.join(packageRoot, "package.json")),
-    ) as typeof packageJson;
-  } catch {
-    return undefined;
-  }
+  const packageJsonResult = await effectResult(
+    Effect.gen(function* () {
+      const text = yield* Effect.tryPromise({
+        try: () => files.readText(pathApi.join(packageRoot, "package.json")),
+        catch: (error) => error,
+      });
+      return yield* decodeContext7Package(text);
+    }),
+  );
+  if (packageJsonResult._tag === "Failure") return undefined;
+  const packageJson = packageJsonResult.success;
   if (
     typeof packageJson.version !== "string" ||
     parseVersion(packageJson.version) !== packageJson.version
@@ -521,19 +562,31 @@ async function inspectBunGlobalContext7(
   if (bin === undefined) return undefined;
   const packageExecutable = pathApi.resolve(packageRoot, bin);
   const shim = pathApi.join(binRoot, runtime.platform === "win32" ? "ctx7.exe" : "ctx7");
-  let canonicalPackageRoot: string;
-  let canonicalExecutable: string;
-  let canonicalShim: string;
-  try {
-    await files.access(packageRoot);
-    await files.access(packageExecutable);
-    await files.access(shim);
-    canonicalPackageRoot = await files.realpath(packageRoot);
-    canonicalExecutable = await files.realpath(packageExecutable);
-    canonicalShim = await files.realpath(shim);
-  } catch {
-    return undefined;
-  }
+  const pathsResult = await effectResult(
+    Effect.gen(function* () {
+      yield* Effect.tryPromise({ try: () => files.access(packageRoot), catch: (error) => error });
+      yield* Effect.tryPromise({
+        try: () => files.access(packageExecutable),
+        catch: (error) => error,
+      });
+      yield* Effect.tryPromise({ try: () => files.access(shim), catch: (error) => error });
+      const canonicalPackageRoot = yield* Effect.tryPromise({
+        try: () => files.realpath(packageRoot),
+        catch: (error) => error,
+      });
+      const canonicalExecutable = yield* Effect.tryPromise({
+        try: () => files.realpath(packageExecutable),
+        catch: (error) => error,
+      });
+      const canonicalShim = yield* Effect.tryPromise({
+        try: () => files.realpath(shim),
+        catch: (error) => error,
+      });
+      return { canonicalPackageRoot, canonicalExecutable, canonicalShim };
+    }),
+  );
+  if (pathsResult._tag === "Failure") return undefined;
+  const { canonicalPackageRoot, canonicalExecutable, canonicalShim } = pathsResult.success;
   if (
     !sameInstallerPath(canonicalPackageRoot, packageRoot, runtime.platform) ||
     !normalize(canonicalExecutable).startsWith(`${normalize(canonicalPackageRoot)}/`)
@@ -587,12 +640,11 @@ async function removeOwnedBunGlobalContext7(
   previous: Context7ToolState | undefined,
 ): Promise<boolean> {
   if (previous?.ownership !== "holycodex" || previous.manager !== "bun") return false;
-  let current: Context7Inspection | undefined;
-  try {
-    current = await inspectBunGlobalContext7(runtime);
-  } catch {
-    return false;
-  }
+  const currentResult = await effectResult(
+    Effect.tryPromise({ try: () => inspectBunGlobalContext7(runtime), catch: (error) => error }),
+  );
+  if (currentResult._tag === "Failure") return false;
+  const current = currentResult.success;
   if (
     current === undefined ||
     current.version !== previous.version ||
@@ -627,13 +679,18 @@ async function removeOwnedContext7ViaLauncher(
   if (previous?.ownership !== "holycodex") return false;
   const manager = detectContext7Manager(runtime.environment);
   if (manager === undefined || manager.family !== previous.manager) return false;
-  let current: Context7Inspection | undefined;
-  try {
-    current = await inspectContext7(runtime, manager);
-  } catch (error) {
-    if (error instanceof ToolingError && error.code === "context7_shadowed") return false;
-    throw error;
+  const currentResult = await effectResult(
+    Effect.tryPromise({ try: () => inspectContext7(runtime, manager), catch: (error) => error }),
+  );
+  if (currentResult._tag === "Failure") {
+    if (
+      currentResult.failure instanceof ToolingError &&
+      currentResult.failure.code === "context7_shadowed"
+    )
+      return false;
+    throw currentResult.failure;
   }
+  const current = currentResult.success;
   if (
     current === undefined ||
     current.version !== previous.version ||
@@ -656,15 +713,29 @@ async function removeOwnedContext7ViaLauncher(
       stderr: result.stderr.slice(0, 512),
     });
   }
-  try {
-    if ((await inspectContext7(runtime, manager)) !== undefined) {
-      throw new ToolingError(
-        "context7_remove_failed",
-        `${manager.family} reported success, but the recorded ctx7 installation is still present.`,
-      );
-    }
-  } catch (error) {
-    if (error instanceof ToolingError && error.code === "context7_remove_failed") throw error;
+  const verification = await effectResult(
+    Effect.gen(function* () {
+      if (
+        (yield* Effect.tryPromise({
+          try: () => inspectContext7(runtime, manager),
+          catch: (error) => error,
+        })) !== undefined
+      ) {
+        return yield* Effect.fail(
+          new ToolingError(
+            "context7_remove_failed",
+            `${manager.family} reported success, but the recorded ctx7 installation is still present.`,
+          ),
+        );
+      }
+    }),
+  );
+  if (verification._tag === "Failure") {
+    if (
+      verification.failure instanceof ToolingError &&
+      verification.failure.code === "context7_remove_failed"
+    )
+      throw verification.failure;
     throw new ToolingError(
       "context7_remove_failed",
       `${manager.family} removed ctx7, but its final state could not be verified.`,
@@ -746,14 +817,17 @@ async function inspectContext7(
             "ctx7",
           );
   if (packageRoot === undefined) return undefined;
-  let packageJson: { readonly version?: unknown; readonly bin?: unknown };
-  try {
-    packageJson = JSON.parse(
-      await files.readText(pathFor(runtime.platform).join(packageRoot, "package.json")),
-    ) as typeof packageJson;
-  } catch {
-    return undefined;
-  }
+  const packageJsonResult = await effectResult(
+    Effect.gen(function* () {
+      const text = yield* Effect.tryPromise({
+        try: () => files.readText(pathFor(runtime.platform).join(packageRoot, "package.json")),
+        catch: (error) => error,
+      });
+      return yield* decodeContext7Package(text);
+    }),
+  );
+  if (packageJsonResult._tag === "Failure") return undefined;
+  const packageJson = packageJsonResult.success;
   if (typeof packageJson.version !== "string") return undefined;
   const bin =
     typeof packageJson.bin === "string"
@@ -763,25 +837,33 @@ async function inspectContext7(
         : undefined;
   if (bin === undefined) return undefined;
   const executable = pathFor(runtime.platform).resolve(packageRoot, bin);
-  let canonicalPackageRoot: string;
-  let canonicalExecutable: string;
-  try {
-    await files.access(executable);
-    canonicalPackageRoot = await files.realpath(packageRoot);
-    canonicalExecutable = await files.realpath(executable);
-    if (!normalize(canonicalExecutable).startsWith(`${normalize(canonicalPackageRoot)}/`))
-      return undefined;
-  } catch {
+  const pathsResult = await effectResult(
+    Effect.gen(function* () {
+      yield* Effect.tryPromise({ try: () => files.access(executable), catch: (error) => error });
+      const canonicalPackageRoot = yield* Effect.tryPromise({
+        try: () => files.realpath(packageRoot),
+        catch: (error) => error,
+      });
+      const canonicalExecutable = yield* Effect.tryPromise({
+        try: () => files.realpath(executable),
+        catch: (error) => error,
+      });
+      return { canonicalPackageRoot, canonicalExecutable };
+    }),
+  );
+  if (pathsResult._tag === "Failure") return undefined;
+  const { canonicalPackageRoot, canonicalExecutable } = pathsResult.success;
+  if (!normalize(canonicalExecutable).startsWith(`${normalize(canonicalPackageRoot)}/`))
     return undefined;
-  }
   const shim = context7Shim(binRoot, manager.family, runtime.platform);
-  let canonicalShim: string;
-  try {
-    await files.access(shim);
-    canonicalShim = await files.realpath(shim);
-  } catch {
-    return undefined;
-  }
+  const canonicalShimResult = await effectResult(
+    Effect.gen(function* () {
+      yield* Effect.tryPromise({ try: () => files.access(shim), catch: (error) => error });
+      return yield* Effect.tryPromise({ try: () => files.realpath(shim), catch: (error) => error });
+    }),
+  );
+  if (canonicalShimResult._tag === "Failure") return undefined;
+  const canonicalShim = canonicalShimResult.success;
   const shadow = await resolvePathExecutable(runtime.environment, runtime.platform, files);
   if (
     shadow !== undefined &&
@@ -852,12 +934,12 @@ async function resolvePathExecutable(
     if (directory.length === 0) continue;
     for (const name of names) {
       const candidate = pathFor(platform).join(directory, name);
-      try {
-        await files.access(candidate);
-        return candidate;
-      } catch {
-        // Keep searching the actual PATH order and PATHEXT precedence.
-      }
+      const accessible = await Effect.runPromise(
+        Effect.result(
+          Effect.tryPromise({ try: () => files.access(candidate), catch: (error) => error }),
+        ),
+      );
+      if (accessible._tag === "Success") return candidate;
     }
   }
   return undefined;
@@ -876,23 +958,29 @@ function context7Shim(
 }
 
 async function canonicalPath(files: InstallerFileSystem, path: string): Promise<string> {
-  try {
-    return await files.realpath(path);
-  } catch {
-    return path;
-  }
+  const resolved = await Effect.runPromise(
+    Effect.result(Effect.tryPromise({ try: () => files.realpath(path), catch: (error) => error })),
+  );
+  return resolved._tag === "Success" ? resolved.success : path;
 }
 
 function parseVersion(output: string): string | undefined {
   return output.match(/\b(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\b/u)?.[1];
 }
 
-function context7PackageBin(packageJson: Readonly<{ readonly bin?: unknown }>): string | undefined {
-  return typeof packageJson.bin === "string"
-    ? packageJson.bin
-    : isRecord(packageJson.bin) && typeof packageJson.bin["ctx7"] === "string"
-      ? packageJson.bin["ctx7"]
-      : undefined;
+function decodeContext7Package(text: string) {
+  return Effect.try({
+    try: () => {
+      const result = Schema.decodeUnknownResult(Context7PackageSchema)(JSON.parse(text) as unknown);
+      if (Result.isSuccess(result)) return result.success;
+      throw result.failure;
+    },
+    catch: (error) => error,
+  });
+}
+
+function context7PackageBin(packageJson: typeof Context7PackageSchema.Type): string | undefined {
+  return typeof packageJson.bin === "string" ? packageJson.bin : packageJson.bin?.["ctx7"];
 }
 
 function safeToolingErrorMessage(error: unknown): string {
@@ -965,15 +1053,20 @@ export async function sameInstallerFile(
 ): Promise<boolean> {
   if (sameInstallerPath(left, right, runtime.platform)) return true;
   const files = runtime.files ?? nodeFiles;
-  try {
-    const [canonicalLeft, canonicalRight] = await Promise.all([
-      files.realpath(left),
-      files.realpath(right),
-    ]);
-    return sameInstallerPath(canonicalLeft, canonicalRight, runtime.platform);
-  } catch {
-    return false;
-  }
+  const resolved = await Effect.runPromise(
+    Effect.result(
+      Effect.gen(function* () {
+        const [canonicalLeft, canonicalRight] = yield* Effect.all([
+          Effect.tryPromise({ try: () => files.realpath(left), catch: (error) => error }),
+          Effect.tryPromise({ try: () => files.realpath(right), catch: (error) => error }),
+        ]);
+        return [canonicalLeft, canonicalRight] as const;
+      }),
+    ),
+  );
+  return resolved._tag === "Success"
+    ? sameInstallerPath(resolved.success[0], resolved.success[1], runtime.platform)
+    : false;
 }
 
 function pathFor(platform: InstallerPlatform): typeof posix {

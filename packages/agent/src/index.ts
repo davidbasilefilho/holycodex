@@ -14,13 +14,15 @@ import {
   SupersedeAssignmentInputSchema,
   VcsIntegrationInputSchema,
 } from "@holycodex/core";
-import * as Either from "effect/Either";
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { agentHelp, agentHelpRequested } from "./help.ts";
 
 const ResponseVersion = "holycodex-agent-response-1" as const;
 const ArgvSchema = Schema.Array(Schema.String);
+const RequiredOptionSchema = Schema.String.check(Schema.isMinLength(1));
+const RevisionSchema = Schema.FiniteFromString.check(Schema.isInt(), Schema.isGreaterThan(0));
 const AssignmentInterruptionRecoveryInputSchema = Schema.Struct({
   invocationId: Schema.String,
   startedAt: Schema.String,
@@ -39,7 +41,7 @@ export interface AgentIo {
 }
 
 /** Runs the deterministic model-facing CLI without prompts, TUI, or ANSI. */
-export async function runAgentBinary(
+export function runAgentBinary(
   argv: readonly string[] = Bun.argv.slice(2),
   io: AgentIo = {
     cwd: process.cwd(),
@@ -47,175 +49,217 @@ export async function runAgentBinary(
     writeStderr: (text) => process.stderr.write(text),
   },
 ): Promise<number> {
-  try {
-    const validatedArgv = decode(ArgvSchema, argv);
+  const run = Effect.gen(function* () {
+    const validatedArgv = yield* decode(ArgvSchema, argv);
     if (validatedArgv[0] === "plan")
-      throw new AgentCliError("invalid_usage", "Planning commands were removed. Use --help.");
+      return yield* Effect.fail(
+        new AgentCliError("invalid_usage", "Planning commands were removed. Use --help."),
+      );
     const path = validatedArgv.filter((value) => !value.startsWith("-")).slice(0, 2);
     if (agentHelpRequested(validatedArgv)) {
-      io.writeStdout(agentHelp(path));
+      yield* Effect.sync(() => io.writeStdout(agentHelp(path)));
       return 0;
     }
-    const parsed = parseOptions(validatedArgv);
+    const parsed = yield* parseOptions(validatedArgv);
     const store = new IntentStore(parsed.options["repo"] ?? io.cwd ?? process.cwd());
-    const data = await execute(store, parsed.command, parsed.subcommand, parsed.options);
-    io.writeStdout(
-      `${JSON.stringify({ schema_version: ResponseVersion, ok: true, operation: `${parsed.command}.${parsed.subcommand}`, data })}\n`,
+    const data = yield* execute(store, parsed.command, parsed.subcommand, parsed.options);
+    yield* Effect.sync(() =>
+      io.writeStdout(
+        `${JSON.stringify({ schema_version: ResponseVersion, ok: true, operation: `${parsed.command}.${parsed.subcommand}`, data })}\n`,
+      ),
     );
     return 0;
-  } catch (error: unknown) {
-    const classified = classify(error);
-    io.writeStderr(
-      `${JSON.stringify({ schema_version: ResponseVersion, ok: false, error: classified })}\n`,
-    );
-    return classified.code === "invalid_usage" || classified.code === "invalid_input"
-      ? 2
-      : classified.code === "completion_refused"
-        ? 3
-        : 1;
-  }
+  }).pipe(
+    Effect.matchEffect({
+      onFailure: (error) => {
+        const classified = classify(error);
+        return Effect.sync(() => {
+          io.writeStderr(
+            `${JSON.stringify({ schema_version: ResponseVersion, ok: false, error: classified })}\n`,
+          );
+          return classified.code === "invalid_usage" || classified.code === "invalid_input"
+            ? 2
+            : classified.code === "completion_refused"
+              ? 3
+              : 1;
+        });
+      },
+      onSuccess: Effect.succeed,
+    }),
+  );
+  return Effect.runPromise(run);
 }
 
-async function execute(
+function execute(
   store: IntentStore,
   command: string,
   subcommand: string,
   options: Readonly<Record<string, string>>,
-): Promise<unknown> {
-  const intent = options["intent"];
-  if (command === "intent") {
-    if (subcommand === "create") {
-      const input = decodeJson(CreateIntentInputSchema, required(options, "input"));
-      if (input.planRequired)
-        throw new AgentCliError("invalid_input", "New Intents cannot require a Plan.");
-      return await store.createIntent(input);
-    }
-    if (subcommand === "list") return await store.listIntents();
-    if (subcommand === "current") return await store.currentIntent();
-    if (subcommand === "read") return await store.readIntent(requiredValue(intent, "intent"));
-    if (subcommand === "select") return await store.selectCurrent(requiredValue(intent, "intent"));
-    if (subcommand === "transition")
-      return await store.transitionIntent(
-        requiredValue(intent, "intent"),
-        decode(IntentStateSchema, required(options, "state")),
-        revision(options),
-        options["blocker"],
-      );
-    if (subcommand === "evidence")
-      return await store.recordIntentEvidence(
-        requiredValue(intent, "intent"),
-        revision(options),
-        decodeJson(IntentEvidenceInputSchema, required(options, "input")),
-      );
-    if (subcommand === "integrate")
-      return await store.recordVcsIntegration(
-        requiredValue(intent, "intent"),
-        revision(options),
-        decodeJson(VcsIntegrationInputSchema, required(options, "input")),
-      );
-    if (subcommand === "abandon")
-      return await store.abandonIntent(requiredValue(intent, "intent"), revision(options));
-    if (subcommand === "complete") {
-      const result = await store.completeIntent(requiredValue(intent, "intent"), revision(options));
-      if ("completed" in result && !result.completed)
-        throw new AgentCliError("completion_refused", "Intent completion predicates failed.", {
-          reasons: result.reasons,
-        });
-      return result;
-    }
-  }
-  if (command === "assignment") {
-    if (subcommand === "create")
-      return await store.createAssignment(
-        requiredValue(intent, "intent"),
-        decodeJson(CreateAssignmentInputSchema, required(options, "input")),
-        revision(options),
-      );
-    if (subcommand === "revise")
-      return await store.reviseAssignmentScope(
-        requiredValue(intent, "intent"),
-        required(options, "assignment"),
-        decodeJson(ReviseAssignmentScopeInputSchema, required(options, "input")),
-        revision(options),
-      );
-    if (subcommand === "supersede")
-      return await store.supersedeAssignment(
-        requiredValue(intent, "intent"),
-        required(options, "assignment"),
-        revision(options),
-        decodeJson(SupersedeAssignmentInputSchema, required(options, "input")),
-      );
-    if (subcommand === "list") return await store.listAssignments(requiredValue(intent, "intent"));
-    if (subcommand === "read")
-      return await store.readAssignment(
-        requiredValue(intent, "intent"),
-        required(options, "assignment"),
-      );
-    if (subcommand === "start")
-      return await store.startAssignment(
-        requiredValue(intent, "intent"),
-        required(options, "assignment"),
-        revision(options),
-        options["input"] === undefined
-          ? {}
-          : decodeJson(AssignmentStartInputSchema, options["input"]),
-      );
-    if (subcommand === "recover")
-      return await store.recoverInterruptedAssignment(
-        requiredValue(intent, "intent"),
-        required(options, "assignment"),
-        revision(options),
-        decodeJson(AssignmentInterruptionRecoveryInputSchema, required(options, "input")),
-      );
-    if (subcommand === "result") {
-      const result = decodeJson(AssignmentResultInputSchema, required(options, "input"));
-      const reference = requiredValue(intent, "intent");
-      const assignment = required(options, "assignment");
-      const expectedRevision = revision(options);
-
-      if (
-        result.capability === undefined &&
-        (await store.isLegacyExecutingAssignment(reference, assignment))
-      ) {
-        return await store.recordAssignmentResult(reference, assignment, expectedRevision, result);
+) {
+  return Effect.gen(function* () {
+    const intent = options["intent"];
+    if (command === "intent") {
+      if (subcommand === "create") {
+        const input = yield* decodeJson(CreateIntentInputSchema, yield* required(options, "input"));
+        if (input.planRequired)
+          return yield* Effect.fail(
+            new AgentCliError("invalid_input", "New Intents cannot require a Plan."),
+          );
+        return yield* store.createIntent(input);
       }
-
-      return await store.recordSpecialistAssignmentResult(
-        reference,
-        assignment,
-        expectedRevision,
-        result,
-      );
+      if (subcommand === "list") return yield* store.listIntents();
+      if (subcommand === "current") return yield* store.currentIntent();
+      if (subcommand === "read")
+        return yield* store.readIntent(yield* requiredValue(intent, "intent"));
+      if (subcommand === "select")
+        return yield* store.selectCurrent(yield* requiredValue(intent, "intent"));
+      if (subcommand === "transition")
+        return yield* store.transitionIntent(
+          yield* requiredValue(intent, "intent"),
+          yield* decode(IntentStateSchema, yield* required(options, "state")),
+          yield* revision(options),
+          options["blocker"],
+        );
+      if (subcommand === "evidence")
+        return yield* store.recordIntentEvidence(
+          yield* requiredValue(intent, "intent"),
+          yield* revision(options),
+          yield* decodeJson(IntentEvidenceInputSchema, yield* required(options, "input")),
+        );
+      if (subcommand === "integrate")
+        return yield* store.recordVcsIntegration(
+          yield* requiredValue(intent, "intent"),
+          yield* revision(options),
+          yield* decodeJson(VcsIntegrationInputSchema, yield* required(options, "input")),
+        );
+      if (subcommand === "abandon")
+        return yield* store.abandonIntent(
+          yield* requiredValue(intent, "intent"),
+          yield* revision(options),
+        );
+      if (subcommand === "complete") {
+        const result = yield* store.completeIntent(
+          yield* requiredValue(intent, "intent"),
+          yield* revision(options),
+        );
+        if ("completed" in result && !result.completed)
+          return yield* Effect.fail(
+            new AgentCliError("completion_refused", "Intent completion predicates failed.", {
+              reasons: result.reasons,
+            }),
+          );
+        return result;
+      }
     }
-  }
-  if (command === "state" && subcommand === "diagnose")
-    return await store.diagnose(requiredValue(intent, "intent"));
-  throw new AgentCliError("invalid_usage", "Unknown command. Use --help.");
+    if (command === "assignment") {
+      if (subcommand === "create")
+        return yield* store.createAssignment(
+          yield* requiredValue(intent, "intent"),
+          yield* decodeJson(CreateAssignmentInputSchema, yield* required(options, "input")),
+          yield* revision(options),
+        );
+      if (subcommand === "revise")
+        return yield* store.reviseAssignmentScope(
+          yield* requiredValue(intent, "intent"),
+          yield* required(options, "assignment"),
+          yield* decodeJson(ReviseAssignmentScopeInputSchema, yield* required(options, "input")),
+          yield* revision(options),
+        );
+      if (subcommand === "supersede")
+        return yield* store.supersedeAssignment(
+          yield* requiredValue(intent, "intent"),
+          yield* required(options, "assignment"),
+          yield* revision(options),
+          yield* decodeJson(SupersedeAssignmentInputSchema, yield* required(options, "input")),
+        );
+      if (subcommand === "list")
+        return yield* store.listAssignments(yield* requiredValue(intent, "intent"));
+      if (subcommand === "read")
+        return yield* store.readAssignment(
+          yield* requiredValue(intent, "intent"),
+          yield* required(options, "assignment"),
+        );
+      if (subcommand === "start") {
+        const inputValue = options["input"];
+        const input =
+          inputValue === undefined ? {} : yield* decodeJson(AssignmentStartInputSchema, inputValue);
+        return yield* store.startAssignment(
+          yield* requiredValue(intent, "intent"),
+          yield* required(options, "assignment"),
+          yield* revision(options),
+          input,
+        );
+      }
+      if (subcommand === "recover")
+        return yield* store.recoverInterruptedAssignment(
+          yield* requiredValue(intent, "intent"),
+          yield* required(options, "assignment"),
+          yield* revision(options),
+          yield* decodeJson(
+            AssignmentInterruptionRecoveryInputSchema,
+            yield* required(options, "input"),
+          ),
+        );
+      if (subcommand === "result") {
+        const result = yield* decodeJson(
+          AssignmentResultInputSchema,
+          yield* required(options, "input"),
+        );
+        const reference = yield* requiredValue(intent, "intent");
+        const assignment = yield* required(options, "assignment");
+        const expectedRevision = yield* revision(options);
+
+        if (
+          result.capability === undefined &&
+          (yield* store.isLegacyExecutingAssignment(reference, assignment))
+        )
+          return yield* store.recordAssignmentResult(
+            reference,
+            assignment,
+            expectedRevision,
+            result,
+          );
+
+        return yield* store.recordSpecialistAssignmentResult(
+          reference,
+          assignment,
+          expectedRevision,
+          result,
+        );
+      }
+    }
+    if (command === "state" && subcommand === "diagnose")
+      return yield* store.diagnose(yield* requiredValue(intent, "intent"));
+    return yield* Effect.fail(new AgentCliError("invalid_usage", "Unknown command. Use --help."));
+  });
 }
 
-function parseOptions(argv: readonly string[]): {
-  readonly command: string;
-  readonly subcommand: string;
-  readonly options: Readonly<Record<string, string>>;
-} {
-  const command = argv[0];
-  const subcommand = argv[1];
-  if (!command || !subcommand || command.startsWith("-") || subcommand.startsWith("-"))
-    throw new AgentCliError("invalid_usage", "A command and subcommand are required. Use --help.");
-  const options: Record<string, string> = {};
-  const allowed = allowedOptions(command, subcommand);
-  for (let index = 2; index < argv.length; index += 2) {
-    const name = argv[index];
-    const value = argv[index + 1];
-    if (!name?.startsWith("--") || value === undefined || value.startsWith("--"))
-      throw new AgentCliError("invalid_usage", "Options require --name value pairs.");
-    const key = name.slice(2);
-    if (options[key] !== undefined)
-      throw new AgentCliError("invalid_usage", `Duplicate option --${key}.`);
-    if (!allowed.has(key)) throw new AgentCliError("invalid_usage", `Unknown option --${key}.`);
-    options[key] = value;
-  }
-  return { command, subcommand, options };
+function parseOptions(argv: readonly string[]) {
+  return Effect.gen(function* () {
+    const command = argv[0];
+    const subcommand = argv[1];
+    if (!command || !subcommand || command.startsWith("-") || subcommand.startsWith("-"))
+      return yield* Effect.fail(
+        new AgentCliError("invalid_usage", "A command and subcommand are required. Use --help."),
+      );
+    const options: Record<string, string> = {};
+    const allowed = allowedOptions(command, subcommand);
+    for (let index = 2; index < argv.length; index += 2) {
+      const name = argv[index];
+      const value = argv[index + 1];
+      if (!name?.startsWith("--") || value === undefined || value.startsWith("--"))
+        return yield* Effect.fail(
+          new AgentCliError("invalid_usage", "Options require --name value pairs."),
+        );
+      const key = name.slice(2);
+      if (options[key] !== undefined)
+        return yield* Effect.fail(new AgentCliError("invalid_usage", `Duplicate option --${key}.`));
+      if (!allowed.has(key))
+        return yield* Effect.fail(new AgentCliError("invalid_usage", `Unknown option --${key}.`));
+      options[key] = value;
+    }
+    return { command, subcommand, options };
+  });
 }
 
 function allowedOptions(command: string, subcommand: string): ReadonlySet<string> {
@@ -254,38 +298,38 @@ class AgentCliError extends Error {
   }
 }
 
-function decodeJson<A, I>(schema: Schema.Schema<A, I>, text: string): A {
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    throw new AgentCliError("invalid_input", "--input must be valid JSON.");
-  }
-  return decode(schema, value);
+function decodeJson<A, I>(schema: Schema.ConstraintCodec<A, I>, text: string) {
+  return decode(Schema.fromJsonString(schema), text);
 }
-function decode<A, I>(schema: Schema.Schema<A, I>, value: unknown): A {
-  const result = Schema.decodeUnknownEither(schema, { onExcessProperty: "error" })(value);
-  if (Either.isLeft(result))
-    throw new AgentCliError("invalid_input", "Input failed Effect Schema validation.", {
-      issue: String(result.left),
-    });
-  return result.right;
+function decode<A, I>(schema: Schema.ConstraintCodec<A, I>, value: unknown) {
+  return Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })(value).pipe(
+    Effect.mapError(
+      (issue) =>
+        new AgentCliError("invalid_input", "Input failed Effect Schema validation.", {
+          issue: String(issue),
+        }),
+    ),
+  );
 }
-function required(options: Readonly<Record<string, string>>, name: string): string {
+function required(options: Readonly<Record<string, string>>, name: string) {
   return requiredValue(options[name], name);
 }
-function requiredValue(value: string | undefined, name: string): string {
-  if (!value) throw new AgentCliError("invalid_usage", `Missing --${name}.`);
-  return value;
+function requiredValue(value: string | undefined, name: string) {
+  if (value === undefined)
+    return Effect.fail(new AgentCliError("invalid_usage", `Missing --${name}.`));
+  return Schema.decodeUnknownEffect(RequiredOptionSchema)(value).pipe(
+    Effect.mapError(() => new AgentCliError("invalid_input", `--${name} must not be empty.`)),
+  );
 }
-function revision(options: Readonly<Record<string, string>>): number {
+function revision(options: Readonly<Record<string, string>>) {
   return requiredInteger(options["revision"], "revision");
 }
-function requiredInteger(value: string | undefined, name: string): number {
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 1)
-    throw new AgentCliError("invalid_input", `--${name} must be a positive integer.`);
-  return parsed;
+function requiredInteger(value: string | undefined, name: string) {
+  return Schema.decodeUnknownEffect(RevisionSchema)(value).pipe(
+    Effect.mapError(
+      () => new AgentCliError("invalid_input", `--${name} must be a positive integer.`),
+    ),
+  );
 }
 function classify(error: unknown): {
   readonly code: string;

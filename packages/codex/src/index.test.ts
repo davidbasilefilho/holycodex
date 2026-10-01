@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createSha256Digest, decodeUnknown } from "@holycodex/core";
-import * as Either from "effect/Either";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import {
@@ -49,8 +49,9 @@ import {
   selectOfficialPlugins,
 } from "./index";
 import type { AsyncLineTransport } from "./index";
+import { decodeUtf8, readBoundedStream } from "./transport";
 
-function decode<T>(schema: Schema.Schema<T>, input: unknown): Either.Either<T, unknown> {
+function decode<T>(schema: Schema.Codec<T, unknown>, input: unknown): Result.Result<T, unknown> {
   return decodeUnknown(schema, input);
 }
 
@@ -149,12 +150,12 @@ function createInitializedClient(
 
 describe("Codex App Server schemas", () => {
   test("validate JSON-RPC responses, notifications, and complete usage", () => {
-    expect(Either.isRight(decode(JsonRpcResponseSchema, response(1, { ok: true })))).toBe(true);
-    expect(Either.isRight(decode(JsonRpcResponseSchema, errorResponse(1, -32001, "busy")))).toBe(
+    expect(Result.isSuccess(decode(JsonRpcResponseSchema, response(1, { ok: true })))).toBe(true);
+    expect(Result.isSuccess(decode(JsonRpcResponseSchema, errorResponse(1, -32001, "busy")))).toBe(
       true,
     );
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decode(JsonRpcNotificationSchema, {
           method: "turn/started",
           params: { threadId: "t" },
@@ -162,7 +163,7 @@ describe("Codex App Server schemas", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decode(SupportedUsageSchema, {
           inputTokens: 1,
           cachedInputTokens: 0,
@@ -171,9 +172,9 @@ describe("Codex App Server schemas", () => {
         }),
       ),
     ).toBe(true);
-    expect(Either.isRight(decode(SupportedUsageSchema, { inputTokens: 1 }))).toBe(true);
+    expect(Result.isSuccess(decode(SupportedUsageSchema, { inputTokens: 1 }))).toBe(true);
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decode(SupportedUsageSchema, {
           input_tokens: 0,
           cached_input_tokens: 0,
@@ -191,8 +192,8 @@ describe("Codex App Server schemas", () => {
       approvalPolicy: "on-request",
       sandboxPolicy: { type: "workspace-write" },
     };
-    expect(Either.isRight(decode(TurnStartParamsSchema, params))).toBe(true);
-    expect(Either.isRight(decode(TurnStartParamsSchema, { threadId: "thread-1" }))).toBe(false);
+    expect(Result.isSuccess(decode(TurnStartParamsSchema, params))).toBe(true);
+    expect(Result.isSuccess(decode(TurnStartParamsSchema, { threadId: "thread-1" }))).toBe(false);
   });
 });
 
@@ -209,6 +210,24 @@ describe("AppServerClient", () => {
     expect(transport.lines[1]).toContain('"method":"initialized"');
     await expect(client.initialize()).resolves.toEqual(result);
     await client.close();
+  });
+
+  test("memoizes concurrent initialize and close operations exactly once", async () => {
+    let initializeRequests = 0;
+    const { client, transport } = createInitializedClient((fake, request) => {
+      if (request.method === "initialize") {
+        initializeRequests += 1;
+        fake.enqueue(response(request.id, initializeResult));
+      }
+    });
+
+    const initialized = await Promise.all([client.initialize(), client.initialize()]);
+    expect(initialized[0]).toEqual(initializeResult);
+    expect(initialized[1]).toEqual(initializeResult);
+    expect(initializeRequests).toBe(1);
+
+    await Promise.all([client.close(), client.close(), client.close()]);
+    expect(transport.closeCount).toBe(1);
   });
 
   test("correlates concurrent calls across interleaved notifications", async () => {
@@ -314,6 +333,53 @@ describe("AppServerClient", () => {
     await timedClient.close();
   });
 
+  test("cancels an in-flight request and closes its transport once", async () => {
+    const transport = new FakeTransport();
+    transport.onWrite = (line) => {
+      if (line.includes('"method":"initialized"')) return;
+      const request = requestFromLine(line);
+      if (request.method === "initialize")
+        transport.enqueue(response(request.id, initializeResult));
+    };
+    const controller = new AbortController();
+    const client = new AppServerClient(transport, { signal: controller.signal });
+    await client.initialize();
+    const pending = client.startThread();
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ code: "closed" });
+    expect(transport.closeCount).toBe(1);
+    await client.close();
+    expect(transport.closeCount).toBe(1);
+  });
+
+  test("reads bounded streams and rejects invalid UTF-8", async () => {
+    const bytes = await readBoundedStream(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("codex"));
+          controller.enqueue(new TextEncoder().encode("\n"));
+          controller.close();
+        },
+      }),
+      6,
+    );
+    expect(new TextDecoder().decode(bytes)).toBe("codex\n");
+    await expect(
+      readBoundedStream(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(2));
+            controller.close();
+          },
+        }),
+        1,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_transport_line" });
+    expect(() => decodeUtf8(new Uint8Array([0xff]), "test bytes")).toThrow(
+      expect.objectContaining({ code: "invalid_transport_line" }),
+    );
+  });
+
   test("fails bounded malformed lines and unsupported server requests", async () => {
     const transport = new FakeTransport();
     transport.onWrite = (line) => {
@@ -362,7 +428,7 @@ describe("AppServerClient", () => {
 describe("Codex identity, configuration, and plugins", () => {
   test("validates current config readback and its TOML layer options", () => {
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decode(ConfigReadParamsSchema, {
           includeLayers: true,
           cwd: "/workspace/project",
@@ -370,7 +436,7 @@ describe("Codex identity, configuration, and plugins", () => {
       ),
     ).toBe(true);
     expect(
-      Either.isRight(
+      Result.isSuccess(
         decode(ConfigReadResultSchema, {
           config: {
             model: "gpt-5.6-terra",
@@ -413,7 +479,7 @@ describe("Codex identity, configuration, and plugins", () => {
       version: "1.0.0",
       description: "An official tool",
     };
-    expect(Either.isRight(decode(OfficialPluginManifestSchema, manifest))).toBe(true);
+    expect(Result.isSuccess(decode(OfficialPluginManifestSchema, manifest))).toBe(true);
     expect(parseOfficialPluginManifest({ ...manifest, mcpServers: {} }).ok).toBe(false);
     expect(selectOfficialPlugins([manifest], [])).toEqual([]);
     expect(selectOfficialPlugins([manifest], [{ id: "official-tool", selected: true }])).toEqual([
@@ -442,7 +508,7 @@ describe("Codex identity, configuration, and plugins", () => {
         },
       ],
     };
-    expect(Either.isRight(decode(LiveOfficialPluginListEnvelopeSchema, input))).toBe(true);
+    expect(Result.isSuccess(decode(LiveOfficialPluginListEnvelopeSchema, input))).toBe(true);
     expect(parseLiveOfficialPluginList(input).ok).toBe(true);
     expect(parseOfficialPluginManifest(input.installed[0]).ok).toBe(false);
   });
