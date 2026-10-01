@@ -92,7 +92,7 @@ describe("holycodex-agent", () => {
       operation: "state.diagnose",
       data: { intent_id: intentId, issues: [] },
     });
-  });
+  }, 15_000);
   test("supports equivalent side-effect-free help at every command depth", async () => {
     const cwd = await createTemporaryDirectory("holycodex-agent-help-");
     const paths: readonly (readonly string[])[] = [

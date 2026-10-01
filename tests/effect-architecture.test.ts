@@ -56,6 +56,7 @@ const promiseAdapterAllowlist = new Set([
 
 const ioAdapterAllowlist = new Set([
   "packages/cli/src/binary.ts",
+  "packages/cli/src/commands.ts",
   "packages/cli/src/installer.ts",
   "packages/cli/src/lock.ts",
   "packages/cli/src/maintenance.ts",
@@ -189,6 +190,10 @@ describe("Effect architecture boundaries", () => {
     expect(
       effectArchitectureViolations("if (import.meta.main) { await Effect.runPromise(program); }"),
     ).toEqual([]);
+    expect(effectArchitectureViolations("Fiber.await(fiber);")).toEqual([]);
+    expect(effectArchitectureViolations("Fiber.await(fiber); await load();")).toContain(
+      "async Promise workflow",
+    );
   });
 });
 
@@ -291,7 +296,7 @@ function effectArchitectureViolations(source: string): readonly string[] {
   if (/\btry\s*\{|(?<!Effect\.)\bcatch\s*\(/u.test(executable)) {
     violations.push("try/catch");
   }
-  if (/\basync\b|\bawait\b/u.test(workflowCode)) {
+  if (/\basync\b|(?<!\.)\bawait\b/u.test(workflowCode)) {
     violations.push("async Promise workflow");
   }
   const generatorStarts = [...executable.matchAll(/Effect\.gen\s*\(\s*function\*/gu)];

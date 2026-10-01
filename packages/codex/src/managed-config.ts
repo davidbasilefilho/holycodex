@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import {
   cleanupManagedRuntimeConfig,
-  compareManagedConfigKey,
+  compareManagedConfigKeyEffect,
   createManagedRuntimeConfigState,
   ManagedConfigOriginalValueSchema,
   ManagedConfigSafeValueSchema,
@@ -50,24 +51,24 @@ export function createManagedConfigState(metadata: ManagedConfigMetadata): Manag
 }
 
 /** Merge parsed TOML using the safe, per-key runtime-config implementation. */
-export async function mergeManagedConfig(
+export function mergeManagedConfig(
   document: TomlDocument,
   current: ManagedConfigState,
   desired: Readonly<Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>>,
   metadata: ManagedConfigMetadata,
 ): Promise<ManagedRuntimeConfigMerge> {
   if (metadata.owner !== "holycodex") throw new Error("Invalid managed config owner.");
-  return await mergeManagedRuntimeConfig(document, current, desired, metadata);
+  return mergeManagedRuntimeConfig(document, current, desired, metadata);
 }
 
 /** Remove unchanged managed values and preserve drifted or digest-only keys. */
-export async function cleanupManagedConfig(
+export function cleanupManagedConfig(
   document: TomlDocument,
   current: ManagedConfigState,
   metadata: ManagedConfigMetadata,
 ): Promise<ManagedConfigCleanup> {
   if (metadata.owner !== "holycodex") throw new Error("Invalid managed config owner.");
-  return await cleanupManagedRuntimeConfig(document, current, metadata);
+  return cleanupManagedRuntimeConfig(document, current, metadata);
 }
 
 /** Data contract for managed write decision. */
@@ -83,17 +84,20 @@ export interface ManagedWriteDecision {
 }
 
 /** Compare one managed key without returning the underlying value. */
-export async function compareBeforeManagedWrite(
+export function compareBeforeManagedWrite(
   document: TomlDocument,
   current: ManagedConfigState,
   keyPath: ManagedConfigKeyPath,
   next: ManagedConfigSafeValue,
 ): Promise<ManagedWriteDecision> {
-  const comparison = await compareManagedConfigKey(document, current, keyPath);
-  return {
-    shouldWrite: comparison.status !== "unchanged",
-    ...(comparison.current === undefined ? {} : { current: comparison.current }),
-    ...(comparison.expected === undefined ? {} : { expected: comparison.expected }),
-    next,
-  };
+  return Effect.runPromise(
+    compareManagedConfigKeyEffect(document, current, keyPath).pipe(
+      Effect.map((comparison) => ({
+        shouldWrite: comparison.status !== "unchanged",
+        ...(comparison.current === undefined ? {} : { current: comparison.current }),
+        ...(comparison.expected === undefined ? {} : { expected: comparison.expected }),
+        next,
+      })),
+    ),
+  );
 }

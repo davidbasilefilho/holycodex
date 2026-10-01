@@ -667,8 +667,8 @@ export function removeHolyCodexEffect(
           ),
         );
       }
-      const listPlugins = manager.list;
-      livePlugins = yield* fromPromise(() => listPlugins()).pipe(
+      const pluginManager = manager;
+      livePlugins = yield* fromPromise(() => pluginManager.list!()).pipe(
         Effect.catch((error) =>
           Effect.fail(
             new InstallerError(

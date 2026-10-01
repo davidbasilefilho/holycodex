@@ -58,11 +58,21 @@ message peers.
 
 The Root orchestration contract requires normal specialist spawns to pass the
 explicit `fork_turns = "none"` value and the exact registered `Role.task`
-identity. Role families are labels only. Root gives the user only useful or
-important information: it does not output after every tool use or subagent
-update, emit routine status-only chatter or heartbeat messages, or follow a
-fixed update cadence. Material updates include significant findings or
-decisions, consequential blockers or input needs, and release milestones.
+identity. Role families are labels only. Root is report-driven: after dispatch,
+it does not message, poll, request status from, or follow up with a running
+specialist, and does not inspect one while it is active. The only exception is
+a genuine lifecycle interruption or supersession caused by materially changed
+user intent, cancellation, or Assignment invalidation that makes continuation
+incorrect; use the lifecycle mechanism without normal steering.
+It does not use `sleep` or status loops for specialist coordination. It dispatches
+already-known independent Assignments before waiting, then judges terminal
+reports and prefers a suitable warm specialist for compatible follow-up work
+when context, review independence, parallelism, and write ownership permit.
+Root gives the user only useful or important information: it does not output
+after every tool use or subagent update, emit routine status-only chatter or
+heartbeat messages, or follow a fixed update cadence. Material updates include
+significant findings or decisions, consequential blockers or input needs, and
+release milestones.
 Root asks only for missing input that materially changes the outcome, while
 independent work proceeds. Root waits for terminal outcomes when no such update or question
 is needed and sends out-of-boundary work back as a new bounded Assignment. For
@@ -70,11 +80,11 @@ every Root `collaboration.wait_agent` call uses
 `timeout_ms = 600000` (10 minutes), regardless of the situation; shorter waits,
 including 10 seconds, are forbidden. Specialist completion wakes the wait
 early, and the collective mailbox already contains the relevant agents. On
-timeout, use `600000` again while any specialist result remains live. Inspect
-only for actionable failures, blockers, or
-stalls; continue useful independent work or wait again only while relevant
-specialist results remain a live dependency. Status or list polling and message
-loops on idle timeout are not routine coordination.
+timeout, use `600000` again while any specialist result remains live and
+continue independent work. Do not inspect a running specialist or poll for a
+stall. Use terminal wait outcomes and reports to assess failures and blockers;
+read specialist transcripts or artifacts after a terminal report only when
+needed for material decisions, conflicts, failures, or findings.
 Specialist and Reviewer terminal reports are concise, structured, and
 evidence-first: changed paths, checks, observable evidence, blockers, Root
 decisions needed, and remaining risk. Root reads large transcripts or
@@ -97,6 +107,15 @@ For repository orientation requests, Root delegates bounded mapping and traces
 of important flows, then synthesizes the project's purpose, structure,
 conventions, and useful starting points. Orientation remains read-only unless
 the user requests a persistent document.
+
+The shared specialist baseline automatically projects all-tool efficiency
+guidance to every generated specialist. Specialists batch and parallelize safe
+operations according to information dependencies, continue already-known work
+before returning to the model, and combine deterministic capability discovery
+with execution where practical. They minimize unnecessary tool and model calls,
+return decision-relevant evidence, have no arbitrary output cap, and do not send
+progress messages to Root or peers. Complete mergeable work and required proof
+remain mandatory.
 
 The Root profile mapping is `low = gpt-6.1-sol/low`,
 `default = gpt-6.1-sol/medium`, and `high = gpt-6.1-sol/medium`; every native

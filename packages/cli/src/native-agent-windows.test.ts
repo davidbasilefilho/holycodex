@@ -31,6 +31,7 @@ import {
   readTomlPath,
   type AsyncLineTransport,
 } from "@holycodex/codex";
+import { ROOT_ORCHESTRATION_POLICY, SPECIALIST_EFFICIENCY_POLICY } from "@holycodex/core";
 
 import {
   installHolyCodex,
@@ -506,6 +507,7 @@ describe("Windows native-agent instructions", () => {
       rootModel: lowRoot.model,
     });
     for (const instructions of [lowSol, sol, high]) {
+      expect(instructions).toContain(ROOT_ORCHESTRATION_POLICY.specialistCoordinationInstruction);
       expect(instructions).not.toContain("set the shell parameter to exactly");
       expect(instructions).toContain('fork_turns: "none"');
       expect(instructions).toContain("Never perform delegable work yourself");
@@ -542,6 +544,27 @@ describe("Windows native-agent instructions", () => {
       expect(instructions).toContain(
         "Never use a 10-second timeout or any other duration, regardless of the situation.",
       );
+      expect(instructions).toContain("Do not use Root sleep for specialist coordination");
+      expect(instructions).toContain("prefer the same warm specialist");
+      expect(instructions).toContain(
+        "Dispatch already-known independent Assignments before waiting",
+      );
+      expect(instructions).not.toContain(
+        "inspect only bounded evidence when a material stall or failure is plausible",
+      );
+      expect(instructions).not.toContain("inspect a long-running specialist");
+      expect(instructions).not.toContain("inspect bounded evidence when a stall");
+      expect(instructions).not.toContain("restart, or redispatch");
+      expect(instructions).not.toContain("when a stall or failure seems plausible");
+      expect(instructions).not.toContain("request status from a running specialist if");
+      expect(instructions).not.toContain("follow up with a running specialist before it reports");
+      expect(instructions).not.toContain("Use a shorter wait_agent timeout");
+      expect(instructions).not.toContain("wait_agent with timeout_ms=10000");
+      expect(instructions).not.toContain("Use Root sleep for specialist coordination");
+      expect(instructions).not.toContain("message a running specialist if");
+      expect(instructions).not.toContain("request a status update while the Assignment is active");
+      expect(instructions).not.toContain("poll specialist status until it responds");
+      expect(instructions).not.toContain("follow up with a running specialist before a report");
       expect(instructions).toContain(
         "Give each overlapping write or shared-mutable seam one specialist owner",
       );
@@ -559,6 +582,14 @@ describe("Windows native-agent instructions", () => {
     const leafInstructions = readTomlPath(parseConfig(leaf), "developer_instructions");
     expect(typeof leafInstructions).toBe("string");
     expect(leafInstructions).not.toContain("set the shell parameter to exactly");
+    expect(leafInstructions).toContain("Do not message Root or peers during execution");
+    expect(leafInstructions).not.toContain("Root may inspect a running specialist");
+    expect(leafInstructions).not.toContain("inspect only bounded evidence when a material stall");
+    for (const agent of projectNativeAgents("default")) {
+      const rendered = renderNativeAgent(agent);
+      const projected = readTomlPath(parseConfig(rendered), "developer_instructions");
+      expect(projected).toContain(SPECIALIST_EFFICIENCY_POLICY);
+    }
     expect(leaf).toContain("Do not message Root or peers during execution");
     expect(leaf).toContain("Return only one compact, evidence-first terminal outcome");
     expect(leaf).toContain("Do not recover an Assignment");

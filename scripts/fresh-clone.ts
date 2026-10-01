@@ -10,9 +10,9 @@ import {
   allowlistedEnvironment,
   DEFAULT_COMMAND_ENVIRONMENT_KEYS,
   redactDiagnostics,
-  runChecked,
-  runCommand,
-  withTemporaryDirectory,
+  runCheckedEffect,
+  runCommandEffect,
+  withTemporaryDirectoryEffect,
   type CommandResult,
 } from "./process.ts";
 
@@ -37,90 +37,106 @@ export interface FreshCloneResult {
 }
 
 /** Clone and validate a repository according to the requested safety mode. */
-export async function runFreshClone(options: FreshCloneOptions): Promise<FreshCloneResult> {
-  if (options.fixture) {
-    assert(!options.network, "fixture mode cannot use network");
-    const fixtureUrl = "https://user:secret@example.invalid/holycodex.git";
-    const redacted = redactDiagnostics(fixtureUrl);
-    assert(!redacted.includes("secret"), "fixture redaction proof failed");
-    assert(redacted.includes("[REDACTED]"), "fixture redaction marker is missing");
-    return { mode: "fixture", ref: "refs/heads/main", validation: "skipped" };
-  }
-  if (options.url === null || options.ref === null) {
-    throw new Error("An explicit repository URL and ref are required.");
-  }
-  const repositoryUrl = options.url;
-  const repositoryRef = options.ref;
-  validateUrl(repositoryUrl);
-  validateRef(repositoryRef);
-  if (options.dryRun) {
-    return { mode: "dry-run", ref: repositoryRef, validation: "skipped" };
-  }
-  if (!options.network) {
-    throw new Error("A network clone requires the explicit --network safety switch.");
-  }
+export function runFreshClone(options: FreshCloneOptions): Promise<FreshCloneResult> {
+  return Effect.runPromise(runFreshCloneEffect(options));
+}
 
-  const commandEnvironment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
-    GIT_TERMINAL_PROMPT: "0",
-    GCM_INTERACTIVE: "Never",
-  });
+function runFreshCloneEffect(options: FreshCloneOptions): Effect.Effect<FreshCloneResult, unknown> {
+  return Effect.gen(function* () {
+    if (options.fixture) {
+      assert(!options.network, "fixture mode cannot use network");
+      const fixtureUrl = "https://user:secret@example.invalid/holycodex.git";
+      const redacted = redactDiagnostics(fixtureUrl);
+      assert(!redacted.includes("secret"), "fixture redaction proof failed");
+      assert(redacted.includes("[REDACTED]"), "fixture redaction marker is missing");
+      return { mode: "fixture", ref: "refs/heads/main", validation: "skipped" } as const;
+    }
+    if (options.url === null || options.ref === null) {
+      throw new Error("An explicit repository URL and ref are required.");
+    }
+    const repositoryUrl = options.url;
+    const repositoryRef = options.ref;
+    validateUrl(repositoryUrl);
+    validateRef(repositoryRef);
+    if (options.dryRun) {
+      return { mode: "dry-run", ref: repositoryRef, validation: "skipped" } as const;
+    }
+    if (!options.network) {
+      throw new Error("A network clone requires the explicit --network safety switch.");
+    }
 
-  return await withTemporaryDirectory("holycodex-fresh-clone", async (temporaryRoot) => {
-    const cloneRoot = join(temporaryRoot, "repository");
-    await checkedGit(
-      ["clone", "--no-checkout", "--no-tags", repositoryUrl, cloneRoot],
-      temporaryRoot,
-      "clone",
-      commandEnvironment,
-    );
-    await checkedGit(
-      ["fetch", "--depth", "1", "origin", repositoryRef],
-      cloneRoot,
-      "fetch",
-      commandEnvironment,
-    );
-    await checkedGit(
-      ["checkout", "--detach", "FETCH_HEAD"],
-      cloneRoot,
-      "checkout",
-      commandEnvironment,
-    );
-
-    const origin = await checkedGit(
-      ["remote", "get-url", "origin"],
-      cloneRoot,
-      "origin",
-      commandEnvironment,
-    );
-    assert(origin.stdout.trim() === repositoryUrl, "clone origin does not match the requested URL");
-    const head = await checkedGit(["rev-parse", "HEAD"], cloneRoot, "head", commandEnvironment);
-    const fetched = await checkedGit(
-      ["rev-parse", "FETCH_HEAD"],
-      cloneRoot,
-      "fetched ref",
-      commandEnvironment,
-    );
-    assert(
-      head.stdout.trim() === fetched.stdout.trim(),
-      "checked-out HEAD does not match the requested ref",
-    );
-    const status = await checkedGit(
-      ["status", "--porcelain", "--untracked-files=all"],
-      cloneRoot,
-      "clean state",
-      commandEnvironment,
-    );
-    assert(status.stdout.trim().length === 0, "fresh clone is not clean before validation");
-
-    await runChecked(["bun", "install", "--frozen-lockfile"], {
-      cwd: cloneRoot,
-      env: commandEnvironment,
+    const commandEnvironment = allowlistedEnvironment(DEFAULT_COMMAND_ENVIRONMENT_KEYS, {
+      GIT_TERMINAL_PROMPT: "0",
+      GCM_INTERACTIVE: "Never",
     });
-    await runChecked(["bun", "run", "validate"], {
-      cwd: cloneRoot,
-      env: commandEnvironment,
-    });
-    return { mode: "network", ref: repositoryRef, validation: "passed" };
+
+    return yield* withTemporaryDirectoryEffect("holycodex-fresh-clone", (temporaryRoot) =>
+      Effect.gen(function* () {
+        const cloneRoot = join(temporaryRoot, "repository");
+        yield* checkedGitEffect(
+          ["clone", "--no-checkout", "--no-tags", repositoryUrl, cloneRoot],
+          temporaryRoot,
+          "clone",
+          commandEnvironment,
+        );
+        yield* checkedGitEffect(
+          ["fetch", "--depth", "1", "origin", repositoryRef],
+          cloneRoot,
+          "fetch",
+          commandEnvironment,
+        );
+        yield* checkedGitEffect(
+          ["checkout", "--detach", "FETCH_HEAD"],
+          cloneRoot,
+          "checkout",
+          commandEnvironment,
+        );
+
+        const origin = yield* checkedGitEffect(
+          ["remote", "get-url", "origin"],
+          cloneRoot,
+          "origin",
+          commandEnvironment,
+        );
+        assert(
+          origin.stdout.trim() === repositoryUrl,
+          "clone origin does not match the requested URL",
+        );
+        const head = yield* checkedGitEffect(
+          ["rev-parse", "HEAD"],
+          cloneRoot,
+          "head",
+          commandEnvironment,
+        );
+        const fetched = yield* checkedGitEffect(
+          ["rev-parse", "FETCH_HEAD"],
+          cloneRoot,
+          "fetched ref",
+          commandEnvironment,
+        );
+        assert(
+          head.stdout.trim() === fetched.stdout.trim(),
+          "checked-out HEAD does not match the requested ref",
+        );
+        const status = yield* checkedGitEffect(
+          ["status", "--porcelain", "--untracked-files=all"],
+          cloneRoot,
+          "clean state",
+          commandEnvironment,
+        );
+        assert(status.stdout.trim().length === 0, "fresh clone is not clean before validation");
+
+        yield* runCheckedEffect(["bun", "install", "--frozen-lockfile"], {
+          cwd: cloneRoot,
+          env: commandEnvironment,
+        });
+        yield* runCheckedEffect(["bun", "run", "validate"], {
+          cwd: cloneRoot,
+          env: commandEnvironment,
+        });
+        return { mode: "network", ref: repositoryRef, validation: "passed" } as const;
+      }),
+    );
   });
 }
 
@@ -199,26 +215,30 @@ function validateRef(value: string): void {
   }
 }
 
-async function checkedGit(
+function checkedGitEffect(
   command: readonly string[],
   cwd: string,
   label: string,
   environment: Readonly<Record<string, string | undefined>>,
-): Promise<CommandResult> {
-  const result = await runCommand(["git", "-c", "credential.interactive=false", ...command], {
+): Effect.Effect<CommandResult, unknown> {
+  return runCommandEffect(["git", "-c", "credential.interactive=false", ...command], {
     cwd,
     env: {
       ...environment,
       GIT_TERMINAL_PROMPT: "0",
       GCM_INTERACTIVE: "Never",
     },
-  });
-  if (result.exitCode !== 0) {
-    throw new Error(
-      `${label} failed: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
-    );
-  }
-  return result;
+  }).pipe(
+    Effect.flatMap((result) =>
+      result.exitCode !== 0
+        ? Effect.fail(
+            new Error(
+              `${label} failed: ${redactDiagnostics(result.stderr || result.stdout, environment)}`,
+            ),
+          )
+        : Effect.succeed(result),
+    ),
+  );
 }
 
 function assert(condition: boolean, message: string): asserts condition {

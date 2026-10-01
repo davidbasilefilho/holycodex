@@ -1151,13 +1151,14 @@ function initializeOfficialRuntimeEffect(
         ),
       ),
     );
-    return () =>
-      Effect.runPromise(
-        Effect.tryPromise({ try: () => client.close(), catch: (error) => error }).pipe(
-          Effect.ignore,
-        ),
-      );
+    return () => closeOfficialRuntime(client);
   });
+}
+
+function closeOfficialRuntime(client: AppServerClient): Promise<void> {
+  return Effect.runPromise(
+    Effect.tryPromise({ try: () => client.close(), catch: (error) => error }).pipe(Effect.ignore),
+  );
 }
 
 function validateBootstrapBounds(

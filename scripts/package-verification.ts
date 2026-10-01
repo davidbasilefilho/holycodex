@@ -880,7 +880,7 @@ export function verifyPublicPackageEffect(
           stdoutIsTTY: true,
           stderrIsTTY: true,
           // The packed CLI IO interface is a third-party Promise callback boundary.
-          confirm: () => Effect.runPromise(Effect.succeed("cancelled")),
+          confirm: () => Promise.resolve("cancelled"),
         },
       }),
     )) as {
@@ -2789,6 +2789,15 @@ async function configRead() {
     fail("Codex config omitted the Root orchestration boundaries");
   }
   if (
+    !rootInstructions.includes("always call collaboration.wait_agent with timeout_ms=600000 for every root wait") ||
+    !rootInstructions.includes("do not use root sleep for specialist coordination") ||
+    !rootInstructions.includes("do not message, poll, request status from, or follow up with a running specialist") ||
+    !rootInstructions.includes("prefer the same warm specialist") ||
+    !rootInstructions.includes("dispatch already-known independent assignments before waiting")
+  ) {
+    fail("Codex config omitted report-driven Root coordination and warm specialist reuse");
+  }
+  if (
     !rootInstructions.includes("exact concrete registered role.task agent_type") ||
     !["explorer", "librarian", "worker", "reviewer", "labels"].every((term) =>
       rootInstructions.includes(term),
@@ -2870,6 +2879,9 @@ async function configRead() {
     if (
       typeof roleInstructions !== "string" ||
       !roleInstructions.toLowerCase().includes("do not message root or peers during execution") ||
+      !roleInstructions.toLowerCase().includes("minimize model decision boundaries across every tool") ||
+      !roleInstructions.toLowerCase().includes("impose no arbitrary hard output caps") ||
+      !roleInstructions.toLowerCase().includes("fuse deterministic capability or backend discovery with its operation") ||
       !roleInstructions.toLowerCase().includes("one compact, evidence-first terminal outcome")
     ) {
       fail("Codex role file omitted terminal-only specialist reporting boundaries");
@@ -3077,7 +3089,9 @@ function findCommandOnPath(
         if (yield* exists(candidate)) return candidate;
       }
     }
-    throw new Error(`the ${name} launcher is missing from the package verification PATH`);
+    return yield* Effect.fail(
+      new Error(`the ${name} launcher is missing from the package verification PATH`),
+    );
   });
 }
 function createReleaseStamp(options: PackageReleaseOptions): typeof ReleaseStampSchema.Type {

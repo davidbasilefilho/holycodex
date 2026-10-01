@@ -1187,32 +1187,35 @@ export class IntentStore {
           ),
         );
       const seen = new Set<string>();
-      const recoveredFiles = transaction.files.map((file) => {
-        const canonical = canonicalRepositoryPath(file.path);
-        if (canonical === undefined)
-          throw new IntentStoreError(
-            "schema_invalid",
-            "The work-state transaction contains an invalid target path.",
-            { path, target: file.path },
-          );
-        const target = transactionTarget(directory, file.path);
-        if (seen.has(target))
-          throw new IntentStoreError(
-            "schema_invalid",
-            "The work-state transaction has duplicate targets.",
-            {
-              path,
-              target: file.path,
-            },
-          );
-        seen.add(target);
-        const contents = transaction.state === "committed" ? file.next : file.previous;
-        const record =
-          canonical === "intent.toon"
-            ? parseValidatedToonText(contents, IntentSchema, target)
-            : parseValidatedToonText(contents, PersistedAssignmentSchema, target);
-        return { canonical, target, contents, record };
-      });
+      const recoveredFiles = yield* Effect.forEach(transaction.files, (file) =>
+        Effect.gen(function* () {
+          const canonical = canonicalRepositoryPath(file.path);
+          if (canonical === undefined)
+            return yield* Effect.fail(
+              new IntentStoreError(
+                "schema_invalid",
+                "The work-state transaction contains an invalid target path.",
+                { path, target: file.path },
+              ),
+            );
+          const target = transactionTarget(directory, file.path);
+          if (seen.has(target))
+            return yield* Effect.fail(
+              new IntentStoreError(
+                "schema_invalid",
+                "The work-state transaction has duplicate targets.",
+                { path, target: file.path },
+              ),
+            );
+          seen.add(target);
+          const contents = transaction.state === "committed" ? file.next : file.previous;
+          const record =
+            canonical === "intent.toon"
+              ? yield* parseValidatedToonText(contents, IntentSchema, target)
+              : yield* parseValidatedToonText(contents, PersistedAssignmentSchema, target);
+          return { canonical, target, contents, record };
+        }),
+      );
       const recoveredIntentId = (
         recoveredFiles.find((file) => file.canonical === "intent.toon")?.record as
           | Intent
@@ -3478,13 +3481,10 @@ function decodeGitCQuotedPath(value: string): string | undefined {
     bytes.push(Number.parseInt(body.slice(index + 1, end), 8));
     index = end;
   }
-  try {
-    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
-      Uint8Array.from(bytes),
-    );
-  } catch {
-    return undefined;
-  }
+  const decoded = Result.try(() =>
+    new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(Uint8Array.from(bytes)),
+  );
+  return Result.isSuccess(decoded) ? decoded.success : undefined;
 }
 function sha256(input: string): string {
   return createHash("sha256").update(input).digest("hex");
@@ -3555,7 +3555,7 @@ function readRawToon(path: string): Effect.Effect<unknown, unknown> {
           ),
         );
     }
-    return decodeToonText(text, path);
+    return yield* decodeToonText(text, path);
   });
 }
 function readValidatedToon<A, I>(
@@ -3678,18 +3678,26 @@ function findAssignmentDependencyCycles(assignments: readonly PersistedAssignmen
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
-function parseValidatedToonText<A, I>(text: string, schema: Schema.Codec<A, I>, path: string): A {
-  return parseSchema(schema, decodeToonText(text, path));
+function parseValidatedToonText<A, I>(
+  text: string,
+  schema: Schema.Codec<A, I>,
+  path: string,
+): Effect.Effect<A, unknown> {
+  return decodeToonText(text, path).pipe(
+    Effect.flatMap((value) =>
+      Effect.try({ try: () => parseSchema(schema, value), catch: (error) => error }),
+    ),
+  );
 }
-function decodeToonText(text: string, path: string): unknown {
-  try {
-    return decodeToon(text, { strict: true });
-  } catch (error: unknown) {
-    throw new IntentStoreError("malformed_toon", "Persistent work state is malformed TOON.", {
-      path,
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
+function decodeToonText(text: string, path: string): Effect.Effect<unknown, IntentStoreError> {
+  return Effect.try({
+    try: () => decodeToon(text, { strict: true }),
+    catch: (error) =>
+      new IntentStoreError("malformed_toon", "Persistent work state is malformed TOON.", {
+        path,
+        message: error instanceof Error ? error.message : String(error),
+      }),
+  });
 }
 function atomicWriteToon(path: string, value: unknown): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
@@ -4062,6 +4070,12 @@ function readLockOwner(lockPath: string): Effect.Effect<LockOwnerState, unknown>
               Effect.gen(function* () {
                 if (isFsCode(error, "ENOENT"))
                   return { kind: "return", value: { kind: "missing" } } as const;
+                // On Windows, an active writer may briefly make its owner file
+                // unavailable to readers while publishing or closing it. Keep
+                // the lock opaque and retry; never reclaim it without proof
+                // that its owner is gone.
+                if (isFsCode(error, "EPERM") || isFsCode(error, "EACCES"))
+                  return { kind: "return", value: { kind: "unknown" } } as const;
                 return yield* Effect.fail(storeIo(error));
                 return { kind: "none" } as const;
               }),
