@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { readTomlPath, summarizeManagedConfigValue } from "@holycodex/codex";
+import { readTomlPath, summarizeManagedConfigValue, writeTomlPath } from "@holycodex/codex";
 import { resolveCanonicalVersion } from "@holycodex/core";
 import * as Effect from "effect/Effect";
 
@@ -22,7 +22,8 @@ import {
   runCli,
   upgradeHolyCodex,
 } from "./index.ts";
-import { parseConfig } from "./installer.ts";
+import { parseConfig, serializeConfig } from "./installer.ts";
+import { currentModelCatalogJson } from "./model-catalog-fixture.ts";
 import { JsonObjectSchema } from "./schema.ts";
 import { decodeStateText } from "./storage.ts";
 import type { ConflictResolution } from "./types.ts";
@@ -89,6 +90,8 @@ function testRuntime(codexHome: string): InstallerRuntime {
     run: async (executable, args) => {
       const command = `${executable} ${args.join(" ")}`;
       const normalizedCommand = command.replaceAll("\\", "/");
+      if (command === "codex debug models --bundled")
+        return { exitCode: 0, stdout: currentModelCatalogJson(), stderr: "" };
       if (command === "bun pm bin -g") return { exitCode: 0, stdout: `${binRoot}\n`, stderr: "" };
       if (command === "bun pm view ctx7 version")
         return { exitCode: 0, stdout: "2.0.0\n", stderr: "" };
@@ -253,6 +256,66 @@ async function setLegacyRootModel(
   );
 }
 
+async function makeLegacyPermissionProfile(codexHome: string): Promise<void> {
+  const paths = resolveInstallerPaths({ paths: { codexHome } });
+  const current = await readActiveInstallRecord(paths);
+  if (current?.managed_config === undefined) throw new Error("the seed has no managed config");
+  const { default_permissions: _defaultPermissions, ...managed } = current.managed_config.managed;
+  const legacyManagedConfig = {
+    ...current.managed_config,
+    managed: {
+      ...managed,
+      "permissions.holycodex.extends": {
+        owner: "holycodex" as const,
+        schema: current.managed_config.schema,
+        installId: current.managed_config.installId,
+        keyPath: "permissions.holycodex.extends" as const,
+        originalValue: { kind: "absent" as const },
+        lastManagedValue: await summarizeManagedConfigValue(
+          "permissions.holycodex.extends",
+          ":workspace",
+        ),
+      },
+      "permissions.holycodex.network.enabled": {
+        owner: "holycodex" as const,
+        schema: current.managed_config.schema,
+        installId: current.managed_config.installId,
+        keyPath: "permissions.holycodex.network.enabled" as const,
+        originalValue: { kind: "absent" as const },
+        lastManagedValue: await summarizeManagedConfigValue(
+          "permissions.holycodex.network.enabled",
+          true,
+        ),
+      },
+    },
+  };
+  const legacy = { ...current, version: LEGACY_VERSION, managed_config: legacyManagedConfig };
+  const digest = await installRecordDigest({
+    owner: legacy.owner,
+    install_id: legacy.install_id,
+    version: legacy.version,
+    profile: legacy.profile,
+    tier: legacy.tier,
+    optional_selections: legacy.optional_selections,
+    explicit_optional_selections: legacy.explicit_optional_selections,
+    official_plugins: legacy.official_plugins ?? [],
+    capability_state: legacy.capability_state ?? null,
+    managed_artifacts: legacy.managed_artifacts,
+    managed_config: legacy.managed_config,
+    plugin_config: legacy.plugin_config,
+    provider_config: legacy.provider_config,
+    plugin_snapshot: legacy.plugin_snapshot,
+    owned_plugins: legacy.owned_plugins,
+    tooling: legacy.tooling,
+  });
+  await writeFile(paths.activeRecord, `${JSON.stringify({ ...legacy, digest })}\n`);
+  let config = parseConfig(await readFile(paths.configFile, "utf8"));
+  config = writeTomlPath(config, "default_permissions", "holycodex");
+  config = writeTomlPath(config, "permissions.holycodex.extends", ":workspace");
+  config = writeTomlPath(config, "permissions.holycodex.network.enabled", true);
+  await writeFile(paths.configFile, serializeConfig(config));
+}
+
 function commandContext(codexHome: string, manager: OfficialPluginManager, io: CliIo) {
   return {
     env: fakeEnvironment,
@@ -262,7 +325,7 @@ function commandContext(codexHome: string, manager: OfficialPluginManager, io: C
 }
 
 describe("command install and upgrade review flow", () => {
-  test("installs the HolyCodex permission preset as a selectable default and preserves later choices", async () => {
+  test("installs built-in Full Access and preserves later user choices", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-permissions-default-"));
     const codexHome = join(root, "codex");
     const paths = resolveInstallerPaths({ paths: { codexHome } });
@@ -273,31 +336,61 @@ describe("command install and upgrade review flow", () => {
         paths.configFile,
         'default_permissions = ":read-only"\n\n[permissions.custom]\nextends = ":read-only"\n',
       );
+      const replaceExistingPermission: InstallerOptions = {
+        ...installerOptions(codexHome, manager),
+        resolveConflicts: effectResolver(async (conflicts) =>
+          Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "replace"])),
+        ),
+        reviewInstall: effectResolver(async () => ({ action: "apply" })),
+      };
       const installed = await installHolyCodex(
         { profile: "default", optional: { computer_use: false } },
-        installerOptions(codexHome, manager),
+        replaceExistingPermission,
         { ...fakeEnvironment, CODEX_HOME: codexHome },
       );
       const initial = parseConfig(await readFile(paths.configFile, "utf8"));
-      expect(readTomlPath(initial, "default_permissions")).toBe("holycodex");
-      expect(readTomlPath(initial, "permissions.holycodex.extends")).toBe(":workspace");
-      expect(readTomlPath(initial, "permissions.holycodex.network.enabled")).toBe(true);
+      expect(readTomlPath(initial, "default_permissions")).toBe(":danger-full-access");
+      expect(readTomlPath(initial, "permissions.holycodex")).toBeUndefined();
       expect(readTomlPath(initial, "approval_policy")).toBe("on-request");
       expect(readTomlPath(initial, "approvals_reviewer")).toBe("auto_review");
       expect(readTomlPath(initial, "web_search")).toBe("live");
       expect(readTomlPath(initial, "permissions.custom.extends")).toBe(":read-only");
-      expect(installed.record.managed_config?.managed["default_permissions"]).toBeUndefined();
+      expect(
+        installed.record.managed_config?.managed["default_permissions"]?.originalValue,
+      ).toEqual({
+        kind: "enum",
+        value: ":read-only",
+      });
+
+      await removeHolyCodex(
+        { paths: { codexHome }, officialPluginManager: manager },
+        fakeEnvironment,
+      );
+      expect(
+        readTomlPath(parseConfig(await readFile(paths.configFile, "utf8")), "default_permissions"),
+      ).toBe(":read-only");
+
+      await installHolyCodex({ optional: { computer_use: false } }, replaceExistingPermission, {
+        ...fakeEnvironment,
+        CODEX_HOME: codexHome,
+      });
 
       await writeFile(
         paths.configFile,
         (await readFile(paths.configFile, "utf8")).replace(
-          'default_permissions = "holycodex"',
+          'default_permissions = ":danger-full-access"',
           'default_permissions = "custom"',
         ),
       );
       await installHolyCodex(
         { optional: { computer_use: false } },
-        installerOptions(codexHome, manager),
+        {
+          ...installerOptions(codexHome, manager),
+          resolveConflicts: effectResolver(async (conflicts) =>
+            Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "keep"])),
+          ),
+          reviewInstall: effectResolver(async () => ({ action: "apply" })),
+        },
         { ...fakeEnvironment, CODEX_HOME: codexHome },
       );
       expect(
@@ -365,6 +458,42 @@ describe("command install and upgrade review flow", () => {
         fakeEnvironment,
       );
       expect(await readFile(paths.configFile, "utf8")).toContain('model = "gpt-5.6-terra"');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("migrates the 0.16.11 permission profile to built-in Full Access and restores its origin", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-permission-profile-migration-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const manager = fakeManager();
+    try {
+      await seedInstall(root, { optional: { computer_use: false } }, manager);
+      await makeLegacyPermissionProfile(codexHome);
+      await installHolyCodex(
+        { optional: { computer_use: false } },
+        installerOptions(codexHome, manager),
+        fakeEnvironment,
+      );
+
+      const upgraded = parseConfig(await readFile(paths.configFile, "utf8"));
+      expect(readTomlPath(upgraded, "default_permissions")).toBe(":danger-full-access");
+      expect(readTomlPath(upgraded, "permissions.holycodex")).toBeUndefined();
+      expect(
+        (await readActiveInstallRecord(paths))?.managed_config?.managed["default_permissions"],
+      ).toMatchObject({
+        originalValue: { kind: "absent" },
+        lastManagedValue: { kind: "enum", value: ":danger-full-access" },
+      });
+
+      await removeHolyCodex(
+        { paths: { codexHome }, officialPluginManager: manager },
+        fakeEnvironment,
+      );
+      expect(
+        readTomlPath(parseConfig(await readFile(paths.configFile, "utf8")), "default_permissions"),
+      ).toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -734,16 +863,15 @@ describe("command install and upgrade review flow", () => {
           rootModel: "gpt-6.1-sol",
         }),
       );
-      expect(highInstructions).toContain("Never perform delegable work yourself");
+      expect(highInstructions).toContain("Delegate all delegable work.");
       expect(highInstructions).toContain(
-        "Always call collaboration.wait_agent with timeout_ms=600000 for every Root wait.",
-      );
-      expect(highInstructions).toContain(
-        "Never use a 10-second timeout or any other duration, regardless of the situation.",
+        "Each multi_agent_v1.wait_agent call must include every live specialist whose result blocks the next required Root decision or action and use timeout_ms=600000 exactly;",
       );
       expect(highInstructions).not.toContain("routine wait");
       expect(highInstructions).not.toContain("when a longer event wait is appropriate");
-      expect(highInstructions).toContain("After dispatch, do not inspect a running specialist.");
+      expect(highInstructions).toContain(
+        "After dispatch, do not inspect, message, poll, request status from, or follow up with a running specialist.",
+      );
       expect(highInstructions).not.toContain(
         "inspect only bounded evidence when a material stall or failure is plausible",
       );
@@ -1315,7 +1443,13 @@ describe("command install and upgrade review flow", () => {
       expect(reviewRequest).toEqual({
         profile: "high",
         tier: "fast",
-        optional: { browser_use: true, computer_use: false, sites: true },
+        optional: {
+          browser_use: true,
+          computer_use: false,
+          sites: true,
+          "session-audit": false,
+          "auto-reset": false,
+        },
         officialPlugins: [additionalPlugin],
       });
     } finally {
@@ -1443,7 +1577,13 @@ describe("command install and upgrade review flow", () => {
       const selected: InstallRequest = {
         profile: "low",
         tier: "standard",
-        optional: { browser_use: true, computer_use: false, sites: true },
+        optional: {
+          browser_use: true,
+          computer_use: false,
+          sites: true,
+          "session-audit": false,
+          "auto-reset": false,
+        },
         officialPlugins: [additionalPlugin],
       };
       let reviewRequest: InstallRequest | undefined;
@@ -1527,7 +1667,13 @@ describe("command install and upgrade review flow", () => {
         {
           profile: "high",
           tier: "fast",
-          optional: { browser_use: true, computer_use: false, sites: false },
+          optional: {
+            browser_use: true,
+            computer_use: false,
+            sites: false,
+            "session-audit": false,
+            "auto-reset": false,
+          },
           officialPlugins: [additionalPlugin],
         },
       ]);

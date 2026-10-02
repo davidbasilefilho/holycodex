@@ -5,6 +5,8 @@ import * as Schema from "effect/Schema";
 
 /** The canonical zerover form, including an optional numeric release suffix. */
 export const CANONICAL_VERSION_PATTERN = /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*))?$/u;
+const RELEASE_VERSION_PATTERN =
+  /^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:(?:0|[1-9]\d*)|dev\.[1-9]\d*\.[1-9]\d*))?$/u;
 
 /** Validate the canonical public package version. */
 export const CanonicalVersionSchema = Schema.String.check(
@@ -23,12 +25,16 @@ export function isCanonicalVersion(value: unknown): value is CanonicalVersion {
   return decodeCanonicalVersion(value) !== undefined;
 }
 
-function isBaseVersion(value: string): boolean {
-  return isCanonicalVersion(value) && !value.includes("-");
+function isBaseVersion(value: unknown): value is BaseVersion {
+  return typeof value === "string" && isCanonicalVersion(value) && !value.includes("-");
 }
 
 /** Validate a canonical version without a numeric release suffix. */
-export const BaseVersionSchema = Schema.String.check(Schema.makeFilter(isBaseVersion));
+export const BaseVersionSchema = Schema.String.check(
+  Schema.makeFilter((value) =>
+    isBaseVersion(value) ? undefined : "Expected a canonical base version",
+  ),
+);
 /** Type representing base version in the core domain. */
 export type BaseVersion = typeof BaseVersionSchema.Type;
 
@@ -40,7 +46,8 @@ function isPositiveIntegerText(value: string | undefined): boolean {
   return true;
 }
 
-function isDevelopmentVersion(value: string): boolean {
+function isDevelopmentVersion(value: unknown): value is DevelopmentVersion {
+  if (typeof value !== "string") return false;
   const [base, suffix, extra] = value.split("-");
   if (base === undefined || suffix === undefined || extra !== undefined) return false;
   if (!isBaseVersion(base)) return false;
@@ -56,16 +63,15 @@ function isDevelopmentVersion(value: string): boolean {
 
 /** Validate a collision-safe development release version. */
 export const DevelopmentVersionSchema = Schema.String.check(
-  Schema.makeFilter(isDevelopmentVersion),
+  Schema.makeFilter((value) =>
+    isDevelopmentVersion(value) ? undefined : "Expected a development release version",
+  ),
 );
 /** Type representing development version in the core domain. */
 export type DevelopmentVersion = typeof DevelopmentVersionSchema.Type;
 
 /** Validate either a canonical stable version or a development release version. */
-export const ReleaseVersionSchema = Schema.Union([
-  CanonicalVersionSchema,
-  DevelopmentVersionSchema,
-]);
+export const ReleaseVersionSchema = Schema.String.check(Schema.isPattern(RELEASE_VERSION_PATTERN));
 /** Type representing release version in the core domain. */
 export type ReleaseVersion = typeof ReleaseVersionSchema.Type;
 

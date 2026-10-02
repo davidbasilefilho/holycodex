@@ -129,6 +129,53 @@ describe("plugin source assets", () => {
       expect(paths.has(`skills/${skill}/SKILL.md`)).toBe(true);
     }
   });
+
+  test("ships disabled-by-default session audit and banked auto reset procedures", async () => {
+    const source = await validateSource(pluginSourceRoot);
+    const paths = new Set(source.files.map((file) => file.path));
+    expect(paths.has("skills/session-audit/SKILL.md")).toBe(true);
+    expect(paths.has("skills/session-audit/agents/openai.yaml")).toBe(true);
+    expect(paths.has("skills/auto-reset/SKILL.md")).toBe(true);
+    expect(paths.has("skills/auto-reset/agents/openai.yaml")).toBe(true);
+
+    const [sessionAudit, autoReset] = await Promise.all([
+      readFile(join(pluginSourceRoot, "skills", "session-audit", "SKILL.md"), "utf8"),
+      readFile(join(pluginSourceRoot, "skills", "auto-reset", "SKILL.md"), "utf8"),
+    ]);
+    for (const evidence of [
+      "every specialist",
+      "request count",
+      "cached and uncached input",
+      "output and reasoning tokens",
+      "cache rate",
+      "unnecessary Root turns or cold specialists",
+      "duplicate reads",
+      "repeated instructions or context",
+      "oversized irrelevant tool results",
+      "model decision boundaries or tool calls",
+      "waits or status behavior",
+      "context growth or compaction",
+      "Raw totals alone do not satisfy an audit",
+      "never estimate missing usage",
+    ]) {
+      expect(sessionAudit).toContain(evidence);
+    }
+
+    expect(autoReset).toContain('`resetType: "codexRateLimits"` and `status: "available"`');
+    expect(autoReset).toContain("account/rateLimits/read");
+    expect(autoReset).toContain("holycodex-agent auto-reset read");
+    expect(autoReset).toContain("holycodex-agent auto-reset consume --idempotency-key <key>");
+    expect(autoReset).toContain("account/rateLimitResetCredit/consume");
+    expect(autoReset).toContain("only Root owns this consequential action");
+    expect(autoReset).toContain("unique idempotency key");
+    expect(autoReset).toContain("`noCredit`");
+    expect(autoReset).toContain("below 15% or 5-hour remaining is below 20%");
+    expect(autoReset).toContain("below 7% or 5-hour remaining is below 15%");
+    expect(autoReset).toContain("below 10%");
+    expect(autoReset).toContain("below 5% weekly remaining");
+    expect(autoReset).toContain("A refusal at an ask-permission threshold does not carry forward");
+    expect(autoReset).toContain("Never substitute an unbanked reset");
+  });
 });
 
 describe("deterministic payload assembly", () => {

@@ -84,6 +84,8 @@ describe("human CLI presentation", () => {
               sites: { selected: true, status: "healthy" },
               browser_use: { selected: true, status: "healthy" },
               computer_use: { selected: false, status: "disabled" },
+              "session-audit": { selected: true, status: "healthy" },
+              "auto-reset": { selected: true, status: "healthy" },
             },
           },
           preserved: [],
@@ -96,7 +98,9 @@ describe("human CLI presentation", () => {
     const rendered = renderHuman(result, { stdoutIsTTY: false, env: {} });
     expect(rendered).toContain("version: 1.2.3");
     expect(rendered).toContain("profile: default");
-    expect(rendered).toContain("capabilities: frontend, security, sites, browser_use");
+    expect(rendered).toContain(
+      "capabilities: frontend, security, sites, browser_use, session-audit, auto-reset",
+    );
     expect(rendered).toContain("warning: review provider availability");
     expect(rendered).not.toContain("private-id");
     expect(rendered).not.toContain("private-digest");

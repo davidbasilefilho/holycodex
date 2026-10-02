@@ -119,6 +119,10 @@ describe("holycodex-agent", () => {
       ["assignment", "result"],
       ["state"],
       ["state", "diagnose"],
+      ["auto-reset"],
+      ["auto-reset", "evaluate"],
+      ["auto-reset", "read"],
+      ["auto-reset", "consume"],
     ];
     for (const path of paths) {
       const short = io(cwd);

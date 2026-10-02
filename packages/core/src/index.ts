@@ -28,6 +28,7 @@ export {
   CAPABILITY_REGISTRY,
   CAPABILITY_APPLICABILITY,
   CapabilityNameSchema,
+  InstalledOptionalCapabilitySelectionsSchema,
   CapabilityHealthSchema,
   CapabilityProviderStatusSchema,
   OFFICIAL_OPENAI_CURATED_MARKETPLACE_NAMES,
@@ -107,7 +108,7 @@ export type {
 
 export {
   EffortSchema,
-  ForkTurnsSchema,
+  ForkContextSchema,
   context7RequiredForAssignment,
   Context7EvidenceStateSchema,
   CREDENTIAL_INTERACTION_POLICY,
@@ -125,7 +126,11 @@ export {
   RootOwnedAuthoritySchema,
   ROOT_ORCHESTRATION_PHASE_ORDER,
   ROOT_ORCHESTRATION_POLICY,
+  SEMANTIC_DEFINITIONS,
+  SEMANTIC_DEFINITIONS_INSTRUCTION,
+  SPECIALIST_AUTHORITY_POLICY,
   SPECIALIST_EFFICIENCY_POLICY,
+  SPECIALIST_TERMINAL_REPORT_POLICY,
   FRONTEND_WORKFLOW_POLICY,
   LIBRARIAN_CONTEXT7_POLICY,
   SECURITY_WORKFLOW_POLICY,
@@ -153,7 +158,7 @@ export {
 } from "./routes.ts";
 export type {
   Effort,
-  ForkTurns,
+  ForkContext,
   Context7AssignmentSemantics,
   Context7EvidenceState,
   FilesystemAccess,

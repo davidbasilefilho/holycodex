@@ -8,6 +8,7 @@ import type {
   CliEnvelope,
   JsonObject,
   OptionalCapabilityName,
+  OptionalCapabilitySelections,
   ProfileName,
   ServiceTier,
 } from "@holycodex/core";
@@ -17,9 +18,11 @@ import type { InstallRequest } from "./installer.ts";
 
 /** Public CLI type describing optional selections. */
 export type OptionalSelections = Readonly<{
-  readonly browser_use: boolean;
-  readonly computer_use: boolean;
-  readonly sites: boolean;
+  readonly browser_use: OptionalCapabilitySelections["browser_use"];
+  readonly computer_use: OptionalCapabilitySelections["computer_use"];
+  readonly sites: OptionalCapabilitySelections["sites"];
+  readonly "session-audit": OptionalCapabilitySelections["session-audit"];
+  readonly "auto-reset": OptionalCapabilitySelections["auto-reset"];
   readonly coding: true;
 }>;
 
@@ -29,6 +32,8 @@ export type ExplicitOptionalSelections = Readonly<
     readonly browser_use: boolean | undefined;
     readonly computer_use: boolean | undefined;
     readonly sites: boolean | undefined;
+    readonly "session-audit": boolean | undefined;
+    readonly "auto-reset": boolean | undefined;
   }>
 >;
 
@@ -225,6 +230,8 @@ export type CapabilityStateRecord = Readonly<{
   readonly frontend: CapabilityInstallState;
   readonly security: CapabilityInstallState;
   readonly sites: CapabilityInstallState;
+  readonly "session-audit": CapabilityInstallState;
+  readonly "auto-reset": CapabilityInstallState;
 }>;
 
 /** Public CLI type describing installer platform. */

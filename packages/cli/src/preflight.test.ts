@@ -35,6 +35,7 @@ import {
   parseConfig,
   serializeConfig,
 } from "./installer.ts";
+import { currentModelCatalogJson } from "./model-catalog-fixture.ts";
 import { JsonObjectSchema } from "./schema.ts";
 import { decodeStateText } from "./storage.ts";
 import type { ConflictResolution, InstallReview } from "./types.ts";
@@ -87,6 +88,8 @@ function testRuntime(codexHome: string): InstallerRuntime {
     run: async (executable, args) => {
       const command = `${executable} ${args.join(" ")}`;
       const normalizedCommand = command.replaceAll("\\", "/");
+      if (command === "codex debug models --bundled")
+        return { exitCode: 0, stdout: currentModelCatalogJson(), stderr: "" };
       if (command === "bun pm bin -g") return { exitCode: 0, stdout: `${binRoot}\n`, stderr: "" };
       if (command === "bun pm view ctx7 version")
         return { exitCode: 0, stdout: "2.0.0\n", stderr: "" };
@@ -593,8 +596,12 @@ describe("installer preflight", () => {
         validDecisions: ["remove", "cancel"],
       });
       const document = parseConfig(await readFile(paths.configFile, "utf8"));
-      expect(readTestTomlTable(document["features"])["multi_agent_v2"]).toBe(false);
-      expect(result.record.managed_config?.managed["features.multi_agent_v2"]).toBeDefined();
+      expect(
+        readTestTomlTable(readTestTomlTable(document["features"])["multi_agent_v2"])["enabled"],
+      ).toBe(false);
+      expect(
+        result.record.managed_config?.managed["features.multi_agent_v2.enabled"],
+      ).toBeDefined();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -943,7 +950,7 @@ describe("installer preflight", () => {
     let reviewed: readonly ManagedConflict[] = [];
     try {
       await writeTestConfigValue(paths, "model", "gpt-5.6-terra");
-      await writeTestConfigValue(paths, "features.multi_agent_v2", true);
+      await writeTestConfigValue(paths, "features.multi_agent_v2.enabled", true);
       const result = await removeHolyCodex({
         paths: { codexHome },
         officialPluginManager: manager,
@@ -2088,7 +2095,7 @@ describe("installer preflight", () => {
     const configBeforeRetry = await readFile(paths.configFile, "utf8");
     try {
       await writeTestConfigValue(paths, "model", "gpt-5.6-terra");
-      await writeTestConfigValue(paths, "features.multi_agent_v2", true);
+      await writeTestConfigValue(paths, "features.multi_agent_v2.enabled", true);
       const conflictedConfig = await readFile(paths.configFile, "utf8");
       await writeFile(
         paths.conflictedRecord,
@@ -2128,7 +2135,7 @@ describe("installer preflight", () => {
       expect(preserveLegacyCalls).toBe(0);
       expect(preserveInventory.length).toBeGreaterThanOrEqual(2);
       expect(preserveInventory.map((conflict) => conflict.key)).toEqual(
-        expect.arrayContaining(["model", "features.multi_agent_v2"]),
+        expect.arrayContaining(["model", "features.multi_agent_v2.enabled"]),
       );
       expect(events).toEqual(eventsBeforeRetry);
       expect(await readFile(paths.configFile, "utf8")).toBe(conflictedConfig);
@@ -2160,7 +2167,11 @@ describe("installer preflight", () => {
       expect(retried.record.status).toBe("active");
       const resolvedConfig = parseConfig(await readFile(paths.configFile, "utf8"));
       expect(resolvedConfig["model"]).toBe("gpt-6.1-sol");
-      expect(readTestTomlTable(resolvedConfig["features"])["multi_agent_v2"]).toBe(false);
+      expect(
+        readTestTomlTable(readTestTomlTable(resolvedConfig["features"])["multi_agent_v2"])[
+          "enabled"
+        ],
+      ).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { lstat, open, rm } from "node:fs/promises";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 import {
   cleanupManagedRuntimeConfigEffect,
@@ -29,7 +30,9 @@ import {
   CAPABILITY_REGISTRY,
   DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
   DEFAULT_CAPABILITY_SELECTIONS,
+  GENERIC_BUILTIN_AGENT_TYPES,
   NATIVE_AGENT_TYPES,
+  ROOT_ORCHESTRATION_POLICY,
   STATE_SCHEMA_EPOCH,
   canonicalBaseVersion,
   canonicalJson,
@@ -55,6 +58,7 @@ import * as Effect from "effect/Effect";
 
 import { asJsonValue } from "./json.ts";
 import { readInstallationVersionEffect } from "./manifest.ts";
+import { modelSupportsExperimentalContext, patchCurrentModelCatalog } from "./model-catalog.ts";
 import {
   installNativeAgents,
   inspectNativeAgentConflicts,
@@ -67,6 +71,9 @@ import {
   removeManagedNativeAgents,
   rollbackNativeAgentInstall,
   rootDeveloperInstructions,
+  nativeModelCatalogPath,
+  genericAgentSentinelConfigPath,
+  rootPersonalityIsNone,
   type NativeAgentInstallResult,
 } from "./native-agents.ts";
 import { CodexOfficialPluginManager, OfficialPluginManagerError } from "./official-manager.ts";
@@ -119,6 +126,7 @@ import type {
   ConflictDecision,
   ManagedConflict,
   InstallReview,
+  InstallerRuntime,
 } from "./types.ts";
 
 export {
@@ -238,7 +246,11 @@ function decodeInstallOptionsText(
       capabilities: legacy.capabilities
         .filter(
           (name): name is OptionalCapabilityName =>
-            name === "browser_use" || name === "computer_use" || name === "sites",
+            name === "browser_use" ||
+            name === "computer_use" ||
+            name === "sites" ||
+            name === "session-audit" ||
+            name === "auto-reset",
         )
         .concat(
           ...(["browser_use", "sites"] as const).filter(
@@ -292,6 +304,8 @@ export function installRequestFromPersistedOptions(value: PersistedInstallOption
       browser_use: value.capabilities.includes("browser_use"),
       computer_use: value.capabilities.includes("computer_use"),
       sites: value.capabilities.includes("sites"),
+      "session-audit": value.capabilities.includes("session-audit"),
+      "auto-reset": value.capabilities.includes("auto-reset"),
     },
     officialPlugins: value.additional_plugins.filter(
       (pluginId) => pluginId !== CODEX_DESKTOP_BROWSER_PLUGIN_ID,
@@ -326,9 +340,9 @@ export function persistedOptionsForInstall(
   optional: OptionalSelections,
   additionalPlugins: readonly string[],
 ): PersistedInstallOptions {
-  const capabilities = (["browser_use", "computer_use", "sites"] as const).filter(
-    (name) => optional[name],
-  );
+  const capabilities = (
+    ["browser_use", "computer_use", "sites", "session-audit", "auto-reset"] as const
+  ).filter((name) => optional[name]);
   return {
     schema_version: 1,
     profile,
@@ -683,12 +697,12 @@ export function installHolyCodexEffect(
       );
     }
     const installedAt = (options.now?.() ?? new Date()).toISOString();
-    const desiredConfig = desiredRootConfig(profile, tier, {
-      browserUse: optional.browser_use,
-      computerUse: optional.computer_use,
-      frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
-      security: DEFAULT_CAPABILITY_SELECTIONS.security,
-    });
+    const modelCatalog = yield* readPatchedModelCatalog(runtime);
+    const modelCatalogJson = modelCatalog.json;
+    const supportsExperimentalContext = modelSupportsExperimentalContext(
+      modelCatalog.catalog,
+      projectRootAgent(profile, tier).model,
+    );
     const configBefore = yield* Effect.tryPromise({
       try: () => optionalTextFile(paths.configFile),
       catch: (error) => error,
@@ -712,6 +726,24 @@ export function installHolyCodexEffect(
       return yield* Effect.fail(error);
     }
     const parsedConfigDocument = parsedConfigResult.document;
+    const parentPersonalityNone = rootPersonalityIsNone(
+      readTomlPath(parsedConfigDocument, "personality"),
+    );
+    const desiredConfig = desiredRootConfig(
+      profile,
+      tier,
+      {
+        browserUse: optional.browser_use,
+        computerUse: optional.computer_use,
+        frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
+        security: DEFAULT_CAPABILITY_SELECTIONS.security,
+        sessionAudit: optional["session-audit"],
+        autoReset: optional["auto-reset"],
+        parentPersonalityNone,
+      },
+      paths.codexHome,
+      modelCatalog.catalog,
+    );
     const preflightManagedConfigState =
       previous?.managed_config ??
       createManagedRuntimeConfigState({ schema: STATE_SCHEMA_EPOCH, installId });
@@ -1100,12 +1132,30 @@ export function installHolyCodexEffect(
       | Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>
       | undefined;
     if (previous !== undefined) {
-      previousDesiredConfig = desiredRootConfig(previous.profile, previous.tier, {
-        browserUse: previous.optional_selections.browser_use,
-        computerUse: previous.optional_selections.computer_use,
-        frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
-        security: DEFAULT_CAPABILITY_SELECTIONS.security,
-      });
+      previousDesiredConfig = desiredRootConfig(
+        previous.profile,
+        previous.tier,
+        {
+          browserUse: previous.optional_selections.browser_use,
+          computerUse: previous.optional_selections.computer_use,
+          frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
+          security: DEFAULT_CAPABILITY_SELECTIONS.security,
+          sessionAudit: previous.optional_selections["session-audit"],
+          autoReset: previous.optional_selections["auto-reset"],
+        },
+        paths.codexHome,
+        modelCatalog.catalog,
+      );
+      if (
+        (previous.managed_config?.managed["permissions.holycodex.extends"] !== undefined ||
+          previous.managed_config?.managed["permissions.holycodex.network.enabled"] !==
+            undefined) &&
+        readTomlPath(configDocument, "default_permissions") === "holycodex"
+      ) {
+        // 0.16.11 selected this profile after the managed-key merge, so its value was absent from
+        // the previous desired projection despite being the effective managed default.
+        previousDesiredConfig.default_permissions = "holycodex";
+      }
       const previousBaseVersion = canonicalBaseVersion(previous.version.split("-", 1)[0]!);
       for (const agentType of NATIVE_AGENT_TYPES) {
         const previousArtifact = previous.managed_artifacts.find(({ path }) =>
@@ -1203,10 +1253,18 @@ export function installHolyCodexEffect(
     if (useBatchConflictResolution) pendingConflicts.push(...managedConfigConflicts);
     const nativeConflicts = yield* Effect.tryPromise({
       try: () =>
-        inspectNativeAgentConflicts(paths.codexHome, profile, previous?.managed_artifacts, tier, {
-          browserUse: optional.browser_use,
-          computerUse: optional.computer_use,
-        }),
+        inspectNativeAgentConflicts(
+          paths.codexHome,
+          profile,
+          previous?.managed_artifacts,
+          tier,
+          {
+            browserUse: optional.browser_use,
+            computerUse: optional.computer_use,
+            parentPersonalityNone,
+          },
+          modelCatalogJson,
+        ),
       catch: (error) => new InstallerError("install_failed", safeMessage(error), error),
     });
     if (useBatchConflictResolution)
@@ -1246,7 +1304,7 @@ export function installHolyCodexEffect(
     let resolvedDesiredConfig: Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> = {
       ...desiredConfigWithPersistedManagedValues,
     };
-    let resolvedManagedConfig = currentManagedConfig.managed;
+    let resolvedManagedConfig = { ...currentManagedConfig.managed };
     const applyResolvedConflictDecisions = () =>
       Effect.gen(function* () {
         reviewedNativeConflicts = nativeConflicts.map((conflict) => {
@@ -1388,6 +1446,8 @@ export function installHolyCodexEffect(
             browser_use: optional.browser_use,
             computer_use: optional.computer_use,
             sites: optional.sites,
+            "session-audit": optional["session-audit"],
+            "auto-reset": optional["auto-reset"],
           },
           additionalPlugins: [...additionalPlugins],
           conflicts: reviewConflicts,
@@ -1620,7 +1680,12 @@ export function installHolyCodexEffect(
             tier,
             nativeConflicts.length === 0 ? options.resolveConflict : undefined,
             reviewedNativeConflicts,
-            { browserUse: optional.browser_use, computerUse: optional.computer_use },
+            {
+              browserUse: optional.browser_use,
+              computerUse: optional.computer_use,
+              parentPersonalityNone,
+            },
+            modelCatalogJson,
           ),
         catch: (error) => error,
       });
@@ -1848,6 +1913,28 @@ export function installHolyCodexEffect(
             ? deleteTomlPath(stablePostPluginDocument, keyPath)
             : writeTomlPath(stablePostPluginDocument, keyPath, acceptedValue);
       }
+      const experimentalContextKey = "features.context_management.experimental_mode" as const;
+      const unsupportedContextEntry = resolvedManagedConfig[experimentalContextKey];
+      if (!supportsExperimentalContext && unsupportedContextEntry !== undefined) {
+        const cleanup = yield* cleanupManagedRuntimeConfigEffect(
+          stablePostPluginDocument,
+          {
+            ...currentManagedConfig,
+            managed: { [experimentalContextKey]: unsupportedContextEntry },
+          },
+          { schema: currentManagedConfig.schema, installId: currentManagedConfig.installId },
+        );
+        if (cleanup.unresolvedKeys.length > 0) {
+          return yield* Effect.fail(
+            new InstallerError(
+              "state_corrupt",
+              "The unsupported context setting cannot be safely released.",
+            ),
+          );
+        }
+        stablePostPluginDocument = cleanup.document;
+        delete resolvedManagedConfig[experimentalContextKey];
+      }
       pluginConfigBefore = postPluginResolution.pluginConfigBefore;
       providerConfigBefore = postPluginResolution.providerConfigBefore;
       const pluginConfigAfter =
@@ -1973,15 +2060,8 @@ export function installHolyCodexEffect(
           ),
         );
       }
-      const initializedPermissionProfile =
-        previous === undefined ||
-        (previous.managed_config?.managed["permissions.holycodex.extends"] === undefined &&
-          readTomlPath(postPluginConfig.document, "default_permissions") === undefined);
-      const installedConfigDocument = initializedPermissionProfile
-        ? writeTomlPath(postPluginConfig.document, "default_permissions", "holycodex")
-        : postPluginConfig.document;
       yield* Effect.tryPromise({
-        try: () => writeAtomicText(paths.configFile, serializeConfig(installedConfigDocument)),
+        try: () => writeAtomicText(paths.configFile, serializeConfig(postPluginConfig.document)),
         catch: (error) => error,
       });
       configPublished = true;
@@ -2031,6 +2111,8 @@ export function installHolyCodexEffect(
           computerUse: optional.computer_use,
           frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
           security: DEFAULT_CAPABILITY_SELECTIONS.security,
+          sessionAudit: optional["session-audit"],
+          autoReset: optional["auto-reset"],
         },
         publishedConfigState,
         native.preserved,
@@ -2392,18 +2474,63 @@ export function readActiveInstallRecordEffect(
     if (raw === undefined) return undefined;
     const current = decodeSchema(InstallRecordSchema, raw);
     if (current !== undefined) {
-      if (!(yield* recordDigestMatchesRawEffect(current)))
-        return yield* Effect.fail(
-          new InstallerError(
-            "state_corrupt",
-            "The existing HolyCodex configuration has an invalid digest.",
-          ),
-        );
+      let record = current;
+      if (!(yield* recordDigestMatchesRawEffect(current))) {
+        const prior = persistedSelectionsOmitNewOptIns(raw)
+          ? decodeSchema(InstallRecordMigrationSchema, raw)
+          : undefined;
+        const priorWithPersistedSelections =
+          prior === undefined
+            ? undefined
+            : {
+                ...prior,
+                optional_selections: raw[
+                  "optional_selections"
+                ] as InstallRecord["optional_selections"],
+              };
+        const priorDigestMatches =
+          priorWithPersistedSelections !== undefined &&
+          (yield* recordDigestMatchesRawEffect(priorWithPersistedSelections));
+        if (!priorDigestMatches) {
+          return yield* Effect.fail(
+            new InstallerError(
+              "state_corrupt",
+              "The existing HolyCodex configuration has an invalid digest.",
+            ),
+          );
+        }
+        const digest = yield* installRecordDigestEffect({
+          owner: current.owner,
+          install_id: current.install_id,
+          version: current.version,
+          profile: current.profile,
+          tier: current.tier,
+          optional_selections: current.optional_selections,
+          explicit_optional_selections: current.explicit_optional_selections,
+          official_plugins: current.official_plugins ?? [],
+          capability_state: current.capability_state ?? null,
+          managed_artifacts: current.managed_artifacts,
+          ...(current.managed_config === undefined
+            ? {}
+            : { managed_config: current.managed_config }),
+          ...(current.plugin_config === undefined ? {} : { plugin_config: current.plugin_config }),
+          ...(current.provider_config === undefined
+            ? {}
+            : { provider_config: current.provider_config }),
+          ...(current.plugin_snapshot === undefined
+            ? {}
+            : { plugin_snapshot: current.plugin_snapshot }),
+          ...(current.owned_plugins === undefined ? {} : { owned_plugins: current.owned_plugins }),
+          ...(current.tooling === undefined ? {} : { tooling: current.tooling }),
+        });
+        record = { ...current, digest };
+        migratedActiveDigests.set(record, priorWithPersistedSelections.digest);
+      }
       yield* Effect.tryPromise({
         try: () => migrateValidatedState(paths.activeRecord, raw),
         catch: (error) => error,
       });
-      return current;
+      return record;
     }
     const legacy = decodeSchema(InstallRecordMigrationSchema, raw);
     if (legacy === undefined) {
@@ -2411,7 +2538,12 @@ export function readActiveInstallRecordEffect(
         new InstallerError("state_corrupt", "The HolyCodex configuration is invalid."),
       );
     }
-    if (!(yield* recordDigestMatchesRawEffect(legacy))) {
+    const legacyWithPersistedSelections = {
+      ...legacy,
+      optional_selections: raw["optional_selections"] as InstallRecord["optional_selections"],
+    };
+    const legacyDigestMatches = yield* recordDigestMatchesRawEffect(legacyWithPersistedSelections);
+    if (!legacyDigestMatches) {
       return yield* Effect.fail(
         new InstallerError(
           "state_corrupt",
@@ -2456,16 +2588,17 @@ export function readActiveInstallRecordEffect(
             "plan"
           >)
         : legacy;
-    const priorSelections = legacy.optional_selections;
-    const priorExplicit = legacy.explicit_optional_selections;
+    const priorSelections = legacy.optional_selections as Readonly<
+      Record<string, boolean | undefined>
+    >;
+    const priorExplicit = legacy.explicit_optional_selections as ExplicitOptionalSelections;
     const optionalSelections: OptionalSelections = {
       browser_use:
-        ("browser_use" in priorSelections ? priorSelections.browser_use : undefined) ??
-        DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.browser_use,
-      computer_use: priorSelections.computer_use,
-      sites:
-        ("sites" in priorSelections ? priorSelections.sites : undefined) ??
-        DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.sites,
+        priorSelections["browser_use"] ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.browser_use,
+      computer_use: priorSelections["computer_use"] ?? false,
+      sites: priorSelections["sites"] ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.sites,
+      "session-audit": priorSelections["session-audit"] ?? false,
+      "auto-reset": priorSelections["auto-reset"] ?? false,
       coding: true,
     };
     const explicitOptionalSelections: ExplicitOptionalSelections = {
@@ -2478,6 +2611,12 @@ export function readActiveInstallRecordEffect(
       ...(!("sites" in priorExplicit) || priorExplicit.sites === undefined
         ? {}
         : { sites: priorExplicit.sites }),
+      ...(priorExplicit["session-audit"] === undefined
+        ? {}
+        : { "session-audit": priorExplicit["session-audit"] }),
+      ...(priorExplicit["auto-reset"] === undefined
+        ? {}
+        : { "auto-reset": priorExplicit["auto-reset"] }),
     };
     const capabilityState =
       legacy.capability_state === undefined
@@ -2574,6 +2713,16 @@ export function readInstallTransactionEffect(
         try: () => migrateValidatedState(path, raw),
         catch: (error) => error,
       });
+      const priorDigest = active === undefined ? undefined : migratedActiveDigests.get(active);
+      if (
+        active !== undefined &&
+        priorDigest !== undefined &&
+        persistedSelectionsOmitNewOptIns(raw) &&
+        current.install_id === active.install_id &&
+        current.digest === priorDigest
+      ) {
+        return { ...current, digest: active.digest };
+      }
       return current;
     }
     const legacy = decodeSchema(InstallTransactionMigrationSchema, raw);
@@ -2616,16 +2765,14 @@ export function readInstallTransactionEffect(
           ),
       }),
     );
-    const selections = legacy.optional_selections;
-    const explicit = legacy.explicit_optional_selections;
+    const selections = legacy.optional_selections as Readonly<Record<string, boolean | undefined>>;
+    const explicit = legacy.explicit_optional_selections as ExplicitOptionalSelections;
     const optionalSelections: OptionalSelections = {
-      browser_use:
-        ("browser_use" in selections ? selections.browser_use : undefined) ??
-        DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.browser_use,
-      computer_use: selections.computer_use ?? false,
-      sites:
-        ("sites" in selections ? selections.sites : undefined) ??
-        DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.sites,
+      browser_use: selections["browser_use"] ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.browser_use,
+      computer_use: selections["computer_use"] ?? false,
+      sites: selections["sites"] ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.sites,
+      "session-audit": selections["session-audit"] ?? false,
+      "auto-reset": selections["auto-reset"] ?? false,
       coding: true,
     };
     const explicitOptionalSelections: ExplicitOptionalSelections = {
@@ -2634,6 +2781,10 @@ export function readInstallTransactionEffect(
         : { browser_use: explicit.browser_use }),
       ...(explicit.computer_use === undefined ? {} : { computer_use: explicit.computer_use }),
       ...(!("sites" in explicit) || explicit.sites === undefined ? {} : { sites: explicit.sites }),
+      ...(explicit["session-audit"] === undefined
+        ? {}
+        : { "session-audit": explicit["session-audit"] }),
+      ...(explicit["auto-reset"] === undefined ? {} : { "auto-reset": explicit["auto-reset"] }),
     };
     const priorCapabilityState = legacy.capability_state;
     const capabilityState =
@@ -2702,6 +2853,8 @@ function toCoreSelections(value: OptionalSelections): OptionalCapabilitySelectio
     browser_use: value.browser_use,
     computer_use: value.computer_use,
     sites: value.sites,
+    "session-audit": value["session-audit"],
+    "auto-reset": value["auto-reset"],
   };
 }
 
@@ -3621,7 +3774,12 @@ export function desiredRootConfig(
         computerUse?: boolean;
         frontend?: boolean;
         security?: boolean;
+        sessionAudit?: boolean;
+        autoReset?: boolean;
+        parentPersonalityNone?: boolean;
       }> = false,
+  codexHome = process.env["CODEX_HOME"] ?? join(homedir(), ".codex"),
+  modelCatalog?: unknown,
 ): Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> {
   const root = projectRootAgent(profile, tier);
   const rootOptions = typeof capabilities === "boolean" ? {} : capabilities;
@@ -3631,18 +3789,24 @@ export function desiredRootConfig(
       typeof capabilities === "boolean"
         ? capabilities
         : (rootOptions.computerUse ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.computer_use),
+    ...(rootOptions.parentPersonalityNone === undefined
+      ? {}
+      : { parentPersonalityNone: rootOptions.parentPersonalityNone }),
   };
   const generationId = nativeAgentGenerationId(profile, tier, nativeOptions);
   const desired: Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>> = {
     model: root.model,
+    model_catalog_json: nativeModelCatalogPath(codexHome),
     model_reasoning_effort: root.effort,
     service_tier: root.serviceTier,
+    "agents.enabled": true,
     "agents.max_concurrent_threads_per_session": 21,
+    "agents.max_depth": 1,
     web_search: "live",
     approval_policy: "on-request",
     approvals_reviewer: "auto_review",
-    "permissions.holycodex.extends": ":workspace",
-    "permissions.holycodex.network.enabled": true,
+    default_permissions: ":danger-full-access",
+    include_collaboration_mode_instructions: false,
     model_verbosity: "low",
     developer_instructions: rootDeveloperInstructions({
       ...(typeof capabilities === "boolean" ? { computerUse: capabilities } : capabilities),
@@ -3651,14 +3815,68 @@ export function desiredRootConfig(
     suppress_unstable_features_warning: true,
     "features.multi_agent": true,
     "features.default_mode_request_user_input": true,
-    "features.multi_agent_v2": false,
+    "features.goals": false,
+    "features.image_generation": true,
+    "features.memories": false,
+    "features.request_permissions_tool": false,
+    "features.skill_search": true,
+    "features.sleep_tool": false,
+    "features.multi_agent_v2.enabled": false,
+    "features.multi_agent_v2.usage_hint_text": ROOT_ORCHESTRATION_POLICY.v1UsageHintText,
     "features.agent_message_board": false,
-    "features.context_management.experimental_mode": true,
+    "features.code_mode.enabled": true,
+    "features.code_mode.direct_only_tool_namespaces": ["multi_agent_v1"],
+    "tools.experimental_request_user_input.enabled": false,
+    "tools.update_plan.enabled": false,
+    ...(modelCatalog !== undefined && modelSupportsExperimentalContext(modelCatalog, root.model)
+      ? { "features.context_management.experimental_mode": true }
+      : {}),
   };
   for (const agentType of NATIVE_AGENT_TYPES) {
     desired[`agents."${agentType}".config_file`] = nativeAgentConfigPath(agentType, generationId);
   }
+  for (const agentType of GENERIC_BUILTIN_AGENT_TYPES) {
+    desired[`agents.${agentType}.config_file`] = genericAgentSentinelConfigPath(
+      agentType,
+      generationId,
+    );
+  }
   return desired;
+}
+
+function readPatchedModelCatalog(runtime: InstallerRuntime): Effect.Effect<
+  Readonly<{
+    catalog: Readonly<Record<string, unknown>>;
+    json: string;
+  }>,
+  unknown
+> {
+  return Effect.gen(function* () {
+    const result = yield* Effect.tryPromise({
+      try: () => runtime.run("codex", ["debug", "models", "--bundled"]),
+      catch: (error) => error,
+    });
+    if (result.exitCode !== 0) {
+      return yield* Effect.fail(
+        new InstallerError(
+          "install_failed",
+          `The current Codex model catalog could not be read: ${result.stderr || "Codex debug models failed."}`,
+        ),
+      );
+    }
+    const parsed = yield* Effect.try({
+      try: () => JSON.parse(result.stdout) as unknown,
+      catch: (error) => error,
+    });
+    const patched = yield* Effect.try({
+      try: () => patchCurrentModelCatalog(parsed),
+      catch: (error) => error,
+    });
+    return {
+      catalog: patched.catalog,
+      json: `${JSON.stringify(patched.catalog, null, 2)}\n`,
+    };
+  });
 }
 
 function assertPostPluginConfigStable(
@@ -3704,12 +3922,17 @@ function migrateKnownLegacyRoleRegistrations(
   previous: InstallRecord | undefined,
 ): Effect.Effect<Readonly<{ document: TomlDocument; state: ManagedRuntimeConfigState }>, unknown> {
   return Effect.gen(function* () {
-    const legacyKeys = [
-      "agents.explorer.config_file",
-      "agents.librarian.config_file",
-      "agents.worker.config_file",
-      "agents.reviewer.config_file",
-    ] as const;
+    if (!previous) return { document, state };
+    const legacyArtifacts = previous.managed_artifacts.map((artifact) => artifact.path);
+    const legacyRoleTypes = ["explorer", "librarian", "worker", "reviewer"] as const;
+    const legacyRoles = legacyRoleTypes.filter((role) =>
+      legacyArtifacts.some(
+        (path) =>
+          path.startsWith(`agents/${role[0]?.toUpperCase()}${role.slice(1)}.`) ||
+          path === `holycodex/agents/${role}.toml`,
+      ),
+    );
+    const legacyKeys = legacyRoles.map((role) => `agents.${role}.config_file` as const);
     const legacyManaged = Object.fromEntries(
       legacyKeys.flatMap((keyPath) => {
         const entry = state.managed[keyPath];
@@ -3744,15 +3967,7 @@ function migrateKnownLegacyRoleRegistrations(
         ),
       };
     }
-    if (!previous) return { document: output, state: migratedState };
-    const legacyArtifacts = previous.managed_artifacts.map((artifact) => artifact.path);
-    for (const role of ["explorer", "librarian", "worker", "reviewer"] as const) {
-      const hasLegacyRoleArtifact = legacyArtifacts.some(
-        (path) =>
-          path.startsWith(`agents/${role[0]?.toUpperCase()}${role.slice(1)}.`) ||
-          path === `holycodex/agents/${role}.toml`,
-      );
-      if (!hasLegacyRoleArtifact) continue;
+    for (const role of legacyRoles) {
       const keyPath = `agents.${role}.config_file` as const;
       const value = readTomlPath(output, keyPath);
       if (typeof value !== "string") continue;
@@ -3789,6 +4004,9 @@ function migrateLegacyRootConfigSettings(
   state: ManagedRuntimeConfigState,
 ): Effect.Effect<Readonly<{ document: TomlDocument; state: ManagedRuntimeConfigState }>, unknown> {
   return Effect.gen(function* () {
+    const legacyPermissionProfileOwned =
+      state.managed["permissions.holycodex.extends"] !== undefined ||
+      state.managed["permissions.holycodex.network.enabled"] !== undefined;
     const legacy = Object.fromEntries(
       Object.entries(state.managed).filter(([key]) =>
         (LEGACY_ROOT_CONFIG_KEY_PATHS as readonly string[]).includes(key),
@@ -3803,6 +4021,20 @@ function migrateLegacyRootConfigSettings(
     const managed = Object.fromEntries(
       Object.entries(state.managed).filter(([key]) => !(key in legacy)),
     );
+    const hadLegacySelectedDefault =
+      legacyPermissionProfileOwned && readTomlPath(document, "default_permissions") === "holycodex";
+    if (hadLegacySelectedDefault) {
+      // Older HolyCodex releases selected their custom profile outside the managed-key ledger.
+      // Carry its known unset origin into the new built-in Full Access setting for safe rollback.
+      managed["default_permissions"] = {
+        owner: "holycodex",
+        schema: state.schema,
+        installId: state.installId,
+        keyPath: "default_permissions",
+        originalValue: { kind: "absent" },
+        lastManagedValue: { kind: "enum", value: "holycodex" },
+      };
+    }
     return { document: cleanup.document, state: { ...state, managed } };
   });
 }
@@ -4026,12 +4258,14 @@ export function verifyEffectiveInstallEffect(
     computerUse: boolean;
     frontend: boolean;
     security: boolean;
+    sessionAudit?: boolean;
+    autoReset?: boolean;
   }>,
   state: ManagedRuntimeConfigState,
   preservedArtifacts: readonly string[] = [],
   expectedConfig: Readonly<
     Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>
-  > = desiredRootConfig(profile, tier, capabilities),
+  > = desiredRootConfig(profile, tier, capabilities, paths.codexHome),
 ): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
     const text = yield* Effect.tryPromise({
@@ -4039,6 +4273,21 @@ export function verifyEffectiveInstallEffect(
       catch: (error) => error,
     });
     const document = parseConfig(text, paths.configFile);
+    const modelCatalogPath = readTomlPath(document, "model_catalog_json");
+    if (typeof modelCatalogPath !== "string") {
+      return yield* Effect.fail(
+        new InstallerError("install_failed", "The managed model catalog path is missing."),
+      );
+    }
+    const modelCatalogText = yield* Effect.tryPromise({
+      try: () => optionalTextFile(modelCatalogPath),
+      catch: (error) => error,
+    });
+    if (modelCatalogText === undefined) {
+      return yield* Effect.fail(
+        new InstallerError("install_failed", "The managed model catalog is missing."),
+      );
+    }
     const expected = expectedConfig;
     for (const [keyPath, expectedValue] of Object.entries(expected)) {
       const actual = readTomlPath(document, keyPath);
@@ -4056,7 +4305,11 @@ export function verifyEffectiveInstallEffect(
             ),
           );
         }
-      } else if (actual !== expectedValue) {
+      } else if (
+        typeof expectedValue === "object"
+          ? canonicalJson(actual) !== canonicalJson(expectedValue)
+          : actual !== expectedValue
+      ) {
         return yield* Effect.fail(
           new InstallerError(
             "install_failed",
@@ -4068,6 +4321,7 @@ export function verifyEffectiveInstallEffect(
     const nativeOptions = {
       browserUse: capabilities.browserUse ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.browser_use,
       computerUse: capabilities.computerUse,
+      parentPersonalityNone: rootPersonalityIsNone(readTomlPath(document, "personality")),
     };
     const generationId = nativeAgentGenerationId(profile, tier, nativeOptions);
     const projected = projectNativeAgents(profile, tier);
@@ -4119,22 +4373,12 @@ export function verifyEffectiveInstallEffect(
         typeof roleDoc["model_reasoning_effort"] !== "string" ||
         typeof roleDoc["service_tier"] !== "string" ||
         typeof roleDoc["developer_instructions"] !== "string" ||
+        roleDoc["personality"] !==
+          (rootPersonalityIsNone(readTomlPath(document, "personality")) ? "friendly" : "none") ||
         !nativeAgentSandboxConfigurationMatches(agent, roleDoc) ||
         roleDoc["tool_output_token_limit"] !== undefined ||
-        readTomlPath(roleDoc, "agents.enabled") !== false ||
-        readTomlPath(roleDoc, "features.multi_agent") !== false ||
-        readTomlPath(roleDoc, "features.multi_agent_v2") !== false ||
-        readTomlPath(roleDoc, "features.agent_message_board") !== false ||
-        readTomlPath(roleDoc, "features.context_management.experimental_mode") !== true ||
-        Object.keys((roleDoc["features"] as Record<string, unknown> | undefined) ?? {}).some(
-          (key) =>
-            ![
-              "multi_agent",
-              "multi_agent_v2",
-              "agent_message_board",
-              "context_management",
-            ].includes(key),
-        )
+        roleDoc["agents"] !== undefined ||
+        roleDoc["features"] !== undefined
       ) {
         return yield* Effect.fail(
           new InstallerError("install_failed", `The ${agent.name} role file is malformed.`),
@@ -4170,7 +4414,13 @@ function mergeExplicitOptionalSelections(
   requested: ExplicitOptionalSelections | undefined,
 ): ExplicitOptionalSelections {
   const merged: Record<string, boolean> = {};
-  for (const name of ["browser_use", "computer_use", "sites"] as const) {
+  for (const name of [
+    "browser_use",
+    "computer_use",
+    "sites",
+    "session-audit",
+    "auto-reset",
+  ] as const) {
     const value = requested?.[name] ?? previous?.[name];
     if (value !== undefined) merged[name] = value;
   }
@@ -4548,6 +4798,8 @@ function chooseOptional(
     browser_use: selected.browser_use,
     computer_use: selected.computer_use,
     sites: selected.sites,
+    "session-audit": selected["session-audit"],
+    "auto-reset": selected["auto-reset"],
     coding: true,
   };
 }
@@ -4556,7 +4808,15 @@ function capabilityStateFor(
   selections: OptionalSelections,
   failures: ReadonlyMap<OptionalCapabilityName, "missing" | "uncertain"> = new Map(),
 ): CapabilityStateRecord {
-  const names = ["browser_use", "computer_use", "frontend", "security", "sites"] as const;
+  const names = [
+    "browser_use",
+    "computer_use",
+    "frontend",
+    "security",
+    "sites",
+    "session-audit",
+    "auto-reset",
+  ] as const;
   return Object.fromEntries(
     names.map((name) => {
       const selected = name === "frontend" || name === "security" ? true : selections[name];
@@ -4614,6 +4874,13 @@ function installRecordDigestEffect(
     try: () => domainSeparatedSha256("install-record", [canonicalJsonUtf8(asJsonValue(payload))]),
     catch: (error) => error,
   });
+}
+
+function persistedSelectionsOmitNewOptIns(value: JsonObject): boolean {
+  const selections = value["optional_selections"];
+  if (typeof selections !== "object" || selections === null || Array.isArray(selections))
+    return false;
+  return !Object.hasOwn(selections, "session-audit") || !Object.hasOwn(selections, "auto-reset");
 }
 
 /** Check whether an install record still matches its authenticated digest. */
@@ -5024,12 +5291,14 @@ export function verifyEffectiveInstall(
     computerUse: boolean;
     frontend: boolean;
     security: boolean;
+    sessionAudit?: boolean;
+    autoReset?: boolean;
   }>,
   state: ManagedRuntimeConfigState,
   preservedArtifacts: readonly string[] = [],
   expectedConfig: Readonly<
     Partial<Record<ManagedConfigKeyPath, ManagedConfigWriteValue>>
-  > = desiredRootConfig(profile, tier, capabilities),
+  > = desiredRootConfig(profile, tier, capabilities, paths.codexHome),
 ): Promise<void> {
   return Effect.runPromise(
     verifyEffectiveInstallEffect(

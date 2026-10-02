@@ -44,7 +44,7 @@ const packagePaths = {
 } as const;
 
 const expectedDependencies: Record<string, readonly string[]> = {
-  "@holycodex/agent": ["@holycodex/core"],
+  "@holycodex/agent": ["@holycodex/codex", "@holycodex/core"],
   "@holycodex/core": [],
   "@holycodex/codex": ["@holycodex/core"],
   "@holycodex/plugin": ["@holycodex/core"],

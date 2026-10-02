@@ -29,6 +29,12 @@ HolyCodex installation. Removal is:
 bunx holycodex remove
 ```
 
+HolyCodex selects Codex's built-in full-access permission setting with
+on-request approvals, automatic review for eligible permission requests, and
+live web search. Automatic review handles permission requests; it is not a
+sandbox. Reconciliation changes only HolyCodex-owned settings and preserves
+unrelated user configuration.
+
 Profiles choose routing only. The live profiles are `low`, `default`, and
 `high`; `default` is recommended. Service tiers (`standard`, `fast`, and
 `fast-all`) control service handling independently. They do not change
@@ -54,9 +60,8 @@ surface/runtime; Computer Use has stronger platform and surface restrictions
 and greater external-action capability. Use `--json` when another program
 needs the complete structured state; human output stays concise.
 
-HolyCodex manages `features.context_management.experimental_mode = true` for
-Root and generated specialists. Removal restores the recorded prior value when
-unchanged.
+HolyCodex projects the experimental context-management setting only for models
+whose current Codex catalog metadata advertises support.
 
 The public `holycodex` CLI is for installation, diagnosis, removal, and
 versioning. Root's model-facing state surface is the separate deterministic

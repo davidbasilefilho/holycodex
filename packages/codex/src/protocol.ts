@@ -462,6 +462,92 @@ export const ModelProviderCapabilitiesResultSchema = JsonObjectSchema;
 /** Result returned by the model provider capabilities operation. */
 export type ModelProviderCapabilitiesResult = typeof ModelProviderCapabilitiesResultSchema.Type;
 
+/** Parameters for reading current account rate limits through the local App Server RPC. */
+export const AccountRateLimitsReadParamsSchema = Schema.Struct({
+  supportsLunaReserve: Schema.optional(Schema.Boolean),
+  excludeResetCreditDetails: Schema.optional(Schema.Boolean),
+});
+/** Current account usage window used by reset policy evaluation. */
+export const AccountRateLimitWindowSchema = Schema.Struct({
+  usedPercent: Schema.Number.check(
+    Schema.isFinite(),
+    Schema.isGreaterThanOrEqualTo(0),
+    Schema.isLessThanOrEqualTo(100),
+  ),
+  windowDurationMins: Schema.Union([
+    Schema.Number.check(Schema.isFinite(), Schema.isGreaterThan(0)),
+    Schema.Null,
+  ]),
+  resetsAt: Schema.Union([Schema.Number.check(Schema.isFinite()), Schema.Null]),
+});
+/** Current primary and secondary usage windows for one account limit. */
+export const AccountRateLimitSnapshotSchema = Schema.StructWithRest(
+  Schema.Struct({
+    primary: Schema.Union([AccountRateLimitWindowSchema, Schema.Null]),
+    secondary: Schema.Union([AccountRateLimitWindowSchema, Schema.Null]),
+  }),
+  JsonObjectRest,
+);
+/** Parameters accepted by the current account rate limits RPC. */
+export type AccountRateLimitsReadParams = GeneratedV2.GetAccountRateLimitsParams;
+/** Typed window fields needed to evaluate banked-reset thresholds. */
+export type AccountRateLimitWindow = typeof AccountRateLimitWindowSchema.Type;
+/** Validated current usage windows for one account limit. */
+export type AccountRateLimitSnapshot = typeof AccountRateLimitSnapshotSchema.Type;
+/** One backend-described banked reset credit from the current account usage read. */
+export const AccountRateLimitResetCreditSchema = Schema.Struct({
+  id: Schema.String.check(Schema.isMinLength(1)),
+  resetType: Schema.Literals(["codexRateLimits", "unknown"]),
+  status: Schema.Literals(["available", "redeeming", "redeemed", "unknown"]),
+  grantedAt: Schema.Number.check(Schema.isFinite()),
+  expiresAt: Schema.Union([Schema.Number.check(Schema.isFinite()), Schema.Null]),
+  title: Schema.Union([Schema.String, Schema.Null]),
+  description: Schema.Union([Schema.String, Schema.Null]),
+});
+/** Validated credit row for banked reset selection. */
+export type AccountRateLimitResetCredit = typeof AccountRateLimitResetCreditSchema.Type;
+/** Validates current account rate-limit data while preserving current upstream fields. */
+export const AccountRateLimitsReadResultSchema = Schema.StructWithRest(
+  Schema.Struct({
+    rateLimits: AccountRateLimitSnapshotSchema,
+    rateLimitsByLimitId: Schema.Union([
+      Schema.Record(Schema.String, AccountRateLimitSnapshotSchema),
+      Schema.Null,
+    ]),
+    rateLimitResetCredits: Schema.Union([
+      Schema.StructWithRest(
+        Schema.Struct({
+          availableCount: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+          credits: Schema.Union([Schema.Array(AccountRateLimitResetCreditSchema), Schema.Null]),
+        }),
+        JsonObjectRest,
+      ),
+      Schema.Null,
+    ]),
+  }),
+  JsonObjectRest,
+);
+/** Current rate-limit windows and banked reset-credit availability. */
+export type AccountRateLimitsReadResult = typeof AccountRateLimitsReadResultSchema.Type;
+
+/** Parameters for consuming one banked account reset credit. */
+export const ConsumeAccountRateLimitResetCreditParamsSchema = Schema.Struct({
+  idempotencyKey: Schema.String.check(Schema.isMinLength(1)),
+  creditId: Schema.optional(
+    Schema.Union([Schema.String.check(Schema.isMinLength(1)), Schema.Null]),
+  ),
+});
+/** Validated outcome returned after a banked reset-credit consume request. */
+export const ConsumeAccountRateLimitResetCreditResultSchema = Schema.Struct({
+  outcome: Schema.Literals(["reset", "nothingToReset", "noCredit", "alreadyRedeemed"]),
+});
+/** Typed request accepted by the current reset-credit consume RPC. */
+export type ConsumeAccountRateLimitResetCreditParams =
+  GeneratedV2.ConsumeAccountRateLimitResetCreditParams;
+/** Result returned by the current reset-credit consume RPC. */
+export type ConsumeAccountRateLimitResetCreditResult =
+  GeneratedV2.ConsumeAccountRateLimitResetCreditResponse;
+
 /** Validates config read params values at the Codex boundary. */
 export const ConfigReadParamsSchema = Schema.Struct({
   includeLayers: Schema.optional(Schema.Boolean),

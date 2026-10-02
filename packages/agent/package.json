@@ -6,6 +6,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@holycodex/codex": "workspace:*",
     "@holycodex/core": "workspace:*",
     "effect": "catalog:"
   }

@@ -37,8 +37,10 @@ claiming success. Unsupported selections are not silently ignored or
 substituted.
 
 Root's selected model, reasoning effort, service tier, compact developer
-instructions, required feature flags, and every canonical leaf registration
-are managed in `config.toml`. The parent session is Root; HolyCodex never
+instructions, V1 multi-agent settings, required feature flags, and every
+canonical leaf registration are managed in `config.toml`. The model catalog is
+derived from the current Codex catalog and reconciled on install, update, and
+reconcile. The parent session is Root; HolyCodex never
 creates or registers `agents/root.toml`. Native leaf profiles encode
 `standard` as `service_tier = "default"`; `fast` keeps Root on `default` and
 sets leaves to `fast`; `fast-all` sets both Root and leaves to `fast`. Leaf
@@ -51,8 +53,9 @@ instructions target GPT-6-family behavior; temporary route IDs are not
 instruction semantics. Historical route and profile values are migration-only.
 
 When Browser Use or Computer Use is enabled and available, applicable
-directives come from canonical shared specialist policy. Root decides when the
-capability is needed and delegates ordinary execution through Role.task; Root
+directives come from canonical shared specialist policy. Root delegates
+ordinary execution through exact registered Role.task assignments using the
+V1 direct orchestration tools; Root
 retains visual inspection for visual tasks and shared dev-server management. Tool availability alone grants no authority.
 
 Official OpenAI plugin health accepts the allowlisted `openai-curated` and

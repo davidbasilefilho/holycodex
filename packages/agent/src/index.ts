@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 import {
   AssignmentInvocationCapabilitySchema,
   AssignmentResultInputSchema,
   AssignmentStartInputSchema,
   CreateAssignmentInputSchema,
   CreateIntentInputSchema,
+  InstalledOptionalCapabilitySelectionsSchema,
   IntentStateSchema,
   IntentEvidenceInputSchema,
   IntentStore,
@@ -15,13 +20,31 @@ import {
   VcsIntegrationInputSchema,
 } from "@holycodex/core";
 import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
+import type { AutoResetAccountClient } from "./auto-reset-runtime.ts";
+import { withAutoResetAccountClient } from "./auto-reset-runtime.ts";
+import {
+  AutoResetDecisionInputSchema,
+  decideBankedReset,
+  inspectAccountRateLimits,
+} from "./auto-reset.ts";
+import type { AutoResetLiveState } from "./auto-reset.ts";
 import { agentHelp, agentHelpRequested } from "./help.ts";
 
 const ResponseVersion = "holycodex-agent-response-1" as const;
 const ArgvSchema = Schema.Array(Schema.String);
 const RequiredOptionSchema = Schema.String.check(Schema.isMinLength(1));
+const PermissionStateSchema = Schema.Literals(["granted", "refused"]);
+const ActiveRecordOptionalSelectionsSchema = Schema.Struct({
+  owner: Schema.Literals(["holycodex"]),
+  optional_selections: InstalledOptionalCapabilitySelectionsSchema,
+});
+const ActiveRecordStateEnvelopeSchema = Schema.Struct({
+  format_version: Schema.Literals([1]),
+  record: Schema.Unknown,
+});
 const RevisionSchema = Schema.FiniteFromString.check(Schema.isInt(), Schema.isGreaterThan(0));
 const AssignmentInterruptionRecoveryInputSchema = Schema.Struct({
   invocationId: Schema.String,
@@ -34,10 +57,14 @@ const AssignmentInterruptionRecoveryInputSchema = Schema.Struct({
 export interface AgentIo {
   /** Working directory used as the default repository path. */
   readonly cwd?: string;
+  /** Codex home whose persisted HolyCodex selection controls optional account features. */
+  readonly codexHome?: string;
   /** Writes one complete response line to standard output. */
   readonly writeStdout: (text: string) => void;
   /** Writes one complete error line to standard error. */
   readonly writeStderr: (text: string) => void;
+  /** Mockable local account client for deterministic auto-reset CLI validation. */
+  readonly autoResetAccountClient?: AutoResetAccountClient;
 }
 
 /** Runs the deterministic model-facing CLI without prompts, TUI, or ANSI. */
@@ -62,7 +89,7 @@ export function runAgentBinary(
     }
     const parsed = yield* parseOptions(validatedArgv);
     const store = new IntentStore(parsed.options["repo"] ?? io.cwd ?? process.cwd());
-    const data = yield* execute(store, parsed.command, parsed.subcommand, parsed.options);
+    const data = yield* execute(store, parsed.command, parsed.subcommand, parsed.options, io);
     yield* Effect.sync(() =>
       io.writeStdout(
         `${JSON.stringify({ schema_version: ResponseVersion, ok: true, operation: `${parsed.command}.${parsed.subcommand}`, data })}\n`,
@@ -95,6 +122,7 @@ function execute(
   command: string,
   subcommand: string,
   options: Readonly<Record<string, string>>,
+  io: AgentIo,
 ) {
   return Effect.gen(function* () {
     const intent = options["intent"];
@@ -230,8 +258,107 @@ function execute(
     }
     if (command === "state" && subcommand === "diagnose")
       return yield* store.diagnose(yield* requiredValue(intent, "intent"));
+    if (command === "auto-reset") {
+      if (subcommand === "evaluate") {
+        const input = yield* decodeJson(
+          AutoResetDecisionInputSchema,
+          yield* required(options, "input"),
+        );
+        return decideBankedReset(input);
+      }
+      if (subcommand === "read") {
+        yield* requireInstalledAutoResetCapability(io.codexHome);
+        const permission = yield* permissionState(options["authorization"]);
+        return yield* withAutoResetAccountClient(io.autoResetAccountClient, (client) =>
+          Effect.gen(function* () {
+            const liveState = yield* readLiveAutoResetState(client, permission);
+            return reportAutoResetState(liveState);
+          }),
+        );
+      }
+      if (subcommand === "consume") {
+        yield* requireInstalledAutoResetCapability(io.codexHome);
+        const permission = yield* permissionState(options["authorization"]);
+        const idempotencyKey = yield* required(options, "idempotency-key");
+        return yield* withAutoResetAccountClient(io.autoResetAccountClient, (client) =>
+          Effect.gen(function* () {
+            const liveState = yield* readLiveAutoResetState(client, permission);
+            const report = reportAutoResetState(liveState);
+            const eligibleCreditId = liveState.eligibleCreditId;
+            if (liveState.policy.decision !== "resetAuthorized" || eligibleCreditId === null)
+              return { ...report, outcome: "notConsumed" as const };
+            const outcome = yield* Effect.tryPromise({
+              try: () =>
+                client.consumeAccountRateLimitResetCredit({
+                  idempotencyKey,
+                  creditId: eligibleCreditId,
+                }),
+              catch: (error) => error,
+            });
+            return { ...report, outcome: outcome.outcome };
+          }),
+        );
+      }
+    }
     return yield* Effect.fail(new AgentCliError("invalid_usage", "Unknown command. Use --help."));
   });
+}
+
+function requireInstalledAutoResetCapability(codexHome?: string) {
+  const home = codexHome ?? process.env["CODEX_HOME"] ?? join(homedir(), ".codex");
+  const activeRecord = join(home, "holycodex", "active.toml");
+  return Effect.tryPromise({
+    try: () => readFile(activeRecord, "utf8"),
+    catch: () => disabledAutoResetCapability(),
+  }).pipe(
+    Effect.flatMap((contents) =>
+      Effect.try({
+        try: () =>
+          contents.trimStart().startsWith("{")
+            ? (JSON.parse(contents) as unknown)
+            : Bun.TOML.parse(contents),
+        catch: () => disabledAutoResetCapability(),
+      }).pipe(
+        Effect.flatMap((persisted) => {
+          const envelope = Schema.decodeUnknownResult(ActiveRecordStateEnvelopeSchema)(persisted);
+          const record = Result.isSuccess(envelope) ? envelope.success.record : persisted;
+          return Schema.decodeUnknownEffect(ActiveRecordOptionalSelectionsSchema)(record).pipe(
+            Effect.mapError(() => disabledAutoResetCapability()),
+            Effect.flatMap((active) =>
+              active.optional_selections["auto-reset"]
+                ? Effect.void
+                : Effect.fail(disabledAutoResetCapability()),
+            ),
+          );
+        }),
+      ),
+    ),
+  );
+}
+
+function disabledAutoResetCapability() {
+  return new AgentCliError(
+    "capability_disabled",
+    "Auto reset is disabled for this HolyCodex installation. Enable it in the install options first.",
+  );
+}
+
+function readLiveAutoResetState(
+  client: AutoResetAccountClient,
+  permission: "notRequested" | "granted" | "refused",
+) {
+  return Effect.tryPromise({
+    try: () => client.readAccountRateLimits(),
+    catch: (error) => error,
+  }).pipe(Effect.map((account) => inspectAccountRateLimits(account, permission)));
+}
+
+function reportAutoResetState(liveState: AutoResetLiveState) {
+  return {
+    ...liveState.policy,
+    availableCreditCount: liveState.availableCreditCount,
+    hasSelectableCodexCredit: liveState.eligibleCreditId !== null,
+  };
 }
 
 function parseOptions(argv: readonly string[]) {
@@ -284,6 +411,9 @@ function allowedOptions(command: string, subcommand: string): ReadonlySet<string
     "assignment recover": ["intent", "assignment", "revision", "input"],
     "assignment result": ["intent", "assignment", "revision", "input"],
     "state diagnose": ["intent"],
+    "auto-reset evaluate": ["input"],
+    "auto-reset read": ["authorization"],
+    "auto-reset consume": ["authorization", "idempotency-key"],
   };
   return new Set([...common, ...(options[`${command} ${subcommand}`] ?? [])]);
 }
@@ -331,6 +461,14 @@ function requiredInteger(value: string | undefined, name: string) {
     ),
   );
 }
+function permissionState(value: string | undefined) {
+  if (value === undefined) return Effect.succeed("notRequested" as const);
+  return Schema.decodeUnknownEffect(PermissionStateSchema)(value).pipe(
+    Effect.mapError(
+      () => new AgentCliError("invalid_input", "--authorization must be granted or refused."),
+    ),
+  );
+}
 function classify(error: unknown): {
   readonly code: string;
   readonly message: string;
@@ -346,6 +484,7 @@ function classify(error: unknown): {
 }
 
 export { agentHelp, agentHelpRequested } from "./help.ts";
+export type { AutoResetAccountClient } from "./auto-reset-runtime.ts";
 
 if (import.meta.main) {
   process.exitCode = await runAgentBinary();

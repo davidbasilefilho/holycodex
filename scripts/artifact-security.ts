@@ -53,7 +53,7 @@ export function assertAllowedArtifactEntries(
  * relative, normalized with forward slashes, and stable.
  */
 export function listSafeArtifactEntries(root: string, label: string): Promise<string[]> {
-  return Effect.runPromise(listSafeArtifactEntriesEffect(root, label));
+  return Effect.runPromise(Effect.suspend(() => listSafeArtifactEntriesEffect(root, label)));
 }
 
 function listSafeArtifactEntriesEffect(
@@ -105,7 +105,9 @@ export function assertSafeArtifactFile(
   relativePath: string,
   label: string,
 ): Promise<void> {
-  return Effect.runPromise(assertSafeArtifactFileEffect(path, relativePath, label));
+  return Effect.runPromise(
+    Effect.suspend(() => assertSafeArtifactFileEffect(path, relativePath, label)),
+  );
 }
 
 function assertSafeArtifactFileEffect(
@@ -198,40 +200,44 @@ export function assertBuildUploadEntries(entries: readonly string[]): void {
 /** Validate the complete build upload directory against its allowlist. */
 export function assertBuildUploadDirectory(root: string): Promise<void> {
   return Effect.runPromise(
-    listSafeArtifactEntriesEffect(root, "the build output").pipe(
-      Effect.tap((entries) => Effect.sync(() => assertBuildUploadEntries(entries))),
-      Effect.asVoid,
+    Effect.suspend(() =>
+      listSafeArtifactEntriesEffect(root, "the build output").pipe(
+        Effect.tap((entries) => Effect.sync(() => assertBuildUploadEntries(entries))),
+        Effect.asVoid,
+      ),
     ),
   );
 }
 
 /** Validate a release output directory and its expected tarball metadata. */
 export function assertReleaseOutputDirectory(root: string, expectedTarball: string): Promise<void> {
-  if (!/^holycodex-[^/\\]+\.tgz$/u.test(expectedTarball)) {
-    throw new Error("the expected release tarball name is invalid");
-  }
   return Effect.runPromise(
-    listSafeArtifactEntriesEffect(root, "the release output").pipe(
-      Effect.tap((entries) =>
-        Effect.sync(() =>
-          assertAllowedArtifactEntries(
-            entries,
-            ["release-metadata.json", expectedTarball],
-            "the release output",
+    Effect.suspend(() => {
+      if (!/^holycodex-[^/\\]+\.tgz$/u.test(expectedTarball)) {
+        throw new Error("the expected release tarball name is invalid");
+      }
+      return listSafeArtifactEntriesEffect(root, "the release output").pipe(
+        Effect.tap((entries) =>
+          Effect.sync(() =>
+            assertAllowedArtifactEntries(
+              entries,
+              ["release-metadata.json", expectedTarball],
+              "the release output",
+            ),
           ),
         ),
-      ),
-      Effect.tap((entries) =>
-        Effect.sync(() => {
-          if (!entries.includes(expectedTarball)) {
-            throw new Error("the release output is missing its expected tarball");
-          }
-          if (!entries.includes("release-metadata.json")) {
-            throw new Error("the release output is missing its identity metadata");
-          }
-        }),
-      ),
-      Effect.asVoid,
-    ),
+        Effect.tap((entries) =>
+          Effect.sync(() => {
+            if (!entries.includes(expectedTarball)) {
+              throw new Error("the release output is missing its expected tarball");
+            }
+            if (!entries.includes("release-metadata.json")) {
+              throw new Error("the release output is missing its identity metadata");
+            }
+          }),
+        ),
+        Effect.asVoid,
+      );
+    }),
   );
 }

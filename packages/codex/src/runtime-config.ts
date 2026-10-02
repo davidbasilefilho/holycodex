@@ -105,14 +105,9 @@ export function readTomlPath(document: TomlDocument, keyPath: string): TomlValue
       return undefined;
     }
     current = current[part]!;
-    if (
-      index === 1 &&
-      parts[0] === "features" &&
-      part === "context_management" &&
-      typeof current === "boolean" &&
-      parts[2] === "experimental_mode"
-    ) {
-      return current;
+    if (index === 1 && parts[0] === "features" && typeof current === "boolean") {
+      if (part === "context_management" && parts[2] === "experimental_mode") return current;
+      if (part === "multi_agent_v2" && parts[2] === "enabled") return current;
     }
   }
   return current;
@@ -148,14 +143,20 @@ export function writeTomlPath(
     const nested = Object.prototype.hasOwnProperty.call(current, part) ? current[part] : undefined;
     if (nested !== undefined && !isTomlTable(nested)) {
       if (
-        part !== "context_management" ||
         typeof nested !== "boolean" ||
-        current !== output["features"]
+        current !== output["features"] ||
+        !["context_management", "multi_agent_v2"].includes(part)
       ) {
         throw invalidData("TOML table path", keyPath);
       }
-      if (parts.at(-1) === "experimental_mode" && nested === value) return output;
-      current[part] = { experimental_mode: nested };
+      if (
+        ((part === "context_management" && parts.at(-1) === "experimental_mode") ||
+          (part === "multi_agent_v2" && parts.at(-1) === "enabled")) &&
+        nested === value
+      )
+        return output;
+      current[part] =
+        part === "context_management" ? { experimental_mode: nested } : { enabled: nested };
     }
     const next: Record<string, TomlValue> =
       nested === undefined
@@ -200,21 +201,40 @@ export function deleteTomlPath(document: TomlDocument, keyPath: string): TomlDoc
 /** Canonical root config key paths used by the Codex integration. */
 export const ROOT_CONFIG_KEY_PATHS = [
   "model",
+  "model_catalog_json",
   "model_reasoning_effort",
   "service_tier",
+  "agents.enabled",
+  "agents.default.config_file",
+  "agents.worker.config_file",
+  "agents.explorer.config_file",
+  "agents.librarian.config_file",
+  "agents.reviewer.config_file",
   "agents.max_concurrent_threads_per_session",
+  "agents.max_depth",
   "web_search",
   "approval_policy",
   "approvals_reviewer",
-  "permissions.holycodex.extends",
-  "permissions.holycodex.network.enabled",
+  "default_permissions",
   "model_verbosity",
   "developer_instructions",
+  "include_collaboration_mode_instructions",
+  "tools.experimental_request_user_input.enabled",
+  "tools.update_plan.enabled",
   "suppress_unstable_features_warning",
   "features.multi_agent",
   "features.default_mode_request_user_input",
-  "features.multi_agent_v2",
+  "features.goals",
+  "features.image_generation",
+  "features.memories",
+  "features.request_permissions_tool",
+  "features.skill_search",
+  "features.sleep_tool",
+  "features.multi_agent_v2.enabled",
+  "features.multi_agent_v2.usage_hint_text",
   "features.agent_message_board",
+  "features.code_mode.enabled",
+  "features.code_mode.direct_only_tool_namespaces",
   "features.context_management.experimental_mode",
 ] as const;
 /** Type of root config key path values. */
@@ -227,7 +247,10 @@ export type RootConfigKeyPath = (typeof ROOT_CONFIG_KEY_PATHS)[number];
 export const LEGACY_ROOT_CONFIG_KEY_PATHS = [
   "model_auto_compact_token_limit",
   "features.context_management",
+  "features.multi_agent_v2",
   "sandbox_workspace_write.network_access",
+  "permissions.holycodex.extends",
+  "permissions.holycodex.network.enabled",
 ] as const;
 /** Type of legacy root config key path values. */
 export type LegacyRootConfigKeyPath = (typeof LEGACY_ROOT_CONFIG_KEY_PATHS)[number];
@@ -238,12 +261,7 @@ export const HOLYCODEX_AGENT_TYPES = NATIVE_AGENT_TYPES;
 export type HolyCodexAgentType = NativeAgentType;
 /** Type of agent config key path values. */
 export type AgentConfigKeyPath = `agents."${HolyCodexAgentType}".config_file`;
-type LegacyAgentConfigKeyPath =
-  | 'agents."Reviewer.plan".config_file'
-  | "agents.explorer.config_file"
-  | "agents.librarian.config_file"
-  | "agents.worker.config_file"
-  | "agents.reviewer.config_file";
+type LegacyAgentConfigKeyPath = 'agents."Reviewer.plan".config_file';
 /** Type of managed config key path values. */
 export type ManagedConfigKeyPath =
   | RootConfigKeyPath
@@ -303,6 +321,8 @@ type ManagedEnum =
   | ":read-only"
   | "on-request"
   | "auto_review"
+  | ":danger-full-access"
+  | "holycodex"
   | "user"
   | "never"
   | "low"
@@ -314,9 +334,12 @@ const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 /** Type of managed config safe value values. */
 export type ManagedConfigSafeValue =
   | { readonly kind: "enum"; readonly value: ManagedEnum }
+  | { readonly kind: "text"; readonly value: string }
+  | { readonly kind: "string_array"; readonly value: readonly string[] }
   | { readonly kind: "number"; readonly value: number }
   | { readonly kind: "boolean"; readonly value: boolean }
   | { readonly kind: "relative_path"; readonly value: string }
+  | { readonly kind: "absolute_path"; readonly value: string }
   | { readonly kind: "digest"; readonly value: Sha256Digest };
 /** Type of managed config original value values. */
 export type ManagedConfigOriginalValue = ManagedConfigSafeValue | { readonly kind: "absent" };
@@ -325,7 +348,7 @@ export type ManagedConfigOriginalValue = ManagedConfigSafeValue | { readonly kin
 const SafeMetadataTextSchema = Schema.String.check(Schema.isPattern(SAFE_IDENTIFIER_PATTERN));
 const ManagedEnumSchema = Schema.Union([
   SafeMetadataTextSchema,
-  Schema.Literals([":workspace", ":read-only"]),
+  Schema.Literals([":workspace", ":read-only", ":danger-full-access"]),
 ]);
 const SafeManagedNumberSchema = Schema.Number.check(
   Schema.makeFilter((value) => Number.isSafeInteger(value) && value >= 0),
@@ -334,14 +357,25 @@ const Sha256DigestSchema: Schema.Codec<Sha256Digest, unknown> = Schema.String.ch
   Schema.isPattern(/^[a-f0-9]{64}$/u),
 ) as Schema.Codec<Sha256Digest, unknown>;
 const SafeRelativeConfigPathSchema = Schema.String.check(Schema.makeFilter(isRelativeConfigPath));
+const SafeAbsoluteConfigPathSchema = Schema.String.check(
+  Schema.makeFilter(isSafeAbsoluteConfigPath),
+);
+const SafeManagedTextSchema = Schema.String.check(
+  Schema.makeFilter((value) => value.length > 0 && value.length <= 2_000),
+);
+const SafeToolNamespaceSchema = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,64}$/u));
+const SafeToolNamespaceArraySchema = Schema.Array(SafeToolNamespaceSchema);
 const ManagedConfigSafeValueShapeSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literals(["enum"]), value: ManagedEnumSchema }),
+  Schema.Struct({ kind: Schema.Literals(["text"]), value: SafeManagedTextSchema }),
+  Schema.Struct({ kind: Schema.Literals(["string_array"]), value: SafeToolNamespaceArraySchema }),
   Schema.Struct({
     kind: Schema.Literals(["number"]),
     value: SafeManagedNumberSchema,
   }),
   Schema.Struct({ kind: Schema.Literals(["boolean"]), value: Schema.Boolean }),
   Schema.Struct({ kind: Schema.Literals(["relative_path"]), value: SafeRelativeConfigPathSchema }),
+  Schema.Struct({ kind: Schema.Literals(["absolute_path"]), value: SafeAbsoluteConfigPathSchema }),
   Schema.Struct({ kind: Schema.Literals(["digest"]), value: Sha256DigestSchema }),
 ]);
 /** Schema for persisted managed configuration values safe to record and restore. */
@@ -432,7 +466,7 @@ export const ManagedRuntimeConfigStateSchema: Schema.Codec<ManagedRuntimeConfigS
   ) as unknown as Schema.Codec<ManagedRuntimeConfigState, unknown>;
 
 /** Scalar value that can be written to a managed TOML configuration key. */
-export type ManagedConfigWriteValue = string | number | boolean;
+export type ManagedConfigWriteValue = string | number | boolean | readonly string[];
 
 function isSafeMetadataText(value: unknown): value is string {
   return Schema.is(SafeMetadataTextSchema)(value);
@@ -462,8 +496,14 @@ function isSafeValueForKey(
       return value.kind === "boolean";
     case "relative_path":
       return value.kind === "relative_path";
+    case "absolute_path":
+      return value.kind === "absolute_path" && Schema.is(SafeAbsoluteConfigPathSchema)(value.value);
     case "digest":
       return value.kind === "digest";
+    case "string_array":
+      return value.kind === "string_array" && Schema.is(SafeToolNamespaceArraySchema)(value.value);
+    case "text":
+      return value.kind === "text" && Schema.is(SafeManagedTextSchema)(value.value);
     case "enum":
       if (value.kind !== "enum") return false;
       if (keyPath === "model") {
@@ -482,7 +522,6 @@ function isSafeValueForKey(
           value.value === "low" ||
           value.value === "medium" ||
           value.value === "high" ||
-          value.value === "xhigh" ||
           value.value === "max"
         );
       }
@@ -494,6 +533,14 @@ function isSafeValueForKey(
       }
       if (keyPath === "approvals_reviewer") {
         return value.value === "auto_review" || value.value === "user";
+      }
+      if (keyPath === "default_permissions") {
+        return (
+          value.value === ":danger-full-access" ||
+          value.value === ":workspace" ||
+          value.value === ":read-only" ||
+          value.value === "holycodex"
+        );
       }
       if (keyPath === "permissions.holycodex.extends") {
         return (
@@ -545,6 +592,15 @@ function isRelativeConfigPath(value: string): boolean {
   );
 }
 
+function isSafeAbsoluteConfigPath(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= 1_024 &&
+    !value.includes("\u0000") &&
+    /^(?:[A-Za-z]:[\\/]|\\\\|\/)/u.test(value)
+  );
+}
+
 /** Normalize a safe relative agent config path to slash-separated form. */
 export function normalizeRelativeConfigPath(value: string): string {
   if (!isRelativeConfigPath(value)) throw invalidData("relative config path", "[redacted]");
@@ -581,18 +637,42 @@ export function resolveAgentConfigPath(declaringConfigPath: string, configFile: 
 
 function configKeyKind(
   keyPath: ManagedConfigStateKeyPath,
-): "enum" | "number" | "boolean" | "relative_path" | "digest" {
+):
+  | "enum"
+  | "number"
+  | "boolean"
+  | "relative_path"
+  | "absolute_path"
+  | "digest"
+  | "string_array"
+  | "text" {
   if (keyPath === "developer_instructions") return "digest";
+  if (keyPath === "model_catalog_json") return "absolute_path";
   if (keyPath.endsWith(".config_file")) return "relative_path";
-  if (keyPath === "agents.max_concurrent_threads_per_session") return "number";
+  if (keyPath === "agents.max_concurrent_threads_per_session" || keyPath === "agents.max_depth")
+    return "number";
+  if (keyPath === "permissions.holycodex.extends") return "enum";
+  if (keyPath === "features.multi_agent_v2.usage_hint_text") return "text";
+  if (keyPath === "features.code_mode.direct_only_tool_namespaces") return "string_array";
   // Retained solely so persisted prior-release ownership can be validated and removed safely.
   if (keyPath === "model_auto_compact_token_limit") return "number";
   if (
     keyPath === "suppress_unstable_features_warning" ||
+    keyPath === "include_collaboration_mode_instructions" ||
+    keyPath === "tools.experimental_request_user_input.enabled" ||
+    keyPath === "tools.update_plan.enabled" ||
+    keyPath === "agents.enabled" ||
     keyPath === "features.multi_agent" ||
     keyPath === "features.default_mode_request_user_input" ||
-    keyPath === "features.multi_agent_v2" ||
+    keyPath === "features.goals" ||
+    keyPath === "features.image_generation" ||
+    keyPath === "features.memories" ||
+    keyPath === "features.request_permissions_tool" ||
+    keyPath === "features.skill_search" ||
+    keyPath === "features.sleep_tool" ||
+    keyPath === "features.multi_agent_v2.enabled" ||
     keyPath === "features.agent_message_board" ||
+    keyPath === "features.code_mode.enabled" ||
     keyPath === "features.context_management.experimental_mode" ||
     keyPath === "permissions.holycodex.network.enabled" ||
     (LEGACY_ROOT_CONFIG_KEY_PATHS as readonly string[]).includes(keyPath as string)
@@ -606,7 +686,10 @@ function isExpectedValueForKey(keyPath: ManagedConfigKeyPath, value: TomlValue):
   const kind = configKeyKind(keyPath);
   if (kind === "number") return isSafeManagedConfigNumber(value);
   if (kind === "boolean") return typeof value === "boolean";
+  if (kind === "string_array") return Schema.is(SafeToolNamespaceArraySchema)(value);
+  if (kind === "text") return Schema.is(SafeManagedTextSchema)(value);
   if (kind === "relative_path") return typeof value === "string" && isRelativeConfigPath(value);
+  if (kind === "absolute_path") return typeof value === "string" && isSafeAbsoluteConfigPath(value);
   if (kind === "digest") return typeof value === "string";
   if (keyPath === "model") {
     return value === "gpt-6-astra" || value === "gpt-6.1-sol" || value === "gpt-6-luna";
@@ -633,8 +716,16 @@ export function summarizeManagedConfigValueEffect(
   const kind = configKeyKind(keyPath);
   if (kind === "number" && isSafeManagedConfigNumber(value)) return Effect.succeed({ kind, value });
   if (kind === "boolean" && typeof value === "boolean") return Effect.succeed({ kind, value });
+  if (kind === "string_array" && Schema.is(SafeToolNamespaceArraySchema)(value)) {
+    return Effect.succeed({ kind, value });
+  }
+  if (kind === "text" && Schema.is(SafeManagedTextSchema)(value))
+    return Effect.succeed({ kind, value });
   if (kind === "relative_path" && typeof value === "string" && isRelativeConfigPath(value)) {
     return Effect.succeed({ kind, value: normalizeRelativeConfigPath(value) });
+  }
+  if (kind === "absolute_path" && typeof value === "string" && isSafeAbsoluteConfigPath(value)) {
+    return Effect.succeed({ kind, value });
   }
   if (kind === "enum" && typeof value === "string" && isManagedEnum(value)) {
     return Effect.succeed({ kind, value });
@@ -651,15 +742,20 @@ export function summarizeManagedConfigValueEffect(
   );
 }
 
-function safeValueToToml(value: ManagedConfigSafeValue): string | number | boolean | undefined {
+function safeValueToToml(
+  value: ManagedConfigSafeValue,
+): string | number | boolean | readonly string[] | undefined {
   if (
     value.kind === "enum" ||
+    value.kind === "text" ||
     value.kind === "number" ||
     value.kind === "boolean" ||
-    value.kind === "relative_path"
+    value.kind === "relative_path" ||
+    value.kind === "absolute_path"
   ) {
     return value.value;
   }
+  if (value.kind === "string_array") return value.value;
   return undefined;
 }
 
@@ -710,7 +806,8 @@ export function mergeManagedRuntimeConfigEffect(
         !isManagedConfigKeyPath(rawKeyPath) ||
         (typeof nextValue !== "string" &&
           typeof nextValue !== "number" &&
-          typeof nextValue !== "boolean")
+          typeof nextValue !== "boolean" &&
+          !Array.isArray(nextValue))
       ) {
         return yield* Effect.fail(invalidData("managed config key", rawKeyPath));
       }

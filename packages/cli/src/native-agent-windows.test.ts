@@ -31,7 +31,11 @@ import {
   readTomlPath,
   type AsyncLineTransport,
 } from "@holycodex/codex";
-import { ROOT_ORCHESTRATION_POLICY, SPECIALIST_EFFICIENCY_POLICY } from "@holycodex/core";
+import {
+  ROOT_ORCHESTRATION_POLICY,
+  SPECIALIST_AUTHORITY_POLICY,
+  SPECIALIST_EFFICIENCY_POLICY,
+} from "@holycodex/core";
 
 import {
   installHolyCodex,
@@ -43,6 +47,7 @@ import {
   type OfficialPluginManager,
 } from "./index.ts";
 import { parseConfig } from "./installer.ts";
+import { currentModelCatalogJson } from "./model-catalog-fixture.ts";
 import {
   installNativeAgents,
   inspectNativeAgentConflicts,
@@ -50,6 +55,7 @@ import {
   nativeAgentGenerationId,
   nativeAgentSandboxConfigurationMatches,
   rollbackNativeAgentInstall,
+  rootPersonalityIsNone,
 } from "./native-agents.ts";
 
 class ConfigReadTransport implements AsyncLineTransport {
@@ -140,6 +146,9 @@ function windowsRuntime(): InstallerRuntime {
     processPath,
     files,
     run: async (executable, args) => {
+      if (executable === "codex" && args.join(" ") === "debug models --bundled") {
+        return { exitCode: 0, stdout: currentModelCatalogJson(), stderr: "" };
+      }
       if (executable === processPath && args.join(" ") === "pm bin -g") {
         return { exitCode: 0, stdout: `${binRoot}\n`, stderr: "" };
       }
@@ -175,6 +184,23 @@ function pluginManager(): OfficialPluginManager {
 }
 
 describe("Windows native-agent instructions", () => {
+  test("sets an explicit child None only when Root has no explicit None to transition from", () => {
+    const agent = projectNativeAgents("default")[0]!;
+    const childPersonality = (rootPersonality: unknown) =>
+      parseConfig(
+        renderNativeAgent(agent, {
+          parentPersonalityNone: rootPersonalityIsNone(rootPersonality),
+        }),
+      )["personality"];
+
+    expect(rootPersonalityIsNone(undefined)).toBe(false);
+    expect(childPersonality(undefined)).toBe("none");
+    expect(childPersonality(null)).toBe("none");
+    expect(childPersonality("none")).toBe("friendly");
+    expect(childPersonality("friendly")).toBe("none");
+    expect(childPersonality("pragmatic")).toBe("none");
+  });
+
   test("publishes a complete native-agent generation before switching registrations", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "holycodex-agent-generation-"));
     const codexHome = join(temporaryRoot, "codex");
@@ -216,6 +242,9 @@ describe("Windows native-agent instructions", () => {
               const expectedGeneration = nativeAgentGenerationId("low", "standard", {
                 browserUse: true,
                 computerUse: false,
+                parentPersonalityNone: rootPersonalityIsNone(
+                  readTomlPath(published, "personality"),
+                ),
               });
               expect(readTomlPath(published, 'agents."Explorer.map".config_file')).toBe(
                 nativeAgentConfigPath("Explorer.map", expectedGeneration),
@@ -233,6 +262,7 @@ describe("Windows native-agent instructions", () => {
       const nextGeneration = nativeAgentGenerationId("low", "standard", {
         browserUse: upgraded.record.optional_selections.browser_use,
         computerUse: upgraded.record.optional_selections.computer_use,
+        parentPersonalityNone: rootPersonalityIsNone(readTomlPath(finalConfig, "personality")),
       });
       for (const agent of projectNativeAgents("low")) {
         const expectedRef = nativeAgentConfigPath(agent.name, nextGeneration);
@@ -242,6 +272,7 @@ describe("Windows native-agent instructions", () => {
           renderNativeAgent(agent, {
             browserUse: upgraded.record.optional_selections.browser_use,
             computerUse: upgraded.record.optional_selections.computer_use,
+            parentPersonalityNone: rootPersonalityIsNone(readTomlPath(finalConfig, "personality")),
           }),
         );
         const oldRef = previousRefs.get(agent.name);
@@ -275,6 +306,7 @@ describe("Windows native-agent instructions", () => {
       expect(configText).not.toContain("thread_tools");
       expect(configText).not.toContain("holycodex-readonly-network");
       const config = parseConfig(configText);
+      expect(readTomlPath(config, "personality")).toBeUndefined();
       const rootInstructions = config["developer_instructions"];
       expect(typeof rootInstructions).toBe("string");
       expect(rootInstructions).not.toContain("set the shell parameter to exactly");
@@ -287,7 +319,11 @@ describe("Windows native-agent instructions", () => {
       expect(readTomlPath(readback.config, "developer_instructions")).toBe(rootInstructions);
       expect(readTomlPath(readback.config, "features.default_mode_request_user_input")).toBe(true);
       expect(readTomlPath(readback.config, "features.multi_agent")).toBe(true);
-      expect(readTomlPath(readback.config, "features.multi_agent_v2")).toBe(false);
+      expect(readTomlPath(readback.config, "features.multi_agent_v2.enabled")).toBe(false);
+      expect(readTomlPath(readback.config, "agents.max_depth")).toBe(1);
+      expect(
+        readTomlPath(readback.config, "features.code_mode.direct_only_tool_namespaces"),
+      ).toEqual(["multi_agent_v1"]);
       expect(readTomlPath(readback.config, "features.agent_message_board")).toBe(false);
       expect(readTomlPath(readback.config, "features.context_management.experimental_mode")).toBe(
         true,
@@ -295,13 +331,16 @@ describe("Windows native-agent instructions", () => {
       const instructionOptions = {
         browserUse: installed.record.optional_selections.browser_use,
         computerUse: installed.record.optional_selections.computer_use,
+        parentPersonalityNone: rootPersonalityIsNone(readTomlPath(config, "personality")),
       };
       const generationId = nativeAgentGenerationId("default", "standard", instructionOptions);
       for (const agent of projectNativeAgents("default")) {
         const roleRef = nativeAgentConfigPath(agent.name, generationId);
         const rolePath = join(codexHome, ...roleRef.split("/"));
         const roleText = await readFile(rolePath, "utf8");
+        const roleDocument = parseConfig(roleText);
         expect(roleText).toBe(renderNativeAgent(agent, instructionOptions));
+        expect(roleDocument["personality"]).toBe("none");
         expect(nativeAgentSandboxConfigurationMatches(agent, parseConfig(roleText))).toBe(true);
         expect(roleText).not.toContain("sandbox_mode =");
         expect(roleText).not.toContain("approval_policy =");
@@ -310,18 +349,11 @@ describe("Windows native-agent instructions", () => {
         expect(roleText).not.toContain("default_permissions =");
         expect(roleText).not.toContain("[permissions.");
         expect(roleText).not.toContain("thread_tools");
-        const roleDocument = parseConfig(roleText);
-        expect(readTomlPath(roleDocument, "features.multi_agent")).toBe(false);
-        expect(readTomlPath(roleDocument, "features.multi_agent_v2")).toBe(false);
-        expect(readTomlPath(roleDocument, "features.agent_message_board")).toBe(false);
-        expect(readTomlPath(roleDocument, "features.context_management.experimental_mode")).toBe(
-          true,
-        );
+        expect(roleDocument["features"]).toBeUndefined();
+        expect(roleDocument["agents"]).toBeUndefined();
         const roleInstructions = parseConfig(roleText)["developer_instructions"];
         expect(typeof roleInstructions).toBe("string");
-        expect(roleInstructions).toMatch(
-          /Read-only Git\/VCS, CI, and PR-comment inspection is allowed when relevant and within the Assignment; Git\/VCS writes remain Root-only/iu,
-        );
+        expect(roleInstructions).toContain(SPECIALIST_AUTHORITY_POLICY);
         expect(roleInstructions).not.toContain("set the shell parameter to exactly");
         expect(roleInstructions).not.toContain("Git for Windows Bash environment");
         expect(readTomlPath(readback.config, `agents."${agent.name}".config_file`)).toBe(roleRef);
@@ -337,6 +369,7 @@ describe("Windows native-agent instructions", () => {
           {
             browserUse: installed.record.optional_selections.browser_use,
             computerUse: installed.record.optional_selections.computer_use,
+            parentPersonalityNone: rootPersonalityIsNone(readTomlPath(config, "personality")),
           },
         ),
       ).toEqual([]);
@@ -353,6 +386,7 @@ describe("Windows native-agent instructions", () => {
         {
           browserUse: installed.record.optional_selections.browser_use,
           computerUse: installed.record.optional_selections.computer_use,
+          parentPersonalityNone: rootPersonalityIsNone(readTomlPath(config, "personality")),
         },
       );
       expect(conflicts).toHaveLength(1);
@@ -436,6 +470,7 @@ describe("Windows native-agent instructions", () => {
       const generation = nativeAgentGenerationId("low", "standard", {
         browserUse: upgraded.record.optional_selections.browser_use,
         computerUse: upgraded.record.optional_selections.computer_use,
+        parentPersonalityNone: rootPersonalityIsNone(readTomlPath(config, "personality")),
       });
       for (const agent of projectNativeAgents("low")) {
         expect(readTomlPath(config, `agents."${agent.name}".config_file`)).toBe(
@@ -509,8 +544,14 @@ describe("Windows native-agent instructions", () => {
     for (const instructions of [lowSol, sol, high]) {
       expect(instructions).toContain(ROOT_ORCHESTRATION_POLICY.specialistCoordinationInstruction);
       expect(instructions).not.toContain("set the shell parameter to exactly");
-      expect(instructions).toContain('fork_turns: "none"');
-      expect(instructions).toContain("Never perform delegable work yourself");
+      expect(instructions).toContain("fork_context: false");
+      expect(instructions).toContain("Delegate all delegable work");
+      expect(instructions).not.toMatch(/collaboration\./u);
+      expect(instructions).not.toContain("fork_turns");
+      expect(instructions).not.toMatch(/60 seconds/iu);
+      expect(instructions).not.toContain(
+        "first time in a conversation that you decide to apply a skill",
+      );
       expect(instructions).toContain("bounded Assignment");
       expect(instructions).toContain("registered Role.task configuration");
       expect(instructions).toContain("Verify the registration once per configuration generation");
@@ -518,36 +559,18 @@ describe("Windows native-agent instructions", () => {
       expect(instructions).toContain("Do not edit TOON state");
       expect(instructions).toContain("Reviewer.code fixed point");
       expect(instructions).toContain("Worker.validation");
-      expect(instructions).toContain("collaboration.wait_agent");
-      expect(instructions).toContain("Check existing authorization before asking again");
+      expect(instructions).toContain("multi_agent_v1.wait_agent");
       expect(instructions).toContain(
         "Before each specialist spawn, persist the bounded Assignment",
       );
       expect(instructions).toContain("Root uses visual-loop");
+      expect(instructions).toContain("Continue independent work while input is pending");
+      expect(instructions).toContain(ROOT_ORCHESTRATION_POLICY.dependencyAwareAmbiguityInstruction);
+      expect(instructions).toContain("Each multi_agent_v1.wait_agent call must include");
+      expect(instructions).toContain("timeout_ms=600000 exactly");
+      expect(instructions).toContain("compatible warm reuse");
       expect(instructions).toContain(
-        "Prefer request_user_input_async for clarifications and approvals",
-      );
-      expect(instructions).toContain(
-        "use request_user_input only when async would harm the situation",
-      );
-      expect(instructions).toContain(
-        "While a question is pending, do only work independent of its answer",
-      );
-      expect(instructions).toContain(
-        "Invoke grill-me only when uncertainty about intent, implementation, or findings",
-      );
-      expect(instructions).toContain("needs_root_input and never ask the user");
-      expect(instructions).toContain("Treat later user steering as current");
-      expect(instructions).toContain(
-        "Always call collaboration.wait_agent with timeout_ms=600000 for every Root wait.",
-      );
-      expect(instructions).toContain(
-        "Never use a 10-second timeout or any other duration, regardless of the situation.",
-      );
-      expect(instructions).toContain("Do not use Root sleep for specialist coordination");
-      expect(instructions).toContain("prefer the same warm specialist");
-      expect(instructions).toContain(
-        "Dispatch already-known independent Assignments before waiting",
+        "Dispatch every ready scheduling-independent Assignment before waiting",
       );
       expect(instructions).not.toContain(
         "inspect only bounded evidence when a material stall or failure is plausible",
@@ -565,24 +588,36 @@ describe("Windows native-agent instructions", () => {
       expect(instructions).not.toContain("request a status update while the Assignment is active");
       expect(instructions).not.toContain("poll specialist status until it responds");
       expect(instructions).not.toContain("follow up with a running specialist before a report");
-      expect(instructions).toContain(
-        "Give each overlapping write or shared-mutable seam one specialist owner",
-      );
+      expect(instructions).toContain("Write ownership does not overlap");
       expect(instructions).toContain("use dev-server");
       expect(instructions).toContain("Reuse worker proof");
-      expect(instructions).toContain("across workflow phases");
-      expect(instructions).toContain("user explicitly requests direct execution");
+      expect(instructions).toContain("Review and validation may overlap on non-conflicting scopes");
+      expect(instructions).not.toContain("explicitly requests direct execution");
       expect(instructions).toContain(
         "complete only when holycodex-agent confirms every completion predicate",
       );
     }
     expect(high).toBe(sol);
 
-    const leaf = renderNativeAgent(projectNativeAgents("default")[0]!);
+    const firstAgent = projectNativeAgents("default")[0]!;
+    const leaf = renderNativeAgent(firstAgent);
     const leafInstructions = readTomlPath(parseConfig(leaf), "developer_instructions");
     expect(typeof leafInstructions).toBe("string");
+    const expectedTaskAndFamily = firstAgent.taskInstruction
+      .slice(0, firstAgent.taskInstruction.indexOf(SPECIALIST_AUTHORITY_POLICY))
+      .trim();
+    expect((leafInstructions as string).startsWith(expectedTaskAndFamily)).toBe(true);
+    expect((leafInstructions as string).indexOf(SPECIALIST_AUTHORITY_POLICY)).toBeLessThan(
+      (leafInstructions as string).indexOf(SPECIALIST_EFFICIENCY_POLICY),
+    );
+    expect((leafInstructions as string).split(SPECIALIST_EFFICIENCY_POLICY).length - 1).toBe(1);
+    expect(leafInstructions as string).toEndWith(
+      "Do not report progress before the terminal result.",
+    );
     expect(leafInstructions).not.toContain("set the shell parameter to exactly");
-    expect(leafInstructions).toContain("Do not message Root or peers during execution");
+    expect(leafInstructions).toContain("never ask or message the user");
+    expect(leafInstructions).not.toMatch(/request_user_input_async|send_user_message_async/iu);
+    expect(leafInstructions).not.toMatch(/60 seconds/iu);
     expect(leafInstructions).not.toContain("Root may inspect a running specialist");
     expect(leafInstructions).not.toContain("inspect only bounded evidence when a material stall");
     for (const agent of projectNativeAgents("default")) {
@@ -590,12 +625,11 @@ describe("Windows native-agent instructions", () => {
       const projected = readTomlPath(parseConfig(rendered), "developer_instructions");
       expect(projected).toContain(SPECIALIST_EFFICIENCY_POLICY);
     }
-    expect(leaf).toContain("Do not message Root or peers during execution");
-    expect(leaf).toContain("Return only one compact, evidence-first terminal outcome");
-    expect(leaf).toContain("Do not recover an Assignment");
-    expect(leaf).toContain("mutate another Assignment's lifecycle");
-    expect(leaf).toContain("never ask the user");
+    expect(leaf).toContain("never ask or message the user");
+    expect(leaf).toContain("Return exactly one compact, evidence-first terminal outcome");
+    expect(leaf).toContain("mutate Intent or Assignment lifecycle");
+    expect(leaf).toContain("never ask or message the user");
     expect(leaf).not.toContain("actual rendered");
-    expect(leaf).toContain("final visual acceptance");
+    expect(leaf).toContain("final visual judgment");
   });
 });

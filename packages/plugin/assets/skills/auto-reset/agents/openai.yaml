@@ -1,0 +1,6 @@
+interface:
+  display_name: "Auto Reset"
+  short_description: "Apply banked resets at the configured usage thresholds."
+  default_prompt: "Use $auto-reset when this capability is enabled."
+policy:
+  allow_implicit_invocation: false

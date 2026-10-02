@@ -55,13 +55,13 @@ export const ServiceTierSchema = Schema.Literals(["standard", "fast", "fast-all"
 export type ServiceTier = typeof ServiceTierSchema.Type;
 
 /** Runtime schema validating live route effort values at the receiving boundary. */
-export const EffortSchema = Schema.Literals(["low", "medium", "high", "xhigh"]);
+export const EffortSchema = Schema.Literals(["low", "medium", "high"]);
 /** Type representing effort in the core domain. */
 export type Effort = typeof EffortSchema.Type;
 
 /** Canonical patch-quality rule for every source or artifact mutation. */
 export const SURGICAL_MUTATION_RULE =
-  "Satisfy the complete requested outcome correctly, elegantly, and mergeably; never weaken or reinterpret it to shrink the patch. Then make the smallest coherent patch within the authorized boundary. Prefer simple, cohesive, idiomatic solutions with appropriate abstraction and minimal accidental complexity. Avoid unrelated code, prose, configuration, documentation, instructions, tests, restructuring, formatting churn, files, and operations. Preserve unrelated work; return material scope expansion to Root.";
+  "Satisfy the complete requested outcome and acceptance criteria correctly; preserve repository and runtime constraints; then make the smallest coherent patch within the authorized boundary. Prefer simple, cohesive, idiomatic solutions with appropriate abstraction and minimal accidental complexity. Avoid unrelated code, prose, configuration, documentation, instructions, tests, restructuring, formatting churn, files, and operations. Preserve unrelated work; return material scope expansion to Root.";
 
 /** Canonical design judgment shared by Root and visual specialists. */
 export const VISUAL_DESIGN_JUDGMENT =
@@ -71,13 +71,50 @@ export const VISUAL_DESIGN_JUDGMENT =
 export const NO_SOURCE_MUTATION_RULE =
   "Do not modify repository source or the implementation under validation; observation, analysis, and proof artifacts only.";
 
+/** Exact shared meanings used by Root and specialists for orchestration decisions. */
+export const SEMANTIC_DEFINITIONS = Object.freeze({
+  materialDecision:
+    "A choice that changes requirements/accepted behavior, user-facing behavior, architecture/trust boundaries, security posture, persistent/data/API contracts, dependency/toolchain strategy, deployment/external effects, Assignment ownership/scope, or whose reversal would invalidate substantial accepted work.",
+  routineDecision:
+    "A safe reversible choice inside the Assignment that changes none of the material-decision categories.",
+  stableSource:
+    "Every currently planned writer for the seam/revision is terminal and no running Assignment owns an overlapping write that can invalidate dependent evidence.",
+  schedulingIndependent:
+    "Neither action needs the other's output to choose or execute its next action.",
+  writeIndependent:
+    "Write ownership does not overlap and neither Assignment depends on transient mutable state produced by the other.",
+  independentReview:
+    "The reviewer is not the agent whose work is being independently reviewed and does not share ownership that compromises that review.",
+  evidenceInvalidation:
+    "Evidence becomes stale only when a later mutation changes behavior, source/configuration, generated artifact, runtime state, or a dependency assumption established by that evidence.",
+  compatibleWarmReuse:
+    "Reuse is allowed only when the previous specialist is terminal; the same concrete Role.task remains valid; the follow-up fits the same or compatible ownership seam; retained context remains relevant; reuse does not violate independent review; and no conflicting writer is active.",
+  materialVisualDiscrepancy:
+    "A rendered discrepancy affecting acceptance criteria, hierarchy/composition, legibility, accessibility, responsiveness, interaction correctness, reference adherence, or obvious production quality.",
+});
+
+/** Render the canonical semantic definitions once for model-facing contracts. */
+export const SEMANTIC_DEFINITIONS_INSTRUCTION = [
+  ["Material decision", SEMANTIC_DEFINITIONS.materialDecision],
+  ["Routine decision", SEMANTIC_DEFINITIONS.routineDecision],
+  ["Stable source", SEMANTIC_DEFINITIONS.stableSource],
+  ["Scheduling-independent", SEMANTIC_DEFINITIONS.schedulingIndependent],
+  ["Write-independent", SEMANTIC_DEFINITIONS.writeIndependent],
+  ["Independent review", SEMANTIC_DEFINITIONS.independentReview],
+  ["Evidence invalidation", SEMANTIC_DEFINITIONS.evidenceInvalidation],
+  ["Compatible warm reuse", SEMANTIC_DEFINITIONS.compatibleWarmReuse],
+  ["Material visual discrepancy", SEMANTIC_DEFINITIONS.materialVisualDiscrepancy],
+]
+  .map(([name, definition]) => `${name}: ${definition}`)
+  .join(" ");
+
 const LIBRARIAN_CONTEXT7_INSTRUCTION =
   "For current library, framework, SDK, API, CLI, or cloud-service facts, resolve the library identity and query Context7 narrowly before model memory or web search. Return the typed context7 evidence state with version/source evidence. Use web search only when Context7 is unavailable, lacks relevant coverage or the required version, fails for authentication or quota, or a conflict remains after checking authoritative first-party documentation.";
 
-/** Explicit fork policy for ordinary concrete specialist spawns. */
-export const ForkTurnsSchema = Schema.Literals(["none"]);
-/** Type representing fork turns in the core domain. */
-export type ForkTurns = typeof ForkTurnsSchema.Type;
+/** Exact V1 context policy for ordinary concrete specialist spawns. */
+export const ForkContextSchema = Schema.Literals([false]);
+/** Type representing the normal specialist-spawn context policy. */
+export type ForkContext = typeof ForkContextSchema.Type;
 
 /** Canonical work phases; actual dependencies determine ordering for each scope. */
 export const ROOT_ORCHESTRATION_PHASE_ORDER = Object.freeze([
@@ -173,7 +210,7 @@ export const ROLE_DEFINITIONS = [
       {
         name: "visual",
         description: "Rendered visual implementation and interaction specialist.",
-        instruction: `Produce mergeable visual implementation within the Assignment, including frontend, 3D, browser-driven UI, and interactive visualization. Inspect the actual rendered and interacted-with result against acceptance criteria and references; iterate on material discrepancies in visual quality, UI, UX, accessibility, responsiveness, interaction, task adherence, and reference adherence. Use the projected skills appropriate to this visual work. Return changed paths and observable rendered/interaction evidence for independent Reviewer.visual review. ${VISUAL_DESIGN_JUDGMENT}`,
+        instruction: `Produce mergeable visual implementation within the Assignment, including frontend, 3D, browser-driven UI, and interactive visualization. Inspect the actual rendered and interacted-with result against acceptance criteria and references; iterate on material discrepancies in visual quality, UI, UX, accessibility, responsiveness, interaction, task adherence, and reference adherence. Use projected skills appropriate to the work and keep image_generation enabled. Prefer a suitable existing project or user asset, then an online asset legally reusable for the intended use with its required attribution/license provenance, then a generated asset when no reusable asset fits or a generated asset better satisfies the design. Do not search indefinitely when generation is the better implementation choice. Return changed paths and observable rendered/interaction evidence for independent Reviewer.visual review. ${VISUAL_DESIGN_JUDGMENT}`,
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
       {
@@ -226,7 +263,7 @@ export const ROLE_DEFINITIONS = [
         name: "testing",
         description: "Broad test review, repair, and proof specialist.",
         instruction:
-          "Review testing across the assigned scope, repair concrete test or behavior defects within the Assignment, and prove the affected behavior. Return material testing strategy or architecture decisions to Root.",
+          "Own reproduction, regression hunting, benchmark methodology and results, missing or ineffective behavioral tests, flaky tests, test architecture, and testing-related behavior defects. Repair concrete in-scope defects and prove the affected behavior. Return material test-strategy and architecture decisions to Root. Add no redundant tests; behavior expectations must come from externally meaningful contracts rather than implementation internals.",
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
       {
@@ -245,14 +282,14 @@ export const ROLE_DEFINITIONS = [
         name: "audit",
         description: "Bounded audit and repair specialist.",
         instruction:
-          "Review the assigned code for the requested concerns, repair concrete findings within the Assignment to a fixed point, and verify affected behavior.",
+          "Own cross-cutting repository, process, configuration, and integration concerns that have no narrower specialist owner or span multiple categories. Route testing, reproduction, and benchmarks to Reviewer.testing; security and trust-boundary work to Reviewer.security; rendered UI/UX to Reviewer.visual; and implementation correctness to Reviewer.code. Repair concrete in-scope findings to a fixed point and verify affected behavior.",
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
       {
         name: "security",
         description: "Codex Security review and bounded repair specialist.",
         instruction:
-          "Use the installed `codex-security:security-diff-scan` skill for an assigned change or `codex-security:security-scan` for an assigned repository scope, then follow applicable `codex-security:validation` and `codex-security:fix-finding` guidance rather than repeating their procedures. Repair validated vulnerabilities within the Assignment and verify affected behavior. Return material security risk, product, and architecture decisions to Root.",
+          "For an implemented change, use `codex-security:security-diff-scan`; for a broader repository scope, use `codex-security:security-scan`; for architecture or trust-boundary analysis, use `codex-security:threat-model`. Apply first-party validation and fix procedures when relevant instead of duplicating them. Hypothetical modeled threats are allowed in threat-model work but are not validated vulnerabilities. Repair validated vulnerabilities within the Assignment and prove the affected behavior. A validated introduced or worsened vulnerability blocks VCS. Return material security, product, architecture, and risk decisions to Root.",
         permissions: { network: true, filesystem: "workspace-write", sourceMutation: true },
       },
     ],
@@ -395,8 +432,18 @@ export const NATIVE_AGENT_TYPES: readonly NativeAgentType[] = Object.freeze(
   nativeAgentTypes.map((agentType) => Schema.decodeUnknownSync(NativeAgentTypeSchema)(agentType)),
 );
 
-/** Generic built-in agent names that must never receive HolyCodex specialist Assignments. */
+/** Shared specialist authority, permission, and lifecycle boundary. */
+export const SPECIALIST_AUTHORITY_POLICY =
+  "Execute only the bounded Assignment using its objective, scope, constraints, dependencies, permissions, ownership, and acceptance criteria; make routine in-scope choices autonomously. Return material decisions, scope expansion, or required user input to Root; never ask or message the user. Do not delegate, mutate Intent or Assignment lifecycle, perform Git/VCS writes, or cause consequential external effects unless the Assignment explicitly grants an allowed effect. Stay within the owned mutable seam, preserve unrelated and concurrent work, and adapt to shared-tree changes. Root owns user interaction, lifecycle, material decisions, integration acceptance, completion, Git/VCS writes, consequential external effects, final visual judgment, and the shared development server." +
+  ` ${SEMANTIC_DEFINITIONS_INSTRUCTION}`;
+
+/** Shared terminal result contract for every concrete specialist Assignment. */
+export const SPECIALIST_TERMINAL_REPORT_POLICY =
+  "Return exactly one compact, evidence-first terminal outcome to Root. Include agent_id, concrete Role.task, owned seam and write scope, terminal outcome, reusable status, changed paths, checks, observable evidence, blockers, Root decisions needed, and remaining risk. If acceptance is blocked by missing input, name the exact missing input and the work it blocks. Reuse is eligible only under the compatible warm reuse definition. Do not report progress before the terminal result.";
+
+/** Generic Codex agent names that must fail closed instead of receiving specialist Assignments. */
 export const GENERIC_BUILTIN_AGENT_TYPES = Object.freeze([
+  "default",
   "worker",
   "explorer",
   "reviewer",
@@ -417,7 +464,13 @@ export function taskInstructionFor(route: RoleTask): string {
   if (definition === undefined) throw new Error("Unknown specialist task policy.");
   const task = definition.tasks.find((candidate) => candidate.name === route.task);
   if (task === undefined) throw new Error("Unknown specialist task policy.");
-  return `${task.instruction} ${definition.sharedInstruction}`;
+  return [
+    task.instruction,
+    definition.sharedInstruction,
+    SPECIALIST_AUTHORITY_POLICY,
+    SPECIALIST_EFFICIENCY_POLICY,
+    SPECIALIST_TERMINAL_REPORT_POLICY,
+  ].join(" ");
 }
 
 /** Return the human-facing description assigned to a concrete specialist route. */
@@ -703,7 +756,7 @@ export const SECURITY_WORKFLOW_POLICY = Object.freeze({
 /** Root orchestration contract; only Root-owned authorities permit direct execution. */
 export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   requiresDelegation: true,
-  explicitUserDirectExecutionOverridesDelegation: true,
+  explicitUserDirectExecutionOverridesDelegation: false,
   assignmentStartAndDispatchPrecedeDelegableExecution: true,
   trivialWorkRequiresDelegation: true,
   preparatoryAndExploratoryWorkRequiresDelegation: true,
@@ -733,8 +786,10 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   rootOwnedAuthority: ROOT_DIRECT_EXECUTION_EXCEPTIONS satisfies readonly RootOwnedAuthority[],
   requestUserInputGates: Object.freeze([
     "missing_authorization_for_consequential_effect",
-    "ambiguity_or_missing_material_input",
+    "missing_or_ambiguous_correctness_input_unresolvable_from_authorized_context",
   ] as const),
+  dependencyAwareAmbiguityInstruction:
+    "When required information is missing, continue actions whose correctness is independent of it and do not perform speculative work whose validity depends on the answer. Ask only when missing or ambiguous information affects correctness and cannot be resolved from authorized context, or authorization for a consequential external effect is missing.",
   surgicalMutationRule: SURGICAL_MUTATION_RULE,
   phaseOrder: ROOT_ORCHESTRATION_PHASE_ORDER,
   phaseGates: Object.freeze({
@@ -747,7 +802,7 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
     independentAssignments: true,
     substantiveIndependentConcurrency: true,
     routinePostdispatchSteering: false,
-    collectiveWaits: true,
+    waitIncludesEveryLiveBlockingSpecialist: true,
     evidenceReusedAcrossPhases: true,
   }),
   atomicLifecycleTransitions: Object.freeze({
@@ -772,11 +827,32 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
     rootOwnedVcsAndExternalEffects: true,
     sharedRuntimeCallerIdentityUnavailable: true,
     legacyResultCompatibilityPreserved: true,
+    terminalReuseStateIncludes: Object.freeze([
+      "agent_id",
+      "concrete Role.task",
+      "owned seam and write scope",
+      "terminal outcome",
+      "reusable status",
+    ] as const),
   }),
   /** Ordinary specialist spawns are explicit, concrete, and preserve route configuration. */
-  normalSpawnForkTurns: "none" as ForkTurns,
-  normalSpawnRequiresExplicitForkTurns: true,
+  normalSpawnForkContext: false as ForkContext,
+  normalSpawnRequiresExplicitRegisteredAgentType: true,
   normalSpawnUsesConcreteRegisteredAgentType: true,
+  normalSpawnModelOverride: false,
+  normalSpawnEffortOverride: false,
+  orchestrationToolNamespace: "multi_agent_v1" as const,
+  orchestrationToolOperations: Object.freeze([
+    "spawn_agent",
+    "send_input",
+    "wait_agent",
+    "resume_agent",
+    "close_agent",
+  ] as const),
+  orchestrationToolsDirectOnly: true,
+  toolSearchRemainsAvailableForDeferredCapabilities: true,
+  v1UsageHintText:
+    "HolyCodex Root delegates all delegable work to exact registered HolyCodex Role.task agent types. For normal spawns use fork_context=false; do not override the selected route's model or effort. Dispatch all ready independent Assignments before waiting. Follow the HolyCodex exact wait contract. Root does not perform delegable fallback work.",
   /** Canonical Root boundary for semantic work-state operations and persisted TOON state. */
   semanticStateBoundary:
     "Use holycodex-agent semantic operations for Intent and Assignment state. Do not edit TOON state. Resume the current Intent or create one for new work; record verification, acceptance, and readiness, and complete only when holycodex-agent confirms every completion predicate. There is no HolyCodex planning workflow or automatic Plan approval gate; preserve existing Plan state when resuming work that uses it.",
@@ -787,6 +863,7 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
     "Before each specialist spawn, persist the bounded Assignment and call holycodex-agent assignment start. Keep the returned active_invocation_id and capability in Root; give the specialist only the bounded Assignment, never the capability. After a terminal report, record the result with that invocation ID and capability. Recover an interrupted invocation only after confirming it stopped, using the matching Root-held capability; never share that capability.",
   assignmentContextIsTaskSpecificOnly: true,
   configuredRouteModelAndEffortPreserved: true,
+  semanticDefinitionsInstruction: SEMANTIC_DEFINITIONS_INSTRUCTION,
   /** Root user updates contain useful or important information only. */
   normalProgressMessages: false,
   normalHeartbeatMessages: false,
@@ -796,21 +873,23 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   routineStatusOnlyChatterForbidden: true,
   fixedCadenceUserUpdatesForbidden: true,
   materialUserUpdateKinds: Object.freeze([
-    "significant_findings_or_decisions",
-    "consequential_blockers_or_input_needs",
-    "release_milestones",
+    "changes_a_root_decision",
+    "changes_the_expected_user_visible_outcome",
+    "user_input_is_required",
+    "authorized_progress_is_blocked",
+    "user_relevant_release_or_completion_milestone",
   ] as const),
   outOfBoundaryRequiresNewAssignment: true,
   /** Root waits and batches lifecycle work instead of polling or status-only loops. */
-  rootWaitTool: "collaboration.wait_agent" as const,
+  rootWaitTool: "multi_agent_v1.wait_agent" as const,
   /** Required duration for every Root wait_agent call; specialist completion wakes early. */
   rootWaitTimeoutMs: 600_000,
   /** Root coordination rules projected into the effective session instructions. */
   specialistCoordinationInstruction:
-    "Coordinate through terminal reports, not conversation. After dispatch, do not inspect a running specialist. Do not message, poll, request status from, or follow up with a running specialist. The only exception is a genuine lifecycle interruption or supersession caused by materially changed user intent, cancellation, or Assignment invalidation that makes continuation incorrect; use the lifecycle mechanism without normal steering. Do not use Root sleep for specialist coordination or create polling/status loops. Wait with the exact required timeout and let specialist completion wake the collective wait. Dispatch already-known independent Assignments before waiting. After a specialist reports, judge its evidence; when compatible follow-up work remains, prefer the same warm specialist if its concrete task fits, its context is useful, independent review and parallelism remain sound, and write ownership does not conflict. Reuse relevant warm context rather than discarding it without reason. Minimize Root model turns: return to judgment for decisions, orchestration boundaries, integration, contradictions, and completion, not for polling, heartbeat traffic, or incremental steering.",
+    "Coordinate through terminal reports, not conversation. After dispatch, do not inspect, message, poll, request status from, or follow up with a running specialist. Interrupt or supersede only when changed user intent, cancellation, or Assignment invalidation makes continued work incorrect. Never sleep or busy-poll for specialist coordination. Dispatch every ready scheduling-independent Assignment before waiting. Each multi_agent_v1.wait_agent call must include every live specialist whose result blocks the next required Root decision or action and use timeout_ms=600000 exactly; terminal completion may wake it early. If the timeout expires while a blocking dependency remains live, perform ready independent work and then wait again with timeout_ms=600000. After a terminal result, prefer compatible warm reuse only when the exact predicate allows it: send_input for immediate follow-up on an open agent, close_agent with no near-term follow-up, or resume_agent then send_input for later reuse after closure. Keep Root turns for judgment, decisions, orchestration boundaries, integration, contradictions, and completion.",
   rootWaitRequiresExactTimeout: true,
   earlySpecialistCompletionWakesWait: true,
-  collectiveMailboxIncludesRelevantAgents: true,
+  waitIncludesEveryLiveBlockingSpecialist: true,
   idleRootWaitRepeatsRequiredTimeout: true,
   shortRootWaitsForbidden: true,
   busyPollingForbidden: true,
@@ -825,6 +904,11 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
   ] as const),
   evidenceFirstConciseStructuredReports: true,
   specialistReportFields: Object.freeze([
+    "agent_id",
+    "concrete Role.task",
+    "owned seam and write scope",
+    "terminal outcome",
+    "reusable status",
     "changed paths",
     "checks",
     "observable evidence",
@@ -868,7 +952,7 @@ export const ROOT_ORCHESTRATION_POLICY = Object.freeze({
 
 /** Shared execution policy automatically projected to every generated specialist. */
 export const SPECIALIST_EFFICIENCY_POLICY =
-  "Minimize model decision boundaries across every tool. Group and parallelize safe operations according to information dependencies, reorder safe known work to expose batching, and continue known work before returning to the model; return only when an intermediate result must be interpreted to choose the next action. Fuse deterministic capability or backend discovery with its operation where practical. Minimize unnecessary tool calls and specialist model calls while preserving correctness, mergeability, required evidence, testing, security, and review. Make tool output decision-relevant and allow all output needed for evidence; impose no arbitrary hard output caps. Do not send progress messages to Root or peers. Finish complete mergeable work and provide necessary proof within the Assignment.";
+  "Batch scheduling-independent operations and parallelize only when information dependencies allow it. Continue deterministic known work before returning to model reasoning; return only when an intermediate result must be interpreted before the next action. Combine deterministic capability discovery with the operation when safe. Avoid duplicate reads, tool calls, and model boundaries. Retain every unique fact needed for correctness, failure diagnosis, acceptance, changed behavior, or a Root decision; remove repetitive and irrelevant output without truncating required evidence.";
 
 /** Returns whether Root may execute a named Root-owned action directly. */
 export function rootDirectExecutionAllowed(exception: RootDirectExecutionException): boolean {

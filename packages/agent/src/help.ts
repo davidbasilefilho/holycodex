@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-const ROOT = `Usage: holycodex-agent <intent|assignment|state> <command> [options]
+const ROOT = `Usage: holycodex-agent <intent|assignment|state|auto-reset> <command> [options]
 
 Deterministic model-facing work-state API. JSON responses use holycodex-agent-response-1.
 Updates to existing records require --revision and are atomic. No command prompts or emits ANSI.
@@ -9,6 +9,7 @@ Commands:
   intent      create, list, current, read, select, transition, evidence, integrate, complete, abandon
   assignment  create, list, read, revise, supersede, start, recover, result
   state       diagnose
+  auto-reset  read current quota/reset evidence, evaluate thresholds, consume an authorized credit
 
 Use -h or --help at any command depth. Failures are classified and exit nonzero.
 `;
@@ -17,6 +18,33 @@ const HELP: Readonly<Record<string, string>> = {
   state: `Usage: holycodex-agent state diagnose --intent <ref> [--repo <path>]
 
 Read-only diagnosis of one Intent, its active Plan, Assignments, and repository baseline.
+`,
+  "auto-reset": `Usage: holycodex-agent auto-reset evaluate --input <json>
+
+Read-only decision adapter for the banked reset thresholds. Input contains one current snapshot
+with primary and secondary usage windows (including explicit nulls), plus optional permission state.
+Output identifies a five-hour window only from a 300-minute bucket and reports whether Root must
+request permission, may use an authorized reset, must not reset, or lacks quota evidence. This
+command never consumes a reset credit.
+`,
+  "auto-reset evaluate": `Usage: holycodex-agent auto-reset evaluate --input <json>
+
+Input: {"snapshot":{"primary":window|null,"secondary":window|null},"permission"?:"notRequested"|"granted"|"refused"}.
+Each window has usedPercent and windowDurationMins. Output includes detected five-hour limit,
+weekly/five-hour remaining percentages, decision, and reason. Read-only; no reset is performed.
+`,
+  "auto-reset read": `Usage: holycodex-agent auto-reset read [--authorization granted|refused]
+
+Reads fresh account rate limits through the local Codex App Server RPC, selects the Codex usage
+snapshot, and reports the threshold decision and whether a known available Codex reset credit exists.
+No reset is consumed. Only Root should run this account capability.
+`,
+  "auto-reset consume": `Usage: holycodex-agent auto-reset consume --idempotency-key <key> [--authorization granted|refused]
+
+Reads fresh account rate limits and verifies the threshold and an available Codex reset credit before
+calling the banked reset-credit RPC. At ask-permission thresholds, pass --authorization granted only
+after the user explicitly authorizes it. A lower no-permission threshold applies even after refusal.
+Only Root should run this consequential action. Retries for one logical attempt must reuse its key.
 `,
   "state diagnose": `Usage: holycodex-agent state diagnose --intent <ref> [--repo <path>]
 

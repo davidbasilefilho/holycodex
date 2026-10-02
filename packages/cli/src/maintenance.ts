@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { createHash } from "node:crypto";
 import { rm, rmdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import {
   cleanupManagedRuntimeConfig,
@@ -52,6 +53,7 @@ import {
 } from "./installer.ts";
 import { asJsonValue } from "./json.ts";
 import { readInstallationVersion } from "./manifest.ts";
+import { patchCurrentModelCatalog } from "./model-catalog.ts";
 import {
   isKnownLegacyRootRoleContent,
   changedNativeAgentRemovalConflicts,
@@ -59,7 +61,9 @@ import {
   inspectNativeAgentRemovalConflicts,
   nativeAgentConfigPath,
   nativeAgentGenerationId,
+  nativeModelCatalogPath,
   projectNativeAgents,
+  rootPersonalityIsNone,
   renderNativeAgent,
   removeManagedNativeAgents,
 } from "./native-agents.ts";
@@ -210,14 +214,20 @@ export function doctorHolyCodexEffect(
 
     if (active) {
       checks["runtime_config"] = yield* doctorRuntimeConfigEffect(paths, active);
-      checks["native_roles"] = yield* doctorNativeRolesEffect(paths, active.profile, active.tier, {
-        browserUse:
-          active.capability_state?.browser_use.status === "healthy" &&
-          active.capability_state.browser_use.selected,
-        computerUse:
-          active.capability_state?.computer_use.status === "healthy" &&
-          active.capability_state.computer_use.selected,
-      });
+      checks["native_roles"] = yield* doctorNativeRolesEffect(
+        paths,
+        active.profile,
+        active.tier,
+        {
+          browserUse:
+            active.capability_state?.browser_use.status === "healthy" &&
+            active.capability_state.browser_use.selected,
+          computerUse:
+            active.capability_state?.computer_use.status === "healthy" &&
+            active.capability_state.computer_use.selected,
+        },
+        active.managed_artifacts,
+      );
       const failedCapability = Object.entries(active.capability_state ?? {}).find(
         ([name, value]) => name !== "browser_use" && value.selected && value.status !== "healthy",
       );
@@ -298,6 +308,8 @@ export function doctorHolyCodexEffect(
               browser_use: active.optional_selections.browser_use,
               computer_use: active.optional_selections.computer_use,
               sites: active.optional_selections.sites,
+              "session-audit": active.optional_selections["session-audit"],
+              "auto-reset": active.optional_selections["auto-reset"],
             },
             active.official_plugins,
           ),
@@ -1170,6 +1182,8 @@ export function upgradeHolyCodexEffect(
               browser_use: source.optional_selections.browser_use,
               computer_use: source.optional_selections.computer_use,
               sites: source.optional_selections.sites,
+              "session-audit": source.optional_selections["session-audit"],
+              "auto-reset": source.optional_selections["auto-reset"],
             },
             officialPlugins: additionalPluginsFromRecord(source),
           }
@@ -1286,10 +1300,35 @@ export function upgradeHolyCodexEffect(
         dryRunConflictInventory.push(conflict);
       }
     }
+    const runtime = options.runtime ?? createInstallerRuntime(environment);
+    const catalogCommand = yield* fromPromise(() =>
+      runtime.run("codex", ["debug", "models", "--bundled"]),
+    );
+    if (catalogCommand.exitCode !== 0) {
+      return yield* Effect.fail(
+        new InstallerError(
+          "upgrade_failed",
+          `The current Codex model catalog could not be read: ${catalogCommand.stderr || "Codex debug models failed."}`,
+        ),
+      );
+    }
+    const catalogInput = yield* Effect.try({
+      try: () => JSON.parse(catalogCommand.stdout) as unknown,
+      catch: (error) => error,
+    });
+    const currentCatalog = yield* Effect.try({
+      try: () => patchCurrentModelCatalog(catalogInput),
+      catch: (error) => error,
+    });
+    const currentJson = `${JSON.stringify(currentCatalog.catalog, null, 2)}\n`;
+    const currentDigest = createHash("sha256").update(currentJson).digest("hex");
+    const installedCatalog = source.managed_artifacts.find(
+      (artifact) => artifact.path === "holycodex/model-catalog.json",
+    );
+    const modelCatalogDrift = installedCatalog?.digest !== currentDigest;
     let toolingDrift = false;
     const toolingDriftReasons: string[] = [];
     const toolingOutcome = yield* Effect.gen(function* () {
-      const runtime = options.runtime ?? createInstallerRuntime(environment);
       const context7Outcome = yield* fromPromise(() =>
         inspectContext7ReadOnly(runtime, source.tooling?.context7),
       ).pipe(
@@ -1353,6 +1392,7 @@ export function upgradeHolyCodexEffect(
         ? ["Root/session configuration", "specialist role definitions"]
         : []),
       ...(transaction ? ["interrupted transaction recovery"] : []),
+      ...(modelCatalogDrift ? ["current Codex model catalog changed"] : []),
       ...(toolingDrift
         ? [`shared tooling reconciliation (${toolingDriftReasons.join(", ")})`]
         : []),
@@ -1690,14 +1730,35 @@ function doctorRuntimeConfigEffect(
       try: () => parseConfig(source),
       catch: (error) => error,
     });
-    const expected = desiredRootConfig(active.profile, active.tier, {
-      browserUse:
-        active.capability_state?.browser_use.status === "healthy" &&
-        active.capability_state.browser_use.selected,
-      computerUse: active.optional_selections.computer_use,
-      frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
-      security: DEFAULT_CAPABILITY_SELECTIONS.security,
+    const modelCatalogText = yield* fromPromise(() =>
+      optionalTextFile(nativeModelCatalogPath(paths.codexHome)),
+    );
+    if (modelCatalogText === undefined) {
+      return failedCheck(["model_catalog_missing"], {
+        path: nativeModelCatalogPath(paths.codexHome),
+      });
+    }
+    const modelCatalog = yield* Effect.try({
+      try: () => JSON.parse(modelCatalogText) as unknown,
+      catch: (error) => error,
     });
+    const expected = desiredRootConfig(
+      active.profile,
+      active.tier,
+      {
+        browserUse:
+          active.capability_state?.browser_use.status === "healthy" &&
+          active.capability_state.browser_use.selected,
+        computerUse: active.optional_selections.computer_use,
+        frontend: DEFAULT_CAPABILITY_SELECTIONS.frontend,
+        security: DEFAULT_CAPABILITY_SELECTIONS.security,
+        sessionAudit: active.optional_selections["session-audit"],
+        autoReset: active.optional_selections["auto-reset"],
+        parentPersonalityNone: rootPersonalityIsNone(readTomlPath(document, "personality")),
+      },
+      paths.codexHome,
+      modelCatalog,
+    );
     const drift: string[] = [];
     for (const keyPath of Object.keys(expected)) {
       const comparison = yield* fromPromise(() =>
@@ -1723,12 +1784,18 @@ function doctorNativeRolesEffect(
     browserUse: false,
     computerUse: false,
   },
+  managedArtifacts: InstallRecord["managed_artifacts"] = [],
 ): Effect.Effect<DoctorCheck, never> {
   return Effect.gen(function* () {
     const source = yield* fromPromise(() => optionalTextFile(paths.configFile));
     const document = yield* Effect.try({ try: () => parseConfig(source), catch: (error) => error });
     const failures: string[] = [];
-    const generationId = nativeAgentGenerationId(profile, tier, capabilities);
+    const managedByPath = new Map(managedArtifacts.map((artifact) => [artifact.path, artifact]));
+    const roleCapabilities = {
+      ...capabilities,
+      parentPersonalityNone: rootPersonalityIsNone(readTomlPath(document, "personality")),
+    };
+    const generationId = nativeAgentGenerationId(profile, tier, roleCapabilities);
     for (const agent of projectNativeAgents(profile, tier)) {
       const ref = readTomlPath(document, `agents."${agent.name}".config_file`);
       const expected = resolveAgentConfigPath(
@@ -1747,7 +1814,24 @@ function doctorNativeRolesEffect(
         failures.push(`${agent.name}:missing`);
         continue;
       }
-      if (roleText !== renderNativeAgent(agent, capabilities)) {
+      const roleDocument = parseConfig(roleText, expected);
+      const roleRelativePath = relative(paths.codexHome, expected).replaceAll("\\", "/");
+      const roleArtifact = managedByPath.get(roleRelativePath);
+      if (
+        roleArtifact === undefined ||
+        createHash("sha256").update(roleText).digest("hex") !== roleArtifact.digest
+      ) {
+        failures.push(`${agent.name}:changed`);
+        continue;
+      }
+      if (
+        roleDocument["personality"] !==
+        (roleCapabilities.parentPersonalityNone ? "friendly" : "none")
+      ) {
+        failures.push(`${agent.name}:personality_changed`);
+        continue;
+      }
+      if (roleText !== renderNativeAgent(agent, roleCapabilities)) {
         failures.push(`${agent.name}:changed`);
         continue;
       }
@@ -1843,6 +1927,8 @@ function emptyRemovalState(): InstallRecord {
       browser_use: false,
       computer_use: false,
       sites: false,
+      "session-audit": false,
+      "auto-reset": false,
       coding: true,
     },
     explicit_optional_selections: {},

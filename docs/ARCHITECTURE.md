@@ -68,7 +68,7 @@ Codex native plugin management → native subagent assets and readback
 Root creates bounded Assignments → native specialists return evidence
    │
    ▼
-Root integrates, performs VCS, delegates exact-ref terminal CI/release checks
+Root integrates, owns VCS, delegates exact-ref terminal CI/release checks
 → validated CLI/state response
 ```
 
@@ -78,7 +78,11 @@ ChatGPT Sites and Browser Use are optional and default on; Computer Use is
 optional and default off. Selected unsupported capabilities fail explicitly
 without substitution. Native subagents receive bounded Assignments; Root
 retains scope, policy, material choices, lifecycle, integration, VCS, and final
-judgment. Browser Use is provisioned by Codex Desktop and is not installed,
+judgment. Root resolves to Codex Multi-Agent V1 and orchestrates through the
+direct-only `multi_agent_v1` namespace. Normal spawns use an exact registered
+HolyCodex `Role.task`, `fork_context = false`, and no model or effort override.
+V2 is disabled; runtime depth one prevents first-level specialists from
+receiving collaboration tools. Browser Use is provisioned by Codex Desktop and is not installed,
 configured, or removed by the CLI; its selection only enables conditional
 specialist guidance. Root delegates ordinary browser and computer execution,
 while retaining visual judgment and the shared background dev server through
@@ -120,18 +124,14 @@ ownership before deleting the same scope. Neither command rewrites unrelated
 Codex settings or installs an unrequested capability.
 
 The `low`, `default`, and `high` product profiles select configured Root and
-specialist route identities and task-specific reasoning effort. Routing model
-IDs do not define instruction behavior: every live skill and generated Root or
-specialist instruction targets the GPT-6 family. Historical routing values
-remain only in migration/cleanup paths for previously managed state. HolyCodex
-owns `features.context_management.experimental_mode = true` for Root and every
-generated leaf. Standard managed-key ownership preserves a user edit and
-restores the recorded prior value during removal.
-Repo-local Intent/Plan/Assignment state remains independent. A bounded `Explorer.trace` dispatch has been
-verified with the `gpt-6-luna`/`high` route and the installed baseline retained;
-session metadata reports V2, so this does not claim live V1 proof or
-HolyCodex-owned fork enforcement. Generated configuration and readback tests
-prove the V1 arrangement only.
+specialist route identities and task-specific reasoning effort. Live routes
+use only low, medium, and high effort. A managed model catalog is derived from
+the current Codex catalog and refreshed during install, update, and reconcile;
+it sets the Root Sol entry to V1 while retaining unrelated model entries and
+fields. Repo-local Intent/Plan/Assignment state remains independent. Generated
+configuration and readback tests do not establish effective live session
+behavior; available evidence does not yet prove V1 tool exposure or child-tool
+absence.
 
 ## Repository shape and checks
 

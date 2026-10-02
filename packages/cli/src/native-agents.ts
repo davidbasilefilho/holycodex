@@ -11,6 +11,8 @@ import {
   GENERIC_BUILTIN_AGENT_TYPES,
   ROOT_ORCHESTRATION_POLICY,
   SPECIALIST_EFFICIENCY_POLICY,
+  SPECIALIST_AUTHORITY_POLICY,
+  SPECIALIST_TERMINAL_REPORT_POLICY,
   FRONTEND_WORKFLOW_POLICY,
   TESTING_POLICY,
   SURGICAL_MUTATION_RULE,
@@ -23,6 +25,7 @@ import {
   type NativeAgentType,
   type ProfileName,
   type RoleTask,
+  type GenericBuiltinAgentType,
   type RootOwnedAuthority,
 } from "@holycodex/core";
 import * as Effect from "effect/Effect";
@@ -53,13 +56,29 @@ export type NativeAgentInstructionOptions = Readonly<{
   computerUse?: boolean;
   /** Whether the required frontend skill provider is projected. */
   frontend?: boolean;
+  /** Whether Root may invoke the session-audit skill for matching work. */
+  sessionAudit?: boolean;
+  /** Whether Root may invoke the auto-reset skill for matching quota evidence. */
+  autoReset?: boolean;
+  /** Whether Root explicitly configures personality `none`, requiring a child transition. */
+  parentPersonalityNone?: boolean;
 }>;
 
 /** Selected interactive capabilities that can be used within specialist Assignments. */
 export type NativeAgentCapabilityOptions = Pick<
   NativeAgentInstructionOptions,
-  "browserUse" | "computerUse"
+  "browserUse" | "computerUse" | "parentPersonalityNone"
 >;
+
+/**
+ * Check whether Root explicitly selects personality `none`.
+ *
+ * An omitted TOML value is no personality override, not the `Personality::None` enum value used by
+ * Codex's child model-instruction reset predicate.
+ */
+export function rootPersonalityIsNone(personality: unknown): boolean {
+  return personality === "none";
+}
 
 /** Configure optional Root capabilities and the Windows shell. */
 export type RootDeveloperInstructionOptions = NativeAgentInstructionOptions &
@@ -67,6 +86,8 @@ export type RootDeveloperInstructionOptions = NativeAgentInstructionOptions &
     computerUse?: boolean;
     frontend?: boolean;
     security?: boolean;
+    sessionAudit?: boolean;
+    autoReset?: boolean;
     /** Selected Root model; retained for installer call compatibility. */
     rootModel?: RootAgentProjection["model"];
   }>;
@@ -79,13 +100,6 @@ export type RootAgentProjection = Readonly<{
   effort: string;
   serviceTier: "default" | "fast";
 }>;
-
-const SPECIALIST_BASELINE_POLICY = [
-  SPECIALIST_EFFICIENCY_POLICY,
-  `Execute the bounded Assignment through its acceptance criteria; make routine in-scope choices without asking. ${TESTING_POLICY.rule} Return material decisions, scope expansion, or required user input to Root; never ask the user. Do not message Root or peers during execution, delegate, change Intent lifecycle, or perform external effects. Read-only Git/VCS, CI, and PR-comment inspection is allowed when relevant and within the Assignment; Git/VCS writes remain Root-only. Source mutation requires permission from the concrete task; proof and cache writes do not grant it. Preserve others' work in the shared tree and adapt to their changes. Root owns the shared background dev server and final visual acceptance. Do not run dev-server or visual-loop.`,
-  "Do not recover an Assignment or mutate another Assignment's lifecycle. Root keeps active invocation capabilities and records terminal results; never request or use those capabilities.",
-  `Return only one compact, evidence-first terminal outcome (${ROOT_ORCHESTRATION_POLICY.specialistOutcomes.map((outcome) => `\`${outcome}\``).join(", ")}) with ${ROOT_ORCHESTRATION_POLICY.specialistReportFields.join(", ")}.`,
-].join(" ");
 
 const ROOT_AUTHORITY_LABELS = {
   user_interaction: "user interaction",
@@ -122,8 +136,6 @@ const DELEGABLE_ACTION_LABELS = {
 const REVIEW_VALIDATION_PHASE_BARRIER =
   "Before acceptance or VCS writes, require a Reviewer.code fixed point and current relevant validation. Review and validation may overlap on non-conflicting scopes; serialize repairs against checks of the same source. Reuse worker proof and assign Worker.validation only for independent proof or an evidence gap. Repairs invalidate only affected evidence.";
 
-const ROOT_EVENT_WAIT_INSTRUCTION = `Always call ${ROOT_ORCHESTRATION_POLICY.rootWaitTool} with timeout_ms=${ROOT_ORCHESTRATION_POLICY.rootWaitTimeoutMs} for every Root wait. Never use a 10-second timeout or any other duration, regardless of the situation. Specialist completion wakes the call early. On timeout, use ${ROOT_ORCHESTRATION_POLICY.rootWaitTimeoutMs} again while any specialist result remains a live dependency; continue independent work between waits. Do not busy-poll or create unnecessary work to avoid waiting. Batch specialist completion updates rather than reporting each completion separately. Continue useful independent work while live dependencies remain. Release specialist leaves after accepting terminal outcomes.`;
-
 /** Public data contract for native agent install result used by CLI operations. */
 export interface NativeAgentInstallResult {
   /** The managed artifacts in native agent install result. */
@@ -159,9 +171,17 @@ export function inspectNativeAgentConflicts(
   previous: readonly ManagedArtifact[] = [],
   tier: ServiceTier = "standard",
   capabilities: NativeAgentCapabilityOptions = {},
+  modelCatalogJson?: string,
 ): Promise<readonly ManagedConflict[]> {
   return Effect.runPromise(
-    inspectNativeAgentConflictsEffect(codexHome, profile, previous, tier, capabilities),
+    inspectNativeAgentConflictsEffect(
+      codexHome,
+      profile,
+      previous,
+      tier,
+      capabilities,
+      modelCatalogJson,
+    ),
   );
 }
 
@@ -171,14 +191,23 @@ function inspectNativeAgentConflictsEffect(
   previous: readonly ManagedArtifact[],
   tier: ServiceTier,
   capabilities: NativeAgentCapabilityOptions,
+  modelCatalogJson?: string,
 ): Effect.Effect<readonly ManagedConflict[], unknown> {
   return Effect.gen(function* () {
     const generationId = nativeAgentGenerationId(profile, tier, capabilities);
-    const root = join(codexHome, "holycodex", "agents", generationId);
-    const projections = projectNativeAgents(profile, tier).map((agent) => ({
-      path: join(root, `${agent.name}.toml`),
-      contents: renderNativeAgent(agent, capabilities),
-    }));
+    const projections = nativeAgentProjections(
+      codexHome,
+      profile,
+      tier,
+      capabilities,
+      generationId,
+    );
+    if (modelCatalogJson !== undefined) {
+      projections.push({
+        path: join(codexHome, "holycodex", "model-catalog.json"),
+        contents: modelCatalogJson,
+      });
+    }
     const previousByPath = new Map(
       previous.map((artifact) => [join(codexHome, artifact.path), artifact]),
     );
@@ -214,6 +243,7 @@ function inspectNativeAgentRemovalConflictsEffect(
   return Effect.gen(function* () {
     const root = join(codexHome, "agents");
     const managedRoot = join(codexHome, "holycodex", "agents");
+    const managedCatalog = join(codexHome, "holycodex", "model-catalog.json");
     const conflicts: (ManagedConflict & { readonly action: "remove" })[] = [];
     for (const artifact of artifacts) {
       const target = join(codexHome, artifact.path);
@@ -221,7 +251,8 @@ function inspectNativeAgentRemovalConflictsEffect(
         !pathWithin(codexHome, target) ||
         (!pathWithin(root, target) &&
           !pathWithin(managedRoot, target) &&
-          target !== join(codexHome, "config.toml"))
+          target !== join(codexHome, "config.toml") &&
+          target !== managedCatalog)
       ) {
         continue;
       }
@@ -269,11 +300,12 @@ function changedNativeAgentRemovalConflictsEffect(
   return Effect.gen(function* () {
     const root = join(codexHome, "agents");
     const managedRoot = join(codexHome, "holycodex", "agents");
+    const managedCatalog = join(codexHome, "holycodex", "model-catalog.json");
     const changed: string[] = [];
     for (const [target, reviewedDigest] of reviewedDigests) {
       if (
         !pathWithin(codexHome, target) ||
-        (!pathWithin(root, target) && !pathWithin(managedRoot, target))
+        (!pathWithin(root, target) && !pathWithin(managedRoot, target) && target !== managedCatalog)
       ) {
         changed.push(target);
         continue;
@@ -314,15 +346,44 @@ export function projectNativeAgents(
   });
 }
 
+function nativeAgentProjections(
+  codexHome: string,
+  profile: ProfileName,
+  tier: ServiceTier,
+  capabilities: NativeAgentCapabilityOptions,
+  generationId: string,
+): Array<{ path: string; contents: string }> {
+  const root = join(codexHome, "holycodex", "agents", generationId);
+  return [
+    ...projectNativeAgents(profile, tier).map((agent) => ({
+      path: join(root, `${agent.name}.toml`),
+      contents: renderNativeAgent(agent, capabilities),
+    })),
+    ...GENERIC_BUILTIN_AGENT_TYPES.map((agentType) => ({
+      path: join(root, `sentinel-${agentType}.toml`),
+      contents: renderGenericBuiltinSentinel(
+        agentType,
+        capabilities.parentPersonalityNone === true,
+      ),
+    })),
+  ];
+}
+
 /** Resolve the content-addressed generation that new Codex threads should load. */
 export function nativeAgentGenerationId(
   profileName: ProfileName,
   tier: ServiceTier = "standard",
   instructionOptions: NativeAgentInstructionOptions = {},
 ): string {
-  const snapshot = projectNativeAgents(profileName, tier)
-    .map((agent) => `${agent.name}\0${renderNativeAgent(agent, instructionOptions)}`)
-    .join("\0");
+  const snapshot = [
+    ...projectNativeAgents(profileName, tier).map(
+      (agent) => `${agent.name}\0${renderNativeAgent(agent, instructionOptions)}`,
+    ),
+    ...GENERIC_BUILTIN_AGENT_TYPES.map(
+      (agentType) =>
+        `${agentType}\0${renderGenericBuiltinSentinel(agentType, instructionOptions.parentPersonalityNone)}`,
+    ),
+  ].join("\0");
   return createHash("sha256").update(snapshot).digest("hex").slice(0, 20);
 }
 
@@ -332,6 +393,45 @@ export function nativeAgentConfigPath(agentType: NativeAgentType, generationId: 
     throw new Error("Invalid native-agent generation identifier.");
   }
   return `holycodex/agents/${generationId}/${agentType}.toml`;
+}
+
+/** Resolve the managed TOML path for a generic-route fail-closed sentinel. */
+export function genericAgentSentinelConfigPath(
+  agentType: GenericBuiltinAgentType,
+  generationId: string,
+): string {
+  if (!/^[a-f0-9]{20}$/u.test(generationId)) {
+    throw new Error("Invalid native-agent generation identifier.");
+  }
+  return `holycodex/agents/${generationId}/sentinel-${agentType}.toml`;
+}
+
+/** Render a prompt-only fail-closed guard for one built-in generic route. */
+export function renderGenericBuiltinSentinel(
+  agentType: GenericBuiltinAgentType,
+  parentPersonalityNone = false,
+): string {
+  const instructions = `This is HolyCodex's fail-closed sentinel for the generic \`${agentType}\` route. Do not perform work, inspect files, use tools, or delegate. Immediately return to the parent that the generic route is disabled and that it must use an exact registered Role.task route or report the missing route to Root.`;
+  return [
+    // Codex resolves an `agents.<key>` registration by the `name` stored in
+    // that file. Keep this equal to the registered built-in route so the
+    // sentinel shadows Codex's generic default/worker/explorer implementation.
+    `name = ${JSON.stringify(agentType)}`,
+    `description = ${JSON.stringify(`Fail-closed sentinel for generic ${agentType} assignments.`)}`,
+    'model = "gpt-6-luna"',
+    'model_reasoning_effort = "low"',
+    'service_tier = "default"',
+    'model_reasoning_summary = "none"',
+    'model_verbosity = "low"',
+    `personality = ${JSON.stringify(parentPersonalityNone ? "friendly" : "none")}`,
+    `developer_instructions = ${JSON.stringify(instructions)}`,
+    "",
+  ].join("\n");
+}
+
+/** Return the absolute path of the HolyCodex-owned model catalog in CODEX_HOME. */
+export function nativeModelCatalogPath(codexHome: string): string {
+  return join(codexHome, "holycodex", "model-catalog.json");
 }
 
 /** Project the parent Root model configuration for a profile and service tier. */
@@ -358,74 +458,24 @@ export function rootDeveloperInstructions(
     typeof input === "boolean" ? { computerUse: input, frontend: true, security: true } : input;
   if (
     !ROOT_ORCHESTRATION_POLICY.requiresDelegation ||
-    !ROOT_ORCHESTRATION_POLICY.assignmentStartAndDispatchPrecedeDelegableExecution ||
-    !ROOT_ORCHESTRATION_POLICY.trivialWorkRequiresDelegation ||
-    !ROOT_ORCHESTRATION_POLICY.preparatoryAndExploratoryWorkRequiresDelegation ||
-    ROOT_ORCHESTRATION_POLICY.genericDirectWorkFallback ||
-    ROOT_ORCHESTRATION_POLICY.directExecutionExceptions !==
-      ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority ||
-    !ROOT_ORCHESTRATION_POLICY.codeReviewRequiredForImplementation ||
-    !ROOT_ORCHESTRATION_POLICY.codeReviewRequiredBeforeVcs ||
-    !ROOT_ORCHESTRATION_POLICY.externalVerificationMustBeTerminal ||
-    !ROOT_ORCHESTRATION_POLICY.concreteSpecialistDispatchRequired ||
-    !ROOT_ORCHESTRATION_POLICY.roleFamiliesAreLabelsOnly ||
-    !ROOT_ORCHESTRATION_POLICY.missingConcreteRouteIsBlocker ||
-    !ROOT_ORCHESTRATION_POLICY.normalSpawnRequiresExplicitForkTurns ||
-    ROOT_ORCHESTRATION_POLICY.normalSpawnForkTurns !== "none" ||
-    !ROOT_ORCHESTRATION_POLICY.normalSpawnUsesConcreteRegisteredAgentType ||
+    ROOT_ORCHESTRATION_POLICY.normalSpawnForkContext !== false ||
+    ROOT_ORCHESTRATION_POLICY.normalSpawnModelOverride !== false ||
+    ROOT_ORCHESTRATION_POLICY.normalSpawnEffortOverride !== false ||
+    ROOT_ORCHESTRATION_POLICY.orchestrationToolNamespace !== "multi_agent_v1" ||
+    !ROOT_ORCHESTRATION_POLICY.orchestrationToolsDirectOnly ||
     !ROOT_ORCHESTRATION_POLICY.assignmentContextIsTaskSpecificOnly ||
     !ROOT_ORCHESTRATION_POLICY.configuredRouteModelAndEffortPreserved ||
-    ROOT_ORCHESTRATION_POLICY.normalProgressMessages ||
-    ROOT_ORCHESTRATION_POLICY.normalHeartbeatMessages ||
-    ROOT_ORCHESTRATION_POLICY.normalIntermediateEvidence ||
-    !ROOT_ORCHESTRATION_POLICY.userUpdatesUsefulOrImportantOnly ||
-    !ROOT_ORCHESTRATION_POLICY.routinePerToolOrSubagentNarrationForbidden ||
-    !ROOT_ORCHESTRATION_POLICY.routineStatusOnlyChatterForbidden ||
-    !ROOT_ORCHESTRATION_POLICY.fixedCadenceUserUpdatesForbidden ||
-    !ROOT_ORCHESTRATION_POLICY.materialUserUpdateKinds.includes(
-      "significant_findings_or_decisions",
-    ) ||
-    !ROOT_ORCHESTRATION_POLICY.materialUserUpdateKinds.includes(
-      "consequential_blockers_or_input_needs",
-    ) ||
-    !ROOT_ORCHESTRATION_POLICY.materialUserUpdateKinds.includes("release_milestones") ||
-    !ROOT_ORCHESTRATION_POLICY.outOfBoundaryRequiresNewAssignment ||
-    !ROOT_ORCHESTRATION_POLICY.busyPollingForbidden ||
-    !ROOT_ORCHESTRATION_POLICY.statusOnlyCoordinationLoopsForbidden ||
-    !ROOT_ORCHESTRATION_POLICY.batchIndependentLifecycleActions ||
-    !ROOT_ORCHESTRATION_POLICY.releaseLeavesAfterAcceptedOutcome ||
-    ROOT_ORCHESTRATION_POLICY.rootWaitTool !== "collaboration.wait_agent" ||
+    ROOT_ORCHESTRATION_POLICY.rootWaitTool !== "multi_agent_v1.wait_agent" ||
     ROOT_ORCHESTRATION_POLICY.rootWaitTimeoutMs !== 600_000 ||
-    !ROOT_ORCHESTRATION_POLICY.rootWaitRequiresExactTimeout ||
-    !ROOT_ORCHESTRATION_POLICY.earlySpecialistCompletionWakesWait ||
-    !ROOT_ORCHESTRATION_POLICY.collectiveMailboxIncludesRelevantAgents ||
-    !ROOT_ORCHESTRATION_POLICY.idleRootWaitRepeatsRequiredTimeout ||
-    !ROOT_ORCHESTRATION_POLICY.shortRootWaitsForbidden ||
-    !ROOT_ORCHESTRATION_POLICY.reportDrivenSpecialistCoordination ||
-    !ROOT_ORCHESTRATION_POLICY.runningSpecialistMessagesForbidden ||
-    !ROOT_ORCHESTRATION_POLICY.runningSpecialistInspectionForbidden ||
-    !ROOT_ORCHESTRATION_POLICY.runningSpecialistFollowupForbidden ||
-    !ROOT_ORCHESTRATION_POLICY.followupRequiresTerminalReport ||
-    !ROOT_ORCHESTRATION_POLICY.rootSleepForSpecialistCoordinationForbidden ||
-    !ROOT_ORCHESTRATION_POLICY.pollingAndStatusLoopsForbidden ||
-    !ROOT_ORCHESTRATION_POLICY.warmSpecialistReusePreferred ||
-    !ROOT_ORCHESTRATION_POLICY.warmReuseRequiresContextAndOwnershipFit ||
-    !ROOT_ORCHESTRATION_POLICY.independentAssignmentsDispatchedBeforeWait ||
-    !ROOT_ORCHESTRATION_POLICY.rootDecisionBoundariesMinimized ||
-    !ROOT_ORCHESTRATION_POLICY.evidenceFirstConciseStructuredReports ||
-    (ROOT_ORCHESTRATION_POLICY.specialistReportFields as readonly string[]).length === 0 ||
-    (ROOT_ORCHESTRATION_POLICY.rootLargeReadsOnlyFor as readonly string[]).length === 0 ||
-    !ROOT_ORCHESTRATION_POLICY.stableFactsReused ||
-    !ROOT_ORCHESTRATION_POLICY.duplicatePolicyForbidden ||
-    !ROOT_ORCHESTRATION_POLICY.stableBoundedComponentScopesAreCanonical ||
-    !ROOT_ORCHESTRATION_POLICY.lifecycleWorkerOwnsDeterministicApi ||
+    !ROOT_ORCHESTRATION_POLICY.waitIncludesEveryLiveBlockingSpecialist ||
+    !ROOT_ORCHESTRATION_POLICY.v1UsageHintText.includes("fork_context=false") ||
     ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes !== NATIVE_AGENT_TYPES ||
     ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes !== GENERIC_BUILTIN_AGENT_TYPES
   ) {
     throw new Error("The Root orchestration policy is incomplete.");
   }
   const instructions = [
-    `You are the HolyCodex Root/session orchestrator. Never perform delegable work yourself unless the user explicitly requests direct execution or forbids delegation. Root owns ${ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority.map((authority) => ROOT_AUTHORITY_LABELS[authority]).join("; ")}, within authorization and capability boundaries.`,
+    `You are the HolyCodex Root/session orchestrator. Delegate all delegable work. Root owns ${ROOT_ORCHESTRATION_POLICY.rootOwnedAuthority.map((authority) => ROOT_AUTHORITY_LABELS[authority]).join("; ")}, within authorization and capability boundaries.`,
     `Delegate ${ROOT_ORCHESTRATION_POLICY.delegableActions
       .filter(
         (action) =>
@@ -438,17 +488,16 @@ export function rootDeveloperInstructions(
       )} through bounded Assignments. Bundle related trivial and preparatory steps into a coherent Assignment rather than spawning per action.`,
     ROOT_ORCHESTRATION_POLICY.routeConfigurationBeforeDispatch,
     ROOT_ORCHESTRATION_POLICY.assignmentInvocationLifecycle,
-    `For normal specialist spawns, set fork_turns: "${ROOT_ORCHESTRATION_POLICY.normalSpawnForkTurns}". Give each specialist a self-contained Assignment with objective, bounded scope, constraints, dependencies, acceptance criteria, and evidence needed for acceptance.`,
+    `For normal specialist spawns, set fork_context: ${ROOT_ORCHESTRATION_POLICY.normalSpawnForkContext}; do not override the selected route's model or effort. Give each specialist a self-contained Assignment with objective, bounded scope, constraints, dependencies, acceptance criteria, and evidence needed for acceptance.`,
     `Dispatch each Assignment to its exact concrete registered Role.task agent_type. Registered targets: ${ROOT_ORCHESTRATION_POLICY.registeredSpecialistAgentTypes.join(", ")}. Explorer, Librarian, Worker, and Reviewer are labels only; generic built-in agent_type values ${ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes.join(", ")} are forbidden.`,
+    ROOT_ORCHESTRATION_POLICY.semanticDefinitionsInstruction,
     ROOT_ORCHESTRATION_POLICY.semanticStateBoundary,
-    "User instructions take precedence over skill guidelines. Treat later user steering as current when it changes scope, ownership, or delegation; do not carry forward earlier conflicting constraints. Infer intent from the request and session; carry authorized work through its requested terminal state. Routine omissions get safe defaults. Root routes every user-facing question or doubt through the supported input tools, never prose. Prefer request_user_input_async for clarifications and approvals; use request_user_input only when async would harm the situation or cause unnecessary work, and only when the synchronous tool contract permits that question. Never use a tool for permission requests when its contract forbids them. Invoke grill-me only when uncertainty about intent, implementation, or findings requires the user's project decision; when the request is clear enough, proceed without asking. Ask only what remains unresolved, never turn clarification into planning. While a question is pending, do only work independent of its answer; never do dependent or speculative work that must be redone after the answer. Required answers remain pending until an actual response; elapsed time is not an answer or approval. Specialists return material input needs to Root as needs_root_input and never ask the user. Dispatch immediately when no decision blocks the next step, and continue independent work while an answer is pending. Check existing authorization before asking again; prepare the concrete reviewable result before requesting approval for a consequential effect. Credential entry remains user-owned.",
-    "Dispatch independent non-conflicting Assignments concurrently as soon as their inputs are ready, including across workflow phases. Give each overlapping write or shared-mutable seam one specialist owner and send follow-ups to that owner instead of spawning competing writers; start dependent review or validation once its source is stable. Reuse accepted findings instead of repeating discovery. Batch independent tool reads and lifecycle work where supported; keep revisions and dependent writes ordered. Resolve material contradictions before acceptance.",
+    ROOT_ORCHESTRATION_POLICY.dependencyAwareAmbiguityInstruction,
+    `Root owns user interaction. Continue independent work while input is pending; prepare the concrete reviewable result before requesting approval for a consequential effect. Credential entry remains user-owned. ${ROOT_ORCHESTRATION_POLICY.dependencyAwareAmbiguityInstruction}`,
     "For visual tasks, Root uses visual-loop: Worker.visual implementation, Reviewer.visual independent review, then Root independent visual pass; use dev-server when a shared background server is needed. Honor active-surface tool precedence. Report a capability blocker without inventing a provider or widening authority.",
     renderVisualInspectionInstruction(options),
     FRONTEND_WORKFLOW_POLICY.designJudgment,
     "Use writing-instructions for model-facing contracts. Keep each meaning with one authoritative owner and add only the missing semantic delta for the receiver.",
-    "Give the user useful updates for significant findings, decisions, blockers, input needs, and release milestones; avoid per-tool, status-only, heartbeat, or fixed-cadence messages.",
-    ROOT_EVENT_WAIT_INSTRUCTION,
     ROOT_ORCHESTRATION_POLICY.specialistCoordinationInstruction,
     `${TESTING_POLICY.rule} ${REVIEW_VALIDATION_PHASE_BARRIER}`,
     "After integration, Root owns approved VCS writes. For PR or release gates use babysit-ci and dispatch Worker.operations for exact-ref terminal evidence. Pending gates are not complete.",
@@ -461,7 +510,19 @@ export function rootDeveloperInstructions(
       "For security-sensitive changes, use the relevant security review skills before VCS. Validate supported findings; repair introduced or worsened vulnerabilities before VCS unless explicitly risk-accepted. Keep security review current after relevant repairs.",
     );
   }
+  if (options.sessionAudit) {
+    instructions.push(renderSemanticCapabilityInstruction("session-audit"));
+  }
+  if (options.autoReset) {
+    instructions.push(renderSemanticCapabilityInstruction("auto-reset"));
+  }
   return instructions.join("\n");
+}
+
+function renderSemanticCapabilityInstruction(name: "session-audit" | "auto-reset"): string {
+  return CAPABILITY_REGISTRY[name].applicability
+    .map(({ appliesWhen, skillId }) => `When ${appliesWhen}, use $${skillId}.`)
+    .join(" ");
 }
 
 function renderVisualInspectionInstruction(
@@ -514,16 +575,25 @@ export function installNativeAgents(
   resolveConflict?: ConflictResolver,
   preResolvedConflicts: readonly ManagedConflict[] = [],
   capabilities: NativeAgentCapabilityOptions = {},
+  modelCatalogJson?: string,
 ): Promise<NativeAgentInstallResult> {
   const rollback: NativeAgentRollbackEntry[] = [];
   const operation = Effect.gen(function* () {
     const generationId = nativeAgentGenerationId(profile, tier, capabilities);
-    const root = join(codexHome, "holycodex", "agents", generationId);
     const preserved: string[] = [];
-    const projections = projectNativeAgents(profile, tier).map((agent) => ({
-      path: join(root, `${agent.name}.toml`),
-      contents: renderNativeAgent(agent, capabilities),
-    }));
+    const projections = nativeAgentProjections(
+      codexHome,
+      profile,
+      tier,
+      capabilities,
+      generationId,
+    );
+    if (modelCatalogJson !== undefined) {
+      projections.push({
+        path: join(codexHome, "holycodex", "model-catalog.json"),
+        contents: modelCatalogJson,
+      });
+    }
     const previousByPath = new Map(
       previous.map((artifact) => [join(codexHome, artifact.path), artifact]),
     );
@@ -783,12 +853,14 @@ function removeManagedNativeAgentsEffect(
     const preserved: string[] = [];
     const root = join(codexHome, "agents");
     const managedRoot = join(codexHome, "holycodex", "agents");
+    const managedCatalog = join(codexHome, "holycodex", "model-catalog.json");
     for (const artifact of artifacts) {
       const target = join(codexHome, artifact.path);
       if (
         !pathWithin(codexHome, target) ||
         (!pathWithin(root, target) &&
           !pathWithin(managedRoot, target) &&
+          target !== managedCatalog &&
           target !== join(codexHome, "config.toml"))
       ) {
         preserved.push(target);
@@ -863,9 +935,17 @@ export function renderNativeAgent(
   agent: NativeAgentProjection,
   instructionOptions: NativeAgentInstructionOptions = {},
 ): string {
-  const instructions = [
-    SPECIALIST_BASELINE_POLICY,
-    agent.taskInstruction,
+  const sharedStart = agent.taskInstruction.indexOf(SPECIALIST_AUTHORITY_POLICY);
+  const efficiencyStart = agent.taskInstruction.indexOf(SPECIALIST_EFFICIENCY_POLICY, sharedStart);
+  const terminalStart = agent.taskInstruction.indexOf(
+    SPECIALIST_TERMINAL_REPORT_POLICY,
+    efficiencyStart,
+  );
+  if (sharedStart < 0 || efficiencyStart < sharedStart || terminalStart < efficiencyStart) {
+    throw new Error(`The ${agent.name} task instruction has no canonical specialist policy order.`);
+  }
+  const taskAndFamilyInstructions = agent.taskInstruction.slice(0, sharedStart).trim();
+  const capabilityInstructions = [
     ...(agent.name === "Worker.visual" || agent.name === "Reviewer.visual"
       ? [
           renderVisualInspectionInstruction(instructionOptions, "specialist"),
@@ -883,6 +963,13 @@ export function renderNativeAgent(
           "Use Computer Use only for this Assignment, following active-surface tool rules and platform restrictions. External actions require explicit task authority. Return tool failures that prevent required evidence as a blocker. Tool availability does not grant authority. Credential entry and submission remain user-owned; never request, enter, retrieve, expose, or store credentials.",
         ]
       : []),
+  ];
+  const instructions = [
+    taskAndFamilyInstructions,
+    agent.taskInstruction.slice(sharedStart, efficiencyStart).trim(),
+    agent.taskInstruction.slice(efficiencyStart, terminalStart).trim(),
+    ...capabilityInstructions,
+    agent.taskInstruction.slice(terminalStart).trim(),
   ].join("\n");
   return [
     `name = ${JSON.stringify(agent.name)}`,
@@ -892,18 +979,10 @@ export function renderNativeAgent(
     `service_tier = ${JSON.stringify(agent.serviceTier)}`,
     'model_reasoning_summary = "none"',
     'model_verbosity = "low"',
+    `personality = ${JSON.stringify(
+      instructionOptions.parentPersonalityNone === true ? "friendly" : "none",
+    )}`,
     `developer_instructions = ${JSON.stringify(instructions)}`,
-    "",
-    "[agents]",
-    "enabled = false",
-    "interrupt_message = false",
-    "",
-    "[features]",
-    "multi_agent = false",
-    "multi_agent_v2 = false",
-    "agent_message_board = false",
-    "[features.context_management]",
-    "experimental_mode = true",
     "",
   ].join("\n");
 }

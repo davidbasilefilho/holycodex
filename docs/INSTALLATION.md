@@ -19,12 +19,22 @@ unchanged HolyCodex-owned legacy Root file.
 
 ## Codex permissions
 
-Installation defines the `holycodex` Codex permission profile with workspace
-read/write access, network access, live web search, and automatic review for
-eligible permission requests. Codex may request narrowly scoped additional
-filesystem access when work requires paths outside the workspace. A fresh
-HolyCodex installation selects this profile once; later updates preserve the
-user's current Codex permission selection.
+Installation selects Codex's supported settings directly:
+`default_permissions = ":danger-full-access"`,
+`approval_policy = "on-request"`, `approvals_reviewer = "auto_review"`, and
+`web_search = "live"`. The built-in full-access preset cannot be extended as a
+custom permission profile. Automatic review handles eligible permission
+requests; it is not a sandbox or an access restriction. Full Access enables
+the network access used by Doctor; no additional network override is needed
+for Doctor.
+
+HolyCodex does not replace unrelated Codex configuration. Updates and
+reconciliation change only declared HolyCodex-owned settings. On removal,
+managed values are restored to their recorded prior values only when they have
+not since been changed by the user; user edits and unrelated settings are
+preserved. Reconciliation also removes the legacy `holycodex` permission
+profile when owned by an earlier installation, while retaining other named
+permission profiles.
 
 ## Optional tooling
 
@@ -94,9 +104,10 @@ Root uses `gpt-6.1-sol` at low, medium, and medium reasoning effort for the
 files use `gpt-6-luna`. Root dispatches concrete registered
 `Role.task` identities from the canonical inventory; role families and generic
 built-in agent types are not dispatch targets.
-HolyCodex manages
-`features.context_management.experimental_mode = true` for Root and every
-generated leaf. Removal restores the recorded prior value when unchanged.
+HolyCodex projects the experimental context-management setting only for models
+whose current Codex catalog metadata advertises support. Unsupported or
+unadvertised models do not receive the setting; cleanup removes stale managed
+values and preserves user drift.
 
 The installer recognizes `openai-curated` and `openai-curated-remote` as
 equivalent only for the allowlisted build-web-apps and codex-security plugins.

@@ -77,8 +77,9 @@ describe("documentation invariants", () => {
     expect(behavior).toContain("default = gpt-6.1-sol/medium");
     expect(behavior).toContain("high = gpt-6.1-sol/medium");
     expect(behavior).toContain("no HolyCodex planning workflow");
-    expect(behavior).toContain("features.context_management.experimental_mode = true");
-    expect(configuration).toContain("features.context_management.experimental_mode = true");
+    expect(behavior).toContain("independent of runtime context settings");
+    expect(behavior).not.toContain("features.context_management.experimental_mode = true");
+    expect(configuration).not.toContain("features.context_management.experimental_mode = true");
     expect(configuration).toContain("asks only for material missing information");
     expect(installation).toContain("Legacy `go`");
   });

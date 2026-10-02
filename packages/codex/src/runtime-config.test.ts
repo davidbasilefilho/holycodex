@@ -237,8 +237,120 @@ describe("typed runtime configuration", () => {
   test("manages supported Root feature flags explicitly", () => {
     expect(isManagedConfigKeyPath("features.default_mode_request_user_input")).toBe(true);
     expect(isManagedConfigKeyPath("features.agent_message_board")).toBe(true);
-    expect(isManagedConfigKeyPath("features.multi_agent_v2")).toBe(true);
+    for (const keyPath of [
+      "include_collaboration_mode_instructions",
+      "tools.experimental_request_user_input.enabled",
+      "tools.update_plan.enabled",
+      "features.goals",
+      "features.image_generation",
+      "features.memories",
+      "features.request_permissions_tool",
+      "features.skill_search",
+      "features.sleep_tool",
+    ]) {
+      expect(isManagedConfigKeyPath(keyPath)).toBe(true);
+    }
+    expect(isManagedConfigKeyPath("features.multi_agent_v2")).toBe(false);
+    expect(isManagedConfigKeyPath("features.multi_agent_v2.enabled")).toBe(true);
+    expect(isManagedConfigKeyPath("features.multi_agent_v2.usage_hint_text")).toBe(true);
+    expect(isManagedConfigKeyPath("features.code_mode.direct_only_tool_namespaces")).toBe(true);
     expect(isManagedConfigKeyPath("features.thread_tools")).toBe(false);
+  });
+
+  test("owns tool-control booleans and restores prior user values on cleanup", async () => {
+    const desired = {
+      include_collaboration_mode_instructions: false,
+      "tools.experimental_request_user_input.enabled": false,
+      "tools.update_plan.enabled": false,
+      "features.goals": false,
+      "features.image_generation": true,
+      "features.memories": false,
+      "features.request_permissions_tool": false,
+      "features.skill_search": true,
+      "features.sleep_tool": false,
+    } as const;
+    const original = {
+      include_collaboration_mode_instructions: true,
+      tools: {
+        experimental_request_user_input: { enabled: true },
+        update_plan: { enabled: true },
+      },
+      features: {
+        goals: true,
+        image_generation: false,
+        memories: true,
+        request_permissions_tool: true,
+        skill_search: false,
+        sleep_tool: true,
+        unrelated: true,
+      },
+    } as const;
+    const merged = await mergeManagedRuntimeConfig(
+      original,
+      createManagedRuntimeConfigState(metadata),
+      desired,
+      metadata,
+    );
+
+    for (const [keyPath, value] of Object.entries(desired)) {
+      expect(isManagedConfigKeyPath(keyPath)).toBe(true);
+      expect(readTomlPath(merged.document, keyPath)).toBe(value);
+      expect(merged.state.managed[keyPath]?.lastManagedValue).toEqual({ kind: "boolean", value });
+    }
+
+    expect(readTomlPath(merged.document, "features.unrelated")).toBe(true);
+    const cleaned = await cleanupManagedRuntimeConfig(merged.document, merged.state, metadata);
+    expect(cleaned.document).toEqual(original);
+  });
+
+  test("manages V1 depth and direct-only tool configuration while preserving originals", async () => {
+    const original = {
+      model_catalog_json: "/home/user/custom-models.json",
+      agents: {
+        enabled: false,
+        max_depth: 3,
+        default: { config_file: "custom-default.toml" },
+        worker: { config_file: "custom-worker.toml" },
+      },
+      features: {
+        multi_agent_v2: { enabled: true, usage_hint_text: "User hint." },
+        code_mode: { enabled: false, direct_only_tool_namespaces: ["mcp__notes"] },
+      },
+    };
+    const merged = await mergeManagedRuntimeConfig(
+      original,
+      createManagedRuntimeConfigState(metadata),
+      {
+        "agents.max_depth": 1,
+        "agents.enabled": true,
+        "agents.default.config_file": "holycodex/agents/generation/sentinel-default.toml",
+        "agents.worker.config_file": "holycodex/agents/generation/sentinel-worker.toml",
+        model_catalog_json: "/home/user/.codex/holycodex/model-catalog.json",
+        "features.multi_agent_v2.enabled": false,
+        "features.multi_agent_v2.usage_hint_text": "Managed V1 hint.",
+        "features.code_mode.enabled": true,
+        "features.code_mode.direct_only_tool_namespaces": ["multi_agent_v1"],
+      },
+      metadata,
+    );
+    expect(readTomlPath(merged.document, "agents.max_depth")).toBe(1);
+    expect(readTomlPath(merged.document, "agents.enabled")).toBe(true);
+    expect(readTomlPath(merged.document, "agents.default.config_file")).toBe(
+      "holycodex/agents/generation/sentinel-default.toml",
+    );
+    expect(readTomlPath(merged.document, "model_catalog_json")).toBe(
+      "/home/user/.codex/holycodex/model-catalog.json",
+    );
+    expect(readTomlPath(merged.document, "features.multi_agent_v2.enabled")).toBe(false);
+    expect(readTomlPath(merged.document, "features.multi_agent_v2.usage_hint_text")).toBe(
+      "Managed V1 hint.",
+    );
+    expect(readTomlPath(merged.document, "features.code_mode.enabled")).toBe(true);
+    expect(readTomlPath(merged.document, "features.code_mode.direct_only_tool_namespaces")).toEqual(
+      ["multi_agent_v1"],
+    );
+    const cleaned = await cleanupManagedRuntimeConfig(merged.document, merged.state, metadata);
+    expect(cleaned.document).toEqual(original);
   });
 
   test("restores an obsolete managed flag only while its installed value is unchanged", async () => {
@@ -382,16 +494,22 @@ describe("typed runtime configuration", () => {
     });
   });
 
-  test("manages the HolyCodex permission profile and automatic approval review", async () => {
+  test("manages built-in Full Access and automatic approval review", async () => {
     const webSearch = "web_search" as const;
     const networkAccess = "sandbox_workspace_write.network_access" as const;
+    const defaultPermissions = "default_permissions" as const;
     expect(isManagedConfigKeyPath(webSearch)).toBe(true);
+    expect(isManagedConfigKeyPath(defaultPermissions)).toBe(true);
     expect(isManagedConfigKeyPath(networkAccess)).toBe(false);
     expect(LEGACY_ROOT_CONFIG_KEY_PATHS).toContain(networkAccess);
+    const legacyProfileParent = "permissions.holycodex.extends" as const;
+    const legacyProfileNetwork = "permissions.holycodex.network.enabled" as const;
+    expect(isManagedConfigKeyPath(legacyProfileParent)).toBe(false);
+    expect(isManagedConfigKeyPath(legacyProfileNetwork)).toBe(false);
+    expect(LEGACY_ROOT_CONFIG_KEY_PATHS).toContain(legacyProfileParent);
+    expect(LEGACY_ROOT_CONFIG_KEY_PATHS).toContain(legacyProfileNetwork);
     const approvalPolicy = "approval_policy" as const;
     const approvalsReviewer = "approvals_reviewer" as const;
-    const profileParent = "permissions.holycodex.extends" as const;
-    const profileNetwork = "permissions.holycodex.network.enabled" as const;
     const merged = await mergeManagedRuntimeConfig(
       {},
       createManagedRuntimeConfigState(metadata),
@@ -399,16 +517,14 @@ describe("typed runtime configuration", () => {
         [webSearch]: "live",
         [approvalPolicy]: "on-request",
         [approvalsReviewer]: "auto_review",
-        [profileParent]: ":workspace",
-        [profileNetwork]: true,
+        [defaultPermissions]: ":danger-full-access",
       },
       metadata,
     );
     expect(readTomlPath(merged.document, webSearch)).toBe("live");
     expect(readTomlPath(merged.document, approvalPolicy)).toBe("on-request");
     expect(readTomlPath(merged.document, approvalsReviewer)).toBe("auto_review");
-    expect(readTomlPath(merged.document, profileParent)).toBe(":workspace");
-    expect(readTomlPath(merged.document, profileNetwork)).toBe(true);
+    expect(readTomlPath(merged.document, defaultPermissions)).toBe(":danger-full-access");
     expect(merged.state.managed[webSearch]?.lastManagedValue).toEqual({
       kind: "enum",
       value: "live",
@@ -421,13 +537,9 @@ describe("typed runtime configuration", () => {
       kind: "enum",
       value: "auto_review",
     });
-    expect(merged.state.managed[profileParent]?.lastManagedValue).toEqual({
+    expect(merged.state.managed[defaultPermissions]?.lastManagedValue).toEqual({
       kind: "enum",
-      value: ":workspace",
-    });
-    expect(merged.state.managed[profileNetwork]?.lastManagedValue).toEqual({
-      kind: "boolean",
-      value: true,
+      value: ":danger-full-access",
     });
   });
 

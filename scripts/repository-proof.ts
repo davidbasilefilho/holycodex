@@ -48,6 +48,20 @@ const AdapterInventorySchema = Schema.Struct({
 
 const adapterInventoryPath = resolve(workspaceRoot, "tests/fixtures/effect-promise-adapters.json");
 
+const supportedCodexAppServerAdapter = {
+  path: "packages/agent/src/auto-reset-runtime.ts",
+  markers: [
+    "export function openAutoResetAccountClient()",
+    "new BunStdioTransport({ executablePath: executable.path })",
+    "new AppServerClient(transport, { requestTimeoutMs: 30_000 })",
+    "try: () => client.initialize()",
+    "readAccountRateLimits: () => client.readAccountRateLimits()",
+    "client.consumeAccountRateLimitResetCredit(input)",
+    "export function withAutoResetAccountClient<A>(",
+    "Effect.acquireUseRelease(acquire, use,",
+  ],
+} as const;
+
 const authoredCodeExtensions = new Set([".ts", ".yml", ".yaml"]);
 
 /** Evidence collected by the repository architecture and generated-artifact checks. */
@@ -146,20 +160,32 @@ export function runRepositoryProof(): Effect.Effect<RepositoryProof, unknown> {
       behaviorContract.includes("No live Root or specialist route uses `xhigh` or `max` effort"),
       "behavior must document that live Root and specialist routes use neither xhigh nor max effort",
     );
+    const normalizedBehaviorContract = behaviorContract.replace(/\s+/gu, " ");
+    const normalizedInstallationContract = installationContract.replace(/\s+/gu, " ");
     assert(
-      behaviorContract.includes("every Root `collaboration.wait_agent` call uses") &&
-        behaviorContract.includes("`timeout_ms = 600000` (10 minutes)") &&
-        behaviorContract.includes("regardless of the situation") &&
-        behaviorContract.includes("including 10 seconds, are forbidden"),
-      "behavior must require the exact ten-minute timeout for every Root wait_agent call",
+      normalizedBehaviorContract.includes(
+        "Every Root `multi_agent_v1.wait_agent` call includes every currently live specialist blocking the next required Root decision or action",
+      ) &&
+        normalizedBehaviorContract.includes("uses `timeout_ms = 600000`") &&
+        normalizedBehaviorContract.includes("Specialist completion may wake the wait early") &&
+        normalizedBehaviorContract.includes(
+          "then waits again at 600000 while a blocking dependency remains live",
+        ),
+      "behavior must require complete blocking-dependency coverage and the exact V1 wait timeout",
     );
     assert(
-      behaviorContract.includes(
-        "it does not message, poll, request status from, or follow up with a running",
+      normalizedBehaviorContract.includes(
+        "Root is report-driven: after dispatch, it does not message, poll, request status from, or inspect a running specialist",
       ) &&
-        behaviorContract.includes("does not use `sleep` or status loops") &&
-        behaviorContract.includes("prefers a suitable warm specialist") &&
-        behaviorContract.includes("already-known independent Assignments before waiting"),
+        normalizedBehaviorContract.includes(
+          "It does not use sleep or status loops for specialist coordination",
+        ) &&
+        normalizedBehaviorContract.includes(
+          "dispatches all ready independent Assignments before waiting",
+        ) &&
+        normalizedBehaviorContract.includes(
+          "Warm reuse requires a terminal compatible specialist, a still-valid concrete Role.task, compatible ownership, relevant retained context, independent review, and no conflicting writer",
+        ),
       "behavior must define report-driven Root coordination, exact wait discipline, and warm reuse",
     );
     assert(
@@ -171,16 +197,28 @@ export function runRepositoryProof(): Effect.Effect<RepositoryProof, unknown> {
       "behavior must define automatic shared specialist efficiency guidance without weakening proof",
     );
     assert(
-      configurationContract.includes("features.context_management.experimental_mode = true") &&
-        configurationContract.includes("Removal restores the recorded prior value") &&
-        behaviorContract.includes("The package migration recognizes owned") &&
-        behaviorContract.includes("historical state only when ownership evidence is safe"),
-      "configuration and behavior must define nested context-management ownership and safe migration",
+      !configurationContract.includes("features.context_management.experimental_mode = true") &&
+        normalizedInstallationContract.includes(
+          "HolyCodex projects the experimental context-management setting only for models whose current Codex catalog metadata advertises support",
+        ) &&
+        normalizedInstallationContract.includes(
+          "Unsupported or unadvertised models do not receive the setting; cleanup removes stale managed values and preserves user drift",
+        ) &&
+        normalizedInstallationContract.includes(
+          "including the context-management setting when it is unchanged",
+        ) &&
+        normalizedBehaviorContract.includes(
+          "Normal managed-key ownership preserves user edits and restores the recorded prior value during cleanup",
+        ) &&
+        normalizedBehaviorContract.includes(
+          "The package migration recognizes owned historical state only when ownership evidence is safe",
+        ),
+      "context-management documentation must avoid unconditional enablement and define safe migration",
     );
     assert(
       behaviorContract.includes("Worker.validation") &&
-        behaviorContract.includes("features.context_management.experimental_mode = true"),
-      "behavior must define validation and nested context-management contracts",
+        !behaviorContract.includes("features.context_management.experimental_mode = true"),
+      "behavior documentation must not claim context management is universally enabled",
     );
     for (const agentType of NATIVE_AGENT_TYPES) {
       assert(
@@ -208,12 +246,11 @@ export function runRepositoryProof(): Effect.Effect<RepositoryProof, unknown> {
       "CLI contract must exclude the removed public upgrade command and scope dry-run to version",
     );
     assert(
-      packageVerification.includes("[features.context_management]") &&
-        packageVerification.includes("experimental_mode = true") &&
+      packageVerification.includes("supports_experimental_context") &&
         packageVerification.includes("NATIVE_AGENT_TYPES") &&
         packageVerification.includes("upgrade") &&
         packageVerification.includes("non_tty_confirmation_required"),
-      "package proof must exercise nested context-management configuration, upgrade, and confirmation boundaries",
+      "package proof must gate context-management checks on advertised model support and exercise upgrade and confirmation boundaries",
     );
     assert(
       installationContract.includes("Existing serialized `plan` fields") &&
@@ -291,7 +328,13 @@ export function runRepositoryProof(): Effect.Effect<RepositoryProof, unknown> {
       }
       const source = yield* readText(path);
       if (adapterMarkers.test(source)) {
-        assert(inventoryPaths.has(path), `${path} has an unreviewed Effect-to-Promise adapter`);
+        const reviewedAppServerAdapter =
+          path === supportedCodexAppServerAdapter.path &&
+          supportedCodexAppServerAdapter.markers.every((marker) => source.includes(marker));
+        assert(
+          inventoryPaths.has(path) || reviewedAppServerAdapter,
+          `${path} has an unreviewed Effect-to-Promise adapter`,
+        );
       }
     }
     for (const entry of adapterInventory.entries) {

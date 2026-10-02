@@ -26,13 +26,19 @@ export const SpecialistStatusSchema = Schema.Literals([
 /** Type representing specialist status in the core domain. */
 export type SpecialistStatus = typeof SpecialistStatusSchema.Type;
 
-/** Runtime schema validating suggested luna effort values at the receiving boundary. */
-export const SuggestedLunaEffortSchema = Schema.Union([
+/** Live suggested Luna effort values accepted by the current specialist-result contract. */
+export const SuggestedLunaEffortSchema = Schema.Union([Schema.Literals(["high"]), Schema.Null]);
+/** Type representing live suggested luna effort in the core domain. */
+export type SuggestedLunaEffort = typeof SuggestedLunaEffortSchema.Type;
+
+/** Historical effort spellings accepted only while decoding legacy persisted outcomes. */
+export const LegacySuggestedLunaEffortMigrationSchema = Schema.Union([
   Schema.Literals(["high", "max", "xhigh"]),
   Schema.Null,
 ]);
-/** Type representing suggested luna effort in the core domain. */
-export type SuggestedLunaEffort = typeof SuggestedLunaEffortSchema.Type;
+/** Type representing legacy suggested effort migration input. */
+export type LegacySuggestedLunaEffortMigrationInput =
+  typeof LegacySuggestedLunaEffortMigrationSchema.Type;
 
 const JsonValueSchema = Schema.Json as Schema.Codec<JsonValue, unknown>;
 const JsonObjectSchema = Schema.JsonObject as Schema.Codec<JsonObject, unknown>;
@@ -52,7 +58,7 @@ export const SpecialistOutcomeSchema = Schema.Struct({
   reuse_recommended: Schema.Boolean,
   status: SpecialistStatusSchema,
   suggested_followup: Schema.Union([Schema.String, Schema.Null]),
-  suggested_luna_effort: SuggestedLunaEffortSchema,
+  suggested_luna_effort: LegacySuggestedLunaEffortMigrationSchema,
   suggested_specialist: Schema.Union([RoleSchema, Schema.Null]),
   verification: Schema.Array(Schema.String),
   verification_passed: Schema.Boolean,

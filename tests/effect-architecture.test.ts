@@ -34,6 +34,8 @@ const promiseAdapterAllowlist = new Set([
   "packages/codex/src/runtime-config.ts",
   "packages/codex/src/transport.ts",
   "packages/agent/src/index.ts",
+  // This module is the Promise-facing boundary for Codex App Server RPCs.
+  "packages/agent/src/auto-reset-runtime.ts",
   "packages/core/src/canonical.ts",
   "packages/core/src/work-state.ts",
   "packages/plugin/src/assembly.ts",
@@ -74,11 +76,15 @@ const ioAdapterAllowlist = new Set([
   "packages/codex/src/official-plugins.ts",
   "packages/codex/src/transport.ts",
   "packages/agent/src/index.ts",
+  // This module owns the local Codex executable and App Server transport.
+  "packages/agent/src/auto-reset-runtime.ts",
   "packages/plugin/src/assembly.ts",
   "packages/plugin/src/source.ts",
   "packages/core/src/work-state.ts",
   "packages/codex/scripts/verify-generated-artifact.ts",
   "scripts/artifact-security.ts",
+  // Local Codex acceptance harness: Node HTTP server and child-process event APIs are Effect bridges.
+  "scripts/effective-runtime-proof.ts",
   "scripts/fresh-clone.ts",
   "scripts/generate-codex-bindings.ts",
   "scripts/package-build.ts",

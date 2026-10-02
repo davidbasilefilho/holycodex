@@ -35,6 +35,7 @@ import {
   stateFromConflicts,
   type InstallReviewScreenState,
 } from "./installer-wizard.ts";
+import { decodeSchema, OptionalSelectionsSchema } from "./schema.ts";
 import type { InstallReview } from "./types.ts";
 
 const CURRENT_VERSION = await readInstallationVersion();
@@ -150,6 +151,24 @@ function fakeOpenTuiModule(
 }
 
 describe("public install wizard contract", () => {
+  test("defaults added persisted opt-ins off when decoding an earlier install record", () => {
+    expect(
+      decodeSchema(OptionalSelectionsSchema, {
+        browser_use: true,
+        computer_use: false,
+        sites: true,
+        coding: true,
+      }),
+    ).toEqual({
+      browser_use: true,
+      computer_use: false,
+      sites: true,
+      "session-audit": false,
+      "auto-reset": false,
+      coding: true,
+    });
+  });
+
   test("parses additional plugin IDs as trimmed whitespace-separated values", () => {
     expect(parsePluginInput("  alpha@marketplace\t beta@marketplace  alpha@marketplace ")).toEqual([
       "alpha@marketplace",
@@ -189,6 +208,8 @@ describe("public install wizard contract", () => {
     expect(review).toContain("ChatGPT Sites: disabled");
     expect(review).toContain("Browser Use: enabled");
     expect(review).toContain("Computer Use: enabled");
+    expect(review).toContain("Session audit: disabled");
+    expect(review).toContain("Auto reset: disabled");
     expect(review).toContain("Additional plugins: example@marketplace");
     expect(review).toContain("Install");
     expect(review).toContain("Change options / Redo");
@@ -210,7 +231,13 @@ describe("public install wizard contract", () => {
     const initial: InstallRequest = {
       profile: "high",
       tier: "standard",
-      optional: { sites: false, browser_use: true, computer_use: false },
+      optional: {
+        sites: false,
+        browser_use: true,
+        computer_use: false,
+        "session-audit": true,
+        "auto-reset": true,
+      },
       officialPlugins: ["one@marketplace", "one@marketplace"],
     };
     const options = toInstallOptions({
@@ -220,6 +247,8 @@ describe("public install wizard contract", () => {
         sites: initial.optional?.sites ?? true,
         browser_use: initial.optional?.browser_use ?? true,
         computer_use: initial.optional?.computer_use ?? false,
+        "session-audit": initial.optional?.["session-audit"] ?? false,
+        "auto-reset": initial.optional?.["auto-reset"] ?? false,
       },
       plugins: [...initial.officialPlugins!],
       pluginInput: initial.officialPlugins!.join(" "),
@@ -228,7 +257,13 @@ describe("public install wizard contract", () => {
     expect(options).toEqual({
       profile: "high",
       tier: "standard",
-      optional: { sites: false, browser_use: true, computer_use: false },
+      optional: {
+        sites: false,
+        browser_use: true,
+        computer_use: false,
+        "session-audit": true,
+        "auto-reset": true,
+      },
       officialPlugins: ["one@marketplace", "one@marketplace"],
     } satisfies InstallOptions);
   });
@@ -250,19 +285,38 @@ describe("public install wizard contract", () => {
       cursor: 2,
       action: "review",
     });
-    const pluginCursor = 5;
+    const pluginField = 7;
     state.pluginCursor = 5;
-    expect(applyWizardConfigurationKey(state, pluginCursor, { name: "left" }).cursor).toBe(
-      pluginCursor,
+    expect(applyWizardConfigurationKey(state, pluginField, { name: "left" }).cursor).toBe(
+      pluginField,
     );
     expect(state.pluginCursor).toBe(4);
-    applyWizardConfigurationKey(state, pluginCursor, { name: "X" });
+    applyWizardConfigurationKey(state, pluginField, { name: "X" });
     expect(state.pluginInput).toBe("alphXa@marketplace");
-    applyWizardConfigurationKey(state, pluginCursor, { name: "backspace" });
+    applyWizardConfigurationKey(state, pluginField, { name: "backspace" });
     expect(state.pluginInput).toBe("alpha@marketplace");
-    expect(applyWizardConfigurationKey(state, pluginCursor, { name: "escape" }).action).toBe(
+    expect(applyWizardConfigurationKey(state, pluginField, { name: "escape" }).action).toBe(
       "cancel",
     );
+  });
+
+  test("offers both new opt-ins in configuration and review screens", () => {
+    const state = stateFromRequest({ profile: "default", tier: "standard" });
+    expect(state.optional["session-audit"]).toBe(false);
+    expect(state.optional["auto-reset"]).toBe(false);
+
+    applyWizardConfigurationKey(state, 5, { name: "space" });
+    applyWizardConfigurationKey(state, 6, { name: "space" });
+    expect(state.optional["session-audit"]).toBe(true);
+    expect(state.optional["auto-reset"]).toBe(true);
+    expect(toInstallOptions(state).optional).toMatchObject({
+      "session-audit": true,
+      "auto-reset": true,
+    });
+
+    const review = renderInstallWizardReview(toInstallOptions(state));
+    expect(review).toContain("Session audit: enabled");
+    expect(review).toContain("Auto reset: enabled");
   });
 
   test("uses semantic color only for an interactive TTY", () => {
@@ -288,7 +342,13 @@ describe("public install wizard contract", () => {
       toVersion: CURRENT_VERSION,
       profile: "high",
       tier: "fast-all",
-      capabilities: { computer_use: true, sites: true, browser_use: true },
+      capabilities: {
+        computer_use: true,
+        sites: true,
+        browser_use: true,
+        "session-audit": false,
+        "auto-reset": false,
+      },
       additionalPlugins: ["example@marketplace"],
       conflicts: [
         {
@@ -353,7 +413,13 @@ describe("public install wizard contract", () => {
       toVersion: CURRENT_VERSION,
       profile: "default",
       tier: "standard",
-      capabilities: { computer_use: false, sites: true, browser_use: false },
+      capabilities: {
+        computer_use: false,
+        sites: true,
+        browser_use: false,
+        "session-audit": false,
+        "auto-reset": false,
+      },
       additionalPlugins: [],
       conflicts: [{ identity: "managed", path: "managed.json", action: "replace" }],
       conflictCounts: { "managed-state": 1 },
@@ -417,6 +483,8 @@ describe("public install wizard contract", () => {
         computer_use: false,
         sites: true,
         browser_use: false,
+        "session-audit": false,
+        "auto-reset": false,
       },
       additionalPlugins: [],
       conflicts: [],
@@ -881,7 +949,13 @@ describe("public install wizard contract", () => {
       toVersion: CURRENT_VERSION,
       profile: "high",
       tier: "fast-all",
-      capabilities: { computer_use: true, sites: true, browser_use: true },
+      capabilities: {
+        computer_use: true,
+        sites: true,
+        browser_use: true,
+        "session-audit": false,
+        "auto-reset": false,
+      },
       additionalPlugins: ["example@marketplace"],
       conflicts: [
         { identity: "config", category: "config-key", path: "config.toml", action: "replace" },
@@ -919,35 +993,21 @@ describe("generated Root orchestration policy", () => {
     const sol = rootDeveloperInstructions({ rootModel: "gpt-6.1-sol" });
     const astra = rootDeveloperInstructions({ rootModel: "gpt-6-astra" });
     expect(astra).toBe(sol);
-    expect(sol).toContain("Never perform delegable work yourself");
+    expect(sol).toContain("Delegate all delegable work");
     expect(sol).toContain("Root owns user interaction; Intent");
     expect(sol).toContain("through bounded Assignments");
     expect(sol).toContain("registered Role.task configuration");
     expect(sol).toContain("Verify the registration once per configuration generation");
     expect(sol).toContain("Never inherit Root settings, substitute a generic route");
-    expect(sol).toContain('fork_turns: "none"');
+    expect(sol).toContain("For normal specialist spawns, set fork_context: false");
+    expect(sol).not.toContain("fork_turns");
     expect(sol).toContain("Reviewer.code fixed point");
     expect(sol).toContain("current relevant validation");
     expect(sol).toContain("give the specialist only the bounded Assignment, never the capability");
     expect(sol).toContain("record the result with that invocation ID and capability");
     expect(sol).toContain("Recover an interrupted invocation only after confirming it stopped");
-    expect(sol).toContain("Check existing authorization before asking again");
-    expect(sol).toContain(
-      "Root routes every user-facing question or doubt through the supported input tools",
-    );
-    expect(sol).toContain("Prefer request_user_input_async for clarifications and approvals");
-    expect(sol).toContain("use request_user_input only when async would harm the situation");
-    expect(sol.indexOf("Prefer request_user_input_async")).toBeLessThan(
-      sol.indexOf("use request_user_input only when async would harm the situation"),
-    );
-    expect(sol).toContain("never prose");
-    expect(sol).toContain(
-      "Invoke grill-me only when uncertainty about intent, implementation, or findings",
-    );
-    expect(sol).toContain("when the request is clear enough, proceed without asking");
-    expect(sol).toContain("While a question is pending, do only work independent of its answer");
-    expect(sol).toContain("Required answers remain pending until an actual response");
-    expect(sol).toContain("elapsed time is not an answer or approval");
+    expect(sol).toContain("Ask only when missing or ambiguous information affects correctness");
+    expect(sol).toContain("Continue independent work while input is pending");
     expect(sol).toContain("Before each specialist spawn, persist the bounded Assignment");
     expect(sol).toContain("record verification, acceptance, and readiness");
     expect(sol).toContain("complete only when holycodex-agent confirms every completion predicate");
@@ -955,19 +1015,13 @@ describe("generated Root orchestration policy", () => {
       "Use holycodex-agent semantic operations for Intent and Assignment state.",
     );
     expect(sol).toContain("Do not edit TOON state.");
-    expect(sol).toContain(
-      "Always call collaboration.wait_agent with timeout_ms=600000 for every Root wait.",
-    );
-    expect(sol).toContain(
-      "Never use a 10-second timeout or any other duration, regardless of the situation.",
-    );
-    expect(sol).toContain("On timeout, use 600000 again while any specialist result remains");
+    expect(sol).toContain("Each multi_agent_v1.wait_agent call must include every live specialist");
+    expect(sol).toContain("use timeout_ms=600000 exactly");
+    expect(sol).toContain("wait again with timeout_ms=600000");
+    expect(sol).not.toContain("collaboration.");
+    expect(sol).not.toContain("fork_turns");
     expect(sol).not.toContain("routine wait");
     expect(sol).not.toContain("when a longer event wait is appropriate");
-    expect(sol).not.toContain(
-      "Your model and reasoning effort come from the selected Root profile",
-    );
-    expect(sol).not.toContain("Context7 states");
     for (const agentType of NATIVE_AGENT_TYPES) expect(sol).toContain(agentType);
     expect(projectRootAgent("default")).toMatchObject({
       model: "gpt-6.1-sol",
@@ -986,7 +1040,7 @@ describe("generated Root orchestration policy", () => {
       expect(rendered).not.toContain("Always call collaboration.wait_agent");
       if (name === "Reviewer.security") {
         expect(rendered).toContain("codex-security:security-diff-scan");
-        expect(rendered).toContain("codex-security:fix-finding");
+        expect(rendered).toContain("first-party validation and fix procedures");
       }
     }
 
@@ -1026,10 +1080,13 @@ describe("generated Root orchestration policy", () => {
     );
     expect(leaf).toContain("bounded Assignment");
     expect(leaf).toContain("Patch quality:");
-    expect(leaf).toContain("correctly, elegantly, and mergeably");
-    expect(leaf).toContain("agent_message_board = false");
+    expect(leaf).toContain(
+      "Satisfy the complete requested outcome and acceptance criteria correctly",
+    );
+    expect(leaf).not.toContain("elegantly");
+    expect(leaf).not.toContain("agent_message_board");
     expect(leaf).not.toContain("thread_tools");
-    expect(leaf).toContain("multi_agent_v2 = false");
+    expect(leaf).not.toContain("multi_agent_v2");
     expect(leaf).not.toContain("Your model and reasoning effort");
     const interactiveLeaf = renderNativeAgent(
       projectNativeAgents("default").find((agent) => agent.name === "Worker.implementation")!,
@@ -1041,9 +1098,8 @@ describe("generated Root orchestration policy", () => {
     expect(leaf).not.toContain("Use Computer Use only for this Assignment");
     expect(leaf).not.toContain("active_invocation_id");
     expect(leaf).not.toContain("never the capability");
-    expect(leaf).toContain("Do not recover an Assignment");
-    expect(leaf).toContain("mutate another Assignment's lifecycle");
-    expect(leaf).toContain("Root keeps active invocation capabilities");
+    expect(leaf).toContain("Do not delegate, mutate Intent or Assignment lifecycle");
+    expect(leaf).toContain("Root owns user interaction, lifecycle");
 
     for (const agent of projectNativeAgents("default")) {
       const rendered = renderNativeAgent(agent);

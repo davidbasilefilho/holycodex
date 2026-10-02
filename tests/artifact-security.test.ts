@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import {
   assertBuildUploadEntries,
+  assertBuildUploadDirectory,
   assertPublicPackageEntries,
   assertReleaseOutputDirectory,
   assertSafeArtifactFile,
@@ -20,6 +21,32 @@ import {
 } from "../scripts/process.ts";
 
 describe("artifact and diagnostic security boundaries", () => {
+  test("Promise-returning artifact boundaries reject invalid inputs asynchronously", async () => {
+    const invoke = <T>(call: () => Promise<T>): Promise<T> => {
+      let promise!: Promise<T>;
+      expect(() => {
+        promise = call();
+      }).not.toThrow();
+      return promise;
+    };
+
+    await expect(
+      invoke(() => assertSafeArtifactFile("ordinary.md", ".env", "the package")),
+    ).rejects.toThrow("sensitive file path");
+    await expect(
+      invoke(() => assertReleaseOutputDirectory(".", "invalid.tarball")),
+    ).rejects.toThrow("expected release tarball name is invalid");
+
+    const invalidRoot = 42 as unknown as string;
+    await expect(
+      invoke(() => listSafeArtifactEntries(invalidRoot, "the package")),
+    ).rejects.toBeDefined();
+    await expect(invoke(() => assertBuildUploadDirectory(invalidRoot))).rejects.toBeDefined();
+    await expect(
+      invoke(() => assertReleaseOutputDirectory(invalidRoot, "holycodex-1.2.3.tgz")),
+    ).rejects.toBeDefined();
+  });
+
   test("does not copy an unallowlisted environment secret and redacts key-aware diagnostics", () => {
     const key = "HOLYCODEX_SECURITY_TEST_SECRET";
     const sentinel = "HC_SECRET_SENTINEL_VALUE";

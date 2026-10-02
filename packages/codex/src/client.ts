@@ -28,6 +28,10 @@ import {
   classifyServerRequest,
   ConfigReadParamsSchema,
   ConfigReadResultSchema,
+  AccountRateLimitsReadParamsSchema,
+  AccountRateLimitsReadResultSchema,
+  ConsumeAccountRateLimitResetCreditParamsSchema,
+  ConsumeAccountRateLimitResetCreditResultSchema,
   InitializedNotificationSchema,
   InitializeParamsSchema,
   InitializeResultSchema,
@@ -66,6 +70,10 @@ import type {
   CodexNotification,
   ConfigReadParams,
   ConfigReadResult,
+  AccountRateLimitsReadParams,
+  AccountRateLimitsReadResult,
+  ConsumeAccountRateLimitResetCreditParams,
+  ConsumeAccountRateLimitResetCreditResult,
   InitializeParams,
   InitializeResult,
   ModelListParams,
@@ -319,6 +327,30 @@ export class AppServerClient {
       PermissionProfileListParamsSchema,
       params,
       PermissionProfileListResultSchema,
+    );
+  }
+
+  /** Read current account usage windows and available banked reset credits. */
+  readAccountRateLimits(
+    params: AccountRateLimitsReadParams = {},
+  ): Promise<AccountRateLimitsReadResult> {
+    return this.action(
+      "account/rateLimits/read",
+      AccountRateLimitsReadParamsSchema,
+      params,
+      AccountRateLimitsReadResultSchema,
+    );
+  }
+
+  /** Consume a banked reset credit through the currently supported local App Server RPC. */
+  consumeAccountRateLimitResetCredit(
+    params: ConsumeAccountRateLimitResetCreditParams,
+  ): Promise<ConsumeAccountRateLimitResetCreditResult> {
+    return this.action(
+      "account/rateLimitResetCredit/consume",
+      ConsumeAccountRateLimitResetCreditParamsSchema,
+      params,
+      ConsumeAccountRateLimitResetCreditResultSchema,
     );
   }
 

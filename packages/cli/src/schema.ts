@@ -5,6 +5,7 @@ import {
   ReleaseVersionSchema,
   decodeUnknown,
   CapabilityNameSchema,
+  InstalledOptionalCapabilitySelectionsSchema,
   OptionalCapabilityNameSchema,
   ProfileNameSchema,
   ProfileNameMigrationSchema,
@@ -14,6 +15,8 @@ import {
 } from "@holycodex/core";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+
+import type { OptionalSelections } from "./types.ts";
 
 /** Schema for json object values. */
 export const JsonObjectSchema = Schema.JsonObject;
@@ -47,16 +50,16 @@ export const ManagedArtifactSchema = Schema.Struct({
 
 /** Schema for optional selections values. */
 export const OptionalSelectionsSchema = Schema.Struct({
-  browser_use: Schema.Boolean,
-  computer_use: Schema.Boolean,
-  sites: Schema.Boolean,
+  ...InstalledOptionalCapabilitySelectionsSchema.fields,
   coding: Schema.Literals([true]),
-});
+}) as Schema.Codec<OptionalSelections, unknown>;
 /** Schema for explicit optional selections values. */
 export const ExplicitOptionalSelectionsSchema = Schema.Struct({
   browser_use: Schema.optional(Schema.Boolean),
   computer_use: Schema.optional(Schema.Boolean),
   sites: Schema.optional(Schema.Boolean),
+  "session-audit": Schema.optional(Schema.Boolean),
+  "auto-reset": Schema.optional(Schema.Boolean),
 });
 /** Schema for install request values. */
 export const InstallRequestSchema = Schema.Struct({
@@ -110,6 +113,8 @@ export const CapabilityStateRecordSchema = Schema.Struct({
   frontend: CapabilityInstallStateSchema,
   security: CapabilityInstallStateSchema,
   sites: CapabilityInstallStateSchema,
+  "session-audit": CapabilityInstallStateSchema,
+  "auto-reset": CapabilityInstallStateSchema,
 });
 
 const LegacyOptionalSelectionsSchema = Schema.Struct({
@@ -118,6 +123,8 @@ const LegacyOptionalSelectionsSchema = Schema.Struct({
   frontend: Schema.Boolean,
   security: Schema.Boolean,
   sites: Schema.optional(Schema.Boolean),
+  "session-audit": InstalledOptionalCapabilitySelectionsSchema.fields["session-audit"],
+  "auto-reset": InstalledOptionalCapabilitySelectionsSchema.fields["auto-reset"],
   coding: Schema.Literals([true]),
   work: Schema.Boolean,
 });
@@ -127,6 +134,8 @@ const LegacyExplicitOptionalSelectionsSchema = Schema.Struct({
   frontend: Schema.optional(Schema.Boolean),
   security: Schema.optional(Schema.Boolean),
   sites: Schema.optional(Schema.Boolean),
+  "session-audit": Schema.optional(Schema.Boolean),
+  "auto-reset": Schema.optional(Schema.Boolean),
   work: Schema.optional(Schema.Boolean),
 });
 const LegacyCapabilityStateRecordSchema = Schema.Struct({
@@ -135,6 +144,8 @@ const LegacyCapabilityStateRecordSchema = Schema.Struct({
   frontend: CapabilityInstallStateSchema,
   security: CapabilityInstallStateSchema,
   sites: Schema.optional(CapabilityInstallStateSchema),
+  "session-audit": Schema.optional(CapabilityInstallStateSchema),
+  "auto-reset": Schema.optional(CapabilityInstallStateSchema),
   work: CapabilityInstallStateSchema,
 });
 const PreviousOptionalSelectionsSchema = Schema.Struct({
@@ -152,6 +163,30 @@ const PreviousCapabilityStateRecordSchema = Schema.Struct({
   computer_use: CapabilityInstallStateSchema,
   frontend: CapabilityInstallStateSchema,
   security: CapabilityInstallStateSchema,
+});
+const PriorCurrentCapabilityStateRecordSchema = Schema.Struct({
+  browser_use: CapabilityInstallStateSchema,
+  computer_use: CapabilityInstallStateSchema,
+  frontend: CapabilityInstallStateSchema,
+  security: CapabilityInstallStateSchema,
+  sites: CapabilityInstallStateSchema,
+  "session-audit": Schema.optional(CapabilityInstallStateSchema),
+  "auto-reset": Schema.optional(CapabilityInstallStateSchema),
+});
+const PriorCurrentOptionalSelectionsSchema = Schema.Struct({
+  browser_use: Schema.Boolean,
+  computer_use: Schema.Boolean,
+  sites: Schema.Boolean,
+  "session-audit": Schema.optional(Schema.Boolean),
+  "auto-reset": Schema.optional(Schema.Boolean),
+  coding: Schema.Literals([true]),
+});
+const PriorCurrentExplicitOptionalSelectionsSchema = Schema.Struct({
+  browser_use: Schema.optional(Schema.Boolean),
+  computer_use: Schema.optional(Schema.Boolean),
+  sites: Schema.optional(Schema.Boolean),
+  "session-audit": Schema.optional(Schema.Boolean),
+  "auto-reset": Schema.optional(Schema.Boolean),
 });
 
 const GitBashStateSchema = Schema.Union([
@@ -279,6 +314,12 @@ const PreviousInstallRecordWithoutProfile = (({ profile: _profile, ...fields }) 
 /** Accept one pre-profile record shape only at the migration boundary. */
 export const InstallRecordMigrationSchema = Schema.Union([
   Schema.Struct({
+    ...InstallRecordFields,
+    optional_selections: PriorCurrentOptionalSelectionsSchema,
+    explicit_optional_selections: PriorCurrentExplicitOptionalSelectionsSchema,
+    capability_state: Schema.optional(PriorCurrentCapabilityStateRecordSchema),
+  }),
+  Schema.Struct({
     ...LegacyInstallRecordFields,
     profile: ProfileNameMigrationSchema,
   }),
@@ -338,6 +379,14 @@ const PreviousInstallTransactionWithoutProfile = (({ profile: _profile, ...field
 /** Accept prior ownership-record shapes only while decoding persisted transaction journals. */
 export const InstallTransactionMigrationSchema = Schema.Union([
   InstallTransactionSchema,
+  Schema.Struct({
+    ...InstallRecordFields,
+    optional_selections: PriorCurrentOptionalSelectionsSchema,
+    explicit_optional_selections: PriorCurrentExplicitOptionalSelectionsSchema,
+    capability_state: Schema.optional(PriorCurrentCapabilityStateRecordSchema),
+    status: InstallTransactionStatusSchema,
+    step: InstallTransactionStepSchema,
+  }),
   Schema.Struct({
     ...LegacyInstallTransactionFields,
     profile: ProfileNameMigrationSchema,

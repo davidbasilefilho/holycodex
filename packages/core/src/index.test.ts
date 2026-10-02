@@ -10,6 +10,7 @@ import {
   CliFailureEnvelopeSchema,
   CliSuccessEnvelopeSchema,
   CapabilityResultV2Schema,
+  CapabilityNameSchema,
   CAPABILITY_REGISTRY,
   CORE_SEMANTIC_SKILL_IDS,
   CREDENTIAL_INTERACTION_POLICY,
@@ -18,8 +19,11 @@ import {
   CoreError,
   DEFAULT_CAPABILITY_SELECTIONS,
   DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS,
+  InstalledOptionalCapabilitySelectionsSchema,
+  OptionalCapabilityNameSchema,
+  resolveOptionalCapabilitySelections,
   EffortSchema,
-  ForkTurnsSchema,
+  ForkContextSchema,
   GENERIC_BUILTIN_AGENT_TYPES,
   LegacyProfileNameSchema,
   PROFILE_CATALOG,
@@ -42,6 +46,10 @@ import {
   ROOT_ORCHESTRATION_PHASE_ORDER,
   ROOT_ORCHESTRATION_POLICY,
   SPECIALIST_EFFICIENCY_POLICY,
+  SPECIALIST_AUTHORITY_POLICY,
+  SPECIALIST_TERMINAL_REPORT_POLICY,
+  SEMANTIC_DEFINITIONS,
+  SEMANTIC_DEFINITIONS_INSTRUCTION,
   FRONTEND_WORKFLOW_POLICY,
   LIBRARIAN_CONTEXT7_POLICY,
   NO_SOURCE_MUTATION_RULE,
@@ -55,6 +63,7 @@ import {
   RunIdentityInputSchema,
   SPECIALIST_OUTCOME_VERSION,
   SpecialistOutcomeSchema,
+  SuggestedLunaEffortSchema,
   parseSpecialistOutcomeV2,
   STATE_SCHEMA_EPOCH,
   TrustIdentityInputSchema,
@@ -254,13 +263,23 @@ describe("core profile catalog", () => {
           task: task.name,
         } as RoleTask);
         expect(instruction.indexOf(task.instruction)).toBe(0);
-        expect(instruction.endsWith(definition.sharedInstruction)).toBe(true);
+        const familyAt = instruction.indexOf(definition.sharedInstruction);
+        const authorityAt = instruction.indexOf(SPECIALIST_AUTHORITY_POLICY);
+        const efficiencyAt = instruction.indexOf(SPECIALIST_EFFICIENCY_POLICY);
+        const terminalAt = instruction.indexOf(SPECIALIST_TERMINAL_REPORT_POLICY);
+        expect(familyAt).toBeGreaterThan(0);
+        expect(authorityAt).toBeGreaterThan(familyAt);
+        expect(efficiencyAt).toBeGreaterThan(authorityAt);
+        expect(terminalAt).toBeGreaterThan(efficiencyAt);
+        expect(instruction.indexOf(SPECIALIST_AUTHORITY_POLICY, authorityAt + 1)).toBe(-1);
+        expect(instruction.indexOf(SPECIALIST_EFFICIENCY_POLICY, efficiencyAt + 1)).toBe(-1);
+        expect(instruction.indexOf(SPECIALIST_TERMINAL_REPORT_POLICY, terminalAt + 1)).toBe(-1);
       }
     }
 
     const auditInstruction = taskInstructionFor({ role: "Reviewer", task: "audit" });
-    expect(auditInstruction).toContain("requested concerns");
-    expect(auditInstruction).toContain("repair concrete findings");
+    expect(auditInstruction).toContain("cross-cutting repository, process, configuration");
+    expect(auditInstruction).toContain("Repair concrete in-scope findings");
     expect(taskPermissionsFor({ role: "Reviewer", task: "audit" }).sourceMutation).toBe(true);
   });
 
@@ -270,6 +289,10 @@ describe("core profile catalog", () => {
     expect(taskPermissionsFor({ role: "Worker", task: "visual" }).sourceMutation).toBe(true);
     expect(taskPermissionsFor({ role: "Reviewer", task: "visual" }).sourceMutation).toBe(false);
     expect(taskInstructionFor({ role: "Worker", task: "visual" })).toContain("actual rendered");
+    expect(taskInstructionFor({ role: "Worker", task: "visual" })).toContain(
+      "image_generation enabled",
+    );
+    expect(taskInstructionFor({ role: "Worker", task: "visual" })).toContain("legally reusable");
     expect(taskInstructionFor({ role: "Reviewer", task: "visual" })).toContain(
       "Do not implement repairs",
     );
@@ -296,6 +319,22 @@ describe("core profile catalog", () => {
     const reviewerInstruction = taskInstructionFor({ role: "Reviewer", task: "code" });
     expect(reviewerInstruction).toContain("canonical patch-quality rule");
     expect(reviewerInstruction).toContain("correctness, safety, compatibility, test quality");
+  });
+
+  test("assigns testing, audit, and security review concerns to their canonical owners", () => {
+    const testing = taskInstructionFor({ role: "Reviewer", task: "testing" });
+    expect(testing).toContain("reproduction, regression hunting, benchmark methodology");
+    expect(testing).toContain("externally meaningful contracts");
+    const audit = taskInstructionFor({ role: "Reviewer", task: "audit" });
+    expect(audit).toContain("no narrower specialist owner");
+    expect(audit).toContain("Reviewer.testing");
+    expect(audit).toContain("Reviewer.security");
+    const security = taskInstructionFor({ role: "Reviewer", task: "security" });
+    expect(security).toContain("codex-security:threat-model");
+    expect(security).toContain("Hypothetical modeled threats");
+    expect(security).toContain("blocks VCS");
+    expect(SEMANTIC_DEFINITIONS_INSTRUCTION).toContain(SEMANTIC_DEFINITIONS.materialDecision);
+    expect(SEMANTIC_DEFINITIONS_INSTRUCTION).toContain(SEMANTIC_DEFINITIONS.independentReview);
   });
 
   test("grants assigned network access while bounding operations to the supplied ref", () => {
@@ -358,6 +397,8 @@ describe("core profile catalog", () => {
       computer_use: false,
       browser_use: true,
       frontend: true,
+      "session-audit": false,
+      "auto-reset": false,
       security: true,
       sites: true,
     });
@@ -365,9 +406,45 @@ describe("core profile catalog", () => {
       browser_use: DEFAULT_CAPABILITY_SELECTIONS.browser_use,
       computer_use: DEFAULT_CAPABILITY_SELECTIONS.computer_use,
       sites: DEFAULT_CAPABILITY_SELECTIONS.sites,
+      "session-audit": false,
+      "auto-reset": false,
     });
-    for (const name of ["browser_use", "computer_use", "frontend", "security", "sites"] as const) {
+    expect(
+      resolveOptionalCapabilitySelections({ "session-audit": true, "auto-reset": true }, undefined),
+    ).toMatchObject({ "session-audit": true, "auto-reset": true });
+    for (const name of [
+      "browser_use",
+      "computer_use",
+      "frontend",
+      "security",
+      "sites",
+      "session-audit",
+      "auto-reset",
+    ] as const) {
       expect(CAPABILITY_REGISTRY[name].defaultSelected).toBe(DEFAULT_CAPABILITY_SELECTIONS[name]);
+    }
+    expect(CAPABILITY_REGISTRY["session-audit"].semanticSkillIds).toEqual(["session-audit"]);
+    expect(CAPABILITY_REGISTRY["auto-reset"].semanticSkillIds).toEqual(["auto-reset"]);
+    expect(CAPABILITY_REGISTRY["session-audit"].pluginIds).toEqual([]);
+    expect(CAPABILITY_REGISTRY["auto-reset"].pluginIds).toEqual([]);
+    expect(Schema.is(CapabilityNameSchema)("session-audit")).toBe(true);
+    expect(Schema.is(CapabilityNameSchema)("auto-reset")).toBe(true);
+    expect(Schema.is(OptionalCapabilityNameSchema)("session-audit")).toBe(true);
+    expect(Schema.is(OptionalCapabilityNameSchema)("auto-reset")).toBe(true);
+    const previousSelections = decodeUnknown(InstalledOptionalCapabilitySelectionsSchema, {
+      browser_use: true,
+      computer_use: false,
+      sites: true,
+    });
+    expect(Result.isSuccess(previousSelections)).toBe(true);
+    if (Result.isSuccess(previousSelections)) {
+      expect(previousSelections.success).toEqual({
+        browser_use: true,
+        computer_use: false,
+        sites: true,
+        "session-audit": false,
+        "auto-reset": false,
+      });
     }
     expect(DEFAULT_CAPABILITY_SELECTIONS).not.toHaveProperty("work");
     expect(CAPABILITY_REGISTRY).not.toHaveProperty("work");
@@ -421,7 +498,7 @@ describe("core profile catalog", () => {
         independentAssignments: true,
         substantiveIndependentConcurrency: true,
         routinePostdispatchSteering: false,
-        collectiveWaits: true,
+        waitIncludesEveryLiveBlockingSpecialist: true,
         evidenceReusedAcrossPhases: true,
       },
       atomicLifecycleTransitions: {
@@ -512,11 +589,13 @@ describe("core profile catalog", () => {
     expect(rootExecutionState("git_vcs")).toBe("root_direct");
     expect(ROOT_ORCHESTRATION_POLICY.requestUserInputGates).toEqual([
       "missing_authorization_for_consequential_effect",
-      "ambiguity_or_missing_material_input",
+      "missing_or_ambiguous_correctness_input_unresolvable_from_authorized_context",
     ]);
     expect(ROOT_ORCHESTRATION_POLICY.surgicalMutationRule).toBe(SURGICAL_MUTATION_RULE);
-    expect(SURGICAL_MUTATION_RULE).toContain("complete requested outcome correctly");
-    expect(SURGICAL_MUTATION_RULE).toContain("never weaken or reinterpret it");
+    expect(SURGICAL_MUTATION_RULE).toContain(
+      "complete requested outcome and acceptance criteria correctly",
+    );
+    expect(SURGICAL_MUTATION_RULE).toContain("smallest coherent patch");
     expect(SURGICAL_MUTATION_RULE).toContain("smallest coherent patch");
     expect(SURGICAL_MUTATION_RULE).toContain("simple, cohesive, idiomatic solutions");
     expect(ROOT_ORCHESTRATION_POLICY.specialistOutcomes).toEqual([
@@ -550,6 +629,7 @@ describe("core profile catalog", () => {
     );
     expect(ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes).toBe(GENERIC_BUILTIN_AGENT_TYPES);
     expect(ROOT_ORCHESTRATION_POLICY.forbiddenGenericAgentTypes).toEqual([
+      "default",
       "worker",
       "explorer",
       "reviewer",
@@ -558,16 +638,18 @@ describe("core profile catalog", () => {
   });
 
   test("keeps efficient specialist dispatch and terminal communication canonical", () => {
-    expect(Result.isSuccess(decodeUnknown(ForkTurnsSchema, "none"))).toBe(true);
-    expect(Result.isFailure(decodeUnknown(ForkTurnsSchema, "all"))).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(ForkContextSchema, false))).toBe(true);
+    expect(Result.isFailure(decodeUnknown(ForkContextSchema, true))).toBe(true);
     expect(ROOT_ORCHESTRATION_POLICY).toMatchObject({
-      normalSpawnForkTurns: "none",
-      normalSpawnRequiresExplicitForkTurns: true,
+      normalSpawnForkContext: false,
+      normalSpawnRequiresExplicitRegisteredAgentType: true,
       normalSpawnUsesConcreteRegisteredAgentType: true,
+      normalSpawnModelOverride: false,
+      normalSpawnEffortOverride: false,
 
       assignmentContextIsTaskSpecificOnly: true,
       configuredRouteModelAndEffortPreserved: true,
-      rootWaitTool: "collaboration.wait_agent",
+      rootWaitTool: "multi_agent_v1.wait_agent",
       rootWaitTimeoutMs: 600_000,
       reportDrivenSpecialistCoordination: true,
       runningSpecialistMessagesForbidden: true,
@@ -582,7 +664,7 @@ describe("core profile catalog", () => {
       rootDecisionBoundariesMinimized: true,
       rootWaitRequiresExactTimeout: true,
       earlySpecialistCompletionWakesWait: true,
-      collectiveMailboxIncludesRelevantAgents: true,
+      waitIncludesEveryLiveBlockingSpecialist: true,
       idleRootWaitRepeatsRequiredTimeout: true,
       shortRootWaitsForbidden: true,
       normalProgressMessages: false,
@@ -604,6 +686,11 @@ describe("core profile catalog", () => {
       lifecycleWorkerOwnsDeterministicApi: true,
     });
     expect(ROOT_ORCHESTRATION_POLICY.specialistReportFields).toEqual([
+      "agent_id",
+      "concrete Role.task",
+      "owned seam and write scope",
+      "terminal outcome",
+      "reusable status",
       "changed paths",
       "checks",
       "observable evidence",
@@ -612,16 +699,21 @@ describe("core profile catalog", () => {
       "remaining risk",
     ]);
     expect(ROOT_ORCHESTRATION_POLICY.specialistCoordinationInstruction).toContain(
-      "After dispatch, do not inspect a running specialist. Do not message, poll, request status from, or follow up with a running specialist.",
+      "After dispatch, do not inspect, message, poll, request status from, or follow up with a running specialist.",
     );
     expect(ROOT_ORCHESTRATION_POLICY.specialistCoordinationInstruction).toContain(
-      "The only exception is a genuine lifecycle interruption or supersession",
+      "timeout_ms=600000 exactly",
     );
     expect(ROOT_ORCHESTRATION_POLICY.specialistCoordinationInstruction).toContain(
-      "prefer the same warm specialist",
+      "prefer compatible warm reuse",
     );
-    expect(SPECIALIST_EFFICIENCY_POLICY).toContain("across every tool");
-    expect(SPECIALIST_EFFICIENCY_POLICY).toContain("impose no arbitrary hard output caps");
+    expect(ROOT_ORCHESTRATION_POLICY.specialistCoordinationInstruction).not.toMatch(
+      /collaboration\.|fork_turns|message.board|task.graph/iu,
+    );
+    expect(ROOT_ORCHESTRATION_POLICY.v1UsageHintText).toContain("fork_context=false");
+    expect(ROOT_ORCHESTRATION_POLICY.orchestrationToolNamespace).toBe("multi_agent_v1");
+    expect(SPECIALIST_EFFICIENCY_POLICY).toContain("scheduling-independent operations");
+    expect(SPECIALIST_EFFICIENCY_POLICY).toContain("without truncating required evidence");
     expect(ROOT_ORCHESTRATION_POLICY.rootLargeReadsOnlyFor).toEqual([
       "material decisions",
       "conflicts",
@@ -629,9 +721,11 @@ describe("core profile catalog", () => {
       "findings",
     ]);
     expect(ROOT_ORCHESTRATION_POLICY.materialUserUpdateKinds).toEqual([
-      "significant_findings_or_decisions",
-      "consequential_blockers_or_input_needs",
-      "release_milestones",
+      "changes_a_root_decision",
+      "changes_the_expected_user_visible_outcome",
+      "user_input_is_required",
+      "authorized_progress_is_blocked",
+      "user_relevant_release_or_completion_milestone",
     ]);
   });
 
@@ -766,6 +860,11 @@ describe("core route and boundary schemas", () => {
     expect(CAPABILITY_REGISTRY.frontend.semanticSkillIds).toEqual(
       CAPABILITY_REGISTRY.frontend.applicability.map(({ skillId }) => skillId),
     );
+    expect(CAPABILITY_REGISTRY.security.applicability.map(({ skillId }) => skillId)).toEqual([
+      "codex-security:security-diff-scan",
+      "codex-security:security-scan",
+      "codex-security:threat-model",
+    ]);
     const result = {
       protocol_version: SPECIALIST_OUTCOME_VERSION,
       capability: "frontend",
@@ -829,8 +928,10 @@ describe("core route and boundary schemas", () => {
   test("accepts and rejects external profile selections and identities", () => {
     expect(Result.isSuccess(decodeUnknown(ProfileNameSchema, "default"))).toBe(true);
     expect(Result.isFailure(decodeUnknown(ProfileNameSchema, "pro-20x"))).toBe(true);
-    expect(Result.isSuccess(decodeUnknown(EffortSchema, "xhigh"))).toBe(true);
+    expect(Result.isSuccess(decodeUnknown(EffortSchema, "high"))).toBe(true);
+    expect(Result.isFailure(decodeUnknown(EffortSchema, "xhigh"))).toBe(true);
     expect(Result.isFailure(decodeUnknown(EffortSchema, "max"))).toBe(true);
+    expect(Result.isFailure(decodeUnknown(SuggestedLunaEffortSchema, "xhigh"))).toBe(true);
     expect(
       Result.isSuccess(
         decodeUnknown(ProfileSelectionSchema, { profile: "default", service_tier: "fast" }),
@@ -906,6 +1007,11 @@ describe("core route and boundary schemas", () => {
       verification_passed: true,
     };
     expect(Result.isSuccess(decodeUnknown(SpecialistOutcomeSchema, outcome))).toBe(true);
+    expect(
+      Result.isSuccess(
+        decodeUnknown(SpecialistOutcomeSchema, { ...outcome, suggested_luna_effort: "xhigh" }),
+      ),
+    ).toBe(true);
     expect(parseSpecialistOutcome({ ...outcome, status: "unknown" }).ok).toBe(false);
   });
 

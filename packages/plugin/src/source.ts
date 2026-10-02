@@ -66,7 +66,11 @@ export function assertSafePath(path: string): void {
         path: normalized,
       });
     }
-    if (SECRET_PATH_PATTERN.test(part) || SECRET_EXTENSION_PATTERN.test(part)) {
+    // This shipped skill slug describes the audit procedure, not session data.
+    if (
+      (lower !== "session-audit" && SECRET_PATH_PATTERN.test(part)) ||
+      SECRET_EXTENSION_PATTERN.test(part)
+    ) {
       throw pluginError("path_invalid", "Secret-like paths are not plugin source assets.", {
         path: normalized,
       });

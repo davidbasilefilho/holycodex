@@ -5,7 +5,12 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { PROFILE_CATALOG, ROUTE_KEYS, ROUTE_EFFORT_OVERRIDES } from "@holycodex/core";
+import {
+  PROFILE_CATALOG,
+  ROUTE_KEYS,
+  ROUTE_EFFORT_OVERRIDES,
+  GENERIC_BUILTIN_AGENT_TYPES,
+} from "@holycodex/core";
 import * as Effect from "effect/Effect";
 
 import * as publicCli from "./index.ts";
@@ -21,7 +26,9 @@ import {
   projectNativeAgents,
   projectRootAgent,
   readInstallationVersion,
+  readInstallOptions,
   readActiveInstallRecord,
+  installRequestFromPersistedOptions,
   removeHolyCodex as removeHolyCodexImplementation,
   upgradeHolyCodex as upgradeHolyCodexImplementation,
   renderNativeAgent,
@@ -36,8 +43,10 @@ import type {
   OfficialPluginManager,
   UpgradeRequest,
 } from "./index.ts";
-import { desiredRootConfig } from "./installer.ts";
-import { nativeAgentGenerationId } from "./native-agents.ts";
+import { desiredRootConfig, parseConfig } from "./installer.ts";
+import { currentModelCatalogJson } from "./model-catalog-fixture.ts";
+import { modelSupportsExperimentalContext } from "./model-catalog.ts";
+import { nativeAgentGenerationId, rootPersonalityIsNone } from "./native-agents.ts";
 import { JsonObjectSchema } from "./schema.ts";
 import { decodeStateText } from "./storage.ts";
 import type { ConflictResolution } from "./types.ts";
@@ -64,7 +73,10 @@ function managedRolePath(
   return join(codexHome, artifact.path);
 }
 
-function testRuntime(codexHome: string): InstallerRuntime {
+function testRuntime(
+  codexHome: string,
+  modelCatalog: () => string = currentModelCatalogJson,
+): InstallerRuntime {
   const state = toolingStates.get(codexHome) ?? { installed: false };
   toolingStates.set(codexHome, state);
   const binRoot = "/fake/bin";
@@ -97,6 +109,8 @@ function testRuntime(codexHome: string): InstallerRuntime {
     run: async (executable, args) => {
       const command = `${executable} ${args.join(" ")}`;
       const normalizedCommand = command.replaceAll("\\", "/");
+      if (command === "codex debug models --bundled")
+        return { exitCode: 0, stdout: modelCatalog(), stderr: "" };
       if (command === "bun pm bin -g") return { exitCode: 0, stdout: `${binRoot}\n`, stderr: "" };
       if (command === "bun pm view ctx7 version")
         return { exitCode: 0, stdout: "2.0.0\n", stderr: "" };
@@ -297,7 +311,9 @@ describe("CLI boundaries", () => {
         expect(toml).toContain(`model = "${agent.model}"`);
         expect(toml).toContain(`model_reasoning_effort = "${agent.effort}"`);
         expect(toml).toContain('service_tier = "default"');
-        expect(toml).toContain(agent.taskInstruction);
+        const authorityStart = agent.taskInstruction.indexOf("Execute only the bounded Assignment");
+        expect(authorityStart).toBeGreaterThan(0);
+        expect(toml).toContain(agent.taskInstruction.slice(0, authorityStart).trim());
         projectedRoutes += 1;
       }
 
@@ -497,27 +513,91 @@ describe("native installation and removal", () => {
         browser_use: true,
         computer_use: false,
         sites: true,
+        "session-audit": false,
+        "auto-reset": false,
+      });
+      expect(install.record.capability_state?.["session-audit"]).toMatchObject({
+        selected: false,
+        status: "disabled",
+        plugin_ids: [],
+      });
+      expect(install.record.capability_state?.["auto-reset"]).toMatchObject({
+        selected: false,
+        status: "disabled",
+        plugin_ids: [],
       });
       expect(install.record.capability_state?.frontend.selected).toBe(true);
       expect(install.record.capability_state?.security.selected).toBe(true);
       expect(install.record.optional_selections).not.toHaveProperty("frontend");
       expect(install.record.optional_selections).not.toHaveProperty("security");
       expect(install.record.optional_selections).not.toHaveProperty("work");
+      const defaultConfig = await readFile(join(codexHome, "config.toml"), "utf8");
+      expect(defaultConfig).not.toContain("use $session-audit");
+      expect(defaultConfig).not.toContain("use $auto-reset");
+      const optedIn = await installHolyCodex(
+        { optional: { "session-audit": true, "auto-reset": true } },
+        { paths: { codexHome }, officialPluginManager: manager },
+      );
+      expect(optedIn.record.optional_selections).toMatchObject({
+        "session-audit": true,
+        "auto-reset": true,
+      });
+      expect(optedIn.record.capability_state?.["session-audit"]).toMatchObject({
+        selected: true,
+        status: "healthy",
+        plugin_ids: [],
+      });
+      expect(optedIn.record.capability_state?.["auto-reset"]).toMatchObject({
+        selected: true,
+        status: "healthy",
+        plugin_ids: [],
+      });
+      const activeRecord = await readActiveInstallRecord(
+        resolveInstallerPaths({ paths: { codexHome } }),
+      );
+      expect(activeRecord).toMatchObject({
+        optional_selections: { "session-audit": true, "auto-reset": true },
+        capability_state: {
+          "session-audit": { selected: true, status: "healthy", plugin_ids: [] },
+          "auto-reset": { selected: true, status: "healthy", plugin_ids: [] },
+        },
+      });
+      const persistedOptions = await readInstallOptions(
+        resolveInstallerPaths({ paths: { codexHome } }),
+      );
+      expect(persistedOptions?.capabilities).toContain("session-audit");
+      expect(persistedOptions?.capabilities).toContain("auto-reset");
+      expect(installRequestFromPersistedOptions(persistedOptions!).optional).toMatchObject({
+        "session-audit": true,
+        "auto-reset": true,
+      });
+      const doctor = await doctorHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+        runtime: testRuntime(codexHome),
+      });
+      expect(doctor.checks["runtime_config"]?.status).toBe("healthy");
       expect(install.record.owned_plugins).toEqual([
         "holycodex@holycodex",
         "build-web-apps@openai-curated",
         "codex-security@openai-curated",
         "sites@openai-bundled",
       ]);
-      expect(install.record.managed_artifacts).toHaveLength(projectNativeAgents("default").length);
+      expect(install.record.managed_artifacts).toHaveLength(
+        projectNativeAgents("default").length + GENERIC_BUILTIN_AGENT_TYPES.length + 1,
+      );
       const generation = install.record.managed_artifacts[0]?.path.split("/")[2];
       expect(generation).toMatch(/^[a-f0-9]{20}$/u);
       const generationDirectory = join(codexHome, "holycodex", "agents", generation!);
-      expect(install.record.managed_artifacts.map((artifact) => artifact.path)).toEqual(
-        projectNativeAgents("default").map(
+      expect(install.record.managed_artifacts.map((artifact) => artifact.path)).toEqual([
+        ...projectNativeAgents("default").map(
           (agent) => `holycodex/agents/${generation}/${agent.name}.toml`,
         ),
-      );
+        ...GENERIC_BUILTIN_AGENT_TYPES.map(
+          (agentType) => `holycodex/agents/${generation}/sentinel-${agentType}.toml`,
+        ),
+        "holycodex/model-catalog.json",
+      ]);
       expect(install.record.status).toBe("active");
       expect(
         await readFile(
@@ -526,18 +606,26 @@ describe("native installation and removal", () => {
         ),
       ).toContain('model_reasoning_summary = "none"');
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
+      expect(config).toContain("use $session-audit");
+      expect(config).toContain("use $auto-reset");
       expect(config).toContain('model = "gpt-6.1-sol"');
       expect(config).not.toContain("model_auto_compact_token_limit");
       expect(config).toContain("max_concurrent_threads_per_session = 21");
       expect(config).toContain("multi_agent = true");
+      expect(config).toContain("max_depth = 1");
+      expect(config).toContain("enabled = true");
+      expect(config).toContain('direct_only_tool_namespaces = ["multi_agent_v1"]');
+      expect(config).toContain("model_catalog_json =");
       expect(config).toContain("default_mode_request_user_input = true");
-      expect(config).toContain("multi_agent_v2 = false");
+      expect(config).toContain("multi_agent_v2");
+      expect(config).toContain("enabled = false");
       expect(config).toContain("agent_message_board = false");
       expect(config).toContain("experimental_mode = true");
       expect(config).toContain("agent_message_board = false");
       expect(config).not.toContain("thread_tools");
       expect(config).toContain('web_search = "live"');
-      expect(config).toContain("[permissions.holycodex.network]");
+      expect(config).toContain('default_permissions = ":danger-full-access"');
+      expect(config).not.toContain("[permissions.holycodex]");
       expect(config).toContain("You are the HolyCodex Root/session orchestrator");
       expect(config).toContain("Worker.visual implementation, Reviewer.visual independent review");
       expect(config).not.toContain("delegate GUI");
@@ -545,6 +633,16 @@ describe("native installation and removal", () => {
       for (const agent of projectNativeAgents("default")) {
         expect(config).toContain(`[agents.${JSON.stringify(agent.name)}]`);
         expect(config).toContain(`holycodex/agents/${generation}/${agent.name}.toml`);
+      }
+      for (const agentType of GENERIC_BUILTIN_AGENT_TYPES) {
+        expect(config).toContain(`[agents.${agentType}]`);
+        expect(config).toContain(`sentinel-${agentType}.toml`);
+        const sentinel = await readFile(
+          join(codexHome, "holycodex", "agents", generation!, `sentinel-${agentType}.toml`),
+          "utf8",
+        );
+        expect(sentinel).toContain("Do not perform work, inspect files, use tools, or delegate.");
+        expect(sentinel).toContain("exact registered Role.task route");
       }
       expect(config).not.toContain('name = "root"');
       const leaf = await readFile(
@@ -558,15 +656,8 @@ describe("native installation and removal", () => {
       expect(leaf).not.toContain("network_access =");
       expect(leaf).not.toContain("approval_policy =");
       expect(leaf).not.toContain("web_search =");
-      expect(leaf).toContain("[agents]");
-      expect(leaf).toContain("enabled = false");
-      expect(leaf).toContain("interrupt_message = false");
-      expect(leaf).toContain("[features]");
-      expect(leaf).toContain("multi_agent = false");
-      expect(leaf).toContain("multi_agent_v2 = false");
-      expect(leaf).toContain("agent_message_board = false");
-      expect(leaf).toContain("[features.context_management]");
-      expect(leaf).toContain("experimental_mode = true");
+      expect(leaf).not.toContain("[agents]");
+      expect(leaf).not.toContain("[features]");
       expect(leaf).not.toContain("Do not spawn agents, message peers, or delegate work.");
       const result = await removeHolyCodex({
         paths: { codexHome },
@@ -574,6 +665,11 @@ describe("native installation and removal", () => {
       });
       expect(result.preserved).toEqual([]);
       expect(result.removed).toContain(generationDirectory);
+      expect(
+        result.removed.some((path) =>
+          path.replaceAll("\\", "/").endsWith("holycodex/model-catalog.json"),
+        ),
+      ).toBe(true);
       await expect(readdir(generationDirectory)).rejects.toThrow();
       expect(result.removed).toContain("holycodex@holycodex");
       expect(result.removed).toContain("build-web-apps@openai-curated");
@@ -1140,7 +1236,10 @@ describe("native installation and removal", () => {
   test("does not register a malformed pre-existing HolyCodex role", async () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-role-conflict-"));
     const codexHome = join(root, "codex");
-    const generation = nativeAgentGenerationId("default", "standard", { browserUse: true });
+    const generation = nativeAgentGenerationId("default", "standard", {
+      browserUse: true,
+      parentPersonalityNone: rootPersonalityIsNone(undefined),
+    });
     const rolePath = join(
       codexHome,
       "holycodex",
@@ -1474,6 +1573,20 @@ describe("native installation and removal", () => {
           })
         ).healthy,
       ).toBe(true);
+      const supportedDrift = await readFile(config, "utf8");
+      await writeFile(
+        config,
+        supportedDrift.replace("experimental_mode = true", "experimental_mode = false"),
+      );
+      const drifted = await doctorHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+      });
+      expect(drifted.checks["runtime_config"]?.reasons).toContain("changed_holycodex_config");
+      expect(drifted.checks["runtime_config"]?.details?.["keys"]).toContain(
+        "features.context_management.experimental_mode",
+      );
+      await writeFile(config, supportedDrift);
 
       const removed = await removeHolyCodex({
         paths: { codexHome },
@@ -1485,6 +1598,106 @@ describe("native installation and removal", () => {
       expect(await readFile(join(codexHome, "config.toml"), "utf8")).not.toContain(
         "experimental_mode = true",
       );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("releases previously managed context settings when current model metadata withdraws support", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-context-support-"));
+    const codexHome = join(root, "codex");
+    const config = join(codexHome, "config.toml");
+    const manager = fakeManager();
+    let contextSupport: boolean | "missing" = true;
+    const runtime = testRuntime(codexHome, () => currentModelCatalogJson(contextSupport));
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(config, "[features.context_management]\nexperimental_mode = false\n");
+      const initial = await installHolyCodex(
+        {},
+        {
+          paths: { codexHome },
+          officialPluginManager: manager,
+          runtime,
+          resolveConflicts: effectResolver(async (conflicts) =>
+            Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "replace"])),
+          ),
+          reviewInstall: effectResolver(async () => ({ action: "apply" })),
+        },
+      );
+      const contextKey = "features.context_management.experimental_mode" as const;
+      expect(await readFile(config, "utf8")).toContain("experimental_mode = true");
+      expect(initial.record.managed_config?.managed[contextKey]).toBeDefined();
+      expect(initial.record.managed_config?.managed[contextKey]?.originalValue).toEqual({
+        kind: "boolean",
+        value: false,
+      });
+
+      contextSupport = false;
+      const unsupported = await installHolyCodex(
+        {},
+        { paths: { codexHome }, officialPluginManager: manager, runtime },
+      );
+      const installedCatalog = JSON.parse(
+        await readFile(join(codexHome, "holycodex", "model-catalog.json"), "utf8"),
+      ) as unknown;
+      expect(modelSupportsExperimentalContext(installedCatalog, "gpt-6.1-sol")).toBe(false);
+      expect(unsupported.record.managed_config?.managed[contextKey]).toBeUndefined();
+      expect(await readFile(config, "utf8")).not.toContain("experimental_mode = true");
+      expect(await readFile(config, "utf8")).toContain("experimental_mode = false");
+      expect(
+        (await doctorHolyCodex({ paths: { codexHome }, officialPluginManager: manager })).checks[
+          "runtime_config"
+        ]?.status,
+      ).toBe("healthy");
+
+      contextSupport = "missing";
+      const missing = await installHolyCodex(
+        {},
+        { paths: { codexHome }, officialPluginManager: manager, runtime },
+      );
+      expect(await readFile(config, "utf8")).not.toContain("experimental_mode = true");
+      expect(missing.record.managed_config?.managed[contextKey]).toBeUndefined();
+
+      await rm(join(codexHome, "holycodex", "model-catalog.json"));
+      const withoutCatalog = await doctorHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+      });
+      expect(withoutCatalog.checks["runtime_config"]?.reasons).toContain("model_catalog_missing");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves edited context management when current model metadata withdraws support", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-context-edited-"));
+    const codexHome = join(root, "codex");
+    const config = join(codexHome, "config.toml");
+    const manager = fakeManager();
+    let contextSupport: boolean | "missing" = true;
+    const runtime = testRuntime(codexHome, () => currentModelCatalogJson(contextSupport));
+    const replacement: InstallerOptions = {
+      paths: { codexHome },
+      officialPluginManager: manager,
+      runtime,
+      resolveConflicts: effectResolver(async (conflicts) =>
+        Object.fromEntries(conflicts.map((conflict) => [conflict.identity!, "replace"])),
+      ),
+      reviewInstall: effectResolver(async () => ({ action: "apply" })),
+    };
+    try {
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(config, "[features.context_management]\nexperimental_mode = false\n");
+      await installHolyCodex({}, replacement);
+      await writeFile(config, '[features.context_management]\nexperimental_mode = "user-edit"\n');
+      contextSupport = false;
+      const unsupported = await installHolyCodex({}, replacement);
+
+      expect(await readFile(config, "utf8")).toContain('experimental_mode = "user-edit"');
+      expect(
+        unsupported.record.managed_config?.managed["features.context_management.experimental_mode"],
+      ).toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1726,6 +1939,72 @@ describe("native installation and removal", () => {
     }
   });
 
+  test("migrates 0.16.11 optional semantic capabilities to disabled defaults", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-semantic-capability-migration-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    try {
+      const initial = await installHolyCodex(
+        {},
+        { paths: { codexHome }, officialPluginManager: fakeManager() },
+      );
+      const {
+        "session-audit": _sessionAudit,
+        "auto-reset": _autoReset,
+        ...priorSelections
+      } = initial.record.optional_selections;
+      const {
+        "session-audit": _sessionAuditState,
+        "auto-reset": _autoResetState,
+        ...priorCapabilityState
+      } = initial.record.capability_state!;
+      const priorRecord = {
+        ...initial.record,
+        version: "0.16.11",
+        optional_selections: priorSelections,
+        capability_state: priorCapabilityState,
+      };
+      priorRecord.digest = await installRecordDigest({
+        owner: priorRecord.owner,
+        install_id: priorRecord.install_id,
+        version: priorRecord.version,
+        profile: priorRecord.profile,
+        tier: priorRecord.tier,
+        optional_selections: priorRecord.optional_selections,
+        explicit_optional_selections: priorRecord.explicit_optional_selections,
+        official_plugins: priorRecord.official_plugins ?? [],
+        capability_state: priorRecord.capability_state ?? null,
+        managed_artifacts: priorRecord.managed_artifacts,
+        managed_config: priorRecord.managed_config,
+        plugin_config: priorRecord.plugin_config,
+        provider_config: priorRecord.provider_config,
+        plugin_snapshot: priorRecord.plugin_snapshot,
+        owned_plugins: priorRecord.owned_plugins,
+        tooling: priorRecord.tooling,
+      });
+      await writeFile(paths.activeRecord, `${JSON.stringify(priorRecord)}\n`);
+
+      const migrated = await readActiveInstallRecord(paths);
+      expect(migrated?.version).toBe("0.16.11");
+      expect(migrated?.optional_selections).toMatchObject({
+        "session-audit": false,
+        "auto-reset": false,
+      });
+      expect(migrated?.capability_state?.["session-audit"]).toMatchObject({
+        selected: false,
+        status: "disabled",
+        plugin_ids: [],
+      });
+      expect(migrated?.capability_state?.["auto-reset"]).toMatchObject({
+        selected: false,
+        status: "disabled",
+        plugin_ids: [],
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("rejects higher installed versions with exact decimal ordering", async () => {
     const huge = "9".repeat(80);
     const currentBase = (await readInstallationVersion()).split("-", 1)[0]!;
@@ -1932,6 +2211,66 @@ describe("native installation and removal", () => {
       expect(first.from_version).toBe(install.record.version);
       expect(first.status).toBe(expectedChanges.length > 0 ? "upgraded" : "current");
       expect(first.changes).toEqual(expectedChanges);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("refreshes the bundled model catalog when HolyCodex itself is unchanged", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-upgrade-model-catalog-"));
+    const codexHome = join(root, "codex");
+    let modelCatalog = currentModelCatalogJson(true);
+    const runtime = testRuntime(codexHome, () => modelCatalog);
+    const options = { paths: { codexHome }, officialPluginManager: fakeManager(), runtime };
+    try {
+      const initial = await installHolyCodex({}, options);
+      modelCatalog = JSON.stringify({
+        ...JSON.parse(currentModelCatalogJson(false)),
+        models: [
+          ...(JSON.parse(currentModelCatalogJson(false)) as { models: unknown[] }).models,
+          { slug: "future-codex-model", model_messages: { instructions_template: "upstream" } },
+        ],
+      });
+
+      const upgraded = await upgradeHolyCodex(options, {});
+      const installedCatalog = JSON.parse(
+        await readFile(join(codexHome, "holycodex", "model-catalog.json"), "utf8"),
+      ) as { models: readonly { slug: string }[] };
+      const config = await readFile(join(codexHome, "config.toml"), "utf8");
+
+      expect(upgraded.from_version).toBe(initial.record.version);
+      expect(upgraded.to_version).toBe(initial.record.version);
+      expect(upgraded.status).toBe("upgraded");
+      expect(upgraded.changes).toContain("current Codex model catalog changed");
+      expect(installedCatalog.models.map(({ slug }) => slug)).toContain("future-codex-model");
+      expect(modelSupportsExperimentalContext(installedCatalog, "gpt-6.1-sol")).toBe(false);
+      expect(config).not.toContain("experimental_mode = true");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves a user-edited catalog while reconciling upstream catalog drift", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-upgrade-edited-model-catalog-"));
+    const codexHome = join(root, "codex");
+    let modelCatalog = currentModelCatalogJson();
+    const runtime = testRuntime(codexHome, () => modelCatalog);
+    const options = { paths: { codexHome }, officialPluginManager: fakeManager(), runtime };
+    const catalogPath = join(codexHome, "holycodex", "model-catalog.json");
+    try {
+      await installHolyCodex({}, options);
+      const edited = JSON.parse(await readFile(catalogPath, "utf8")) as {
+        models: unknown[];
+      };
+      edited.models.push({ slug: "user-model", model_messages: { instructions_template: "user" } });
+      await writeFile(catalogPath, `${JSON.stringify(edited, null, 2)}\n`);
+      modelCatalog = currentModelCatalogJson(false);
+
+      await expect(upgradeHolyCodex(options, {})).rejects.toMatchObject({
+        code: "confirmation_required",
+      });
+      expect(await readFile(catalogPath, "utf8")).toContain('"user-model"');
+      expect(await readFile(catalogPath, "utf8")).toContain("supports_experimental_context");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -2174,7 +2513,10 @@ describe("native installation and removal", () => {
     const root = await mkdtemp(join(tmpdir(), "holycodex-cli-role-preflight-"));
     const codexHome = join(root, "codex");
     const roleRoot = join(codexHome, "holycodex", "agents");
-    const generation = nativeAgentGenerationId("default", "standard", { browserUse: true });
+    const generation = nativeAgentGenerationId("default", "standard", {
+      browserUse: true,
+      parentPersonalityNone: rootPersonalityIsNone(undefined),
+    });
     const malformedWorker = join(roleRoot, generation, "Worker.implementation.toml");
     try {
       await mkdir(join(roleRoot, generation), { recursive: true });
@@ -2786,6 +3128,25 @@ describe("native installation and removal", () => {
       const activeRecord = await readActiveInstallRecord(
         resolveInstallerPaths({ paths: { codexHome } }),
       );
+      const validationRolePath = managedRolePath(
+        codexHome,
+        activeRecord!.managed_artifacts,
+        "Worker.validation",
+      );
+      const validationRole = await readFile(validationRolePath, "utf8");
+      await writeFile(
+        validationRolePath,
+        validationRole.replace('personality = "none"', 'personality = "friendly"'),
+      );
+      const tamperedRole = await doctorHolyCodex({
+        paths: { codexHome },
+        officialPluginManager: manager,
+      });
+      expect(tamperedRole.checks["native_roles"]?.details["roles"]).toContain(
+        "Worker.validation:changed",
+      );
+      await writeFile(validationRolePath, validationRole);
+
       const missingRole = managedRolePath(
         codexHome,
         activeRecord!.managed_artifacts,

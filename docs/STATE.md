@@ -69,7 +69,8 @@ canonical leaf artifacts, plugin snapshots, and transaction status. Codex owns
 its native plugin files and marketplace state; HolyCodex does not copy or
 reinterpret those files.
 
-The managed runtime projection is Root in `config.toml` plus one
+The managed runtime projection is Root in `config.toml`, its derived current
+Codex model catalog, plus one
 `{Role}.{task}` TOML and registration for each canonical leaf in
 `NATIVE_AGENT_TYPES`.
 There is no managed Root agent file. Preparing and conflicted records remain
@@ -108,6 +109,6 @@ is copied to `profile` without changing its meaning. `plus-low`, `plus`, and
 `plus-high` migrate to `low`, `default`, and `high`; legacy `go` and removed
 Pro values are recognized explicitly and require an operator-selected
 replacement. No historical value is silently mapped to `low`. HolyCodex
-manages `features.context_management.experimental_mode = true` for Root and
-generated leaves. Removal restores the recorded prior value when unchanged and
-preserves user drift.
+records only the currently supported managed runtime projection. V1 runtime
+configuration includes depth-one specialist enforcement and catalog refresh;
+configuration readback alone is not evidence of effective session behavior.

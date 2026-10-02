@@ -21,6 +21,9 @@ import * as Schema from "effect/Schema";
 
 import {
   AppServerClient,
+  AccountRateLimitsReadResultSchema,
+  ConsumeAccountRateLimitResetCreditParamsSchema,
+  ConsumeAccountRateLimitResetCreditResultSchema,
   bootstrapOfficialMarketplace,
   CODEX_PROTOCOL_VERSION,
   ConfigReadParamsSchema,
@@ -195,6 +198,90 @@ describe("Codex App Server schemas", () => {
     expect(Result.isSuccess(decode(TurnStartParamsSchema, params))).toBe(true);
     expect(Result.isSuccess(decode(TurnStartParamsSchema, { threadId: "thread-1" }))).toBe(false);
   });
+
+  test("validate current account usage windows and banked credit summaries", () => {
+    const result = {
+      ordinaryUsageAllowed: true,
+      rateLimits: {
+        primary: { usedPercent: 82, windowDurationMins: 300, resetsAt: 1_800_000_000 },
+        secondary: { usedPercent: 94, windowDurationMins: 10_080, resetsAt: 1_800_600_000 },
+        planType: "plus",
+      },
+      rateLimitsByLimitId: null,
+      rateLimitResetCredits: {
+        availableCount: 1,
+        credits: [
+          {
+            id: "opaque-credit",
+            resetType: "codexRateLimits",
+            status: "available",
+            grantedAt: 1_799_000_000,
+            expiresAt: null,
+            title: null,
+            description: null,
+          },
+        ],
+      },
+      accountId: null,
+      rateLimitUpsell: null,
+    };
+    expect(Result.isSuccess(decode(AccountRateLimitsReadResultSchema, result))).toBe(true);
+    expect(
+      Result.isSuccess(
+        decode(AccountRateLimitsReadResultSchema, {
+          ...result,
+          rateLimits: {
+            primary: { usedPercent: 101, windowDurationMins: 300, resetsAt: null },
+            secondary: null,
+          },
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      Result.isSuccess(
+        decode(AccountRateLimitsReadResultSchema, {
+          ...result,
+          rateLimitResetCredits: {
+            availableCount: 1,
+            credits: [
+              {
+                id: "opaque-credit",
+                resetType: "obsoleteReset",
+                status: "available",
+                grantedAt: 1_799_000_000,
+                expiresAt: null,
+                title: null,
+                description: null,
+              },
+            ],
+          },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("accepts only the four current banked-reset outcomes and requires an idempotency key", () => {
+    for (const outcome of ["reset", "nothingToReset", "noCredit", "alreadyRedeemed"] as const) {
+      expect(
+        Result.isSuccess(decode(ConsumeAccountRateLimitResetCreditResultSchema, { outcome })),
+      ).toBe(true);
+    }
+    expect(
+      Result.isSuccess(
+        decode(ConsumeAccountRateLimitResetCreditResultSchema, { outcome: "unbanked" }),
+      ),
+    ).toBe(false);
+    expect(
+      Result.isSuccess(
+        decode(ConsumeAccountRateLimitResetCreditParamsSchema, {
+          idempotencyKey: "attempt-1",
+        }),
+      ),
+    ).toBe(true);
+    expect(Result.isSuccess(decode(ConsumeAccountRateLimitResetCreditParamsSchema, {}))).toBe(
+      false,
+    );
+  });
 });
 
 describe("AppServerClient", () => {
@@ -296,6 +383,64 @@ describe("AppServerClient", () => {
       "turn/start",
       "turn/interrupt",
     ]);
+    await client.close();
+  });
+
+  test("uses the typed banked-reset RPC and preserves every terminal outcome", async () => {
+    const methods: string[] = [];
+    const { client, transport } = createInitializedClient((fake, request) => {
+      methods.push(request.method);
+      if (request.method === "initialize") {
+        fake.enqueue(response(request.id, initializeResult));
+      } else if (request.method === "account/rateLimits/read") {
+        fake.enqueue(
+          response(request.id, {
+            rateLimits: {
+              primary: { usedPercent: 86, windowDurationMins: 300, resetsAt: 1_800_000_000 },
+              secondary: { usedPercent: 94, windowDurationMins: 10_080, resetsAt: 1_800_600_000 },
+            },
+            rateLimitsByLimitId: null,
+            rateLimitResetCredits: { availableCount: 1, credits: null },
+          }),
+        );
+      } else {
+        expect(request.params).toEqual({ idempotencyKey: "attempt-1", creditId: "credit-1" });
+        fake.enqueue(response(request.id, { outcome: "noCredit" }));
+      }
+    });
+    await client.initialize();
+    const limits = await client.readAccountRateLimits({ excludeResetCreditDetails: false });
+    expect(limits.rateLimits.primary?.windowDurationMins).toBe(300);
+    await expect(
+      client.consumeAccountRateLimitResetCredit({
+        idempotencyKey: "attempt-1",
+        creditId: "credit-1",
+      }),
+    ).resolves.toEqual({ outcome: "noCredit" });
+    expect(methods).toEqual([
+      "initialize",
+      "account/rateLimits/read",
+      "account/rateLimitResetCredit/consume",
+    ]);
+    expect(transport.lines.join("\n")).toContain('"idempotencyKey":"attempt-1"');
+    await client.close();
+  });
+
+  test("rejects unsupported reset outcomes and malformed consume input", async () => {
+    const { client } = createInitializedClient((fake, request) => {
+      if (request.method === "initialize") {
+        fake.enqueue(response(request.id, initializeResult));
+      } else {
+        fake.enqueue(response(request.id, { outcome: "unbankedReset" }));
+      }
+    });
+    await client.initialize();
+    await expect(
+      client.consumeAccountRateLimitResetCredit({ idempotencyKey: "" }),
+    ).rejects.toMatchObject({ code: "invalid_external_data" });
+    await expect(
+      client.consumeAccountRateLimitResetCredit({ idempotencyKey: "attempt-2" }),
+    ).rejects.toMatchObject({ code: "invalid_external_data" });
     await client.close();
   });
 

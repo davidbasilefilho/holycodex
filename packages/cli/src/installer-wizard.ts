@@ -26,6 +26,8 @@ const CAPABILITY_NAMES: readonly OptionalCapabilityName[] = [
   "sites",
   "browser_use",
   "computer_use",
+  "session-audit",
+  "auto-reset",
 ];
 
 type KeyInputRenderer = Readonly<{
@@ -916,6 +918,9 @@ export function stateFromRequest(request: InstallRequest): WizardState {
       browser_use: optional.browser_use ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.browser_use,
       computer_use: optional.computer_use ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.computer_use,
       sites: optional.sites ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS.sites,
+      "session-audit":
+        optional["session-audit"] ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS["session-audit"],
+      "auto-reset": optional["auto-reset"] ?? DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS["auto-reset"],
     },
     plugins: [...(request.officialPlugins ?? [])],
     pluginInput: (request.officialPlugins ?? []).join(" "),
@@ -1214,6 +1219,10 @@ function capabilityDescription(name: OptionalCapabilityName): string {
       return "Browser Use depends on the Codex surface and runtime; it may be unavailable where unsupported.";
     case "computer_use":
       return "Computer Use has stronger platform and surface restrictions and can take external actions.";
+    case "session-audit":
+      return "Review available session evidence for avoidable cost and concrete coordination improvements.";
+    case "auto-reset":
+      return "Monitor quota thresholds and use available banked resets only after the required permission checks.";
   }
 }
 
@@ -1239,6 +1248,10 @@ function capabilityLabel(name: OptionalCapabilityName): string {
       return "Browser Use";
     case "computer_use":
       return "Computer Use";
+    case "session-audit":
+      return "Session audit";
+    case "auto-reset":
+      return "Auto reset";
   }
 }
 

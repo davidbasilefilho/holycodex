@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
+import { CODEX_PROTOCOL_VERSION } from "../packages/codex/src/index.ts";
 import {
   CanonicalVersionSchema,
   compareReleaseVersions,
@@ -27,12 +28,21 @@ const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const canonicalManifestPath = "packages/cli/package.json";
 const generatedPluginManifestPath = "packages/plugin/assets/.codex-plugin/plugin.json";
 const rootRouteMigrationPath = "packages/cli/src/installer.ts";
+const versionSchemaTestPath = "packages/core/src/version.test.ts";
 const legacyBrowserOwnerFixturePath = "packages/cli/src/preflight.test.ts";
 const legacyBrowserOwnerVersion = "0.16.9-1";
 const legacyRootFixturePath = "packages/cli/src/install-flow.test.ts";
+const semanticCapabilityMigrationFixturePath = "packages/cli/src/index.test.ts";
+const permissionProfileMigrationFixturePath = "packages/cli/src/install-flow.test.ts";
+const priorPermissionProjectionExplanationPath = "packages/cli/src/installer.ts";
 const previousStableFixturePath = "scripts/package-verification.ts";
+const upstreamCodexFixturePaths = [
+  "packages/cli/src/capability-projection.test.ts",
+  "packages/cli/src/model-catalog-fixture.ts",
+  "tests/fixtures/prompt-size-budgets.json",
+] as const;
 const RELEASE_LITERAL =
-  /(?<![0-9A-Za-z])0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*)|-dev\.\d+\.\d+)?(?![0-9A-Za-z])/gu;
+  /(?<![0-9A-Za-z.])0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*)|-dev\.\d+\.\d+)?(?![0-9A-Za-z.])/gu;
 const CliManifest = Schema.Struct({
   name: Schema.Literals(["holycodex"]),
   version: CanonicalVersionSchema,
@@ -45,6 +55,7 @@ describe("release version authority", () => {
     const routeBoundary = await readRootRouteMigrationBoundary();
     const occurrences: Array<Readonly<{ path: string; count: number }>> = [];
     for (const relativePath of await listFiles(workspaceRoot)) {
+      if (relativePath === versionSchemaTestPath) continue;
       const content = await readFile(`${workspaceRoot}/${relativePath}`, "utf8");
       const count = countLiteral(content, manifest.version);
       if (count > 0) {
@@ -166,6 +177,7 @@ describe("release version authority", () => {
 
   test("rejects stale HolyCodex release literals outside owned version domains", async () => {
     const manifest = await readCanonicalManifest();
+    const upstreamCodexVersion = CODEX_PROTOCOL_VERSION.slice("codex-cli-".length);
     const routeBoundary = await readRootRouteMigrationBoundary();
     const rootManifest = JSON.parse(await readFile(`${workspaceRoot}/package.json`, "utf8")) as {
       catalog?: Readonly<Record<string, string>>;
@@ -194,9 +206,56 @@ describe("release version authority", () => {
     expect(countLiteral(previousFixture, previousStable!)).toBe(1);
     const legacyRootFixture = await readFile(`${workspaceRoot}/${legacyRootFixturePath}`, "utf8");
     expect(countLiteral(legacyRootFixture, routeBoundary)).toBe(1);
+    // These are explicit previous-release migration fixtures/explanations: the profile migration
+    // needs to recognize installations made by 0.16.11, and the installer comment explains that
+    // historical projection. Keep each exception tied to its exact owner and occurrence count.
+    const semanticCapabilityMigrationFixture = await readFile(
+      `${workspaceRoot}/${semanticCapabilityMigrationFixturePath}`,
+      "utf8",
+    );
+    const permissionProfileMigrationFixture = await readFile(
+      `${workspaceRoot}/${permissionProfileMigrationFixturePath}`,
+      "utf8",
+    );
+    const priorPermissionProjectionExplanation = await readFile(
+      `${workspaceRoot}/${priorPermissionProjectionExplanationPath}`,
+      "utf8",
+    );
+    expect(countLiteral(semanticCapabilityMigrationFixture, "0.16.11")).toBe(3);
+    expect(semanticCapabilityMigrationFixture).toContain(
+      'test("migrates 0.16.11 optional semantic capabilities to disabled defaults"',
+    );
+    expect(countLiteral(permissionProfileMigrationFixture, "0.16.11")).toBe(1);
+    expect(permissionProfileMigrationFixture).toContain(
+      'test("migrates the 0.16.11 permission profile to built-in Full Access and restores its origin"',
+    );
+    expect(countLiteral(priorPermissionProjectionExplanation, "0.16.11")).toBe(1);
+    expect(priorPermissionProjectionExplanation).toContain(
+      "// 0.16.11 selected this profile after the managed-key merge",
+    );
+    const [catalogProjectionTest, modelCatalogFixture] = await Promise.all([
+      readFile(`${workspaceRoot}/${upstreamCodexFixturePaths[0]}`, "utf8"),
+      readFile(`${workspaceRoot}/${upstreamCodexFixturePaths[1]}`, "utf8"),
+    ]);
+    expect(catalogProjectionTest).toContain(
+      `test("patches the Codex ${upstreamCodexVersion} source prompt on install and upgrade"`,
+    );
+    expect(modelCatalogFixture).toContain(
+      `/** Minimal Codex ${upstreamCodexVersion} catalog fixture`,
+    );
+    for (const [path, content] of [
+      [upstreamCodexFixturePaths[0], catalogProjectionTest],
+      [upstreamCodexFixturePaths[1], modelCatalogFixture],
+    ] as const) {
+      expect(countLiteral(content, upstreamCodexVersion), `${path} Codex provenance`).toBe(1);
+    }
     const violations: string[] = [];
     for (const relativePath of await listFiles(workspaceRoot)) {
-      if (relativePath === "tests/version-authority.test.ts") continue;
+      if (
+        relativePath === "tests/version-authority.test.ts" ||
+        relativePath === versionSchemaTestPath
+      )
+        continue;
       const content = await readFile(`${workspaceRoot}/${relativePath}`, "utf8");
       for (const match of content.matchAll(RELEASE_LITERAL)) {
         const literal = match[0];
@@ -206,8 +265,21 @@ describe("release version authority", () => {
         )
           continue;
         if (relativePath === legacyRootFixturePath && literal === routeBoundary) continue;
+        if (relativePath === semanticCapabilityMigrationFixturePath && literal === "0.16.11")
+          continue;
+        if (relativePath === permissionProfileMigrationFixturePath && literal === "0.16.11")
+          continue;
+        if (relativePath === priorPermissionProjectionExplanationPath && literal === "0.16.11")
+          continue;
         if (relativePath === previousStableFixturePath && literal === previousStable) continue;
         if (relativePath === legacyBrowserOwnerFixturePath && literal === legacyBrowserOwnerVersion)
+          continue;
+        if (
+          upstreamCodexFixturePaths.includes(
+            relativePath as (typeof upstreamCodexFixturePaths)[number],
+          ) &&
+          literal === upstreamCodexVersion
+        )
           continue;
         if (
           (relativePath === canonicalManifestPath ||

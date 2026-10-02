@@ -43,6 +43,8 @@ export const GENERATED_SUPPORTED_CLIENT_METHODS = [
   "modelProvider/capabilities/read",
   "config/read",
   "permissionProfile/list",
+  "account/rateLimits/read",
+  "account/rateLimitResetCredit/consume",
 ] as const satisfies readonly GeneratedClientRequestMethod[];
 
 /** Server-initiated request methods recognized by the App Server adapter. */

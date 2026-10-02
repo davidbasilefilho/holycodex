@@ -53,38 +53,61 @@ spawnable leaf and HolyCodex never creates or registers `agents/root.toml`.
 The concrete `Role.task` policy owns authority and capability boundaries; the
 task skill owns branch-specific procedure; a delegation prompt supplies
 assignment facts.
-Native leaf profiles disable delegation features, so leaves do not spawn or
-message peers.
+Runtime depth one prevents first-level specialists from spawning or messaging
+peers; leaf profile flags are not the enforcement mechanism.
 
-The Root orchestration contract requires normal specialist spawns to pass the
-explicit `fork_turns = "none"` value and the exact registered `Role.task`
-identity. Role families are labels only. Root is report-driven: after dispatch,
-it does not message, poll, request status from, or follow up with a running
-specialist, and does not inspect one while it is active. The only exception is
-a genuine lifecycle interruption or supersession caused by materially changed
-user intent, cancellation, or Assignment invalidation that makes continuation
-incorrect; use the lifecycle mechanism without normal steering.
-It does not use `sleep` or status loops for specialist coordination. It dispatches
-already-known independent Assignments before waiting, then judges terminal
-reports and prefers a suitable warm specialist for compatible follow-up work
-when context, review independence, parallelism, and write ownership permit.
+Root resolves to Codex Multi-Agent V1. Managed Root configuration enables
+`features.multi_agent`, disables `features.multi_agent_v2.enabled`, enables
+`agents.enabled`, sets `agents.max_depth = 1` and
+`agents.max_concurrent_threads_per_session = 21`, and disables the agent
+message board. The managed model catalog is derived from the current Codex
+catalog, preserving unrelated entries and fields while setting Root's
+`gpt-6.1-sol` entry to `multi_agent_version = "v1"`; install, update, and
+reconcile refresh that projection. Configuration alone does not prove effective
+runtime behavior. Current evidence does not establish live V1 session behavior
+or child-tool absence.
+
+Root delegates every delegable action through the direct-only
+`multi_agent_v1` namespace. A normal spawn names an exact registered HolyCodex
+`Role.task`, uses `fork_context = false`, and supplies no model or effort
+override. Root dispatches all ready independent Assignments before waiting and
+does not perform delegable fallback work. Codex generic `default`, `explorer`,
+and `worker` routes fail closed. The compact V1 usage hint replaces stock
+anti-delegation guidance; V2 remains disabled. `tool_search` stays available
+for deferred optional capabilities, not HolyCodex orchestration tools.
+
+Root is report-driven: after dispatch, it does not message, poll, request status
+from, or inspect a running specialist. A running Assignment is interrupted or
+superseded only when changed user intent, cancellation, or Assignment
+invalidation makes continuation incorrect. It does not use sleep or status
+loops for specialist coordination. Every Root `multi_agent_v1.wait_agent`
+call includes every currently live specialist blocking the next required Root
+decision or action and uses `timeout_ms = 600000`. Specialist completion may
+wake the wait early. On timeout, Root continues ready independent work, then
+waits again at 600000 while a blocking dependency remains live. Warm reuse requires a
+terminal compatible specialist, a still-valid concrete Role.task, compatible
+ownership, relevant retained context, independent review, and no conflicting
+writer. Immediate follow-up on an open agent uses `send_input`; otherwise Root
+closes it, and later resumes a compatible closed agent before sending input.
 Root gives the user only useful or important information: it does not output
 after every tool use or subagent update, emit routine status-only chatter or
 heartbeat messages, or follow a fixed update cadence. Material updates include
 significant findings or decisions, consequential blockers or input needs, and
 release milestones.
-Root asks only for missing input that materially changes the outcome, while
-independent work proceeds. Root waits for terminal outcomes when no such update or question
-is needed and sends out-of-boundary work back as a new bounded Assignment. For
-every Root `collaboration.wait_agent` call uses
-`timeout_ms = 600000` (10 minutes), regardless of the situation; shorter waits,
-including 10 seconds, are forbidden. Specialist completion wakes the wait
-early, and the collective mailbox already contains the relevant agents. On
-timeout, use `600000` again while any specialist result remains live and
-continue independent work. Do not inspect a running specialist or poll for a
-stall. Use terminal wait outcomes and reports to assess failures and blockers;
-read specialist transcripts or artifacts after a terminal report only when
-needed for material decisions, conflicts, failures, or findings.
+Root asks only when authorization for a consequential external effect is
+missing, or missing/ambiguous information affects correctness and cannot be
+resolved from authorized context. Implied authorization covers routine,
+reversible in-workspace work needed for the request, but not publication,
+third-party messaging, credential submission, destructive or irreversible
+effects, or another unauthorized consequential effect. Independent work
+continues while a required fact is resolved; speculative work dependent on it
+does not. Specialists never ask the user. If input blocks Assignment
+acceptance, the terminal result names the exact missing decision and blocked
+work. Intermediate user updates occur only when they change a Root decision,
+the expected outcome, require input, explain a blocker, or mark a relevant
+release/completion milestone. Terminal reports are evidence-first; transcripts
+are read only when needed for material decisions, conflicts, failures, or
+findings.
 Specialist and Reviewer terminal reports are concise, structured, and
 evidence-first: changed paths, checks, observable evidence, blockers, Root
 decisions needed, and remaining risk. Root reads large transcripts or
@@ -93,13 +116,33 @@ stable facts are reused and each meaning has one authoritative owner. Stable
 bounded component scopes are canonical ownership boundaries. The agent package owns deterministic Intent, compatibility Plan, and Assignment
 operations; Root
 retains material decisions, integration, and completion.
-Root's managed configuration enables
-`multi_agent = true`, disables `multi_agent_v2`, and sets
-`features.context_management.experimental_mode = true`; generated leaves set
-`agents.enabled = false`, `multi_agent = false`, and the same
-context-management key. Generated configuration and readback tests prove
-this V1 arrangement only; session metadata reports V2, so HolyCodex does not
-claim live V1 runtime proof or owned fork enforcement.
+Runtime depth, rather than ignored specialist role-file flags, prevents
+first-level specialists from receiving collaboration tools. Specialists own
+one bounded Assignment, do not delegate, mutate lifecycle, perform VCS writes,
+or interact with the user, and return one terminal result. Instruction order is
+task-specific Role.task guidance, optional role-family guidance, shared
+specialist authority/efficiency rules, then the terminal-report contract.
+Each meaning has one canonical owner. After compaction, Root reloads
+authoritative semantic state before relying on lifecycle, ownership,
+invocation, acceptance, or completion facts.
+
+During implementation, a material decision changes requirements or accepted
+behavior, user-visible behavior, architecture or trust boundaries, security,
+persistent/data/API contracts, dependency/toolchain strategy, deployment or
+external effects, Assignment ownership/scope, or would make substantial
+accepted work invalid if reversed. A routine decision is safe and reversible
+within its Assignment and changes none of those categories. A stable source
+requires every planned writer for that seam/revision to be terminal and no
+running overlapping writer to be able to invalidate dependent evidence.
+Scheduling-independent actions need neither another's output to choose nor to
+execute their next action; write-independent Assignments have non-overlapping
+write ownership and do not depend on each other's transient mutable state.
+Independent review excludes the author and anyone sharing ownership that
+compromises review. Evidence is stale only when a later mutation changes the
+behavior, source/configuration, generated artifact, runtime state, or
+dependency assumption it established. A material visual discrepancy affects
+acceptance, hierarchy/composition, legibility, accessibility, responsiveness,
+interaction correctness, reference adherence, or obvious production quality.
 
 When asked to continue existing work, Root recovers the current Intent, Plan,
 Assignments, results, and material decisions before resuming orchestration.
@@ -126,10 +169,8 @@ selected from this inventory. Explorer, Librarian, Worker, and Reviewer are
 role-family labels only; generic built-in `worker`, `explorer`, `reviewer`, and
 `librarian` agent types are forbidden for HolyCodex specialist Assignments.
 
-Root asks for fresh input only when it materially changes the outcome or a
-consequential effect lacks authorization. Existing authorization persists.
-Root delegates execution through bounded Assignments unless the user explicitly
-requests direct work or forbids delegation. Git/VCS writes are Root-owned;
+Root asks for fresh input only under the criteria above. Existing authorization
+persists. Root delegates execution through bounded Assignments. Git/VCS writes are Root-owned;
 relevant read-only VCS and CI inspection belongs to specialists. Root owns
 visual judgment and the shared background dev server through Root-only
 `visual-loop` and `dev-server`. The visual loop applies only to visual tasks;
@@ -268,6 +309,27 @@ evidence; both gates repeat until green together. A validated vulnerability
 introduced or worsened by the change blocks VCS and release until repaired or
 the user accepts the risk.
 
+The optional `session-audit` capability is disabled by default. When selected,
+it reviews available Root and specialist session evidence for request and
+token counts (including cached and uncached input and reasoning), cache rate,
+unnecessary Root turns or cold specialists, duplicate reads, repeated context,
+oversized irrelevant tool results, avoidable decision/tool boundaries,
+wait/status behavior, and relevant context growth or compaction. It reports
+causes and concrete harness improvements rather than totals alone. The
+optional `auto-reset` capability is also disabled by default and uses banked
+reset only. For plans with a five-hour limit, it asks permission below 15%
+weekly or 20% five-hour remaining and proceeds without permission below 7%
+weekly or 15% five-hour remaining. Without a five-hour limit, those thresholds
+are 10% and 5% weekly. A refusal at the earlier threshold does not carry over
+to the later one. The adapter reads fresh quota evidence through the currently
+supported local Codex App Server account RPC and detects the five-hour limit
+from the observed usage window. If quota or plan-limit evidence is unknown,
+Root fails closed and does not reset. Only Root may consume a banked reset
+credit through the adapter; consumption rereads quota, requires an available
+credit and an idempotency key, and honors the permission threshold. Reuse the
+same key when retrying one logical attempt. Read and evaluate never consume a
+credit; enabling the capability does not imply that any reset was consumed.
+
 Librarian routes use Context7 first for current library, framework, SDK, API,
 CLI, and cloud-service facts. They resolve the library identity, query narrowly,
 and return `used`, `no_coverage`, `unavailable`, `auth_or_quota_failure`, or
@@ -311,12 +373,10 @@ permission, an unavailable required capability, failed verification, or
 uncertain external state produces a structured failure and does not claim
 success.
 
-HolyCodex manages `features.context_management.experimental_mode = true` for
-Root and every generated leaf. The package migration recognizes owned
-historical state only when ownership evidence is safe. The normal managed-key
-ownership rules preserve user edits and restore
-the recorded prior value during cleanup; a user edit is preserved as drift. Repo-local Intent, workflow
-Plan, and Assignment state remain independent of context management.
+The package migration recognizes owned historical state only when ownership
+evidence is safe. Normal managed-key ownership preserves user edits and
+restores the recorded prior value during cleanup. Repo-local Intent, workflow
+Plan, and Assignment state remain independent of runtime context settings.
 
 ## Acceptance and provenance
 

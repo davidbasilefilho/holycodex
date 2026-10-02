@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import { writeTomlPath, type TomlDocument, type TomlValue } from "@holycodex/codex";
 
+import { currentModelCatalogJson } from "./model-catalog-fixture.ts";
 import { resolveInstallerPaths, type ResolvedInstallerPaths } from "./paths.ts";
 import { JsonObjectSchema } from "./schema.ts";
 import { decodeStateText } from "./storage.ts";
@@ -56,6 +57,8 @@ function testRuntime(codexHome: string): InstallerRuntime {
     run: async (executable, args) => {
       const command = `${executable} ${args.join(" ")}`;
       const normalizedCommand = command.replaceAll("\\", "/");
+      if (command === "codex debug models --bundled")
+        return { exitCode: 0, stdout: currentModelCatalogJson(), stderr: "" };
       if (command === "bun pm bin -g") return { exitCode: 0, stdout: `${binRoot}\n`, stderr: "" };
       if (command === "bun pm view ctx7 version")
         return { exitCode: 0, stdout: "2.0.0\n", stderr: "" };

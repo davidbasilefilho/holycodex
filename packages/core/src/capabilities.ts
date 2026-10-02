@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 /** Runtime schema validating capability name values at the receiving boundary. */
 export const CapabilityNameSchema = Schema.Literals([
+  "auto-reset",
   "browser_use",
   "computer_use",
   "frontend",
+  "session-audit",
   "security",
   "sites",
 ]);
@@ -18,9 +21,30 @@ export const OptionalCapabilityNameSchema = Schema.Literals([
   "browser_use",
   "computer_use",
   "sites",
+  "session-audit",
+  "auto-reset",
 ]);
 /** Type representing optional capability name in the core domain. */
 export type OptionalCapabilityName = typeof OptionalCapabilityNameSchema.Type;
+
+/**
+ * Receiving-edge schema for persisted optional selections.
+ *
+ * The two newer opt-ins default off when reading records written before they existed.
+ */
+export const InstalledOptionalCapabilitySelectionsSchema = Schema.Struct({
+  browser_use: Schema.Boolean,
+  computer_use: Schema.Boolean,
+  sites: Schema.Boolean,
+  "session-audit": Schema.Boolean.pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefaultKey(Effect.succeed(false)),
+  ),
+  "auto-reset": Schema.Boolean.pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefaultKey(Effect.succeed(false)),
+  ),
+});
 
 /** Runtime schema validating capability provider status values at the receiving boundary. */
 export const CapabilityProviderStatusSchema = Schema.Literals([
@@ -208,6 +232,8 @@ export type CapabilityDefaults = Readonly<{
   readonly browser_use: boolean;
   readonly sites: boolean;
   readonly frontend: true;
+  readonly "session-audit": false;
+  readonly "auto-reset": false;
   readonly security: true;
 }>;
 
@@ -218,6 +244,8 @@ export const DEFAULT_CAPABILITY_SELECTIONS: CapabilityDefaults = Object.freeze({
   browser_use: true,
   sites: true,
   frontend: true,
+  "session-audit": false,
+  "auto-reset": false,
   security: true,
 });
 
@@ -258,10 +286,35 @@ export const CAPABILITY_APPLICABILITY = Object.freeze({
       appliesWhen: "a relevant React or Next implementation or review",
     },
   ] as const),
-  security: Object.freeze([] as const),
+  security: Object.freeze([
+    {
+      skillId: "codex-security:security-diff-scan",
+      appliesWhen: "a bounded implemented change is ready for security review",
+    },
+    {
+      skillId: "codex-security:security-scan",
+      appliesWhen: "a repository or scoped path needs a broader security review",
+    },
+    {
+      skillId: "codex-security:threat-model",
+      appliesWhen: "security architecture or trust boundaries need analysis",
+    },
+  ] as const),
   computer_use: Object.freeze([] as const),
   browser_use: Object.freeze([] as const),
   sites: Object.freeze([] as const),
+  "session-audit": Object.freeze([
+    {
+      skillId: "session-audit",
+      appliesWhen: "the session-audit capability is enabled for the current task",
+    },
+  ] as const),
+  "auto-reset": Object.freeze([
+    {
+      skillId: "auto-reset",
+      appliesWhen: "the auto-reset capability is enabled and quota monitoring detects a threshold",
+    },
+  ] as const),
 } satisfies Readonly<Record<CapabilityName, readonly CapabilityApplicability[]>>);
 
 /** Canonical frontend applicability mappings. */
@@ -282,12 +335,24 @@ const registry: Record<CapabilityName, CapabilityDefinition> = {
     name: "security",
     pluginIds: ["codex-security@openai-curated"],
     defaultSelected: DEFAULT_CAPABILITY_SELECTIONS.security,
-    semanticSkillIds: [
-      "codex-security:security-scan",
-      "codex-security:security-diff-scan",
-      "codex-security:threat-model",
-    ],
+    semanticSkillIds: CAPABILITY_APPLICABILITY.security.map(({ skillId }) => skillId),
     applicability: CAPABILITY_APPLICABILITY.security,
+    ownership: "shared-preserve",
+  },
+  "session-audit": {
+    name: "session-audit",
+    pluginIds: [],
+    defaultSelected: DEFAULT_CAPABILITY_SELECTIONS["session-audit"],
+    semanticSkillIds: CAPABILITY_APPLICABILITY["session-audit"].map(({ skillId }) => skillId),
+    applicability: CAPABILITY_APPLICABILITY["session-audit"],
+    ownership: "shared-preserve",
+  },
+  "auto-reset": {
+    name: "auto-reset",
+    pluginIds: [],
+    defaultSelected: DEFAULT_CAPABILITY_SELECTIONS["auto-reset"],
+    semanticSkillIds: CAPABILITY_APPLICABILITY["auto-reset"].map(({ skillId }) => skillId),
+    applicability: CAPABILITY_APPLICABILITY["auto-reset"],
     ownership: "shared-preserve",
   },
   computer_use: {
@@ -330,6 +395,8 @@ export const OPTIONAL_CAPABILITY_NAMES: readonly OptionalCapabilityName[] = Obje
   "browser_use",
   "computer_use",
   "sites",
+  "session-audit",
+  "auto-reset",
 ]);
 /** Canonical required capability names used by core domain operations. */
 export const REQUIRED_CAPABILITY_NAMES = Object.freeze(["frontend", "security"] as const);
@@ -344,6 +411,8 @@ export type OptionalCapabilitySelections = Readonly<{
   readonly browser_use: boolean;
   readonly computer_use: boolean;
   readonly sites: boolean;
+  readonly "session-audit": boolean;
+  readonly "auto-reset": boolean;
 }>;
 
 /** Canonical always-present workflow skills projected by the HolyCodex plugin. */
@@ -364,6 +433,8 @@ export const DEFAULT_OPTIONAL_CAPABILITY_SELECTIONS: OptionalCapabilitySelection
   browser_use: DEFAULT_CAPABILITY_SELECTIONS.browser_use,
   computer_use: DEFAULT_CAPABILITY_SELECTIONS.computer_use,
   sites: DEFAULT_CAPABILITY_SELECTIONS.sites,
+  "session-audit": DEFAULT_CAPABILITY_SELECTIONS["session-audit"],
+  "auto-reset": DEFAULT_CAPABILITY_SELECTIONS["auto-reset"],
 });
 
 /** Migrate persisted capability flags, ignoring legacy capabilities that are no longer managed. */
@@ -376,6 +447,8 @@ export function migrateOptionalCapabilitySelections(
     browser_use: input?.["browser_use"] === true,
     computer_use: input?.["computer_use"] === true,
     sites: input?.["sites"] === true,
+    "session-audit": input?.["session-audit"] === true,
+    "auto-reset": input?.["auto-reset"] === true,
   };
 }
 
@@ -389,6 +462,8 @@ export function resolveOptionalCapabilitySelections(
     browser_use: requested?.browser_use ?? fallback.browser_use,
     computer_use: requested?.computer_use ?? fallback.computer_use,
     sites: requested?.sites ?? fallback.sites,
+    "session-audit": requested?.["session-audit"] ?? fallback["session-audit"],
+    "auto-reset": requested?.["auto-reset"] ?? fallback["auto-reset"],
   };
 }
 

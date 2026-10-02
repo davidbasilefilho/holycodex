@@ -22,6 +22,8 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import { parseConfig } from "../packages/cli/src/installer.ts";
+import { currentModelCatalogJson } from "../packages/cli/src/model-catalog-fixture.ts";
+import { modelSupportsExperimentalContext } from "../packages/cli/src/model-catalog.ts";
 import type {
   NativeAgentProjection,
   RootAgentProjection,
@@ -734,15 +736,28 @@ export function verifyPublicPackageEffect(
       readFile(join(codexHome, "config.toml"), "utf8"),
     );
     const managedConfig = parseConfig(managedConfigText);
+    const managedCatalogPath = readTomlPath(managedConfig, "model_catalog_json");
+    assert(
+      typeof managedCatalogPath === "string",
+      "the managed Codex configuration must point to its current model catalog",
+    );
+    const managedCatalogRaw: unknown = JSON.parse(
+      yield* Effect.tryPromise(() => readFile(managedCatalogPath, "utf8")),
+    );
+    const supportsExperimentalContext = modelSupportsExperimentalContext(
+      managedCatalogRaw,
+      "gpt-6.1-sol",
+    );
+    const experimentalContextEnabled =
+      readTomlPath(managedConfig, "features.context_management.experimental_mode") === true;
     const managedRootInstructions = readTomlPath(managedConfig, "developer_instructions");
     const normalizedRootInstructions =
       typeof managedRootInstructions === "string" ? managedRootInstructions.toLowerCase() : "";
     assert(
       readTomlPath(managedConfig, "model") === "gpt-6.1-sol" &&
-        managedConfigText.includes("[features.context_management]") &&
-        managedConfigText.includes("experimental_mode = true") &&
+        experimentalContextEnabled === supportsExperimentalContext &&
         !/\bTerra\b/u.test(managedConfigText),
-      "the managed Codex configuration must use GPT-6.1 Sol and experimental context management",
+      "the managed context-management setting must follow the current Root model's advertised support",
     );
     assert(
       typeof managedRootInstructions === "string" &&
@@ -754,7 +769,7 @@ export function verifyPublicPackageEffect(
           normalizedRootInstructions.includes(term),
         ) &&
         normalizedRootInstructions.includes(
-          "generic built-in agent_type values worker, explorer, reviewer, librarian are forbidden",
+          "generic built-in agent_type values default, worker, explorer, reviewer, librarian are forbidden",
         ),
       "the packed high-profile Root configuration must preserve exact specialist dispatch",
     );
@@ -2371,6 +2386,52 @@ function assertCodexAppServerReadback(
         `Codex App Server config readback changed the high-profile Root route (expected ${JSON.stringify(expectedRootModel ?? highProfile.root.model)}/${legacyRootOnly ? "high" : highProfile.root.effort}, received ${JSON.stringify(readback.config["model"])}/${JSON.stringify(readback.config["model_reasoning_effort"])})`,
       );
       if (legacyRootOnly) return;
+      const features = readback.config["features"];
+      assert(
+        typeof features === "object" && features !== null && !Array.isArray(features),
+        "Codex App Server config readback omitted managed Root features",
+      );
+      const rootFeatures = features as Record<string, unknown>;
+      const multiAgentV2 = rootFeatures["multi_agent_v2"];
+      assert(
+        rootFeatures["multi_agent"] === true &&
+          typeof multiAgentV2 === "object" &&
+          multiAgentV2 !== null &&
+          !Array.isArray(multiAgentV2) &&
+          (multiAgentV2 as Record<string, unknown>)["enabled"] === false &&
+          rootFeatures["agent_message_board"] === false,
+        "Codex App Server config readback omitted the managed Root V1 selection",
+      );
+      const agents = readback.config["agents"];
+      assert(
+        typeof agents === "object" &&
+          agents !== null &&
+          !Array.isArray(agents) &&
+          (agents as Record<string, unknown>)["enabled"] === true &&
+          (agents as Record<string, unknown>)["max_depth"] === 1 &&
+          (agents as Record<string, unknown>)["max_concurrent_threads_per_session"] === 21,
+        "Codex App Server config readback omitted the managed Root specialist depth and concurrency limits",
+      );
+      const modelCatalogPath = readback.config["model_catalog_json"];
+      assert(
+        typeof modelCatalogPath === "string",
+        "Codex App Server config readback omitted the managed model catalog path",
+      );
+      const modelCatalog = JSON.parse(
+        yield* Effect.tryPromise(() =>
+          readFile(
+            isAbsolute(modelCatalogPath) ? modelCatalogPath : resolve(codexHome, modelCatalogPath),
+            "utf8",
+          ),
+        ),
+      ) as { models?: readonly { slug?: string; multi_agent_version?: string }[] };
+      const rootModels = modelCatalog.models?.filter(
+        (model) => model.slug === (expectedRootModel ?? highProfile.root.model),
+      );
+      assert(
+        rootModels?.length === 1 && rootModels[0]?.multi_agent_version === "v1",
+        "Codex App Server config readback did not resolve the managed Root model to V1",
+      );
       const rootInstructions = readback.config["developer_instructions"];
       assert(
         typeof rootInstructions === "string" &&
@@ -2378,7 +2439,6 @@ function assertCodexAppServerReadback(
           rootInstructions.toLowerCase().includes("exact concrete registered role.task agent_type"),
         "Codex App Server config readback changed the high-profile Root instruction projection",
       );
-      const agents = readback.config["agents"];
       assert(
         typeof agents === "object" && agents !== null && !Array.isArray(agents),
         "Codex App Server config readback omitted role registrations",
@@ -2529,6 +2589,7 @@ const ADDITIONAL = "additional@fixture";
 const STATE_PATH = HOME === undefined ? "" : join(HOME, "fixture-codex-state.json");
 const SNAPSHOT_ROOT = HOME === undefined ? "" : join(HOME, "plugins", "openai-plugins");
 const SNAPSHOT_PATH = join(SNAPSHOT_ROOT, "marketplace.json");
+const BUNDLED_MODEL_CATALOG = BUNDLED_MODEL_CATALOG_PLACEHOLDER;
 
 function fail(message) {
   throw new Error(message);
@@ -2733,7 +2794,10 @@ function readFeatureBoolean(document, table, key) {
 async function configRead() {
   const text = await readFile(join(HOME, "config.toml"), "utf8");
   const rootDocument = Bun.TOML.parse(text);
-  const rootFeature = (key) => readFeatureBoolean(rootDocument, "features", key);
+  const rootFeature = (key) =>
+    key === "multi_agent_v2"
+      ? readFeatureBoolean(rootDocument, "features.multi_agent_v2", "enabled")
+      : readFeatureBoolean(rootDocument, "features", key);
   const activeToml = await readFile(join(HOME, "holycodex", "active.toml"), "utf8").catch(() => undefined);
   const active = activeToml === undefined
     ? JSON.parse(await readFile(join(HOME, "holycodex", "active.json"), "utf8"))
@@ -2770,56 +2834,68 @@ async function configRead() {
   if (rootFeature("agent_message_board") !== false) {
     fail("Codex config omitted terminal-only specialist messaging enforcement");
   }
+  const rootAgents = rootDocument.agents;
+  if (
+    typeof rootAgents !== "object" ||
+    rootAgents === null ||
+    rootAgents.enabled !== true ||
+    rootAgents.max_depth !== 1 ||
+    rootAgents.max_concurrent_threads_per_session !== 21
+  ) {
+    fail("Codex config omitted the canonical Root specialist depth and concurrency limits");
+  }
   const experimentalContextManagement =
     readFeatureBoolean(rootDocument, "features.context_management", "experimental_mode") === true;
-  if (!experimentalContextManagement && !allowLegacyConfig) {
-    fail("Codex config omitted context management");
+  const modelCatalogPath = rootStringSetting("model_catalog_json");
+  const modelCatalog = JSON.parse(
+    await readFile(isAbsolute(modelCatalogPath) ? modelCatalogPath : resolve(HOME, modelCatalogPath), "utf8"),
+  );
+  const rootModelMatches = Array.isArray(modelCatalog?.models)
+    ? modelCatalog.models.filter((model) => model?.slug === rootStringSetting("model"))
+    : [];
+  if (
+    rootModelMatches.length !== 1 ||
+    rootModelMatches[0]?.supports_experimental_context !== experimentalContextManagement ||
+    rootModelMatches[0]?.multi_agent_version !== "v1"
+  ) {
+    fail("Codex config model catalog does not match the current Root capabilities and V1 selection");
   }
   if (/thread_tools/u.test(text)) {
     fail("Codex config contains an unsupported feature setting");
   }
   const rootInstructions = rootStringSetting("developer_instructions").toLowerCase();
   if (
-    !rootInstructions.includes("never perform delegable work yourself") ||
+    !rootInstructions.includes("delegate all delegable work") ||
     !rootInstructions.includes("through bounded assignments") ||
-    !rootInstructions.includes("never inherit root settings, substitute a generic route") ||
+    !rootInstructions.includes("exact concrete registered role.task agent_type") ||
     !rootInstructions.includes("root uses visual-loop") ||
     !rootInstructions.includes("use dev-server")
   ) {
     fail("Codex config omitted the Root orchestration boundaries");
   }
   if (
-    !rootInstructions.includes("always call collaboration.wait_agent with timeout_ms=600000 for every root wait") ||
-    !rootInstructions.includes("do not use root sleep for specialist coordination") ||
-    !rootInstructions.includes("do not message, poll, request status from, or follow up with a running specialist") ||
-    !rootInstructions.includes("prefer the same warm specialist") ||
-    !rootInstructions.includes("dispatch already-known independent assignments before waiting")
+    !rootInstructions.includes("multi_agent_v1.wait_agent") ||
+    !rootInstructions.includes("use timeout_ms=600000 exactly") ||
+    !rootInstructions.includes("never sleep or busy-poll for specialist coordination") ||
+    !rootInstructions.includes("do not inspect, message, poll, request status from, or follow up with a running specialist") ||
+    !rootInstructions.includes("prefer compatible warm reuse only when the exact predicate allows it") ||
+    !rootInstructions.includes("dispatch every ready scheduling-independent assignment before waiting")
   ) {
-    fail("Codex config omitted report-driven Root coordination and warm specialist reuse");
+    fail("Codex config omitted V1 report-driven Root coordination and warm specialist reuse");
   }
   if (
     !rootInstructions.includes("exact concrete registered role.task agent_type") ||
     !["explorer", "librarian", "worker", "reviewer", "labels"].every((term) =>
       rootInstructions.includes(term),
     ) ||
-    !rootInstructions.includes("generic built-in agent_type values worker, explorer, reviewer, librarian are forbidden")
+    !rootInstructions.includes("generic built-in agent_type values") ||
+    !["default", "worker", "explorer", "reviewer", "librarian"].every((agentType) =>
+      rootInstructions.includes(agentType),
+    ) ||
+    !rootInstructions.includes("are forbidden")
   ) {
     fail("Codex config retained ambiguous specialist dispatch policy");
   }
-  const config = {
-    model: rootStringSetting("model"),
-    model_reasoning_effort: rootStringSetting("model_reasoning_effort"),
-    service_tier: rootStringSetting("service_tier"),
-    developer_instructions: rootStringSetting("developer_instructions"),
-    features: {
-      multi_agent: rootFeature("multi_agent"),
-      default_mode_request_user_input: rootFeature("default_mode_request_user_input"),
-      multi_agent_v2: rootFeature("multi_agent_v2"),
-      agent_message_board: rootFeature("agent_message_board"),
-      context_management: { experimental_mode: experimentalContextManagement },
-    },
-    agents: {},
-  };
   const agentTypes = AGENT_TYPES_PLACEHOLDER;
   for (const agentType of agentTypes) {
     const marker = "[agents.\"" + agentType + "\"]";
@@ -2850,24 +2926,18 @@ async function configRead() {
     }
     const roleText = await readFile(rolePath, "utf8");
     const roleDocument = Bun.TOML.parse(roleText);
-    const roleFeature = (key) => readFeatureBoolean(roleDocument, "features", key);
-    const roleContextManagement =
-      readFeatureBoolean(roleDocument, "features.context_management", "experimental_mode") === true;
     if (!roleText.includes('model = "gpt-6-luna"')) {
       fail("Codex role file omitted the configured specialist routing model");
-    }
-    if (roleFeature("multi_agent") !== false) {
-      fail("Codex role file omitted the leaf multi-agent boundary");
     }
     if (/thread_tools|computer_use|browser_use|in_app_browser/u.test(roleText)) {
       fail("Codex role file contains an unsupported feature setting");
     }
     if (
-      roleFeature("multi_agent_v2") !== false ||
-      roleFeature("agent_message_board") !== false ||
-      !roleContextManagement
+      roleDocument.features?.multi_agent !== undefined ||
+      roleDocument.features?.multi_agent_v2 !== undefined ||
+      roleDocument.features?.agent_message_board !== undefined
     ) {
-      fail("Codex role file omitted specialist feature boundaries");
+      fail("Codex role file contains unsupported shadow specialist enforcement settings");
     }
     if (roleText.includes("tool_output_token_limit")) {
       fail("Codex role file contains the removed tool_output_token_limit");
@@ -2878,17 +2948,17 @@ async function configRead() {
       : JSON.parse(roleInstructionLine.slice("developer_instructions = ".length));
     if (
       typeof roleInstructions !== "string" ||
-      !roleInstructions.toLowerCase().includes("do not message root or peers during execution") ||
-      !roleInstructions.toLowerCase().includes("minimize model decision boundaries across every tool") ||
-      !roleInstructions.toLowerCase().includes("impose no arbitrary hard output caps") ||
-      !roleInstructions.toLowerCase().includes("fuse deterministic capability or backend discovery with its operation") ||
-      !roleInstructions.toLowerCase().includes("one compact, evidence-first terminal outcome")
+      !roleInstructions.toLowerCase().includes("batch scheduling-independent operations") ||
+      !roleInstructions.toLowerCase().includes("avoid duplicate reads, tool calls, and model boundaries") ||
+      !roleInstructions.toLowerCase().includes("without truncating required evidence") ||
+      !roleInstructions.toLowerCase().includes("combine deterministic capability discovery with the operation when safe") ||
+      !roleInstructions.toLowerCase().includes("return exactly one compact, evidence-first terminal outcome") ||
+      !roleInstructions.toLowerCase().includes("do not report progress before the terminal result")
     ) {
       fail("Codex role file omitted terminal-only specialist reporting boundaries");
     }
-    config.agents[agentType] = { config_file: configFile };
   }
-  return { config, origins: {}, layers: null };
+  return { config: rootDocument, origins: {}, layers: null };
 }
 
 async function appServer() {
@@ -2931,6 +3001,15 @@ async function main() {
   const args = process.argv.slice(2);
   if (args.length === 1 && args[0] === "--version") {
     process.stdout.write(CODEX_VERSION + "\n");
+    return;
+  }
+  if (
+    args.length === 3 &&
+    args[0] === "debug" &&
+    args[1] === "models" &&
+    args[2] === "--bundled"
+  ) {
+    process.stdout.write(JSON.stringify(BUNDLED_MODEL_CATALOG) + "\n");
     return;
   }
   if (args.length === 1 && args[0] === "app-server") {
@@ -2984,7 +3063,11 @@ main().catch((error) => {
 `;
   return source
     .replace('"CODEX_VERSION_PLACEHOLDER"', JSON.stringify(codexCliVersion))
-    .replace("AGENT_TYPES_PLACEHOLDER", JSON.stringify(NATIVE_AGENT_TYPES));
+    .replace("AGENT_TYPES_PLACEHOLDER", JSON.stringify(NATIVE_AGENT_TYPES))
+    .replace(
+      "BUNDLED_MODEL_CATALOG_PLACEHOLDER",
+      JSON.stringify(JSON.parse(currentModelCatalogJson())),
+    );
 }
 function readPublicManifest(): Effect.Effect<PublicManifest, unknown> {
   return Effect.gen(function* () {

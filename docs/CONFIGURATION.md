@@ -25,25 +25,48 @@ tier, live web search, workspace-write command network access, compact
 `developer_instructions`, required feature flags, and every
 canonical `agents."{Role}.{task}".config_file` registration into
 `<CODEX_HOME>/config.toml`. It also sets
-`agents.max_concurrent_threads_per_session = 21` for every profile. Root is the
+`features.multi_agent = true`, disables
+`features.multi_agent_v2.enabled`, enables `agents.enabled`, sets
+`agents.max_depth = 1` and `agents.max_concurrent_threads_per_session = 21`,
+and disables the agent message board. Root is the
 parent session in that file; no `agents/root.toml` is generated or registered.
+The `multi_agent_v1` namespace is configured as a direct-only tool. The
+current Codex model catalog is the source for a managed catalog projection;
+unrelated models and fields are retained, while the Root model entry is
+patched to V1 and refreshed during install, update, and reconcile.
 Leaf TOMLs live under
 `<CODEX_HOME>/holycodex/agents/<generation>/` and use native controls for their model,
 reasoning effort, service tier, sandbox, approval, network, and delegation
-features. Task permissions are specific: observational `Worker.operations` has
+features. `agents.max_depth = 1` is the runtime guarantee that first-level
+specialists cannot receive collaboration tools; role-file settings do not
+provide this guarantee. Task permissions are specific: observational `Worker.operations` has
 exact-ref/SHA network access without repository/source mutation;
 `Worker.validation` may
 write caches, build output, and generated test state while retaining no
 authority to change the implementation under validation; and
 `Worker.debugging` is the bounded repair route. Every generated specialist has
-live web search and command network access. Task-specific sandbox modes are read-only or workspace-write. Writable leaves
-set `sandbox_workspace_write.network_access = true`; task instructions and
-`sourceMutation = false` preserve proof-only source boundaries. Generated leaves do not set
+live web search and command network access through their inherited Root
+permission profile. Leaf files do not set a separate command-network override.
+Task-specific sandbox modes are read-only or workspace-write; task instructions
+and `sourceMutation = false` preserve proof-only source boundaries. Generated leaves do not set
 `tool_output_token_limit`.
 
 These are HolyCodex configuration defaults. A stricter active session or
 composer sandbox, managed policy, or unavailable web-search capability can
 still block network use; generated configuration cannot widen those boundaries.
+
+HolyCodex selects Codex's supported `default_permissions = ":danger-full-access"`
+with `approval_policy = "on-request"`,
+`approvals_reviewer = "auto_review"`, and `web_search = "live"`. Codex does not
+support extending the built-in `:danger-full-access` preset as a custom
+permission profile. Automatic review is the reviewer for eligible permission
+requests; it is not a sandbox or an access restriction. Installation and
+reconciliation preserve unrelated user configuration and update only declared
+HolyCodex-owned keys. The full-access selection provides Doctor's network
+access without a separate network override. Reconciliation removes only a
+legacy HolyCodex-owned permission profile and preserves unrelated named
+profiles; removal restores original managed settings when they remain
+unchanged. See [INSTALLATION.md](INSTALLATION.md) for the cleanup behavior.
 
 The concrete `Role.task` policy is the authority source. A task skill supplies
 branch-specific workflow, while a delegation prompt supplies assignment facts.
@@ -58,14 +81,14 @@ families Explorer, Librarian, Worker, and Reviewer are labels only, and generic
 built-in `worker`, `explorer`, `reviewer`, and `librarian` types are forbidden
 for HolyCodex specialist Assignments.
 
-HolyCodex manages
-`features.context_management.experimental_mode = true` for Root and every
-generated leaf. Removal restores the recorded prior value when unchanged, while
-a user edit is preserved and reported as drift. Intent, Plan, and Assignment
-persistence remains independent repo-local work state.
+The direct V1 spawn contract uses an exact registered `Role.task`,
+`fork_context = false`, and no model or effort override. Tool search remains
+available for optional capabilities; Root does not use it to discover its own
+orchestration tools. Intent, Plan, and Assignment persistence remains
+independent repo-local work state.
 
-Root delegates implementation and observation through bounded Assignments,
-unless the user explicitly requests direct execution. Git/VCS writes, shared
+Root delegates implementation and observation through bounded Assignments.
+Git/VCS writes, shared
 background server management, and visual judgment remain Root-owned. Ordinary
 browser and computer work is delegated; visual tasks use Root-only visual-loop.
 Root's visual fallback is generated from selected capabilities: Browser Use

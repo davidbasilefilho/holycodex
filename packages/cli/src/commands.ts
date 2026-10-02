@@ -891,7 +891,15 @@ function renderInstall(data: JsonValue, color: boolean): string {
   const profile = stringValue(record, "profile") ?? "unknown";
   const tier = stringValue(record, "tier") ?? "unknown";
   const capabilityState = objectValue(record, "capability_state");
-  const capabilities = ["frontend", "security", "sites", "browser_use", "computer_use"]
+  const capabilities = [
+    "frontend",
+    "security",
+    "sites",
+    "browser_use",
+    "computer_use",
+    "session-audit",
+    "auto-reset",
+  ]
     .filter((name) => objectValue(capabilityState, name)?.["selected"] === true)
     .map((name) => {
       const status = stringValue(objectValue(capabilityState, name), "status");
