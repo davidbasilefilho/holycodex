@@ -1,7 +1,0 @@
-# Bun owns project operations; npm is used only at the publication boundary.
-[tools]
-bun = "1.4"
-
-[settings]
-fetch_remote_versions_cache = "0s"
-use_versions_host = false
