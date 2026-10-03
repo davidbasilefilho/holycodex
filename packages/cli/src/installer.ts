@@ -1514,8 +1514,8 @@ export function installHolyCodexEffect(
       plugin_snapshot: [],
       plugin_config: {
         plugin_id: HOLYCODEX_PLUGIN as "holycodex@holycodex",
-        before: pluginConfigBefore,
-        after: pluginConfigBefore,
+        before: currentHolyCodexPluginConfig,
+        after: currentHolyCodexPluginConfig,
       },
       provider_config: providerConfigBefore,
       owned_plugins: [...previousOwnedPlugins],
@@ -1538,6 +1538,7 @@ export function installHolyCodexEffect(
     let transactionForRecovery: PreparingTransaction = preMutationTransaction;
     let pluginEffectsStarted = false;
     let configBeforeMutationDocument: TomlDocument | undefined;
+    let migratedConfigBeforeMutationDocument: TomlDocument | undefined;
     let initialConfigIdentity: Readonly<{ dev: number; ino: number }> | undefined;
     let publishedConfigState = mergedConfig.state;
     let activeRecordWriteStarted = false;
@@ -1658,9 +1659,10 @@ export function installHolyCodexEffect(
         configBeforeMutationContext.document,
         configBeforeMutationContext.state,
       );
-      configBeforeMutationDocument = configBeforeMutationAutoCompact.document;
+      configBeforeMutationDocument = liveConfigBeforeMutation;
+      migratedConfigBeforeMutationDocument = configBeforeMutationAutoCompact.document;
       yield* assertPostPluginConfigStable(
-        configBeforeMutationDocument,
+        migratedConfigBeforeMutationDocument,
         configDocument,
         { ...currentManagedConfig, managed: resolvedManagedConfig },
         resolvedDesiredConfig,
@@ -1753,7 +1755,7 @@ export function installHolyCodexEffect(
         ...transactionForRecovery,
         plugin_config: {
           plugin_id: HOLYCODEX_PLUGIN as "holycodex@holycodex",
-          before: pluginConfigBefore,
+          before: currentHolyCodexPluginConfig,
           after: pluginRecoveryConfigAfter,
         },
         provider_config: providerRecoveryConfig,
@@ -1884,7 +1886,10 @@ export function installHolyCodexEffect(
         postPluginContext.document,
         postPluginContext.state,
       );
-      if (configBeforeMutationDocument === undefined) {
+      if (
+        configBeforeMutationDocument === undefined ||
+        migratedConfigBeforeMutationDocument === undefined
+      ) {
         return yield* Effect.fail(
           new InstallerError(
             "state_corrupt",
@@ -1907,7 +1912,7 @@ export function installHolyCodexEffect(
       let stablePostPluginDocument = postPluginResolution.document;
       for (const rawKeyPath of Object.keys(resolvedManagedConfig)) {
         const keyPath = rawKeyPath as ManagedConfigKeyPath;
-        const acceptedValue = readTomlPath(configBeforeMutationDocument, keyPath);
+        const acceptedValue = readTomlPath(migratedConfigBeforeMutationDocument, keyPath);
         stablePostPluginDocument =
           acceptedValue === undefined
             ? deleteTomlPath(stablePostPluginDocument, keyPath)
@@ -1961,7 +1966,7 @@ export function installHolyCodexEffect(
         ...transactionForRecovery,
         plugin_config: {
           plugin_id: HOLYCODEX_PLUGIN as "holycodex@holycodex",
-          before: pluginConfigBefore,
+          before: currentHolyCodexPluginConfig,
           after: pluginConfigAfter,
         },
         provider_config: providerRollbackConfig,
@@ -1984,7 +1989,7 @@ export function installHolyCodexEffect(
       for (const [rawKeyPath, entry] of Object.entries(postPluginBaselineManaged)) {
         if (configConflictKeys.has(rawKeyPath)) continue;
         const keyPath = rawKeyPath as ManagedConfigKeyPath;
-        const value = readTomlPath(configBeforeMutationDocument, keyPath);
+        const value = readTomlPath(migratedConfigBeforeMutationDocument, keyPath);
         postPluginBaselineManaged[keyPath] = {
           ...entry,
           ...(value === undefined
@@ -2000,7 +2005,7 @@ export function installHolyCodexEffect(
       };
       yield* assertPostPluginConfigStable(
         stablePostPluginDocument,
-        configBeforeMutationDocument,
+        migratedConfigBeforeMutationDocument,
         { ...postPluginBaseline, managed: resolvedManagedConfig },
         resolvedDesiredConfig,
       );

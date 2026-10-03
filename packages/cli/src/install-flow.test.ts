@@ -469,12 +469,16 @@ describe("command install and upgrade review flow", () => {
     const paths = resolveInstallerPaths({ paths: { codexHome } });
     const manager = fakeManager();
     try {
-      await seedInstall(root, { optional: { computer_use: false } }, manager);
+      await installHolyCodex(
+        { optional: { computer_use: false } },
+        installerOptions(codexHome, manager),
+        { ...fakeEnvironment, CODEX_HOME: codexHome },
+      );
       await makeLegacyPermissionProfile(codexHome);
       await installHolyCodex(
         { optional: { computer_use: false } },
         installerOptions(codexHome, manager),
-        fakeEnvironment,
+        { ...fakeEnvironment, CODEX_HOME: codexHome },
       );
 
       const upgraded = parseConfig(await readFile(paths.configFile, "utf8"));
@@ -489,11 +493,61 @@ describe("command install and upgrade review flow", () => {
 
       await removeHolyCodex(
         { paths: { codexHome }, officialPluginManager: manager },
-        fakeEnvironment,
+        { ...fakeEnvironment, CODEX_HOME: codexHome },
       );
       expect(
         readTomlPath(parseConfig(await readFile(paths.configFile, "utf8")), "default_permissions"),
       ).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("preserves the 0.16.11 permission profile when marketplace setup fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "holycodex-cli-permission-profile-rollback-"));
+    const codexHome = join(root, "codex");
+    const paths = resolveInstallerPaths({ paths: { codexHome } });
+    const manager = fakeManager();
+    let marketplaceAttempts = 0;
+    let marketplaceProfile: unknown;
+    let marketplaceLegacyPermissions: unknown;
+    const failingManager: OfficialPluginManager = {
+      ...manager,
+      addMarketplace: async () => {
+        marketplaceAttempts += 1;
+        const staged = parseConfig(await readFile(paths.configFile, "utf8"));
+        marketplaceProfile = readTomlPath(staged, "default_permissions");
+        marketplaceLegacyPermissions = readTomlPath(staged, "permissions.holycodex");
+        throw new Error("injected marketplace setup failure");
+      },
+    };
+    try {
+      await installHolyCodex(
+        { optional: { computer_use: false } },
+        installerOptions(codexHome, manager),
+        { ...fakeEnvironment, CODEX_HOME: codexHome },
+      );
+      await makeLegacyPermissionProfile(codexHome);
+      const originalConfig = await readFile(paths.configFile, "utf8");
+      const original = parseConfig(originalConfig);
+
+      await expect(
+        installHolyCodex(
+          { optional: { computer_use: false } },
+          installerOptions(codexHome, failingManager),
+          { ...fakeEnvironment, CODEX_HOME: codexHome },
+        ),
+      ).rejects.toBeDefined();
+
+      expect(marketplaceAttempts).toBe(1);
+      expect(marketplaceProfile).toBe("holycodex");
+      expect(marketplaceLegacyPermissions).toEqual(readTomlPath(original, "permissions.holycodex"));
+      expect(await readFile(paths.configFile, "utf8")).toBe(originalConfig);
+      const restored = parseConfig(await readFile(paths.configFile, "utf8"));
+      expect(readTomlPath(restored, "default_permissions")).toBe("holycodex");
+      expect(readTomlPath(restored, "permissions.holycodex")).toEqual(
+        readTomlPath(original, "permissions.holycodex"),
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }

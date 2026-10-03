@@ -2239,7 +2239,7 @@ describe("native installation and removal", () => {
       const config = await readFile(join(codexHome, "config.toml"), "utf8");
 
       expect(upgraded.from_version).toBe(initial.record.version);
-      expect(upgraded.to_version).toBe(initial.record.version);
+      expect(upgraded.to_version).toBe(await readInstallationVersion());
       expect(upgraded.status).toBe("upgraded");
       expect(upgraded.changes).toContain("current Codex model catalog changed");
       expect(installedCatalog.models.map(({ slug }) => slug)).toContain("future-codex-model");

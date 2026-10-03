@@ -64,3 +64,9 @@ Read HOLYCODEX_BIBLE.md.
   That test must validate installed configuration, profiles, and route
   registrations without creating Codex sessions or making model requests that
   consume usage; config-only diagnostics are allowed.
+- Every installation, configuration, or permission probe/test must set a unique
+  temporary `CODEX_HOME` before invoking the installer, maintenance commands,
+  or Codex diagnostics. Never run these checks against the user's actual Codex
+  home. Mutating the actual Codex configuration is a separate Root-owned
+  operation and requires explicit user authorization, a backup/recovery plan,
+  and post-change readback.

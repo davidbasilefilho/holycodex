@@ -225,9 +225,12 @@ describe("release version authority", () => {
     expect(semanticCapabilityMigrationFixture).toContain(
       'test("migrates 0.16.11 optional semantic capabilities to disabled defaults"',
     );
-    expect(countLiteral(permissionProfileMigrationFixture, "0.16.11")).toBe(1);
+    expect(countLiteral(permissionProfileMigrationFixture, "0.16.11")).toBe(2);
     expect(permissionProfileMigrationFixture).toContain(
       'test("migrates the 0.16.11 permission profile to built-in Full Access and restores its origin"',
+    );
+    expect(permissionProfileMigrationFixture).toContain(
+      'test("preserves the 0.16.11 permission profile when marketplace setup fails"',
     );
     expect(countLiteral(priorPermissionProjectionExplanation, "0.16.11")).toBe(1);
     expect(priorPermissionProjectionExplanation).toContain(

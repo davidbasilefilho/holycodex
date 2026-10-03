@@ -3,7 +3,6 @@
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { homedir } from "node:os";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -51,14 +50,19 @@ export type EffectiveRuntimeEvidence = Readonly<{
   blockedEndpoints: readonly string[];
   stdout: string;
   stderr: string;
+  catalogSource: "explicit-override" | "codex-bundled";
 }>;
 
 /** Route argument supplied by the deterministic local mock provider. */
 export type RouteProbe = "concrete" | "omitted" | "invalid" | `generic-${GenericBuiltinAgentType}`;
 
+/** Select automatic explicit-fixture handling or force the installed bundled Codex catalog. */
+export type CatalogSourcePreference = "auto" | "bundled";
+
 /** Exercise Codex CLI with a local Responses stub and an isolated CODEX_HOME. */
 function collectEffectiveRuntimeEvidence(
   routeProbe: RouteProbe = "concrete",
+  catalogSourcePreference: CatalogSourcePreference = "auto",
 ): Effect.Effect<EffectiveRuntimeEvidence, unknown> {
   return Effect.suspend(() => {
     const requests: JsonObject[] = [];
@@ -75,6 +79,7 @@ function collectEffectiveRuntimeEvidence(
       expectedChildPersonality: "none" as "friendly" | "none",
       projectedConfig: "",
       rootSupportsSearchTool: undefined as boolean | undefined,
+      catalogSource: "codex-bundled" as "explicit-override" | "codex-bundled",
     };
     let rootPath: string | undefined;
     const evidence = (): EffectiveRuntimeEvidence => {
@@ -114,6 +119,7 @@ function collectEffectiveRuntimeEvidence(
         blockedEndpoints,
         stdout: state.stdout,
         stderr: state.stderr,
+        catalogSource: state.catalogSource,
       };
     };
     const server = createServer((request, response) => {
@@ -140,10 +146,25 @@ function collectEffectiveRuntimeEvidence(
       const catalogPath = nativeModelCatalogPath(codexHome);
       const address = yield* startServer(server);
       yield* tryPromise(() => mkdir(codexHome, { recursive: true }));
-      const sourceCatalogPath =
-        process.env["CODEX_MODEL_CATALOG_PATH"] ??
-        join(process.env["CODEX_HOME"] ?? join(homedir(), ".codex"), "models_cache.json");
-      const sourceCatalogText = yield* tryPromise(() => readFile(sourceCatalogPath, "utf8"));
+      const executable = yield* resolveCodexExecutable();
+      const explicitCatalogPath = process.env["CODEX_MODEL_CATALOG_PATH"];
+      const useExplicitCatalog =
+        catalogSourcePreference === "auto" && explicitCatalogPath !== undefined;
+      state.catalogSource = useExplicitCatalog ? "explicit-override" : "codex-bundled";
+      const sourceCatalogText = useExplicitCatalog
+        ? yield* tryPromise(() => readFile(explicitCatalogPath, "utf8"))
+        : yield* Effect.gen(function* () {
+            const result = yield* runProcess(
+              executable,
+              ["debug", "models", "--bundled"],
+              isolatedEnvironment(codexHome, address.port),
+            );
+            if (result.code !== 0)
+              return yield* Effect.fail(
+                new Error(`Codex bundled model catalog failed: ${result.stderr}`),
+              );
+            return result.stdout;
+          });
       const catalog = patchCurrentModelCatalog(JSON.parse(sourceCatalogText));
       const rootModel = findCatalogModel(catalog.catalog, "gpt-6.1-sol");
       state.rootSupportsSearchTool =
@@ -154,14 +175,10 @@ function collectEffectiveRuntimeEvidence(
       state.specialistInstructions = catalog.specialistInstructions;
       yield* tryPromise(() => mkdir(dirname(catalogPath), { recursive: true }));
       yield* tryPromise(() => writeFile(catalogPath, JSON.stringify(catalog.catalog)));
-      const sourceCodexHome = process.env["CODEX_HOME"] ?? join(homedir(), ".codex");
-      const originalConfigText = yield* tryPromise(() =>
-        readFile(join(sourceCodexHome, "config.toml"), "utf8"),
-      ).pipe(Effect.catch(() => Effect.succeed(undefined)));
-      const originalPersonality = readTomlPath(parseConfig(originalConfigText), "personality");
-      state.parentPersonality =
-        typeof originalPersonality === "string" ? originalPersonality : undefined;
-      const parentPersonalityNone = rootPersonalityIsNone(originalPersonality);
+      // Keep the runtime fixture independent of the user's configuration and verify that Root's
+      // explicit personality survives while child agents receive their managed transition.
+      state.parentPersonality = "pragmatic";
+      const parentPersonalityNone = rootPersonalityIsNone(state.parentPersonality);
       state.expectedChildPersonality = parentPersonalityNone ? "friendly" : "none";
       const desired = desiredRootConfig(
         "default",
@@ -201,7 +218,6 @@ function collectEffectiveRuntimeEvidence(
       );
       state.projectedConfig = configText(address.port, desired, state.parentPersonality);
       yield* tryPromise(() => writeFile(join(codexHome, "config.toml"), state.projectedConfig));
-      const executable = yield* resolveCodexExecutable();
       const result = yield* runCodex(executable, codexHome, root, address.port);
       state.codexVersion = result.version;
       state.stdout = result.stdout;

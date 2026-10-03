@@ -124,7 +124,8 @@ async function verifyEvidence(
   route: RouteProbe,
   verify: (evidence: EffectiveRuntimeEvidence) => void,
 ): Promise<void> {
-  const evidence = await Effect.runPromise(collectEffectiveRuntimeEvidence(route));
+  const evidence = await Effect.runPromise(collectEffectiveRuntimeEvidence(route, "bundled"));
+  expect(evidence.catalogSource).toBe("codex-bundled");
   try {
     verify(evidence);
   } catch (error) {
@@ -203,6 +204,8 @@ function assertRootContract(evidence: EffectiveRuntimeEvidence): void {
     (tool) => `${String(tool["namespace"])}.${String(tool["name"])}`,
   );
   expect(evidence.codexVersion).toMatch(/^codex-cli\s+0\./u);
+  expect(evidence.parentPersonality).toBe("pragmatic");
+  expect(evidence.expectedChildPersonality).toBe("none");
   expect(evidence.rootRequest["model"]).toBe("gpt-6.1-sol");
   expect(evidence.rootSupportsSearchTool).toBe(true);
   const projected = parseConfig(evidence.projectedConfig);
