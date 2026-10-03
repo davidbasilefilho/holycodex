@@ -1,0 +1,15 @@
+[package]
+name = "holycodex-npm-packager"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+serde_json = "1"
+sha2 = "0.10"
+toml = "0.8"
+
+[lints]
+workspace = true

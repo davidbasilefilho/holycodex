@@ -1,0 +1,81 @@
+name: native-release-validation
+
+on:
+  push:
+    tags: ["v0.17.0"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      - run: mise run fmt-check
+      - run: mise run lint
+      - run: mise run test
+
+  native:
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: linux-x64-gnu
+            package: holycodex-native-linux-x64-gnu
+          - runner: macos-latest
+            target: darwin-arm64
+            package: holycodex-native-darwin-arm64
+          - runner: windows-latest
+            target: win32-x64
+            package: holycodex-native-win32-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      - name: Check runner matches advertised target
+        run: node -e "const p=require('node:process');const t='${{ matrix.target }}';const ok={'linux-x64-gnu':p.platform==='linux'&&p.arch==='x64','darwin-arm64':p.platform==='darwin'&&p.arch==='arm64','win32-x64':p.platform==='win32'&&p.arch==='x64'};if(!ok[t])throw Error(t+' requires native runner; got '+p.platform+'-'+p.arch)"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Materialize pinned Codex and apply HolyCodex layer
+        run: |
+          cargo run --locked -p holycodex-dev -- materialize --upstream .tmp/upstream
+          cargo run --locked -p holycodex-dev -- apply --upstream .tmp/upstream
+      - name: Test pinned Codex CLI with its toolchain
+        shell: bash
+        run: |
+          cargo install just --locked
+          cargo install cargo-nextest --locked
+          cd .tmp/upstream
+          just test --locked -p codex-cli
+      - name: Build one native runtime under both names
+        run: cargo run --locked -p holycodex-dev -- package --upstream .tmp/upstream --output .tmp/native --release
+      - name: Stage and inspect platform npm package
+        run: |
+          cargo run --locked -p holycodex-npm-packager -- ${{ matrix.target }} .tmp/native .tmp/npm
+          cargo run --locked -p holycodex-npm-packager -- wrapper .tmp/npm
+          npm pack --pack-destination .tmp/npm .tmp/npm/holycodex
+          npm pack --pack-destination .tmp/npm .tmp/npm/${{ matrix.package }}
+          npm test --prefix npm/holycodex
+      - name: Record source identity
+        run: node -e "const cp=require('node:child_process'),fs=require('node:fs');const actual=cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();if(actual!==process.env.GITHUB_SHA)throw Error('checkout SHA does not match workflow source SHA');fs.writeFileSync('.tmp/npm/source-revision.txt',actual+'\n')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: holycodex-0.17.0-${{ matrix.target }}-${{ github.sha }}
+          path: .tmp/npm
+          if-no-files-found: error

@@ -1,0 +1,9 @@
+{
+  "name": "holycodex-native-win32-x64",
+  "version": "0.17.0",
+  "description": "HolyCodex native executables for Windows x64",
+  "license": "Apache-2.0",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["bin/holycodex.exe", "bin/codex.exe", "payload.json", "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md"]
+}

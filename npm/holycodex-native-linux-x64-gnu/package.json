@@ -1,0 +1,10 @@
+{
+  "name": "holycodex-native-linux-x64-gnu",
+  "version": "0.17.0",
+  "description": "HolyCodex native executables for Linux x64 (glibc)",
+  "license": "Apache-2.0",
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "libc": ["glibc"],
+  "files": ["bin/holycodex", "bin/codex", "payload.json", "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md"]
+}
