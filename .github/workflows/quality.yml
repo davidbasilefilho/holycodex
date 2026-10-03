@@ -1,0 +1,22 @@
+name: quality
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  quality:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install: false
+          cache: true
+      - run: mise install --locked rust
+      - run: mise run fmt-check
+      - run: mise run lint
+      - run: mise run test
