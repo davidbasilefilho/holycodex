@@ -145,20 +145,24 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_FIXTURE_ID: AtomicU64 = AtomicU64::new(0);
 
     struct Fixture(PathBuf);
 
     impl Fixture {
         fn new() -> Self {
-            let nonce = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let path = std::env::temp_dir()
-                .join(format!("holycodex-packager-{}-{nonce}", std::process::id()));
-            fs::create_dir(&path).unwrap();
-            Self(path)
+            loop {
+                let id = NEXT_FIXTURE_ID.fetch_add(1, Ordering::Relaxed);
+                let path = std::env::temp_dir()
+                    .join(format!("holycodex-packager-{}-{id}", std::process::id()));
+                match fs::create_dir(&path) {
+                    Ok(()) => return Self(path),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("failed to create test fixture: {error}"),
+                }
+            }
         }
     }
 
@@ -166,6 +170,16 @@ mod tests {
         fn drop(&mut self) {
             fs::remove_dir_all(&self.0).unwrap();
         }
+    }
+
+    #[test]
+    fn fixture_directories_are_unique_when_created_concurrently() {
+        let fixtures: Vec<_> = (0..32).map(|_| std::thread::spawn(Fixture::new)).collect();
+        let paths: std::collections::HashSet<_> = fixtures
+            .into_iter()
+            .map(|fixture| fixture.join().unwrap().0.clone())
+            .collect();
+        assert_eq!(paths.len(), 32);
     }
 
     #[test]
