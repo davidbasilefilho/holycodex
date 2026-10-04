@@ -138,17 +138,6 @@ impl Plan {
                 true,
             )?;
         }
-        // The preserved upstream workspace actually lives under `codex-rs`, while
-        // the owned crates remain at the checkout root. Reproduce that path alias
-        // in fresh pinned checkouts without assuming a particular workspace name.
-        let workspace_manifest = upstream.join(workspace).join("Cargo.toml");
-        if workspace_manifest.is_file() {
-            let original = fs::read(&workspace_manifest)?;
-            let updated = ensure_policy_workspace_dependency(&original)?;
-            if updated != original {
-                plan.bytes(PathBuf::from(workspace).join("Cargo.toml"), updated, true);
-            }
-        }
         let overlay = root.join("overlay/holycodex");
         validate_directory(root, Path::new("overlay/holycodex"))?;
         plan.tree(&overlay, Path::new("overlay/holycodex"), false)?;
@@ -279,45 +268,6 @@ impl Plan {
     }
 }
 
-fn ensure_policy_workspace_dependency(original: &[u8]) -> Result<Vec<u8>> {
-    let text = std::str::from_utf8(original).context("workspace manifest is not UTF-8")?;
-    let parsed: toml::Value =
-        toml::from_str(text).context("invalid upstream workspace manifest")?;
-    let dependencies = parsed
-        .get("workspace")
-        .and_then(|value| value.get("dependencies"));
-    if let Some(value) = dependencies.and_then(|table| table.get("holycodex-policy")) {
-        let path = value
-            .as_table()
-            .and_then(|table| table.get("path"))
-            .and_then(toml::Value::as_str);
-        ensure!(
-            path == Some("../crates/holycodex-policy"),
-            "upstream holycodex-policy workspace dependency has an unexpected definition"
-        );
-        return Ok(original.to_vec());
-    }
-    let insertion = "holycodex-policy = { path = \"../crates/holycodex-policy\" }\n";
-    if let Some(start) = text.find("[workspace.dependencies]") {
-        let after_header = start + "[workspace.dependencies]".len();
-        let end = text[after_header..]
-            .find("\n[")
-            .map(|offset| after_header + offset + 1)
-            .unwrap_or(text.len());
-        let mut updated = text.to_owned();
-        updated.insert_str(end, insertion);
-        Ok(updated.into_bytes())
-    } else {
-        let mut updated = text.to_owned();
-        if !updated.ends_with('\n') {
-            updated.push('\n');
-        }
-        updated.push_str("\n[workspace.dependencies]\n");
-        updated.push_str(insertion);
-        Ok(updated.into_bytes())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,7 +275,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn materializes_canonical_policy_codec_and_actual_workspace_path() {
+    fn materializes_canonical_policy_codec_without_rewriting_workspace_manifest() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let upstream = tempdir().unwrap();
         let workspace = upstream.path().join("codex-rs");
@@ -365,11 +315,9 @@ mod tests {
                 .join("overlay/holycodex/instructions")
                 .is_dir()
         );
-        let manifest: toml::Value =
-            toml::from_str(&fs::read_to_string(workspace.join("Cargo.toml")).unwrap()).unwrap();
         assert_eq!(
-            manifest["workspace"]["dependencies"]["holycodex-policy"]["path"],
-            toml::Value::from("../crates/holycodex-policy")
+            fs::read(workspace.join("Cargo.toml")).unwrap(),
+            b"[workspace]\nmembers = []\nresolver = \"2\"\n"
         );
 
         // A second installation is idempotent and does not touch an existing

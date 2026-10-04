@@ -2,7 +2,10 @@ name: native-release-validation
 
 on:
   push:
+    branches: [main]
     tags: ["v0.17.0"]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -96,17 +99,42 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-      - name: Materialize pinned Codex and apply HolyCodex layer
-        run: |
-          cargo run --locked -p holycodex-dev -- materialize --upstream .tmp/upstream
-          cargo run --locked -p holycodex-dev -- apply --upstream .tmp/upstream
-      - name: Test pinned Codex CLI with its toolchain
-        shell: bash
+      - name: Materialize pinned Codex with HolyCodex layer
+        run: cargo run --locked -p holycodex-dev -- materialize --upstream .tmp/upstream
+      - name: Install pinned Codex test runners
         run: |
           cargo install just --locked
           cargo install cargo-nextest --locked
+      - name: Test focused HolyCodex behavior on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          CARGO_BUILD_JOBS: "1"
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
+          printf 'focused_test_source_sha=%s\n' "$source_sha"
+          git diff --exit-code
           cd .tmp/upstream
-          just test --locked -p codex-cli
+          just test --locked --build-jobs 1 --test-threads 1 -p codex-core --lib --test all -E 'test(/holycodex|holy|all_specialist_routes_allocate_and_build_requests_for_each_profile/)'
+          just test --locked --build-jobs 1 --test-threads 1 -p codex-login -p codex-skills -p codex-skills-extension --lib -E 'test(/siwc::tests|embedded_holycodex_017_skill_inventory_is_complete|optional_workflows/)'
+          cd "$GITHUB_WORKSPACE"
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
+          printf 'focused_test_source_sha_after=%s\n' "$source_sha"
+          git diff --exit-code
+      - name: Test pinned Codex CLI with its toolchain
+        shell: bash
+        env:
+          CARGO_BUILD_JOBS: "1"
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          cd .tmp/upstream
+          just test --locked --build-jobs 1 --test-threads 1 -p codex-cli
       - name: Build one native runtime under both names
         run: cargo run --locked -p holycodex-dev -- package --upstream .tmp/upstream --output .tmp/native --release
       - name: Stage and pack platform npm package

@@ -369,3 +369,60 @@ fn patch_preflight_rejects_reapplication_without_changing_the_checkout() {
         "after\n"
     );
 }
+
+#[test]
+fn patch_workspace_manifest_survives_owned_materialization() {
+    let root = tempdir().unwrap();
+    let repo = tempdir().unwrap();
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(repo.path())
+            .output()
+            .unwrap()
+    };
+    assert!(git(&["init", "-q"]).status.success());
+    assert!(git(&["config", "core.autocrlf", "false"]).status.success());
+    let workspace = repo.path().join("codex-rs");
+    fs::create_dir_all(&workspace).unwrap();
+    let manifest_path = workspace.join("Cargo.toml");
+    let original_manifest =
+        b"[workspace]\nmembers = []\n\n[workspace.dependencies]\nserde = \"1\"\n";
+    let patched_manifest = b"[workspace]\nmembers = []\n\n[workspace.dependencies]\nholycodex-policy = { path = '../crates/holycodex-policy' }\nserde = \"1\"\n";
+    fs::write(&manifest_path, original_manifest).unwrap();
+    assert!(git(&["add", "codex-rs/Cargo.toml"]).status.success());
+    assert!(
+        git(&[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "base",
+        ])
+        .status
+        .success()
+    );
+
+    fs::write(&manifest_path, patched_manifest).unwrap();
+    let patch = git(&["diff", "--", "codex-rs/Cargo.toml"]);
+    assert!(patch.status.success());
+    fs::create_dir(root.path().join("patches")).unwrap();
+    fs::write(
+        root.path().join("patches/0001-native-runtime.patch"),
+        patch.stdout,
+    )
+    .unwrap();
+    fs::write(&manifest_path, original_manifest).unwrap();
+    sources(root.path());
+
+    let pin = manifest(&crate::root()).unwrap();
+    crate::apply_layer(root.path(), repo.path(), &pin).unwrap();
+
+    assert_eq!(fs::read(manifest_path).unwrap(), patched_manifest);
+    assert_eq!(
+        fs::read_to_string(repo.path().join("overlay/holycodex/instructions/root.md")).unwrap(),
+        "root"
+    );
+}

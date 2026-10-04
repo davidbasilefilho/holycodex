@@ -7,3 +7,5 @@
 *.zip binary
 *.tar binary
 *.gz binary
+
+tests/fixtures/toon/** -text
