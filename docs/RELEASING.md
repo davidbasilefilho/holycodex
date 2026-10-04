@@ -1,9 +1,10 @@
 # Release procedure
 
-This document describes the intended 0.17.0 release flow; it does not assert
-that the current implementation has passed its gates. The GitHub workflow
-builds validation artifacts only. It does not publish npm packages, create a
-GitHub Release, push refs, or create tags.
+This document describes the 0.17.0 release flow; a workflow implementation is
+not evidence that release gates have passed. Root owns accepting and tagging
+the exact release source. A successful `native-release-validation` run for
+`v0.17.0` automatically starts `publish-native-packages`; no local command in
+this procedure publishes packages or changes Git refs.
 
 ## Required release gates
 
@@ -30,17 +31,27 @@ Before creating `v0.17.0`, maintainers must verify all of the following:
    only a partial source attribution until this review is complete.
 
 Any failed or missing check blocks publication. Do not treat build artifacts
-or a successful packaging dry run as permission to release.
+or a successful packaging dry run as permission to release. Root should start
+the release only after accepting the source SHA and completing these gates.
 
 ## Validation workflow
 
-The `native-release-validation` workflow runs on `v0.17.0` and can be run
-manually for validation. It runs the same root `mise` quality tasks, materializes
-the pinned upstream source, applies the patch layer, builds the native CLI on
-the supported target runners, and uploads validation artifacts keyed by the
-workflow source SHA. It intentionally has no publish step. Review the exact
-full SHA and all required gates above before any separately authorized release
-operation.
+The `native-release-validation` workflow runs on `v0.17.0` and can also be run
+manually for validation. It runs the canonical root `mise` quality tasks,
+materializes the pinned upstream source, applies the patch layer, builds the
+native CLI on supported runners, and uploads one wrapper and three platform
+tarballs. Every artifact carries `source-revision.toml` with the checked-out
+full Git SHA. The pinned upstream root `justfile` test is run on each native
+runner.
+
+Only a successful validation workflow associated with the exact `v0.17.0`
+tag triggers `publish-native-packages`. That workflow downloads all four
+artifacts from the successful validation run, checks their recorded source
+SHA against the run's `head_sha`, inspects package identity, versions, native
+aliases and digests, then publishes the three native packages before the
+wrapper using npm trusted publishing (OIDC). A failed gate prevents
+publication. The npm registry must have trusted publishers configured for all
+four package names.
 
 The pinned upstream root `justfile` accepts forwarded test arguments. CI
 installs `just` and `cargo-nextest`, then invokes `just test --locked -p
@@ -54,20 +65,15 @@ satisfy those release gates by itself.
 
 The Rust tool at `npm/packager` stages native output produced by
 `holycodex-dev package`. It rejects empty or different alias payloads and
-records their common SHA-256 in `payload.json`. It also stages the wrapper
+records their common SHA-256 in `payload.toml`. It also stages the wrapper
 and copies the current root license and notices into both distributions.
 These staged directories, rather than the source template directories, are
 the inputs to `npm pack`.
 
-Root's integration must register `npm/packager` in the root Cargo workspace
-members and update the root Cargo.lock. Its manifest declares the package
-`holycodex-npm-packager` and inherits workspace package metadata and lints.
-Once registered, the canonical `mise` formatting, Clippy, test, and pre-commit
-tasks cover it through their workspace-wide Cargo commands; this is required
-before accepting the staging tool for release.
-Staging validates Cargo and npm versions and optional dependency versions
-against `upstream.toml`'s authoritative `holycodex_version` before writing
-package outputs.
+The packager is a member of the root Cargo workspace and is covered by the
+canonical `mise` formatting, Clippy, and test tasks. Staging validates Cargo
+and npm versions and optional dependency versions against `upstream.toml`'s
+authoritative `holycodex_version` before writing package outputs.
 
 The wrapper includes empty bin placeholders so npm can create its links and
 Windows shims. Successful postinstall checks the selected package's name,
@@ -90,13 +96,14 @@ HolyCodex runtime evidence. Clean local npm installation and launch tests of
 the final HolyCodex binary on every target remain required after native builds,
 alongside passing SIWC, tool/request, and host tests before Root releases.
 
-The four npm tests consolidate the earlier six cases: supported-platform
-checks are grouped, and staging/digest/notice checks moved to the Rust
-packager tests. Coverage now also includes corruption failures, disabled
-scripts, and launches of both installed native files and npm command links
-with PATH emptied after installation, so Node is absent from PATH.
+The npm tests include supported-platform checks, corruption and disabled
+script failures, plus launches of both installed native fixture files and npm
+command links with PATH emptied after installation. The Rust packager tests
+cover staging digests, notices, TOML payload metadata, version drift, and
+parallel fixture isolation. These are packaging tests, not HolyCodex runtime
+evidence.
 
-The npm package names currently proposed are `holycodex` and
-`holycodex-native-{linux-x64-gnu,darwin-arm64,win32-x64}`. Their registry
-ownership and availability have not been verified; a maintainer must resolve
-that before publishing. No scoped namespace is assumed.
+The published package names are `holycodex` and
+`holycodex-native-{linux-x64-gnu,darwin-arm64,win32-x64}`. Registry
+availability, account authentication, and trusted-publisher configuration
+remain release prerequisites; no scoped namespace is assumed.

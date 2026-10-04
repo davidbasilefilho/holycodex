@@ -5,5 +5,5 @@
   "license": "Apache-2.0",
   "os": ["darwin"],
   "cpu": ["arm64"],
-  "files": ["bin/holycodex", "bin/codex", "payload.json", "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md"]
+  "files": ["bin/holycodex", "bin/codex", "payload.toml", "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md"]
 }

@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Use when an existing task must be moved between its supported checkout and worktree environments.
+description: Use when moving an existing task between a checkout and its worktree.
 ---
 
 # Handoff

@@ -1,5 +1,5 @@
-# Model instruction assets
+# Model instructions
 
-`overlay/holycodex/instructions/root.md` is the compact, permanent Root contract. `specialist.md` is the stable shared specialist contract; the runtime supplies the current Role.task fragment separately with each Assignment so a specialist can be rebound without changing its base prompt. The Assignment and runtime own scope, mutation authority, tool availability, policy, and acceptance facts; these assets do not duplicate them.
+`overlay/holycodex/instructions/root.md` defines Root's stable responsibilities. `specialist.md` defines the shared specialist behavior; each Assignment supplies its Role.task separately. Keep task-specific authority and runtime-enforced behavior in their owning runtime and Assignment, not repeated in these prompts.
 
-All prompt assets here are freshly authored for HolyCodex 0.17.0 from its product specification. No 0.16.12 prompt body is carried forward.
+Keep these prompts concise and limited to behavior shared by their receiver. Put skill-specific workflows in the relevant skill, with conditional references for detail that only some cases need.

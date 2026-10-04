@@ -1,0 +1,54 @@
+name: publish-native-packages
+
+on:
+  workflow_run:
+    workflows: [native-release-validation]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'v0.17.0'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          pattern: holycodex-0.17.0-*-${{ github.event.workflow_run.head_sha }}
+          path: .tmp/release-artifacts
+          merge-multiple: false
+      - name: Verify all packages against the validated source SHA
+        run: node npm/packager/verify-release.cjs .tmp/release-artifacts "$VERIFIED_SHA"
+        env:
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+      - name: Publish native packages, then wrapper with npm trusted publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          for package in \
+            holycodex-native-darwin-arm64 \
+            holycodex-native-linux-x64-gnu \
+            holycodex-native-win32-x64 \
+            holycodex; do
+            archive="$(find .tmp/release-artifacts -type f -name "${package}-0.17.0.tgz" -print -quit)"
+            test -n "$archive"
+            npx --yes npm@12 publish "$archive" --access public --tag latest --provenance
+          done

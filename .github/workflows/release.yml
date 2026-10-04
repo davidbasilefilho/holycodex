@@ -8,13 +8,20 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: holycodex-native-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   quality:
     runs-on: ubuntu-latest
+    env:
+      CODEX_HOME: ${{ runner.temp }}/holycodex-release-codex-home
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: jdx/mise-action@v2
         with:
           install: true
@@ -22,6 +29,40 @@ jobs:
       - run: mise run fmt-check
       - run: mise run lint
       - run: mise run test
+
+  wrapper:
+    needs: quality
+    runs-on: ubuntu-latest
+    env:
+      CODEX_HOME: ${{ runner.temp }}/holycodex-release-codex-home
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      - name: Stage wrapper and run isolated npm install tests
+        run: |
+          cargo run --locked -p holycodex-npm-packager -- wrapper .tmp/npm
+          npm pack --pack-destination .tmp/npm .tmp/npm/holycodex
+          npm test --prefix npm/holycodex
+      - name: Record source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$GITHUB_SHA"
+          printf 'source_sha = "%s"\n' "$actual" > .tmp/npm/source-revision.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: holycodex-0.17.0-wrapper-${{ github.sha }}
+          path: |
+            .tmp/npm/holycodex-0.17.0.tgz
+            .tmp/npm/source-revision.toml
+          if-no-files-found: error
 
   native:
     needs: quality
@@ -39,10 +80,13 @@ jobs:
             target: win32-x64
             package: holycodex-native-win32-x64
     runs-on: ${{ matrix.runner }}
+    env:
+      CODEX_HOME: ${{ runner.temp }}/holycodex-release-codex-home
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: jdx/mise-action@v2
         with:
           install: true
@@ -65,17 +109,22 @@ jobs:
           just test --locked -p codex-cli
       - name: Build one native runtime under both names
         run: cargo run --locked -p holycodex-dev -- package --upstream .tmp/upstream --output .tmp/native --release
-      - name: Stage and inspect platform npm package
+      - name: Stage and pack platform npm package
         run: |
           cargo run --locked -p holycodex-npm-packager -- ${{ matrix.target }} .tmp/native .tmp/npm
-          cargo run --locked -p holycodex-npm-packager -- wrapper .tmp/npm
-          npm pack --pack-destination .tmp/npm .tmp/npm/holycodex
           npm pack --pack-destination .tmp/npm .tmp/npm/${{ matrix.package }}
           npm test --prefix npm/holycodex
       - name: Record source identity
-        run: node -e "const cp=require('node:child_process'),fs=require('node:fs');const actual=cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();if(actual!==process.env.GITHUB_SHA)throw Error('checkout SHA does not match workflow source SHA');fs.writeFileSync('.tmp/npm/source-revision.txt',actual+'\n')"
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$GITHUB_SHA"
+          printf 'source_sha = "%s"\n' "$actual" > .tmp/npm/source-revision.toml
       - uses: actions/upload-artifact@v4
         with:
           name: holycodex-0.17.0-${{ matrix.target }}-${{ github.sha }}
-          path: .tmp/npm
+          path: |
+            .tmp/npm/${{ matrix.package }}-0.17.0.tgz
+            .tmp/npm/source-revision.toml
           if-no-files-found: error

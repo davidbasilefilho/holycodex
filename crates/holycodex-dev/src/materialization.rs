@@ -91,6 +91,8 @@ fn files(directory: &Path) -> Result<Vec<PathBuf>> {
 struct File {
     relative: PathBuf,
     contents: Vec<u8>,
+    prior: Option<Vec<u8>>,
+    replace_owned: bool,
 }
 
 /// A byte snapshot whose entire receiving layout is checked before mutation.
@@ -102,49 +104,114 @@ impl Plan {
         let mut plan = Self(Vec::new());
         let policy = root.join("crates/holycodex-policy");
         validate_directory(root, Path::new("crates/holycodex-policy"))?;
-        plan.file(
-            &policy.join("Cargo.toml"),
-            PathBuf::from("crates/holycodex-policy/Cargo.toml"),
-        )?;
         plan.tree(
             &policy.join("src"),
             Path::new("crates/holycodex-policy/src"),
+            true,
         )?;
+        // Package sources are canonical in this repository; an older materialized
+        // copy may be refreshed, but only if it has not changed since planning.
+        plan.file(
+            &policy.join("Cargo.toml"),
+            PathBuf::from("crates/holycodex-policy/Cargo.toml"),
+            true,
+        )?;
+        let codec = root.join("crates/holycodex-toon");
+        let policy_manifest: toml::Value =
+            toml::from_str(&fs::read_to_string(policy.join("Cargo.toml"))?)
+                .context("invalid canonical HolyCodex policy manifest")?;
+        let requires_codec = policy_manifest
+            .get("dependencies")
+            .and_then(|dependencies| dependencies.get("holycodex-toon"))
+            .is_some();
+        if requires_codec {
+            validate_directory(root, Path::new("crates/holycodex-toon"))?;
+            plan.tree(&codec, Path::new("crates/holycodex-toon"), true)?;
+            let fixtures = Path::new("tests/fixtures/toon");
+            validate_directory(root, fixtures)?;
+            plan.tree(&root.join(fixtures), fixtures, true)?;
+        }
         if policy.join("build.rs").exists() {
             plan.file(
                 &policy.join("build.rs"),
                 PathBuf::from("crates/holycodex-policy/build.rs"),
+                true,
             )?;
+        }
+        // The preserved upstream workspace actually lives under `codex-rs`, while
+        // the owned crates remain at the checkout root. Reproduce that path alias
+        // in fresh pinned checkouts without assuming a particular workspace name.
+        let workspace_manifest = upstream.join(workspace).join("Cargo.toml");
+        if workspace_manifest.is_file() {
+            let original = fs::read(&workspace_manifest)?;
+            let updated = ensure_policy_workspace_dependency(&original)?;
+            if updated != original {
+                plan.bytes(PathBuf::from(workspace).join("Cargo.toml"), updated, true);
+            }
         }
         let overlay = root.join("overlay/holycodex");
         validate_directory(root, Path::new("overlay/holycodex"))?;
-        plan.tree(&overlay, Path::new("overlay/holycodex"))?;
+        plan.tree(&overlay, Path::new("overlay/holycodex"), false)?;
         // Native include_dir assets feed CODEX_HOME/skills/.system at runtime.
         plan.tree(
             &overlay.join("skills"),
             &Path::new(workspace).join("skills/src/assets/samples"),
+            false,
         )?;
+        plan.capture_prior(upstream)?;
         plan.preflight(upstream)?;
         Ok(plan)
     }
 
-    fn file(&mut self, source: &Path, relative: PathBuf) -> Result<()> {
+    fn file(&mut self, source: &Path, relative: PathBuf, replace_owned: bool) -> Result<()> {
         let metadata = fs::symlink_metadata(source)?;
         ensure!(
             metadata.is_file() && !metadata.file_type().is_symlink(),
             "source must be a regular file: {}",
             source.display()
         );
-        self.0.push(File {
-            relative,
-            contents: fs::read(source)?,
-        });
+        self.bytes(relative, fs::read(source)?, replace_owned);
         Ok(())
     }
 
-    fn tree(&mut self, source: &Path, destination: &Path) -> Result<()> {
+    fn bytes(&mut self, relative: PathBuf, contents: Vec<u8>, replace_owned: bool) {
+        self.0.push(File {
+            relative,
+            contents,
+            prior: None,
+            replace_owned,
+        });
+    }
+
+    fn tree(&mut self, source: &Path, destination: &Path, replace_owned: bool) -> Result<()> {
         for file in files(source)? {
-            self.file(&file, destination.join(file.strip_prefix(source)?))?;
+            self.file(
+                &file,
+                destination.join(file.strip_prefix(source)?),
+                replace_owned,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn capture_prior(&mut self, upstream: &Path) -> Result<()> {
+        for file in &mut self.0 {
+            if !file.replace_owned {
+                continue;
+            }
+            let destination = upstream.join(&file.relative);
+            match fs::symlink_metadata(&destination) {
+                Ok(metadata) => {
+                    ensure!(
+                        metadata.is_file() && !metadata.file_type().is_symlink(),
+                        "destination is not a regular file: {}",
+                        destination.display()
+                    );
+                    file.prior = Some(fs::read(destination)?);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
         }
         Ok(())
     }
@@ -165,13 +232,20 @@ impl Plan {
                         "destination is not a regular file: {}",
                         destination.display()
                     );
+                    let existing = fs::read(&destination)?;
                     ensure!(
-                        fs::read(&destination)? == file.contents,
+                        existing == file.contents
+                            || (file.replace_owned
+                                && file.prior.as_ref().is_some_and(|prior| prior == &existing)),
                         "refusing to overwrite differing destination: {}",
                         destination.display()
                     );
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => ensure!(
+                    file.prior.is_none(),
+                    "destination disappeared after materialization planning: {}",
+                    destination.display()
+                ),
                 Err(error) => return Err(error.into()),
             }
         }
@@ -183,8 +257,15 @@ impl Plan {
         self.preflight(upstream)?;
         for file in self.0 {
             let destination = upstream.join(file.relative);
-            if destination.exists() {
-                continue; // Identical bytes only; never truncate an existing file.
+            match fs::symlink_metadata(&destination) {
+                Ok(_) if fs::read(&destination)? == file.contents => continue,
+                Ok(_) if file.replace_owned => {
+                    fs::write(&destination, &file.contents)?;
+                    continue;
+                }
+                Ok(_) => unreachable!("preflight rejected differing unowned destination"),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
             }
             fs::create_dir_all(destination.parent().context("missing destination parent")?)?;
             use std::io::Write;
@@ -195,5 +276,146 @@ impl Plan {
             output.write_all(&file.contents)?;
         }
         Ok(())
+    }
+}
+
+fn ensure_policy_workspace_dependency(original: &[u8]) -> Result<Vec<u8>> {
+    let text = std::str::from_utf8(original).context("workspace manifest is not UTF-8")?;
+    let parsed: toml::Value =
+        toml::from_str(text).context("invalid upstream workspace manifest")?;
+    let dependencies = parsed
+        .get("workspace")
+        .and_then(|value| value.get("dependencies"));
+    if let Some(value) = dependencies.and_then(|table| table.get("holycodex-policy")) {
+        let path = value
+            .as_table()
+            .and_then(|table| table.get("path"))
+            .and_then(toml::Value::as_str);
+        ensure!(
+            path == Some("../crates/holycodex-policy"),
+            "upstream holycodex-policy workspace dependency has an unexpected definition"
+        );
+        return Ok(original.to_vec());
+    }
+    let insertion = "holycodex-policy = { path = \"../crates/holycodex-policy\" }\n";
+    if let Some(start) = text.find("[workspace.dependencies]") {
+        let after_header = start + "[workspace.dependencies]".len();
+        let end = text[after_header..]
+            .find("\n[")
+            .map(|offset| after_header + offset + 1)
+            .unwrap_or(text.len());
+        let mut updated = text.to_owned();
+        updated.insert_str(end, insertion);
+        Ok(updated.into_bytes())
+    } else {
+        let mut updated = text.to_owned();
+        if !updated.ends_with('\n') {
+            updated.push('\n');
+        }
+        updated.push_str("\n[workspace.dependencies]\n");
+        updated.push_str(insertion);
+        Ok(updated.into_bytes())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    #[test]
+    fn materializes_canonical_policy_codec_and_actual_workspace_path() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let upstream = tempdir().unwrap();
+        let workspace = upstream.path().join("codex-rs");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::write(
+            workspace.join("Cargo.toml"),
+            "[workspace]\nmembers = []\nresolver = \"2\"\n",
+        )
+        .unwrap();
+
+        Plan::prepare(&root, upstream.path(), "codex-rs")
+            .unwrap()
+            .install(upstream.path())
+            .unwrap();
+
+        let policy = upstream
+            .path()
+            .join("crates/holycodex-policy/src/formats.rs");
+        let policy_api = upstream.path().join("crates/holycodex-policy/src/lib.rs");
+        let codec = upstream.path().join("crates/holycodex-toon/Cargo.toml");
+        let fixtures = upstream.path().join("tests/fixtures/toon/metadata.toml");
+        assert!(policy.is_file());
+        let policy_source = fs::read_to_string(policy_api).unwrap();
+        assert!(policy_source.contains("pub struct CapabilityConfig"));
+        assert!(policy_source.contains("pub struct PolicyOptions"));
+        assert!(codec.is_file());
+        assert!(fixtures.is_file());
+        let fixture_root = upstream
+            .path()
+            .join("crates/holycodex-toon/../../tests/fixtures/toon");
+        assert!(fixture_root.join("encode/objects.json").is_file());
+        assert!(fixture_root.join("decode/validation-errors.json").is_file());
+        assert_eq!(files(&fixture_root).unwrap().len(), 24);
+        assert!(
+            upstream
+                .path()
+                .join("overlay/holycodex/instructions")
+                .is_dir()
+        );
+        let manifest: toml::Value =
+            toml::from_str(&fs::read_to_string(workspace.join("Cargo.toml")).unwrap()).unwrap();
+        assert_eq!(
+            manifest["workspace"]["dependencies"]["holycodex-policy"]["path"],
+            toml::Value::from("../crates/holycodex-policy")
+        );
+
+        // A second installation is idempotent and does not touch an existing
+        // upstream-owned runtime/controller file.
+        let protected = upstream.path().join("codex-rs/src/runtime-controller.rs");
+        fs::create_dir_all(protected.parent().unwrap()).unwrap();
+        fs::File::create(&protected)
+            .unwrap()
+            .write_all(b"owned elsewhere")
+            .unwrap();
+        Plan::prepare(&root, upstream.path(), "codex-rs")
+            .unwrap()
+            .install(upstream.path())
+            .unwrap();
+        assert_eq!(fs::read(protected).unwrap(), b"owned elsewhere");
+    }
+
+    #[test]
+    fn owned_package_refresh_refuses_post_plan_change() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let upstream = tempdir().unwrap();
+        fs::create_dir_all(upstream.path().join("crates/holycodex-policy/src")).unwrap();
+        fs::write(
+            upstream
+                .path()
+                .join("crates/holycodex-policy/src/formats.rs"),
+            "old owned snapshot",
+        )
+        .unwrap();
+        let plan = Plan::prepare(&root, upstream.path(), "codex-rs").unwrap();
+        fs::write(
+            upstream
+                .path()
+                .join("crates/holycodex-policy/src/formats.rs"),
+            "concurrent controller change",
+        )
+        .unwrap();
+        assert!(plan.install(upstream.path()).is_err());
+        assert_eq!(
+            fs::read_to_string(
+                upstream
+                    .path()
+                    .join("crates/holycodex-policy/src/formats.rs")
+            )
+            .unwrap(),
+            "concurrent controller change"
+        );
     }
 }

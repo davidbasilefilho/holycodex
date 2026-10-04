@@ -1,10 +1,147 @@
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use anyhow::{Context, Result, bail, ensure};
 use tempfile::tempdir;
 
 use crate::materialization::{Plan, validate_relative};
 use crate::{apply_patches, manifest, valid_revision, verify_checkout, verify_clean_worktree};
+
+fn collect_skill_files(directory: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_skill_files(&entry.path(), files)?;
+        } else if file_type.is_file() && entry.file_name() == "SKILL.md" {
+            files.push(entry.path());
+        }
+    }
+    Ok(())
+}
+
+fn skill_metadata(source: &str) -> Result<(&str, &str)> {
+    let mut lines = source
+        .lines()
+        .map(|line| line.strip_suffix('\r').unwrap_or(line));
+    ensure!(
+        lines.next() == Some("---"),
+        "missing opening YAML frontmatter"
+    );
+
+    let mut name = None;
+    let mut description = None;
+    let mut closed = false;
+    for line in lines {
+        if line == "---" {
+            closed = true;
+            break;
+        }
+        let (key, value) = line
+            .split_once(": ")
+            .context("frontmatter must use supported plain scalar fields")?;
+        ensure!(
+            !value.is_empty() && value.trim() == value,
+            "empty or ambiguous scalar"
+        );
+        ensure!(
+            !value.chars().next().is_some_and(|ch| matches!(
+                ch,
+                '\'' | '"'
+                    | '['
+                    | '{'
+                    | '|'
+                    | '>'
+                    | '&'
+                    | '*'
+                    | '!'
+                    | '?'
+                    | '#'
+                    | '%'
+                    | '@'
+                    | '`'
+                    | '-'
+            )) && !value.contains(": ")
+                && !value.contains(" #"),
+            "unsupported or ambiguous YAML scalar"
+        );
+        match key {
+            "name" => {
+                ensure!(name.is_none(), "duplicate name field");
+                ensure!(
+                    value
+                        .chars()
+                        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-'),
+                    "name must be a lowercase skill identifier"
+                );
+                name = Some(value);
+            }
+            "description" => {
+                ensure!(description.is_none(), "duplicate description field");
+                description = Some(value);
+            }
+            _ => bail!("unsupported frontmatter field: {key}"),
+        }
+    }
+    ensure!(closed, "missing closing YAML frontmatter");
+    let name = name.context("missing name field")?;
+    let description = description.context("missing description field")?;
+    ensure!(
+        description
+            .strip_prefix("Use ")
+            .is_some_and(|trigger| !trigger.trim().is_empty()),
+        "description must begin with `Use ` and name a trigger"
+    );
+    Ok((name, description))
+}
+
+#[test]
+fn every_canonical_skill_has_supported_frontmatter_and_a_use_trigger() {
+    let root = crate::root().join("overlay/holycodex/skills");
+    let mut skills = Vec::new();
+    collect_skill_files(&root, &mut skills).unwrap();
+    assert!(
+        !skills.is_empty(),
+        "no canonical skills found under {}",
+        root.display()
+    );
+
+    for path in skills {
+        let source = fs::read_to_string(&path).unwrap();
+        let (name, _) = skill_metadata(&source)
+            .with_context(|| format!("invalid skill metadata in {}", path.display()))
+            .unwrap();
+        assert_eq!(
+            path.parent()
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str()),
+            Some(name),
+            "skill name must match its directory: {}",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn skill_frontmatter_rejects_missing_unsupported_and_non_use_metadata() {
+    let root = tempdir().unwrap();
+    let skill = root.path().join("SKILL.md");
+    for source in [
+        "---\nname: new-skill\ndescription: A skill. Use when needed.\n---\n",
+        "---\nname: new-skill\ndescription: Use when needed.\nextra: value\n---\n",
+        "---\nname: new-skill\ndescription: 'Use when needed.'\n---\n",
+        "---\nname: new-skill\ndescription: Use when needed.\ndescription: Use again.\n---\n",
+        "---\nname: new-skill\ndescription: Use when needed.\n",
+    ] {
+        fs::write(&skill, source).unwrap();
+        let contents = fs::read_to_string(&skill).unwrap();
+        assert!(
+            skill_metadata(&contents).is_err(),
+            "accepted invalid metadata: {source}"
+        );
+    }
+}
 
 #[test]
 fn manifest_matches_authoritative_source_and_allows_deliberate_rebase() {

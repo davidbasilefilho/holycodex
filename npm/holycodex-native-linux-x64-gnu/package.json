@@ -6,5 +6,5 @@
   "os": ["linux"],
   "cpu": ["x64"],
   "libc": ["glibc"],
-  "files": ["bin/holycodex", "bin/codex", "payload.json", "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md"]
+  "files": ["bin/holycodex", "bin/codex", "payload.toml", "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md"]
 }

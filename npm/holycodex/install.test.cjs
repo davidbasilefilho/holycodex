@@ -6,7 +6,7 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
-const { install, packageFor } = require('./install.cjs');
+const { install, packageFor, readPayloadManifest } = require('./install.cjs');
 const version = require('./package.json').version;
 
 function fixture(t, platform = 'linux', arch = 'x64') {
@@ -19,7 +19,7 @@ function fixture(t, platform = 'linux', arch = 'x64') {
   const name = packageFor(platform, arch);
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version }));
   fs.writeFileSync(path.join(optional, 'package.json'), JSON.stringify({ name, version }));
-  fs.writeFileSync(path.join(optional, 'payload.json'), JSON.stringify({ format: 1, package: name, version, sha256: createHash('sha256').update(payload).digest('hex') }));
+  fs.writeFileSync(path.join(optional, 'payload.toml'), `format = 1\npackage = "${name}"\nversion = "${version}"\nsha256 = "${createHash('sha256').update(payload).digest('hex')}"\n`);
   for (const command of ['holycodex', 'codex']) {
     fs.writeFileSync(path.join(optional, 'bin', command + (platform === 'win32' ? '.exe' : '')), payload);
     fs.writeFileSync(path.join(root, 'bin', `${command}.exe`), 'placeholder');
@@ -41,15 +41,27 @@ test('install replaces placeholders with verified identical bytes on every targe
 test('missing payload, invalid metadata, and checksum mismatch leave placeholders untouched', (t) => {
   for (const corrupt of [
     (f) => fs.rmSync(path.join(f.optional, 'bin/codex')),
-    (f) => fs.rmSync(path.join(f.optional, 'payload.json')),
+    (f) => fs.rmSync(path.join(f.optional, 'payload.toml')),
     (f) => fs.writeFileSync(path.join(f.optional, 'bin/codex'), 'corrupt alias'),
-    (f) => fs.writeFileSync(path.join(f.optional, 'payload.json'), '{}'),
+    (f) => fs.writeFileSync(path.join(f.optional, 'payload.toml'), 'format = 1\npackage = "wrong-package"\n'),
     (f) => fs.writeFileSync(path.join(f.optional, 'package.json'), JSON.stringify({ name: 'wrong-package', version })),
   ]) {
     const f = fixture(t);
     corrupt(f);
     assert.throws(() => install(f.options));
     for (const name of ['holycodex', 'codex']) assert.equal(fs.readFileSync(path.join(f.root, 'bin', `${name}.exe`), 'utf8'), 'placeholder');
+  }
+});
+
+test('payload proof parser rejects extra fields and malformed TOML values', () => {
+  const filename = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'holycodex-payload-toml-')), 'payload.toml');
+  try {
+    fs.writeFileSync(filename, `format = 1\npackage = "holycodex-native-linux-x64-gnu"\nversion = "${version}"\nsha256 = "${'a'.repeat(64)}"\n`);
+    assert.equal(readPayloadManifest(filename).package, 'holycodex-native-linux-x64-gnu');
+    fs.appendFileSync(filename, 'unexpected = true\n');
+    assert.throws(() => readPayloadManifest(filename), /TOML is invalid/);
+  } finally {
+    fs.rmSync(path.dirname(filename), { recursive: true, force: true });
   }
 });
 
@@ -83,7 +95,7 @@ test('clean offline npm install launches native fixture bins; ignored scripts le
   assert.equal(build.status, 0, build.error?.message || build.stderr);
   fs.copyFileSync(executable, path.join(native, 'bin', `codex${extension}`));
   fs.writeFileSync(path.join(native, 'package.json'), JSON.stringify(require(path.join('..', packageName, 'package.json'))));
-  fs.writeFileSync(path.join(native, 'payload.json'), JSON.stringify({ format: 1, package: packageName, version, sha256: createHash('sha256').update(fs.readFileSync(executable)).digest('hex') }));
+  fs.writeFileSync(path.join(native, 'payload.toml'), `format = 1\npackage = "${packageName}"\nversion = "${version}"\nsha256 = "${createHash('sha256').update(fs.readFileSync(executable)).digest('hex')}"\n`);
   const npmEnv = { ...process.env, npm_config_cache: path.join(root, 'cache'), npm_config_userconfig: path.join(root, 'npmrc'), npm_config_globalconfig: path.join(root, 'global-npmrc') };
   fs.writeFileSync(npmEnv.npm_config_userconfig, '');
   fs.writeFileSync(npmEnv.npm_config_globalconfig, '');

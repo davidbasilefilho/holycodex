@@ -11,6 +11,13 @@ function packageFor(platform, arch) {
   return undefined;
 }
 
+function readPayloadManifest(filename) {
+  const source = fs.readFileSync(filename, 'utf8');
+  const match = /^format = ([1-9][0-9]*)\npackage = "([^"\r\n]+)"\nversion = "([^"\r\n]+)"\nsha256 = "([a-f0-9]{64})"\n?$/.exec(source);
+  if (!match) throw new Error('HolyCodex native payload TOML is invalid.');
+  return { format: Number(match[1]), package: match[2], version: match[3], sha256: match[4] };
+}
+
 function install(options = {}) {
   const platform = options.platform || process.platform;
   const arch = options.arch || process.arch;
@@ -35,7 +42,7 @@ function install(options = {}) {
   const extension = platform === 'win32' ? '.exe' : '';
   const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
   const metadata = JSON.parse(fs.readFileSync(path.join(binaryRoot, 'package.json'), 'utf8'));
-  const integrity = JSON.parse(fs.readFileSync(path.join(binaryRoot, 'payload.json'), 'utf8'));
+  const integrity = readPayloadManifest(path.join(binaryRoot, 'payload.toml'));
   if (metadata.name !== packageName || metadata.version !== version
       || integrity.format !== 1 || integrity.package !== packageName || integrity.version !== version
       || !/^[a-f0-9]{64}$/.test(integrity.sha256 || '')) {
@@ -75,4 +82,4 @@ function install(options = {}) {
 
 if (require.main === module) install();
 
-module.exports = { install, packageFor };
+module.exports = { install, packageFor, readPayloadManifest };

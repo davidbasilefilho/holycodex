@@ -1,6 +1,6 @@
 ---
 name: web-visualize
-description: Use when the user requests or approves an interactive web visualization from supplied material.
+description: Use when creating an interactive web visualization from supplied material.
 ---
 
 # Web visualize

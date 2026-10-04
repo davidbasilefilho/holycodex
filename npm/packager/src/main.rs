@@ -9,7 +9,7 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde_json::{Value, json};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -118,16 +118,14 @@ fn stage_native(npm: &Path, target: &str, native: &Path, output: &Path) -> Resul
             fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
         }
     }
-    let manifest = json!({
-        "format": 1,
-        "package": package_name,
-        "version": metadata["version"],
-        "sha256": format!("{:x}", Sha256::digest(&payloads[0])),
-    });
-    fs::write(
-        destination.join("payload.json"),
-        serde_json::to_vec_pretty(&manifest)?,
-    )?;
+    let manifest = format!(
+        "format = 1\npackage = \"{package_name}\"\nversion = \"{}\"\nsha256 = \"{:x}\"\n",
+        metadata["version"]
+            .as_str()
+            .ok_or("package version must be a string")?,
+        Sha256::digest(&payloads[0])
+    );
+    fs::write(destination.join("payload.toml"), manifest)?;
     Ok(destination)
 }
 
@@ -145,6 +143,7 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_FIXTURE_ID: AtomicU64 = AtomicU64::new(0);
@@ -192,12 +191,20 @@ mod tests {
             fs::write(native.join(name), b"abc").unwrap();
         }
         let package = stage_native(&npm_root(), "linux-x64-gnu", &native, &output).unwrap();
-        let manifest: Value =
-            serde_json::from_slice(&fs::read(package.join("payload.json")).unwrap()).unwrap();
+        let manifest: toml::Value = fs::read_to_string(package.join("payload.toml"))
+            .unwrap()
+            .parse()
+            .unwrap();
         assert_eq!(
-            manifest["sha256"],
+            manifest["sha256"].as_str().unwrap(),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+        assert_eq!(
+            manifest["package"].as_str(),
+            Some("holycodex-native-linux-x64-gnu")
+        );
+        assert_eq!(manifest["version"].as_str(), Some("0.17.0"));
+        assert_eq!(manifest["format"].as_integer(), Some(1));
         assert_eq!(
             fs::read(package.join("bin/holycodex")).unwrap(),
             fs::read(package.join("bin/codex")).unwrap()
@@ -212,6 +219,34 @@ mod tests {
         let rejected = fixture.0.join("rejected");
         assert!(stage_native(&npm_root(), "linux-x64-gnu", &native, &rejected).is_err());
         assert!(!rejected.exists());
+    }
+
+    #[test]
+    fn platform_package_metadata_declares_toml_payload_proof() {
+        for package in [
+            "holycodex-native-linux-x64-gnu",
+            "holycodex-native-darwin-arm64",
+            "holycodex-native-win32-x64",
+        ] {
+            let metadata: Value = serde_json::from_slice(
+                &fs::read(npm_root().join(package).join("package.json")).unwrap(),
+            )
+            .unwrap();
+            assert!(
+                metadata["files"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|path| path == "payload.toml")
+            );
+            assert!(
+                !metadata["files"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|path| path == "payload.json")
+            );
+        }
     }
 
     #[test]

@@ -1,9 +1,11 @@
 //! Typed runtime policy primitives for HolyCodex 0.17.0.
 //!
-//! This crate owns routing, allocation, context sizing, prompt asset inclusion,
-//! and serializable Intent/Assignment policy. It does not wire these into Codex
-//! or perform persistence itself.
+//! The native Codex controller consumes this crate's routing, allocation,
+//! context-sizing, prompt, and Intent/Assignment contracts; controller state
+//! persistence remains outside this crate.
 #![forbid(unsafe_code)]
+
+pub mod formats;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -164,14 +166,16 @@ impl RoleTask {
     }
 }
 
-/// Single registry row: route behavior plus profile-derived model effort.
+/// Registry metadata and runtime policy for one Role.task.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RoutePolicy {
     pub role: RoleTask,
+    /// Concise cue for choosing this Role.task.
     pub description: &'static str,
     pub mutability: Mutability,
     pub capabilities: &'static [Capability],
     pub independence: &'static [IndependenceRequirement],
+    /// Role-specific guidance rendered before the controller's Assignment TOON.
     pub assignment_fragment: &'static str,
     efforts: [ReasoningEffort; 3],
 }
@@ -220,11 +224,11 @@ const fn route(
 
 const ROOT_ROUTE: RoutePolicy = route(
     RoleTask::Root,
-    "Owns user interaction, decomposition, and integration acceptance.",
+    "Coordinate user requests and accept integrated work.",
     RO,
     READ,
     &[],
-    "Coordinate the task, make material decisions, accept integration, and complete the user-facing work.",
+    "",
     [
         ReasoningEffort::Low,
         ReasoningEffort::Medium,
@@ -234,11 +238,11 @@ const ROOT_ROUTE: RoutePolicy = route(
 const ROUTES: [RoutePolicy; 18] = [
     route(
         RoleTask::ExplorerMap,
-        "Map repository structure and ownership boundaries.",
+        "Map repository structure and component ownership when they are unclear.",
         RO,
         READ,
         DISJOINT,
-        "Map relevant repository areas and report paths, responsibilities, and boundaries.",
+        "Identify relevant paths, responsibilities, and boundaries; support the map with source evidence.",
         [
             ReasoningEffort::Medium,
             ReasoningEffort::Medium,
@@ -247,11 +251,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::ExplorerLookup,
-        "Find definitions, references, and focused source context.",
+        "Find a specific source definition, reference, or fact.",
         RO,
         READ,
         DISJOINT,
-        "Locate requested source facts and return concise paths and evidence.",
+        "Return the requested facts with relevant paths and supporting evidence.",
         [
             ReasoningEffort::Medium,
             ReasoningEffort::Medium,
@@ -260,11 +264,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::ExplorerTrace,
-        "Trace behavior across components and runtime paths.",
+        "Explain a concrete behavior across its components or runtime path.",
         RO,
         READ,
         AFTER_DEPS,
-        "Trace the requested behavior end to end, identifying contracts and evidence.",
+        "Follow the behavior end to end and identify the contracts and evidence along its path.",
         [
             ReasoningEffort::High,
             ReasoningEffort::High,
@@ -273,11 +277,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::LibrarianLookup,
-        "Retrieve focused documentation and project conventions.",
+        "Find documentation or conventions for a focused project question.",
         RO,
         SEARCH,
         DISJOINT,
-        "Find authoritative documentation relevant to the Assignment and summarize with evidence.",
+        "Answer from authoritative project material and cite the relevant evidence.",
         [
             ReasoningEffort::Medium,
             ReasoningEffort::Medium,
@@ -286,11 +290,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::LibrarianResearch,
-        "Research a bounded topic from authoritative sources.",
+        "Investigate a bounded question using authoritative sources.",
         RO,
         SEARCH,
         AFTER_DEPS,
-        "Research the bounded question using authoritative sources and distinguish evidence from inference.",
+        "Separate sourced facts from inference in the findings.",
         [
             ReasoningEffort::High,
             ReasoningEffort::High,
@@ -299,11 +303,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::WorkerMechanical,
-        "Apply bounded, mechanical source transformations.",
+        "Apply a specified mechanical source transformation.",
         SW,
         WRITE,
         DISJOINT,
-        "Make only the specified mechanical edits within owned paths.",
+        "Apply the transformation consistently and check the resulting changes.",
         [
             ReasoningEffort::Medium,
             ReasoningEffort::Medium,
@@ -312,11 +316,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::WorkerImplementation,
-        "Implement one bounded feature or behavior.",
+        "Implement an accepted feature or behavior.",
         SW,
         WRITE,
         DISJOINT,
-        "Implement accepted behavior within the owned seam and verify it.",
+        "Build the specified behavior and show that its acceptance criteria are met.",
         [
             ReasoningEffort::High,
             ReasoningEffort::High,
@@ -325,11 +329,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::WorkerIntegration,
-        "Integrate compatible components within an assigned boundary.",
+        "Connect completed components across a named integration boundary.",
         SW,
         WRITE,
         AFTER_DEPS,
-        "Integrate assigned components without expanding ownership; verify their boundary.",
+        "Verify that the connected components work together as specified.",
         [
             ReasoningEffort::High,
             ReasoningEffort::High,
@@ -338,11 +342,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::WorkerOperations,
-        "Perform bounded local operational and build-tool work.",
+        "Perform a specified local build or operational task.",
         OP,
         SHELL,
         DISJOINT,
-        "Perform the assigned local operation and report its observable result.",
+        "Run the operation and report its observable result.",
         [
             ReasoningEffort::Medium,
             ReasoningEffort::Medium,
@@ -351,11 +355,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::WorkerValidation,
-        "Run focused validation and report acceptance evidence.",
+        "Check whether stated acceptance criteria are met.",
         RO,
         SHELL,
         AFTER_DEPS,
-        "Validate specified behavior with focused checks and report exact outcomes.",
+        "Use focused checks and report their exact outcomes.",
         [
             ReasoningEffort::Medium,
             ReasoningEffort::High,
@@ -364,11 +368,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::WorkerDebugging,
-        "Diagnose and repair a bounded defect.",
+        "Diagnose and repair a concrete failure or unexpected behavior.",
         SW,
         WRITE,
         AFTER_DEPS,
-        "Reproduce and isolate the defect, make the smallest in-scope repair, and verify it.",
+        "Reproduce and isolate the cause, repair it, then verify the behavior.",
         [
             ReasoningEffort::High,
             ReasoningEffort::High,
@@ -377,7 +381,7 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::WorkerVisual,
-        "Implement a bounded visual or interaction change.",
+        "Change a rendered interface or interaction.",
         SW,
         &[
             Capability::RepositoryRead,
@@ -385,7 +389,7 @@ const ROUTES: [RoutePolicy; 18] = [
             Capability::VisualInspection,
         ],
         DISJOINT,
-        "Implement assigned visual behavior and report rendered evidence required for acceptance.",
+        "Exercise the changed interaction in a render and report the visible result.",
         [
             ReasoningEffort::High,
             ReasoningEffort::High,
@@ -394,11 +398,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::ReviewerCode,
-        "Review implementation correctness and regressions.",
+        "Review code behavior for correctness and regressions.",
         RO,
         READ,
         REVIEW,
-        "Independently review assigned code for correctness and regressions; report actionable findings.",
+        "Report actionable findings with affected behavior and supporting evidence.",
         [
             ReasoningEffort::High,
             ReasoningEffort::High,
@@ -407,11 +411,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::ReviewerTesting,
-        "Review test adequacy and behavior coverage.",
+        "Assess whether tests cover the behavior and acceptance criteria.",
         RO,
         SHELL,
         REVIEW,
-        "Independently assess whether focused tests prove acceptance criteria; report gaps.",
+        "Identify uncovered criteria and the additional evidence needed.",
         [
             ReasoningEffort::Medium,
             ReasoningEffort::High,
@@ -420,11 +424,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::ReviewerAudit,
-        "Audit a bounded implementation against stated requirements.",
+        "Compare a change against its stated requirements.",
         RO,
         READ,
         REVIEW,
-        "Audit the owned change against supplied requirements and evidence; report discrepancies.",
+        "Substantiate discrepancies and distinguish them from verified behavior.",
         [
             ReasoningEffort::Medium,
             ReasoningEffort::High,
@@ -433,11 +437,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::ReviewerSecurity,
-        "Review a bounded change for security vulnerabilities.",
+        "Assess a change for security vulnerabilities.",
         RO,
         READ,
         REVIEW,
-        "Independently assess security properties of the assigned change and substantiate findings.",
+        "Trace relevant sources to sinks and substantiate any vulnerability finding.",
         [
             ReasoningEffort::High,
             ReasoningEffort::High,
@@ -446,11 +450,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::ReviewerArtifact,
-        "Review a bounded artifact for correctness and completeness.",
+        "Review an artifact for correctness and completeness.",
         RO,
         READ,
         REVIEW,
-        "Inspect the assigned artifact against acceptance criteria and report evidence-based gaps.",
+        "Compare the artifact with its acceptance criteria and report evidence-backed gaps.",
         [
             ReasoningEffort::High,
             ReasoningEffort::High,
@@ -459,11 +463,11 @@ const ROUTES: [RoutePolicy; 18] = [
     ),
     route(
         RoleTask::ReviewerVisual,
-        "Review rendered visual quality and interaction behavior.",
+        "Assess rendered output against visual and interaction criteria.",
         RO,
         &[Capability::RepositoryRead, Capability::VisualInspection],
         REVIEW,
-        "Independently inspect the rendered result for acceptance-level visual or interaction discrepancies.",
+        "Inspect relevant states and report material discrepancies with evidence.",
         [
             ReasoningEffort::High,
             ReasoningEffort::High,
@@ -486,17 +490,14 @@ pub fn route_policy(role: RoleTask) -> Option<&'static RoutePolicy> {
     }
 }
 
-/// Genuine HolyCodex choices and fresh-install defaults.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+/// Runtime-facing HolyCodex settings. The upstream config owns the enclosing
+/// `[holycodex]` table; this type owns its contents.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PolicyConfig {
     pub profile: Profile,
     pub service_tier: Option<String>,
-    pub browser_use: bool,
-    pub computer_use: bool,
-    pub sites: bool,
-    pub session_audit: bool,
-    pub auto_reset: bool,
+    pub capabilities: CapabilityConfig,
+    pub options: PolicyOptions,
 }
 
 impl Default for PolicyConfig {
@@ -504,12 +505,85 @@ impl Default for PolicyConfig {
         Self {
             profile: Profile::Default,
             service_tier: None,
+            capabilities: CapabilityConfig::default(),
+            options: PolicyOptions::default(),
+        }
+    }
+}
+
+/// User-selectable integrations, serialized below `[holycodex.capabilities]`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CapabilityConfig {
+    pub browser_use: bool,
+    pub computer_use: bool,
+    pub sites: bool,
+}
+
+impl Default for CapabilityConfig {
+    fn default() -> Self {
+        Self {
             browser_use: true,
             computer_use: false,
             sites: true,
-            session_audit: false,
-            auto_reset: false,
         }
+    }
+}
+
+/// Behavioral switches, rather than tool/integration capabilities.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PolicyOptions {
+    pub session_audit: bool,
+    pub auto_reset: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PolicyConfigWire {
+    #[serde(default)]
+    capabilities: Option<CapabilityConfig>,
+    #[serde(default)]
+    options: Option<PolicyOptions>,
+    // Read compatibility for former flat keys within `[holycodex]`. The new
+    // nested capabilities/options tables win whenever present.
+    #[serde(default)]
+    profile: Option<Profile>,
+    #[serde(default)]
+    service_tier: Option<String>,
+    #[serde(default)]
+    browser_use: Option<bool>,
+    #[serde(default)]
+    computer_use: Option<bool>,
+    #[serde(default)]
+    sites: Option<bool>,
+    #[serde(default)]
+    session_audit: Option<bool>,
+    #[serde(default)]
+    auto_reset: Option<bool>,
+}
+
+impl<'de> Deserialize<'de> for PolicyConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = PolicyConfigWire::deserialize(deserializer)?;
+        let capabilities = wire.capabilities.unwrap_or(CapabilityConfig {
+            browser_use: wire.browser_use.unwrap_or(true),
+            computer_use: wire.computer_use.unwrap_or(false),
+            sites: wire.sites.unwrap_or(true),
+        });
+        let options = wire.options.unwrap_or(PolicyOptions {
+            session_audit: wire.session_audit.unwrap_or(false),
+            auto_reset: wire.auto_reset.unwrap_or(false),
+        });
+        Ok(Self {
+            profile: wire.profile.unwrap_or_default(),
+            service_tier: wire.service_tier,
+            capabilities,
+            options,
+        })
     }
 }
 
@@ -1677,8 +1751,11 @@ mod tests {
     #[test]
     fn defaults_and_model_allocation_fail_explicitly() {
         let defaults = PolicyConfig::default();
-        assert!(defaults.browser_use && defaults.sites);
-        assert!(!defaults.computer_use && !defaults.session_audit && !defaults.auto_reset);
+        assert!(defaults.capabilities.browser_use);
+        assert!(defaults.capabilities.sites);
+        assert!(!defaults.capabilities.computer_use);
+        assert!(!defaults.options.session_audit);
+        assert!(!defaults.options.auto_reset);
         let catalog = [
             model("gpt-6.1-sol", 400_000, None),
             model("gpt-6-luna", 400_000, None),
@@ -1700,6 +1777,80 @@ mod tests {
                 required: ModelId::Gpt61Sol
             })
         ));
+    }
+
+    #[test]
+    fn policy_config_serializes_only_in_holycodex_namespace() {
+        #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+        #[serde(deny_unknown_fields)]
+        struct RootConfig {
+            holycodex: PolicyConfig,
+        }
+
+        let config = RootConfig {
+            holycodex: PolicyConfig::default(),
+        };
+        let encoded = toml::to_string(&config).unwrap();
+        assert!(encoded.contains("[holycodex]"));
+        assert!(encoded.contains("[holycodex.capabilities]"));
+        assert!(encoded.contains("[holycodex.options]"));
+        let value: toml::Value = toml::from_str(&encoded).unwrap();
+        assert!(value.get("profile").is_none());
+        assert!(value.get("service_tier").is_none());
+        assert!(value["holycodex"].get("holycodex").is_none());
+        assert!(value["holycodex"]["profile"].is_str());
+        assert!(value["holycodex"]["capabilities"]["browser_use"].is_bool());
+        assert_eq!(toml::from_str::<RootConfig>(&encoded).unwrap(), config);
+    }
+
+    #[test]
+    fn policy_config_migrates_legacy_flat_keys_and_namespace_wins() {
+        #[derive(Deserialize, Serialize)]
+        struct RootConfig {
+            holycodex: PolicyConfig,
+        }
+
+        let legacy: RootConfig = toml::from_str(
+            "[holycodex]\nprofile = 'high'\nservice_tier = 'priority'\nbrowser_use = false\ncomputer_use = true\nsites = false\nsession_audit = true\nauto_reset = true\n",
+        )
+        .unwrap();
+        assert_eq!(legacy.holycodex.profile, Profile::High);
+        assert_eq!(legacy.holycodex.service_tier.as_deref(), Some("priority"));
+        assert_eq!(
+            legacy.holycodex.capabilities,
+            CapabilityConfig {
+                browser_use: false,
+                computer_use: true,
+                sites: false,
+            }
+        );
+        assert_eq!(
+            legacy.holycodex.options,
+            PolicyOptions {
+                session_audit: true,
+                auto_reset: true,
+            }
+        );
+        let migrated = toml::to_string(&legacy).unwrap();
+        assert!(migrated.contains("[holycodex.capabilities]"));
+        let migrated_value: toml::Value = toml::from_str(&migrated).unwrap();
+        assert!(migrated_value["holycodex"].get("browser_use").is_none());
+
+        let both: RootConfig = toml::from_str(
+            "[holycodex]\nbrowser_use = false\nauto_reset = false\n[holycodex.capabilities]\nbrowser_use = true\n[holycodex.options]\nauto_reset = true\n",
+        )
+        .unwrap();
+        assert!(both.holycodex.capabilities.browser_use);
+        assert!(both.holycodex.options.auto_reset);
+    }
+
+    #[test]
+    fn policy_config_rejects_unknown_global_and_capability_keys() {
+        assert!(toml::from_str::<PolicyConfig>("unknown_holy_key = true\n").is_err());
+        assert!(
+            toml::from_str::<PolicyConfig>("[holycodex.capabilities]\nunknown_capability = true\n")
+                .is_err()
+        );
     }
 
     #[test]

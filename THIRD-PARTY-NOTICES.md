@@ -11,6 +11,16 @@ The upstream Codex source is licensed under Apache License 2.0; see
 [LICENSE](LICENSE). The upstream `NOTICE` attribution for Codex and Ratatui is
 retained in [NOTICE](NOTICE).
 
+## toon-rs codec adaptation
+
+`crates/holycodex-toon` adapts the safe Rust codec source from `toon-rs`
+3.0.0's unpublished main revision
+`e80011112a3d54abe3c38edc362ff95c52134243`, repository
+<https://github.com/jimmystridh/toon-rs>. The upstream manifest declares the
+MIT License. The adaptation is maintained against TOON 4.1; see the crate's
+`NOTICE` and `LICENSE` for attribution and license text. This attribution does
+not imply upstream endorsement or 4.1 conformance of the unmodified source.
+
 ## Inventory status
 
 This file is not yet a complete binary redistribution notice. The release

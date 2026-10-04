@@ -1,6 +1,6 @@
 ---
 name: commit
-description: Use when the user explicitly requests a Git commit for completed work.
+description: Use when committing completed work in Git.
 ---
 
 # Commit

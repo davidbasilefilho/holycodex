@@ -1,6 +1,6 @@
 ---
 name: session-audit
-description: Use when session-audit is enabled and the session's usage or coordination needs evidence-based review.
+description: Use when reviewing session coordination or harness behavior from available evidence.
 ---
 
 # Session audit

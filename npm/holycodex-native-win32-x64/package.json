@@ -5,5 +5,5 @@
   "license": "Apache-2.0",
   "os": ["win32"],
   "cpu": ["x64"],
-  "files": ["bin/holycodex.exe", "bin/codex.exe", "payload.json", "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md"]
+  "files": ["bin/holycodex.exe", "bin/codex.exe", "payload.toml", "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md"]
 }
