@@ -18,9 +18,10 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    env:
-      CODEX_HOME: ${{ runner.temp }}/holycodex-release-codex-home
     steps:
+      - name: Set isolated Codex home
+        shell: bash
+        run: echo "CODEX_HOME=$RUNNER_TEMP/holycodex-release-codex-home" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -36,9 +37,10 @@ jobs:
   wrapper:
     needs: quality
     runs-on: ubuntu-latest
-    env:
-      CODEX_HOME: ${{ runner.temp }}/holycodex-release-codex-home
     steps:
+      - name: Set isolated Codex home
+        shell: bash
+        run: echo "CODEX_HOME=$RUNNER_TEMP/holycodex-release-codex-home" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -83,9 +85,10 @@ jobs:
             target: win32-x64
             package: holycodex-native-win32-x64
     runs-on: ${{ matrix.runner }}
-    env:
-      CODEX_HOME: ${{ runner.temp }}/holycodex-release-codex-home
     steps:
+      - name: Set isolated Codex home
+        shell: bash
+        run: echo "CODEX_HOME=$RUNNER_TEMP/holycodex-release-codex-home" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
