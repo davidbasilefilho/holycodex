@@ -1820,10 +1820,10 @@ index 9ee1d50..c1ff537 100644
              let parent = self.runtime.upgrade()?.get_thread(parent).await?;
 diff --git a/codex-rs/core/src/agent/control/holycodex_identity.rs b/codex-rs/core/src/agent/control/holycodex_identity.rs
 new file mode 100644
-index 0000000..6a4fd15
+index 0000000..3ac6e64
 --- /dev/null
 +++ b/codex-rs/core/src/agent/control/holycodex_identity.rs
-@@ -0,0 +1,433 @@
+@@ -0,0 +1,437 @@
 +use super::LocalAgentControl;
 +use crate::holycodex_identity::NativeThreadContract;
 +use crate::holycodex_identity::ReallocateSpecialistRequest;
@@ -2029,11 +2029,15 @@ index 0000000..6a4fd15
 +            &request.codex_home,
 +            request.caller_root,
 +            |intent, contracts| {
-+                if intent != &request.intent {
++                let canonical_intent = request.binding.controller.snapshot()?.intent;
++                if canonical_intent != request.intent {
 +                    return Err(crate::holycodex::ControllerError::InvalidState(
-+                        "Root Intent changed before specialist reallocation".into(),
++                        "controller Intent changed before specialist reallocation".into(),
 +                    ));
 +                }
++                // The controller state is authoritative; synchronize the
++                // identity copy while its per-Root lock protects this merge.
++                *intent = canonical_intent;
 +                old_contract = contracts.get(&request.target.to_string()).cloned();
 +                if let Some(previous) = &old_contract {
 +                    request.contract.native_id = previous.native_id.clone();
@@ -2707,10 +2711,10 @@ index 60c6f65..04658d1 100644
 +}
 diff --git a/codex-rs/core/src/holycodex.rs b/codex-rs/core/src/holycodex.rs
 new file mode 100644
-index 0000000..b5686eb
+index 0000000..e4874b0
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex.rs
-@@ -0,0 +1,1958 @@
+@@ -0,0 +1,2033 @@
 +//! Durable native Intent/Assignment control over the local Multi-Agent V2 runtime.
 +//!
 +//! OS sidecar locks serialize reload/validate/commit across controller instances.
@@ -2727,6 +2731,8 @@ index 0000000..b5686eb
 +use crate::agent::control::LocalAgentControl;
 +use crate::agent::types::SpawnAgentOptions;
 +use crate::config::Config;
++use crate::holycodex_identity::mutability_rank;
++use crate::holycodex_identity::update_existing_identity_in_directory;
 +use codex_protocol::AgentPath;
 +use codex_protocol::ThreadId;
 +use codex_protocol::openai_models::ReasoningEffort;
@@ -3257,18 +3263,29 @@ index 0000000..b5686eb
 +        accepted_scope: Vec<String>,
 +        requirements: Vec<String>,
 +    ) -> Result<bool, ControllerError> {
-+        self.store.transaction(|state| {
++        let changed = self.store.transaction(|state| {
 +            Ok(update_intent(
 +                &mut state.intent,
 +                objective,
 +                accepted_scope,
 +                requirements,
 +            )?)
-+        })
++        })?;
++        let thread_directory = self.store.path.parent().ok_or_else(|| {
++            ControllerError::InvalidState("controller state path has no parent".into())
++        })?;
++        update_existing_identity_in_directory(thread_directory, self.root_thread, |intent, _| {
++            // The controller state is canonical. Read it after acquiring the
++            // identity lock so concurrent updates cannot persist stale copies.
++            *intent = self.store.read()?.intent;
++            Ok(())
++        })?;
++        Ok(changed)
 +    }
 +
 +    /// Observe live grants, then atomically select and reserve current ownership.
 +    pub async fn dispatch(&self, request: DispatchRequest) -> Result<Assignment, ControllerError> {
++        check_route_mutability(request.role, request.mutability)?;
 +        let mut initial = self.snapshot()?;
 +        let mut candidate = Assignment {
 +            id: Uuid::now_v7().to_string(),
@@ -3781,6 +3798,21 @@ index 0000000..b5686eb
 +        return Err(ControllerError::Authority(format!(
 +            "{} requires restricted delegation and verified capabilities",
 +            role.as_str()
++        )));
++    }
++    Ok(())
++}
++
++fn check_route_mutability(
++    role: RoleTask,
++    mutability: holycodex_policy::Mutability,
++) -> Result<(), ControllerError> {
++    let route = route_policy(role).ok_or(LifecycleError::RootNotSpecialist)?;
++    if mutability_rank(mutability) > mutability_rank(route.mutability) {
++        return Err(ControllerError::Authority(format!(
++            "{} is limited to {:?} mutability",
++            role.as_str(),
++            route.mutability
 +        )));
 +    }
 +    Ok(())
@@ -4590,6 +4622,53 @@ index 0000000..b5686eb
 +    }
 +
 +    #[tokio::test]
++    async fn dispatch_rejects_mutability_above_selected_route() {
++        let dir = tempfile::tempdir().unwrap();
++        let controller = AssignmentController::open(
++            dir.path(),
++            LocalAgentControl::default(),
++            ThreadId::new(),
++            Profile::Default,
++            intent(),
++            Arc::new(DeniedAuthority),
++        )
++        .unwrap();
++        let mut request = DispatchRequest {
++            role: RoleTask::WorkerValidation,
++            objective: "check acceptance criteria".into(),
++            bounded_scope: vec!["src".into()],
++            constraints: vec![],
++            acceptance_criteria: vec!["checks pass".into()],
++            required_evidence: vec!["test output".into()],
++            mutability: Mutability::ScopedWrite,
++            metadata: AssignmentMetadata {
++                ownership_paths: ["src".into()].into(),
++                ..Default::default()
++            },
++        };
++
++        let error = controller.dispatch(request.clone()).await.unwrap_err();
++        assert!(
++            matches!(error, ControllerError::Authority(message) if message.contains("Worker.validation"))
++        );
++        assert!(controller.snapshot().unwrap().assignments.is_empty());
++
++        request.role = RoleTask::ReviewerTesting;
++        let error = controller.dispatch(request).await.unwrap_err();
++        assert!(
++            matches!(error, ControllerError::Authority(message) if message.contains("Reviewer.testing"))
++        );
++        assert!(controller.snapshot().unwrap().assignments.is_empty());
++
++        assert!(
++            check_route_mutability(RoleTask::WorkerImplementation, Mutability::ScopedWrite).is_ok()
++        );
++        assert!(
++            check_route_mutability(RoleTask::WorkerOperations, Mutability::Operational).is_ok()
++        );
++    }
++
++    #[tokio::test]
 +    async fn unavailable_parent_runtime_does_not_claim_child_loss_or_release_ownership() {
 +        let dir = tempfile::tempdir().unwrap();
 +        let controller = AssignmentController::open(
@@ -4671,10 +4750,10 @@ index 0000000..b5686eb
 +}
 diff --git a/codex-rs/core/src/holycodex_identity.rs b/codex-rs/core/src/holycodex_identity.rs
 new file mode 100644
-index 0000000..a9e74d5
+index 0000000..8807ded
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex_identity.rs
-@@ -0,0 +1,1565 @@
+@@ -0,0 +1,1599 @@
 +//! Native, per-thread HolyCodex identity and session authority bindings.
 +//!
 +//! Persisted records describe a validated contract, not current grants. Live
@@ -4831,7 +4910,30 @@ index 0000000..a9e74d5
 +        &mut BTreeMap<String, NativeThreadContract>,
 +    ) -> Result<(), ControllerError>,
 +) -> Result<(), ControllerError> {
-+    update_identity_inner(codex_home, root_thread_id, None, update)
++    update_identity_inner(
++        identity_path(codex_home, root_thread_id),
++        root_thread_id,
++        None,
++        update,
++    )
++    .map(|_| ())
++}
++
++/// Merge into an existing Root identity beside its controller state file.
++pub(crate) fn update_existing_identity_in_directory(
++    thread_directory: &Path,
++    root_thread_id: ThreadId,
++    update: impl FnOnce(
++        &mut Intent,
++        &mut BTreeMap<String, NativeThreadContract>,
++    ) -> Result<(), ControllerError>,
++) -> Result<bool, ControllerError> {
++    update_identity_inner(
++        thread_directory.join("intent.toml"),
++        root_thread_id,
++        None,
++        update,
++    )
 +}
 +
 +fn update_identity_or_initialize(
@@ -4843,31 +4945,35 @@ index 0000000..a9e74d5
 +        &mut BTreeMap<String, NativeThreadContract>,
 +    ) -> Result<(), ControllerError>,
 +) -> Result<(), ControllerError> {
-+    update_identity_inner(codex_home, root_thread_id, Some(initial_intent), update)
++    update_identity_inner(
++        identity_path(codex_home, root_thread_id),
++        root_thread_id,
++        Some(initial_intent),
++        update,
++    )
++    .map(|_| ())
 +}
 +
 +fn update_identity_inner(
-+    codex_home: &Path,
++    path: PathBuf,
 +    root_thread_id: ThreadId,
 +    initial_intent: Option<Intent>,
 +    update: impl FnOnce(
 +        &mut Intent,
 +        &mut BTreeMap<String, NativeThreadContract>,
 +    ) -> Result<(), ControllerError>,
-+) -> Result<(), ControllerError> {
-+    let path = identity_path(codex_home, root_thread_id);
++) -> Result<bool, ControllerError> {
 +    let _lock = identity_lock(&path)?;
 +    let (mut intent, mut threads) = match read_identity_locked(&path, root_thread_id)? {
 +        Some(identity) => identity,
-+        None => (
-+            initial_intent.ok_or_else(|| {
-+                ControllerError::InvalidState("native Root Intent identity is not persisted".into())
-+            })?,
-+            BTreeMap::new(),
-+        ),
++        None => match initial_intent {
++            Some(intent) => (intent, BTreeMap::new()),
++            None => return Ok(false),
++        },
 +    };
 +    update(&mut intent, &mut threads)?;
-+    write_identity_locked(&path, root_thread_id, intent, threads)
++    write_identity_locked(&path, root_thread_id, intent, threads)?;
++    Ok(true)
 +}
 +
 +fn write_identity_locked(
@@ -5191,6 +5297,13 @@ index 0000000..a9e74d5
 +    > {
 +        let route = route_policy(assignment.role)
 +            .ok_or_else(|| ControllerError::InvalidState("unknown Role.task".into()))?;
++        if mutability_rank(assignment.mutability) > mutability_rank(route.mutability) {
++            return Err(ControllerError::Authority(format!(
++                "{} is limited to {:?} mutability",
++                assignment.role.as_str(),
++                route.mutability
++            )));
++        }
 +        let capabilities = route.capabilities.iter().copied().collect::<BTreeSet<_>>();
 +        if !capabilities.is_subset(&root_grants.capabilities) {
 +            return Err(ControllerError::Agent(
@@ -6229,7 +6342,7 @@ index 0000000..a9e74d5
 +    effects
 +}
 +
-+fn mutability_rank(value: Mutability) -> u8 {
++pub(crate) fn mutability_rank(value: Mutability) -> u8 {
 +    match value {
 +        Mutability::ReadOnly => 0,
 +        Mutability::ScopedWrite => 1,
@@ -6242,14 +6355,42 @@ index 0000000..a9e74d5
 +mod tests;
 diff --git a/codex-rs/core/src/holycodex_identity_tests.rs b/codex-rs/core/src/holycodex_identity_tests.rs
 new file mode 100644
-index 0000000..e76afe9
+index 0000000..be346d4
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex_identity_tests.rs
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,221 @@
 +use super::*;
 +use holycodex_policy::AssignmentMetadata;
 +use holycodex_policy::AssignmentStatus;
 +use std::sync::Barrier;
++
++struct UnusedAuthority;
++
++impl SpecialistAuthority for UnusedAuthority {
++    fn prepare<'a>(
++        &'a self,
++        _: &'a Assignment,
++        _: Profile,
++    ) -> futures::future::BoxFuture<'a, Result<PreparedSpecialist, ControllerError>> {
++        Box::pin(async { Err(ControllerError::Authority("unused test authority".into())) })
++    }
++
++    fn inspect(
++        &self,
++        _: ThreadId,
++    ) -> futures::future::BoxFuture<'_, Result<SpecialistGrants, ControllerError>> {
++        Box::pin(async { Err(ControllerError::Authority("unused test authority".into())) })
++    }
++
++    fn rebind<'a>(
++        &'a self,
++        _: ThreadId,
++        _: &'a Assignment,
++        _: Profile,
++    ) -> futures::future::BoxFuture<'a, Result<PreparedSpecialist, ControllerError>> {
++        Box::pin(async { Err(ControllerError::Authority("unused test authority".into())) })
++    }
++}
 +
 +fn intent() -> Intent {
 +    Intent {
@@ -6400,6 +6541,44 @@ index 0000000..e76afe9
 +    for thread in specialists {
 +        assert!(contracts.contains_key(&thread.to_string()));
 +    }
++}
++
++#[test]
++fn controller_intent_update_is_mirrored_to_root_identity() {
++    let home = tempfile::tempdir().expect("temporary home");
++    let root = ThreadId::new();
++    update_identity_or_initialize(home.path(), root, intent(), |_intent, contracts| {
++        contracts.insert(root.to_string(), root_contract(root));
++        Ok(())
++    })
++    .expect("initialize Root identity");
++    let path = identity_path(home.path(), root);
++    let thread_directory = path.parent().unwrap();
++    let controller = AssignmentController::open(
++        thread_directory,
++        LocalAgentControl::default(),
++        root,
++        Profile::Default,
++        intent(),
++        Arc::new(UnusedAuthority),
++    )
++    .expect("open Root controller");
++
++    assert!(
++        controller
++            .update_intent(
++                "revised objective".into(),
++                vec!["core/src".into()],
++                vec!["preserve reviewer contracts".into()],
++            )
++            .expect("update Intent")
++    );
++
++    let canonical = controller.snapshot().expect("read controller state").intent;
++    let (identity_intent, _) = read_identity(home.path(), root)
++        .expect("read identity")
++        .expect("identity exists");
++    assert_eq!(identity_intent, canonical);
 +}
 diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
 index 2595ce5..bf06951 100644
