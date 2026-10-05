@@ -1630,6 +1630,30 @@ index 1a60bc3..f500309 100644
  # Internal
  codex-realtime-webrtc = { path = "realtime-webrtc" }
  app_test_support = { path = "app-server/tests/common" }
+diff --git a/codex-rs/app-server-transport/src/transport/remote_control/tests.rs b/codex-rs/app-server-transport/src/transport/remote_control/tests.rs
+index 2337b2a..beb6318 100644
+--- a/codex-rs/app-server-transport/src/transport/remote_control/tests.rs
++++ b/codex-rs/app-server-transport/src/transport/remote_control/tests.rs
+@@ -116,6 +116,7 @@ fn remote_control_auth_dot_json(account_id: Option<&str>) -> AuthDotJson {
+         auth_mode: Some(AuthMode::Chatgpt),
+         openai_api_key: None,
+         tokens: Some(TokenData {
++            siwc: None,
+             id_token: parse_chatgpt_jwt_claims(&fake_jwt).expect("fake jwt should parse"),
+             access_token: "Access Token".to_string(),
+             refresh_token: "refresh-token".to_string(),
+diff --git a/codex-rs/app-server-transport/src/transport/remote_control/websocket.rs b/codex-rs/app-server-transport/src/transport/remote_control/websocket.rs
+index 588756d..8a6a93f 100644
+--- a/codex-rs/app-server-transport/src/transport/remote_control/websocket.rs
++++ b/codex-rs/app-server-transport/src/transport/remote_control/websocket.rs
+@@ -2062,6 +2062,7 @@ mod tests {
+             auth_mode: Some(AuthMode::Chatgpt),
+             openai_api_key: None,
+             tokens: Some(TokenData {
++                siwc: None,
+                 id_token: parse_chatgpt_jwt_claims(&fake_jwt).expect("fake jwt should parse"),
+                 access_token: access_token.to_string(),
+                 refresh_token: "refresh-token".to_string(),
 diff --git a/codex-rs/app-server/src/extensions.rs b/codex-rs/app-server/src/extensions.rs
 index c2d6d6d..c2e85c8 100644
 --- a/codex-rs/app-server/src/extensions.rs
@@ -1664,6 +1688,18 @@ index c2d6d6d..c2e85c8 100644
      );
      Arc::new(builder.build())
  }
+diff --git a/codex-rs/app-server/tests/common/auth_fixtures.rs b/codex-rs/app-server/tests/common/auth_fixtures.rs
+index 2fa3842..67273b6 100644
+--- a/codex-rs/app-server/tests/common/auth_fixtures.rs
++++ b/codex-rs/app-server/tests/common/auth_fixtures.rs
+@@ -175,6 +175,7 @@ pub fn write_chatgpt_auth(
+     let id_token_raw = encode_id_token(&fixture.claims)?;
+     let id_token = parse_chatgpt_jwt_claims(&id_token_raw).context("parse id token")?;
+     let tokens = TokenData {
++        siwc: None,
+         id_token,
+         access_token: fixture.access_token,
+         refresh_token: fixture.refresh_token,
 diff --git a/codex-rs/cli/src/main.rs b/codex-rs/cli/src/main.rs
 index bdd7771..1ec2c71 100644
 --- a/codex-rs/cli/src/main.rs
@@ -1731,6 +1767,99 @@ index bdd7771..1ec2c71 100644
      use crate::exec_server_command::ExecServerSubcommand;
      use crate::exec_server_command::is_supported_exec_server_remote_auth;
      use crate::exec_server_command::validate_api_key_remote_host;
+diff --git a/codex-rs/config/src/config_toml.rs b/codex-rs/config/src/config_toml.rs
+index 9915de6..32a3300 100644
+--- a/codex-rs/config/src/config_toml.rs
++++ b/codex-rs/config/src/config_toml.rs
+@@ -153,6 +153,48 @@ pub struct CloudToml {
+     pub skills: Option<FeatureToggleToml>,
+ }
+ 
++/// HolyCodex policy settings accepted in the user's config file.
++#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, JsonSchema)]
++#[serde(default, deny_unknown_fields)]
++#[schemars(deny_unknown_fields)]
++pub struct HolyCodexToml {
++    pub profile: Option<HolyCodexProfileToml>,
++    pub service_tier: Option<String>,
++    pub capabilities: Option<HolyCodexCapabilitiesToml>,
++    pub options: Option<HolyCodexOptionsToml>,
++    // Compatibility with the former flat settings under [holycodex].
++    pub browser_use: Option<bool>,
++    pub computer_use: Option<bool>,
++    pub sites: Option<bool>,
++    pub session_audit: Option<bool>,
++    pub auto_reset: Option<bool>,
++}
++
++#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema)]
++#[serde(rename_all = "snake_case")]
++pub enum HolyCodexProfileToml {
++    Low,
++    Default,
++    High,
++}
++
++#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, JsonSchema)]
++#[serde(default, deny_unknown_fields)]
++#[schemars(deny_unknown_fields)]
++pub struct HolyCodexCapabilitiesToml {
++    pub browser_use: Option<bool>,
++    pub computer_use: Option<bool>,
++    pub sites: Option<bool>,
++}
++
++#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, JsonSchema)]
++#[serde(default, deny_unknown_fields)]
++#[schemars(deny_unknown_fields)]
++pub struct HolyCodexOptionsToml {
++    pub session_audit: Option<bool>,
++    pub auto_reset: Option<bool>,
++}
++
+ /// Optional enablement of a configured feature.
+ #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, JsonSchema)]
+ #[schemars(deny_unknown_fields)]
+@@ -164,6 +206,9 @@ pub struct FeatureToggleToml {
+ #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema)]
+ #[schemars(deny_unknown_fields)]
+ pub struct ConfigToml {
++    /// HolyCodex specialist orchestration policy.
++    pub holycodex: Option<HolyCodexToml>,
++
+     /// Optional override of model selection.
+     pub model: Option<String>,
+     /// Review model override used by the `/review` feature.
+@@ -994,6 +1039,29 @@ mod tests {
+     const WORKSPACE_ID_A: &str = "123e4567-e89b-42d3-a456-426614174000";
+     const WORKSPACE_ID_B: &str = "123e4567-e89b-42d3-a456-426614174001";
+ 
++    #[test]
++    fn holycodex_table_is_registered_in_strict_config_and_rejects_unknown_fields() {
++        let config: ConfigToml = toml::from_str(
++            "[holycodex]\nprofile = 'low'\nservice_tier = 'priority'\n[holycodex.capabilities]\nbrowser_use = false\n[holycodex.options]\nsession_audit = true\n",
++        )
++        .expect("managed strict config should accept the registered HolyCodex schema");
++        let holycodex = config.holycodex.expect("HolyCodex table");
++        assert_eq!(holycodex.profile, Some(HolyCodexProfileToml::Low));
++        assert_eq!(holycodex.service_tier.as_deref(), Some("priority"));
++        assert_eq!(
++            holycodex.capabilities.and_then(|value| value.browser_use),
++            Some(false)
++        );
++        assert_eq!(
++            holycodex.options.and_then(|value| value.session_audit),
++            Some(true)
++        );
++        assert!(toml::from_str::<ConfigToml>("[holycodex]\nunknown = true\n").is_err());
++        assert!(
++            toml::from_str::<ConfigToml>("[holycodex.capabilities]\nunknown = true\n").is_err()
++        );
++    }
++
+     #[test]
+     fn sandbox_mode_uses_executor_platform_and_sandbox_level() {
+         use Platform::Linux;
 diff --git a/codex-rs/core/Cargo.toml b/codex-rs/core/Cargo.toml
 index d5fd95d..cf76446 100644
 --- a/codex-rs/core/Cargo.toml
@@ -1743,6 +1872,127 @@ index d5fd95d..cf76446 100644
  codex-utils-process = { workspace = true }
  anyhow = { workspace = true }
  arc-swap = { workspace = true }
+diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
+index ac6171c..2caca0d 100644
+--- a/codex-rs/core/config.schema.json
++++ b/codex-rs/core/config.schema.json
+@@ -2011,6 +2011,101 @@
+         }
+       ]
+     },
++    "HolyCodexCapabilitiesToml": {
++      "additionalProperties": false,
++      "properties": {
++        "browser_use": {
++          "default": null,
++          "type": "boolean"
++        },
++        "computer_use": {
++          "default": null,
++          "type": "boolean"
++        },
++        "sites": {
++          "default": null,
++          "type": "boolean"
++        }
++      },
++      "type": "object"
++    },
++    "HolyCodexOptionsToml": {
++      "additionalProperties": false,
++      "properties": {
++        "auto_reset": {
++          "default": null,
++          "type": "boolean"
++        },
++        "session_audit": {
++          "default": null,
++          "type": "boolean"
++        }
++      },
++      "type": "object"
++    },
++    "HolyCodexProfileToml": {
++      "enum": [
++        "low",
++        "default",
++        "high"
++      ],
++      "type": "string"
++    },
++    "HolyCodexToml": {
++      "additionalProperties": false,
++      "description": "HolyCodex policy settings accepted in the user's config file.",
++      "properties": {
++        "auto_reset": {
++          "default": null,
++          "type": "boolean"
++        },
++        "browser_use": {
++          "default": null,
++          "type": "boolean"
++        },
++        "capabilities": {
++          "allOf": [
++            {
++              "$ref": "#/definitions/HolyCodexCapabilitiesToml"
++            }
++          ],
++          "default": null
++        },
++        "computer_use": {
++          "default": null,
++          "type": "boolean"
++        },
++        "options": {
++          "allOf": [
++            {
++              "$ref": "#/definitions/HolyCodexOptionsToml"
++            }
++          ],
++          "default": null
++        },
++        "profile": {
++          "allOf": [
++            {
++              "$ref": "#/definitions/HolyCodexProfileToml"
++            }
++          ],
++          "default": null
++        },
++        "service_tier": {
++          "default": null,
++          "type": "string"
++        },
++        "session_audit": {
++          "default": null,
++          "type": "boolean"
++        },
++        "sites": {
++          "default": null,
++          "type": "boolean"
++        }
++      },
++      "type": "object"
++    },
+     "HookHandlerConfig": {
+       "oneOf": [
+         {
+@@ -7319,6 +7414,14 @@
+       },
+       "description": "Settings that govern if and what will be written to `~/.codex/history.jsonl`."
+     },
++    "holycodex": {
++      "allOf": [
++        {
++          "$ref": "#/definitions/HolyCodexToml"
++        }
++      ],
++      "description": "HolyCodex specialist orchestration policy."
++    },
+     "hooks": {
+       "allOf": [
+         {
 diff --git a/codex-rs/core/src/agent/api.rs b/codex-rs/core/src/agent/api.rs
 index e2ef8de..148731f 100644
 --- a/codex-rs/core/src/agent/api.rs
@@ -4750,10 +5000,10 @@ index 0000000..e4874b0
 +}
 diff --git a/codex-rs/core/src/holycodex_identity.rs b/codex-rs/core/src/holycodex_identity.rs
 new file mode 100644
-index 0000000..8807ded
+index 0000000..3819f7c
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex_identity.rs
-@@ -0,0 +1,1599 @@
+@@ -0,0 +1,1609 @@
 +//! Native, per-thread HolyCodex identity and session authority bindings.
 +//!
 +//! Persisted records describe a validated contract, not current grants. Live
@@ -5253,7 +5503,11 @@ index 0000000..8807ded
 +            .contains(&codex_tools::ToolName::plain("apply_patch"))
 +        {
 +            grants.capabilities.remove(&Capability::FilesystemWrite);
-+            grants.max_mutability = Mutability::ReadOnly;
++            grants.max_mutability = if grants.capabilities.contains(&Capability::Shell) {
++                Mutability::Operational
++            } else {
++                Mutability::ReadOnly
++            };
 +        }
 +        if !grants
 +            .allowed_tools
@@ -5315,7 +5569,7 @@ index 0000000..8807ded
 +                "specialist mutation level exceeds Root's live authority".into(),
 +            ));
 +        }
-+        if assignment.mutability != Mutability::ReadOnly
++        if assignment.mutability == Mutability::ScopedWrite
 +            && (assignment.metadata.ownership_paths.is_empty()
 +                || !assignment.metadata.ownership_paths.iter().all(|path| {
 +                    root_grants
@@ -5359,12 +5613,16 @@ index 0000000..8807ded
 +            Some(instructions) => format!("{SPECIALIST_INSTRUCTIONS}\n\n{instructions}"),
 +            None => SPECIALIST_INSTRUCTIONS.to_owned(),
 +        });
-+        let scoped_write_paths = normalize_writable_roots(assignment_writable_roots(
-+            &config,
-+            assignment,
-+            &root_grants.writable_roots,
-+        )?);
-+        let permission_profile = if assignment.mutability == Mutability::ReadOnly {
++        let scoped_write_paths = if assignment.mutability == Mutability::ScopedWrite {
++            normalize_writable_roots(assignment_writable_roots(
++                &config,
++                assignment,
++                &root_grants.writable_roots,
++            )?)
++        } else {
++            Vec::new()
++        };
++        let permission_profile = if assignment.mutability != Mutability::ScopedWrite {
 +            crate::tools::holycodex_tools::read_only_profile_with_root_temp_write(
 +                &root_grants.permission_profile,
 +            )
@@ -5871,7 +6129,9 @@ index 0000000..8807ded
 +        capabilities.insert(Capability::FilesystemWrite);
 +    }
 +    RootAuthorityGrants {
-+        max_mutability: if can_write {
++        max_mutability: if capabilities.contains(&Capability::Shell) {
++            Mutability::Operational
++        } else if can_write {
 +            Mutability::ScopedWrite
 +        } else {
 +            Mutability::ReadOnly
@@ -6282,7 +6542,7 @@ index 0000000..8807ded
 +    root_writable_roots: &[PathUri],
 +) -> Result<Vec<PathUri>, ControllerError> {
 +    let mut writable_roots = Vec::new();
-+    if assignment.mutability == Mutability::ReadOnly {
++    if assignment.mutability != Mutability::ScopedWrite {
 +        return Ok(writable_roots);
 +    }
 +    let workspace_roots = config
@@ -6335,7 +6595,7 @@ index 0000000..8807ded
 +    if capabilities.contains(&Capability::VisualInspection) {
 +        effects.insert(NativeEffect::VisualInspection);
 +    }
-+    if mutability != Mutability::ReadOnly {
++    if mutability == Mutability::ScopedWrite {
 +        effects.insert(NativeEffect::RepositoryWrite);
 +    }
 +    effects.insert(NativeEffect::AssignmentFinish);
@@ -6355,10 +6615,10 @@ index 0000000..8807ded
 +mod tests;
 diff --git a/codex-rs/core/src/holycodex_identity_tests.rs b/codex-rs/core/src/holycodex_identity_tests.rs
 new file mode 100644
-index 0000000..be346d4
+index 0000000..d1ac7e4
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex_identity_tests.rs
-@@ -0,0 +1,221 @@
+@@ -0,0 +1,250 @@
 +use super::*;
 +use holycodex_policy::AssignmentMetadata;
 +use holycodex_policy::AssignmentStatus;
@@ -6425,6 +6685,35 @@ index 0000000..be346d4
 +        },
 +        effects: BTreeSet::new(),
 +    }
++}
++
++#[test]
++fn shell_grant_allows_operational_observer_without_root_filesystem_write() {
++    let home = tempfile::tempdir().unwrap();
++    let cwd = codex_utils_absolute_path::AbsolutePathBuf::try_from(home.path()).unwrap();
++    let settings = crate::session::HolyCodexRootAuthoritySettings {
++        permission_profile: codex_protocol::models::PermissionProfile::read_only(),
++        cwd: cwd.clone(),
++        workspace_roots: vec![cwd],
++        profile: Profile::Default,
++        capabilities: holycodex_policy::CapabilityConfig::default(),
++    };
++    let grants = root_authority_grants(
++        &settings,
++        &codex_extension_api::ToolPolicy::default(),
++        std::sync::Arc::new(std::sync::Mutex::new(Some(
++            [codex_tools::ToolName::plain("exec_command")].into(),
++        ))),
++    );
++
++    assert_eq!(grants.max_mutability, Mutability::Operational);
++    assert!(grants.capabilities.contains(&Capability::Shell));
++    assert!(!grants.capabilities.contains(&Capability::FilesystemWrite));
++    assert!(grants.writable_roots.is_empty());
++    assert!(
++        !effects_for(&grants.capabilities, Mutability::Operational)
++            .contains(&NativeEffect::RepositoryWrite)
++    );
 +}
 +
 +fn specialist_contract(root: ThreadId, thread: ThreadId) -> NativeThreadContract {
@@ -7571,10 +7860,10 @@ index 46fa63d..70b0f56 100644
      let json = r#"{"cmd": "echo hello", "shell": "cmd"}"#;
 diff --git a/codex-rs/core/src/tools/holycodex_tools.rs b/codex-rs/core/src/tools/holycodex_tools.rs
 new file mode 100644
-index 0000000..852df87
+index 0000000..737c64b
 --- /dev/null
 +++ b/codex-rs/core/src/tools/holycodex_tools.rs
-@@ -0,0 +1,2777 @@
+@@ -0,0 +1,2872 @@
 +//! Native, role-scoped model tools for HolyCodex Intent and Assignments.
 +
 +use std::collections::BTreeSet;
@@ -8263,24 +8552,30 @@ index 0000000..852df87
 +            Capability::VisualInspection => Some(ToolName::plain("view_image")),
 +            Capability::BrowserUse | Capability::ComputerUse | Capability::Sites => None,
 +        };
-+        required_tool.is_none_or(|tool| root_actual_tools.contains(&tool))
++        required_tool.is_none_or(|tool| root_actual_tools.contains(&tool.with_default_namespace()))
 +    });
-+    if !binding.capabilities.is_subset(&root_authority.capabilities)
-+        || mutability_rank(binding.max_mutability) > mutability_rank(root_authority.max_mutability)
-+        || !binding
-+            .allowed_tools
-+            .is_subset(&root_authority.allowed_tools)
-+        || !binding
-+            .allowed_tools
++    let capabilities_bounded = binding.capabilities.is_subset(&root_authority.capabilities);
++    let mutability_bounded =
++        mutability_rank(binding.max_mutability) <= mutability_rank(root_authority.max_mutability);
++    let tools_bounded = binding
++        .allowed_tools
++        .is_subset(&root_authority.allowed_tools);
++    let actual_tools_bounded = binding
++        .allowed_tools
++        .iter()
++        .all(|tool| root_actual_tools.contains(&tool.clone().with_default_namespace()));
++    let ownership_bounded = binding.ownership_paths.iter().all(|path| {
++        root_authority
++            .ownership_paths
 +            .iter()
-+            .all(|tool| root_actual_tools.contains(&tool.clone().with_default_namespace()))
-+        || !actual_capabilities_available
-+        || !binding.ownership_paths.iter().all(|path| {
-+            root_authority
-+                .ownership_paths
-+                .iter()
-+                .any(|root| crate::holycodex_identity::ownership_path_is_within(path, root))
-+        })
++            .any(|root| crate::holycodex_identity::ownership_path_is_within(path, root))
++    });
++    if !(capabilities_bounded
++        && mutability_bounded
++        && tools_bounded
++        && actual_tools_bounded
++        && actual_capabilities_available
++        && ownership_bounded)
 +    {
 +        return Err(model_error(
 +            "specialist authority was revoked by Root's live permission profile",
@@ -8702,11 +8997,11 @@ index 0000000..852df87
 +        return false;
 +    }
 +    match binding.max_mutability {
-+        Mutability::ReadOnly => read_only_profile_with_root_temp_write(
++        Mutability::ReadOnly | Mutability::Operational => read_only_profile_with_root_temp_write(
 +            &binding.root_permission_lease.permission_profile,
 +        )
 +        .is_some_and(|read_only| read_only == *current),
-+        Mutability::ScopedWrite | Mutability::Operational => {
++        Mutability::ScopedWrite => {
 +            if binding.writable_roots.is_empty() {
 +                return false;
 +            }
@@ -8893,7 +9188,7 @@ index 0000000..852df87
 +            });
 +        if required_tools
 +            .into_iter()
-+            .any(|tool| !actual_tools.contains(&tool))
++            .any(|tool| !actual_tools.contains(&tool.with_default_namespace()))
 +        {
 +            return Err(model_error(
 +                "specialist capability is absent from Root's finalized host tool registry",
@@ -8922,13 +9217,30 @@ index 0000000..852df87
 +                    "requested mutability exceeds the bound tool profile",
 +                ));
 +            }
-+            if metadata.ownership_paths.is_empty()
-+                || !metadata.ownership_paths.iter().all(|path| {
-+                    root_authority
-+                        .ownership_paths
-+                        .iter()
-+                        .any(|root| crate::holycodex_identity::ownership_path_is_within(path, root))
-+                })
++            if mutability == Mutability::ScopedWrite
++                && !root_authority
++                    .capabilities
++                    .contains(&Capability::FilesystemWrite)
++            {
++                return Err(model_error(
++                    "scoped writes exceed Root's live filesystem-write grant",
++                ));
++            }
++            if mutability == Mutability::ScopedWrite
++                && (metadata.ownership_paths.is_empty()
++                    || !metadata.ownership_paths.iter().all(|path| {
++                        let owned = root_authority.ownership_paths.iter().any(|root| {
++                            crate::holycodex_identity::ownership_path_is_within(path, root)
++                        });
++                        let assigned = PathUri::from_abs_path(
++                            &self.binding.root_permission_lease.cwd.join(path),
++                        );
++                        owned
++                            && root_authority
++                                .writable_roots
++                                .iter()
++                                .any(|root| assigned.starts_with(root))
++                    }))
 +            {
 +                return Err(model_error(
 +                    "writable ownership paths exceed the bound tool profile",
@@ -9139,7 +9451,7 @@ index 0000000..852df87
 +        let actual_tool_grants = Arc::new(Mutex::new(Some(
 +            ["exec_command", "apply_patch", "view_image"]
 +                .into_iter()
-+                .map(ToolName::plain)
++                .map(|name| ToolName::plain(name).with_default_namespace())
 +                .collect(),
 +        )));
 +        let controller = AssignmentController::open(
@@ -9355,9 +9667,9 @@ index 0000000..852df87
 +
 +    #[test]
 +    fn dispatch_request_checks_typed_mutability_against_actual_bound_scope() {
-+        fn input(mutability: &str, ownership_paths: Vec<&str>) -> AssignmentInput {
++        fn input(role: &str, mutability: &str, ownership_paths: Vec<&str>) -> AssignmentInput {
 +            AssignmentInput {
-+                role: "Worker.implementation".into(),
++                role: role.into(),
 +                objective: "implement".into(),
 +                bounded_scope: vec!["src".into()],
 +                constraints: Vec::new(),
@@ -9387,14 +9699,14 @@ index 0000000..852df87
 +        };
 +        assert_eq!(
 +            read_tool
-+                .dispatch_request(input("read_only", Vec::new()))
++                .dispatch_request(input("Worker.implementation", "read_only", Vec::new()))
 +                .unwrap()
 +                .mutability,
 +            Mutability::ReadOnly
 +        );
 +        assert!(
 +            read_tool
-+                .dispatch_request(input("scoped_write", vec!["src"]))
++                .dispatch_request(input("Worker.implementation", "scoped_write", vec!["src"]))
 +                .is_err()
 +        );
 +
@@ -9402,16 +9714,48 @@ index 0000000..852df87
 +        write_binding.capabilities = route_capabilities;
 +        write_binding.max_mutability = Mutability::ScopedWrite;
 +        write_binding.ownership_paths.insert("src".into());
++        write_binding
++            .root_authority
++            .lock()
++            .unwrap()
++            .writable_roots
++            .push(PathUri::from_abs_path(
++                &write_binding.root_permission_lease.cwd,
++            ));
 +        let write_tool = HolyCodexTool {
 +            binding: write_binding,
 +            name: "assignment.dispatch",
 +        };
 +        assert_eq!(
 +            write_tool
-+                .dispatch_request(input("scoped_write", vec!["src"]))
++                .dispatch_request(input("Worker.implementation", "scoped_write", vec!["src"]))
 +                .unwrap()
 +                .mutability,
 +            Mutability::ScopedWrite
++        );
++
++        let (_operations_dir, mut operations_binding) = test_binding(HolyCodexPrincipal::root());
++        operations_binding.capabilities = route_policy(RoleTask::WorkerOperations)
++            .unwrap()
++            .capabilities
++            .iter()
++            .copied()
++            .collect();
++        operations_binding
++            .root_authority
++            .lock()
++            .unwrap()
++            .max_mutability = Mutability::Operational;
++        let operations_tool = HolyCodexTool {
++            binding: operations_binding,
++            name: "assignment.dispatch",
++        };
++        assert_eq!(
++            operations_tool
++                .dispatch_request(input("Worker.operations", "operational", Vec::new()))
++                .unwrap()
++                .mutability,
++            Mutability::Operational
 +        );
 +    }
 +
@@ -9441,6 +9785,12 @@ index 0000000..852df87
 +            .copied()
 +            .collect();
 +        binding.max_mutability = Mutability::ScopedWrite;
++        binding
++            .root_authority
++            .lock()
++            .unwrap()
++            .writable_roots
++            .push(PathUri::from_abs_path(&binding.root_permission_lease.cwd));
 +        let tool = HolyCodexTool {
 +            binding,
 +            name: "assignment.dispatch",
@@ -9799,17 +10149,22 @@ index 0000000..852df87
 +    #[test]
 +    fn specialist_shell_grant_allows_bounded_test_and_build_commands_only() {
 +        let (_dir, mut binding) = test_binding(HolyCodexPrincipal::specialist("a-1".into()));
++        binding.permission_profile = read_only_profile_with_root_temp_write(
++            &binding.root_permission_lease.permission_profile,
++        )
++        .unwrap();
 +        binding.capabilities = [Capability::RepositoryRead, Capability::Shell].into();
 +        binding.allowed_tools = ["exec_command"].into_iter().map(ToolName::plain).collect();
++        let cargo_test_authorization = authorize_tool_call(
++            &binding,
++            &ToolName::plain("exec_command"),
++            false,
++            Some("cargo test -p codex-core"),
++            &binding.permission_profile,
++        );
 +        assert!(
-+            authorize_tool_call(
-+                &binding,
-+                &ToolName::plain("exec_command"),
-+                false,
-+                Some("cargo test -p codex-core"),
-+                &binding.permission_profile,
-+            )
-+            .is_ok()
++            cargo_test_authorization.is_ok(),
++            "{cargo_test_authorization:?}"
 +        );
 +        assert!(
 +            authorize_tool_call(
@@ -9975,6 +10330,14 @@ index 0000000..852df87
 +        root_binding.capabilities = route_capabilities;
 +        root_binding.max_mutability = Mutability::ScopedWrite;
 +        root_binding.ownership_paths.insert("src".into());
++        root_binding
++            .root_authority
++            .lock()
++            .unwrap()
++            .writable_roots
++            .push(PathUri::from_abs_path(
++                &root_binding.root_permission_lease.cwd,
++            ));
 +        let root_authority = Arc::clone(&root_binding.root_authority);
 +        let root_tool = HolyCodexTool {
 +            binding: root_binding,
@@ -10122,7 +10485,8 @@ index 0000000..852df87
 +        ]
 +        .into();
 +        binding.allowed_tools = ["exec_command"].into_iter().map(ToolName::plain).collect();
-+        binding.permission_profile = broad_read_profile.clone();
++        binding.permission_profile =
++            read_only_profile_with_root_temp_write(&broad_read_profile).unwrap();
 +        binding.root_permission_lease = old_root_lease;
 +        binding.root_authority = root_authority;
 +        binding
@@ -10131,18 +10495,40 @@ index 0000000..852df87
 +            .unwrap()
 +            .as_mut()
 +            .unwrap()
-+            .insert(ToolName::plain("assignment.finish"));
-+        let read_outside = format!("cat {}", outside_path.as_path().display());
-+        let search_outside = format!("rg secret {}", outside.path().display());
++            .insert(ToolName::plain("assignment.finish").with_default_namespace());
 +        assert!(
-+            authorize_tool_call(
-+                &binding,
-+                &ToolName::plain("exec_command"),
-+                false,
-+                Some(&read_outside),
-+                &binding.permission_profile,
-+            )
-+            .is_ok()
++            binding
++                .actual_tool_grants
++                .lock()
++                .unwrap()
++                .as_ref()
++                .is_some_and(|actual| {
++                    actual.contains(&ToolName::plain("exec_command").with_default_namespace())
++                })
++        );
++        let read_outside = format!(
++            "cat \"{}\"",
++            outside_path.as_path().to_string_lossy().replace('\\', "/")
++        );
++        let search_outside = format!(
++            "rg secret \"{}\"",
++            outside.path().to_string_lossy().replace('\\', "/")
++        );
++        assert!(assignment_permission_profile_is_bounded(
++            &binding,
++            &binding.permission_profile
++        ));
++        assert!(is_safe_specialist_shell(&read_outside));
++        let outside_read_authorization = authorize_tool_call(
++            &binding,
++            &ToolName::plain("exec_command"),
++            false,
++            Some(&read_outside),
++            &binding.permission_profile,
++        );
++        assert!(
++            outside_read_authorization.is_ok(),
++            "{outside_read_authorization:?}"
 +        );
 +        assert!(
 +            authorize_tool_call(
@@ -10185,7 +10571,7 @@ index 0000000..852df87
 +                &ToolName::plain("assignment.finish"),
 +                false,
 +                None,
-+                &binding.permission_profile,
++                &PermissionProfile::read_only(),
 +            )
 +            .is_ok()
 +        );
@@ -10289,7 +10675,10 @@ index 0000000..852df87
 +            .unwrap()
 +            .as_mut()
 +            .unwrap()
-+            .extend([mcp_tool.clone(), ToolName::plain("plugin_probe")]);
++            .extend([
++                mcp_tool.clone(),
++                ToolName::plain("plugin_probe").with_default_namespace(),
++            ]);
 +        binding
 +            .root_authority
 +            .lock()
@@ -10297,27 +10686,22 @@ index 0000000..852df87
 +            .allowed_tools
 +            .extend([mcp_tool.clone(), ToolName::plain("plugin_probe")]);
 +        binding.capabilities.insert(Capability::Search);
-+
-+        assert!(
-+            authorize_tool_call(
-+                &binding,
-+                &mcp_tool,
-+                true,
-+                None,
-+                &PermissionProfile::read_only(),
-+            )
-+            .is_ok()
++        let mcp_authorization = authorize_tool_call(
++            &binding,
++            &mcp_tool,
++            true,
++            None,
++            &PermissionProfile::read_only(),
 +        );
-+        assert!(
-+            authorize_tool_call(
-+                &binding,
-+                &ToolName::plain("plugin_probe"),
-+                false,
-+                None,
-+                &PermissionProfile::read_only(),
-+            )
-+            .is_ok()
++        assert!(mcp_authorization.is_ok(), "{mcp_authorization:?}");
++        let plugin_authorization = authorize_tool_call(
++            &binding,
++            &ToolName::plain("plugin_probe"),
++            false,
++            None,
++            &PermissionProfile::read_only(),
 +        );
++        assert!(plugin_authorization.is_ok(), "{plugin_authorization:?}");
 +        assert!(
 +            authorize_tool_call(
 +                &binding,
@@ -11272,6 +11656,18 @@ index a0b23a1..c436878 100644
      });
      let test = test_codex()
          .with_extensions(Arc::new(extensions.build()))
+diff --git a/codex-rs/exec/tests/suite/apply_patch.rs b/codex-rs/exec/tests/suite/apply_patch.rs
+index 8376b2e..3486b93 100644
+--- a/codex-rs/exec/tests/suite/apply_patch.rs
++++ b/codex-rs/exec/tests/suite/apply_patch.rs
+@@ -196,6 +196,7 @@ async fn shutdown_flushes_completed_turn_and_file_diff() -> anyhow::Result<()> {
+             auth_mode: Some(AuthMode::Chatgpt),
+             openai_api_key: None,
+             tokens: Some(TokenData {
++                siwc: None,
+                 id_token: IdTokenInfo {
+                     raw_jwt: "header.eyJhbGciOiJub25lIn0.eyJzdWIiOiJ1c2VyLTEyMyJ9.".to_string(),
+                     ..Default::default()
 diff --git a/codex-rs/ext/skills/src/cloud_cache_tests.rs b/codex-rs/ext/skills/src/cloud_cache_tests.rs
 index 7a001ca..9738164 100644
 --- a/codex-rs/ext/skills/src/cloud_cache_tests.rs
@@ -12526,10 +12922,18 @@ index 8a9d75f..e90998c 100644
      }
  
 diff --git a/codex-rs/login/src/auth/storage_tests.rs b/codex-rs/login/src/auth/storage_tests.rs
-index 79c51c8..f1912a3 100644
+index 79c51c8..ea75e3a 100644
 --- a/codex-rs/login/src/auth/storage_tests.rs
 +++ b/codex-rs/login/src/auth/storage_tests.rs
-@@ -600,6 +600,7 @@ fn secrets_keyring_auth_storage_save_persists_and_removes_fallback_file() -> any
+@@ -430,6 +430,7 @@ fn auth_with_prefix(prefix: &str) -> AuthDotJson {
+         auth_mode: Some(AuthMode::ApiKey),
+         openai_api_key: Some(format!("{prefix}-api-key")),
+         tokens: Some(TokenData {
++            siwc: None,
+             id_token: id_token_with_prefix(prefix),
+             access_token: format!("{prefix}-access"),
+             refresh_token: format!("{prefix}-refresh"),
+@@ -600,6 +601,7 @@ fn secrets_keyring_auth_storage_save_persists_and_removes_fallback_file() -> any
          auth_mode: Some(AuthMode::Chatgpt),
          openai_api_key: None,
          tokens: Some(TokenData {
@@ -15050,3 +15454,15 @@ index 7b19d32..6fa5b4a 100644
      #[test]
      fn fingerprint_traverses_nested_entries() {
          let mut items = Vec::new();
+diff --git a/codex-rs/tui/src/local_chatgpt_auth.rs b/codex-rs/tui/src/local_chatgpt_auth.rs
+index f09ac22..96f04f8 100644
+--- a/codex-rs/tui/src/local_chatgpt_auth.rs
++++ b/codex-rs/tui/src/local_chatgpt_auth.rs
+@@ -106,6 +106,7 @@ mod tests {
+             auth_mode: Some(AuthMode::Chatgpt),
+             openai_api_key: None,
+             tokens: Some(TokenData {
++                siwc: None,
+                 id_token: codex_login::token_data::parse_chatgpt_jwt_claims(&id_token)
+                     .expect("id token should parse"),
+                 access_token,
