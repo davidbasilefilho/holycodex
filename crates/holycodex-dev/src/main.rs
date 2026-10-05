@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, ExitStatus};
@@ -130,23 +130,90 @@ fn absolute_from(root: &Path, path: &Path) -> PathBuf {
     }
 }
 
-fn child_command(program: &OsStr, args: &[&OsStr], cwd: &Path) -> ProcessCommand {
-    let mut command = ProcessCommand::new(program);
+fn pinned_toolchain_bin(cwd: &Path) -> Result<PathBuf> {
+    let config = cwd.join("rust-toolchain.toml");
+    let source = fs::read_to_string(&config)
+        .with_context(|| format!("reading upstream toolchain pin {}", config.display()))?;
+    let value: toml::Value = toml::from_str(&source).context("parsing upstream toolchain pin")?;
+    let channel = value["toolchain"]["channel"]
+        .as_str()
+        .context("upstream toolchain pin is missing toolchain.channel")?;
+    let output = ProcessCommand::new("rustup")
+        .args(["which", "--toolchain", channel, "cargo"])
+        .output()
+        .context("locating pinned upstream Cargo with rustup")?;
+    ensure!(
+        output.status.success(),
+        "rustup could not locate pinned upstream Cargo: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    let cargo = PathBuf::from(
+        String::from_utf8(output.stdout)
+            .context("rustup returned a non-UTF-8 Cargo path")?
+            .trim(),
+    );
+    let bin = cargo
+        .parent()
+        .context("rustup returned a Cargo path without a parent directory")?;
+    ensure!(
+        cargo.is_file(),
+        "pinned Cargo is missing at {}",
+        cargo.display()
+    );
+    Ok(bin.to_path_buf())
+}
+
+fn set_pinned_path(command: &mut ProcessCommand, bin: PathBuf, inherited: OsString) -> Result<()> {
+    let mut paths = vec![bin];
+    paths.extend(std::env::split_paths(&inherited));
+    let path = std::env::join_paths(paths).context("building pinned upstream PATH")?;
+    command.env("PATH", path);
+    Ok(())
+}
+
+fn child_command_with_toolchain_bin(
+    program: &OsStr,
+    args: &[&OsStr],
+    cwd: &Path,
+    toolchain_bin: Option<PathBuf>,
+) -> Result<ProcessCommand> {
+    let executable = if program == OsStr::new("cargo") {
+        let bin = toolchain_bin
+            .as_ref()
+            .context("missing pinned upstream toolchain bin")?;
+        bin.join(if cfg!(windows) { "cargo.exe" } else { "cargo" })
+    } else {
+        PathBuf::from(program)
+    };
+    let mut command = ProcessCommand::new(executable);
     command.args(args).current_dir(cwd);
     if program == OsStr::new("cargo") || program == OsStr::new("just") {
-        // Rustup must read the upstream workspace's own rust-toolchain.toml.
+        // Put the actual rustup-managed toolchain binaries ahead of mise's PATH
+        // entries; removing RUSTUP_TOOLCHAIN alone cannot affect direct binaries.
         command.env_remove("RUSTUP_TOOLCHAIN");
+        let bin = toolchain_bin.context("missing pinned upstream toolchain bin")?;
+        let inherited = std::env::var_os("PATH").unwrap_or_default();
+        set_pinned_path(&mut command, bin, inherited)?;
     }
     if program == OsStr::new("cargo") && args.first() == Some(&OsStr::new("nextest")) {
         command
             .env("RUST_MIN_STACK", "8388608")
             .env("NEXTEST_PROFILE", "local");
     }
-    command
+    Ok(command)
+}
+
+fn child_command(program: &OsStr, args: &[&OsStr], cwd: &Path) -> Result<ProcessCommand> {
+    let toolchain_bin = if program == OsStr::new("cargo") || program == OsStr::new("just") {
+        Some(pinned_toolchain_bin(cwd)?)
+    } else {
+        None
+    };
+    child_command_with_toolchain_bin(program, args, cwd, toolchain_bin)
 }
 
 fn run(program: &OsStr, args: &[&OsStr], cwd: &Path) -> Result<ExitStatus> {
-    let status = child_command(program, args, cwd)
+    let status = child_command(program, args, cwd)?
         .status()
         .with_context(|| format!("starting {}", program.to_string_lossy()))?;
     ensure!(

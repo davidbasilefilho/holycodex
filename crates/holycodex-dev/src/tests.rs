@@ -185,17 +185,30 @@ fn workspace_paths_are_portable_and_cannot_escape() {
 #[test]
 fn upstream_runner_removes_root_toolchain_override_and_matches_nextest_recipe() {
     use std::ffi::OsStr;
-    let command = crate::child_command(
+    let pinned_bin = PathBuf::from("direct-toolchain/bin");
+    let mise_bin = PathBuf::from("direct-mise/bin");
+    let inherited = std::env::join_paths([&mise_bin]).unwrap();
+    let mut command = crate::child_command_with_toolchain_bin(
         OsStr::new("cargo"),
         &[OsStr::new("nextest")],
-        std::path::Path::new("native/rust"),
-    );
+        Path::new("native/rust"),
+        Some(pinned_bin.clone()),
+    )
+    .unwrap();
+    crate::set_pinned_path(&mut command, pinned_bin.clone(), inherited).unwrap();
+    assert_eq!(command.get_current_dir(), Some(Path::new("native/rust")));
     assert_eq!(
-        command.get_current_dir(),
-        Some(std::path::Path::new("native/rust"))
+        command.get_program(),
+        pinned_bin
+            .join(if cfg!(windows) { "cargo.exe" } else { "cargo" })
+            .as_os_str()
     );
     let environment: std::collections::HashMap<_, _> = command.get_envs().collect();
     assert_eq!(environment.get(OsStr::new("RUSTUP_TOOLCHAIN")), Some(&None));
+    let selected_path = environment.get(OsStr::new("PATH")).unwrap().unwrap();
+    let selected_path = std::env::split_paths(selected_path).collect::<Vec<_>>();
+    assert_eq!(selected_path[0], pinned_bin);
+    assert_eq!(selected_path[1], mise_bin);
     assert_eq!(
         environment.get(OsStr::new("RUST_MIN_STACK")),
         Some(&Some(OsStr::new("8388608")))
