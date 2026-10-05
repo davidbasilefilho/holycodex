@@ -1820,10 +1820,10 @@ index 9ee1d50..c1ff537 100644
              let parent = self.runtime.upgrade()?.get_thread(parent).await?;
 diff --git a/codex-rs/core/src/agent/control/holycodex_identity.rs b/codex-rs/core/src/agent/control/holycodex_identity.rs
 new file mode 100644
-index 0000000..2942bbf
+index 0000000..bb07067
 --- /dev/null
 +++ b/codex-rs/core/src/agent/control/holycodex_identity.rs
-@@ -0,0 +1,438 @@
+@@ -0,0 +1,451 @@
 +use super::LocalAgentControl;
 +use crate::holycodex_identity::NativeThreadContract;
 +use crate::holycodex_identity::ReallocateSpecialistRequest;
@@ -1844,7 +1844,6 @@ index 0000000..2942bbf
 +use holycodex_policy::RoleTask;
 +use holycodex_policy::route_policy;
 +use std::collections::BTreeSet;
-+use std::path::Path;
 +use std::sync::Arc;
 +
 +impl LocalAgentControl {
@@ -1972,6 +1971,7 @@ index 0000000..2942bbf
 +                &request.binding.ownership_paths,
 +                &request.binding.allowed_tools,
 +                &request.binding.writable_roots,
++                &request.binding.root_permission_lease,
 +            )
 +            || request.binding.root_permission_lease != root_authority.permission_lease
 +            || request.binding.max_mutability != request.assignment.mutability
@@ -2153,7 +2153,7 @@ index 0000000..2942bbf
 +        && ownership_paths.iter().all(|path| {
 +            root.ownership_paths
 +                .iter()
-+                .any(|root| root == "." || Path::new(path).starts_with(Path::new(root)))
++                .any(|root| crate::holycodex_identity::ownership_path_is_within(path, root))
 +        })
 +        && allowed_tools.is_subset(&root.allowed_tools)
 +        && writable_roots.iter().all(|path| {
@@ -2216,6 +2216,19 @@ index 0000000..2942bbf
 +            &binding.writable_roots,
 +            &binding.root_permission_lease,
 +        ));
++
++        root.ownership_paths = [".".to_owned()].into();
++        binding.ownership_paths = ["src/../outside".to_owned()].into();
++        assert!(!live_root_authority_covers(
++            &root,
++            &binding.capabilities,
++            binding.max_mutability,
++            &binding.ownership_paths,
++            &binding.allowed_tools,
++            &binding.writable_roots,
++            &binding.root_permission_lease,
++        ));
++        binding.ownership_paths = ["src".to_owned()].into();
 +
 +        binding.root_permission_lease.permission_profile = PermissionProfile::workspace_write();
 +        assert!(!live_root_authority_covers(
@@ -2712,10 +2725,10 @@ index 60c6f65..04658d1 100644
 +}
 diff --git a/codex-rs/core/src/holycodex.rs b/codex-rs/core/src/holycodex.rs
 new file mode 100644
-index 0000000..1015c23
+index 0000000..2bb7d39
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex.rs
-@@ -0,0 +1,1706 @@
+@@ -0,0 +1,1724 @@
 +//! Durable native Intent/Assignment control over the local Multi-Agent V2 runtime.
 +//!
 +//! OS sidecar locks serialize reload/validate/commit across controller instances.
@@ -3872,6 +3885,13 @@ index 0000000..1015c23
 +            Self::persist(&path, &state)?;
 +            state
 +        } else {
++            // Root identity starts at revision zero; the controller's accepted
++            // Intent starts at revision one so policy-state validation can
++            // distinguish an initialized task from an uninitialized record.
++            let mut intent = intent;
++            if intent.revision == 0 {
++                intent.revision = 1;
++            }
 +            let state = ControllerState {
 +                intent,
 +                assignments: Vec::new(),
@@ -4049,6 +4069,17 @@ index 0000000..1015c23
 +                .requirements
 +                .contains(&"later".into())
 +        );
++    }
++
++    #[test]
++    fn fresh_root_intent_revision_is_initialized_before_policy_validation() {
++        let dir = tempfile::tempdir().unwrap();
++        let mut fresh_intent = intent();
++        fresh_intent.revision = 0;
++
++        let store = StateStore::open(dir.path(), fresh_intent).unwrap();
++
++        assert_eq!(store.read().unwrap().intent.revision, 1);
 +    }
 +
 +    #[test]
@@ -4424,10 +4455,10 @@ index 0000000..1015c23
 +}
 diff --git a/codex-rs/core/src/holycodex_identity.rs b/codex-rs/core/src/holycodex_identity.rs
 new file mode 100644
-index 0000000..5c436be
+index 0000000..4fea815
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex_identity.rs
-@@ -0,0 +1,1451 @@
+@@ -0,0 +1,1490 @@
 +//! Native, per-thread HolyCodex identity and session authority bindings.
 +//!
 +//! Persisted records describe a validated contract, not current grants. Live
@@ -4580,9 +4611,11 @@ index 0000000..5c436be
 +        }
 +    }
 +    let path = identity_path(codex_home, root_thread_id);
-+    let parent = path
-+        .parent()
-+        .ok_or_else(|| ControllerError::InvalidState("invalid native identity path".into()))?;
++    if path.parent().is_none() {
++        return Err(ControllerError::InvalidState(
++            "invalid native identity path".into(),
++        ));
++    }
 +    let file = IntentFile {
 +        schema: IDENTITY_SCHEMA,
 +        root_thread_id: root_thread_id.to_string(),
@@ -4930,12 +4963,10 @@ index 0000000..5c436be
 +            &root_grants.writable_roots,
 +        )?);
 +        let permission_profile = if assignment.mutability == Mutability::ReadOnly {
-+            root_grants
-+                .permission_profile
-+                .intersect_with_read_only()
-+                .ok_or_else(|| {
-+                    ControllerError::Agent("Root permissions cannot be restricted".into())
-+                })?
++            crate::tools::holycodex_tools::read_only_profile_with_root_temp_write(
++                &root_grants.permission_profile,
++            )
++            .ok_or_else(|| ControllerError::Agent("Root permissions cannot be restricted".into()))?
 +        } else {
 +            if scoped_write_paths.is_empty() {
 +                return Err(ControllerError::Agent(
@@ -5799,7 +5830,46 @@ index 0000000..5c436be
 +}
 +
 +fn relative_path_is_within(path: &str, root: &str) -> bool {
-+    root == "." || Path::new(path).starts_with(Path::new(root))
++    ownership_path_is_within(path, root)
++}
++
++pub(crate) fn ownership_path_is_within(path: &str, root: &str) -> bool {
++    fn normalize(path: &str) -> Option<String> {
++        if path.is_empty()
++            || path.chars().any(|character| {
++                matches!(character, '\0' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
++            })
++        {
++            return None;
++        }
++        let portable = path.replace('\\', "/");
++        if portable.starts_with('/') {
++            return None;
++        }
++        let components = portable.split('/').collect::<Vec<_>>();
++        if components.iter().any(|component| {
++            component.is_empty()
++                || *component == "."
++                || *component == ".."
++                || component.ends_with('.')
++                || component.ends_with(' ')
++                || component.chars().any(char::is_control)
++        }) {
++            return None;
++        }
++        Some(components.join("/"))
++    }
++
++    let Some(path) = normalize(path) else {
++        return false;
++    };
++    if root == "." {
++        return true;
++    }
++    let Some(root) = normalize(root) else {
++        return false;
++    };
++    path == root || path.starts_with(&format!("{root}/"))
 +}
 +
 +fn assignment_writable_roots(
@@ -6780,16 +6850,189 @@ index 1c9d2c2..060681b 100644
                  let tool_ctx = ToolCtx {
                      session,
                      step_context: Arc::clone(&step_context),
+diff --git a/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs b/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
+index bdf6877..24dcf69 100644
+--- a/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
++++ b/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
+@@ -6,6 +6,7 @@ use crate::exec::DEFAULT_EXEC_COMMAND_TIMEOUT_MS;
+ use crate::exec_policy::prompt_is_rejected_by_policy;
+ use crate::function_tool::FunctionCallError;
+ use crate::maybe_emit_implicit_skill_invocation;
++use crate::shell::ShellType;
+ use crate::tools::context::ExecCommandToolOutput;
+ use crate::tools::context::ToolInvocation;
+ use crate::tools::context::ToolPayload;
+@@ -56,6 +57,50 @@ use super::shell_mode_for_environment;
+ // A byte limit is a conservative hard token bound even for byte-fallback tokenizers.
+ const EXEC_COMMAND_REJECTION_MAX_BYTES: usize = 900;
+ 
++pub(super) fn scope_quality_artifacts(
++    command: &mut [String],
++    shell_type: ShellType,
++    temporary_root: Option<&codex_utils_path_uri::PathUri>,
++    artifact_id: Option<&str>,
++) -> Result<(), String> {
++    let Some(artifact_id) = artifact_id else {
++        return Ok(());
++    };
++    let temporary_root = temporary_root.ok_or_else(|| {
++        "selected executor did not report a temporary artifact directory".to_owned()
++    })?;
++    let artifact_directory =
++        crate::tools::holycodex_tools::shell_artifact_root(temporary_root, artifact_id)
++            .ok_or_else(|| "could not derive a specialist artifact directory".to_owned())?
++            .inferred_native_path_string();
++    let shell_command = command
++        .last_mut()
++        .ok_or_else(|| "resolved shell command is empty".to_owned())?;
++    *shell_command = match shell_type {
++        ShellType::PowerShell => format!(
++            "$env:CARGO_TARGET_DIR='{}'; {shell_command}",
++            artifact_directory.replace('\'', "''")
++        ),
++        ShellType::Cmd => {
++            if artifact_directory
++                .chars()
++                .any(|character| matches!(character, '%' | '!' | '"' | '^'))
++            {
++                return Err(
++                    "temporary artifact path cannot be represented safely by cmd.exe".into(),
++                );
++            }
++            format!("set \"CARGO_TARGET_DIR={artifact_directory}\" && {shell_command}")
++        }
++        _ => format!(
++            "CARGO_TARGET_DIR='{}' {}",
++            artifact_directory.replace('\'', "'\\''"),
++            shell_command
++        ),
++    };
++    Ok(())
++}
++
+ #[derive(Clone, Copy)]
+ pub(crate) struct ExecCommandHandlerOptions {
+     pub(crate) allow_login_shell: bool,
+@@ -296,8 +341,37 @@ impl ExecCommandHandler {
+             turn_environment.config().allow_login_shell,
+         )
+         .map_err(FunctionCallError::RespondToModel)?;
+-        let command = resolved_command.command;
++        let mut command = resolved_command.command;
+         let shell_type = resolved_command.shell_type;
++        if crate::tools::holycodex_tools::shell_quality_command_requires_artifacts(&args.cmd) {
++            let temporary_root = turn_environment
++                .temporary_directories
++                .as_ref()
++                .and_then(|directories| directories.first());
++            let artifact_id = session
++                .services
++                .thread_extension_data
++                .get::<crate::tools::holycodex_tools::HolyCodexToolBinding>()
++                .and_then(|binding| {
++                    matches!(
++                        &binding.principal,
++                        crate::tools::holycodex_tools::HolyCodexPrincipal::Specialist { .. }
++                    )
++                    .then(|| {
++                        crate::tools::holycodex_tools::shell_artifact_cache_id(
++                            binding.caller,
++                            &native_environment_cwd,
++                        )
++                    })
++                });
++            scope_quality_artifacts(
++                &mut command,
++                shell_type,
++                temporary_root,
++                artifact_id.as_deref(),
++            )
++            .map_err(FunctionCallError::RespondToModel)?;
++        }
+         let ExecCommandArgs {
+             mut tty,
+             yield_time_ms,
+diff --git a/codex-rs/core/src/tools/handlers/unified_exec_tests.rs b/codex-rs/core/src/tools/handlers/unified_exec_tests.rs
+index 46fa63d..70b0f56 100644
+--- a/codex-rs/core/src/tools/handlers/unified_exec_tests.rs
++++ b/codex-rs/core/src/tools/handlers/unified_exec_tests.rs
+@@ -134,6 +134,64 @@ fn test_get_command_resolves_powershell_by_type() -> anyhow::Result<()> {
+     Ok(())
+ }
+ 
++#[test]
++fn quality_command_artifacts_are_cached_per_specialist_workspace() -> anyhow::Result<()> {
++    let temp = tempfile::tempdir()?;
++    let absolute = AbsolutePathBuf::try_from(temp.path())?;
++    let temporary_root = codex_utils_path_uri::PathUri::from_abs_path(&absolute);
++    let mut command = vec!["bash".to_owned(), "-lc".to_owned(), "cargo test".to_owned()];
++
++    super::exec_command::scope_quality_artifacts(
++        &mut command,
++        ShellType::Bash,
++        Some(&temporary_root),
++        Some("specialist-workspace-cache"),
++    )
++    .map_err(anyhow::Error::msg)?;
++
++    let wrapped = command.last().expect("shell command remains present");
++    assert!(wrapped.starts_with("CARGO_TARGET_DIR='"));
++    assert!(wrapped.contains("holycodex-cargo-target-specialist-workspace-cache"));
++    assert!(wrapped.contains(&temporary_root.inferred_native_path_string()));
++    assert!(wrapped.ends_with(" cargo test"));
++
++    for (shell_type, prefix) in [
++        (ShellType::PowerShell, "$env:CARGO_TARGET_DIR='"),
++        (ShellType::Cmd, "set \"CARGO_TARGET_DIR="),
++    ] {
++        let mut command = vec!["shell".to_owned(), "cargo clippy".to_owned()];
++        super::exec_command::scope_quality_artifacts(
++            &mut command,
++            shell_type,
++            Some(&temporary_root),
++            Some("specialist-workspace-cache"),
++        )
++        .map_err(anyhow::Error::msg)?;
++        assert!(command[1].starts_with(prefix));
++        assert!(command[1].ends_with("cargo clippy"));
++    }
++    assert!(
++        super::exec_command::scope_quality_artifacts(
++            &mut command,
++            ShellType::Bash,
++            None,
++            Some("cache")
++        )
++        .is_err(),
++        "no unreported temp path may be used as a writable artifact target"
++    );
++
++    let mut root_command = vec!["bash".to_owned(), "-lc".to_owned(), "cargo test".to_owned()];
++    let original = root_command.clone();
++    super::exec_command::scope_quality_artifacts(&mut root_command, ShellType::Bash, None, None)
++        .map_err(anyhow::Error::msg)?;
++    assert_eq!(
++        root_command, original,
++        "Root keeps Cargo's normal artifact behavior"
++    );
++    Ok(())
++}
++
+ #[test]
+ fn test_get_command_respects_explicit_cmd_shell() -> anyhow::Result<()> {
+     let json = r#"{"cmd": "echo hello", "shell": "cmd"}"#;
 diff --git a/codex-rs/core/src/tools/holycodex_tools.rs b/codex-rs/core/src/tools/holycodex_tools.rs
 new file mode 100644
-index 0000000..03f527f
+index 0000000..852df87
 --- /dev/null
 +++ b/codex-rs/core/src/tools/holycodex_tools.rs
-@@ -0,0 +1,1611 @@
+@@ -0,0 +1,2777 @@
 +//! Native, role-scoped model tools for HolyCodex Intent and Assignments.
 +
 +use std::collections::BTreeSet;
-+use std::path::Path;
++use std::collections::hash_map::DefaultHasher;
++use std::hash::Hash;
++use std::hash::Hasher;
 +use std::sync::Arc;
 +use std::sync::Mutex;
 +
@@ -6809,7 +7052,12 @@ index 0000000..03f527f
 +use codex_extension_api::ToolSpec;
 +use codex_protocol::ThreadId;
 +use codex_protocol::models::PermissionProfile;
++use codex_protocol::models::SandboxPermissions;
 +use codex_protocol::parse_command::ParsedCommand;
++use codex_protocol::permissions::FileSystemAccessMode;
++use codex_protocol::permissions::FileSystemPath;
++use codex_protocol::permissions::FileSystemSandboxPolicyContext;
++use codex_protocol::permissions::FileSystemSpecialPath;
 +use codex_protocol::permissions::NetworkSandboxPolicy;
 +use codex_shell_command::parse_command::parse_shell_script;
 +use codex_tools::ResponsesApiTool;
@@ -6893,6 +7141,85 @@ index 0000000..03f527f
 +    /// Shared current Root ceiling; permission reductions revoke existing
 +    /// specialists on their next call.
 +    pub(crate) root_authority: Arc<Mutex<crate::holycodex_identity::RootAuthorityGrants>>,
++}
++
++pub(crate) struct ShellInvocationAuthorization {
++    pub command: String,
++    pub cwd: PathUri,
++    pub artifact_cache_id: String,
++    pub temporary_directories: Vec<PathUri>,
++    pub sandbox_permissions: SandboxPermissions,
++    pub additional_permissions: Option<codex_protocol::models::AdditionalPermissionProfile>,
++}
++
++pub(crate) fn shell_artifact_root(temporary_root: &PathUri, cache_id: &str) -> Option<PathUri> {
++    let cache_suffix = cache_id
++        .chars()
++        .filter(|character| character.is_ascii_alphanumeric() || matches!(*character, '-' | '_'))
++        .collect::<String>();
++    if cache_suffix.is_empty() {
++        return None;
++    }
++    temporary_root
++        .join(&format!("holycodex-cargo-target-{cache_suffix}"))
++        .ok()
++}
++
++pub(crate) fn shell_artifact_cache_id(thread_id: ThreadId, workspace: &PathUri) -> String {
++    let mut hasher = DefaultHasher::new();
++    workspace.inferred_native_path_string().hash(&mut hasher);
++    format!("{thread_id}-{:016x}", hasher.finish())
++}
++
++pub(crate) fn read_only_profile_with_root_temp_write(
++    root_profile: &PermissionProfile,
++) -> Option<PermissionProfile> {
++    let root_filesystem = root_profile.file_system_sandbox_policy();
++    let tmpdir_path = FileSystemPath::Special {
++        value: FileSystemSpecialPath::Tmpdir,
++    };
++    let root_path = FileSystemPath::Special {
++        value: FileSystemSpecialPath::Root,
++    };
++    let tmpdir_entries = root_filesystem
++        .entries
++        .iter()
++        .filter(|entry| entry.path == tmpdir_path)
++        .map(|entry| entry.access)
++        .collect::<Vec<_>>();
++    let root_grants_temp_write = if !tmpdir_entries.is_empty() {
++        tmpdir_entries
++            .iter()
++            .all(|access| *access == FileSystemAccessMode::Write)
++    } else {
++        root_filesystem.kind == codex_protocol::permissions::FileSystemSandboxKind::Unrestricted
++            || root_filesystem
++                .entries
++                .iter()
++                .any(|entry| entry.path == root_path && entry.access == FileSystemAccessMode::Write)
++    };
++    let mut read_only = root_profile.intersect_with_read_only()?;
++    if !root_grants_temp_write {
++        return Some(read_only);
++    }
++    let mut filesystem = read_only.file_system_sandbox_policy();
++    let existing_tmpdir = filesystem
++        .entries
++        .iter_mut()
++        .find(|entry| entry.path == tmpdir_path);
++    if let Some(entry) = existing_tmpdir {
++        entry.access = FileSystemAccessMode::Write;
++    } else {
++        filesystem
++            .entries
++            .push(codex_protocol::permissions::FileSystemSandboxEntry::new(
++                tmpdir_path,
++                FileSystemAccessMode::Write,
++            ));
++    }
++    read_only =
++        PermissionProfile::from_runtime_permissions(&filesystem, NetworkSandboxPolicy::Restricted);
++    Some(read_only)
 +}
 +
 +/// Host-derived callable names in the finalized per-thread model tool registry.
@@ -7051,6 +7378,282 @@ index 0000000..03f527f
 +        == binding.root_permission_lease
 +}
 +
++pub(crate) fn authorize_shell_invocation(
++    binding: &HolyCodexToolBinding,
++    invocation: Option<&ShellInvocationAuthorization>,
++) -> Result<(), FunctionCallError> {
++    if binding.principal.is_root() {
++        return Ok(());
++    }
++    let Some(invocation) = invocation else {
++        return Err(model_error(
++            "shell invocation arguments are invalid or unavailable",
++        ));
++    };
++    let root_authority = binding
++        .root_authority
++        .lock()
++        .unwrap_or_else(std::sync::PoisonError::into_inner)
++        .clone();
++    if root_authority.permission_lease != binding.root_permission_lease {
++        return Err(model_error("Root's live permission lease changed"));
++    }
++    if invocation.sandbox_permissions == SandboxPermissions::RequireEscalated {
++        return Err(model_error(
++            "specialist shell calls cannot bypass Root's filesystem permission ceiling",
++        ));
++    }
++    let workspace_roots = root_authority
++        .permission_lease
++        .workspace_roots
++        .iter()
++        .map(PathUri::from_abs_path)
++        .collect::<Vec<_>>();
++    let mut root_roots = vec![PathUri::from_abs_path(&root_authority.permission_lease.cwd)];
++    root_roots.extend(workspace_roots.iter().cloned());
++    let mut artifact_roots = binding.writable_roots.clone();
++    let live_root_filesystem = root_authority
++        .permission_lease
++        .permission_profile
++        .file_system_sandbox_policy();
++    let root_cwd = PathUri::from_abs_path(&root_authority.permission_lease.cwd);
++    let root_policy_context = FileSystemSandboxPolicyContext {
++        cwd: &root_cwd,
++        workspace_roots: &workspace_roots,
++        user_home_dir: None,
++        temporary_directories: Some(&invocation.temporary_directories),
++    };
++    let permitted_temp_artifacts = invocation
++        .temporary_directories
++        .iter()
++        .filter_map(|temporary_root| {
++            let artifact_root = shell_artifact_root(temporary_root, &invocation.artifact_cache_id)?;
++            (live_root_filesystem.resolve_access(&artifact_root, &root_policy_context)
++                == FileSystemAccessMode::Write)
++                .then_some(artifact_root)
++        })
++        .collect::<Vec<_>>();
++    artifact_roots.extend(permitted_temp_artifacts.iter().cloned());
++    if shell_quality_command_requires_artifacts(&invocation.command)
++        && invocation
++            .temporary_directories
++            .first()
++            .and_then(|temporary_root| {
++                shell_artifact_root(temporary_root, &invocation.artifact_cache_id)
++            })
++            .is_none_or(|artifact_root| !permitted_temp_artifacts.contains(&artifact_root))
++    {
++        return Err(model_error(
++            "Root's live filesystem permissions do not allow a scoped temporary build artifact directory",
++        ));
++    }
++    if !path_uri_within_roots(&invocation.cwd, &root_roots)
++        || !read_only_shell_paths_within_roots(&invocation.command, &invocation.cwd, &root_roots)
++        || !test_build_paths_within_roots(
++            &invocation.command,
++            &invocation.cwd,
++            &root_roots,
++            &artifact_roots,
++        )
++        || !additional_permissions_within_roots(
++            invocation.additional_permissions.as_ref(),
++            invocation.sandbox_permissions,
++            &root_authority.permission_lease.permission_profile,
++            &root_roots,
++            &workspace_roots,
++            &binding.writable_roots,
++            &live_root_filesystem,
++            &root_policy_context,
++        )
++    {
++        return Err(model_error(
++            "shell invocation exceeds Root's live CWD, workspace, or Assignment permission ceiling",
++        ));
++    }
++    Ok(())
++}
++
++fn path_uri_within_roots(path: &PathUri, roots: &[PathUri]) -> bool {
++    roots.iter().any(|root| path.starts_with(root))
++}
++
++fn read_only_shell_paths_within_roots(command: &str, cwd: &PathUri, roots: &[PathUri]) -> bool {
++    let parsed = parse_shell_script(command);
++    if parsed
++        .iter()
++        .any(|parsed| matches!(parsed, ParsedCommand::Unknown { .. }))
++    {
++        return true;
++    }
++    parsed.iter().all(|parsed| {
++        let path = match parsed {
++            ParsedCommand::Read { path, .. } => Some(path.to_string_lossy().into_owned()),
++            ParsedCommand::ListFiles { path, .. } | ParsedCommand::Search { path, .. } => {
++                path.as_deref().map(str::to_owned)
++            }
++            ParsedCommand::Unknown { .. } => None,
++        };
++        path.is_none_or(|path| {
++            cwd.join(&path)
++                .is_ok_and(|resolved| path_uri_within_roots(&resolved, roots))
++        })
++    }) && shlex::split(command).is_some_and(|words| {
++        words
++            .iter()
++            .all(|word| !looks_like_path(word) || joined_path_within_roots(cwd, word, roots))
++    })
++}
++
++fn test_build_paths_within_roots(
++    command: &str,
++    cwd: &PathUri,
++    roots: &[PathUri],
++    artifact_roots: &[PathUri],
++) -> bool {
++    let Some(words) = shlex::split(command) else {
++        return false;
++    };
++    if !is_shell_quality_words(&words) {
++        return true;
++    }
++    let cargo_args_start = cargo_quality_command(&words).map(|(_, args_start)| args_start);
++    let is_cargo = cargo_args_start.is_some();
++    let mut index = cargo_args_start.unwrap_or(2);
++    while index < words.len() {
++        let word = &words[index];
++        let (option, inline_path) = word
++            .split_once('=')
++            .map_or((word.as_str(), None), |(option, path)| (option, Some(path)));
++        let path_option = is_cargo && option == "--manifest-path";
++        if path_option {
++            let path = if let Some(path) = inline_path {
++                path
++            } else {
++                index += 1;
++                let Some(path) = words.get(index) else {
++                    return false;
++                };
++                path
++            };
++            if !joined_path_within_roots(cwd, path, roots) {
++                return false;
++            }
++        } else if matches!(
++            option,
++            "--target-dir" | "--lockfile-path" | "--out-dir" | "--prefix" | "--cache"
++        ) {
++            let path = if let Some(path) = inline_path {
++                path
++            } else {
++                index += 1;
++                let Some(path) = words.get(index) else {
++                    return false;
++                };
++                path
++            };
++            if !joined_path_within_roots(cwd, path, artifact_roots) {
++                return false;
++            }
++        } else if (is_cargo && option == "--config")
++            || matches!(
++                option,
++                "--userconfig" | "--globalconfig" | "--cd" | "--justfile" | "--working-directory"
++            )
++        {
++            // These options can redirect build settings, caches, or task cwd in ways
++            // the bounded command parser cannot prove safe.
++            return false;
++        } else if looks_like_path(word) && !joined_path_within_roots(cwd, word, roots) {
++            return false;
++        }
++        index += 1;
++    }
++    true
++}
++
++fn joined_path_within_roots(cwd: &PathUri, path: &str, roots: &[PathUri]) -> bool {
++    !path.starts_with('~')
++        && cwd
++            .join(path)
++            .is_ok_and(|path| path_uri_within_roots(&path, roots))
++}
++
++fn looks_like_path(value: &str) -> bool {
++    value.starts_with('.')
++        || value.starts_with('/')
++        || value.starts_with('~')
++        || value.contains('\\')
++        || (value.contains('/') && !value.starts_with('@'))
++        || matches!(value.as_bytes(), [drive, b':', ..] if drive.is_ascii_alphabetic())
++}
++
++fn additional_permissions_within_roots(
++    additional: Option<&codex_protocol::models::AdditionalPermissionProfile>,
++    sandbox_permissions: SandboxPermissions,
++    root_profile: &PermissionProfile,
++    root_roots: &[PathUri],
++    workspace_roots: &[PathUri],
++    assignment_writable_roots: &[PathUri],
++    root_filesystem: &codex_protocol::permissions::FileSystemSandboxPolicy,
++    root_policy_context: &FileSystemSandboxPolicyContext<'_>,
++) -> bool {
++    let Some(additional) = additional else {
++        return sandbox_permissions != SandboxPermissions::WithAdditionalPermissions;
++    };
++    if additional
++        .network
++        .as_ref()
++        .and_then(|network| network.enabled)
++        .is_some_and(|enabled| enabled && !root_profile.network_sandbox_policy().is_enabled())
++    {
++        return false;
++    }
++    let Some(filesystem) = &additional.file_system else {
++        return true;
++    };
++    filesystem.entries.iter().all(|entry| {
++        if entry.access == FileSystemAccessMode::Deny {
++            return true;
++        }
++        let allowed_roots = if entry.access == FileSystemAccessMode::Write {
++            assignment_writable_roots
++        } else {
++            root_roots
++        };
++        let is_allowed_path = |path: &PathUri| {
++            path_uri_within_roots(path, allowed_roots)
++                && match entry.access {
++                    FileSystemAccessMode::Deny => true,
++                    FileSystemAccessMode::Read => root_filesystem
++                        .resolve_access(path, root_policy_context)
++                        .can_read(),
++                    FileSystemAccessMode::Write => {
++                        root_filesystem.resolve_access(path, root_policy_context)
++                            == FileSystemAccessMode::Write
++                    }
++                }
++        };
++        match &entry.path {
++            FileSystemPath::Path { path } => is_allowed_path(path),
++            FileSystemPath::Special {
++                value: FileSystemSpecialPath::ProjectRoots { subpath },
++            } => {
++                let path = subpath.as_deref().unwrap_or("");
++                if !path.is_empty()
++                    && !crate::holycodex_identity::ownership_path_is_within(&path, ".")
++                {
++                    return false;
++                }
++                !workspace_roots.is_empty()
++                    && workspace_roots
++                        .iter()
++                        .all(|root| root.join(&path).is_ok_and(|path| is_allowed_path(&path)))
++            }
++            FileSystemPath::GlobPattern { .. } | FileSystemPath::Special { .. } => false,
++        }
++    })
++}
++
 +pub(crate) fn authorize_tool_call(
 +    binding: &HolyCodexToolBinding,
 +    tool_name: &ToolName,
@@ -7128,7 +7731,7 @@ index 0000000..03f527f
 +            root_authority
 +                .ownership_paths
 +                .iter()
-+                .any(|root| root == "." || Path::new(path).starts_with(Path::new(root)))
++                .any(|root| crate::holycodex_identity::ownership_path_is_within(path, root))
 +        })
 +    {
 +        return Err(model_error(
@@ -7142,7 +7745,9 @@ index 0000000..03f527f
 +    }
 +    if tool_name.name == "exec_command" {
 +        if !assignment_permission_profile_is_bounded(binding, current_permission_profile)
-+            || !shell_command.is_some_and(is_safe_specialist_shell)
++            || !shell_command.is_some_and(|command| is_safe_specialist_shell(command))
++            || (shell_command.is_some_and(is_shell_quality_command)
++                && !binding.capabilities.contains(&Capability::Shell))
 +        {
 +            return Err(model_error(
 +                "shell execution is limited to scoped commands under the Assignment permission profile",
@@ -7252,19 +7857,160 @@ index 0000000..03f527f
 +}
 +
 +fn is_safe_specialist_shell(command: &str) -> bool {
++    if is_read_only_vcs_inspection_command(command) {
++        return true;
++    }
 +    if contains_forbidden_shell_capability(command) {
 +        return false;
 +    }
 +    let parsed = parse_shell_script(command);
 +    !parsed.is_empty()
-+        && parsed.iter().all(|command| {
++        && parsed.iter().all(|parsed_command| {
 +            matches!(
-+                command,
++                parsed_command,
 +                ParsedCommand::Read { .. }
 +                    | ParsedCommand::ListFiles { .. }
 +                    | ParsedCommand::Search { .. }
-+            )
++            ) || matches!(parsed_command, ParsedCommand::Unknown { .. })
 +        })
++        && (!parsed
++            .iter()
++            .any(|parsed_command| matches!(parsed_command, ParsedCommand::Unknown { .. }))
++            || (parsed.len() == 1
++                && is_shell_quality_command(command)
++                && quality_command_is_non_mutating(command)))
++}
++
++fn is_shell_quality_command(command: &str) -> bool {
++    if command.chars().any(|character| {
++        matches!(
++            character,
++            ';' | '|' | '&' | '>' | '<' | '`' | '$' | '%' | '!' | '\n' | '\r'
++        )
++    }) {
++        return false;
++    }
++    shlex::split(command).is_some_and(|words| is_shell_quality_words(&words))
++}
++
++fn quality_command_is_non_mutating(command: &str) -> bool {
++    let Some(words) = shlex::split(command) else {
++        return false;
++    };
++    if words
++        .iter()
++        .any(|word| matches!(word.as_str(), "--fix" | "--write" | "--apply"))
++    {
++        return false;
++    }
++    if matches!(
++        words.first().map(String::as_str),
++        Some("cargo" | "cargo.exe")
++    ) && words.get(1).is_some_and(|word| word == "fmt")
++    {
++        return words.iter().any(|word| word == "--check");
++    }
++    true
++}
++
++fn is_shell_quality_words(words: &[String]) -> bool {
++    if cargo_quality_command(words).is_some() {
++        return true;
++    }
++    let Some(executable) = words.first() else {
++        return false;
++    };
++    let Some(operation) = words.get(1).map(String::as_str) else {
++        return false;
++    };
++    (match executable.as_str() {
++        "npm" | "npm.cmd" | "npm.exe" => {
++            matches!(operation, "test")
++                || (operation == "run"
++                    && words
++                        .get(2)
++                        .is_some_and(|script| matches!(script.as_str(), "test" | "build")))
++        }
++        _ => false,
++    }) || matches!(executable.as_str(), "mise" | "mise.exe")
++        && operation == "run"
++        && words.len() == 3
++        && words
++            .get(2)
++            .is_some_and(|task| matches!(task.as_str(), "test" | "lint" | "fmt-check"))
++        || matches!(executable.as_str(), "just" | "just.exe")
++            && words.len() == 2
++            && matches!(operation, "test" | "nextest")
++}
++
++/// Return the Cargo operation and first argument positions for supported, pinned invocations.
++fn cargo_quality_command(words: &[String]) -> Option<(usize, usize)> {
++    let operation_index = match words.first()?.as_str() {
++        "cargo" | "cargo.exe" => {
++            if let Some(selector) = words.get(1).filter(|word| word.starts_with('+')) {
++                is_pinned_toolchain(&selector[1..]).then_some(2)?
++            } else {
++                1
++            }
++        }
++        "rustup" | "rustup.exe"
++            if words.get(1).is_some_and(|word| word == "run")
++                && words.get(2).is_some_and(|word| is_pinned_toolchain(word))
++                && words
++                    .get(3)
++                    .is_some_and(|word| matches!(word.as_str(), "cargo" | "cargo.exe")) =>
++        {
++            4
++        }
++        _ => return None,
++    };
++    let operation = words.get(operation_index)?.as_str();
++    let is_quality_operation = match operation {
++        "test" | "build" | "clippy" | "check" => true,
++        "fmt" => words[operation_index + 1..]
++            .iter()
++            .any(|word| word == "--check"),
++        _ => false,
++    };
++    is_quality_operation.then_some((operation_index, operation_index + 1))
++}
++
++fn is_pinned_toolchain(version: &str) -> bool {
++    let mut components = version.split('.');
++    components.next().is_some_and(|component| {
++        !component.is_empty() && component.bytes().all(|b| b.is_ascii_digit())
++    }) && components.next().is_some_and(|component| {
++        !component.is_empty() && component.bytes().all(|b| b.is_ascii_digit())
++    }) && components.next().is_some_and(|component| {
++        !component.is_empty() && component.bytes().all(|b| b.is_ascii_digit())
++    }) && components.next().is_none()
++}
++
++pub(crate) fn shell_quality_command(command: &str) -> bool {
++    is_shell_quality_command(command)
++}
++
++pub(crate) fn shell_quality_command_requires_artifacts(command: &str) -> bool {
++    let Some(words) = shlex::split(command) else {
++        return false;
++    };
++    if let Some((operation_index, _)) = cargo_quality_command(&words) {
++        return words[operation_index] != "fmt";
++    }
++    match (
++        words.first().map(String::as_str),
++        words.get(1).map(String::as_str),
++    ) {
++        (Some("npm" | "npm.cmd" | "npm.exe"), Some("test")) => true,
++        (Some("npm" | "npm.cmd" | "npm.exe"), Some("run")) => words
++            .get(2)
++            .is_some_and(|task| matches!(task.as_str(), "test" | "build")),
++        (Some("mise" | "mise.exe"), Some("run")) => words
++            .get(2)
++            .is_some_and(|task| matches!(task.as_str(), "test" | "lint")),
++        (Some("just" | "just.exe"), Some("test" | "nextest")) => true,
++        _ => false,
++    }
 +}
 +
 +fn contains_forbidden_shell_capability(command: &str) -> bool {
@@ -7291,6 +8037,115 @@ index 0000000..03f527f
 +        })
 +}
 +
++fn is_read_only_vcs_inspection_command(command: &str) -> bool {
++    if command.chars().any(|character| {
++        matches!(
++            character,
++            ';' | '|' | '&' | '>' | '<' | '`' | '$' | '%' | '!' | '\n' | '\r'
++        )
++    }) {
++        return false;
++    }
++    let Some(words) = shlex::split(command) else {
++        return false;
++    };
++    match words.first().map(String::as_str) {
++        Some("git" | "git.exe") => is_read_only_git_inspection(&words),
++        Some("gh" | "gh.exe") => is_read_only_gh_inspection(&words),
++        _ => false,
++    }
++}
++
++fn is_read_only_git_inspection(words: &[String]) -> bool {
++    let Some(operation) = words.get(1).map(String::as_str) else {
++        return false;
++    };
++    match operation {
++        "status" => words.iter().skip(2).all(|word| {
++            matches!(
++                word.as_str(),
++                "--short"
++                    | "-s"
++                    | "--branch"
++                    | "--porcelain"
++                    | "--porcelain=v1"
++                    | "--porcelain=v2"
++                    | "--untracked-files=no"
++                    | "--untracked-files=normal"
++                    | "--untracked-files=all"
++            )
++        }),
++        "rev-parse" => {
++            matches!(
++                words.get(2).map(String::as_str),
++                Some("--show-toplevel" | "--show-prefix" | "--show-cdup" | "--is-inside-work-tree")
++            ) && words.len() == 3
++        }
++        "show" => {
++            let mut revision_seen = false;
++            words.iter().skip(2).all(|word| {
++                if matches!(word.as_str(), "--stat" | "--oneline" | "--no-patch") {
++                    !revision_seen
++                } else if !revision_seen && is_git_revision(word) {
++                    revision_seen = true;
++                    true
++                } else {
++                    false
++                }
++            })
++        }
++        _ => false,
++    }
++}
++
++fn is_git_revision(value: &str) -> bool {
++    value
++        .as_bytes()
++        .first()
++        .is_some_and(u8::is_ascii_alphanumeric)
++        && value.bytes().all(|byte| {
++            byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b'/' | b'^' | b'~')
++        })
++}
++
++fn is_read_only_gh_inspection(words: &[String]) -> bool {
++    match words.get(1).map(String::as_str) {
++        Some("run") if words.get(2).is_some_and(|word| word == "view") => {
++            let mut run_id_seen = false;
++            let mut index = 3;
++            while index < words.len() {
++                let word = &words[index];
++                if !run_id_seen
++                    && !word.is_empty()
++                    && word.bytes().all(|byte| byte.is_ascii_digit())
++                {
++                    run_id_seen = true;
++                } else if matches!(word.as_str(), "--log" | "--log-failed" | "--exit-status") {
++                } else {
++                    return false;
++                }
++                index += 1;
++            }
++            true
++        }
++        Some("pr") if words.get(2).is_some_and(|word| word == "checks") => {
++            let mut pull_request_seen = false;
++            words.iter().skip(3).all(|word| {
++                if !pull_request_seen
++                    && !word.is_empty()
++                    && word.bytes().all(|byte| byte.is_ascii_digit())
++                {
++                    pull_request_seen = true;
++                    true
++                } else {
++                    matches!(word.as_str(), "--required" | "--fail-fast")
++                }
++            })
++        }
++        _ => false,
++    }
++}
++
 +fn assignment_permission_profile_is_bounded(
 +    binding: &HolyCodexToolBinding,
 +    current: &PermissionProfile,
@@ -7299,9 +8154,10 @@ index 0000000..03f527f
 +        return false;
 +    }
 +    match binding.max_mutability {
-+        Mutability::ReadOnly => current
-+            .intersect_with_read_only()
-+            .is_some_and(|read_only| read_only == *current),
++        Mutability::ReadOnly => read_only_profile_with_root_temp_write(
++            &binding.root_permission_lease.permission_profile,
++        )
++        .is_some_and(|read_only| read_only == *current),
 +        Mutability::ScopedWrite | Mutability::Operational => {
 +            if binding.writable_roots.is_empty() {
 +                return false;
@@ -7519,9 +8375,12 @@ index 0000000..03f527f
 +                ));
 +            }
 +            if metadata.ownership_paths.is_empty()
-+                || !metadata
-+                    .ownership_paths
-+                    .is_subset(&root_authority.ownership_paths)
++                || !metadata.ownership_paths.iter().all(|path| {
++                    root_authority
++                        .ownership_paths
++                        .iter()
++                        .any(|root| crate::holycodex_identity::ownership_path_is_within(path, root))
++                })
 +            {
 +                return Err(model_error(
 +                    "writable ownership paths exceed the bound tool profile",
@@ -8009,6 +8868,554 @@ index 0000000..03f527f
 +    }
 +
 +    #[test]
++    fn root_dot_ownership_contains_component_paths_but_not_siblings() {
++        fn assignment_input(ownership_path: &str) -> AssignmentInput {
++            AssignmentInput {
++                role: "Worker.implementation".into(),
++                objective: "implement".into(),
++                bounded_scope: vec!["src".into()],
++                constraints: Vec::new(),
++                acceptance_criteria: vec!["works".into()],
++                required_evidence: vec!["tests".into()],
++                mutability: "scoped_write".into(),
++                ownership_paths: vec![ownership_path.into()],
++                symbols: Vec::new(),
++                domains: Vec::new(),
++                dependencies: Vec::new(),
++                independent_review_of: Vec::new(),
++            }
++        }
++        let (_dir, mut binding) = test_binding(HolyCodexPrincipal::root());
++        binding.capabilities = route_policy(RoleTask::WorkerImplementation)
++            .unwrap()
++            .capabilities
++            .iter()
++            .copied()
++            .collect();
++        binding.max_mutability = Mutability::ScopedWrite;
++        let tool = HolyCodexTool {
++            binding,
++            name: "assignment.dispatch",
++        };
++
++        assert!(tool.dispatch_request(assignment_input("src/foo")).is_ok());
++        assert!(
++            tool.dispatch_request(assignment_input("../outside"))
++                .is_err()
++        );
++        assert!(tool.dispatch_request(assignment_input("/outside")).is_err());
++        assert!(!crate::holycodex_identity::ownership_path_is_within(
++            "../outside",
++            "."
++        ));
++        assert!(!crate::holycodex_identity::ownership_path_is_within(
++            "C:\\outside",
++            "."
++        ));
++        tool.binding.root_authority.lock().unwrap().ownership_paths = ["src/foo".to_owned()].into();
++        assert!(
++            tool.dispatch_request(assignment_input("src/foobar"))
++                .is_err()
++        );
++    }
++
++    #[test]
++    fn shell_invocation_paths_and_permission_additions_stay_inside_live_root() {
++        use codex_protocol::models::AdditionalPermissionProfile;
++        use codex_protocol::models::FileSystemPermissions;
++        use codex_protocol::models::SandboxPermissions;
++        use codex_protocol::permissions::FileSystemAccessMode;
++        use codex_protocol::permissions::FileSystemSandboxEntry;
++        use codex_utils_absolute_path::AbsolutePathBuf;
++
++        let root = tempfile::tempdir().unwrap();
++        let outside = tempfile::tempdir().unwrap();
++        let root_path = AbsolutePathBuf::try_from(root.path()).unwrap();
++        let root_uri = PathUri::from_abs_path(&root_path);
++        let writable_path = AbsolutePathBuf::try_from(root.path().join("src")).unwrap();
++        let writable_uri = PathUri::from_abs_path(&writable_path);
++        let outside_path = AbsolutePathBuf::try_from(outside.path()).unwrap();
++        let outside_uri = PathUri::from_abs_path(&outside_path);
++
++        let (_dir, mut binding) = test_binding(HolyCodexPrincipal::specialist("a-1".into()));
++        let artifact_id = shell_artifact_cache_id(binding.caller, &root_uri);
++        binding.root_permission_lease.cwd = root_path;
++        let mut root_filesystem = PermissionProfile::workspace_write_with_path_uris(
++            std::slice::from_ref(&root_uri),
++            NetworkSandboxPolicy::Restricted,
++            false,
++            false,
++        )
++        .file_system_sandbox_policy();
++        let secret_uri = root_uri.join("private").unwrap();
++        root_filesystem.entries.push(FileSystemSandboxEntry::new(
++            FileSystemPath::Path {
++                path: secret_uri.clone(),
++            },
++            FileSystemAccessMode::Deny,
++        ));
++        let root_profile = PermissionProfile::from_runtime_permissions(
++            &root_filesystem,
++            NetworkSandboxPolicy::Restricted,
++        );
++        binding.root_permission_lease.permission_profile = root_profile.clone();
++        binding.permission_profile = read_only_profile_with_root_temp_write(&root_profile).unwrap();
++        binding.writable_roots = vec![writable_uri.clone()];
++        let mut root_authority = binding.root_authority.lock().unwrap();
++        root_authority.permission_profile = root_profile;
++        root_authority.permission_lease = binding.root_permission_lease.clone();
++        drop(root_authority);
++
++        let child_filesystem = binding.permission_profile.file_system_sandbox_policy();
++        let filesystem_context = FileSystemSandboxPolicyContext {
++            cwd: &root_uri,
++            workspace_roots: std::slice::from_ref(&root_uri),
++            user_home_dir: None,
++            temporary_directories: Some(std::slice::from_ref(&outside_uri)),
++        };
++        assert_eq!(
++            child_filesystem
++                .resolve_access(&root_uri.join("src/file.rs").unwrap(), &filesystem_context),
++            FileSystemAccessMode::Read
++        );
++        assert_eq!(
++            child_filesystem.resolve_access(
++                &shell_artifact_root(&outside_uri, &artifact_id).unwrap(),
++                &filesystem_context,
++            ),
++            FileSystemAccessMode::Write
++        );
++        let root_read_only_temp =
++            read_only_profile_with_root_temp_write(&PermissionProfile::read_only())
++                .unwrap()
++                .file_system_sandbox_policy();
++        assert_ne!(
++            root_read_only_temp.resolve_access(
++                &shell_artifact_root(&outside_uri, &artifact_id).unwrap(),
++                &filesystem_context,
++            ),
++            FileSystemAccessMode::Write,
++            "a specialist cannot gain temp writes absent from Root's live profile"
++        );
++
++        let inside_build = ShellInvocationAuthorization {
++            command: "cargo test --manifest-path src/Cargo.toml".into(),
++            cwd: root_uri.clone(),
++            artifact_cache_id: "test-cache".into(),
++            temporary_directories: vec![outside_uri.clone()],
++            sandbox_permissions: SandboxPermissions::UseDefault,
++            additional_permissions: None,
++        };
++        assert!(authorize_shell_invocation(&binding, Some(&inside_build)).is_ok());
++        let pinned_cargo_check = ShellInvocationAuthorization {
++            command: "cargo +1.95.0 check --manifest-path src/Cargo.toml".into(),
++            cwd: root_uri.clone(),
++            artifact_cache_id: artifact_id.clone(),
++            temporary_directories: vec![outside_uri.clone()],
++            sandbox_permissions: SandboxPermissions::UseDefault,
++            additional_permissions: None,
++        };
++        assert!(authorize_shell_invocation(&binding, Some(&pinned_cargo_check)).is_ok());
++        let rustup_cargo_check = ShellInvocationAuthorization {
++            command: "rustup run 1.95.0 cargo check --manifest-path src/Cargo.toml".into(),
++            cwd: root_uri.clone(),
++            artifact_cache_id: artifact_id.clone(),
++            temporary_directories: vec![outside_uri.clone()],
++            sandbox_permissions: SandboxPermissions::UseDefault,
++            additional_permissions: None,
++        };
++        assert!(authorize_shell_invocation(&binding, Some(&rustup_cargo_check)).is_ok());
++        let escaped_rustup_check = ShellInvocationAuthorization {
++            command: "rustup run 1.95.0 cargo check --manifest-path ../../outside/Cargo.toml"
++                .into(),
++            cwd: root_uri.clone(),
++            artifact_cache_id: artifact_id.clone(),
++            temporary_directories: vec![outside_uri.clone()],
++            sandbox_permissions: SandboxPermissions::UseDefault,
++            additional_permissions: None,
++        };
++        assert!(authorize_shell_invocation(&binding, Some(&escaped_rustup_check)).is_err());
++        let temp_artifact = ShellInvocationAuthorization {
++            command: format!(
++                "cargo clippy --target-dir \"{}\"",
++                shell_artifact_root(&outside_uri, &artifact_id)
++                    .unwrap()
++                    .inferred_native_path_string()
++                    .replace('\\', "/")
++            ),
++            cwd: root_uri.clone(),
++            artifact_cache_id: artifact_id.clone(),
++            temporary_directories: vec![outside_uri.clone()],
++            sandbox_permissions: SandboxPermissions::UseDefault,
++            additional_permissions: None,
++        };
++        assert!(authorize_shell_invocation(&binding, Some(&temp_artifact)).is_ok());
++        let mut no_root_temp_write = binding.clone();
++        no_root_temp_write.root_authority =
++            Arc::new(Mutex::new(binding.root_authority.lock().unwrap().clone()));
++        no_root_temp_write.root_permission_lease.permission_profile =
++            PermissionProfile::read_only();
++        no_root_temp_write
++            .root_authority
++            .lock()
++            .unwrap()
++            .permission_lease = no_root_temp_write.root_permission_lease.clone();
++        let cargo_without_root_temp = ShellInvocationAuthorization {
++            command: "cargo test".into(),
++            cwd: root_uri.clone(),
++            artifact_cache_id: "test-cache".into(),
++            temporary_directories: vec![outside_uri.clone()],
++            sandbox_permissions: SandboxPermissions::UseDefault,
++            additional_permissions: None,
++        };
++        assert!(
++            authorize_shell_invocation(&no_root_temp_write, Some(&cargo_without_root_temp))
++                .is_err()
++        );
++        let escaped_artifact = ShellInvocationAuthorization {
++            command: "cargo test --target-dir ../outside/target".into(),
++            cwd: root_uri.clone(),
++            artifact_cache_id: "test-cache".into(),
++            temporary_directories: vec![outside_uri.clone()],
++            sandbox_permissions: SandboxPermissions::UseDefault,
++            additional_permissions: None,
++        };
++        assert!(authorize_shell_invocation(&binding, Some(&escaped_artifact)).is_err());
++        let inside_npm_build = ShellInvocationAuthorization {
++            command: "npm run build --prefix src".into(),
++            cwd: root_uri.clone(),
++            artifact_cache_id: "test-cache".into(),
++            temporary_directories: vec![outside_uri.clone()],
++            sandbox_permissions: SandboxPermissions::UseDefault,
++            additional_permissions: None,
++        };
++        assert!(authorize_shell_invocation(&binding, Some(&inside_npm_build)).is_ok());
++        let outside_search = ShellInvocationAuthorization {
++            command: "rg secret ../../outside".into(),
++            cwd: root_uri.clone(),
++            artifact_cache_id: "test-cache".into(),
++            temporary_directories: Vec::new(),
++            sandbox_permissions: SandboxPermissions::UseDefault,
++            additional_permissions: None,
++        };
++        assert!(authorize_shell_invocation(&binding, Some(&outside_search)).is_err());
++        let outside_read = ShellInvocationAuthorization {
++            command: "cat ../../outside/secret.txt".into(),
++            cwd: root_uri.clone(),
++            artifact_cache_id: "test-cache".into(),
++            temporary_directories: Vec::new(),
++            sandbox_permissions: SandboxPermissions::UseDefault,
++            additional_permissions: None,
++        };
++        assert!(authorize_shell_invocation(&binding, Some(&outside_read)).is_err());
++        let inside_write_addition = ShellInvocationAuthorization {
++            command: "cargo test".into(),
++            cwd: root_uri.clone(),
++            artifact_cache_id: "test-cache".into(),
++            temporary_directories: vec![outside_uri.clone()],
++            sandbox_permissions: SandboxPermissions::WithAdditionalPermissions,
++            additional_permissions: Some(AdditionalPermissionProfile {
++                network: None,
++                file_system: Some(FileSystemPermissions {
++                    entries: vec![FileSystemSandboxEntry::new(
++                        FileSystemPath::Path {
++                            path: writable_uri.clone(),
++                        },
++                        FileSystemAccessMode::Write,
++                    )],
++                    glob_scan_max_depth: None,
++                }),
++            }),
++        };
++        assert!(authorize_shell_invocation(&binding, Some(&inside_write_addition)).is_ok());
++        let outside_root_read_addition = ShellInvocationAuthorization {
++            command: "cargo test".into(),
++            cwd: root_uri.clone(),
++            artifact_cache_id: "test-cache".into(),
++            temporary_directories: vec![outside_uri.clone()],
++            sandbox_permissions: SandboxPermissions::WithAdditionalPermissions,
++            additional_permissions: Some(AdditionalPermissionProfile {
++                network: None,
++                file_system: Some(FileSystemPermissions {
++                    entries: vec![FileSystemSandboxEntry::new(
++                        FileSystemPath::Path { path: secret_uri },
++                        FileSystemAccessMode::Read,
++                    )],
++                    glob_scan_max_depth: None,
++                }),
++            }),
++        };
++        assert!(authorize_shell_invocation(&binding, Some(&outside_root_read_addition)).is_err());
++
++        for rejected in [
++            ShellInvocationAuthorization {
++                command: "cargo test".into(),
++                cwd: root_uri.join("../outside").unwrap(),
++                artifact_cache_id: "test-cache".into(),
++                temporary_directories: Vec::new(),
++                sandbox_permissions: SandboxPermissions::UseDefault,
++                additional_permissions: None,
++            },
++            ShellInvocationAuthorization {
++                command: "cargo test --manifest-path ../../outside/Cargo.toml".into(),
++                cwd: root_uri.clone(),
++                artifact_cache_id: "test-cache".into(),
++                temporary_directories: vec![outside_uri.clone()],
++                sandbox_permissions: SandboxPermissions::UseDefault,
++                additional_permissions: None,
++            },
++            ShellInvocationAuthorization {
++                command: "npm run build --prefix ../../outside".into(),
++                cwd: root_uri.clone(),
++                artifact_cache_id: "test-cache".into(),
++                temporary_directories: vec![outside_uri.clone()],
++                sandbox_permissions: SandboxPermissions::UseDefault,
++                additional_permissions: None,
++            },
++            ShellInvocationAuthorization {
++                command: "cargo build --target-dir=C:/outside/target".into(),
++                cwd: root_uri.clone(),
++                artifact_cache_id: "test-cache".into(),
++                temporary_directories: vec![outside_uri.clone()],
++                sandbox_permissions: SandboxPermissions::UseDefault,
++                additional_permissions: None,
++            },
++            ShellInvocationAuthorization {
++                command: "cargo test".into(),
++                cwd: root_uri.clone(),
++                artifact_cache_id: "test-cache".into(),
++                temporary_directories: vec![outside_uri.clone()],
++                sandbox_permissions: SandboxPermissions::RequireEscalated,
++                additional_permissions: None,
++            },
++            ShellInvocationAuthorization {
++                command: "cargo test".into(),
++                cwd: root_uri.clone(),
++                artifact_cache_id: "test-cache".into(),
++                temporary_directories: vec![outside_uri.clone()],
++                sandbox_permissions: SandboxPermissions::WithAdditionalPermissions,
++                additional_permissions: Some(AdditionalPermissionProfile {
++                    network: Some(codex_protocol::models::NetworkPermissions {
++                        enabled: Some(true),
++                    }),
++                    file_system: None,
++                }),
++            },
++            ShellInvocationAuthorization {
++                command: "cargo test".into(),
++                cwd: root_uri,
++                artifact_cache_id: "test-cache".into(),
++                temporary_directories: vec![outside_uri.clone()],
++                sandbox_permissions: SandboxPermissions::WithAdditionalPermissions,
++                additional_permissions: Some(AdditionalPermissionProfile {
++                    network: None,
++                    file_system: Some(FileSystemPermissions {
++                        entries: vec![FileSystemSandboxEntry::new(
++                            FileSystemPath::Path { path: outside_uri },
++                            FileSystemAccessMode::Write,
++                        )],
++                        glob_scan_max_depth: None,
++                    }),
++                }),
++            },
++        ] {
++            assert!(authorize_shell_invocation(&binding, Some(&rejected)).is_err());
++        }
++    }
++
++    #[test]
++    fn specialist_artifact_cache_isolated_per_thread_and_workspace_root() {
++        use codex_utils_absolute_path::AbsolutePathBuf;
++
++        let first_workspace = tempfile::tempdir().unwrap();
++        let second_workspace = tempfile::tempdir().unwrap();
++        let first_uri =
++            PathUri::from_abs_path(&AbsolutePathBuf::try_from(first_workspace.path()).unwrap());
++        let second_uri =
++            PathUri::from_abs_path(&AbsolutePathBuf::try_from(second_workspace.path()).unwrap());
++        let specialist = ThreadId::from_u128(1);
++
++        let first_call = shell_artifact_cache_id(specialist, &first_uri);
++        assert_ne!(
++            first_call,
++            shell_artifact_cache_id(ThreadId::from_u128(2), &first_uri),
++            "different specialist runtimes have isolated caches"
++        );
++        assert_ne!(
++            first_call,
++            shell_artifact_cache_id(specialist, &second_uri),
++            "different workspaces have isolated caches"
++        );
++    }
++
++    #[test]
++    fn specialist_shell_grant_allows_bounded_test_and_build_commands_only() {
++        let (_dir, mut binding) = test_binding(HolyCodexPrincipal::specialist("a-1".into()));
++        binding.capabilities = [Capability::RepositoryRead, Capability::Shell].into();
++        binding.allowed_tools = ["exec_command"].into_iter().map(ToolName::plain).collect();
++        assert!(
++            authorize_tool_call(
++                &binding,
++                &ToolName::plain("exec_command"),
++                false,
++                Some("cargo test -p codex-core"),
++                &binding.permission_profile,
++            )
++            .is_ok()
++        );
++        assert!(
++            authorize_tool_call(
++                &binding,
++                &ToolName::plain("exec_command"),
++                false,
++                Some("npm run build"),
++                &binding.permission_profile,
++            )
++            .is_ok()
++        );
++        for command in [
++            "cargo build",
++            "cargo check",
++            "cargo +1.95.0 check",
++            "rustup run 1.95.0 cargo check",
++            "npm test",
++            "cargo clippy",
++        ] {
++            assert!(
++                authorize_tool_call(
++                    &binding,
++                    &ToolName::plain("exec_command"),
++                    false,
++                    Some(command),
++                    &binding.permission_profile,
++                )
++                .is_ok()
++            );
++        }
++
++        for command in [
++            "git status",
++            "git status --short --branch",
++            "git rev-parse --show-toplevel",
++            "git show HEAD",
++            "git show --stat --oneline HEAD",
++            "gh run view 12345",
++            "gh run view 12345 --log-failed",
++            "gh pr checks",
++            "gh pr checks 42 --required",
++            "gh pr checks --required",
++        ] {
++            assert!(
++                authorize_tool_call(
++                    &binding,
++                    &ToolName::plain("exec_command"),
++                    false,
++                    Some(command),
++                    &binding.permission_profile,
++                )
++                .is_ok(),
++                "expected read-only inspection command {command:?}"
++            );
++        }
++        for command in [
++            "cargo fmt --all -- --check",
++            "mise run test",
++            "mise run lint",
++            "mise run fmt-check",
++            "just test",
++            "just nextest",
++        ] {
++            assert!(
++                authorize_tool_call(
++                    &binding,
++                    &ToolName::plain("exec_command"),
++                    false,
++                    Some(command),
++                    &binding.permission_profile,
++                )
++                .is_ok(),
++                "expected approved quality command {command:?}"
++            );
++        }
++        for command in [
++            "cargo fmt",
++            "cargo fmt --all",
++            "mise run fmt",
++            "just fmt",
++            "cargo +stable check",
++            "cargo +1.95.0 update",
++            "rustup run stable cargo check",
++            "rustup toolchain install 1.95.0",
++            "rustup default 1.95.0",
++            "rustup override set 1.95.0",
++            "git commit -m change",
++            "git push",
++            "git config --global user.name worker",
++            "git -C ../../outside status",
++            "git --work-tree ../../outside status",
++            "git status -- ../../outside",
++            "git show --output=outside.txt HEAD",
++            "git status && git commit -m change",
++            "gh run rerun 12345",
++            "gh pr merge 42",
++            "gh pr checks --repo owner/repo",
++            "gh --repo owner/repo run view 12345",
++            "gh auth login",
++        ] {
++            assert!(
++                authorize_tool_call(
++                    &binding,
++                    &ToolName::plain("exec_command"),
++                    false,
++                    Some(command),
++                    &binding.permission_profile,
++                )
++                .is_err(),
++                "mutating formatter should be rejected: {command:?}"
++            );
++        }
++        assert!(
++            authorize_tool_call(
++                &binding,
++                &ToolName::plain("exec_command"),
++                false,
++                Some("cargo clippy --fix"),
++                &binding.permission_profile,
++            )
++            .is_err()
++        );
++
++        for command in [
++            "npm install",
++            "cargo test && git status",
++            "cargo test | curl x",
++        ] {
++            assert!(
++                authorize_tool_call(
++                    &binding,
++                    &ToolName::plain("exec_command"),
++                    false,
++                    Some(command),
++                    &binding.permission_profile,
++                )
++                .is_err()
++            );
++        }
++
++        binding.capabilities.remove(&Capability::Shell);
++        assert!(
++            authorize_tool_call(
++                &binding,
++                &ToolName::plain("exec_command"),
++                false,
++                Some("cargo build"),
++                &binding.permission_profile,
++            )
++            .is_err()
++        );
++    }
++
++    #[test]
 +    fn root_permission_reduction_revokes_existing_specialist_dispatch_and_calls() {
 +        let (_dir, mut root_binding) = test_binding(HolyCodexPrincipal::root());
 +        let route_capabilities = route_policy(RoleTask::WorkerImplementation)
@@ -8410,10 +9817,26 @@ index 41ed018..d3edeb1 100644
  pub(crate) mod hosted_spec;
  pub(crate) mod lifecycle;
 diff --git a/codex-rs/core/src/tools/registry.rs b/codex-rs/core/src/tools/registry.rs
-index 7d88650..1af56a8 100644
+index 7d88650..99e5dc0 100644
 --- a/codex-rs/core/src/tools/registry.rs
 +++ b/codex-rs/core/src/tools/registry.rs
-@@ -600,6 +600,29 @@ impl ToolRegistry {
+@@ -13,7 +13,6 @@ use crate::memory_usage::shell_script_for_invocation;
+ use crate::session::session::Session;
+ use crate::session::turn_context::TurnContext;
+ use crate::tools::context::FunctionToolOutput;
+-use crate::tools::context::ToolCallSource;
+ use crate::tools::context::ToolCallState;
+ use crate::tools::context::ToolInvocation;
+ use crate::tools::context::ToolOutput;
+@@ -43,6 +42,7 @@ use codex_tools::ToolSpec;
+ use futures::future::BoxFuture;
+ use indexmap::IndexMap;
+ use indexmap::map::Entry;
++use serde::Deserialize;
+ use serde_json::Value;
+ 
+ pub(crate) type ToolTelemetryTags = Vec<(&'static str, String)>;
+@@ -600,6 +600,37 @@ impl ToolRegistry {
              return Err(err);
          }
  
@@ -8422,13 +9845,21 @@ index 7d88650..1af56a8 100644
 +            .services
 +            .thread_extension_data
 +            .get::<crate::tools::holycodex_tools::HolyCodexToolBinding>()
-+            && let Err(err) = crate::tools::holycodex_tools::authorize_tool_call(
-+                &binding,
-+                &tool_name,
-+                tool.mcp_server_name().is_some(),
-+                shell_script_for_invocation(&invocation).as_deref(),
-+                &invocation.turn.permission_profile(),
-+            )
++            && let Err(err) = (|| {
++                if tool_name.is_default_namespace() && tool_name.name == "exec_command" {
++                    crate::tools::holycodex_tools::authorize_shell_invocation(
++                        &binding,
++                        shell_authorization_for_invocation(&invocation, &binding).as_ref(),
++                    )?;
++                }
++                crate::tools::holycodex_tools::authorize_tool_call(
++                    &binding,
++                    &tool_name,
++                    tool.mcp_server_name().is_some(),
++                    shell_script_for_invocation(&invocation).as_deref(),
++                    &invocation.turn.permission_profile(),
++                )
++            })()
 +        {
 +            dispatch_trace.record_failed(&err);
 +            notify_tool_finish_if_unclaimed(
@@ -8443,8 +9874,66 @@ index 7d88650..1af56a8 100644
          if let Some(pre_tool_use_payload) = tool.pre_tool_use_payload(&invocation) {
              match run_pre_tool_use_hooks(
                  &invocation.session,
+@@ -856,6 +887,57 @@ fn unsupported_tool_call_message(payload: &ToolPayload, tool_name: &ToolName) ->
+         _ => format!("unsupported call: {tool_name}"),
+     }
+ }
++
++#[derive(Deserialize)]
++struct ShellAuthorizationPayload {
++    cmd: String,
++    #[serde(default)]
++    environment_id: Option<String>,
++    #[serde(default)]
++    workdir: Option<String>,
++    #[serde(default)]
++    sandbox_permissions: Option<codex_protocol::models::SandboxPermissions>,
++    #[serde(default)]
++    additional_permissions: Option<codex_protocol::models::AdditionalPermissionProfile>,
++}
++
++fn shell_authorization_for_invocation(
++    invocation: &ToolInvocation,
++    binding: &crate::tools::holycodex_tools::HolyCodexToolBinding,
++) -> Option<crate::tools::holycodex_tools::ShellInvocationAuthorization> {
++    let ToolPayload::Function { arguments } = &invocation.payload else {
++        return None;
++    };
++    let payload: ShellAuthorizationPayload = serde_json::from_str(arguments).ok()?;
++    let environments = &invocation.step_context.environments;
++    let environment = match payload.environment_id.as_deref() {
++        Some(environment_id) => environments
++            .turn_environments()
++            .find(|environment| environment.selection.environment_id == environment_id)?,
++        None => environments.primary()?,
++    };
++    let workspace_root = environment.selection.cwd.clone();
++    let cwd = workspace_root
++        .join(payload.workdir.as_deref().unwrap_or(""))
++        .ok()?;
++    Some(
++        crate::tools::holycodex_tools::ShellInvocationAuthorization {
++            command: payload.cmd,
++            cwd,
++            artifact_cache_id: crate::tools::holycodex_tools::shell_artifact_cache_id(
++                binding.caller,
++                &workspace_root,
++            ),
++            temporary_directories: environment
++                .temporary_directories
++                .clone()
++                .unwrap_or_default(),
++            sandbox_permissions: payload.sandbox_permissions.unwrap_or_default(),
++            additional_permissions: payload.additional_permissions,
++        },
++    )
++}
++
+ #[cfg(test)]
+ #[path = "registry_tests.rs"]
+ mod tests;
 diff --git a/codex-rs/core/src/tools/registry_tests.rs b/codex-rs/core/src/tools/registry_tests.rs
-index 895d8d4..bdcc779 100644
+index 895d8d4..ef7cf9d 100644
 --- a/codex-rs/core/src/tools/registry_tests.rs
 +++ b/codex-rs/core/src/tools/registry_tests.rs
 @@ -6,6 +6,7 @@ use codex_protocol::models::ResponseItem;
@@ -8655,6 +10144,82 @@ index 895d8d4..bdcc779 100644
  #[tokio::test]
  async fn readiness_selects_exact_tool_with_registry_owned_exposure() {
      let (session, _turn) = crate::session::tests::make_session_and_context().await;
+@@ -842,3 +1029,75 @@ fn test_invocation(
+         },
+     }
+ }
++
++#[tokio::test]
++async fn specialist_shell_authorization_reuses_workspace_cache_across_workdirs() {
++    let (session, turn) = crate::session::tests::make_session_and_context().await;
++    let mut invocation = test_invocation(
++        Arc::new(session),
++        Arc::new(turn),
++        "shell-call",
++        ToolName::plain("exec_command"),
++    );
++    let (_controller_dir, binding) = crate::tools::holycodex_tools::tests::test_binding(
++        crate::tools::holycodex_tools::HolyCodexPrincipal::specialist("assignment-1".into()),
++    );
++    let environment = invocation
++        .step_context
++        .environments
++        .primary()
++        .expect("test session has a primary execution environment");
++    let workspace_root = environment.selection.cwd.clone();
++    let temporary_directories = environment
++        .temporary_directories
++        .clone()
++        .unwrap_or_default();
++    let expected_cwd = workspace_root.join("../subdir").unwrap();
++    invocation.payload = ToolPayload::Function {
++        arguments: serde_json::json!({
++            "cmd": "cargo test --manifest-path package/Cargo.toml",
++            "workdir": "../subdir",
++            "sandbox_permissions": "with_additional_permissions",
++            "additional_permissions": { "network": { "enabled": false } }
++        })
++        .to_string(),
++    };
++
++    let authorization = shell_authorization_for_invocation(&invocation, &binding)
++        .expect("complete exec arguments are retained for authorization");
++
++    assert_eq!(authorization.cwd, expected_cwd);
++    assert_eq!(
++        authorization.artifact_cache_id,
++        crate::tools::holycodex_tools::shell_artifact_cache_id(binding.caller, &workspace_root)
++    );
++    assert_eq!(authorization.temporary_directories, temporary_directories);
++    assert_eq!(
++        authorization.sandbox_permissions,
++        codex_protocol::models::SandboxPermissions::WithAdditionalPermissions
++    );
++    assert_eq!(
++        authorization.additional_permissions,
++        Some(codex_protocol::models::AdditionalPermissionProfile {
++            network: Some(codex_protocol::models::NetworkPermissions {
++                enabled: Some(false),
++            }),
++            file_system: None,
++        })
++    );
++
++    invocation.payload = ToolPayload::Function {
++        arguments: serde_json::json!({
++            "cmd": "cargo test --manifest-path Cargo.toml",
++            "workdir": "crates/core"
++        })
++        .to_string(),
++    };
++    let other_workdir = shell_authorization_for_invocation(&invocation, &binding)
++        .expect("second real workdir payload is authorized");
++    assert_ne!(authorization.cwd, other_workdir.cwd);
++    assert_eq!(
++        authorization.artifact_cache_id,
++        other_workdir.artifact_cache_id
++    );
++}
 diff --git a/codex-rs/core/src/tools/spec_plan.rs b/codex-rs/core/src/tools/spec_plan.rs
 index bb1474f..dcdd9ce 100644
 --- a/codex-rs/core/src/tools/spec_plan.rs
