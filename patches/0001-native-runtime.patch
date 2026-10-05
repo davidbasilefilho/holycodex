@@ -1820,18 +1820,17 @@ index 9ee1d50..c1ff537 100644
              let parent = self.runtime.upgrade()?.get_thread(parent).await?;
 diff --git a/codex-rs/core/src/agent/control/holycodex_identity.rs b/codex-rs/core/src/agent/control/holycodex_identity.rs
 new file mode 100644
-index 0000000..bb07067
+index 0000000..6a4fd15
 --- /dev/null
 +++ b/codex-rs/core/src/agent/control/holycodex_identity.rs
-@@ -0,0 +1,451 @@
+@@ -0,0 +1,433 @@
 +use super::LocalAgentControl;
 +use crate::holycodex_identity::NativeThreadContract;
 +use crate::holycodex_identity::ReallocateSpecialistRequest;
 +use crate::holycodex_identity::RootAuthorityGrants;
 +use crate::holycodex_identity::RootPermissionLease;
-+use crate::holycodex_identity::read_identity;
++use crate::holycodex_identity::update_identity;
 +use crate::holycodex_identity::validate_contract;
-+use crate::holycodex_identity::write_identity;
 +use crate::tools::holycodex_tools::HolyCodexPrincipal;
 +use crate::tools::holycodex_tools::HolyCodexToolBinding;
 +use codex_protocol::SessionId;
@@ -2025,38 +2024,24 @@ index 0000000..bb07067
 +            return Err(invalid("specialist delegation must remain disabled"));
 +        }
 +
-+        let old_identity = read_identity(&request.codex_home, request.caller_root)
-+            .map_err(|error| invalid(&error.to_string()))?;
-+        if old_identity
-+            .as_ref()
-+            .is_none_or(|(intent, _)| intent != &request.intent)
-+        {
-+            return Err(invalid(
-+                "Root Intent changed before specialist reallocation",
-+            ));
-+        }
-+        request.contract.native_id = old_identity
-+            .as_ref()
-+            .and_then(|(_, contracts)| contracts.get(&request.target.to_string()))
-+            .map(|contract| contract.native_id.clone())
-+            .unwrap_or_else(|| request.contract.native_id.clone());
-+        validate_contract(&request.contract).map_err(|error| invalid(&error.to_string()))?;
-+        if let Some((_, contracts)) = old_identity.as_ref() {
-+            for (thread_id, contract) in contracts {
-+                request
-+                    .contracts
-+                    .entry(thread_id.clone())
-+                    .or_insert_with(|| contract.clone());
-+            }
-+        }
-+        request
-+            .contracts
-+            .insert(request.target.to_string(), request.contract.clone());
-+        write_identity(
++        let mut old_contract = None;
++        update_identity(
 +            &request.codex_home,
 +            request.caller_root,
-+            request.intent.clone(),
-+            request.contracts.clone(),
++            |intent, contracts| {
++                if intent != &request.intent {
++                    return Err(crate::holycodex::ControllerError::InvalidState(
++                        "Root Intent changed before specialist reallocation".into(),
++                    ));
++                }
++                old_contract = contracts.get(&request.target.to_string()).cloned();
++                if let Some(previous) = &old_contract {
++                    request.contract.native_id = previous.native_id.clone();
++                }
++                validate_contract(&request.contract)?;
++                contracts.insert(request.target.to_string(), request.contract.clone());
++                Ok(())
++            },
 +        )
 +        .map_err(|error| invalid(&error.to_string()))?;
 +
@@ -2084,13 +2069,13 @@ index 0000000..bb07067
 +                Ok(snapshot)
 +            }
 +            Ok(_) => {
-+                restore_identity(&request, old_identity);
++                restore_identity(&request, old_contract);
 +                Err(invalid(
 +                    "live session did not publish the requested specialist contract",
 +                ))
 +            }
 +            Err(error) => {
-+                restore_identity(&request, old_identity);
++                restore_identity(&request, old_contract);
 +                Err(invalid(&error.to_string()))
 +            }
 +        }
@@ -2099,23 +2084,20 @@ index 0000000..bb07067
 +
 +fn restore_identity(
 +    request: &ReallocateSpecialistRequest,
-+    old_identity: Option<(
-+        holycodex_policy::Intent,
-+        std::collections::BTreeMap<String, NativeThreadContract>,
-+    )>,
++    old_contract: Option<NativeThreadContract>,
 +) {
-+    if let Some((intent, contracts)) = old_identity {
-+        let _ = crate::holycodex_identity::write_identity(
-+            &request.codex_home,
-+            request.caller_root,
-+            intent,
-+            contracts,
-+        );
-+    } else {
-+        let path =
-+            crate::holycodex_identity::identity_path(&request.codex_home, request.caller_root);
-+        let _ = std::fs::remove_file(path);
-+    }
++    let _ = update_identity(
++        &request.codex_home,
++        request.caller_root,
++        |_intent, contracts| {
++            if let Some(contract) = old_contract {
++                contracts.insert(request.target.to_string(), contract);
++            } else {
++                contracts.remove(&request.target.to_string());
++            }
++            Ok(())
++        },
++    );
 +}
 +
 +fn to_protocol_effort(
@@ -2725,10 +2707,10 @@ index 60c6f65..04658d1 100644
 +}
 diff --git a/codex-rs/core/src/holycodex.rs b/codex-rs/core/src/holycodex.rs
 new file mode 100644
-index 0000000..2bb7d39
+index 0000000..b5686eb
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex.rs
-@@ -0,0 +1,1724 @@
+@@ -0,0 +1,1958 @@
 +//! Durable native Intent/Assignment control over the local Multi-Agent V2 runtime.
 +//!
 +//! OS sidecar locks serialize reload/validate/commit across controller instances.
@@ -3112,6 +3094,43 @@ index 0000000..2bb7d39
 +        Ok(())
 +    }
 +
++    fn rollback_unstarted(
++        &mut self,
++        assignment_id: &str,
++        specialist_id: &str,
++        is_new: bool,
++    ) -> Result<(), ControllerError> {
++        if !self.launching.remove(assignment_id) {
++            return Err(ControllerError::InvalidState(
++                "cannot roll back an assignment after launch reconciliation began".into(),
++            ));
++        }
++        self.assignments
++            .retain(|assignment| assignment.id != assignment_id);
++        if is_new {
++            self.specialists.remove(specialist_id);
++        } else if let Some(specialist) = self.specialists.get_mut(specialist_id) {
++            specialist.idle = true;
++        } else {
++            return Err(ControllerError::MissingSpecialist(assignment_id.into()));
++        }
++        Ok(())
++    }
++
++    fn record_launch_error(
++        &mut self,
++        assignment_id: &str,
++        error: String,
++    ) -> Result<(), ControllerError> {
++        if self.assignment(assignment_id)?.status != AssignmentStatus::Running {
++            return Err(ControllerError::InvalidState(
++                "execution error has no running Assignment".into(),
++            ));
++        }
++        self.execution_errors.insert(assignment_id.into(), error);
++        Ok(())
++    }
++
 +    fn observe_terminal(
 +        &mut self,
 +        id: &str,
@@ -3199,6 +3218,11 @@ index 0000000..2bb7d39
 +    StateEncoding(String),
 +    #[error("local Codex agent operation failed: {0}")]
 +    Agent(String),
++}
++
++enum LaunchError {
++    BeforeCreation(ControllerError),
++    Acknowledgement(ControllerError),
 +}
 +
 +impl AssignmentController {
@@ -3332,12 +3356,22 @@ index 0000000..2bb7d39
 +            .specialist_id
 +            .as_deref()
 +            .expect("reserved identity");
-+        let input = render_assignment(&assignment)?;
++        let input = match render_assignment(&assignment) {
++            Ok(input) => input,
++            Err(error) => {
++                self.store.transaction(|state| {
++                    state.rollback_unstarted(&assignment.id, reserved, is_new)
++                })?;
++                return Err(error);
++            }
++        };
 +        let execution = if is_new {
 +            self.spawn(reserved, assignment.role, prepared.config, input)
 +                .await
 +        } else {
-+            self.reuse(&assignment, input).await
++            self.reuse(&assignment, input)
++                .await
++                .map_err(LaunchError::Acknowledgement)
 +        };
 +        match execution {
 +            Ok(thread) => {
@@ -3350,13 +3384,24 @@ index 0000000..2bb7d39
 +                })?;
 +                self.assignment(&assignment.id)
 +            }
-+            Err(error) => {
-+                // An acknowledgement error is not proof execution has stopped.
++            Err(LaunchError::BeforeCreation(error)) => {
 +                self.store.transaction(|state| {
-+                    state.launching.remove(&assignment.id);
-+                    state
-+                        .execution_errors
-+                        .insert(assignment.id.clone(), error.to_string());
++                    state.rollback_unstarted(&assignment.id, reserved, true)
++                })?;
++                Err(error)
++            }
++            Err(LaunchError::Acknowledgement(error)) => {
++                // A spawn acknowledgement error is ambiguous: the runtime may
++                // already own a child at this reserved agent path. Keep the
++                // launch receipt so reconciliation/wait/cancel can discover it.
++                self.store.transaction(|state| {
++                    state.record_launch_error(&assignment.id, error.to_string())?;
++                    if !is_new
++                        || state.assignment(&assignment.id)?.specialist_id.as_deref()
++                            != Some(reserved)
++                    {
++                        state.launching.remove(&assignment.id);
++                    }
 +                    Ok(())
 +                })?;
 +                Err(error)
@@ -3370,11 +3415,11 @@ index 0000000..2bb7d39
 +        role: RoleTask,
 +        config: Config,
 +        input: String,
-+    ) -> Result<ThreadId, ControllerError> {
++    ) -> Result<ThreadId, LaunchError> {
 +        let source = SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
 +            parent_thread_id: self.root_thread,
 +            depth: 1,
-+            agent_path: Some(specialist_path(reserved)?),
++            agent_path: Some(specialist_path(reserved).map_err(LaunchError::BeforeCreation)?),
 +            agent_nickname: None,
 +            agent_role: Some(role.as_str().into()),
 +        });
@@ -3391,7 +3436,7 @@ index 0000000..2bb7d39
 +                },
 +            })
 +            .await
-+            .map_err(agent_error)?;
++            .map_err(|error| LaunchError::Acknowledgement(agent_error(error)))?;
 +        Ok(agent.thread_id)
 +    }
 +
@@ -3611,7 +3656,19 @@ index 0000000..2bb7d39
 +                break;
 +            }
 +            if !self.store.operation_active(id)? {
-+                return self.wait(id).await;
++                self.reconcile_runtime().await?;
++                let state = self.snapshot()?;
++                if state.assignment(id)?.status.is_terminal() {
++                    return Ok(state.assignment(id)?.clone());
++                }
++                if state.launching.contains(id) {
++                    return Err(ControllerError::InvalidState(format!(
++                        "Assignment {id} has no committed runtime identity; it remains reserved until V2 execution can be observed"
++                    )));
++                }
++                // Reconciliation bound the observed child. Continue below so
++                // cancellation is persisted and interrupted against that ID.
++                continue;
 +            }
 +            tokio::time::sleep(self.poll_interval).await;
 +        }
@@ -3680,6 +3737,7 @@ index 0000000..2bb7d39
 +                    });
 +                }
 +                state.bind(id, reserved, &specialist_thread.to_string())?;
++                state.launching.remove(id);
 +            }
 +            let current = state.assignment(id)?.clone();
 +            if current.status != AssignmentStatus::Running {
@@ -4229,6 +4287,164 @@ index 0000000..2bb7d39
 +    }
 +
 +    #[test]
++    fn ambiguous_spawn_acknowledgement_keeps_launch_reservation_reconcilable() {
++        let dir = tempfile::tempdir().unwrap();
++        let store = StateStore::open(dir.path(), intent()).unwrap();
++        let (assignment, _) = store
++            .transaction(|state| {
++                state.reserve(
++                    candidate("src/a", RoleTask::WorkerImplementation),
++                    &grants(true),
++                    &BTreeMap::new(),
++                )
++            })
++            .unwrap();
++        let reserved = assignment.specialist_id.clone().unwrap();
++        store
++            .transaction(|state| state.record_launch_error(&assignment.id, "ack lost".into()))
++            .unwrap();
++
++        let state = store.read().unwrap();
++        assert!(state.launching.contains(&assignment.id));
++        assert_eq!(
++            state.assignment(&assignment.id).unwrap().status,
++            AssignmentStatus::Running
++        );
++        assert!(!state.specialists[&reserved].idle);
++        assert!(state.execution_errors.contains_key(&assignment.id));
++
++        // Reconciliation authenticates the observed child by reserved path,
++        // then promotes the reservation to its actual thread identity.
++        let actual = ThreadId::new().to_string();
++        store
++            .transaction(|state| {
++                state.bind(&assignment.id, &reserved, &actual)?;
++                state.launching.remove(&assignment.id);
++                Ok(())
++            })
++            .unwrap();
++        let state = store.read().unwrap();
++        assert!(!state.launching.contains(&assignment.id));
++        assert!(state.specialists.contains_key(&actual));
++        assert!(!state.specialists[&actual].idle);
++    }
++
++    #[test]
++    fn known_precreation_failure_rolls_back_only_its_reservation() {
++        let dir = tempfile::tempdir().unwrap();
++        let store = StateStore::open(dir.path(), intent()).unwrap();
++        let (assignment, is_new) = store
++            .transaction(|state| {
++                state.reserve(
++                    candidate("src/a", RoleTask::WorkerImplementation),
++                    &grants(true),
++                    &BTreeMap::new(),
++                )
++            })
++            .unwrap();
++        assert!(is_new);
++        let reserved = assignment.specialist_id.clone().unwrap();
++        store
++            .transaction(|state| state.rollback_unstarted(&assignment.id, &reserved, is_new))
++            .unwrap();
++        let state = store.read().unwrap();
++        assert!(state.assignments.is_empty());
++        assert!(state.launching.is_empty());
++        assert!(!state.specialists.contains_key(&reserved));
++    }
++
++    #[tokio::test]
++    async fn cancel_does_not_release_an_unobserved_ambiguous_spawn_reservation() {
++        let dir = tempfile::tempdir().unwrap();
++        let controller = AssignmentController::open(
++            dir.path(),
++            LocalAgentControl::default(),
++            ThreadId::new(),
++            Profile::Default,
++            intent(),
++            Arc::new(DeniedAuthority),
++        )
++        .unwrap();
++        let (assignment, _) = controller
++            .store
++            .transaction(|state| {
++                state.reserve(
++                    candidate("src/a", RoleTask::WorkerImplementation),
++                    &grants(true),
++                    &BTreeMap::new(),
++                )
++            })
++            .unwrap();
++        controller
++            .store
++            .transaction(|state| {
++                state.record_launch_error(&assignment.id, "spawn acknowledgement lost".into())
++            })
++            .unwrap();
++
++        assert!(controller.cancel(&assignment.id).await.is_err());
++        let state = controller.snapshot().unwrap();
++        assert!(state.launching.contains(&assignment.id));
++        assert_eq!(
++            state.assignment(&assignment.id).unwrap().status,
++            AssignmentStatus::Running
++        );
++    }
++
++    #[tokio::test]
++    async fn cancel_requests_interrupt_for_a_recovered_running_child() {
++        let dir = tempfile::tempdir().unwrap();
++        let controller = AssignmentController::open(
++            dir.path(),
++            LocalAgentControl::default(),
++            ThreadId::new(),
++            Profile::Default,
++            intent(),
++            Arc::new(DeniedAuthority),
++        )
++        .unwrap();
++        let (assignment, _) = controller
++            .store
++            .transaction(|state| {
++                state.reserve(
++                    candidate("src/a", RoleTask::WorkerImplementation),
++                    &grants(true),
++                    &BTreeMap::new(),
++                )
++            })
++            .unwrap();
++        let reserved = assignment.specialist_id.clone().unwrap();
++        controller
++            .store
++            .transaction(|state| {
++                state.record_launch_error(&assignment.id, "spawn acknowledgement lost".into())?;
++                let actual = ThreadId::new().to_string();
++                state.bind(&assignment.id, &reserved, &actual)?;
++                state.launching.remove(&assignment.id);
++                Ok(())
++            })
++            .unwrap();
++
++        // The child has been matched and bound by runtime reconciliation. The
++        // local test controller cannot issue the interrupt, but cancel must
++        // persist its request and retain ownership when that operation fails.
++        assert!(controller.cancel(&assignment.id).await.is_err());
++        let state = controller.snapshot().unwrap();
++        assert!(state.cancellation_requested.contains(&assignment.id));
++        assert_eq!(
++            state.assignment(&assignment.id).unwrap().status,
++            AssignmentStatus::Running
++        );
++        let actual = state
++            .assignment(&assignment.id)
++            .unwrap()
++            .specialist_id
++            .as_ref()
++            .unwrap();
++        assert!(!state.specialists[actual].idle);
++    }
++
++    #[test]
 +    fn state_uses_typed_toml_and_recovers_valid_legacy_json() {
 +        let dir = tempfile::tempdir().unwrap();
 +        let legacy_path = dir.path().join(LEGACY_STATE_FILE);
@@ -4455,10 +4671,10 @@ index 0000000..2bb7d39
 +}
 diff --git a/codex-rs/core/src/holycodex_identity.rs b/codex-rs/core/src/holycodex_identity.rs
 new file mode 100644
-index 0000000..4fea815
+index 0000000..a9e74d5
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex_identity.rs
-@@ -0,0 +1,1490 @@
+@@ -0,0 +1,1565 @@
 +//! Native, per-thread HolyCodex identity and session authority bindings.
 +//!
 +//! Persisted records describe a validated contract, not current grants. Live
@@ -4495,6 +4711,8 @@ index 0000000..4fea815
 +use std::collections::BTreeMap;
 +use std::collections::BTreeSet;
 +use std::fs;
++use std::fs::File;
++use std::fs::OpenOptions;
 +use std::path::Component;
 +use std::path::Path;
 +use std::path::PathBuf;
@@ -4572,6 +4790,14 @@ index 0000000..4fea815
 +    root_thread_id: ThreadId,
 +) -> Result<Option<(Intent, BTreeMap<String, NativeThreadContract>)>, ControllerError> {
 +    let path = identity_path(codex_home, root_thread_id);
++    let _lock = identity_lock(&path)?;
++    read_identity_locked(&path, root_thread_id)
++}
++
++fn read_identity_locked(
++    path: &Path,
++    root_thread_id: ThreadId,
++) -> Result<Option<(Intent, BTreeMap<String, NativeThreadContract>)>, ControllerError> {
 +    let text = match fs::read_to_string(&path) {
 +        Ok(text) => text,
 +        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -4595,8 +4821,57 @@ index 0000000..4fea815
 +    Ok(Some((file.intent, file.threads)))
 +}
 +
-+pub(crate) fn write_identity(
++/// Atomically merge one Root identity update with the latest persisted record.
++/// The synchronous closure runs under the stable per-Root OS lock.
++pub(crate) fn update_identity(
 +    codex_home: &Path,
++    root_thread_id: ThreadId,
++    update: impl FnOnce(
++        &mut Intent,
++        &mut BTreeMap<String, NativeThreadContract>,
++    ) -> Result<(), ControllerError>,
++) -> Result<(), ControllerError> {
++    update_identity_inner(codex_home, root_thread_id, None, update)
++}
++
++fn update_identity_or_initialize(
++    codex_home: &Path,
++    root_thread_id: ThreadId,
++    initial_intent: Intent,
++    update: impl FnOnce(
++        &mut Intent,
++        &mut BTreeMap<String, NativeThreadContract>,
++    ) -> Result<(), ControllerError>,
++) -> Result<(), ControllerError> {
++    update_identity_inner(codex_home, root_thread_id, Some(initial_intent), update)
++}
++
++fn update_identity_inner(
++    codex_home: &Path,
++    root_thread_id: ThreadId,
++    initial_intent: Option<Intent>,
++    update: impl FnOnce(
++        &mut Intent,
++        &mut BTreeMap<String, NativeThreadContract>,
++    ) -> Result<(), ControllerError>,
++) -> Result<(), ControllerError> {
++    let path = identity_path(codex_home, root_thread_id);
++    let _lock = identity_lock(&path)?;
++    let (mut intent, mut threads) = match read_identity_locked(&path, root_thread_id)? {
++        Some(identity) => identity,
++        None => (
++            initial_intent.ok_or_else(|| {
++                ControllerError::InvalidState("native Root Intent identity is not persisted".into())
++            })?,
++            BTreeMap::new(),
++        ),
++    };
++    update(&mut intent, &mut threads)?;
++    write_identity_locked(&path, root_thread_id, intent, threads)
++}
++
++fn write_identity_locked(
++    path: &Path,
 +    root_thread_id: ThreadId,
 +    intent: Intent,
 +    threads: BTreeMap<String, NativeThreadContract>,
@@ -4610,7 +4885,6 @@ index 0000000..4fea815
 +            ));
 +        }
 +    }
-+    let path = identity_path(codex_home, root_thread_id);
 +    if path.parent().is_none() {
 +        return Err(ControllerError::InvalidState(
 +            "invalid native identity path".into(),
@@ -4626,6 +4900,22 @@ index 0000000..4fea815
 +        .map_err(|error| ControllerError::StateEncoding(error.to_string()))?;
 +    crate::path_utils::write_atomically(&path, &encoded)?;
 +    Ok(())
++}
++
++/// A stable sidecar lock serializes identity read/merge/replace across processes.
++fn identity_lock(path: &Path) -> Result<File, ControllerError> {
++    if let Some(parent) = path.parent() {
++        fs::create_dir_all(parent)?;
++    }
++    let lock_path = path.with_extension("lock");
++    let file = OpenOptions::new()
++        .create(true)
++        .truncate(false)
++        .read(true)
++        .write(true)
++        .open(lock_path)?;
++    file.lock()?;
++    Ok(file)
 +}
 +
 +pub(crate) fn validate_contract(contract: &NativeThreadContract) -> Result<(), ControllerError> {
@@ -4727,7 +5017,6 @@ index 0000000..4fea815
 +    pub contract: NativeThreadContract,
 +    pub codex_home: PathBuf,
 +    pub intent: Intent,
-+    pub contracts: BTreeMap<String, NativeThreadContract>,
 +}
 +
 +/// Native runtime implementation of the controller's specialist authority contract.
@@ -5142,7 +5431,7 @@ index 0000000..4fea815
 +        .codex_home
 +        .as_path()
 +        .to_path_buf();
-+    let (_, mut contracts) = read_identity(&home, *parent_thread_id)
++    let (_, contracts) = read_identity(&home, *parent_thread_id)
 +        .map_err(|error| anyhow::anyhow!(error.to_string()))?
 +        .ok_or_else(|| anyhow::anyhow!("native Root Intent identity is not persisted"))?;
 +    let existing = contracts.get(&thread_id.to_string()).cloned();
@@ -5232,14 +5521,14 @@ index 0000000..4fea815
 +        effects: effects_for(&prepared.grants.capabilities, binding.max_mutability),
 +    };
 +    validate_contract(&contract).map_err(|error| anyhow::anyhow!(error.to_string()))?;
-+    contracts.insert(thread_id.to_string(), contract.clone());
-+    write_identity(
-+        &home,
-+        *parent_thread_id,
-+        controller_state.intent,
-+        contracts.clone(),
-+    )
++    update_identity(&home, *parent_thread_id, |_intent, contracts| {
++        contracts.insert(thread_id.to_string(), contract.clone());
++        Ok(())
++    })
 +    .map_err(|error| anyhow::anyhow!(error.to_string()))?;
++    let (_, contracts) = read_identity(&home, *parent_thread_id)
++        .map_err(|error| anyhow::anyhow!(error.to_string()))?
++        .ok_or_else(|| anyhow::anyhow!("native Root Intent identity is not persisted"))?;
 +    *authority
 +        .contracts
 +        .lock()
@@ -5332,14 +5621,17 @@ index 0000000..4fea815
 +    };
 +    validate_contract(&root_contract).map_err(|error| anyhow::anyhow!(error.to_string()))?;
 +    contracts.insert(root_thread.to_string(), root_contract.clone());
-+    // The controller policy store is canonical for Intent after resume. Mirror its
-+    // current revision into the native identity record rather than trusting a stale
-+    // Intent copy persisted by the previous process.
-+    write_identity(
++    // Mirror the controller's canonical Intent while merging the Root contract
++    // with child binds under the shared per-Root transaction lock.
++    update_identity_or_initialize(
 +        config.codex_home.as_path(),
 +        root_thread,
-+        snapshot.intent,
-+        contracts,
++        snapshot.intent.clone(),
++        |intent, contracts| {
++            *intent = snapshot.intent.clone();
++            contracts.insert(root_thread.to_string(), root_contract.clone());
++            Ok(())
++        },
 +    )
 +    .map_err(|error| anyhow::anyhow!(error.to_string()))?;
 +    let binding = HolyCodexToolBinding {
@@ -5772,7 +6064,6 @@ index 0000000..4fea815
 +                    contract: contract.clone(),
 +                    codex_home: self.codex_home.clone(),
 +                    intent,
-+                    contracts: next_contracts.clone(),
 +                })
 +                .await
 +                .map_err(|error| ControllerError::Agent(error.to_string()))?;
@@ -5951,11 +6242,14 @@ index 0000000..4fea815
 +mod tests;
 diff --git a/codex-rs/core/src/holycodex_identity_tests.rs b/codex-rs/core/src/holycodex_identity_tests.rs
 new file mode 100644
-index 0000000..fe99d17
+index 0000000..e76afe9
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex_identity_tests.rs
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,155 @@
 +use super::*;
++use holycodex_policy::AssignmentMetadata;
++use holycodex_policy::AssignmentStatus;
++use std::sync::Barrier;
 +
 +fn intent() -> Intent {
 +    Intent {
@@ -5992,18 +6286,59 @@ index 0000000..fe99d17
 +    }
 +}
 +
++fn specialist_contract(root: ThreadId, thread: ThreadId) -> NativeThreadContract {
++    let role = RoleTask::WorkerImplementation;
++    let route = route_policy(role).expect("worker route is canonical");
++    let assignment = Assignment {
++        id: uuid::Uuid::now_v7().to_string(),
++        intent_id: "intent-1".into(),
++        role,
++        objective: "bounded implementation".into(),
++        bounded_scope: vec!["src".into()],
++        constraints: vec![],
++        acceptance_criteria: vec!["checked".into()],
++        required_evidence: vec!["test result".into()],
++        mutability: Mutability::ScopedWrite,
++        metadata: AssignmentMetadata::default(),
++        status: AssignmentStatus::Ready,
++        specialist_id: Some(thread.to_string()),
++        result: None,
++    };
++    let grants = route.capabilities.iter().copied().collect::<BTreeSet<_>>();
++    let effects = effects_for(&grants, Mutability::ScopedWrite);
++    NativeThreadContract {
++        schema: IDENTITY_SCHEMA,
++        native_id: uuid::Uuid::now_v7().to_string(),
++        root_thread_id: root.to_string(),
++        thread_id: thread.to_string(),
++        role,
++        assignment: Some(assignment.clone()),
++        model: ModelId::Gpt6Luna,
++        effort: route.effort(Profile::Default),
++        profile: Profile::Default,
++        instruction_sha1: assignment_instruction_sha1(&assignment),
++        grants,
++        authority: NativeAuthorityContract {
++            max_mutability: Mutability::ScopedWrite,
++            ownership_paths: BTreeSet::new(),
++            allowed_tools: BTreeSet::new(),
++            delegation_disabled: true,
++            max_agent_depth: 1,
++        },
++        effects,
++    }
++}
++
 +#[test]
 +fn intent_and_root_identity_round_trip_from_isolated_home() {
 +    let home = tempfile::tempdir().expect("temporary home");
 +    let root = ThreadId::new();
 +    let contract = root_contract(root);
 +    validate_contract(&contract).expect("canonical Root contract");
-+    write_identity(
-+        home.path(),
-+        root,
-+        intent(),
-+        BTreeMap::from([(root.to_string(), contract.clone())]),
-+    )
++    update_identity_or_initialize(home.path(), root, intent(), |_intent, contracts| {
++        contracts.insert(root.to_string(), contract.clone());
++        Ok(())
++    })
 +    .expect("persist identity");
 +
 +    let loaded = read_identity(home.path(), root)
@@ -6023,14 +6358,48 @@ index 0000000..fe99d17
 +    let home = tempfile::tempdir().expect("temporary home");
 +    let other = ThreadId::new();
 +    assert!(
-+        write_identity(
-+            home.path(),
-+            root,
-+            intent(),
-+            BTreeMap::from([(other.to_string(), root_contract(other))]),
-+        )
++        update_identity_or_initialize(home.path(), root, intent(), |_intent, contracts| {
++            contracts.insert(other.to_string(), root_contract(other));
++            Ok(())
++        },)
 +        .is_err()
 +    );
++}
++
++#[test]
++fn concurrent_root_identity_merges_keep_each_specialist_contract() {
++    let home = tempfile::tempdir().expect("temporary home");
++    let root = ThreadId::new();
++    update_identity_or_initialize(home.path(), root, intent(), |_intent, contracts| {
++        contracts.insert(root.to_string(), root_contract(root));
++        Ok(())
++    })
++    .expect("initialize Root identity");
++    let barrier = Arc::new(Barrier::new(2));
++    let specialists = [ThreadId::new(), ThreadId::new()];
++    std::thread::scope(|scope| {
++        for thread in specialists {
++            let barrier = Arc::clone(&barrier);
++            let home = home.path();
++            scope.spawn(move || {
++                let contract = specialist_contract(root, thread);
++                barrier.wait();
++                update_identity(home, root, |_intent, contracts| {
++                    contracts.insert(thread.to_string(), contract);
++                    Ok(())
++                })
++                .expect("serialize identity merge");
++            });
++        }
++    });
++
++    let (_, contracts) = read_identity(home.path(), root)
++        .expect("read merged identity")
++        .expect("identity exists");
++    assert!(contracts.contains_key(&root.to_string()));
++    for thread in specialists {
++        assert!(contracts.contains_key(&thread.to_string()));
++    }
 +}
 diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
 index 2595ce5..bf06951 100644
