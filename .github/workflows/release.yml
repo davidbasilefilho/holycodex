@@ -117,7 +117,6 @@ jobs:
           CARGO_PROFILE_TEST_DEBUG: "0"
         run: |
           set -euo pipefail
-          unset RUSTUP_TOOLCHAIN
           source_sha="$(git rev-parse HEAD)"
           test "$source_sha" = "$GITHUB_SHA"
           printf 'focused_test_source_sha=%s\n' "$source_sha"
@@ -126,13 +125,44 @@ jobs:
           expected_toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' codex-rs/rust-toolchain.toml)"
           test -n "$expected_toolchain"
           rustup toolchain install "$expected_toolchain" --profile minimal --component rustfmt
-          toolchain_bin="$(dirname "$(rustup which --toolchain "$expected_toolchain" cargo)")"
+
+          normalize_path() {
+            local path="$1"
+            if command -v cygpath >/dev/null 2>&1; then
+              cygpath -u "$path"
+            else
+              printf '%s\n' "$path"
+            fi
+          }
+          rustc_windows_path="$(rustup which --toolchain "$expected_toolchain" rustc)"
+          cargo_windows_path="$(rustup which --toolchain "$expected_toolchain" cargo)"
+          rustfmt_windows_path="$(rustup which --toolchain "$expected_toolchain" rustfmt)"
+          rustc_path="$(normalize_path "$rustc_windows_path")"
+          cargo_path="$(normalize_path "$cargo_windows_path")"
+          rustfmt_path="$(normalize_path "$rustfmt_windows_path")"
+          toolchain_bin="$(dirname "$cargo_path")"
           export PATH="$toolchain_bin:$PATH"
-          actual_toolchain="$(cd codex-rs && rustc -V | awk '{print $2}')"
-          printf 'upstream_toolchain_expected=%s actual=%s\n' "$expected_toolchain" "$actual_toolchain"
-          test "$actual_toolchain" = "$expected_toolchain"
-          just test --locked --build-jobs 1 --test-threads 1 -p codex-core --lib --test all -E 'test(/(?:holycodex|holy|all_specialist_routes_allocate_and_build_requests_for_each_profile|quality_command_artifacts_are_cached_per_specialist_workspace|specialist_shell_authorization_reuses_workspace_cache_across_workdirs|reserved_command_tools_reject_external_runtimes_without_a_builtin|registry_records_reserved_exec_command_when_a_matching_tool_exists|shell_snapshot_tests|npm_workspace_snapshot|snapshot.*(?:unix|executable|root.?links?|symlink|race|budgets?|retention)|(?:unix|executable|root.?links?|symlink|race|budgets?|retention).*snapshot|operational.*grant|grant.*operational|spawn.*rollback|rollback.*spawn)/)'
-          just test --locked --build-jobs 1 --test-threads 1 -p codex-login -p codex-skills -p codex-skills-extension --lib -E 'test(/siwc::tests|embedded_holycodex_017_skill_inventory_is_complete|optional_workflows/)'
+          export RUSTC="$rustc_windows_path" RUSTFMT="$rustfmt_windows_path"
+          hash -r
+          selected_rustc="$(normalize_path "$(command -v rustc)")"
+          selected_cargo="$(normalize_path "$(command -v cargo)")"
+          selected_rustfmt="$(normalize_path "$(command -v rustfmt)")"
+          just_path="$(normalize_path "$(command -v just)")"
+          rustc_version="$("$rustc_path" -V)"
+          cargo_version="$("$cargo_path" -V)"
+          rustfmt_version="$("$rustfmt_path" --version)"
+          printf 'upstream_toolchain=%s\nrustc_path=%s\nrustc_selected_path=%s\nrustc_version=%s\ncargo_path=%s\ncargo_selected_path=%s\ncargo_version=%s\nrustfmt_path=%s\nrustfmt_selected_path=%s\nrustfmt_version=%s\njust_path=%s\n' \
+            "$expected_toolchain" "$rustc_path" "$selected_rustc" "$rustc_version" \
+            "$cargo_path" "$selected_cargo" "$cargo_version" "$rustfmt_path" "$selected_rustfmt" \
+            "$rustfmt_version" "$just_path"
+          same_executable() { [[ "$1" == "$2" || "$1.exe" == "$2" || "$1" == "$2.exe" ]]; }
+          same_executable "$selected_rustc" "$rustc_path"
+          same_executable "$selected_cargo" "$cargo_path"
+          same_executable "$selected_rustfmt" "$rustfmt_path"
+          test "$(printf '%s\n' "$rustc_version" | awk '{print $2}')" = "$expected_toolchain"
+          test "$(printf '%s\n' "$cargo_version" | awk '{print $2}')" = "$expected_toolchain"
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-core --lib --test all -E 'test(/(?:holycodex|holy|all_specialist_routes_allocate_and_build_requests_for_each_profile|quality_command_artifacts_are_cached_per_specialist_workspace|specialist_shell_authorization_reuses_workspace_cache_across_workdirs|reserved_command_tools_reject_external_runtimes_without_a_builtin|registry_records_reserved_exec_command_when_a_matching_tool_exists|shell_snapshot_tests|npm_workspace_snapshot|snapshot.*(?:unix|executable|root.?links?|symlink|race|budgets?|retention)|(?:unix|executable|root.?links?|symlink|race|budgets?|retention).*snapshot|operational.*grant|grant.*operational|spawn.*rollback|rollback.*spawn)/)'
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-login -p codex-skills -p codex-skills-extension --lib -E 'test(/siwc::tests|embedded_holycodex_017_skill_inventory_is_complete|optional_workflows/)'
           cd "$GITHUB_WORKSPACE"
           source_sha="$(git rev-parse HEAD)"
           test "$source_sha" = "$GITHUB_SHA"
@@ -146,17 +176,47 @@ jobs:
           CARGO_PROFILE_TEST_DEBUG: "0"
         run: |
           set -euo pipefail
-          unset RUSTUP_TOOLCHAIN
           cd .tmp/upstream
           expected_toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' codex-rs/rust-toolchain.toml)"
           test -n "$expected_toolchain"
           rustup toolchain install "$expected_toolchain" --profile minimal --component rustfmt
-          toolchain_bin="$(dirname "$(rustup which --toolchain "$expected_toolchain" cargo)")"
+
+          normalize_path() {
+            local path
+            path="$1"
+            if command -v cygpath >/dev/null 2>&1; then
+              cygpath -u "$path"
+            else
+              printf '%s\n' "$path"
+            fi
+          }
+          rustc_windows_path="$(rustup which --toolchain "$expected_toolchain" rustc)"
+          cargo_windows_path="$(rustup which --toolchain "$expected_toolchain" cargo)"
+          rustfmt_windows_path="$(rustup which --toolchain "$expected_toolchain" rustfmt)"
+          rustc_path="$(normalize_path "$rustc_windows_path")"
+          cargo_path="$(normalize_path "$cargo_windows_path")"
+          rustfmt_path="$(normalize_path "$rustfmt_windows_path")"
+          toolchain_bin="$(dirname "$cargo_path")"
           export PATH="$toolchain_bin:$PATH"
-          actual_toolchain="$(cd codex-rs && rustc -V | awk '{print $2}')"
-          printf 'upstream_toolchain_expected=%s actual=%s\n' "$expected_toolchain" "$actual_toolchain"
-          test "$actual_toolchain" = "$expected_toolchain"
-          just test --locked --build-jobs 1 --test-threads 1 -p codex-cli
+          export RUSTC="$rustc_windows_path" RUSTFMT="$rustfmt_windows_path"
+          hash -r
+          selected_rustc="$(normalize_path "$(command -v rustc)")"
+          selected_cargo="$(normalize_path "$(command -v cargo)")"
+          selected_rustfmt="$(normalize_path "$(command -v rustfmt)")"
+          just_path="$(normalize_path "$(command -v just)")"
+          rustc_version="$("$rustc_path" -V)"
+          cargo_version="$("$cargo_path" -V)"
+          rustfmt_version="$("$rustfmt_path" --version)"
+          printf 'upstream_toolchain=%s\nrustc_path=%s\nrustc_selected_path=%s\nrustc_version=%s\ncargo_path=%s\ncargo_selected_path=%s\ncargo_version=%s\nrustfmt_path=%s\nrustfmt_selected_path=%s\nrustfmt_version=%s\njust_path=%s\n' \
+            "$expected_toolchain" "$rustc_path" "$selected_rustc" "$rustc_version" "$cargo_path" "$selected_cargo" "$cargo_version" \
+            "$rustfmt_path" "$selected_rustfmt" "$rustfmt_version" "$just_path"
+          same_executable() { [[ "$1" == "$2" || "$1.exe" == "$2" || "$1" == "$2.exe" ]]; }
+          same_executable "$selected_rustc" "$rustc_path"
+          same_executable "$selected_cargo" "$cargo_path"
+          same_executable "$selected_rustfmt" "$rustfmt_path"
+          test "$(printf '%s\n' "$rustc_version" | awk '{print $2}')" = "$expected_toolchain"
+          test "$(printf '%s\n' "$cargo_version" | awk '{print $2}')" = "$expected_toolchain"
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-cli
       - name: Build one native runtime under both names
         run: cargo run --locked -p holycodex-dev -- package --upstream .tmp/upstream --output .tmp/native --release
       - name: Stage and pack platform npm package
