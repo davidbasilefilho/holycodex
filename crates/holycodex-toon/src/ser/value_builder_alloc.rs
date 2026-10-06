@@ -1,7 +1,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{
-    format,
     string::{String, ToString},
+    vec,
     vec::Vec,
 };
 
@@ -11,23 +11,23 @@ use serde::ser::*;
 use crate::options::Options;
 use crate::value::{Number, Value};
 
-pub fn to_value<T: Serialize + ?Sized>(value: &T, _options: &Options) -> Value {
+pub fn to_value<T: Serialize + ?Sized>(value: &T, _options: &Options) -> Result<Value, BuildError> {
     let mut ser = ValueSerializer;
-    value.serialize(&mut ser).unwrap_or(Value::Null)
+    value.serialize(&mut ser)
 }
 
 struct ValueSerializer;
 
 #[derive(Debug)]
-pub struct BuildError;
+pub struct BuildError(String);
 impl core::fmt::Display for BuildError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("ser error")
+        f.write_str(&self.0)
     }
 }
 impl serde::ser::Error for BuildError {
-    fn custom<T: core::fmt::Display>(_t: T) -> Self {
-        BuildError
+    fn custom<T: core::fmt::Display>(message: T) -> Self {
+        BuildError(message.to_string())
     }
 }
 impl core::error::Error for BuildError {}
@@ -264,13 +264,9 @@ impl SerializeMap for MapSerializer {
                 }
             }
             Value::Null => "null".into(),
-            other => format!(
-                "{}",
-                match other {
-                    Value::String(s) => s,
-                    _ => String::new(),
-                }
-            ),
+            Value::Array(_) | Value::Object(_) => {
+                return Err(BuildError::custom("map key must be a scalar"));
+            }
         };
         self.next_key = Some(s);
         Ok(())
@@ -328,8 +324,7 @@ impl SerializeStructVariant for StructVariantSerializer {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        let mut outer = Vec::new();
-        outer.push((self.name, Value::Object(self.map)));
+        let outer = vec![(self.name, Value::Object(self.map))];
         Ok(Value::Object(outer))
     }
 }

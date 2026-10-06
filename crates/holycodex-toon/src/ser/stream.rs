@@ -285,7 +285,8 @@ impl<'a, 'de> SerializeSeq for SeqSer<'a, 'de> {
     type Error = SerError;
 
     fn serialize_element<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
-        let val = crate::ser::value_builder::to_value(value, self.parent.opts);
+        let val = crate::ser::value_builder::to_value(value, self.parent.opts)
+            .map_err(SerError::custom)?;
         self.items.push(val);
         Ok(())
     }
@@ -411,7 +412,8 @@ impl<'a, 'de> SerializeSeq for SeqSerAlloc<'a, 'de> {
     type Error = SerError;
 
     fn serialize_element<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
-        let v = crate::ser::value_builder_alloc::to_value(value, self.parent.opts);
+        let v = crate::ser::value_builder_alloc::to_value(value, self.parent.opts)
+            .map_err(SerError::custom)?;
         self.items.push(v);
         Ok(())
     }
@@ -550,7 +552,8 @@ impl<'a, 'de> SerializeMap for MapSer<'a, 'de> {
         // When key folding is enabled, buffer entries for collision detection
         #[cfg(feature = "json")]
         if self.parent.opts.key_folding == crate::options::KeyFolding::Safe {
-            let val = crate::ser::value_builder::to_value(value, self.parent.opts);
+            let val = crate::ser::value_builder::to_value(value, self.parent.opts)
+                .map_err(SerError::custom)?;
             if self.buffered.is_none() {
                 self.buffered = Some(Vec::new());
             }
@@ -571,7 +574,8 @@ impl<'a, 'de> SerializeMap for MapSer<'a, 'de> {
         // Try to serialize to Value to detect arrays
         #[cfg(feature = "json")]
         {
-            let val = crate::ser::value_builder::to_value(value, self.parent.opts);
+            let val = crate::ser::value_builder::to_value(value, self.parent.opts)
+                .map_err(SerError::custom)?;
             if let Value::Array(items) = val {
                 // Use spec-compliant keyed array encoding
                 encode_keyed_array_json(
@@ -599,7 +603,8 @@ impl<'a, 'de> SerializeMap for MapSer<'a, 'de> {
 
         #[cfg(not(feature = "json"))]
         {
-            let val = crate::ser::value_builder_alloc::to_value(value, self.parent.opts);
+            let val = crate::ser::value_builder_alloc::to_value(value, self.parent.opts)
+                .map_err(SerError::custom)?;
             if let IValue::Array(items) = val {
                 // Use spec-compliant keyed array encoding
                 encode_keyed_array_alloc(
@@ -662,7 +667,7 @@ impl<'a, 'de> SerializeStruct for MapSer<'a, 'de> {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Ok(())
+        SerializeMap::end(self)
     }
 }
 
@@ -777,7 +782,7 @@ fn encode_list_item_json(
                 );
                 w.line_list_item(indent, &header);
 
-                // Rows at indent + 4
+                // Rows at indent + 2 * opts.indent
                 for item in items {
                     let inner_obj = item.as_object().unwrap();
                     let cells: Vec<String> = keys
@@ -788,7 +793,7 @@ fn encode_list_item_json(
                         })
                         .collect();
                     let row = join_with_delim(&cells, dch);
-                    w.line(indent + 4, &row);
+                    w.line(indent + 2 * opts.indent, &row);
                 }
 
                 // Remaining fields at depth + 1 (indent + opts.indent)
@@ -814,8 +819,13 @@ fn encode_list_item_json(
                         }
                         Value::Object(_) => {
                             w.line_key_only(indent + opts.indent, &key_fmt);
-                            crate::encode::encoders::encode_value(v, w, opts, indent + 4)
-                                .map_err(|e| SerError::custom(e.to_string()))?;
+                            crate::encode::encoders::encode_value(
+                                v,
+                                w,
+                                opts,
+                                indent + 2 * opts.indent,
+                            )
+                            .map_err(|e| SerError::custom(e.to_string()))?;
                         }
                     }
                 }
@@ -876,7 +886,7 @@ fn encode_list_item_json(
                             ),
                         );
                         for inner in items {
-                            encode_list_item_json(inner, w, opts, indent + 4)?;
+                            encode_list_item_json(inner, w, opts, indent + 2 * opts.indent)?;
                         }
                     }
                 }
@@ -886,25 +896,42 @@ fn encode_list_item_json(
                         for (k, v) in inner_obj {
                             let key_fmt = primitives::format_key(k);
                             match v {
-                                Value::Null => {
-                                    w.line_kv(indent + 4, &key_fmt, primitives::format_null())
+                                Value::Null => w.line_kv(
+                                    indent + 2 * opts.indent,
+                                    &key_fmt,
+                                    primitives::format_null(),
+                                ),
+                                Value::Bool(b) => w.line_kv(
+                                    indent + 2 * opts.indent,
+                                    &key_fmt,
+                                    primitives::format_bool(*b),
+                                ),
+                                Value::Number(n) => {
+                                    w.line_kv(indent + 2 * opts.indent, &key_fmt, &n.to_string())
                                 }
-                                Value::Bool(b) => {
-                                    w.line_kv(indent + 4, &key_fmt, primitives::format_bool(*b))
-                                }
-                                Value::Number(n) => w.line_kv(indent + 4, &key_fmt, &n.to_string()),
                                 Value::String(s) => w.line_kv(
-                                    indent + 4,
+                                    indent + 2 * opts.indent,
                                     &key_fmt,
                                     &primitives::format_string(s, opts.delimiter),
                                 ),
                                 Value::Array(arr) => {
-                                    encode_keyed_array_json(&key_fmt, arr, w, opts, indent + 4)?;
+                                    encode_keyed_array_json(
+                                        &key_fmt,
+                                        arr,
+                                        w,
+                                        opts,
+                                        indent + 2 * opts.indent,
+                                    )?;
                                 }
                                 Value::Object(_) => {
-                                    w.line_key_only(indent + 4, &key_fmt);
-                                    crate::encode::encoders::encode_value(v, w, opts, indent + 6)
-                                        .map_err(|e| SerError::custom(e.to_string()))?;
+                                    w.line_key_only(indent + 2 * opts.indent, &key_fmt);
+                                    crate::encode::encoders::encode_value(
+                                        v,
+                                        w,
+                                        opts,
+                                        indent + 3 * opts.indent,
+                                    )
+                                    .map_err(|e| SerError::custom(e.to_string()))?;
                                 }
                             }
                         }
@@ -933,7 +960,7 @@ fn encode_list_item_json(
                     }
                     Value::Object(_) => {
                         w.line_key_only(indent + opts.indent, &key_fmt);
-                        crate::encode::encoders::encode_value(v, w, opts, indent + 4)
+                        crate::encode::encoders::encode_value(v, w, opts, indent + 2 * opts.indent)
                             .map_err(|e| SerError::custom(e.to_string()))?;
                     }
                 }
@@ -1098,73 +1125,65 @@ fn encode_list_item_alloc(
             let first_key_fmt = primitives::format_key(first_key);
 
             // Special case: first field is a tabular array (§10)
-            if let IValue::Array(items) = first_value {
-                if let Some(keys) = is_tabular_array_alloc(items) {
-                    let delim = opts.delimiter;
-                    let dch = primitives::delimiter_char(delim);
-                    let field_cells: Vec<String> =
-                        keys.iter().map(|k| primitives::format_key(k)).collect();
-                    let header = format!(
-                        "{}{}",
-                        first_key_fmt,
-                        primitives::format_tabular_header(items.len(), &field_cells, delim)
-                    );
-                    w.line_list_item(indent, &header);
+            if let IValue::Array(items) = first_value
+                && let Some(keys) = is_tabular_array_alloc(items)
+            {
+                let delim = opts.delimiter;
+                let dch = primitives::delimiter_char(delim);
+                let field_cells: Vec<String> =
+                    keys.iter().map(|k| primitives::format_key(k)).collect();
+                let header = format!(
+                    "{}{}",
+                    first_key_fmt,
+                    primitives::format_tabular_header(items.len(), &field_cells, delim)
+                );
+                w.line_list_item(indent, &header);
 
-                    // Rows at indent + 4
-                    for item in items {
-                        let obj = match item {
-                            IValue::Object(p) => p,
-                            _ => unreachable!(),
-                        };
-                        let cells: Vec<String> = keys
-                            .iter()
-                            .map(|k| {
-                                let v = obj.iter().find(|(kk, _)| kk == k).map(|(_, v)| v).unwrap();
-                                format_primitive_value_alloc(v, delim)
-                            })
-                            .collect();
-                        let row = join_with_delim(&cells, dch);
-                        w.line(indent + 4, &row);
-                    }
+                // Rows at indent + 2 * opts.indent
+                for item in items {
+                    let obj = match item {
+                        IValue::Object(p) => p,
+                        _ => unreachable!(),
+                    };
+                    let cells: Vec<String> = keys
+                        .iter()
+                        .map(|k| {
+                            let v = obj.iter().find(|(kk, _)| kk == k).map(|(_, v)| v).unwrap();
+                            format_primitive_value_alloc(v, delim)
+                        })
+                        .collect();
+                    let row = join_with_delim(&cells, dch);
+                    w.line(indent + 2 * opts.indent, &row);
+                }
 
-                    // Remaining fields at depth + 1 (indent + opts.indent)
-                    for (k, v) in iter {
-                        let key_fmt = primitives::format_key(k);
-                        match v {
-                            IValue::Null => {
-                                w.line_kv(indent + opts.indent, &key_fmt, primitives::format_null())
-                            }
-                            IValue::Bool(b) => w.line_kv(
-                                indent + opts.indent,
-                                &key_fmt,
-                                primitives::format_bool(*b),
-                            ),
-                            IValue::Number(n) => {
-                                w.line_kv(indent + opts.indent, &key_fmt, &n.to_string())
-                            }
-                            IValue::String(s) => w.line_kv(
-                                indent + opts.indent,
-                                &key_fmt,
-                                &primitives::format_string(s, opts.delimiter),
-                            ),
-                            IValue::Array(arr) => {
-                                encode_keyed_array_alloc(
-                                    &key_fmt,
-                                    arr,
-                                    w,
-                                    opts,
-                                    indent + opts.indent,
-                                )?;
-                            }
-                            IValue::Object(_) => {
-                                w.line_key_only(indent + opts.indent, &key_fmt);
-                                encode_internal_value_alloc(v, w, opts, indent + 4)?;
-                            }
+                // Remaining fields at depth + 1 (indent + opts.indent)
+                for (k, v) in iter {
+                    let key_fmt = primitives::format_key(k);
+                    match v {
+                        IValue::Null => {
+                            w.line_kv(indent + opts.indent, &key_fmt, primitives::format_null())
+                        }
+                        IValue::Bool(b) => {
+                            w.line_kv(indent + opts.indent, &key_fmt, primitives::format_bool(*b))
+                        }
+                        IValue::Number(n) => {
+                            w.line_kv(indent + opts.indent, &key_fmt, &n.to_string())
+                        }
+                        IValue::String(s) => w.line_kv(
+                            indent + opts.indent,
+                            &key_fmt,
+                            &primitives::format_string(s, opts.delimiter),
+                        ),
+                        IValue::Array(arr) => {
+                            encode_keyed_array_alloc(&key_fmt, arr, w, opts, indent + opts.indent)?;
+                        }
+                        IValue::Object(_) => {
+                            w.line_key_only(indent + opts.indent, &key_fmt);
+                            encode_internal_value_alloc(v, w, opts, indent + 2 * opts.indent)?;
                         }
                     }
-                    return Ok(());
                 }
+                return Ok(());
             }
 
             // Standard case: first field on hyphen line
@@ -1221,7 +1240,7 @@ fn encode_list_item_alloc(
                             ),
                         );
                         for inner in items {
-                            encode_list_item_alloc(inner, w, opts, indent + 4)?;
+                            encode_list_item_alloc(inner, w, opts, indent + 2 * opts.indent)?;
                         }
                     }
                 }
@@ -1231,26 +1250,41 @@ fn encode_list_item_alloc(
                         for (k, v) in inner_obj {
                             let key_fmt = primitives::format_key(k);
                             match v {
-                                IValue::Null => {
-                                    w.line_kv(indent + 4, &key_fmt, primitives::format_null())
-                                }
-                                IValue::Bool(b) => {
-                                    w.line_kv(indent + 4, &key_fmt, primitives::format_bool(*b))
-                                }
+                                IValue::Null => w.line_kv(
+                                    indent + 2 * opts.indent,
+                                    &key_fmt,
+                                    primitives::format_null(),
+                                ),
+                                IValue::Bool(b) => w.line_kv(
+                                    indent + 2 * opts.indent,
+                                    &key_fmt,
+                                    primitives::format_bool(*b),
+                                ),
                                 IValue::Number(n) => {
-                                    w.line_kv(indent + 4, &key_fmt, &n.to_string())
+                                    w.line_kv(indent + 2 * opts.indent, &key_fmt, &n.to_string())
                                 }
                                 IValue::String(s) => w.line_kv(
-                                    indent + 4,
+                                    indent + 2 * opts.indent,
                                     &key_fmt,
                                     &primitives::format_string(s, opts.delimiter),
                                 ),
                                 IValue::Array(arr) => {
-                                    encode_keyed_array_alloc(&key_fmt, arr, w, opts, indent + 4)?;
+                                    encode_keyed_array_alloc(
+                                        &key_fmt,
+                                        arr,
+                                        w,
+                                        opts,
+                                        indent + 2 * opts.indent,
+                                    )?;
                                 }
                                 IValue::Object(_) => {
-                                    w.line_key_only(indent + 4, &key_fmt);
-                                    encode_internal_value_alloc(v, w, opts, indent + 6)?;
+                                    w.line_key_only(indent + 2 * opts.indent, &key_fmt);
+                                    encode_internal_value_alloc(
+                                        v,
+                                        w,
+                                        opts,
+                                        indent + 3 * opts.indent,
+                                    )?;
                                 }
                             }
                         }
@@ -1279,7 +1313,7 @@ fn encode_list_item_alloc(
                     }
                     IValue::Object(_) => {
                         w.line_key_only(indent + opts.indent, &key_fmt);
-                        encode_internal_value_alloc(v, w, opts, indent + 4)?;
+                        encode_internal_value_alloc(v, w, opts, indent + 2 * opts.indent)?;
                     }
                 }
             }

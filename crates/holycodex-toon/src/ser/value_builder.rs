@@ -30,9 +30,12 @@ use serde_json::{Map, Number, Value};
 
 use crate::options::Options;
 
-pub fn to_value<T: Serialize + ?Sized>(value: &T, _options: &Options) -> Value {
+pub fn to_value<T: Serialize + ?Sized>(
+    value: &T,
+    _options: &Options,
+) -> Result<Value, serde_json::Error> {
     let mut ser = ValueSerializer;
-    value.serialize(&mut ser).unwrap_or(Value::Null)
+    value.serialize(&mut ser)
 }
 
 struct ValueSerializer;
@@ -273,7 +276,9 @@ impl SerializeMap for MapSerializer {
                 }
             }
             Value::Null => "null".into(),
-            other => other.to_string(),
+            Value::Array(_) | Value::Object(_) => {
+                return Err(serde_json::Error::custom("map key must be a scalar"));
+            }
         };
         self.next_key = Some(s);
         Ok(())

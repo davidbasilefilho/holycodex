@@ -135,9 +135,12 @@ impl<'a> Parser<'a> {
                     // Normalize integer-valued floats to integers
                     // Use f % 1.0 instead of f.fract() for no_std compatibility
                     if f.is_finite() && f % 1.0 == 0.0 {
-                        if f >= 0.0 {
+                        // The upper u64 bound rounds to 2^64 in f64, so it must
+                        // be exclusive. Saturating casts would silently change
+                        // larger exponent-form values.
+                        if f >= 0.0 && f < u64::MAX as f64 {
                             return Value::Number(Number::U64(f as u64));
-                        } else {
+                        } else if f < 0.0 && f >= i64::MIN as f64 {
                             return Value::Number(Number::I64(f as i64));
                         }
                     }

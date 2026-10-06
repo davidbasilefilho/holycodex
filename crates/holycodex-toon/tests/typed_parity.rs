@@ -1,8 +1,12 @@
 #![cfg(feature = "serde")]
 
-use holycodex_toon::{ExpandPaths, Options, decode_from_str, encode_to_string};
+#[cfg(feature = "json")]
+use holycodex_toon::encode_to_string;
+use holycodex_toon::{ExpandPaths, Options, decode_from_str};
 use serde::{Deserialize, de::DeserializeOwned};
-use serde_json::{Value, json};
+#[cfg(feature = "json")]
+use serde_json::Value;
+use serde_json::json;
 use std::collections::BTreeMap;
 
 fn decode<T: DeserializeOwned + PartialEq + std::fmt::Debug + 'static>(
@@ -133,6 +137,7 @@ fn typed_decoders_support_keyed_object_headers() {
     }
 }
 #[test]
+#[cfg(feature = "json")]
 fn list_first_fields_round_trip_at_nondefault_indentation() {
     for value in [
         json!([{"a": [{"name": "one"}, {"name": "two"}], "z": "tail"}]),

@@ -18,7 +18,7 @@ mod value_builder_alloc;
 // Non-streaming encoding via serde_json::Value is only available with "json"
 #[cfg(all(feature = "serde", feature = "json"))]
 pub fn to_string<T: Serialize>(value: &T, options: &Options) -> Result<String> {
-    let v = value_builder::to_value(value, options);
+    let v = value_builder::to_value(value, options)?;
     crate::encode::encode_value_to_string(&v, options)
 }
 

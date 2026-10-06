@@ -57,11 +57,15 @@ pub fn decode_bounded<T: serde::de::DeserializeOwned + 'static>(s: &str) -> Resu
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
 
-#[cfg(feature = "std")]
-use std::io::{Read, Write};
+#[cfg(all(feature = "std", feature = "serde"))]
+use std::io::Read;
+#[cfg(all(feature = "std", feature = "serde", feature = "json"))]
+use std::io::Write;
 
+#[cfg(all(feature = "serde", feature = "json"))]
+use serde::Serialize;
 #[cfg(feature = "serde")]
-use serde::{Serialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 
 #[cfg(all(feature = "serde", feature = "json"))]
 pub fn encode_to_string<T: Serialize>(value: &T, options: &Options) -> Result<String> {
@@ -69,7 +73,7 @@ pub fn encode_to_string<T: Serialize>(value: &T, options: &Options) -> Result<St
     crate::encode::encode_value_to_string(&value, options)
 }
 
-#[cfg(all(feature = "serde", feature = "std"))]
+#[cfg(all(feature = "serde", feature = "std", feature = "json"))]
 pub fn encode_to_writer<W: Write, T: Serialize>(
     mut writer: W,
     value: &T,
