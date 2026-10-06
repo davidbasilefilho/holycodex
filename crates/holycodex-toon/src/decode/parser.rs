@@ -1908,85 +1908,8 @@ fn is_array_header_line(s: &str) -> bool {
     }
 }
 
-#[cfg(feature = "perf_memchr")]
 fn split_delim_aware<'a>(s: &'a str, dch: char) -> Vec<&'a str> {
     let bytes = s.as_bytes();
-    let delim = dch as u8;
-    #[cfg(feature = "perf_smallvec")]
-    let mut out: smallvec::SmallVec<[&'a str; 8]> = smallvec::SmallVec::new();
-    #[cfg(not(feature = "perf_smallvec"))]
-    let mut out: Vec<&'a str> = Vec::new();
-
-    let mut in_str = false;
-    let mut escape = false;
-    let mut start = 0usize;
-    let mut i = 0usize;
-    while i < bytes.len() {
-        if in_str {
-            // Inside quotes, only '"' and '\\' matter; delimiter is ignored.
-            if escape {
-                escape = false;
-                i += 1;
-                continue;
-            }
-            if let Some(rel) = memchr::memchr2(b'"', b'\\', &bytes[i..]) {
-                let idx = i + rel;
-                match bytes[idx] {
-                    b'\\' => {
-                        escape = true;
-                        i = idx + 1;
-                    }
-                    b'"' => {
-                        in_str = false;
-                        i = idx + 1;
-                    }
-                    _ => unreachable!(),
-                }
-                continue;
-            } else {
-                break;
-            }
-        } else {
-            // Outside quotes, any of '"' or delimiter are interesting.
-            if let Some(rel) = memchr::memchr2(b'"', delim, &bytes[i..]) {
-                let idx = i + rel;
-                let b = bytes[idx];
-                if b == b'"' {
-                    in_str = true;
-                    i = idx + 1;
-                    continue;
-                }
-                // delimiter - preserve empty tokens for spec compliance
-                let token = trim_ascii(&s[start..idx]);
-                out.push(token);
-                start = idx + 1;
-                i = start;
-                continue;
-            } else {
-                break;
-            }
-        }
-    }
-    if start <= bytes.len() {
-        let token = trim_ascii(&s[start..]);
-        out.push(token);
-    }
-    #[cfg(feature = "perf_smallvec")]
-    {
-        out.into_vec()
-    }
-    #[cfg(not(feature = "perf_smallvec"))]
-    {
-        out
-    }
-}
-
-#[cfg(not(feature = "perf_memchr"))]
-fn split_delim_aware<'a>(s: &'a str, dch: char) -> Vec<&'a str> {
-    let bytes = s.as_bytes();
-    #[cfg(feature = "perf_smallvec")]
-    let mut out: smallvec::SmallVec<[&'a str; 8]> = smallvec::SmallVec::new();
-    #[cfg(not(feature = "perf_smallvec"))]
     let mut out: Vec<&'a str> = Vec::new();
     let mut in_str = false;
     let mut escape = false;
@@ -2039,14 +1962,7 @@ fn split_delim_aware<'a>(s: &'a str, dch: char) -> Vec<&'a str> {
         let token = trim_ascii(&s[start..len]);
         out.push(token);
     }
-    #[cfg(feature = "perf_smallvec")]
-    {
-        out.into_vec()
-    }
-    #[cfg(not(feature = "perf_smallvec"))]
-    {
-        out
-    }
+    out
 }
 
 fn trim_ascii(s: &str) -> &str {

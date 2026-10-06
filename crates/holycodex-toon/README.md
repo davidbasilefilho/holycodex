@@ -11,3 +11,8 @@ strict validation and configured path expansion, rather than a separate fast
 path. Enabling a decoding feature must not weaken input validation or change
 supported TOON syntax. This favors consistent correctness over the former
 experimental fast path's allocation behavior.
+
+The `perf_memchr`, `perf_smallvec`, and `perf_lexical` feature names are also
+retained as compatibility switches. They currently use canonical tokenization
+and do not enable separate optimization paths. All feature configurations must
+preserve the same TOON grammar and pass the pinned conformance corpus.
