@@ -8149,7 +8149,7 @@ index bdf6877..0063e04 100644
              shell_mode,
 diff --git a/codex-rs/core/src/tools/handlers/unified_exec/npm_workspace_snapshot.rs b/codex-rs/core/src/tools/handlers/unified_exec/npm_workspace_snapshot.rs
 new file mode 100644
-index 0000000..34c5b36
+index 0000000..f8d8721
 --- /dev/null
 +++ b/codex-rs/core/src/tools/handlers/unified_exec/npm_workspace_snapshot.rs
 @@ -0,0 +1,935 @@
@@ -8916,7 +8916,7 @@ index 0000000..34c5b36
 +            "module.exports = 'resolved-from-target';",
 +        )
 +        .unwrap();
-+        std::os::unix::fs::symlink("../tool/bin/tool.js", bin.join("tool.js")).unwrap();
++        std::os::unix::fs::symlink("../tool/bin/tool.js", bin.join("tool")).unwrap();
 +        fs::write(
 +            package.join("package.json"),
 +            r#"{"scripts":{"build":"tool"}}"#,
@@ -8942,7 +8942,7 @@ index 0000000..34c5b36
 +            "resolved-from-target"
 +        );
 +        assert!(
-+            fs::symlink_metadata(snapshot.cwd.join("node_modules/.bin/tool.js"))
++            fs::symlink_metadata(snapshot.cwd.join("node_modules/.bin/tool"))
 +                .unwrap()
 +                .file_type()
 +                .is_symlink()
