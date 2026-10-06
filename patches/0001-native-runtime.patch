@@ -14030,7 +14030,7 @@ index 92d9bf2..d5fd91c 100644
      assert_eq!(is_first_party_originator("codex_vscode"), true);
      assert_eq!(is_first_party_originator("Codex Something Else"), true);
 diff --git a/codex-rs/login/src/auth/manager.rs b/codex-rs/login/src/auth/manager.rs
-index 14cfee9..f07a250 100644
+index 14cfee9..17f1149 100644
 --- a/codex-rs/login/src/auth/manager.rs
 +++ b/codex-rs/login/src/auth/manager.rs
 @@ -209,7 +209,7 @@ const REFRESH_TOKEN_INVALIDATED_MESSAGE: &str = "Your access token could not be
@@ -14249,7 +14249,7 @@ index 14cfee9..f07a250 100644
          if let Some(tokens) = auth_dot_json.tokens.as_ref()
              && let Ok(Some(expires_at)) = parse_jwt_expiration(&tokens.access_token)
          {
-@@ -3094,15 +3157,93 @@ impl AuthManager {
+@@ -3094,15 +3157,96 @@ impl AuthManager {
          auth: &ChatgptAuth,
          refresh_token: String,
      ) -> Result<(), RefreshTokenError> {
@@ -14324,7 +14324,10 @@ index 14cfee9..f07a250 100644
 +                .map_err(std::io::Error::other)?,
 +        );
 +        if let Some(id_token) = response.id_token {
-+            let jwks = crate::siwc::fetch_openai_jwks()
++            let jwks_client =
++                create_default_auth_client(crate::siwc::JWKS_ENDPOINT, &self.auth_route_config)
++                    .map_err(std::io::Error::other)?;
++            let jwks = crate::siwc::fetch_openai_jwks(&jwks_client)
 +                .await
 +                .map_err(std::io::Error::other)?;
 +            let identity = crate::siwc::validate_refresh_id_token(
@@ -14351,7 +14354,7 @@ index 14cfee9..f07a250 100644
          self.reload().await;
  
          Ok(())
-@@ -3122,6 +3263,80 @@ fn auth_config_from(config: &impl AuthManagerConfig) -> AuthConfig {
+@@ -3122,6 +3266,80 @@ fn auth_config_from(config: &impl AuthManagerConfig) -> AuthConfig {
      }
  }
  
@@ -15180,20 +15183,21 @@ index abbbf1d..73afc77 100644
  pub mod token_data;
  pub use auth::WorkspaceRouting;
 diff --git a/codex-rs/login/src/server.rs b/codex-rs/login/src/server.rs
-index d9dcb32..2f394b9 100644
+index d9dcb32..3ca8a1e 100644
 --- a/codex-rs/login/src/server.rs
 +++ b/codex-rs/login/src/server.rs
-@@ -29,9 +29,7 @@ use std::time::Duration;
+@@ -29,9 +29,8 @@ use std::time::Duration;
  use crate::auth::AuthDotJson;
  use crate::auth::AuthKeyringBackendKind;
  use crate::auth::save_auth;
 -use crate::callback_params::LIFE_SCIENCES_OAUTH_STATE_SUFFIX;
  use crate::callback_params::LoginCallbackResult;
 -use crate::callback_params::LoginOnboardingEntrypoint;
++use crate::default_client::create_default_auth_client;
  use crate::default_client::originator;
  use crate::oauth::AuthorizationCodeGrant;
  use crate::oauth::AuthorizationRequest;
-@@ -53,7 +51,6 @@ use crate::success_page::LoginSuccessRedirect;
+@@ -53,7 +52,6 @@ use crate::success_page::LoginSuccessRedirect;
  use crate::success_page::compose_success_url;
  use crate::success_page::jwt_auth_claims;
  use crate::token_data::TokenData;
@@ -15201,7 +15205,7 @@ index d9dcb32..2f394b9 100644
  use chrono::Utc;
  use codex_config::types::AuthCredentialsStoreMode;
  use codex_http_client::ClientRouteClass;
-@@ -175,6 +172,23 @@ impl ShutdownHandle {
+@@ -175,6 +173,23 @@ impl ShutdownHandle {
  
  /// Starts a local callback server and returns the browser auth URL.
  pub fn run_login_server(opts: ServerOptions) -> io::Result<LoginServer> {
@@ -15225,7 +15229,7 @@ index d9dcb32..2f394b9 100644
      let pkce = generate_pkce();
      let state = opts.force_state.clone().unwrap_or_else(generate_state);
  
-@@ -191,15 +205,24 @@ pub fn run_login_server(opts: ServerOptions) -> io::Result<LoginServer> {
+@@ -191,15 +206,24 @@ pub fn run_login_server(opts: ServerOptions) -> io::Result<LoginServer> {
      let server = Arc::new(server);
  
      let redirect_uri = format!("http://127.0.0.1:{actual_port}/auth/callback");
@@ -15259,7 +15263,7 @@ index d9dcb32..2f394b9 100644
      if opts.open_browser {
          let _ = webbrowser::open(&auth_url);
      }
-@@ -247,6 +270,7 @@ pub fn run_login_server(opts: ServerOptions) -> io::Result<LoginServer> {
+@@ -247,6 +271,7 @@ pub fn run_login_server(opts: ServerOptions) -> io::Result<LoginServer> {
                                  &pkce,
                                  actual_port,
                                  &state,
@@ -15267,7 +15271,7 @@ index d9dcb32..2f394b9 100644
                              )
                              .await;
  
-@@ -347,6 +371,7 @@ async fn process_request(
+@@ -347,6 +372,7 @@ async fn process_request(
      pkce: &PkceCodes,
      actual_port: u16,
      state: &str,
@@ -15275,7 +15279,7 @@ index d9dcb32..2f394b9 100644
  ) -> HandledRequest {
      let parsed_url = match url::Url::parse(&format!("http://localhost{url_raw}")) {
          Ok(u) => u,
-@@ -361,16 +386,8 @@ async fn process_request(
+@@ -361,16 +387,8 @@ async fn process_request(
  
      match path.as_str() {
          "/auth/callback" => {
@@ -15294,7 +15298,7 @@ index d9dcb32..2f394b9 100644
              let validation = params.validate(state);
              let has_code = params.code.as_ref().is_some_and(|code| !code.is_empty());
              let has_state = params.state.as_ref().is_some_and(|state| !state.is_empty());
-@@ -414,9 +431,18 @@ async fn process_request(
+@@ -414,9 +432,18 @@ async fn process_request(
                  }
              };
  
@@ -15314,14 +15318,19 @@ index d9dcb32..2f394b9 100644
                  redirect_uri,
                  pkce,
                  code,
-@@ -424,7 +450,25 @@ async fn process_request(
+@@ -424,7 +451,30 @@ async fn process_request(
              )
              .await
              {
 -                Ok((tokens, client)) => {
 +                Ok((tokens, _client)) => {
 +                    let verified = async {
-+                        let jwks = crate::siwc::fetch_openai_jwks()
++                        let jwks_client = create_default_auth_client(
++                            crate::siwc::JWKS_ENDPOINT,
++                            &opts.auth_route_config,
++                        )
++                        .map_err(io::Error::other)?;
++                        let jwks = crate::siwc::fetch_openai_jwks(&jwks_client)
 +                            .await
 +                            .map_err(io::Error::other)?;
 +                        pending.validate_tokens(&tokens, &jwks, issued_client)
@@ -15341,7 +15350,7 @@ index d9dcb32..2f394b9 100644
                      if let Err(message) = ensure_workspace_allowed(
                          opts.forced_chatgpt_workspace_id.as_deref(),
                          &tokens.id_token,
-@@ -437,17 +481,9 @@ async fn process_request(
+@@ -437,17 +487,9 @@ async fn process_request(
                              /*error_description*/ None,
                          );
                      }
@@ -15360,7 +15369,7 @@ index d9dcb32..2f394b9 100644
                          opts.cli_auth_credentials_store_mode,
                          opts.auth_keyring_backend_kind,
                      )
-@@ -462,7 +498,7 @@ async fn process_request(
+@@ -462,7 +504,7 @@ async fn process_request(
                          );
                      }
  
@@ -15369,7 +15378,7 @@ index d9dcb32..2f394b9 100644
                          actual_port,
                          &opts.issuer,
                          &tokens.id_token,
-@@ -470,6 +506,11 @@ async fn process_request(
+@@ -470,6 +512,11 @@ async fn process_request(
                          opts.codex_streamlined_login,
                          &opts.login_success_page,
                      );
@@ -15381,7 +15390,7 @@ index d9dcb32..2f394b9 100644
                      let url = match &redirect {
                          LoginSuccessRedirect::Local(url) | LoginSuccessRedirect::Hosted(url) => url,
                      };
-@@ -581,6 +622,7 @@ fn send_response_with_disconnect(
+@@ -581,6 +628,7 @@ fn send_response_with_disconnect(
      writer.flush()
  }
  
@@ -15389,7 +15398,7 @@ index d9dcb32..2f394b9 100644
  fn build_authorize_url(
      issuer: &str,
      client_id: &str,
-@@ -698,6 +740,8 @@ pub(crate) struct ExchangedTokens {
+@@ -698,6 +746,8 @@ pub(crate) struct ExchangedTokens {
      pub id_token: String,
      pub access_token: String,
      pub refresh_token: String,
@@ -15398,7 +15407,7 @@ index d9dcb32..2f394b9 100644
  }
  
  /// Exchanges an authorization code for tokens and returns the client for further token exchanges.
-@@ -714,28 +758,50 @@ pub(crate) async fn exchange_code_for_tokens(
+@@ -714,28 +764,50 @@ pub(crate) async fn exchange_code_for_tokens(
      code: &str,
      auth_route_config: &AuthRouteConfig,
  ) -> io::Result<(ExchangedTokens, HttpClient)> {
@@ -15458,7 +15467,7 @@ index d9dcb32..2f394b9 100644
          client_id,
          redirect_uri,
          pkce,
-@@ -754,7 +820,7 @@ pub(crate) async fn exchange_code_for_tokens(
+@@ -754,7 +826,7 @@ pub(crate) async fn exchange_code_for_tokens(
          (client, result) = send_code_exchange_request(
              &factory,
              builder,
@@ -15467,7 +15476,7 @@ index d9dcb32..2f394b9 100644
              client_id,
              redirect_uri,
              pkce,
-@@ -821,40 +887,29 @@ async fn send_code_exchange_request(
+@@ -821,40 +893,29 @@ async fn send_code_exchange_request(
              code,
              redirect_uri,
              pkce,
@@ -15516,7 +15525,7 @@ index d9dcb32..2f394b9 100644
              tokens: Some(tokens),
              last_refresh: Some(Utc::now()),
              agent_identity: None,
-@@ -1010,6 +1065,7 @@ fn html_escape(input: &str) -> String {
+@@ -1010,6 +1071,7 @@ fn html_escape(input: &str) -> String {
  }
  
  /// Exchanges an authenticated ID token for an API-key style access token.
@@ -15524,7 +15533,7 @@ index d9dcb32..2f394b9 100644
  pub(crate) async fn obtain_api_key(
      client: &HttpClient,
      issuer: &str,
-@@ -1021,7 +1077,11 @@ pub(crate) async fn obtain_api_key(
+@@ -1021,7 +1083,11 @@ pub(crate) async fn obtain_api_key(
      struct ExchangeResp {
          access_token: String,
      }
@@ -15771,10 +15780,10 @@ index 0000000..d4ffbd3
 +}
 diff --git a/codex-rs/login/src/siwc.rs b/codex-rs/login/src/siwc.rs
 new file mode 100644
-index 0000000..2629800
+index 0000000..9b9761e
 --- /dev/null
 +++ b/codex-rs/login/src/siwc.rs
-@@ -0,0 +1,1175 @@
+@@ -0,0 +1,1216 @@
 +#![forbid(unsafe_code)]
 +
 +//! Typed primitives for Sign in with ChatGPT (SIWC) open-source registration.
@@ -15785,6 +15794,7 @@ index 0000000..2629800
 +
 +use std::time::Duration;
 +
++use codex_http_client::HttpClient;
 +use jsonwebtoken::Algorithm;
 +use jsonwebtoken::DecodingKey;
 +use jsonwebtoken::Validation;
@@ -15840,7 +15850,7 @@ index 0000000..2629800
 +    #[error("the ID token could not be verified")]
 +    InvalidIdToken,
 +    #[error("failed to fetch OpenAI's published SIWC signing keys: {0}")]
-+    JwksFetch(#[from] reqwest::Error),
++    JwksFetch(#[from] codex_http_client::HttpError),
 +    #[error("failed to decode OpenAI's published SIWC signing keys: {0}")]
 +    JwksDecode(#[from] serde_json::Error),
 +}
@@ -16078,17 +16088,19 @@ index 0000000..2629800
 +    }
 +}
 +
-+/// Fetch only the fixed, official OpenAI production SIWC JWKS endpoint.
-+///
-+/// Redirects are disabled so a response cannot redirect key retrieval to another host.
-+pub async fn fetch_openai_jwks() -> Result<JwkSet, SiwcError> {
-+    let client = reqwest::Client::builder()
-+        .https_only(true)
-+        .redirect(reqwest::redirect::Policy::none())
-+        .timeout(JWKS_FETCH_TIMEOUT)
-+        .build()?;
++/// Fetch only the fixed, official OpenAI production SIWC JWKS endpoint through
++/// the auth transport configured by the caller.
++pub async fn fetch_openai_jwks(client: &HttpClient) -> Result<JwkSet, SiwcError> {
++    fetch_jwks_from_endpoint(client, JWKS_ENDPOINT).await
++}
++
++async fn fetch_jwks_from_endpoint(
++    client: &HttpClient,
++    endpoint: &str,
++) -> Result<JwkSet, SiwcError> {
 +    let bytes = client
-+        .get(JWKS_ENDPOINT)
++        .get(endpoint)
++        .timeout(JWKS_FETCH_TIMEOUT)
 +        .send()
 +        .await?
 +        .error_for_status()?
@@ -16465,8 +16477,46 @@ index 0000000..2629800
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
++    use codex_http_client::HttpClientFactory;
++    use codex_http_client::OutboundProxyPolicy;
 +    use jsonwebtoken::EncodingKey;
 +    use jsonwebtoken::Header;
++    use wiremock::Mock;
++    use wiremock::MockServer;
++    use wiremock::ResponseTemplate;
++    use wiremock::matchers::method;
++
++    #[tokio::test]
++    #[serial_test::serial(auth_env)]
++    async fn fetches_jwks_through_configured_auth_proxy() -> anyhow::Result<()> {
++        let proxy = MockServer::start().await;
++        Mock::given(method("GET"))
++            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
++                "keys": []
++            })))
++            .expect(1)
++            .mount(&proxy)
++            .await;
++
++        let endpoint = "http://jwks-fixture.invalid/.well-known/jwks.json";
++        codex_http_client::cache_system_proxy_route_for_test(endpoint, proxy.uri());
++        let route = crate::outbound_proxy::AuthRouteConfig::from_http_client_factory(
++            HttpClientFactory::new(OutboundProxyPolicy::RespectSystemProxy),
++        );
++        let client = crate::default_client::create_default_auth_client(endpoint, &route)?;
++
++        let jwks = fetch_jwks_from_endpoint(&client, endpoint).await?;
++
++        assert!(jwks.keys.is_empty());
++        let requests = proxy
++            .received_requests()
++            .await
++            .ok_or_else(|| anyhow::anyhow!("configured proxy stopped"))?;
++        assert_eq!(requests.len(), 1);
++        assert!(requests[0].url.path().contains(".well-known/jwks.json"));
++        proxy.verify().await;
++        Ok(())
++    }
 +
 +    const PRIVATE_KEY: &str = "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDWpAXYypOsYAwO\nbvBduMk/mxaoYDze0AZSzaSzLuIlcsl2EKDgC3AabhIWXh/qTGEJLOU3VB1e5mO9\nFPbBlmIZSL3FQTbyt/hYutPFKfCou5PLmScw/TzILS3/RhT8UY9kxxZvXiEbTki9\nmvxRuZFpVqDFJHwfitIjKZGhXDCYVKurPTrxetYZJg0h8sQBLKjkZ0BqqaTUkAsg\n0eBgZAlXEzG3By8PGhUqYLt6W1Q3KYw0FmGy/gTyzH1g0ukGgSJvOd8SkNT8MbOs\nzl5kKxDNqpuEE6UZ3jbuJ+5382d31w+rOAJRzbf7QVdI9+luCSwJcDACYPQ4WNBa\nuCpV0ovpAgMBAAECggEAVu84LwZdqYN9XpswX8VoPYrjMm9IODapWQBRpQFoNyK2\n1ksF3bjEPvA2Azk8U/l7k+vLKw22l6lY3EyRZPcz5GnB8xLm3ogE3mtNOp4yCyVu\nRxhQ91aaN7mU17/a4BdorLi2LYVCg3zBmYociD1Q2AluNGsCmwPu+K7tfR2J0Sg8\nNjqiTbDG1XDpR/icwgC9t6vh8lZpCHDhF4tbQfLLVLeA/OdcuzXDyMCXbmdVIdBQ\nrm4aIFmr2e1/2ctTbCg85S6AGFTH+pSLjrwTzyvf+F6NW5uNjLQAQLFj+EznBDxj\nXdx90cySrjsKK6PVWQF4RiTvkSW8eWL7R6B2FZbGwQKBgQDuVQRj72hWloR7mbEL\naUEEv3pIXTMXWEsoMBNczos/1L1RnAN1AI44TurznasPZAWvQj+kVbLDR+TAeZrL\niA8HIWswQUI18hFmgKzSkwIXGtubcKVrgsKeS4lMDKCM/Ef6WAYdeq6ronoY5lCN\nYrJFmGp81W5zcV7lyiycgbSiGwKBgQDmjWYf6pZjrK7Z+OJ3X1AZfi2vss15SCvL\n3fPgzIDbViztpGyQhc3DQZIsBNIu0xZp/veGce9TEeTds2ro9NfdJFeou8+fC7Pq\nsOsM3amGFFi+ZW/9BWyjZEM88bgWWAjqLHbpfHDxjAf5CSxddqxgHlbP0Ytyb1Vg\ngmPDn9YKSwKBgQDbTi3hC35WFuDHn0/zcSHcDZmnFuOZeqyFyV83yfMGhGrEuqvP\nsPgtRikajJ3IZsB4WZyYSidZXEFY/0z6NjOl2xF38MTNQPbT/FmK1q1Yt2UWrlv5\nBvSwlk87RG9D7C0LZo4R+D7cPoDdgqjiwMvMEIkEX5zn641oI1ZTmWKuuwKBgQCD\nKF+3unnRvHRAVoFnTZbA2fJdqMeRvogD04GhGlYX8V9f1hFY6nXTJaNlXVzA/J8c\nr8ra9kgjJuPfZ+ljG58OFFW2DRohLcQtuHYPfK6rMzoFHqnl9EcIcMp7ijuionR3\n29HOJFgQYgxLFXfit9d6WugiE+BTupiEbckZif13HwKBgE/lAlkVHP6YahOO2Ljc\nJ1bwkqKZTB5dHolX9A58e/xXnfZ5P8f3Z83+Izap3FwqQulk7b1WO1MQcHuVg2NN\n5da0D4h2rYOXnbYIg0BVu4spQbaM6ewsp66b8+MzLOBvj8SzWdt1Oyw0q/MRyQAR\n8U4M2TSWCKUY/A6sT4W8+mT9\n-----END PRIVATE KEY-----";
 +
