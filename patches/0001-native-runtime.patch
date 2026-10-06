@@ -8619,7 +8619,7 @@ index 9f9f8a8..a773bd5 100644
  
  pub use exec_command::ExecCommandHandler;
 diff --git a/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs b/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
-index bdf6877..0063e04 100644
+index bdf6877389..4e273e2add 100644
 --- a/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
 +++ b/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
 @@ -6,6 +6,7 @@ use crate::exec::DEFAULT_EXEC_COMMAND_TIMEOUT_MS;
@@ -8767,12 +8767,12 @@ index bdf6877..0063e04 100644
 +                    })
 +                });
 +            let npm_artifact_location =
-+                if crate::tools::holycodex_tools::shell_npm_build_command(&args.cmd)
++                if crate::tools::holycodex_tools::shell_npm_workspace_command(&args.cmd)
 +                    && let Some(artifact_id) = artifact_id.as_deref()
 +                {
 +                    if environment.is_remote() {
 +                        return Err(FunctionCallError::RespondToModel(
-+                            "isolated npm builds require a local selected workspace".into(),
++                            "isolated npm quality commands require a local selected workspace".into(),
 +                        ));
 +                    }
 +                    let temporary_root = temporary_root.ok_or_else(|| {
@@ -8855,10 +8855,10 @@ index bdf6877..0063e04 100644
              shell_mode,
 diff --git a/codex-rs/core/src/tools/handlers/unified_exec/npm_workspace_snapshot.rs b/codex-rs/core/src/tools/handlers/unified_exec/npm_workspace_snapshot.rs
 new file mode 100644
-index 0000000..f8d8721
+index 0000000000..7c6c451a0e
 --- /dev/null
 +++ b/codex-rs/core/src/tools/handlers/unified_exec/npm_workspace_snapshot.rs
-@@ -0,0 +1,935 @@
+@@ -0,0 +1,973 @@
 +use anyhow::Context;
 +use anyhow::Result;
 +use anyhow::ensure;
@@ -9457,6 +9457,44 @@ index 0000000..f8d8721
 +    }
 +
 +    #[test]
++    fn npm_tests_write_coverage_and_fixtures_only_in_snapshot() {
++        for args in [vec!["test"], vec!["run", "test"]] {
++            let workspace = tempfile::tempdir().unwrap();
++            let temporary = tempfile::tempdir().unwrap();
++            let package = workspace.path().join("packages/app");
++            fs::create_dir_all(&package).unwrap();
++            let manifest = r#"{"scripts":{"test":"node test.js"}}"#;
++            fs::write(package.join("package.json"), manifest).unwrap();
++            fs::write(
++                package.join("test.js"),
++                "const fs = require('fs'); fs.mkdirSync('coverage'); fs.writeFileSync('coverage/report.json', '{}'); fs.writeFileSync('generated-fixture.txt', 'fixture');",
++            )
++            .unwrap();
++            let artifact_root = temporary.path().join("holycodex-test-artifacts");
++            let snapshot = snapshot_npm_workspace(
++                workspace.path(),
++                &package,
++                temporary.path(),
++                &artifact_root,
++                &CancellationToken::new(),
++            )
++            .unwrap();
++            let status = npm_command()
++                .args(&args)
++                .current_dir(&snapshot.cwd)
++                .env("npm_config_cache", snapshot.root.join("npm-cache"))
++                .status()
++                .expect("npm must be available for the isolation test");
++            assert!(status.success());
++            assert_eq!(fs::read(snapshot.cwd.join("coverage/report.json")).unwrap(), b"{}");
++            assert_eq!(fs::read(snapshot.cwd.join("generated-fixture.txt")).unwrap(), b"fixture");
++            assert!(!package.join("coverage").exists());
++            assert!(!package.join("generated-fixture.txt").exists());
++            assert_eq!(fs::read_to_string(package.join("package.json")).unwrap(), manifest);
++        }
++    }
++
++    #[test]
 +    fn requested_cwd_traversal_and_external_symlinks_are_rejected() {
 +        let workspace = tempfile::tempdir().unwrap();
 +        let temporary = tempfile::tempdir().unwrap();
@@ -9901,10 +9939,10 @@ index 46fa63d..67d2039 100644
      let json = r#"{"cmd": "echo hello", "shell": "cmd"}"#;
 diff --git a/codex-rs/core/src/tools/holycodex_tools.rs b/codex-rs/core/src/tools/holycodex_tools.rs
 new file mode 100644
-index 0000000..e17a096
+index 0000000000..746abf9852
 --- /dev/null
 +++ b/codex-rs/core/src/tools/holycodex_tools.rs
-@@ -0,0 +1,2927 @@
+@@ -0,0 +1,2950 @@
 +//! Native, role-scoped model tools for HolyCodex Intent and Assignments.
 +
 +use std::collections::BTreeSet;
@@ -10334,8 +10372,8 @@ index 0000000..e17a096
 +            &root_roots,
 +            &artifact_roots,
 +        )
-+        || (shell_npm_build_command(&invocation.command)
-+            && !npm_build_uses_only_relative_paths(&invocation.command))
++        || (shell_npm_workspace_command(&invocation.command)
++            && !npm_workspace_command_uses_only_relative_paths(&invocation.command))
 +        || !additional_permissions_within_roots(
 +            invocation.additional_permissions.as_ref(),
 +            invocation.sandbox_permissions,
@@ -10900,33 +10938,35 @@ index 0000000..e17a096
 +    }
 +}
 +
-+pub(crate) fn shell_npm_build_command(command: &str) -> bool {
++pub(crate) fn shell_npm_workspace_command(command: &str) -> bool {
 +    let Some(words) = shlex::split(command) else {
 +        return false;
 +    };
-+    matches!(
-+        (
-+            words.first().map(String::as_str),
-+            words.get(1).map(String::as_str),
-+            words.get(2).map(String::as_str)
-+        ),
-+        (
-+            Some("npm" | "npm.cmd" | "npm.exe"),
-+            Some("run"),
-+            Some("build")
-+        )
-+    )
++    match (
++        words.first().map(String::as_str),
++        words.get(1).map(String::as_str),
++    ) {
++        (Some("npm" | "npm.cmd" | "npm.exe"), Some("test")) => true,
++        (Some("npm" | "npm.cmd" | "npm.exe"), Some("run")) => words
++            .get(2)
++            .is_some_and(|task| matches!(task.as_str(), "test" | "build")),
++        _ => false,
++    }
 +}
 +
-+fn npm_build_uses_only_relative_paths(command: &str) -> bool {
++fn npm_workspace_command_uses_only_relative_paths(command: &str) -> bool {
 +    let Some(words) = shlex::split(command) else {
 +        return false;
 +    };
-+    words.iter().skip(3).all(|word| {
-+        let value = word
-+            .strip_prefix("--prefix=")
-+            .or_else(|| word.strip_prefix("--workspace="))
-+            .unwrap_or(word);
++    let argument_start = if words.get(1).is_some_and(|word| word == "test") {
++        2
++    } else {
++        3
++    };
++    words.iter().skip(argument_start).all(|word| {
++        // npm aliases and forwarded test-runner options can also redirect
++        // outputs (for example -C=/source or --coverageDirectory=/source).
++        let value = word.split_once('=').map_or(word.as_str(), |(_, value)| value);
 +        !value.starts_with('~')
 +            && !Path::new(value).is_absolute()
 +            && !matches!(value.as_bytes(), [drive, b':', separator, ..]
@@ -11497,17 +11537,38 @@ index 0000000..e17a096
 +    use holycodex_policy::Profile;
 +
 +    #[test]
++    fn npm_test_commands_require_isolated_workspaces_and_relative_arguments() {
++        for command in ["npm test", "npm run test", "npm.cmd test", "npm.exe run test"] {
++            assert!(shell_npm_workspace_command(command));
++            assert!(shell_quality_command_requires_artifacts(command));
++            assert!(npm_workspace_command_uses_only_relative_paths(command));
++            assert!(npm_workspace_command_uses_only_relative_paths(&format!(
++                "{command} --prefix packages/app"
++            )));
++            for path in ["/workspace/app", "C:/workspace/app", "//server/share/app"] {
++                for flag in ["--prefix ", "--prefix=", "-C=", "-w=", "--coverageDirectory="] {
++                    assert!(!npm_workspace_command_uses_only_relative_paths(&format!(
++                        "{command} {flag}{path}"
++                    )));
++                }
++            }
++        }
++        assert!(!shell_npm_workspace_command("npm install"));
++        assert!(!shell_npm_workspace_command("npm run publish"));
++    }
++
++    #[test]
 +    fn npm_build_arguments_cannot_escape_snapshot_cwd_with_absolute_paths() {
-+        assert!(shell_npm_build_command(
++        assert!(shell_npm_workspace_command(
 +            "npm run build --prefix packages/app"
 +        ));
-+        assert!(npm_build_uses_only_relative_paths(
++        assert!(npm_workspace_command_uses_only_relative_paths(
 +            "npm run build --prefix packages/app"
 +        ));
-+        assert!(!npm_build_uses_only_relative_paths(
++        assert!(!npm_workspace_command_uses_only_relative_paths(
 +            "npm run build --prefix C:/workspace/packages/app"
 +        ));
-+        assert!(!npm_build_uses_only_relative_paths(
++        assert!(!npm_workspace_command_uses_only_relative_paths(
 +            "npm run build --workspace=//server/share/app"
 +        ));
 +    }

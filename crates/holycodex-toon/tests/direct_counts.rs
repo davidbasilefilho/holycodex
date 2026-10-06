@@ -68,8 +68,16 @@ fn assert_all_forms_decode(
     };
     let header = format!("[{count}{delimiter}]");
     assert_decodes(&format!("items: {header}: {values}"), strict, items());
-    assert_decodes(&format!("- {header}: {values}"), strict, vec![items().items]);
-    assert_decodes(&format!("- items: {header}: {values}"), strict, vec![items()]);
+    assert_decodes(
+        &format!("- {header}: {values}"),
+        strict,
+        vec![items().items],
+    );
+    assert_decodes(
+        &format!("- items: {header}: {values}"),
+        strict,
+        vec![items()],
+    );
     assert_decodes(
         &format!("- label: entry\n  items: {header}: {values}"),
         strict,

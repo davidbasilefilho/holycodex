@@ -13,7 +13,8 @@ permissions:
 
 concurrency:
   group: holycodex-native-release-${{ github.ref }}
-  cancel-in-progress: false
+  # Superseded PR checks are disposable; main/tag release validation is not.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   quality:

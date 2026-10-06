@@ -919,7 +919,9 @@ fn find_unquoted_byte(s: &str, needle: u8) -> Option<usize> {
     None
 }
 
-fn parse_inline_array_header(s: &str) -> core::result::Result<Option<(usize, char, &str)>, DeError> {
+fn parse_inline_array_header(
+    s: &str,
+) -> core::result::Result<Option<(usize, char, &str)>, DeError> {
     let Some((n, dch, rest)) = parse_array_header_prefix(s)? else {
         return Ok(None);
     };
@@ -928,7 +930,9 @@ fn parse_inline_array_header(s: &str) -> core::result::Result<Option<(usize, cha
         .map(|values| (n, dch, values.trim_start())))
 }
 
-fn parse_keyed_inline_array_header(k: &str) -> core::result::Result<Option<(usize, char)>, DeError> {
+fn parse_keyed_inline_array_header(
+    k: &str,
+) -> core::result::Result<Option<(usize, char)>, DeError> {
     let Some(bracket) = find_unquoted_byte(k, b'[') else {
         return Ok(None);
     };
@@ -938,7 +942,9 @@ fn parse_keyed_inline_array_header(k: &str) -> core::result::Result<Option<(usiz
     Ok(rest.is_empty().then_some((n, dch)))
 }
 
-fn parse_array_header_prefix(s: &str) -> core::result::Result<Option<(usize, char, &str)>, DeError> {
+fn parse_array_header_prefix(
+    s: &str,
+) -> core::result::Result<Option<(usize, char, &str)>, DeError> {
     // Parse "[N<delim?>]" without allocating or trusting the declared length.
     let bytes = s.as_bytes();
     if bytes.first() != Some(&b'[') {
