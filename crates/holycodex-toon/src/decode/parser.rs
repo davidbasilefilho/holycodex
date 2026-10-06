@@ -2,10 +2,15 @@ use crate::decode::scanner::{LineKind, ParsedLine, scan};
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    borrow::ToOwned,
+    collections::BTreeSet,
     format,
     string::{String, ToString},
     vec::Vec,
 };
+
+#[cfg(feature = "std")]
+use std::collections::BTreeSet;
 
 use crate::number::has_forbidden_leading_zeros;
 use crate::value::{Number, Value};
@@ -1195,7 +1200,7 @@ impl<'a> Parser<'a> {
             );
         }
         let expected_cells = field_paths.len();
-        let mut unique = std::collections::BTreeSet::new();
+        let mut unique = BTreeSet::new();
         for path in &field_paths {
             if !unique.insert(path.clone()) && self.strict && self.error.is_none() {
                 self.error = Some(crate::error::Error::Syntax {
@@ -1378,7 +1383,7 @@ impl<'a> Parser<'a> {
                 header_line_no,
             );
         }
-        let mut unique = std::collections::BTreeSet::new();
+        let mut unique = BTreeSet::new();
         for path in &paths {
             if !unique.insert(path.clone()) && self.strict && self.error.is_none() {
                 self.error = Some(crate::error::Error::Syntax {
@@ -1388,7 +1393,7 @@ impl<'a> Parser<'a> {
             }
         }
         let mut entries: Vec<(String, Value)> = Vec::new();
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = BTreeSet::new();
         loop {
             if self.strict
                 && !entries.is_empty()
@@ -1732,7 +1737,7 @@ fn insert_field_path(entries: &mut Vec<(String, Value)>, path: &[String], value:
 fn validate_duplicate_keys(value: &Value, error: &mut Option<crate::error::Error>) {
     match value {
         Value::Object(entries) => {
-            let mut seen = std::collections::BTreeSet::new();
+            let mut seen = BTreeSet::new();
             for (key, child) in entries {
                 if !seen.insert(key) && error.is_none() {
                     *error = Some(crate::error::Error::Syntax {
@@ -2235,7 +2240,7 @@ pub(crate) fn validate_header_syntax(input: &str, strict: bool) -> Result<(), cr
                 if tokens.iter().any(|token| token.trim().is_empty()) {
                     return Err(malformed());
                 }
-                let mut seen = std::collections::BTreeSet::new();
+                let mut seen = BTreeSet::new();
                 for token in tokens {
                     let top = token.split('{').next().unwrap_or(token).trim();
                     if !seen.insert(top.to_owned()) {

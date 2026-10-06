@@ -5,6 +5,9 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
+#[cfg(not(feature = "std"))]
+use alloc::format;
+
 pub mod encode;
 pub mod error;
 pub(crate) mod number;
@@ -54,7 +57,7 @@ pub fn decode_bounded<T: serde::de::DeserializeOwned + 'static>(s: &str) -> Resu
     decode_from_str(s, &options)
 }
 
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "json"))]
 use alloc::string::String;
 
 #[cfg(all(feature = "std", feature = "serde"))]

@@ -20848,7 +20848,7 @@ diff --git a/codex-rs/skills/src/lib.rs b/codex-rs/skills/src/lib.rs
 index 7b19d32788..468da4c6fe 100644
 --- a/codex-rs/skills/src/lib.rs
 +++ b/codex-rs/skills/src/lib.rs
-@@ -193,6 +193,45 @@ mod tests {
+@@ -193,6 +193,50 @@ mod tests {
      use super::SYSTEM_SKILLS_DIR;
      use super::collect_fingerprint_items;
  
@@ -20870,7 +20870,6 @@ index 7b19d32788..468da4c6fe 100644
 +            "rules",
 +            "session-audit",
 +            "visualize",
-+            "writing-instructions",
 +        ];
 +
 +        for name in HOLYCODEX_SKILLS {
@@ -20889,6 +20888,12 @@ index 7b19d32788..468da4c6fe 100644
 +                "embedded HolyCodex skill {name} has mismatched frontmatter"
 +            );
 +        }
++        assert!(
++            SYSTEM_SKILLS_DIR
++                .get_file("writing-instructions/SKILL.md")
++                .is_none(),
++            "Root writing guidance belongs in the Root instructions, not an embedded skill"
++        );
 +    }
 +
      #[test]

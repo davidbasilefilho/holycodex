@@ -6,7 +6,10 @@ use anyhow::{Context, Result, bail, ensure};
 use tempfile::tempdir;
 
 use crate::materialization::{Plan, validate_relative};
-use crate::{apply_patches, manifest, valid_revision, verify_checkout, verify_clean_worktree};
+use crate::{
+    apply_patches, manifest, valid_revision, verify_checkout, verify_clean_worktree,
+    verify_patches_applied,
+};
 
 fn collect_skill_files(directory: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
     for entry in fs::read_dir(directory)? {
@@ -350,6 +353,7 @@ fn patch_preflight_rejects_reapplication_without_changing_the_checkout() {
     sources(root.path());
     let pin = manifest(&crate::root()).unwrap();
     // Ignored destination conflicts must also fail before a valid patch mutates anything.
+    assert!(verify_patches_applied(root.path(), repo.path()).is_err());
     fs::write(repo.path().join(".git/info/exclude"), "overlay/\n").unwrap();
     let conflict = repo.path().join("overlay/holycodex/instructions/root.md");
     fs::create_dir_all(conflict.parent().unwrap()).unwrap();
@@ -372,6 +376,7 @@ fn patch_preflight_rejects_reapplication_without_changing_the_checkout() {
     fs::remove_file(repo.path().join("local")).unwrap();
 
     crate::apply_layer(root.path(), repo.path(), &pin).unwrap();
+    assert!(verify_patches_applied(root.path(), repo.path()).is_ok());
     assert_eq!(
         fs::read_to_string(repo.path().join("file.txt")).unwrap(),
         "after\n"
@@ -499,7 +504,9 @@ fn patch_workspace_manifest_survives_owned_materialization() {
     sources(root.path());
 
     let pin = manifest(&crate::root()).unwrap();
+    assert!(crate::verify_materialized_layer(root.path(), repo.path(), &pin).is_err());
     crate::apply_layer(root.path(), repo.path(), &pin).unwrap();
+    assert!(crate::verify_materialized_layer(root.path(), repo.path(), &pin).is_ok());
 
     assert_eq!(fs::read(manifest_path).unwrap(), patched_manifest);
     assert_eq!(

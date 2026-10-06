@@ -18,6 +18,10 @@ mise run pre-commit
 
 `fmt` mutates formatting; `fmt-check`, `lint`, and `test` are checks. CI runs the three checks using the same mise tasks on Linux, Windows, and macOS. After installing the generated hook as described below, a commit runs the check-only `pre-commit` task.
 
+## Prompt and usage evaluation
+
+Treat prompt-cache design as an orchestration concern: keep stable instruction and tool-definition prefixes consistent where the harness permits, put changing task details at the end, and pass relevant context as deltas rather than repeating unrelated history. Session reuse is not proof of cache reuse, and compaction may change the prefix. For completed-task comparisons, use a clearly labeled API-equivalent weighted-usage estimate based on measured fresh-input, cached-input, and output counts and the applicable public API rate-card weights for the closest model. Keep the raw counts, model, rate source, and measurement date with the estimate. This is a working comparison model, not a verified ChatGPT Pro billing formula. Compare per-task quality and latency alongside fresh, cached, and output usage; cache percentage alone is not an efficiency result. Read counters only from supported diagnostics, label unavailable measurements as unavailable, and keep cost evaluation in maintainer/evaluation workflows rather than execution instructions. See OpenAI's [prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching) and [cache diagnostics](https://developers.openai.com/api/docs/guides/prompt-caching/diagnostics).
+
 ## Upstream patch workflow
 
 `upstream.toml` is the authoritative upstream and patch-series pin. `holycodex-dev` uses Git for strict patch application and keeps the upstream checkout outside the HolyCodex tracked tree. It never vendors or commits the upstream source.

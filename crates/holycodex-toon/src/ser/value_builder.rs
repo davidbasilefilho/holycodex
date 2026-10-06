@@ -46,7 +46,7 @@ impl Serializer for &mut ValueSerializer {
     type SerializeSeq = SeqSerializer;
     type SerializeTuple = SeqSerializer;
     type SerializeTupleStruct = SeqSerializer;
-    type SerializeTupleVariant = SeqSerializer;
+    type SerializeTupleVariant = VariantSeqSerializer;
     type SerializeMap = MapSerializer;
     type SerializeStruct = MapSerializer;
     type SerializeStructVariant = StructVariantSerializer;
@@ -163,10 +163,13 @@ impl Serializer for &mut ValueSerializer {
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
+        variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        Ok(SeqSerializer { elems: Vec::new() })
+        Ok(VariantSeqSerializer {
+            variant: variant.to_string(),
+            elems: Vec::new(),
+        })
     }
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
         Ok(MapSerializer {
@@ -250,6 +253,28 @@ impl SerializeTupleVariant for SeqSerializer {
     }
     fn end(self) -> Result<Self::Ok, Self::Error> {
         Ok(Value::Array(self.elems))
+    }
+}
+
+struct VariantSeqSerializer {
+    variant: String,
+    elems: Vec<Value>,
+}
+
+impl SerializeTupleVariant for VariantSeqSerializer {
+    type Ok = Value;
+    type Error = serde_json::Error;
+
+    fn serialize_field<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
+        let mut ser = ValueSerializer;
+        self.elems.push(value.serialize(&mut ser)?);
+        Ok(())
+    }
+
+    fn end(self) -> Result<Self::Ok, Self::Error> {
+        let mut object = Map::new();
+        object.insert(self.variant, Value::Array(self.elems));
+        Ok(Value::Object(object))
     }
 }
 

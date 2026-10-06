@@ -241,6 +241,29 @@ impl Plan {
         Ok(())
     }
 
+    pub(super) fn verify_installed(&self, upstream: &Path) -> Result<()> {
+        for file in &self.0 {
+            let destination = upstream.join(&file.relative);
+            let metadata = fs::symlink_metadata(&destination).with_context(|| {
+                format!(
+                    "required HolyCodex layer file is missing: {}",
+                    destination.display()
+                )
+            })?;
+            ensure!(
+                metadata.is_file() && !metadata.file_type().is_symlink(),
+                "HolyCodex layer destination is not a regular file: {}",
+                destination.display()
+            );
+            ensure!(
+                fs::read(&destination)? == file.contents,
+                "HolyCodex layer file differs from its source: {}",
+                destination.display()
+            );
+        }
+        Ok(())
+    }
+
     pub(super) fn install(self, upstream: &Path) -> Result<()> {
         // Patches must not have introduced a new destination conflict either.
         self.preflight(upstream)?;
@@ -289,6 +312,10 @@ mod tests {
         Plan::prepare(&root, upstream.path(), "codex-rs")
             .unwrap()
             .install(upstream.path())
+            .unwrap();
+        Plan::prepare(&root, upstream.path(), "codex-rs")
+            .unwrap()
+            .verify_installed(upstream.path())
             .unwrap();
 
         let policy = upstream

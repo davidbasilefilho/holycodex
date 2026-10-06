@@ -126,10 +126,175 @@ impl<'de> de::Deserializer<'de> for Deserializer {
         }
     }
 
+    fn deserialize_option<V>(self, visitor: V) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        match self.value {
+            Value::Null => visitor.visit_none(),
+            value => visitor.visit_some(Self { value }),
+        }
+    }
+
+    fn deserialize_unit<V>(self, visitor: V) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        match self.value {
+            Value::Null => visitor.visit_unit(),
+            value => Err(de::Error::invalid_type(unexpected(&value), &"unit")),
+        }
+    }
+
+    fn deserialize_unit_struct<V>(
+        self,
+        _name: &'static str,
+        visitor: V,
+    ) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.deserialize_unit(visitor)
+    }
+
+    fn deserialize_newtype_struct<V>(
+        self,
+        _name: &'static str,
+        visitor: V,
+    ) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_newtype_struct(self)
+    }
+
+    fn deserialize_enum<V>(
+        self,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        visitor: V,
+    ) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        let (variant, value) = match self.value {
+            Value::String(variant) => (variant, None),
+            Value::Object(mut entries) if entries.len() == 1 => {
+                let (variant, value) = entries.pop().expect("one entry was checked");
+                (variant, Some(value))
+            }
+            value => {
+                return Err(de::Error::invalid_type(
+                    unexpected(&value),
+                    &"an externally tagged enum",
+                ));
+            }
+        };
+        visitor.visit_enum(EnumValue { variant, value })
+    }
+
     serde::forward_to_deserialize_any! {
         bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char str string bytes byte_buf
-        option unit unit_struct newtype_struct seq tuple tuple_struct map struct
-        enum identifier ignored_any
+        seq tuple tuple_struct map struct identifier ignored_any
+    }
+}
+
+fn unexpected(value: &Value) -> de::Unexpected<'_> {
+    match value {
+        Value::Null => de::Unexpected::Unit,
+        Value::Bool(value) => de::Unexpected::Bool(*value),
+        Value::Number(Number::I64(value)) => de::Unexpected::Signed(*value),
+        Value::Number(Number::U64(value)) => de::Unexpected::Unsigned(*value),
+        Value::Number(Number::F64(value)) => de::Unexpected::Float(*value),
+        Value::String(value) => de::Unexpected::Str(value),
+        Value::Array(_) => de::Unexpected::Seq,
+        Value::Object(_) => de::Unexpected::Map,
+    }
+}
+
+struct EnumValue {
+    variant: String,
+    value: Option<Value>,
+}
+
+impl<'de> de::EnumAccess<'de> for EnumValue {
+    type Error = DeError;
+    type Variant = EnumVariant;
+
+    fn variant_seed<V>(
+        self,
+        seed: V,
+    ) -> core::result::Result<(V::Value, Self::Variant), Self::Error>
+    where
+        V: de::DeserializeSeed<'de>,
+    {
+        let variant =
+            seed.deserialize(de::value::StringDeserializer::<DeError>::new(self.variant))?;
+        Ok((variant, EnumVariant { value: self.value }))
+    }
+}
+
+struct EnumVariant {
+    value: Option<Value>,
+}
+
+impl<'de> de::VariantAccess<'de> for EnumVariant {
+    type Error = DeError;
+
+    fn unit_variant(self) -> core::result::Result<(), Self::Error> {
+        match self.value {
+            None | Some(Value::Null) => Ok(()),
+            Some(value) => Err(de::Error::invalid_type(unexpected(&value), &"unit variant")),
+        }
+    }
+
+    fn newtype_variant_seed<T>(self, seed: T) -> core::result::Result<T::Value, Self::Error>
+    where
+        T: de::DeserializeSeed<'de>,
+    {
+        let value = self
+            .value
+            .ok_or_else(|| de::Error::custom("expected newtype variant value"))?;
+        seed.deserialize(Deserializer::from_value(value))
+    }
+
+    fn tuple_variant<V>(self, len: usize, visitor: V) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        let value = self
+            .value
+            .ok_or_else(|| de::Error::custom("expected tuple variant value"))?;
+        let values = match value {
+            Value::Array(values) if values.len() == len => values,
+            Value::Array(values) => {
+                return Err(de::Error::custom(format!(
+                    "tuple variant length mismatch: expected {len}, found {}",
+                    values.len()
+                )));
+            }
+            value => {
+                return Err(de::Error::invalid_type(
+                    unexpected(&value),
+                    &"tuple variant",
+                ));
+            }
+        };
+        de::Deserializer::deserialize_seq(Deserializer::from_value(Value::Array(values)), visitor)
+    }
+
+    fn struct_variant<V>(
+        self,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        let value = self
+            .value
+            .ok_or_else(|| de::Error::custom("expected struct variant value"))?;
+        de::Deserializer::deserialize_map(Deserializer::from_value(value), visitor)
     }
 }
 

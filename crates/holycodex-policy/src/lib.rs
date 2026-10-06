@@ -1680,6 +1680,37 @@ pub fn update_intent(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn root_and_specialist_instructions_prefer_relevant_session_continuity() {
+        assert!(ROOT_INSTRUCTIONS.contains("reuse an existing HolyCodex Root session"));
+        assert!(ROOT_INSTRUCTIONS.contains("continue with an existing specialist assignment"));
+        assert!(ROOT_INSTRUCTIONS.contains("pass new facts as deltas"));
+        assert!(ROOT_INSTRUCTIONS.contains("Maintain task quality and completeness throughout"));
+        assert!(SPECIALIST_INSTRUCTIONS.contains("continue this HolyCodex session"));
+        assert!(SPECIALIST_INSTRUCTIONS.contains("use relevant session context"));
+        assert!(
+            SPECIALIST_INSTRUCTIONS.contains("Maintain task quality and completeness throughout")
+        );
+    }
+
+    #[test]
+    fn shared_writing_guidance_is_root_owned_not_a_standalone_skill() {
+        assert!(ROOT_INSTRUCTIONS.contains("## Writing instructions"));
+        assert!(ROOT_INSTRUCTIONS.contains("receiver or role, intended outcome"));
+        assert!(ROOT_INSTRUCTIONS.contains("observable acceptance evidence"));
+        assert!(ROOT_INSTRUCTIONS.contains("completion boundary"));
+        assert!(!SPECIALIST_INSTRUCTIONS.contains("writing-instructions"));
+
+        let standalone_skill = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .map(|directory| {
+                directory.join("overlay/holycodex/skills/writing-instructions/SKILL.md")
+            })
+            .find(|path| path.exists());
+        assert!(standalone_skill.is_none(), "found {standalone_skill:?}");
+    }
+
     fn model(id: &str, cap: u32, hard: Option<u32>) -> ModelMetadata {
         ModelMetadata {
             id: id.into(),

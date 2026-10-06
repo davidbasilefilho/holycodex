@@ -345,6 +345,35 @@ fn apply_patches(root: &Path, upstream: &Path) -> Result<()> {
     git(&apply_args, upstream).context("applying strict patch series")
 }
 
+fn verify_patches_applied(root: &Path, upstream: &Path) -> Result<()> {
+    let patches = patch_files(root)?;
+    if patches.is_empty() {
+        anyhow::bail!("HolyCodex patch layer is empty; refusing to package upstream Codex");
+    }
+    let paths = patches
+        .iter()
+        .map(|path| path.as_os_str())
+        .collect::<Vec<_>>();
+    let mut args = vec![
+        OsStr::new("apply"),
+        OsStr::new("--reverse"),
+        OsStr::new("--check"),
+        OsStr::new("--whitespace=nowarn"),
+        OsStr::new("--"),
+    ];
+    args.extend(paths);
+    git(&args, upstream).context(
+        "HolyCodex patch series is not fully applied; run `holycodex-dev materialize` or `apply` before packaging",
+    )
+}
+
+fn verify_materialized_layer(root: &Path, upstream: &Path, pin: &Manifest) -> Result<()> {
+    verify_patches_applied(root, upstream)?;
+    let plan = materialization::Plan::prepare(root, upstream, &pin.codex_workspace)?;
+    plan.verify_installed(upstream)
+        .context("HolyCodex owned sources and overlays are not fully materialized")
+}
+
 fn workspace(upstream: &Path, pin: &Manifest) -> Result<PathBuf> {
     materialization::validate_relative(&pin.codex_workspace)?;
     let workspace = upstream.join(&pin.codex_workspace);
@@ -456,6 +485,7 @@ fn execute(operation: Operation, root: &Path) -> Result<()> {
         } => {
             let upstream = absolute_from(root, &upstream);
             verify_checkout(&upstream, &pin.commit)?;
+            verify_materialized_layer(root, &upstream, &pin)?;
             let mut args = vec![
                 OsStr::new("build"),
                 OsStr::new("--locked"),

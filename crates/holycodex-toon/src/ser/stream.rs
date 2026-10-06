@@ -194,19 +194,24 @@ impl<'a, 'de> Serializer for &'a mut StreamingSerializer<'de> {
         variant: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error> {
-        self.w.line_key_only(
-            self.indent,
-            &primitives::format_string(variant, self.opts.delimiter),
-        );
+        let key = primitives::format_key(variant);
+        if let Ok(scalar) = try_scalar_to_string(value, self.opts) {
+            self.w.line_kv(self.indent, &key, &scalar);
+            return Ok(());
+        }
+        self.w.line_key_only(self.indent, &key);
         let mut child = self.with_indent(self.indent + self.opts.indent);
         value.serialize(&mut child)
     }
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+        let indent = self.indent;
         #[cfg(feature = "json")]
         {
             Ok(SeqSer {
                 parent: self,
                 items: Vec::new(),
+                indent,
+                variant: None,
             })
         }
         #[cfg(not(feature = "json"))]
@@ -214,6 +219,8 @@ impl<'a, 'de> Serializer for &'a mut StreamingSerializer<'de> {
             Ok(SeqSerAlloc {
                 parent: self,
                 items: Vec::new(),
+                indent,
+                variant: None,
             })
         }
     }
@@ -234,11 +241,31 @@ impl<'a, 'de> Serializer for &'a mut StreamingSerializer<'de> {
         variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        self.serialize_tuple_struct(variant, len)
+        let indent = self.indent;
+        #[cfg(feature = "json")]
+        {
+            Ok(SeqSer {
+                parent: self,
+                items: Vec::with_capacity(len),
+                indent,
+                variant: Some(variant.to_string()),
+            })
+        }
+        #[cfg(not(feature = "json"))]
+        {
+            Ok(SeqSerAlloc {
+                parent: self,
+                items: Vec::with_capacity(len),
+                indent,
+                variant: Some(variant.to_string()),
+            })
+        }
     }
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+        let indent = self.indent;
         Ok(MapSer {
             parent: self,
+            indent,
             next_key: None,
             entry_count: 0,
             #[cfg(feature = "json")]
@@ -259,12 +286,12 @@ impl<'a, 'de> Serializer for &'a mut StreamingSerializer<'de> {
         variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
-        self.w.line_key_only(
-            self.indent,
-            &primitives::format_string(variant, self.opts.delimiter),
-        );
+        let key = primitives::format_key(variant);
+        self.w.line_key_only(self.indent, &key);
+        let indent = self.indent + self.opts.indent;
         Ok(MapSer {
             parent: self,
+            indent,
             next_key: None,
             entry_count: 0,
             #[cfg(feature = "json")]
@@ -277,6 +304,8 @@ impl<'a, 'de> Serializer for &'a mut StreamingSerializer<'de> {
 struct SeqSer<'a, 'de> {
     parent: &'a mut StreamingSerializer<'de>,
     items: Vec<Value>,
+    indent: usize,
+    variant: Option<String>,
 }
 
 #[cfg(feature = "json")]
@@ -296,11 +325,23 @@ impl<'a, 'de> SerializeSeq for SeqSer<'a, 'de> {
         let dch = primitives::delimiter_char(delim);
         let len = self.items.len();
 
+        if let Some(variant) = self.variant {
+            let key = primitives::format_key(&variant);
+            encode_keyed_array_json(
+                &key,
+                &self.items,
+                self.parent.w,
+                self.parent.opts,
+                self.indent,
+            )?;
+            return Ok(());
+        }
+
         if let Some(keys) = crate::encode::encoders::is_tabular_array(&self.items) {
             // Tabular: [N]{f1,f2,...}:
             let field_cells: Vec<String> = keys.iter().map(|k| primitives::format_key(k)).collect();
             let header = primitives::format_tabular_header(len, &field_cells, delim);
-            self.parent.w.line(self.parent.indent, &header);
+            self.parent.w.line(self.indent, &header);
 
             // Rows at indent+2
             for item in &self.items {
@@ -315,13 +356,13 @@ impl<'a, 'de> SerializeSeq for SeqSer<'a, 'de> {
                 let row = join_with_delim(&cells, dch);
                 self.parent
                     .w
-                    .line(self.parent.indent + self.parent.opts.indent, &row);
+                    .line(self.indent + self.parent.opts.indent, &row);
             }
             Ok(())
         } else if self.items.is_empty() {
             // Empty array: [0]:
             self.parent.w.line(
-                self.parent.indent,
+                self.indent,
                 &primitives::format_expanded_array_header(0, delim),
             );
             Ok(())
@@ -334,7 +375,7 @@ impl<'a, 'de> SerializeSeq for SeqSer<'a, 'de> {
                 .collect();
             let inline = join_with_delim(&values, dch);
             self.parent.w.line(
-                self.parent.indent,
+                self.indent,
                 &format!(
                     "{}: {}",
                     primitives::format_bracket_segment(len, delim),
@@ -345,7 +386,7 @@ impl<'a, 'de> SerializeSeq for SeqSer<'a, 'de> {
         } else {
             // Mixed array: [N]: with list items
             self.parent.w.line(
-                self.parent.indent,
+                self.indent,
                 &primitives::format_expanded_array_header(len, delim),
             );
             for item in &self.items {
@@ -353,7 +394,7 @@ impl<'a, 'de> SerializeSeq for SeqSer<'a, 'de> {
                     item,
                     self.parent.w,
                     self.parent.opts,
-                    self.parent.indent + self.parent.opts.indent,
+                    self.indent + self.parent.opts.indent,
                 )?;
             }
             Ok(())
@@ -404,6 +445,8 @@ impl<'a, 'de> SerializeTupleVariant for SeqSer<'a, 'de> {
 struct SeqSerAlloc<'a, 'de> {
     parent: &'a mut StreamingSerializer<'de>,
     items: Vec<IValue>,
+    indent: usize,
+    variant: Option<String>,
 }
 
 #[cfg(not(feature = "json"))]
@@ -423,11 +466,23 @@ impl<'a, 'de> SerializeSeq for SeqSerAlloc<'a, 'de> {
         let dch = primitives::delimiter_char(delim);
         let len = self.items.len();
 
+        if let Some(variant) = self.variant {
+            let key = primitives::format_key(&variant);
+            encode_keyed_array_alloc(
+                &key,
+                &self.items,
+                self.parent.w,
+                self.parent.opts,
+                self.indent,
+            )?;
+            return Ok(());
+        }
+
         if let Some(keys) = is_tabular_array_alloc(&self.items) {
             // Tabular: [N]{f1,f2,...}:
             let field_cells: Vec<String> = keys.iter().map(|k| primitives::format_key(k)).collect();
             let header = primitives::format_tabular_header(len, &field_cells, delim);
-            self.parent.w.line(self.parent.indent, &header);
+            self.parent.w.line(self.indent, &header);
 
             // Rows at indent+2
             for item in &self.items {
@@ -445,13 +500,13 @@ impl<'a, 'de> SerializeSeq for SeqSerAlloc<'a, 'de> {
                 let row = join_with_delim(&cells, dch);
                 self.parent
                     .w
-                    .line(self.parent.indent + self.parent.opts.indent, &row);
+                    .line(self.indent + self.parent.opts.indent, &row);
             }
             Ok(())
         } else if self.items.is_empty() {
             // Empty array: [0]:
             self.parent.w.line(
-                self.parent.indent,
+                self.indent,
                 &primitives::format_expanded_array_header(0, delim),
             );
             Ok(())
@@ -464,7 +519,7 @@ impl<'a, 'de> SerializeSeq for SeqSerAlloc<'a, 'de> {
                 .collect();
             let inline = join_with_delim(&values, dch);
             self.parent.w.line(
-                self.parent.indent,
+                self.indent,
                 &format!(
                     "{}: {}",
                     primitives::format_bracket_segment(len, delim),
@@ -475,7 +530,7 @@ impl<'a, 'de> SerializeSeq for SeqSerAlloc<'a, 'de> {
         } else {
             // Mixed array: [N]: with list items
             self.parent.w.line(
-                self.parent.indent,
+                self.indent,
                 &primitives::format_expanded_array_header(len, delim),
             );
             for item in &self.items {
@@ -483,7 +538,7 @@ impl<'a, 'de> SerializeSeq for SeqSerAlloc<'a, 'de> {
                     item,
                     self.parent.w,
                     self.parent.opts,
-                    self.parent.indent + self.parent.opts.indent,
+                    self.indent + self.parent.opts.indent,
                 )?;
             }
             Ok(())
@@ -499,7 +554,7 @@ impl<'a, 'de> SerializeTuple for SeqSerAlloc<'a, 'de> {
         SerializeSeq::serialize_element(self, value)
     }
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Ok(())
+        SerializeSeq::end(self)
     }
 }
 
@@ -511,7 +566,7 @@ impl<'a, 'de> SerializeTupleStruct for SeqSerAlloc<'a, 'de> {
         SerializeSeq::serialize_element(self, value)
     }
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Ok(())
+        SerializeSeq::end(self)
     }
 }
 
@@ -523,12 +578,13 @@ impl<'a, 'de> SerializeTupleVariant for SeqSerAlloc<'a, 'de> {
         SerializeSeq::serialize_element(self, value)
     }
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Ok(())
+        SerializeSeq::end(self)
     }
 }
 
 struct MapSer<'a, 'de> {
     parent: &'a mut StreamingSerializer<'de>,
+    indent: usize,
     next_key: Option<String>,
     entry_count: usize,
     /// Buffered entries for key folding collision detection
@@ -566,7 +622,7 @@ impl<'a, 'de> SerializeMap for MapSer<'a, 'de> {
 
         // Try scalar first
         if let Ok(sv) = try_scalar_to_string(value, self.parent.opts) {
-            self.parent.w.line_kv(self.parent.indent, &key_fmt, &sv);
+            self.parent.w.line_kv(self.indent, &key_fmt, &sv);
             self.entry_count += 1;
             return Ok(());
         }
@@ -583,7 +639,7 @@ impl<'a, 'de> SerializeMap for MapSer<'a, 'de> {
                     &items,
                     self.parent.w,
                     self.parent.opts,
-                    self.parent.indent,
+                    self.indent,
                 )?;
                 self.entry_count += 1;
                 return Ok(());
@@ -594,7 +650,7 @@ impl<'a, 'de> SerializeMap for MapSer<'a, 'de> {
                 &val,
                 self.parent.w,
                 self.parent.opts,
-                self.parent.indent,
+                self.indent,
             )
             .map_err(|e| SerError::custom(e.to_string()))?;
             self.entry_count += 1;
@@ -612,18 +668,18 @@ impl<'a, 'de> SerializeMap for MapSer<'a, 'de> {
                     &items,
                     self.parent.w,
                     self.parent.opts,
-                    self.parent.indent,
+                    self.indent,
                 )?;
                 self.entry_count += 1;
                 return Ok(());
             }
             // For objects, use the standard key: then nested fields
-            self.parent.w.line_key_only(self.parent.indent, &key_fmt);
+            self.parent.w.line_key_only(self.indent, &key_fmt);
             encode_internal_value_alloc(
                 &val,
                 self.parent.w,
                 self.parent.opts,
-                self.parent.indent + self.parent.opts.indent,
+                self.indent + self.parent.opts.indent,
             )?;
             self.entry_count += 1;
             Ok(())
@@ -643,7 +699,7 @@ impl<'a, 'de> SerializeMap for MapSer<'a, 'de> {
                     &val,
                     self.parent.w,
                     self.parent.opts,
-                    self.parent.indent,
+                    self.indent,
                     &sibling_keys,
                 )
                 .map_err(|e| SerError::custom(e.to_string()))?;
