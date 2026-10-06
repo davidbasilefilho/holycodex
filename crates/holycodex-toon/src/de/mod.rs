@@ -3,9 +3,6 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
-#[cfg(all(feature = "de_direct", feature = "json"))]
-use core::any::TypeId;
-
 use serde::de::{self, DeserializeOwned, IntoDeserializer, MapAccess, SeqAccess};
 
 use crate::value::{Number, Value};
@@ -13,9 +10,6 @@ use crate::{Result, options::Options};
 
 #[cfg(feature = "de_direct")]
 pub mod direct;
-
-#[cfg(all(feature = "de_direct", feature = "json"))]
-use serde_json::Value as JsonValue;
 
 #[derive(Debug)]
 pub struct DeError {
@@ -140,24 +134,9 @@ impl<'de> de::Deserializer<'de> for Deserializer {
 }
 
 pub fn from_str<T: DeserializeOwned + 'static>(s: &str, options: &Options) -> Result<T> {
-    #[cfg(feature = "de_direct")]
-    {
-        #[cfg(feature = "json")]
-        {
-            if TypeId::of::<T>() == TypeId::of::<JsonValue>() {
-                return from_str_via_internal_value(s, options);
-            }
-        }
-        crate::de::direct::from_str(s, options)
-    }
-
-    #[cfg(not(feature = "de_direct"))]
-    {
-        from_str_via_internal_value(s, options)
-    }
+    from_str_via_internal_value(s, options)
 }
 
-#[cfg_attr(all(feature = "de_direct", not(feature = "json")), allow(dead_code))]
 fn from_str_via_internal_value<T: DeserializeOwned>(s: &str, options: &Options) -> Result<T> {
     crate::decode::parser::validate_header_syntax(s, options.strict)?;
     let lines = crate::decode::scanner::scan(s);
@@ -178,7 +157,12 @@ fn from_str_via_internal_value<T: DeserializeOwned>(s: &str, options: &Options) 
             });
         }
     }
-    let mut v = crate::decode::parser::parse_to_internal_value_from_lines(lines, options.strict)?;
+    let mut v = crate::decode::parser::parse_to_internal_value_from_lines_with_options(
+        lines,
+        options.strict,
+        options.indent,
+        options.expand_paths == crate::options::ExpandPaths::Safe,
+    )?;
 
     // Apply path expansion if enabled
     if options.expand_paths == crate::options::ExpandPaths::Safe {

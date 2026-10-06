@@ -14,6 +14,8 @@ pub struct Parser<'a> {
     lines: Vec<ParsedLine<'a>>,
     idx: usize,
     strict: bool,
+    indent_size: usize,
+    mark_quoted_dots: bool,
     error: Option<crate::error::Error>,
 }
 
@@ -23,6 +25,8 @@ impl<'a> Parser<'a> {
             lines: scan(input),
             idx: 0,
             strict: false,
+            indent_size: 2,
+            mark_quoted_dots: true,
             error: None,
         }
     }
@@ -32,6 +36,8 @@ impl<'a> Parser<'a> {
             lines: scan(input),
             idx: 0,
             strict,
+            indent_size: 2,
+            mark_quoted_dots: true,
             error: None,
         }
     }
@@ -41,6 +47,8 @@ impl<'a> Parser<'a> {
             lines,
             idx: 0,
             strict,
+            indent_size: 2,
+            mark_quoted_dots: true,
             error: None,
         }
     }
@@ -167,7 +175,7 @@ impl<'a> Parser<'a> {
                 Ok(st) => {
                     // If this quoted key contains a dot, mark it to prevent path expansion
                     // by prefixing with a zero-width space (U+200B)
-                    if st.contains('.') {
+                    if self.mark_quoted_dots && st.contains('.') {
                         let mut marked = String::with_capacity(st.len() + 3);
                         marked.push('\u{200B}');
                         marked.push_str(&st);
@@ -237,15 +245,11 @@ impl<'a> Parser<'a> {
             self.next();
             if let Some(vs) = item_val {
                 // 1) Support array headers embedded in list item values, e.g. "- [N]:" or "- [N]{fields}: ..."
-                if (is_array_header_line(vs)
-                    || vs.starts_with('[')
-                    || parse_array_header(vs).is_some())
-                    && let Some(header) = parse_array_header(vs)
-                {
+                if let Some(header) = parse_list_array_header(vs) {
                     // If header has a key, this is a keyed array as first field of list-item object
                     if let Some(ref key) = header.key {
                         let key_parsed = self.parse_key_token(key);
-                        let child_indent = indent + 2;
+                        let child_indent = indent + self.indent_size;
                         let mut map: Vec<(String, Value)> = Vec::new();
                         let v = self.parse_keyed_array_value(&header);
                         map.push((key_parsed, v));
@@ -266,7 +270,9 @@ impl<'a> Parser<'a> {
                             });
                         }
                         let header_line_no = self.idx; // Already consumed the header
-                        let row_indent = self.next_content_indent().unwrap_or(indent + 2);
+                        let row_indent = self
+                            .next_content_indent()
+                            .unwrap_or(indent + self.indent_size);
                         let fields_refs: Vec<&str> = fields.iter().map(|s| s.as_str()).collect();
                         arr.push(self.parse_tabular_rows(
                             header.length,
@@ -305,14 +311,17 @@ impl<'a> Parser<'a> {
                         continue;
                     }
                     // Expanded array header: parse nested list items at child indent
-                    let child_indent = self.peek().map(|l| l.indent).unwrap_or(indent + 2);
+                    let child_indent = self
+                        .peek()
+                        .map(|l| l.indent)
+                        .unwrap_or(indent + self.indent_size);
                     arr.push(self.parse_array(child_indent));
                     continue;
                 }
                 // 2) Support object-as-list-item with first field on the hyphen line: "- key: value"
                 if let Some((kraw, vraw)) = split_kv_quote_aware(vs) {
                     let key = self.parse_key_token(kraw);
-                    let child_indent = indent + 2;
+                    let child_indent = indent + self.indent_size;
                     let mut map: Vec<(String, Value)> = Vec::new();
                     if vraw.is_empty() {
                         // Value on following indented lines
@@ -332,7 +341,7 @@ impl<'a> Parser<'a> {
                 arr.push(self.parse_scalar_token(vs));
             } else {
                 // Bare "-" list item - check if there are children
-                let child_indent = indent + 2;
+                let child_indent = indent + self.indent_size;
                 let child_val = self.parse_node(child_indent);
                 // If parse_node returns Null (no children), this is an empty object
                 if matches!(child_val, Value::Null) {
@@ -350,7 +359,7 @@ impl<'a> Parser<'a> {
         let has_inline_list_field = self.idx > 0
             && self.lines.get(self.idx - 1).is_some_and(|line| {
                 matches!(line.kind, LineKind::ListItem { value: Some(_) })
-                    && line.indent + 2 == indent
+                    && line.indent + self.indent_size == indent
             });
         loop {
             if self.strict
@@ -468,7 +477,10 @@ impl<'a> Parser<'a> {
                     self.next();
                     let k = self.parse_key_token(kref);
                     // Detect actual child indent from next line (supports non-multiple indentation in non-strict mode)
-                    let child_indent = self.peek().map(|l| l.indent).unwrap_or(indent + 2);
+                    let child_indent = self
+                        .peek()
+                        .map(|l| l.indent)
+                        .unwrap_or(indent + self.indent_size);
                     let mut handled = false;
                     if let Some(nl) = self.peek()
                         && nl.indent == child_indent
@@ -854,7 +866,7 @@ impl<'a> Parser<'a> {
                                         header.length,
                                         header.delimiter,
                                         &fields_refs,
-                                        indent + 2,
+                                        indent + self.indent_size,
                                         header_line_no,
                                     );
                                 }
@@ -1033,15 +1045,21 @@ impl<'a> Parser<'a> {
         if let Some(ref fields) = header.fields {
             if header.keyed {
                 let refs: Vec<&str> = fields.iter().map(String::as_str).collect();
-                return self.parse_keyed_rows(header.length, header.delimiter, &refs, 2, line_no);
+                return self.parse_keyed_rows(
+                    header.length,
+                    header.delimiter,
+                    &refs,
+                    self.indent_size,
+                    line_no,
+                );
             }
-            // Tabular array - rows at indent 2
+            // Tabular array - rows one indentation level below the root
             let fields_refs: Vec<&str> = fields.iter().map(|s| s.as_str()).collect();
             return self.parse_tabular_rows(
                 header.length,
                 header.delimiter,
                 &fields_refs,
-                2,
+                self.indent_size,
                 line_no,
             );
         }
@@ -1070,8 +1088,8 @@ impl<'a> Parser<'a> {
             );
         }
 
-        // Expanded array with list items at indent 2
-        self.parse_array_with_length_check(2, header.length, line_no)
+        // Expanded array with list items one indentation level below the root
+        self.parse_array_with_length_check(self.indent_size, header.length, line_no)
     }
 
     /// Parse the value for a keyed array header
@@ -1100,7 +1118,7 @@ impl<'a> Parser<'a> {
                     message: "keyed array requires a field list".to_string(),
                 });
             }
-            let row_indent = self.next_content_indent().unwrap_or(2);
+            let row_indent = self.next_content_indent().unwrap_or(self.indent_size);
             return self.parse_keyed_rows(
                 header.length,
                 header.delimiter,
@@ -1113,7 +1131,7 @@ impl<'a> Parser<'a> {
         // If there are fields, it's a tabular array
         if let Some(ref fields) = header.fields {
             // Get current indent to determine row indent
-            let row_indent = self.next_content_indent().unwrap_or(2);
+            let row_indent = self.next_content_indent().unwrap_or(self.indent_size);
             let fields_refs: Vec<&str> = fields.iter().map(|s| s.as_str()).collect();
             return self.parse_tabular_rows(
                 header.length,
@@ -1149,7 +1167,7 @@ impl<'a> Parser<'a> {
         }
 
         // Otherwise, parse list items at child indent
-        let child_indent = self.next_content_indent().unwrap_or(2);
+        let child_indent = self.next_content_indent().unwrap_or(self.indent_size);
         self.parse_array_with_length_check(child_indent, header.length, header_line_no)
     }
 
@@ -1502,6 +1520,18 @@ pub struct ArrayHeader {
     pub inline_values: Option<String>,   // Optional inline values after colon
     pub fields_delimiter_mismatch: bool, // True if fields use a different delimiter than declared
     pub keyed: bool,
+}
+
+// A list-item field may use either `items[N]:` or `items: [N]:`.
+fn parse_list_array_header(s: &str) -> Option<ArrayHeader> {
+    if let Some((key, value)) = split_kv_quote_aware(s)
+        && let Some(mut header) = parse_array_header(value)
+        && header.key.is_none()
+    {
+        header.key = Some(key.to_string());
+        return Some(header);
+    }
+    parse_array_header(s)
 }
 
 /// Parse a spec-compliant array header: key[N<delim?>]{fields}:[ values]
@@ -2153,7 +2183,18 @@ pub fn parse_to_internal_value_from_lines<'a>(
     lines: Vec<ParsedLine<'a>>,
     strict: bool,
 ) -> Result<Value, crate::error::Error> {
+    parse_to_internal_value_from_lines_with_options(lines, strict, 2, true)
+}
+
+pub(crate) fn parse_to_internal_value_from_lines_with_options<'a>(
+    lines: Vec<ParsedLine<'a>>,
+    strict: bool,
+    indent_size: usize,
+    mark_quoted_dots: bool,
+) -> Result<Value, crate::error::Error> {
     let mut p = Parser::from_lines(lines, strict);
+    p.indent_size = if indent_size == 0 { 2 } else { indent_size };
+    p.mark_quoted_dots = mark_quoted_dots;
     let v = p.parse_document();
     if let Some(err) = p.error {
         Err(err)

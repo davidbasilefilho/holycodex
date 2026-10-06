@@ -612,7 +612,7 @@ fn encode_list_item_object(
         );
         for (entry, cells) in rows {
             w.line(
-                indent + 4,
+                indent + 2 * opts.indent,
                 &format!("{}: {}", primitives::format_key(&entry), cells),
             );
         }
@@ -636,9 +636,9 @@ fn encode_list_item_object(
         );
         w.line_list_item(indent, &header);
 
-        // Rows at depth+2 (indent + 4 relative to list item indent)
+        // Rows at depth+2 (indent + 2 * opts.indent relative to list item indent)
         for row in rows {
-            w.line(indent + 4, &row);
+            w.line(indent + 2 * opts.indent, &row);
         }
 
         // Other fields at depth+1 (indent + opts.indent)
@@ -695,7 +695,7 @@ fn encode_list_item_object(
                     ),
                 );
                 for inner_item in items {
-                    encode_list_item(inner_item, w, opts, indent + 4)?;
+                    encode_list_item(inner_item, w, opts, indent + 2 * opts.indent)?;
                 }
             }
         }
@@ -703,7 +703,7 @@ fn encode_list_item_object(
             w.line(indent, &format!("- {}:", first_key_fmt));
             if !inner_obj.is_empty() {
                 for (k, v) in inner_obj {
-                    encode_object_field(k, v, w, opts, indent + 4)?;
+                    encode_object_field(k, v, w, opts, indent + 2 * opts.indent)?;
                 }
             }
         }
