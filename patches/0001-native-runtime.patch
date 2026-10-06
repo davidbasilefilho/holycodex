@@ -2024,10 +2024,19 @@ index 2010b1e..91a739a 100644
  Commands:
    forward  Register an existing WebSocket exec-server as a remote environment
 diff --git a/codex-rs/cli/tests/app_server_daemon.rs b/codex-rs/cli/tests/app_server_daemon.rs
-index 002012a..87aefe7 100644
+index 002012a95a..5200299995 100644
 --- a/codex-rs/cli/tests/app_server_daemon.rs
 +++ b/codex-rs/cli/tests/app_server_daemon.rs
-@@ -525,7 +525,7 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+@@ -493,7 +493,7 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+     use std::os::unix::fs::PermissionsExt;
+     let mut daemon = TestDaemon::new()?;
+     let standalone = daemon.home.path().join("packages/standalone");
+-    let package = if action == "start" && initial == InitialDaemon::Missing {
++    let package = if initial == InitialDaemon::Missing {
+         standalone.join("releases/caller")
+     } else {
+         daemon.home.path().join("cli-package")
+@@ -525,12 +525,15 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
      std::fs::write(
          package.join("codex-package.json"),
          serde_json::to_vec(&serde_json::json!({
@@ -2035,7 +2044,25 @@ index 002012a..87aefe7 100644
 +            "version": "0.17.0", "target": target, "entrypoint": "bin/codex"
          }))?,
      )?;
-     if action == "start" && initial == InitialDaemon::Missing {
+-    if action == "start" && initial == InitialDaemon::Missing {
++    if initial == InitialDaemon::Missing {
+         std::fs::remove_file(standalone.join("current"))?;
+         std::os::unix::fs::symlink(&package, standalone.join("current"))?;
++        // A stable HolyCodex package must model an explicit local pin, not the
++        // upstream latest channel, for start, restart, and bootstrap alike.
++        std::fs::remove_file(standalone.join("auto-update-version"))?;
+     }
+     let cli_selection = standalone.join("current").canonicalize()?;
+     let state = daemon.home.path().join("app-server-daemon");
+@@ -580,6 +583,8 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+     let legacy_updater = match initial {
+         InitialDaemon::Missing => {
+             assert!(!state.join("app-server-updater.pid").exists());
++            assert!(!state.join("daemon-updater.pid").exists());
++            assert!(!dedicated.join("auto-update-version").exists());
+             None
+         }
+         InitialDaemon::Legacy => Some(daemon.pid("app-server-updater.pid")?),
 diff --git a/codex-rs/cli/tests/daemon_startup.rs b/codex-rs/cli/tests/daemon_startup.rs
 index 67eff23..5d7a975 100644
 --- a/codex-rs/cli/tests/daemon_startup.rs
@@ -21591,3 +21618,148 @@ index fa47056..074ba33 100644
                  return Ok(());
              }
  
+diff --git a/codex-rs/cli/tests/doctor_path_safety.rs b/codex-rs/cli/tests/doctor_path_safety.rs
+index 0b53ebb9b4..2315e45e80 100644
+--- a/codex-rs/cli/tests/doctor_path_safety.rs
++++ b/codex-rs/cli/tests/doctor_path_safety.rs
+@@ -1,6 +1,7 @@
+ //! Black-box coverage for safe diagnostic execution and config error reporting.
+ 
+ use std::ffi::OsString;
++use std::path::Path;
+ use std::path::PathBuf;
+ use std::time::Duration;
+ 
+@@ -12,6 +13,7 @@ use codex_app_server_protocol::RequestId;
+ use codex_config::loader::project_trust_key;
+ use codex_state::SqliteConfig;
+ use codex_utils_absolute_path::AbsolutePathBuf;
++use codex_utils_absolute_path::normalize_windows_device_path;
+ use codex_utils_cargo_bin::copy_executable;
+ use pretty_assertions::assert_eq;
+ use serde_json::Value;
+@@ -345,9 +347,86 @@ fn doctor_redacts_failed_database_paths_in_json() -> Result<()> {
+     Ok(())
+ }
+ 
++// Config paths may use a canonical Windows name without its device prefix,
++// while permission keys retain the original temporary directory spelling.
++fn normalize_fixture_paths(value: &str, root: &Path, canonical_root: &Path) -> String {
++    let root = root.display().to_string();
++    let canonical_root = canonical_root.display().to_string();
++    let normalized_canonical_root =
++        normalize_windows_device_path(&canonical_root).unwrap_or_else(|| canonical_root.clone());
++    let mut value = value.replace('\\', "/");
++    for root in [&canonical_root, &normalized_canonical_root, &root] {
++        value = value.replace(&root.replace('\\', "/"), "FIXTURE");
++    }
++    value
++}
++
++#[test]
++fn fixture_path_normalization_handles_windows_aliases_and_mixed_provenance() {
++    let root = Path::new(r"C:\Users\RUNNER~1\AppData\Local\Temp\.tmpABC");
++    let canonical = Path::new(r"\\?\C:\Users\runneradmin\AppData\Local\Temp\.tmpABC");
++    for path in [
++        r"C:\Users\RUNNER~1\AppData\Local\Temp\.tmpABC\home\config.toml",
++        r"\\?\C:\Users\runneradmin\AppData\Local\Temp\.tmpABC\home\config.toml",
++        r"C:\Users\runneradmin\AppData\Local\Temp\.tmpABC\home\config.toml",
++        "C:/Users/runneradmin/AppData/Local/Temp/.tmpABC/home/config.toml",
++    ] {
++        assert_eq!(
++            normalize_fixture_paths(path, root, canonical),
++            "FIXTURE/home/config.toml"
++        );
++    }
++    assert_eq!(
++        normalize_fixture_paths(
++            r"permissions.diagnostic.filesystem.C:\Users\RUNNER~1\AppData\Local\Temp\.tmpABC\workspace\probe-existing in user (C:/Users/runneradmin/AppData/Local/Temp/.tmpABC/home/config.toml)",
++            root,
++            canonical,
++        ),
++        "permissions.diagnostic.filesystem.FIXTURE/workspace/probe-existing in user (FIXTURE/home/config.toml)"
++    );
++}
++
++#[test]
++fn fixture_path_normalization_preserves_unix_and_unc_aliases() {
++    for (root, canonical, paths) in [
++        (
++            "/var/tmp/fixture",
++            "/private/var/tmp/fixture",
++            [
++                "/var/tmp/fixture/home/config.toml",
++                "/private/var/tmp/fixture/home/config.toml",
++            ],
++        ),
++        (
++            r"\\server\share\fixture",
++            r"\\?\UNC\server\share\fixture",
++            [
++                r"\\?\UNC\server\share\fixture\home\config.toml",
++                "//server/share/fixture/home/config.toml",
++            ],
++        ),
++    ] {
++        for path in paths {
++            assert_eq!(
++                normalize_fixture_paths(path, Path::new(root), Path::new(canonical)),
++                "FIXTURE/home/config.toml"
++            );
++        }
++    }
++    assert_eq!(
++        normalize_fixture_paths(
++            "unrelated diagnostic",
++            Path::new("/fixture"),
++            Path::new("/fixture"),
++        ),
++        "unrelated diagnostic"
++    );
++}
++
+ #[test]
+ fn doctor_reports_only_safe_config_error_metadata() -> Result<()> {
+     let fixture = Fixture::new()?;
++    let canonical_root = fixture.root.path().canonicalize()?;
+     let user_config_file = fixture.home.join("config.toml");
+     let original = std::fs::read_to_string(&user_config_file)?;
+     // macOS temp directories can use a symlinked path; trust the canonical workspace.
+@@ -398,14 +477,11 @@ fn doctor_reports_only_safe_config_error_metadata() -> Result<()> {
+                 .expect("config check")
+                 .remove("durationMs");
+             if let Some(file) = check["details"]["file"].as_str() {
+-                check["details"]["file"] = Value::String(
+-                    file.replace(
+-                        &fixture.root.path().canonicalize()?.display().to_string(),
+-                        "FIXTURE",
+-                    )
+-                    .replace(&fixture.root.path().display().to_string(), "FIXTURE")
+-                    .replace('\\', "/"),
+-                );
++                check["details"]["file"] = Value::String(normalize_fixture_paths(
++                    file,
++                    fixture.root.path(),
++                    &canonical_root,
++                ));
+             }
+             let stdout = String::from_utf8_lossy(&output.stdout);
+             assert!(!stdout.contains("doctor-test-credential"));
+@@ -454,12 +530,11 @@ extends = ":read-only"
+         .retain(|key, _| !key.ends_with(" latency"));
+     let canonical_root = fixture.root.path().canonicalize()?;
+     for value in details.as_object_mut().expect("path details").values_mut() {
+-        let detail = value
+-            .as_str()
+-            .expect("scalar path detail")
+-            .replace(&canonical_root.display().to_string(), "FIXTURE")
+-            .replace(&fixture.root.path().display().to_string(), "FIXTURE")
+-            .replace('\\', "/");
++        let detail = normalize_fixture_paths(
++            value.as_str().expect("scalar path detail"),
++            fixture.root.path(),
++            &canonical_root,
++        );
+         *value = Value::String(detail);
+     }
+     let snapshot_name = if cfg!(windows) {
