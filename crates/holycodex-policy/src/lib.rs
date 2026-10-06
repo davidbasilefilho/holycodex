@@ -511,7 +511,10 @@ impl Default for PolicyConfig {
     }
 }
 
-/// User-selectable integrations, serialized below `[holycodex.capabilities]`.
+/// Compatibility preferences serialized below `[holycodex.capabilities]`.
+/// These do not independently enable or disable host tools. Actual host/MCP
+/// permissions remain authoritative; shared transports lack operation-level
+/// metadata for separate browser/computer enforcement.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CapabilityConfig {

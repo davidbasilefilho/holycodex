@@ -140,7 +140,6 @@ impl<'de> de::Deserializer<'de> for Deserializer {
 }
 
 pub fn from_str<T: DeserializeOwned + 'static>(s: &str, options: &Options) -> Result<T> {
-    crate::decode::parser::validate_header_syntax(s, options.strict)?;
     #[cfg(feature = "de_direct")]
     {
         #[cfg(feature = "json")]
@@ -160,6 +159,7 @@ pub fn from_str<T: DeserializeOwned + 'static>(s: &str, options: &Options) -> Re
 
 #[cfg_attr(all(feature = "de_direct", not(feature = "json")), allow(dead_code))]
 fn from_str_via_internal_value<T: DeserializeOwned>(s: &str, options: &Options) -> Result<T> {
+    crate::decode::parser::validate_header_syntax(s, options.strict)?;
     let lines = crate::decode::scanner::scan(s);
     if options.strict {
         // Collect raw lines for tab detection

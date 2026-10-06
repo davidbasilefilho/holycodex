@@ -23,11 +23,17 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Verify checkout matches the validated source
         env:
           VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: test "$(git rev-parse HEAD)" = "$VALIDATED_SHA"
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$VALIDATED_SHA"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$VALIDATED_SHA" FETCH_HEAD
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 26
@@ -66,7 +72,7 @@ jobs:
             else
               status=$?
               if grep -q 'E404' "$error_file"; then
-                npx --yes npm@12 publish "$archive" --access public --tag latest --provenance
+                npx --yes npm@12.1.0 publish "$archive" --access public --tag latest --provenance
               else
                 cat "$error_file" >&2
                 exit "$status"

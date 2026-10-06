@@ -34,6 +34,7 @@ impl de::Error for DeError {
 impl core::error::Error for DeError {}
 
 pub fn from_str<T: DeserializeOwned>(s: &str, options: &Options) -> Result<T> {
+    crate::decode::parser::validate_header_syntax(s, options.strict)?;
     let lines = scan(s);
     if options.strict {
         // Collect raw lines for tab detection
@@ -86,12 +87,12 @@ impl<'a> DirectDeserializer<'a> {
         if let Some(s) = unescape_json_string(k) {
             return s;
         }
-        let base = if let Some(idx) = k.find('[') {
+        let base = if let Some(idx) = find_unquoted_byte(k, b'[') {
             &k[..idx]
         } else {
             k
         };
-        base.to_string()
+        unescape_json_string(base).unwrap_or_else(|| base.to_string())
     }
 
     fn classify_primitive(s: &str) -> Primitive {
@@ -227,19 +228,15 @@ impl<'de, 'a, 'b> SeqAccess<'de> for SeqDe<'a, 'b> {
         if let Some(vs) = val_opt {
             // 1) Inline primitive array item: "[N<delim?>]: v1<delim>..."
             if vs.starts_with('[') {
-                if let Some((_n, dch, values_str)) = parse_inline_array_header(vs) {
-                    let toks = split_delim_aware(values_str, dch);
-                    let mut ia = InlineArraySeq {
-                        tokens: toks,
-                        idx: 0,
-                    };
+                if let Some((n, dch, values_str)) = parse_inline_array_header(vs)? {
+                    let mut ia = InlineArraySeq::new(n, dch, values_str, self.de.strict)?;
                     return seed
                         .deserialize(de::value::SeqAccessDeserializer::new(&mut ia))
                         .map(Some);
                 }
             }
             // 2) Object on hyphen line: variants
-            if let Some(colon) = find_unquoted_colon(vs) {
+            if let Some(colon) = find_unquoted_byte(vs, b':') {
                 let (kraw, rest) = vs.split_at(colon);
                 let after = rest[1..].trim_start();
                 let siblings_indent = self.indent + 2;
@@ -266,11 +263,23 @@ impl<'de, 'a, 'b> SeqAccess<'de> for SeqDe<'a, 'b> {
                         child_indent: siblings_indent + 2,
                     }
                 } else if after.starts_with('[') {
-                    if let Some((_n, dch, values_str)) = parse_inline_array_header(after) {
-                        HyphenFirstValue::InlineArray { dch, values_str }
+                    if let Some((n, dch, values_str)) = parse_inline_array_header(after)? {
+                        HyphenFirstValue::InlineArray(InlineArraySeq::new(
+                            n,
+                            dch,
+                            values_str,
+                            self.de.strict,
+                        )?)
                     } else {
                         HyphenFirstValue::Scalar(after)
                     }
+                } else if let Some((n, dch)) = parse_keyed_inline_array_header(kraw)? {
+                    HyphenFirstValue::InlineArray(InlineArraySeq::new(
+                        n,
+                        dch,
+                        after,
+                        self.de.strict,
+                    )?)
                 } else {
                     HyphenFirstValue::Scalar(after)
                 };
@@ -309,10 +318,7 @@ struct MapDe<'a, 'b> {
 
 enum ValueKind<'a> {
     Scalar(&'a str),
-    InlinePrimitiveArray {
-        dch: char,
-        values_str: &'a str,
-    },
+    InlinePrimitiveArray(InlineArraySeq<'a>),
     NestedObject {
         child_indent: usize,
     },
@@ -354,21 +360,27 @@ impl<'de, 'a, 'b> MapAccess<'de> for MapDe<'a, 'b> {
                 // Inline primitive arrays as object field:
                 // Either value starts with header, or key contains [N<delim?>]
                 if vref.starts_with('[') {
-                    if let Some((_n, dch, values_str)) = parse_inline_array_header(vref) {
+                    if let Some((n, dch, values_str)) = parse_inline_array_header(vref)? {
                         self.pending = Some((
                             k.clone(),
-                            ValueKind::InlinePrimitiveArray { dch, values_str },
+                            ValueKind::InlinePrimitiveArray(InlineArraySeq::new(
+                                n,
+                                dch,
+                                values_str,
+                                self.de.strict,
+                            )?),
                         ));
                         return seed.deserialize(k.into_deserializer()).map(Some);
                     }
-                } else if kref.contains('[') {
-                    let dch = bracket_delim_from_key(kref).unwrap_or(',');
+                } else if let Some((n, dch)) = parse_keyed_inline_array_header(kref)? {
                     self.pending = Some((
                         k.clone(),
-                        ValueKind::InlinePrimitiveArray {
+                        ValueKind::InlinePrimitiveArray(InlineArraySeq::new(
+                            n,
                             dch,
-                            values_str: vref,
-                        },
+                            vref,
+                            self.de.strict,
+                        )?),
                     ));
                     return seed.deserialize(k.into_deserializer()).map(Some);
                 }
@@ -441,12 +453,7 @@ impl<'de, 'a, 'b> MapAccess<'de> for MapDe<'a, 'b> {
             ValueKind::Scalar(s) => {
                 seed.deserialize(PrimDe(DirectDeserializer::classify_primitive(s)))
             }
-            ValueKind::InlinePrimitiveArray { dch, values_str } => {
-                let toks = split_delim_aware(values_str, dch);
-                let mut ia = InlineArraySeq {
-                    tokens: toks,
-                    idx: 0,
-                };
+            ValueKind::InlinePrimitiveArray(mut ia) => {
                 seed.deserialize(de::value::SeqAccessDeserializer::new(&mut ia))
             }
             ValueKind::NestedObject { child_indent } => {
@@ -492,6 +499,36 @@ struct InlineArraySeq<'a> {
     tokens: Vec<&'a str>,
     idx: usize,
 }
+impl<'a> InlineArraySeq<'a> {
+    fn new(
+        declared: usize,
+        dch: char,
+        values: &'a str,
+        strict: bool,
+    ) -> core::result::Result<Self, DeError> {
+        let tokens = if values.is_empty() {
+            Vec::new()
+        } else {
+            split_delim_aware_impl(values, dch, strict)
+        };
+        if strict && tokens.len() != declared {
+            return Err(DeError {
+                msg: format!(
+                    "array length mismatch: header declares {} elements but found {}",
+                    declared,
+                    tokens.len()
+                ),
+            });
+        }
+        if strict && tokens.iter().any(|token| token.is_empty()) {
+            return Err(DeError {
+                msg: "empty inline array element must be quoted".into(),
+            });
+        }
+        Ok(Self { tokens, idx: 0 })
+    }
+}
+
 impl<'de, 'a> SeqAccess<'de> for InlineArraySeq<'a> {
     type Error = DeError;
     fn next_element_seed<T>(
@@ -520,7 +557,7 @@ struct HyphenObjectDe<'a, 'b> {
 
 enum HyphenFirstValue<'a> {
     Scalar(&'a str),
-    InlineArray { dch: char, values_str: &'a str },
+    InlineArray(InlineArraySeq<'a>),
     NestedObject { child_indent: usize },
     Array { child_indent: usize },
     TabularHeader { dch: char, header: Vec<String> },
@@ -554,17 +591,18 @@ impl<'de, 'a, 'b> MapAccess<'de> for HyphenObjectDe<'a, 'b> {
         let k = self.de.parse_key(kref);
         let pending = if let Some(vref) = snapshot.1 {
             if vref.starts_with('[') {
-                if let Some((_n, dch, values_str)) = parse_inline_array_header(vref) {
-                    HyphenFirstValue::InlineArray { dch, values_str }
+                if let Some((n, dch, values_str)) = parse_inline_array_header(vref)? {
+                    HyphenFirstValue::InlineArray(InlineArraySeq::new(
+                        n,
+                        dch,
+                        values_str,
+                        self.de.strict,
+                    )?)
                 } else {
                     HyphenFirstValue::Scalar(vref)
                 }
-            } else if kref.contains('[') {
-                let dch = bracket_delim_from_key(kref).unwrap_or(',');
-                HyphenFirstValue::InlineArray {
-                    dch,
-                    values_str: vref,
-                }
+            } else if let Some((n, dch)) = parse_keyed_inline_array_header(kref)? {
+                HyphenFirstValue::InlineArray(InlineArraySeq::new(n, dch, vref, self.de.strict)?)
             } else {
                 HyphenFirstValue::Scalar(vref)
             }
@@ -613,12 +651,7 @@ impl<'de, 'a, 'b> MapAccess<'de> for HyphenObjectDe<'a, 'b> {
                 HyphenFirstValue::Scalar(s) => {
                     seed.deserialize(PrimDe(DirectDeserializer::classify_primitive(s)))
                 }
-                HyphenFirstValue::InlineArray { dch, values_str } => {
-                    let toks = split_delim_aware(values_str, dch);
-                    let mut ia = InlineArraySeq {
-                        tokens: toks,
-                        idx: 0,
-                    };
+                HyphenFirstValue::InlineArray(mut ia) => {
                     seed.deserialize(de::value::SeqAccessDeserializer::new(&mut ia))
                 }
                 HyphenFirstValue::NestedObject { child_indent } => {
@@ -785,13 +818,17 @@ fn hex_val(c: char) -> Option<u32> {
     }
 }
 
-fn split_delim_aware<'a>(s: &'a str, dch: char) -> Vec<&'a str> {
+fn split_delim_aware(s: &str, dch: char) -> Vec<&str> {
+    split_delim_aware_impl(s, dch, false)
+}
+
+fn split_delim_aware_impl(s: &str, dch: char, preserve_empty: bool) -> Vec<&str> {
     #[cfg(feature = "perf_memchr")]
     {
         // Reuse parser's optimized splitter if available via cfg; else local slow path
     }
     let bytes = s.as_bytes();
-    let mut out: Vec<&'a str> = Vec::new();
+    let mut out: Vec<&str> = Vec::new();
     let mut in_str = false;
     let mut escape = false;
     let mut start = 0usize;
@@ -819,16 +856,16 @@ fn split_delim_aware<'a>(s: &'a str, dch: char) -> Vec<&'a str> {
             }
             if b == delim {
                 let tok = trim_ascii(&s[start..i]);
-                if !tok.is_empty() {
+                if preserve_empty || !tok.is_empty() {
                     out.push(tok);
                 }
                 start = i + 1;
             }
         }
     }
-    if start < bytes.len() {
+    if preserve_empty || start < bytes.len() {
         let tok = trim_ascii(&s[start..]);
-        if !tok.is_empty() {
+        if preserve_empty || !tok.is_empty() {
             out.push(tok);
         }
     }
@@ -848,7 +885,7 @@ fn trim_ascii(s: &str) -> &str {
     &s[start..end]
 }
 
-fn find_unquoted_colon(s: &str) -> Option<usize> {
+fn find_unquoted_byte(s: &str, needle: u8) -> Option<usize> {
     let b = s.as_bytes();
     let mut in_str = false;
     let mut escape = false;
@@ -872,7 +909,7 @@ fn find_unquoted_colon(s: &str) -> Option<usize> {
                 b'"' => {
                     in_str = true;
                 }
-                b':' => {
+                b if b == needle => {
                     return Some(i);
                 }
                 _ => {}
@@ -882,42 +919,56 @@ fn find_unquoted_colon(s: &str) -> Option<usize> {
     None
 }
 
-fn parse_inline_array_header(s: &str) -> Option<(usize, char, &str)> {
-    // Expect: "[N<delim?>]:" followed by values
+fn parse_inline_array_header(s: &str) -> core::result::Result<Option<(usize, char, &str)>, DeError> {
+    let Some((n, dch, rest)) = parse_array_header_prefix(s)? else {
+        return Ok(None);
+    };
+    Ok(rest
+        .strip_prefix(':')
+        .map(|values| (n, dch, values.trim_start())))
+}
+
+fn parse_keyed_inline_array_header(k: &str) -> core::result::Result<Option<(usize, char)>, DeError> {
+    let Some(bracket) = find_unquoted_byte(k, b'[') else {
+        return Ok(None);
+    };
+    let Some((n, dch, rest)) = parse_array_header_prefix(&k[bracket..])? else {
+        return Ok(None);
+    };
+    Ok(rest.is_empty().then_some((n, dch)))
+}
+
+fn parse_array_header_prefix(s: &str) -> core::result::Result<Option<(usize, char, &str)>, DeError> {
+    // Parse "[N<delim?>]" without allocating or trusting the declared length.
     let bytes = s.as_bytes();
-    if bytes.first().copied()? != b'[' {
-        return None;
+    if bytes.first() != Some(&b'[') {
+        return Ok(None);
     }
-    let mut i = 1usize;
-    let mut n: usize = 0;
+    let mut i = 1;
     while i < bytes.len() && bytes[i].is_ascii_digit() {
-        n = n * 10 + (bytes[i] - b'0') as usize;
         i += 1;
     }
-    if i >= bytes.len() {
-        return None;
+    if i == 1 {
+        return Ok(None);
     }
-    let mut dch = ',';
-    match bytes[i] {
-        b'\t' => {
-            dch = '\t';
+    let n = s[1..i].parse::<usize>().map_err(|_| DeError {
+        msg: "array length exceeds supported range".into(),
+    })?;
+    let dch = match bytes.get(i) {
+        Some(b'\t') => {
             i += 1;
+            '\t'
         }
-        b'|' => {
-            dch = '|';
+        Some(b'|') => {
             i += 1;
+            '|'
         }
-        _ => {}
+        _ => ',',
+    };
+    if bytes.get(i) != Some(&b']') {
+        return Ok(None);
     }
-    if i >= bytes.len() || bytes[i] != b']' {
-        return None;
-    }
-    i += 1;
-    if i >= bytes.len() || bytes[i] != b':' {
-        return None;
-    }
-    let rest = s[i + 1..].trim_start();
-    Some((n, dch, rest))
+    Ok(Some((n, dch, &s[i + 1..])))
 }
 
 fn try_parse_keyed_tabular_header<'a>(
@@ -968,21 +1019,4 @@ fn try_parse_keyed_tabular_header<'a>(
     }
     let key = de.parse_key(key_str);
     Some((key, dch, header))
-}
-
-fn bracket_delim_from_key(k: &str) -> Option<char> {
-    let bytes = k.as_bytes();
-    let bpos = bytes.iter().position(|&b| b == b'[')?;
-    let mut i = bpos + 1;
-    while i < bytes.len() && bytes[i].is_ascii_digit() {
-        i += 1;
-    }
-    if i < bytes.len() {
-        match bytes[i] {
-            b'\t' => return Some('\t'),
-            b'|' => return Some('|'),
-            _ => {}
-        }
-    }
-    Some(',')
 }

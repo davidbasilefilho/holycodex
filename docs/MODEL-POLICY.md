@@ -30,9 +30,9 @@ request. Assignment fragments remain separate developer/user context supplied by
 Step-settings updates revalidate required availability and resolve current catalog metadata rather
 than retaining stale HolyCodex capacity after a refresh.
 
-The layered `[holycodex]` table is read without modifying any config file. Upstream strict-config
-validation and generated config schema still need that table registered in `codex-config`; those
-files are outside this integration seam's current ownership.
+The layered `[holycodex]` table is registered in `codex-config` and its generated schema.
+Production strict-config validation accepts the supported fields and rejects unknown fields.
+The effective table is read without modifying any config file.
 
 The CLI and compatibility executable must remain one runtime. A branding or executable alias must
 not change the product identity sent to the service. Core request originators, inherited/resumed
@@ -42,3 +42,21 @@ Sign-in registration and its persisted client identity likewise belong to that a
 boundary. The model provider should continue to use provider-resolved HTTP Responses/SSE transport;
 account scopes and capabilities must come from the resolved auth and provider metadata, never from
 the binary name or assumed desktop entitlements.
+
+## Host integration preferences and permissions
+
+The `browser_use`, `computer_use`, and `sites` values under
+`[holycodex.capabilities]` are retained for configuration compatibility. They
+are not independent runtime security controls: changing them does not disable
+host tools. Actual host, MCP, sandbox, and confirmation permissions remain
+authoritative and are never bypassed by these preferences.
+
+The recognized browser/computer integrations share a transport without
+trusted per-operation capability metadata. HolyCodex deliberately preserves
+those host-provided functions rather than blocking browser access whenever
+`computer_use` is false. Independent browser/computer enforcement is deferred
+until the host can provide reliable operation-level capabilities. Tool names
+or descriptions alone are not used as a substitute for that metadata.
+
+Use the host's actual integration permissions when access must be disabled.
+Do not rely on the default `computer_use = false` as a security boundary.

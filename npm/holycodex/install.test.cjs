@@ -35,7 +35,115 @@ test('install replaces placeholders with verified identical bytes on every targe
     assert.deepEqual(holy, fs.readFileSync(path.join(f.root, 'bin/codex.exe')));
     assert.equal(holy.toString(), 'installer mechanics fixture');
     if (process.platform !== 'win32' && platform !== 'win32') assert.equal(fs.statSync(path.join(f.root, 'bin/holycodex.exe')).mode & 0o111, 0o111);
+    assert.deepEqual(fs.readdirSync(path.join(f.root, 'bin')).sort(), ['codex.exe', 'holycodex.exe']);
   }
+});
+
+test('a second alias rename failure restores original bytes, modes, and absent destinations', (t) => {
+  for (const [platform, arch] of [['linux', 'x64'], ['darwin', 'arm64'], ['win32', 'x64']]) {
+    for (const present of [[true, true], [false, false], [true, false], [false, true]]) {
+      const f = fixture(t, platform, arch);
+      const directory = path.join(f.root, 'bin');
+      const destinations = ['holycodex', 'codex'].map((name) => path.join(directory, `${name}.exe`));
+      const originals = destinations.map((destination, i) => {
+        if (!present[i]) {
+          fs.rmSync(destination);
+          return undefined;
+        }
+        const bytes = Buffer.from(`previous ${path.basename(destination)}`);
+        fs.writeFileSync(destination, bytes);
+        if (process.platform !== 'win32') fs.chmodSync(destination, i === 0 ? 0o751 : 0o640);
+        return { bytes, mode: fs.statSync(destination).mode & 0o7777 };
+      });
+      const failure = Object.assign(new Error('injected second alias rename failure'), { code: 'EIO' });
+      const rename = fs.renameSync;
+      let failures = 0;
+      try {
+        fs.renameSync = (source, destination) => {
+          if (destination === destinations[1]) {
+            failures++;
+            assert.equal(fs.readFileSync(destinations[0], 'utf8'), 'installer mechanics fixture');
+            throw failure;
+          }
+          return rename(source, destination);
+        };
+        assert.throws(() => install(f.options), (error) => error === failure);
+      } finally {
+        fs.renameSync = rename;
+      }
+      assert.equal(failures, 1);
+      for (let i = 0; i < destinations.length; i++) {
+        if (!originals[i]) assert.equal(fs.existsSync(destinations[i]), false);
+        else {
+          assert.deepEqual(fs.readFileSync(destinations[i]), originals[i].bytes);
+          assert.equal(fs.statSync(destinations[i]).mode & 0o7777, originals[i].mode);
+        }
+      }
+      assert.deepEqual(fs.readdirSync(directory).sort(), destinations.filter((_, i) => present[i]).map((destination) => path.basename(destination)).sort());
+    }
+  }
+});
+
+test('a Windows-locked second alias stays untouched while the first alias rolls back', (t) => {
+  const f = fixture(t, 'win32');
+  const first = path.join(f.root, 'bin/holycodex.exe');
+  const locked = path.join(f.root, 'bin/codex.exe');
+  const failure = Object.assign(new Error('EPERM: executable is in use'), { code: 'EPERM' });
+  const { renameSync, rmSync, writeFileSync, copyFileSync } = fs;
+  let replacements = 0;
+  let lockedOperations = 0;
+  function checkUnlocked(filename) {
+    if (filename === locked) {
+      lockedOperations++;
+      throw failure;
+    }
+  }
+  try {
+    fs.renameSync = (source, destination) => {
+      checkUnlocked(source);
+      checkUnlocked(destination);
+      if (destination === first && !source.endsWith('.bak')) replacements++;
+      return renameSync(source, destination);
+    };
+    fs.rmSync = (filename, ...args) => { checkUnlocked(filename); return rmSync(filename, ...args); };
+    fs.writeFileSync = (filename, ...args) => { checkUnlocked(filename); return writeFileSync(filename, ...args); };
+    fs.copyFileSync = (source, destination, ...args) => { checkUnlocked(destination); return copyFileSync(source, destination, ...args); };
+    assert.throws(() => install(f.options), (error) => error === failure);
+  } finally {
+    Object.assign(fs, { renameSync, rmSync, writeFileSync, copyFileSync });
+  }
+  assert.equal(replacements, 1);
+  assert.equal(lockedOperations, 1, 'rollback must not try to modify the untouched locked alias');
+  assert.equal(fs.readFileSync(first, 'utf8'), 'placeholder');
+  assert.equal(fs.readFileSync(locked, 'utf8'), 'placeholder');
+  assert.deepEqual(fs.readdirSync(path.join(f.root, 'bin')).sort(), ['codex.exe', 'holycodex.exe']);
+});
+
+test('a rollback failure reports both errors and keeps recovery copies', (t) => {
+  const f = fixture(t);
+  const failure = new Error('injected second alias rename failure');
+  const rollbackFailure = new Error('injected rollback rename failure');
+  const rename = fs.renameSync;
+  try {
+    fs.renameSync = (source, destination) => {
+      if (destination === path.join(f.root, 'bin/codex.exe')) throw failure;
+      if (source.endsWith('.bak')) throw rollbackFailure;
+      return rename(source, destination);
+    };
+    assert.throws(() => install(f.options), (error) => {
+      assert.ok(error instanceof AggregateError);
+      assert.deepEqual(error.errors, [failure, rollbackFailure]);
+      assert.equal(error.cause, failure);
+      assert.match(error.message, /rollback was incomplete; recovery files remain in/);
+      return true;
+    });
+  } finally {
+    fs.renameSync = rename;
+  }
+  const directory = path.join(f.root, 'bin');
+  const recovery = fs.readdirSync(directory).find((entry) => entry.startsWith('.holycodex-install-'));
+  assert.ok(recovery);
+  for (const name of ['holycodex', 'codex']) assert.equal(fs.readFileSync(path.join(directory, recovery, `${name}.exe.bak`), 'utf8'), 'placeholder');
 });
 
 test('missing payload, invalid metadata, and checksum mismatch leave placeholders untouched', (t) => {

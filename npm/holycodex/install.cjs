@@ -64,19 +64,54 @@ function install(options = {}) {
   const destinationDir = path.join(root, 'bin');
   fs.mkdirSync(destinationDir, { recursive: true });
   const destinations = ['holycodex', 'codex'].map((name) => path.join(destinationDir, `${name}.exe`));
-  const temporary = destinations.map((destination) => `${destination}.${process.pid}.tmp`);
-  const created = [];
+  const stagingDir = fs.mkdtempSync(path.join(destinationDir, '.holycodex-install-'));
+  const temporary = destinations.map((destination) => path.join(stagingDir, path.basename(destination)));
+  const backups = destinations.map((destination) => path.join(stagingDir, `${path.basename(destination)}.bak`));
+  const hadOriginal = [];
+  const replaced = [];
+  let preserveBackups = false;
   try {
     for (let i = 0; i < temporary.length; i++) {
       fs.writeFileSync(temporary[i], payloads[i], { flag: 'wx', mode: 0o755 });
-      created.push(temporary[i]);
       if (platform !== 'win32') fs.chmodSync(temporary[i], 0o755);
+      let original;
+      try {
+        original = fs.lstatSync(destinations[i]);
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+      hadOriginal[i] = Boolean(original);
+      if (original) {
+        if (!original.isFile()) throw new Error(`Native executable destination is not a regular file: ${destinations[i]}`);
+        fs.copyFileSync(destinations[i], backups[i], fs.constants.COPYFILE_EXCL);
+        if (platform !== 'win32') fs.chmodSync(backups[i], original.mode & 0o7777);
+      }
     }
     // The fixed .exe suffix makes npm's bin mapping portable. Unix executes
     // ELF/Mach-O by contents; npm's Windows shims directly invoke the PE file.
-    for (let i = 0; i < temporary.length; i++) fs.renameSync(temporary[i], destinations[i]);
+    // Keep both originals until both aliases are installed. In particular, a
+    // locked Windows executable must not leave the other alias upgraded.
+    for (let i = 0; i < temporary.length; i++) {
+      fs.renameSync(temporary[i], destinations[i]);
+      replaced.push(i);
+    }
+  } catch (error) {
+    const rollbackErrors = [];
+    for (const i of replaced.reverse()) {
+      try {
+        if (hadOriginal[i]) fs.renameSync(backups[i], destinations[i]);
+        else fs.rmSync(destinations[i]);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    if (rollbackErrors.length) {
+      preserveBackups = true;
+      throw new AggregateError([error, ...rollbackErrors], `HolyCodex installation failed and rollback was incomplete; recovery files remain in ${stagingDir}.`, { cause: error });
+    }
+    throw error;
   } finally {
-    for (const filename of created) fs.rmSync(filename, { force: true });
+    if (!preserveBackups) fs.rmSync(stagingDir, { recursive: true, force: true });
   }
 }
 
