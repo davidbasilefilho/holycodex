@@ -9,4 +9,4 @@
 *.gz binary
 
 tests/fixtures/toon/** -text
-*.patch whitespace=-blank-at-eol
+*.patch whitespace=-blank-at-eol,-blank-at-eof

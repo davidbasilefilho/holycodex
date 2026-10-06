@@ -21,7 +21,18 @@ jobs:
     steps:
       - name: Set isolated Codex home
         shell: bash
-        run: echo "CODEX_HOME=$RUNNER_TEMP/holycodex-release-codex-home" >> "$GITHUB_ENV"
+        run: |
+          set -euo pipefail
+          codex_home="$RUNNER_TEMP/holycodex-release-codex-home"
+          filesystem_codex_home="$codex_home"
+          if command -v cygpath >/dev/null 2>&1; then
+            filesystem_codex_home="$(cygpath -u "$codex_home")"
+          fi
+          mkdir -p "$filesystem_codex_home"
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            chmod 700 "$filesystem_codex_home"
+          fi
+          printf 'CODEX_HOME=%s\n' "$codex_home" >> "$GITHUB_ENV"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
@@ -40,7 +51,18 @@ jobs:
     steps:
       - name: Set isolated Codex home
         shell: bash
-        run: echo "CODEX_HOME=$RUNNER_TEMP/holycodex-release-codex-home" >> "$GITHUB_ENV"
+        run: |
+          set -euo pipefail
+          codex_home="$RUNNER_TEMP/holycodex-release-codex-home"
+          filesystem_codex_home="$codex_home"
+          if command -v cygpath >/dev/null 2>&1; then
+            filesystem_codex_home="$(cygpath -u "$codex_home")"
+          fi
+          mkdir -p "$filesystem_codex_home"
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            chmod 700 "$filesystem_codex_home"
+          fi
+          printf 'CODEX_HOME=%s\n' "$codex_home" >> "$GITHUB_ENV"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
@@ -88,7 +110,18 @@ jobs:
     steps:
       - name: Set isolated Codex home
         shell: bash
-        run: echo "CODEX_HOME=$RUNNER_TEMP/holycodex-release-codex-home" >> "$GITHUB_ENV"
+        run: |
+          set -euo pipefail
+          codex_home="$RUNNER_TEMP/holycodex-release-codex-home"
+          filesystem_codex_home="$codex_home"
+          if command -v cygpath >/dev/null 2>&1; then
+            filesystem_codex_home="$(cygpath -u "$codex_home")"
+          fi
+          mkdir -p "$filesystem_codex_home"
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            chmod 700 "$filesystem_codex_home"
+          fi
+          printf 'CODEX_HOME=%s\n' "$codex_home" >> "$GITHUB_ENV"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
@@ -168,7 +201,7 @@ jobs:
           test "$source_sha" = "$GITHUB_SHA"
           printf 'focused_test_source_sha_after=%s\n' "$source_sha"
           git diff --exit-code
-      - name: Test pinned Codex CLI with its toolchain
+      - name: Test pinned Codex CLI and login with its toolchain
         shell: bash
         env:
           CARGO_BUILD_JOBS: "1"
@@ -216,7 +249,7 @@ jobs:
           same_executable "$selected_rustfmt" "$rustfmt_path"
           test "$(printf '%s\n' "$rustc_version" | awk '{print $2}')" = "$expected_toolchain"
           test "$(printf '%s\n' "$cargo_version" | awk '{print $2}')" = "$expected_toolchain"
-          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-cli
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-cli -p codex-login
       - name: Build one native runtime under both names
         run: cargo run --locked -p holycodex-dev -- package --upstream .tmp/upstream --output .tmp/native --release
       - name: Stage and pack platform npm package

@@ -317,17 +317,28 @@ fn apply_patches(root: &Path, upstream: &Path) -> Result<()> {
         .iter()
         .map(|path| path.as_os_str())
         .collect::<Vec<_>>();
-    let mut check_args = vec![
+    let mut strict_check_args = vec![
         OsStr::new("apply"),
         OsStr::new("--check"),
         OsStr::new("--whitespace=error"),
+        OsStr::new("--exclude=*.snap"),
+        OsStr::new("--"),
+    ];
+    strict_check_args.extend(paths.iter().copied());
+    git(&strict_check_args, upstream)
+        .context("strict non-snapshot patch preflight failed; no patch was applied")?;
+    let mut check_args = vec![
+        OsStr::new("apply"),
+        OsStr::new("--check"),
+        OsStr::new("--whitespace=nowarn"),
         OsStr::new("--"),
     ];
     check_args.extend(paths.iter().copied());
-    git(&check_args, upstream).context("strict patch preflight failed; no patch was applied")?;
+    git(&check_args, upstream)
+        .context("patch applicability preflight failed; no patch was applied")?;
     let mut apply_args = vec![
         OsStr::new("apply"),
-        OsStr::new("--whitespace=error"),
+        OsStr::new("--whitespace=nowarn"),
         OsStr::new("--"),
     ];
     apply_args.extend(paths);

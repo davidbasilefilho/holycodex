@@ -384,6 +384,74 @@ fn patch_preflight_rejects_reapplication_without_changing_the_checkout() {
 }
 
 #[test]
+fn patch_preflight_allows_snapshot_trailing_space_but_rejects_rust_trailing_space() {
+    let root = tempdir().unwrap();
+    let repo = tempdir().unwrap();
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(repo.path())
+            .output()
+            .unwrap()
+    };
+
+    assert!(git(&["init", "-q"]).status.success());
+    assert!(git(&["config", "core.autocrlf", "false"]).status.success());
+    let snapshot = "codex-rs/tui/src/snapshots/brand.snap";
+    let source = "codex-rs/core/src/lib.rs";
+    for path in [snapshot, source] {
+        let path = repo.path().join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "before\n").unwrap();
+    }
+    assert!(git(&["add", "codex-rs"]).status.success());
+    assert!(
+        git(&[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "base",
+        ])
+        .status
+        .success()
+    );
+
+    fs::write(repo.path().join(snapshot), "rendered frame \n").unwrap();
+    fs::write(repo.path().join(source), "rust source \n").unwrap();
+    let patch = git(&["diff", "--", snapshot, source]);
+    assert!(patch.status.success());
+    fs::create_dir_all(root.path().join("patches")).unwrap();
+    fs::write(root.path().join("patches/0001.patch"), patch.stdout).unwrap();
+    fs::write(repo.path().join(snapshot), "before\n").unwrap();
+    fs::write(repo.path().join(source), "before\n").unwrap();
+
+    let error = apply_patches(root.path(), repo.path()).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("strict non-snapshot patch preflight failed"),
+        "unexpected patch preflight error: {error:#}"
+    );
+    assert_eq!(fs::read(repo.path().join(snapshot)).unwrap(), b"before\n");
+    assert_eq!(fs::read(repo.path().join(source)).unwrap(), b"before\n");
+
+    fs::write(repo.path().join(snapshot), "rendered frame \n").unwrap();
+    let patch = git(&["diff", "--", snapshot]);
+    assert!(patch.status.success());
+    fs::write(root.path().join("patches/0001.patch"), patch.stdout).unwrap();
+    fs::write(repo.path().join(snapshot), "before\n").unwrap();
+
+    apply_patches(root.path(), repo.path()).unwrap();
+    assert_eq!(
+        fs::read(repo.path().join(snapshot)).unwrap(),
+        b"rendered frame \n"
+    );
+}
+
+#[test]
 fn patch_workspace_manifest_survives_owned_materialization() {
     let root = tempdir().unwrap();
     let repo = tempdir().unwrap();
