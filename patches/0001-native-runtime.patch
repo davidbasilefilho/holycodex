@@ -20845,10 +20845,10 @@ index 891d896..2142aa3 100644
 +    assert_eq!(resolved.auto_compact_token_limit(), Some(244_800));
 +}
 diff --git a/codex-rs/skills/src/lib.rs b/codex-rs/skills/src/lib.rs
-index 7b19d32..6fa5b4a 100644
+index 7b19d32788..468da4c6fe 100644
 --- a/codex-rs/skills/src/lib.rs
 +++ b/codex-rs/skills/src/lib.rs
-@@ -193,6 +193,46 @@ mod tests {
+@@ -193,6 +193,45 @@ mod tests {
      use super::SYSTEM_SKILLS_DIR;
      use super::collect_fingerprint_items;
  
@@ -20869,8 +20869,7 @@ index 7b19d32..6fa5b4a 100644
 +            "refactor",
 +            "rules",
 +            "session-audit",
-+            "visual-loop",
-+            "web-visualize",
++            "visualize",
 +            "writing-instructions",
 +        ];
 +
