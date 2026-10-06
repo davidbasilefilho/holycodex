@@ -1921,7 +1921,7 @@ index 22e607c..e7f0597 100644
  
  /// Prefers device-code login (with `open_browser = false`) when headless environment is detected, but keeps
 diff --git a/codex-rs/cli/src/main.rs b/codex-rs/cli/src/main.rs
-index bdd7771..f89210e 100644
+index bdd7771b3a..d79daa5acb 100644
 --- a/codex-rs/cli/src/main.rs
 +++ b/codex-rs/cli/src/main.rs
 @@ -107,20 +107,20 @@ use codex_protocol::protocol::AskForApproval;
@@ -1952,7 +1952,47 @@ index bdd7771..f89210e 100644
  )]
  struct MultitoolCli {
      #[clap(flatten)]
-@@ -2050,6 +2050,7 @@ async fn run_debug_prompt_input_command(
+@@ -773,6 +773,13 @@ fn run_update_action(
+     action: UpdateAction,
+     cli_executable: Option<&std::path::Path>,
+ ) -> anyhow::Result<()> {
++    anyhow::ensure!(
++        matches!(
++            action,
++            UpdateAction::Daemon(codex_tui::DaemonUpdateSource::ThisCli)
++        ),
++        "HolyCodex upstream self-update is disabled. Upgrade the HolyCodex package through its package manager."
++    );
+     if let UpdateAction::Daemon(source) = action {
+         let executable = cli_executable
+             .ok_or_else(|| anyhow::anyhow!("Cannot locate the launching Codex CLI"))?;
+@@ -854,22 +861,9 @@ fn resolve_windows_update_command_from_path(
+ }
+ 
+ fn run_update_command() -> anyhow::Result<()> {
+-    #[cfg(debug_assertions)]
+-    {
+-        anyhow::bail!(
+-            "`codex update` is not available in debug builds. Install a release build of Codex to use this command."
+-        );
+-    }
+-
+-    #[cfg(not(debug_assertions))]
+-    {
+-        let Some(action) = codex_tui::get_update_action() else {
+-            anyhow::bail!(
+-                "Could not detect the Codex installation method. Please update manually: https://developers.openai.com/codex/cli/"
+-            );
+-        };
+-        run_update_action(action, /*cli_executable*/ None)
+-    }
++    anyhow::bail!(
++        "HolyCodex upstream self-update is disabled. Upgrade the HolyCodex package through its package manager. If using a local background server, select the upgraded CLI package with `holycodex app-server daemon update --from-cli`."
++    )
+ }
+ 
+ fn run_execpolicycheck(cmd: ExecPolicyCheckCommand) -> anyhow::Result<()> {
+@@ -2050,6 +2044,7 @@ async fn run_debug_prompt_input_command(
              shadow_selection_enabled: config
                  .features
                  .enabled(codex_features::Feature::SkillSearch),
@@ -1960,7 +2000,7 @@ index bdd7771..f89210e 100644
          }
      });
      let prompt_input = codex_core::build_prompt_input(
-@@ -2698,6 +2699,28 @@ fn print_completion(cmd: CompletionCommand) {
+@@ -2698,6 +2693,28 @@ fn print_completion(cmd: CompletionCommand) {
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -1989,7 +2029,7 @@ index bdd7771..f89210e 100644
      use crate::exec_server_command::ExecServerSubcommand;
      use crate::exec_server_command::is_supported_exec_server_remote_auth;
      use crate::exec_server_command::validate_api_key_remote_host;
-@@ -3424,15 +3447,15 @@ mod tests {
+@@ -3424,15 +3441,15 @@ mod tests {
      fn plugin_marketplace_help_uses_plugin_namespace() {
          let help = help_from_args(&["codex", "plugin", "marketplace", "--help"]);
          assert!(
@@ -2010,6 +2050,37 @@ index bdd7771..f89210e 100644
          ] {
              let help = help_from_args(&["codex", "plugin", "marketplace", subcommand, "--help"]);
              assert!(help.contains(usage), "{help}");
+@@ -3496,6 +3513,30 @@ mod tests {
+         assert!(matches!(cli.subcommand, Some(Subcommand::Plugin(_))));
+     }
+ 
++    #[test]
++    fn holycodex_rejects_upstream_update_actions_before_spawning() {
++        for action in [
++            UpdateAction::Daemon(codex_tui::DaemonUpdateSource::PublicStable),
++            UpdateAction::NpmGlobalLatest,
++            UpdateAction::BunGlobalLatest,
++            UpdateAction::VitePlusGlobalLatest,
++            UpdateAction::PnpmGlobalLatest,
++            UpdateAction::BrewUpgrade,
++            UpdateAction::StandaloneUnix,
++            UpdateAction::StandaloneWindows,
++        ] {
++            let error = run_update_action(action, /*cli_executable*/ None)
++                .expect_err("upstream package replacement must not run");
++            assert!(
++                error
++                    .to_string()
++                    .contains("HolyCodex upstream self-update is disabled")
++            );
++        }
++        let error = run_update_command().expect_err("self-update must give manual guidance");
++        assert!(error.to_string().contains("--from-cli"));
++    }
++
+     #[test]
+     fn update_parses_as_update_subcommand() {
+         let cli = MultitoolCli::try_parse_from(["codex", "update"]).expect("parse");
 diff --git a/codex-rs/cli/src/snapshots/codex__exec_server_args_tests__exec_server_help_documents_remote_options.snap b/codex-rs/cli/src/snapshots/codex__exec_server_args_tests__exec_server_help_documents_remote_options.snap
 index 2010b1e..91a739a 100644
 --- a/codex-rs/cli/src/snapshots/codex__exec_server_args_tests__exec_server_help_documents_remote_options.snap
@@ -2024,10 +2095,250 @@ index 2010b1e..91a739a 100644
  Commands:
    forward  Register an existing WebSocket exec-server as a remote environment
 diff --git a/codex-rs/cli/tests/app_server_daemon.rs b/codex-rs/cli/tests/app_server_daemon.rs
-index 002012a95a..5200299995 100644
+index 002012a95a..7bfbf94065 100644
 --- a/codex-rs/cli/tests/app_server_daemon.rs
 +++ b/codex-rs/cli/tests/app_server_daemon.rs
-@@ -493,7 +493,7 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+@@ -145,7 +145,6 @@ fn wait_for_exit(pid: u32) -> Result<()> {
+ fn managed_identity_survives_locale_and_timezone_changes() -> Result<()> {
+     let daemon = TestDaemon::new()?;
+     let mut original = Vec::new();
+-    let mut updater_pid = 0;
+     let pid_file = daemon.home.path().join("app-server-daemon/app-server.pid");
+     for (action, locale, timezone, expected_status) in [
+         ("start", "C", "UTC0", "started"),
+@@ -167,7 +166,6 @@ fn managed_identity_survives_locale_and_timezone_changes() -> Result<()> {
+         let output: Value = serde_json::from_slice(&output.stdout)?;
+         assert_eq!(output["status"], expected_status);
+         if action == "start" {
+-            updater_pid = daemon.pid("app-server-updater.pid")?;
+             original = std::fs::read(&pid_file)?;
+             let record: Value = serde_json::from_slice(&original)?;
+             assert!(record["processIdentity"].is_object());
+@@ -189,19 +187,9 @@ fn managed_identity_survives_locale_and_timezone_changes() -> Result<()> {
+             );
+         } else if action == "version" {
+             assert_eq!(output["backend"], "pid");
+-            assert_eq!(daemon.pid("app-server-updater.pid")?, updater_pid);
++            assert!(daemon.pid("app-server-updater.pid").is_err());
+             assert_eq!(std::fs::read(&pid_file)?, original);
+ 
+-            // Finish startup promotion before deliberately restoring a legacy record.
+-            let updater_socket = daemon
+-                .home
+-                .path()
+-                .join("app-server-daemon/app-server-updater.sock");
+-            let deadline = Instant::now() + Duration::from_secs(30);
+-            while !updater_socket.exists() {
+-                ensure!(Instant::now() < deadline, "updater did not become ready");
+-                std::thread::sleep(Duration::from_millis(50));
+-            }
+             let mut legacy: Value = serde_json::from_slice(&original)?;
+             legacy
+                 .as_object_mut()
+@@ -226,7 +214,7 @@ fn managed_identity_survives_locale_and_timezone_changes() -> Result<()> {
+             insta::assert_snapshot!(stderr, @"Error: cannot verify pid-managed process [PID]: legacy start time changed; PID record retained. Retry with the locale and timezone used to start the daemon. If the system clock changed, stop the original process before restarting the daemon");
+         }
+         if action == "restart" {
+-            assert_eq!(daemon.pid("app-server-updater.pid")?, updater_pid);
++            assert!(daemon.pid("app-server-updater.pid").is_err());
+         }
+     }
+     assert!(!pid_file.exists());
+@@ -257,62 +245,23 @@ fn package_ownership_check_does_not_start_an_updater() -> Result<()> {
+ }
+ 
+ #[test]
+-fn managed_starts_ensure_one_updater_and_recover_a_missing_one() -> Result<()> {
++fn holycodex_managed_starts_and_restarts_without_an_updater() -> Result<()> {
+     let daemon = TestDaemon::new()?;
+     assert_eq!(daemon.lifecycle("start")?["status"], "started");
+     let backend_pid = daemon.pid("app-server.pid")?;
+-    let updater_pid = daemon.pid("app-server-updater.pid")?;
+-    assert_ne!(backend_pid, updater_pid);
+-
+-    assert_eq!(daemon.lifecycle("start")?["status"], "alreadyRunning");
+-    assert_eq!(daemon.pid("app-server.pid")?, backend_pid);
+-    assert_eq!(daemon.pid("app-server-updater.pid")?, updater_pid);
+-
+-    signal(updater_pid, libc::SIGTERM)?;
+-    wait_for_exit(updater_pid)?;
+-    // A replacement updater also upgrades still-verifiable records left by an old CLI.
+-    let server_record_path = daemon.home.path().join("app-server-daemon/app-server.pid");
+-    let mut legacy: Value = serde_json::from_slice(&std::fs::read(&server_record_path)?)?;
+-    let native = legacy.as_object_mut().unwrap().remove("processIdentity");
+-    std::fs::write(&server_record_path, serde_json::to_vec(&legacy)?)?;
++    assert!(daemon.pid("app-server-updater.pid").is_err());
+     assert_eq!(daemon.lifecycle("start")?["status"], "alreadyRunning");
+     assert_eq!(daemon.pid("app-server.pid")?, backend_pid);
+-    let replacement_pid = daemon.pid("app-server-updater.pid")?;
+-    assert_ne!(replacement_pid, updater_pid);
+-    if let Some(native) = native {
+-        legacy["processIdentity"] = native;
+-        let deadline = Instant::now() + Duration::from_secs(30);
+-        loop {
+-            let record: Value = serde_json::from_slice(&std::fs::read(&server_record_path)?)?;
+-            if record == legacy {
+-                break;
+-            }
+-            ensure!(
+-                Instant::now() < deadline,
+-                "legacy record was not upgraded: {record}"
+-            );
+-            std::thread::sleep(Duration::from_millis(50));
+-        }
+-    }
++    assert!(daemon.pid("app-server-updater.pid").is_err());
+     assert_eq!(daemon.lifecycle("restart")?["status"], "restarted");
++    wait_for_exit(backend_pid)?;
+     assert_ne!(daemon.pid("app-server.pid")?, backend_pid);
+-    assert_eq!(daemon.pid("app-server-updater.pid")?, replacement_pid);
+-    daemon.lifecycle("stop")?;
+-    assert!(
+-        !daemon
+-            .home
+-            .path()
+-            .join("app-server-daemon/app-server.pid")
+-            .exists()
+-    );
++    assert!(daemon.pid("app-server-updater.pid").is_err());
++    assert_eq!(daemon.lifecycle("stop")?["status"], "stopped");
++    assert!(daemon.pid("app-server.pid").is_err());
+     assert_eq!(daemon.lifecycle("start")?["status"], "started");
+-    assert!(
+-        !daemon
+-            .home
+-            .path()
+-            .join("packages/app-server-daemon")
+-            .exists()
+-    );
++    assert!(daemon.pid("app-server-updater.pid").is_err());
++    assert!(!daemon.home.path().join("packages/app-server-daemon").exists());
+     Ok(())
+ }
+ 
+@@ -332,13 +281,12 @@ fn managed_start_succeeds_when_updater_record_is_invalid() -> Result<()> {
+ 
+ #[cfg(any(target_os = "linux", target_os = "macos"))]
+ #[test]
+-fn wall_clock_shift_keeps_server_and_updater_managed() -> Result<()> {
++fn wall_clock_shift_keeps_server_managed_without_an_updater() -> Result<()> {
+     let daemon = TestDaemon::new()?;
+     assert_eq!(daemon.lifecycle("start")?["status"], "started");
+     let server_pid = daemon.pid("app-server.pid")?;
+-    let updater_pid = daemon.pid("app-server-updater.pid")?;
+-    for name in ["app-server.pid", "app-server-updater.pid"] {
+-        let path = daemon.home.path().join("app-server-daemon").join(name);
++    {
++        let path = daemon.home.path().join("app-server-daemon/app-server.pid");
+         let mut record: Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+         record["processStartTime"] = "historical wall-clock start time".into();
+         let replacement = path.with_extension("replacement");
+@@ -351,79 +299,51 @@ fn wall_clock_shift_keeps_server_and_updater_managed() -> Result<()> {
+     assert_eq!(version["backend"], "pid");
+     assert_eq!(daemon.lifecycle("start")?["status"], "alreadyRunning");
+     assert_eq!(daemon.pid("app-server.pid")?, server_pid);
+-    assert_eq!(daemon.pid("app-server-updater.pid")?, updater_pid);
++    assert!(daemon.pid("app-server-updater.pid").is_err());
+     assert_eq!(daemon.lifecycle("restart")?["status"], "restarted");
+     wait_for_exit(server_pid)?;
+     assert_ne!(daemon.pid("app-server.pid")?, server_pid);
+-    assert_eq!(daemon.pid("app-server-updater.pid")?, updater_pid);
++    assert!(daemon.pid("app-server-updater.pid").is_err());
+     Ok(())
+ }
+ 
+ #[test]
+-fn managed_start_keeps_updater_on_marker_mismatch_but_stops_it_for_pin() -> Result<()> {
++fn holycodex_latest_markers_cannot_enable_upstream_updates() -> Result<()> {
+     let daemon = TestDaemon::new()?;
++    let marker = daemon.home.path().join("packages/standalone/auto-update-version");
+     assert_eq!(daemon.lifecycle("start")?["status"], "started");
+-    let updater_pid = daemon.pid("app-server-updater.pid")?;
+-    let marker = daemon
+-        .home
+-        .path()
+-        .join("packages/standalone/auto-update-version");
++    let backend_pid = daemon.pid("app-server.pid")?;
++    assert!(daemon.pid("app-server-updater.pid").is_err());
+     std::fs::write(&marker, "0.1.0-other-target")?;
+     assert_eq!(daemon.lifecycle("start")?["status"], "alreadyRunning");
+-    assert_eq!(daemon.pid("app-server-updater.pid")?, updater_pid);
+-    std::thread::sleep(Duration::from_millis(250));
+-    let updater_state = Command::new("/bin/ps")
+-        .args(["-p", &updater_pid.to_string(), "-o", "stat="])
+-        .output()?;
+-    ensure!(
+-        updater_state.status.success()
+-            && !String::from_utf8_lossy(&updater_state.stdout)
+-                .trim()
+-                .starts_with('Z'),
+-        "updater exited during the latest marker transition"
+-    );
+-
++    assert!(daemon.pid("app-server-updater.pid").is_err());
++    assert_eq!(daemon.pid("app-server.pid")?, backend_pid);
+     std::fs::remove_file(marker)?;
+-
+     assert_eq!(daemon.lifecycle("start")?["status"], "alreadyRunning");
+-    wait_for_exit(updater_pid)?;
+-    assert!(
+-        !daemon
+-            .home
+-            .path()
+-            .join("app-server-daemon/app-server-updater.pid")
+-            .exists()
+-    );
++    assert!(daemon.pid("app-server-updater.pid").is_err());
++    assert_eq!(daemon.pid("app-server.pid")?, backend_pid);
+     Ok(())
+ }
+ 
+ #[test]
+-fn restart_applies_saved_updater_preference() -> Result<()> {
++fn holycodex_restart_ignores_upstream_update_preferences() -> Result<()> {
+     let daemon = TestDaemon::new()?;
+     assert_eq!(daemon.lifecycle("start")?["status"], "started");
+-    let updater_pid = daemon.pid("app-server-updater.pid")?;
+     let settings = daemon.home.path().join("app-server-daemon/settings.json");
+-    std::fs::write(
+-        &settings,
+-        serde_json::to_vec(&serde_json::json!({
+-            "updater": {"autoUpdateEnabled": false, "updateIntervalMinutes": 2},
+-        }))?,
+-    )?;
+-    assert_eq!(daemon.lifecycle("restart")?["status"], "restarted");
+-    wait_for_exit(updater_pid)?;
+-    assert!(daemon.pid("app-server-updater.pid").is_err());
+-    assert_eq!(daemon.lifecycle("bootstrap")?["autoUpdateEnabled"], false);
+-    assert!(daemon.pid("app-server-updater.pid").is_err());
+-
+-    std::fs::write(
+-        &settings,
+-        serde_json::to_vec(&serde_json::json!({
+-            "updater": {"autoUpdateEnabled": true, "updateIntervalMinutes": 2},
+-        }))?,
+-    )?;
+-    assert_eq!(daemon.lifecycle("restart")?["status"], "restarted");
+-    assert_ne!(daemon.pid("app-server-updater.pid")?, updater_pid);
+-
++    for enabled in [false, true] {
++        std::fs::write(
++            &settings,
++            serde_json::to_vec(&serde_json::json!({
++                "updater": {"autoUpdateEnabled": enabled, "updateIntervalMinutes": 2},
++            }))?,
++        )?;
++        assert_eq!(daemon.lifecycle("restart")?["status"], "restarted");
++        assert!(daemon.pid("app-server-updater.pid").is_err());
++        assert_eq!(daemon.lifecycle("bootstrap")?["autoUpdateEnabled"], false);
++        assert!(daemon.pid("app-server-updater.pid").is_err());
++        let saved: Value = serde_json::from_slice(&std::fs::read(&settings)?)?;
++        assert_eq!(saved["updater"]["autoUpdateEnabled"], enabled);
++    }
+     std::fs::write(&settings, "{malformed")?;
+     assert_eq!(daemon.lifecycle("stop")?["status"], "stopped");
+     Ok(())
+@@ -493,7 +413,7 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
      use std::os::unix::fs::PermissionsExt;
      let mut daemon = TestDaemon::new()?;
      let standalone = daemon.home.path().join("packages/standalone");
@@ -2036,7 +2347,7 @@ index 002012a95a..5200299995 100644
          standalone.join("releases/caller")
      } else {
          daemon.home.path().join("cli-package")
-@@ -525,12 +525,15 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+@@ -525,12 +445,15 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
      std::fs::write(
          package.join("codex-package.json"),
          serde_json::to_vec(&serde_json::json!({
@@ -2054,15 +2365,35 @@ index 002012a95a..5200299995 100644
      }
      let cli_selection = standalone.join("current").canonicalize()?;
      let state = daemon.home.path().join("app-server-daemon");
-@@ -580,6 +583,8 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
-     let legacy_updater = match initial {
-         InitialDaemon::Missing => {
-             assert!(!state.join("app-server-updater.pid").exists());
-+            assert!(!state.join("daemon-updater.pid").exists());
-+            assert!(!dedicated.join("auto-update-version").exists());
-             None
-         }
-         InitialDaemon::Legacy => Some(daemon.pid("app-server-updater.pid")?),
+@@ -577,13 +500,11 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+     assert_eq!(daemon.codex.canonicalize()?, cli_before);
+     assert_eq!(standalone.join("current").canonicalize()?, cli_selection);
+     assert!(state.join(initial_pid_file).exists());
+-    let legacy_updater = match initial {
+-        InitialDaemon::Missing => {
+-            assert!(!state.join("app-server-updater.pid").exists());
+-            None
+-        }
+-        InitialDaemon::Legacy => Some(daemon.pid("app-server-updater.pid")?),
+-    };
++    assert!(!state.join("app-server-updater.pid").exists());
++    assert!(!state.join("daemon-updater.pid").exists());
++    if initial == InitialDaemon::Missing {
++        assert!(!dedicated.join("auto-update-version").exists());
++    }
+     if action == "start" {
+         let initial_current = initial_root.join("current");
+         let current = dedicated.join("current");
+@@ -634,9 +555,6 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+         assert_eq!(output["status"], "updated");
+         assert_ne!(daemon.pid("daemon.pid")?, original_pid);
+         wait_for_exit(original_pid)?;
+-        if let Some(pid) = legacy_updater {
+-            wait_for_exit(pid)?;
+-        }
+         assert!(!state.join("app-server.pid").exists());
+         assert!(!state.join("app-server-updater.pid").exists());
+         assert_eq!(
 diff --git a/codex-rs/cli/tests/daemon_startup.rs b/codex-rs/cli/tests/daemon_startup.rs
 index 67eff23..5d7a975 100644
 --- a/codex-rs/cli/tests/daemon_startup.rs
@@ -21763,3 +22094,844 @@ index 0b53ebb9b4..2315e45e80 100644
          *value = Value::String(detail);
      }
      let snapshot_name = if cfg!(windows) {
+diff --git a/codex-rs/app-server-daemon/src/prepare_install.rs b/codex-rs/app-server-daemon/src/prepare_install.rs
+index ecf2501d22..9f4aa34801 100644
+--- a/codex-rs/app-server-daemon/src/prepare_install.rs
++++ b/codex-rs/app-server-daemon/src/prepare_install.rs
+@@ -72,7 +72,7 @@ pub async fn update_from_cli(
+             .ok()
+             .map(|info| info.app_server_version),
+         managed_codex_path,
+-        message: "The CLI package is selected and pinned. Run `codex app-server daemon update` to return to production updates.".to_string(),
++        message: "The CLI package is selected and pinned. For future upgrades, install HolyCodex through its package manager, then run `holycodex app-server daemon update --from-cli` to select that package.".to_string(),
+     }))
+ }
+ 
+diff --git a/codex-rs/app-server-daemon/src/update_loop.rs b/codex-rs/app-server-daemon/src/update_loop.rs
+index 8f55126878..29a95b3f1e 100644
+--- a/codex-rs/app-server-daemon/src/update_loop.rs
++++ b/codex-rs/app-server-daemon/src/update_loop.rs
+@@ -41,10 +41,24 @@ mod manual_update;
+ #[path = "migration.rs"]
+ mod migration;
+ 
++// HolyCodex has no independent updater channel. Never delegate installation to
++// an upstream worker, even when it predates this guarded CLI.
++pub(crate) const UPSTREAM_UPDATES_ENABLED: bool = false;
++const HOLYCODEX_UPDATE_MESSAGE: &str = "HolyCodex upstream installer updates are disabled. Upgrade HolyCodex through its package manager, then select the installed CLI package with `holycodex app-server daemon update --from-cli`.";
++
+ pub(crate) async fn request_manual_update(
+     daemon: &Daemon,
+     http_client_factory: HttpClientFactory,
+ ) -> Result<crate::UpdateOutput> {
++    if !UPSTREAM_UPDATES_ENABLED {
++        let _operation_lock = daemon.acquire_operation_lock().await?;
++        crate::backend::pid_update_loop_backend(daemon.backend_paths(&DaemonSettings::default()))
++            .stop()
++            .await?;
++        let mut output = manual_update::unsupported(daemon).await?;
++        output.message = HOLYCODEX_UPDATE_MESSAGE.to_string();
++        return Ok(output);
++    }
+     if daemon
+         .pid_file
+         .file_name()
+@@ -71,6 +85,7 @@ pub(crate) async fn run(
+     http_client_factory: HttpClientFactory,
+     restore_release: Option<String>,
+ ) -> Result<()> {
++    anyhow::ensure!(UPSTREAM_UPDATES_ENABLED, "{HOLYCODEX_UPDATE_MESSAGE}");
+     let http = RouteAwareClientPool::new_without_request_logging(
+         http_client_factory,
+         ClientRouteClass::Other,
+@@ -664,8 +679,9 @@ enum InstallerResponse {
+ 
+ /// HTTP boundary used to download the standalone installer.
+ ///
+-/// Implementations must issue a GET for the supplied URL, return exact response bytes for a
+-/// successful status, and report a non-success status without buffering its response body.
++/// A transport may reject an install by policy before issuing any request. An enabled
++/// transport must return exact response bytes for a successful GET and report a
++/// non-success status without buffering its response body.
+ trait InstallerHttp: Send + Sync {
+     fn get<'a>(
+         &'a self,
+@@ -675,6 +691,7 @@ trait InstallerHttp: Send + Sync {
+ 
+ impl InstallerHttp for RouteAwareClientPool {
+     async fn get(&self, url: &str) -> Result<InstallerResponse> {
++        anyhow::ensure!(UPSTREAM_UPDATES_ENABLED, "{HOLYCODEX_UPDATE_MESSAGE}");
+         let response = RouteAwareClientPool::get(self, url)
+             .send()
+             .await
+diff --git a/codex-rs/app-server-daemon/src/update_loop_tests.rs b/codex-rs/app-server-daemon/src/update_loop_tests.rs
+index d932742371..9ebd02fa65 100644
+--- a/codex-rs/app-server-daemon/src/update_loop_tests.rs
++++ b/codex-rs/app-server-daemon/src/update_loop_tests.rs
+@@ -23,6 +23,171 @@ use crate::managed_install::executable_identity;
+ #[cfg(unix)]
+ use crate::managed_install::executable_identity_from_reader;
+ 
++fn holycodex_production_installer_http() -> codex_http_client::RouteAwareClientPool {
++    codex_http_client::RouteAwareClientPool::new_without_request_logging(
++        codex_http_client::HttpClientFactory::new(
++            codex_http_client::OutboundProxyPolicy::ReqwestDefault,
++        ),
++        codex_http_client::ClientRouteClass::Other,
++    )
++}
++
++#[tokio::test]
++async fn holycodex_installer_transport_rejects_before_network_access() {
++    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback listener");
++    listener.set_nonblocking(true).expect("nonblocking listener");
++    let url = format!("http://{}/install.sh", listener.local_addr().expect("address"));
++    let http = holycodex_production_installer_http();
++    let error = tokio::time::timeout(
++        std::time::Duration::from_secs(1),
++        InstallerHttp::get(&http, &url),
++    )
++    .await
++    .expect("policy rejection must not wait for HTTP")
++    .expect_err("upstream installer transport must be disabled");
++    assert!(
++        error
++            .to_string()
++            .contains("HolyCodex upstream installer updates are disabled")
++    );
++    assert_eq!(
++        listener
++            .accept()
++            .expect_err("no connection may be made")
++            .kind(),
++        std::io::ErrorKind::WouldBlock
++    );
++    let error = fetch_installer_script(&http)
++        .await
++        .expect_err("the configured upstream installer must also be blocked");
++    assert!(error.to_string().contains("--from-cli"));
++}
++
++#[cfg(unix)]
++#[tokio::test]
++async fn holycodex_manual_update_does_not_contact_an_existing_updater() {
++    let home = TempDir::new().expect("home");
++    let (daemon, _) = manual_update_daemon(&home);
++    let socket_path = daemon.manual_update_socket_path();
++    codex_uds::prepare_private_socket_directory(socket_path.parent().expect("socket parent"))
++        .await
++        .expect("socket directory");
++    let mut listener = codex_uds::UnixListener::bind(&socket_path)
++        .await
++        .expect("old updater socket");
++    let selected = super::selected_release(&daemon).expect("selection");
++    let output = super::request_manual_update(
++        &daemon,
++        codex_http_client::HttpClientFactory::new(
++            codex_http_client::OutboundProxyPolicy::ReqwestDefault,
++        ),
++    )
++    .await
++    .expect("unsupported update response");
++    assert_eq!(output.status, UpdateStatus::Unsupported);
++    assert!(output.message.contains("HolyCodex upstream installer updates are disabled"));
++    assert!(tokio::time::timeout(Duration::from_millis(50), listener.accept()).await.is_err());
++    assert_eq!(super::selected_release(&daemon).expect("selection"), selected);
++}
++
++#[tokio::test]
++async fn holycodex_direct_updater_start_is_rejected() {
++    let error = super::run(
++        codex_http_client::HttpClientFactory::new(
++            codex_http_client::OutboundProxyPolicy::ReqwestDefault,
++        ),
++        /*restore_release*/ None,
++    )
++    .await
++    .expect_err("the production worker must not start or adopt another executable");
++    assert!(error.to_string().contains("HolyCodex upstream installer updates are disabled"));
++}
++
++#[cfg(unix)]
++#[tokio::test]
++async fn holycodex_retires_an_old_updater_without_changing_the_daemon_package() {
++    let home = TempDir::new().expect("home");
++    let (daemon, _) = manual_update_daemon(&home);
++    let settings = crate::settings::DaemonSettings::default();
++    let backend = crate::backend::pid_backend(daemon.backend_paths(&settings));
++    let updater = crate::backend::pid_update_loop_backend(daemon.backend_paths(&settings));
++    let selected = super::selected_release(&daemon).expect("selection");
++    let binary = std::fs::read(&daemon.managed_codex_bin).expect("binary");
++    backend.start().await.expect("old managed daemon");
++    updater.start().await.expect("old updater fixture");
++    let result = daemon.ensure_managed_updater(&settings).await;
++    let updater_running = updater.is_starting_or_running().await;
++    let bootstrapped = daemon.is_bootstrapped(&settings).await;
++    // Always clean up test processes before checking results.
++    updater.stop().await.expect("cleanup updater");
++    backend.stop().await.expect("cleanup daemon");
++    assert!(!result.expect("retire updater"));
++    assert!(!updater_running.expect("updater state"));
++    assert!(bootstrapped.expect("daemon remains bootstrapped without an updater"));
++    assert_eq!(super::selected_release(&daemon).expect("selection"), selected);
++    assert_eq!(std::fs::read(&daemon.managed_codex_bin).expect("binary"), binary);
++    assert!(!daemon.settings_file.exists());
++    assert!(!daemon.ensure_managed_updater(&settings).await.expect("do not respawn"));
++    assert!(!updater.is_starting_or_running().await.expect("no updater"));
++}
++
++#[cfg(unix)]
++#[tokio::test]
++async fn holycodex_scheduled_manual_and_restore_updates_preserve_the_package() {
++    let http = holycodex_production_installer_http();
++    let home = TempDir::new().expect("home");
++    let (daemon, release) = manual_update_daemon(&home);
++    let selected = super::selected_release(&daemon).expect("selected package");
++    let binary = std::fs::read(&daemon.managed_codex_bin).expect("binary bytes");
++    let marker = selected.0.join("auto-update-version");
++    let marker_bytes = std::fs::read(&marker).expect("latest marker");
++    let identity = executable_identity(&daemon.managed_codex_bin)
++        .await
++        .expect("identity");
++    for trigger in [
++        super::UpdateTrigger::Scheduled,
++        super::UpdateTrigger::Manual,
++        super::UpdateTrigger::RestoreProduction(&release),
++    ] {
++        let error = super::update_once(&http, &daemon, &identity, &mut test_terminate(), trigger)
++            .await
++            .err()
++            .expect("upstream installation must be rejected");
++        assert!(
++            error
++                .to_string()
++                .contains("HolyCodex upstream installer updates are disabled")
++        );
++        assert_eq!(super::selected_release(&daemon).expect("selection"), selected);
++        assert_eq!(std::fs::read(&daemon.managed_codex_bin).expect("binary"), binary);
++        assert_eq!(std::fs::read(&marker).expect("marker"), marker_bytes);
++        assert!(!daemon.pid_file.exists());
++    }
++}
++
++#[cfg(unix)]
++#[tokio::test]
++async fn holycodex_upstream_migration_preserves_the_legacy_package() {
++    let home = TempDir::new().expect("home");
++    let (daemon, _) = manual_update_daemon(&home);
++    let selected = super::selected_release(&daemon).expect("selected package");
++    let binary = std::fs::read(&daemon.managed_codex_bin).expect("binary bytes");
++    let marker = selected.0.join("auto-update-version");
++    let marker_bytes = std::fs::read(&marker).expect("latest marker");
++    let error = super::migration::run(&holycodex_production_installer_http(), &daemon)
++        .await
++        .expect_err("upstream migration must be rejected");
++    assert!(
++        error
++            .to_string()
++            .contains("HolyCodex upstream installer updates are disabled")
++    );
++    assert_eq!(super::selected_release(&daemon).expect("selection"), selected);
++    assert_eq!(std::fs::read(&daemon.managed_codex_bin).expect("binary"), binary);
++    assert_eq!(std::fs::read(&marker).expect("marker"), marker_bytes);
++    assert!(!home.path().join("packages/app-server-daemon").exists());
++}
++
+ #[tokio::test]
+ async fn installer_fetch_uses_exact_url_and_preserves_bytes() {
+     let script = b"#!/bin/sh\nprintf 'update bytes'\n".to_vec();
+@@ -193,7 +358,7 @@ printf '{release}' > "$root/auto-update-version"
+         assert!(!old_updater.is_starting_or_running().await.unwrap());
+         let new_updater =
+             crate::backend::pid_update_loop_backend(selected.backend_paths(&daemon_settings));
+-        assert_eq!(new_updater.is_starting_or_running().await.unwrap(), running);
++        assert!(!new_updater.is_starting_or_running().await.unwrap());
+         new_updater.stop().await.unwrap();
+         new_backend.stop().await.unwrap();
+         if let Some(server) = server {
+diff --git a/codex-rs/tui/src/npm_registry.rs b/codex-rs/tui/src/npm_registry.rs
+index 61ff2425e6..3396ad32ff 100644
+--- a/codex-rs/tui/src/npm_registry.rs
++++ b/codex-rs/tui/src/npm_registry.rs
+@@ -1,7 +1,7 @@
+ use serde::Deserialize;
+ use std::collections::HashMap;
+ 
+-#[cfg(not(debug_assertions))]
++#[cfg(any(not(debug_assertions), test))]
+ pub(crate) const PACKAGE_URL: &str = "https://registry.npmjs.org/@openai%2fcodex";
+ 
+ #[derive(Deserialize, Debug, Clone)]
+diff --git a/codex-rs/tui/src/update_action.rs b/codex-rs/tui/src/update_action.rs
+index 860d0bd102..ade4cb787e 100644
+--- a/codex-rs/tui/src/update_action.rs
++++ b/codex-rs/tui/src/update_action.rs
+@@ -2,8 +2,6 @@
+ use codex_install_context::InstallContext;
+ #[cfg(any(not(debug_assertions), test))]
+ use codex_install_context::InstallMethod;
+-#[cfg(any(not(debug_assertions), test))]
+-use codex_install_context::StandalonePlatform;
+ 
+ /// Update action the CLI should perform after the TUI exits.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+@@ -29,17 +27,17 @@ pub enum UpdateAction {
+ impl UpdateAction {
+     #[cfg(any(not(debug_assertions), test))]
+     pub(crate) fn from_install_context(context: &InstallContext) -> Option<Self> {
++        // These installation methods all update upstream Codex, not HolyCodex.
++        // Keep self-update disabled until the fork has its own supported release
++        // channel. Reusing an upstream updater would silently replace this fork.
+         match &context.method {
+-            InstallMethod::Npm => Some(UpdateAction::NpmGlobalLatest),
+-            InstallMethod::Bun => Some(UpdateAction::BunGlobalLatest),
+-            InstallMethod::VitePlus => Some(UpdateAction::VitePlusGlobalLatest),
+-            InstallMethod::Pnpm => Some(UpdateAction::PnpmGlobalLatest),
+-            InstallMethod::Brew => Some(UpdateAction::BrewUpgrade),
+-            InstallMethod::Standalone { platform, .. } => Some(match platform {
+-                StandalonePlatform::Unix => UpdateAction::StandaloneUnix,
+-                StandalonePlatform::Windows => UpdateAction::StandaloneWindows,
+-            }),
+-            InstallMethod::Other => None,
++            InstallMethod::Npm
++            | InstallMethod::Bun
++            | InstallMethod::VitePlus
++            | InstallMethod::Pnpm
++            | InstallMethod::Brew
++            | InstallMethod::Standalone { .. }
++            | InstallMethod::Other => None,
+         }
+     }
+ 
+@@ -79,7 +77,7 @@ impl UpdateAction {
+     }
+ }
+ 
+-#[cfg(not(debug_assertions))]
++#[cfg(any(not(debug_assertions), test))]
+ pub fn get_update_action() -> Option<UpdateAction> {
+     UpdateAction::from_install_context(InstallContext::current())
+ }
+@@ -87,11 +85,12 @@ pub fn get_update_action() -> Option<UpdateAction> {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++    use codex_install_context::StandalonePlatform;
+     use codex_utils_absolute_path::AbsolutePathBuf;
+     use pretty_assertions::assert_eq;
+ 
+     #[test]
+-    fn maps_install_context_to_update_action() {
++    fn holycodex_does_not_offer_upstream_install_updates() {
+         let native_release_dir =
+             AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("native-release"))
+                 .expect("temp dir path should be absolute");
+@@ -108,28 +107,35 @@ mod tests {
+                 method: InstallMethod::Npm,
+                 package_layout: None,
+             }),
+-            Some(UpdateAction::NpmGlobalLatest)
++            None
+         );
+         assert_eq!(
+             UpdateAction::from_install_context(&InstallContext {
+                 method: InstallMethod::Bun,
+                 package_layout: None,
+             }),
+-            Some(UpdateAction::BunGlobalLatest)
++            None
++        );
++        assert_eq!(
++            UpdateAction::from_install_context(&InstallContext {
++                method: InstallMethod::VitePlus,
++                package_layout: None,
++            }),
++            None
+         );
+         assert_eq!(
+             UpdateAction::from_install_context(&InstallContext {
+                 method: InstallMethod::Pnpm,
+                 package_layout: None,
+             }),
+-            Some(UpdateAction::PnpmGlobalLatest)
++            None
+         );
+         assert_eq!(
+             UpdateAction::from_install_context(&InstallContext {
+                 method: InstallMethod::Brew,
+                 package_layout: None,
+             }),
+-            Some(UpdateAction::BrewUpgrade)
++            None
+         );
+         assert_eq!(
+             UpdateAction::from_install_context(&InstallContext {
+@@ -140,7 +146,7 @@ mod tests {
+                 },
+                 package_layout: None,
+             }),
+-            Some(UpdateAction::StandaloneUnix)
++            None
+         );
+         assert_eq!(
+             UpdateAction::from_install_context(&InstallContext {
+@@ -151,7 +157,7 @@ mod tests {
+                 },
+                 package_layout: None,
+             }),
+-            Some(UpdateAction::StandaloneWindows)
++            None
+         );
+     }
+ 
+diff --git a/codex-rs/tui/src/updates.rs b/codex-rs/tui/src/updates.rs
+index 9bbdf310a8..b632e73979 100644
+--- a/codex-rs/tui/src/updates.rs
++++ b/codex-rs/tui/src/updates.rs
+@@ -1,4 +1,4 @@
+-#![cfg(not(debug_assertions))]
++#![cfg(any(not(debug_assertions), test))]
+ 
+ use crate::legacy_core::config::Config;
+ use crate::npm_registry;
+@@ -22,6 +22,7 @@ use std::path::Path;
+ 
+ use crate::version::CODEX_CLI_VERSION;
+ 
++#[cfg(not(debug_assertions))]
+ pub(crate) use crate::updates_cache::dismiss_version;
+ 
+ pub fn get_upgrade_version(config: &Config) -> Option<String> {
+@@ -29,7 +30,10 @@ pub fn get_upgrade_version(config: &Config) -> Option<String> {
+         return None;
+     }
+ 
+-    let action = update_action::get_update_action();
++    // Do not use upstream release metadata or a shared version cache when the
++    // installed fork has no supported self-update route. This also protects
++    // release builds, whose version is not the local-build sentinel 0.0.0.
++    let action = update_action::get_update_action()?;
+     let version_file = version_filepath(config);
+     let info = read_version_info(&version_file).ok();
+ 
+@@ -42,7 +46,7 @@ pub fn get_upgrade_version(config: &Config) -> Option<String> {
+         // isn’t blocked by a network call. The UI reads the previously cached
+         // value (if any) for this run; the next run shows the banner if needed.
+         tokio::spawn(async move {
+-            check_for_update(&version_file, action, http_client_factory)
++            check_for_update(&version_file, Some(action), http_client_factory)
+                 .await
+                 .inspect_err(|e| tracing::error!("Failed to update version: {e}"))
+         });
+@@ -164,3 +168,7 @@ pub fn get_upgrade_version_for_popup(config: &Config) -> Option<String> {
+     }
+     Some(latest)
+ }
++
++#[cfg(test)]
++#[path = "updates_tests.rs"]
++mod tests;
+diff --git a/codex-rs/tui/src/updates_tests.rs b/codex-rs/tui/src/updates_tests.rs
+new file mode 100644
+index 0000000000..8350766f8b
+--- /dev/null
++++ b/codex-rs/tui/src/updates_tests.rs
+@@ -0,0 +1,55 @@
++use super::*;
++use crate::legacy_core::config::ConfigBuilder;
++use pretty_assertions::assert_eq;
++use tempfile::tempdir;
++
++fn config_with_update_checks(codex_home: &Path) -> Config {
++    let mut config = tokio::runtime::Builder::new_current_thread()
++        .enable_all()
++        .build()
++        .expect("create config runtime")
++        .block_on(
++            ConfigBuilder::default()
++                .codex_home(codex_home.to_path_buf())
++                .build(),
++        )
++        .expect("load config");
++    config.check_for_update_on_startup = true;
++    config
++}
++
++#[test]
++fn holycodex_ignores_upstream_update_cache() {
++    let codex_home = tempdir().expect("temp codex home");
++    let config = config_with_update_checks(codex_home.path());
++    let version_file = version_filepath(&config);
++
++    for last_checked_at in [Utc::now(), Utc::now() - Duration::hours(21)] {
++        let cached = serde_json::to_string(&VersionInfo {
++            latest_version: "999.0.0".to_string(),
++            last_checked_at,
++            dismissed_version: None,
++        })
++        .expect("serialize version info");
++        std::fs::write(&version_file, &cached).expect("write upstream cache");
++
++        // No Tokio runtime is active here, so accidentally scheduling an
++        // upstream refresh for the stale cache also fails this regression test.
++        assert_eq!(get_upgrade_version(&config), None);
++        assert_eq!(get_upgrade_version_for_popup(&config), None);
++        assert_eq!(
++            std::fs::read_to_string(&version_file).expect("read version info"),
++            cached
++        );
++    }
++}
++
++#[test]
++fn holycodex_update_check_does_not_create_a_cache() {
++    let codex_home = tempdir().expect("temp codex home");
++    let config = config_with_update_checks(codex_home.path());
++
++    assert_eq!(get_upgrade_version(&config), None);
++    assert_eq!(get_upgrade_version_for_popup(&config), None);
++    assert!(!version_filepath(&config).exists());
++}
+diff --git a/codex-rs/app-server-daemon/src/lib.rs b/codex-rs/app-server-daemon/src/lib.rs
+index 15ba7692b9..3187e098de 100644
+--- a/codex-rs/app-server-daemon/src/lib.rs
++++ b/codex-rs/app-server-daemon/src/lib.rs
+@@ -467,7 +467,7 @@ impl Daemon {
+         prepare_install::prepare(self, &settings).await?;
+         let mut managed = self.clone();
+         managed.managed_codex_bin = self.current_managed_codex_bin()?;
+-        if !settings.auto_update_enabled {
++        if !update_loop::UPSTREAM_UPDATES_ENABLED || !settings.auto_update_enabled {
+             backend::pid_update_loop_backend(self.backend_paths(&settings))
+                 .stop()
+                 .await?;
+@@ -590,6 +590,15 @@ impl Daemon {
+ 
+     async fn stop(&self) -> Result<LifecycleOutput> {
+         let settings = DaemonSettings::load_for_stop(&self.settings_file).await;
++        if !update_loop::UPSTREAM_UPDATES_ENABLED
++            && let Err(err) = backend::pid_update_loop_backend(self.backend_paths(&settings))
++                .stop()
++                .await
++        {
++            self.diagnostic(format_args!(
++                "warning: failed to stop disabled upstream updater: {err:#}"
++            ));
++        }
+         if let Some(backend) = self.running_backend_instance(&settings).await? {
+             backend
+                 .stop_with_grace(settings.shutdown_grace_seconds)
+@@ -868,7 +877,7 @@ impl Daemon {
+ 
+     async fn ensure_managed_updater(&self, settings: &DaemonSettings) -> Result<bool> {
+         let updater = backend::pid_update_loop_backend(self.backend_paths(settings));
+-        if !settings.auto_update_enabled {
++        if !update_loop::UPSTREAM_UPDATES_ENABLED || !settings.auto_update_enabled {
+             updater.stop().await?;
+             return Ok(false);
+         }
+@@ -939,7 +948,8 @@ impl Daemon {
+     }
+ 
+     async fn is_bootstrapped(&self, settings: &DaemonSettings) -> Result<bool> {
+-        if !settings.auto_update_enabled
++        if !update_loop::UPSTREAM_UPDATES_ENABLED
++            || !settings.auto_update_enabled
+             || !self.is_stable_standalone_release()?
+             || !managed_install::supports_daemon_update_loop(&self.managed_codex_bin).await
+         {
+diff --git a/codex-rs/cli/src/daemon_update_tests.rs b/codex-rs/cli/src/daemon_update_tests.rs
+index d93069f0da..9e9ae1bd60 100644
+--- a/codex-rs/cli/src/daemon_update_tests.rs
++++ b/codex-rs/cli/src/daemon_update_tests.rs
+@@ -13,19 +13,14 @@ fn daemon_handoff_uses_selected_executable_and_propagates_failure() -> anyhow::R
+         "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\n",
+     )?;
+     std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(/*mode*/ 0o700))?;
+-    for (source, expected) in [
+-        (
+-            DaemonUpdateSource::PublicStable,
+-            "app-server\ndaemon\nupdate\n",
+-        ),
+-        (
+-            DaemonUpdateSource::ThisCli,
+-            "app-server\ndaemon\nupdate\n--from-cli\n--yes\n",
+-        ),
+-    ] {
+-        run_update_action(UpdateAction::Daemon(source), Some(&executable))?;
+-        assert_eq!(std::fs::read_to_string(&receipt)?, expected);
+-    }
++    run_update_action(
++        UpdateAction::Daemon(DaemonUpdateSource::ThisCli),
++        Some(&executable),
++    )?;
++    assert_eq!(
++        std::fs::read_to_string(&receipt)?,
++        "app-server\ndaemon\nupdate\n--from-cli\n--yes\n"
++    );
+     std::fs::write(&executable, "#!/bin/sh\nexit 7\n")?;
+     let error = run_update_action(
+         UpdateAction::Daemon(DaemonUpdateSource::ThisCli),
+diff --git a/codex-rs/tui/src/app/daemon_menu.rs b/codex-rs/tui/src/app/daemon_menu.rs
+index bf9934dfcf..e4a031f868 100644
+--- a/codex-rs/tui/src/app/daemon_menu.rs
++++ b/codex-rs/tui/src/app/daemon_menu.rs
+@@ -34,7 +34,11 @@ impl App {
+             .filter(|_| matches!(self.app_server_target, AppServerTarget::LocalDaemon { .. }))
+             .map(|connection| format!("Running daemon: {}", connection.version))
+             .unwrap_or_else(|| "Not connected to the local background server.".to_string());
+-        let mut header = vec![Line::from("Daemon".bold()), Line::from(status.dim())];
++        let mut header = vec![
++            Line::from("Daemon".bold()),
++            Line::from(status.dim()),
++            Line::from("Upstream updates are disabled; use a HolyCodex CLI package.".dim()),
++        ];
+         let unavailable = if matches!(self.app_server_target, AppServerTarget::Remote { .. }) {
+             Some(
+                 "Manage this server on its host. Local daemon updates are unavailable for remote connections.",
+@@ -56,13 +60,7 @@ impl App {
+             .package_layout
+             .is_some()
+         });
+-        let items = [
+-            (
+-                DaemonUpdateSource::PublicStable,
+-                "Install latest public stable",
+-            ),
+-            (DaemonUpdateSource::ThisCli, "Use this CLI build"),
+-        ]
++        let items = [(DaemonUpdateSource::ThisCli, "Use this CLI build")]
+         .into_iter()
+         .map(|(source, name)| SelectionItem {
+             name: name.to_string(),
+@@ -86,6 +84,9 @@ impl App {
+     }
+ 
+     pub(super) fn confirm_daemon_update(&mut self, source: DaemonUpdateSource) {
++        if source == DaemonUpdateSource::PublicStable {
++            return;
++        }
+         let Some(executable) = &self.daemon_cli_executable else {
+             return;
+         };
+diff --git a/codex-rs/tui/src/app/daemon_menu_tests.rs b/codex-rs/tui/src/app/daemon_menu_tests.rs
+index 0928bf31f0..3235cafa30 100644
+--- a/codex-rs/tui/src/app/daemon_menu_tests.rs
++++ b/codex-rs/tui/src/app/daemon_menu_tests.rs
+@@ -90,24 +90,16 @@ async fn daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff() {
+     let overview = render_bottom_popup(&app.chat_widget, /*width*/ 80);
+     insta::assert_snapshot!(overview.lines().find(|line| line.contains("Service v")).unwrap().trim(), @"Service v0.153.0 < Codex CLI v0.154.0 · /daemon");
+     let executable = app.daemon_cli_executable.clone();
+-    for (width, source, snapshot) in [
+-        (
+-            80,
+-            DaemonUpdateSource::PublicStable,
+-            "daemon_stable_confirmation",
+-        ),
+-        (100, DaemonUpdateSource::ThisCli, "daemon_cli_confirmation"),
+-    ] {
++    {
++        let width = 100;
++        let source = DaemonUpdateSource::ThisCli;
++        let snapshot = "daemon_cli_confirmation";
+         app.daemon_cli_executable = executable.clone();
+         app.open_daemon_menu();
+-        if source == DaemonUpdateSource::PublicStable {
+-            insta::assert_snapshot!(
+-                "daemon_menu",
+-                render_bottom_popup(&app.chat_widget, /*width*/ 80)
+-            );
+-        } else {
+-            app.chat_widget.handle_key_event(KeyCode::Down.into());
+-        }
++        insta::assert_snapshot!(
++            "daemon_menu",
++            render_bottom_popup(&app.chat_widget, /*width*/ 80)
++        );
+         assert!(rx.try_recv().is_err());
+         app.chat_widget.handle_key_event(KeyCode::Enter.into());
+         assert!(
+@@ -126,6 +118,7 @@ async fn daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff() {
+             snapshot,
+             render_bottom_popup(&app.chat_widget, width)
+                 .replace(r"C:\cli-build\bin\codex", "/x/cli-build/bin/codex")
++                .replace(CODEX_CLI_VERSION, "<VERSION>")
+         );
+         // The default choice cancels without emitting an update or exiting.
+         app.chat_widget.handle_key_event(KeyCode::Enter.into());
+@@ -143,19 +136,13 @@ async fn daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff() {
+     app.app_server_target = AppServerTarget::Embedded;
+     app.chat_widget.remote_connection = None;
+     app.daemon_cli_executable = executable;
+-    for source in [
+-        DaemonUpdateSource::PublicStable,
+-        DaemonUpdateSource::ThisCli,
+-    ] {
++    {
++        let source = DaemonUpdateSource::ThisCli;
+         app.open_daemon_menu();
+-        if source == DaemonUpdateSource::PublicStable {
+-            insta::assert_snapshot!(
+-                "daemon_disconnected",
+-                render_bottom_popup(&app.chat_widget, /*width*/ 80)
+-            );
+-        } else {
+-            app.chat_widget.handle_key_event(KeyCode::Down.into());
+-        }
++        insta::assert_snapshot!(
++            "daemon_disconnected",
++            render_bottom_popup(&app.chat_widget, /*width*/ 80)
++        );
+         assert!(rx.try_recv().is_err());
+         app.chat_widget.handle_key_event(KeyCode::Enter.into());
+         assert!(
+@@ -183,10 +170,7 @@ async fn daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff() {
+         render_bottom_popup(&app.chat_widget, /*width*/ 80)
+     );
+     app.chat_widget.handle_key_event(KeyCode::Enter.into());
+-    assert!(matches!(
+-        rx.try_recv().unwrap(),
+-        AppEvent::ConfirmDaemonUpdate(DaemonUpdateSource::PublicStable)
+-    ));
++    assert!(rx.try_recv().is_err());
+ 
+     app.daemon_cli_executable = None;
+     app.open_daemon_menu();
+@@ -225,3 +209,20 @@ async fn unavailable_daemon_menu_offers_guidance_without_update_actions() {
+     assert!(rx.try_recv().is_err());
+     assert_eq!(app.pending_update_action, None);
+ }
++
++#[tokio::test]
++async fn holycodex_public_daemon_update_cannot_exit_the_session() {
++    let mut app = make_test_app().await;
++    let (chat, _, mut rx, _) = make_chatwidget_manual_with_sender().await;
++    app.chat_widget = chat;
++    app.daemon_cli_executable =
++        Some(AbsolutePathBuf::from_absolute_path(std::env::current_exe().unwrap()).unwrap());
++    app.app_server_target = AppServerTarget::Embedded;
++    app.open_daemon_menu();
++    let before = render_bottom_popup(&app.chat_widget, /*width*/ 80);
++    assert!(!before.contains("Install latest public stable"));
++    app.confirm_daemon_update(DaemonUpdateSource::PublicStable);
++    assert_eq!(render_bottom_popup(&app.chat_widget, /*width*/ 80), before);
++    assert!(rx.try_recv().is_err());
++    assert_eq!(app.pending_update_action, None);
++}
+diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_menu.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_menu.snap
+index bc8a91e3ea..0cf8e9a2a7 100644
+--- a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_menu.snap
++++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_menu.snap
+@@ -4,9 +4,9 @@ expression: "render_bottom_popup(&app.chat_widget, 80)"
+ ---
+   Daemon
+   Running daemon: v0.153.0
++  Upstream updates are disabled; use a HolyCodex CLI package.
+ 
+ 
+-› 1. Install latest public stable
+-  2. Use this CLI build
++› 1. Use this CLI build
+ 
+   enter select · esc back
+diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_disconnected.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_disconnected.snap
+index 70a761197d..445920c554 100644
+--- a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_disconnected.snap
++++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_disconnected.snap
+@@ -4,9 +4,9 @@ expression: "render_bottom_popup(&app.chat_widget, 80)"
+ ---
+   Daemon
+   Not connected to the local background server.
++  Upstream updates are disabled; use a HolyCodex CLI package.
+ 
+ 
+-› 1. Install latest public stable
+-  2. Use this CLI build
++› 1. Use this CLI build
+ 
+   enter select · esc back
+diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_unpackaged_cli.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_unpackaged_cli.snap
+index dd6f597fdc..b36e21b79d 100644
+--- a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_unpackaged_cli.snap
++++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_unpackaged_cli.snap
+@@ -4,9 +4,9 @@ expression: "render_bottom_popup(&app.chat_widget, 80)"
+ ---
+   Daemon
+   Not connected to the local background server.
++  Upstream updates are disabled; use a HolyCodex CLI package.
+ 
+ 
+-› 1. Install latest public stable
+-     Use this CLI build (disabled)  This CLI has no local package to copy
++›    Use this CLI build (disabled)  This CLI has no local package to copy
+ 
+   enter select · esc back
+diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_no_cli_handoff.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_no_cli_handoff.snap
+index 8232050e7b..45e687e1a5 100644
+--- a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_no_cli_handoff.snap
++++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_no_cli_handoff.snap
+@@ -4,10 +4,10 @@ expression: "render_bottom_popup(&app.chat_widget, 80)"
+ ---
+   Daemon
+   Not connected to the local background server.
++  Upstream updates are disabled; use a HolyCodex CLI package.
+   Run the Codex CLI to manage the daemon from this menu.
+ 
+ 
+-›    Install latest public stable
+-     Use this CLI build
++›    Use this CLI build
+ 
+   enter select · esc back
+diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_remote_guidance.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_remote_guidance.snap
+index ea209abfb4..158ee12669 100644
+--- a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_remote_guidance.snap
++++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_remote_guidance.snap
+@@ -4,11 +4,11 @@ expression: "render_bottom_popup(&app.chat_widget, 80)"
+ ---
+   Daemon
+   Not connected to the local background server.
++  Upstream updates are disabled; use a HolyCodex CLI package.
+   Manage this server on its host. Local daemon updates are unavailable for
+   remote connections.
+ 
+ 
+-›    Install latest public stable
+-     Use this CLI build
++›    Use this CLI build
+ 
+   enter select · esc back
+diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_cli_confirmation.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_cli_confirmation.snap
+index 4de9db012c..9a25d9efcf 100644
+--- a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_cli_confirmation.snap
++++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_cli_confirmation.snap
+@@ -3,7 +3,7 @@ source: tui/src/app/daemon_menu_tests.rs
+ expression: "render_bottom_popup(&app.chat_widget,\nwidth).replace(r\"C:\\cli-build\\bin\\codex\", \"/x/cli-build/bin/codex\")"
+ ---
+   Update daemon and exit Codex?
+-  Use this CLI package v0.0.0 from /x/cli-build/bin/codex. Copy the complete package and pin it
++  Use this CLI package v<VERSION> from /x/cli-build/bin/codex. Copy the complete package and pin it
+   against automatic updates.
+   This may restart the daemon and interrupt active or queued work.
+   Codex exits to update in this terminal. Relaunch it afterward.
+diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_stable_confirmation.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_stable_confirmation.snap
+deleted file mode 100644
+index f49bcbef1c..0000000000
+--- a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_stable_confirmation.snap
++++ /dev/null
+@@ -1,15 +0,0 @@
+----
+-source: tui/src/app/daemon_menu_tests.rs
+-expression: "render_bottom_popup(&app.chat_widget,\nwidth).replace(r\"C:\\cli-build\\bin\\codex\", \"/x/cli-build/bin/codex\")"
+----
+-  Update daemon and exit Codex?
+-  Install the latest public stable release. Restore production updates; keep
+-  your automatic-update setting.
+-  This may restart the daemon and interrupt active or queued work.
+-  Codex exits to update in this terminal. Relaunch it afterward.
+-
+-
+-› 1. Cancel
+-  2. Update and exit
+-
+-  enter select · esc back

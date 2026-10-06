@@ -107,3 +107,22 @@ The published package names are `holycodex` and
 `holycodex-native-{linux-x64-gnu,darwin-arm64,win32-x64}`. Registry
 availability, account authentication, and trusted-publisher configuration
 remain release prerequisites; no scoped namespace is assumed.
+
+## Upgrade policy
+
+HolyCodex must not replace its native policy layer with an upstream Codex
+release. Built-in upstream CLI/TUI self-update actions and the daemon's
+production installer downloads are disabled. Automatic TUI update discovery does not read
+upstream version caches or contact upstream release services.
+
+Install a desired HolyCodex version through its original distribution method.
+For a complete local CLI package used by a background server, select it with
+`holycodex app-server daemon update --from-cli` and review the confirmation.
+This local replacement remains pinned and preserves the package validation
+and running-daemon safeguards. The ordinary npm executable-only distribution
+is not a complete daemon package. Production daemon updating is disabled, including direct worker startup and
+manual requests to existing updater sockets. Managed start/restart/bootstrap
+retires an owned updater worker without replacing the daemon package.
+
+A future automatic updater requires a HolyCodex-owned release channel and
+separate validation. Do not re-enable the upstream installer as a fallback.
