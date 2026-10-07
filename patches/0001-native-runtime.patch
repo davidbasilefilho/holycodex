@@ -23077,7 +23077,7 @@ index 8f55126..29a95b3 100644
              .send()
              .await
 diff --git a/codex-rs/app-server-daemon/src/update_loop_tests.rs b/codex-rs/app-server-daemon/src/update_loop_tests.rs
-index d932742..0fdcaca 100644
+index d932742..66c02b8 100644
 --- a/codex-rs/app-server-daemon/src/update_loop_tests.rs
 +++ b/codex-rs/app-server-daemon/src/update_loop_tests.rs
 @@ -23,6 +23,214 @@ use crate::managed_install::executable_identity;
@@ -23324,7 +23324,7 @@ index d932742..0fdcaca 100644
              } else {
                  "1.0.0"
              };
-+            let user_agent = user_agent.unwrap_or_else(|| {
++            let user_agent = user_agent.clone().unwrap_or_else(|| {
 +                format!(
 +                    "codex_app_server_daemon/{version} {} codex_upstream/{}",
 +                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
@@ -23636,7 +23636,7 @@ index 0000000..8350766
 +    assert!(!version_filepath(&config).exists());
 +}
 diff --git a/codex-rs/app-server-daemon/src/lib.rs b/codex-rs/app-server-daemon/src/lib.rs
-index 15ba769..a40b64c 100644
+index 15ba769..d3de120 100644
 --- a/codex-rs/app-server-daemon/src/lib.rs
 +++ b/codex-rs/app-server-daemon/src/lib.rs
 @@ -21,6 +21,7 @@ mod thread_recovery;
@@ -23765,7 +23765,21 @@ index 15ba769..a40b64c 100644
              || !self.is_stable_standalone_release()?
              || !managed_install::supports_daemon_update_loop(&self.managed_codex_bin).await
          {
-@@ -1155,6 +1220,55 @@ mod tests {
+@@ -1144,17 +1209,69 @@ mod tests {
+     use super::BootstrapOutput;
+     use super::BootstrapStatus;
+     use super::Daemon;
++    use super::ForeignAppServerRuntime;
+     use super::LifecycleOutput;
+     use super::LifecycleStatus;
+     use super::RemoteControlStartOutput;
+     use super::RemoteControlStatus;
+     use super::RestartDecision;
+     use super::RestartMode;
++    use super::ensure_holy_runtime;
+     use super::restart_decision;
++    use super::validate_holy_runtime_user_agent;
+     use crate::client::ProbeInfo;
      #[cfg(unix)]
      use crate::settings::DaemonSettings;
  
@@ -23821,7 +23835,7 @@ index 15ba769..a40b64c 100644
      #[test]
      fn remote_control_status_uses_camel_case_json() {
          assert_eq!(
-@@ -1166,7 +1280,8 @@ mod tests {
+@@ -1166,7 +1283,8 @@ mod tests {
      #[test]
      fn restart_decision_preserves_forced_refreshes() {
          let current_info = ProbeInfo {
@@ -24699,7 +24713,7 @@ index ac3ab1c..5d6f10b 100644
 +    })
 +}
 diff --git a/codex-rs/app-server-daemon/src/client.rs b/codex-rs/app-server-daemon/src/client.rs
-index c3cee7d..9e2ef83 100644
+index c3cee7d..c3c9f7b 100644
 --- a/codex-rs/app-server-daemon/src/client.rs
 +++ b/codex-rs/app-server-daemon/src/client.rs
 @@ -5,6 +5,7 @@ use anyhow::Context;
@@ -24777,16 +24791,18 @@ index c3cee7d..9e2ef83 100644
          .filter(|version| !version.is_empty())
          .ok_or_else(|| anyhow!("app-server user-agent omitted version"))?;
      Ok(version.to_string())
-@@ -187,6 +210,8 @@ fn parse_version_from_user_agent(user_agent: &str) -> Result<String> {
+@@ -187,7 +210,10 @@ fn parse_version_from_user_agent(user_agent: &str) -> Result<String> {
  mod tests {
      use pretty_assertions::assert_eq;
  
 +    use super::has_holy_runtime_marker;
 +    use super::holy_upstream_version;
      use super::parse_version_from_user_agent;
++    use codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER;
  
      #[test]
-@@ -204,4 +229,37 @@ mod tests {
+     fn parses_version_from_codex_user_agent() {
+@@ -204,4 +230,37 @@ mod tests {
      fn rejects_user_agent_without_version() {
          assert!(parse_version_from_user_agent("codex_app_server_daemon").is_err());
      }
