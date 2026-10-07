@@ -3,7 +3,7 @@ name: native-release-validation
 on:
   push:
     branches: [main]
-    tags: ["v0.17.0"]
+    tags: ["v0.17.0-1"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -96,9 +96,9 @@ jobs:
           printf 'source_sha = "%s"\n' "$actual" > .tmp/npm/source-revision.toml
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: holycodex-0.17.0-wrapper-${{ github.sha }}
+          name: holycodex-0.17.0-1-wrapper-${{ github.sha }}
           path: |
-            .tmp/npm/holycodex-0.17.0.tgz
+            .tmp/npm/holycodex-0.17.0-1.tgz
             .tmp/npm/source-revision.toml
           if-no-files-found: error
 
@@ -298,8 +298,8 @@ jobs:
           printf 'source_sha = "%s"\n' "$actual" > .tmp/npm/source-revision.toml
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: holycodex-0.17.0-${{ matrix.target }}-${{ github.sha }}
+          name: holycodex-0.17.0-1-${{ matrix.target }}-${{ github.sha }}
           path: |
-            .tmp/npm/${{ matrix.package }}-0.17.0.tgz
+            .tmp/npm/${{ matrix.package }}-0.17.0-1.tgz
             .tmp/npm/source-revision.toml
           if-no-files-found: error

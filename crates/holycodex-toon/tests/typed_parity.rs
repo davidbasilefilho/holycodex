@@ -3,6 +3,7 @@
 #[cfg(feature = "json")]
 use holycodex_toon::encode_to_string;
 use holycodex_toon::{ExpandPaths, Options, decode_from_str};
+use holycodex_toon::ser::to_string_streaming;
 use serde::{Deserialize, de::DeserializeOwned};
 #[cfg(feature = "json")]
 use serde_json::Value;
@@ -133,6 +134,50 @@ fn typed_decoders_support_keyed_object_headers() {
                     BTreeMap::from([("value".to_owned(), "two".to_owned())]),
                 ),
             ]),
+        );
+    }
+}
+
+#[test]
+fn typed_decoders_parse_primitive_map_keys() {
+    let options = Options::default();
+    let numeric = BTreeMap::from([(1_u32, "one".to_owned()), (2, "two".to_owned())]);
+    decode("1: one\n2: two", &options, numeric.clone());
+    decode(
+        &to_string_streaming(&numeric, &options).unwrap(),
+        &options,
+        numeric,
+    );
+    let boolean = BTreeMap::from([(false, "off".to_owned()), (true, "on".to_owned())]);
+    decode("false: off\ntrue: on", &options, boolean.clone());
+    decode(
+        &to_string_streaming(&boolean, &options).unwrap(),
+        &options,
+        boolean,
+    );
+    decode(
+        "a: first\nz: last",
+        &Options::default(),
+        BTreeMap::from([('a', "first".to_owned()), ('z', "last".to_owned())]),
+    );
+}
+
+#[test]
+fn streaming_nonfinite_floats_are_null_at_every_depth() {
+    let values = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY];
+    for value in values {
+        assert_eq!(
+            to_string_streaming(&value, &Options::default()).unwrap(),
+            "null"
+        );
+        assert_eq!(
+            to_string_streaming(&vec![value], &Options::default()).unwrap(),
+            "[1]: null"
+        );
+        assert_eq!(
+            to_string_streaming(&BTreeMap::from([("value", value)]), &Options::default())
+                .unwrap(),
+            "value: null"
         );
     }
 }

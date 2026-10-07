@@ -1,6 +1,6 @@
 [package]
 name = "holycodex-policy"
-version = "0.17.0"
+version = "0.17.0-1"
 edition = "2024"
 rust-version = "1.95"
 description = "Native runtime policy foundation for HolyCodex"

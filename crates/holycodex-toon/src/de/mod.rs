@@ -3,7 +3,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
-use serde::de::{self, DeserializeOwned, IntoDeserializer, MapAccess, SeqAccess};
+use serde::de::{self, DeserializeOwned, MapAccess, SeqAccess};
 
 use crate::value::{Number, Value};
 use crate::{Result, options::Options};
@@ -100,7 +100,7 @@ impl<'de> de::Deserializer<'de> for Deserializer {
                             return Ok(None);
                         }
                         let (ref key, ref val) = self.entries[self.idx];
-                        let de_key = key.clone().into_deserializer();
+                        let de_key = KeyDeserializer(key.clone());
                         self.next_val = Some(val.clone());
                         seed.deserialize(de_key).map(Some)
                     }
@@ -196,6 +196,131 @@ impl<'de> de::Deserializer<'de> for Deserializer {
     serde::forward_to_deserialize_any! {
         bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char str string bytes byte_buf
         seq tuple tuple_struct map struct identifier ignored_any
+    }
+}
+
+/// TOON object keys are stored as strings, but Serde also permits primitive
+/// map key types. Parse their textual representation here so typed maps can
+/// round-trip through the same object representation as string-keyed maps.
+struct KeyDeserializer(String);
+
+macro_rules! parse_key_number {
+    ($($method:ident => $ty:ty / $visit:ident),* $(,)?) => {$ (
+        fn $method<V>(self, visitor: V) -> core::result::Result<V::Value, Self::Error>
+        where
+            V: de::Visitor<'de>,
+        {
+            let value = self.0.parse::<$ty>().map_err(de::Error::custom)?;
+            visitor.$visit(value)
+        }
+    )* };
+}
+
+impl<'de> de::Deserializer<'de> for KeyDeserializer {
+    type Error = DeError;
+
+    fn deserialize_any<V>(self, visitor: V) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_string(self.0)
+    }
+
+    fn deserialize_bool<V>(self, visitor: V) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        match self.0.as_str() {
+            "true" => visitor.visit_bool(true),
+            "false" => visitor.visit_bool(false),
+            _ => Err(de::Error::invalid_value(
+                de::Unexpected::Str(&self.0),
+                &"a boolean key",
+            )),
+        }
+    }
+
+    parse_key_number! {
+        deserialize_i8 => i8 / visit_i8,
+        deserialize_i16 => i16 / visit_i16,
+        deserialize_i32 => i32 / visit_i32,
+        deserialize_i64 => i64 / visit_i64,
+        deserialize_i128 => i128 / visit_i128,
+        deserialize_u8 => u8 / visit_u8,
+        deserialize_u16 => u16 / visit_u16,
+        deserialize_u32 => u32 / visit_u32,
+        deserialize_u64 => u64 / visit_u64,
+        deserialize_u128 => u128 / visit_u128,
+        deserialize_f32 => f32 / visit_f32,
+        deserialize_f64 => f64 / visit_f64,
+    }
+
+    fn deserialize_char<V>(self, visitor: V) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        let mut chars = self.0.chars();
+        let Some(value) = chars.next() else {
+            return Err(de::Error::invalid_value(
+                de::Unexpected::Str(""),
+                &"a character key",
+            ));
+        };
+        if chars.next().is_some() {
+            return Err(de::Error::invalid_value(
+                de::Unexpected::Str(&self.0),
+                &"a character key",
+            ));
+        }
+        visitor.visit_char(value)
+    }
+
+    fn deserialize_str<V>(self, visitor: V) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_string(self.0)
+    }
+
+    fn deserialize_string<V>(self, visitor: V) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_string(self.0)
+    }
+
+    fn deserialize_enum<V>(
+        self,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        visitor: V,
+    ) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_enum(de::value::StringDeserializer::<DeError>::new(self.0))
+    }
+
+    fn deserialize_newtype_struct<V>(
+        self,
+        _name: &'static str,
+        visitor: V,
+    ) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_newtype_struct(self)
+    }
+
+    fn deserialize_option<V>(self, visitor: V) -> core::result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_some(self)
+    }
+
+    serde::forward_to_deserialize_any! {
+        unit unit_struct seq tuple tuple_struct map struct identifier ignored_any bytes byte_buf
     }
 }
 

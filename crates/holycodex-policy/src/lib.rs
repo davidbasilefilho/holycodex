@@ -1,4 +1,4 @@
-//! Typed runtime policy primitives for HolyCodex 0.17.0.
+//! Typed runtime policy primitives for HolyCodex 0.17.0-1.
 //!
 //! The native Codex controller consumes this crate's routing, allocation,
 //! context-sizing, prompt, and Intent/Assignment contracts; controller state
@@ -245,7 +245,7 @@ const ROUTES: [RoutePolicy; 18] = [
         "Identify relevant paths, responsibilities, and boundaries; support the map with source evidence.",
         [
             ReasoningEffort::Medium,
-            ReasoningEffort::Medium,
+            ReasoningEffort::High,
             ReasoningEffort::High,
         ],
     ),
@@ -258,7 +258,7 @@ const ROUTES: [RoutePolicy; 18] = [
         "Return the requested facts with relevant paths and supporting evidence.",
         [
             ReasoningEffort::Medium,
-            ReasoningEffort::Medium,
+            ReasoningEffort::High,
             ReasoningEffort::Medium,
         ],
     ),
@@ -284,7 +284,7 @@ const ROUTES: [RoutePolicy; 18] = [
         "Answer from authoritative project material and cite the relevant evidence.",
         [
             ReasoningEffort::Medium,
-            ReasoningEffort::Medium,
+            ReasoningEffort::High,
             ReasoningEffort::High,
         ],
     ),
@@ -310,7 +310,7 @@ const ROUTES: [RoutePolicy; 18] = [
         "Apply the transformation consistently and check the resulting changes.",
         [
             ReasoningEffort::Medium,
-            ReasoningEffort::Medium,
+            ReasoningEffort::High,
             ReasoningEffort::High,
         ],
     ),
@@ -320,7 +320,12 @@ const ROUTES: [RoutePolicy; 18] = [
         SW,
         WRITE,
         DISJOINT,
-        "Build the specified behavior and show that its acceptance criteria are met.",
+        concat!(
+            "Deliver the accepted behavior as a cohesive, scoped change using existing abstractions ",
+            "and simple, idiomatic, readable code. Avoid speculative behavior, unnecessary ",
+            "dependencies, and unjustified refactors; show acceptance criteria and meaningful ",
+            "regression evidence.",
+        ),
         [
             ReasoningEffort::High,
             ReasoningEffort::High,
@@ -349,7 +354,7 @@ const ROUTES: [RoutePolicy; 18] = [
         "Run the operation and report its observable result.",
         [
             ReasoningEffort::Medium,
-            ReasoningEffort::Medium,
+            ReasoningEffort::High,
             ReasoningEffort::High,
         ],
     ),
@@ -402,7 +407,12 @@ const ROUTES: [RoutePolicy; 18] = [
         RO,
         READ,
         REVIEW,
-        "Report actionable findings with affected behavior and supporting evidence.",
+        concat!(
+            "Review behavior, integration, maintainability, error paths, and compatibility against ",
+            "the mergeability bar. Substantiate true blockers with affected behavior and evidence; ",
+            "separate optional style feedback, and do not judge quality by line count alone. If ",
+            "authorized to edit, meet the same bar as implementation.",
+        ),
         [
             ReasoningEffort::High,
             ReasoningEffort::High,
@@ -1683,8 +1693,17 @@ mod tests {
 
     #[test]
     fn root_and_specialist_instructions_prefer_relevant_session_continuity() {
-        assert!(ROOT_INSTRUCTIONS.contains("reuse an existing HolyCodex Root session"));
-        assert!(ROOT_INSTRUCTIONS.contains("continue with an existing specialist assignment"));
+        assert!(ROOT_INSTRUCTIONS.contains(
+            "compatible idle specialist with relevant retained context"
+        ));
+        assert!(ROOT_INSTRUCTIONS.contains(
+            "compatible specialist with the same Role.task"
+        ));
+        assert!(ROOT_INSTRUCTIONS.contains(
+            "create a new specialist only when neither is suitable"
+        ));
+        assert!(ROOT_INSTRUCTIONS.contains("review independent from implementation"));
+        assert!(ROOT_INSTRUCTIONS.contains("continue the existing Root session"));
         assert!(ROOT_INSTRUCTIONS.contains("pass new facts as deltas"));
         assert!(ROOT_INSTRUCTIONS.contains("Maintain task quality and completeness throughout"));
         assert!(SPECIALIST_INSTRUCTIONS.contains("continue this HolyCodex session"));
@@ -1780,6 +1799,31 @@ mod tests {
                 .effort(Profile::Low),
             ReasoningEffort::High
         );
+    }
+
+    #[test]
+    fn default_efforts_and_mergeability_guidance_match_role_policy() {
+        assert_eq!(
+            route_policy(RoleTask::Root).unwrap().effort(Profile::Default),
+            ReasoningEffort::Medium
+        );
+        assert!(RoleTask::SPECIALISTS.iter().all(|role| {
+            route_policy(*role).unwrap().effort(Profile::Default) == ReasoningEffort::High
+        }));
+
+        let implementation = route_policy(RoleTask::WorkerImplementation)
+            .unwrap()
+            .assignment_fragment;
+        assert!(implementation.contains("cohesive, scoped change"));
+        assert!(implementation.contains("meaningful regression evidence"));
+
+        let review = route_policy(RoleTask::ReviewerCode)
+            .unwrap()
+            .assignment_fragment;
+        assert!(review.contains("integration, maintainability, error paths, and compatibility"));
+        assert!(review.contains("separate optional style feedback"));
+        assert!(SPECIALIST_INSTRUCTIONS.contains("existing abstractions"));
+        assert!(SPECIALIST_INSTRUCTIONS.contains("Never weaken or tailor checks"));
     }
 
     #[test]

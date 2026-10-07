@@ -1,11 +1,11 @@
 # HolyCodex
 
-HolyCodex 0.17.0 is a Rust-native patch layer over the pinned OpenAI Codex
-0.160.0 release. It installs one native runtime as `holycodex` and `codex`;
+HolyCodex 0.17.0-1 is a Rust-native patch layer over the pinned OpenAI Codex
+0.160.1 release. It installs one native runtime as `holycodex` and `codex`;
 the compatibility name does not make HolyCodex identify as the official Codex
 application. No JavaScript, Node.js, or Bun runtime is needed after installation.
 
-> **Development status:** 0.17.0 is under active implementation. This source
+> **Development status:** 0.17.0-1 is under active implementation. This source
 > checkout is not a release-readiness claim. In particular, authentication
 > identity, runtime integration, host capability preservation, supported
 > platform builds, and complete third-party notices must pass their release

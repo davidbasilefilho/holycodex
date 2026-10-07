@@ -1,10 +1,11 @@
 # Native model policy
 
-HolyCodex model selection and resolved model metadata are separate runtime seams. The typed
-`holycodex-policy` registry owns Root/specialist allocation and Role.task reasoning effort. The
-models manager owns the final metadata overlay: provider catalog capabilities are resolved first,
-ordinary config overrides are applied, then the HolyCodex context profile is applied in
-`with_config_overrides`, which is also used after cache and remote catalog lookup.
+HolyCodex model selection, resolved model metadata, and canonical instructions are separate runtime
+seams. The typed `holycodex-policy` registry owns Root/specialist allocation and Role.task reasoning
+effort. The models manager owns the final context metadata overlay: provider catalog capabilities
+are resolved first, ordinary config overrides are applied, then the HolyCodex context profile is
+applied in `with_config_overrides`, including after cache and remote catalog lookup. Core owns
+prompt selection because it has both the actual session source and the allocated model.
 
 For `gpt-6.1-sol` and `gpt-6-luna`, the normal raw window is 372,000 tokens. A catalog maximum
 above that value is preserved; a lower maximum or explicit lower `model_context_window` remains
@@ -14,21 +15,32 @@ context percentage, retaining its safety margin. Codex additionally caps effecti
 metadata survives, and no compaction threshold from the former 272K profile is retained.
 
 Session bootstrap allocates through the typed policy against the active catalog, validates exact
-required model availability, and rejects a conflicting configured model. Root effort follows
-`[holycodex].profile` (`low`, `default`, or `high`); the default Root request uses medium effort.
-Specialist Role.task effort follows the same registry; compatibility controller spawns retain
-their already registry-validated prepared effort when their agent role is `default`. Upstream
-review, compaction and internal safety/memory sessions retain their separate allocation contracts.
+required model availability, and rejects a conflicting configured model. Root uses `gpt-6.1-sol`;
+all specialists use `gpt-6-luna`. Under the default profile, Root uses medium effort and
+every specialist Role.task uses high effort. The low and high profiles retain their route-specific
+effort mappings. Compatibility controller spawns retain their already registry-validated prepared
+effort when their agent role is `default`. Upstream review, compaction and internal safety/memory
+sessions retain their separate allocation contracts.
+
+The service tier is a separate optional setting. `[holycodex].service_tier` defaults to unset;
+the active provider/host configuration remains authoritative, so this policy does not claim an
+explicit Standard tier was selected.
 Enabled HolyCodex sessions select the native local V2 tool surface even on restore; no hosted
 Responses multi-agent parameter is introduced.
 
-The models manager replaces the base template with the policy crate's embedded Root or shared
-specialist asset after ordinary overrides. Session startup and resume use that resolved base;
-saved session instructions and user instruction overrides cannot replace it. Request construction
-also protects the canonical base and rejects fallback metadata before creating an inference
-request. Assignment fragments remain separate developer/user context supplied by the controller.
-Step-settings updates revalidate required availability and resolve current catalog metadata rather
-than retaining stale HolyCodex capacity after a refresh.
+At session startup and resume, Core's `native_prompt_role` and `native_model_instructions` in
+`holycodex.rs` resolve the canonical base from the actual session source and allocated model.
+`Session::new` applies it to native Root and bound specialist sessions before composing the base,
+protecting that base from saved session text and user instruction overrides. Core clears catalog
+persistent instructions for those native sessions. The request builder checks the same role/model
+pairing before applying the canonical policy instructions as defense in depth. Internal, review,
+compaction, memory, guardian, and other non-HolyCodex subagent sessions keep their own upstream
+prompts and persistent instructions, even when they use a HolyCodex model slug. The models manager
+remains source-neutral: it preserves catalog/config instruction templates, variables, and persistent
+instructions while applying context metadata only. Assignment fragments remain separate
+developer/user context supplied by the controller. Step-settings updates revalidate required
+availability and resolve current catalog metadata rather than retaining stale HolyCodex capacity
+after a refresh.
 
 The layered `[holycodex]` table is registered in `codex-config` and its generated schema.
 Production strict-config validation accepts the supported fields and rejects unknown fields.

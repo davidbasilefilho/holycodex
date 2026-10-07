@@ -2,10 +2,10 @@
 
 ## OpenAI Codex
 
-HolyCodex 0.17.0 is being developed as a patch layer over OpenAI Codex release
-0.160.0, upstream commit
-`a956835d020762cb2b570053af06f643a11c0ecc`:
-<https://github.com/openai/codex/tree/a956835d020762cb2b570053af06f643a11c0ecc>
+HolyCodex 0.17.0-1 is being developed as a patch layer over OpenAI Codex release
+0.160.1, upstream commit
+`d27764b82f7118f674371e6d6e76271d9d606edb`:
+<https://github.com/openai/codex/tree/d27764b82f7118f674371e6d6e76271d9d606edb>
 
 The upstream Codex source is licensed under Apache License 2.0; see
 [LICENSE](LICENSE). The upstream `NOTICE` attribution for Codex and Ratatui is

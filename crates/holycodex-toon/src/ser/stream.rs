@@ -1621,12 +1621,8 @@ impl<'a, 'de> Serializer for &'a mut ScalarSerializer<'de> {
     fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
         if v.is_finite() {
             self.out = Some(primitives::format_f64(v));
-        } else if v.is_nan() {
-            self.out = Some(primitives::escape_and_quote("NaN"));
-        } else if v.is_sign_positive() {
-            self.out = Some(primitives::escape_and_quote("Infinity"));
         } else {
-            self.out = Some(primitives::escape_and_quote("-Infinity"));
+            self.out = Some(primitives::format_null().to_string());
         }
         Ok(())
     }

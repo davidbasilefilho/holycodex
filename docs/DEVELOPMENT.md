@@ -27,9 +27,9 @@ Treat prompt-cache design as an orchestration concern: keep stable instruction a
 `upstream.toml` is the authoritative upstream and patch-series pin. `holycodex-dev` uses Git for strict patch application and keeps the upstream checkout outside the HolyCodex tracked tree. It never vendors or commits the upstream source.
 
 ```powershell
-cargo run --locked -p holycodex-dev -- verify --upstream C:\Users\basile\dev\holycodex-upstream-0.160.0
-cargo run --locked -p holycodex-dev -- apply --upstream C:\Users\basile\dev\holycodex-upstream-0.160.0
-cargo run --locked -p holycodex-dev -- diff --upstream C:\Users\basile\dev\holycodex-upstream-0.160.0
+cargo run --locked -p holycodex-dev -- verify --upstream C:\Users\basile\dev\holycodex-upstream-0.160.1
+cargo run --locked -p holycodex-dev -- apply --upstream C:\Users\basile\dev\holycodex-upstream-0.160.1
+cargo run --locked -p holycodex-dev -- diff --upstream C:\Users\basile\dev\holycodex-upstream-0.160.1
 ```
 
 `materialize` clones the manifest repository at the exact commit into `.tmp/upstream` and applies the owned layer; pass `--upstream PATH` to choose a new destination. For an existing pristine checkout, `apply` first verifies the exact commit and requires a clean index/worktree, including untracked files. It snapshots owned sources and preflights **every** destination before any patch mutation, then preflights the patch series with `git apply --check --whitespace=error` and applies without fuzz/reject recovery. Differing existing files, directory conflicts, and symlinks are refused, including ignored destination conflicts. Identical existing source files are left untouched. A second destination preflight after patches catches patch/source collisions. Predictable conflicts cause no mutation; an I/O failure after patch application can still leave partial materialization, so discard/recreate that scratch checkout rather than retrying on a dirty tree.

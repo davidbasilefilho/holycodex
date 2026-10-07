@@ -13,7 +13,7 @@ jobs:
     if: >-
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'v0.17.0'
+      github.event.workflow_run.head_branch == 'v0.17.0-1'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -43,7 +43,7 @@ jobs:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ github.event.workflow_run.id }}
-          pattern: holycodex-0.17.0-*-${{ github.event.workflow_run.head_sha }}
+          pattern: holycodex-0.17.0-1-*-${{ github.event.workflow_run.head_sha }}
           path: .tmp/release-artifacts
           merge-multiple: false
       - name: Verify all packages against the validated source SHA
@@ -59,16 +59,16 @@ jobs:
             holycodex-native-linux-x64-gnu \
             holycodex-native-win32-x64 \
             holycodex; do
-            archive="$(find .tmp/release-artifacts -type f -name "${package}-0.17.0.tgz" -print -quit)"
+            archive="$(find .tmp/release-artifacts -type f -name "${package}-0.17.0-1.tgz" -print -quit)"
             test -n "$archive"
             expected_integrity="$(node -e 'const fs=require("node:fs"),crypto=require("node:crypto");process.stdout.write("sha512-"+crypto.createHash("sha512").update(fs.readFileSync(process.argv[1])).digest("base64"))' "$archive")"
             error_file="$RUNNER_TEMP/npm-view-${package}.stderr"
-            if published_integrity="$(npm view "${package}@0.17.0" dist.integrity 2>"$error_file")"; then
+            if published_integrity="$(npm view "${package}@0.17.0-1" dist.integrity 2>"$error_file")"; then
               if [[ "$published_integrity" != "$expected_integrity" ]]; then
-                echo "Published ${package}@0.17.0 integrity does not match validated artifact" >&2
+                echo "Published ${package}@0.17.0-1 integrity does not match validated artifact" >&2
                 exit 1
               fi
-              echo "Verified existing ${package}@0.17.0; skipping duplicate publish"
+              echo "Verified existing ${package}@0.17.0-1; skipping duplicate publish"
             else
               status=$?
               if grep -q 'E404' "$error_file"; then

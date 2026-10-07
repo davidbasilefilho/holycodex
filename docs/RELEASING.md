@@ -1,14 +1,16 @@
 # Release procedure
 
-This document describes the 0.17.0 release flow; a workflow implementation is
-not evidence that release gates have passed. Root owns accepting and tagging
-the exact release source. A successful `native-release-validation` run for
-`v0.17.0` automatically starts `publish-native-packages`; no local command in
+HolyCodex versions use `0.X.Y-Z`, where `Z` is the numeric maintenance
+revision. This document describes the `0.17.0-1` release flow; a workflow
+implementation is not evidence that release gates have passed. Root owns
+accepting and tagging the exact release source. A successful
+`native-release-validation` run for
+`v0.17.0-1` automatically starts `publish-native-packages`; no local command in
 this procedure publishes packages or changes Git refs.
 
 ## Required release gates
 
-Before creating `v0.17.0`, maintainers must verify all of the following:
+Before creating `v0.17.0-1`, maintainers must verify all of the following:
 
 1. Root has accepted the final `next` source and advanced `main` to that exact
    commit; the tag, source archive, and all native/npm artifacts must resolve
@@ -36,7 +38,7 @@ the release only after accepting the source SHA and completing these gates.
 
 ## Validation workflow
 
-The `native-release-validation` workflow runs on `v0.17.0` and can also be run
+The `native-release-validation` workflow runs on `v0.17.0-1` and can also be run
 manually for validation. It runs the canonical root `mise` quality tasks,
 materializes the pinned upstream source, applies the patch layer, builds the
 native CLI on supported runners, and uploads one wrapper and three platform
@@ -44,7 +46,7 @@ tarballs. Every artifact carries `source-revision.toml` with the checked-out
 full Git SHA. The pinned upstream root `justfile` test is run on each native
 runner.
 
-Only a successful validation workflow associated with the exact `v0.17.0`
+Only a successful validation workflow associated with the exact `v0.17.0-1`
 tag triggers `publish-native-packages`. That workflow downloads all four
 artifacts from the successful validation run, checks their recorded source
 SHA against the run's `head_sha`, inspects package identity, versions, native

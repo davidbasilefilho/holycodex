@@ -6,7 +6,7 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const VERSION = '0.17.0';
+const VERSION = '0.17.0-1';
 const PLATFORMS = {
   'holycodex-native-linux-x64-gnu': { os: ['linux'], cpu: ['x64'], libc: ['glibc'] },
   'holycodex-native-darwin-arm64': { os: ['darwin'], cpu: ['arm64'] },

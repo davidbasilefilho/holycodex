@@ -15,6 +15,42 @@ use sha2::{Digest, Sha256};
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 const NOTICES: [&str; 3] = ["LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md"];
 
+fn is_holycodex_version(version: &str) -> bool {
+    let Some((core, maintenance)) = version.split_once('-') else {
+        return false;
+    };
+    if maintenance.is_empty() || maintenance.contains('-') {
+        return false;
+    }
+    let mut components = core.split('.');
+    let Some(major) = components.next() else {
+        return false;
+    };
+    let Some(minor) = components.next() else {
+        return false;
+    };
+    let Some(patch) = components.next() else {
+        return false;
+    };
+    if components.next().is_some() || major != "0" {
+        return false;
+    }
+
+    fn canonical_number(component: &str) -> Option<u64> {
+        if component.is_empty()
+            || (component.len() > 1 && component.starts_with('0'))
+            || !component.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return None;
+        }
+        component.parse().ok()
+    }
+
+    canonical_number(minor).is_some()
+        && canonical_number(patch).is_some()
+        && canonical_number(maintenance).is_some_and(|number| number > 0)
+}
+
 fn npm_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -36,6 +72,11 @@ fn validated_wrapper(npm: &Path) -> Result<Value> {
         .get("holycodex_version")
         .and_then(toml::Value::as_str)
         .ok_or("upstream manifest is missing holycodex_version")?;
+    if !is_holycodex_version(version) {
+        return Err(
+            "upstream.toml holycodex_version must use 0.X.Y-Z numeric maintenance format".into(),
+        );
+    }
     let wrapper: Value = serde_json::from_slice(&fs::read(npm.join("holycodex/package.json"))?)?;
     if version != env!("CARGO_PKG_VERSION")
         || wrapper["name"] != "holycodex"
@@ -143,6 +184,24 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authoritative_version_uses_semver_source_and_numeric_maintenance_bumps() {
+        let manifest: toml::Value =
+            fs::read_to_string(npm_root().parent().unwrap().join("upstream.toml"))
+                .unwrap()
+                .parse()
+                .unwrap();
+        let version = manifest["holycodex_version"].as_str().unwrap();
+        assert_eq!(version, env!("CARGO_PKG_VERSION"));
+        assert!(is_holycodex_version(version));
+        assert!(is_holycodex_version("0.17.0-2"));
+        assert!(!is_holycodex_version("0.17.0"));
+        assert!(!is_holycodex_version("0.17.0-alpha"));
+        assert!(!is_holycodex_version("0.17.0-01"));
+        assert!(!is_holycodex_version("0.017.0-1"));
+        assert!(!is_holycodex_version("1.17.0-1"));
+    }
     use serde_json::json;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -203,7 +262,7 @@ mod tests {
             manifest["package"].as_str(),
             Some("holycodex-native-linux-x64-gnu")
         );
-        assert_eq!(manifest["version"].as_str(), Some("0.17.0"));
+        assert_eq!(manifest["version"].as_str(), Some("0.17.0-1"));
         assert_eq!(manifest["format"].as_integer(), Some(1));
         assert_eq!(
             fs::read(package.join("bin/holycodex")).unwrap(),
