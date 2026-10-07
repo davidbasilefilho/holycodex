@@ -1,0 +1,305 @@
+name: native-release-validation
+
+on:
+  push:
+    branches: [main]
+    tags: ["v0.17.0-1"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: holycodex-native-release-${{ github.ref }}
+  # Superseded PR checks are disposable; main/tag release validation is not.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set isolated Codex home
+        shell: bash
+        run: |
+          set -euo pipefail
+          codex_home="$RUNNER_TEMP/holycodex-release-codex-home"
+          filesystem_codex_home="$codex_home"
+          if command -v cygpath >/dev/null 2>&1; then
+            filesystem_codex_home="$(cygpath -u "$codex_home")"
+          fi
+          mkdir -p "$filesystem_codex_home"
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            chmod 700 "$filesystem_codex_home"
+          fi
+          printf 'CODEX_HOME=%s\n' "$codex_home" >> "$GITHUB_ENV"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify release tags belong to accepted main history
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$RELEASE_SHA" FETCH_HEAD
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        with:
+          install: true
+          cache: true
+      - run: mise run fmt-check
+      - run: mise run lint
+      - run: mise run test
+
+  wrapper:
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set isolated Codex home
+        shell: bash
+        run: |
+          set -euo pipefail
+          codex_home="$RUNNER_TEMP/holycodex-release-codex-home"
+          filesystem_codex_home="$codex_home"
+          if command -v cygpath >/dev/null 2>&1; then
+            filesystem_codex_home="$(cygpath -u "$codex_home")"
+          fi
+          mkdir -p "$filesystem_codex_home"
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            chmod 700 "$filesystem_codex_home"
+          fi
+          printf 'CODEX_HOME=%s\n' "$codex_home" >> "$GITHUB_ENV"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        with:
+          install: true
+          cache: true
+      - name: Stage wrapper and run isolated npm install tests
+        run: |
+          cargo run --locked -p holycodex-npm-packager -- wrapper .tmp/npm
+          npm pack --pack-destination .tmp/npm .tmp/npm/holycodex
+          npm test --prefix npm/holycodex
+      - name: Record source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$GITHUB_SHA"
+          printf 'source_sha = "%s"\n' "$actual" > .tmp/npm/source-revision.toml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: holycodex-0.17.0-1-wrapper-${{ github.sha }}
+          path: |
+            .tmp/npm/holycodex-0.17.0-1.tgz
+            .tmp/npm/source-revision.toml
+          if-no-files-found: error
+
+  native:
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: linux-x64-gnu
+            package: holycodex-native-linux-x64-gnu
+          - runner: macos-latest
+            target: darwin-arm64
+            package: holycodex-native-darwin-arm64
+          - runner: windows-latest
+            target: win32-x64
+            package: holycodex-native-win32-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Set isolated Codex home
+        shell: bash
+        run: |
+          set -euo pipefail
+          codex_home="$RUNNER_TEMP/holycodex-release-codex-home"
+          filesystem_codex_home="$codex_home"
+          if command -v cygpath >/dev/null 2>&1; then
+            filesystem_codex_home="$(cygpath -u "$codex_home")"
+          fi
+          mkdir -p "$filesystem_codex_home"
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            chmod 700 "$filesystem_codex_home"
+          fi
+          printf 'CODEX_HOME=%s\n' "$codex_home" >> "$GITHUB_ENV"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        with:
+          install: true
+          cache: true
+      - name: Check runner matches advertised target
+        run: node -e "const p=require('node:process');const t='${{ matrix.target }}';const ok={'linux-x64-gnu':p.platform==='linux'&&p.arch==='x64','darwin-arm64':p.platform==='darwin'&&p.arch==='arm64','win32-x64':p.platform==='win32'&&p.arch==='x64'};if(!ok[t])throw Error(t+' requires native runner; got '+p.platform+'-'+p.arch)"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.x"
+      - name: Materialize pinned Codex with HolyCodex layer
+        run: cargo run --locked -p holycodex-dev -- materialize --upstream .tmp/upstream
+      - name: Install Linux sandbox test dependency
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap
+          bwrap --version
+      - name: Enable namespaces on the disposable Linux CI runner
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Match pinned upstream Codex setup-ci; never apply this to user machines.
+          sudo sysctl -w kernel.unprivileged_userns_clone=1
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --unshare-user --unshare-net --ro-bind / / -- /bin/true
+      - name: Install pinned Codex test runners
+        run: |
+          cargo install just --version 1.58.0 --locked
+          cargo install cargo-nextest --version 0.9.146 --locked
+      - name: Test focused HolyCodex behavior on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          CARGO_BUILD_JOBS: "1"
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
+          printf 'focused_test_source_sha=%s\n' "$source_sha"
+          git diff --exit-code
+          cd .tmp/upstream
+          expected_toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' codex-rs/rust-toolchain.toml)"
+          test -n "$expected_toolchain"
+          rustup toolchain install "$expected_toolchain" --profile minimal --component rustfmt
+
+          normalize_path() {
+            local path="$1"
+            if command -v cygpath >/dev/null 2>&1; then
+              cygpath -u "$path"
+            else
+              printf '%s\n' "$path"
+            fi
+          }
+          rustc_windows_path="$(rustup which --toolchain "$expected_toolchain" rustc)"
+          cargo_windows_path="$(rustup which --toolchain "$expected_toolchain" cargo)"
+          rustfmt_windows_path="$(rustup which --toolchain "$expected_toolchain" rustfmt)"
+          rustc_path="$(normalize_path "$rustc_windows_path")"
+          cargo_path="$(normalize_path "$cargo_windows_path")"
+          rustfmt_path="$(normalize_path "$rustfmt_windows_path")"
+          toolchain_bin="$(dirname "$cargo_path")"
+          export PATH="$toolchain_bin:$PATH"
+          export RUSTC="$rustc_windows_path" RUSTFMT="$rustfmt_windows_path"
+          hash -r
+          selected_rustc="$(normalize_path "$(command -v rustc)")"
+          selected_cargo="$(normalize_path "$(command -v cargo)")"
+          selected_rustfmt="$(normalize_path "$(command -v rustfmt)")"
+          just_path="$(normalize_path "$(command -v just)")"
+          rustc_version="$("$rustc_path" -V)"
+          cargo_version="$("$cargo_path" -V)"
+          rustfmt_version="$("$rustfmt_path" --version)"
+          printf 'upstream_toolchain=%s\nrustc_path=%s\nrustc_selected_path=%s\nrustc_version=%s\ncargo_path=%s\ncargo_selected_path=%s\ncargo_version=%s\nrustfmt_path=%s\nrustfmt_selected_path=%s\nrustfmt_version=%s\njust_path=%s\n' \
+            "$expected_toolchain" "$rustc_path" "$selected_rustc" "$rustc_version" \
+            "$cargo_path" "$selected_cargo" "$cargo_version" "$rustfmt_path" "$selected_rustfmt" \
+            "$rustfmt_version" "$just_path"
+          same_executable() { [[ "$1" == "$2" || "$1.exe" == "$2" || "$1" == "$2.exe" ]]; }
+          same_executable "$selected_rustc" "$rustc_path"
+          same_executable "$selected_cargo" "$cargo_path"
+          same_executable "$selected_rustfmt" "$rustfmt_path"
+          test "$(printf '%s\n' "$rustc_version" | awk '{print $2}')" = "$expected_toolchain"
+          test "$(printf '%s\n' "$cargo_version" | awk '{print $2}')" = "$expected_toolchain"
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-core --lib --test all -E 'test(/(?:holycodex|holy|all_specialist_routes_allocate_and_build_requests_for_each_profile|quality_command_artifacts_are_cached_per_specialist_workspace|specialist_shell_authorization_reuses_workspace_cache_across_workdirs|reserved_command_tools_reject_external_runtimes_without_a_builtin|registry_records_reserved_exec_command_when_a_matching_tool_exists|shell_snapshot_tests|npm_workspace_snapshot|snapshot.*(?:unix|executable|root.?links?|symlink|race|budgets?|retention)|(?:unix|executable|root.?links?|symlink|race|budgets?|retention).*snapshot|operational.*grant|grant.*operational|spawn.*rollback|rollback.*spawn)/)'
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-login -p codex-skills -p codex-skills-extension --lib -E 'test(/siwc::tests|embedded_holycodex_017_skill_inventory_is_complete|optional_workflows/)'
+          cd "$GITHUB_WORKSPACE"
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
+          printf 'focused_test_source_sha_after=%s\n' "$source_sha"
+          git diff --exit-code
+      - name: Test pinned Codex CLI and login with its toolchain
+        shell: bash
+        env:
+          CARGO_BUILD_JOBS: "1"
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          set -euo pipefail
+          cd .tmp/upstream
+          expected_toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' codex-rs/rust-toolchain.toml)"
+          test -n "$expected_toolchain"
+          rustup toolchain install "$expected_toolchain" --profile minimal --component rustfmt
+
+          normalize_path() {
+            local path
+            path="$1"
+            if command -v cygpath >/dev/null 2>&1; then
+              cygpath -u "$path"
+            else
+              printf '%s\n' "$path"
+            fi
+          }
+          rustc_windows_path="$(rustup which --toolchain "$expected_toolchain" rustc)"
+          cargo_windows_path="$(rustup which --toolchain "$expected_toolchain" cargo)"
+          rustfmt_windows_path="$(rustup which --toolchain "$expected_toolchain" rustfmt)"
+          rustc_path="$(normalize_path "$rustc_windows_path")"
+          cargo_path="$(normalize_path "$cargo_windows_path")"
+          rustfmt_path="$(normalize_path "$rustfmt_windows_path")"
+          toolchain_bin="$(dirname "$cargo_path")"
+          export PATH="$toolchain_bin:$PATH"
+          export RUSTC="$rustc_windows_path" RUSTFMT="$rustfmt_windows_path"
+          hash -r
+          selected_rustc="$(normalize_path "$(command -v rustc)")"
+          selected_cargo="$(normalize_path "$(command -v cargo)")"
+          selected_rustfmt="$(normalize_path "$(command -v rustfmt)")"
+          just_path="$(normalize_path "$(command -v just)")"
+          rustc_version="$("$rustc_path" -V)"
+          cargo_version="$("$cargo_path" -V)"
+          rustfmt_version="$("$rustfmt_path" --version)"
+          printf 'upstream_toolchain=%s\nrustc_path=%s\nrustc_selected_path=%s\nrustc_version=%s\ncargo_path=%s\ncargo_selected_path=%s\ncargo_version=%s\nrustfmt_path=%s\nrustfmt_selected_path=%s\nrustfmt_version=%s\njust_path=%s\n' \
+            "$expected_toolchain" "$rustc_path" "$selected_rustc" "$rustc_version" "$cargo_path" "$selected_cargo" "$cargo_version" \
+            "$rustfmt_path" "$selected_rustfmt" "$rustfmt_version" "$just_path"
+          same_executable() { [[ "$1" == "$2" || "$1.exe" == "$2" || "$1" == "$2.exe" ]]; }
+          same_executable "$selected_rustc" "$rustc_path"
+          same_executable "$selected_cargo" "$cargo_path"
+          same_executable "$selected_rustfmt" "$rustfmt_path"
+          test "$(printf '%s\n' "$rustc_version" | awk '{print $2}')" = "$expected_toolchain"
+          test "$(printf '%s\n' "$cargo_version" | awk '{print $2}')" = "$expected_toolchain"
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-app-server-daemon --lib
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-tui --lib -E 'test(holycodex_does_not_offer_upstream_install_updates) | test(holycodex_ignores_upstream_update_cache) | test(holycodex_update_check_does_not_create_a_cache) | test(holycodex_public_daemon_update_cannot_exit_the_session) | test(daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff) | test(unavailable_daemon_menu_offers_guidance_without_update_actions)'
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-cli -p codex-login
+      - name: Build one native runtime under both names
+        run: cargo run --locked -p holycodex-dev -- package --upstream .tmp/upstream --output .tmp/native --release
+      - name: Stage and pack platform npm package
+        run: |
+          cargo run --locked -p holycodex-npm-packager -- ${{ matrix.target }} .tmp/native .tmp/npm
+          npm pack --pack-destination .tmp/npm .tmp/npm/${{ matrix.package }}
+          npm test --prefix npm/holycodex
+      - name: Record source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$GITHUB_SHA"
+          printf 'source_sha = "%s"\n' "$actual" > .tmp/npm/source-revision.toml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: holycodex-0.17.0-1-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            .tmp/npm/${{ matrix.package }}-0.17.0-1.tgz
+            .tmp/npm/source-revision.toml
+          if-no-files-found: error

@@ -1,0 +1,132 @@
+format = "TOON"
+spec_version = "4.1"
+spec_status = "Working Draft"
+spec_commit = "e7a2b337b7c06eb07e2d18bbf42a58e04dc285a5"
+spec_sha256 = "6d83c75bff7aef6d9ad29b6278e4fa98750ebfbd07d4cb402af4dbe9188e8526"
+fixture_source = "https://github.com/toon-format/spec/tree/e7a2b337b7c06eb07e2d18bbf42a58e04dc285a5/tests/fixtures"
+fixture_commit = "e7a2b337b7c06eb07e2d18bbf42a58e04dc285a5"
+fixture_license = "MIT"
+fixture_file_count = 23
+encode_case_count = 180
+decode_case_count = 359
+codec_source = "https://github.com/jimmystridh/toon-rs"
+codec_revision = "e80011112a3d54abe3c38edc362ff95c52134243"
+codec_crate_version = "3.0.0"
+codec_rust_version = "1.85"
+codec_license = "MIT"
+
+[[fixtures]]
+group = "decode"
+file = "arrays-nested.json"
+sha256 = "41fdda2388f9481970d40754032512306084e393ff1c13500b03e4157f11d3ea"
+
+[[fixtures]]
+group = "decode"
+file = "arrays-primitive.json"
+sha256 = "ddf55b104ad1acb6b30ef8c3dc53bc689d2c6f24d66005918fd11adf71cf0d26"
+
+[[fixtures]]
+group = "decode"
+file = "arrays-tabular.json"
+sha256 = "b36203a30831120afcbc7fa60829f8c839226451bd5c4f26e677f01876c5ff17"
+
+[[fixtures]]
+group = "decode"
+file = "blank-lines.json"
+sha256 = "17626b901df5c101880708bc1e3833f2882bb1dbf7f105f8ab573aee00ef206f"
+
+[[fixtures]]
+group = "decode"
+file = "comments.json"
+sha256 = "91bf462d0af58dfd22a289d79b5cea6fa1f98af05334dc37bec4e5f6ce48c3bf"
+
+[[fixtures]]
+group = "decode"
+file = "delimiters.json"
+sha256 = "0c664a5bf9275e5dde8b1495a6adf9111bc5f8d8ba4942081706638da14bdd07"
+
+[[fixtures]]
+group = "decode"
+file = "indentation-errors.json"
+sha256 = "6b482b44489846ca4e9fa29465a8e4ff723967ed2d13bc877971b8ff83849958"
+
+[[fixtures]]
+group = "decode"
+file = "numbers.json"
+sha256 = "782e66462427f003e941747dc29bc849881dcfe8893f8eb3c916662a092e24c4"
+
+[[fixtures]]
+group = "decode"
+file = "objects-keyed.json"
+sha256 = "d7a928bfb175f6ec18a763406b56be7398722e9e9e72d6bcbab04ff720b2b054"
+
+[[fixtures]]
+group = "decode"
+file = "objects.json"
+sha256 = "0b31f92abf541e8f5ecc7b6a4e44dfd643cd9f90effc97b4b8a3811fdad33b63"
+
+[[fixtures]]
+group = "decode"
+file = "primitives.json"
+sha256 = "be7ee6c3800e0a27ea490837e8efc483f457dc8d15043eeb07a0a61f5c2688ee"
+
+[[fixtures]]
+group = "decode"
+file = "root-form.json"
+sha256 = "db1300949a599194f5d7f02554e6156b8a677cf35816ef2dd499697c6aebda8c"
+
+[[fixtures]]
+group = "decode"
+file = "validation-errors.json"
+sha256 = "e762fb950f425ba501525e5f7a740b0ba3c0ffe0b0206280c44ace781b056549"
+
+[[fixtures]]
+group = "decode"
+file = "whitespace.json"
+sha256 = "3eabf36817d5a42716e53731f16de1c9ace4ac5b3dfbd94287d2d9ed214f67cb"
+
+[[fixtures]]
+group = "encode"
+file = "arrays-nested.json"
+sha256 = "e30b3def09d2df11971f15b87c3e6cd8c5b8a375cc9036c7ae0fdf755d07f86b"
+
+[[fixtures]]
+group = "encode"
+file = "arrays-objects.json"
+sha256 = "a4829052e36a365624526816b7d8f9ddae10e7df0e93eaf6b089603e7f302b7a"
+
+[[fixtures]]
+group = "encode"
+file = "arrays-primitive.json"
+sha256 = "0ab7c14b9d5038ed52f4449680ccda54081867bfef0b383816aeebc069d8054f"
+
+[[fixtures]]
+group = "encode"
+file = "arrays-tabular.json"
+sha256 = "c6a4079a188533fd3983363c80816e69dbd82cfd3abf4497c7b5bd0c32d8e94d"
+
+[[fixtures]]
+group = "encode"
+file = "delimiters.json"
+sha256 = "db6b0b8a6695e2194122f3e035dd4d0481d7f90068090f34c96f02fa0c7f0166"
+
+[[fixtures]]
+group = "encode"
+file = "objects-keyed.json"
+sha256 = "b064d9fe983c737d1273c05db4b4f38889e04c341637b0d0d33d681c1f5877d0"
+
+[[fixtures]]
+group = "encode"
+file = "objects.json"
+sha256 = "94703db9232df9ea09b3543733fa1cb34379d3cdc8b6d9db56196d9afc2954c5"
+
+[[fixtures]]
+group = "encode"
+file = "primitives.json"
+sha256 = "a0af75e928be3e3a9b8d480fc891aa2daa1460eb09ae5e6102ab40a46861f2a0"
+
+[[fixtures]]
+group = "encode"
+file = "whitespace.json"
+sha256 = "581d0fdf6c2f433b7a4c48b123a471346245249d1bb15352885f7ce51865dcfe"
+

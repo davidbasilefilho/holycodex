@@ -1,0 +1,15 @@
+[package]
+name = "holycodex-policy"
+version = "0.17.0-1"
+edition = "2024"
+rust-version = "1.95"
+description = "Native runtime policy foundation for HolyCodex"
+license = "Apache-2.0"
+
+[dependencies]
+serde = { version = "^1.0.229", features = ["derive"] }
+holycodex-toon = { path = "../holycodex-toon" }
+toml = "0.8.23"
+
+[dev-dependencies]
+serde_json = "^1.0.151"

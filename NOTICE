@@ -1,12 +1,6 @@
-HolyCodex
+OpenAI Codex
+Copyright 2025 OpenAI
 
-This project is an independently authored, clean-room reimplementation.
-Its behavioral and architectural documents are authored from the task
-specification and the official current-source facts expressly admitted by
-that specification.
-
-This NOTICE is informational. It does not make a representation about
-compatibility, security, fitness, performance, provenance beyond the stated
-sources, or any other legal or technical guarantee. See LICENSE for the
-applicable license terms. Runtime and development dependency attributions are
-listed in THIRD-PARTY-NOTICES.md.
+This project includes code derived from [Ratatui](https://github.com/ratatui/ratatui), licensed under the MIT license.
+Copyright (c) 2016-2022 Florian Dehau
+Copyright (c) 2023-2025 The Ratatui Developers

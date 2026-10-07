@@ -1,8 +1,0 @@
-{
-  "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["packages/codex/generated/**"],
-  "bracketSameLine": true,
-  "jsdoc": true,
-  "sortImports": true,
-  "sortPackageJson": true
-}

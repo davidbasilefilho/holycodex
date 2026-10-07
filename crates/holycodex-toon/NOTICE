@@ -1,0 +1,6 @@
+TOON codec source adapted from toon-rs, MIT licensed.
+Original crate: toon-rs 3.0.0 (unpublished main revision)
+Repository: https://github.com/jimmystridh/toon-rs
+Source revision: e80011112a3d54abe3c38edc362ff95c52134243
+The upstream manifest declares MIT; its source archive does not include a
+separate license file. Copyright remains with the upstream copyright holder.

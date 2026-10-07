@@ -1,6 +1,0 @@
-interface:
-  display_name: "Visual loop"
-  short_description: "Root judges rendered changes after specialists inspect their work and assigns repairs."
-  default_prompt: "Use $visual-loop for this task."
-policy:
-  allow_implicit_invocation: false

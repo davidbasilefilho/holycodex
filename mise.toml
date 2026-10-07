@@ -1,7 +1,29 @@
-# Bun owns project operations; npm is used only at the publication boundary.
 [tools]
-bun = "1.4"
+rust = { version = "stable", profile = "default", components = ["rustfmt", "clippy"] }
 
 [settings]
-fetch_remote_versions_cache = "0s"
-use_versions_host = false
+lockfile = true
+
+[tool_alias.rust.versions]
+# Deliberately maintained stable snapshot; advance explicitly and re-lock.
+stable = "1.99.0"
+
+[tasks.fmt]
+description = "Format Rust workspace sources"
+run = "cargo fmt --all"
+
+[tasks.fmt-check]
+description = "Check Rust formatting"
+run = "cargo fmt --all -- --check"
+
+[tasks.lint]
+description = "Run locked workspace Clippy with warnings denied"
+run = "cargo clippy --workspace --all-targets --locked -- -D warnings"
+
+[tasks.test]
+description = "Run locked Rust workspace tests"
+run = ["cargo test --workspace --locked", "cargo test --locked -p holycodex-toon --features de_direct", "cargo test --locked -p holycodex-toon --all-features", "cargo test --locked -p holycodex-toon --no-default-features --features std,serde"]
+
+[tasks.pre-commit]
+description = "Run formatting, lint, and test checks"
+depends = ["fmt-check", "lint", "test"]
