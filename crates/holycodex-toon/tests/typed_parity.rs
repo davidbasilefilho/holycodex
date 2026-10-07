@@ -2,8 +2,8 @@
 
 #[cfg(feature = "json")]
 use holycodex_toon::encode_to_string;
-use holycodex_toon::{ExpandPaths, Options, decode_from_str};
 use holycodex_toon::ser::to_string_streaming;
+use holycodex_toon::{ExpandPaths, Options, decode_from_str};
 use serde::{Deserialize, de::DeserializeOwned};
 #[cfg(feature = "json")]
 use serde_json::Value;
@@ -175,8 +175,7 @@ fn streaming_nonfinite_floats_are_null_at_every_depth() {
             "[1]: null"
         );
         assert_eq!(
-            to_string_streaming(&BTreeMap::from([("value", value)]), &Options::default())
-                .unwrap(),
+            to_string_streaming(&BTreeMap::from([("value", value)]), &Options::default()).unwrap(),
             "value: null"
         );
     }

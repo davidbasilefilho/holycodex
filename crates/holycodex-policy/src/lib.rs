@@ -1693,15 +1693,13 @@ mod tests {
 
     #[test]
     fn root_and_specialist_instructions_prefer_relevant_session_continuity() {
-        assert!(ROOT_INSTRUCTIONS.contains(
-            "compatible idle specialist with relevant retained context"
-        ));
-        assert!(ROOT_INSTRUCTIONS.contains(
-            "compatible specialist with the same Role.task"
-        ));
-        assert!(ROOT_INSTRUCTIONS.contains(
-            "create a new specialist only when neither is suitable"
-        ));
+        assert!(
+            ROOT_INSTRUCTIONS.contains("compatible idle specialist with relevant retained context")
+        );
+        assert!(ROOT_INSTRUCTIONS.contains("compatible specialist with the same Role.task"));
+        assert!(
+            ROOT_INSTRUCTIONS.contains("create a new specialist only when neither is suitable")
+        );
         assert!(ROOT_INSTRUCTIONS.contains("review independent from implementation"));
         assert!(ROOT_INSTRUCTIONS.contains("continue the existing Root session"));
         assert!(ROOT_INSTRUCTIONS.contains("pass new facts as deltas"));
@@ -1804,7 +1802,9 @@ mod tests {
     #[test]
     fn default_efforts_and_mergeability_guidance_match_role_policy() {
         assert_eq!(
-            route_policy(RoleTask::Root).unwrap().effort(Profile::Default),
+            route_policy(RoleTask::Root)
+                .unwrap()
+                .effort(Profile::Default),
             ReasoningEffort::Medium
         );
         assert!(RoleTask::SPECIALISTS.iter().all(|role| {
