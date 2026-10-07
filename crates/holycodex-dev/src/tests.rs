@@ -162,6 +162,29 @@ fn manifest_matches_authoritative_source_and_allows_deliberate_rebase() {
 }
 
 #[test]
+fn native_runtime_identity_matches_authoritative_release() {
+    let root = crate::root();
+    let release = manifest(&root).unwrap();
+    let patch = fs::read_to_string(root.join("patches/0001-native-runtime.patch")).unwrap();
+    let protocol_diff = patch
+        .split("diff --git a/codex-rs/app-server-protocol/src/lib.rs b/codex-rs/app-server-protocol/src/lib.rs\n")
+        .nth(1)
+        .expect("native runtime identity must be declared in the shared protocol crate")
+        .split("\ndiff --git ")
+        .next()
+        .unwrap();
+    let expected = format!(
+        "+pub const HOLYCODEX_RUNTIME_MARKER: &str = \"holycodex_runtime/{}\";",
+        release.holycodex_version
+    );
+    let declarations: Vec<_> = protocol_diff
+        .lines()
+        .filter(|line| line.starts_with("+pub const HOLYCODEX_RUNTIME_MARKER:"))
+        .collect();
+    assert_eq!(declarations, [expected.as_str()]);
+}
+
+#[test]
 fn native_runtime_lockfile_tracks_canonical_crate_manifests() {
     let root = crate::root();
     let patch = fs::read_to_string(root.join("patches/0001-native-runtime.patch")).unwrap();

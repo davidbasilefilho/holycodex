@@ -23077,7 +23077,7 @@ index 8f55126..29a95b3 100644
              .send()
              .await
 diff --git a/codex-rs/app-server-daemon/src/update_loop_tests.rs b/codex-rs/app-server-daemon/src/update_loop_tests.rs
-index d932742..f87dfa2 100644
+index d932742..0fdcaca 100644
 --- a/codex-rs/app-server-daemon/src/update_loop_tests.rs
 +++ b/codex-rs/app-server-daemon/src/update_loop_tests.rs
 @@ -23,6 +23,214 @@ use crate::managed_install::executable_identity;
@@ -23304,6 +23304,94 @@ index d932742..f87dfa2 100644
          new_updater.stop().await.unwrap();
          new_backend.stop().await.unwrap();
          if let Some(server) = server {
+@@ -491,6 +699,15 @@ async fn unsupported_request_preserves_updater_schedule() {
+ async fn test_control_server(
+     daemon: &Daemon,
+     home: &std::path::Path,
++) -> tokio::task::JoinHandle<()> {
++    test_control_server_with_user_agent(daemon, home, None).await
++}
++
++#[cfg(unix)]
++async fn test_control_server_with_user_agent(
++    daemon: &Daemon,
++    home: &std::path::Path,
++    user_agent: Option<String>,
+ ) -> tokio::task::JoinHandle<()> {
+     use futures::SinkExt;
+     use futures::StreamExt;
+@@ -521,9 +738,16 @@ async fn test_control_server(
+             } else {
+                 "1.0.0"
+             };
++            let user_agent = user_agent.unwrap_or_else(|| {
++                format!(
++                    "codex_app_server_daemon/{version} {} codex_upstream/{}",
++                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++                    env!("CARGO_PKG_VERSION"),
++                )
++            });
+             websocket.send(tokio_tungstenite::tungstenite::Message::Text(
+                 serde_json::json!({"id": 1, "result": {
+-                    "userAgent": format!("codex_app_server_daemon/{version}"),
++                    "userAgent": user_agent,
+                     "codexHome": codex_home, "platformFamily": "unix", "platformOs": std::env::consts::OS,
+                 }}).to_string().into(),
+             )).await.expect("initialize response");
+@@ -542,6 +766,31 @@ async fn manual_update_restarts_managed_daemon_with_automatic_updates_disabled()
+     check_manual_update_restart("standalone").await;
+ }
+ 
++#[cfg(unix)]
++#[tokio::test]
++async fn daemon_start_rejects_vanilla_same_version_socket_before_reuse() {
++    let home = TempDir::new().unwrap();
++    let (daemon, _) = manual_update_daemon(&home);
++    let server = test_control_server_with_user_agent(
++        &daemon,
++        home.path(),
++        Some(format!(
++            "codex_app_server_daemon/{}",
++            env!("CARGO_PKG_VERSION")
++        )),
++    )
++    .await;
++
++    // The vanilla socket reports the same upstream version and the daemon
++    // settings use the default feature set, but neither makes it Holy.
++    let result = daemon
++        .start(&std::collections::BTreeMap::new())
++        .await
++        .expect_err("vanilla app-server must not be reused as Holy daemon");
++    assert!(result.is::<crate::ForeignAppServerRuntime>(), "{result:#}");
++    server.abort();
++}
++
+ #[cfg(unix)]
+ #[tokio::test]
+ async fn daemon_start_and_restart_preserve_launch_features() {
+@@ -573,9 +822,18 @@ async fn daemon_start_and_restart_preserve_launch_features() {
+                 );
+                 tokio::time::sleep(Duration::from_millis(/*millis*/ 20)).await;
+             }
+-            test_control_server(&daemon, home.path())
+-                .await
+-                .abort_handle()
++            test_control_server_with_user_agent(
++                &daemon,
++                home.path(),
++                Some(format!(
++                    "codex_app_server_daemon/{} {} codex_upstream/{}",
++                    env!("CARGO_PKG_VERSION"),
++                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++                    env!("CARGO_PKG_VERSION"),
++                )),
++            )
++            .await
++            .abort_handle()
+         };
+         let (started, server) = tokio::join!(daemon.start(&features), control);
+         assert_eq!(started.unwrap().status, crate::LifecycleStatus::Started);
 diff --git a/codex-rs/tui/src/npm_registry.rs b/codex-rs/tui/src/npm_registry.rs
 index 61ff242..3396ad3 100644
 --- a/codex-rs/tui/src/npm_registry.rs
@@ -23548,7 +23636,7 @@ index 0000000..8350766
 +    assert!(!version_filepath(&config).exists());
 +}
 diff --git a/codex-rs/app-server-daemon/src/lib.rs b/codex-rs/app-server-daemon/src/lib.rs
-index 15ba769..c1bbad8 100644
+index 15ba769..a40b64c 100644
 --- a/codex-rs/app-server-daemon/src/lib.rs
 +++ b/codex-rs/app-server-daemon/src/lib.rs
 @@ -21,6 +21,7 @@ mod thread_recovery;
@@ -23559,7 +23647,7 @@ index 15ba769..c1bbad8 100644
  use std::path::Path;
  use std::path::PathBuf;
  use std::time::Duration;
-@@ -96,6 +97,21 @@ pub struct BootstrapOptions {
+@@ -96,12 +97,65 @@ pub struct BootstrapOptions {
      pub remote_control_enabled: bool,
  }
  
@@ -23578,10 +23666,62 @@ index 15ba769..c1bbad8 100644
 +
 +impl std::error::Error for MissingPackageLayout {}
 +
++/// The socket belongs to an app-server built from a different runtime.
++#[derive(Debug)]
++pub struct ForeignAppServerRuntime;
++
++impl fmt::Display for ForeignAppServerRuntime {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter.write_str("the selected background server is not a compatible HolyCodex runtime")
++    }
++}
++
++impl std::error::Error for ForeignAppServerRuntime {}
++
  /// Passively probes an existing app-server socket and returns its reported
  /// app-server version.
  pub async fn probe_app_server_version(socket_path: &Path) -> Result<String> {
-@@ -467,7 +483,7 @@ impl Daemon {
+     Ok(client::probe(socket_path).await?.app_server_version)
+ }
+ 
++/// Verify that a local app-server socket is owned by the supported Holy runtime.
++pub async fn validate_holy_runtime(socket_path: &Path) -> Result<()> {
++    let info = client::probe(socket_path).await?;
++    ensure_holy_runtime(&info)
++}
++
++/// Verify the runtime identity reported by an already initialized connection.
++pub fn validate_holy_runtime_user_agent(user_agent: &str) -> Result<()> {
++    let expected_suffix = format!(
++        " {} codex_upstream/{}",
++        codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++        env!("CARGO_PKG_VERSION")
++    );
++    if user_agent.strip_suffix(&expected_suffix).is_none() {
++        return Err(ForeignAppServerRuntime.into());
++    }
++    Ok(())
++}
++
++fn ensure_holy_runtime(info: &client::ProbeInfo) -> Result<()> {
++    if !info.is_holy_runtime || info.app_server_version != env!("CARGO_PKG_VERSION") {
++        return Err(ForeignAppServerRuntime.into());
++    }
++    Ok(())
++}
++
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+ #[serde(rename_all = "camelCase")]
+ pub enum BootstrapStatus {
+@@ -444,6 +498,7 @@ impl Daemon {
+                 self.wait_until_ready().await?,
+             )
+         };
++        ensure_holy_runtime(&info)?;
+         if backend.is_some()
+             && let Err(err) = managed.ensure_managed_updater(&settings).await
+         {
+@@ -467,7 +522,7 @@ impl Daemon {
          prepare_install::prepare(self, &settings).await?;
          let mut managed = self.clone();
          managed.managed_codex_bin = self.current_managed_codex_bin()?;
@@ -23590,7 +23730,7 @@ index 15ba769..c1bbad8 100644
              backend::pid_update_loop_backend(self.backend_paths(&settings))
                  .stop()
                  .await?;
-@@ -590,6 +606,15 @@ impl Daemon {
+@@ -590,6 +645,15 @@ impl Daemon {
  
      async fn stop(&self) -> Result<LifecycleOutput> {
          let settings = DaemonSettings::load_for_stop(&self.settings_file).await;
@@ -23606,7 +23746,7 @@ index 15ba769..c1bbad8 100644
          if let Some(backend) = self.running_backend_instance(&settings).await? {
              backend
                  .stop_with_grace(settings.shutdown_grace_seconds)
-@@ -868,7 +893,7 @@ impl Daemon {
+@@ -868,7 +932,7 @@ impl Daemon {
  
      async fn ensure_managed_updater(&self, settings: &DaemonSettings) -> Result<bool> {
          let updater = backend::pid_update_loop_backend(self.backend_paths(settings));
@@ -23615,7 +23755,7 @@ index 15ba769..c1bbad8 100644
              updater.stop().await?;
              return Ok(false);
          }
-@@ -939,7 +964,8 @@ impl Daemon {
+@@ -939,7 +1003,8 @@ impl Daemon {
      }
  
      async fn is_bootstrapped(&self, settings: &DaemonSettings) -> Result<bool> {
@@ -23625,6 +23765,72 @@ index 15ba769..c1bbad8 100644
              || !self.is_stable_standalone_release()?
              || !managed_install::supports_daemon_update_loop(&self.managed_codex_bin).await
          {
+@@ -1155,6 +1220,55 @@ mod tests {
+     #[cfg(unix)]
+     use crate::settings::DaemonSettings;
+ 
++    #[test]
++    fn holy_runtime_identity_requires_marker_and_matching_upstream_version() {
++        let current_version = env!("CARGO_PKG_VERSION").to_string();
++        let marker = codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER;
++        let upstream_version = env!("CARGO_PKG_VERSION");
++        let matching_user_agent = format!(
++            "client/name with spaces/0.160.1 (Linux) {marker} codex_upstream/{upstream_version}"
++        );
++        assert!(validate_holy_runtime_user_agent(&matching_user_agent).is_ok());
++        assert!(
++            validate_holy_runtime_user_agent(&format!(
++                "client/0.160.1 (Linux) {marker} codex_upstream/0.160.0"
++            ))
++            .unwrap_err()
++            .is::<ForeignAppServerRuntime>()
++        );
++        assert!(
++            validate_holy_runtime_user_agent("client/0.160.1 (Linux) codex_upstream/0.160.1")
++                .unwrap_err()
++                .is::<ForeignAppServerRuntime>()
++        );
++
++        let vanilla_same_version = ProbeInfo {
++            app_server_version: current_version.clone(),
++            is_holy_runtime: false,
++        };
++        assert!(
++            ensure_holy_runtime(&vanilla_same_version)
++                .unwrap_err()
++                .is::<ForeignAppServerRuntime>()
++        );
++
++        let mismatched_upstream = ProbeInfo {
++            app_server_version: "0.160.0".to_string(),
++            is_holy_runtime: true,
++        };
++        assert!(
++            ensure_holy_runtime(&mismatched_upstream)
++                .unwrap_err()
++                .is::<ForeignAppServerRuntime>()
++        );
++
++        let holy_current = ProbeInfo {
++            app_server_version: current_version,
++            is_holy_runtime: true,
++        };
++        assert!(ensure_holy_runtime(&holy_current).is_ok());
++    }
++
+     #[test]
+     fn remote_control_status_uses_camel_case_json() {
+         assert_eq!(
+@@ -1166,7 +1280,8 @@ mod tests {
+     #[test]
+     fn restart_decision_preserves_forced_refreshes() {
+         let current_info = ProbeInfo {
+-            app_server_version: "0.1.0".to_string(),
++            app_server_version: env!("CARGO_PKG_VERSION").to_string(),
++            is_holy_runtime: true,
+         };
+ 
+         assert_eq!(
 diff --git a/codex-rs/cli/src/daemon_update_tests.rs b/codex-rs/cli/src/daemon_update_tests.rs
 index d93069f..9e9ae1b 100644
 --- a/codex-rs/cli/src/daemon_update_tests.rs
@@ -23965,7 +24171,7 @@ index cf1742c..57aeace 100644
      Ok(())
  }
 diff --git a/codex-rs/tui/src/daemon_startup.rs b/codex-rs/tui/src/daemon_startup.rs
-index ba6de53..2443a97 100644
+index ba6de53..363764d 100644
 --- a/codex-rs/tui/src/daemon_startup.rs
 +++ b/codex-rs/tui/src/daemon_startup.rs
 @@ -1,7 +1,7 @@
@@ -23975,22 +24181,27 @@ index ba6de53..2443a97 100644
 -//! the Windows launcher forbids detaching a missing server.
 +//! optional attachment may fall back to embedded mode. Automatic launches reuse a
 +//! compatible daemon, start one from a complete package, or use the foreground
-+//! runtime when this CLI cannot provide a complete daemon package.
++//! runtime when the package is incomplete or an existing server is foreign.
  
  use super::*;
  use std::collections::BTreeMap;
-@@ -15,6 +15,18 @@ const SERVER_FEATURES: [Feature; 4] = [
+@@ -15,6 +15,23 @@ const SERVER_FEATURES: [Feature; 4] = [
  
  pub(super) const FAILURE_HINT: &str = "To work without the background server, rerun the same command with --no-daemon (including resume or fork and its arguments).";
  
 +/// A packaged daemon is optional when this CLI has no complete package to seed
 +/// a new installation. The daemon lifecycle checks for a reusable running
 +/// server before it reports this error, so preserve successful reuse unchanged.
-+pub(super) fn allow_embedded_without_package(
++pub(super) fn allow_foreground_fallback(
 +    result: anyhow::Result<Option<codex_app_server_daemon::LifecycleOutput>>,
 +) -> anyhow::Result<Option<codex_app_server_daemon::LifecycleOutput>> {
 +    match result {
-+        Err(error) if error.is::<codex_app_server_daemon::MissingPackageLayout>() => Ok(None),
++        Err(error)
++            if error.is::<codex_app_server_daemon::MissingPackageLayout>()
++                || error.is::<codex_app_server_daemon::ForeignAppServerRuntime>() =>
++        {
++            Ok(None)
++        }
 +        other => other,
 +    }
 +}
@@ -23998,14 +24209,92 @@ index ba6de53..2443a97 100644
  #[derive(Debug, thiserror::Error)]
  #[error("Cannot use the shared background server: {reason}.\n{FAILURE_HINT}")]
  pub(super) struct CompatibilityError {
+@@ -128,16 +145,33 @@ pub(super) async fn compatibility_warning(
+         return Ok(None);
+     };
+     let mut restart_features = None;
++    enum CompatibilityFailure {
++        ForeignRuntime,
++        Other(String),
++    }
+     let check = async {
+         // The feature-list RPC cannot report this process-scoped structured setting.
+         if !config.features.enabled(Feature::CodeModeHost)
+             && config.code_mode.disable_in_process_fallback
+         {
+-            return Err("code-mode host fallback policy requires embedded mode".to_string());
++            return Err(CompatibilityFailure::Other(
++                "code-mode host fallback policy requires embedded mode".to_string(),
++            ));
+         }
+         let client = app_server_connection::connect(target)
+             .await
+-            .map_err(|_| "could not connect to check daemon feature settings".to_string())?;
++            .map_err(|err| {
++                if err
++                    .downcast_ref::<codex_app_server_daemon::ForeignAppServerRuntime>()
++                    .is_some()
++                {
++                    CompatibilityFailure::ForeignRuntime
++                } else {
++                    CompatibilityFailure::Other(
++                        "could not connect to check daemon feature settings".to_string(),
++                    )
++                }
++            })?;
+         let (tx, rx) = tokio::sync::oneshot::channel();
+         crate::experimental_features::fetch(
+             client.request_handle(),
+@@ -147,7 +181,11 @@ pub(super) async fn compatibility_warning(
+         );
+         let result = rx.await;
+         let _ = client.shutdown().await;
+-        let features = result.map_err(|_| "daemon feature check was interrupted".to_string())??;
++        let features = result
++            .map_err(|_| {
++                CompatibilityFailure::Other("daemon feature check was interrupted".to_string())
++            })?
++            .map_err(|err| CompatibilityFailure::Other(err.to_string()))?;
+         // A previous client may have launched this daemon with overrides, even if
+         // this client has none. Check effective values, including defaults.
+         for feature in SERVER_FEATURES {
+@@ -168,18 +206,24 @@ pub(super) async fn compatibility_warning(
+                         .collect(),
+                 );
+                 let state = if enabled { "enabled" } else { "disabled" };
+-                return Err(format!("This session requires {name} to be {state}"));
++                return Err(CompatibilityFailure::Other(format!(
++                    "This session requires {name} to be {state}"
++                )));
+             }
+         }
+-        Ok::<(), String>(())
++        Ok::<(), CompatibilityFailure>(())
+     }
+     .await;
+     match check {
+         Ok(()) => Ok(None),
+-        Err(reason) if *allow_embedded_fallback => Ok(Some(format!(
++        Err(CompatibilityFailure::ForeignRuntime) => Ok(Some(format!(
++            "Running without the shared background server: {}.",
++            codex_app_server_daemon::ForeignAppServerRuntime
++        ))),
++        Err(CompatibilityFailure::Other(reason)) if *allow_embedded_fallback => Ok(Some(format!(
+             "Running without the shared background server: {reason}."
+         ))),
+-        Err(reason) => Err(CompatibilityError {
++        Err(CompatibilityFailure::Other(reason)) => Err(CompatibilityError {
+             reason,
+             restart_features,
+         }),
 diff --git a/codex-rs/tui/src/daemon_startup_tests.rs b/codex-rs/tui/src/daemon_startup_tests.rs
-index 8d0aa63..c9315f8 100644
+index 8d0aa63..8f50b35 100644
 --- a/codex-rs/tui/src/daemon_startup_tests.rs
 +++ b/codex-rs/tui/src/daemon_startup_tests.rs
-@@ -1,10 +1,49 @@
+@@ -1,10 +1,56 @@
 -//! Opportunistic attachment may fall back; automatic startup requires a shared server.
 +//! Automatic startup reuses a compatible daemon and falls back to foreground mode
-+//! when the current CLI package cannot seed a new daemon installation.
++//! when the package is incomplete or an existing server is foreign.
  
  use super::*;
  use crate::legacy_core::config::ConfigBuilder;
@@ -24013,12 +24302,19 @@ index 8d0aa63..c9315f8 100644
  use tempfile::TempDir;
  
 +#[test]
-+fn missing_package_layout_falls_back_but_keeps_reusable_daemon_results() {
++fn unsupported_runtime_falls_back_but_keeps_reusable_daemon_results() {
 +    let missing_layout = || anyhow::Error::new(codex_app_server_daemon::MissingPackageLayout);
 +    assert!(
-+        daemon_startup::allow_embedded_without_package(Err(missing_layout()))
++        daemon_startup::allow_foreground_fallback(Err(missing_layout()))
 +            .unwrap()
 +            .is_none()
++    );
++    assert!(
++        daemon_startup::allow_foreground_fallback(Err(anyhow::Error::new(
++            codex_app_server_daemon::ForeignAppServerRuntime,
++        )))
++        .unwrap()
++        .is_none()
 +    );
 +
 +    let output = |status| codex_app_server_daemon::LifecycleOutput {
@@ -24033,17 +24329,17 @@ index 8d0aa63..c9315f8 100644
 +    };
 +    let reused = output(codex_app_server_daemon::LifecycleStatus::AlreadyRunning);
 +    assert_eq!(
-+        daemon_startup::allow_embedded_without_package(Ok(Some(reused.clone()))).unwrap(),
++        daemon_startup::allow_foreground_fallback(Ok(Some(reused.clone()))).unwrap(),
 +        Some(reused)
 +    );
 +    let started = output(codex_app_server_daemon::LifecycleStatus::Started);
 +    assert_eq!(
-+        daemon_startup::allow_embedded_without_package(Ok(Some(started.clone()))).unwrap(),
++        daemon_startup::allow_foreground_fallback(Ok(Some(started.clone()))).unwrap(),
 +        Some(started)
 +    );
 +    let unrelated = anyhow::anyhow!("daemon startup failed");
 +    assert!(
-+        daemon_startup::allow_embedded_without_package(Err(unrelated))
++        daemon_startup::allow_foreground_fallback(Err(unrelated))
 +            .unwrap_err()
 +            .to_string()
 +            .contains("daemon startup failed")
@@ -24053,8 +24349,191 @@ index 8d0aa63..c9315f8 100644
  #[test]
  fn audited_overrides_allow_daemon_without_allowing_arbitrary_config() {
      for (raw, eligible) in [
+@@ -270,6 +316,182 @@ async fn daemon_connection_rejects_unprotected_socket_before_handshake() -> colo
+     Ok(())
+ }
+ 
++#[cfg(unix)]
++#[tokio::test]
++async fn same_version_vanilla_daemon_falls_back_before_feature_compatibility_read()
++-> color_eyre::Result<()> {
++    use futures::SinkExt;
++    use futures::StreamExt;
++
++    let home = TempDir::new()?;
++    let socket_path = codex_app_server_client::app_server_control_socket_path(home.path())?;
++    codex_uds::prepare_private_socket_directory(
++        socket_path.as_path().parent().expect("socket parent"),
++    )
++    .await?;
++    let mut listener = codex_uds::UnixListener::bind(socket_path.as_path()).await?;
++    let codex_home = home.path().to_path_buf();
++    let config = ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .build()
++        .await?;
++    let feature_states = [
++        Feature::ApiKeyModelDiscovery,
++        Feature::CodeModeHost,
++        Feature::AuthElicitation,
++        Feature::McpOAuthRefreshCoordination,
++    ]
++    .map(|feature| (feature.key().to_string(), config.features.enabled(feature)));
++    let server = tokio::spawn(async move {
++        let (stream, _) = listener.accept().await.expect("accept identity probe");
++        let mut socket = tokio_tungstenite::accept_async(stream)
++            .await
++            .expect("accept identity websocket");
++        let frame = socket
++            .next()
++            .await
++            .expect("initialize request")
++            .expect("initialize frame");
++        let request: serde_json::Value =
++            serde_json::from_str(&frame.into_text().expect("text request"))
++                .expect("JSON-RPC initialize");
++        assert_eq!(request["method"], "initialize");
++        socket
++            .send(Message::Text(
++                json!({
++                    "id": request["id"],
++                    "result": {
++                        // Same upstream version as the packaged Holy runtime,
++                        // but no server-owned Holy marker.
++                        "userAgent": format!("codex_cli_rs/{} (Linux; x86_64)", env!("CARGO_PKG_VERSION")),
++                        "codexHome": codex_home,
++                        "platformFamily": "unix",
++                        "platformOs": std::env::consts::OS,
++                    }
++                })
++                .to_string()
++                .into(),
++            ))
++            .await
++            .expect("send initialize response");
++        while let Some(Ok(Message::Text(text))) = socket.next().await {
++            let message: serde_json::Value = serde_json::from_str(&text).expect("JSON-RPC");
++            assert_ne!(
++                message["method"], "experimentalFeature/list",
++                "runtime identity must be established before reading feature defaults"
++            );
++        }
++    });
++    let config = ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .build()
++        .await?;
++    let target = AppServerTarget::LocalDaemon {
++        endpoint: RemoteAppServerEndpoint::UnixSocket { socket_path },
++        // Auto-started targets normally require the daemon. A typed foreign
++        // runtime identity still permits safe foreground fallback.
++        allow_embedded_fallback: false,
++    };
++    assert_eq!(
++        daemon_startup::compatibility_warning(&target, &config).await?,
++        Some(
++            "Running without the shared background server: the selected background server is not a compatible HolyCodex runtime.".to_string()
++        )
++    );
++    server.await?;
++    Ok(())
++}
++
++#[cfg(unix)]
++#[tokio::test]
++async fn same_connection_holy_identity_allows_feature_compatibility_read() -> color_eyre::Result<()>
++{
++    use futures::SinkExt;
++    use futures::StreamExt;
++
++    let home = TempDir::new()?;
++    let socket_path = codex_app_server_client::app_server_control_socket_path(home.path())?;
++    codex_uds::prepare_private_socket_directory(
++        socket_path.as_path().parent().expect("socket parent"),
++    )
++    .await?;
++    let mut listener = codex_uds::UnixListener::bind(socket_path.as_path()).await?;
++    let codex_home = home.path().to_path_buf();
++    let server = tokio::spawn(async move {
++        let (stream, _) = listener.accept().await.expect("accept local daemon");
++        let mut socket = tokio_tungstenite::accept_async(stream)
++            .await
++            .expect("accept websocket");
++        let mut feature_request_seen = false;
++        while let Some(Ok(Message::Text(text))) = socket.next().await {
++            let message: serde_json::Value = serde_json::from_str(&text).expect("JSON-RPC");
++            if message["method"] == "initialize" {
++                socket
++                    .send(Message::Text(
++                        json!({
++                            "id": message["id"],
++                            "result": {
++                                "userAgent": format!(
++                                    "codex_cli_rs/{} (Linux; x86_64) {} codex_upstream/{}",
++                                    env!("CARGO_PKG_VERSION"),
++                                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++                                    env!("CARGO_PKG_VERSION")
++                                ),
++                                "codexHome": codex_home,
++                                "platformFamily": "unix",
++                                "platformOs": std::env::consts::OS,
++                            }
++                        })
++                        .to_string()
++                        .into(),
++                    ))
++                    .await
++                    .expect("send initialize response");
++            } else if message["method"] == "experimentalFeature/list" {
++                feature_request_seen = true;
++                let features = feature_states
++                    .iter()
++                    .map(|(name, enabled)| {
++                        json!({
++                            "name": name,
++                            "stage": "beta",
++                            "enabled": enabled,
++                            "defaultEnabled": false,
++                        })
++                    })
++                    .collect::<Vec<_>>();
++                socket
++                    .send(Message::Text(
++                        json!({
++                            "id": message["id"],
++                            "result": {"data": features, "nextCursor": null}
++                        })
++                        .to_string()
++                        .into(),
++                    ))
++                    .await
++                    .expect("send feature response");
++            } else {
++                assert_eq!(message["method"], "initialized");
++            }
++        }
++        assert!(
++            feature_request_seen,
++            "Holy identity should permit the feature RPC"
++        );
++    });
++    let target = AppServerTarget::LocalDaemon {
++        endpoint: RemoteAppServerEndpoint::UnixSocket { socket_path },
++        allow_embedded_fallback: false,
++    };
++    assert_eq!(
++        daemon_startup::compatibility_warning(&target, &config).await?,
++        None
++    );
++    server.await?;
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn daemon_startup_falls_back_only_for_implicit_endpoints() -> color_eyre::Result<()> {
+     for scenario in [
 diff --git a/codex-rs/tui/src/startup_orchestration.rs b/codex-rs/tui/src/startup_orchestration.rs
-index a0ff9cb..b221dab 100644
+index a0ff9cb..90a28e8 100644
 --- a/codex-rs/tui/src/startup_orchestration.rs
 +++ b/codex-rs/tui/src/startup_orchestration.rs
 @@ -529,11 +529,12 @@ pub(super) async fn run_main_inner(
@@ -24063,7 +24542,7 @@ index a0ff9cb..b221dab 100644
                  daemon_telemetry::record_start(&config, &result).await;
 -                match result {
 -                    Ok(output) => Ok(Some(output)),
-+                match daemon_startup::allow_embedded_without_package(result.map(Some)) {
++                match daemon_startup::allow_foreground_fallback(result.map(Some)) {
 +                    Ok(Some(output)) => Ok((Some(output), None)),
 +                    Ok(None) => Ok((None, None)),
                      #[cfg(windows)]
@@ -24090,3 +24569,626 @@ index a0ff9cb..b221dab 100644
          }
      }
      // The overview must inspect the shared server's agents regardless of local settings.
+diff --git a/codex-rs/app-server-client/src/lib.rs b/codex-rs/app-server-client/src/lib.rs
+index 079d1bd..a17a349 100644
+--- a/codex-rs/app-server-client/src/lib.rs
++++ b/codex-rs/app-server-client/src/lib.rs
+@@ -1408,6 +1408,10 @@ mod tests {
+             .expect("remote client should connect");
+ 
+         assert_eq!(client.server_version(), Some("9.8.7-test"));
++        assert_eq!(
++            client.server_user_agent(),
++            Some("codex_cli_rs/9.8.7-test (Test OS; x86_64) rust")
++        );
+         assert_eq!(client.codex_home(), Some("/server/.codex"));
+         let client = AppServerClient::Remote(client);
+         let response: GetAccountResponse = client
+diff --git a/codex-rs/app-server-client/src/remote.rs b/codex-rs/app-server-client/src/remote.rs
+index 6b5571b..865a187 100644
+--- a/codex-rs/app-server-client/src/remote.rs
++++ b/codex-rs/app-server-client/src/remote.rs
+@@ -153,6 +153,7 @@ enum RemoteClientCommand {
+ #[derive(Default)]
+ struct RemoteServerMetadata {
+     server_version: Option<String>,
++    user_agent: Option<String>,
+     codex_home: Option<String>,
+     platform_family: Option<String>,
+     platform_os: Option<String>,
+@@ -224,6 +225,12 @@ impl RemoteAppServerClient {
+         self.metadata.server_version.as_deref()
+     }
+ 
++    /// Returns the user agent reported by the server during this connection's
++    /// initialize handshake.
++    pub fn server_user_agent(&self) -> Option<&str> {
++        self.metadata.user_agent.as_deref()
++    }
++
+     pub fn codex_home(&self) -> Option<&str> {
+         self.metadata.codex_home.as_deref()
+     }
+@@ -852,6 +859,11 @@ where
+                     })?;
+                     match message {
+                         JSONRPCMessage::Response(response) if response.id == initialize_request_id => {
++                            metadata.user_agent = response
++                                .result
++                                .get("userAgent")
++                                .and_then(serde_json::Value::as_str)
++                                .map(str::to_string);
+                             metadata.server_version = response
+                                 .result
+                                 .get("userAgent")
+diff --git a/codex-rs/tui/src/app_server_connection.rs b/codex-rs/tui/src/app_server_connection.rs
+index ac3ab1c..5d6f10b 100644
+--- a/codex-rs/tui/src/app_server_connection.rs
++++ b/codex-rs/tui/src/app_server_connection.rs
+@@ -1,15 +1,11 @@
+ //! Applies the selected server's socket policy on initial connections and reconnects.
+ 
+ use crate::AppServerTarget;
+-#[cfg(windows)]
+ use crate::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY;
+ use crate::connect_remote_app_server;
+ use codex_app_server_client::AppServerClient;
+-#[cfg(windows)]
+ use codex_app_server_client::RemoteAppServerClient;
+-#[cfg(windows)]
+ use codex_app_server_client::RemoteAppServerConnectArgs;
+-#[cfg(windows)]
+ use codex_app_server_client::RemoteAppServerEndpoint;
+ #[cfg(windows)]
+ use codex_utils_absolute_path::AbsolutePathBuf;
+@@ -24,7 +20,8 @@ pub(crate) async fn connect(target: &AppServerTarget) -> color_eyre::Result<AppS
+             endpoint: RemoteAppServerEndpoint::UnixSocket { socket_path },
+             ..
+         } => {
+-            // Revalidate at the real connection, not just the earlier discovery probe.
++            // Validate the initialize response from the same connection that will
++            // carry the TUI session, closing the discovery-to-attach race.
+             let (socket_path, _directory) =
+                 codex_uds::validate_private_socket_path(socket_path.as_path())?;
+             let app_server =
+@@ -40,6 +37,27 @@ pub(crate) async fn connect(target: &AppServerTarget) -> color_eyre::Result<AppS
+                     channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
+                 })
+                 .await?;
++            validate_local_daemon_identity(&app_server)?;
++            Ok(AppServerClient::Remote(app_server))
++        }
++        #[cfg(not(windows))]
++        AppServerTarget::LocalDaemon {
++            endpoint: RemoteAppServerEndpoint::UnixSocket { socket_path },
++            ..
++        } => {
++            let app_server = RemoteAppServerClient::connect(RemoteAppServerConnectArgs {
++                endpoint: RemoteAppServerEndpoint::UnixSocket {
++                    socket_path: socket_path.clone(),
++                },
++                client_name: "codex-tui".to_string(),
++                client_version: env!("CARGO_PKG_VERSION").to_string(),
++                experimental_api: true,
++                mcp_server_openai_form_elicitation: false,
++                opt_out_notification_methods: Vec::new(),
++                channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
++            })
++            .await?;
++            validate_local_daemon_identity(&app_server)?;
+             Ok(AppServerClient::Remote(app_server))
+         }
+         AppServerTarget::LocalDaemon { endpoint, .. } | AppServerTarget::Remote { endpoint } => {
+@@ -47,3 +65,18 @@ pub(crate) async fn connect(target: &AppServerTarget) -> color_eyre::Result<AppS
+         }
+     }
+ }
++
++fn validate_local_daemon_identity(app_server: &RemoteAppServerClient) -> color_eyre::Result<()> {
++    let Some(user_agent) = app_server.server_user_agent() else {
++        return Err(color_eyre::eyre::Report::new(
++            codex_app_server_daemon::ForeignAppServerRuntime,
++        ));
++    };
++    codex_app_server_daemon::validate_holy_runtime_user_agent(user_agent).map_err(|err| {
++        if err.is::<codex_app_server_daemon::ForeignAppServerRuntime>() {
++            color_eyre::eyre::Report::new(codex_app_server_daemon::ForeignAppServerRuntime)
++        } else {
++            color_eyre::eyre::eyre!("{err:#}")
++        }
++    })
++}
+diff --git a/codex-rs/app-server-daemon/src/client.rs b/codex-rs/app-server-daemon/src/client.rs
+index c3cee7d..9e2ef83 100644
+--- a/codex-rs/app-server-daemon/src/client.rs
++++ b/codex-rs/app-server-daemon/src/client.rs
+@@ -5,6 +5,7 @@ use anyhow::Context;
+ use anyhow::Result;
+ use anyhow::anyhow;
+ use codex_app_server_protocol::ClientInfo;
++use codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER;
+ use codex_app_server_protocol::InitializeCapabilities;
+ use codex_app_server_protocol::InitializeParams;
+ use codex_app_server_protocol::InitializeResponse;
+@@ -29,6 +30,7 @@ const INITIALIZE_REQUEST_ID: RequestId = RequestId::Integer(1);
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub(crate) struct ProbeInfo {
+     pub(crate) app_server_version: String,
++    pub(crate) is_holy_runtime: bool,
+ }
+ 
+ pub(crate) async fn probe(socket_path: &Path) -> Result<ProbeInfo> {
+@@ -56,10 +58,28 @@ async fn probe_inner(socket_path: &Path) -> Result<ProbeInfo> {
+     websocket.close(None).await.ok();
+ 
+     Ok(ProbeInfo {
+-        app_server_version: parse_version_from_user_agent(&initialize_response.user_agent)?,
++        app_server_version: holy_upstream_version(&initialize_response.user_agent).map_or_else(
++            || parse_version_from_user_agent(&initialize_response.user_agent),
++            |version| Ok(version.to_string()),
++        )?,
++        is_holy_runtime: has_holy_runtime_marker(&initialize_response.user_agent),
+     })
+ }
+ 
++fn has_holy_runtime_marker(user_agent: &str) -> bool {
++    holy_upstream_version(user_agent).is_some()
++}
++
++fn holy_upstream_version(user_agent: &str) -> Option<&'static str> {
++    let suffix = format!(
++        " {HOLYCODEX_RUNTIME_MARKER} codex_upstream/{}",
++        env!("CARGO_PKG_VERSION")
++    );
++    user_agent
++        .strip_suffix(&suffix)
++        .map(|_| env!("CARGO_PKG_VERSION"))
++}
++
+ pub(crate) async fn connect(socket_path: &Path) -> Result<WebSocketStream<UnixStream>> {
+     connect_at(socket_path, "ws://localhost/").await
+ }
+@@ -68,6 +88,8 @@ async fn connect_at(socket_path: &Path, url: &str) -> Result<WebSocketStream<Uni
+     let stream = UnixStream::connect(socket_path)
+         .await
+         .with_context(|| format!("failed to connect to {}", socket_path.display()))?;
++    #[cfg(windows)]
++    stream.ensure_non_elevated_peer()?;
+     let (websocket, _response) = client_async(url, stream)
+         .await
+         .with_context(|| format!("failed to upgrade {}", socket_path.display()))?;
+@@ -172,12 +194,13 @@ where
+ }
+ 
+ fn parse_version_from_user_agent(user_agent: &str) -> Result<String> {
+-    let (_originator, rest) = user_agent
+-        .split_once('/')
+-        .ok_or_else(|| anyhow!("app-server user-agent omitted version separator"))?;
+-    let version = rest
+-        .split_whitespace()
+-        .next()
++    let originator_and_version = user_agent.split_once(" (").map_or_else(
++        || user_agent.split_whitespace().next().unwrap_or_default(),
++        |(prefix, _)| prefix,
++    );
++    let version = originator_and_version
++        .rsplit_once('/')
++        .map(|(_, version)| version)
+         .filter(|version| !version.is_empty())
+         .ok_or_else(|| anyhow!("app-server user-agent omitted version"))?;
+     Ok(version.to_string())
+@@ -187,6 +210,8 @@ fn parse_version_from_user_agent(user_agent: &str) -> Result<String> {
+ mod tests {
+     use pretty_assertions::assert_eq;
+ 
++    use super::has_holy_runtime_marker;
++    use super::holy_upstream_version;
+     use super::parse_version_from_user_agent;
+ 
+     #[test]
+@@ -204,4 +229,37 @@ mod tests {
+     fn rejects_user_agent_without_version() {
+         assert!(parse_version_from_user_agent("codex_app_server_daemon").is_err());
+     }
++
++    #[test]
++    fn parses_version_when_originator_contains_slash() {
++        assert_eq!(
++            parse_version_from_user_agent("my client/name/0.160.1 (Linux)").expect("version"),
++            "0.160.1"
++        );
++    }
++
++    #[test]
++    fn requires_exact_server_compiled_holy_runtime_suffix() {
++        assert!(!has_holy_runtime_marker(
++            "codex_cli_rs/0.160.1 (Linux; x86_64)"
++        ));
++        assert!(!has_holy_runtime_marker(
++            "codex_cli_rs/0.160.1 (holycodex_runtime/0.17.0-1; x86_64) codex_upstream/0.160.1"
++        ));
++        assert!(!has_holy_runtime_marker(
++            "codex_cli_rs/0.160.1 (Linux; x86_64) holycodex_runtime/0.17.0-2 codex_upstream/0.160.1"
++        ));
++        assert!(!has_holy_runtime_marker(
++            "codex_cli_rs/0.160.1 (Linux; x86_64) holycodex_runtime/0.17.0-1 codex_upstream/0.160.0"
++        ));
++        let user_agent = format!(
++            "my client/name/0.160.1 (Linux) {HOLYCODEX_RUNTIME_MARKER} codex_upstream/{}",
++            env!("CARGO_PKG_VERSION")
++        );
++        assert!(has_holy_runtime_marker(&user_agent));
++        assert_eq!(
++            holy_upstream_version(&user_agent),
++            Some(env!("CARGO_PKG_VERSION"))
++        );
++    }
+ }
+diff --git a/codex-rs/app-server-protocol/src/lib.rs b/codex-rs/app-server-protocol/src/lib.rs
+index eb2b76d..f924177 100644
+--- a/codex-rs/app-server-protocol/src/lib.rs
++++ b/codex-rs/app-server-protocol/src/lib.rs
+@@ -13,6 +13,10 @@ mod schema_fixtures;
+ #[path = "schema_fixtures_tests.rs"]
+ mod schema_fixtures_tests;
+ 
++/// Exact initialize-response suffix identifying the HolyCodex runtime build.
++/// This is a value convention, not an additional protocol field or schema entry.
++pub const HOLYCODEX_RUNTIME_MARKER: &str = "holycodex_runtime/0.17.0-1";
++
+ pub use experimental_api::*;
+ pub use precomputed_exports::GenerateTsOptions;
+ pub use precomputed_exports::generate_internal_json_schema;
+diff --git a/codex-rs/app-server/src/request_processors/initialize_processor.rs b/codex-rs/app-server/src/request_processors/initialize_processor.rs
+index d68a29d..f3847d1 100644
+--- a/codex-rs/app-server/src/request_processors/initialize_processor.rs
++++ b/codex-rs/app-server/src/request_processors/initialize_processor.rs
+@@ -3,6 +3,7 @@ use std::sync::atomic::Ordering;
+ 
+ use axum::http::HeaderValue;
+ use codex_analytics::AppServerRpcTransport;
++use codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER;
+ use codex_login::default_client::SetOriginatorError;
+ use codex_login::default_client::USER_AGENT_SUFFIX;
+ use codex_login::default_client::get_codex_user_agent;
+@@ -209,7 +210,13 @@ impl InitializeRequestProcessor {
+             }
+         }
+ 
+-        let user_agent = get_codex_user_agent();
++        // This server-compiled suffix identifies the Holy runtime for passive
++        // daemon probes. Keep it outside the client-derived user-agent value.
++        let user_agent = format!(
++            "{} {HOLYCODEX_RUNTIME_MARKER} codex_upstream/{}",
++            get_codex_user_agent(),
++            env!("CARGO_PKG_VERSION"),
++        );
+         let response = InitializeResponse {
+             user_agent,
+             codex_home,
+diff --git a/codex-rs/app-server/tests/suite/v2/initialize.rs b/codex-rs/app-server/tests/suite/v2/initialize.rs
+index 1ba0f26..4573409 100644
+--- a/codex-rs/app-server/tests/suite/v2/initialize.rs
++++ b/codex-rs/app-server/tests/suite/v2/initialize.rs
+@@ -5,6 +5,7 @@ use app_test_support::create_final_assistant_message_sse_response;
+ use app_test_support::create_mock_responses_server_sequence_unchecked;
+ use app_test_support::to_response;
+ use codex_app_server_protocol::ClientInfo;
++use codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER;
+ use codex_app_server_protocol::InitializeCapabilities;
+ use codex_app_server_protocol::InitializeResponse;
+ use codex_app_server_protocol::JSONRPCMessage;
+@@ -98,6 +99,10 @@ async fn initialize_probe_does_not_override_originator() -> Result<()> {
+     let InitializeResponse { user_agent, .. } = to_response::<InitializeResponse>(response)?;
+ 
+     assert!(user_agent.starts_with("codex_cli_rs/"));
++    assert!(user_agent.ends_with(&format!(
++        " {HOLYCODEX_RUNTIME_MARKER} codex_upstream/{}",
++        env!("CARGO_PKG_VERSION")
++    )));
+     Ok(())
+ }
+ 
+diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
+index 2697cba..5e76485 100644
+--- a/codex-rs/tui/src/lib.rs
++++ b/codex-rs/tui/src/lib.rs
+@@ -280,6 +280,8 @@ const INTERACTIVE_OTEL_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(/*mill
+ 
+ const AUTO_CONNECT_DAEMON_CONNECT_TIMEOUT: std::time::Duration =
+     std::time::Duration::from_millis(50);
++const AUTO_CONNECT_DAEMON_IDENTITY_TIMEOUT: std::time::Duration =
++    std::time::Duration::from_millis(250);
+ 
+ #[allow(clippy::too_many_arguments)]
+ async fn start_embedded_app_server(
+@@ -527,10 +529,30 @@ async fn maybe_probe_default_daemon_socket(codex_home: &Path) -> Option<Absolute
+     )
+     .await
+     {
+-        Ok(Ok(_stream)) => {
++        Ok(Ok(stream)) => {
+             #[cfg(windows)]
+-            _stream.ensure_non_elevated_peer().ok()?;
+-            Some(socket_path)
++            stream.ensure_non_elevated_peer().ok()?;
++            drop(stream);
++            match tokio::time::timeout(
++                AUTO_CONNECT_DAEMON_IDENTITY_TIMEOUT,
++                codex_app_server_daemon::validate_holy_runtime(probe_path),
++            )
++            .await
++            {
++                Ok(Ok(())) => Some(socket_path),
++                Ok(Err(err)) => {
++                    tracing::debug!(%err, socket_path = %socket_path.display(), "skipping non-Holy default app-server socket");
++                    None
++                }
++                Err(_) => {
++                    tracing::debug!(
++                        socket_path = %socket_path.display(),
++                        timeout_ms = AUTO_CONNECT_DAEMON_IDENTITY_TIMEOUT.as_millis(),
++                        "timed out validating default app-server runtime"
++                    );
++                    None
++                }
++            }
+         }
+         Ok(Err(err)) => {
+             tracing::debug!(%err, socket_path = %socket_path.display(), "skipping default app-server daemon socket");
+@@ -3020,13 +3042,81 @@ requires_openai_auth = {requires_openai_auth}
+         Ok(())
+     }
+ 
++    async fn mock_initialize_daemon(
++        socket_path: PathBuf,
++        codex_home: PathBuf,
++        user_agent: String,
++    ) -> tokio::task::JoinHandle<()> {
++        use futures::SinkExt;
++        use futures::StreamExt;
++
++        let listener = codex_uds::UnixListener::bind(socket_path)
++            .await
++            .expect("bind mock daemon socket");
++        tokio::spawn(async move {
++            loop {
++                let (stream, _) = listener.accept().await.expect("accept daemon probe");
++                let Ok(mut socket) = tokio_tungstenite::accept_async(stream).await else {
++                    // The preliminary socket-presence check connects and closes
++                    // without a WebSocket handshake; accept the protocol probe next.
++                    continue;
++                };
++                let request = socket
++                    .next()
++                    .await
++                    .expect("initialize request")
++                    .expect("initialize frame");
++                let request: serde_json::Value =
++                    serde_json::from_str(&request.into_text().expect("text request"))
++                        .expect("JSON-RPC initialize");
++                assert_eq!(request["method"], "initialize");
++                socket
++                    .send(tokio_tungstenite::tungstenite::Message::Text(
++                        serde_json::json!({
++                            "id": request["id"],
++                            "result": {
++                                "userAgent": user_agent,
++                                "codexHome": codex_home,
++                                "platformFamily": std::env::consts::FAMILY,
++                                "platformOs": std::env::consts::OS,
++                            }
++                        })
++                        .to_string()
++                        .into(),
++                    ))
++                    .await
++                    .expect("send initialize response");
++                // Identity must be checked before feature or session RPCs. Keep
++                // the actual handshake transport open until its client closes.
++                while let Some(frame) =
++                    tokio::time::timeout(std::time::Duration::from_secs(5), socket.next())
++                        .await
++                        .expect("client should close the initialized transport")
++                {
++                    let Ok(frame) = frame else { break };
++                    if frame.is_close() {
++                        break;
++                    }
++                    if let tokio_tungstenite::tungstenite::Message::Text(text) = frame {
++                        let notification: serde_json::Value =
++                            serde_json::from_str(&text).expect("JSON notification");
++                        assert_eq!(notification["method"], "initialized");
++                        assert!(notification.get("id").is_none());
++                    }
++                }
++                break;
++            }
++        })
++    }
++
+     #[tokio::test]
+-    async fn default_daemon_auto_connect_probes_socket_only() -> color_eyre::Result<()> {
+-        let codex_home = TempDir::new()?;
+-        let socket_path =
+-            codex_app_server_client::app_server_control_socket_path(codex_home.path())?;
++    async fn default_daemon_auto_connect_requires_matching_holy_runtime_marker()
++    -> color_eyre::Result<()> {
+         #[cfg(windows)]
+         {
++            let codex_home = TempDir::new()?;
++            let socket_path =
++                codex_app_server_client::app_server_control_socket_path(codex_home.path())?;
+             let parent = socket_path.as_path().parent().expect("socket parent");
+             std::fs::create_dir_all(parent)?;
+             let listener = codex_uds::UnixListener::bind(socket_path.as_path()).await?;
+@@ -3038,31 +3128,148 @@ requires_openai_auth = {requires_openai_auth}
+             drop(listener);
+             std::fs::remove_dir_all(parent)?;
+         }
+-        codex_uds::prepare_private_socket_directory(
+-            socket_path.as_path().parent().expect("socket parent"),
+-        )
+-        .await?;
+-        let _listener = codex_uds::UnixListener::bind(socket_path.as_path()).await?;
+ 
+-        let expected = Some(socket_path);
+-        #[cfg(windows)]
+-        let expected = {
+-            // Existing Windows CI may run elevated; an elevated listener must
+-            // never be selected implicitly, even when its directory is private.
+-            let output = std::process::Command::new("powershell.exe")
+-                .args(["-NoProfile", "-NonInteractive", "-Command", "([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"])
+-                .output()?;
+-            assert!(output.status.success());
+-            match String::from_utf8(output.stdout)?.trim() {
+-                "True" => None,
+-                "False" => expected,
+-                other => panic!("unexpected elevation result: {other}"),
++        for (user_agent, expected) in [
++            // A vanilla server can report the same upstream version; matching
++            // feature defaults do not establish runtime identity either.
++            (
++                format!("codex_cli_rs/{} (Linux; x86_64)", env!("CARGO_PKG_VERSION")),
++                false,
++            ),
++            (
++                format!(
++                    "codex_cli_rs/{} (Linux; x86_64) holycodex_runtime/0.17.0-2 codex_upstream/{}",
++                    env!("CARGO_PKG_VERSION"),
++                    env!("CARGO_PKG_VERSION"),
++                ),
++                false,
++            ),
++            (
++                format!(
++                    "codex_cli_rs/{} (Linux; x86_64) {} codex_upstream/{}",
++                    env!("CARGO_PKG_VERSION"),
++                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++                    env!("CARGO_PKG_VERSION"),
++                ),
++                true,
++            ),
++            (
++                format!(
++                    "codex_cli_rs/{} (Linux; x86_64) {} codex_upstream/0.160.0",
++                    env!("CARGO_PKG_VERSION"),
++                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++                ),
++                false,
++            ),
++        ] {
++            let codex_home = TempDir::new()?;
++            let socket_path =
++                codex_app_server_client::app_server_control_socket_path(codex_home.path())?;
++            codex_uds::prepare_private_socket_directory(
++                socket_path.as_path().parent().expect("socket parent"),
++            )
++            .await?;
++            let server = mock_initialize_daemon(
++                socket_path.as_path().to_path_buf(),
++                codex_home.path().to_path_buf(),
++                user_agent,
++            )
++            .await;
++            assert_eq!(
++                maybe_probe_default_daemon_socket(codex_home.path())
++                    .await
++                    .is_some(),
++                expected,
++            );
++            server.await?;
++        }
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn local_daemon_connection_checks_identity_on_the_attached_transport()
++    -> color_eyre::Result<()> {
++        for (user_agent, compatible) in [
++            (
++                format!("codex_cli_rs/{} (Linux)", env!("CARGO_PKG_VERSION")),
++                false,
++            ),
++            (
++                format!(
++                    "codex_cli_rs/{} (Linux) {} codex_upstream/0.160.0",
++                    env!("CARGO_PKG_VERSION"),
++                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER
++                ),
++                false,
++            ),
++            (
++                format!(
++                    "codex_cli_rs/{} (Linux) {} codex_upstream/{}",
++                    env!("CARGO_PKG_VERSION"),
++                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++                    env!("CARGO_PKG_VERSION")
++                ),
++                true,
++            ),
++        ] {
++            let home = TempDir::new()?;
++            let socket_path = codex_app_server_client::app_server_control_socket_path(home.path())?;
++            codex_uds::prepare_private_socket_directory(socket_path.as_path().parent().unwrap())
++                .await?;
++            let server = mock_initialize_daemon(
++                socket_path.as_path().to_path_buf(),
++                home.path().to_path_buf(),
++                user_agent,
++            )
++            .await;
++            let target = AppServerTarget::LocalDaemon {
++                allow_embedded_fallback: false,
++                endpoint: RemoteAppServerEndpoint::UnixSocket { socket_path },
++            };
++            match app_server_connection::connect(&target).await {
++                Ok(client) => {
++                    assert!(compatible);
++                    client.shutdown().await?;
++                }
++                Err(error) => {
++                    assert!(!compatible);
++                    assert!(
++                        error
++                            .downcast_ref::<codex_app_server_daemon::ForeignAppServerRuntime>()
++                            .is_some()
++                    );
++                }
+             }
++            server.await?;
++        }
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn foreign_runtime_attachment_falls_back_even_for_automatic_start()
++    -> color_eyre::Result<()> {
++        let home = TempDir::new()?;
++        let config = build_config(&home).await?;
++        let socket_path = codex_app_server_client::app_server_control_socket_path(home.path())?;
++        codex_uds::prepare_private_socket_directory(socket_path.as_path().parent().unwrap())
++            .await?;
++        let server = mock_initialize_daemon(
++            socket_path.as_path().to_path_buf(),
++            home.path().to_path_buf(),
++            format!("codex_cli_rs/{} (Linux)", env!("CARGO_PKG_VERSION")),
++        )
++        .await;
++        let target = AppServerTarget::LocalDaemon {
++            allow_embedded_fallback: false,
++            endpoint: RemoteAppServerEndpoint::UnixSocket { socket_path },
+         };
+-        assert_eq!(
+-            maybe_probe_default_daemon_socket(codex_home.path()).await,
+-            expected
++        let warning = daemon_startup::compatibility_warning(&target, &config).await?;
++        assert!(
++            warning
++                .unwrap()
++                .contains("not a compatible HolyCodex runtime")
+         );
++        server.await?;
+         Ok(())
+     }
+ 
