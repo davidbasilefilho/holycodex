@@ -107,6 +107,11 @@ fn deep_merge(
 
 /// Apply path expansion to a Value, returning the expanded value.
 /// If `strict` is true, conflicts will cause an error.
+///
+/// This operates on the parser's internal `Value` representation. A leading
+/// U+200B is reserved as a quoted-key marker; literal leading U+200B characters
+/// are doubled by the parser before this function is called. Exactly one
+/// leading marker is removed when returning a literal key.
 pub fn expand_paths(value: Value, strict: bool) -> Result<Value, String> {
     match value {
         Value::Object(entries) => {
@@ -128,7 +133,9 @@ pub fn expand_paths(value: Value, strict: bool) -> Result<Value, String> {
                         }
                     }
                 } else {
-                    // Strip the marker if present and keep the key as-is
+                    // The parser prefixes quoted dotted keys with one marker
+                    // and doubles genuine leading markers. Removing exactly
+                    // one restores the original literal key in both cases.
                     let clean_key = if key.starts_with(QUOTED_DOT_MARKER) {
                         key[QUOTED_DOT_MARKER.len_utf8()..].to_string()
                     } else {

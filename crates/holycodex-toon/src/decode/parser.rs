@@ -15,6 +15,8 @@ use std::collections::BTreeSet;
 use crate::number::has_forbidden_leading_zeros;
 use crate::value::{Number, Value};
 
+const PATH_KEY_MARKER: char = '\u{200B}';
+
 pub struct Parser<'a> {
     lines: Vec<ParsedLine<'a>>,
     idx: usize,
@@ -181,11 +183,14 @@ impl<'a> Parser<'a> {
         if k.starts_with('"') {
             match try_unescape_json_string(k) {
                 Ok(st) => {
-                    // If this quoted key contains a dot, mark it to prevent path expansion
-                    // by prefixing with a zero-width space (U+200B)
-                    if self.mark_quoted_dots && st.contains('.') {
+                    // Prefix quoted dotted keys so Safe path expansion can
+                    // keep them literal. Double a genuine leading marker so
+                    // expansion can distinguish it from this internal tag.
+                    if self.mark_quoted_dots
+                        && (st.contains('.') || st.starts_with(PATH_KEY_MARKER))
+                    {
                         let mut marked = String::with_capacity(st.len() + 3);
-                        marked.push('\u{200B}');
+                        marked.push(PATH_KEY_MARKER);
                         marked.push_str(&st);
                         return marked;
                     }
@@ -206,7 +211,14 @@ impl<'a> Parser<'a> {
                 Err(_) => return String::new(),
             }
         }
-        k.to_string()
+        if self.mark_quoted_dots && k.starts_with(PATH_KEY_MARKER) {
+            let mut marked = String::with_capacity(k.len() + PATH_KEY_MARKER.len_utf8());
+            marked.push(PATH_KEY_MARKER);
+            marked.push_str(k);
+            marked
+        } else {
+            k.to_string()
+        }
     }
 
     fn parse_array(&mut self, indent: usize) -> Value {
@@ -2315,16 +2327,26 @@ fn try_unescape_json_string(s: &str) -> Result<String, StringParseError> {
                 Some('r') => out.push('\r'),
                 Some('t') => out.push('\t'),
                 Some('u') => {
-                    let mut code = 0u32;
-                    for _ in 0..4 {
-                        let d = chars.next().ok_or(StringParseError::InvalidEscape)?;
-                        code = (code << 4) | hex_val(d).ok_or(StringParseError::InvalidEscape)?;
-                    }
-                    if let Some(c) = core::char::from_u32(code) {
-                        out.push(c);
-                    } else {
-                        return Err(StringParseError::InvalidEscape);
-                    }
+                    let first = parse_unicode_escape_quad(&mut chars)?;
+                    let code_point = match first {
+                        0xD800..=0xDBFF => {
+                            if chars.next() != Some('\\') || chars.next() != Some('u') {
+                                return Err(StringParseError::InvalidEscape);
+                            }
+                            let second = parse_unicode_escape_quad(&mut chars)?;
+                            if !(0xDC00..=0xDFFF).contains(&second) {
+                                return Err(StringParseError::InvalidEscape);
+                            }
+                            let high = (first as u32 - 0xD800) << 10;
+                            let low = second as u32 - 0xDC00;
+                            0x10000 + (high | low)
+                        }
+                        0xDC00..=0xDFFF => return Err(StringParseError::InvalidEscape),
+                        value => value as u32,
+                    };
+                    let c =
+                        core::char::from_u32(code_point).ok_or(StringParseError::InvalidEscape)?;
+                    out.push(c);
                 }
                 Some(_) => return Err(StringParseError::InvalidEscape),
             }
@@ -2333,6 +2355,15 @@ fn try_unescape_json_string(s: &str) -> Result<String, StringParseError> {
         }
     }
     Ok(out)
+}
+
+fn parse_unicode_escape_quad(chars: &mut core::str::Chars<'_>) -> Result<u16, StringParseError> {
+    let mut code = 0u16;
+    for _ in 0..4 {
+        let digit = chars.next().ok_or(StringParseError::InvalidEscape)?;
+        code = (code << 4) | hex_val(digit).ok_or(StringParseError::InvalidEscape)? as u16;
+    }
+    Ok(code)
 }
 
 #[derive(Copy, Clone)]

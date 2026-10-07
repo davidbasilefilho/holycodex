@@ -230,3 +230,92 @@ fn quoted_dotted_keys_remain_literal_without_marker_leaks() {
     );
     reject::<BTreeMap<String, i32>>("a.b: 1\n\"a.b\": 2");
 }
+
+#[test]
+fn unicode_surrogate_pairs_decode_and_malformed_pairs_are_rejected() {
+    let expected = "😀".to_owned();
+    for expand_paths in [ExpandPaths::Off, ExpandPaths::Safe] {
+        let options = Options {
+            expand_paths,
+            ..Options::default()
+        };
+        decode(r#""\uD83D\uDE00""#, &options, expected.clone());
+        decode(
+            r#""\uD83D\uDE00": value"#,
+            &options,
+            BTreeMap::from([(expected.clone(), "value".to_owned())]),
+        );
+    }
+
+    for invalid in [
+        r#""\uD800""#,
+        r#""\uDC00""#,
+        r#""\uD800\u0041""#,
+        r#""\uD800\uZZZZ""#,
+    ] {
+        reject::<String>(invalid);
+    }
+    reject::<BTreeMap<String, String>>(r#""\uD800": value"#);
+}
+
+#[test]
+fn safe_path_expansion_preserves_literal_leading_zero_width_space_keys() {
+    let marker = '\u{200B}';
+    let source = format!(
+        r#"literal: plain
+"\u200Bliteral": one
+"\u200B\u200Bliteral": two
+"\u200Ba.b": dotted
+{marker}raw.path: three
+a.b: four"#
+    );
+    let expected_off = json!({
+        "literal": "plain",
+        (format!("{marker}literal")): "one",
+        (format!("{marker}{marker}literal")): "two",
+        (format!("{marker}a.b")): "dotted",
+        (format!("{marker}raw.path")): "three",
+        "a.b": "four",
+    });
+    let expected_safe = json!({
+        "literal": "plain",
+        (format!("{marker}literal")): "one",
+        (format!("{marker}{marker}literal")): "two",
+        (format!("{marker}a.b")): "dotted",
+        (format!("{marker}raw.path")): "three",
+        "a": { "b": "four" },
+    });
+    for (expand_paths, expected) in [
+        (ExpandPaths::Off, expected_off),
+        (ExpandPaths::Safe, expected_safe),
+    ] {
+        decode(
+            &source,
+            &Options {
+                expand_paths,
+                ..Options::default()
+            },
+            expected,
+        );
+    }
+
+    for expand_paths in [ExpandPaths::Off, ExpandPaths::Safe] {
+        let options = Options {
+            expand_paths,
+            ..Options::default()
+        };
+        decode(
+            &format!("nested:\n  \"{marker}a.b\": value"),
+            &options,
+            BTreeMap::from([(
+                "nested".to_owned(),
+                BTreeMap::from([(format!("{marker}a.b"), "value".to_owned())]),
+            )]),
+        );
+        decode(
+            &format!("- \"{marker}a.b\": value"),
+            &options,
+            vec![BTreeMap::from([(format!("{marker}a.b"), "value".to_owned())])],
+        );
+    }
+}
