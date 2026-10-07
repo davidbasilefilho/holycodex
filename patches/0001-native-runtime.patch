@@ -24209,16 +24209,22 @@ index f49bcbe..0000000
 -
 -  enter select · esc back
 diff --git a/codex-rs/cli/tests/update.rs b/codex-rs/cli/tests/update.rs
-index cf1742c..57aeace 100644
+index cf1742c..d19c1e3 100644
 --- a/codex-rs/cli/tests/update.rs
 +++ b/codex-rs/cli/tests/update.rs
-@@ -18,7 +18,8 @@ async fn update_does_not_start_interactive_prompt() -> Result<()> {
+@@ -1,4 +1,5 @@
+ use anyhow::Result;
++use predicates::prelude::PredicateBooleanExt;
+ use predicates::str::contains;
+ use std::path::Path;
+ use tempfile::TempDir;
+@@ -18,7 +19,8 @@ async fn update_does_not_start_interactive_prompt() -> Result<()> {
          .arg("update")
          .assert()
          .failure()
 -        .stderr(contains("`codex update` is not available in debug builds"));
 +        .stderr(contains("HolyCodex upstream self-update is disabled"))
-+        .stderr(predicates::str::is_not(contains("Update to latest")));
++        .stderr(contains("Update to latest").not());
  
      Ok(())
  }
