@@ -2594,7 +2594,7 @@ index 81fbf07..dc6ae95337484109e11189ec58ca75a82edccfe2 100644
      }
  
 diff --git a/codex-rs/cli/tests/worktree.rs b/codex-rs/cli/tests/worktree.rs
-index 1ec06aa..c42a9bf 100644
+index 1ec06aa..39dfedd 100644
 --- a/codex-rs/cli/tests/worktree.rs
 +++ b/codex-rs/cli/tests/worktree.rs
 @@ -175,7 +175,7 @@ async fn worktree_start_and_fork(backend: &str) -> anyhow::Result<()> {
@@ -2642,7 +2642,7 @@ index 1ec06aa..c42a9bf 100644
                              output.push_str(&String::from_utf8_lossy(&bytes));
                          }
                          Ok::<_, anyhow::Error>(())
-@@ -581,6 +580,24 @@ trust_level = "trusted"
+@@ -581,6 +580,29 @@ trust_level = "trusted"
                      .await
                      .with_context(|| format!("waiting for {expected}: {output}"))??;
                  }
@@ -2662,12 +2662,28 @@ index 1ec06aa..c42a9bf 100644
 +                        && !action_output.contains("Updating the local background server..."),
 +                    "disabled local package opened a handoff: {action_output}"
 +                );
++                // A bare Escape followed immediately by '/' can coalesce into Alt+'/'.
++                // Unix terminals negotiate CSI-u Escape disambiguation with the TUI.
++                #[cfg(unix)]
++                session.writer_sender().send(b"\x1b[27u".to_vec()).await?;
++                #[cfg(not(unix))]
 +                session.writer_sender().send(b"\x1b".to_vec()).await?;
 +                session.writer_sender().send(b"/quit\r".to_vec()).await?;
              } else {
                  session.writer_sender().send(b"/quit\r".to_vec()).await?;
              }
-@@ -618,10 +635,11 @@ trust_level = "trusted"
+@@ -588,7 +610,9 @@ trust_level = "trusted"
+             session.terminate();
+         }
+         let exit =
+-            tokio::time::timeout(Duration::from_secs(/*secs*/ 10), spawned.exit_rx).await??;
++            tokio::time::timeout(Duration::from_secs(/*secs*/ 10), spawned.exit_rx)
++                .await
++                .with_context(|| format!("TUI did not exit after /quit (backend={backend}, fork={fork}, explicit_cd={explicit_cd}): {output}"))??;
+         // Include shutdown output: ConPTY can retain the channel after process exit.
+         let _ = tokio::time::timeout(Duration::from_secs(/*secs*/ 1), async {
+             while let Some(bytes) = stdout.recv().await {
+@@ -618,10 +642,11 @@ trust_level = "trusted"
              if backend == "embedded" {
                  let update = exported
                      .iter()
@@ -2683,7 +2699,7 @@ index 1ec06aa..c42a9bf 100644
              }
              let point = exported
                  .iter()
-@@ -726,7 +744,7 @@ trust_level = "trusted"
+@@ -726,7 +751,7 @@ trust_level = "trusted"
                  "{context}"
              );
          }
