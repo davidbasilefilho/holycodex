@@ -23077,7 +23077,7 @@ index 8f55126..29a95b3 100644
              .send()
              .await
 diff --git a/codex-rs/app-server-daemon/src/update_loop_tests.rs b/codex-rs/app-server-daemon/src/update_loop_tests.rs
-index d932742..66c02b8 100644
+index d932742..c523daf 100644
 --- a/codex-rs/app-server-daemon/src/update_loop_tests.rs
 +++ b/codex-rs/app-server-daemon/src/update_loop_tests.rs
 @@ -23,6 +23,214 @@ use crate::managed_install::executable_identity;
@@ -23320,17 +23320,15 @@ index d932742..66c02b8 100644
  ) -> tokio::task::JoinHandle<()> {
      use futures::SinkExt;
      use futures::StreamExt;
-@@ -521,9 +738,16 @@ async fn test_control_server(
+@@ -521,9 +738,14 @@ async fn test_control_server(
              } else {
                  "1.0.0"
              };
-+            let user_agent = user_agent.clone().unwrap_or_else(|| {
-+                format!(
-+                    "codex_app_server_daemon/{version} {} codex_upstream/{}",
-+                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
-+                    env!("CARGO_PKG_VERSION"),
-+                )
-+            });
++            // Legacy updater/migration fixtures report their simulated package
++            // versions. Holy start/reuse tests supply their compiled marker explicitly.
++            let user_agent = user_agent
++                .clone()
++                .unwrap_or_else(|| format!("codex_app_server_daemon/{version}"));
              websocket.send(tokio_tungstenite::tungstenite::Message::Text(
                  serde_json::json!({"id": 1, "result": {
 -                    "userAgent": format!("codex_app_server_daemon/{version}"),
@@ -23338,7 +23336,7 @@ index d932742..66c02b8 100644
                      "codexHome": codex_home, "platformFamily": "unix", "platformOs": std::env::consts::OS,
                  }}).to_string().into(),
              )).await.expect("initialize response");
-@@ -542,6 +766,31 @@ async fn manual_update_restarts_managed_daemon_with_automatic_updates_disabled()
+@@ -542,6 +764,31 @@ async fn manual_update_restarts_managed_daemon_with_automatic_updates_disabled()
      check_manual_update_restart("standalone").await;
  }
  
@@ -23370,7 +23368,7 @@ index d932742..66c02b8 100644
  #[cfg(unix)]
  #[tokio::test]
  async fn daemon_start_and_restart_preserve_launch_features() {
-@@ -573,9 +822,18 @@ async fn daemon_start_and_restart_preserve_launch_features() {
+@@ -573,9 +820,18 @@ async fn daemon_start_and_restart_preserve_launch_features() {
                  );
                  tokio::time::sleep(Duration::from_millis(/*millis*/ 20)).await;
              }
@@ -23392,6 +23390,25 @@ index d932742..66c02b8 100644
          };
          let (started, server) = tokio::join!(daemon.start(&features), control);
          assert_eq!(started.unwrap().status, crate::LifecycleStatus::Started);
+@@ -634,7 +890,17 @@ async fn confirmed_feature_restart_preserves_ownership_and_skips_matching_settin
+         if managed {
+             daemon.start_managed_backend(&original).await.unwrap();
+         }
+-        let server = test_control_server(&daemon, home.path()).await;
++        let server = test_control_server_with_user_agent(
++            &daemon,
++            home.path(),
++            Some(format!(
++                "codex_app_server_daemon/{} {} codex_upstream/{}",
++                env!("CARGO_PKG_VERSION"),
++                codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++                env!("CARGO_PKG_VERSION"),
++            )),
++        )
++        .await;
+         let _lock = daemon.acquire_operation_lock().await.unwrap();
+         let requested = BTreeMap::from([
+             ("api_key_model_discovery".to_string(), false),
 diff --git a/codex-rs/tui/src/npm_registry.rs b/codex-rs/tui/src/npm_registry.rs
 index 61ff242..3396ad3 100644
 --- a/codex-rs/tui/src/npm_registry.rs
@@ -23636,7 +23653,7 @@ index 0000000..8350766
 +    assert!(!version_filepath(&config).exists());
 +}
 diff --git a/codex-rs/app-server-daemon/src/lib.rs b/codex-rs/app-server-daemon/src/lib.rs
-index 15ba769..d3de120 100644
+index 15ba769..fffe7a7 100644
 --- a/codex-rs/app-server-daemon/src/lib.rs
 +++ b/codex-rs/app-server-daemon/src/lib.rs
 @@ -21,6 +21,7 @@ mod thread_recovery;
@@ -23845,6 +23862,27 @@ index 15ba769..d3de120 100644
          };
  
          assert_eq!(
+@@ -1174,14 +1292,18 @@ mod tests {
+                 restart_decision(
+                     RestartMode::IfVersionChanged,
+                     Some(&current_info),
+-                    Some("0.1.0"),
++                    Some(env!("CARGO_PKG_VERSION")),
+                 ),
+                 restart_decision(
+                     RestartMode::IfVersionChanged,
+                     /*info*/ None,
+                     /*managed_version*/ None,
+                 ),
+-                restart_decision(RestartMode::Always, Some(&current_info), Some("0.1.0")),
++                restart_decision(
++                    RestartMode::Always,
++                    Some(&current_info),
++                    Some(env!("CARGO_PKG_VERSION"))
++                ),
+                 restart_decision(
+                     RestartMode::Always,
+                     /*info*/ None,
 diff --git a/codex-rs/cli/src/daemon_update_tests.rs b/codex-rs/cli/src/daemon_update_tests.rs
 index d93069f..9e9ae1b 100644
 --- a/codex-rs/cli/src/daemon_update_tests.rs
