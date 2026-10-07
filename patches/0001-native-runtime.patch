@@ -25304,3 +25304,130 @@ index 2697cba..86b8ba9 100644
          Ok(())
      }
  
+diff --git a/codex-rs/cli/tests/queue.rs b/codex-rs/cli/tests/queue.rs
+index 4275ed7..b17b584 100644
+--- a/codex-rs/cli/tests/queue.rs
++++ b/codex-rs/cli/tests/queue.rs
+@@ -26,6 +26,7 @@ async fn respond_to_queue_request<S>(
+     stream: S,
+     codex_home: &Path,
+     response: QueueResponse,
++    holy_runtime: bool,
+ ) -> Result<Value>
+ where
+     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+@@ -41,13 +42,7 @@ where
+         initialize["params"]["capabilities"]["experimentalApi"],
+         true
+     );
+-    let initialized_response = json!({
+-        "id": initialize["id"],
+-        "result": {
+-            "userAgent": "codex_cli_rs/0.0.0-test",
+-            "codexHome": codex_home,
+-        },
+-    });
++    let initialized_response = initialize_response(&initialize["id"], codex_home, holy_runtime);
+     websocket
+         .send(Message::Text(initialized_response.to_string().into()))
+         .await?;
+@@ -93,6 +88,61 @@ where
+     Ok(request)
+ }
+ 
++fn initialize_response(id: &Value, codex_home: &Path, holy_runtime: bool) -> Value {
++    let user_agent = if holy_runtime {
++        format!(
++            "codex_cli_rs/{} {} codex_upstream/{}",
++            env!("CARGO_PKG_VERSION"),
++            codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++            env!("CARGO_PKG_VERSION"),
++        )
++    } else {
++        "codex_cli_rs/0.0.0-test".to_string()
++    };
++    json!({
++        "id": id,
++        "result": {
++            "userAgent": user_agent,
++            "codexHome": codex_home,
++            "platformFamily": std::env::consts::FAMILY,
++            "platformOs": std::env::consts::OS,
++        },
++    })
++}
++
++#[cfg(unix)]
++async fn respond_to_identity_probe<S>(stream: S, codex_home: &Path) -> Result<()>
++where
++    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
++{
++    let mut websocket = accept_async(stream).await?;
++    let initialize = websocket
++        .next()
++        .await
++        .context("missing identity initialize")??;
++    let initialize: Value = serde_json::from_str(initialize.to_text()?)?;
++    assert_eq!(initialize["method"], "initialize");
++    // The passive probe leaves experimental API disabled (omitted means false).
++    assert_ne!(
++        initialize["params"]["capabilities"]["experimentalApi"],
++        true
++    );
++    websocket
++        .send(Message::Text(
++            initialize_response(&initialize["id"], codex_home, true)
++                .to_string()
++                .into(),
++        ))
++        .await?;
++    let initialized = websocket
++        .next()
++        .await
++        .context("missing identity initialized")??;
++    let initialized: Value = serde_json::from_str(initialized.to_text()?)?;
++    assert_eq!(initialized["method"], "initialized");
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn queue_submits_message_to_remote_app_server() -> Result<()> {
+     let (output, request) = run_remote_queue_command(QueueResponse::Success).await?;
+@@ -158,7 +208,7 @@ async fn run_remote_queue_command(response: QueueResponse) -> Result<(Output, Va
+     let server_home = codex_home.path().to_path_buf();
+     let server = tokio::spawn(async move {
+         let (stream, _) = listener.accept().await?;
+-        respond_to_queue_request(stream, server_home.as_path(), response).await
++        respond_to_queue_request(stream, server_home.as_path(), response, false).await
+     });
+ 
+     let remote_args = if remote_first {
+@@ -204,11 +254,14 @@ async fn queue_rejects_local_daemon_that_does_not_support_queueing() -> Result<(
+     let server = tokio::spawn(async move {
+         let (probe, _) = listener.accept().await?;
+         drop(probe);
++        let (identity_probe, _) = listener.accept().await?;
++        respond_to_identity_probe(identity_probe, server_home.as_path()).await?;
+         let (stream, _) = listener.accept().await?;
+         respond_to_queue_request(
+             stream,
+             server_home.as_path(),
+             QueueResponse::UnknownMethodVariant,
++            true,
+         )
+         .await
+     });
+@@ -241,10 +294,12 @@ async fn queue_rejects_overrides_that_bypass_local_daemon() -> Result<()> {
+             .context("missing socket parent")?,
+     )?;
+     let listener = tokio::net::UnixListener::bind(socket_path.as_path())?;
++    let server_home = codex_home.path().to_path_buf();
+     let server = tokio::spawn(async move {
+         let (probe, _) = listener.accept().await?;
+         drop(probe);
+-        Ok::<_, std::io::Error>(())
++        let (identity_probe, _) = listener.accept().await?;
++        respond_to_identity_probe(identity_probe, server_home.as_path()).await
+     });
+ 
+     let output = tokio::process::Command::new(codex_utils_cargo_bin::cargo_bin("codex")?)
