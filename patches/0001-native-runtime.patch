@@ -3479,7 +3479,7 @@ index 277ce11..15da7f2 100644
                  .permissions
                  .approval_policy
 diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
-index f5ac495..50187cf 100644
+index f5ac495..9006fe4 100644
 --- a/codex-rs/core/src/client.rs
 +++ b/codex-rs/core/src/client.rs
 @@ -81,6 +81,7 @@ use codex_login::default_client::create_client_for_route;
@@ -3680,7 +3680,7 @@ index f5ac495..50187cf 100644
 +                }),
 +            ),
 +        ] {
-+            let client = client(source);
++            let client = client(source.clone());
 +            let mut catalog_model = codex_models_manager::model_info::model_info_from_slug(slug);
 +            catalog_model.context_window = Some(272_000);
 +            catalog_model.max_context_window = Some(872_000);
