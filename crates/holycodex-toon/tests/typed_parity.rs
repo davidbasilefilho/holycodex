@@ -139,6 +139,27 @@ fn typed_decoders_support_keyed_object_headers() {
 }
 
 #[test]
+fn typed_decoders_support_keyed_tabular_headers() {
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct Item {
+        id: u32,
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct Items {
+        items: Vec<Item>,
+    }
+
+    decode(
+        "items[1]{id}:\n  1",
+        &Options::default(),
+        Items {
+            items: vec![Item { id: 1 }],
+        },
+    );
+}
+
+#[test]
 fn typed_decoders_parse_primitive_map_keys() {
     let options = Options::default();
     let numeric = BTreeMap::from([(1_u32, "one".to_owned()), (2, "two".to_owned())]);
@@ -315,7 +336,10 @@ a.b: four"#
         decode(
             &format!("- \"{marker}a.b\": value"),
             &options,
-            vec![BTreeMap::from([(format!("{marker}a.b"), "value".to_owned())])],
+            vec![BTreeMap::from([(
+                format!("{marker}a.b"),
+                "value".to_owned(),
+            )])],
         );
     }
 }
