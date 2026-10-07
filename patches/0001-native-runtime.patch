@@ -24906,7 +24906,7 @@ index 1ba0f26..4573409 100644
  }
  
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 2697cba..5e76485 100644
+index 2697cba..58582e7 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -280,6 +280,8 @@ const INTERACTIVE_OTEL_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(/*mill
@@ -24952,10 +24952,25 @@ index 2697cba..5e76485 100644
          }
          Ok(Err(err)) => {
              tracing::debug!(%err, socket_path = %socket_path.display(), "skipping default app-server daemon socket");
-@@ -3020,13 +3042,81 @@ requires_openai_auth = {requires_openai_auth}
+@@ -3020,13 +3042,96 @@ requires_openai_auth = {requires_openai_auth}
          Ok(())
      }
  
++    #[cfg(windows)]
++    fn current_windows_test_process_is_elevated() -> color_eyre::Result<bool> {
++        // Independent oracle, matching the UDS peer-policy regression. Elevated
++        // runners must be rejected before the initialize handshake reaches us.
++        let output = std::process::Command::new("powershell.exe")
++            .args(["-NoProfile", "-NonInteractive", "-Command", "([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"])
++            .output()?;
++        color_eyre::eyre::ensure!(output.status.success(), "elevation oracle failed");
++        match String::from_utf8(output.stdout)?.trim() {
++            "True" => Ok(true),
++            "False" => Ok(false),
++            value => color_eyre::eyre::bail!("unexpected elevation oracle: {value}"),
++        }
++    }
++
 +    async fn mock_initialize_daemon(
 +        socket_path: PathBuf,
 +        codex_home: PathBuf,
@@ -25038,7 +25053,7 @@ index 2697cba..5e76485 100644
              let parent = socket_path.as_path().parent().expect("socket parent");
              std::fs::create_dir_all(parent)?;
              let listener = codex_uds::UnixListener::bind(socket_path.as_path()).await?;
-@@ -3038,31 +3128,148 @@ requires_openai_auth = {requires_openai_auth}
+@@ -3038,31 +3143,182 @@ requires_openai_auth = {requires_openai_auth}
              drop(listener);
              std::fs::remove_dir_all(parent)?;
          }
@@ -25094,6 +25109,10 @@ index 2697cba..5e76485 100644
 +                false,
 +            ),
 +        ] {
++            #[cfg(windows)]
++            let elevated = current_windows_test_process_is_elevated()?;
++            #[cfg(windows)]
++            let expected = expected && !elevated;
 +            let codex_home = TempDir::new()?;
 +            let socket_path =
 +                codex_app_server_client::app_server_control_socket_path(codex_home.path())?;
@@ -25113,6 +25132,11 @@ index 2697cba..5e76485 100644
 +                    .is_some(),
 +                expected,
 +            );
++            #[cfg(windows)]
++            if elevated {
++                server.abort();
++                continue;
++            }
 +            server.await?;
 +        }
 +        Ok(())
@@ -25144,6 +25168,8 @@ index 2697cba..5e76485 100644
 +                true,
 +            ),
 +        ] {
++            #[cfg(windows)]
++            let elevated = current_windows_test_process_is_elevated()?;
 +            let home = TempDir::new()?;
 +            let socket_path = codex_app_server_client::app_server_control_socket_path(home.path())?;
 +            codex_uds::prepare_private_socket_directory(socket_path.as_path().parent().unwrap())
@@ -25164,6 +25190,17 @@ index 2697cba..5e76485 100644
 +                    client.shutdown().await?;
 +                }
 +                Err(error) => {
++                    #[cfg(windows)]
++                    if elevated {
++                        assert_eq!(
++                            error
++                                .downcast_ref::<std::io::Error>()
++                                .map(std::io::Error::kind),
++                            Some(std::io::ErrorKind::PermissionDenied)
++                        );
++                        server.abort();
++                        continue;
++                    }
 +                    assert!(!compatible);
 +                    assert!(
 +                        error
@@ -25198,7 +25235,19 @@ index 2697cba..5e76485 100644
 -        assert_eq!(
 -            maybe_probe_default_daemon_socket(codex_home.path()).await,
 -            expected
-+        let warning = daemon_startup::compatibility_warning(&target, &config).await?;
++        let result = daemon_startup::compatibility_warning(&target, &config).await;
++        #[cfg(windows)]
++        if current_windows_test_process_is_elevated()? {
++            assert!(
++                result
++                    .expect_err("elevated peer must be rejected")
++                    .reason
++                    .contains("could not connect")
++            );
++            server.abort();
++            return Ok(());
++        }
++        let warning = result?;
 +        assert!(
 +            warning
 +                .unwrap()
