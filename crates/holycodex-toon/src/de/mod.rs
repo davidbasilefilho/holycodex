@@ -205,7 +205,7 @@ impl<'de> de::Deserializer<'de> for Deserializer {
 struct KeyDeserializer(String);
 
 macro_rules! parse_key_number {
-    ($($method:ident => $ty:ty / $visit:ident),* $(,)?) => {$ (
+    ($($method:ident => $ty:ident / $visit:ident),* $(,)?) => {$ (
         fn $method<V>(self, visitor: V) -> core::result::Result<V::Value, Self::Error>
         where
             V: de::Visitor<'de>,
