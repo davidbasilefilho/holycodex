@@ -10468,7 +10468,7 @@ index 46fa63d..67d2039 100644
      let json = r#"{"cmd": "echo hello", "shell": "cmd"}"#;
 diff --git a/codex-rs/core/src/tools/holycodex_tools.rs b/codex-rs/core/src/tools/holycodex_tools.rs
 new file mode 100644
-index 0000000..a4e31ad
+index 0000000..8cae064
 --- /dev/null
 +++ b/codex-rs/core/src/tools/holycodex_tools.rs
 @@ -0,0 +1,3120 @@
@@ -11512,7 +11512,7 @@ index 0000000..a4e31ad
 +        "--outputDir",
 +        "--output-dir",
 +    ];
-+    let is_relative = |value: &str, reject_parent| {
++    let is_relative = |value: &str, reject_parent: bool| {
 +        !value.starts_with('~')
 +            && !Path::new(value).is_absolute()
 +            && !matches!(value.as_bytes(), [drive, b':', ..] if drive.is_ascii_alphabetic())
