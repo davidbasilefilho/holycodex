@@ -3474,7 +3474,7 @@ index 277ce11..15da7f2 100644
                  .permissions
                  .approval_policy
 diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
-index f5ac495..b12c0f0 100644
+index f5ac495..fb6fb03 100644
 --- a/codex-rs/core/src/client.rs
 +++ b/codex-rs/core/src/client.rs
 @@ -81,6 +81,7 @@ use codex_login::default_client::create_client_for_route;
@@ -3552,7 +3552,7 @@ index f5ac495..b12c0f0 100644
                  Some(create_tools_raw_json_for_responses_api(&prompt.tools)?.into()),
              )
          };
-@@ -2940,3 +2957,322 @@ impl WebsocketTelemetry for ApiTelemetry {
+@@ -2940,3 +2957,340 @@ impl WebsocketTelemetry for ApiTelemetry {
  #[cfg(test)]
  #[path = "client_tests.rs"]
  mod tests;
@@ -3606,7 +3606,16 @@ index f5ac495..b12c0f0 100644
 +        let specialist = SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
 +            parent_thread_id: ThreadId::new(),
 +            depth: 1,
-+            agent_path: Some(AgentPath::root().join("hc_a_1").unwrap()),
++            agent_path: Some(
++                AgentPath::root()
++                    .join(
++                        &crate::holycodex::specialist_path_segment(
++                            &uuid::Uuid::now_v7().to_string(),
++                        )
++                        .unwrap(),
++                    )
++                    .unwrap(),
++            ),
 +            agent_nickname: None,
 +            agent_role: Some("Reviewer.code".to_owned()),
 +        });
@@ -3673,7 +3682,16 @@ index f5ac495..b12c0f0 100644
 +                SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
 +                    parent_thread_id: ThreadId::new(),
 +                    depth: 1,
-+                    agent_path: Some(AgentPath::root().join("hc_a_1").unwrap()),
++                    agent_path: Some(
++                        AgentPath::root()
++                            .join(
++                                &crate::holycodex::specialist_path_segment(
++                                    &uuid::Uuid::now_v7().to_string(),
++                                )
++                                .unwrap(),
++                            )
++                            .unwrap(),
++                    ),
 +                    agent_nickname: None,
 +                    agent_role: Some("Worker.integration".to_owned()),
 +                }),
@@ -4066,10 +4084,10 @@ index 60c6f65..04658d1 100644
 +}
 diff --git a/codex-rs/core/src/holycodex.rs b/codex-rs/core/src/holycodex.rs
 new file mode 100644
-index 0000000..42b5c32
+index 0000000..2964a78
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex.rs
-@@ -0,0 +1,2340 @@
+@@ -0,0 +1,2403 @@
 +//! Durable native Intent/Assignment control over the local Multi-Agent V2 runtime.
 +//!
 +//! OS sidecar locks serialize reload/validate/commit across controller instances.
@@ -4175,17 +4193,34 @@ index 0000000..42b5c32
 +            agent_path: Some(path),
 +            agent_role: Some(role),
 +            ..
-+        }) if path
-+            .as_str()
-+            .rsplit('/')
-+            .next()
-+            .is_some_and(|segment| segment.starts_with("hc-")) =>
-+        {
++        }) if is_native_specialist_path(path) => {
 +            RoleTask::parse(role).filter(|role| *role != RoleTask::Root)
 +        }
 +        SessionSource::SubAgent(_) => None,
 +        _ => Some(RoleTask::Root),
 +    }
++}
++
++const NATIVE_SPECIALIST_PATH_PREFIX: &str = "hc_";
++
++pub(crate) fn is_native_specialist_path(path: &AgentPath) -> bool {
++    reserved_specialist_id(path).is_some()
++}
++
++pub(crate) fn specialist_path_segment(reserved_id: &str) -> Result<String, String> {
++    let reserved_id = Uuid::parse_str(reserved_id)
++        .map_err(|_| "reserved specialist ID must be a UUID".to_owned())?;
++    Ok(format!(
++        "{NATIVE_SPECIALIST_PATH_PREFIX}{}",
++        reserved_id.to_string().replace('-', "_")
++    ))
++}
++
++pub(crate) fn reserved_specialist_id(path: &AgentPath) -> Option<String> {
++    let encoded_id = path.name().strip_prefix(NATIVE_SPECIALIST_PATH_PREFIX)?;
++    let parsed_id = Uuid::parse_str(&encoded_id.replace('_', "-")).ok()?;
++    let reserved_id = parsed_id.to_string();
++    (specialist_path_segment(&reserved_id).ok()? == path.name()).then_some(reserved_id)
 +}
 +
 +const STATE_FILE: &str = "holycodex-intent.toml";
@@ -5315,8 +5350,9 @@ index 0000000..42b5c32
 +    Ok(format!("{}\n\n{}", route.assignment_fragment, encoded))
 +}
 +fn specialist_path(reserved: &str) -> Result<AgentPath, ControllerError> {
++    let name = specialist_path_segment(reserved).map_err(ControllerError::Agent)?;
 +    AgentPath::root()
-+        .join(&format!("hc-{reserved}"))
++        .join(&name)
 +        .map_err(ControllerError::Agent)
 +}
 +fn text_input(text: String) -> AgentInput {
@@ -5558,6 +5594,51 @@ index 0000000..42b5c32
 +            specialist_id: None,
 +            result: None,
 +        }
++    }
++
++    #[test]
++    fn generated_specialist_path_round_trips_uuid_and_binds_prompt_role() {
++        let reserved_id = uuid::Uuid::now_v7().to_string();
++        let path = specialist_path(&reserved_id).expect("UUID path segment is valid");
++        assert_eq!(path.name(), format!("hc_{}", reserved_id.replace('-', "_")));
++        assert_eq!(
++            reserved_specialist_id(&path).as_deref(),
++            Some(reserved_id.as_str())
++        );
++
++        let role = RoleTask::WorkerIntegration;
++        let source = SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
++            parent_thread_id: ThreadId::new(),
++            depth: 1,
++            agent_path: Some(path),
++            agent_nickname: None,
++            agent_role: Some(role.as_str().to_owned()),
++        });
++        assert_eq!(native_prompt_role(&source), Some(role));
++        assert_eq!(
++            native_model_instructions(&source, holycodex_policy::ModelId::Gpt6Luna.as_str()),
++            Some(holycodex_policy::SPECIALIST_INSTRUCTIONS)
++        );
++
++        let nonbound_path = AgentPath::root()
++            .join("hc_not_a_uuid")
++            .expect("path uses the AgentPath character contract");
++        assert_eq!(reserved_specialist_id(&nonbound_path), None);
++        assert!(!is_native_specialist_path(&nonbound_path));
++        let nonbound_source = SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
++            parent_thread_id: ThreadId::new(),
++            depth: 1,
++            agent_path: Some(nonbound_path),
++            agent_nickname: None,
++            agent_role: Some(role.as_str().to_owned()),
++        });
++        assert_eq!(native_prompt_role(&nonbound_source), None);
++        assert_eq!(
++            native_prompt_role(&SessionSource::Internal(
++                codex_protocol::protocol::InternalSessionSource::MemoryConsolidation,
++            )),
++            None
++        );
 +    }
 +
 +    #[test]
@@ -6412,10 +6493,10 @@ index 0000000..42b5c32
 +}
 diff --git a/codex-rs/core/src/holycodex_identity.rs b/codex-rs/core/src/holycodex_identity.rs
 new file mode 100644
-index 0000000..6166090
+index 0000000..f1d0473
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex_identity.rs
-@@ -0,0 +1,1617 @@
+@@ -0,0 +1,1613 @@
 +//! Native, per-thread HolyCodex identity and session authority bindings.
 +//!
 +//! Persisted records describe a validated contract, not current grants. Live
@@ -7188,11 +7269,7 @@ index 0000000..6166090
 +        .controller
 +        .snapshot()
 +        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-+    let reserved = agent_path
-+        .as_str()
-+        .rsplit('/')
-+        .next()
-+        .and_then(|name| name.strip_prefix("hc-"))
++    let reserved = crate::holycodex::reserved_specialist_id(agent_path)
 +        .ok_or_else(|| anyhow::anyhow!("specialist path is not a controller assignment"))?;
 +    let thread_id = session.thread_id();
 +    let mut assignment = controller_state
@@ -7203,7 +7280,7 @@ index 0000000..6166090
 +                && assignment
 +                    .specialist_id
 +                    .as_deref()
-+                    .is_some_and(|id| id == reserved || id == thread_id.to_string())
++                    .is_some_and(|id| id == reserved.as_str() || id == thread_id.to_string())
 +        })
 +        .cloned()
 +        .ok_or_else(|| anyhow::anyhow!("Root controller has no matching native Assignment"))?;
@@ -8315,7 +8392,7 @@ index 2595ce5..bf06951 100644
  mod tasks;
  mod user_shell_command;
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
-index e08a0fa..9ec9b9e 100644
+index e08a0fa..73d16f7 100644
 --- a/codex-rs/core/src/session/mod.rs
 +++ b/codex-rs/core/src/session/mod.rs
 @@ -504,6 +504,28 @@ pub(crate) const SUBMISSION_CHANNEL_CAPACITY: usize = 512;
@@ -8340,7 +8417,7 @@ index e08a0fa..9ec9b9e 100644
 +        SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
 +            agent_path: Some(path),
 +            ..
-+        }) if path.as_str().rsplit('/').next().is_some_and(|name| name.starts_with("hc-"))
++        }) if crate::holycodex::is_native_specialist_path(path)
 +    )
 +}
 +
@@ -22919,7 +22996,7 @@ index 0b53ebb..2315e45 100644
      }
      let snapshot_name = if cfg!(windows) {
 diff --git a/codex-rs/app-server-daemon/src/prepare_install.rs b/codex-rs/app-server-daemon/src/prepare_install.rs
-index ecf2501..9f4aa34 100644
+index ecf2501..d56d2c7 100644
 --- a/codex-rs/app-server-daemon/src/prepare_install.rs
 +++ b/codex-rs/app-server-daemon/src/prepare_install.rs
 @@ -72,7 +72,7 @@ pub async fn update_from_cli(
@@ -22931,6 +23008,17 @@ index ecf2501..9f4aa34 100644
      }))
  }
  
+@@ -143,9 +143,7 @@ async fn prepare_from_package(
+             "the selected daemon package is incomplete; repair its installation before starting"
+         );
+     }
+-    let source = source.context(
+-        "this CLI has no complete local package; install a packaged Codex CLI or use the standalone installer",
+-    )?;
++    let source = source.ok_or(crate::MissingPackageLayout)?;
+     anyhow::ensure!(
+         !root.canonicalize()?.starts_with(source.canonicalize()?),
+         "CODEX_HOME must be outside the source CLI package"
 diff --git a/codex-rs/app-server-daemon/src/update_loop.rs b/codex-rs/app-server-daemon/src/update_loop.rs
 index 8f55126..29a95b3 100644
 --- a/codex-rs/app-server-daemon/src/update_loop.rs
@@ -23460,10 +23548,40 @@ index 0000000..8350766
 +    assert!(!version_filepath(&config).exists());
 +}
 diff --git a/codex-rs/app-server-daemon/src/lib.rs b/codex-rs/app-server-daemon/src/lib.rs
-index 15ba769..3187e09 100644
+index 15ba769..c1bbad8 100644
 --- a/codex-rs/app-server-daemon/src/lib.rs
 +++ b/codex-rs/app-server-daemon/src/lib.rs
-@@ -467,7 +467,7 @@ impl Daemon {
+@@ -21,6 +21,7 @@ mod thread_recovery;
+ mod update_loop;
+ 
+ use std::collections::BTreeMap;
++use std::fmt;
+ use std::path::Path;
+ use std::path::PathBuf;
+ use std::time::Duration;
+@@ -96,6 +97,21 @@ pub struct BootstrapOptions {
+     pub remote_control_enabled: bool,
+ }
+ 
++/// The current executable cannot supply the complete package needed to start
++/// a new managed daemon.
++#[derive(Debug)]
++pub struct MissingPackageLayout;
++
++impl fmt::Display for MissingPackageLayout {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter.write_str(
++            "this HolyCodex CLI package lacks the assets required to start the shared background server",
++        )
++    }
++}
++
++impl std::error::Error for MissingPackageLayout {}
++
+ /// Passively probes an existing app-server socket and returns its reported
+ /// app-server version.
+ pub async fn probe_app_server_version(socket_path: &Path) -> Result<String> {
+@@ -467,7 +483,7 @@ impl Daemon {
          prepare_install::prepare(self, &settings).await?;
          let mut managed = self.clone();
          managed.managed_codex_bin = self.current_managed_codex_bin()?;
@@ -23472,7 +23590,7 @@ index 15ba769..3187e09 100644
              backend::pid_update_loop_backend(self.backend_paths(&settings))
                  .stop()
                  .await?;
-@@ -590,6 +590,15 @@ impl Daemon {
+@@ -590,6 +606,15 @@ impl Daemon {
  
      async fn stop(&self) -> Result<LifecycleOutput> {
          let settings = DaemonSettings::load_for_stop(&self.settings_file).await;
@@ -23488,7 +23606,7 @@ index 15ba769..3187e09 100644
          if let Some(backend) = self.running_backend_instance(&settings).await? {
              backend
                  .stop_with_grace(settings.shutdown_grace_seconds)
-@@ -868,7 +877,7 @@ impl Daemon {
+@@ -868,7 +893,7 @@ impl Daemon {
  
      async fn ensure_managed_updater(&self, settings: &DaemonSettings) -> Result<bool> {
          let updater = backend::pid_update_loop_backend(self.backend_paths(settings));
@@ -23497,7 +23615,7 @@ index 15ba769..3187e09 100644
              updater.stop().await?;
              return Ok(false);
          }
-@@ -939,7 +948,8 @@ impl Daemon {
+@@ -939,7 +964,8 @@ impl Daemon {
      }
  
      async fn is_bootstrapped(&self, settings: &DaemonSettings) -> Result<bool> {
@@ -23846,3 +23964,129 @@ index cf1742c..57aeace 100644
  
      Ok(())
  }
+diff --git a/codex-rs/tui/src/daemon_startup.rs b/codex-rs/tui/src/daemon_startup.rs
+index ba6de53..2443a97 100644
+--- a/codex-rs/tui/src/daemon_startup.rs
++++ b/codex-rs/tui/src/daemon_startup.rs
+@@ -1,7 +1,7 @@
+ //! Local daemon launch policy. Explicit embedded launches never discover or start a daemon;
+-//! optional attachment may fall back to embedded mode, while automatic launches
+-//! require a compatible shared server and a successful connection, except when
+-//! the Windows launcher forbids detaching a missing server.
++//! optional attachment may fall back to embedded mode. Automatic launches reuse a
++//! compatible daemon, start one from a complete package, or use the foreground
++//! runtime when this CLI cannot provide a complete daemon package.
+ 
+ use super::*;
+ use std::collections::BTreeMap;
+@@ -15,6 +15,18 @@ const SERVER_FEATURES: [Feature; 4] = [
+ 
+ pub(super) const FAILURE_HINT: &str = "To work without the background server, rerun the same command with --no-daemon (including resume or fork and its arguments).";
+ 
++/// A packaged daemon is optional when this CLI has no complete package to seed
++/// a new installation. The daemon lifecycle checks for a reusable running
++/// server before it reports this error, so preserve successful reuse unchanged.
++pub(super) fn allow_embedded_without_package(
++    result: anyhow::Result<Option<codex_app_server_daemon::LifecycleOutput>>,
++) -> anyhow::Result<Option<codex_app_server_daemon::LifecycleOutput>> {
++    match result {
++        Err(error) if error.is::<codex_app_server_daemon::MissingPackageLayout>() => Ok(None),
++        other => other,
++    }
++}
++
+ #[derive(Debug, thiserror::Error)]
+ #[error("Cannot use the shared background server: {reason}.\n{FAILURE_HINT}")]
+ pub(super) struct CompatibilityError {
+diff --git a/codex-rs/tui/src/daemon_startup_tests.rs b/codex-rs/tui/src/daemon_startup_tests.rs
+index 8d0aa63..c9315f8 100644
+--- a/codex-rs/tui/src/daemon_startup_tests.rs
++++ b/codex-rs/tui/src/daemon_startup_tests.rs
+@@ -1,10 +1,49 @@
+-//! Opportunistic attachment may fall back; automatic startup requires a shared server.
++//! Automatic startup reuses a compatible daemon and falls back to foreground mode
++//! when the current CLI package cannot seed a new daemon installation.
+ 
+ use super::*;
+ use crate::legacy_core::config::ConfigBuilder;
+ use pretty_assertions::assert_eq;
+ use tempfile::TempDir;
+ 
++#[test]
++fn missing_package_layout_falls_back_but_keeps_reusable_daemon_results() {
++    let missing_layout = || anyhow::Error::new(codex_app_server_daemon::MissingPackageLayout);
++    assert!(
++        daemon_startup::allow_embedded_without_package(Err(missing_layout()))
++            .unwrap()
++            .is_none()
++    );
++
++    let output = |status| codex_app_server_daemon::LifecycleOutput {
++        status,
++        backend: None,
++        pid: None,
++        managed_codex_path: std::path::PathBuf::from("/managed/codex"),
++        managed_codex_version: None,
++        socket_path: std::path::PathBuf::from("/socket"),
++        cli_version: None,
++        app_server_version: None,
++    };
++    let reused = output(codex_app_server_daemon::LifecycleStatus::AlreadyRunning);
++    assert_eq!(
++        daemon_startup::allow_embedded_without_package(Ok(Some(reused.clone()))).unwrap(),
++        Some(reused)
++    );
++    let started = output(codex_app_server_daemon::LifecycleStatus::Started);
++    assert_eq!(
++        daemon_startup::allow_embedded_without_package(Ok(Some(started.clone()))).unwrap(),
++        Some(started)
++    );
++    let unrelated = anyhow::anyhow!("daemon startup failed");
++    assert!(
++        daemon_startup::allow_embedded_without_package(Err(unrelated))
++            .unwrap_err()
++            .to_string()
++            .contains("daemon startup failed")
++    );
++}
++
+ #[test]
+ fn audited_overrides_allow_daemon_without_allowing_arbitrary_config() {
+     for (raw, eligible) in [
+diff --git a/codex-rs/tui/src/startup_orchestration.rs b/codex-rs/tui/src/startup_orchestration.rs
+index a0ff9cb..b221dab 100644
+--- a/codex-rs/tui/src/startup_orchestration.rs
++++ b/codex-rs/tui/src/startup_orchestration.rs
+@@ -529,11 +529,12 @@ pub(super) async fn run_main_inner(
+                 // responsive while it checks the running server or prepares an installation.
+                 let result = codex_app_server_daemon::start_with_features(&daemon_features).await;
+                 daemon_telemetry::record_start(&config, &result).await;
+-                match result {
+-                    Ok(output) => Ok(Some(output)),
++                match daemon_startup::allow_embedded_without_package(result.map(Some)) {
++                    Ok(Some(output)) => Ok((Some(output), None)),
++                    Ok(None) => Ok((None, None)),
+                     #[cfg(windows)]
+                     Err(err) if err.is::<codex_app_server_daemon::DetachedLaunchRestricted>() => {
+-                        Ok(None)
++                        Ok((None, Some("this Windows launcher")))
+                     }
+                     Err(err) => Err(std::io::Error::other(format!(
+                         "{err:#}\n{}",
+@@ -542,6 +543,7 @@ pub(super) async fn run_main_inner(
+                 }
+             })
+             .await??;
++        let (output, fallback_reason) = output;
+         if let Some(output) = output {
+             managed_daemon = output.backend.is_some();
+             app_server_target = AppServerTarget::LocalDaemon {
+@@ -552,7 +554,7 @@ pub(super) async fn run_main_inner(
+             };
+         } else {
+             app_server_target = AppServerTarget::Embedded;
+-            daemon_exclusion = Some("this Windows launcher");
++            daemon_exclusion = fallback_reason;
+         }
+     }
+     // The overview must inspect the shared server's agents regardless of local settings.
