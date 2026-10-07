@@ -162,6 +162,132 @@ fn manifest_matches_authoritative_source_and_allows_deliberate_rebase() {
 }
 
 #[test]
+fn native_runtime_lockfile_tracks_canonical_crate_manifests() {
+    let root = crate::root();
+    let patch = fs::read_to_string(root.join("patches/0001-native-runtime.patch")).unwrap();
+    let lock_diff = patch
+        .split("diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock\n")
+        .nth(1)
+        .expect("native runtime patch must update the upstream lockfile")
+        .split("\ndiff --git ")
+        .next()
+        .unwrap();
+
+    let lock_package = |name: &str| {
+        let lines: Vec<_> = lock_diff.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            if *line != "+[[package]]" {
+                continue;
+            }
+            let mut stanza_lines = Vec::new();
+            for (offset, line) in lines[index..].iter().enumerate() {
+                if (offset > 0 && *line == "+[[package]]") || !line.starts_with('+') {
+                    break;
+                }
+                stanza_lines.push(&line[1..]);
+            }
+            let stanza = stanza_lines.join("\n");
+            let package: toml::Value = toml::from_str(&stanza).unwrap();
+            let package = &package["package"][0];
+            if package.get("name").and_then(toml::Value::as_str) == Some(name) {
+                return package.clone();
+            }
+        }
+        panic!("native runtime lockfile patch is missing package {name}");
+    };
+
+    for name in ["holycodex-policy", "holycodex-toon"] {
+        let manifest: toml::Value = toml::from_str(
+            &fs::read_to_string(root.join(format!("crates/{name}/Cargo.toml"))).unwrap(),
+        )
+        .unwrap();
+        let lock = lock_package(name);
+        assert_eq!(
+            lock.get("version").and_then(toml::Value::as_str),
+            manifest
+                .get("package")
+                .and_then(|package| package.get("version"))
+                .and_then(toml::Value::as_str),
+            "patched lockfile version for {name} must match its canonical manifest"
+        );
+
+        let locked_dependencies = lock
+            .get("dependencies")
+            .and_then(toml::Value::as_array)
+            .unwrap();
+        if let Some(dependencies) = manifest.get("dependencies").and_then(toml::Value::as_table) {
+            for dependency in dependencies.keys() {
+                assert!(
+                    locked_dependencies.iter().any(|locked| {
+                        locked
+                            .as_str()
+                            .and_then(|locked| locked.split_whitespace().next())
+                            == Some(dependency.as_str())
+                    }),
+                    "patched lockfile is missing dependencies.{dependency} for {name}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn native_runtime_lockfile_tracks_pinned_codex_workspace_version() {
+    let root = crate::root();
+    let patch = fs::read_to_string(root.join("patches/0001-native-runtime.patch")).unwrap();
+    let lock_diff = patch
+        .split("diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock\n")
+        .nth(1)
+        .expect("native runtime patch must update the upstream lockfile")
+        .split("\ndiff --git ")
+        .next()
+        .unwrap();
+    let source: toml::Value =
+        toml::from_str(&fs::read_to_string(root.join("upstream.toml")).unwrap()).unwrap();
+    let pinned_version = source["release"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("rust-v")
+        .unwrap();
+
+    let mut package_name = None;
+    let mut checked = 0;
+    for line in lock_diff.lines() {
+        let content = line
+            .strip_prefix('+')
+            .or_else(|| line.strip_prefix('-'))
+            .or_else(|| line.strip_prefix(' '));
+        let Some(content) = content else { continue };
+        if content == "[[package]]" {
+            package_name = None;
+        } else if let Some(name) = content
+            .strip_prefix("name = \"")
+            .and_then(|name| name.strip_suffix('"'))
+        {
+            package_name = Some(name);
+        } else if let Some(version) = line.strip_prefix("+version = \"") {
+            let version = version.strip_suffix('"').unwrap();
+            if package_name.is_some_and(|name| {
+                name.starts_with("codex-")
+                    || matches!(name, "app_test_support" | "core_test_support")
+            }) {
+                assert_eq!(
+                    version,
+                    pinned_version,
+                    "lockfile version for {} must match the pinned release",
+                    package_name.unwrap()
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(
+        checked > 100,
+        "expected to validate pinned Codex workspace lock entries"
+    );
+}
+
+#[test]
 fn revisions_must_be_full_hex_commits() {
     assert!(valid_revision("a956835d020762cb2b570053af06f643a11c0ecc"));
     assert!(!valid_revision("a956835"));
