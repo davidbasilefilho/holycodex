@@ -1778,7 +1778,7 @@ index 19885ae..9ddef58 100644
  name = "wiremock"
  version = "0.6.5"
 diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
-index 1a60bc3..f500309 100644
+index 5007982..73542ed 100644
 --- a/codex-rs/Cargo.toml
 +++ b/codex-rs/Cargo.toml
 @@ -167,6 +167,7 @@ edition = "2024"
@@ -1921,7 +1921,7 @@ index 22e607c..e7f0597 100644
  
  /// Prefers device-code login (with `open_browser = false`) when headless environment is detected, but keeps
 diff --git a/codex-rs/cli/src/main.rs b/codex-rs/cli/src/main.rs
-index bdd7771..d79daa5 100644
+index bdd7771..c5d0590f86fbc390fbf97a100df8d8ebc3a0f50e 100644
 --- a/codex-rs/cli/src/main.rs
 +++ b/codex-rs/cli/src/main.rs
 @@ -107,20 +107,20 @@ use codex_protocol::protocol::AskForApproval;
@@ -1937,7 +1937,7 @@ index bdd7771..d79daa5 100644
      author,
 -    version,
 +    name = "holycodex",
-+    version = "0.17.0 (Codex upstream 0.160.0)",
++    version = "0.17.0-1 (Codex upstream 0.160.1)",
      // If a sub‑command is given, ignore requirements of the default args.
      subcommand_negates_reqs = true,
 -    // The executable is sometimes invoked via a platform‑specific name like
@@ -2011,7 +2011,7 @@ index bdd7771..d79daa5 100644
 +        assert_eq!(command.get_bin_name(), Some("holycodex"));
 +        assert_eq!(
 +            command.get_version(),
-+            Some("0.17.0 (Codex upstream 0.160.0)")
++            Some("0.17.0-1 (Codex upstream 0.160.1)")
 +        );
 +        assert_eq!(command.get_about().unwrap().to_string(), "HolyCodex CLI");
 +        for alias in ["holycodex", "codex"] {
@@ -2021,7 +2021,7 @@ index bdd7771..d79daa5 100644
 +            assert!(
 +                error
 +                    .to_string()
-+                    .contains("holycodex 0.17.0 (Codex upstream 0.160.0)"),
++                    .contains("holycodex 0.17.0-1 (Codex upstream 0.160.1)"),
 +                "{alias}: {error}"
 +            );
 +        }
@@ -2095,7 +2095,7 @@ index 2010b1e..91a739a 100644
  Commands:
    forward  Register an existing WebSocket exec-server as a remote environment
 diff --git a/codex-rs/cli/tests/app_server_daemon.rs b/codex-rs/cli/tests/app_server_daemon.rs
-index 002012a..7bfbf94 100644
+index 002012a..260c613 100644
 --- a/codex-rs/cli/tests/app_server_daemon.rs
 +++ b/codex-rs/cli/tests/app_server_daemon.rs
 @@ -145,7 +145,6 @@ fn wait_for_exit(pid: u32) -> Result<()> {
@@ -2144,7 +2144,7 @@ index 002012a..7bfbf94 100644
          }
      }
      assert!(!pid_file.exists());
-@@ -257,62 +245,23 @@ fn package_ownership_check_does_not_start_an_updater() -> Result<()> {
+@@ -257,55 +245,22 @@ fn package_ownership_check_does_not_start_an_updater() -> Result<()> {
  }
  
  #[test]
@@ -2204,19 +2204,11 @@ index 002012a..7bfbf94 100644
 +    assert_eq!(daemon.lifecycle("stop")?["status"], "stopped");
 +    assert!(daemon.pid("app-server.pid").is_err());
      assert_eq!(daemon.lifecycle("start")?["status"], "started");
--    assert!(
--        !daemon
--            .home
--            .path()
--            .join("packages/app-server-daemon")
--            .exists()
--    );
 +    assert!(daemon.pid("app-server-updater.pid").is_err());
-+    assert!(!daemon.home.path().join("packages/app-server-daemon").exists());
-     Ok(())
- }
- 
-@@ -332,13 +281,12 @@ fn managed_start_succeeds_when_updater_record_is_invalid() -> Result<()> {
+     assert!(
+         !daemon
+             .home
+@@ -332,13 +287,12 @@ fn managed_start_succeeds_when_updater_record_is_invalid() -> Result<()> {
  
  #[cfg(any(target_os = "linux", target_os = "macos"))]
  #[test]
@@ -2233,7 +2225,7 @@ index 002012a..7bfbf94 100644
          let mut record: Value = serde_json::from_slice(&std::fs::read(&path)?)?;
          record["processStartTime"] = "historical wall-clock start time".into();
          let replacement = path.with_extension("replacement");
-@@ -351,79 +299,51 @@ fn wall_clock_shift_keeps_server_and_updater_managed() -> Result<()> {
+@@ -351,79 +305,54 @@ fn wall_clock_shift_keeps_server_and_updater_managed() -> Result<()> {
      assert_eq!(version["backend"], "pid");
      assert_eq!(daemon.lifecycle("start")?["status"], "alreadyRunning");
      assert_eq!(daemon.pid("app-server.pid")?, server_pid);
@@ -2251,13 +2243,13 @@ index 002012a..7bfbf94 100644
 -fn managed_start_keeps_updater_on_marker_mismatch_but_stops_it_for_pin() -> Result<()> {
 +fn holycodex_latest_markers_cannot_enable_upstream_updates() -> Result<()> {
      let daemon = TestDaemon::new()?;
-+    let marker = daemon.home.path().join("packages/standalone/auto-update-version");
-     assert_eq!(daemon.lifecycle("start")?["status"], "started");
+-    assert_eq!(daemon.lifecycle("start")?["status"], "started");
 -    let updater_pid = daemon.pid("app-server-updater.pid")?;
--    let marker = daemon
--        .home
--        .path()
--        .join("packages/standalone/auto-update-version");
+     let marker = daemon
+         .home
+         .path()
+         .join("packages/standalone/auto-update-version");
++    assert_eq!(daemon.lifecycle("start")?["status"], "started");
 +    let backend_pid = daemon.pid("app-server.pid")?;
 +    assert!(daemon.pid("app-server-updater.pid").is_err());
      std::fs::write(&marker, "0.1.0-other-target")?;
@@ -2338,7 +2330,7 @@ index 002012a..7bfbf94 100644
      std::fs::write(&settings, "{malformed")?;
      assert_eq!(daemon.lifecycle("stop")?["status"], "stopped");
      Ok(())
-@@ -493,7 +413,7 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+@@ -493,7 +422,7 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
      use std::os::unix::fs::PermissionsExt;
      let mut daemon = TestDaemon::new()?;
      let standalone = daemon.home.path().join("packages/standalone");
@@ -2347,12 +2339,12 @@ index 002012a..7bfbf94 100644
          standalone.join("releases/caller")
      } else {
          daemon.home.path().join("cli-package")
-@@ -525,12 +445,15 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+@@ -525,12 +454,15 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
      std::fs::write(
          package.join("codex-package.json"),
          serde_json::to_vec(&serde_json::json!({
 -            "version": env!("CARGO_PKG_VERSION"), "target": target, "entrypoint": "bin/codex"
-+            "version": "0.17.0", "target": target, "entrypoint": "bin/codex"
++            "version": "0.17.0-1", "target": target, "entrypoint": "bin/codex"
          }))?,
      )?;
 -    if action == "start" && initial == InitialDaemon::Missing {
@@ -2365,7 +2357,7 @@ index 002012a..7bfbf94 100644
      }
      let cli_selection = standalone.join("current").canonicalize()?;
      let state = daemon.home.path().join("app-server-daemon");
-@@ -577,13 +500,11 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+@@ -577,13 +509,11 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
      assert_eq!(daemon.codex.canonicalize()?, cli_before);
      assert_eq!(standalone.join("current").canonicalize()?, cli_selection);
      assert!(state.join(initial_pid_file).exists());
@@ -2384,7 +2376,7 @@ index 002012a..7bfbf94 100644
      if action == "start" {
          let initial_current = initial_root.join("current");
          let current = dedicated.join("current");
-@@ -634,9 +555,6 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+@@ -634,9 +564,6 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
          assert_eq!(output["status"], "updated");
          assert_ne!(daemon.pid("daemon.pid")?, original_pid);
          wait_for_exit(original_pid)?;
@@ -2586,7 +2578,7 @@ index f631057..b3160f5 100644
      Ok(())
  }
 diff --git a/codex-rs/cli/tests/sandbox_cloud_config.rs b/codex-rs/cli/tests/sandbox_cloud_config.rs
-index 81fbf07..53d8f63 100644
+index 81fbf07..dc6ae95337484109e11189ec58ca75a82edccfe2 100644
 --- a/codex-rs/cli/tests/sandbox_cloud_config.rs
 +++ b/codex-rs/cli/tests/sandbox_cloud_config.rs
 @@ -140,8 +140,9 @@ async fn sandbox_fetches_and_enforces_cloud_managed_permission_profile() -> Resu
@@ -2596,13 +2588,13 @@ index 81fbf07..53d8f63 100644
 -            String::from_utf8(output.stdout)?.starts_with("codex"),
 -            "expected the sandboxed Codex version command to run",
 +            String::from_utf8(output.stdout)?
-+                .starts_with("holycodex 0.17.0 (Codex upstream 0.160.0)"),
++                .starts_with("holycodex 0.17.0-1 (Codex upstream 0.160.1)"),
 +            "expected the sandboxed HolyCodex version command to report its upstream provenance",
          );
      }
  
 diff --git a/codex-rs/cli/tests/worktree.rs b/codex-rs/cli/tests/worktree.rs
-index 1ec06aa..d36c7dc 100644
+index 1ec06aa..c42a9bf 100644
 --- a/codex-rs/cli/tests/worktree.rs
 +++ b/codex-rs/cli/tests/worktree.rs
 @@ -175,7 +175,7 @@ async fn worktree_start_and_fork(backend: &str) -> anyhow::Result<()> {
@@ -2623,7 +2615,7 @@ index 1ec06aa..d36c7dc 100644
  sandbox_mode = "workspace-write"
  windows.sandbox = "unelevated"
  tui.disable_paste_burst = true
-@@ -562,18 +562,14 @@ trust_level = "trusted"
+@@ -562,18 +562,17 @@ trust_level = "trusted"
          }
          if matches!(startup_result, Ok(Ok(()))) && renamed.is_ok() {
              if !fork && backend == "embedded" {
@@ -2643,11 +2635,14 @@ index 1ec06aa..d36c7dc 100644
                      tokio::time::timeout(Duration::from_secs(/*secs*/ 10), async {
                          while !output.contains(expected) {
 -                            let bytes = stdout.recv().await.context("TUI exited before handoff")?;
-+                            let bytes = stdout.recv().await.context("TUI exited before daemon menu")?;
++                            let bytes = stdout
++                                .recv()
++                                .await
++                                .context("TUI exited before daemon menu")?;
                              output.push_str(&String::from_utf8_lossy(&bytes));
                          }
                          Ok::<_, anyhow::Error>(())
-@@ -581,6 +577,24 @@ trust_level = "trusted"
+@@ -581,6 +580,24 @@ trust_level = "trusted"
                      .await
                      .with_context(|| format!("waiting for {expected}: {output}"))??;
                  }
@@ -2672,7 +2667,7 @@ index 1ec06aa..d36c7dc 100644
              } else {
                  session.writer_sender().send(b"/quit\r".to_vec()).await?;
              }
-@@ -618,10 +632,11 @@ trust_level = "trusted"
+@@ -618,10 +635,11 @@ trust_level = "trusted"
              if backend == "embedded" {
                  let update = exported
                      .iter()
@@ -2688,7 +2683,7 @@ index 1ec06aa..d36c7dc 100644
              }
              let point = exported
                  .iter()
-@@ -726,7 +741,7 @@ trust_level = "trusted"
+@@ -726,7 +744,7 @@ trust_level = "trusted"
                  "{context}"
              );
          }
@@ -3479,7 +3474,7 @@ index 277ce11..15da7f2 100644
                  .permissions
                  .approval_policy
 diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
-index f5ac495..9006fe4 100644
+index f5ac495..b12c0f0 100644
 --- a/codex-rs/core/src/client.rs
 +++ b/codex-rs/core/src/client.rs
 @@ -81,6 +81,7 @@ use codex_login::default_client::create_client_for_route;
@@ -3557,7 +3552,7 @@ index f5ac495..9006fe4 100644
                  Some(create_tools_raw_json_for_responses_api(&prompt.tools)?.into()),
              )
          };
-@@ -2940,3 +2957,311 @@ impl WebsocketTelemetry for ApiTelemetry {
+@@ -2940,3 +2957,322 @@ impl WebsocketTelemetry for ApiTelemetry {
  #[cfg(test)]
  #[path = "client_tests.rs"]
  mod tests;
@@ -3611,7 +3606,7 @@ index f5ac495..9006fe4 100644
 +        let specialist = SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
 +            parent_thread_id: ThreadId::new(),
 +            depth: 1,
-+            agent_path: Some(AgentPath::root().join("hc-a-1").unwrap()),
++            agent_path: Some(AgentPath::root().join("hc_a_1").unwrap()),
 +            agent_nickname: None,
 +            agent_role: Some("Reviewer.code".to_owned()),
 +        });
@@ -3642,7 +3637,11 @@ index f5ac495..9006fe4 100644
 +                agent_role: Some("Reviewer.code".to_owned()),
 +            }),
 +        ] {
-+            assert_eq!(crate::holycodex::native_prompt_role(&source), None, "{source:?}");
++            assert_eq!(
++                crate::holycodex::native_prompt_role(&source),
++                None,
++                "{source:?}"
++            );
 +            assert_eq!(
 +                crate::holycodex::native_model_instructions(
 +                    &source,
@@ -3674,7 +3673,7 @@ index f5ac495..9006fe4 100644
 +                SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
 +                    parent_thread_id: ThreadId::new(),
 +                    depth: 1,
-+                    agent_path: Some(AgentPath::root().join("hc-a-1").unwrap()),
++                    agent_path: Some(AgentPath::root().join("hc_a_1").unwrap()),
 +                    agent_nickname: None,
 +                    agent_role: Some("Worker.integration".to_owned()),
 +                }),
@@ -3741,12 +3740,14 @@ index f5ac495..9006fe4 100644
 +            assert_eq!(resolved.max_context_window, Some(872_000));
 +            assert_eq!(resolved.auto_compact_token_limit(), Some(334_800));
 +            assert_eq!(
-+                resolved.model_messages.as_ref().and_then(|messages| messages.persistent_instructions.as_deref()),
++                resolved
++                    .model_messages
++                    .as_ref()
++                    .and_then(|messages| messages.persistent_instructions.as_deref()),
 +                None
 +            );
 +            let mut prompt = Prompt::default();
-+            prompt.base_instructions.text =
-+                codex_prompts::render_model_instructions(&resolved);
++            prompt.base_instructions.text = codex_prompts::render_model_instructions(&resolved);
 +            let metadata = CodexResponsesMetadata::new(
 +                "test".to_owned(),
 +                "session".to_owned(),
@@ -3817,7 +3818,9 @@ index f5ac495..9006fe4 100644
 +
 +    #[tokio::test]
 +    async fn maintenance_sessions_keep_their_own_instructions_for_holy_model_slugs() {
-+        let client = client(SessionSource::Internal(InternalSessionSource::MemoryConsolidation));
++        let client = client(SessionSource::Internal(
++            InternalSessionSource::MemoryConsolidation,
++        ));
 +        let mut catalog_model = codex_models_manager::model_info::model_info_from_slug(
 +            holycodex_policy::ModelId::Gpt61Sol.as_str(),
 +        );
@@ -3842,7 +3845,10 @@ index f5ac495..9006fe4 100644
 +            )
 +            .await;
 +        assert_eq!(
-+            model.model_messages.as_ref().and_then(|messages| messages.persistent_instructions.as_deref()),
++            model
++                .model_messages
++                .as_ref()
++                .and_then(|messages| messages.persistent_instructions.as_deref()),
 +            Some("upstream maintenance continuation")
 +        );
 +        let mut prompt = Prompt::default();
@@ -4060,10 +4066,10 @@ index 60c6f65..04658d1 100644
 +}
 diff --git a/codex-rs/core/src/holycodex.rs b/codex-rs/core/src/holycodex.rs
 new file mode 100644
-index 0000000..9f9dab4
+index 0000000..42b5c32
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex.rs
-@@ -0,0 +1,2359 @@
+@@ -0,0 +1,2340 @@
 +//! Durable native Intent/Assignment control over the local Multi-Agent V2 runtime.
 +//!
 +//! OS sidecar locks serialize reload/validate/commit across controller instances.
@@ -4163,9 +4169,7 @@ index 0000000..9f9dab4
 +    match source {
 +        SessionSource::Internal(_)
 +        | SessionSource::SubAgent(
-+            SubAgentSource::Review
-+            | SubAgentSource::Compact
-+            | SubAgentSource::MemoryConsolidation,
++            SubAgentSource::Review | SubAgentSource::Compact | SubAgentSource::MemoryConsolidation,
 +        ) => None,
 +        SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
 +            agent_path: Some(path),
@@ -4175,7 +4179,8 @@ index 0000000..9f9dab4
 +            .as_str()
 +            .rsplit('/')
 +            .next()
-+            .is_some_and(|segment| segment.starts_with("hc-")) => {
++            .is_some_and(|segment| segment.starts_with("hc-")) =>
++        {
 +            RoleTask::parse(role).filter(|role| *role != RoleTask::Root)
 +        }
 +        SessionSource::SubAgent(_) => None,
@@ -4817,12 +4822,9 @@ index 0000000..9f9dab4
 +                })?;
 +                self.assignment(&assignment.id)
 +            }
-+            Err(error) => Err(self.resolve_launch_error(
-+                &assignment.id,
-+                reserved,
-+                is_new,
-+                error,
-+            )?),
++            Err(error) => {
++                Err(self.resolve_launch_error(&assignment.id, reserved, is_new, error)?)
++            }
 +        }
 +    }
 +
@@ -4871,9 +4873,8 @@ index 0000000..9f9dab4
 +        specialist_id: &str,
 +        is_new: bool,
 +    ) -> Result<(), ControllerError> {
-+        self.store.transaction(|state| {
-+            state.rollback_unstarted(assignment_id, specialist_id, is_new)
-+        })
++        self.store
++            .transaction(|state| state.rollback_unstarted(assignment_id, specialist_id, is_new))
 +    }
 +
 +    fn resolve_launch_error(
@@ -4910,11 +4911,7 @@ index 0000000..9f9dab4
 +        }
 +    }
 +
-+    async fn reuse(
-+        &self,
-+        assignment: &Assignment,
-+        input: String,
-+    ) -> Result<ThreadId, LaunchError> {
++    async fn reuse(&self, assignment: &Assignment, input: String) -> Result<ThreadId, LaunchError> {
 +        let thread = parse_thread_id(assignment.specialist_id.as_deref().expect("reserved"))
 +            .map_err(LaunchError::BeforeCreation)?;
 +        self.control
@@ -4934,16 +4931,17 @@ index 0000000..9f9dab4
 +            .map_err(LaunchError::BeforeCreation)?;
 +        check_prepared(&prepared, assignment.role, self.profile)
 +            .map_err(LaunchError::BeforeCreation)?;
-+        self.store.transaction(|state| {
-+            let context = state
-+                .specialists
-+                .get_mut(&thread.to_string())
-+                .ok_or_else(|| ControllerError::MissingSpecialist(assignment.id.clone()))?;
-+            context.available_capabilities = prepared.grants.capabilities.clone();
-+            context.supports_role_rebinding = prepared.grants.supports_role_rebinding;
-+            Ok(())
-+        })
-+        .map_err(LaunchError::BeforeCreation)?;
++        self.store
++            .transaction(|state| {
++                let context = state
++                    .specialists
++                    .get_mut(&thread.to_string())
++                    .ok_or_else(|| ControllerError::MissingSpecialist(assignment.id.clone()))?;
++                context.available_capabilities = prepared.grants.capabilities.clone();
++                context.supports_role_rebinding = prepared.grants.supports_role_rebinding;
++                Ok(())
++            })
++            .map_err(LaunchError::BeforeCreation)?;
 +        self.control
 +            .send(SendRequest {
 +                caller: self.root_thread,
@@ -5073,13 +5071,10 @@ index 0000000..9f9dab4
 +                (thread, self.control.get_status(thread).await)
 +            };
 +            if status == AgentStatus::Running
-+                && snapshot
-+                    .ambiguous_reused_launches
-+                    .contains(&assignment.id)
++                && snapshot.ambiguous_reused_launches.contains(&assignment.id)
 +            {
-+                self.store.transaction(|state| {
-+                    state.observe_reused_turn_running(&assignment.id)
-+                })?;
++                self.store
++                    .transaction(|state| state.observe_reused_turn_running(&assignment.id))?;
 +            }
 +            if terminal_result(&snapshot, &assignment.id, status.clone()).is_none() {
 +                if is_launching {
@@ -5897,11 +5892,7 @@ index 0000000..9f9dab4
 +            Arc::new(DeniedAuthority),
 +        )
 +        .unwrap();
-+        let previous = running(
-+            &controller.store,
-+            "src/a",
-+            RoleTask::WorkerImplementation,
-+        );
++        let previous = running(&controller.store, "src/a", RoleTask::WorkerImplementation);
 +        let previous = controller
 +            .store
 +            .transaction(|state| {
@@ -5930,7 +5921,9 @@ index 0000000..9f9dab4
 +        // A default local control has no manager, so child restoration fails at the first
 +        // pre-send seam. Dispatch must release this reused reservation and leave the old worker
 +        // available; no send was attempted and ownership was never ambiguous.
-+        let result = controller.reuse(&assignment, "follow-up input".into()).await;
++        let result = controller
++            .reuse(&assignment, "follow-up input".into())
++            .await;
 +        let error = match result {
 +            Err(error @ LaunchError::BeforeCreation(_)) => error,
 +            Err(LaunchError::Acknowledgement(_)) => {
@@ -5962,11 +5955,7 @@ index 0000000..9f9dab4
 +            Arc::new(DeniedAuthority),
 +        )
 +        .unwrap();
-+        let previous = running(
-+            &controller.store,
-+            "src/a",
-+            RoleTask::WorkerImplementation,
-+        );
++        let previous = running(&controller.store, "src/a", RoleTask::WorkerImplementation);
 +        let previous = controller
 +            .store
 +            .transaction(|state| {
@@ -6014,9 +6003,7 @@ index 0000000..9f9dab4
 +        after_running
 +            .observe_reused_turn_running(&assignment.id)
 +            .unwrap();
-+        assert!(
-+            terminal_result(&after_running, &assignment.id, stale_terminal.clone()).is_some()
-+        );
++        assert!(terminal_result(&after_running, &assignment.id, stale_terminal.clone()).is_some());
 +
 +        // Exercise the production finish path as the other correlated signal.
 +        // The assignment remains Failed because the send acknowledgement was
@@ -8328,7 +8315,7 @@ index 2595ce5..bf06951 100644
  mod tasks;
  mod user_shell_command;
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
-index e08a0fa..2a4fb94 100644
+index e08a0fa..9ec9b9e 100644
 --- a/codex-rs/core/src/session/mod.rs
 +++ b/codex-rs/core/src/session/mod.rs
 @@ -504,6 +504,28 @@ pub(crate) const SUBMISSION_CHANNEL_CAPACITY: usize = 512;
@@ -8594,7 +8581,7 @@ index e08a0fa..2a4fb94 100644
          if model.trim().is_empty() {
              return Err(CodexErr::InvalidRequest(
                  "No models are available. Set `model` explicitly or check your model catalog configuration.".to_string(),
-@@ -710,13 +923,34 @@ impl Session {
+@@ -710,13 +923,33 @@ impl Session {
              );
          }
  
@@ -8609,10 +8596,9 @@ index e08a0fa..2a4fb94 100644
 +        let mut model_info = models_manager
              .get_model_info(model.as_str(), &config.to_models_manager_config())
              .await;
-+        if let Some(instructions) = crate::holycodex::native_model_instructions(
-+            &session_source,
-+            &model_info.slug,
-+        ) {
++        if let Some(instructions) =
++            crate::holycodex::native_model_instructions(&session_source, &model_info.slug)
++        {
 +            let messages = model_info.model_messages.get_or_insert_default();
 +            messages.instructions_template = Some(instructions.to_owned());
 +            messages.instructions_variables = None;
@@ -8634,7 +8620,7 @@ index e08a0fa..2a4fb94 100644
          let auth = auth_manager.auth_cached();
          // Forked subagents keep their parent's activation with the copied history.
          // Fresh children restore configured preferences before applying startup defaults.
-@@ -741,11 +975,18 @@ impl Session {
+@@ -741,11 +974,18 @@ impl Session {
          let history_mode = conversation_history.get_history_mode(
              requested_history_mode.unwrap_or_else(|| thread_store.default_history_mode()),
          );
@@ -8658,7 +8644,7 @@ index e08a0fa..2a4fb94 100644
  
          // Dynamic tools are defined at thread start and persisted in rollout session metadata.
          let dynamic_tools = if dynamic_tools.is_empty() {
-@@ -918,7 +1159,10 @@ impl Session {
+@@ -918,7 +1158,10 @@ impl Session {
                  Err(error) => map_session_init_error(&error, &config.codex_home),
              }
          })?;
@@ -8670,7 +8656,7 @@ index e08a0fa..2a4fb94 100644
              session
                  .send_event_raw(Event {
                      id: INITIAL_SUBMIT_ID.to_owned(),
-@@ -1902,6 +2146,12 @@ impl Session {
+@@ -1902,6 +2145,12 @@ impl Session {
              }
              // Save new environment defaults for future turns. The running turn keeps its own.
              state.session_configuration = updated;
@@ -8683,7 +8669,7 @@ index e08a0fa..2a4fb94 100644
              if root_service_tier_changed {
                  self.services.agent_control.propagate_config_update(
                      AgentConfigUpdate::ServiceTier(
-@@ -1956,6 +2206,18 @@ impl Session {
+@@ -1956,6 +2205,18 @@ impl Session {
              .thread_config_snapshot(state.session_configuration.environments.clone())
      }
  
@@ -8702,7 +8688,7 @@ index e08a0fa..2a4fb94 100644
      pub(crate) async fn configured_environment_selections(&self) -> Vec<TurnEnvironmentSelection> {
          let state = self.state.lock().await;
          state.session_configuration.environments.clone()
-@@ -2106,6 +2368,12 @@ impl Session {
+@@ -2106,6 +2367,12 @@ impl Session {
              let config = Arc::new(config);
              state.session_configuration.original_config_do_not_use = Arc::clone(&config);
              self.mark_mcp_runtime_dirty();
@@ -8715,7 +8701,7 @@ index e08a0fa..2a4fb94 100644
              let new_config = notify_config_contributors
                  .then(|| self.build_effective_session_config(&state.session_configuration));
              (previous_config, new_config, config)
-@@ -5101,6 +5369,14 @@ impl Session {
+@@ -5101,6 +5368,14 @@ impl Session {
      }
  }
  
@@ -8850,7 +8836,7 @@ index 824cf58..9e9170d 100644
                  let _ = startup.session.set(Arc::clone(&sess));
              }
 diff --git a/codex-rs/core/src/session/step_settings.rs b/codex-rs/core/src/session/step_settings.rs
-index cd00b6d..6746540 100644
+index cd00b6d..2ab7450 100644
 --- a/codex-rs/core/src/session/step_settings.rs
 +++ b/codex-rs/core/src/session/step_settings.rs
 @@ -121,8 +121,8 @@ impl ResolvedStepSettings {
@@ -8921,7 +8907,7 @@ index cd00b6d..6746540 100644
          if let Some(summary) = update.reasoning_summary {
              next.reasoning_summary = Some(summary);
          }
-@@ -345,3 +385,109 @@ impl StepSettings {
+@@ -345,3 +385,132 @@ impl StepSettings {
  #[cfg(test)]
  #[path = "step_settings_tests.rs"]
  pub(super) mod tests;
@@ -8934,14 +8920,13 @@ index cd00b6d..6746540 100644
 +    use codex_protocol::config_types::Settings;
 +    use codex_protocol::openai_models::ModelsResponse;
 +
-+    #[tokio::test]
-+    async fn holy_step_reresolves_capacity_and_rejects_missing_model_without_changing_selection() {
-+        let selected = Arc::new(StepSettings {
++    fn selected_holy_settings(model: &str, effort: ReasoningEffort) -> Arc<StepSettings> {
++        Arc::new(StepSettings {
 +            collaboration_mode: CollaborationMode {
 +                mode: ModeKind::Default,
 +                settings: Settings {
-+                    model: "gpt-6.1-sol".to_owned(),
-+                    reasoning_effort: Some(ReasoningEffort::Medium),
++                    model: model.to_owned(),
++                    reasoning_effort: Some(effort),
 +                    developer_instructions: None,
 +                },
 +            },
@@ -8950,25 +8935,45 @@ index cd00b6d..6746540 100644
 +            personality: None,
 +            approval_policy: Constrained::allow_any(AskForApproval::OnRequest),
 +            approvals_reviewer: ApprovalsReviewer::User,
-+        });
++        })
++    }
++
++    fn model_manager(slug: &str, maximum: i64, instructions: Option<&str>) -> StaticModelsManager {
++        let mut model = codex_models_manager::model_info::model_info_from_slug(slug);
++        model.context_window = Some(272_000);
++        model.max_context_window = Some(maximum);
++        if let Some(instructions) = instructions {
++            let messages = model.model_messages.get_or_insert_default();
++            messages.instructions_template = Some(instructions.to_owned());
++            messages.instructions_variables = None;
++            messages.persistent_instructions = None;
++        }
++        let model = serde_json::from_value(serde_json::to_value(model).unwrap()).unwrap();
++        StaticModelsManager::new(
++            None,
++            ModelsResponse {
++                models: vec![model],
++            },
++        )
++    }
++
++    #[tokio::test]
++    async fn holy_step_reresolves_capacity_and_rejects_missing_model_without_changing_selection() {
++        let selected = selected_holy_settings("gpt-6.1-sol", ReasoningEffort::Medium);
 +        let overrides = ModelInfoOverrides::default();
-+        let manager = |maximum| {
-+            let mut model = codex_models_manager::model_info::model_info_from_slug("gpt-6.1-sol");
-+            model.context_window = Some(272_000);
-+            model.max_context_window = Some(maximum);
-+            let model = serde_json::from_value(serde_json::to_value(model).unwrap()).unwrap();
-+            StaticModelsManager::new(
-+                None,
-+                ModelsResponse {
-+                    models: vec![model],
-+                },
-+            )
-+        };
-+        let first = manager(872_000);
++        let first = model_manager(
++            "gpt-6.1-sol",
++            872_000,
++            Some("Initial provider instructions"),
++        );
 +        let resolved = ResolvedStepSettings::new(
 +            Arc::clone(&selected),
 +            Arc::new(selected.resolve_model_info(&first, &overrides).await),
 +            false,
++        );
++        assert_eq!(
++            codex_prompts::render_model_instructions(&resolved.model_info),
++            "Initial provider instructions"
 +        );
 +        let requirements = ConfigRequirements::default();
 +        let constraints = StepSettingsConstraints {
@@ -8977,7 +8982,11 @@ index cd00b6d..6746540 100644
 +            trusted_guardian_reviewer: false,
 +            has_full_disk_write_access: false,
 +        };
-+        let refreshed = manager(320_000);
++        let refreshed = model_manager(
++            "gpt-6.1-sol",
++            320_000,
++            Some("Refreshed provider instructions"),
++        );
 +        let next = resolved
 +            .apply_update(
 +                &StepSettingsUpdate::default(),
@@ -8993,7 +9002,7 @@ index cd00b6d..6746540 100644
 +        assert_eq!(next.model_info.auto_compact_token_limit(), Some(288_000));
 +        assert_eq!(
 +            codex_prompts::render_model_instructions(&next.model_info),
-+            holycodex_policy::ROOT_INSTRUCTIONS
++            "Refreshed provider instructions"
 +        );
 +        let absent = StaticModelsManager::new(None, ModelsResponse { models: Vec::new() });
 +        assert!(
@@ -9148,7 +9157,7 @@ index 9f9f8a8..a773bd5 100644
  
  pub use exec_command::ExecCommandHandler;
 diff --git a/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs b/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
-index bdf6877..4e273e2 100644
+index bdf6877..d77f1a3 100644
 --- a/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
 +++ b/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
 @@ -6,6 +6,7 @@ use crate::exec::DEFAULT_EXEC_COMMAND_TIMEOUT_MS;
@@ -9267,7 +9276,7 @@ index bdf6877..4e273e2 100644
          let environment = Arc::clone(&turn_environment.environment);
          let fs = environment.get_filesystem();
  
-@@ -296,8 +385,104 @@ impl ExecCommandHandler {
+@@ -296,8 +385,105 @@ impl ExecCommandHandler {
              turn_environment.config().allow_login_shell,
          )
          .map_err(FunctionCallError::RespondToModel)?;
@@ -9301,7 +9310,8 @@ index bdf6877..4e273e2 100644
 +                {
 +                    if environment.is_remote() {
 +                        return Err(FunctionCallError::RespondToModel(
-+                            "isolated npm quality commands require a local selected workspace".into(),
++                            "isolated npm quality commands require a local selected workspace"
++                                .into(),
 +                        ));
 +                    }
 +                    let temporary_root = temporary_root.ok_or_else(|| {
@@ -9373,7 +9383,7 @@ index bdf6877..4e273e2 100644
          let ExecCommandArgs {
              mut tty,
              yield_time_ms,
-@@ -423,7 +608,7 @@ impl ExecCommandHandler {
+@@ -423,7 +609,7 @@ impl ExecCommandHandler {
              process_id,
              yield_time_ms,
              max_output_tokens,
@@ -9384,10 +9394,10 @@ index bdf6877..4e273e2 100644
              shell_mode,
 diff --git a/codex-rs/core/src/tools/handlers/unified_exec/npm_workspace_snapshot.rs b/codex-rs/core/src/tools/handlers/unified_exec/npm_workspace_snapshot.rs
 new file mode 100644
-index 0000000..7c6c451
+index 0000000..3cdda93
 --- /dev/null
 +++ b/codex-rs/core/src/tools/handlers/unified_exec/npm_workspace_snapshot.rs
-@@ -0,0 +1,973 @@
+@@ -0,0 +1,982 @@
 +use anyhow::Context;
 +use anyhow::Result;
 +use anyhow::ensure;
@@ -10015,11 +10025,20 @@ index 0000000..7c6c451
 +                .status()
 +                .expect("npm must be available for the isolation test");
 +            assert!(status.success());
-+            assert_eq!(fs::read(snapshot.cwd.join("coverage/report.json")).unwrap(), b"{}");
-+            assert_eq!(fs::read(snapshot.cwd.join("generated-fixture.txt")).unwrap(), b"fixture");
++            assert_eq!(
++                fs::read(snapshot.cwd.join("coverage/report.json")).unwrap(),
++                b"{}"
++            );
++            assert_eq!(
++                fs::read(snapshot.cwd.join("generated-fixture.txt")).unwrap(),
++                b"fixture"
++            );
 +            assert!(!package.join("coverage").exists());
 +            assert!(!package.join("generated-fixture.txt").exists());
-+            assert_eq!(fs::read_to_string(package.join("package.json")).unwrap(), manifest);
++            assert_eq!(
++                fs::read_to_string(package.join("package.json")).unwrap(),
++                manifest
++            );
 +        }
 +    }
 +
@@ -10468,10 +10487,10 @@ index 46fa63d..67d2039 100644
      let json = r#"{"cmd": "echo hello", "shell": "cmd"}"#;
 diff --git a/codex-rs/core/src/tools/holycodex_tools.rs b/codex-rs/core/src/tools/holycodex_tools.rs
 new file mode 100644
-index 0000000..8cae064
+index 0000000..d7945ec
 --- /dev/null
 +++ b/codex-rs/core/src/tools/holycodex_tools.rs
-@@ -0,0 +1,3120 @@
+@@ -0,0 +1,3136 @@
 +//! Native, role-scoped model tools for HolyCodex Intent and Assignments.
 +
 +use std::collections::BTreeSet;
@@ -10775,7 +10794,7 @@ index 0000000..8cae064
 +                || (!principal.is_root()
 +                    && !is_holy_control_tool_name(&name.name)
 +                    && !allowed_tools.contains(&name)))
-+                .then_some(name)
++            .then_some(name)
 +        })
 +        .collect::<Vec<_>>();
 +    for name in remove {
@@ -11528,7 +11547,9 @@ index 0000000..8cae064
 +        let word = &words[index];
 +        let (option, inline_value) = word
 +            .split_once('=')
-+            .map_or((word.as_str(), None), |(option, value)| (option, Some(value)));
++            .map_or((word.as_str(), None), |(option, value)| {
++                (option, Some(value))
++            });
 +        if PATH_OPTIONS.contains(&option) {
 +            let value = if let Some(value) = inline_value {
 +                value
@@ -11807,16 +11828,13 @@ index 0000000..8cae064
 +                let input: AssignmentWaitRequest = decode_model_payload(&payload)?;
 +                let timeout_ms = assignment_wait_timeout_ms(input.timeout_ms)?;
 +                let assignment_id = input.assignment_id;
-+                let (timed_out, assignment) = wait_until_or_snapshot(
-+                    timeout_ms,
-+                    controller.wait(&assignment_id),
-+                    || {
++                let (timed_out, assignment) =
++                    wait_until_or_snapshot(timeout_ms, controller.wait(&assignment_id), || {
 +                        let snapshot = controller.snapshot()?;
 +                        Ok(snapshot.assignment(&assignment_id)?.clone())
-+                    },
-+                )
-+                .await
-+                .map_err(controller_error)?;
++                    })
++                    .await
++                    .map_err(controller_error)?;
 +                encode_model_result(&AssignmentWaitOutput {
 +                    timed_out,
 +                    assignment: assignment_projection(&assignment),
@@ -12166,7 +12184,12 @@ index 0000000..8cae064
 +
 +    #[test]
 +    fn npm_test_commands_require_isolated_workspaces_and_relative_arguments() {
-+        for command in ["npm test", "npm run test", "npm.cmd test", "npm.exe run test"] {
++        for command in [
++            "npm test",
++            "npm run test",
++            "npm.cmd test",
++            "npm.exe run test",
++        ] {
 +            assert!(shell_npm_workspace_command(command));
 +            assert!(shell_quality_command_requires_artifacts(command));
 +            assert!(npm_workspace_command_uses_only_relative_paths(command));
@@ -12197,10 +12220,19 @@ index 0000000..8cae064
 +                "C:victim",
 +                "//server/share/app",
 +            ] {
-+                for flag in ["--prefix ", "--prefix=", "-C=", "-w=", "--coverageDirectory="] {
-+                    assert!(!npm_workspace_command_uses_only_relative_paths(&format!(
-+                        "{command} {flag}{path}"
-+                    )));
++                for flag in [
++                    "--prefix ",
++                    "--prefix=",
++                    "-C=",
++                    "-w=",
++                    "--coverageDirectory=",
++                ] {
++                    assert!(
++                        !npm_workspace_command_uses_only_relative_paths(&format!(
++                            "{command} {flag}'{path}'"
++                        )),
++                        "accepted absolute npm path argument: {command} {flag}{path}"
++                    );
 +                }
 +            }
 +        }
@@ -12421,9 +12453,11 @@ index 0000000..8cae064
 +        assert_eq!(assignment_wait_timeout_ms(Some(900_000)).unwrap(), 900_000);
 +        assert!(assignment_wait_timeout_ms(Some(0)).is_err());
 +        assert!(assignment_wait_timeout_ms(Some(900_001)).is_err());
-+        assert!(tool_definition("assignment.wait")
-+            .0
-+            .contains("default and maximum 900000 milliseconds; minimum 1"));
++        assert!(
++            tool_definition("assignment.wait")
++                .0
++                .contains("default and maximum 900000 milliseconds; minimum 1")
++        );
 +    }
 +
 +    #[tokio::test]
@@ -12435,16 +12469,17 @@ index 0000000..8cae064
 +        .unwrap();
 +        assert_eq!(terminal, (false, "finished"));
 +
-+        let blocked = wait_until_or_snapshot(
-+            1,
-+            std::future::pending::<Result<&str, ()>>(),
-+            || Ok("running Assignment a-1; specialist turn has not terminated"),
-+        )
++        let blocked = wait_until_or_snapshot(1, std::future::pending::<Result<&str, ()>>(), || {
++            Ok("running Assignment a-1; specialist turn has not terminated")
++        })
 +        .await
 +        .unwrap();
 +        assert_eq!(
 +            blocked,
-+            (true, "running Assignment a-1; specialist turn has not terminated")
++            (
++                true,
++                "running Assignment a-1; specialist turn has not terminated"
++            )
 +        );
 +    }
 +
@@ -21178,7 +21213,7 @@ index af73444..084ef75 100644
  }
  
 diff --git a/codex-rs/models-manager/src/manager_tests.rs b/codex-rs/models-manager/src/manager_tests.rs
-index 04336f5..cbb54f0 100644
+index 04336f5..c587ac2 100644
 --- a/codex-rs/models-manager/src/manager_tests.rs
 +++ b/codex-rs/models-manager/src/manager_tests.rs
 @@ -39,6 +39,64 @@ mod cache_identity_tests;
@@ -21280,7 +21315,7 @@ index 04336f5..cbb54f0 100644
      }
  
      fn has_command_auth(&self) -> bool {
-@@ -311,6 +380,82 @@ impl ModelsEndpointClient for TestModelsEndpoint {
+@@ -311,6 +380,83 @@ impl ModelsEndpointClient for TestModelsEndpoint {
      }
  }
  
@@ -21341,13 +21376,14 @@ index 04336f5..cbb54f0 100644
 +    let refreshed = manager.get_model_info("gpt-6.1-sol", &config).await;
 +    assert_eq!(refreshed.slug, "gpt-6.1-sol");
 +    assert_eq!(refreshed.max_context_window, Some(320_000));
++    // Catalog refresh preserves provider metadata; the session source selects Holy prompts.
 +    assert_eq!(
 +        refreshed
 +            .model_messages
 +            .unwrap()
 +            .instructions_template
 +            .as_deref(),
-+        Some(holycodex_policy::ROOT_INSTRUCTIONS)
++        Some("new account metadata")
 +    );
 +    assert_eq!(
 +        endpoint.fetch_count(),
@@ -21363,7 +21399,7 @@ index 04336f5..cbb54f0 100644
  fn openai_manager_for_tests(
      codex_home: std::path::PathBuf,
      endpoint_client: Arc<dyn ModelsEndpointClient>,
-@@ -604,6 +749,7 @@ async fn chatgpt_auth_tokens_for_tests(codex_home: &Path) -> CodexAuth {
+@@ -604,6 +750,7 @@ async fn chatgpt_auth_tokens_for_tests(codex_home: &Path) -> CodexAuth {
          auth_mode: Some(AuthMode::ChatgptAuthTokens),
          openai_api_key: None,
          tokens: Some(TokenData {
@@ -21475,10 +21511,10 @@ index 88ade7c..47e8156 100644
      let mut section_start = None;
      let mut section_end = None;
 diff --git a/codex-rs/models-manager/src/model_info_tests.rs b/codex-rs/models-manager/src/model_info_tests.rs
-index 891d896..6624a06 100644
+index 891d896..d6a43f0 100644
 --- a/codex-rs/models-manager/src/model_info_tests.rs
 +++ b/codex-rs/models-manager/src/model_info_tests.rs
-@@ -276,3 +276,82 @@ fn model_context_window_uses_model_value_without_override() {
+@@ -276,3 +276,88 @@ fn model_context_window_uses_model_value_without_override() {
  
      assert_eq!(updated, model);
  }
@@ -21513,8 +21549,14 @@ index 891d896..6624a06 100644
 +    let resolved = with_config_overrides(model, &ModelsManagerConfig::default());
 +    let messages = resolved.model_messages.as_ref().unwrap();
 +
-+    assert_eq!(messages.instructions_template.as_deref(), Some("provider catalog prompt"));
-+    assert_eq!(messages.persistent_instructions.as_deref(), Some("provider continuation prompt"));
++    assert_eq!(
++        messages.instructions_template.as_deref(),
++        Some("provider catalog prompt")
++    );
++    assert_eq!(
++        messages.persistent_instructions.as_deref(),
++        Some("provider continuation prompt")
++    );
 +    assert!(messages.instructions_variables.is_some());
 +}
 +
@@ -21562,7 +21604,7 @@ index 891d896..6624a06 100644
 +    assert_eq!(resolved.auto_compact_token_limit(), Some(244_800));
 +}
 diff --git a/codex-rs/skills/src/lib.rs b/codex-rs/skills/src/lib.rs
-index 7b19d32..d0cf39b 100644
+index 7b19d32..4767c2dab127eee4976fa04d1c908cfa7dbb5b33 100644
 --- a/codex-rs/skills/src/lib.rs
 +++ b/codex-rs/skills/src/lib.rs
 @@ -193,6 +193,50 @@ mod tests {
@@ -21592,7 +21634,7 @@ index 7b19d32..d0cf39b 100644
 +        for name in HOLYCODEX_SKILLS {
 +            let skill_path = std::path::Path::new(name).join("SKILL.md");
 +            let skill = SYSTEM_SKILLS_DIR.get_file(&skill_path).unwrap_or_else(|| {
-+                panic!("HolyCodex 0.17.0 skill {name} is not embedded with SKILL.md")
++                panic!("HolyCodex 0.17.0-1 skill {name} is not embedded with SKILL.md")
 +            });
 +            let contents = skill
 +                .contents_utf8()
@@ -21639,7 +21681,7 @@ index 52e7e02..f4232e8 100644
              }
              tui.frame_requester().schedule_frame();
 diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap
-index 1261499..a965c7e 100644
+index 1261499..62937e6c9a24ef449385b37dbe7f41ba72089cda 100644
 --- a/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap
 +++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap
 @@ -4,7 +4,7 @@ expression: "format!(\"enabled:\\n{}\\n---\\ndisabled:\\n{}\", text(after), text
@@ -21647,7 +21689,7 @@ index 1261499..a965c7e 100644
  enabled:
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    Pull up a prompt.
@@ -21656,12 +21698,12 @@ index 1261499..a965c7e 100644
  disabled:
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    Pull up a prompt.
 diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__tests__app_server_thread_replacement_clears_previous_transcript_before_replay-2.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__tests__app_server_thread_replacement_clears_previous_transcript_before_replay-2.snap
-index 8aa1bca..813c37a 100644
+index 8aa1bca..b5017369f41dd1837aa07cb293fd46dfaf6dc3c7 100644
 --- a/codex-rs/tui/src/app/snapshots/codex_tui__app__tests__app_server_thread_replacement_clears_previous_transcript_before_replay-2.snap
 +++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__tests__app_server_thread_replacement_clears_previous_transcript_before_replay-2.snap
 @@ -4,7 +4,7 @@ assertion_line: 6513
@@ -21669,7 +21711,7 @@ index 8aa1bca..813c37a 100644
  ---
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       <thread cwd>
  
  
@@ -21709,7 +21751,7 @@ index 0fbf795..d6eed76 100644
      } else {
          panic!("expected transcript overlay");
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_buffered_replay_reconciles_captions.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_buffered_replay_reconciles_captions.snap
-index ab3a8c8..63f4970 100644
+index ab3a8c8..c65a2a1b04958ba49ae771953a17e11fadefabaf 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_buffered_replay_reconciles_captions.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_buffered_replay_reconciles_captions.snap
 @@ -4,7 +4,7 @@ assertion_line: 889
@@ -21717,12 +21759,12 @@ index ab3a8c8..63f4970 100644
  ---
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    To get started, describe a task or try one of these commands:
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_completed_after_thread_switch.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_completed_after_thread_switch.snap
-index 2ecde20..e40c11f 100644
+index 2ecde20..ed5d193c4c35ebb8bbd2ab7edd95d422c82c455a 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_completed_after_thread_switch.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_completed_after_thread_switch.snap
 @@ -4,7 +4,7 @@ assertion_line: 1093
@@ -21730,12 +21772,12 @@ index 2ecde20..e40c11f 100644
  ---
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    To get started, describe a task or try one of these commands:
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_partial_completed_after_thread_switch.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_partial_completed_after_thread_switch.snap
-index 5c3a9d2..94185e4 100644
+index 5c3a9d2..13ee6e31a1efdfd95ea422ef6da6a6b110b7053a 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_partial_completed_after_thread_switch.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_partial_completed_after_thread_switch.snap
 @@ -15,7 +15,7 @@ Restored owner:
@@ -21743,12 +21785,12 @@ index 5c3a9d2..94185e4 100644
    gpt-test default · /tmp/project
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    To get started, describe a task or try one of these commands:
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_replay_reconciles_matching_captions.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_replay_reconciles_matching_captions.snap
-index 0dfd733..71c0d94 100644
+index 0dfd733..8759658d5c6419a50a45e537d26b3660687b1858 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_replay_reconciles_matching_captions.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_replay_reconciles_matching_captions.snap
 @@ -4,7 +4,7 @@ assertion_line: 716
@@ -21756,12 +21798,12 @@ index 0dfd733..71c0d94 100644
  ---
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    To get started, describe a task or try one of these commands:
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__startup_frame_tests__startup_tip_in_transcript.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__startup_frame_tests__startup_tip_in_transcript.snap
-index 8ed7c18..8628e58 100644
+index 8ed7c18..39b2e0abb411b7a122c6448af020dbf2cbb27c1c 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__startup_frame_tests__startup_tip_in_transcript.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__startup_frame_tests__startup_tip_in_transcript.snap
 @@ -1,11 +1,11 @@
@@ -21774,7 +21816,7 @@ index 8ed7c18..8628e58 100644
  80 columns
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    Pull up a prompt.
@@ -21783,7 +21825,7 @@ index 8ed7c18..8628e58 100644
  32 columns
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex u…
++  >_ HolyCodex v0.17.0-1 (Codex…
       /tmp/project
  
    Pull up a prompt.
@@ -22044,7 +22086,7 @@ index ab195e3..2d352aa 100644
       /tmp/project
    permissions: YOLO mode
 diff --git a/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__session_info_availability_nux_tooltip_snapshot.snap b/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__session_info_availability_nux_tooltip_snapshot.snap
-index e5cc9a0..7d9af9b 100644
+index e5cc9a0..c0fc09d79b4997eba6671cd590c217c180d9ceab 100644
 --- a/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__session_info_availability_nux_tooltip_snapshot.snap
 +++ b/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__session_info_availability_nux_tooltip_snapshot.snap
 @@ -4,7 +4,7 @@ assertion_line: 778
@@ -22052,7 +22094,7 @@ index e5cc9a0..7d9af9b 100644
  ---
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    Tip: Model just became available
@@ -22342,7 +22384,7 @@ index 73b6daf..81ceee2 100644
              [Line::from(title)],
              RtOptions::new(available_width).subsequent_indent(indent.into()),
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_not_required.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_not_required.snap
-index a00c3ae..feccab6 100644
+index a00c3ae..dc137b8333adc4b328cd6f83b7be9f7bb66786b8 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_not_required.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_not_required.snap
 @@ -4,7 +4,7 @@ expression: rendered
@@ -22350,12 +22392,12 @@ index a00c3ae..feccab6 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Model:           gpt-5.6-sol (reasoning none, summaries auto)
    Model provider:  server-ollama
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_required.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_required.snap
-index 6c856d5..5c2cd34 100644
+index 6c856d5..017a1fe157d27927ca36866f563c313ed8384e43 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_required.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_required.snap
 @@ -4,7 +4,7 @@ expression: rendered
@@ -22363,12 +22405,12 @@ index 6c856d5..5c2cd34 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_cached_limits_hide_credits_without_flag.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_cached_limits_hide_credits_without_flag.snap
-index 4f55f6a..fd8faa1 100644
+index 4f55f6a..f07a49c4458e496fa35afcec2f5e6723f54da1fd 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_cached_limits_hide_credits_without_flag.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_cached_limits_hide_credits_without_flag.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22376,12 +22418,12 @@ index 4f55f6a..fd8faa1 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_credits_and_limits.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_credits_and_limits.snap
-index 9d8fba7..5c0816e 100644
+index 9d8fba7..04246405ff7a7f421b83c8bd7954f0dd6c38bb80 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_credits_and_limits.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_credits_and_limits.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22389,12 +22431,12 @@ index 9d8fba7..5c0816e 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_enterprise_monthly_credit_limit.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_enterprise_monthly_credit_limit.snap
-index be84d82..fdc083c 100644
+index be84d82..a58525ed80bb90ead8fbb45771e3f560223a8c07 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_enterprise_monthly_credit_limit.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_enterprise_monthly_credit_limit.snap
 @@ -1,10 +1,11 @@
@@ -22406,12 +22448,12 @@ index be84d82..fdc083c 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_forked_from.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_forked_from.snap
-index a321135..d4a7f70 100644
+index a321135..67a7b2d3404e41e920f5600ad1180c7e87b14ab5 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_forked_from.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_forked_from.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22419,12 +22461,12 @@ index a321135..d4a7f70 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_monthly_limit.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_monthly_limit.snap
-index f2cc2fb..fd96a6f 100644
+index f2cc2fb..c5d4c3087e2155bd6f01b7d9c80310595fd8751c 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_monthly_limit.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_monthly_limit.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22432,12 +22474,12 @@ index f2cc2fb..fd96a6f 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_reasoning_details.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_reasoning_details.snap
-index 06866b5..6a38806 100644
+index 06866b5..7668f3a912687cadba86ae1566ec1fe4e44aa810 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_reasoning_details.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_reasoning_details.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22445,12 +22487,12 @@ index 06866b5..6a38806 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap
-index 6cc0ff0..e57c9ff 100644
+index 6cc0ff0..8d67ceb70530ea170228622052f93f30f016507f 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22458,12 +22500,12 @@ index 6cc0ff0..e57c9ff 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap
-index 8478305..02a24df 100644
+index 8478305..a9b63ab341da1be746bf236e075b1702ef21cc72 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22471,12 +22513,12 @@ index 8478305..02a24df 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_active_user_defined_profile.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_active_user_defined_profile.snap
-index 01134f2..8e5a32d 100644
+index 01134f2..de8e7f5146145bb6393e0e16920a67ee1819d826 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_active_user_defined_profile.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_active_user_defined_profile.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22484,12 +22526,12 @@ index 01134f2..8e5a32d 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_auto_review_permissions.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_auto_review_permissions.snap
-index 7173c99..b77e9e7 100644
+index 7173c99..7da5f20fae1ba0d70f169bc5bedae0590b111534 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_auto_review_permissions.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_auto_review_permissions.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22497,12 +22539,12 @@ index 7173c99..b77e9e7 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_chatgpt_plan_without_email.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_chatgpt_plan_without_email.snap
-index e3b9bae..e0ef50a 100644
+index e3b9bae..18444f75bead00e8c22324b4477e8bac716cada0 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_chatgpt_plan_without_email.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_chatgpt_plan_without_email.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22510,12 +22552,12 @@ index e3b9bae..e0ef50a 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_missing_limits_message.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_missing_limits_message.snap
-index 9a948fe..4ccab09 100644
+index 9a948fe..cee7df9d800eef5a2841067133300e917d95eee9 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_missing_limits_message.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_missing_limits_message.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22523,12 +22565,12 @@ index 9a948fe..4ccab09 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_refreshing_limits_notice.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_refreshing_limits_notice.snap
-index 49ac38b..3be8805 100644
+index 49ac38b..d66d262ec4750cc7bf8f5b71bd44cbd4f78730b7 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_refreshing_limits_notice.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_refreshing_limits_notice.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22536,12 +22578,12 @@ index 49ac38b..3be8805 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_stale_limits_message.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_stale_limits_message.snap
-index 2474656..e0848b5 100644
+index 2474656..3698a2d797644e6810abe0230da8ac35b1ba6645 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_stale_limits_message.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_stale_limits_message.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22549,12 +22591,12 @@ index 2474656..e0848b5 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_unavailable_limits_message.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_unavailable_limits_message.snap
-index 7d43405..e9b3af47 100644
+index 7d43405..b808b0e615a0d8f365c3abbd0d55f2d2eb746e96 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_unavailable_limits_message.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_unavailable_limits_message.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22562,12 +22604,12 @@ index 7d43405..e9b3af47 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_treats_refreshing_empty_limits_as_unavailable.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_treats_refreshing_empty_limits_as_unavailable.snap
-index 7d43405..e9b3af47 100644
+index 7d43405..b808b0e615a0d8f365c3abbd0d55f2d2eb746e96 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_treats_refreshing_empty_limits_as_unavailable.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_treats_refreshing_empty_limits_as_unavailable.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22575,12 +22617,12 @@ index 7d43405..e9b3af47 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_halfwidth_kana_in_narrow_terminal.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_halfwidth_kana_in_narrow_terminal.snap
-index 23496e4..c62ca4d 100644
+index 23496e4..c31af3c50fd03578a58ae9792fe6f8823891b4ec 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_halfwidth_kana_in_narrow_terminal.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_halfwidth_kana_in_narrow_terminal.snap
 @@ -1,10 +1,12 @@
@@ -22592,13 +22634,13 @@ index 23496e4..c62ca4d 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream
-+  0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream
++  0.160.1)
  
    Visit
    https://chatgpt.com/codex/settings/usage
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_in_narrow_terminal.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_in_narrow_terminal.snap
-index ac59138..0b220ed 100644
+index ac59138..215f3a2df6525bbfcb846326a6083a072a8e4bb8 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_in_narrow_terminal.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_in_narrow_terminal.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22606,12 +22648,12 @@ index ac59138..0b220ed 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_default_reasoning_when_config_empty.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_default_reasoning_when_config_empty.snap
-index bf5bb86..f7ce5ee 100644
+index bf5bb86..2c5592356e20e2427cf0fc088aaf71224237656c 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_default_reasoning_when_config_empty.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_default_reasoning_when_config_empty.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22619,12 +22661,12 @@ index bf5bb86..f7ce5ee 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_generic_limit_labels_for_unsupported_windows.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_generic_limit_labels_for_unsupported_windows.snap
-index a1430ac..bb01abc 100644
+index a1430ac..02236185655ecf649bf7df69043680a30c2b600a 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_generic_limit_labels_for_unsupported_windows.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_generic_limit_labels_for_unsupported_windows.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22632,12 +22674,12 @@ index a1430ac..bb01abc 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap
-index 950a3d4..8c41041 100644
+index 950a3d4..04732d4b57320a7196fcd0c72ec9f5f9e221b32f 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap
 @@ -4,7 +4,8 @@ expression: sanitized
@@ -22645,13 +22687,13 @@ index 950a3d4..8c41041 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream
-+  0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream
++  0.160.1)
  
    Visit
    https://chatgpt.com/codex/settings/usage for
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__transcript_overlay_status_rate_limit_refresh.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__transcript_overlay_status_rate_limit_refresh.snap
-index f7871d8..eb078f5 100644
+index f7871d8..c77ece738e42052a14006403b1e4a07ca0692ea4 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__transcript_overlay_status_rate_limit_refresh.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__transcript_overlay_status_rate_limit_refresh.snap
 @@ -6,7 +6,7 @@ before:
@@ -22659,7 +22701,7 @@ index f7871d8..eb078f5 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
@@ -22668,12 +22710,12 @@ index f7871d8..eb078f5 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/version.rs b/codex-rs/tui/src/version.rs
-index 8c8d108..89fca05 100644
+index 8c8d108..7782f829c2993abaf6cb8df0da20f014ddb548e1 100644
 --- a/codex-rs/tui/src/version.rs
 +++ b/codex-rs/tui/src/version.rs
 @@ -1,2 +1,17 @@
@@ -22683,7 +22725,7 @@ index 8c8d108..89fca05 100644
 +
 +/// The release string shown in user-facing HolyCodex TUI headers.
 +pub const HOLYCODEX_DISPLAY_VERSION: &str =
-+    concat!("0.17.0 (Codex upstream ", env!("CARGO_PKG_VERSION"), ")",);
++    concat!("0.17.0-1 (Codex upstream ", env!("CARGO_PKG_VERSION"), ")",);
 +
 +#[cfg(test)]
 +mod tests {
@@ -22691,7 +22733,7 @@ index 8c8d108..89fca05 100644
 +    fn display_version_matches_holy_release_and_upstream_provenance() {
 +        assert_eq!(
 +            super::HOLYCODEX_DISPLAY_VERSION,
-+            "0.17.0 (Codex upstream 0.160.0)",
++            "0.17.0-1 (Codex upstream 0.160.1)",
 +        );
 +    }
 +}
@@ -22947,10 +22989,10 @@ index 8f55126..29a95b3 100644
              .send()
              .await
 diff --git a/codex-rs/app-server-daemon/src/update_loop_tests.rs b/codex-rs/app-server-daemon/src/update_loop_tests.rs
-index d932742..9ebd02f 100644
+index d932742..f87dfa2 100644
 --- a/codex-rs/app-server-daemon/src/update_loop_tests.rs
 +++ b/codex-rs/app-server-daemon/src/update_loop_tests.rs
-@@ -23,6 +23,171 @@ use crate::managed_install::executable_identity;
+@@ -23,6 +23,214 @@ use crate::managed_install::executable_identity;
  #[cfg(unix)]
  use crate::managed_install::executable_identity_from_reader;
  
@@ -22966,8 +23008,13 @@ index d932742..9ebd02f 100644
 +#[tokio::test]
 +async fn holycodex_installer_transport_rejects_before_network_access() {
 +    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback listener");
-+    listener.set_nonblocking(true).expect("nonblocking listener");
-+    let url = format!("http://{}/install.sh", listener.local_addr().expect("address"));
++    listener
++        .set_nonblocking(true)
++        .expect("nonblocking listener");
++    let url = format!(
++        "http://{}/install.sh",
++        listener.local_addr().expect("address")
++    );
 +    let http = holycodex_production_installer_http();
 +    let error = tokio::time::timeout(
 +        std::time::Duration::from_secs(1),
@@ -23016,9 +23063,20 @@ index d932742..9ebd02f 100644
 +    .await
 +    .expect("unsupported update response");
 +    assert_eq!(output.status, UpdateStatus::Unsupported);
-+    assert!(output.message.contains("HolyCodex upstream installer updates are disabled"));
-+    assert!(tokio::time::timeout(Duration::from_millis(50), listener.accept()).await.is_err());
-+    assert_eq!(super::selected_release(&daemon).expect("selection"), selected);
++    assert!(
++        output
++            .message
++            .contains("HolyCodex upstream installer updates are disabled")
++    );
++    assert!(
++        tokio::time::timeout(Duration::from_millis(50), listener.accept())
++            .await
++            .is_err()
++    );
++    assert_eq!(
++        super::selected_release(&daemon).expect("selection"),
++        selected
++    );
 +}
 +
 +#[tokio::test]
@@ -23031,7 +23089,11 @@ index d932742..9ebd02f 100644
 +    )
 +    .await
 +    .expect_err("the production worker must not start or adopt another executable");
-+    assert!(error.to_string().contains("HolyCodex upstream installer updates are disabled"));
++    assert!(
++        error
++            .to_string()
++            .contains("HolyCodex upstream installer updates are disabled")
++    );
 +}
 +
 +#[cfg(unix)]
@@ -23055,10 +23117,21 @@ index d932742..9ebd02f 100644
 +    assert!(!result.expect("retire updater"));
 +    assert!(!updater_running.expect("updater state"));
 +    assert!(bootstrapped.expect("daemon remains bootstrapped without an updater"));
-+    assert_eq!(super::selected_release(&daemon).expect("selection"), selected);
-+    assert_eq!(std::fs::read(&daemon.managed_codex_bin).expect("binary"), binary);
++    assert_eq!(
++        super::selected_release(&daemon).expect("selection"),
++        selected
++    );
++    assert_eq!(
++        std::fs::read(&daemon.managed_codex_bin).expect("binary"),
++        binary
++    );
 +    assert!(!daemon.settings_file.exists());
-+    assert!(!daemon.ensure_managed_updater(&settings).await.expect("do not respawn"));
++    assert!(
++        !daemon
++            .ensure_managed_updater(&settings)
++            .await
++            .expect("do not respawn")
++    );
 +    assert!(!updater.is_starting_or_running().await.expect("no updater"));
 +}
 +
@@ -23089,8 +23162,14 @@ index d932742..9ebd02f 100644
 +                .to_string()
 +                .contains("HolyCodex upstream installer updates are disabled")
 +        );
-+        assert_eq!(super::selected_release(&daemon).expect("selection"), selected);
-+        assert_eq!(std::fs::read(&daemon.managed_codex_bin).expect("binary"), binary);
++        assert_eq!(
++            super::selected_release(&daemon).expect("selection"),
++            selected
++        );
++        assert_eq!(
++            std::fs::read(&daemon.managed_codex_bin).expect("binary"),
++            binary
++        );
 +        assert_eq!(std::fs::read(&marker).expect("marker"), marker_bytes);
 +        assert!(!daemon.pid_file.exists());
 +    }
@@ -23113,8 +23192,14 @@ index d932742..9ebd02f 100644
 +            .to_string()
 +            .contains("HolyCodex upstream installer updates are disabled")
 +    );
-+    assert_eq!(super::selected_release(&daemon).expect("selection"), selected);
-+    assert_eq!(std::fs::read(&daemon.managed_codex_bin).expect("binary"), binary);
++    assert_eq!(
++        super::selected_release(&daemon).expect("selection"),
++        selected
++    );
++    assert_eq!(
++        std::fs::read(&daemon.managed_codex_bin).expect("binary"),
++        binary
++    );
 +    assert_eq!(std::fs::read(&marker).expect("marker"), marker_bytes);
 +    assert!(!home.path().join("packages/app-server-daemon").exists());
 +}
@@ -23122,7 +23207,7 @@ index d932742..9ebd02f 100644
  #[tokio::test]
  async fn installer_fetch_uses_exact_url_and_preserves_bytes() {
      let script = b"#!/bin/sh\nprintf 'update bytes'\n".to_vec();
-@@ -193,7 +358,7 @@ printf '{release}' > "$root/auto-update-version"
+@@ -193,7 +401,7 @@ printf '{release}' > "$root/auto-update-version"
          assert!(!old_updater.is_starting_or_running().await.unwrap());
          let new_updater =
              crate::backend::pid_update_loop_backend(selected.backend_paths(&daemon_settings));
@@ -23455,7 +23540,7 @@ index d93069f..9e9ae1b 100644
      let error = run_update_action(
          UpdateAction::Daemon(DaemonUpdateSource::ThisCli),
 diff --git a/codex-rs/tui/src/app/daemon_menu.rs b/codex-rs/tui/src/app/daemon_menu.rs
-index bf9934d..e4a031f 100644
+index bf9934d..01a22a2 100644
 --- a/codex-rs/tui/src/app/daemon_menu.rs
 +++ b/codex-rs/tui/src/app/daemon_menu.rs
 @@ -34,7 +34,11 @@ impl App {
@@ -23471,7 +23556,7 @@ index bf9934d..e4a031f 100644
          let unavailable = if matches!(self.app_server_target, AppServerTarget::Remote { .. }) {
              Some(
                  "Manage this server on its host. Local daemon updates are unavailable for remote connections.",
-@@ -56,13 +60,7 @@ impl App {
+@@ -56,28 +60,22 @@ impl App {
              .package_layout
              .is_some()
          });
@@ -23482,10 +23567,40 @@ index bf9934d..e4a031f 100644
 -            ),
 -            (DaemonUpdateSource::ThisCli, "Use this CLI build"),
 -        ]
+-        .into_iter()
+-        .map(|(source, name)| SelectionItem {
+-            name: name.to_string(),
+-            is_disabled: unavailable.is_some(),
+-            disabled_reason: (unavailable.is_none()
+-                && source == DaemonUpdateSource::ThisCli
+-                && !has_package)
+-                .then(|| "This CLI has no local package to copy".to_string()),
+-            actions: vec![Box::new(move |tx| {
+-                tx.send(AppEvent::ConfirmDaemonUpdate(source));
+-            })],
+-            dismiss_on_select: true,
+-            ..Default::default()
+-        })
+-        .collect();
 +        let items = [(DaemonUpdateSource::ThisCli, "Use this CLI build")]
-         .into_iter()
-         .map(|(source, name)| SelectionItem {
-             name: name.to_string(),
++            .into_iter()
++            .map(|(source, name)| SelectionItem {
++                name: name.to_string(),
++                is_disabled: unavailable.is_some(),
++                disabled_reason: (unavailable.is_none()
++                    && source == DaemonUpdateSource::ThisCli
++                    && !has_package)
++                    .then(|| "This CLI has no local package to copy".to_string()),
++                actions: vec![Box::new(move |tx| {
++                    tx.send(AppEvent::ConfirmDaemonUpdate(source));
++                })],
++                dismiss_on_select: true,
++                ..Default::default()
++            })
++            .collect();
+         self.chat_widget.show_selection_view(SelectionViewParams {
+             header: Box::new(DaemonMenuHeader(header)),
+             items,
 @@ -86,6 +84,9 @@ impl App {
      }
  
