@@ -10,6 +10,7 @@ const { BASE_VERSION, PLATFORM_PACKAGES, distributionVersion, stageChannel, tarb
 const { verifyRelease } = require('./verify-release.cjs');
 const { publishPackages } = require('./publish.cjs');
 const { publishGithubRelease } = require('./github-release.cjs');
+const { verifySelectedRef } = require('./source-gate.cjs');
 const SHA = 'a'.repeat(40);
 
 // Distribution and transaction fixtures; these bytes are not runtime evidence.
@@ -154,7 +155,7 @@ function releaseApi(f) {
       uploads.push(asset.name);
       return asset;
     }
-    assert.equal(body.make_latest, 'false');
+    assert.equal(body.make_latest, f.version === BASE_VERSION ? 'true' : 'false');
     release = { ...body, id: 2, assets: [], upload_url: 'https://uploads.github.com/repos/davidbasilefilho/holycodex/releases/2/assets{?name,label}' };
     return release;
   };
@@ -202,4 +203,37 @@ test('validation-only feature dispatch builds DEV without publishing; ordinary f
   for (const args of [['workflow_dispatch', 'refs/heads/codex/dev-publishing-entry', 'false'], ['workflow_dispatch', 'refs/tags/v0.17.0-1', 'false'], ['workflow_dispatch', 'refs/tags/v0.17.0-1', 'true'], ['pull_request', 'refs/heads/next'], ['workflow_dispatch', 'refs/heads/next', 'unknown']]) {
     assert.throws(() => publicationRoute(...args));
   }
+});
+
+test('remote source gate accepts next and lightweight/annotated release commit identity', () => {
+  verifySelectedRef(`${SHA}\trefs/heads/next\n`, 'refs/heads/next', SHA);
+  verifySelectedRef(`${SHA}\trefs/tags/v0.17.0-1\n`, 'refs/tags/v0.17.0-1', SHA);
+  verifySelectedRef(`${'b'.repeat(40)}\trefs/tags/v0.17.0-1\n${SHA}\trefs/tags/v0.17.0-1^{}\n`, 'refs/tags/v0.17.0-1', SHA);
+});
+
+test('remote tag removed or moved during validation cannot pass publication gate', () => {
+  assert.throws(() => verifySelectedRef('', 'refs/tags/v0.17.0-1', SHA), /missing/);
+  assert.throws(() => verifySelectedRef(`${'b'.repeat(40)}\trefs/tags/v0.17.0-1\n`, 'refs/tags/v0.17.0-1', SHA), /moved/);
+  assert.throws(() => verifySelectedRef(`${SHA}\trefs/tags/v0.17.0-1\n${'b'.repeat(40)}\trefs/tags/v0.17.0-1^{}\n`, 'refs/tags/v0.17.0-1', SHA), /moved/);
+  assert.throws(() => verifySelectedRef(`${'b'.repeat(40)}\trefs/heads/next\n`, 'refs/heads/next', SHA), /moved/);
+});
+
+test('stable release helper cannot recreate a removed accepted tag', async (t) => {
+  const f = fixture(t, 'stable');
+  const writes = [];
+  const missingTag = async (method, resource) => {
+    if (method !== 'GET') writes.push(resource);
+    return undefined;
+  };
+  await assert.rejects(publishGithubRelease(f.artifacts, SHA, f.version, 'stable', missingTag), /stable tag is missing/);
+  assert.deepEqual(writes, []);
+});
+
+test('stable GitHub release uses existing accepted tag and latest metadata', async (t) => {
+  const f = fixture(t, 'stable');
+  const api = releaseApi(f);
+  await publishGithubRelease(f.artifacts, SHA, f.version, 'stable', api.request);
+  assert.equal(api.release.prerelease, false);
+  assert.equal(api.release.make_latest, 'true');
+  assert.equal(api.uploads.length, 4);
 });

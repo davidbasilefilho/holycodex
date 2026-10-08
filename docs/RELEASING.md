@@ -27,7 +27,10 @@ source SHA and runtime base. No public version-bump command is introduced.
 
 Stable is implemented separately: an accepted `v0.17.0-1` tag push selects
 `stable.yml`, verifies ancestry in `main`, and publishes all four packages
-with dist-tag `latest`. Executing stable requires separate Root authorization.
+with dist-tag `latest`. Immediately before npm publication, the remote
+branch/tag is resolved again, including annotated-tag peeling; a missing or
+moved accepted ref blocks publication. Stable release recovery also refuses
+to recreate a removed tag. Executing stable requires separate Root authorization.
 Do not create that tag merely to test the workflows.
 
 The checkpoint stack at implementation time was PR11 -> PR10's branch ->

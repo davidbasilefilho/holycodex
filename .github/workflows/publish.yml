@@ -75,18 +75,6 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify accepted source before publishing
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          if [[ "$PACKAGE_CHANNEL" == dev ]]; then
-            current="$(git ls-remote origin refs/heads/next | cut -f1)"
-            test "$current" = "$GITHUB_SHA"
-          else
-            git fetch --no-tags origin main
-            git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD
-          fi
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 26
@@ -98,6 +86,17 @@ jobs:
           pattern: holycodex-${{ needs.route.outputs.version }}-*-${{ github.sha }}
           path: .tmp/release-artifacts
           merge-multiple: false
+      - name: Recheck accepted remote source immediately before publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git ls-remote origin "$GITHUB_REF" "$GITHUB_REF^{}" > .tmp/current-source.refs
+          node npm/packager/source-gate.cjs .tmp/current-source.refs "$GITHUB_REF" "$GITHUB_SHA"
+          if [[ "$PACKAGE_CHANNEL" == stable ]]; then
+            git fetch --no-tags origin main
+            git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD
+          fi
       - name: Verify and publish all platforms before the wrapper
         shell: bash
         run: node npm/packager/publish.cjs .tmp/release-artifacts "$GITHUB_SHA" "$PACKAGE_VERSION" "$PACKAGE_CHANNEL"

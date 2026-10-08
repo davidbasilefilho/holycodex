@@ -37,6 +37,7 @@ async function publishGithubRelease(root, sha, version, channel, request = githu
   let release = await request('GET', `${prefix}/releases/tags/${tag}`);
   if (!release) {
     const existingTag = await request('GET', `${prefix}/commits/${tag}`);
+    if (channel === 'stable') assert.ok(existingTag, 'accepted stable tag is missing');
     assert.ok(!existingTag || existingTag.sha === sha, 'existing tag points to a different source');
     release = await request('POST', `${prefix}/releases`, {
       tag_name: tag, target_commitish: sha, name: `HolyCodex ${version}`,
