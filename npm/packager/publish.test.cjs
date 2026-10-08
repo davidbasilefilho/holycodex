@@ -6,7 +6,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { createHash } = require('node:crypto');
 const test = require('node:test');
-const { BASE_VERSION, PLATFORM_PACKAGES, distributionVersion, stageChannel, tarballName } = require('./channel.cjs');
+const { BASE_VERSION, PLATFORM_PACKAGES, distributionVersion, stageChannel, tarballName, publicationRoute } = require('./channel.cjs');
 const { verifyRelease } = require('./verify-release.cjs');
 const { publishPackages } = require('./publish.cjs');
 const { publishGithubRelease } = require('./github-release.cjs');
@@ -191,4 +191,15 @@ test('conflicting existing GitHub asset or tag prevents repair writes', async (t
   const foreignTag = async (...args) => args[1].includes('/commits/') ? { sha: 'b'.repeat(40) } : api.request(...args);
   await assert.rejects(publishGithubRelease(f.artifacts, SHA, f.version, 'dev', foreignTag), /different source/);
   assert.equal(api.uploads.length, 4);
+});
+
+test('validation-only feature dispatch builds DEV without publishing; ordinary feature/stable dispatch rejected', () => {
+  assert.deepEqual(publicationRoute('workflow_dispatch', 'refs/heads/codex/dev-publishing-entry', 'true'), { channel: 'dev', publish: false });
+  assert.deepEqual(publicationRoute('workflow_dispatch', 'refs/heads/next', 'true'), { channel: 'dev', publish: false });
+  assert.deepEqual(publicationRoute('workflow_dispatch', 'refs/heads/next', 'false'), { channel: 'dev', publish: true });
+  assert.deepEqual(publicationRoute('push', 'refs/heads/next'), { channel: 'dev', publish: true });
+  assert.deepEqual(publicationRoute('push', 'refs/tags/v0.17.0-1'), { channel: 'stable', publish: true });
+  for (const args of [['workflow_dispatch', 'refs/heads/codex/dev-publishing-entry', 'false'], ['workflow_dispatch', 'refs/tags/v0.17.0-1', 'false'], ['workflow_dispatch', 'refs/tags/v0.17.0-1', 'true'], ['pull_request', 'refs/heads/next'], ['workflow_dispatch', 'refs/heads/next', 'unknown']]) {
+    assert.throws(() => publicationRoute(...args));
+  }
 });

@@ -11,11 +11,13 @@ native dependency exists in npm.
 `.github/workflows/publish.yml` is the only workflow that runs `npm publish`
 and creates GitHub releases. It calls reusable `dev.yml` or `stable.yml`, which
 call shared native validation in `release.yml`. Validation-only manual runs of
-`release.yml` never publish. All downloaded artifacts come from the same run
+`release.yml` never publish. Manual `publish.yml` runs with
+`validation_only=true` also build DEV artifacts without scheduling the
+publisher, on any same-repository branch. See [bootstrap commands](BOOTSTRAP.md). All downloaded artifacts come from the same run
 and must carry the exact source SHA.
 
-A push to `next` triggers DEV. Manual `publish.yml` dispatch is also DEV only
-and must select `next`; dispatch availability requires the workflow on the
+A push to `next` triggers DEV. Manual publishing `publish.yml` dispatch is also DEV only
+and must select `next`; validation-only dispatch may select a feature branch; dispatch availability requires the workflow on the
 default branch. A DEV version is `0.17.0-1.dev.<github.run_id>`; retries retain
 that version. All four npm packages use dist-tag `dev`, and the GitHub release
 is a prerelease with `latest=false`. DEV must preserve every existing `latest`

@@ -27,6 +27,18 @@ function distributionVersion(channel, runId, requested) {
   return version;
 }
 
+function publicationRoute(event, ref, validationOnly = '') {
+  assert.ok(['push', 'workflow_dispatch'].includes(event), 'unsupported publication event');
+  assert.ok(['', 'true', 'false'].includes(validationOnly), 'invalid validation-only flag');
+  if (event === 'workflow_dispatch' && validationOnly === 'true') {
+    assert.match(ref, /^refs\/heads\/.+$/, 'validation-only requires a branch');
+    return { channel: 'dev', publish: false };
+  }
+  if (ref === 'refs/heads/next') return { channel: 'dev', publish: true };
+  if (event === 'push' && ref === 'refs/tags/v0.17.0-1') return { channel: 'stable', publish: true };
+  throw new Error('DEV publishing requires next; stable requires accepted release tag push');
+}
+
 function tarballName(name, version) {
   assert.ok(name === 'holycodex' || PLATFORM_PACKAGES.includes(name), 'unknown package');
   validateVersion(version);
@@ -59,7 +71,11 @@ if (require.main === module) {
   const [operation, first, second, third] = process.argv.slice(2);
   if (operation === 'stage') stageChannel(first, second, third);
   else if (operation === 'version') console.log(distributionVersion(first, second, third));
-  else throw new Error('usage: channel.cjs stage DIRECTORY VERSION CHANNEL | version CHANNEL RUN_ID [VERSION]');
+  else if (operation === 'route') {
+    const route = publicationRoute(first, second, third);
+    const version = distributionVersion(route.channel, process.argv[6]);
+    console.log(`channel=${route.channel}\npublish=${route.publish}\nversion=${version}`);
+  } else throw new Error('usage: channel.cjs stage DIRECTORY VERSION CHANNEL | version CHANNEL RUN_ID [VERSION] | route EVENT REF VALIDATION_ONLY RUN_ID');
 }
 
-module.exports = { BASE_VERSION, PLATFORM_PACKAGES, validateVersion, distributionVersion, tarballName, stageChannel };
+module.exports = { BASE_VERSION, PLATFORM_PACKAGES, validateVersion, distributionVersion, tarballName, stageChannel, publicationRoute };

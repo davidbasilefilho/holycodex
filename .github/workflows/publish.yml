@@ -5,6 +5,11 @@ on:
     branches: [next]
     tags: ["v0.17.0-1"]
   workflow_dispatch:
+    inputs:
+      validation_only:
+        description: Build native DEV artifacts only; do not publish npm or GitHub releases
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,6 +25,7 @@ jobs:
     outputs:
       channel: ${{ steps.route.outputs.channel }}
       version: ${{ steps.route.outputs.version }}
+      publish: ${{ steps.route.outputs.publish }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -27,21 +33,16 @@ jobs:
           persist-credentials: false
       - id: route
         shell: bash
+        env:
+          VALIDATION_ONLY: ${{ inputs.validation_only }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          if [[ "$GITHUB_REF" == refs/heads/next ]]; then
-            channel=dev
-          elif [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v0.17.0-1 ]]; then
-            channel=stable
+          node npm/packager/channel.cjs route "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$VALIDATION_ONLY" "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/v0.17.0-1 ]]; then
             git fetch --no-tags origin main
             git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD
-          else
-            echo 'DEV requires next; stable requires an accepted release tag push' >&2
-            exit 1
           fi
-          version="$(node npm/packager/channel.cjs version "$channel" "$GITHUB_RUN_ID")"
-          printf 'channel=%s\nversion=%s\n' "$channel" "$version" >> "$GITHUB_OUTPUT"
   dev:
     needs: route
     if: needs.route.outputs.channel == 'dev'
@@ -57,7 +58,8 @@ jobs:
   publish:
     needs: [route, dev, stable]
     if: >-
-      always() && needs.route.result == 'success' &&
+      always() && needs.route.result == 'success' && needs.route.outputs.publish == 'true' &&
+      (github.event_name != 'workflow_dispatch' || !inputs.validation_only) &&
       ((needs.route.outputs.channel == 'dev' && needs.dev.result == 'success') ||
       (needs.route.outputs.channel == 'stable' && needs.stable.result == 'success'))
     runs-on: ubuntu-latest
