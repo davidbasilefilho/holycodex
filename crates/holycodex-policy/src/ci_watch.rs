@@ -78,17 +78,86 @@ pub enum Gate {
     Unknown,
 }
 
+/// GitHub's selected check source, determined by its current PR checks state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CheckSource {
+    /// Used when the current test merge commit has no status.
+    Head,
+    /// Used when GitHub selects statuses on its synthetic test merge commit.
+    TestMerge,
+}
+
+/// Check target observed independently of the branch head.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CheckTarget {
+    /// Current SHA selected by GitHub, not merely a run's advertised head_sha.
+    pub sha: String,
+    /// Authoritative selection, not inferred just from existence of a merge SHA.
+    pub source: CheckSource,
+}
+
+/// Normalized provider observation, not an invented provider API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CheckState {
+    /// Running/queued required job or status.
+    Pending,
+    /// No required status because the workflow was filtered out.
+    WorkflowFiltered,
+    /// Explicit completed success.
+    CompletedSuccess,
+    /// Explicit completed skipped conclusion, accepted by GitHub protection.
+    CompletedSkipped,
+    /// Explicit completed neutral conclusion, accepted by GitHub protection.
+    CompletedNeutral,
+    /// Completed failure, cancellation, timeout or other non-success conclusion.
+    CompletedFailure,
+    /// State/coverage inaccessible or unrecognized.
+    Unknown,
+}
+
+impl CheckState {
+    /// Branch protection uses GitHub's semantics; filtered workflows stay pending.
+    pub fn protection(self) -> Gate {
+        match self {
+            Self::CompletedSuccess | Self::CompletedSkipped | Self::CompletedNeutral => {
+                Gate::Passed
+            }
+            Self::Pending | Self::WorkflowFiltered => Gate::Pending,
+            Self::CompletedFailure => Gate::Failed,
+            Self::Unknown => Gate::Unknown,
+        }
+    }
+
+    /// Conservative project execution evidence. Even completed success requires
+    /// logs/artifacts to prove actual validation; a conclusion alone is insufficient.
+    pub fn execution(self) -> Gate {
+        match self {
+            Self::Pending | Self::WorkflowFiltered => Gate::Pending,
+            Self::CompletedFailure => Gate::Failed,
+            _ => Gate::Unknown,
+        }
+    }
+}
+
 /// Complete, normalized current-head observation made by the host.
 pub struct Snapshot {
     /// Head observed before fetching gates.
     pub head_sha: String,
     /// Head re-read after fetching gates; mismatch invalidates the snapshot.
     pub confirmed_head_sha: String,
-    /// Required checks for this exact head. None means requirements unknown.
+    /// GitHub-selected current head/test-merge check target. None is unverified.
+    pub check_target: Option<CheckTarget>,
+    /// Re-read selection after fetching gates; a base update can change this
+    /// target even when the PR branch head did not change.
+    pub confirmed_check_target: Option<CheckTarget>,
+    /// Required protection checks for that selected SHA. None means requirements unknown.
     /// Some(empty) is valid only when the host verified no checks are required.
     pub required_checks: Option<Vec<Gate>>,
     /// Relevant current-head review/thread requirements, not historical approvals.
     pub reviews: Gate,
+    /// Separate stricter project acceptance, backed by actual execution evidence.
+    /// Skipped/neutral conclusions alone must not set this to Passed.
+    pub project_validation: Gate,
 }
 
 /// Result to report. Passed means observed gates, never permission to merge.
@@ -102,7 +171,7 @@ pub enum Outcome {
     Waiting,
     /// Current gates have a terminal failure.
     Failed,
-    /// All known required gates passed for the confirmed head.
+    /// All known gates satisfied for their confirmed scope, never merge authority.
     Passed,
 }
 
@@ -123,7 +192,9 @@ pub struct CiWatch {
     connection_epoch: u64,
     transport: Transport,
     outcome: Outcome,
+    acceptance: Outcome,
     head_sha: Option<String>,
+    check_target: Option<CheckTarget>,
 }
 
 impl CiWatch {
@@ -135,7 +206,9 @@ impl CiWatch {
             connection_epoch: 0,
             transport: Transport::Polling,
             outcome: Outcome::Reconcile,
+            acceptance: Outcome::Reconcile,
             head_sha: None,
+            check_target: None,
         }
     }
 
@@ -187,25 +260,33 @@ impl CiWatch {
         if token != self.generation
             || snapshot.head_sha.is_empty()
             || snapshot.head_sha != snapshot.confirmed_head_sha
+            || snapshot.check_target != snapshot.confirmed_check_target
+            || snapshot.check_target.as_ref().is_some_and(|target| {
+                target.sha.is_empty()
+                    || (target.source == CheckSource::Head && target.sha != snapshot.head_sha)
+            })
         {
             return false;
         }
         self.head_sha = Some(snapshot.head_sha);
-        self.outcome = match snapshot.required_checks {
+        self.check_target = snapshot.check_target;
+        self.outcome = match snapshot
+            .required_checks
+            .filter(|_| self.check_target.is_some())
+        {
             None => Outcome::Unverified,
             Some(mut gates) => {
                 gates.push(snapshot.reviews);
-                if gates.contains(&Gate::Failed) {
-                    Outcome::Failed
-                } else if gates.contains(&Gate::Unknown) {
-                    Outcome::Unverified
-                } else if gates.contains(&Gate::Pending) {
-                    Outcome::Waiting
-                } else {
-                    Outcome::Passed
-                }
+                aggregate(&gates)
             }
         };
+        let protection = match self.outcome {
+            Outcome::Passed => Gate::Passed,
+            Outcome::Failed => Gate::Failed,
+            Outcome::Waiting => Gate::Pending,
+            _ => Gate::Unknown,
+        };
+        self.acceptance = aggregate(&[protection, snapshot.project_validation]);
         // A completed read token is single-use, including duplicate responses.
         self.generation = self
             .generation
@@ -214,9 +295,17 @@ impl CiWatch {
         true
     }
 
-    /// Current result, invalidated by every event or disconnection.
+    /// GitHub protection/review result, distinct from physical project acceptance.
     pub fn outcome(&self) -> Outcome {
         self.outcome
+    }
+    /// Stricter project acceptance, never inferred from skipped/neutral checks.
+    pub fn acceptance(&self) -> Outcome {
+        self.acceptance
+    }
+    /// Current selected check source/SHA, which may differ from the branch head.
+    pub fn check_target(&self) -> Option<&CheckTarget> {
+        self.check_target.as_ref()
     }
     /// Current transport; Events does not imply demonstrated polling reduction.
     pub fn transport(&self) -> Transport {
@@ -233,7 +322,21 @@ impl CiWatch {
             .checked_add(1)
             .expect("CI read generation exhausted");
         self.outcome = Outcome::Reconcile;
+        self.acceptance = Outcome::Reconcile;
         self.head_sha = None;
+        self.check_target = None;
+    }
+}
+
+fn aggregate(gates: &[Gate]) -> Outcome {
+    if gates.contains(&Gate::Failed) {
+        Outcome::Failed
+    } else if gates.contains(&Gate::Unknown) {
+        Outcome::Unverified
+    } else if gates.contains(&Gate::Pending) {
+        Outcome::Waiting
+    } else {
+        Outcome::Passed
     }
 }
 
@@ -245,8 +348,17 @@ mod tests {
         Snapshot {
             head_sha: head.into(),
             confirmed_head_sha: head.into(),
+            check_target: Some(CheckTarget {
+                sha: head.into(),
+                source: CheckSource::Head,
+            }),
+            confirmed_check_target: Some(CheckTarget {
+                sha: head.into(),
+                source: CheckSource::Head,
+            }),
             required_checks: checks,
             reviews,
+            project_validation: Gate::Unknown,
         }
     }
 
@@ -410,5 +522,89 @@ mod tests {
         ));
         assert_eq!(watch.head_sha(), Some("new"));
         assert_eq!(watch.outcome(), Outcome::Failed);
+    }
+
+    #[test]
+    fn selected_test_merge_failure_overrides_green_head_checks() {
+        let mut watch = CiWatch::new("sub".into());
+        let token = watch.begin_read();
+        assert!(watch.reconcile(
+            token,
+            snapshot("head", Some(vec![Gate::Passed]), Gate::Passed)
+        ));
+        let token = watch.begin_read();
+        let mut merge = snapshot("head", Some(vec![Gate::Failed]), Gate::Passed);
+        let target = CheckTarget {
+            sha: "test-merge".into(),
+            source: CheckSource::TestMerge,
+        };
+        merge.check_target = Some(target.clone());
+        merge.confirmed_check_target = Some(target.clone());
+        assert!(watch.reconcile(token, merge));
+        assert_eq!(watch.head_sha(), Some("head"));
+        assert_eq!(watch.check_target(), Some(&target));
+        assert_eq!(watch.outcome(), Outcome::Failed);
+    }
+
+    #[test]
+    fn check_selection_change_or_missing_selection_cannot_report_green() {
+        let mut watch = CiWatch::new("sub".into());
+        let token = watch.begin_read();
+        let mut changed = snapshot("head", Some(vec![Gate::Passed]), Gate::Passed);
+        changed.check_target = Some(CheckTarget {
+            sha: "merge-old".into(),
+            source: CheckSource::TestMerge,
+        });
+        changed.confirmed_check_target = Some(CheckTarget {
+            sha: "merge-new".into(),
+            source: CheckSource::TestMerge,
+        });
+        assert!(!watch.reconcile(token, changed));
+        assert_eq!(watch.outcome(), Outcome::Reconcile);
+        let token = watch.begin_read();
+        let mut missing = snapshot("head", Some(vec![Gate::Passed]), Gate::Passed);
+        missing.check_target = None;
+        missing.confirmed_check_target = None;
+        assert!(watch.reconcile(token, missing));
+        assert_eq!(watch.outcome(), Outcome::Unverified);
+    }
+
+    #[test]
+    fn completed_skipped_and_neutral_satisfy_protection_without_proving_execution() {
+        let mut watch = CiWatch::new("sub".into());
+        for state in [CheckState::CompletedSkipped, CheckState::CompletedNeutral] {
+            let token = watch.begin_read();
+            let mut skipped = snapshot("head", Some(vec![state.protection()]), Gate::Passed);
+            skipped.project_validation = state.execution();
+            assert!(watch.reconcile(token, skipped));
+            assert_eq!(watch.outcome(), Outcome::Passed);
+            assert_eq!(watch.acceptance(), Outcome::Unverified);
+        }
+        let token = watch.begin_read();
+        let mut executed = snapshot(
+            "head",
+            Some(vec![CheckState::CompletedSuccess.protection()]),
+            Gate::Passed,
+        );
+        executed.project_validation = Gate::Passed; // independent actual execution evidence
+        assert!(watch.reconcile(token, executed));
+        assert_eq!(watch.acceptance(), Outcome::Passed);
+        watch.unavailable();
+        assert_eq!(watch.acceptance(), Outcome::Reconcile);
+    }
+
+    #[test]
+    fn filtered_workflow_and_unfinished_checks_remain_pending() {
+        let mut watch = CiWatch::new("sub".into());
+        for state in [CheckState::WorkflowFiltered, CheckState::Pending] {
+            let token = watch.begin_read();
+            assert!(watch.reconcile(
+                token,
+                snapshot("head", Some(vec![state.protection()]), Gate::Passed)
+            ));
+            assert_eq!(watch.outcome(), Outcome::Waiting);
+        }
+        assert_eq!(CheckState::CompletedFailure.protection(), Gate::Failed);
+        assert_eq!(CheckState::Unknown.protection(), Gate::Unknown);
     }
 }
