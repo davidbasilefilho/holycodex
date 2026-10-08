@@ -214,12 +214,10 @@ impl CiWatch {
 
     /// Handle the pinned upstream envelope after a verified subscription starts.
     /// Delayed/repeated/out-of-order provider payloads cannot install gate state.
-    /// Ignore other subscriptions and unknown non-event notification methods.
+    /// Heartbeats preserve in-flight reads; only relevant event/lifecycle frames
+    /// invalidate them. Ignore other subscriptions and unknown methods.
     pub fn notification(&mut self, connection_epoch: u64, subscription_id: &str, method: &str) {
-        if connection_epoch != self.connection_epoch
-            || subscription_id != self.subscription_id
-            || !method.starts_with("notifications/events/")
-        {
+        if connection_epoch != self.connection_epoch || subscription_id != self.subscription_id {
             return;
         }
         match method {
@@ -228,7 +226,10 @@ impl CiWatch {
                 self.unavailable();
                 return;
             }
-            _ => {}
+            "notifications/events/event" | "notifications/events/error" => {}
+            // Keepalive/cursor progress is not a gate-state change.
+            "notifications/events/heartbeat" => return,
+            _ => return,
         }
         self.invalidate();
     }
@@ -430,6 +431,34 @@ mod tests {
             "notifications/events/event",
         ); // late old payload
         assert_eq!(watch.outcome(), Outcome::Reconcile);
+    }
+
+    #[test]
+    fn heartbeats_allow_slow_reads_to_complete_but_events_and_errors_invalidate() {
+        let mut watch = CiWatch::new("sub".into());
+        let epoch = watch.connection_epoch();
+        watch.notification(epoch, "sub", "notifications/events/active");
+        let token = watch.begin_read();
+        for _ in 0..10 {
+            watch.notification(epoch, "sub", "notifications/events/heartbeat");
+        }
+        watch.notification(epoch, "sub", "notifications/events/unknown");
+        assert!(watch.reconcile(
+            token,
+            snapshot("head", Some(vec![Gate::Passed]), Gate::Passed)
+        ));
+        watch.notification(epoch, "sub", "notifications/events/heartbeat");
+        assert_eq!(watch.outcome(), Outcome::Passed);
+        for method in ["notifications/events/event", "notifications/events/error"] {
+            let token = watch.begin_read();
+            watch.notification(epoch, "sub", method);
+            assert!(!watch.reconcile(
+                token,
+                snapshot("head", Some(vec![Gate::Passed]), Gate::Passed)
+            ));
+            assert_eq!(watch.outcome(), Outcome::Reconcile);
+            assert_eq!(watch.transport(), Transport::Events);
+        }
     }
 
     #[test]
