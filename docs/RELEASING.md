@@ -123,10 +123,31 @@ validation only. `dev.yml` and `stable.yml` pass channel and distribution versio
 into it. It runs root quality, materializes the exact `upstream.toml` revision,
 applies strict patches, and runs the existing native runtime suites on Linux
 x64 GNU, macOS ARM64 and Windows x64 before release-profile packaging.
-Every tarball artifact includes `source-revision.toml`; native aliases must be
-byte-identical. Wrapper dependencies and platform payload metadata are staged
-at the same distribution version. The shared verifier checks four distinct
-packages and their exact metadata before the publisher runs.
+Only the final distribution build sets `CARGO_PROFILE_RELEASE_DEBUG=0` and
+`CARGO_PROFILE_RELEASE_STRIP=symbols`. These Cargo profile overrides remove the
+pinned upstream release profile's full debugging information and static symbols
+without changing the upstream manifest, optimization level, panic behavior,
+runtime version, or dev/test diagnostics. Distributed executables consequently
+have less detailed native backtraces; debug builds remain available for diagnosis.
+Both native entrypoints remain byte-identical regular files.
+
+After `npm pack`, each native runner executes `native-smoke.cjs` against its
+actual tarball. It verifies package/target/version metadata, payload digests,
+native ELF/Mach-O/PE architecture and both aliases, then launches each extracted
+binary with `--version` and `--help` in an isolated home. Each launch has a
+30-second timeout and bounded captured output. DEV's npm distribution version
+is checked separately from the pinned runtime identity
+`holycodex 0.17.0-1 (Codex upstream 0.160.1)`. The smoke gate logs exact compressed
+and per-alias byte counts and the payload digest; it fails before artifact upload
+on any mismatch. Its unit fixtures test the gate only, not runtime acceptance.
+
+The shared release verifier also rejects any npm tarball above 256 MiB or native
+alias above 256 MiB. These are intentional regression budgets, not measurements
+of the final binaries; changes require review. Alias comparison/hashing remains
+bounded to 64 KiB chunks. Every tarball artifact includes `source-revision.toml`;
+wrapper dependencies and platform payload metadata use the same distribution
+version. The shared verifier checks four distinct packages and their exact
+metadata before the publisher runs.
 
 Canonical CI quality passing is not a native build or runtime acceptance result.
 Manual/native visual/authentication/host gates and the license inventory remain

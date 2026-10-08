@@ -316,6 +316,11 @@ jobs:
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-tui --lib -E 'test(holycodex_does_not_offer_upstream_install_updates) | test(holycodex_ignores_upstream_update_cache) | test(holycodex_update_check_does_not_create_a_cache) | test(holycodex_public_daemon_update_cannot_exit_the_session) | test(daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff) | test(unavailable_daemon_menu_offers_guidance_without_update_actions) | test(unsupported_runtime_falls_back_but_keeps_reusable_daemon_results) | test(display_version_matches_holy_release_and_upstream_provenance) | test(/default_daemon_auto_connect|local_daemon_connection_checks_identity|foreign_runtime|same_version_vanilla_daemon|same_connection_holy_identity/)'
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-cli -p codex-login
       - name: Build one native runtime under both names
+        # The pinned upstream release profile enables full debug information.
+        # Only distribution builds disable it; dev/test diagnostics stay intact.
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG: "0"
+          CARGO_PROFILE_RELEASE_STRIP: symbols
         run: cargo run --locked -p holycodex-dev -- package --upstream .tmp/upstream --output .tmp/native --release
       - name: Stage and pack platform npm package
         shell: bash
@@ -323,6 +328,7 @@ jobs:
           cargo run --locked -p holycodex-npm-packager -- ${{ matrix.target }} .tmp/native .tmp/npm
           node npm/packager/channel.cjs stage .tmp/npm/${{ matrix.package }} "$PACKAGE_VERSION" "$PACKAGE_CHANNEL"
           npm pack --pack-destination .tmp/npm .tmp/npm/${{ matrix.package }}
+          node npm/packager/native-smoke.cjs ".tmp/npm/turndev-${{ matrix.package }}-$PACKAGE_VERSION.tgz" "${{ matrix.target }}" "$PACKAGE_VERSION"
           npm test --prefix npm/holycodex
       - name: Record source identity
         shell: bash
