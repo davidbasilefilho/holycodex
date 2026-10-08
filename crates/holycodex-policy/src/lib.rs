@@ -5,6 +5,7 @@
 //! persistence remains outside this crate.
 #![forbid(unsafe_code)]
 
+pub mod ci_watch;
 pub mod formats;
 
 use serde::{Deserialize, Serialize};
