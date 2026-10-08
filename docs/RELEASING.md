@@ -55,8 +55,11 @@ and configure trusted publishing for **each** platform package and `holycodex`:
 GitHub owner `davidbasilefilho`, repository `holycodex`, filename `publish.yml`,
 with environment **holycodex-publish** and direct `npm publish` allowed. The
 repository administrator must independently protect that environment with
-selected branch `next` / tag `v0.17.0-1`, required reviewers, no self-review and
-no admin bypass. The npm environment constraint and GitHub protections are
+selected branch `next` / tag `v0.17.0-1` and protect those refs against
+unauthorized writer changes. Owner review of accepted source permits automatic
+publication after merge; environment reviewers/self-review prevention are an
+optional additional per-release approval, not an npm requirement. The npm
+environment constraint and GitHub protections are
 mandatory external gates; YAML alone cannot enforce them. No token, grant, environment or security
 setting is created by this repository implementation. Do not publish the main
 wrapper while its exact dependencies are absent. Complete this handoff before

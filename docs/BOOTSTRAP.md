@@ -136,11 +136,33 @@ GitHub **Settings → Environments → holycodex-publish** with:
 
 - Deployment branches and tags set to **Selected branches and tags**, with
   exactly branch `next` and tag `v0.17.0-1`; no wildcard or pull-request refs.
-- Required reviewer(s) chosen by Root, **Prevent self-review** enabled, and
-  administrator bypass disabled. Approving DEV does not authorize stable.
-- Accepted `next` and stable-tag changes governed by the existing reviewed
-  integration/release policy. A repository writer must not be able to approve
-  their own publication.
+- Protect `next` so repository writers cannot directly push, force-push or
+  delete it outside the authorized integration policy. Sensitive workflow,
+  packager and runtime changes must receive the owner's authorized review
+  before reaching that ref. Restrict bypass/merge authority to trusted release
+  owners; protect the review ownership/rules themselves.
+- Protect creation, update and deletion of `v0.17.0-1` with a tag ruleset whose
+  permitted release actors are the authorized owner(s), not all repository
+  writers. This configuration does not authorize executing stable.
+
+This is the minimum automatic route under the finding's threat model: ordinary
+repository writers may create feature branches but cannot advance accepted
+release refs or change security settings without owner authorization. After an
+authorized merge to `next`, CI can publish without a second deployment approval.
+The npm environment constraint is essential; a feature workflow that removes
+`environment:` no longer matches it, while one that retains it is denied by the
+external ref restrictions. Environment rules alone are insufficient if any
+writer can update an accepted branch or create the accepted tag.
+
+**Optional extra deployment approval:** required environment reviewers plus
+**Prevent self-review** add a manual gate to every DEV/stable publishing job.
+Only one of the configured reviewers must approve, but the initiating actor
+cannot approve their own run when self-review is prevented. This can require a
+second trusted maintainer; a solo owner may otherwise block their own releases.
+It is a GitHub protection option, not an npm requirement. Use it if Root wants
+that separate approval or accepted refs cannot be adequately protected; it is
+not required by this automatic release design. If enabled, restrict admin
+bypass according to the chosen independent-approval policy.
 
 [GitHub documents these external protections](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments).
 YAML `environment:` alone does not create protection: an absent environment can
