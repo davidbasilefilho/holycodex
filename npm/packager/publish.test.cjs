@@ -14,7 +14,7 @@ const { verifySelectedRef } = require('./source-gate.cjs');
 const SHA = 'a'.repeat(40);
 
 // Distribution and transaction fixtures; these bytes are not runtime evidence.
-function fixture(t, channel = 'dev') {
+function fixture(t, channel = 'dev', nativeBytes = Buffer.from('native distribution fixture, not executable')) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'holycodex-publish-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const version = distributionVersion(channel, '123');
@@ -34,7 +34,7 @@ function fixture(t, channel = 'dev') {
       fs.copyFileSync(path.join(template, 'install.cjs'), path.join(stage, 'install.cjs'));
       for (const alias of ['holycodex.exe', 'codex.exe']) fs.writeFileSync(path.join(stage, 'bin', alias), '');
     } else {
-      const bytes = Buffer.from('native distribution fixture, not executable');
+      const bytes = nativeBytes;
       const extension = name.endsWith('win32-x64') ? '.exe' : '';
       for (const alias of ['holycodex', 'codex']) fs.writeFileSync(path.join(stage, 'bin', alias + extension), bytes);
       fs.writeFileSync(path.join(stage, 'payload.toml'), `format = 1\npackage = "${name}"\nversion = "${BASE_VERSION}"\nsha256 = "${createHash('sha256').update(bytes).digest('hex')}"\n`);
@@ -93,6 +93,27 @@ for (const channel of ['dev', 'stable']) {
     assert.deepEqual(r.calls, [], 'identical registry readbacks make retry idempotent');
   });
 }
+
+test('release verification supports native payloads larger than child-process default buffer', (t) => {
+  // Large distribution fixture only; not a runtime executable or acceptance proof.
+  const f = fixture(t, 'dev', Buffer.alloc(2 * 1024 * 1024, 0x5a));
+  verifyRelease(f.artifacts, SHA, f.version);
+});
+
+test('large native verification still rejects alias differences and matching corrupt aliases', (t) => {
+  const f = fixture(t, 'dev', Buffer.alloc(2 * 1024 * 1024, 0x5a));
+  const name = PLATFORM_PACKAGES[0];
+  const stage = path.join(path.dirname(f.artifacts), name.replace('@turndev/', ''), 'package');
+  const altered = Buffer.alloc(2 * 1024 * 1024, 0x5a);
+  altered[altered.length - 1] = 0x59;
+  const repack = () => execFileSync('tar', ['-czf', f.archives.get(name), '-C', path.dirname(stage), 'package']);
+  fs.writeFileSync(path.join(stage, 'bin', 'codex'), altered);
+  repack();
+  assert.throws(() => verifyRelease(f.artifacts, SHA, f.version), /executable aliases differ/);
+  fs.writeFileSync(path.join(stage, 'bin', 'holycodex'), altered);
+  repack();
+  assert.throws(() => verifyRelease(f.artifacts, SHA, f.version), /payload digest mismatch/);
+});
 
 test('absent platform bootstrap or wrapper prevents all automated publication', async (t) => {
   for (const missing of [PLATFORM_PACKAGES[2], 'holycodex']) {

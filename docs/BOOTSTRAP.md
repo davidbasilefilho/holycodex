@@ -73,7 +73,11 @@ node npm/packager/verify-release.cjs $Artifacts $SourceSha $Version
 if ($LASTEXITCODE -ne 0) { throw 'Artifact identity validation failed' }
 ```
 
-Run the verifier from a checkout at `$SourceSha`, containing PR12's scripts.
+Run the verifier from a reviewed PR12 checkout and record its helper commit.
+`$SourceSha` always identifies the native run's payload source. An independently
+reviewed verifier-only fix can use a different helper commit while still
+requiring every artifact to match `$SourceSha`. The verifier compares large
+executables in bounded chunks; do not use the superseded 1 MiB-buffer helper.
 The four artifact directories are named
 `holycodex-$Version-{wrapper,darwin-arm64,linux-x64-gnu,win32-x64}-$SourceSha`.
 Each has `source-revision.toml` and exactly one matching tarball:

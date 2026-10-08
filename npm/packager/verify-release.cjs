@@ -5,6 +5,7 @@ const { createHash } = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 
 const BASE_VERSION = '0.17.0-1';
 const { validateVersion, tarballName } = require('./channel.cjs');
@@ -22,6 +23,45 @@ function readSourceRevision(filename) {
 
 function tarFile(archive, name) {
   return execFileSync('tar', ['-xzOf', archive, `package/${name}`]);
+}
+
+// Redirect large native members to private files; compare/hash bounded chunks.
+// Metadata stays buffered, while executable size cannot exhaust spawnSync stdout.
+function verifyNativeAliases(archive, extension, expectedDigest, artifactDirectory) {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'holycodex-native-proof-'));
+  const readers = [];
+  try {
+    for (const alias of ['holycodex', 'codex']) {
+      const filename = path.join(temporary, alias);
+      const output = fs.openSync(filename, 'wx', 0o600);
+      try {
+        execFileSync('tar', ['-xzOf', archive, `package/bin/${alias}${extension}`],
+          { stdio: ['ignore', output, 'pipe'] });
+      } finally {
+        fs.closeSync(output);
+      }
+      readers.push(fs.openSync(filename, 'r'));
+    }
+    const left = Buffer.alloc(64 * 1024);
+    const right = Buffer.alloc(left.length);
+    const digest = createHash('sha256');
+    let size = 0;
+    while (true) {
+      const count = fs.readSync(readers[0], left, 0, left.length, null);
+      const other = fs.readSync(readers[1], right, 0, right.length, null);
+      assert.equal(count, other, `${artifactDirectory}: executable aliases differ`);
+      if (count === 0) break;
+      assert.ok(left.subarray(0, count).equals(right.subarray(0, other)),
+        `${artifactDirectory}: executable aliases differ`);
+      digest.update(left.subarray(0, count));
+      size += count;
+    }
+    assert.ok(size > 0, `${artifactDirectory}: empty native executable`);
+    assert.equal(digest.digest('hex'), expectedDigest, `${artifactDirectory}: payload digest mismatch`);
+  } finally {
+    for (const reader of readers) fs.closeSync(reader);
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
 }
 
 function verifyRelease(artifactRoot, expectedSha, version = BASE_VERSION) {
@@ -71,12 +111,7 @@ function verifyRelease(artifactRoot, expectedSha, version = BASE_VERSION) {
     assert.equal(match[1], metadata.name);
     assert.equal(match[2], version);
     const extension = metadata.name === '@turndev/holycodex-native-win32-x64' ? '.exe' : '';
-    const holy = tarFile(archive, `bin/holycodex${extension}`);
-    const codex = tarFile(archive, `bin/codex${extension}`);
-    assert.ok(holy.length > 0, `${directory}: empty native executable`);
-    assert.ok(holy.equals(codex), `${directory}: executable aliases differ`);
-    assert.equal(createHash('sha256').update(holy).digest('hex'), match[3],
-      `${directory}: payload digest mismatch`);
+    verifyNativeAliases(archive, extension, match[3], directory);
   }
 
   assert.deepEqual([...packages].sort(), ['holycodex', ...Object.keys(PLATFORMS)].sort());
