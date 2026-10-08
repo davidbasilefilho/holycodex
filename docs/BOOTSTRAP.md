@@ -31,9 +31,17 @@ registering the new workflow on the default branch. It calls the same DEV/native
 validation and uploads four tarballs without an npm or GitHub release.
 `publish.yml` has no manual dispatch; do not use its old default-branch entry.
 
-The commands below are for PowerShell, using existing authorized GitHub CLI
-access and Node 26/npm 12.2.0 for the owner operation. They are prepared, not
-executed by Codex. Keep this initial run on the exact reviewed feature HEAD:
+The commands below are a template for a fresh PowerShell validation run, using
+existing authorized GitHub CLI access and Node 26/npm 12.2.0 for the owner
+operation. Owner publishing and settings commands have not been executed.
+The already started read-only run is `37811540553`, with payload source
+`ec0453b86257ab5f84cf441c70894c6c938fa0c5`, branch
+`codex/native-validation/ec0453b86257ab5f84cf441c70894c6c938fa0c5`, and version
+`0.17.0-1.dev.37811540553`. Its current status must be checked before reuse.
+The reviewed large-payload verifier is commit
+`65e936fc93186b0917d898f7bddd455283b32425`. Do not start a duplicate run merely
+because the documentation or verifier commit differs from the payload source.
+For a new run, keep it on the exact reviewed feature HEAD:
 
 ```powershell
 $Repo = 'davidbasilefilho/holycodex'
@@ -89,8 +97,9 @@ Each has `source-revision.toml` and exactly one matching tarball:
 | `@turndev/holycodex-native-win32-x64` | `turndev-holycodex-native-win32-x64-$Version.tgz` |
 | `holycodex` | `holycodex-$Version.tgz` |
 
-`$Version` is exact once the native validation run ID is known. There is no
-bootstrap tarball/run ID yet; do not invent one or substitute old Linux/debug
+`$Version` is exact once the native validation run ID is known. Run `37811540553`
+uses `0.17.0-1.dev.37811540553`; this identity is not evidence that native jobs
+have passed or that their tarballs exist. Do not substitute old Linux/debug
 payloads, fixture executables, or a differently versioned platform package.
 The native jobs retain locked upstream tests, release-profile compilation,
 packaging and isolated installer mechanics. Manual runtime/visual/host acceptance
