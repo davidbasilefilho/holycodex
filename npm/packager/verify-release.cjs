@@ -6,11 +6,12 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const VERSION = '0.17.0-1';
+const BASE_VERSION = '0.17.0-1';
+const { validateVersion, tarballName } = require('./channel.cjs');
 const PLATFORMS = {
-  'holycodex-native-linux-x64-gnu': { os: ['linux'], cpu: ['x64'], libc: ['glibc'] },
-  'holycodex-native-darwin-arm64': { os: ['darwin'], cpu: ['arm64'] },
-  'holycodex-native-win32-x64': { os: ['win32'], cpu: ['x64'] },
+  '@turndev/holycodex-native-linux-x64-gnu': { os: ['linux'], cpu: ['x64'], libc: ['glibc'] },
+  '@turndev/holycodex-native-darwin-arm64': { os: ['darwin'], cpu: ['arm64'] },
+  '@turndev/holycodex-native-win32-x64': { os: ['win32'], cpu: ['x64'] },
 };
 
 function readSourceRevision(filename) {
@@ -23,7 +24,8 @@ function tarFile(archive, name) {
   return execFileSync('tar', ['-xzOf', archive, `package/${name}`]);
 }
 
-function verifyRelease(artifactRoot, expectedSha) {
+function verifyRelease(artifactRoot, expectedSha, version = BASE_VERSION) {
+  validateVersion(version);
   assert.match(expectedSha, /^[a-f0-9]{40,64}$/);
   const artifacts = fs.readdirSync(artifactRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -38,8 +40,10 @@ function verifyRelease(artifactRoot, expectedSha) {
     assert.equal(archives.length, 1, `${directory}: expected exactly one npm tarball`);
     const archive = path.join(directory, archives[0]);
     const metadata = JSON.parse(tarFile(archive, 'package.json'));
-    assert.equal(metadata.version, VERSION, `${directory}: package version mismatch`);
-    assert.equal(archives[0], `${metadata.name}-${VERSION}.tgz`, `${directory}: tarball name mismatch`);
+    assert.equal(metadata.repository?.url, 'git+https://github.com/davidbasilefilho/holycodex.git', `${directory}: provenance repository mismatch`);
+    assert.deepEqual(metadata.publishConfig, { access: 'public', tag: version === BASE_VERSION ? 'latest' : 'dev' }, `${directory}: distribution channel mismatch`);
+    assert.equal(metadata.version, version, `${directory}: package version mismatch`);
+    assert.equal(archives[0], tarballName(metadata.name, version), `${directory}: tarball name mismatch`);
     for (const name of ['LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md']) {
       assert.ok(tarFile(archive, name).length > 0, `${directory}: missing ${name}`);
     }
@@ -48,9 +52,9 @@ function verifyRelease(artifactRoot, expectedSha) {
 
     if (metadata.name === 'holycodex') {
       assert.deepEqual(metadata.optionalDependencies, {
-        'holycodex-native-darwin-arm64': VERSION,
-        'holycodex-native-linux-x64-gnu': VERSION,
-        'holycodex-native-win32-x64': VERSION,
+        '@turndev/holycodex-native-darwin-arm64': version,
+        '@turndev/holycodex-native-linux-x64-gnu': version,
+        '@turndev/holycodex-native-win32-x64': version,
       });
       continue;
     }
@@ -65,8 +69,8 @@ function verifyRelease(artifactRoot, expectedSha) {
     const match = /^format = 1\npackage = "([^"\r\n]+)"\nversion = "([^"\r\n]+)"\nsha256 = "([a-f0-9]{64})"\n?$/.exec(manifestText);
     assert.ok(match, `${directory}: invalid payload.toml`);
     assert.equal(match[1], metadata.name);
-    assert.equal(match[2], VERSION);
-    const extension = metadata.name === 'holycodex-native-win32-x64' ? '.exe' : '';
+    assert.equal(match[2], version);
+    const extension = metadata.name === '@turndev/holycodex-native-win32-x64' ? '.exe' : '';
     const holy = tarFile(archive, `bin/holycodex${extension}`);
     const codex = tarFile(archive, `bin/codex${extension}`);
     assert.ok(holy.length > 0, `${directory}: empty native executable`);
@@ -79,12 +83,12 @@ function verifyRelease(artifactRoot, expectedSha) {
 }
 
 if (require.main === module) {
-  const [artifactRoot, expectedSha] = process.argv.slice(2);
-  if (!artifactRoot || !expectedSha || process.argv.length !== 4) {
-    throw new Error('usage: node verify-release.cjs ARTIFACT_DIRECTORY VERIFIED_SHA');
+  const [artifactRoot, expectedSha, version = BASE_VERSION] = process.argv.slice(2);
+  if (!artifactRoot || !expectedSha || ![4, 5].includes(process.argv.length)) {
+    throw new Error('usage: node verify-release.cjs ARTIFACT_DIRECTORY VERIFIED_SHA [VERSION]');
   }
-  verifyRelease(artifactRoot, expectedSha);
-  console.log(`Verified four HolyCodex ${VERSION} npm artifacts from ${expectedSha}.`);
+  verifyRelease(artifactRoot, expectedSha, version);
+  console.log(`Verified four HolyCodex ${version} npm artifacts from ${expectedSha}.`);
 }
 
 module.exports = { readSourceRevision, verifyRelease };

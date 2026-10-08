@@ -1,12 +1,80 @@
 # Release procedure
 
-HolyCodex versions use `0.X.Y-Z`, where `Z` is the numeric maintenance
-revision. This document describes the `0.17.0-1` release flow; a workflow
-implementation is not evidence that release gates have passed. Root owns
-accepting and tagging the exact release source. A successful
-`native-release-validation` run for
-`v0.17.0-1` automatically starts `publish-native-packages`; no local command in
-this procedure publishes packages or changes Git refs.
+The 0.17 layout publishes `holycodex` plus three platform packages under
+`@turndev`. It is different from the old 0.16 JavaScript package. Both channels
+publish the native packages before the main package, with exact matching
+versions and dependency references. A package is not installable until its
+native dependency exists in npm.
+
+## Entry point and channels
+
+`.github/workflows/publish.yml` is the only workflow that runs `npm publish`
+and creates GitHub releases. It calls reusable `dev.yml` or `stable.yml`, which
+call shared native validation in `release.yml`. Validation-only manual runs of
+`release.yml` never publish. All downloaded artifacts come from the same run
+and must carry the exact source SHA.
+
+A push to `next` triggers DEV. Manual `publish.yml` dispatch is also DEV only
+and must select `next`; dispatch availability requires the workflow on the
+default branch. A DEV version is `0.17.0-1.dev.<github.run_id>`; retries retain
+that version. All four npm packages use dist-tag `dev`, and the GitHub release
+is a prerelease with `latest=false`. DEV must preserve every existing `latest`
+tag. Runtime version remains the canonical `0.17.0-1`; DEV versioning adjusts
+only staged package/dependency/payload metadata, and release notes identify the
+source SHA and runtime base. No public version-bump command is introduced.
+
+Stable is implemented separately: an accepted `v0.17.0-1` tag push selects
+`stable.yml`, verifies ancestry in `main`, and publishes all four packages
+with dist-tag `latest`. Executing stable requires separate Root authorization.
+Do not create that tag merely to test the workflows.
+
+The checkpoint stack at implementation time was PR11 -> PR10's branch ->
+`next` (PR10) -> `main` (PR9). The publishing PR is stacked on PR11. Root must
+integrate the completed stack into `next` to include all runtime/TOON/skill and
+publishing changes in DEV. Merging an individual stacked PR into its feature
+base does not publish. A push to `next` containing `publish.yml` does; do not
+perform that integration before the prerequisites below are ready.
+
+## npm bootstrap and OIDC handoff
+
+Read-only registry checks on 2026-10-08 found `holycodex` with
+`latest=0.16.12` and `dev=0.16.12-dev.124.1`. Neither the previous unscoped
+native names nor the intended `@turndev/holycodex-native-*` names existed.
+Registry 404 is an observation, not evidence that an account can claim a name.
+The workflow preflights existence of all four packages and fails before any
+publish if one is absent; it does not create placeholders or bootstrap accounts.
+
+An authorized npm owner must first establish the three real scoped packages
+using verified native tarballs (public access, DEV tag), confirm scope ownership,
+and configure trusted publishing for **each** platform package and `holycodex`:
+GitHub owner `davidbasilefilho`, repository `holycodex`, filename `publish.yml`,
+with direct `npm publish` allowed. No token, grant, environment or security
+setting is created by this repository implementation. Do not publish the main
+wrapper while its exact dependencies are absent. Complete this handoff before
+coordinating the first DEV run; newly configured publishers expire if their
+first successful publish does not occur within two days.
+
+The [npm OIDC documentation](https://docs.npmjs.com/trusted-publishers/) states
+that reusable workflow validation uses the caller's workflow identity. GitHub
+also distinguishes the caller claims from the callee's `job_workflow_ref` in
+[its OIDC documentation](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-with-reusable-workflows).
+Here publication executes directly in `publish.yml`; validation callees have
+no OIDC permission. The publisher runs on a GitHub-hosted runner with Node 26,
+npm 12.2.0 and `id-token: write`. Every package's `repository.url` identifies
+this GitHub repository. The current npm service permits up to ten publishers
+per package, though this project deliberately uses one entry point.
+
+Publisher preflight checks all archives, identities, versions, aliases and
+source revisions. It rejects conflicting already-published integrity before
+writing any package. After each publish it reads back the exact version,
+integrity and channel tag; platform readback failure withholds the wrapper.
+Retries skip byte-identical versions already carrying the expected tag;
+an existing version with a different tag requires owner reconciliation rather
+than silently changing tags. Partial platform publication can remain after a
+failure, but no new wrapper points at missing dependencies. GitHub release
+assets are created only after all four registry readbacks succeed. Interrupted
+GitHub uploads resume only missing assets; existing tag source, channel, sizes
+and SHA-256 digests must match. Conflicting assets are not overwritten.
 
 ## Required release gates
 
@@ -38,30 +106,20 @@ the release only after accepting the source SHA and completing these gates.
 
 ## Validation workflow
 
-The `native-release-validation` workflow runs on `v0.17.0-1` and can also be run
-manually for validation. It runs the canonical root `mise` quality tasks,
-materializes the pinned upstream source, applies the patch layer, builds the
-native CLI on supported runners, and uploads one wrapper and three platform
-tarballs. Every artifact carries `source-revision.toml` with the checked-out
-full Git SHA. The pinned upstream root `justfile` test is run on each native
-runner.
+`release.yml` is a reusable build/test workflow, also manually runnable for
+validation only. `dev.yml` and `stable.yml` pass channel and distribution version
+into it. It runs root quality, materializes the exact `upstream.toml` revision,
+applies strict patches, and runs the existing native runtime suites on Linux
+x64 GNU, macOS ARM64 and Windows x64 before release-profile packaging.
+Every tarball artifact includes `source-revision.toml`; native aliases must be
+byte-identical. Wrapper dependencies and platform payload metadata are staged
+at the same distribution version. The shared verifier checks four distinct
+packages and their exact metadata before the publisher runs.
 
-Only a successful validation workflow associated with the exact `v0.17.0-1`
-tag triggers `publish-native-packages`. That workflow downloads all four
-artifacts from the successful validation run, checks their recorded source
-SHA against the run's `head_sha`, inspects package identity, versions, native
-aliases and digests, then publishes the three native packages before the
-wrapper using npm trusted publishing (OIDC). A failed gate prevents
-publication. The npm registry must have trusted publishers configured for all
-four package names.
-
-The pinned upstream root `justfile` accepts forwarded test arguments. CI
-installs `just` and `cargo-nextest`, then invokes `just test --locked -p
-codex-cli` from the upstream repository root. This retains upstream's shell,
-8 MiB Rust stack setting, local nextest profile, and failure handling. The
-targeted CLI check must be supplemented with the native SIWC, tool/request,
-and host integration tests when those patches are complete. It does not
-satisfy those release gates by itself.
+Canonical CI quality passing is not a native build or runtime acceptance result.
+Manual/native visual/authentication/host gates and the license inventory remain
+separate evidence requirements; DEV labeling does not establish stable readiness.
+Root coordinates actual publication and any acceptance limitations.
 
 ## npm installation and validation
 
@@ -106,7 +164,7 @@ parallel fixture isolation. These are packaging tests, not HolyCodex runtime
 evidence.
 
 The published package names are `holycodex` and
-`holycodex-native-{linux-x64-gnu,darwin-arm64,win32-x64}`. Registry
+`@turndev/holycodex-native-{linux-x64-gnu,darwin-arm64,win32-x64}`. Registry
 availability, account authentication, and trusted-publisher configuration
 remain release prerequisites; no scoped namespace is assumed.
 

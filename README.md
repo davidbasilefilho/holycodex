@@ -13,6 +13,7 @@ application. No JavaScript, Node.js, or Bun runtime is needed after installation
 
 The npm distribution is `holycodex`. It selects a matching optional native
 package during installation and exposes the installed executables as npm bins.
+Its optional native dependencies are `@turndev/holycodex-native-*`.
 Current packaging targets are Linux x64 (glibc), macOS Apple silicon, and
 Windows x64. npm/Node is needed to install the package; the installed commands
 are native programs.

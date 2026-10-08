@@ -1,23 +1,47 @@
 name: native-release-validation
 
 on:
-  push:
-    branches: [main]
-    tags: ["v0.17.0-1"]
-  pull_request:
-    branches: [main]
+  workflow_call:
+    inputs:
+      channel:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
   workflow_dispatch:
+    inputs:
+      channel:
+        type: choice
+        options: [dev, stable]
+        default: dev
+      version:
+        description: Optional distribution version; empty derives it from this run
+        type: string
 
 permissions:
   contents: read
 
-concurrency:
-  group: holycodex-native-release-${{ github.ref }}
-  # Superseded PR checks are disposable; main/tag release validation is not.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - id: version
+        shell: bash
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="$(node npm/packager/channel.cjs version "$CHANNEL" "$GITHUB_RUN_ID" "$REQUESTED_VERSION")"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
   quality:
+    needs: prepare
     runs-on: ubuntu-latest
     steps:
       - name: Set isolated Codex home
@@ -57,7 +81,10 @@ jobs:
       - run: mise run test
 
   wrapper:
-    needs: quality
+    needs: [quality, prepare]
+    env:
+      PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
+      PACKAGE_CHANNEL: ${{ inputs.channel }}
     runs-on: ubuntu-latest
     steps:
       - name: Set isolated Codex home
@@ -83,8 +110,10 @@ jobs:
           install: true
           cache: true
       - name: Stage wrapper and run isolated npm install tests
+        shell: bash
         run: |
           cargo run --locked -p holycodex-npm-packager -- wrapper .tmp/npm
+          node npm/packager/channel.cjs stage .tmp/npm/holycodex "$PACKAGE_VERSION" "$PACKAGE_CHANNEL"
           npm pack --pack-destination .tmp/npm .tmp/npm/holycodex
           npm test --prefix npm/holycodex
       - name: Record source identity
@@ -96,14 +125,17 @@ jobs:
           printf 'source_sha = "%s"\n' "$actual" > .tmp/npm/source-revision.toml
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: holycodex-0.17.0-1-wrapper-${{ github.sha }}
+          name: holycodex-${{ needs.prepare.outputs.version }}-wrapper-${{ github.sha }}
           path: |
-            .tmp/npm/holycodex-0.17.0-1.tgz
+            .tmp/npm/holycodex-${{ needs.prepare.outputs.version }}.tgz
             .tmp/npm/source-revision.toml
           if-no-files-found: error
 
   native:
-    needs: quality
+    needs: [quality, prepare]
+    env:
+      PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
+      PACKAGE_CHANNEL: ${{ inputs.channel }}
     strategy:
       fail-fast: false
       matrix:
@@ -286,8 +318,10 @@ jobs:
       - name: Build one native runtime under both names
         run: cargo run --locked -p holycodex-dev -- package --upstream .tmp/upstream --output .tmp/native --release
       - name: Stage and pack platform npm package
+        shell: bash
         run: |
           cargo run --locked -p holycodex-npm-packager -- ${{ matrix.target }} .tmp/native .tmp/npm
+          node npm/packager/channel.cjs stage .tmp/npm/${{ matrix.package }} "$PACKAGE_VERSION" "$PACKAGE_CHANNEL"
           npm pack --pack-destination .tmp/npm .tmp/npm/${{ matrix.package }}
           npm test --prefix npm/holycodex
       - name: Record source identity
@@ -299,8 +333,8 @@ jobs:
           printf 'source_sha = "%s"\n' "$actual" > .tmp/npm/source-revision.toml
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: holycodex-0.17.0-1-${{ matrix.target }}-${{ github.sha }}
+          name: holycodex-${{ needs.prepare.outputs.version }}-${{ matrix.target }}-${{ github.sha }}
           path: |
-            .tmp/npm/${{ matrix.package }}-0.17.0-1.tgz
+            .tmp/npm/turndev-${{ matrix.package }}-${{ needs.prepare.outputs.version }}.tgz
             .tmp/npm/source-revision.toml
           if-no-files-found: error
