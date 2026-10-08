@@ -1,8 +1,16 @@
 ---
 name: babysit-ci
-description: Use when CI or release gates are running and their terminal results need follow-through.
+description: Use when following GitHub PR checks, reviews or pushes through their current-head terminal outcome.
 ---
 
 # Babysit CI
 
-Identify the relevant gates and their current state, then wait for terminal outcomes. Diagnose failures from their logs and report the gate, result, and actionable cause with evidence. Do not treat an in-progress check as success or rerun unrelated gates.
+Read the PR's current head SHA, required checks and relevant reviews/threads using connected tools or an already authorized GitHub client. Missing permissions, required-check discovery or review coverage are unverified gates. Track check attempts for that exact SHA; distinguish passed, failed, pending, cancelled and blocked. A clean mergeability flag alone is not acceptance.
+
+Use events only if the existing host exposes the pinned upstream transport and the provider's actual event name, argument schema and requested repository/PR scope have been discovered and validated. Reuse that host's experimental `mcpServer/event/stream/start` on an already subscribed thread with server `codex_apps`; never guess names or translate automation webhook schemas into runtime event contracts. Without verified capability, use bounded waits and authoritative reads through the existing host. Do not install a daemon, scheduler, credentials or grants. See [transport and reconciliation boundary](references/events.md) for implementation limits.
+
+Treat events as wake-ups, never gate results. Coalesce repeated notifications into a fresh complete read; ignore other subscription IDs. Re-read the PR head after reading checks and reviews. If a push or notification intervenes, discard the earlier observation and reconcile the new head. Late/out-of-order events cannot restore an old green SHA. After activation, reconnect or disconnect, re-read the complete current state; activation does not prove delivery continuity. Keep periodic safety reconciliation through the existing host even while events are active.
+
+On termination, startup failure or unavailable capability, use the same authorized read fallback and report the event limitation. If authentication/connection requires user action, stop dependent access and report it. Do not claim reduced polling until real delivery has been demonstrated. Stop the upstream subscription when tracking ends; its connection lifecycle owns cleanup.
+
+Follow through to terminal results, or report the concrete access/environment blocker. Diagnose failed checks from current-attempt logs. Report the observed SHA, required-check/review coverage, exact result and remaining acceptance limits. Do not rerun unrelated gates or treat skipped/cancelled/in-progress checks as success. Merge, release and deployment still need their own authorization.
