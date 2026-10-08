@@ -274,7 +274,7 @@ impl CiWatch {
             .required_checks
             .filter(|_| self.check_target.is_some())
         {
-            None => Outcome::Unverified,
+            None => aggregate(&[Gate::Unknown, snapshot.reviews]),
             Some(mut gates) => {
                 gates.push(snapshot.reviews);
                 aggregate(&gates)
@@ -606,5 +606,21 @@ mod tests {
         }
         assert_eq!(CheckState::CompletedFailure.protection(), Gate::Failed);
         assert_eq!(CheckState::Unknown.protection(), Gate::Unknown);
+    }
+
+    #[test]
+    fn known_review_failure_survives_unknown_checks_or_selection() {
+        let mut watch = CiWatch::new("sub".into());
+        let token = watch.begin_read();
+        assert!(watch.reconcile(token, snapshot("head", None, Gate::Failed)));
+        assert_eq!(watch.outcome(), Outcome::Failed);
+        assert_eq!(watch.acceptance(), Outcome::Failed);
+        let token = watch.begin_read();
+        let mut missing_selection = snapshot("head", Some(vec![Gate::Passed]), Gate::Failed);
+        missing_selection.check_target = None;
+        missing_selection.confirmed_check_target = None;
+        assert!(watch.reconcile(token, missing_selection));
+        assert_eq!(watch.outcome(), Outcome::Failed);
+        assert_eq!(watch.acceptance(), Outcome::Failed);
     }
 }
