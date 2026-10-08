@@ -4,12 +4,6 @@ on:
   push:
     branches: [next]
     tags: ["v0.17.0-1"]
-  workflow_dispatch:
-    inputs:
-      validation_only:
-        description: Build native DEV artifacts only; do not publish npm or GitHub releases
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -33,12 +27,10 @@ jobs:
           persist-credentials: false
       - id: route
         shell: bash
-        env:
-          VALIDATION_ONLY: ${{ inputs.validation_only }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          node npm/packager/channel.cjs route "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$VALIDATION_ONLY" "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          node npm/packager/channel.cjs route "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
           if [[ "$GITHUB_REF" == refs/tags/v0.17.0-1 ]]; then
             git fetch --no-tags origin main
             git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD
@@ -59,10 +51,11 @@ jobs:
     needs: [route, dev, stable]
     if: >-
       always() && needs.route.result == 'success' && needs.route.outputs.publish == 'true' &&
-      (github.event_name != 'workflow_dispatch' || !inputs.validation_only) &&
+      github.event_name == 'push' &&
       ((needs.route.outputs.channel == 'dev' && needs.dev.result == 'success') ||
       (needs.route.outputs.channel == 'stable' && needs.stable.result == 'success'))
     runs-on: ubuntu-latest
+    environment: holycodex-publish
     permissions:
       contents: write
       id-token: write

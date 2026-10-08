@@ -27,15 +27,10 @@ function distributionVersion(channel, runId, requested) {
   return version;
 }
 
-function publicationRoute(event, ref, validationOnly = '') {
-  assert.ok(['push', 'workflow_dispatch'].includes(event), 'unsupported publication event');
-  assert.ok(['', 'true', 'false'].includes(validationOnly), 'invalid validation-only flag');
-  if (event === 'workflow_dispatch' && validationOnly === 'true') {
-    assert.match(ref, /^refs\/heads\/.+$/, 'validation-only requires a branch');
-    return { channel: 'dev', publish: false };
-  }
+function publicationRoute(event, ref) {
+  assert.equal(event, 'push', 'publication requires a push event');
   if (ref === 'refs/heads/next') return { channel: 'dev', publish: true };
-  if (event === 'push' && ref === 'refs/tags/v0.17.0-1') return { channel: 'stable', publish: true };
+  if (ref === 'refs/tags/v0.17.0-1') return { channel: 'stable', publish: true };
   throw new Error('DEV publishing requires next; stable requires accepted release tag push');
 }
 
@@ -72,10 +67,10 @@ if (require.main === module) {
   if (operation === 'stage') stageChannel(first, second, third);
   else if (operation === 'version') console.log(distributionVersion(first, second, third));
   else if (operation === 'route') {
-    const route = publicationRoute(first, second, third);
-    const version = distributionVersion(route.channel, process.argv[6]);
+    const route = publicationRoute(first, second);
+    const version = distributionVersion(route.channel, third);
     console.log(`channel=${route.channel}\npublish=${route.publish}\nversion=${version}`);
-  } else throw new Error('usage: channel.cjs stage DIRECTORY VERSION CHANNEL | version CHANNEL RUN_ID [VERSION] | route EVENT REF VALIDATION_ONLY RUN_ID');
+  } else throw new Error('usage: channel.cjs stage DIRECTORY VERSION CHANNEL | version CHANNEL RUN_ID [VERSION] | route EVENT REF RUN_ID');
 }
 
 module.exports = { BASE_VERSION, PLATFORM_PACKAGES, validateVersion, distributionVersion, tarballName, stageChannel, publicationRoute };

@@ -23,13 +23,13 @@ already exist before it can become installable.
 
 ## Build in CI before any publication
 
-The default branch already contains a dispatchable `publish.yml` from the old
-layout, while new `release.yml` is absent there. GitHub allows [dispatch on a
-selected branch](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)
-when the workflow exists on the default branch. Use the updated `publish.yml`
-on PR12's branch with `validation_only=true`. It calls DEV/native validation
-and uploads four tarballs, but the publication job is skipped: no npm publish,
-OIDC exchange, GitHub release, or release tag is performed.
+`native-validation.yml` has a dedicated push trigger for
+`codex/native-validation/**`, read-only repository permissions, and no publishing
+or OIDC job. A maintainer creates a fresh validation branch pointing at the
+reviewed PR12 SHA. Unlike manual dispatch, this push trigger does not require
+registering the new workflow on the default branch. It calls the same DEV/native
+validation and uploads four tarballs without an npm or GitHub release.
+`publish.yml` has no manual dispatch; do not use its old default-branch entry.
 
 The commands below are for PowerShell, using existing authorized GitHub CLI
 access and Node 26/npm 12.2.0 for the owner operation. They are prepared, not
@@ -37,30 +37,33 @@ executed by Codex. Keep this initial run on the exact reviewed feature HEAD:
 
 ```powershell
 $Repo = 'davidbasilefilho/holycodex'
-$Branch = 'codex/dev-publishing-entry'
+$SourceBranch = 'codex/dev-publishing-entry'
 $SourceSha = gh pr view 12 --repo $Repo --json headRefOid --jq .headRefOid
 if ($LASTEXITCODE -ne 0) { throw 'Cannot read PR12 head' }
 if (Test-Path 'holycodex-native-bootstrap') { throw 'Choose a fresh checkout directory' }
-git clone --single-branch --branch $Branch "https://github.com/$Repo.git" holycodex-native-bootstrap
+git clone --single-branch --branch $SourceBranch "https://github.com/$Repo.git" holycodex-native-bootstrap
 if ($LASTEXITCODE -ne 0) { throw 'Source clone failed' }
 Set-Location holycodex-native-bootstrap
 git checkout --detach $SourceSha
 if ($LASTEXITCODE -ne 0) { throw 'Reviewed source checkout failed' }
 
-gh workflow run publish.yml --repo $Repo --ref $Branch -f validation_only=true
-if ($LASTEXITCODE -ne 0) { throw 'Validation-only dispatch failed' }
-gh run list --repo $Repo --workflow publish.yml --branch $Branch --event workflow_dispatch --limit 10 --json databaseId,headSha,status,conclusion,createdAt,url
+$Branch = "codex/native-validation/$SourceSha"
+$Existing = git ls-remote origin "refs/heads/$Branch"
+if ($LASTEXITCODE -ne 0 -or $Existing) { throw 'Choose a fresh validation branch; do not overwrite an existing ref' }
+git push origin "${SourceSha}:refs/heads/$Branch"
+if ($LASTEXITCODE -ne 0) { throw 'Validation branch push failed' }
+gh run list --repo $Repo --workflow native-validation.yml --branch $Branch --event push --limit 10 --json databaseId,headSha,status,conclusion,createdAt,url
 ```
 
 Select the new run whose `headSha` equals `$SourceSha`; do not take an older run
 or a quality run. After all native jobs succeed, download and validate it:
 
 ```powershell
-$RunId = Read-Host 'ID of the validation-only run at the reviewed source SHA'
+$RunId = Read-Host 'ID of the native-bootstrap-validation run at the reviewed source SHA'
 gh run watch $RunId --repo $Repo --exit-status
 if ($LASTEXITCODE -ne 0) { throw 'Native validation failed; do not bootstrap' }
 $Run = gh run view $RunId --repo $Repo --json headSha,event,status,conclusion,headBranch | ConvertFrom-Json
-if ($Run.headSha -ne $SourceSha -or $Run.headBranch -ne $Branch -or $Run.event -ne 'workflow_dispatch' -or $Run.conclusion -ne 'success') { throw 'Wrong source or run' }
+if ($Run.headSha -ne $SourceSha -or $Run.headBranch -ne $Branch -or $Run.event -ne 'push' -or $Run.conclusion -ne 'success') { throw 'Wrong source or run' }
 $Version = "0.17.0-1.dev.$RunId"
 $Artifacts = '.tmp/bootstrap-artifacts'
 if (Test-Path $Artifacts) { throw 'Choose a fresh artifact destination' }
@@ -127,6 +130,28 @@ conflicting version or advance the wrapper. These commands never use `latest`.
 ## Configure the four trusted publishers as owner
 
 This is a separate owner security-setting action; Codex does not execute it.
+
+Before enabling npm OIDC, the repository administrator must create and verify
+GitHub **Settings → Environments → holycodex-publish** with:
+
+- Deployment branches and tags set to **Selected branches and tags**, with
+  exactly branch `next` and tag `v0.17.0-1`; no wildcard or pull-request refs.
+- Required reviewer(s) chosen by Root, **Prevent self-review** enabled, and
+  administrator bypass disabled. Approving DEV does not authorize stable.
+- Accepted `next` and stable-tag changes governed by the existing reviewed
+  integration/release policy. A repository writer must not be able to approve
+  their own publication.
+
+[GitHub documents these external protections](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments).
+YAML `environment:` alone does not create protection: an absent environment can
+be auto-created unprotected. Verify the settings before integration. npm must
+require the same environment for **all four** packages. A publisher without
+that environment constraint permits a modified branch workflow to bypass the
+repository code; inspect existing publishers and stop for owner approval of
+any replacement. No live environment or npm configuration was changed or
+verified here. Until both configurations are confirmed, OIDC publication is
+blocked, even if CI is green.
+
 Open each package page, then **Settings → Trusted Publisher → GitHub Actions**:
 
 - [macOS ARM64](https://www.npmjs.com/package/@turndev/holycodex-native-darwin-arm64)
@@ -135,7 +160,7 @@ Open each package page, then **Settings → Trusted Publisher → GitHub Actions
 - [principal holycodex](https://www.npmjs.com/package/holycodex)
 
 Use GitHub organization/user **davidbasilefilho**, repository **holycodex**,
-workflow filename **publish.yml**, no environment name for this workflow, and
+workflow filename **publish.yml**, environment name **holycodex-publish**, and
 allow direct **npm publish**. Stage-only permission is insufficient. Do not
 change other security/access settings. Inspect the existing principal publisher
 first; retain it if it already matches. If it differs, stop for coordinated
@@ -145,9 +170,9 @@ The owner may use the documented CLI instead of the website, after separate
 approval of the setting change; for each newly created platform package:
 
 ```powershell
-npm trust github "@turndev/holycodex-native-darwin-arm64" --file publish.yml --repo davidbasilefilho/holycodex --allow-publish
-npm trust github "@turndev/holycodex-native-linux-x64-gnu" --file publish.yml --repo davidbasilefilho/holycodex --allow-publish
-npm trust github "@turndev/holycodex-native-win32-x64" --file publish.yml --repo davidbasilefilho/holycodex --allow-publish
+npm trust github "@turndev/holycodex-native-darwin-arm64" --file publish.yml --repo davidbasilefilho/holycodex --environment holycodex-publish --allow-publish
+npm trust github "@turndev/holycodex-native-linux-x64-gnu" --file publish.yml --repo davidbasilefilho/holycodex --environment holycodex-publish --allow-publish
+npm trust github "@turndev/holycodex-native-win32-x64" --file publish.yml --repo davidbasilefilho/holycodex --environment holycodex-publish --allow-publish
 npm trust list holycodex
 ```
 
@@ -169,5 +194,6 @@ each step. Do not merge PR10 first and publish an incomplete `next`:
 
 The initial bootstrap version is not reused for a different source/build/run.
 PR9 (`next` → `main`) is not required for this DEV route, and no stable tag is
-created. Default `publish.yml` dispatch with `validation_only=false` requires
-`next`; dispatching it on the feature branch without the flag fails closed.
+created. Manual dispatch is confined to validation workflows and has a
+different filename from the npm publisher. The dedicated validation branch is
+never an allowed deployment branch in `holycodex-publish`.

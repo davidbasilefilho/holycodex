@@ -194,14 +194,28 @@ test('conflicting existing GitHub asset or tag prevents repair writes', async (t
   assert.equal(api.uploads.length, 4);
 });
 
-test('validation-only feature dispatch builds DEV without publishing; ordinary feature/stable dispatch rejected', () => {
-  assert.deepEqual(publicationRoute('workflow_dispatch', 'refs/heads/codex/dev-publishing-entry', 'true'), { channel: 'dev', publish: false });
-  assert.deepEqual(publicationRoute('workflow_dispatch', 'refs/heads/next', 'true'), { channel: 'dev', publish: false });
-  assert.deepEqual(publicationRoute('workflow_dispatch', 'refs/heads/next', 'false'), { channel: 'dev', publish: true });
+test('publisher rejects all manual dispatches and unaccepted branch pushes', () => {
   assert.deepEqual(publicationRoute('push', 'refs/heads/next'), { channel: 'dev', publish: true });
   assert.deepEqual(publicationRoute('push', 'refs/tags/v0.17.0-1'), { channel: 'stable', publish: true });
-  for (const args of [['workflow_dispatch', 'refs/heads/codex/dev-publishing-entry', 'false'], ['workflow_dispatch', 'refs/tags/v0.17.0-1', 'false'], ['workflow_dispatch', 'refs/tags/v0.17.0-1', 'true'], ['pull_request', 'refs/heads/next'], ['workflow_dispatch', 'refs/heads/next', 'unknown']]) {
-    assert.throws(() => publicationRoute(...args));
+  for (const event of ['workflow_dispatch', 'pull_request']) {
+    for (const ref of ['refs/heads/next', 'refs/heads/codex/dev-publishing-entry', 'refs/tags/v0.17.0-1']) {
+      assert.throws(() => publicationRoute(event, ref), /push event/);
+    }
+  }
+  assert.throws(() => publicationRoute('push', 'refs/heads/codex/native-validation/reviewed'));
+});
+
+test('OIDC publisher and branch-selected validator use separate workflow identities', () => {
+  const workflows = path.join(__dirname, '..', '..', '.github', 'workflows');
+  const publisher = fs.readFileSync(path.join(workflows, 'publish.yml'), 'utf8');
+  const validator = fs.readFileSync(path.join(workflows, 'native-validation.yml'), 'utf8');
+  assert.doesNotMatch(publisher, /workflow_dispatch|validation_only/);
+  assert.match(publisher, /environment: holycodex-publish/);
+  assert.match(publisher, /github.event_name == 'push'/);
+  assert.match(validator, /codex\/native-validation\/\*\*/);
+  for (const name of ['native-validation.yml', 'release.yml', 'dev.yml', 'stable.yml']) {
+    const text = fs.readFileSync(path.join(workflows, name), 'utf8');
+    assert.doesNotMatch(text, /id-token|contents: write|npm publish|github-release\.cjs/);
   }
 });
 

@@ -10,15 +10,15 @@ native dependency exists in npm.
 
 `.github/workflows/publish.yml` is the only workflow that runs `npm publish`
 and creates GitHub releases. It calls reusable `dev.yml` or `stable.yml`, which
-call shared native validation in `release.yml`. Validation-only manual runs of
-`release.yml` never publish. Manual `publish.yml` runs with
-`validation_only=true` also build DEV artifacts without scheduling the
-publisher, on any same-repository branch. See [bootstrap commands](BOOTSTRAP.md). All downloaded artifacts come from the same run
-and must carry the exact source SHA.
+call shared native validation in `release.yml`. `native-validation.yml` is the
+read-only bootstrap entry: push a fresh `codex/native-validation/**` branch at
+the reviewed SHA to build all native artifacts before publication, without a
+default-branch registration step. Manual `release.yml` runs also only validate
+when that workflow exists on the default branch. See [bootstrap commands](BOOTSTRAP.md).
+All downloaded artifacts come from the same run and must carry the exact SHA.
 
-A push to `next` triggers DEV. Manual publishing `publish.yml` dispatch is also DEV only
-and must select `next`; validation-only dispatch may select a feature branch; dispatch availability requires the workflow on the
-default branch. A DEV version is `0.17.0-1.dev.<github.run_id>`; retries retain
+`publish.yml` has no manual dispatch. A push to `next` triggers DEV. A DEV
+version is `0.17.0-1.dev.<github.run_id>`; retries retain
 that version. All four npm packages use dist-tag `dev`, and the GitHub release
 is a prerelease with `latest=false`. DEV must preserve every existing `latest`
 tag. Runtime version remains the canonical `0.17.0-1`; DEV versioning adjusts
@@ -53,7 +53,11 @@ An authorized npm owner must first establish the three real scoped packages
 using verified native tarballs (public access, DEV tag), confirm scope ownership,
 and configure trusted publishing for **each** platform package and `holycodex`:
 GitHub owner `davidbasilefilho`, repository `holycodex`, filename `publish.yml`,
-with direct `npm publish` allowed. No token, grant, environment or security
+with environment **holycodex-publish** and direct `npm publish` allowed. The
+repository administrator must independently protect that environment with
+selected branch `next` / tag `v0.17.0-1`, required reviewers, no self-review and
+no admin bypass. The npm environment constraint and GitHub protections are
+mandatory external gates; YAML alone cannot enforce them. No token, grant, environment or security
 setting is created by this repository implementation. Do not publish the main
 wrapper while its exact dependencies are absent. Complete this handoff before
 coordinating the first DEV run; newly configured publishers expire if their
