@@ -1,5 +1,5 @@
 diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
-index 19885ae..8bedec0 100644
+index 19885ae..9ddef58 100644
 --- a/codex-rs/Cargo.lock
 +++ b/codex-rs/Cargo.lock
 @@ -179,6 +179,12 @@ dependencies = [
@@ -20,7 +20,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "app_test_support"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
@@ -66,7 +66,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-agent-extension"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-core",
@@ -75,7 +75,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-agent-graph-store"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-protocol",
   "codex-state",
@@ -84,7 +84,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-agent-identity"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
@@ -93,7 +93,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-agent-message-board-client"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "chrono",
@@ -102,7 +102,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-agent-message-board-extension"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "base64 0.22.1",
   "caseless",
@@ -111,7 +111,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-agent-roles"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-config",
   "codex-file-system",
@@ -120,7 +120,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-analytics"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-app-server-protocol",
   "codex-git-utils",
@@ -129,7 +129,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-ansi-escape"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "ansi-to-tui",
   "ratatui",
@@ -138,7 +138,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-api"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "assert_matches",
@@ -147,7 +147,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-app-server"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "app_test_support",
@@ -156,7 +156,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-app-server-client"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-app-server",
   "codex-app-server-protocol",
@@ -165,7 +165,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-app-server-daemon"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "blake3",
@@ -174,7 +174,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-app-server-protocol"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-app-server-protocol-noop-macros",
@@ -183,12 +183,12 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-app-server-protocol-noop-macros"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  
  [[package]]
  name = "codex-app-server-test-client"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "clap",
@@ -197,7 +197,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-app-server-transport"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "axum",
   "base64 0.22.1",
@@ -206,7 +206,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-apply-patch"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "assert_cmd",
@@ -215,7 +215,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-arg0"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-apply-patch",
@@ -224,7 +224,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-async-utils"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "pretty_assertions",
   "rand 0.9.3",
@@ -233,7 +233,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-attachment-store"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "pretty_assertions",
   "serde",
@@ -242,7 +242,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-aws-auth"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "aws-config",
   "aws-credential-types",
@@ -251,7 +251,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-backend-client"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-api",
@@ -260,7 +260,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-backend-openapi-models"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "serde",
   "serde_json",
@@ -269,7 +269,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-build-info"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-install-context",
   "pretty_assertions",
@@ -278,7 +278,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-bwrap"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "cc",
   "libc",
@@ -287,7 +287,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-chatgpt"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "clap",
@@ -296,7 +296,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-cli"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "app_test_support",
@@ -305,7 +305,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-client"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-http-client",
   "eventsource-stream",
@@ -314,7 +314,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-cloud-config"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "base64 0.22.1",
   "chrono",
@@ -323,7 +323,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-cloud-tasks"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "chrono",
@@ -332,7 +332,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-cloud-tasks-client"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "chrono",
@@ -341,7 +341,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-cloud-tasks-mock-client"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "chrono",
   "codex-cloud-tasks-client",
@@ -350,7 +350,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-code-mode"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-code-mode-protocol",
   "codex-http-client",
@@ -359,7 +359,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-code-mode-host"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "axum",
@@ -368,7 +368,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-code-mode-protocol"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-protocol",
   "glob",
@@ -377,7 +377,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-code-mode-runtime"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "base64 0.22.1",
   "codex-code-mode-protocol",
@@ -386,12 +386,12 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-collaboration-mode-templates"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  
  [[package]]
  name = "codex-config"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
@@ -400,7 +400,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-config-schema"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "clap",
@@ -409,7 +409,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-connectors"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "arc-swap",
@@ -418,7 +418,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-connectors-extension"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-connectors",
   "codex-core-plugins",
@@ -427,7 +427,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-context-fragments"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-protocol",
   "codex-utils-string",
@@ -436,7 +436,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-core"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "arc-swap",
@@ -468,7 +468,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-core-api"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-analytics",
   "codex-app-server-protocol",
@@ -477,7 +477,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-core-plugin-common"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-utils-absolute-path",
   "semver",
@@ -486,7 +486,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-core-plugins"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "chrono",
@@ -495,7 +495,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-diagnostics"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "libc",
   "pretty_assertions",
@@ -504,7 +504,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-exec"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "assert_cmd",
@@ -513,7 +513,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-exec-server"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "arc-swap",
@@ -522,7 +522,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-exec-server-protocol"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "base64 0.22.1",
   "codex-file-system",
@@ -531,7 +531,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-exec-server-test-support"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-exec-server",
@@ -540,7 +540,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-execpolicy"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "clap",
@@ -549,7 +549,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-experimental-api-macros"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "proc-macro2",
   "quote",
@@ -558,7 +558,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-extension-api"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-api",
   "codex-config",
@@ -567,7 +567,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-extension-items"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-utils-absolute-path",
   "pretty_assertions",
@@ -576,7 +576,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-external-agent-migration"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "chrono",
   "codex-analytics",
@@ -585,7 +585,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-features"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-network-proxy",
   "codex-protocol",
@@ -594,7 +594,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-feedback"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "bytes",
@@ -603,7 +603,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-file-search"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "clap",
@@ -612,7 +612,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-file-system"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "bytes",
   "codex-protocol",
@@ -621,7 +621,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-file-watcher"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "notify",
   "pretty_assertions",
@@ -630,7 +630,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-git-attribution"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-backend-client",
   "codex-extension-api",
@@ -639,7 +639,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-git-utils"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "chrono",
@@ -648,7 +648,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-goal-extension"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "chrono",
@@ -657,7 +657,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-guardian-context"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-context-fragments",
   "codex-history",
@@ -666,7 +666,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-guardian-reviewer"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-analytics",
@@ -675,7 +675,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-guardian-v2"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-analytics",
@@ -684,7 +684,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-history"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-protocol",
@@ -693,7 +693,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-history-notes-extension"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-analytics",
   "codex-client",
@@ -702,7 +702,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-home"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-extension-api",
   "codex-utils-absolute-path",
@@ -711,7 +711,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-hooks"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "async-channel",
@@ -720,7 +720,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-http-client"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "bytes",
   "codex-utils-cargo-bin",
@@ -729,7 +729,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-image-generation-extension"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "base64 0.22.1",
   "codex-api",
@@ -738,7 +738,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-install-context"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-utils-absolute-path",
   "codex-utils-home-dir",
@@ -747,7 +747,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-keyring-store"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "keyring",
   "pretty_assertions",
@@ -756,7 +756,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-linux-sandbox"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "clap",
   "codex-core",
@@ -765,7 +765,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-lmstudio"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-core",
   "codex-http-client",
@@ -774,7 +774,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-login"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
@@ -791,7 +791,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-mcp"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "arc-swap",
@@ -800,7 +800,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-mcp-extension"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "axum",
@@ -809,7 +809,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-memories-extension"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-core",
   "codex-extension-api",
@@ -818,7 +818,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-memories-read"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-protocol",
   "codex-shell-command",
@@ -827,7 +827,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-memories-write"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "chrono",
@@ -836,7 +836,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-mermaid"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "insta",
   "pretty_assertions",
@@ -845,7 +845,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-message-history"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-config",
   "memchr",
@@ -854,7 +854,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-model-provider"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "base64 0.22.1",
   "chrono",
@@ -863,7 +863,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-model-provider-info"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-client",
   "codex-protocol",
@@ -872,7 +872,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-models-manager"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "chrono",
   "codex-http-client",
@@ -889,7 +889,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-mxc-sandbox"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "appcontainer_common",
@@ -898,7 +898,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-network-proxy"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
@@ -907,7 +907,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-ollama"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "assert_matches",
   "async-stream",
@@ -916,7 +916,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-otel"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "bytes",
   "chrono",
@@ -925,7 +925,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-otel-trace-websocket"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "axum",
@@ -934,7 +934,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-plugin"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-config",
   "codex-core-plugin-common",
@@ -943,7 +943,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-process-hardening"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "libc",
   "pretty_assertions",
@@ -952,7 +952,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-prompts"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-collaboration-mode-templates",
@@ -961,7 +961,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-protocol"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "chardetng",
@@ -970,7 +970,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-queue-extension"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-core",
@@ -979,7 +979,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-realtime-webrtc"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-build-info",
@@ -988,7 +988,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-response-debug-context"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "base64 0.22.1",
   "codex-api",
@@ -997,7 +997,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-responses-api-proxy"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "clap",
@@ -1006,7 +1006,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-rmcp-client"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "axum",
@@ -1015,7 +1015,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-rollout"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "chrono",
@@ -1024,7 +1024,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-rollout-trace"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-code-mode",
@@ -1033,7 +1033,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-sandboxing"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-mxc-sandbox",
@@ -1042,7 +1042,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-secrets"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "age",
   "anyhow",
@@ -1051,7 +1051,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-shell-command"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
@@ -1060,7 +1060,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-shell-escalation"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "clap",
@@ -1069,7 +1069,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-skills"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-protocol",
   "codex-shell-command",
@@ -1078,7 +1078,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-skills-extension"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "assert_matches",
   "blake3",
@@ -1087,7 +1087,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-state"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "chrono",
@@ -1096,7 +1096,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-stdio-to-uds"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-uds",
@@ -1105,7 +1105,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-tcp-tunnel"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "bytes",
@@ -1114,7 +1114,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-terminal-detection"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "pretty_assertions",
   "tracing",
@@ -1123,7 +1123,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-test-binary-support"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-arg0",
   "tempfile",
@@ -1132,7 +1132,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-thread-manager-sample"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "clap",
@@ -1141,7 +1141,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-thread-store"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "chrono",
   "codex-app-server-protocol",
@@ -1150,7 +1150,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-tools"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "bitflags 2.13.1",
   "codex-code-mode",
@@ -1159,7 +1159,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-tui"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "app_test_support",
@@ -1168,7 +1168,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-uds"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "async-io",
   "libc",
@@ -1177,7 +1177,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-user-verification"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "base64 0.22.1",
   "core-foundation 0.10.1",
@@ -1186,7 +1186,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-absolute-path"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "dirs",
   "dunce",
@@ -1195,7 +1195,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-approval-presets"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-protocol",
  ]
@@ -1203,7 +1203,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-audio"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "base64 0.22.1",
   "codex-protocol",
@@ -1212,7 +1212,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-cache"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "lru",
   "sha1 0.10.6",
@@ -1221,7 +1221,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-cargo-bin"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "assert_cmd",
   "runfiles",
@@ -1230,7 +1230,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-cli"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "clap",
   "codex-protocol",
@@ -1239,17 +1239,17 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-elapsed"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  
  [[package]]
  name = "codex-utils-fuzzy-match"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  
  [[package]]
  name = "codex-utils-git-discovery"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-git-utils",
   "codex-utils-absolute-path",
@@ -1258,7 +1258,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-home-dir"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-utils-absolute-path",
   "dirs",
@@ -1267,7 +1267,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-image"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "base64 0.22.1",
   "codex-utils-cache",
@@ -1276,7 +1276,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-json-to-toml"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "pretty_assertions",
   "serde_json",
@@ -1285,7 +1285,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-oss"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-core",
   "codex-lmstudio",
@@ -1294,7 +1294,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-output-truncation"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-protocol",
   "codex-utils-string",
@@ -1303,7 +1303,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-path"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-utils-absolute-path",
   "dunce",
@@ -1312,7 +1312,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-path-uri"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "base64 0.22.1",
   "codex-utils-absolute-path",
@@ -1321,7 +1321,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-plugins"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-exec-server",
   "codex-exec-server-protocol",
@@ -1330,7 +1330,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-process"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "pretty_assertions",
   "tokio",
@@ -1339,7 +1339,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-pty"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "ctor 0.6.3",
@@ -1348,7 +1348,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-readiness"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "assert_matches",
   "thiserror 2.0.18",
@@ -1357,7 +1357,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-redacted-string"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "schemars 0.8.22",
   "serde",
@@ -1366,7 +1366,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-rustls-provider"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "rustls",
  ]
@@ -1374,7 +1374,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-sandbox-summary"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-protocol",
   "codex-utils-absolute-path",
@@ -1383,7 +1383,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-sleep-inhibitor"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "core-foundation 0.9.4",
   "libc",
@@ -1392,7 +1392,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-stream-parser"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "pretty_assertions",
  ]
@@ -1400,7 +1400,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-string"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "pretty_assertions",
   "regex-lite",
@@ -1409,7 +1409,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-utils-template"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "pretty_assertions",
  ]
@@ -1417,7 +1417,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-v8-poc"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "pretty_assertions",
   "v8",
@@ -1426,7 +1426,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-voice-host"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-install-context",
@@ -1435,7 +1435,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-web-search-extension"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-api",
   "codex-core",
@@ -1444,7 +1444,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-websocket-auth"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
@@ -1453,7 +1453,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-websocket-client"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-http-client",
   "codex-utils-rustls-provider",
@@ -1462,7 +1462,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-windows-sandbox"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
@@ -1471,7 +1471,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-windows-sandbox-service"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-cloud-config",
@@ -1480,7 +1480,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-workload-identity"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "codex-http-client",
   "pretty_assertions",
@@ -1489,7 +1489,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "codex-worktree"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "codex-git-utils",
@@ -1498,7 +1498,7 @@ index 19885ae..8bedec0 100644
  [[package]]
  name = "core_test_support"
 -version = "0.0.0"
-+version = "0.160.0"
++version = "0.160.1"
  dependencies = [
   "anyhow",
   "assert_cmd",
@@ -1526,7 +1526,7 @@ index 19885ae..8bedec0 100644
  
 +[[package]]
 +name = "holycodex-policy"
-+version = "0.17.0"
++version = "0.17.0-1"
 +dependencies = [
 + "holycodex-toon",
 + "serde",
@@ -1778,7 +1778,7 @@ index 19885ae..8bedec0 100644
  name = "wiremock"
  version = "0.6.5"
 diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
-index 1a60bc3..f500309 100644
+index 5007982..73542ed 100644
 --- a/codex-rs/Cargo.toml
 +++ b/codex-rs/Cargo.toml
 @@ -167,6 +167,7 @@ edition = "2024"
@@ -1921,7 +1921,7 @@ index 22e607c..e7f0597 100644
  
  /// Prefers device-code login (with `open_browser = false`) when headless environment is detected, but keeps
 diff --git a/codex-rs/cli/src/main.rs b/codex-rs/cli/src/main.rs
-index bdd7771..d79daa5 100644
+index bdd7771..c5d0590f86fbc390fbf97a100df8d8ebc3a0f50e 100644
 --- a/codex-rs/cli/src/main.rs
 +++ b/codex-rs/cli/src/main.rs
 @@ -107,20 +107,20 @@ use codex_protocol::protocol::AskForApproval;
@@ -1937,7 +1937,7 @@ index bdd7771..d79daa5 100644
      author,
 -    version,
 +    name = "holycodex",
-+    version = "0.17.0 (Codex upstream 0.160.0)",
++    version = "0.17.0-1 (Codex upstream 0.160.1)",
      // If a sub‑command is given, ignore requirements of the default args.
      subcommand_negates_reqs = true,
 -    // The executable is sometimes invoked via a platform‑specific name like
@@ -2011,7 +2011,7 @@ index bdd7771..d79daa5 100644
 +        assert_eq!(command.get_bin_name(), Some("holycodex"));
 +        assert_eq!(
 +            command.get_version(),
-+            Some("0.17.0 (Codex upstream 0.160.0)")
++            Some("0.17.0-1 (Codex upstream 0.160.1)")
 +        );
 +        assert_eq!(command.get_about().unwrap().to_string(), "HolyCodex CLI");
 +        for alias in ["holycodex", "codex"] {
@@ -2021,7 +2021,7 @@ index bdd7771..d79daa5 100644
 +            assert!(
 +                error
 +                    .to_string()
-+                    .contains("holycodex 0.17.0 (Codex upstream 0.160.0)"),
++                    .contains("holycodex 0.17.0-1 (Codex upstream 0.160.1)"),
 +                "{alias}: {error}"
 +            );
 +        }
@@ -2095,7 +2095,7 @@ index 2010b1e..91a739a 100644
  Commands:
    forward  Register an existing WebSocket exec-server as a remote environment
 diff --git a/codex-rs/cli/tests/app_server_daemon.rs b/codex-rs/cli/tests/app_server_daemon.rs
-index 002012a..7bfbf94 100644
+index 002012a..260c613 100644
 --- a/codex-rs/cli/tests/app_server_daemon.rs
 +++ b/codex-rs/cli/tests/app_server_daemon.rs
 @@ -145,7 +145,6 @@ fn wait_for_exit(pid: u32) -> Result<()> {
@@ -2144,7 +2144,7 @@ index 002012a..7bfbf94 100644
          }
      }
      assert!(!pid_file.exists());
-@@ -257,62 +245,23 @@ fn package_ownership_check_does_not_start_an_updater() -> Result<()> {
+@@ -257,55 +245,22 @@ fn package_ownership_check_does_not_start_an_updater() -> Result<()> {
  }
  
  #[test]
@@ -2204,19 +2204,11 @@ index 002012a..7bfbf94 100644
 +    assert_eq!(daemon.lifecycle("stop")?["status"], "stopped");
 +    assert!(daemon.pid("app-server.pid").is_err());
      assert_eq!(daemon.lifecycle("start")?["status"], "started");
--    assert!(
--        !daemon
--            .home
--            .path()
--            .join("packages/app-server-daemon")
--            .exists()
--    );
 +    assert!(daemon.pid("app-server-updater.pid").is_err());
-+    assert!(!daemon.home.path().join("packages/app-server-daemon").exists());
-     Ok(())
- }
- 
-@@ -332,13 +281,12 @@ fn managed_start_succeeds_when_updater_record_is_invalid() -> Result<()> {
+     assert!(
+         !daemon
+             .home
+@@ -332,13 +287,12 @@ fn managed_start_succeeds_when_updater_record_is_invalid() -> Result<()> {
  
  #[cfg(any(target_os = "linux", target_os = "macos"))]
  #[test]
@@ -2233,7 +2225,7 @@ index 002012a..7bfbf94 100644
          let mut record: Value = serde_json::from_slice(&std::fs::read(&path)?)?;
          record["processStartTime"] = "historical wall-clock start time".into();
          let replacement = path.with_extension("replacement");
-@@ -351,79 +299,51 @@ fn wall_clock_shift_keeps_server_and_updater_managed() -> Result<()> {
+@@ -351,79 +305,54 @@ fn wall_clock_shift_keeps_server_and_updater_managed() -> Result<()> {
      assert_eq!(version["backend"], "pid");
      assert_eq!(daemon.lifecycle("start")?["status"], "alreadyRunning");
      assert_eq!(daemon.pid("app-server.pid")?, server_pid);
@@ -2251,13 +2243,13 @@ index 002012a..7bfbf94 100644
 -fn managed_start_keeps_updater_on_marker_mismatch_but_stops_it_for_pin() -> Result<()> {
 +fn holycodex_latest_markers_cannot_enable_upstream_updates() -> Result<()> {
      let daemon = TestDaemon::new()?;
-+    let marker = daemon.home.path().join("packages/standalone/auto-update-version");
-     assert_eq!(daemon.lifecycle("start")?["status"], "started");
+-    assert_eq!(daemon.lifecycle("start")?["status"], "started");
 -    let updater_pid = daemon.pid("app-server-updater.pid")?;
--    let marker = daemon
--        .home
--        .path()
--        .join("packages/standalone/auto-update-version");
+     let marker = daemon
+         .home
+         .path()
+         .join("packages/standalone/auto-update-version");
++    assert_eq!(daemon.lifecycle("start")?["status"], "started");
 +    let backend_pid = daemon.pid("app-server.pid")?;
 +    assert!(daemon.pid("app-server-updater.pid").is_err());
      std::fs::write(&marker, "0.1.0-other-target")?;
@@ -2338,7 +2330,7 @@ index 002012a..7bfbf94 100644
      std::fs::write(&settings, "{malformed")?;
      assert_eq!(daemon.lifecycle("stop")?["status"], "stopped");
      Ok(())
-@@ -493,7 +413,7 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+@@ -493,7 +422,7 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
      use std::os::unix::fs::PermissionsExt;
      let mut daemon = TestDaemon::new()?;
      let standalone = daemon.home.path().join("packages/standalone");
@@ -2347,12 +2339,12 @@ index 002012a..7bfbf94 100644
          standalone.join("releases/caller")
      } else {
          daemon.home.path().join("cli-package")
-@@ -525,12 +445,15 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+@@ -525,12 +454,15 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
      std::fs::write(
          package.join("codex-package.json"),
          serde_json::to_vec(&serde_json::json!({
 -            "version": env!("CARGO_PKG_VERSION"), "target": target, "entrypoint": "bin/codex"
-+            "version": "0.17.0", "target": target, "entrypoint": "bin/codex"
++            "version": "0.17.0-1", "target": target, "entrypoint": "bin/codex"
          }))?,
      )?;
 -    if action == "start" && initial == InitialDaemon::Missing {
@@ -2365,7 +2357,7 @@ index 002012a..7bfbf94 100644
      }
      let cli_selection = standalone.join("current").canonicalize()?;
      let state = daemon.home.path().join("app-server-daemon");
-@@ -577,13 +500,11 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+@@ -577,13 +509,11 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
      assert_eq!(daemon.codex.canonicalize()?, cli_before);
      assert_eq!(standalone.join("current").canonicalize()?, cli_selection);
      assert!(state.join(initial_pid_file).exists());
@@ -2384,7 +2376,7 @@ index 002012a..7bfbf94 100644
      if action == "start" {
          let initial_current = initial_root.join("current");
          let current = dedicated.join("current");
-@@ -634,9 +555,6 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
+@@ -634,9 +564,6 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
          assert_eq!(output["status"], "updated");
          assert_ne!(daemon.pid("daemon.pid")?, original_pid);
          wait_for_exit(original_pid)?;
@@ -2586,7 +2578,7 @@ index f631057..b3160f5 100644
      Ok(())
  }
 diff --git a/codex-rs/cli/tests/sandbox_cloud_config.rs b/codex-rs/cli/tests/sandbox_cloud_config.rs
-index 81fbf07..53d8f63 100644
+index 81fbf07..dc6ae95337484109e11189ec58ca75a82edccfe2 100644
 --- a/codex-rs/cli/tests/sandbox_cloud_config.rs
 +++ b/codex-rs/cli/tests/sandbox_cloud_config.rs
 @@ -140,8 +140,9 @@ async fn sandbox_fetches_and_enforces_cloud_managed_permission_profile() -> Resu
@@ -2596,13 +2588,13 @@ index 81fbf07..53d8f63 100644
 -            String::from_utf8(output.stdout)?.starts_with("codex"),
 -            "expected the sandboxed Codex version command to run",
 +            String::from_utf8(output.stdout)?
-+                .starts_with("holycodex 0.17.0 (Codex upstream 0.160.0)"),
++                .starts_with("holycodex 0.17.0-1 (Codex upstream 0.160.1)"),
 +            "expected the sandboxed HolyCodex version command to report its upstream provenance",
          );
      }
  
 diff --git a/codex-rs/cli/tests/worktree.rs b/codex-rs/cli/tests/worktree.rs
-index 1ec06aa..d36c7dc 100644
+index 1ec06aa..39dfedd 100644
 --- a/codex-rs/cli/tests/worktree.rs
 +++ b/codex-rs/cli/tests/worktree.rs
 @@ -175,7 +175,7 @@ async fn worktree_start_and_fork(backend: &str) -> anyhow::Result<()> {
@@ -2623,7 +2615,7 @@ index 1ec06aa..d36c7dc 100644
  sandbox_mode = "workspace-write"
  windows.sandbox = "unelevated"
  tui.disable_paste_burst = true
-@@ -562,18 +562,14 @@ trust_level = "trusted"
+@@ -562,18 +562,17 @@ trust_level = "trusted"
          }
          if matches!(startup_result, Ok(Ok(()))) && renamed.is_ok() {
              if !fork && backend == "embedded" {
@@ -2643,11 +2635,14 @@ index 1ec06aa..d36c7dc 100644
                      tokio::time::timeout(Duration::from_secs(/*secs*/ 10), async {
                          while !output.contains(expected) {
 -                            let bytes = stdout.recv().await.context("TUI exited before handoff")?;
-+                            let bytes = stdout.recv().await.context("TUI exited before daemon menu")?;
++                            let bytes = stdout
++                                .recv()
++                                .await
++                                .context("TUI exited before daemon menu")?;
                              output.push_str(&String::from_utf8_lossy(&bytes));
                          }
                          Ok::<_, anyhow::Error>(())
-@@ -581,6 +577,24 @@ trust_level = "trusted"
+@@ -581,6 +580,29 @@ trust_level = "trusted"
                      .await
                      .with_context(|| format!("waiting for {expected}: {output}"))??;
                  }
@@ -2667,12 +2662,28 @@ index 1ec06aa..d36c7dc 100644
 +                        && !action_output.contains("Updating the local background server..."),
 +                    "disabled local package opened a handoff: {action_output}"
 +                );
++                // A bare Escape followed immediately by '/' can coalesce into Alt+'/'.
++                // Unix terminals negotiate CSI-u Escape disambiguation with the TUI.
++                #[cfg(unix)]
++                session.writer_sender().send(b"\x1b[27u".to_vec()).await?;
++                #[cfg(not(unix))]
 +                session.writer_sender().send(b"\x1b".to_vec()).await?;
 +                session.writer_sender().send(b"/quit\r".to_vec()).await?;
              } else {
                  session.writer_sender().send(b"/quit\r".to_vec()).await?;
              }
-@@ -618,10 +632,11 @@ trust_level = "trusted"
+@@ -588,7 +610,9 @@ trust_level = "trusted"
+             session.terminate();
+         }
+         let exit =
+-            tokio::time::timeout(Duration::from_secs(/*secs*/ 10), spawned.exit_rx).await??;
++            tokio::time::timeout(Duration::from_secs(/*secs*/ 10), spawned.exit_rx)
++                .await
++                .with_context(|| format!("TUI did not exit after /quit (backend={backend}, fork={fork}, explicit_cd={explicit_cd}): {output}"))??;
+         // Include shutdown output: ConPTY can retain the channel after process exit.
+         let _ = tokio::time::timeout(Duration::from_secs(/*secs*/ 1), async {
+             while let Some(bytes) = stdout.recv().await {
+@@ -618,10 +642,11 @@ trust_level = "trusted"
              if backend == "embedded" {
                  let update = exported
                      .iter()
@@ -2688,7 +2699,7 @@ index 1ec06aa..d36c7dc 100644
              }
              let point = exported
                  .iter()
-@@ -726,7 +741,7 @@ trust_level = "trusted"
+@@ -726,7 +751,7 @@ trust_level = "trusted"
                  "{context}"
              );
          }
@@ -3479,7 +3490,7 @@ index 277ce11..15da7f2 100644
                  .permissions
                  .approval_policy
 diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
-index f5ac495..50187cf 100644
+index f5ac495..fb6fb03 100644
 --- a/codex-rs/core/src/client.rs
 +++ b/codex-rs/core/src/client.rs
 @@ -81,6 +81,7 @@ use codex_login::default_client::create_client_for_route;
@@ -3557,7 +3568,7 @@ index f5ac495..50187cf 100644
                  Some(create_tools_raw_json_for_responses_api(&prompt.tools)?.into()),
              )
          };
-@@ -2940,3 +2957,311 @@ impl WebsocketTelemetry for ApiTelemetry {
+@@ -2940,3 +2957,340 @@ impl WebsocketTelemetry for ApiTelemetry {
  #[cfg(test)]
  #[path = "client_tests.rs"]
  mod tests;
@@ -3611,7 +3622,16 @@ index f5ac495..50187cf 100644
 +        let specialist = SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
 +            parent_thread_id: ThreadId::new(),
 +            depth: 1,
-+            agent_path: Some(AgentPath::root().join("hc-a-1").unwrap()),
++            agent_path: Some(
++                AgentPath::root()
++                    .join(
++                        &crate::holycodex::specialist_path_segment(
++                            &uuid::Uuid::now_v7().to_string(),
++                        )
++                        .unwrap(),
++                    )
++                    .unwrap(),
++            ),
 +            agent_nickname: None,
 +            agent_role: Some("Reviewer.code".to_owned()),
 +        });
@@ -3642,7 +3662,11 @@ index f5ac495..50187cf 100644
 +                agent_role: Some("Reviewer.code".to_owned()),
 +            }),
 +        ] {
-+            assert_eq!(crate::holycodex::native_prompt_role(&source), None, "{source:?}");
++            assert_eq!(
++                crate::holycodex::native_prompt_role(&source),
++                None,
++                "{source:?}"
++            );
 +            assert_eq!(
 +                crate::holycodex::native_model_instructions(
 +                    &source,
@@ -3674,13 +3698,22 @@ index f5ac495..50187cf 100644
 +                SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
 +                    parent_thread_id: ThreadId::new(),
 +                    depth: 1,
-+                    agent_path: Some(AgentPath::root().join("hc-a-1").unwrap()),
++                    agent_path: Some(
++                        AgentPath::root()
++                            .join(
++                                &crate::holycodex::specialist_path_segment(
++                                    &uuid::Uuid::now_v7().to_string(),
++                                )
++                                .unwrap(),
++                            )
++                            .unwrap(),
++                    ),
 +                    agent_nickname: None,
 +                    agent_role: Some("Worker.integration".to_owned()),
 +                }),
 +            ),
 +        ] {
-+            let client = client(source);
++            let client = client(source.clone());
 +            let mut catalog_model = codex_models_manager::model_info::model_info_from_slug(slug);
 +            catalog_model.context_window = Some(272_000);
 +            catalog_model.max_context_window = Some(872_000);
@@ -3741,12 +3774,14 @@ index f5ac495..50187cf 100644
 +            assert_eq!(resolved.max_context_window, Some(872_000));
 +            assert_eq!(resolved.auto_compact_token_limit(), Some(334_800));
 +            assert_eq!(
-+                resolved.model_messages.as_ref().and_then(|messages| messages.persistent_instructions.as_deref()),
++                resolved
++                    .model_messages
++                    .as_ref()
++                    .and_then(|messages| messages.persistent_instructions.as_deref()),
 +                None
 +            );
 +            let mut prompt = Prompt::default();
-+            prompt.base_instructions.text =
-+                codex_prompts::render_model_instructions(&resolved);
++            prompt.base_instructions.text = codex_prompts::render_model_instructions(&resolved);
 +            let metadata = CodexResponsesMetadata::new(
 +                "test".to_owned(),
 +                "session".to_owned(),
@@ -3817,7 +3852,9 @@ index f5ac495..50187cf 100644
 +
 +    #[tokio::test]
 +    async fn maintenance_sessions_keep_their_own_instructions_for_holy_model_slugs() {
-+        let client = client(SessionSource::Internal(InternalSessionSource::MemoryConsolidation));
++        let client = client(SessionSource::Internal(
++            InternalSessionSource::MemoryConsolidation,
++        ));
 +        let mut catalog_model = codex_models_manager::model_info::model_info_from_slug(
 +            holycodex_policy::ModelId::Gpt61Sol.as_str(),
 +        );
@@ -3842,7 +3879,10 @@ index f5ac495..50187cf 100644
 +            )
 +            .await;
 +        assert_eq!(
-+            model.model_messages.as_ref().and_then(|messages| messages.persistent_instructions.as_deref()),
++            model
++                .model_messages
++                .as_ref()
++                .and_then(|messages| messages.persistent_instructions.as_deref()),
 +            Some("upstream maintenance continuation")
 +        );
 +        let mut prompt = Prompt::default();
@@ -4060,10 +4100,10 @@ index 60c6f65..04658d1 100644
 +}
 diff --git a/codex-rs/core/src/holycodex.rs b/codex-rs/core/src/holycodex.rs
 new file mode 100644
-index 0000000..9f9dab4
+index 0000000..2964a78
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex.rs
-@@ -0,0 +1,2359 @@
+@@ -0,0 +1,2403 @@
 +//! Durable native Intent/Assignment control over the local Multi-Agent V2 runtime.
 +//!
 +//! OS sidecar locks serialize reload/validate/commit across controller instances.
@@ -4163,24 +4203,40 @@ index 0000000..9f9dab4
 +    match source {
 +        SessionSource::Internal(_)
 +        | SessionSource::SubAgent(
-+            SubAgentSource::Review
-+            | SubAgentSource::Compact
-+            | SubAgentSource::MemoryConsolidation,
++            SubAgentSource::Review | SubAgentSource::Compact | SubAgentSource::MemoryConsolidation,
 +        ) => None,
 +        SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
 +            agent_path: Some(path),
 +            agent_role: Some(role),
 +            ..
-+        }) if path
-+            .as_str()
-+            .rsplit('/')
-+            .next()
-+            .is_some_and(|segment| segment.starts_with("hc-")) => {
++        }) if is_native_specialist_path(path) => {
 +            RoleTask::parse(role).filter(|role| *role != RoleTask::Root)
 +        }
 +        SessionSource::SubAgent(_) => None,
 +        _ => Some(RoleTask::Root),
 +    }
++}
++
++const NATIVE_SPECIALIST_PATH_PREFIX: &str = "hc_";
++
++pub(crate) fn is_native_specialist_path(path: &AgentPath) -> bool {
++    reserved_specialist_id(path).is_some()
++}
++
++pub(crate) fn specialist_path_segment(reserved_id: &str) -> Result<String, String> {
++    let reserved_id = Uuid::parse_str(reserved_id)
++        .map_err(|_| "reserved specialist ID must be a UUID".to_owned())?;
++    Ok(format!(
++        "{NATIVE_SPECIALIST_PATH_PREFIX}{}",
++        reserved_id.to_string().replace('-', "_")
++    ))
++}
++
++pub(crate) fn reserved_specialist_id(path: &AgentPath) -> Option<String> {
++    let encoded_id = path.name().strip_prefix(NATIVE_SPECIALIST_PATH_PREFIX)?;
++    let parsed_id = Uuid::parse_str(&encoded_id.replace('_', "-")).ok()?;
++    let reserved_id = parsed_id.to_string();
++    (specialist_path_segment(&reserved_id).ok()? == path.name()).then_some(reserved_id)
 +}
 +
 +const STATE_FILE: &str = "holycodex-intent.toml";
@@ -4817,12 +4873,9 @@ index 0000000..9f9dab4
 +                })?;
 +                self.assignment(&assignment.id)
 +            }
-+            Err(error) => Err(self.resolve_launch_error(
-+                &assignment.id,
-+                reserved,
-+                is_new,
-+                error,
-+            )?),
++            Err(error) => {
++                Err(self.resolve_launch_error(&assignment.id, reserved, is_new, error)?)
++            }
 +        }
 +    }
 +
@@ -4871,9 +4924,8 @@ index 0000000..9f9dab4
 +        specialist_id: &str,
 +        is_new: bool,
 +    ) -> Result<(), ControllerError> {
-+        self.store.transaction(|state| {
-+            state.rollback_unstarted(assignment_id, specialist_id, is_new)
-+        })
++        self.store
++            .transaction(|state| state.rollback_unstarted(assignment_id, specialist_id, is_new))
 +    }
 +
 +    fn resolve_launch_error(
@@ -4910,11 +4962,7 @@ index 0000000..9f9dab4
 +        }
 +    }
 +
-+    async fn reuse(
-+        &self,
-+        assignment: &Assignment,
-+        input: String,
-+    ) -> Result<ThreadId, LaunchError> {
++    async fn reuse(&self, assignment: &Assignment, input: String) -> Result<ThreadId, LaunchError> {
 +        let thread = parse_thread_id(assignment.specialist_id.as_deref().expect("reserved"))
 +            .map_err(LaunchError::BeforeCreation)?;
 +        self.control
@@ -4934,16 +4982,17 @@ index 0000000..9f9dab4
 +            .map_err(LaunchError::BeforeCreation)?;
 +        check_prepared(&prepared, assignment.role, self.profile)
 +            .map_err(LaunchError::BeforeCreation)?;
-+        self.store.transaction(|state| {
-+            let context = state
-+                .specialists
-+                .get_mut(&thread.to_string())
-+                .ok_or_else(|| ControllerError::MissingSpecialist(assignment.id.clone()))?;
-+            context.available_capabilities = prepared.grants.capabilities.clone();
-+            context.supports_role_rebinding = prepared.grants.supports_role_rebinding;
-+            Ok(())
-+        })
-+        .map_err(LaunchError::BeforeCreation)?;
++        self.store
++            .transaction(|state| {
++                let context = state
++                    .specialists
++                    .get_mut(&thread.to_string())
++                    .ok_or_else(|| ControllerError::MissingSpecialist(assignment.id.clone()))?;
++                context.available_capabilities = prepared.grants.capabilities.clone();
++                context.supports_role_rebinding = prepared.grants.supports_role_rebinding;
++                Ok(())
++            })
++            .map_err(LaunchError::BeforeCreation)?;
 +        self.control
 +            .send(SendRequest {
 +                caller: self.root_thread,
@@ -5073,13 +5122,10 @@ index 0000000..9f9dab4
 +                (thread, self.control.get_status(thread).await)
 +            };
 +            if status == AgentStatus::Running
-+                && snapshot
-+                    .ambiguous_reused_launches
-+                    .contains(&assignment.id)
++                && snapshot.ambiguous_reused_launches.contains(&assignment.id)
 +            {
-+                self.store.transaction(|state| {
-+                    state.observe_reused_turn_running(&assignment.id)
-+                })?;
++                self.store
++                    .transaction(|state| state.observe_reused_turn_running(&assignment.id))?;
 +            }
 +            if terminal_result(&snapshot, &assignment.id, status.clone()).is_none() {
 +                if is_launching {
@@ -5320,8 +5366,9 @@ index 0000000..9f9dab4
 +    Ok(format!("{}\n\n{}", route.assignment_fragment, encoded))
 +}
 +fn specialist_path(reserved: &str) -> Result<AgentPath, ControllerError> {
++    let name = specialist_path_segment(reserved).map_err(ControllerError::Agent)?;
 +    AgentPath::root()
-+        .join(&format!("hc-{reserved}"))
++        .join(&name)
 +        .map_err(ControllerError::Agent)
 +}
 +fn text_input(text: String) -> AgentInput {
@@ -5563,6 +5610,51 @@ index 0000000..9f9dab4
 +            specialist_id: None,
 +            result: None,
 +        }
++    }
++
++    #[test]
++    fn generated_specialist_path_round_trips_uuid_and_binds_prompt_role() {
++        let reserved_id = uuid::Uuid::now_v7().to_string();
++        let path = specialist_path(&reserved_id).expect("UUID path segment is valid");
++        assert_eq!(path.name(), format!("hc_{}", reserved_id.replace('-', "_")));
++        assert_eq!(
++            reserved_specialist_id(&path).as_deref(),
++            Some(reserved_id.as_str())
++        );
++
++        let role = RoleTask::WorkerIntegration;
++        let source = SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
++            parent_thread_id: ThreadId::new(),
++            depth: 1,
++            agent_path: Some(path),
++            agent_nickname: None,
++            agent_role: Some(role.as_str().to_owned()),
++        });
++        assert_eq!(native_prompt_role(&source), Some(role));
++        assert_eq!(
++            native_model_instructions(&source, holycodex_policy::ModelId::Gpt6Luna.as_str()),
++            Some(holycodex_policy::SPECIALIST_INSTRUCTIONS)
++        );
++
++        let nonbound_path = AgentPath::root()
++            .join("hc_not_a_uuid")
++            .expect("path uses the AgentPath character contract");
++        assert_eq!(reserved_specialist_id(&nonbound_path), None);
++        assert!(!is_native_specialist_path(&nonbound_path));
++        let nonbound_source = SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
++            parent_thread_id: ThreadId::new(),
++            depth: 1,
++            agent_path: Some(nonbound_path),
++            agent_nickname: None,
++            agent_role: Some(role.as_str().to_owned()),
++        });
++        assert_eq!(native_prompt_role(&nonbound_source), None);
++        assert_eq!(
++            native_prompt_role(&SessionSource::Internal(
++                codex_protocol::protocol::InternalSessionSource::MemoryConsolidation,
++            )),
++            None
++        );
 +    }
 +
 +    #[test]
@@ -5897,11 +5989,7 @@ index 0000000..9f9dab4
 +            Arc::new(DeniedAuthority),
 +        )
 +        .unwrap();
-+        let previous = running(
-+            &controller.store,
-+            "src/a",
-+            RoleTask::WorkerImplementation,
-+        );
++        let previous = running(&controller.store, "src/a", RoleTask::WorkerImplementation);
 +        let previous = controller
 +            .store
 +            .transaction(|state| {
@@ -5930,7 +6018,9 @@ index 0000000..9f9dab4
 +        // A default local control has no manager, so child restoration fails at the first
 +        // pre-send seam. Dispatch must release this reused reservation and leave the old worker
 +        // available; no send was attempted and ownership was never ambiguous.
-+        let result = controller.reuse(&assignment, "follow-up input".into()).await;
++        let result = controller
++            .reuse(&assignment, "follow-up input".into())
++            .await;
 +        let error = match result {
 +            Err(error @ LaunchError::BeforeCreation(_)) => error,
 +            Err(LaunchError::Acknowledgement(_)) => {
@@ -5962,11 +6052,7 @@ index 0000000..9f9dab4
 +            Arc::new(DeniedAuthority),
 +        )
 +        .unwrap();
-+        let previous = running(
-+            &controller.store,
-+            "src/a",
-+            RoleTask::WorkerImplementation,
-+        );
++        let previous = running(&controller.store, "src/a", RoleTask::WorkerImplementation);
 +        let previous = controller
 +            .store
 +            .transaction(|state| {
@@ -6014,9 +6100,7 @@ index 0000000..9f9dab4
 +        after_running
 +            .observe_reused_turn_running(&assignment.id)
 +            .unwrap();
-+        assert!(
-+            terminal_result(&after_running, &assignment.id, stale_terminal.clone()).is_some()
-+        );
++        assert!(terminal_result(&after_running, &assignment.id, stale_terminal.clone()).is_some());
 +
 +        // Exercise the production finish path as the other correlated signal.
 +        // The assignment remains Failed because the send acknowledgement was
@@ -6425,10 +6509,10 @@ index 0000000..9f9dab4
 +}
 diff --git a/codex-rs/core/src/holycodex_identity.rs b/codex-rs/core/src/holycodex_identity.rs
 new file mode 100644
-index 0000000..6166090
+index 0000000..f1d0473
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex_identity.rs
-@@ -0,0 +1,1617 @@
+@@ -0,0 +1,1613 @@
 +//! Native, per-thread HolyCodex identity and session authority bindings.
 +//!
 +//! Persisted records describe a validated contract, not current grants. Live
@@ -7201,11 +7285,7 @@ index 0000000..6166090
 +        .controller
 +        .snapshot()
 +        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-+    let reserved = agent_path
-+        .as_str()
-+        .rsplit('/')
-+        .next()
-+        .and_then(|name| name.strip_prefix("hc-"))
++    let reserved = crate::holycodex::reserved_specialist_id(agent_path)
 +        .ok_or_else(|| anyhow::anyhow!("specialist path is not a controller assignment"))?;
 +    let thread_id = session.thread_id();
 +    let mut assignment = controller_state
@@ -7216,7 +7296,7 @@ index 0000000..6166090
 +                && assignment
 +                    .specialist_id
 +                    .as_deref()
-+                    .is_some_and(|id| id == reserved || id == thread_id.to_string())
++                    .is_some_and(|id| id == reserved.as_str() || id == thread_id.to_string())
 +        })
 +        .cloned()
 +        .ok_or_else(|| anyhow::anyhow!("Root controller has no matching native Assignment"))?;
@@ -8328,7 +8408,7 @@ index 2595ce5..bf06951 100644
  mod tasks;
  mod user_shell_command;
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
-index e08a0fa..2a4fb94 100644
+index e08a0fa..73d16f7 100644
 --- a/codex-rs/core/src/session/mod.rs
 +++ b/codex-rs/core/src/session/mod.rs
 @@ -504,6 +504,28 @@ pub(crate) const SUBMISSION_CHANNEL_CAPACITY: usize = 512;
@@ -8353,7 +8433,7 @@ index e08a0fa..2a4fb94 100644
 +        SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
 +            agent_path: Some(path),
 +            ..
-+        }) if path.as_str().rsplit('/').next().is_some_and(|name| name.starts_with("hc-"))
++        }) if crate::holycodex::is_native_specialist_path(path)
 +    )
 +}
 +
@@ -8594,7 +8674,7 @@ index e08a0fa..2a4fb94 100644
          if model.trim().is_empty() {
              return Err(CodexErr::InvalidRequest(
                  "No models are available. Set `model` explicitly or check your model catalog configuration.".to_string(),
-@@ -710,13 +923,34 @@ impl Session {
+@@ -710,13 +923,33 @@ impl Session {
              );
          }
  
@@ -8609,10 +8689,9 @@ index e08a0fa..2a4fb94 100644
 +        let mut model_info = models_manager
              .get_model_info(model.as_str(), &config.to_models_manager_config())
              .await;
-+        if let Some(instructions) = crate::holycodex::native_model_instructions(
-+            &session_source,
-+            &model_info.slug,
-+        ) {
++        if let Some(instructions) =
++            crate::holycodex::native_model_instructions(&session_source, &model_info.slug)
++        {
 +            let messages = model_info.model_messages.get_or_insert_default();
 +            messages.instructions_template = Some(instructions.to_owned());
 +            messages.instructions_variables = None;
@@ -8634,7 +8713,7 @@ index e08a0fa..2a4fb94 100644
          let auth = auth_manager.auth_cached();
          // Forked subagents keep their parent's activation with the copied history.
          // Fresh children restore configured preferences before applying startup defaults.
-@@ -741,11 +975,18 @@ impl Session {
+@@ -741,11 +974,18 @@ impl Session {
          let history_mode = conversation_history.get_history_mode(
              requested_history_mode.unwrap_or_else(|| thread_store.default_history_mode()),
          );
@@ -8658,7 +8737,7 @@ index e08a0fa..2a4fb94 100644
  
          // Dynamic tools are defined at thread start and persisted in rollout session metadata.
          let dynamic_tools = if dynamic_tools.is_empty() {
-@@ -918,7 +1159,10 @@ impl Session {
+@@ -918,7 +1158,10 @@ impl Session {
                  Err(error) => map_session_init_error(&error, &config.codex_home),
              }
          })?;
@@ -8670,7 +8749,7 @@ index e08a0fa..2a4fb94 100644
              session
                  .send_event_raw(Event {
                      id: INITIAL_SUBMIT_ID.to_owned(),
-@@ -1902,6 +2146,12 @@ impl Session {
+@@ -1902,6 +2145,12 @@ impl Session {
              }
              // Save new environment defaults for future turns. The running turn keeps its own.
              state.session_configuration = updated;
@@ -8683,7 +8762,7 @@ index e08a0fa..2a4fb94 100644
              if root_service_tier_changed {
                  self.services.agent_control.propagate_config_update(
                      AgentConfigUpdate::ServiceTier(
-@@ -1956,6 +2206,18 @@ impl Session {
+@@ -1956,6 +2205,18 @@ impl Session {
              .thread_config_snapshot(state.session_configuration.environments.clone())
      }
  
@@ -8702,7 +8781,7 @@ index e08a0fa..2a4fb94 100644
      pub(crate) async fn configured_environment_selections(&self) -> Vec<TurnEnvironmentSelection> {
          let state = self.state.lock().await;
          state.session_configuration.environments.clone()
-@@ -2106,6 +2368,12 @@ impl Session {
+@@ -2106,6 +2367,12 @@ impl Session {
              let config = Arc::new(config);
              state.session_configuration.original_config_do_not_use = Arc::clone(&config);
              self.mark_mcp_runtime_dirty();
@@ -8715,7 +8794,7 @@ index e08a0fa..2a4fb94 100644
              let new_config = notify_config_contributors
                  .then(|| self.build_effective_session_config(&state.session_configuration));
              (previous_config, new_config, config)
-@@ -5101,6 +5369,14 @@ impl Session {
+@@ -5101,6 +5368,14 @@ impl Session {
      }
  }
  
@@ -8850,7 +8929,7 @@ index 824cf58..9e9170d 100644
                  let _ = startup.session.set(Arc::clone(&sess));
              }
 diff --git a/codex-rs/core/src/session/step_settings.rs b/codex-rs/core/src/session/step_settings.rs
-index cd00b6d..6746540 100644
+index cd00b6d..2ab7450 100644
 --- a/codex-rs/core/src/session/step_settings.rs
 +++ b/codex-rs/core/src/session/step_settings.rs
 @@ -121,8 +121,8 @@ impl ResolvedStepSettings {
@@ -8921,7 +9000,7 @@ index cd00b6d..6746540 100644
          if let Some(summary) = update.reasoning_summary {
              next.reasoning_summary = Some(summary);
          }
-@@ -345,3 +385,109 @@ impl StepSettings {
+@@ -345,3 +385,132 @@ impl StepSettings {
  #[cfg(test)]
  #[path = "step_settings_tests.rs"]
  pub(super) mod tests;
@@ -8934,14 +9013,13 @@ index cd00b6d..6746540 100644
 +    use codex_protocol::config_types::Settings;
 +    use codex_protocol::openai_models::ModelsResponse;
 +
-+    #[tokio::test]
-+    async fn holy_step_reresolves_capacity_and_rejects_missing_model_without_changing_selection() {
-+        let selected = Arc::new(StepSettings {
++    fn selected_holy_settings(model: &str, effort: ReasoningEffort) -> Arc<StepSettings> {
++        Arc::new(StepSettings {
 +            collaboration_mode: CollaborationMode {
 +                mode: ModeKind::Default,
 +                settings: Settings {
-+                    model: "gpt-6.1-sol".to_owned(),
-+                    reasoning_effort: Some(ReasoningEffort::Medium),
++                    model: model.to_owned(),
++                    reasoning_effort: Some(effort),
 +                    developer_instructions: None,
 +                },
 +            },
@@ -8950,25 +9028,45 @@ index cd00b6d..6746540 100644
 +            personality: None,
 +            approval_policy: Constrained::allow_any(AskForApproval::OnRequest),
 +            approvals_reviewer: ApprovalsReviewer::User,
-+        });
++        })
++    }
++
++    fn model_manager(slug: &str, maximum: i64, instructions: Option<&str>) -> StaticModelsManager {
++        let mut model = codex_models_manager::model_info::model_info_from_slug(slug);
++        model.context_window = Some(272_000);
++        model.max_context_window = Some(maximum);
++        if let Some(instructions) = instructions {
++            let messages = model.model_messages.get_or_insert_default();
++            messages.instructions_template = Some(instructions.to_owned());
++            messages.instructions_variables = None;
++            messages.persistent_instructions = None;
++        }
++        let model = serde_json::from_value(serde_json::to_value(model).unwrap()).unwrap();
++        StaticModelsManager::new(
++            None,
++            ModelsResponse {
++                models: vec![model],
++            },
++        )
++    }
++
++    #[tokio::test]
++    async fn holy_step_reresolves_capacity_and_rejects_missing_model_without_changing_selection() {
++        let selected = selected_holy_settings("gpt-6.1-sol", ReasoningEffort::Medium);
 +        let overrides = ModelInfoOverrides::default();
-+        let manager = |maximum| {
-+            let mut model = codex_models_manager::model_info::model_info_from_slug("gpt-6.1-sol");
-+            model.context_window = Some(272_000);
-+            model.max_context_window = Some(maximum);
-+            let model = serde_json::from_value(serde_json::to_value(model).unwrap()).unwrap();
-+            StaticModelsManager::new(
-+                None,
-+                ModelsResponse {
-+                    models: vec![model],
-+                },
-+            )
-+        };
-+        let first = manager(872_000);
++        let first = model_manager(
++            "gpt-6.1-sol",
++            872_000,
++            Some("Initial provider instructions"),
++        );
 +        let resolved = ResolvedStepSettings::new(
 +            Arc::clone(&selected),
 +            Arc::new(selected.resolve_model_info(&first, &overrides).await),
 +            false,
++        );
++        assert_eq!(
++            codex_prompts::render_model_instructions(&resolved.model_info),
++            "Initial provider instructions"
 +        );
 +        let requirements = ConfigRequirements::default();
 +        let constraints = StepSettingsConstraints {
@@ -8977,7 +9075,11 @@ index cd00b6d..6746540 100644
 +            trusted_guardian_reviewer: false,
 +            has_full_disk_write_access: false,
 +        };
-+        let refreshed = manager(320_000);
++        let refreshed = model_manager(
++            "gpt-6.1-sol",
++            320_000,
++            Some("Refreshed provider instructions"),
++        );
 +        let next = resolved
 +            .apply_update(
 +                &StepSettingsUpdate::default(),
@@ -8993,7 +9095,7 @@ index cd00b6d..6746540 100644
 +        assert_eq!(next.model_info.auto_compact_token_limit(), Some(288_000));
 +        assert_eq!(
 +            codex_prompts::render_model_instructions(&next.model_info),
-+            holycodex_policy::ROOT_INSTRUCTIONS
++            "Refreshed provider instructions"
 +        );
 +        let absent = StaticModelsManager::new(None, ModelsResponse { models: Vec::new() });
 +        assert!(
@@ -9148,7 +9250,7 @@ index 9f9f8a8..a773bd5 100644
  
  pub use exec_command::ExecCommandHandler;
 diff --git a/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs b/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
-index bdf6877..4e273e2 100644
+index bdf6877..d77f1a3 100644
 --- a/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
 +++ b/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
 @@ -6,6 +6,7 @@ use crate::exec::DEFAULT_EXEC_COMMAND_TIMEOUT_MS;
@@ -9267,7 +9369,7 @@ index bdf6877..4e273e2 100644
          let environment = Arc::clone(&turn_environment.environment);
          let fs = environment.get_filesystem();
  
-@@ -296,8 +385,104 @@ impl ExecCommandHandler {
+@@ -296,8 +385,105 @@ impl ExecCommandHandler {
              turn_environment.config().allow_login_shell,
          )
          .map_err(FunctionCallError::RespondToModel)?;
@@ -9301,7 +9403,8 @@ index bdf6877..4e273e2 100644
 +                {
 +                    if environment.is_remote() {
 +                        return Err(FunctionCallError::RespondToModel(
-+                            "isolated npm quality commands require a local selected workspace".into(),
++                            "isolated npm quality commands require a local selected workspace"
++                                .into(),
 +                        ));
 +                    }
 +                    let temporary_root = temporary_root.ok_or_else(|| {
@@ -9373,7 +9476,7 @@ index bdf6877..4e273e2 100644
          let ExecCommandArgs {
              mut tty,
              yield_time_ms,
-@@ -423,7 +608,7 @@ impl ExecCommandHandler {
+@@ -423,7 +609,7 @@ impl ExecCommandHandler {
              process_id,
              yield_time_ms,
              max_output_tokens,
@@ -9384,10 +9487,10 @@ index bdf6877..4e273e2 100644
              shell_mode,
 diff --git a/codex-rs/core/src/tools/handlers/unified_exec/npm_workspace_snapshot.rs b/codex-rs/core/src/tools/handlers/unified_exec/npm_workspace_snapshot.rs
 new file mode 100644
-index 0000000..7c6c451
+index 0000000..3cdda93
 --- /dev/null
 +++ b/codex-rs/core/src/tools/handlers/unified_exec/npm_workspace_snapshot.rs
-@@ -0,0 +1,973 @@
+@@ -0,0 +1,982 @@
 +use anyhow::Context;
 +use anyhow::Result;
 +use anyhow::ensure;
@@ -10015,11 +10118,20 @@ index 0000000..7c6c451
 +                .status()
 +                .expect("npm must be available for the isolation test");
 +            assert!(status.success());
-+            assert_eq!(fs::read(snapshot.cwd.join("coverage/report.json")).unwrap(), b"{}");
-+            assert_eq!(fs::read(snapshot.cwd.join("generated-fixture.txt")).unwrap(), b"fixture");
++            assert_eq!(
++                fs::read(snapshot.cwd.join("coverage/report.json")).unwrap(),
++                b"{}"
++            );
++            assert_eq!(
++                fs::read(snapshot.cwd.join("generated-fixture.txt")).unwrap(),
++                b"fixture"
++            );
 +            assert!(!package.join("coverage").exists());
 +            assert!(!package.join("generated-fixture.txt").exists());
-+            assert_eq!(fs::read_to_string(package.join("package.json")).unwrap(), manifest);
++            assert_eq!(
++                fs::read_to_string(package.join("package.json")).unwrap(),
++                manifest
++            );
 +        }
 +    }
 +
@@ -10468,10 +10580,10 @@ index 46fa63d..67d2039 100644
      let json = r#"{"cmd": "echo hello", "shell": "cmd"}"#;
 diff --git a/codex-rs/core/src/tools/holycodex_tools.rs b/codex-rs/core/src/tools/holycodex_tools.rs
 new file mode 100644
-index 0000000..a4e31ad
+index 0000000..d7945ec
 --- /dev/null
 +++ b/codex-rs/core/src/tools/holycodex_tools.rs
-@@ -0,0 +1,3120 @@
+@@ -0,0 +1,3136 @@
 +//! Native, role-scoped model tools for HolyCodex Intent and Assignments.
 +
 +use std::collections::BTreeSet;
@@ -10775,7 +10887,7 @@ index 0000000..a4e31ad
 +                || (!principal.is_root()
 +                    && !is_holy_control_tool_name(&name.name)
 +                    && !allowed_tools.contains(&name)))
-+                .then_some(name)
++            .then_some(name)
 +        })
 +        .collect::<Vec<_>>();
 +    for name in remove {
@@ -11512,7 +11624,7 @@ index 0000000..a4e31ad
 +        "--outputDir",
 +        "--output-dir",
 +    ];
-+    let is_relative = |value: &str, reject_parent| {
++    let is_relative = |value: &str, reject_parent: bool| {
 +        !value.starts_with('~')
 +            && !Path::new(value).is_absolute()
 +            && !matches!(value.as_bytes(), [drive, b':', ..] if drive.is_ascii_alphabetic())
@@ -11528,7 +11640,9 @@ index 0000000..a4e31ad
 +        let word = &words[index];
 +        let (option, inline_value) = word
 +            .split_once('=')
-+            .map_or((word.as_str(), None), |(option, value)| (option, Some(value)));
++            .map_or((word.as_str(), None), |(option, value)| {
++                (option, Some(value))
++            });
 +        if PATH_OPTIONS.contains(&option) {
 +            let value = if let Some(value) = inline_value {
 +                value
@@ -11807,16 +11921,13 @@ index 0000000..a4e31ad
 +                let input: AssignmentWaitRequest = decode_model_payload(&payload)?;
 +                let timeout_ms = assignment_wait_timeout_ms(input.timeout_ms)?;
 +                let assignment_id = input.assignment_id;
-+                let (timed_out, assignment) = wait_until_or_snapshot(
-+                    timeout_ms,
-+                    controller.wait(&assignment_id),
-+                    || {
++                let (timed_out, assignment) =
++                    wait_until_or_snapshot(timeout_ms, controller.wait(&assignment_id), || {
 +                        let snapshot = controller.snapshot()?;
 +                        Ok(snapshot.assignment(&assignment_id)?.clone())
-+                    },
-+                )
-+                .await
-+                .map_err(controller_error)?;
++                    })
++                    .await
++                    .map_err(controller_error)?;
 +                encode_model_result(&AssignmentWaitOutput {
 +                    timed_out,
 +                    assignment: assignment_projection(&assignment),
@@ -12166,7 +12277,12 @@ index 0000000..a4e31ad
 +
 +    #[test]
 +    fn npm_test_commands_require_isolated_workspaces_and_relative_arguments() {
-+        for command in ["npm test", "npm run test", "npm.cmd test", "npm.exe run test"] {
++        for command in [
++            "npm test",
++            "npm run test",
++            "npm.cmd test",
++            "npm.exe run test",
++        ] {
 +            assert!(shell_npm_workspace_command(command));
 +            assert!(shell_quality_command_requires_artifacts(command));
 +            assert!(npm_workspace_command_uses_only_relative_paths(command));
@@ -12197,10 +12313,19 @@ index 0000000..a4e31ad
 +                "C:victim",
 +                "//server/share/app",
 +            ] {
-+                for flag in ["--prefix ", "--prefix=", "-C=", "-w=", "--coverageDirectory="] {
-+                    assert!(!npm_workspace_command_uses_only_relative_paths(&format!(
-+                        "{command} {flag}{path}"
-+                    )));
++                for flag in [
++                    "--prefix ",
++                    "--prefix=",
++                    "-C=",
++                    "-w=",
++                    "--coverageDirectory=",
++                ] {
++                    assert!(
++                        !npm_workspace_command_uses_only_relative_paths(&format!(
++                            "{command} {flag}'{path}'"
++                        )),
++                        "accepted absolute npm path argument: {command} {flag}{path}"
++                    );
 +                }
 +            }
 +        }
@@ -12421,9 +12546,11 @@ index 0000000..a4e31ad
 +        assert_eq!(assignment_wait_timeout_ms(Some(900_000)).unwrap(), 900_000);
 +        assert!(assignment_wait_timeout_ms(Some(0)).is_err());
 +        assert!(assignment_wait_timeout_ms(Some(900_001)).is_err());
-+        assert!(tool_definition("assignment.wait")
-+            .0
-+            .contains("default and maximum 900000 milliseconds; minimum 1"));
++        assert!(
++            tool_definition("assignment.wait")
++                .0
++                .contains("default and maximum 900000 milliseconds; minimum 1")
++        );
 +    }
 +
 +    #[tokio::test]
@@ -12435,16 +12562,17 @@ index 0000000..a4e31ad
 +        .unwrap();
 +        assert_eq!(terminal, (false, "finished"));
 +
-+        let blocked = wait_until_or_snapshot(
-+            1,
-+            std::future::pending::<Result<&str, ()>>(),
-+            || Ok("running Assignment a-1; specialist turn has not terminated"),
-+        )
++        let blocked = wait_until_or_snapshot(1, std::future::pending::<Result<&str, ()>>(), || {
++            Ok("running Assignment a-1; specialist turn has not terminated")
++        })
 +        .await
 +        .unwrap();
 +        assert_eq!(
 +            blocked,
-+            (true, "running Assignment a-1; specialist turn has not terminated")
++            (
++                true,
++                "running Assignment a-1; specialist turn has not terminated"
++            )
 +        );
 +    }
 +
@@ -21178,7 +21306,7 @@ index af73444..084ef75 100644
  }
  
 diff --git a/codex-rs/models-manager/src/manager_tests.rs b/codex-rs/models-manager/src/manager_tests.rs
-index 04336f5..cbb54f0 100644
+index 04336f5..c587ac2 100644
 --- a/codex-rs/models-manager/src/manager_tests.rs
 +++ b/codex-rs/models-manager/src/manager_tests.rs
 @@ -39,6 +39,64 @@ mod cache_identity_tests;
@@ -21280,7 +21408,7 @@ index 04336f5..cbb54f0 100644
      }
  
      fn has_command_auth(&self) -> bool {
-@@ -311,6 +380,82 @@ impl ModelsEndpointClient for TestModelsEndpoint {
+@@ -311,6 +380,83 @@ impl ModelsEndpointClient for TestModelsEndpoint {
      }
  }
  
@@ -21341,13 +21469,14 @@ index 04336f5..cbb54f0 100644
 +    let refreshed = manager.get_model_info("gpt-6.1-sol", &config).await;
 +    assert_eq!(refreshed.slug, "gpt-6.1-sol");
 +    assert_eq!(refreshed.max_context_window, Some(320_000));
++    // Catalog refresh preserves provider metadata; the session source selects Holy prompts.
 +    assert_eq!(
 +        refreshed
 +            .model_messages
 +            .unwrap()
 +            .instructions_template
 +            .as_deref(),
-+        Some(holycodex_policy::ROOT_INSTRUCTIONS)
++        Some("new account metadata")
 +    );
 +    assert_eq!(
 +        endpoint.fetch_count(),
@@ -21363,7 +21492,7 @@ index 04336f5..cbb54f0 100644
  fn openai_manager_for_tests(
      codex_home: std::path::PathBuf,
      endpoint_client: Arc<dyn ModelsEndpointClient>,
-@@ -604,6 +749,7 @@ async fn chatgpt_auth_tokens_for_tests(codex_home: &Path) -> CodexAuth {
+@@ -604,6 +750,7 @@ async fn chatgpt_auth_tokens_for_tests(codex_home: &Path) -> CodexAuth {
          auth_mode: Some(AuthMode::ChatgptAuthTokens),
          openai_api_key: None,
          tokens: Some(TokenData {
@@ -21475,10 +21604,10 @@ index 88ade7c..47e8156 100644
      let mut section_start = None;
      let mut section_end = None;
 diff --git a/codex-rs/models-manager/src/model_info_tests.rs b/codex-rs/models-manager/src/model_info_tests.rs
-index 891d896..6624a06 100644
+index 891d896..d6a43f0 100644
 --- a/codex-rs/models-manager/src/model_info_tests.rs
 +++ b/codex-rs/models-manager/src/model_info_tests.rs
-@@ -276,3 +276,82 @@ fn model_context_window_uses_model_value_without_override() {
+@@ -276,3 +276,88 @@ fn model_context_window_uses_model_value_without_override() {
  
      assert_eq!(updated, model);
  }
@@ -21513,8 +21642,14 @@ index 891d896..6624a06 100644
 +    let resolved = with_config_overrides(model, &ModelsManagerConfig::default());
 +    let messages = resolved.model_messages.as_ref().unwrap();
 +
-+    assert_eq!(messages.instructions_template.as_deref(), Some("provider catalog prompt"));
-+    assert_eq!(messages.persistent_instructions.as_deref(), Some("provider continuation prompt"));
++    assert_eq!(
++        messages.instructions_template.as_deref(),
++        Some("provider catalog prompt")
++    );
++    assert_eq!(
++        messages.persistent_instructions.as_deref(),
++        Some("provider continuation prompt")
++    );
 +    assert!(messages.instructions_variables.is_some());
 +}
 +
@@ -21562,7 +21697,7 @@ index 891d896..6624a06 100644
 +    assert_eq!(resolved.auto_compact_token_limit(), Some(244_800));
 +}
 diff --git a/codex-rs/skills/src/lib.rs b/codex-rs/skills/src/lib.rs
-index 7b19d32..d0cf39b 100644
+index 7b19d32..4767c2dab127eee4976fa04d1c908cfa7dbb5b33 100644
 --- a/codex-rs/skills/src/lib.rs
 +++ b/codex-rs/skills/src/lib.rs
 @@ -193,6 +193,50 @@ mod tests {
@@ -21592,7 +21727,7 @@ index 7b19d32..d0cf39b 100644
 +        for name in HOLYCODEX_SKILLS {
 +            let skill_path = std::path::Path::new(name).join("SKILL.md");
 +            let skill = SYSTEM_SKILLS_DIR.get_file(&skill_path).unwrap_or_else(|| {
-+                panic!("HolyCodex 0.17.0 skill {name} is not embedded with SKILL.md")
++                panic!("HolyCodex 0.17.0-1 skill {name} is not embedded with SKILL.md")
 +            });
 +            let contents = skill
 +                .contents_utf8()
@@ -21639,7 +21774,7 @@ index 52e7e02..f4232e8 100644
              }
              tui.frame_requester().schedule_frame();
 diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap
-index 1261499..a965c7e 100644
+index 1261499..62937e6c9a24ef449385b37dbe7f41ba72089cda 100644
 --- a/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap
 +++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap
 @@ -4,7 +4,7 @@ expression: "format!(\"enabled:\\n{}\\n---\\ndisabled:\\n{}\", text(after), text
@@ -21647,7 +21782,7 @@ index 1261499..a965c7e 100644
  enabled:
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    Pull up a prompt.
@@ -21656,12 +21791,12 @@ index 1261499..a965c7e 100644
  disabled:
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    Pull up a prompt.
 diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__tests__app_server_thread_replacement_clears_previous_transcript_before_replay-2.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__tests__app_server_thread_replacement_clears_previous_transcript_before_replay-2.snap
-index 8aa1bca..813c37a 100644
+index 8aa1bca..b5017369f41dd1837aa07cb293fd46dfaf6dc3c7 100644
 --- a/codex-rs/tui/src/app/snapshots/codex_tui__app__tests__app_server_thread_replacement_clears_previous_transcript_before_replay-2.snap
 +++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__tests__app_server_thread_replacement_clears_previous_transcript_before_replay-2.snap
 @@ -4,7 +4,7 @@ assertion_line: 6513
@@ -21669,7 +21804,7 @@ index 8aa1bca..813c37a 100644
  ---
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       <thread cwd>
  
  
@@ -21709,7 +21844,7 @@ index 0fbf795..d6eed76 100644
      } else {
          panic!("expected transcript overlay");
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_buffered_replay_reconciles_captions.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_buffered_replay_reconciles_captions.snap
-index ab3a8c8..63f4970 100644
+index ab3a8c8..c65a2a1b04958ba49ae771953a17e11fadefabaf 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_buffered_replay_reconciles_captions.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_buffered_replay_reconciles_captions.snap
 @@ -4,7 +4,7 @@ assertion_line: 889
@@ -21717,12 +21852,12 @@ index ab3a8c8..63f4970 100644
  ---
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    To get started, describe a task or try one of these commands:
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_completed_after_thread_switch.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_completed_after_thread_switch.snap
-index 2ecde20..e40c11f 100644
+index 2ecde20..ed5d193c4c35ebb8bbd2ab7edd95d422c82c455a 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_completed_after_thread_switch.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_completed_after_thread_switch.snap
 @@ -4,7 +4,7 @@ assertion_line: 1093
@@ -21730,12 +21865,12 @@ index 2ecde20..e40c11f 100644
  ---
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    To get started, describe a task or try one of these commands:
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_partial_completed_after_thread_switch.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_partial_completed_after_thread_switch.snap
-index 5c3a9d2..94185e4 100644
+index 5c3a9d2..13ee6e31a1efdfd95ea422ef6da6a6b110b7053a 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_partial_completed_after_thread_switch.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_partial_completed_after_thread_switch.snap
 @@ -15,7 +15,7 @@ Restored owner:
@@ -21743,12 +21878,12 @@ index 5c3a9d2..94185e4 100644
    gpt-test default · /tmp/project
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    To get started, describe a task or try one of these commands:
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_replay_reconciles_matching_captions.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_replay_reconciles_matching_captions.snap
-index 0dfd733..71c0d94 100644
+index 0dfd733..8759658d5c6419a50a45e537d26b3660687b1858 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_replay_reconciles_matching_captions.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_replay_reconciles_matching_captions.snap
 @@ -4,7 +4,7 @@ assertion_line: 716
@@ -21756,12 +21891,12 @@ index 0dfd733..71c0d94 100644
  ---
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    To get started, describe a task or try one of these commands:
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__startup_frame_tests__startup_tip_in_transcript.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__startup_frame_tests__startup_tip_in_transcript.snap
-index 8ed7c18..8628e58 100644
+index 8ed7c18..39b2e0abb411b7a122c6448af020dbf2cbb27c1c 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__startup_frame_tests__startup_tip_in_transcript.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__startup_frame_tests__startup_tip_in_transcript.snap
 @@ -1,11 +1,11 @@
@@ -21774,7 +21909,7 @@ index 8ed7c18..8628e58 100644
  80 columns
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    Pull up a prompt.
@@ -21783,7 +21918,7 @@ index 8ed7c18..8628e58 100644
  32 columns
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex u…
++  >_ HolyCodex v0.17.0-1 (Codex…
       /tmp/project
  
    Pull up a prompt.
@@ -22044,7 +22179,7 @@ index ab195e3..2d352aa 100644
       /tmp/project
    permissions: YOLO mode
 diff --git a/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__session_info_availability_nux_tooltip_snapshot.snap b/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__session_info_availability_nux_tooltip_snapshot.snap
-index e5cc9a0..7d9af9b 100644
+index e5cc9a0..c0fc09d79b4997eba6671cd590c217c180d9ceab 100644
 --- a/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__session_info_availability_nux_tooltip_snapshot.snap
 +++ b/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__session_info_availability_nux_tooltip_snapshot.snap
 @@ -4,7 +4,7 @@ assertion_line: 778
@@ -22052,7 +22187,7 @@ index e5cc9a0..7d9af9b 100644
  ---
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
       /tmp/project
  
    Tip: Model just became available
@@ -22342,7 +22477,7 @@ index 73b6daf..81ceee2 100644
              [Line::from(title)],
              RtOptions::new(available_width).subsequent_indent(indent.into()),
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_not_required.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_not_required.snap
-index a00c3ae..feccab6 100644
+index a00c3ae..dc137b8333adc4b328cd6f83b7be9f7bb66786b8 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_not_required.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_not_required.snap
 @@ -4,7 +4,7 @@ expression: rendered
@@ -22350,12 +22485,12 @@ index a00c3ae..feccab6 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Model:           gpt-5.6-sol (reasoning none, summaries auto)
    Model provider:  server-ollama
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_required.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_required.snap
-index 6c856d5..5c2cd34 100644
+index 6c856d5..017a1fe157d27927ca36866f563c313ed8384e43 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_required.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_required.snap
 @@ -4,7 +4,7 @@ expression: rendered
@@ -22363,12 +22498,12 @@ index 6c856d5..5c2cd34 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_cached_limits_hide_credits_without_flag.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_cached_limits_hide_credits_without_flag.snap
-index 4f55f6a..fd8faa1 100644
+index 4f55f6a..f07a49c4458e496fa35afcec2f5e6723f54da1fd 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_cached_limits_hide_credits_without_flag.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_cached_limits_hide_credits_without_flag.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22376,12 +22511,12 @@ index 4f55f6a..fd8faa1 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_credits_and_limits.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_credits_and_limits.snap
-index 9d8fba7..5c0816e 100644
+index 9d8fba7..04246405ff7a7f421b83c8bd7954f0dd6c38bb80 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_credits_and_limits.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_credits_and_limits.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22389,12 +22524,12 @@ index 9d8fba7..5c0816e 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_enterprise_monthly_credit_limit.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_enterprise_monthly_credit_limit.snap
-index be84d82..fdc083c 100644
+index be84d82..a58525ed80bb90ead8fbb45771e3f560223a8c07 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_enterprise_monthly_credit_limit.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_enterprise_monthly_credit_limit.snap
 @@ -1,10 +1,11 @@
@@ -22406,12 +22541,12 @@ index be84d82..fdc083c 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_forked_from.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_forked_from.snap
-index a321135..d4a7f70 100644
+index a321135..67a7b2d3404e41e920f5600ad1180c7e87b14ab5 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_forked_from.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_forked_from.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22419,12 +22554,12 @@ index a321135..d4a7f70 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_monthly_limit.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_monthly_limit.snap
-index f2cc2fb..fd96a6f 100644
+index f2cc2fb..c5d4c3087e2155bd6f01b7d9c80310595fd8751c 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_monthly_limit.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_monthly_limit.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22432,12 +22567,12 @@ index f2cc2fb..fd96a6f 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_reasoning_details.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_reasoning_details.snap
-index 06866b5..6a38806 100644
+index 06866b5..7668f3a912687cadba86ae1566ec1fe4e44aa810 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_reasoning_details.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_reasoning_details.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22445,12 +22580,12 @@ index 06866b5..6a38806 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap
-index 6cc0ff0..e57c9ff 100644
+index 6cc0ff0..8d67ceb70530ea170228622052f93f30f016507f 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22458,12 +22593,12 @@ index 6cc0ff0..e57c9ff 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap
-index 8478305..02a24df 100644
+index 8478305..a9b63ab341da1be746bf236e075b1702ef21cc72 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22471,12 +22606,12 @@ index 8478305..02a24df 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_active_user_defined_profile.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_active_user_defined_profile.snap
-index 01134f2..8e5a32d 100644
+index 01134f2..de8e7f5146145bb6393e0e16920a67ee1819d826 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_active_user_defined_profile.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_active_user_defined_profile.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22484,12 +22619,12 @@ index 01134f2..8e5a32d 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_auto_review_permissions.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_auto_review_permissions.snap
-index 7173c99..b77e9e7 100644
+index 7173c99..7da5f20fae1ba0d70f169bc5bedae0590b111534 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_auto_review_permissions.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_auto_review_permissions.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22497,12 +22632,12 @@ index 7173c99..b77e9e7 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_chatgpt_plan_without_email.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_chatgpt_plan_without_email.snap
-index e3b9bae..e0ef50a 100644
+index e3b9bae..18444f75bead00e8c22324b4477e8bac716cada0 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_chatgpt_plan_without_email.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_chatgpt_plan_without_email.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22510,12 +22645,12 @@ index e3b9bae..e0ef50a 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_missing_limits_message.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_missing_limits_message.snap
-index 9a948fe..4ccab09 100644
+index 9a948fe..cee7df9d800eef5a2841067133300e917d95eee9 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_missing_limits_message.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_missing_limits_message.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22523,12 +22658,12 @@ index 9a948fe..4ccab09 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_refreshing_limits_notice.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_refreshing_limits_notice.snap
-index 49ac38b..3be8805 100644
+index 49ac38b..d66d262ec4750cc7bf8f5b71bd44cbd4f78730b7 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_refreshing_limits_notice.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_refreshing_limits_notice.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22536,12 +22671,12 @@ index 49ac38b..3be8805 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_stale_limits_message.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_stale_limits_message.snap
-index 2474656..e0848b5 100644
+index 2474656..3698a2d797644e6810abe0230da8ac35b1ba6645 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_stale_limits_message.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_stale_limits_message.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22549,12 +22684,12 @@ index 2474656..e0848b5 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_unavailable_limits_message.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_unavailable_limits_message.snap
-index 7d43405..e9b3af47 100644
+index 7d43405..b808b0e615a0d8f365c3abbd0d55f2d2eb746e96 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_unavailable_limits_message.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_unavailable_limits_message.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22562,12 +22697,12 @@ index 7d43405..e9b3af47 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_treats_refreshing_empty_limits_as_unavailable.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_treats_refreshing_empty_limits_as_unavailable.snap
-index 7d43405..e9b3af47 100644
+index 7d43405..b808b0e615a0d8f365c3abbd0d55f2d2eb746e96 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_treats_refreshing_empty_limits_as_unavailable.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_treats_refreshing_empty_limits_as_unavailable.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22575,12 +22710,12 @@ index 7d43405..e9b3af47 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_halfwidth_kana_in_narrow_terminal.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_halfwidth_kana_in_narrow_terminal.snap
-index 23496e4..c62ca4d 100644
+index 23496e4..c31af3c50fd03578a58ae9792fe6f8823891b4ec 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_halfwidth_kana_in_narrow_terminal.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_halfwidth_kana_in_narrow_terminal.snap
 @@ -1,10 +1,12 @@
@@ -22592,13 +22727,13 @@ index 23496e4..c62ca4d 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream
-+  0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream
++  0.160.1)
  
    Visit
    https://chatgpt.com/codex/settings/usage
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_in_narrow_terminal.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_in_narrow_terminal.snap
-index ac59138..0b220ed 100644
+index ac59138..215f3a2df6525bbfcb846326a6083a072a8e4bb8 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_in_narrow_terminal.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_in_narrow_terminal.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22606,12 +22741,12 @@ index ac59138..0b220ed 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_default_reasoning_when_config_empty.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_default_reasoning_when_config_empty.snap
-index bf5bb86..f7ce5ee 100644
+index bf5bb86..2c5592356e20e2427cf0fc088aaf71224237656c 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_default_reasoning_when_config_empty.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_default_reasoning_when_config_empty.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22619,12 +22754,12 @@ index bf5bb86..f7ce5ee 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_generic_limit_labels_for_unsupported_windows.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_generic_limit_labels_for_unsupported_windows.snap
-index a1430ac..bb01abc 100644
+index a1430ac..02236185655ecf649bf7df69043680a30c2b600a 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_generic_limit_labels_for_unsupported_windows.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_generic_limit_labels_for_unsupported_windows.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -22632,12 +22767,12 @@ index a1430ac..bb01abc 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap
-index 950a3d4..8c41041 100644
+index 950a3d4..04732d4b57320a7196fcd0c72ec9f5f9e221b32f 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap
 @@ -4,7 +4,8 @@ expression: sanitized
@@ -22645,13 +22780,13 @@ index 950a3d4..8c41041 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream
-+  0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream
++  0.160.1)
  
    Visit
    https://chatgpt.com/codex/settings/usage for
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__transcript_overlay_status_rate_limit_refresh.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__transcript_overlay_status_rate_limit_refresh.snap
-index f7871d8..eb078f5 100644
+index f7871d8..c77ece738e42052a14006403b1e4a07ca0692ea4 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__transcript_overlay_status_rate_limit_refresh.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__transcript_overlay_status_rate_limit_refresh.snap
 @@ -6,7 +6,7 @@ before:
@@ -22659,7 +22794,7 @@ index f7871d8..eb078f5 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
@@ -22668,12 +22803,12 @@ index f7871d8..eb078f5 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ HolyCodex v0.17.0 (Codex upstream 0.160.0)
++  >_ HolyCodex v0.17.0-1 (Codex upstream 0.160.1)
  
    Visit https://chatgpt.com/codex/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/version.rs b/codex-rs/tui/src/version.rs
-index 8c8d108..89fca05 100644
+index 8c8d108..7782f829c2993abaf6cb8df0da20f014ddb548e1 100644
 --- a/codex-rs/tui/src/version.rs
 +++ b/codex-rs/tui/src/version.rs
 @@ -1,2 +1,17 @@
@@ -22683,7 +22818,7 @@ index 8c8d108..89fca05 100644
 +
 +/// The release string shown in user-facing HolyCodex TUI headers.
 +pub const HOLYCODEX_DISPLAY_VERSION: &str =
-+    concat!("0.17.0 (Codex upstream ", env!("CARGO_PKG_VERSION"), ")",);
++    concat!("0.17.0-1 (Codex upstream ", env!("CARGO_PKG_VERSION"), ")",);
 +
 +#[cfg(test)]
 +mod tests {
@@ -22691,7 +22826,7 @@ index 8c8d108..89fca05 100644
 +    fn display_version_matches_holy_release_and_upstream_provenance() {
 +        assert_eq!(
 +            super::HOLYCODEX_DISPLAY_VERSION,
-+            "0.17.0 (Codex upstream 0.160.0)",
++            "0.17.0-1 (Codex upstream 0.160.1)",
 +        );
 +    }
 +}
@@ -22877,7 +23012,7 @@ index 0b53ebb..2315e45 100644
      }
      let snapshot_name = if cfg!(windows) {
 diff --git a/codex-rs/app-server-daemon/src/prepare_install.rs b/codex-rs/app-server-daemon/src/prepare_install.rs
-index ecf2501..9f4aa34 100644
+index ecf2501..d56d2c7 100644
 --- a/codex-rs/app-server-daemon/src/prepare_install.rs
 +++ b/codex-rs/app-server-daemon/src/prepare_install.rs
 @@ -72,7 +72,7 @@ pub async fn update_from_cli(
@@ -22889,6 +23024,17 @@ index ecf2501..9f4aa34 100644
      }))
  }
  
+@@ -143,9 +143,7 @@ async fn prepare_from_package(
+             "the selected daemon package is incomplete; repair its installation before starting"
+         );
+     }
+-    let source = source.context(
+-        "this CLI has no complete local package; install a packaged Codex CLI or use the standalone installer",
+-    )?;
++    let source = source.ok_or(crate::MissingPackageLayout)?;
+     anyhow::ensure!(
+         !root.canonicalize()?.starts_with(source.canonicalize()?),
+         "CODEX_HOME must be outside the source CLI package"
 diff --git a/codex-rs/app-server-daemon/src/update_loop.rs b/codex-rs/app-server-daemon/src/update_loop.rs
 index 8f55126..29a95b3 100644
 --- a/codex-rs/app-server-daemon/src/update_loop.rs
@@ -22947,10 +23093,10 @@ index 8f55126..29a95b3 100644
              .send()
              .await
 diff --git a/codex-rs/app-server-daemon/src/update_loop_tests.rs b/codex-rs/app-server-daemon/src/update_loop_tests.rs
-index d932742..9ebd02f 100644
+index d932742..c523daf 100644
 --- a/codex-rs/app-server-daemon/src/update_loop_tests.rs
 +++ b/codex-rs/app-server-daemon/src/update_loop_tests.rs
-@@ -23,6 +23,171 @@ use crate::managed_install::executable_identity;
+@@ -23,6 +23,214 @@ use crate::managed_install::executable_identity;
  #[cfg(unix)]
  use crate::managed_install::executable_identity_from_reader;
  
@@ -22966,8 +23112,13 @@ index d932742..9ebd02f 100644
 +#[tokio::test]
 +async fn holycodex_installer_transport_rejects_before_network_access() {
 +    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback listener");
-+    listener.set_nonblocking(true).expect("nonblocking listener");
-+    let url = format!("http://{}/install.sh", listener.local_addr().expect("address"));
++    listener
++        .set_nonblocking(true)
++        .expect("nonblocking listener");
++    let url = format!(
++        "http://{}/install.sh",
++        listener.local_addr().expect("address")
++    );
 +    let http = holycodex_production_installer_http();
 +    let error = tokio::time::timeout(
 +        std::time::Duration::from_secs(1),
@@ -23016,9 +23167,20 @@ index d932742..9ebd02f 100644
 +    .await
 +    .expect("unsupported update response");
 +    assert_eq!(output.status, UpdateStatus::Unsupported);
-+    assert!(output.message.contains("HolyCodex upstream installer updates are disabled"));
-+    assert!(tokio::time::timeout(Duration::from_millis(50), listener.accept()).await.is_err());
-+    assert_eq!(super::selected_release(&daemon).expect("selection"), selected);
++    assert!(
++        output
++            .message
++            .contains("HolyCodex upstream installer updates are disabled")
++    );
++    assert!(
++        tokio::time::timeout(Duration::from_millis(50), listener.accept())
++            .await
++            .is_err()
++    );
++    assert_eq!(
++        super::selected_release(&daemon).expect("selection"),
++        selected
++    );
 +}
 +
 +#[tokio::test]
@@ -23031,7 +23193,11 @@ index d932742..9ebd02f 100644
 +    )
 +    .await
 +    .expect_err("the production worker must not start or adopt another executable");
-+    assert!(error.to_string().contains("HolyCodex upstream installer updates are disabled"));
++    assert!(
++        error
++            .to_string()
++            .contains("HolyCodex upstream installer updates are disabled")
++    );
 +}
 +
 +#[cfg(unix)]
@@ -23055,10 +23221,21 @@ index d932742..9ebd02f 100644
 +    assert!(!result.expect("retire updater"));
 +    assert!(!updater_running.expect("updater state"));
 +    assert!(bootstrapped.expect("daemon remains bootstrapped without an updater"));
-+    assert_eq!(super::selected_release(&daemon).expect("selection"), selected);
-+    assert_eq!(std::fs::read(&daemon.managed_codex_bin).expect("binary"), binary);
++    assert_eq!(
++        super::selected_release(&daemon).expect("selection"),
++        selected
++    );
++    assert_eq!(
++        std::fs::read(&daemon.managed_codex_bin).expect("binary"),
++        binary
++    );
 +    assert!(!daemon.settings_file.exists());
-+    assert!(!daemon.ensure_managed_updater(&settings).await.expect("do not respawn"));
++    assert!(
++        !daemon
++            .ensure_managed_updater(&settings)
++            .await
++            .expect("do not respawn")
++    );
 +    assert!(!updater.is_starting_or_running().await.expect("no updater"));
 +}
 +
@@ -23089,8 +23266,14 @@ index d932742..9ebd02f 100644
 +                .to_string()
 +                .contains("HolyCodex upstream installer updates are disabled")
 +        );
-+        assert_eq!(super::selected_release(&daemon).expect("selection"), selected);
-+        assert_eq!(std::fs::read(&daemon.managed_codex_bin).expect("binary"), binary);
++        assert_eq!(
++            super::selected_release(&daemon).expect("selection"),
++            selected
++        );
++        assert_eq!(
++            std::fs::read(&daemon.managed_codex_bin).expect("binary"),
++            binary
++        );
 +        assert_eq!(std::fs::read(&marker).expect("marker"), marker_bytes);
 +        assert!(!daemon.pid_file.exists());
 +    }
@@ -23113,8 +23296,14 @@ index d932742..9ebd02f 100644
 +            .to_string()
 +            .contains("HolyCodex upstream installer updates are disabled")
 +    );
-+    assert_eq!(super::selected_release(&daemon).expect("selection"), selected);
-+    assert_eq!(std::fs::read(&daemon.managed_codex_bin).expect("binary"), binary);
++    assert_eq!(
++        super::selected_release(&daemon).expect("selection"),
++        selected
++    );
++    assert_eq!(
++        std::fs::read(&daemon.managed_codex_bin).expect("binary"),
++        binary
++    );
 +    assert_eq!(std::fs::read(&marker).expect("marker"), marker_bytes);
 +    assert!(!home.path().join("packages/app-server-daemon").exists());
 +}
@@ -23122,7 +23311,7 @@ index d932742..9ebd02f 100644
  #[tokio::test]
  async fn installer_fetch_uses_exact_url_and_preserves_bytes() {
      let script = b"#!/bin/sh\nprintf 'update bytes'\n".to_vec();
-@@ -193,7 +358,7 @@ printf '{release}' > "$root/auto-update-version"
+@@ -193,7 +401,7 @@ printf '{release}' > "$root/auto-update-version"
          assert!(!old_updater.is_starting_or_running().await.unwrap());
          let new_updater =
              crate::backend::pid_update_loop_backend(selected.backend_paths(&daemon_settings));
@@ -23131,6 +23320,111 @@ index d932742..9ebd02f 100644
          new_updater.stop().await.unwrap();
          new_backend.stop().await.unwrap();
          if let Some(server) = server {
+@@ -491,6 +699,15 @@ async fn unsupported_request_preserves_updater_schedule() {
+ async fn test_control_server(
+     daemon: &Daemon,
+     home: &std::path::Path,
++) -> tokio::task::JoinHandle<()> {
++    test_control_server_with_user_agent(daemon, home, None).await
++}
++
++#[cfg(unix)]
++async fn test_control_server_with_user_agent(
++    daemon: &Daemon,
++    home: &std::path::Path,
++    user_agent: Option<String>,
+ ) -> tokio::task::JoinHandle<()> {
+     use futures::SinkExt;
+     use futures::StreamExt;
+@@ -521,9 +738,14 @@ async fn test_control_server(
+             } else {
+                 "1.0.0"
+             };
++            // Legacy updater/migration fixtures report their simulated package
++            // versions. Holy start/reuse tests supply their compiled marker explicitly.
++            let user_agent = user_agent
++                .clone()
++                .unwrap_or_else(|| format!("codex_app_server_daemon/{version}"));
+             websocket.send(tokio_tungstenite::tungstenite::Message::Text(
+                 serde_json::json!({"id": 1, "result": {
+-                    "userAgent": format!("codex_app_server_daemon/{version}"),
++                    "userAgent": user_agent,
+                     "codexHome": codex_home, "platformFamily": "unix", "platformOs": std::env::consts::OS,
+                 }}).to_string().into(),
+             )).await.expect("initialize response");
+@@ -542,6 +764,31 @@ async fn manual_update_restarts_managed_daemon_with_automatic_updates_disabled()
+     check_manual_update_restart("standalone").await;
+ }
+ 
++#[cfg(unix)]
++#[tokio::test]
++async fn daemon_start_rejects_vanilla_same_version_socket_before_reuse() {
++    let home = TempDir::new().unwrap();
++    let (daemon, _) = manual_update_daemon(&home);
++    let server = test_control_server_with_user_agent(
++        &daemon,
++        home.path(),
++        Some(format!(
++            "codex_app_server_daemon/{}",
++            env!("CARGO_PKG_VERSION")
++        )),
++    )
++    .await;
++
++    // The vanilla socket reports the same upstream version and the daemon
++    // settings use the default feature set, but neither makes it Holy.
++    let result = daemon
++        .start(&std::collections::BTreeMap::new())
++        .await
++        .expect_err("vanilla app-server must not be reused as Holy daemon");
++    assert!(result.is::<crate::ForeignAppServerRuntime>(), "{result:#}");
++    server.abort();
++}
++
+ #[cfg(unix)]
+ #[tokio::test]
+ async fn daemon_start_and_restart_preserve_launch_features() {
+@@ -573,9 +820,18 @@ async fn daemon_start_and_restart_preserve_launch_features() {
+                 );
+                 tokio::time::sleep(Duration::from_millis(/*millis*/ 20)).await;
+             }
+-            test_control_server(&daemon, home.path())
+-                .await
+-                .abort_handle()
++            test_control_server_with_user_agent(
++                &daemon,
++                home.path(),
++                Some(format!(
++                    "codex_app_server_daemon/{} {} codex_upstream/{}",
++                    env!("CARGO_PKG_VERSION"),
++                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++                    env!("CARGO_PKG_VERSION"),
++                )),
++            )
++            .await
++            .abort_handle()
+         };
+         let (started, server) = tokio::join!(daemon.start(&features), control);
+         assert_eq!(started.unwrap().status, crate::LifecycleStatus::Started);
+@@ -634,7 +890,17 @@ async fn confirmed_feature_restart_preserves_ownership_and_skips_matching_settin
+         if managed {
+             daemon.start_managed_backend(&original).await.unwrap();
+         }
+-        let server = test_control_server(&daemon, home.path()).await;
++        let server = test_control_server_with_user_agent(
++            &daemon,
++            home.path(),
++            Some(format!(
++                "codex_app_server_daemon/{} {} codex_upstream/{}",
++                env!("CARGO_PKG_VERSION"),
++                codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++                env!("CARGO_PKG_VERSION"),
++            )),
++        )
++        .await;
+         let _lock = daemon.acquire_operation_lock().await.unwrap();
+         let requested = BTreeMap::from([
+             ("api_key_model_discovery".to_string(), false),
 diff --git a/codex-rs/tui/src/npm_registry.rs b/codex-rs/tui/src/npm_registry.rs
 index 61ff242..3396ad3 100644
 --- a/codex-rs/tui/src/npm_registry.rs
@@ -23375,10 +23669,92 @@ index 0000000..8350766
 +    assert!(!version_filepath(&config).exists());
 +}
 diff --git a/codex-rs/app-server-daemon/src/lib.rs b/codex-rs/app-server-daemon/src/lib.rs
-index 15ba769..3187e09 100644
+index 15ba769..fffe7a7 100644
 --- a/codex-rs/app-server-daemon/src/lib.rs
 +++ b/codex-rs/app-server-daemon/src/lib.rs
-@@ -467,7 +467,7 @@ impl Daemon {
+@@ -21,6 +21,7 @@ mod thread_recovery;
+ mod update_loop;
+ 
+ use std::collections::BTreeMap;
++use std::fmt;
+ use std::path::Path;
+ use std::path::PathBuf;
+ use std::time::Duration;
+@@ -96,12 +97,65 @@ pub struct BootstrapOptions {
+     pub remote_control_enabled: bool,
+ }
+ 
++/// The current executable cannot supply the complete package needed to start
++/// a new managed daemon.
++#[derive(Debug)]
++pub struct MissingPackageLayout;
++
++impl fmt::Display for MissingPackageLayout {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter.write_str(
++            "this HolyCodex CLI package lacks the assets required to start the shared background server",
++        )
++    }
++}
++
++impl std::error::Error for MissingPackageLayout {}
++
++/// The socket belongs to an app-server built from a different runtime.
++#[derive(Debug)]
++pub struct ForeignAppServerRuntime;
++
++impl fmt::Display for ForeignAppServerRuntime {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter.write_str("the selected background server is not a compatible HolyCodex runtime")
++    }
++}
++
++impl std::error::Error for ForeignAppServerRuntime {}
++
+ /// Passively probes an existing app-server socket and returns its reported
+ /// app-server version.
+ pub async fn probe_app_server_version(socket_path: &Path) -> Result<String> {
+     Ok(client::probe(socket_path).await?.app_server_version)
+ }
+ 
++/// Verify that a local app-server socket is owned by the supported Holy runtime.
++pub async fn validate_holy_runtime(socket_path: &Path) -> Result<()> {
++    let info = client::probe(socket_path).await?;
++    ensure_holy_runtime(&info)
++}
++
++/// Verify the runtime identity reported by an already initialized connection.
++pub fn validate_holy_runtime_user_agent(user_agent: &str) -> Result<()> {
++    let expected_suffix = format!(
++        " {} codex_upstream/{}",
++        codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++        env!("CARGO_PKG_VERSION")
++    );
++    if user_agent.strip_suffix(&expected_suffix).is_none() {
++        return Err(ForeignAppServerRuntime.into());
++    }
++    Ok(())
++}
++
++fn ensure_holy_runtime(info: &client::ProbeInfo) -> Result<()> {
++    if !info.is_holy_runtime || info.app_server_version != env!("CARGO_PKG_VERSION") {
++        return Err(ForeignAppServerRuntime.into());
++    }
++    Ok(())
++}
++
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+ #[serde(rename_all = "camelCase")]
+ pub enum BootstrapStatus {
+@@ -444,6 +498,7 @@ impl Daemon {
+                 self.wait_until_ready().await?,
+             )
+         };
++        ensure_holy_runtime(&info)?;
+         if backend.is_some()
+             && let Err(err) = managed.ensure_managed_updater(&settings).await
+         {
+@@ -467,7 +522,7 @@ impl Daemon {
          prepare_install::prepare(self, &settings).await?;
          let mut managed = self.clone();
          managed.managed_codex_bin = self.current_managed_codex_bin()?;
@@ -23387,7 +23763,7 @@ index 15ba769..3187e09 100644
              backend::pid_update_loop_backend(self.backend_paths(&settings))
                  .stop()
                  .await?;
-@@ -590,6 +590,15 @@ impl Daemon {
+@@ -590,6 +645,15 @@ impl Daemon {
  
      async fn stop(&self) -> Result<LifecycleOutput> {
          let settings = DaemonSettings::load_for_stop(&self.settings_file).await;
@@ -23403,7 +23779,7 @@ index 15ba769..3187e09 100644
          if let Some(backend) = self.running_backend_instance(&settings).await? {
              backend
                  .stop_with_grace(settings.shutdown_grace_seconds)
-@@ -868,7 +877,7 @@ impl Daemon {
+@@ -868,7 +932,7 @@ impl Daemon {
  
      async fn ensure_managed_updater(&self, settings: &DaemonSettings) -> Result<bool> {
          let updater = backend::pid_update_loop_backend(self.backend_paths(settings));
@@ -23412,7 +23788,7 @@ index 15ba769..3187e09 100644
              updater.stop().await?;
              return Ok(false);
          }
-@@ -939,7 +948,8 @@ impl Daemon {
+@@ -939,7 +1003,8 @@ impl Daemon {
      }
  
      async fn is_bootstrapped(&self, settings: &DaemonSettings) -> Result<bool> {
@@ -23422,6 +23798,107 @@ index 15ba769..3187e09 100644
              || !self.is_stable_standalone_release()?
              || !managed_install::supports_daemon_update_loop(&self.managed_codex_bin).await
          {
+@@ -1144,17 +1209,69 @@ mod tests {
+     use super::BootstrapOutput;
+     use super::BootstrapStatus;
+     use super::Daemon;
++    use super::ForeignAppServerRuntime;
+     use super::LifecycleOutput;
+     use super::LifecycleStatus;
+     use super::RemoteControlStartOutput;
+     use super::RemoteControlStatus;
+     use super::RestartDecision;
+     use super::RestartMode;
++    use super::ensure_holy_runtime;
+     use super::restart_decision;
++    use super::validate_holy_runtime_user_agent;
+     use crate::client::ProbeInfo;
+     #[cfg(unix)]
+     use crate::settings::DaemonSettings;
+ 
++    #[test]
++    fn holy_runtime_identity_requires_marker_and_matching_upstream_version() {
++        let current_version = env!("CARGO_PKG_VERSION").to_string();
++        let marker = codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER;
++        let upstream_version = env!("CARGO_PKG_VERSION");
++        let matching_user_agent = format!(
++            "client/name with spaces/0.160.1 (Linux) {marker} codex_upstream/{upstream_version}"
++        );
++        assert!(validate_holy_runtime_user_agent(&matching_user_agent).is_ok());
++        assert!(
++            validate_holy_runtime_user_agent(&format!(
++                "client/0.160.1 (Linux) {marker} codex_upstream/0.160.0"
++            ))
++            .unwrap_err()
++            .is::<ForeignAppServerRuntime>()
++        );
++        assert!(
++            validate_holy_runtime_user_agent("client/0.160.1 (Linux) codex_upstream/0.160.1")
++                .unwrap_err()
++                .is::<ForeignAppServerRuntime>()
++        );
++
++        let vanilla_same_version = ProbeInfo {
++            app_server_version: current_version.clone(),
++            is_holy_runtime: false,
++        };
++        assert!(
++            ensure_holy_runtime(&vanilla_same_version)
++                .unwrap_err()
++                .is::<ForeignAppServerRuntime>()
++        );
++
++        let mismatched_upstream = ProbeInfo {
++            app_server_version: "0.160.0".to_string(),
++            is_holy_runtime: true,
++        };
++        assert!(
++            ensure_holy_runtime(&mismatched_upstream)
++                .unwrap_err()
++                .is::<ForeignAppServerRuntime>()
++        );
++
++        let holy_current = ProbeInfo {
++            app_server_version: current_version,
++            is_holy_runtime: true,
++        };
++        assert!(ensure_holy_runtime(&holy_current).is_ok());
++    }
++
+     #[test]
+     fn remote_control_status_uses_camel_case_json() {
+         assert_eq!(
+@@ -1166,7 +1283,8 @@ mod tests {
+     #[test]
+     fn restart_decision_preserves_forced_refreshes() {
+         let current_info = ProbeInfo {
+-            app_server_version: "0.1.0".to_string(),
++            app_server_version: env!("CARGO_PKG_VERSION").to_string(),
++            is_holy_runtime: true,
+         };
+ 
+         assert_eq!(
+@@ -1174,14 +1292,18 @@ mod tests {
+                 restart_decision(
+                     RestartMode::IfVersionChanged,
+                     Some(&current_info),
+-                    Some("0.1.0"),
++                    Some(env!("CARGO_PKG_VERSION")),
+                 ),
+                 restart_decision(
+                     RestartMode::IfVersionChanged,
+                     /*info*/ None,
+                     /*managed_version*/ None,
+                 ),
+-                restart_decision(RestartMode::Always, Some(&current_info), Some("0.1.0")),
++                restart_decision(
++                    RestartMode::Always,
++                    Some(&current_info),
++                    Some(env!("CARGO_PKG_VERSION"))
++                ),
+                 restart_decision(
+                     RestartMode::Always,
+                     /*info*/ None,
 diff --git a/codex-rs/cli/src/daemon_update_tests.rs b/codex-rs/cli/src/daemon_update_tests.rs
 index d93069f..9e9ae1b 100644
 --- a/codex-rs/cli/src/daemon_update_tests.rs
@@ -23455,7 +23932,7 @@ index d93069f..9e9ae1b 100644
      let error = run_update_action(
          UpdateAction::Daemon(DaemonUpdateSource::ThisCli),
 diff --git a/codex-rs/tui/src/app/daemon_menu.rs b/codex-rs/tui/src/app/daemon_menu.rs
-index bf9934d..e4a031f 100644
+index bf9934d..01a22a2 100644
 --- a/codex-rs/tui/src/app/daemon_menu.rs
 +++ b/codex-rs/tui/src/app/daemon_menu.rs
 @@ -34,7 +34,11 @@ impl App {
@@ -23471,7 +23948,7 @@ index bf9934d..e4a031f 100644
          let unavailable = if matches!(self.app_server_target, AppServerTarget::Remote { .. }) {
              Some(
                  "Manage this server on its host. Local daemon updates are unavailable for remote connections.",
-@@ -56,13 +60,7 @@ impl App {
+@@ -56,28 +60,22 @@ impl App {
              .package_layout
              .is_some()
          });
@@ -23482,10 +23959,40 @@ index bf9934d..e4a031f 100644
 -            ),
 -            (DaemonUpdateSource::ThisCli, "Use this CLI build"),
 -        ]
+-        .into_iter()
+-        .map(|(source, name)| SelectionItem {
+-            name: name.to_string(),
+-            is_disabled: unavailable.is_some(),
+-            disabled_reason: (unavailable.is_none()
+-                && source == DaemonUpdateSource::ThisCli
+-                && !has_package)
+-                .then(|| "This CLI has no local package to copy".to_string()),
+-            actions: vec![Box::new(move |tx| {
+-                tx.send(AppEvent::ConfirmDaemonUpdate(source));
+-            })],
+-            dismiss_on_select: true,
+-            ..Default::default()
+-        })
+-        .collect();
 +        let items = [(DaemonUpdateSource::ThisCli, "Use this CLI build")]
-         .into_iter()
-         .map(|(source, name)| SelectionItem {
-             name: name.to_string(),
++            .into_iter()
++            .map(|(source, name)| SelectionItem {
++                name: name.to_string(),
++                is_disabled: unavailable.is_some(),
++                disabled_reason: (unavailable.is_none()
++                    && source == DaemonUpdateSource::ThisCli
++                    && !has_package)
++                    .then(|| "This CLI has no local package to copy".to_string()),
++                actions: vec![Box::new(move |tx| {
++                    tx.send(AppEvent::ConfirmDaemonUpdate(source));
++                })],
++                dismiss_on_select: true,
++                ..Default::default()
++            })
++            .collect();
+         self.chat_widget.show_selection_view(SelectionViewParams {
+             header: Box::new(DaemonMenuHeader(header)),
+             items,
 @@ -86,6 +84,9 @@ impl App {
      }
  
@@ -23718,16 +24225,1225 @@ index f49bcbe..0000000
 -
 -  enter select · esc back
 diff --git a/codex-rs/cli/tests/update.rs b/codex-rs/cli/tests/update.rs
-index cf1742c..57aeace 100644
+index cf1742c..d19c1e3 100644
 --- a/codex-rs/cli/tests/update.rs
 +++ b/codex-rs/cli/tests/update.rs
-@@ -18,7 +18,8 @@ async fn update_does_not_start_interactive_prompt() -> Result<()> {
+@@ -1,4 +1,5 @@
+ use anyhow::Result;
++use predicates::prelude::PredicateBooleanExt;
+ use predicates::str::contains;
+ use std::path::Path;
+ use tempfile::TempDir;
+@@ -18,7 +19,8 @@ async fn update_does_not_start_interactive_prompt() -> Result<()> {
          .arg("update")
          .assert()
          .failure()
 -        .stderr(contains("`codex update` is not available in debug builds"));
 +        .stderr(contains("HolyCodex upstream self-update is disabled"))
-+        .stderr(predicates::str::is_not(contains("Update to latest")));
++        .stderr(contains("Update to latest").not());
  
      Ok(())
  }
+diff --git a/codex-rs/tui/src/daemon_startup.rs b/codex-rs/tui/src/daemon_startup.rs
+index ba6de53..363764d 100644
+--- a/codex-rs/tui/src/daemon_startup.rs
++++ b/codex-rs/tui/src/daemon_startup.rs
+@@ -1,7 +1,7 @@
+ //! Local daemon launch policy. Explicit embedded launches never discover or start a daemon;
+-//! optional attachment may fall back to embedded mode, while automatic launches
+-//! require a compatible shared server and a successful connection, except when
+-//! the Windows launcher forbids detaching a missing server.
++//! optional attachment may fall back to embedded mode. Automatic launches reuse a
++//! compatible daemon, start one from a complete package, or use the foreground
++//! runtime when the package is incomplete or an existing server is foreign.
+ 
+ use super::*;
+ use std::collections::BTreeMap;
+@@ -15,6 +15,23 @@ const SERVER_FEATURES: [Feature; 4] = [
+ 
+ pub(super) const FAILURE_HINT: &str = "To work without the background server, rerun the same command with --no-daemon (including resume or fork and its arguments).";
+ 
++/// A packaged daemon is optional when this CLI has no complete package to seed
++/// a new installation. The daemon lifecycle checks for a reusable running
++/// server before it reports this error, so preserve successful reuse unchanged.
++pub(super) fn allow_foreground_fallback(
++    result: anyhow::Result<Option<codex_app_server_daemon::LifecycleOutput>>,
++) -> anyhow::Result<Option<codex_app_server_daemon::LifecycleOutput>> {
++    match result {
++        Err(error)
++            if error.is::<codex_app_server_daemon::MissingPackageLayout>()
++                || error.is::<codex_app_server_daemon::ForeignAppServerRuntime>() =>
++        {
++            Ok(None)
++        }
++        other => other,
++    }
++}
++
+ #[derive(Debug, thiserror::Error)]
+ #[error("Cannot use the shared background server: {reason}.\n{FAILURE_HINT}")]
+ pub(super) struct CompatibilityError {
+@@ -128,16 +145,33 @@ pub(super) async fn compatibility_warning(
+         return Ok(None);
+     };
+     let mut restart_features = None;
++    enum CompatibilityFailure {
++        ForeignRuntime,
++        Other(String),
++    }
+     let check = async {
+         // The feature-list RPC cannot report this process-scoped structured setting.
+         if !config.features.enabled(Feature::CodeModeHost)
+             && config.code_mode.disable_in_process_fallback
+         {
+-            return Err("code-mode host fallback policy requires embedded mode".to_string());
++            return Err(CompatibilityFailure::Other(
++                "code-mode host fallback policy requires embedded mode".to_string(),
++            ));
+         }
+         let client = app_server_connection::connect(target)
+             .await
+-            .map_err(|_| "could not connect to check daemon feature settings".to_string())?;
++            .map_err(|err| {
++                if err
++                    .downcast_ref::<codex_app_server_daemon::ForeignAppServerRuntime>()
++                    .is_some()
++                {
++                    CompatibilityFailure::ForeignRuntime
++                } else {
++                    CompatibilityFailure::Other(
++                        "could not connect to check daemon feature settings".to_string(),
++                    )
++                }
++            })?;
+         let (tx, rx) = tokio::sync::oneshot::channel();
+         crate::experimental_features::fetch(
+             client.request_handle(),
+@@ -147,7 +181,11 @@ pub(super) async fn compatibility_warning(
+         );
+         let result = rx.await;
+         let _ = client.shutdown().await;
+-        let features = result.map_err(|_| "daemon feature check was interrupted".to_string())??;
++        let features = result
++            .map_err(|_| {
++                CompatibilityFailure::Other("daemon feature check was interrupted".to_string())
++            })?
++            .map_err(|err| CompatibilityFailure::Other(err.to_string()))?;
+         // A previous client may have launched this daemon with overrides, even if
+         // this client has none. Check effective values, including defaults.
+         for feature in SERVER_FEATURES {
+@@ -168,18 +206,24 @@ pub(super) async fn compatibility_warning(
+                         .collect(),
+                 );
+                 let state = if enabled { "enabled" } else { "disabled" };
+-                return Err(format!("This session requires {name} to be {state}"));
++                return Err(CompatibilityFailure::Other(format!(
++                    "This session requires {name} to be {state}"
++                )));
+             }
+         }
+-        Ok::<(), String>(())
++        Ok::<(), CompatibilityFailure>(())
+     }
+     .await;
+     match check {
+         Ok(()) => Ok(None),
+-        Err(reason) if *allow_embedded_fallback => Ok(Some(format!(
++        Err(CompatibilityFailure::ForeignRuntime) => Ok(Some(format!(
++            "Running without the shared background server: {}.",
++            codex_app_server_daemon::ForeignAppServerRuntime
++        ))),
++        Err(CompatibilityFailure::Other(reason)) if *allow_embedded_fallback => Ok(Some(format!(
+             "Running without the shared background server: {reason}."
+         ))),
+-        Err(reason) => Err(CompatibilityError {
++        Err(CompatibilityFailure::Other(reason)) => Err(CompatibilityError {
+             reason,
+             restart_features,
+         }),
+diff --git a/codex-rs/tui/src/daemon_startup_tests.rs b/codex-rs/tui/src/daemon_startup_tests.rs
+index 8d0aa63..94983af 100644
+--- a/codex-rs/tui/src/daemon_startup_tests.rs
++++ b/codex-rs/tui/src/daemon_startup_tests.rs
+@@ -1,9 +1,59 @@
+-//! Opportunistic attachment may fall back; automatic startup requires a shared server.
++//! Automatic startup reuses a compatible daemon and falls back to foreground mode
++//! when the package is incomplete or an existing server is foreign.
+ 
+ use super::*;
+ use crate::legacy_core::config::ConfigBuilder;
+ use pretty_assertions::assert_eq;
++#[cfg(unix)]
++use serde_json::json;
+ use tempfile::TempDir;
++#[cfg(unix)]
++use tokio_tungstenite::tungstenite::Message;
++
++#[test]
++fn unsupported_runtime_falls_back_but_keeps_reusable_daemon_results() {
++    let missing_layout = || anyhow::Error::new(codex_app_server_daemon::MissingPackageLayout);
++    assert!(
++        daemon_startup::allow_foreground_fallback(Err(missing_layout()))
++            .unwrap()
++            .is_none()
++    );
++    assert!(
++        daemon_startup::allow_foreground_fallback(Err(anyhow::Error::new(
++            codex_app_server_daemon::ForeignAppServerRuntime,
++        )))
++        .unwrap()
++        .is_none()
++    );
++
++    let output = |status| codex_app_server_daemon::LifecycleOutput {
++        status,
++        backend: None,
++        pid: None,
++        managed_codex_path: std::path::PathBuf::from("/managed/codex"),
++        managed_codex_version: None,
++        socket_path: std::path::PathBuf::from("/socket"),
++        cli_version: None,
++        app_server_version: None,
++    };
++    let reused = output(codex_app_server_daemon::LifecycleStatus::AlreadyRunning);
++    assert_eq!(
++        daemon_startup::allow_foreground_fallback(Ok(Some(reused.clone()))).unwrap(),
++        Some(reused)
++    );
++    let started = output(codex_app_server_daemon::LifecycleStatus::Started);
++    assert_eq!(
++        daemon_startup::allow_foreground_fallback(Ok(Some(started.clone()))).unwrap(),
++        Some(started)
++    );
++    let unrelated = anyhow::anyhow!("daemon startup failed");
++    assert!(
++        daemon_startup::allow_foreground_fallback(Err(unrelated))
++            .unwrap_err()
++            .to_string()
++            .contains("daemon startup failed")
++    );
++}
+ 
+ #[test]
+ fn audited_overrides_allow_daemon_without_allowing_arbitrary_config() {
+@@ -270,6 +320,182 @@ async fn daemon_connection_rejects_unprotected_socket_before_handshake() -> colo
+     Ok(())
+ }
+ 
++#[cfg(unix)]
++#[tokio::test]
++async fn same_version_vanilla_daemon_falls_back_before_feature_compatibility_read()
++-> color_eyre::Result<()> {
++    use futures::SinkExt;
++    use futures::StreamExt;
++
++    let home = TempDir::new()?;
++    let socket_path = codex_app_server_client::app_server_control_socket_path(home.path())?;
++    codex_uds::prepare_private_socket_directory(
++        socket_path.as_path().parent().expect("socket parent"),
++    )
++    .await?;
++    let mut listener = codex_uds::UnixListener::bind(socket_path.as_path()).await?;
++    let codex_home = home.path().to_path_buf();
++    let server = tokio::spawn(async move {
++        let stream = listener.accept().await.expect("accept identity probe");
++        let mut socket = tokio_tungstenite::accept_async(stream)
++            .await
++            .expect("accept identity websocket");
++        let frame = socket
++            .next()
++            .await
++            .expect("initialize request")
++            .expect("initialize frame");
++        let request: serde_json::Value =
++            serde_json::from_str(&frame.into_text().expect("text request"))
++                .expect("JSON-RPC initialize");
++        assert_eq!(request["method"], "initialize");
++        socket
++            .send(Message::Text(
++                json!({
++                    "id": request["id"],
++                    "result": {
++                        // Same upstream version as the packaged Holy runtime,
++                        // but no server-owned Holy marker.
++                        "userAgent": format!("codex_cli_rs/{} (Linux; x86_64)", env!("CARGO_PKG_VERSION")),
++                        "codexHome": codex_home,
++                        "platformFamily": "unix",
++                        "platformOs": std::env::consts::OS,
++                    }
++                })
++                .to_string()
++                .into(),
++            ))
++            .await
++            .expect("send initialize response");
++        while let Some(Ok(Message::Text(text))) = socket.next().await {
++            let message: serde_json::Value = serde_json::from_str(&text).expect("JSON-RPC");
++            assert_ne!(
++                message["method"], "experimentalFeature/list",
++                "runtime identity must be established before reading feature defaults"
++            );
++        }
++    });
++    let config = ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .build()
++        .await?;
++    let target = AppServerTarget::LocalDaemon {
++        endpoint: RemoteAppServerEndpoint::UnixSocket { socket_path },
++        // Auto-started targets normally require the daemon. A typed foreign
++        // runtime identity still permits safe foreground fallback.
++        allow_embedded_fallback: false,
++    };
++    assert_eq!(
++        daemon_startup::compatibility_warning(&target, &config).await?,
++        Some(
++            "Running without the shared background server: the selected background server is not a compatible HolyCodex runtime.".to_string()
++        )
++    );
++    server.await?;
++    Ok(())
++}
++
++#[cfg(unix)]
++#[tokio::test]
++async fn same_connection_holy_identity_allows_feature_compatibility_read() -> color_eyre::Result<()>
++{
++    use futures::SinkExt;
++    use futures::StreamExt;
++
++    let home = TempDir::new()?;
++    let socket_path = codex_app_server_client::app_server_control_socket_path(home.path())?;
++    codex_uds::prepare_private_socket_directory(
++        socket_path.as_path().parent().expect("socket parent"),
++    )
++    .await?;
++    let mut listener = codex_uds::UnixListener::bind(socket_path.as_path()).await?;
++    let codex_home = home.path().to_path_buf();
++    let config = ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .build()
++        .await?;
++    let feature_states = [
++        Feature::ApiKeyModelDiscovery,
++        Feature::CodeModeHost,
++        Feature::AuthElicitation,
++        Feature::McpOAuthRefreshCoordination,
++    ]
++    .map(|feature| (feature.key().to_string(), config.features.enabled(feature)));
++    let server = tokio::spawn(async move {
++        let stream = listener.accept().await.expect("accept local daemon");
++        let mut socket = tokio_tungstenite::accept_async(stream)
++            .await
++            .expect("accept websocket");
++        let mut feature_request_seen = false;
++        while let Some(Ok(Message::Text(text))) = socket.next().await {
++            let message: serde_json::Value = serde_json::from_str(&text).expect("JSON-RPC");
++            if message["method"] == "initialize" {
++                socket
++                    .send(Message::Text(
++                        json!({
++                            "id": message["id"],
++                            "result": {
++                                "userAgent": format!(
++                                    "codex_cli_rs/{} (Linux; x86_64) {} codex_upstream/{}",
++                                    env!("CARGO_PKG_VERSION"),
++                                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++                                    env!("CARGO_PKG_VERSION")
++                                ),
++                                "codexHome": codex_home,
++                                "platformFamily": "unix",
++                                "platformOs": std::env::consts::OS,
++                            }
++                        })
++                        .to_string()
++                        .into(),
++                    ))
++                    .await
++                    .expect("send initialize response");
++            } else if message["method"] == "experimentalFeature/list" {
++                feature_request_seen = true;
++                let features = feature_states
++                    .iter()
++                    .map(|(name, enabled)| {
++                        json!({
++                            "name": name,
++                            "stage": "beta",
++                            "enabled": enabled,
++                            "defaultEnabled": false,
++                        })
++                    })
++                    .collect::<Vec<_>>();
++                socket
++                    .send(Message::Text(
++                        json!({
++                            "id": message["id"],
++                            "result": {"data": features, "nextCursor": null}
++                        })
++                        .to_string()
++                        .into(),
++                    ))
++                    .await
++                    .expect("send feature response");
++            } else {
++                assert_eq!(message["method"], "initialized");
++            }
++        }
++        assert!(
++            feature_request_seen,
++            "Holy identity should permit the feature RPC"
++        );
++    });
++    let target = AppServerTarget::LocalDaemon {
++        endpoint: RemoteAppServerEndpoint::UnixSocket { socket_path },
++        allow_embedded_fallback: false,
++    };
++    assert_eq!(
++        daemon_startup::compatibility_warning(&target, &config).await?,
++        None
++    );
++    server.await?;
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn daemon_startup_falls_back_only_for_implicit_endpoints() -> color_eyre::Result<()> {
+     for scenario in [
+diff --git a/codex-rs/tui/src/startup_orchestration.rs b/codex-rs/tui/src/startup_orchestration.rs
+index a0ff9cb..90a28e8 100644
+--- a/codex-rs/tui/src/startup_orchestration.rs
++++ b/codex-rs/tui/src/startup_orchestration.rs
+@@ -529,11 +529,12 @@ pub(super) async fn run_main_inner(
+                 // responsive while it checks the running server or prepares an installation.
+                 let result = codex_app_server_daemon::start_with_features(&daemon_features).await;
+                 daemon_telemetry::record_start(&config, &result).await;
+-                match result {
+-                    Ok(output) => Ok(Some(output)),
++                match daemon_startup::allow_foreground_fallback(result.map(Some)) {
++                    Ok(Some(output)) => Ok((Some(output), None)),
++                    Ok(None) => Ok((None, None)),
+                     #[cfg(windows)]
+                     Err(err) if err.is::<codex_app_server_daemon::DetachedLaunchRestricted>() => {
+-                        Ok(None)
++                        Ok((None, Some("this Windows launcher")))
+                     }
+                     Err(err) => Err(std::io::Error::other(format!(
+                         "{err:#}\n{}",
+@@ -542,6 +543,7 @@ pub(super) async fn run_main_inner(
+                 }
+             })
+             .await??;
++        let (output, fallback_reason) = output;
+         if let Some(output) = output {
+             managed_daemon = output.backend.is_some();
+             app_server_target = AppServerTarget::LocalDaemon {
+@@ -552,7 +554,7 @@ pub(super) async fn run_main_inner(
+             };
+         } else {
+             app_server_target = AppServerTarget::Embedded;
+-            daemon_exclusion = Some("this Windows launcher");
++            daemon_exclusion = fallback_reason;
+         }
+     }
+     // The overview must inspect the shared server's agents regardless of local settings.
+diff --git a/codex-rs/app-server-client/src/lib.rs b/codex-rs/app-server-client/src/lib.rs
+index 079d1bd..a17a349 100644
+--- a/codex-rs/app-server-client/src/lib.rs
++++ b/codex-rs/app-server-client/src/lib.rs
+@@ -1408,6 +1408,10 @@ mod tests {
+             .expect("remote client should connect");
+ 
+         assert_eq!(client.server_version(), Some("9.8.7-test"));
++        assert_eq!(
++            client.server_user_agent(),
++            Some("codex_cli_rs/9.8.7-test (Test OS; x86_64) rust")
++        );
+         assert_eq!(client.codex_home(), Some("/server/.codex"));
+         let client = AppServerClient::Remote(client);
+         let response: GetAccountResponse = client
+diff --git a/codex-rs/app-server-client/src/remote.rs b/codex-rs/app-server-client/src/remote.rs
+index 6b5571b..865a187 100644
+--- a/codex-rs/app-server-client/src/remote.rs
++++ b/codex-rs/app-server-client/src/remote.rs
+@@ -153,6 +153,7 @@ enum RemoteClientCommand {
+ #[derive(Default)]
+ struct RemoteServerMetadata {
+     server_version: Option<String>,
++    user_agent: Option<String>,
+     codex_home: Option<String>,
+     platform_family: Option<String>,
+     platform_os: Option<String>,
+@@ -224,6 +225,12 @@ impl RemoteAppServerClient {
+         self.metadata.server_version.as_deref()
+     }
+ 
++    /// Returns the user agent reported by the server during this connection's
++    /// initialize handshake.
++    pub fn server_user_agent(&self) -> Option<&str> {
++        self.metadata.user_agent.as_deref()
++    }
++
+     pub fn codex_home(&self) -> Option<&str> {
+         self.metadata.codex_home.as_deref()
+     }
+@@ -852,6 +859,11 @@ where
+                     })?;
+                     match message {
+                         JSONRPCMessage::Response(response) if response.id == initialize_request_id => {
++                            metadata.user_agent = response
++                                .result
++                                .get("userAgent")
++                                .and_then(serde_json::Value::as_str)
++                                .map(str::to_string);
+                             metadata.server_version = response
+                                 .result
+                                 .get("userAgent")
+diff --git a/codex-rs/tui/src/app_server_connection.rs b/codex-rs/tui/src/app_server_connection.rs
+index ac3ab1c..5d6f10b 100644
+--- a/codex-rs/tui/src/app_server_connection.rs
++++ b/codex-rs/tui/src/app_server_connection.rs
+@@ -1,15 +1,11 @@
+ //! Applies the selected server's socket policy on initial connections and reconnects.
+ 
+ use crate::AppServerTarget;
+-#[cfg(windows)]
+ use crate::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY;
+ use crate::connect_remote_app_server;
+ use codex_app_server_client::AppServerClient;
+-#[cfg(windows)]
+ use codex_app_server_client::RemoteAppServerClient;
+-#[cfg(windows)]
+ use codex_app_server_client::RemoteAppServerConnectArgs;
+-#[cfg(windows)]
+ use codex_app_server_client::RemoteAppServerEndpoint;
+ #[cfg(windows)]
+ use codex_utils_absolute_path::AbsolutePathBuf;
+@@ -24,7 +20,8 @@ pub(crate) async fn connect(target: &AppServerTarget) -> color_eyre::Result<AppS
+             endpoint: RemoteAppServerEndpoint::UnixSocket { socket_path },
+             ..
+         } => {
+-            // Revalidate at the real connection, not just the earlier discovery probe.
++            // Validate the initialize response from the same connection that will
++            // carry the TUI session, closing the discovery-to-attach race.
+             let (socket_path, _directory) =
+                 codex_uds::validate_private_socket_path(socket_path.as_path())?;
+             let app_server =
+@@ -40,6 +37,27 @@ pub(crate) async fn connect(target: &AppServerTarget) -> color_eyre::Result<AppS
+                     channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
+                 })
+                 .await?;
++            validate_local_daemon_identity(&app_server)?;
++            Ok(AppServerClient::Remote(app_server))
++        }
++        #[cfg(not(windows))]
++        AppServerTarget::LocalDaemon {
++            endpoint: RemoteAppServerEndpoint::UnixSocket { socket_path },
++            ..
++        } => {
++            let app_server = RemoteAppServerClient::connect(RemoteAppServerConnectArgs {
++                endpoint: RemoteAppServerEndpoint::UnixSocket {
++                    socket_path: socket_path.clone(),
++                },
++                client_name: "codex-tui".to_string(),
++                client_version: env!("CARGO_PKG_VERSION").to_string(),
++                experimental_api: true,
++                mcp_server_openai_form_elicitation: false,
++                opt_out_notification_methods: Vec::new(),
++                channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
++            })
++            .await?;
++            validate_local_daemon_identity(&app_server)?;
+             Ok(AppServerClient::Remote(app_server))
+         }
+         AppServerTarget::LocalDaemon { endpoint, .. } | AppServerTarget::Remote { endpoint } => {
+@@ -47,3 +65,18 @@ pub(crate) async fn connect(target: &AppServerTarget) -> color_eyre::Result<AppS
+         }
+     }
+ }
++
++fn validate_local_daemon_identity(app_server: &RemoteAppServerClient) -> color_eyre::Result<()> {
++    let Some(user_agent) = app_server.server_user_agent() else {
++        return Err(color_eyre::eyre::Report::new(
++            codex_app_server_daemon::ForeignAppServerRuntime,
++        ));
++    };
++    codex_app_server_daemon::validate_holy_runtime_user_agent(user_agent).map_err(|err| {
++        if err.is::<codex_app_server_daemon::ForeignAppServerRuntime>() {
++            color_eyre::eyre::Report::new(codex_app_server_daemon::ForeignAppServerRuntime)
++        } else {
++            color_eyre::eyre::eyre!("{err:#}")
++        }
++    })
++}
+diff --git a/codex-rs/app-server-daemon/src/client.rs b/codex-rs/app-server-daemon/src/client.rs
+index c3cee7d..c3c9f7b 100644
+--- a/codex-rs/app-server-daemon/src/client.rs
++++ b/codex-rs/app-server-daemon/src/client.rs
+@@ -5,6 +5,7 @@ use anyhow::Context;
+ use anyhow::Result;
+ use anyhow::anyhow;
+ use codex_app_server_protocol::ClientInfo;
++use codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER;
+ use codex_app_server_protocol::InitializeCapabilities;
+ use codex_app_server_protocol::InitializeParams;
+ use codex_app_server_protocol::InitializeResponse;
+@@ -29,6 +30,7 @@ const INITIALIZE_REQUEST_ID: RequestId = RequestId::Integer(1);
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub(crate) struct ProbeInfo {
+     pub(crate) app_server_version: String,
++    pub(crate) is_holy_runtime: bool,
+ }
+ 
+ pub(crate) async fn probe(socket_path: &Path) -> Result<ProbeInfo> {
+@@ -56,10 +58,28 @@ async fn probe_inner(socket_path: &Path) -> Result<ProbeInfo> {
+     websocket.close(None).await.ok();
+ 
+     Ok(ProbeInfo {
+-        app_server_version: parse_version_from_user_agent(&initialize_response.user_agent)?,
++        app_server_version: holy_upstream_version(&initialize_response.user_agent).map_or_else(
++            || parse_version_from_user_agent(&initialize_response.user_agent),
++            |version| Ok(version.to_string()),
++        )?,
++        is_holy_runtime: has_holy_runtime_marker(&initialize_response.user_agent),
+     })
+ }
+ 
++fn has_holy_runtime_marker(user_agent: &str) -> bool {
++    holy_upstream_version(user_agent).is_some()
++}
++
++fn holy_upstream_version(user_agent: &str) -> Option<&'static str> {
++    let suffix = format!(
++        " {HOLYCODEX_RUNTIME_MARKER} codex_upstream/{}",
++        env!("CARGO_PKG_VERSION")
++    );
++    user_agent
++        .strip_suffix(&suffix)
++        .map(|_| env!("CARGO_PKG_VERSION"))
++}
++
+ pub(crate) async fn connect(socket_path: &Path) -> Result<WebSocketStream<UnixStream>> {
+     connect_at(socket_path, "ws://localhost/").await
+ }
+@@ -68,6 +88,8 @@ async fn connect_at(socket_path: &Path, url: &str) -> Result<WebSocketStream<Uni
+     let stream = UnixStream::connect(socket_path)
+         .await
+         .with_context(|| format!("failed to connect to {}", socket_path.display()))?;
++    #[cfg(windows)]
++    stream.ensure_non_elevated_peer()?;
+     let (websocket, _response) = client_async(url, stream)
+         .await
+         .with_context(|| format!("failed to upgrade {}", socket_path.display()))?;
+@@ -172,12 +194,13 @@ where
+ }
+ 
+ fn parse_version_from_user_agent(user_agent: &str) -> Result<String> {
+-    let (_originator, rest) = user_agent
+-        .split_once('/')
+-        .ok_or_else(|| anyhow!("app-server user-agent omitted version separator"))?;
+-    let version = rest
+-        .split_whitespace()
+-        .next()
++    let originator_and_version = user_agent.split_once(" (").map_or_else(
++        || user_agent.split_whitespace().next().unwrap_or_default(),
++        |(prefix, _)| prefix,
++    );
++    let version = originator_and_version
++        .rsplit_once('/')
++        .map(|(_, version)| version)
+         .filter(|version| !version.is_empty())
+         .ok_or_else(|| anyhow!("app-server user-agent omitted version"))?;
+     Ok(version.to_string())
+@@ -187,7 +210,10 @@ fn parse_version_from_user_agent(user_agent: &str) -> Result<String> {
+ mod tests {
+     use pretty_assertions::assert_eq;
+ 
++    use super::has_holy_runtime_marker;
++    use super::holy_upstream_version;
+     use super::parse_version_from_user_agent;
++    use codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER;
+ 
+     #[test]
+     fn parses_version_from_codex_user_agent() {
+@@ -204,4 +230,37 @@ mod tests {
+     fn rejects_user_agent_without_version() {
+         assert!(parse_version_from_user_agent("codex_app_server_daemon").is_err());
+     }
++
++    #[test]
++    fn parses_version_when_originator_contains_slash() {
++        assert_eq!(
++            parse_version_from_user_agent("my client/name/0.160.1 (Linux)").expect("version"),
++            "0.160.1"
++        );
++    }
++
++    #[test]
++    fn requires_exact_server_compiled_holy_runtime_suffix() {
++        assert!(!has_holy_runtime_marker(
++            "codex_cli_rs/0.160.1 (Linux; x86_64)"
++        ));
++        assert!(!has_holy_runtime_marker(
++            "codex_cli_rs/0.160.1 (holycodex_runtime/0.17.0-1; x86_64) codex_upstream/0.160.1"
++        ));
++        assert!(!has_holy_runtime_marker(
++            "codex_cli_rs/0.160.1 (Linux; x86_64) holycodex_runtime/0.17.0-2 codex_upstream/0.160.1"
++        ));
++        assert!(!has_holy_runtime_marker(
++            "codex_cli_rs/0.160.1 (Linux; x86_64) holycodex_runtime/0.17.0-1 codex_upstream/0.160.0"
++        ));
++        let user_agent = format!(
++            "my client/name/0.160.1 (Linux) {HOLYCODEX_RUNTIME_MARKER} codex_upstream/{}",
++            env!("CARGO_PKG_VERSION")
++        );
++        assert!(has_holy_runtime_marker(&user_agent));
++        assert_eq!(
++            holy_upstream_version(&user_agent),
++            Some(env!("CARGO_PKG_VERSION"))
++        );
++    }
+ }
+diff --git a/codex-rs/app-server-protocol/src/lib.rs b/codex-rs/app-server-protocol/src/lib.rs
+index eb2b76d..f924177 100644
+--- a/codex-rs/app-server-protocol/src/lib.rs
++++ b/codex-rs/app-server-protocol/src/lib.rs
+@@ -13,6 +13,10 @@ mod schema_fixtures;
+ #[path = "schema_fixtures_tests.rs"]
+ mod schema_fixtures_tests;
+ 
++/// Exact initialize-response suffix identifying the HolyCodex runtime build.
++/// This is a value convention, not an additional protocol field or schema entry.
++pub const HOLYCODEX_RUNTIME_MARKER: &str = "holycodex_runtime/0.17.0-1";
++
+ pub use experimental_api::*;
+ pub use precomputed_exports::GenerateTsOptions;
+ pub use precomputed_exports::generate_internal_json_schema;
+diff --git a/codex-rs/app-server/src/request_processors/initialize_processor.rs b/codex-rs/app-server/src/request_processors/initialize_processor.rs
+index d68a29d..f3847d1 100644
+--- a/codex-rs/app-server/src/request_processors/initialize_processor.rs
++++ b/codex-rs/app-server/src/request_processors/initialize_processor.rs
+@@ -3,6 +3,7 @@ use std::sync::atomic::Ordering;
+ 
+ use axum::http::HeaderValue;
+ use codex_analytics::AppServerRpcTransport;
++use codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER;
+ use codex_login::default_client::SetOriginatorError;
+ use codex_login::default_client::USER_AGENT_SUFFIX;
+ use codex_login::default_client::get_codex_user_agent;
+@@ -209,7 +210,13 @@ impl InitializeRequestProcessor {
+             }
+         }
+ 
+-        let user_agent = get_codex_user_agent();
++        // This server-compiled suffix identifies the Holy runtime for passive
++        // daemon probes. Keep it outside the client-derived user-agent value.
++        let user_agent = format!(
++            "{} {HOLYCODEX_RUNTIME_MARKER} codex_upstream/{}",
++            get_codex_user_agent(),
++            env!("CARGO_PKG_VERSION"),
++        );
+         let response = InitializeResponse {
+             user_agent,
+             codex_home,
+diff --git a/codex-rs/app-server/tests/suite/v2/initialize.rs b/codex-rs/app-server/tests/suite/v2/initialize.rs
+index 1ba0f26..4573409 100644
+--- a/codex-rs/app-server/tests/suite/v2/initialize.rs
++++ b/codex-rs/app-server/tests/suite/v2/initialize.rs
+@@ -5,6 +5,7 @@ use app_test_support::create_final_assistant_message_sse_response;
+ use app_test_support::create_mock_responses_server_sequence_unchecked;
+ use app_test_support::to_response;
+ use codex_app_server_protocol::ClientInfo;
++use codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER;
+ use codex_app_server_protocol::InitializeCapabilities;
+ use codex_app_server_protocol::InitializeResponse;
+ use codex_app_server_protocol::JSONRPCMessage;
+@@ -98,6 +99,10 @@ async fn initialize_probe_does_not_override_originator() -> Result<()> {
+     let InitializeResponse { user_agent, .. } = to_response::<InitializeResponse>(response)?;
+ 
+     assert!(user_agent.starts_with("codex_cli_rs/"));
++    assert!(user_agent.ends_with(&format!(
++        " {HOLYCODEX_RUNTIME_MARKER} codex_upstream/{}",
++        env!("CARGO_PKG_VERSION")
++    )));
+     Ok(())
+ }
+ 
+diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
+index 2697cba..86b8ba9 100644
+--- a/codex-rs/tui/src/lib.rs
++++ b/codex-rs/tui/src/lib.rs
+@@ -280,6 +280,8 @@ const INTERACTIVE_OTEL_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(/*mill
+ 
+ const AUTO_CONNECT_DAEMON_CONNECT_TIMEOUT: std::time::Duration =
+     std::time::Duration::from_millis(50);
++const AUTO_CONNECT_DAEMON_IDENTITY_TIMEOUT: std::time::Duration =
++    std::time::Duration::from_millis(250);
+ 
+ #[allow(clippy::too_many_arguments)]
+ async fn start_embedded_app_server(
+@@ -527,10 +529,30 @@ async fn maybe_probe_default_daemon_socket(codex_home: &Path) -> Option<Absolute
+     )
+     .await
+     {
+-        Ok(Ok(_stream)) => {
++        Ok(Ok(stream)) => {
+             #[cfg(windows)]
+-            _stream.ensure_non_elevated_peer().ok()?;
+-            Some(socket_path)
++            stream.ensure_non_elevated_peer().ok()?;
++            drop(stream);
++            match tokio::time::timeout(
++                AUTO_CONNECT_DAEMON_IDENTITY_TIMEOUT,
++                codex_app_server_daemon::validate_holy_runtime(probe_path),
++            )
++            .await
++            {
++                Ok(Ok(())) => Some(socket_path),
++                Ok(Err(err)) => {
++                    tracing::debug!(%err, socket_path = %socket_path.display(), "skipping non-Holy default app-server socket");
++                    None
++                }
++                Err(_) => {
++                    tracing::debug!(
++                        socket_path = %socket_path.display(),
++                        timeout_ms = AUTO_CONNECT_DAEMON_IDENTITY_TIMEOUT.as_millis(),
++                        "timed out validating default app-server runtime"
++                    );
++                    None
++                }
++            }
+         }
+         Ok(Err(err)) => {
+             tracing::debug!(%err, socket_path = %socket_path.display(), "skipping default app-server daemon socket");
+@@ -3020,13 +3042,96 @@ requires_openai_auth = {requires_openai_auth}
+         Ok(())
+     }
+ 
++    #[cfg(windows)]
++    fn current_windows_test_process_is_elevated() -> color_eyre::Result<bool> {
++        // Independent oracle, matching the UDS peer-policy regression. Elevated
++        // runners must be rejected before the initialize handshake reaches us.
++        let output = std::process::Command::new("powershell.exe")
++            .args(["-NoProfile", "-NonInteractive", "-Command", "([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"])
++            .output()?;
++        color_eyre::eyre::ensure!(output.status.success(), "elevation oracle failed");
++        match String::from_utf8(output.stdout)?.trim() {
++            "True" => Ok(true),
++            "False" => Ok(false),
++            value => color_eyre::eyre::bail!("unexpected elevation oracle: {value}"),
++        }
++    }
++
++    async fn mock_initialize_daemon(
++        socket_path: PathBuf,
++        codex_home: PathBuf,
++        user_agent: String,
++    ) -> tokio::task::JoinHandle<()> {
++        use futures::SinkExt;
++        use futures::StreamExt;
++
++        let mut listener = codex_uds::UnixListener::bind(socket_path)
++            .await
++            .expect("bind mock daemon socket");
++        tokio::spawn(async move {
++            loop {
++                let stream = listener.accept().await.expect("accept daemon probe");
++                let Ok(mut socket) = tokio_tungstenite::accept_async(stream).await else {
++                    // The preliminary socket-presence check connects and closes
++                    // without a WebSocket handshake; accept the protocol probe next.
++                    continue;
++                };
++                let request = socket
++                    .next()
++                    .await
++                    .expect("initialize request")
++                    .expect("initialize frame");
++                let request: serde_json::Value =
++                    serde_json::from_str(&request.into_text().expect("text request"))
++                        .expect("JSON-RPC initialize");
++                assert_eq!(request["method"], "initialize");
++                socket
++                    .send(tokio_tungstenite::tungstenite::Message::Text(
++                        serde_json::json!({
++                            "id": request["id"],
++                            "result": {
++                                "userAgent": user_agent,
++                                "codexHome": codex_home,
++                                "platformFamily": std::env::consts::FAMILY,
++                                "platformOs": std::env::consts::OS,
++                            }
++                        })
++                        .to_string()
++                        .into(),
++                    ))
++                    .await
++                    .expect("send initialize response");
++                // Identity must be checked before feature or session RPCs. Keep
++                // the actual handshake transport open until its client closes.
++                while let Some(frame) =
++                    tokio::time::timeout(std::time::Duration::from_secs(5), socket.next())
++                        .await
++                        .expect("client should close the initialized transport")
++                {
++                    let Ok(frame) = frame else { break };
++                    if frame.is_close() {
++                        break;
++                    }
++                    if let tokio_tungstenite::tungstenite::Message::Text(text) = frame {
++                        let notification: serde_json::Value =
++                            serde_json::from_str(&text).expect("JSON notification");
++                        assert_eq!(notification["method"], "initialized");
++                        assert!(notification.get("id").is_none());
++                    }
++                }
++                break;
++            }
++        })
++    }
++
+     #[tokio::test]
+-    async fn default_daemon_auto_connect_probes_socket_only() -> color_eyre::Result<()> {
+-        let codex_home = TempDir::new()?;
+-        let socket_path =
+-            codex_app_server_client::app_server_control_socket_path(codex_home.path())?;
++    async fn default_daemon_auto_connect_requires_matching_holy_runtime_marker()
++    -> color_eyre::Result<()> {
+         #[cfg(windows)]
+         {
++            let codex_home = TempDir::new()?;
++            let socket_path =
++                codex_app_server_client::app_server_control_socket_path(codex_home.path())?;
+             let parent = socket_path.as_path().parent().expect("socket parent");
+             std::fs::create_dir_all(parent)?;
+             let listener = codex_uds::UnixListener::bind(socket_path.as_path()).await?;
+@@ -3038,31 +3143,182 @@ requires_openai_auth = {requires_openai_auth}
+             drop(listener);
+             std::fs::remove_dir_all(parent)?;
+         }
+-        codex_uds::prepare_private_socket_directory(
+-            socket_path.as_path().parent().expect("socket parent"),
+-        )
+-        .await?;
+-        let _listener = codex_uds::UnixListener::bind(socket_path.as_path()).await?;
+ 
+-        let expected = Some(socket_path);
+-        #[cfg(windows)]
+-        let expected = {
+-            // Existing Windows CI may run elevated; an elevated listener must
+-            // never be selected implicitly, even when its directory is private.
+-            let output = std::process::Command::new("powershell.exe")
+-                .args(["-NoProfile", "-NonInteractive", "-Command", "([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"])
+-                .output()?;
+-            assert!(output.status.success());
+-            match String::from_utf8(output.stdout)?.trim() {
+-                "True" => None,
+-                "False" => expected,
+-                other => panic!("unexpected elevation result: {other}"),
++        for (user_agent, expected) in [
++            // A vanilla server can report the same upstream version; matching
++            // feature defaults do not establish runtime identity either.
++            (
++                format!("codex_cli_rs/{} (Linux; x86_64)", env!("CARGO_PKG_VERSION")),
++                false,
++            ),
++            (
++                format!(
++                    "codex_cli_rs/{} (Linux; x86_64) holycodex_runtime/0.17.0-2 codex_upstream/{}",
++                    env!("CARGO_PKG_VERSION"),
++                    env!("CARGO_PKG_VERSION"),
++                ),
++                false,
++            ),
++            (
++                format!(
++                    "codex_cli_rs/{} (Linux; x86_64) {} codex_upstream/{}",
++                    env!("CARGO_PKG_VERSION"),
++                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++                    env!("CARGO_PKG_VERSION"),
++                ),
++                true,
++            ),
++            (
++                format!(
++                    "codex_cli_rs/{} (Linux; x86_64) {} codex_upstream/0.160.0",
++                    env!("CARGO_PKG_VERSION"),
++                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++                ),
++                false,
++            ),
++        ] {
++            #[cfg(windows)]
++            let elevated = current_windows_test_process_is_elevated()?;
++            #[cfg(windows)]
++            let expected = expected && !elevated;
++            let codex_home = TempDir::new()?;
++            let socket_path =
++                codex_app_server_client::app_server_control_socket_path(codex_home.path())?;
++            codex_uds::prepare_private_socket_directory(
++                socket_path.as_path().parent().expect("socket parent"),
++            )
++            .await?;
++            let server = mock_initialize_daemon(
++                socket_path.as_path().to_path_buf(),
++                codex_home.path().to_path_buf(),
++                user_agent,
++            )
++            .await;
++            assert_eq!(
++                maybe_probe_default_daemon_socket(codex_home.path())
++                    .await
++                    .is_some(),
++                expected,
++            );
++            #[cfg(windows)]
++            if elevated {
++                server.abort();
++                continue;
++            }
++            server.await?;
++        }
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn local_daemon_connection_checks_identity_on_the_attached_transport()
++    -> color_eyre::Result<()> {
++        for (user_agent, compatible) in [
++            (
++                format!("codex_cli_rs/{} (Linux)", env!("CARGO_PKG_VERSION")),
++                false,
++            ),
++            (
++                format!(
++                    "codex_cli_rs/{} (Linux) {} codex_upstream/0.160.0",
++                    env!("CARGO_PKG_VERSION"),
++                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER
++                ),
++                false,
++            ),
++            (
++                format!(
++                    "codex_cli_rs/{} (Linux) {} codex_upstream/{}",
++                    env!("CARGO_PKG_VERSION"),
++                    codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++                    env!("CARGO_PKG_VERSION")
++                ),
++                true,
++            ),
++        ] {
++            #[cfg(windows)]
++            let elevated = current_windows_test_process_is_elevated()?;
++            let home = TempDir::new()?;
++            let socket_path = codex_app_server_client::app_server_control_socket_path(home.path())?;
++            codex_uds::prepare_private_socket_directory(socket_path.as_path().parent().unwrap())
++                .await?;
++            let server = mock_initialize_daemon(
++                socket_path.as_path().to_path_buf(),
++                home.path().to_path_buf(),
++                user_agent,
++            )
++            .await;
++            let target = AppServerTarget::LocalDaemon {
++                allow_embedded_fallback: false,
++                endpoint: RemoteAppServerEndpoint::UnixSocket { socket_path },
++            };
++            match app_server_connection::connect(&target).await {
++                Ok(client) => {
++                    assert!(compatible);
++                    client.shutdown().await?;
++                }
++                Err(error) => {
++                    #[cfg(windows)]
++                    if elevated {
++                        assert_eq!(
++                            error
++                                .downcast_ref::<std::io::Error>()
++                                .map(std::io::Error::kind),
++                            Some(std::io::ErrorKind::PermissionDenied)
++                        );
++                        server.abort();
++                        continue;
++                    }
++                    assert!(!compatible);
++                    assert!(
++                        error
++                            .downcast_ref::<codex_app_server_daemon::ForeignAppServerRuntime>()
++                            .is_some()
++                    );
++                }
+             }
++            server.await?;
++        }
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn foreign_runtime_attachment_falls_back_even_for_automatic_start()
++    -> color_eyre::Result<()> {
++        let home = TempDir::new()?;
++        let config = build_config(&home).await?;
++        let socket_path = codex_app_server_client::app_server_control_socket_path(home.path())?;
++        codex_uds::prepare_private_socket_directory(socket_path.as_path().parent().unwrap())
++            .await?;
++        let server = mock_initialize_daemon(
++            socket_path.as_path().to_path_buf(),
++            home.path().to_path_buf(),
++            format!("codex_cli_rs/{} (Linux)", env!("CARGO_PKG_VERSION")),
++        )
++        .await;
++        let target = AppServerTarget::LocalDaemon {
++            allow_embedded_fallback: false,
++            endpoint: RemoteAppServerEndpoint::UnixSocket { socket_path },
+         };
+-        assert_eq!(
+-            maybe_probe_default_daemon_socket(codex_home.path()).await,
+-            expected
++        let result = daemon_startup::compatibility_warning(&target, &config).await;
++        #[cfg(windows)]
++        if current_windows_test_process_is_elevated()? {
++            assert!(
++                result
++                    .expect_err("elevated peer must be rejected")
++                    .reason
++                    .contains("could not connect")
++            );
++            server.abort();
++            return Ok(());
++        }
++        let warning = result?;
++        assert!(
++            warning
++                .unwrap()
++                .contains("not a compatible HolyCodex runtime")
+         );
++        server.await?;
+         Ok(())
+     }
+ 
+diff --git a/codex-rs/cli/tests/queue.rs b/codex-rs/cli/tests/queue.rs
+index 4275ed7..b17b584 100644
+--- a/codex-rs/cli/tests/queue.rs
++++ b/codex-rs/cli/tests/queue.rs
+@@ -26,6 +26,7 @@ async fn respond_to_queue_request<S>(
+     stream: S,
+     codex_home: &Path,
+     response: QueueResponse,
++    holy_runtime: bool,
+ ) -> Result<Value>
+ where
+     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+@@ -41,13 +42,7 @@ where
+         initialize["params"]["capabilities"]["experimentalApi"],
+         true
+     );
+-    let initialized_response = json!({
+-        "id": initialize["id"],
+-        "result": {
+-            "userAgent": "codex_cli_rs/0.0.0-test",
+-            "codexHome": codex_home,
+-        },
+-    });
++    let initialized_response = initialize_response(&initialize["id"], codex_home, holy_runtime);
+     websocket
+         .send(Message::Text(initialized_response.to_string().into()))
+         .await?;
+@@ -93,6 +88,61 @@ where
+     Ok(request)
+ }
+ 
++fn initialize_response(id: &Value, codex_home: &Path, holy_runtime: bool) -> Value {
++    let user_agent = if holy_runtime {
++        format!(
++            "codex_cli_rs/{} {} codex_upstream/{}",
++            env!("CARGO_PKG_VERSION"),
++            codex_app_server_protocol::HOLYCODEX_RUNTIME_MARKER,
++            env!("CARGO_PKG_VERSION"),
++        )
++    } else {
++        "codex_cli_rs/0.0.0-test".to_string()
++    };
++    json!({
++        "id": id,
++        "result": {
++            "userAgent": user_agent,
++            "codexHome": codex_home,
++            "platformFamily": std::env::consts::FAMILY,
++            "platformOs": std::env::consts::OS,
++        },
++    })
++}
++
++#[cfg(unix)]
++async fn respond_to_identity_probe<S>(stream: S, codex_home: &Path) -> Result<()>
++where
++    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
++{
++    let mut websocket = accept_async(stream).await?;
++    let initialize = websocket
++        .next()
++        .await
++        .context("missing identity initialize")??;
++    let initialize: Value = serde_json::from_str(initialize.to_text()?)?;
++    assert_eq!(initialize["method"], "initialize");
++    // The passive probe leaves experimental API disabled (omitted means false).
++    assert_ne!(
++        initialize["params"]["capabilities"]["experimentalApi"],
++        true
++    );
++    websocket
++        .send(Message::Text(
++            initialize_response(&initialize["id"], codex_home, true)
++                .to_string()
++                .into(),
++        ))
++        .await?;
++    let initialized = websocket
++        .next()
++        .await
++        .context("missing identity initialized")??;
++    let initialized: Value = serde_json::from_str(initialized.to_text()?)?;
++    assert_eq!(initialized["method"], "initialized");
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn queue_submits_message_to_remote_app_server() -> Result<()> {
+     let (output, request) = run_remote_queue_command(QueueResponse::Success).await?;
+@@ -158,7 +208,7 @@ async fn run_remote_queue_command(response: QueueResponse) -> Result<(Output, Va
+     let server_home = codex_home.path().to_path_buf();
+     let server = tokio::spawn(async move {
+         let (stream, _) = listener.accept().await?;
+-        respond_to_queue_request(stream, server_home.as_path(), response).await
++        respond_to_queue_request(stream, server_home.as_path(), response, false).await
+     });
+ 
+     let remote_args = if remote_first {
+@@ -204,11 +254,14 @@ async fn queue_rejects_local_daemon_that_does_not_support_queueing() -> Result<(
+     let server = tokio::spawn(async move {
+         let (probe, _) = listener.accept().await?;
+         drop(probe);
++        let (identity_probe, _) = listener.accept().await?;
++        respond_to_identity_probe(identity_probe, server_home.as_path()).await?;
+         let (stream, _) = listener.accept().await?;
+         respond_to_queue_request(
+             stream,
+             server_home.as_path(),
+             QueueResponse::UnknownMethodVariant,
++            true,
+         )
+         .await
+     });
+@@ -241,10 +294,12 @@ async fn queue_rejects_overrides_that_bypass_local_daemon() -> Result<()> {
+             .context("missing socket parent")?,
+     )?;
+     let listener = tokio::net::UnixListener::bind(socket_path.as_path())?;
++    let server_home = codex_home.path().to_path_buf();
+     let server = tokio::spawn(async move {
+         let (probe, _) = listener.accept().await?;
+         drop(probe);
+-        Ok::<_, std::io::Error>(())
++        let (identity_probe, _) = listener.accept().await?;
++        respond_to_identity_probe(identity_probe, server_home.as_path()).await
+     });
+ 
+     let output = tokio::process::Command::new(codex_utils_cargo_bin::cargo_bin("codex")?)

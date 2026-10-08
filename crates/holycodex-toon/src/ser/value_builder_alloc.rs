@@ -299,9 +299,13 @@ impl SerializeMap for MapSerializer {
     }
 
     fn serialize_value<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
+        let Some(k) = self.next_key.take() else {
+            return Err(BuildError::custom(
+                "serialize_value called before serialize_key",
+            ));
+        };
         let mut ser = ValueSerializer;
         let v = value.serialize(&mut ser)?;
-        let k = self.next_key.take().unwrap_or_default();
         self.map.push((k, v));
         Ok(())
     }
