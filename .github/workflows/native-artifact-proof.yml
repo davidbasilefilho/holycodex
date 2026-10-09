@@ -59,6 +59,17 @@ jobs:
           node npm/packager/verify-release.cjs .tmp/native-artifacts "$NATIVE_SOURCE_SHA" "$PACKAGE_VERSION"
           find .tmp/native-artifacts -type f -name '*.tgz' -print0 | sort -z | xargs -0 sha256sum | tee .tmp/proof/sha256.txt
           find .tmp/native-artifacts -type f -name '*.tgz' -print0 | sort -z | xargs -0 sha512sum | tee .tmp/proof/sha512.txt
+      - name: Install actual wrapper and native tarballs offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          wrapper="$PWD/.tmp/native-artifacts/holycodex-$PACKAGE_VERSION-wrapper-$NATIVE_SOURCE_SHA/holycodex-$PACKAGE_VERSION.tgz"
+          native="$PWD/.tmp/native-artifacts/holycodex-$PACKAGE_VERSION-linux-x64-gnu-$NATIVE_SOURCE_SHA/turndev-holycodex-native-linux-x64-gnu-$PACKAGE_VERSION.tgz"
+          npm install --prefix .tmp/real-install --offline --no-audit --no-fund "$wrapper" "$native"
+          mkdir -p "$RUNNER_TEMP/holycodex-installed-proof-home"
+          chmod 700 "$RUNNER_TEMP/holycodex-installed-proof-home"
+          CODEX_HOME="$RUNNER_TEMP/holycodex-installed-proof-home" .tmp/real-install/node_modules/.bin/holycodex --version | tee .tmp/proof/installed-wrapper-version.txt
+          grep -F 'holycodex 0.17.0-1 (Codex upstream 0.160.1)' .tmp/proof/installed-wrapper-version.txt
       - name: Launch both actual release Linux aliases without Node in PATH
         shell: bash
         run: |
