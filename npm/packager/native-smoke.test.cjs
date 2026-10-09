@@ -149,7 +149,7 @@ test('native headers reject scripts, wrong architecture, and truncated executabl
 test('compressed size and native size budgets reject debug-bloat regressions', (t) => {
   const f = fixture(t);
   assert.equal(MAX_ARCHIVE_BYTES, 256 * 1024 * 1024);
-  assert.equal(MAX_NATIVE_BYTES, 256 * 1024 * 1024);
+  assert.equal(MAX_NATIVE_BYTES, 384 * 1024 * 1024);
   const oversizedArchive = path.join(f.root, 'oversized.tgz');
   const fd = fs.openSync(oversizedArchive, 'w');
   fs.ftruncateSync(fd, MAX_ARCHIVE_BYTES + 1);
@@ -163,6 +163,23 @@ test('compressed size and native size budgets reject debug-bloat regressions', (
   f.repack();
   assert.ok(fs.statSync(f.archive).size < MAX_ARCHIVE_BYTES);
   assert.throws(() => verifyNativeAliases(f.archive, f.extension, f.digest, f.root), /native executable exceeds/);
+});
+
+test('calibrated expanded budget accepts verified aliases above the old 256 MiB bound', (t) => {
+  const f = fixture(t);
+  const bytes = 256 * 1024 * 1024 + 1;
+  for (const alias of ['holycodex', 'codex']) {
+    const fd = fs.openSync(path.join(f.directory, 'bin', alias + f.extension), 'w');
+    try { fs.ftruncateSync(fd, bytes); } finally { fs.closeSync(fd); }
+  }
+  const hash = createHash('sha256');
+  const chunk = Buffer.alloc(64 * 1024);
+  for (let remaining = bytes; remaining > 0; remaining -= chunk.length) {
+    hash.update(chunk.subarray(0, Math.min(chunk.length, remaining)));
+  }
+  f.repack();
+  assert.ok(fs.statSync(f.archive).size < MAX_ARCHIVE_BYTES);
+  assert.equal(verifyNativeAliases(f.archive, f.extension, hash.digest('hex'), f.root), bytes);
 });
 
 test('release build strips only distribution profiles and smoke runs before artifact upload', () => {

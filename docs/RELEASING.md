@@ -142,8 +142,11 @@ and per-alias byte counts and the payload digest; it fails before artifact uploa
 on any mismatch. Its unit fixtures test the gate only, not runtime acceptance.
 
 The shared release verifier also rejects any npm tarball above 256 MiB or native
-alias above 256 MiB. These are intentional regression budgets, not measurements
-of the final binaries; changes require review. Alias comparison/hashing remains
+alias above 384 MiB. Run `37836254693` measured stripped Linux and Windows
+tarballs at 218.6 MB and 229.3 MB, with individual aliases at 283.6 MB and
+332.9 MB. The expanded budget accommodates these measured release executables;
+the independent compressed limit stays at 256 MiB. Both remain enforced
+regression budgets; changes require review. Alias comparison/hashing remains
 bounded to 64 KiB chunks. Every tarball artifact includes `source-revision.toml`;
 wrapper dependencies and platform payload metadata use the same distribution
 version. The shared verifier checks four distinct packages and their exact

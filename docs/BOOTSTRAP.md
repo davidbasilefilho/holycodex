@@ -102,7 +102,7 @@ uses `0.17.0-1.dev.37811540553`; this identity is not evidence that native jobs
 have passed or that their tarballs exist. This run predates the distribution
 stripping, size budgets and packed-native smoke gate. Its completed Linux
 package was 706.5 MB compressed with two approximately 1.4 GB executables and
-fails the current 256 MiB archive/per-alias budgets. It is diagnostic evidence,
+fails the current 256 MiB archive / 384 MiB per-alias budgets. It is diagnostic evidence,
 not a bootstrap candidate. Before publication, a reviewed source containing the
 packaging fix must pass native validation on all three targets and generate new
 matching artifacts. Stripping an old downloaded binary for comparison does not

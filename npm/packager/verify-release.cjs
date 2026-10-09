@@ -10,7 +10,9 @@ const os = require('node:os');
 const BASE_VERSION = '0.17.0-1';
 // Both compatibility entrypoints remain full native files. These bounds allow
 // release growth but reject accidental distribution of debug-heavy binaries.
-const MAX_NATIVE_BYTES = 256 * 1024 * 1024;
+// Stripped run 37836254693 measured 283.6 MB Linux / 332.9 MB Windows aliases;
+// the compressed packages remain below the independent 256 MiB archive bound.
+const MAX_NATIVE_BYTES = 384 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES = 256 * 1024 * 1024;
 
 function verifyArchiveSize(archive) {
@@ -59,7 +61,7 @@ function verifyNativeAliases(archive, extension, expectedDigest, artifactDirecto
       }
       const size = fs.statSync(filename).size;
       assert.ok(size > 0 && size <= MAX_NATIVE_BYTES,
-        `${artifactDirectory}: native executable exceeds the 256 MiB release limit or is empty`);
+        `${artifactDirectory}: native executable exceeds the 384 MiB release limit or is empty`);
       readers.push(fs.openSync(filename, 'r'));
     }
     const left = Buffer.alloc(64 * 1024);
