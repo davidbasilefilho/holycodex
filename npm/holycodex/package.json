@@ -1,6 +1,6 @@
 {
   "name": "holycodex",
-  "version": "0.17.0-1",
+  "version": "0.17.0",
   "description": "HolyCodex native CLI distribution",
   "license": "Apache-2.0",
   "files": [
@@ -19,9 +19,9 @@
     "test": "node --test install.test.cjs"
   },
   "optionalDependencies": {
-    "@turndev/holycodex-native-darwin-arm64": "0.17.0-1",
-    "@turndev/holycodex-native-linux-x64-gnu": "0.17.0-1",
-    "@turndev/holycodex-native-win32-x64": "0.17.0-1"
+    "@turndev/holycodex-native-darwin-arm64": "0.17.0",
+    "@turndev/holycodex-native-linux-x64-gnu": "0.17.0",
+    "@turndev/holycodex-native-win32-x64": "0.17.0"
   },
   "engines": {
     "node": ">=18"

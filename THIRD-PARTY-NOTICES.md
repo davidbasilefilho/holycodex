@@ -2,7 +2,7 @@
 
 ## OpenAI Codex
 
-HolyCodex 0.17.0-1 is being developed as a patch layer over OpenAI Codex release
+HolyCodex 0.17.0 is being developed as a patch layer over OpenAI Codex release
 0.160.1, upstream commit
 `d27764b82f7118f674371e6d6e76271d9d606edb`:
 <https://github.com/openai/codex/tree/d27764b82f7118f674371e6d6e76271d9d606edb>

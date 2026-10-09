@@ -69,11 +69,32 @@ function registry(f) {
 }
 
 test('distribution versions separate stable from immutable run-specific DEV', () => {
-  assert.equal(distributionVersion('dev', '123'), '0.17.0-1.dev.123');
+  assert.equal(distributionVersion('dev', '123'), '0.17.0-dev.123');
   assert.equal(distributionVersion('stable', '123'), BASE_VERSION);
-  for (const args of [['dev', '123', BASE_VERSION], ['stable', '123', '0.17.0-1.dev.123'], ['latest', '123'], ['dev', '../bad']]) {
+  assert.equal(distributionVersion('dev', '123', ''), '0.17.0-dev.123');
+  assert.equal(distributionVersion('dev', '123', '0.17.0-dev.123'), '0.17.0-dev.123');
+  for (const args of [['dev', '123', '0.17.0-dev.456'], ['dev', '123', '0.17.0-1.dev.123'], ['dev', '123', BASE_VERSION], ['stable', '123', '0.17.0-dev.123'], ['latest', '123'], ['dev', '../bad']]) {
     assert.throws(() => distributionVersion(...args));
   }
+});
+
+test('npm semver excludes DEV from stable ranges but preserves explicit legacy prerelease opt-in', () => {
+  // Use npm's own resolver, without adding a runtime dependency to the wrapper.
+  const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const npmPath = process.env.PATH.split(path.delimiter)
+    .map((directory) => path.join(directory, npmCommand))
+    .find((filename) => fs.existsSync(filename));
+  assert.ok(npmPath, 'npm must be installed for its SemVer resolver');
+  const npmRoot = process.platform === 'win32'
+    ? path.join(path.dirname(npmPath), 'node_modules', 'npm')
+    : path.resolve(path.dirname(fs.realpathSync(npmPath)), '..');
+  const semver = require(path.join(npmRoot, 'node_modules', 'semver'));
+  const dev = distributionVersion('dev', '123');
+  for (const range of ['^0.17.0', '~0.17.0', '>=0.17.0 <0.18.0', '0.17.x', '*']) {
+    assert.equal(semver.satisfies(BASE_VERSION, range), true, range);
+    assert.equal(semver.satisfies(dev, range), false, range);
+  }
+  assert.equal(semver.satisfies(dev, '^0.17.0-1'), true);
 });
 
 for (const channel of ['dev', 'stable']) {
@@ -217,9 +238,10 @@ test('conflicting existing GitHub asset or tag prevents repair writes', async (t
 
 test('publisher rejects all manual dispatches and unaccepted branch pushes', () => {
   assert.deepEqual(publicationRoute('push', 'refs/heads/next'), { channel: 'dev', publish: true });
-  assert.deepEqual(publicationRoute('push', 'refs/tags/v0.17.0-1'), { channel: 'stable', publish: true });
+  assert.deepEqual(publicationRoute('push', 'refs/tags/v0.17.0'), { channel: 'stable', publish: true });
+  assert.throws(() => publicationRoute('push', 'refs/tags/v0.17.0-1'), /accepted release tag/);
   for (const event of ['workflow_dispatch', 'pull_request']) {
-    for (const ref of ['refs/heads/next', 'refs/heads/codex/dev-publishing-entry', 'refs/tags/v0.17.0-1']) {
+    for (const ref of ['refs/heads/next', 'refs/heads/codex/dev-publishing-entry', 'refs/tags/v0.17.0']) {
       assert.throws(() => publicationRoute(event, ref), /push event/);
     }
   }
@@ -242,14 +264,14 @@ test('OIDC publisher and branch-selected validator use separate workflow identit
 
 test('remote source gate accepts next and lightweight/annotated release commit identity', () => {
   verifySelectedRef(`${SHA}\trefs/heads/next\n`, 'refs/heads/next', SHA);
-  verifySelectedRef(`${SHA}\trefs/tags/v0.17.0-1\n`, 'refs/tags/v0.17.0-1', SHA);
-  verifySelectedRef(`${'b'.repeat(40)}\trefs/tags/v0.17.0-1\n${SHA}\trefs/tags/v0.17.0-1^{}\n`, 'refs/tags/v0.17.0-1', SHA);
+  verifySelectedRef(`${SHA}\trefs/tags/v0.17.0\n`, 'refs/tags/v0.17.0', SHA);
+  verifySelectedRef(`${'b'.repeat(40)}\trefs/tags/v0.17.0\n${SHA}\trefs/tags/v0.17.0^{}\n`, 'refs/tags/v0.17.0', SHA);
 });
 
 test('remote tag removed or moved during validation cannot pass publication gate', () => {
-  assert.throws(() => verifySelectedRef('', 'refs/tags/v0.17.0-1', SHA), /missing/);
-  assert.throws(() => verifySelectedRef(`${'b'.repeat(40)}\trefs/tags/v0.17.0-1\n`, 'refs/tags/v0.17.0-1', SHA), /moved/);
-  assert.throws(() => verifySelectedRef(`${SHA}\trefs/tags/v0.17.0-1\n${'b'.repeat(40)}\trefs/tags/v0.17.0-1^{}\n`, 'refs/tags/v0.17.0-1', SHA), /moved/);
+  assert.throws(() => verifySelectedRef('', 'refs/tags/v0.17.0', SHA), /missing/);
+  assert.throws(() => verifySelectedRef(`${'b'.repeat(40)}\trefs/tags/v0.17.0\n`, 'refs/tags/v0.17.0', SHA), /moved/);
+  assert.throws(() => verifySelectedRef(`${SHA}\trefs/tags/v0.17.0\n${'b'.repeat(40)}\trefs/tags/v0.17.0^{}\n`, 'refs/tags/v0.17.0', SHA), /moved/);
   assert.throws(() => verifySelectedRef(`${'b'.repeat(40)}\trefs/heads/next\n`, 'refs/heads/next', SHA), /moved/);
 });
 

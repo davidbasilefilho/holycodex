@@ -72,7 +72,7 @@ gh run watch $RunId --repo $Repo --exit-status
 if ($LASTEXITCODE -ne 0) { throw 'Native validation failed; do not bootstrap' }
 $Run = gh run view $RunId --repo $Repo --json headSha,event,status,conclusion,headBranch | ConvertFrom-Json
 if ($Run.headSha -ne $SourceSha -or $Run.headBranch -ne $Branch -or $Run.event -ne 'push' -or $Run.conclusion -ne 'success') { throw 'Wrong source or run' }
-$Version = "0.17.0-1.dev.$RunId"
+$Version = "0.17.0-dev.$RunId"
 $Artifacts = '.tmp/bootstrap-artifacts'
 if (Test-Path $Artifacts) { throw 'Choose a fresh artifact destination' }
 gh run download $RunId --repo $Repo --pattern "holycodex-$Version-*-$SourceSha" --dir $Artifacts
@@ -156,13 +156,13 @@ Before enabling npm OIDC, the repository administrator must create and verify
 GitHub **Settings → Environments → holycodex-publish** with:
 
 - Deployment branches and tags set to **Selected branches and tags**, with
-  exactly branch `next` and tag `v0.17.0-1`; no wildcard or pull-request refs.
+  exactly branch `next` and tag `v0.17.0`; no wildcard or pull-request refs.
 - Protect `next` so repository writers cannot directly push, force-push or
   delete it outside the authorized integration policy. Sensitive workflow,
   packager and runtime changes must receive the owner's authorized review
   before reaching that ref. Restrict bypass/merge authority to trusted release
   owners; protect the review ownership/rules themselves.
-- Protect creation, update and deletion of `v0.17.0-1` with a tag ruleset whose
+- Protect creation, update and deletion of `v0.17.0` with a tag ruleset whose
   permitted release actors are the authorized owner(s), not all repository
   writers. This configuration does not authorize executing stable.
 
