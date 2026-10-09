@@ -1,81 +1,100 @@
 name: publish-native-packages
 
 on:
-  workflow_run:
-    workflows: [native-release-validation]
-    types: [completed]
+  push:
+    branches: [next]
+    tags: ["v0.17.0-1"]
 
 permissions:
   contents: read
 
+concurrency:
+  group: holycodex-publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  publish:
-    if: >-
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'v0.17.0-1'
+  route:
+    if: github.repository == 'davidbasilefilho/holycodex'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-      actions: read
+    outputs:
+      channel: ${{ steps.route.outputs.channel }}
+      version: ${{ steps.route.outputs.version }}
+      publish: ${{ steps.route.outputs.publish }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify checkout matches the validated source
-        env:
-          VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
+      - id: route
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$VALIDATED_SHA"
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor "$VALIDATED_SHA" FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node npm/packager/channel.cjs route "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/v0.17.0-1 ]]; then
+            git fetch --no-tags origin main
+            git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD
+          fi
+  dev:
+    needs: route
+    if: needs.route.outputs.channel == 'dev'
+    uses: ./.github/workflows/dev.yml
+    with:
+      version: ${{ needs.route.outputs.version }}
+  stable:
+    needs: route
+    if: needs.route.outputs.channel == 'stable'
+    uses: ./.github/workflows/stable.yml
+    with:
+      version: ${{ needs.route.outputs.version }}
+  publish:
+    needs: [route, dev, stable]
+    if: >-
+      always() && needs.route.result == 'success' && needs.route.outputs.publish == 'true' &&
+      github.event_name == 'push' &&
+      ((needs.route.outputs.channel == 'dev' && needs.dev.result == 'success') ||
+      (needs.route.outputs.channel == 'stable' && needs.stable.result == 'success'))
+    runs-on: ubuntu-latest
+    environment: holycodex-publish
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      PACKAGE_CHANNEL: ${{ needs.route.outputs.channel }}
+      PACKAGE_VERSION: ${{ needs.route.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 26
           registry-url: https://registry.npmjs.org
+      - name: Install pinned OIDC-capable npm
+        run: npm install --global npm@12.2.0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
-          pattern: holycodex-0.17.0-1-*-${{ github.event.workflow_run.head_sha }}
+          pattern: holycodex-${{ needs.route.outputs.version }}-*-${{ github.sha }}
           path: .tmp/release-artifacts
           merge-multiple: false
-      - name: Verify all packages against the validated source SHA
-        run: node npm/packager/verify-release.cjs .tmp/release-artifacts "$VERIFIED_SHA"
-        env:
-          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
-      - name: Publish native packages, then wrapper with npm trusted publishing
+      - name: Recheck accepted remote source immediately before publishing
         shell: bash
         run: |
           set -euo pipefail
-          for package in \
-            holycodex-native-darwin-arm64 \
-            holycodex-native-linux-x64-gnu \
-            holycodex-native-win32-x64 \
-            holycodex; do
-            archive="$(find .tmp/release-artifacts -type f -name "${package}-0.17.0-1.tgz" -print -quit)"
-            test -n "$archive"
-            expected_integrity="$(node -e 'const fs=require("node:fs"),crypto=require("node:crypto");process.stdout.write("sha512-"+crypto.createHash("sha512").update(fs.readFileSync(process.argv[1])).digest("base64"))' "$archive")"
-            error_file="$RUNNER_TEMP/npm-view-${package}.stderr"
-            if published_integrity="$(npm view "${package}@0.17.0-1" dist.integrity 2>"$error_file")"; then
-              if [[ "$published_integrity" != "$expected_integrity" ]]; then
-                echo "Published ${package}@0.17.0-1 integrity does not match validated artifact" >&2
-                exit 1
-              fi
-              echo "Verified existing ${package}@0.17.0-1; skipping duplicate publish"
-            else
-              status=$?
-              if grep -q 'E404' "$error_file"; then
-                npx --yes npm@12.1.0 publish "$archive" --access public --tag latest --provenance
-              else
-                cat "$error_file" >&2
-                exit "$status"
-              fi
-            fi
-          done
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git ls-remote origin "$GITHUB_REF" "$GITHUB_REF^{}" > .tmp/current-source.refs
+          node npm/packager/source-gate.cjs .tmp/current-source.refs "$GITHUB_REF" "$GITHUB_SHA"
+          if [[ "$PACKAGE_CHANNEL" == stable ]]; then
+            git fetch --no-tags origin main
+            git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD
+          fi
+      - name: Verify and publish all platforms before the wrapper
+        shell: bash
+        run: node npm/packager/publish.cjs .tmp/release-artifacts "$GITHUB_SHA" "$PACKAGE_VERSION" "$PACKAGE_CHANNEL"
+      - name: Publish or recover matching GitHub release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: node npm/packager/github-release.cjs .tmp/release-artifacts "$GITHUB_SHA" "$PACKAGE_VERSION" "$PACKAGE_CHANNEL"

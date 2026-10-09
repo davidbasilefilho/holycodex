@@ -85,9 +85,9 @@ fn validated_wrapper(npm: &Path) -> Result<Value> {
         return Err("Cargo and npm versions must match upstream.toml holycodex_version".into());
     }
     for package in [
-        "holycodex-native-linux-x64-gnu",
-        "holycodex-native-darwin-arm64",
-        "holycodex-native-win32-x64",
+        "@turndev/holycodex-native-linux-x64-gnu",
+        "@turndev/holycodex-native-darwin-arm64",
+        "@turndev/holycodex-native-win32-x64",
     ] {
         if wrapper["optionalDependencies"][package] != version {
             return Err(
@@ -116,9 +116,9 @@ fn stage_wrapper(npm: &Path, output: &Path) -> Result<PathBuf> {
 
 fn stage_native(npm: &Path, target: &str, native: &Path, output: &Path) -> Result<PathBuf> {
     let package_name = match target {
-        "linux-x64-gnu" => "holycodex-native-linux-x64-gnu",
-        "darwin-arm64" => "holycodex-native-darwin-arm64",
-        "win32-x64" => "holycodex-native-win32-x64",
+        "linux-x64-gnu" => "@turndev/holycodex-native-linux-x64-gnu",
+        "darwin-arm64" => "@turndev/holycodex-native-darwin-arm64",
+        "win32-x64" => "@turndev/holycodex-native-win32-x64",
         _ => return Err(format!("unsupported target: {target}").into()),
     };
     let extension = if target == "win32-x64" { ".exe" } else { "" };
@@ -134,8 +134,10 @@ fn stage_native(npm: &Path, target: &str, native: &Path, output: &Path) -> Resul
     if payloads[0].is_empty() || payloads[0] != payloads[1] {
         return Err("native payloads must be nonempty and byte-identical".into());
     }
-    let metadata: Value =
-        serde_json::from_slice(&fs::read(npm.join(package_name).join("package.json"))?)?;
+    let metadata: Value = serde_json::from_slice(&fs::read(
+        npm.join(package_name.trim_start_matches("@turndev/"))
+            .join("package.json"),
+    )?)?;
     let wrapper = validated_wrapper(npm)?;
     if metadata["name"] != package_name
         || metadata["version"] != wrapper["version"]
@@ -143,7 +145,7 @@ fn stage_native(npm: &Path, target: &str, native: &Path, output: &Path) -> Resul
     {
         return Err("platform package metadata does not match the wrapper".into());
     }
-    let destination = output.join(package_name);
+    let destination = output.join(package_name.trim_start_matches("@turndev/"));
     fs::create_dir_all(destination.join("bin"))?;
     fs::write(
         destination.join("package.json"),
@@ -260,7 +262,7 @@ mod tests {
         );
         assert_eq!(
             manifest["package"].as_str(),
-            Some("holycodex-native-linux-x64-gnu")
+            Some("@turndev/holycodex-native-linux-x64-gnu")
         );
         assert_eq!(manifest["version"].as_str(), Some("0.17.0-1"));
         assert_eq!(manifest["format"].as_integer(), Some(1));
@@ -283,12 +285,17 @@ mod tests {
     #[test]
     fn platform_package_metadata_declares_toml_payload_proof() {
         for package in [
-            "holycodex-native-linux-x64-gnu",
-            "holycodex-native-darwin-arm64",
-            "holycodex-native-win32-x64",
+            "@turndev/holycodex-native-linux-x64-gnu",
+            "@turndev/holycodex-native-darwin-arm64",
+            "@turndev/holycodex-native-win32-x64",
         ] {
             let metadata: Value = serde_json::from_slice(
-                &fs::read(npm_root().join(package).join("package.json")).unwrap(),
+                &fs::read(
+                    npm_root()
+                        .join(package.trim_start_matches("@turndev/"))
+                        .join("package.json"),
+                )
+                .unwrap(),
             )
             .unwrap();
             assert!(
