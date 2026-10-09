@@ -1,0 +1,81 @@
+name: native-artifact-proof
+
+on:
+  push:
+    branches: ["codex/native-artifact-proof/37925386518"]
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  NATIVE_RUN_ID: "37925386518"
+  NATIVE_SOURCE_SHA: 9f2e5c0a407515628acc710cda5feb4e77fdafbc
+  VERIFIER_SOURCE_SHA: 4a92573d0240bb980bb4c1c5035db9307323321a
+  PACKAGE_VERSION: 0.17.0-1.dev.37925386518
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 4a92573d0240bb980bb4c1c5035db9307323321a
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 26
+      - name: Require successful reviewed native source run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$VERIFIER_SOURCE_SHA"
+          mkdir -p .tmp/proof
+          gh api "repos/davidbasilefilho/holycodex/actions/runs/$NATIVE_RUN_ID" > .tmp/proof/run.json
+          node - <<'JS'
+          const assert = require('node:assert/strict');
+          const run = require('./.tmp/proof/run.json');
+          assert.equal(String(run.id), process.env.NATIVE_RUN_ID);
+          assert.equal(run.head_sha, process.env.NATIVE_SOURCE_SHA);
+          assert.equal(run.head_branch, `codex/native-validation/${process.env.NATIVE_SOURCE_SHA}`);
+          assert.equal(run.path, '.github/workflows/native-validation.yml');
+          assert.equal(run.event, 'push');
+          assert.equal(run.status, 'completed');
+          assert.equal(run.conclusion, 'success');
+          JS
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 37925386518
+          pattern: holycodex-0.17.0-1.dev.37925386518-*-9f2e5c0a407515628acc710cda5feb4e77fdafbc
+          path: .tmp/native-artifacts
+          merge-multiple: false
+      - name: Verify all four tarballs and record real archive digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node npm/packager/verify-release.cjs .tmp/native-artifacts "$NATIVE_SOURCE_SHA" "$PACKAGE_VERSION"
+          find .tmp/native-artifacts -type f -name '*.tgz' -print0 | sort -z | xargs -0 sha256sum | tee .tmp/proof/sha256.txt
+          find .tmp/native-artifacts -type f -name '*.tgz' -print0 | sort -z | xargs -0 sha512sum | tee .tmp/proof/sha512.txt
+      - name: Launch both actual release Linux aliases without Node in PATH
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=".tmp/native-artifacts/holycodex-$PACKAGE_VERSION-linux-x64-gnu-$NATIVE_SOURCE_SHA/turndev-holycodex-native-linux-x64-gnu-$PACKAGE_VERSION.tgz"
+          mkdir -p .tmp/linux "$RUNNER_TEMP/holycodex-artifact-proof-home"
+          chmod 700 "$RUNNER_TEMP/holycodex-artifact-proof-home"
+          tar -xzf "$archive" -C .tmp/linux package/bin/holycodex package/bin/codex
+          for alias in holycodex codex; do
+            binary="$PWD/.tmp/linux/package/bin/$alias"
+            chmod 755 "$binary"
+            /usr/bin/env PATH=/nonexistent CODEX_HOME="$RUNNER_TEMP/holycodex-artifact-proof-home" /usr/bin/timeout 30 "$binary" --version | tee ".tmp/proof/$alias-version.txt"
+            grep -F '0.17.0-1' ".tmp/proof/$alias-version.txt"
+            /usr/bin/env PATH=/nonexistent CODEX_HOME="$RUNNER_TEMP/holycodex-artifact-proof-home" /usr/bin/timeout 30 "$binary" --help > ".tmp/proof/$alias-help.txt"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-artifact-proof-37925386518-9f2e5c0a407515628acc710cda5feb4e77fdafbc
+          path: .tmp/proof
+          if-no-files-found: error
