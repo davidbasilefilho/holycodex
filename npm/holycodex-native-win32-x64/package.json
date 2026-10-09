@@ -1,6 +1,6 @@
 {
   "name": "@turndev/holycodex-native-win32-x64",
-  "version": "0.17.0-1",
+  "version": "0.17.0",
   "description": "HolyCodex native executables for Windows x64",
   "license": "Apache-2.0",
   "os": [

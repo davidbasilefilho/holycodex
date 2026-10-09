@@ -1,4 +1,4 @@
-holycodex_version = "0.17.0-1"
+holycodex_version = "0.17.0"
 repository = "https://github.com/openai/codex.git"
 commit = "d27764b82f7118f674371e6d6e76271d9d606edb"
 release = "rust-v0.160.1"

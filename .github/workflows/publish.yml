@@ -3,7 +3,7 @@ name: publish-native-packages
 on:
   push:
     branches: [next]
-    tags: ["v0.17.0-1"]
+    tags: ["v0.17.0"]
 
 permissions:
   contents: read
@@ -31,7 +31,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           node npm/packager/channel.cjs route "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
-          if [[ "$GITHUB_REF" == refs/tags/v0.17.0-1 ]]; then
+          if [[ "$GITHUB_REF" == refs/tags/v0.17.0 ]]; then
             git fetch --no-tags origin main
             git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD
           fi
