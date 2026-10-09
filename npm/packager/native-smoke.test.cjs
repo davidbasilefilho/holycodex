@@ -65,6 +65,21 @@ function successfulRunner(filename, args) {
   return args[0] === '--version' ? expectedRuntimeVersion() + '\n' : 'HolyCodex CLI\n\nUsage: holycodex [OPTIONS] [PROMPT]\n';
 }
 
+// Dense members avoid platform-specific sparse tar extraction behavior. Keep
+// fixture construction bounded in memory just like production verification.
+function writeZeroBytes(filename, bytes) {
+  const fd = fs.openSync(filename, 'w');
+  const chunk = Buffer.alloc(64 * 1024);
+  try {
+    for (let remaining = bytes; remaining > 0;) {
+      const length = Math.min(chunk.length, remaining);
+      let written = 0;
+      while (written < length) written += fs.writeSync(fd, chunk, written, length - written);
+      remaining -= length;
+    }
+  } finally { fs.closeSync(fd); }
+}
+
 for (const channel of ['dev', 'stable']) {
   nativeTest(`${channel} gate checks both packed aliases and pinned runtime separately from npm version`, (t) => {
     const f = fixture(t, channel);
@@ -155,11 +170,9 @@ test('compressed size and native size budgets reject debug-bloat regressions', (
   fs.ftruncateSync(fd, MAX_ARCHIVE_BYTES + 1);
   fs.closeSync(fd);
   assert.throws(() => verifyArchiveSize(oversizedArchive), /tarball exceeds/);
-  // A compressible sparse member proves the unpacked bound independently.
+  // A dense compressible member proves the unpacked bound independently.
   const executable = path.join(f.directory, 'bin', `holycodex${f.extension}`);
-  const native = fs.openSync(executable, 'w');
-  fs.ftruncateSync(native, MAX_NATIVE_BYTES + 1);
-  fs.closeSync(native);
+  writeZeroBytes(executable, MAX_NATIVE_BYTES + 1);
   f.repack();
   assert.ok(fs.statSync(f.archive).size < MAX_ARCHIVE_BYTES);
   assert.throws(() => verifyNativeAliases(f.archive, f.extension, f.digest, f.root), /native executable exceeds/);
@@ -169,8 +182,7 @@ test('calibrated expanded budget accepts verified aliases above the old 256 MiB 
   const f = fixture(t);
   const bytes = 256 * 1024 * 1024 + 1;
   for (const alias of ['holycodex', 'codex']) {
-    const fd = fs.openSync(path.join(f.directory, 'bin', alias + f.extension), 'w');
-    try { fs.ftruncateSync(fd, bytes); } finally { fs.closeSync(fd); }
+    writeZeroBytes(path.join(f.directory, 'bin', alias + f.extension), bytes);
   }
   const hash = createHash('sha256');
   const chunk = Buffer.alloc(64 * 1024);
