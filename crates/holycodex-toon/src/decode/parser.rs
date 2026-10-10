@@ -93,7 +93,7 @@ impl<'a> Parser<'a> {
             return Value::Array(Vec::new());
         }
         if s.starts_with('"') {
-            match try_unescape_json_string(s) {
+            match try_unescape_json_string(s, self.strict) {
                 Ok(st) => return Value::String(st),
                 Err(e) if self.error.is_none() => {
                     self.error = Some(crate::error::Error::Syntax {
@@ -102,6 +102,9 @@ impl<'a> Parser<'a> {
                             StringParseError::Unterminated => "unterminated string".to_string(),
                             StringParseError::InvalidEscape => {
                                 "invalid escape sequence".to_string()
+                            }
+                            StringParseError::InvalidCharacter => {
+                                "invalid character in quoted string".to_string()
                             }
                         },
                     });
@@ -181,7 +184,7 @@ impl<'a> Parser<'a> {
 
     fn parse_key_token_at_line(&mut self, k: &str, line_no: usize) -> String {
         if k.starts_with('"') {
-            match try_unescape_json_string(k) {
+            match try_unescape_json_string(k, self.strict) {
                 Ok(st) => {
                     // Prefix quoted dotted keys so Safe path expansion can
                     // keep them literal. Double a genuine leading marker so
@@ -203,6 +206,9 @@ impl<'a> Parser<'a> {
                             StringParseError::Unterminated => "unterminated string".to_string(),
                             StringParseError::InvalidEscape => {
                                 "invalid escape sequence".to_string()
+                            }
+                            StringParseError::InvalidCharacter => {
+                                "invalid character in quoted string".to_string()
                             }
                         },
                     });
@@ -2301,9 +2307,10 @@ fn to_json_value(v: Value) -> serde_json::Value {
 enum StringParseError {
     Unterminated,
     InvalidEscape,
+    InvalidCharacter,
 }
 
-fn try_unescape_json_string(s: &str) -> Result<String, StringParseError> {
+fn try_unescape_json_string(s: &str, strict: bool) -> Result<String, StringParseError> {
     // Check for proper termination: must start with " and end with "
     if !s.starts_with('"') {
         return Err(StringParseError::Unterminated);
@@ -2351,6 +2358,9 @@ fn try_unescape_json_string(s: &str) -> Result<String, StringParseError> {
                 Some(_) => return Err(StringParseError::InvalidEscape),
             }
         } else {
+            if strict && (ch == '"' || (ch <= '\u{001F}' && ch != '\t')) {
+                return Err(StringParseError::InvalidCharacter);
+            }
             out.push(ch);
         }
     }

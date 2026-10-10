@@ -280,7 +280,8 @@ jobs:
           test "$(printf '%s\n' "$rustc_version" | awk '{print $2}')" = "$expected_toolchain"
           test "$(printf '%s\n' "$cargo_version" | awk '{print $2}')" = "$expected_toolchain"
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-app-server-daemon --lib
-          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-tui --lib -E 'test(holycodex_does_not_offer_upstream_install_updates) | test(holycodex_ignores_upstream_update_cache) | test(holycodex_update_check_does_not_create_a_cache) | test(holycodex_public_daemon_update_cannot_exit_the_session) | test(daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff) | test(unavailable_daemon_menu_offers_guidance_without_update_actions)'
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-app-server-client --lib
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-tui --lib -E 'test(holycodex_does_not_offer_upstream_install_updates) | test(holycodex_ignores_upstream_update_cache) | test(holycodex_update_check_does_not_create_a_cache) | test(holycodex_public_daemon_update_cannot_exit_the_session) | test(daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff) | test(unavailable_daemon_menu_offers_guidance_without_update_actions) | test(unsupported_runtime_falls_back_but_keeps_reusable_daemon_results) | test(display_version_matches_holy_release_and_upstream_provenance) | test(/default_daemon_auto_connect|local_daemon_connection_checks_identity|foreign_runtime|same_version_vanilla_daemon|same_connection_holy_identity/)'
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-cli -p codex-login
       - name: Build one native runtime under both names
         run: cargo run --locked -p holycodex-dev -- package --upstream .tmp/upstream --output .tmp/native --release

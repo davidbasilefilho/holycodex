@@ -16,6 +16,9 @@ use alloc::{
     vec::Vec,
 };
 
+#[cfg(all(not(feature = "std"), not(feature = "json")))]
+use alloc::vec;
+
 #[cfg(feature = "std")]
 use std::{format, string::String, vec::Vec};
 
@@ -270,6 +273,8 @@ impl<'a, 'de> Serializer for &'a mut StreamingSerializer<'de> {
             entry_count: 0,
             #[cfg(feature = "json")]
             buffered: None,
+            #[cfg(not(feature = "json"))]
+            buffered: None,
         })
     }
     fn serialize_struct(
@@ -295,6 +300,8 @@ impl<'a, 'de> Serializer for &'a mut StreamingSerializer<'de> {
             next_key: None,
             entry_count: 0,
             #[cfg(feature = "json")]
+            buffered: None,
+            #[cfg(not(feature = "json"))]
             buffered: None,
         })
     }
@@ -590,6 +597,8 @@ struct MapSer<'a, 'de> {
     /// Buffered entries for key folding collision detection
     #[cfg(feature = "json")]
     buffered: Option<Vec<(String, Value)>>,
+    #[cfg(not(feature = "json"))]
+    buffered: Option<Vec<(String, IValue)>>,
 }
 
 impl<'a, 'de> SerializeMap for MapSer<'a, 'de> {
@@ -603,12 +612,27 @@ impl<'a, 'de> SerializeMap for MapSer<'a, 'de> {
     }
 
     fn serialize_value<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
-        let key = self.next_key.take().unwrap_or_default();
+        let key = self
+            .next_key
+            .take()
+            .ok_or_else(|| SerError::custom("serialize_value called before serialize_key"))?;
 
         // When key folding is enabled, buffer entries for collision detection
         #[cfg(feature = "json")]
         if self.parent.opts.key_folding == crate::options::KeyFolding::Safe {
             let val = crate::ser::value_builder::to_value(value, self.parent.opts)
+                .map_err(SerError::custom)?;
+            if self.buffered.is_none() {
+                self.buffered = Some(Vec::new());
+            }
+            self.buffered.as_mut().unwrap().push((key, val));
+            self.entry_count += 1;
+            return Ok(());
+        }
+
+        #[cfg(not(feature = "json"))]
+        if self.parent.opts.key_folding == crate::options::KeyFolding::Safe {
+            let val = crate::ser::value_builder_alloc::to_value(value, self.parent.opts)
                 .map_err(SerError::custom)?;
             if self.buffered.is_none() {
                 self.buffered = Some(Vec::new());
@@ -705,6 +729,21 @@ impl<'a, 'de> SerializeMap for MapSer<'a, 'de> {
                 .map_err(|e| SerError::custom(e.to_string()))?;
             }
         }
+
+        #[cfg(not(feature = "json"))]
+        if let Some(entries) = self.buffered {
+            let sibling_keys: Vec<String> = entries.iter().map(|(k, _)| k.clone()).collect();
+            for (key, value) in entries {
+                encode_object_field_alloc_with_siblings(
+                    &key,
+                    &value,
+                    self.parent.w,
+                    self.parent.opts,
+                    self.indent,
+                    &sibling_keys,
+                )?;
+            }
+        }
         Ok(())
     }
 }
@@ -742,6 +781,137 @@ impl<'a, 'de> SerializeStructVariant for MapSer<'a, 'de> {
     fn end(self) -> Result<Self::Ok, Self::Error> {
         SerializeStruct::end(self)
     }
+}
+
+#[cfg(not(feature = "json"))]
+fn encode_object_field_alloc_with_siblings(
+    key: &str,
+    value: &IValue,
+    w: &mut LineWriter,
+    opts: &Options,
+    indent: usize,
+    sibling_keys: &[String],
+) -> Result<(), SerError> {
+    let nested_opts;
+    let opts = if opts.key_folding == crate::options::KeyFolding::Safe
+        && let IValue::Object(pairs) = value
+        && let Some((folded_key, final_value)) = try_fold_keys_alloc(key, pairs, opts)
+    {
+        if !sibling_keys.contains(&folded_key) {
+            return encode_folded_value_alloc(&folded_key, &final_value, w, opts, indent);
+        }
+
+        nested_opts = Options {
+            key_folding: crate::options::KeyFolding::Off,
+            ..opts.clone()
+        };
+        &nested_opts
+    } else {
+        opts
+    };
+
+    let key_fmt = primitives::format_key(key);
+    match value {
+        IValue::Null => w.line_kv(indent, &key_fmt, primitives::format_null()),
+        IValue::Bool(b) => w.line_kv(indent, &key_fmt, primitives::format_bool(*b)),
+        IValue::Number(n) => w.line_kv(indent, &key_fmt, &n.to_string()),
+        IValue::String(s) => w.line_kv(
+            indent,
+            &key_fmt,
+            &primitives::format_string(s, opts.delimiter),
+        ),
+        IValue::Array(items) => encode_keyed_array_alloc(&key_fmt, items, w, opts, indent)?,
+        IValue::Object(pairs) => {
+            w.line_key_only(indent, &key_fmt);
+            let sibling_keys: Vec<String> = pairs.iter().map(|(key, _)| key.clone()).collect();
+            for (child_key, child_value) in pairs {
+                encode_object_field_alloc_with_siblings(
+                    child_key,
+                    child_value,
+                    w,
+                    opts,
+                    indent + opts.indent,
+                    &sibling_keys,
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "json"))]
+fn encode_folded_value_alloc(
+    key: &str,
+    value: &IValue,
+    w: &mut LineWriter,
+    opts: &Options,
+    indent: usize,
+) -> Result<(), SerError> {
+    let nested_opts = Options {
+        key_folding: crate::options::KeyFolding::Off,
+        ..opts.clone()
+    };
+    match value {
+        IValue::Null => w.line_kv(indent, key, primitives::format_null()),
+        IValue::Bool(b) => w.line_kv(indent, key, primitives::format_bool(*b)),
+        IValue::Number(n) => w.line_kv(indent, key, &n.to_string()),
+        IValue::String(s) => w.line_kv(indent, key, &primitives::format_string(s, opts.delimiter)),
+        IValue::Array(items) => encode_keyed_array_alloc(key, items, w, &nested_opts, indent)?,
+        IValue::Object(_) => {
+            w.line_key_only(indent, key);
+            encode_internal_value_alloc(value, w, &nested_opts, indent + opts.indent)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "json"))]
+fn try_fold_keys_alloc(
+    initial_key: &str,
+    initial_object: &[(String, IValue)],
+    opts: &Options,
+) -> Option<(String, IValue)> {
+    let max_segments = opts.flatten_depth.unwrap_or(usize::MAX);
+    if max_segments < 2 || !is_identifier_segment(initial_key) || initial_object.len() != 1 {
+        return None;
+    }
+
+    let mut segments = vec![initial_key.to_string()];
+    let mut current_object = initial_object;
+    loop {
+        if current_object.len() != 1 {
+            break;
+        }
+        let (key, value) = current_object.first()?;
+        if !is_identifier_segment(key) || segments.len() >= max_segments {
+            break;
+        }
+        segments.push(key.clone());
+        if segments.len() >= max_segments {
+            return Some((segments.join("."), value.clone()));
+        }
+        match value {
+            IValue::Object(inner) if inner.len() == 1 => {
+                current_object = inner;
+            }
+            _ => return Some((segments.join("."), value.clone())),
+        }
+    }
+
+    if segments.len() < 2 {
+        return None;
+    }
+    Some((segments.join("."), IValue::Object(current_object.to_vec())))
+}
+
+#[cfg(not(feature = "json"))]
+fn is_identifier_segment(key: &str) -> bool {
+    let mut chars = key.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_alphabetic() || first == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 fn join_with_delim(cells: &[String], dch: char) -> String {
@@ -1644,8 +1814,8 @@ impl<'a, 'de> Serializer for &'a mut ScalarSerializer<'de> {
         self.out = Some(primitives::format_null().to_string());
         Ok(())
     }
-    fn serialize_some<T: ?Sized + Serialize>(self, _value: &T) -> Result<Self::Ok, Self::Error> {
-        Err(SerError::custom("non-scalar"))
+    fn serialize_some<T: ?Sized + Serialize>(self, value: &T) -> Result<Self::Ok, Self::Error> {
+        value.serialize(self)
     }
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
         self.out = Some(primitives::format_null().to_string());
@@ -1665,9 +1835,9 @@ impl<'a, 'de> Serializer for &'a mut ScalarSerializer<'de> {
     fn serialize_newtype_struct<T: ?Sized + Serialize>(
         self,
         _name: &'static str,
-        _value: &T,
+        value: &T,
     ) -> Result<Self::Ok, Self::Error> {
-        Err(SerError::custom("non-scalar"))
+        value.serialize(self)
     }
     fn serialize_newtype_variant<T: ?Sized + Serialize>(
         self,
