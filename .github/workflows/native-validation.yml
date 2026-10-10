@@ -17,6 +17,11 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        with:
+          install: true
+          install_args: --locked node
+          cache: true
       - id: version
         shell: bash
         run: node npm/packager/channel.cjs version dev "$GITHUB_RUN_ID" | sed 's/^/version=/' >> "$GITHUB_OUTPUT"
