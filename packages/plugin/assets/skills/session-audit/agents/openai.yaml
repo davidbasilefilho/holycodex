@@ -1,6 +1,0 @@
-interface:
-  display_name: "Session Audit"
-  short_description: "Explain session costs and their concrete orchestration causes."
-  default_prompt: "Use $session-audit when this capability is enabled."
-policy:
-  allow_implicit_invocation: false

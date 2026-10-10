@@ -1,6 +1,0 @@
-interface:
-  display_name: "Rules"
-  short_description: "Trace one repository rule discovery or application failure."
-  default_prompt: "Use $rules for this task."
-policy:
-  allow_implicit_invocation: false

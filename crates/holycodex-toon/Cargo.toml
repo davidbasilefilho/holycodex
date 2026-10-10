@@ -1,0 +1,31 @@
+[package]
+name = "holycodex-toon"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+description = "Safe Rust TOON 4.1 codec adapted from toon-rs"
+
+[features]
+default = ["std", "serde", "json"]
+std = []
+serde = []
+json = ["serde"]
+de_direct = []
+perf_memchr = []
+perf_smallvec = []
+perf_lexical = []
+
+[dependencies]
+indexmap = "2.0"
+serde = { version = "^1.0.229", features = ["derive"] }
+serde_json = { version = "^1.0.151", features = ["preserve_order"] }
+thiserror = "2.0"
+ryu = "1.0"
+
+[dev-dependencies]
+sha2 = "0.10.9"
+toml = "0.8.23"
+
+[lints.rust]
+unsafe_code = "forbid"

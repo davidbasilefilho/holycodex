@@ -1,6 +1,0 @@
-interface:
-  display_name: "Compress"
-  short_description: "Shorten assigned text without changing its contract or voice."
-  default_prompt: "Use $compress for this task."
-policy:
-  allow_implicit_invocation: true

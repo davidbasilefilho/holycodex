@@ -1,6 +1,0 @@
-interface:
-  display_name: "Refactor"
-  short_description: "Restructure one decided seam while preserving its contract."
-  default_prompt: "Use $refactor for this task."
-policy:
-  allow_implicit_invocation: true

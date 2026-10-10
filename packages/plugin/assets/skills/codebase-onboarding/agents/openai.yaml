@@ -1,6 +1,0 @@
-interface:
-  display_name: "Codebase onboarding"
-  short_description: "Explain a repository from a bounded read-only map."
-  default_prompt: "Use $codebase-onboarding for this task."
-policy:
-  allow_implicit_invocation: true
