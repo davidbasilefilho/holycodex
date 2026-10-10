@@ -66,9 +66,11 @@ authoritative and are never bypassed by these preferences.
 The recognized browser/computer integrations share a transport without
 trusted per-operation capability metadata. HolyCodex deliberately preserves
 those host-provided functions rather than blocking browser access whenever
-`computer_use` is false. Independent browser/computer enforcement is deferred
-until the host can provide reliable operation-level capabilities. Tool names
-or descriptions alone are not used as a substitute for that metadata.
+`computer_use` is false. These preferences do not independently enforce
+browser/computer permissions. Tool names or descriptions alone are not used
+as a substitute for operation-level capability metadata.
 
 Use the host's actual integration permissions when access must be disabled.
 Do not rely on the default `computer_use = false` as a security boundary.
+
+The legacy `auto_reset` option under `[holycodex.options]` remains accepted for configuration compatibility. HolyCodex currently supplies no corresponding operation or active skill; setting the option does not enable a reset.

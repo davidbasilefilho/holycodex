@@ -23925,17 +23925,16 @@ index 891d896..d6a43f0 100644
 +    assert_eq!(resolved.auto_compact_token_limit(), Some(244_800));
 +}
 diff --git a/codex-rs/skills/src/lib.rs b/codex-rs/skills/src/lib.rs
-index 7b19d32..d0cf39b 100644
+index 7b19d32..6c7e17d 100644
 --- a/codex-rs/skills/src/lib.rs
 +++ b/codex-rs/skills/src/lib.rs
-@@ -193,6 +193,50 @@ mod tests {
+@@ -193,6 +193,56 @@ mod tests {
      use super::SYSTEM_SKILLS_DIR;
      use super::collect_fingerprint_items;
  
 +    #[test]
 +    fn embedded_holycodex_017_skill_inventory_is_complete() {
 +        const HOLYCODEX_SKILLS: &[&str] = &[
-+            "auto-reset",
 +            "babysit-ci",
 +            "codebase-onboarding",
 +            "commit",
@@ -23945,7 +23944,6 @@ index 7b19d32..d0cf39b 100644
 +            "debugging",
 +            "dev-server",
 +            "grill-me",
-+            "handoff",
 +            "refactor",
 +            "rules",
 +            "session-audit",
@@ -23966,6 +23964,14 @@ index 7b19d32..d0cf39b 100644
 +                    .take(3)
 +                    .any(|line| line == format!("name: {name}")),
 +                "embedded HolyCodex skill {name} has mismatched frontmatter"
++            );
++        }
++        for name in ["auto-reset", "handoff"] {
++            assert!(
++                SYSTEM_SKILLS_DIR
++                    .get_file(std::path::Path::new(name).join("SKILL.md"))
++                    .is_none(),
++                "{name} must not advertise an unimplemented operation"
 +            );
 +        }
 +        assert!(

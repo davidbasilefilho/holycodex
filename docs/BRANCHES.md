@@ -1,10 +1,33 @@
 # Release branches and PR stacks
 
-HolyCodex uses `release/v<version>/<semantic-change>`, for example
+## Policy for the target codebase
+
+Follow the target codebase's applicable branch and PR conventions and current
+maintainer decisions first. Only when none apply, choose from these two fallback
+families if they fit the project's versioning and workflow triggers:
+
+- `release/<version>/<type>/<change>` for release work, for example
+  `release/v0.17.0/fix/windows-install`.
+- `exp/<experiment>/<type>/<change>` for experimental work, for example
+  `exp/sqlite-history/feat/storage`.
+
+Both fallbacks preserve mergeability. Choose a descriptive type and change name;
+the examples do not create a mandatory type catalog or authorize other fallback
+root prefixes. Keep the project's actual release version and full suffix. Do not
+impose HolyCodex's zero-major convention on another project or rename an already
+valid branch just to use a fallback. Actual PR bases and dependencies determine
+an approved stack. Naming alone never establishes stack registration or order,
+or authorizes a merge, release, deployment, or permission change.
+
+## HolyCodex repository convention
+
+HolyCodex's own release stack uses `release/v<version>/<semantic-change>`, for example
 `release/v0.17.0/native-auth` or `release/v0.17.0-1/sandbox-packaging`.
 Versions are zero-major SemVer. Preserve an optional version suffix exactly;
 `0.17.0` and `0.17.0-1` are different release identities. Choose a concise
 semantic change name, not an arbitrary sequence number.
+This established three-segment convention remains valid; the four-segment
+fallback families above do not require renaming existing HolyCodex branches.
 
 A stack has one branch and one normal PR per substantial change. The first
 PR targets the accepted base (normally `main`); every successor targets the
@@ -27,7 +50,9 @@ with resolution. Do not rewrite independent changes.
 
 `npm/packager/release-branch.cjs` validates names, exact suffix identity,
 linear PR dependency plans and prefix conflicts against a supplied remote
-branch inventory. It performs no Git/API mutation and grants no authorization.
+branch inventory for HolyCodex's own release stack. It is not a universal
+validator for projects that use different conventions. It performs no Git/API
+mutation and grants no authorization.
 The positive and negative tests run in the normal `mise run test` gate.
 Canonical model-facing ownership is in the Root instruction overlay.
 
