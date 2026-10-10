@@ -573,25 +573,35 @@ test('conflicting existing GitHub asset or tag prevents repair writes', async (t
   assert.equal(api.uploads.length, 4);
 });
 
-test('publisher rejects all manual dispatches and unaccepted branch pushes', () => {
-  assert.deepEqual(publicationRoute('push', 'refs/heads/next'), { channel: 'dev', publish: true });
+test('release review pushes validate but only explicit accepted DEV dispatches publish', () => {
+  assert.deepEqual(publicationRoute('push', 'refs/heads/release/v0.17.0'), { channel: 'dev', publish: false });
+  assert.deepEqual(publicationRoute('workflow_dispatch', 'refs/heads/release/v0.17.0', true), { channel: 'dev', publish: true });
   assert.deepEqual(publicationRoute('push', 'refs/tags/v0.17.0'), { channel: 'stable', publish: true });
   assert.throws(() => publicationRoute('push', 'refs/tags/v0.17.0-1'), /accepted release tag/);
-  for (const event of ['workflow_dispatch', 'pull_request']) {
-    for (const ref of ['refs/heads/next', 'refs/heads/codex/dev-publishing-entry', 'refs/tags/v0.17.0']) {
-      assert.throws(() => publicationRoute(event, ref), /push event/);
-    }
+  for (const request of [undefined, false]) {
+    assert.throws(() => publicationRoute('workflow_dispatch', 'refs/heads/release/v0.17.0', request), /explicit publication approval/);
   }
-  assert.throws(() => publicationRoute('push', 'refs/heads/codex/native-validation/reviewed'));
+  assert.throws(() => publicationRoute('workflow_dispatch', 'refs/heads/release/v0.17.0', 'true'), /approval must be explicit/);
+  assert.throws(() => publicationRoute('push', 'refs/heads/release/v0.17.0', true), /manual dispatch/);
+  for (const ref of ['refs/heads/next', 'refs/heads/release/v0.18.0', 'refs/heads/codex/dev-publishing-entry', 'refs/tags/v0.17.0']) {
+    assert.throws(() => publicationRoute('workflow_dispatch', ref, true), /accepted release branch/);
+    assert.throws(() => publicationRoute('pull_request', ref), /unsupported publication event/);
+  }
+  for (const ref of ['refs/heads/next', 'refs/heads/release/v0.18.0', 'refs/heads/codex/native-validation/reviewed']) {
+    assert.throws(() => publicationRoute('push', ref));
+  }
 });
 
 test('OIDC publisher and branch-selected validator use separate workflow identities', () => {
   const workflows = path.join(__dirname, '..', '..', '.github', 'workflows');
   const publisher = fs.readFileSync(path.join(workflows, 'publish.yml'), 'utf8');
   const validator = fs.readFileSync(path.join(workflows, 'native-validation.yml'), 'utf8');
-  assert.doesNotMatch(publisher, /workflow_dispatch|validation_only/);
+  assert.match(publisher, /workflow_dispatch:/);
+  assert.match(publisher, /publish_dev:[\s\S]*type: boolean[\s\S]*default: false/);
+  assert.match(publisher, /branches: \["release\/v0\.17\.0"\]/);
   assert.match(publisher, /environment: holycodex-publish/);
-  assert.match(publisher, /github.event_name == 'push'/);
+  assert.match(publisher, /github.event_name == 'workflow_dispatch' && inputs\.publish_dev == true/);
+  assert.match(publisher, /github\.ref == 'refs\/heads\/release\/v0\.17\.0'/);
   assert.match(validator, /codex\/native-validation\/\*\*/);
   for (const name of ['native-validation.yml', 'release.yml', 'dev.yml', 'stable.yml']) {
     const text = fs.readFileSync(path.join(workflows, name), 'utf8');
@@ -617,8 +627,8 @@ test('publication waits for selected full validation and serializes DEV/stable r
   assert.match(publishJob, /Do not republish or change versions/);
 });
 
-test('remote source gate accepts next and lightweight/annotated release commit identity', () => {
-  verifySelectedRef(`${SHA}\trefs/heads/next\n`, 'refs/heads/next', SHA);
+test('remote source gate accepts the release branch and lightweight/annotated release commit identity', () => {
+  verifySelectedRef(`${SHA}\trefs/heads/release/v0.17.0\n`, 'refs/heads/release/v0.17.0', SHA);
   verifySelectedRef(`${SHA}\trefs/tags/v0.17.0\n`, 'refs/tags/v0.17.0', SHA);
   verifySelectedRef(`${'b'.repeat(40)}\trefs/tags/v0.17.0\n${SHA}\trefs/tags/v0.17.0^{}\n`, 'refs/tags/v0.17.0', SHA);
 });
@@ -627,7 +637,7 @@ test('remote tag removed or moved during validation cannot pass publication gate
   assert.throws(() => verifySelectedRef('', 'refs/tags/v0.17.0', SHA), /missing/);
   assert.throws(() => verifySelectedRef(`${'b'.repeat(40)}\trefs/tags/v0.17.0\n`, 'refs/tags/v0.17.0', SHA), /moved/);
   assert.throws(() => verifySelectedRef(`${SHA}\trefs/tags/v0.17.0\n${'b'.repeat(40)}\trefs/tags/v0.17.0^{}\n`, 'refs/tags/v0.17.0', SHA), /moved/);
-  assert.throws(() => verifySelectedRef(`${'b'.repeat(40)}\trefs/heads/next\n`, 'refs/heads/next', SHA), /moved/);
+  assert.throws(() => verifySelectedRef(`${'b'.repeat(40)}\trefs/heads/release/v0.17.0\n`, 'refs/heads/release/v0.17.0', SHA), /moved/);
 });
 
 test('stable release helper cannot recreate a removed accepted tag', async (t) => {

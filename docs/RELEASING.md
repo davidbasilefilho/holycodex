@@ -17,8 +17,22 @@ default-branch registration step. Manual `release.yml` runs also only validate
 when that workflow exists on the default branch. See [bootstrap commands](BOOTSTRAP.md).
 All downloaded artifacts come from the same run and must carry the exact SHA.
 
-`publish.yml` has no manual dispatch. A push to `next` triggers DEV. A DEV
-version is `0.17.0-dev.<github.run_id>`; retries retain
+Release PRs use `release/v0.X.Y`; this release is `release/v0.17.0` →
+`main`. Ordinary pushes to that branch run the entire DEV build/test/pack
+validation but **cannot publish**. Branch consolidation is therefore safe
+without authorizing a registry write.
+
+After the owner separately authorizes DEV publication and all gates below are
+satisfied, explicitly dispatch **publish.yml**, select `release/v0.17.0`, and
+set the boolean `publish_dev` input to `true`. Its default is `false`; an
+unapproved/default dispatch, another branch, a tag dispatch, or a PR event is
+rejected. The publication job independently repeats these event/ref/input
+checks and waits for all native artifacts. GitHub must have registered this
+workflow on the default branch before the manual entry is available; do not
+change refs or tags to work around that prerequisite. Reusable validation
+workflows never publish or receive OIDC permission.
+
+A DEV version is `0.17.0-dev.<github.run_id>`; retries retain
 that version. Explicit version overrides must match the current run ID exactly.
 All four npm packages use dist-tag `dev`, and the GitHub release
 is a prerelease with `latest=false`. DEV must preserve every existing `latest`
@@ -40,12 +54,11 @@ moved accepted ref blocks publication. Stable release recovery also refuses
 to recreate a removed tag. Executing stable requires separate Root authorization.
 Do not create that tag merely to test the workflows.
 
-The checkpoint stack at implementation time was PR11 -> PR10's branch ->
-`next` (PR10) -> `main` (PR9). The publishing PR is stacked on PR11. Root must
-integrate the completed stack into `next` to include all runtime/TOON/skill and
-publishing changes in DEV. Merging an individual stacked PR into its feature
-base does not publish. A push to `next` containing `publish.yml` does; do not
-perform that integration before the prerequisites below are ready.
+All active 0.17 work is consolidated into the single release PR. The former
+PR9–PR14 stack and the original `next` history are preserved in its ancestry;
+closing a superseded PR does not resolve its outstanding findings. See the
+[consolidation inventory](CONSOLIDATION-0.17.md) for exact preserved heads and
+historical branches. Do not create parallel feature stacks for this release.
 
 ## npm bootstrap and OIDC handoff
 
@@ -71,9 +84,9 @@ same validated version across all four packages. Trusted publishing uses:
 GitHub owner `davidbasilefilho`, repository `holycodex`, filename `publish.yml`,
 with environment **holycodex-publish** and direct `npm publish` allowed. The
 repository administrator must independently protect that environment with
-selected branch `next` / tag `v0.17.0` and protect those refs against
-unauthorized writer changes. Owner review of accepted source permits automatic
-publication after merge; environment reviewers/self-review prevention are an
+selected branch `release/v0.17.0` / tag `v0.17.0` and protect those refs against
+unauthorized writer changes. Owner review of accepted source and an explicitly authorized DEV dispatch
+permit publication after full validation; environment reviewers/self-review prevention are an
 optional additional per-release approval, not an npm requirement. The npm
 environment constraint and GitHub protections are
 mandatory external gates; YAML alone cannot enforce them. No token, grant, environment or security
@@ -108,7 +121,7 @@ and SHA-256 digests must match. Conflicting assets are not overwritten.
 
 Before creating `v0.17.0`, maintainers must verify all of the following:
 
-1. Root has accepted the final `next` source and advanced `main` to that exact
+1. Root has accepted the final `release/v0.17.0` source and advanced `main` to that exact
    commit; the tag, source archive, and all native/npm artifacts must resolve
    to that same full Git SHA.
 2. The upstream checkout is exactly the commit in `upstream.toml`, strict

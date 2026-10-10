@@ -2,8 +2,15 @@ name: publish-native-packages
 
 on:
   push:
-    branches: [next]
+    branches: ["release/v0.17.0"]
     tags: ["v0.17.0"]
+  workflow_dispatch:
+    inputs:
+      publish_dev:
+        description: Publish a DEV only after owner authorization and release gates
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -32,10 +39,12 @@ jobs:
           cache: true
       - id: route
         shell: bash
+        env:
+          PUBLISH_DEV: ${{ inputs.publish_dev == true }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          node npm/packager/channel.cjs route "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          node npm/packager/channel.cjs route "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$GITHUB_RUN_ID" "$PUBLISH_DEV" >> "$GITHUB_OUTPUT"
           if [[ "$GITHUB_REF" == refs/tags/v0.17.0 ]]; then
             git fetch --no-tags origin main
             git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD
@@ -56,9 +65,11 @@ jobs:
     needs: [route, dev, stable]
     if: >-
       always() && needs.route.result == 'success' && needs.route.outputs.publish == 'true' &&
-      github.event_name == 'push' &&
-      ((needs.route.outputs.channel == 'dev' && needs.dev.result == 'success') ||
-      (needs.route.outputs.channel == 'stable' && needs.stable.result == 'success'))
+      ((needs.route.outputs.channel == 'dev' && needs.dev.result == 'success' &&
+      github.event_name == 'workflow_dispatch' && inputs.publish_dev == true &&
+      github.ref == 'refs/heads/release/v0.17.0') ||
+      (needs.route.outputs.channel == 'stable' && needs.stable.result == 'success' &&
+      github.event_name == 'push'))
     runs-on: ubuntu-latest
     environment: holycodex-publish
     # DEV and stable share npm packages and GitHub release metadata. Keep their
