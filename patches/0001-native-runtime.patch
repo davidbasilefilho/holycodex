@@ -1848,10 +1848,43 @@ index c2d6d6d..c2e85c8 100644
      Arc::new(builder.build())
  }
 diff --git a/codex-rs/app-server/tests/common/auth_fixtures.rs b/codex-rs/app-server/tests/common/auth_fixtures.rs
-index 2fa3842..67273b6 100644
+index 2fa3842..65d0022 100644
 --- a/codex-rs/app-server/tests/common/auth_fixtures.rs
 +++ b/codex-rs/app-server/tests/common/auth_fixtures.rs
-@@ -175,6 +175,7 @@ pub fn write_chatgpt_auth(
+@@ -171,10 +171,40 @@ pub fn write_chatgpt_auth(
+     codex_home: &Path,
+     fixture: ChatGptAuthFixture,
+     cli_auth_credentials_store_mode: AuthCredentialsStoreMode,
++) -> Result<()> {
++    write_chatgpt_auth_with_mode(
++        codex_home,
++        fixture,
++        cli_auth_credentials_store_mode,
++        AuthMode::Chatgpt,
++    )
++}
++
++/// Writes explicitly external tokens for tests of the supported backend contract.
++/// The managed legacy fixture above intentionally remains distinct from SIWC auth.
++pub fn write_external_chatgpt_auth(
++    codex_home: &Path,
++    fixture: ChatGptAuthFixture,
++    cli_auth_credentials_store_mode: AuthCredentialsStoreMode,
++) -> Result<()> {
++    write_chatgpt_auth_with_mode(
++        codex_home,
++        fixture,
++        cli_auth_credentials_store_mode,
++        AuthMode::ChatgptAuthTokens,
++    )
++}
++
++fn write_chatgpt_auth_with_mode(
++    codex_home: &Path,
++    fixture: ChatGptAuthFixture,
++    cli_auth_credentials_store_mode: AuthCredentialsStoreMode,
++    auth_mode: AuthMode,
+ ) -> Result<()> {
      let id_token_raw = encode_id_token(&fixture.claims)?;
      let id_token = parse_chatgpt_jwt_claims(&id_token_raw).context("parse id token")?;
      let tokens = TokenData {
@@ -1859,6 +1892,15 @@ index 2fa3842..67273b6 100644
          id_token,
          access_token: fixture.access_token,
          refresh_token: fixture.refresh_token,
+@@ -184,7 +214,7 @@ pub fn write_chatgpt_auth(
+     let last_refresh = fixture.last_refresh.unwrap_or_else(|| Some(Utc::now()));
+ 
+     let auth = AuthDotJson {
+-        auth_mode: Some(AuthMode::Chatgpt),
++        auth_mode: Some(auth_mode),
+         openai_api_key: None,
+         tokens: Some(tokens),
+         last_refresh,
 diff --git a/codex-rs/cli/src/login.rs b/codex-rs/cli/src/login.rs
 index 22e607c..e7f0597 100644
 --- a/codex-rs/cli/src/login.rs
@@ -2437,11 +2479,15 @@ index 67eff23..5d7a975 100644
          };
          let program = if cfg!(windows) && command == "restrictive-job" {
 diff --git a/codex-rs/cli/tests/login.rs b/codex-rs/cli/tests/login.rs
-index f631057..b3160f5 100644
+index f631057..10326e2 100644
 --- a/codex-rs/cli/tests/login.rs
 +++ b/codex-rs/cli/tests/login.rs
-@@ -9,9 +9,7 @@ use app_test_support::ChatGptAuthFixture;
- use app_test_support::write_chatgpt_auth;
+@@ -6,12 +6,10 @@ use std::sync::atomic::Ordering;
+ use anyhow::Context;
+ use anyhow::Result;
+ use app_test_support::ChatGptAuthFixture;
+-use app_test_support::write_chatgpt_auth;
++use app_test_support::write_external_chatgpt_auth;
  use codex_config::types::AuthCredentialsStoreMode;
  use codex_login::AuthKeyringBackendKind;
 -use codex_login::CLIENT_ID;
@@ -2450,6 +2496,15 @@ index f631057..b3160f5 100644
  use codex_login::login_with_bedrock_access_keys;
  use codex_protocol::shell_environment::OPENAI_FEDERATION_RULE_ID_ENV_VAR;
  use codex_protocol::shell_environment::OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR;
+@@ -221,7 +219,7 @@ async fn debug_prompt_input_follows_authenticated_attribution_setting() -> Resul
+             server.uri()
+         ),
+     )?;
+-    write_chatgpt_auth(
++    write_external_chatgpt_auth(
+         codex_home.path(),
+         ChatGptAuthFixture::new("chatgpt-token")
+             .account_id("workspace-123")
 @@ -249,102 +247,34 @@ async fn debug_prompt_input_follows_authenticated_attribution_setting() -> Resul
  }
  
@@ -2578,9 +2633,27 @@ index f631057..b3160f5 100644
      Ok(())
  }
 diff --git a/codex-rs/cli/tests/sandbox_cloud_config.rs b/codex-rs/cli/tests/sandbox_cloud_config.rs
-index 81fbf07..b7d7fd3 100644
+index 81fbf07..415c792 100644
 --- a/codex-rs/cli/tests/sandbox_cloud_config.rs
 +++ b/codex-rs/cli/tests/sandbox_cloud_config.rs
+@@ -3,7 +3,7 @@ use std::process::Command;
+ use anyhow::Context;
+ use anyhow::Result;
+ use app_test_support::ChatGptAuthFixture;
+-use app_test_support::write_chatgpt_auth;
++use app_test_support::write_external_chatgpt_auth;
+ use codex_config::ConfigLoadOptions;
+ use codex_config::types::AuthCredentialsStoreMode;
+ use codex_core::config::load_config_toml_with_layer_stack;
+@@ -76,7 +76,7 @@ async fn sandbox_fetches_and_enforces_cloud_managed_permission_profile() -> Resu
+         return Ok(());
+     }
+ 
+-    write_chatgpt_auth(
++    write_external_chatgpt_auth(
+         codex_home.path(),
+         ChatGptAuthFixture::new("chatgpt-token")
+             .account_id("workspace-123")
 @@ -140,8 +140,9 @@ async fn sandbox_fetches_and_enforces_cloud_managed_permission_profile() -> Resu
      );
      if !nested_macos_sandbox_unavailable {
@@ -2594,7 +2667,7 @@ index 81fbf07..b7d7fd3 100644
      }
  
 diff --git a/codex-rs/cli/tests/worktree.rs b/codex-rs/cli/tests/worktree.rs
-index 1ec06aa..39dfedd 100644
+index 1ec06aa..00ae3ac 100644
 --- a/codex-rs/cli/tests/worktree.rs
 +++ b/codex-rs/cli/tests/worktree.rs
 @@ -175,7 +175,7 @@ async fn worktree_start_and_fork(backend: &str) -> anyhow::Result<()> {
@@ -2615,6 +2688,15 @@ index 1ec06aa..39dfedd 100644
  sandbox_mode = "workspace-write"
  windows.sandbox = "unelevated"
  tui.disable_paste_burst = true
+@@ -224,7 +224,7 @@ trust_level = "trusted"
+         source.join(".codex/config.toml"),
+         "model = \"source-model\"\nanalytics.enabled = true\n",
+     )?;
+-    app_test_support::write_chatgpt_auth(
++    app_test_support::write_external_chatgpt_auth(
+         &home,
+         app_test_support::ChatGptAuthFixture::new("test-token")
+             .account_id("workspace-123")
 @@ -562,18 +562,17 @@ trust_level = "trusted"
          }
          if matches!(startup_result, Ok(Ok(()))) && renamed.is_ok() {
@@ -3029,10 +3111,10 @@ index 9ee1d50..c1ff537 100644
              let parent = self.runtime.upgrade()?.get_thread(parent).await?;
 diff --git a/codex-rs/core/src/agent/control/holycodex_identity.rs b/codex-rs/core/src/agent/control/holycodex_identity.rs
 new file mode 100644
-index 0000000..3ac6e64
+index 0000000..1df8297
 --- /dev/null
 +++ b/codex-rs/core/src/agent/control/holycodex_identity.rs
-@@ -0,0 +1,437 @@
+@@ -0,0 +1,440 @@
 +use super::LocalAgentControl;
 +use crate::holycodex_identity::NativeThreadContract;
 +use crate::holycodex_identity::ReallocateSpecialistRequest;
@@ -3062,6 +3144,9 @@ index 0000000..3ac6e64
 +        self.runtime.upgrade()?.get_thread(thread_id).await
 +    }
 +
++    // Hold the quiescence gate until the async settings commit finishes so a turn
++    // cannot start with a partially reallocated specialist contract.
++    #[allow(clippy::await_holding_invalid_type)]
 +    pub(super) async fn reallocate_specialist_runtime(
 +        &self,
 +        mut request: ReallocateSpecialistRequest,
@@ -3103,7 +3188,7 @@ index 0000000..3ac6e64
 +        }
 +        let live_root_settings = root.session.holycodex_root_authority_settings().await;
 +        crate::holycodex_identity::refresh_root_authority_settings(
-+            &root.thread_extension_data(),
++            root.thread_extension_data(),
 +            &live_root_settings,
 +            &root.session.tool_policy,
 +        );
@@ -3490,18 +3575,10 @@ index 277ce11..15da7f2 100644
                  .permissions
                  .approval_policy
 diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
-index f5ac495..fb6fb03 100644
+index f5ac495..f24e295 100644
 --- a/codex-rs/core/src/client.rs
 +++ b/codex-rs/core/src/client.rs
-@@ -81,6 +81,7 @@ use codex_login::default_client::create_client_for_route;
- use codex_otel::SessionTelemetry;
- use codex_otel::WEBSOCKET_CONTINUATION_COUNT_METRIC;
- use codex_otel::current_span_w3c_trace_context;
-+use codex_protocol::AgentPath;
- use codex_protocol::ResponseItemId;
- use codex_protocol::auth::AuthMode;
- 
-@@ -481,7 +482,7 @@ impl ModelClient {
+@@ -481,7 +481,7 @@ impl ModelClient {
          thread_id: ThreadId,
          provider_info: ModelProviderInfo,
          session_source: SessionSource,
@@ -3510,7 +3587,7 @@ index f5ac495..fb6fb03 100644
          model_verbosity: Option<VerbosityConfig>,
          content_item_kinds_enabled: bool,
          reasoning_effort_override_enabled: bool,
-@@ -519,7 +520,7 @@ impl ModelClient {
+@@ -519,7 +519,7 @@ impl ModelClient {
                  workspace_routing,
                  auth_env_telemetry,
                  session_source,
@@ -3519,12 +3596,14 @@ index f5ac495..fb6fb03 100644
                  model_verbosity,
                  content_item_kinds_enabled,
                  reasoning_effort_override_enabled,
-@@ -892,6 +893,22 @@ impl ModelClient {
+@@ -892,6 +892,24 @@ impl ModelClient {
          responses_metadata: &CodexResponsesMetadata,
          include_internal: bool,
      ) -> Result<ResponsesApiRequest> {
-+        codex_models_manager::model_info::validate_holycodex_model_info(model_info)
-+            .map_err(CodexErr::InvalidRequest)?;
++        if crate::holycodex::native_prompt_role(&self.state.session_source).is_some() {
++            codex_models_manager::model_info::validate_holycodex_model_info(model_info)
++                .map_err(CodexErr::InvalidRequest)?;
++        }
 +        let base_instructions = match (
 +            crate::holycodex::native_prompt_role(&self.state.session_source),
 +            codex_models_manager::model_info::holy_model_id(&model_info.slug),
@@ -3542,7 +3621,7 @@ index f5ac495..fb6fb03 100644
          let mut input = prompt.get_formatted_input_for_request(model_info);
          if !self.reasoning_effort_override_enabled(model_info) {
              // Unsupported models and disabled overrides must also accept saved history.
-@@ -919,13 +936,13 @@ impl ModelClient {
+@@ -919,13 +937,13 @@ impl ModelClient {
                  role: "developer".to_string(),
                  tools,
              }];
@@ -3559,7 +3638,7 @@ index f5ac495..fb6fb03 100644
                  )));
                  prefix.push(instructions);
              }
-@@ -933,7 +950,7 @@ impl ModelClient {
+@@ -933,7 +951,7 @@ impl ModelClient {
              (String::new(), None)
          } else {
              (
@@ -3568,7 +3647,7 @@ index f5ac495..fb6fb03 100644
                  Some(create_tools_raw_json_for_responses_api(&prompt.tools)?.into()),
              )
          };
-@@ -2940,3 +2957,340 @@ impl WebsocketTelemetry for ApiTelemetry {
+@@ -2940,3 +2958,357 @@ impl WebsocketTelemetry for ApiTelemetry {
  #[cfg(test)]
  #[path = "client_tests.rs"]
  mod tests;
@@ -3579,6 +3658,7 @@ index f5ac495..fb6fb03 100644
 +    use codex_models_manager::ModelsManagerConfig;
 +    use codex_models_manager::manager::ModelsManager;
 +    use codex_models_manager::manager::StaticModelsManager;
++    use codex_protocol::AgentPath;
 +    use codex_protocol::openai_models::ModelsResponse;
 +
 +    fn client(session_source: SessionSource) -> ModelClient {
@@ -3906,6 +3986,22 @@ index f5ac495..fb6fb03 100644
 +            )
 +            .unwrap();
 +
++        assert_eq!(request.instructions, "upstream maintenance instructions");
++        // Maintenance sessions retain upstream fallback behavior even when the requested
++        // slug is also a required HolyCodex allocation model.
++        let mut fallback = model.clone();
++        fallback.used_fallback_model_metadata = true;
++        let request = client
++            .build_responses_request(
++                &prompt,
++                &fallback,
++                /*effort*/ None,
++                ReasoningSummaryConfig::None,
++                /*service_tier*/ None,
++                &metadata,
++                /*include_internal*/ false,
++            )
++            .unwrap();
 +        assert_eq!(request.instructions, "upstream maintenance instructions");
 +    }
 +}
@@ -6509,10 +6605,10 @@ index 0000000..2964a78
 +}
 diff --git a/codex-rs/core/src/holycodex_identity.rs b/codex-rs/core/src/holycodex_identity.rs
 new file mode 100644
-index 0000000..f1d0473
+index 0000000..bba3a50
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex_identity.rs
-@@ -0,0 +1,1613 @@
+@@ -0,0 +1,1629 @@
 +//! Native, per-thread HolyCodex identity and session authority bindings.
 +//!
 +//! Persisted records describe a validated contract, not current grants. Live
@@ -6562,6 +6658,9 @@ index 0000000..f1d0473
 +const IDENTITY_SCHEMA: u32 = 1;
 +const SPECIALIST_INSTRUCTIONS: &str = holycodex_policy::SPECIALIST_INSTRUCTIONS;
 +const ROOT_INSTRUCTIONS: &str = holycodex_policy::ROOT_INSTRUCTIONS;
++
++#[path = "holycodex_identity_legacy.rs"]
++mod legacy_identity;
 +
 +/// Durable runtime contract for one native Root or specialist thread.
 +///
@@ -6636,25 +6735,35 @@ index 0000000..f1d0473
 +    path: &Path,
 +    root_thread_id: ThreadId,
 +) -> Result<Option<(Intent, BTreeMap<String, NativeThreadContract>)>, ControllerError> {
-+    let text = match fs::read_to_string(&path) {
++    let text = match fs::read_to_string(path) {
 +        Ok(text) => text,
 +        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
 +        Err(error) => return Err(error.into()),
 +    };
-+    let file: IntentFile =
++    let mut file: IntentFile =
 +        toml::from_str(&text).map_err(|error| ControllerError::StateEncoding(error.to_string()))?;
 +    if file.schema != IDENTITY_SCHEMA || file.root_thread_id != root_thread_id.to_string() {
 +        return Err(ControllerError::InvalidState(
 +            "native Intent identity does not match its path or schema".into(),
 +        ));
 +    }
-+    for (thread_id, contract) in &file.threads {
++    let mut migrated = false;
++    for (thread_id, contract) in &mut file.threads {
++        migrated |= legacy_identity::migrate_pr12_contract(contract);
 +        validate_contract(contract)?;
 +        if thread_id != &contract.thread_id || contract.root_thread_id != file.root_thread_id {
 +            return Err(ControllerError::InvalidState(
 +                "native thread contract identity does not match its record".into(),
 +            ));
 +        }
++    }
++    if migrated {
++        write_identity_locked(
++            path,
++            root_thread_id,
++            file.intent.clone(),
++            file.threads.clone(),
++        )?;
 +    }
 +    Ok(Some((file.intent, file.threads)))
 +}
@@ -6763,7 +6872,7 @@ index 0000000..f1d0473
 +    };
 +    let encoded = toml::to_string(&file)
 +        .map_err(|error| ControllerError::StateEncoding(error.to_string()))?;
-+    crate::path_utils::write_atomically(&path, &encoded)?;
++    crate::path_utils::write_atomically(path, &encoded)?;
 +    Ok(())
 +}
 +
@@ -7177,6 +7286,9 @@ index 0000000..f1d0473
 +    first_user_input: Option<&[UserInput]>,
 +    reconcile: bool,
 +) -> anyhow::Result<bool> {
++    if !session.is_holycodex_root().await {
++        return Ok(false);
++    }
 +    let root_thread = session.thread_id();
 +    if session.session_id() != SessionId::from(root_thread) {
 +        return Ok(false);
@@ -8128,10 +8240,10 @@ index 0000000..f1d0473
 +mod tests;
 diff --git a/codex-rs/core/src/holycodex_identity_tests.rs b/codex-rs/core/src/holycodex_identity_tests.rs
 new file mode 100644
-index 0000000..b3647fb
+index 0000000..9de0512
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex_identity_tests.rs
-@@ -0,0 +1,254 @@
+@@ -0,0 +1,383 @@
 +use super::*;
 +use holycodex_policy::AssignmentMetadata;
 +use holycodex_policy::AssignmentStatus;
@@ -8386,6 +8498,135 @@ index 0000000..b3647fb
 +        .expect("identity exists");
 +    assert_eq!(identity_intent, canonical);
 +}
++
++#[test]
++fn pr12_identity_migration_preserves_root_profiles_and_specialist_authority() {
++    for profile in [Profile::Low, Profile::Default, Profile::High] {
++        let home = tempfile::tempdir().unwrap();
++        let root = ThreadId::new();
++        let thread = ThreadId::new();
++        let mut old_root = root_contract(root);
++        old_root.profile = profile;
++        old_root.effort = match profile {
++            Profile::Low => ReasoningEffort::Low,
++            Profile::Default | Profile::High => ReasoningEffort::Medium,
++        };
++        old_root.instruction_sha1 = legacy_identity::ROOT_INSTRUCTION_SHA1.to_owned();
++        let mut old_specialist = specialist_contract(root, thread);
++        old_specialist.instruction_sha1 =
++            legacy_identity::instruction_sha1(&old_specialist).expect("valid legacy contract");
++        let path = identity_path(home.path(), root);
++        fs::create_dir_all(path.parent().unwrap()).unwrap();
++        let file = IntentFile {
++            schema: IDENTITY_SCHEMA,
++            root_thread_id: root.to_string(),
++            intent: intent(),
++            threads: [
++                (root.to_string(), old_root.clone()),
++                (thread.to_string(), old_specialist.clone()),
++            ]
++            .into(),
++        };
++        fs::write(&path, toml::to_string(&file).unwrap()).unwrap();
++        let (restored_intent, restored) = read_identity(home.path(), root).unwrap().unwrap();
++        old_root.effort = route_policy(RoleTask::Root).unwrap().effort(profile);
++        old_root.instruction_sha1 = instruction_sha1(RoleTask::Root);
++        old_specialist.instruction_sha1 =
++            assignment_instruction_sha1(old_specialist.assignment.as_ref().unwrap());
++        assert_eq!(restored_intent, intent());
++        assert_eq!(
++            restored,
++            [
++                (root.to_string(), old_root),
++                (thread.to_string(), old_specialist)
++            ]
++            .into()
++        );
++        let after = fs::read(&path).unwrap();
++        assert_eq!(
++            read_identity(home.path(), root).unwrap().unwrap().1,
++            restored
++        );
++        assert_eq!(fs::read(&path).unwrap(), after);
++    }
++}
++
++#[test]
++fn pr12_identity_migration_rejects_unknown_digest_model_grants_and_path_without_partial_write() {
++    for invalid in ["digest", "model", "grants", "path"] {
++        let home = tempfile::tempdir().unwrap();
++        let root = ThreadId::new();
++        let thread = ThreadId::new();
++        let mut old_root = root_contract(root);
++        old_root.profile = Profile::High;
++        old_root.effort = ReasoningEffort::Medium;
++        old_root.instruction_sha1 = legacy_identity::ROOT_INSTRUCTION_SHA1.to_owned();
++        let mut specialist = specialist_contract(root, thread);
++        specialist.instruction_sha1 =
++            legacy_identity::instruction_sha1(&specialist).expect("valid legacy contract");
++        match invalid {
++            "digest" => specialist.instruction_sha1 = "unknown historical digest".to_owned(),
++            "model" => specialist.model = ModelId::Gpt61Sol,
++            "grants" => specialist.grants.clear(),
++            "path" => specialist.root_thread_id = ThreadId::new().to_string(),
++            _ => unreachable!(),
++        }
++        let path = identity_path(home.path(), root);
++        fs::create_dir_all(path.parent().unwrap()).unwrap();
++        let file = IntentFile {
++            schema: IDENTITY_SCHEMA,
++            root_thread_id: root.to_string(),
++            intent: intent(),
++            threads: [
++                (root.to_string(), old_root),
++                (thread.to_string(), specialist),
++            ]
++            .into(),
++        };
++        let before = toml::to_string(&file).unwrap();
++        fs::write(&path, &before).unwrap();
++        assert!(read_identity(home.path(), root).is_err(), "{invalid}");
++        assert_eq!(fs::read_to_string(&path).unwrap(), before);
++    }
++}
++
++#[test]
++fn pr12_visual_and_unassigned_specialists_migrate_changed_role_fragments() {
++    for role in [RoleTask::WorkerVisual, RoleTask::ReviewerVisual] {
++        for assigned in [false, true] {
++            let home = tempfile::tempdir().unwrap();
++            let root = ThreadId::new();
++            let thread = ThreadId::new();
++            let route = route_policy(role).unwrap();
++            let mut contract = specialist_contract(root, thread);
++            contract.role = role;
++            contract.grants = route.capabilities.iter().copied().collect();
++            contract.effort = route.effort(contract.profile);
++            if assigned {
++                contract.assignment.as_mut().unwrap().role = role;
++            } else {
++                contract.assignment = None;
++            }
++            contract.instruction_sha1 =
++                legacy_identity::instruction_sha1(&contract).expect("valid legacy contract");
++            let path = identity_path(home.path(), root);
++            fs::create_dir_all(path.parent().unwrap()).unwrap();
++            let file = IntentFile {
++                schema: IDENTITY_SCHEMA,
++                root_thread_id: root.to_string(),
++                intent: intent(),
++                threads: [(thread.to_string(), contract.clone())].into(),
++            };
++            fs::write(&path, toml::to_string(&file).unwrap()).unwrap();
++            let (_, restored) = read_identity(home.path(), root).unwrap().unwrap();
++            contract.instruction_sha1 = contract
++                .assignment
++                .as_ref()
++                .map_or_else(|| instruction_sha1(role), assignment_instruction_sha1);
++            assert_eq!(restored, [(thread.to_string(), contract)].into());
++        }
++    }
++}
 diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
 index 2595ce5..bf06951 100644
 --- a/codex-rs/core/src/lib.rs
@@ -8408,7 +8649,7 @@ index 2595ce5..bf06951 100644
  mod tasks;
  mod user_shell_command;
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
-index e08a0fa..73d16f7 100644
+index e08a0fa..8e0c29d 100644
 --- a/codex-rs/core/src/session/mod.rs
 +++ b/codex-rs/core/src/session/mod.rs
 @@ -504,6 +504,28 @@ pub(crate) const SUBMISSION_CHANNEL_CAPACITY: usize = 512;
@@ -8453,10 +8694,12 @@ index e08a0fa..73d16f7 100644
              user_shell_override,
              inherited_exec_policy,
              inherited_environments,
-@@ -636,6 +658,84 @@ impl Session {
+@@ -636,6 +658,95 @@ impl Session {
          };
  
          let mut config = Arc::new(config);
++        let native_root = crate::holycodex::native_prompt_role(&session_source)
++            == Some(holycodex_policy::RoleTask::Root);
 +        let native_specialist =
 +            session_source.is_non_root_agent() && holy_specialist_path(&session_source);
 +        let native_resume_contract = if let InitialHistory::Resumed(resumed) = &conversation_history
@@ -8534,11 +8777,20 @@ index e08a0fa..73d16f7 100644
 +                ));
 +            }
 +            Arc::make_mut(&mut config).holycodex.profile = contract.profile;
++            // Resume restores the canonical saved Root profile. A recognized PR12
++            // identity may have migrated High's former Medium effort under its lock.
++            if native_root {
++                Arc::make_mut(&mut config).model_reasoning_effort = Some(match contract.effort {
++                    holycodex_policy::ReasoningEffort::Low => ReasoningEffortConfig::Low,
++                    holycodex_policy::ReasoningEffort::Medium => ReasoningEffortConfig::Medium,
++                    holycodex_policy::ReasoningEffort::High => ReasoningEffortConfig::High,
++                });
++            }
 +        }
          let refresh_strategy = if session_source.is_non_root_agent() {
              codex_models_manager::manager::RefreshStrategy::Offline
          } else {
-@@ -651,14 +751,127 @@ impl Session {
+@@ -651,14 +762,141 @@ impl Session {
                  .list_models(refresh_strategy, config.http_client_factory())
                  .await;
          }
@@ -8662,6 +8914,20 @@ index e08a0fa..73d16f7 100644
 +                    "HolyCodex specialist effort must be low, medium or high".to_owned(),
 +                ));
 +            }
++            let allocated_effort = match allocation.effort {
++                holycodex_policy::ReasoningEffort::Low => ReasoningEffortConfig::Low,
++                holycodex_policy::ReasoningEffort::Medium => ReasoningEffortConfig::Medium,
++                holycodex_policy::ReasoningEffort::High => ReasoningEffortConfig::High,
++            };
++            if native_root
++                && prepared_effort
++                    .as_ref()
++                    .is_some_and(|effort| effort != &allocated_effort)
++            {
++                return Err(CodexErr::InvalidRequest(
++                    "HolyCodex Root reasoning effort must match the selected profile".to_owned(),
++                ));
++            }
 +            let config = Arc::make_mut(&mut config);
 +            config.model = Some(required.as_str().to_owned());
 +            config.model_reasoning_effort = prepared_effort.or(Some(match allocation.effort {
@@ -8674,7 +8940,7 @@ index e08a0fa..73d16f7 100644
          if model.trim().is_empty() {
              return Err(CodexErr::InvalidRequest(
                  "No models are available. Set `model` explicitly or check your model catalog configuration.".to_string(),
-@@ -710,13 +923,33 @@ impl Session {
+@@ -710,13 +948,34 @@ impl Session {
              );
          }
  
@@ -8697,10 +8963,11 @@ index e08a0fa..73d16f7 100644
 +            messages.instructions_variables = None;
 +            messages.persistent_instructions = None;
 +        }
-+        codex_models_manager::model_info::validate_holycodex_model_info(&model_info)
-+            .map_err(CodexErr::InvalidRequest)?;
-+        let initial_context_warning = if codex_models_manager::model_info::holy_model_id(&model)
-+            .is_some()
++        if native_root || native_specialist {
++            codex_models_manager::model_info::validate_holycodex_model_info(&model_info)
++                .map_err(CodexErr::InvalidRequest)?;
++        }
++        let initial_context_warning = if (native_root || native_specialist)
 +            && let Some(window) = model_info.context_window
 +            && window < i64::from(holycodex_policy::NORMAL_CONTEXT_TOKENS)
 +        {
@@ -8713,7 +8980,7 @@ index e08a0fa..73d16f7 100644
          let auth = auth_manager.auth_cached();
          // Forked subagents keep their parent's activation with the copied history.
          // Fresh children restore configured preferences before applying startup defaults.
-@@ -741,11 +974,18 @@ impl Session {
+@@ -741,11 +1000,17 @@ impl Session {
          let history_mode = conversation_history.get_history_mode(
              requested_history_mode.unwrap_or_else(|| thread_store.default_history_mode()),
          );
@@ -8722,8 +8989,7 @@ index e08a0fa..73d16f7 100644
 -            .clone()
 -            .or_else(|| conversation_history.get_base_instructions().map(|s| s.text))
 -            .unwrap_or_else(|| render_model_instructions(&model_info));
-+        let base_instructions = if codex_models_manager::model_info::holy_model_id(&model).is_some()
-+        {
++        let base_instructions = if native_root || native_specialist {
 +            render_model_instructions(&model_info)
 +        } else {
 +            config
@@ -8737,7 +9003,7 @@ index e08a0fa..73d16f7 100644
  
          // Dynamic tools are defined at thread start and persisted in rollout session metadata.
          let dynamic_tools = if dynamic_tools.is_empty() {
-@@ -918,7 +1158,10 @@ impl Session {
+@@ -918,7 +1183,10 @@ impl Session {
                  Err(error) => map_session_init_error(&error, &config.codex_home),
              }
          })?;
@@ -8749,7 +9015,7 @@ index e08a0fa..73d16f7 100644
              session
                  .send_event_raw(Event {
                      id: INITIAL_SUBMIT_ID.to_owned(),
-@@ -1902,6 +2145,12 @@ impl Session {
+@@ -1902,6 +2170,12 @@ impl Session {
              }
              // Save new environment defaults for future turns. The running turn keeps its own.
              state.session_configuration = updated;
@@ -8762,7 +9028,7 @@ index e08a0fa..73d16f7 100644
              if root_service_tier_changed {
                  self.services.agent_control.propagate_config_update(
                      AgentConfigUpdate::ServiceTier(
-@@ -1956,6 +2205,18 @@ impl Session {
+@@ -1956,6 +2230,18 @@ impl Session {
              .thread_config_snapshot(state.session_configuration.environments.clone())
      }
  
@@ -8781,7 +9047,7 @@ index e08a0fa..73d16f7 100644
      pub(crate) async fn configured_environment_selections(&self) -> Vec<TurnEnvironmentSelection> {
          let state = self.state.lock().await;
          state.session_configuration.environments.clone()
-@@ -2106,6 +2367,12 @@ impl Session {
+@@ -2106,6 +2392,12 @@ impl Session {
              let config = Arc::new(config);
              state.session_configuration.original_config_do_not_use = Arc::clone(&config);
              self.mark_mcp_runtime_dirty();
@@ -8794,7 +9060,7 @@ index e08a0fa..73d16f7 100644
              let new_config = notify_config_contributors
                  .then(|| self.build_effective_session_config(&state.session_configuration));
              (previous_config, new_config, config)
-@@ -5101,6 +5368,14 @@ impl Session {
+@@ -5101,6 +5393,14 @@ impl Session {
      }
  }
  
@@ -8810,10 +9076,19 @@ index e08a0fa..73d16f7 100644
      user_message_item: &mut UserMessageItem,
      prepared_items: &[ResponseItemEnvelope],
 diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
-index 824cf58..9e9170d 100644
+index 824cf58..de614e6 100644
 --- a/codex-rs/core/src/session/session.rs
 +++ b/codex-rs/core/src/session/session.rs
-@@ -398,6 +398,9 @@ impl SessionConfiguration {
+@@ -377,6 +377,8 @@ impl SessionConfiguration {
+     ) -> StepSettingsConstraints<'_> {
+         let permission_profile = self.effective_permission_profile(environments);
+         StepSettingsConstraints {
++            holycodex_allocation: crate::holycodex::native_prompt_role(&self.session_source)
++                .is_some(),
+             requirements: self
+                 .original_config_do_not_use
+                 .config_layer_stack
+@@ -398,6 +400,9 @@ impl SessionConfiguration {
          current_environments: &[TurnEnvironmentSelection],
      ) -> ConstraintResult<Self> {
          let mut next_configuration = self.clone();
@@ -8823,7 +9098,7 @@ index 824cf58..9e9170d 100644
          if let Some(disabled_plugin_ids) = &updates.disabled_plugin_ids {
              next_configuration.disabled_plugin_ids = disabled_plugin_ids.clone();
          }
-@@ -595,6 +598,7 @@ pub(crate) struct SessionSettingsCommit {
+@@ -595,6 +600,7 @@ pub(crate) struct SessionSettingsCommit {
  #[derive(Default, Clone)]
  pub(crate) struct SessionSettingsUpdate {
      pub(crate) step_settings: StepSettingsUpdate,
@@ -8831,7 +9106,7 @@ index 824cf58..9e9170d 100644
      pub(crate) environments: Option<TurnEnvironmentSelections>,
      pub(crate) runtime_workspace_roots: Option<Vec<AbsolutePathBuf>>,
      pub(crate) profile_workspace_roots: Option<Vec<ProfileWorkspaceRoot>>,
-@@ -652,6 +656,67 @@ impl Session {
+@@ -652,6 +658,73 @@ impl Session {
          self.services.agent_control.identity()
      }
  
@@ -8896,15 +9171,33 @@ index 824cf58..9e9170d 100644
 +        Ok(snapshot)
 +    }
 +
++    pub(crate) async fn is_holycodex_root(&self) -> bool {
++        let state = self.state.lock().await;
++        crate::holycodex::native_prompt_role(&state.session_configuration.session_source)
++            == Some(holycodex_policy::RoleTask::Root)
++    }
++
      pub(crate) async fn originator(&self) -> String {
          let state = self.state.lock().await;
          state.session_configuration.originator.clone()
-@@ -1809,6 +1874,28 @@ impl Session {
+@@ -880,7 +953,9 @@ impl Session {
+         let fork_cache_key = match &initial_history {
+             InitialHistory::Forked(items)
+                 if config.ephemeral
+-                    && !session_configuration.session_source.is_non_root_agent() =>
++                    && crate::holycodex::native_prompt_role(
++                        &session_configuration.session_source,
++                    ) == Some(holycodex_policy::RoleTask::Root) =>
+             {
+                 items.iter().find_map(|item| match item {
+                     RolloutItem::SessionMeta(meta) => Some(meta.meta.session_id.to_string()),
+@@ -1809,6 +1884,29 @@ impl Session {
                  forked_from_ordinal_exclusive,
                  next_internal_sub_id: AtomicU64::new(0),
              });
 +            if matches!(&initial_history, InitialHistory::Resumed(_))
-+                && !session_configuration.session_source.is_non_root_agent()
++                && crate::holycodex::native_prompt_role(&session_configuration.session_source)
++                    == Some(holycodex_policy::RoleTask::Root)
 +            {
 +                crate::holycodex_identity::initialize_root_session(
 +                    &sess,
@@ -8929,7 +9222,7 @@ index 824cf58..9e9170d 100644
                  let _ = startup.session.set(Arc::clone(&sess));
              }
 diff --git a/codex-rs/core/src/session/step_settings.rs b/codex-rs/core/src/session/step_settings.rs
-index cd00b6d..2ab7450 100644
+index cd00b6d..fa15fac 100644
 --- a/codex-rs/core/src/session/step_settings.rs
 +++ b/codex-rs/core/src/session/step_settings.rs
 @@ -121,8 +121,8 @@ impl ResolvedStepSettings {
@@ -8943,13 +9236,11 @@ index cd00b6d..2ab7450 100644
      pub(super) async fn apply_update(
          &self,
          update: &StepSettingsUpdate,
-@@ -132,9 +132,27 @@ impl ResolvedStepSettings {
+@@ -132,9 +132,24 @@ impl ResolvedStepSettings {
          fast_mode_enabled: bool,
      ) -> ConstraintResult<Self> {
          let selected = self.selected.apply(update, constraints)?;
-+        if codex_models_manager::model_info::holy_model_id(selected.collaboration_mode.model())
-+            .is_some()
-+        {
++        if constraints.holycodex_allocation {
 +            models_manager
 +                .validate_required_model(
 +                    selected.collaboration_mode.model(),
@@ -8966,17 +9257,26 @@ index cd00b6d..2ab7450 100644
          let model_info = if selected.collaboration_mode.model()
              == self.selected.collaboration_mode.model()
              && selected.personality == self.selected.personality
-+            && codex_models_manager::model_info::holy_model_id(selected.collaboration_mode.model())
-+                .is_none()
++            && !constraints.holycodex_allocation
          {
              Arc::clone(&self.model_info)
          } else {
-@@ -268,6 +286,28 @@ impl StepSettings {
+@@ -234,6 +249,8 @@ pub(crate) struct StepSettingsUpdate {
+ /// Constraints used when applying and validating a candidate settings version.
+ /// Each caller supplies the permissions of the target environment selection.
+ pub(crate) struct StepSettingsConstraints<'a> {
++    /// Allocation authority comes from the session origin, never from its model slug.
++    pub(crate) holycodex_allocation: bool,
+     pub(crate) requirements: &'a ConfigRequirements,
+     pub(crate) guardian_approval_enabled: bool,
+     pub(crate) trusted_guardian_reviewer: bool,
+@@ -268,6 +285,29 @@ impl StepSettings {
                  /*developer_instructions*/ None,
              )
          });
-+        if let Some(required) =
-+            codex_models_manager::model_info::holy_model_id(self.collaboration_mode.model())
++        if constraints.holycodex_allocation
++            && let Some(required) =
++                codex_models_manager::model_info::holy_model_id(self.collaboration_mode.model())
 +        {
 +            if next.collaboration_mode.model() != required.as_str()
 +                || !matches!(
@@ -9000,7 +9300,7 @@ index cd00b6d..2ab7450 100644
          if let Some(summary) = update.reasoning_summary {
              next.reasoning_summary = Some(summary);
          }
-@@ -345,3 +385,132 @@ impl StepSettings {
+@@ -345,3 +385,186 @@ impl StepSettings {
  #[cfg(test)]
  #[path = "step_settings_tests.rs"]
  pub(super) mod tests;
@@ -9070,6 +9370,7 @@ index cd00b6d..2ab7450 100644
 +        );
 +        let requirements = ConfigRequirements::default();
 +        let constraints = StepSettingsConstraints {
++            holycodex_allocation: true,
 +            requirements: &requirements,
 +            guardian_approval_enabled: false,
 +            trusted_guardian_reviewer: false,
@@ -9131,6 +9432,59 @@ index cd00b6d..2ab7450 100644
 +                )
 +                .is_err()
 +        );
++    }
++    #[tokio::test]
++    async fn upstream_same_slug_keeps_pinned_metadata_and_allows_selection_updates() {
++        let selected = selected_holy_settings("gpt-6.1-sol", ReasoningEffort::Medium);
++        let overrides = ModelInfoOverrides::default();
++        let catalog = model_manager(
++            "gpt-6.1-sol",
++            872_000,
++            Some("Upstream maintenance instructions"),
++        );
++        let resolved = ResolvedStepSettings::new(
++            Arc::clone(&selected),
++            Arc::new(selected.resolve_model_info(&catalog, &overrides).await),
++            /*fast_mode_enabled*/ false,
++        );
++        let requirements = ConfigRequirements::default();
++        let constraints = StepSettingsConstraints {
++            holycodex_allocation: false,
++            requirements: &requirements,
++            guardian_approval_enabled: false,
++            trusted_guardian_reviewer: false,
++            has_full_disk_write_access: false,
++        };
++        let absent = StaticModelsManager::new(None, ModelsResponse { models: Vec::new() });
++        let next = resolved
++            .apply_update(
++                &StepSettingsUpdate {
++                    effort: Some(Some(ReasoningEffort::High)),
++                    ..Default::default()
++                },
++                &constraints,
++                &absent,
++                &overrides,
++                /*fast_mode_enabled*/ false,
++            )
++            .await
++            .unwrap();
++        assert!(Arc::ptr_eq(&resolved.model_info, &next.model_info));
++        assert_eq!(next.reasoning_effort(), Some(&ReasoningEffort::High));
++        assert_eq!(
++            codex_prompts::render_model_instructions(&next.model_info),
++            "Upstream maintenance instructions"
++        );
++        let changed = selected
++            .apply(
++                &StepSettingsUpdate {
++                    model: Some("gpt-6-luna".to_owned()),
++                    ..Default::default()
++                },
++                &constraints,
++            )
++            .unwrap();
++        assert_eq!(changed.collaboration_mode.model(), "gpt-6-luna");
 +    }
 +}
 diff --git a/codex-rs/core/src/session/turn_input.rs b/codex-rs/core/src/session/turn_input.rs
@@ -9250,7 +9604,7 @@ index 9f9f8a8..a773bd5 100644
  
  pub use exec_command::ExecCommandHandler;
 diff --git a/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs b/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
-index bdf6877..d77f1a3 100644
+index bdf6877..a89f732 100644
 --- a/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
 +++ b/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
 @@ -6,6 +6,7 @@ use crate::exec::DEFAULT_EXEC_COMMAND_TIMEOUT_MS;
@@ -9261,7 +9615,7 @@ index bdf6877..d77f1a3 100644
  use crate::tools::context::ExecCommandToolOutput;
  use crate::tools::context::ToolInvocation;
  use crate::tools::context::ToolPayload;
-@@ -50,12 +51,99 @@ use super::super::shell_spec::create_exec_command_tool_with_environment_id;
+@@ -50,12 +51,95 @@ use super::super::shell_spec::create_exec_command_tool_with_environment_id;
  use super::ExecCommandArgs;
  use super::ExecCommandEnvironmentArgs;
  use super::get_command;
@@ -9292,30 +9646,27 @@ index bdf6877..d77f1a3 100644
 +    let shell_command = command
 +        .last_mut()
 +        .ok_or_else(|| "resolved shell command is empty".to_owned())?;
-+    let escaped_artifact = match shell_type {
-+        ShellType::PowerShell => artifact_directory.replace('\'', "''"),
-+        ShellType::Cmd
-+            if artifact_directory
-+                .chars()
-+                .any(|character| matches!(character, '%' | '!' | '"' | '^')) =>
-+        {
-+            return Err("temporary artifact path cannot be represented safely by cmd.exe".into());
++    let escape_path = |path: &str| -> Result<String, String> {
++        match shell_type {
++            ShellType::PowerShell => Ok(path.replace('\'', "''")),
++            ShellType::Cmd
++                if path
++                    .chars()
++                    .any(|character| matches!(character, '%' | '!' | '"' | '^')) =>
++            {
++                Err("artifact path cannot be represented safely by cmd.exe".into())
++            }
++            ShellType::Cmd => Ok(path.to_owned()),
++            _ => Ok(path.replace('\'', "'\\''")),
 +        }
-+        ShellType::Cmd => artifact_directory.clone(),
-+        _ => artifact_directory.replace('\'', "'\\''"),
 +    };
++    let escaped_artifact = escape_path(&artifact_directory)?;
 +    let npm_cache = format!("{artifact_directory}/npm-cache");
 +    let npm_build_path = npm_artifact_location
 +        .map(|path| format!("{path}/build-output"))
 +        .unwrap_or_else(|| format!("{artifact_directory}/npm-build"));
-+    let escaped_npm_cache = match shell_type {
-+        ShellType::PowerShell => npm_cache.replace('\'', "''"),
-+        _ => npm_cache.clone(),
-+    };
-+    let escaped_npm_build_path = match shell_type {
-+        ShellType::PowerShell => npm_build_path.replace('\'', "''"),
-+        _ => npm_build_path.clone(),
-+    };
++    let escaped_npm_cache = escape_path(&npm_cache)?;
++    let escaped_npm_build_path = escape_path(&npm_build_path)?;
 +    let report = match npm_artifact_location {
 +        Some(path) => match shell_type {
 +            ShellType::PowerShell => {
@@ -9351,8 +9702,7 @@ index bdf6877..d77f1a3 100644
 +            "export CARGO_TARGET_DIR='{escaped_artifact}'; export npm_config_cache='{escaped_npm_cache}'; export TMPDIR='{escaped_artifact}'; export TMP='{escaped_artifact}'; export TEMP='{escaped_artifact}'; export BUILD_PATH='{escaped_npm_build_path}'; {report}{shell_command}"
 +        ),
 +        _ => format!(
-+            "CARGO_TARGET_DIR='{escaped_artifact}' npm_config_cache='{escaped_npm_cache}' TMPDIR='{escaped_artifact}' TMP='{escaped_artifact}' TEMP='{escaped_artifact}' BUILD_PATH='{escaped_npm_build_path}' {report}{}",
-+            shell_command
++            "CARGO_TARGET_DIR='{escaped_artifact}' npm_config_cache='{escaped_npm_cache}' TMPDIR='{escaped_artifact}' TMP='{escaped_artifact}' TEMP='{escaped_artifact}' BUILD_PATH='{escaped_npm_build_path}' {report}{shell_command}"
 +        ),
 +    };
 +    Ok(())
@@ -9361,7 +9711,7 @@ index bdf6877..d77f1a3 100644
  #[derive(Clone, Copy)]
  pub(crate) struct ExecCommandHandlerOptions {
      pub(crate) allow_login_shell: bool,
-@@ -203,6 +291,7 @@ impl ExecCommandHandler {
+@@ -203,6 +287,7 @@ impl ExecCommandHandler {
                  |workdir| native_environment_cwd.join(workdir),
              )
              .map_err(|err| FunctionCallError::RespondToModel(err.to_string()))?;
@@ -9369,7 +9719,7 @@ index bdf6877..d77f1a3 100644
          let environment = Arc::clone(&turn_environment.environment);
          let fs = environment.get_filesystem();
  
-@@ -296,8 +385,105 @@ impl ExecCommandHandler {
+@@ -296,8 +381,105 @@ impl ExecCommandHandler {
              turn_environment.config().allow_login_shell,
          )
          .map_err(FunctionCallError::RespondToModel)?;
@@ -9476,7 +9826,7 @@ index bdf6877..d77f1a3 100644
          let ExecCommandArgs {
              mut tty,
              yield_time_ms,
-@@ -423,7 +609,7 @@ impl ExecCommandHandler {
+@@ -423,7 +605,7 @@ impl ExecCommandHandler {
              process_id,
              yield_time_ms,
              max_output_tokens,
@@ -10474,7 +10824,7 @@ index 0000000..3cdda93
 +    }
 +}
 diff --git a/codex-rs/core/src/tools/handlers/unified_exec_tests.rs b/codex-rs/core/src/tools/handlers/unified_exec_tests.rs
-index 46fa63d..67d2039 100644
+index 46fa63d..7ee96c7 100644
 --- a/codex-rs/core/src/tools/handlers/unified_exec_tests.rs
 +++ b/codex-rs/core/src/tools/handlers/unified_exec_tests.rs
 @@ -134,6 +134,100 @@ fn test_get_command_resolves_powershell_by_type() -> anyhow::Result<()> {
@@ -10578,6 +10928,65 @@ index 46fa63d..67d2039 100644
  #[test]
  fn test_get_command_respects_explicit_cmd_shell() -> anyhow::Result<()> {
      let json = r#"{"cmd": "echo hello", "shell": "cmd"}"#;
+@@ -606,3 +700,58 @@ async fn write_stdin_post_tool_use_payload_keeps_parallel_session_metadata_separ
+         ]
+     );
+ }
++
++#[cfg(unix)]
++#[test]
++fn quality_artifact_paths_survive_bash_apostrophes_and_metacharacters() -> anyhow::Result<()> {
++    let temp = tempfile::tempdir()?;
++    let root = temp.path().join("owner's $(false); artifacts");
++    let absolute = AbsolutePathBuf::try_from(root.as_path())?;
++    let temporary_root = codex_utils_path_uri::PathUri::from_abs_path(&absolute);
++    let snapshot = format!("{}/npm's $(false) snapshot", root.display());
++    for npm_snapshot in [None, Some(snapshot.as_str())] {
++        let mut command = vec![
++            "bash".to_owned(),
++            "-c".to_owned(),
++            "bash -c 'printf \"%s\\n\" \"$CARGO_TARGET_DIR\" \"$npm_config_cache\" \"$TMPDIR\" \"$TMP\" \"$TEMP\" \"$BUILD_PATH\"'".to_owned(),
++        ];
++        super::exec_command::scope_quality_artifacts(
++            &mut command,
++            ShellType::Bash,
++            Some(&temporary_root),
++            Some("quoted-path"),
++            npm_snapshot,
++        )
++        .map_err(anyhow::Error::msg)?;
++        let output = std::process::Command::new(&command[0])
++            .args(&command[1..])
++            .output()?;
++        assert!(
++            output.status.success(),
++            "{}",
++            String::from_utf8_lossy(&output.stderr)
++        );
++        let artifact = format!("{}/holycodex-cargo-target-quoted-path", root.display());
++        let build = npm_snapshot.map_or_else(
++            || format!("{artifact}/npm-build"),
++            |path| format!("{path}/build-output"),
++        );
++        let mut expected = Vec::new();
++        if let Some(path) = npm_snapshot {
++            expected.push(format!("HOLYCODEX_NPM_ARTIFACTS={path}"));
++        }
++        expected.extend([
++            artifact.clone(),
++            format!("{artifact}/npm-cache"),
++            artifact.clone(),
++            artifact.clone(),
++            artifact,
++            build,
++        ]);
++        assert_eq!(
++            String::from_utf8(output.stdout)?,
++            format!("{}\n", expected.join("\n"))
++        );
++    }
++    Ok(())
++}
 diff --git a/codex-rs/core/src/tools/holycodex_tools.rs b/codex-rs/core/src/tools/holycodex_tools.rs
 new file mode 100644
 index 0000000..d7945ec
@@ -14252,10 +14661,10 @@ index bb1474f..dcdd9ce 100644
  
 diff --git a/codex-rs/core/tests/suite/holycodex_resume.rs b/codex-rs/core/tests/suite/holycodex_resume.rs
 new file mode 100644
-index 0000000..c0ac103
+index 0000000..078c2ed
 --- /dev/null
 +++ b/codex-rs/core/tests/suite/holycodex_resume.rs
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,376 @@
 +use anyhow::Context;
 +use anyhow::Result;
 +use codex_core::TurnInputRequest;
@@ -14400,6 +14809,236 @@ index 0000000..c0ac103
 +    let mut resume_builder = test_codex().with_model("gpt-6.1-sol");
 +    assert!(resume_builder.restart(&server, &initial).await.is_err());
 +    assert_eq!(responses.requests().len(), 1);
++    Ok(())
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn root_profiles_reach_actual_request_with_allocated_effort() -> Result<()> {
++    for (profile, expected) in [
++        (holycodex_policy::Profile::Low, "low"),
++        (holycodex_policy::Profile::Default, "medium"),
++        (holycodex_policy::Profile::High, "high"),
++    ] {
++        let server = start_mock_server().await;
++        let responses = mount_sse_sequence(
++            &server,
++            vec![sse(vec![
++                ev_response_created("resp-profile"),
++                ev_assistant_message("msg-profile", "done"),
++                ev_completed("resp-profile"),
++            ])],
++        )
++        .await;
++        let mut builder = test_codex()
++            .with_model("gpt-6.1-sol")
++            .with_config(move |config| {
++                config.holycodex.profile = profile;
++                config.model_reasoning_effort = None;
++            });
++        let test = builder.build_with_auto_env(&server).await?;
++        test.codex
++            .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
++                text: "exercise the selected Root profile".into(),
++                text_elements: Vec::new(),
++            }]))
++            .await?;
++        wait_for_event(&test.codex, |event| {
++            matches!(event, EventMsg::TurnComplete(_))
++        })
++        .await;
++        let request = responses.single_request();
++        let body = request.body_json();
++        assert_eq!(body["model"], "gpt-6.1-sol");
++        assert_eq!(body["reasoning"]["effort"], expected);
++        assert!(
++            request
++                .message_input_texts("developer")
++                .iter()
++                .any(|text| text == holycodex_policy::ROOT_INSTRUCTIONS)
++        );
++    }
++    Ok(())
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn root_bootstrap_rejects_effort_override_outside_selected_profile() -> Result<()> {
++    let server = start_mock_server().await;
++    let mut builder = test_codex()
++        .with_model("gpt-6.1-sol")
++        .with_config(|config| {
++            config.holycodex.profile = holycodex_policy::Profile::Low;
++            config.model_reasoning_effort =
++                Some(codex_protocol::openai_models::ReasoningEffort::High);
++        });
++    let result = builder.build_with_auto_env(&server).await;
++    let error = result
++        .err()
++        .context("profile-mismatched Root bootstrap must fail")?;
++    assert!(format!("{error:#}").contains("reasoning effort must match the selected profile"));
++    Ok(())
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn pr12_high_root_resume_migrates_effort_and_keeps_next_request_canonical() -> Result<()> {
++    let server = start_mock_server().await;
++    let responses = mount_sse_sequence(
++        &server,
++        (0..3)
++            .map(|_| {
++                sse(vec![
++                    ev_response_created("resp-legacy-high"),
++                    ev_assistant_message("msg-legacy-high", "done"),
++                    ev_completed("resp-legacy-high"),
++                ])
++            })
++            .collect(),
++    )
++    .await;
++    let mut builder = test_codex()
++        .with_model("gpt-6.1-sol")
++        .with_config(|config| {
++            config.holycodex.profile = holycodex_policy::Profile::High;
++            config.model_reasoning_effort = None;
++        });
++    let test = builder.build_with_auto_env(&server).await?;
++    test.codex
++        .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
++            text: "start persistent high profile task".into(),
++            text_elements: Vec::new(),
++        }]))
++        .await?;
++    wait_for_event(&test.codex, |event| {
++        matches!(event, EventMsg::TurnComplete(_))
++    })
++    .await;
++    let identity_path = test
++        .codex_home_path()
++        .join("holycodex")
++        .join("threads")
++        .join(test.session_configured.thread_id.to_string())
++        .join("intent.toml");
++    let mut identity: Value = toml::from_str(&std::fs::read_to_string(&identity_path)?)?;
++    let root = identity
++        .get_mut("threads")
++        .and_then(Value::as_table_mut)
++        .and_then(|threads| threads.get_mut(&test.session_configured.thread_id.to_string()))
++        .and_then(Value::as_table_mut)
++        .context("saved Root contract")?;
++    root.insert("effort".into(), Value::String("medium".into()));
++    root.insert(
++        "instruction_sha1".into(),
++        Value::String("bf90f51b3d888fa9ad2f49753025511aa6ece1c1".into()),
++    );
++    std::fs::write(&identity_path, toml::to_string(&identity)?)?;
++    let mut resume_builder = test_codex().with_model("gpt-6.1-sol");
++    let resumed = resume_builder.restart(&server, &test).await?;
++    for text in [
++        "resume legacy high task",
++        "retain canonical effort on the next turn",
++    ] {
++        resumed
++            .codex
++            .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
++                text: text.into(),
++                text_elements: Vec::new(),
++            }]))
++            .await?;
++        wait_for_event(&resumed.codex, |event| {
++            matches!(event, EventMsg::TurnComplete(_))
++        })
++        .await;
++    }
++    let requests = responses.requests();
++    assert_eq!(requests.len(), 3);
++    for request in requests {
++        let body = request.body_json();
++        assert_eq!(body["model"], "gpt-6.1-sol");
++        assert_eq!(body["reasoning"]["effort"], "high");
++        assert!(
++            request
++                .message_input_texts("developer")
++                .iter()
++                .any(|text| text == holycodex_policy::ROOT_INSTRUCTIONS)
++        );
++    }
++    let saved: Value = toml::from_str(&std::fs::read_to_string(&identity_path)?)?;
++    assert_eq!(
++        saved["threads"][test.session_configured.thread_id.to_string()]["effort"].as_str(),
++        Some("high")
++    );
++    Ok(())
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn maintenance_origins_keep_startup_instructions_and_effort_in_actual_request() -> Result<()>
++{
++    use codex_protocol::protocol::InternalSessionSource;
++    use codex_protocol::protocol::SessionSource;
++    use codex_protocol::protocol::SubAgentSource;
++
++    for source in [
++        SessionSource::Internal(InternalSessionSource::MemoryConsolidation),
++        SessionSource::Internal(InternalSessionSource::Guardian),
++        SessionSource::SubAgent(SubAgentSource::Review),
++        SessionSource::SubAgent(SubAgentSource::Compact),
++        SessionSource::SubAgent(SubAgentSource::MemoryConsolidation),
++    ] {
++        let server = start_mock_server().await;
++        let responses = mount_sse_sequence(
++            &server,
++            vec![sse(vec![
++                ev_response_created("resp-upstream-maintenance"),
++                ev_assistant_message("msg-upstream-maintenance", "done"),
++                ev_completed("resp-upstream-maintenance"),
++            ])],
++        )
++        .await;
++        let mut builder = test_codex()
++            .with_model("gpt-6.1-sol")
++            .with_session_source(source.clone())
++            .with_config(|config| {
++                config.base_instructions =
++                    Some("Preserve these upstream maintenance instructions.".to_owned());
++                config.model_reasoning_effort =
++                    Some(codex_protocol::openai_models::ReasoningEffort::High);
++            });
++        let test = builder.build_with_auto_env(&server).await?;
++        test.codex
++            .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
++                text: "perform the maintenance step".into(),
++                text_elements: Vec::new(),
++            }]))
++            .await?;
++        wait_for_event(&test.codex, |event| {
++            matches!(event, EventMsg::TurnComplete(_))
++        })
++        .await;
++        let request = responses.single_request();
++        let body = request.body_json();
++        assert_eq!(body["model"], "gpt-6.1-sol", "{source:?}");
++        assert_eq!(body["reasoning"]["effort"], "high", "{source:?}");
++        assert!(
++            request
++                .message_input_texts("developer")
++                .iter()
++                .any(|text| text == "Preserve these upstream maintenance instructions."),
++            "{source:?}"
++        );
++        assert!(
++            !request.body_contains_text(holycodex_policy::ROOT_INSTRUCTIONS),
++            "{source:?}"
++        );
++        assert!(
++            !test
++                .codex_home_path()
++                .join("holycodex")
++                .join("threads")
++                .join(test.session_configured.thread_id.to_string())
++                .join("intent.toml")
++                .exists(),
++            "{source:?}"
++        );
++    }
 +    Ok(())
 +}
 diff --git a/codex-rs/core/tests/suite/mod.rs b/codex-rs/core/tests/suite/mod.rs
@@ -15138,24 +15777,417 @@ index 8772f46..e63c722 100644
  wiremock = { workspace = true }
  
 diff --git a/codex-rs/login/src/auth/auth_tests.rs b/codex-rs/login/src/auth/auth_tests.rs
-index 9927a60..063344b 100644
+index 9927a60..afd90ff 100644
 --- a/codex-rs/login/src/auth/auth_tests.rs
 +++ b/codex-rs/login/src/auth/auth_tests.rs
-@@ -1054,6 +1054,7 @@ async fn pro_account_with_no_api_key_uses_chatgpt_auth() {
+@@ -24,7 +24,6 @@ use tempfile::tempdir;
+ use wiremock::Mock;
+ use wiremock::MockServer;
+ use wiremock::ResponseTemplate;
+-use wiremock::matchers::body_partial_json;
+ use wiremock::matchers::header;
+ use wiremock::matchers::method;
+ use wiremock::matchers::path;
+@@ -556,7 +555,7 @@ async fn login_with_access_token_rejects_invalid_jwt() {
+ 
+ #[tokio::test]
+ #[serial(codex_auth_env)]
+-async fn chatgpt_auth_registers_agent_identity_when_enabled() -> anyhow::Result<()> {
++async fn siwc_auth_does_not_register_agent_identity() -> anyhow::Result<()> {
+     let codex_home = tempdir()?;
+     write_auth_file(
+         AuthFileParams {
+@@ -566,356 +565,33 @@ async fn chatgpt_auth_registers_agent_identity_when_enabled() -> anyhow::Result<
+         },
+         codex_home.path(),
+     )?;
+-    let auth = super::load_auth(
+-        codex_home.path(),
+-        /*enable_codex_api_key_env*/ false,
+-        AuthCredentialsStoreMode::File,
+-        /*allowed_login_methods*/ None,
+-        /*forced_chatgpt_workspace_id*/ None,
+-        /*chatgpt_base_url*/ None,
+-        AuthKeyringBackendKind::Direct,
+-        /*agent_identity_authapi_base_url*/ None,
+-        &crate::test_support::transport_default_auth_route_config(),
+-    )
+-    .await?
+-    .expect("auth should load");
+-
+-    assert!(
+-        auth.agent_identity_auth(
+-            AgentIdentityAuthPolicy::JwtOnly,
+-            /*agent_identity_authapi_base_url*/ None,
+-            /*forced_chatgpt_workspace_id*/ None,
+-            &crate::test_support::transport_default_auth_route_config(),
+-            SessionSource::Cli,
+-        )
+-        .await?
+-        .is_none()
+-    );
+-
+-    let server = MockServer::start().await;
+-    Mock::given(method("POST"))
+-        .and(path("/v1/agent/register"))
+-        .and(header("authorization", "Bearer test-access-token"))
+-        .and(body_partial_json(json!({
+-            "abom": {
+-                "agent_harness_id": "codex-cli",
+-            },
+-            "capabilities": ["responsesapi"],
+-            "ttl": null,
+-        })))
+-        .respond_with(ResponseTemplate::new(/*s*/ 200).set_body_json(json!({
+-            "agent_runtime_id": "agent-runtime-123",
+-        })))
+-        .expect(/*r*/ 1)
+-        .mount(&server)
+-        .await;
+-    mock_agent_task_registration(&server, "", "agent-runtime-123", "task-123").await;
+-
+-    let agent_auth = auth
+-        .agent_identity_auth(
+-            AgentIdentityAuthPolicy::ChatGptAuth,
+-            Some(&server.uri()),
+-            /*forced_chatgpt_workspace_id*/ None,
+-            &crate::test_support::transport_default_auth_route_config(),
+-            SessionSource::Cli,
+-        )
+-        .await?
+-        .expect("agent identity should register");
+-    let reused = auth
+-        .agent_identity_auth(
+-            AgentIdentityAuthPolicy::ChatGptAuth,
+-            Some(&server.uri()),
+-            /*forced_chatgpt_workspace_id*/ None,
+-            &crate::test_support::transport_default_auth_route_config(),
+-            SessionSource::Cli,
+-        )
+-        .await?
+-        .expect("agent identity should be reused");
+-
+-    assert_eq!(
+-        agent_auth.record().agent_runtime_id,
+-        reused.record().agent_runtime_id
+-    );
+-    assert_eq!(agent_auth.run_task_id(), "task-123");
+-    assert_eq!(reused.run_task_id(), "task-123");
+-    assert_eq!(agent_auth.record().agent_runtime_id, "agent-runtime-123");
+-    assert_eq!(agent_auth.record().account_id, "account-123");
+-    assert_eq!(agent_auth.record().chatgpt_user_id, "user-12345");
+-    assert_eq!(agent_auth.record().task_id.as_deref(), Some("task-123"));
+-    assert_eq!(reused.record().task_id.as_deref(), Some("task-123"));
+-    let persisted = auth
+-        .stored_managed_chatgpt_agent_identity_record("account-123")
+-        .expect("identity should persist");
+-    assert_eq!(persisted.agent_runtime_id, "agent-runtime-123");
+-    assert_eq!(persisted.task_id.as_deref(), Some("task-123"));
+-
+-    let reloaded = super::load_auth(
+-        codex_home.path(),
+-        /*enable_codex_api_key_env*/ false,
+-        AuthCredentialsStoreMode::File,
+-        /*allowed_login_methods*/ None,
+-        /*forced_chatgpt_workspace_id*/ None,
+-        /*chatgpt_base_url*/ None,
+-        AuthKeyringBackendKind::Direct,
+-        /*agent_identity_authapi_base_url*/ None,
+-        &crate::test_support::transport_default_auth_route_config(),
+-    )
+-    .await?
+-    .expect("auth should reload");
+-    let reloaded_agent_auth = reloaded
+-        .agent_identity_auth(
+-            AgentIdentityAuthPolicy::ChatGptAuth,
+-            Some(&server.uri()),
+-            /*forced_chatgpt_workspace_id*/ None,
+-            &crate::test_support::transport_default_auth_route_config(),
+-            SessionSource::Cli,
+-        )
+-        .await?
+-        .expect("agent identity should reload from storage");
+-    assert_eq!(
+-        reloaded_agent_auth.record().agent_runtime_id,
+-        "agent-runtime-123"
+-    );
+-    assert_eq!(reloaded_agent_auth.run_task_id(), "task-123");
+-    Ok(())
+-}
+-
+-#[tokio::test]
+-#[serial(codex_auth_env)]
+-async fn chatgpt_auth_retries_transient_agent_identity_registration() -> anyhow::Result<()> {
+-    let codex_home = tempdir()?;
+-    write_auth_file(
+-        AuthFileParams {
+-            openai_api_key: None,
+-            chatgpt_plan_type: Some("pro".to_string()),
+-            chatgpt_account_id: Some("account-123".to_string()),
+-        },
+-        codex_home.path(),
+-    )?;
+-    let auth = super::load_auth(
+-        codex_home.path(),
+-        /*enable_codex_api_key_env*/ false,
+-        AuthCredentialsStoreMode::File,
+-        /*allowed_login_methods*/ None,
+-        /*forced_chatgpt_workspace_id*/ None,
+-        /*chatgpt_base_url*/ None,
+-        AuthKeyringBackendKind::Direct,
+-        /*agent_identity_authapi_base_url*/ None,
+-        &crate::test_support::transport_default_auth_route_config(),
+-    )
+-    .await?
+-    .expect("auth should load");
+-
+-    let server = MockServer::start().await;
+-    let registration_count = Arc::new(AtomicUsize::new(0));
+-    let response_count = Arc::clone(&registration_count);
+-    Mock::given(method("POST"))
+-        .and(path("/v1/agent/register"))
+-        .respond_with(move |_request: &wiremock::Request| {
+-            if response_count.fetch_add(1, Ordering::SeqCst) < 2 {
+-                ResponseTemplate::new(/*status*/ 503)
+-            } else {
+-                ResponseTemplate::new(/*status*/ 200).set_body_json(json!({
+-                    "agent_runtime_id": "agent-runtime-123",
+-                }))
+-            }
+-        })
+-        .expect(/*requests*/ 3)
+-        .mount(&server)
+-        .await;
+-    mock_agent_task_registration(&server, "", "agent-runtime-123", "task-123").await;
+-
+-    let agent_auth = auth
+-        .agent_identity_auth(
+-            AgentIdentityAuthPolicy::ChatGptAuth,
+-            Some(&server.uri()),
+-            /*forced_chatgpt_workspace_id*/ None,
+-            &crate::test_support::transport_default_auth_route_config(),
+-            SessionSource::Cli,
+-        )
+-        .await?
+-        .expect("agent identity should register after retries");
+-
+-    assert_eq!(registration_count.load(Ordering::SeqCst), 3);
+-    assert_eq!(agent_auth.record().agent_runtime_id, "agent-runtime-123");
+-    assert_eq!(agent_auth.record().task_id.as_deref(), Some("task-123"));
+-    assert_eq!(
+-        auth.stored_managed_chatgpt_agent_identity_record("account-123")
+-            .and_then(|record| record.task_id),
+-        Some("task-123".to_string())
+-    );
+-    Ok(())
+-}
+-
+-#[tokio::test]
+-#[serial(codex_auth_env)]
+-async fn chatgpt_auth_registration_retry_exhaustion_is_fallback_eligible() -> anyhow::Result<()> {
+-    let codex_home = tempdir()?;
+-    write_auth_file(
+-        AuthFileParams {
+-            openai_api_key: None,
+-            chatgpt_plan_type: Some("pro".to_string()),
+-            chatgpt_account_id: Some("account-123".to_string()),
+-        },
+-        codex_home.path(),
+-    )?;
+-    let auth = super::load_auth(
+-        codex_home.path(),
+-        /*enable_codex_api_key_env*/ false,
+-        AuthCredentialsStoreMode::File,
+-        /*allowed_login_methods*/ None,
+-        /*forced_chatgpt_workspace_id*/ None,
+-        /*chatgpt_base_url*/ None,
+-        AuthKeyringBackendKind::Direct,
+-        /*agent_identity_authapi_base_url*/ None,
+-        &crate::test_support::transport_default_auth_route_config(),
+-    )
+-    .await?
+-    .expect("auth should load");
+-
+-    let server = MockServer::start().await;
+-    Mock::given(method("POST"))
+-        .and(path("/v1/agent/register"))
+-        .respond_with(ResponseTemplate::new(/*status*/ 503))
+-        .expect(/*requests*/ 3)
+-        .mount(&server)
+-        .await;
+-
+-    let err = auth
+-        .agent_identity_auth(
+-            AgentIdentityAuthPolicy::ChatGptAuth,
+-            Some(&server.uri()),
+-            /*forced_chatgpt_workspace_id*/ None,
+-            &crate::test_support::transport_default_auth_route_config(),
+-            SessionSource::Cli,
+-        )
+-        .await
+-        .expect_err("retry exhaustion should return an error");
+-
+-    assert!(AgentIdentityAuthError::bootstrap_unavailable(&err).is_some());
+-    assert!(
+-        auth.stored_managed_chatgpt_agent_identity_record("account-123")
+-            .is_none()
+-    );
+-    Ok(())
+-}
+-
+-#[tokio::test]
+-#[serial(codex_auth_env)]
+-async fn chatgpt_auth_task_registration_retry_exhaustion_is_fallback_eligible() -> anyhow::Result<()>
+-{
+-    let codex_home = tempdir()?;
+-    write_auth_file(
+-        AuthFileParams {
+-            openai_api_key: None,
+-            chatgpt_plan_type: Some("pro".to_string()),
+-            chatgpt_account_id: Some("account-123".to_string()),
+-        },
+-        codex_home.path(),
+-    )?;
+-    let mut record = agent_identity_record("account-123");
+-    record.chatgpt_user_id = "user-12345".to_string();
+-    record.email = Some("user@example.com".to_string());
+-    let storage = FileAuthStorage::new(codex_home.path().to_path_buf());
+-    let auth_path = get_auth_file(codex_home.path());
+-    let mut auth_json = storage.try_read_auth_json(&auth_path)?;
+-    auth_json.agent_identity = Some(AgentIdentityStorage::Record(record.clone()));
+-    storage.save(&auth_json)?;
+-    let auth = super::load_auth(
+-        codex_home.path(),
+-        /*enable_codex_api_key_env*/ false,
+-        AuthCredentialsStoreMode::File,
+-        /*allowed_login_methods*/ None,
+-        /*forced_chatgpt_workspace_id*/ None,
+-        /*chatgpt_base_url*/ None,
+-        AuthKeyringBackendKind::Direct,
+-        /*agent_identity_authapi_base_url*/ None,
+-        &crate::test_support::transport_default_auth_route_config(),
+-    )
+-    .await?
+-    .expect("auth should load");
+-
+     let server = MockServer::start().await;
+-    Mock::given(method("POST"))
+-        .and(path(format!(
+-            "/v1/agent/{}/task/register",
+-            record.agent_runtime_id
+-        )))
+-        .respond_with(ResponseTemplate::new(/*status*/ 503))
+-        .expect(/*requests*/ 3)
+-        .mount(&server)
+-        .await;
+-
+-    let err = auth
+-        .agent_identity_auth(
+-            AgentIdentityAuthPolicy::ChatGptAuth,
+-            Some(&server.uri()),
+-            /*forced_chatgpt_workspace_id*/ None,
+-            &crate::test_support::transport_default_auth_route_config(),
+-            SessionSource::Cli,
+-        )
+-        .await
+-        .expect_err("task retry exhaustion should return an error");
+-
+-    assert!(AgentIdentityAuthError::bootstrap_unavailable(&err).is_some());
+-    record.task_id = None;
+-    assert_eq!(
+-        auth.stored_managed_chatgpt_agent_identity_record("account-123"),
+-        Some(record)
+-    );
+-    Ok(())
+-}
+-
+-#[tokio::test]
+-#[serial(codex_auth_env)]
+-async fn chatgpt_auth_non_retryable_registration_error_is_hard_failure() -> anyhow::Result<()> {
+-    let codex_home = tempdir()?;
+-    write_auth_file(
+-        AuthFileParams {
+-            openai_api_key: None,
+-            chatgpt_plan_type: Some("pro".to_string()),
+-            chatgpt_account_id: Some("account-123".to_string()),
+-        },
+-        codex_home.path(),
+-    )?;
+-    let auth = super::load_auth(
++    let auth = CodexAuth::from_auth_storage(
+         codex_home.path(),
+-        /*enable_codex_api_key_env*/ false,
+         AuthCredentialsStoreMode::File,
+-        /*allowed_login_methods*/ None,
+-        /*forced_chatgpt_workspace_id*/ None,
+-        /*chatgpt_base_url*/ None,
++        Some(&server.uri()),
+         AuthKeyringBackendKind::Direct,
+-        /*agent_identity_authapi_base_url*/ None,
+         &crate::test_support::transport_default_auth_route_config(),
+     )
+     .await?
+-    .expect("auth should load");
+-
+-    let server = MockServer::start().await;
+-    Mock::given(method("POST"))
+-        .and(path("/v1/agent/register"))
+-        .respond_with(ResponseTemplate::new(/*status*/ 403))
+-        .expect(/*requests*/ 1)
+-        .mount(&server)
+-        .await;
+-
+-    let err = auth
+-        .agent_identity_auth(
+-            AgentIdentityAuthPolicy::ChatGptAuth,
+-            Some(&server.uri()),
+-            /*forced_chatgpt_workspace_id*/ None,
+-            &crate::test_support::transport_default_auth_route_config(),
+-            SessionSource::Cli,
+-        )
+-        .await
+-        .expect_err("hard registration failure should return an error");
+-
+-    assert!(AgentIdentityAuthError::bootstrap_unavailable(&err).is_none());
+-    assert!(
+-        auth.stored_managed_chatgpt_agent_identity_record("account-123")
++    .expect("SIWC auth loads");
++    for policy in [
++        AgentIdentityAuthPolicy::JwtOnly,
++        AgentIdentityAuthPolicy::ChatGptAuth,
++    ] {
++        assert!(
++            auth.agent_identity_auth(
++                policy,
++                Some(&server.uri()),
++                /*forced_chatgpt_workspace_id*/ None,
++                &crate::test_support::transport_default_auth_route_config(),
++                SessionSource::Cli,
++            )
++            .await?
+             .is_none()
+-    );
++        );
++    }
++    assert_eq!(server.received_requests().await.unwrap().len(), 0);
+     Ok(())
+ }
+ 
+@@ -1054,6 +730,7 @@ async fn pro_account_with_no_api_key_uses_chatgpt_auth() {
              auth_mode: None,
              openai_api_key: None,
              tokens: Some(TokenData {
-+                siwc: None,
++                siwc: Some(siwc_registration()),
                  id_token: IdTokenInfo {
                      email: Some("user@example.com".to_string()),
                      chatgpt_plan_type: Some(InternalPlanType::Known(InternalKnownPlan::Pro)),
-@@ -1076,6 +1077,40 @@ async fn pro_account_with_no_api_key_uses_chatgpt_auth() {
+@@ -1076,6 +753,40 @@ async fn pro_account_with_no_api_key_uses_chatgpt_auth() {
      );
  }
  
 +#[tokio::test]
 +#[serial(codex_auth_env)]
-+async fn legacy_chatgpt_auth_uses_its_access_token_for_codex_backend_requests() {
++async fn siwc_chatgpt_auth_uses_its_access_token_for_public_api_requests() {
 +    let codex_home = tempdir().unwrap();
 +    let _access_token_guard = remove_access_token_env_var();
 +    write_auth_file(
@@ -15166,7 +16198,7 @@ index 9927a60..063344b 100644
 +        },
 +        codex_home.path(),
 +    )
-+    .expect("write legacy ChatGPT auth");
++    .expect("write SIWC ChatGPT auth");
 +
 +    let auth = super::load_auth(
 +        codex_home.path(),
@@ -15183,13 +16215,169 @@ index 9927a60..063344b 100644
 +    .unwrap()
 +    .unwrap();
 +
-+    assert!(auth.uses_codex_backend());
++    assert!(!auth.uses_codex_backend());
 +    assert_eq!(auth.get_token().unwrap(), "test-access-token");
 +}
 +
  #[tokio::test]
  #[serial(codex_auth_env)]
  async fn loads_api_key_from_auth_json() {
+@@ -1774,12 +1485,26 @@ struct AuthFileParams {
+     chatgpt_account_id: Option<String>,
+ }
+ 
++fn siwc_registration() -> crate::siwc::RegistrationMetadata {
++    serde_json::from_value(json!({
++        "issuer": crate::siwc::ISSUER,
++        "subject": "user-12345",
++        "client_id": "oaiapp_login-test",
++        "ext_agent_host_id": "test-host",
++        "scopes": ["openid", "resource.invoke", "chatgpt.tokens.use.direct"],
++        "expires_at": 4_000_000_000_u64,
++        "authorization_nonce": "test-nonce"
++    }))
++    .expect("SIWC fixture")
++}
++
+ fn write_auth_file(params: AuthFileParams, codex_home: &Path) -> std::io::Result<String> {
+     let fake_jwt = fake_jwt_for_auth_file_params(&params)?;
+     let auth_file = get_auth_file(codex_home);
+     let auth_json_data = json!({
+         "OPENAI_API_KEY": params.openai_api_key,
+         "tokens": {
++            "siwc": siwc_registration(),
+             "id_token": fake_jwt,
+             "access_token": "test-access-token",
+             "refresh_token": "test-refresh-token"
+@@ -3070,3 +2795,128 @@ async fn missing_plan_type_maps_to_unknown() {
+ 
+     pretty_assertions::assert_eq!(auth.account_plan_type(), Some(AccountPlanType::Unknown));
+ }
++
++#[tokio::test]
++async fn legacy_managed_chatgpt_storage_is_rejected_before_network() -> anyhow::Result<()> {
++    let home = tempdir()?;
++    let server = MockServer::start().await;
++    let legacy_auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
++    assert_eq!(
++        legacy_auth.get_token().unwrap_err().kind(),
++        std::io::ErrorKind::PermissionDenied
++    );
++    assert!(
++        legacy_auth
++            .agent_identity_auth(
++                AgentIdentityAuthPolicy::ChatGptAuth,
++                Some(&server.uri()),
++                /*forced_chatgpt_workspace_id*/ None,
++                &crate::test_support::transport_default_auth_route_config(),
++                SessionSource::Cli,
++            )
++            .await
++            .is_err()
++    );
++    let legacy = legacy_auth.get_current_auth_json().expect("legacy fixture");
++    let error = CodexAuth::from_auth_dot_json(
++        home.path(),
++        legacy,
++        AuthCredentialsStoreMode::File,
++        Some(&server.uri()),
++        AuthKeyringBackendKind::Direct,
++        Some(&server.uri()),
++        &crate::test_support::transport_default_auth_route_config(),
++    )
++    .await
++    .expect_err("official credentials must not be adopted");
++    assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
++    assert_eq!(server.received_requests().await.unwrap().len(), 0);
++    Ok(())
++}
++
++#[tokio::test]
++async fn siwc_logout_revokes_cached_auth_before_clearing_storage() -> anyhow::Result<()> {
++    let codex_home = TempDir::new()?;
++    write_auth_file(
++        AuthFileParams {
++            openai_api_key: None,
++            chatgpt_plan_type: None,
++            chatgpt_account_id: None,
++        },
++        codex_home.path(),
++    )?;
++    let manager = AuthManager::new(
++        codex_home.path().to_path_buf(),
++        false,
++        AuthCredentialsStoreMode::File,
++        None,
++        None,
++        AuthKeyringBackendKind::default(),
++        crate::test_support::transport_default_auth_route_config(),
++    )
++    .await;
++    assert!(manager.auth_cached().is_some());
++    let auth_file = get_auth_file(codex_home.path());
++    let mut newer_auth: serde_json::Value = serde_json::from_slice(&std::fs::read(&auth_file)?)?;
++    newer_auth["tokens"]["refresh_token"] = json!("newer-disk-refresh-token");
++    std::fs::write(&auth_file, serde_json::to_vec(&newer_auth)?)?;
++    let invoked = std::sync::atomic::AtomicBool::new(false);
++    // Simulate the refresh writer holding the same lock through persistence.
++    let refresh_lock = crate::siwc_login::session_lock(codex_home.path()).await?;
++    let mut logout = Box::pin(manager.logout_with_revoke_using(|auth| async {
++        let tokens = auth.expect("cached auth").tokens.expect("cached tokens");
++        assert_eq!(tokens.refresh_token, "test-refresh-token");
++        assert_eq!(
++            tokens.siwc.expect("SIWC registration").client_id().as_str(),
++            "oaiapp_login-test"
++        );
++        assert!(auth_file.exists(), "revoke precedes local removal");
++        invoked.store(true, Ordering::SeqCst);
++        Ok(())
++    }));
++    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
++    assert!(std::future::Future::poll(logout.as_mut(), &mut context).is_pending());
++    assert!(!invoked.load(Ordering::SeqCst));
++    // A refresh can finish its write before releasing the lock. Logout must remove it.
++    std::fs::write(&auth_file, serde_json::to_vec(&newer_auth)?)?;
++    drop(refresh_lock);
++    let removed = logout.await?;
++    assert!(invoked.load(Ordering::SeqCst));
++    assert!(removed);
++    assert!(manager.auth_cached().is_none());
++    assert!(!auth_file.exists());
++    Ok(())
++}
++
++#[tokio::test]
++async fn siwc_local_logout_waits_for_refresh_writer_before_removal() -> anyhow::Result<()> {
++    let codex_home = TempDir::new()?;
++    let params = || AuthFileParams {
++        openai_api_key: None,
++        chatgpt_plan_type: None,
++        chatgpt_account_id: None,
++    };
++    write_auth_file(params(), codex_home.path())?;
++    let manager = AuthManager::new(
++        codex_home.path().to_path_buf(),
++        false,
++        AuthCredentialsStoreMode::File,
++        None,
++        None,
++        AuthKeyringBackendKind::default(),
++        crate::test_support::transport_default_auth_route_config(),
++    )
++    .await;
++    assert!(manager.auth_cached().is_some());
++    let refresh_lock = crate::siwc_login::session_lock(codex_home.path()).await?;
++    let mut logout = Box::pin(manager.logout());
++    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
++    assert!(std::future::Future::poll(logout.as_mut(), &mut context).is_pending());
++    assert!(get_auth_file(codex_home.path()).exists());
++    write_auth_file(params(), codex_home.path())?;
++    drop(refresh_lock);
++    assert!(logout.await?);
++    assert!(manager.auth_cached().is_none());
++    assert!(!get_auth_file(codex_home.path()).exists());
++    Ok(())
++}
 diff --git a/codex-rs/login/src/auth/default_client.rs b/codex-rs/login/src/auth/default_client.rs
 index 28a952e..82c6dd6 100644
 --- a/codex-rs/login/src/auth/default_client.rs
@@ -15282,7 +16470,7 @@ index 92d9bf2..d5fd91c 100644
      assert_eq!(is_first_party_originator("codex_vscode"), true);
      assert_eq!(is_first_party_originator("Codex Something Else"), true);
 diff --git a/codex-rs/login/src/auth/manager.rs b/codex-rs/login/src/auth/manager.rs
-index 14cfee9..17f1149 100644
+index 14cfee9..c72d6ae 100644
 --- a/codex-rs/login/src/auth/manager.rs
 +++ b/codex-rs/login/src/auth/manager.rs
 @@ -209,7 +209,7 @@ const REFRESH_TOKEN_INVALIDATED_MESSAGE: &str = "Your access token could not be
@@ -15294,16 +16482,29 @@ index 14cfee9..17f1149 100644
  pub(super) const REVOKE_TOKEN_URL: &str = "https://auth.openai.com/oauth/revoke";
  pub const REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR: &str = "CODEX_REFRESH_TOKEN_URL_OVERRIDE";
  pub const REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR: &str = "CODEX_REVOKE_TOKEN_URL_OVERRIDE";
-@@ -407,7 +407,7 @@ impl CodexAuth {
+@@ -406,8 +406,20 @@ impl CodexAuth {
+             ));
          }
  
++        if auth_mode == AuthMode::Chatgpt
++            && auth_dot_json
++                .tokens
++                .as_ref()
++                .is_none_or(|tokens| tokens.siwc.is_none())
++        {
++            return Err(std::io::Error::new(
++                std::io::ErrorKind::PermissionDenied,
++                crate::siwc_login::SIGN_IN_REQUIRED,
++            ));
++        }
++
          let storage_mode = auth_dot_json.storage_mode(auth_credentials_store_mode);
 -        let client = create_default_auth_client(&refresh_token_endpoint(), auth_route_config)?;
 +        let client = create_default_auth_client(REFRESH_TOKEN_URL, auth_route_config)?;
          let state = ChatgptAuthState {
              auth_dot_json: Arc::new(Mutex::new(Some(auth_dot_json))),
              client,
-@@ -548,7 +548,7 @@ impl CodexAuth {
+@@ -548,7 +560,7 @@ impl CodexAuth {
      }
  
      pub fn uses_codex_backend(&self) -> bool {
@@ -15312,12 +16513,15 @@ index 14cfee9..17f1149 100644
      }
  
      pub fn is_external_chatgpt_tokens(&self) -> bool {
-@@ -594,8 +594,11 @@ impl CodexAuth {
+@@ -593,9 +605,13 @@ impl CodexAuth {
+     pub fn get_token(&self) -> Result<String, std::io::Error> {
          match self {
              Self::ApiKey(auth) => Ok(auth.api_key.clone()),
-             Self::Chatgpt(_) | Self::ChatgptAuthTokens(_) => {
+-            Self::Chatgpt(_) | Self::ChatgptAuthTokens(_) => {
 -                let access_token = self.get_token_data()?.access_token;
 -                Ok(access_token)
++            Self::Chatgpt(_) => self.get_siwc_api_token(),
++            Self::ChatgptAuthTokens(_) => {
 +                if self.uses_siwc_api() {
 +                    self.get_siwc_api_token()
 +                } else {
@@ -15326,7 +16530,7 @@ index 14cfee9..17f1149 100644
              }
              Self::AgentIdentity(_) => Err(std::io::Error::other(
                  "agent identity auth does not expose a bearer token",
-@@ -610,6 +613,36 @@ impl CodexAuth {
+@@ -610,6 +626,36 @@ impl CodexAuth {
          }
      }
  
@@ -15363,7 +16567,19 @@ index 14cfee9..17f1149 100644
      /// Returns `None` if Codex backend auth does not expose an account id.
      pub fn get_account_id(&self) -> Option<String> {
          match self {
-@@ -819,6 +852,7 @@ impl CodexAuth {
+@@ -757,9 +803,10 @@ impl CodexAuth {
+             | Self::BedrockApiKey(_)
+             | Self::BedrockAccessKeys(_) => Ok(None),
+             Self::Chatgpt(_) => {
+-                if policy == AgentIdentityAuthPolicy::JwtOnly {
++                if policy == AgentIdentityAuthPolicy::JwtOnly || self.uses_siwc_api() {
+                     return Ok(None);
+                 }
++                self.get_token()?;
+                 self.ensure_managed_chatgpt_agent_identity(
+                     require_agent_identity_authapi_base_url(agent_identity_authapi_base_url)?,
+                     forced_chatgpt_workspace_id,
+@@ -819,6 +866,7 @@ impl CodexAuth {
              auth_mode: Some(AuthMode::Chatgpt),
              openai_api_key: None,
              tokens: Some(TokenData {
@@ -15371,7 +16587,7 @@ index 14cfee9..17f1149 100644
                  id_token: Default::default(),
                  access_token: "Access Token".to_string(),
                  refresh_token: "test".to_string(),
-@@ -997,6 +1031,7 @@ pub async fn logout_with_revoke(
+@@ -997,6 +1045,7 @@ pub async fn logout_with_revoke(
      keyring_backend_kind: AuthKeyringBackendKind,
      auth_route_config: &AuthRouteConfig,
  ) -> std::io::Result<bool> {
@@ -15379,7 +16595,7 @@ index 14cfee9..17f1149 100644
      let auth_dot_json = match load_auth_dot_json(
          codex_home,
          auth_credentials_store_mode,
-@@ -1010,6 +1045,7 @@ pub async fn logout_with_revoke(
+@@ -1010,6 +1059,7 @@ pub async fn logout_with_revoke(
      };
      if let Err(err) = revoke_auth_tokens(auth_dot_json.as_ref(), auth_route_config).await {
          tracing::warn!("failed to revoke auth tokens during logout: {err}");
@@ -15387,7 +16603,7 @@ index 14cfee9..17f1149 100644
      }
      logout_all_stores(
          codex_home,
-@@ -1626,15 +1662,22 @@ fn persist_tokens(
+@@ -1626,15 +1676,22 @@ fn persist_tokens(
  async fn request_chatgpt_token_refresh(
      refresh_token: String,
      client: &HttpClient,
@@ -15415,7 +16631,7 @@ index 14cfee9..17f1149 100644
              timeout: None,
              error_body_limit: ErrorBodyLimit::Unlimited,
          },
-@@ -1642,7 +1685,7 @@ async fn request_chatgpt_token_refresh(
+@@ -1642,7 +1699,7 @@ async fn request_chatgpt_token_refresh(
      match oauth
          .refresh(RefreshTokenGrant {
              refresh_token: &refresh_token,
@@ -15424,7 +16640,7 @@ index 14cfee9..17f1149 100644
          })
          .await
      {
-@@ -1708,24 +1751,26 @@ fn classify_refresh_token_failure(
+@@ -1708,24 +1765,26 @@ fn classify_refresh_token_failure(
  
  #[derive(Deserialize, Clone)]
  struct RefreshResponse {
@@ -15458,7 +16674,7 @@ index 14cfee9..17f1149 100644
  }
  
  impl AuthDotJson {
-@@ -1742,6 +1787,7 @@ impl AuthDotJson {
+@@ -1742,6 +1801,7 @@ impl AuthDotJson {
              .or(token_info.chatgpt_plan_type)
              .or(Some(InternalPlanType::Unknown("unknown".to_string())));
          let tokens = TokenData {
@@ -15466,7 +16682,41 @@ index 14cfee9..17f1149 100644
              id_token: token_info,
              access_token: access_token.to_string(),
              refresh_token: String::new(),
-@@ -2997,8 +3043,9 @@ impl AuthManager {
+@@ -2945,6 +3005,7 @@ impl AuthManager {
+     /// unauthenticated state.
+     pub async fn logout(&self) -> std::io::Result<bool> {
+         self.ensure_logout_allowed()?;
++        let _session_lock = crate::siwc_login::session_lock(&self.codex_home).await?;
+         let removed = logout_all_stores(
+             &self.codex_home,
+             self.auth_credentials_store_mode,
+@@ -2957,12 +3018,23 @@ impl AuthManager {
+     }
+ 
+     pub async fn logout_with_revoke(&self) -> std::io::Result<bool> {
++        self.logout_with_revoke_using(|auth| async move {
++            revoke_auth_tokens(auth.as_ref(), &self.auth_route_config).await
++        })
++        .await
++    }
++
++    async fn logout_with_revoke_using<F, Fut>(&self, revoke: F) -> std::io::Result<bool>
++    where
++        F: FnOnce(Option<AuthDotJson>) -> Fut,
++        Fut: std::future::Future<Output = std::io::Result<()>>,
++    {
+         self.ensure_logout_allowed()?;
++        let _session_lock = crate::siwc_login::session_lock(&self.codex_home).await?;
+         let auth_dot_json = self
+             .auth_cached()
+             .and_then(|auth| auth.get_current_auth_json());
+-        if let Err(err) = revoke_auth_tokens(auth_dot_json.as_ref(), &self.auth_route_config).await
+-        {
++        if let Err(err) = revoke(auth_dot_json).await {
+             tracing::warn!("failed to revoke auth tokens during logout: {err}");
+         }
+         let result = logout_all_stores(
+@@ -2997,8 +3069,9 @@ impl AuthManager {
      }
  
      pub fn current_auth_uses_codex_backend(&self) -> bool {
@@ -15478,7 +16728,7 @@ index 14cfee9..17f1149 100644
      }
  
      fn should_refresh_proactively(auth: &CodexAuth) -> bool {
-@@ -3011,6 +3058,22 @@ impl AuthManager {
+@@ -3011,6 +3084,22 @@ impl AuthManager {
              Some(auth_dot_json) => auth_dot_json,
              None => return false,
          };
@@ -15501,7 +16751,7 @@ index 14cfee9..17f1149 100644
          if let Some(tokens) = auth_dot_json.tokens.as_ref()
              && let Ok(Some(expires_at)) = parse_jwt_expiration(&tokens.access_token)
          {
-@@ -3094,15 +3157,96 @@ impl AuthManager {
+@@ -3094,15 +3183,96 @@ impl AuthManager {
          auth: &ChatgptAuth,
          refresh_token: String,
      ) -> Result<(), RefreshTokenError> {
@@ -15606,7 +16856,7 @@ index 14cfee9..17f1149 100644
          self.reload().await;
  
          Ok(())
-@@ -3122,6 +3266,80 @@ fn auth_config_from(config: &impl AuthManagerConfig) -> AuthConfig {
+@@ -3122,6 +3292,80 @@ fn auth_config_from(config: &impl AuthManagerConfig) -> AuthConfig {
      }
  }
  
@@ -18478,7 +19728,7 @@ index af80bf3..2e6e4c3 100644
      #[serde(
          deserialize_with = "deserialize_id_token",
 diff --git a/codex-rs/login/tests/suite/auth_refresh.rs b/codex-rs/login/tests/suite/auth_refresh.rs
-index 5e353de..d4cf2a3 100644
+index 5e353de..92364c9 100644
 --- a/codex-rs/login/tests/suite/auth_refresh.rs
 +++ b/codex-rs/login/tests/suite/auth_refresh.rs
 @@ -4,30 +4,19 @@ use base64::Engine;
@@ -18512,7 +19762,7 @@ index 5e353de..d4cf2a3 100644
  use tempfile::TempDir;
  use wiremock::Mock;
  use wiremock::MockServer;
-@@ -37,1060 +26,103 @@ use wiremock::matchers::path;
+@@ -37,1060 +26,95 @@ use wiremock::matchers::path;
  
  const INITIAL_ACCESS_TOKEN: &str = "initial-access-token";
  const INITIAL_REFRESH_TOKEN: &str = "initial-refresh-token";
@@ -19418,7 +20668,7 @@ index 5e353de..d4cf2a3 100644
 -async fn refresh_token_does_not_retry_after_bad_request_reused_failure() -> Result<()> {
 -    skip_if_no_network!(Ok(()));
 -
-+async fn legacy_refresh_is_rejected_without_network_or_credential_changes() -> Result<()> {
++async fn legacy_credentials_cannot_load_or_refresh_without_changing_storage() -> Result<()> {
      let server = MockServer::start().await;
 -    Mock::given(method("POST"))
 -        .and(path("/oauth/token"))
@@ -19433,7 +20683,9 @@ index 5e353de..d4cf2a3 100644
 -
      let ctx = RefreshTokenTestContext::new(&server).await?;
 -    let initial_last_refresh = Utc::now() - Duration::days(1);
-     let initial_tokens = build_tokens(INITIAL_ACCESS_TOKEN, INITIAL_REFRESH_TOKEN);
+-    let initial_tokens = build_tokens(INITIAL_ACCESS_TOKEN, INITIAL_REFRESH_TOKEN);
++    let mut initial_tokens = build_tokens(INITIAL_ACCESS_TOKEN, INITIAL_REFRESH_TOKEN);
++    initial_tokens.siwc = None;
      let initial_auth = AuthDotJson {
          auth_mode: Some(AuthMode::Chatgpt),
          openai_api_key: None,
@@ -19449,31 +20701,26 @@ index 5e353de..d4cf2a3 100644
 +    let before = std::fs::read(ctx.codex_home.path().join("auth.json"))?;
  
 -    let first_err = ctx
-+    let error = ctx
-         .auth_manager
+-        .auth_manager
 -        .refresh_token()
-+        .refresh_token_from_authority()
-         .await
+-        .await
 -        .err()
 -        .context("first refresh should fail")?;
 -    assert_eq!(
 -        first_err.failed_reason(),
 -        Some(RefreshTokenFailedReason::Exhausted)
--    );
-+        .expect_err("legacy official credentials must not be refreshed");
- 
++    assert!(
++        ctx.auth_manager.auth().await.is_none(),
++        "legacy credentials must not load"
+     );
+-
 -    let second_err = ctx
 -        .auth_manager
 -        .refresh_token()
 -        .await
 -        .err()
 -        .context("second refresh should fail without retrying")?;
-+    assert!(
-+        error
-+            .to_string()
-+            .contains("not a HolyCodex SIWC registration"),
-+        "unexpected legacy refresh result: {error}"
-+    );
++    ctx.auth_manager.refresh_token_from_authority().await?;
      assert_eq!(
 -        second_err.failed_reason(),
 -        Some(RefreshTokenFailedReason::Exhausted)
@@ -19525,10 +20772,11 @@ index 5e353de..d4cf2a3 100644
 -    let initial_last_refresh = Utc::now() - Duration::days(1);
 -    // Redacting a credential that overlaps the error code must not change recovery policy.
 -    let initial_tokens = build_tokens(INITIAL_ACCESS_TOKEN, "invalid");
-+    let initial_tokens = build_tokens(
++    let mut initial_tokens = build_tokens(
 +        &access_token_with_expiration(Utc::now() + Duration::minutes(4)),
 +        INITIAL_REFRESH_TOKEN,
 +    );
++    initial_tokens.siwc = None;
      let initial_auth = AuthDotJson {
          auth_mode: Some(AuthMode::Chatgpt),
          openai_api_key: None,
@@ -19544,26 +20792,25 @@ index 5e353de..d4cf2a3 100644
 +    let before = std::fs::read(ctx.codex_home.path().join("auth.json"))?;
  
 -    let first_err = ctx
-+    let auth = ctx
-         .auth_manager
+-        .auth_manager
 -        .refresh_token()
-+        .auth()
-         .await
+-        .await
 -        .err()
 -        .context("first refresh should fail")?;
 -    assert_eq!(
 -        first_err.failed_reason(),
 -        Some(RefreshTokenFailedReason::Other)
--    );
-+        .context("auth remains available")?;
- 
++    assert!(
++        ctx.auth_manager.auth().await.is_none(),
++        "legacy credentials must not load"
+     );
+-
 -    let second_err = ctx
 -        .auth_manager
 -        .refresh_token()
 -        .await
 -        .err()
 -        .context("second refresh should fail without retrying")?;
-+    assert_eq!(auth.get_token_data()?, initial_tokens);
      assert_eq!(
 -        second_err.failed_reason(),
 -        Some(RefreshTokenFailedReason::Other)
@@ -19619,7 +20866,7 @@ index 5e353de..d4cf2a3 100644
      let initial_auth = AuthDotJson {
          auth_mode: Some(AuthMode::Chatgpt),
          openai_api_key: None,
-@@ -1103,64 +135,35 @@ async fn refresh_token_does_not_cache_other_bad_request_failure() -> Result<()>
+@@ -1103,64 +127,35 @@ async fn refresh_token_does_not_cache_other_bad_request_failure() -> Result<()>
      };
      ctx.write_auth(&initial_auth).await?;
  
@@ -19692,7 +20939,7 @@ index 5e353de..d4cf2a3 100644
          last_refresh: Some(initial_last_refresh),
          agent_identity: None,
          personal_access_token: None,
-@@ -1169,24 +172,12 @@ async fn refresh_token_reloads_changed_auth_after_permanent_failure() -> Result<
+@@ -1169,24 +164,12 @@ async fn refresh_token_reloads_changed_auth_after_permanent_failure() -> Result<
      };
      ctx.write_auth(&initial_auth).await?;
  
@@ -19718,7 +20965,7 @@ index 5e353de..d4cf2a3 100644
          agent_identity: None,
          personal_access_token: None,
          bedrock_api_key: None,
-@@ -1202,7 +193,7 @@ async fn refresh_token_reloads_changed_auth_after_permanent_failure() -> Result<
+@@ -1202,7 +185,7 @@ async fn refresh_token_reloads_changed_auth_after_permanent_failure() -> Result<
      ctx.auth_manager
          .refresh_token()
          .await
@@ -19727,7 +20974,7 @@ index 5e353de..d4cf2a3 100644
  
      let stored = ctx.load_auth()?;
      assert_eq!(stored, disk_auth);
-@@ -1211,86 +202,20 @@ async fn refresh_token_reloads_changed_auth_after_permanent_failure() -> Result<
+@@ -1211,86 +194,20 @@ async fn refresh_token_reloads_changed_auth_after_permanent_failure() -> Result<
          .auth_manager
          .auth_cached()
          .context("auth should be cached")?;
@@ -19819,7 +21066,7 @@ index 5e353de..d4cf2a3 100644
      let server = MockServer::start().await;
      Mock::given(method("POST"))
          .and(path("/oauth/token"))
-@@ -1298,7 +223,7 @@ async fn unauthorized_recovery_reloads_then_refreshes_tokens() -> Result<()> {
+@@ -1298,7 +215,7 @@ async fn unauthorized_recovery_reloads_then_refreshes_tokens() -> Result<()> {
              "access_token": "recovered-access-token",
              "refresh_token": "recovered-refresh-token"
          })))
@@ -19828,7 +21075,7 @@ index 5e353de..d4cf2a3 100644
          .mount(&server)
          .await;
  
-@@ -1317,11 +242,12 @@ async fn unauthorized_recovery_reloads_then_refreshes_tokens() -> Result<()> {
+@@ -1317,11 +234,12 @@ async fn unauthorized_recovery_reloads_then_refreshes_tokens() -> Result<()> {
      };
      ctx.write_auth(&initial_auth).await?;
  
@@ -19843,7 +21090,7 @@ index 5e353de..d4cf2a3 100644
          last_refresh: Some(initial_last_refresh),
          agent_identity: None,
          personal_access_token: None,
-@@ -1335,63 +261,84 @@ async fn unauthorized_recovery_reloads_then_refreshes_tokens() -> Result<()> {
+@@ -1335,63 +253,84 @@ async fn unauthorized_recovery_reloads_then_refreshes_tokens() -> Result<()> {
          AuthKeyringBackendKind::default(),
      )?;
  
@@ -19959,7 +21206,7 @@ index 5e353de..d4cf2a3 100644
      let server = MockServer::start().await;
      Mock::given(method("POST"))
          .and(path("/oauth/token"))
-@@ -1478,8 +425,6 @@ async fn unauthorized_recovery_errors_on_account_mismatch() -> Result<()> {
+@@ -1478,8 +417,6 @@ async fn unauthorized_recovery_errors_on_account_mismatch() -> Result<()> {
  #[serial_test::serial(auth_env)]
  #[tokio::test]
  async fn unauthorized_recovery_requires_chatgpt_auth() -> Result<()> {
@@ -19968,7 +21215,7 @@ index 5e353de..d4cf2a3 100644
      let server = MockServer::start().await;
      let ctx = RefreshTokenTestContext::new(&server).await?;
      let auth = AuthDotJson {
-@@ -1513,16 +458,12 @@ async fn unauthorized_recovery_requires_chatgpt_auth() -> Result<()> {
+@@ -1513,16 +450,12 @@ async fn unauthorized_recovery_requires_chatgpt_auth() -> Result<()> {
  struct RefreshTokenTestContext {
      codex_home: TempDir,
      auth_manager: Arc<AuthManager>,
@@ -19986,7 +21233,7 @@ index 5e353de..d4cf2a3 100644
          let auth_manager = AuthManager::shared(
              codex_home.path().to_path_buf(),
              /*enable_codex_api_key_env*/ false,
-@@ -1537,7 +478,6 @@ impl RefreshTokenTestContext {
+@@ -1537,7 +470,6 @@ impl RefreshTokenTestContext {
          Ok(Self {
              codex_home,
              auth_manager,
@@ -19994,7 +21241,7 @@ index 5e353de..d4cf2a3 100644
          })
      }
  
-@@ -1563,34 +503,6 @@ impl RefreshTokenTestContext {
+@@ -1563,34 +495,6 @@ impl RefreshTokenTestContext {
      }
  }
  
@@ -20029,11 +21276,22 @@ index 5e353de..d4cf2a3 100644
  fn jwt_with_payload(payload: serde_json::Value) -> String {
      #[derive(Serialize)]
      struct Header {
-@@ -1629,6 +541,7 @@ fn build_tokens(access_token: &str, refresh_token: &str) -> TokenData {
+@@ -1629,6 +533,18 @@ fn build_tokens(access_token: &str, refresh_token: &str) -> TokenData {
          ..Default::default()
      };
      TokenData {
-+        siwc: None,
++        siwc: Some(
++            serde_json::from_value(json!({
++                "issuer": codex_login::siwc::ISSUER,
++                "subject": "user-123",
++                "client_id": "oaiapp_refresh-test",
++                "ext_agent_host_id": "test-host",
++                "scopes": ["openid", "resource.invoke", "chatgpt.tokens.use.direct"],
++                "expires_at": 4_000_000_000_u64,
++                "authorization_nonce": "test-nonce"
++            }))
++            .expect("SIWC refresh fixture"),
++        ),
          id_token,
          access_token: access_token.to_string(),
          refresh_token: refresh_token.to_string(),
@@ -21169,7 +22427,7 @@ index e1bc0fa..93d7e60 100644
      let first_tmp = tempdir()?;
      let first_codex_home = first_tmp.path().to_path_buf();
 diff --git a/codex-rs/login/tests/suite/logout.rs b/codex-rs/login/tests/suite/logout.rs
-index 3ecdf01..8a9207e 100644
+index 3ecdf01..0e38287 100644
 --- a/codex-rs/login/tests/suite/logout.rs
 +++ b/codex-rs/login/tests/suite/logout.rs
 @@ -5,7 +5,6 @@ use codex_config::types::AuthCredentialsStoreMode;
@@ -21215,25 +22473,53 @@ index 3ecdf01..8a9207e 100644
      let server = MockServer::start().await;
      Mock::given(method("POST"))
          .and(path("/oauth/revoke"))
-@@ -177,8 +169,6 @@ async fn logout_with_revoke_removes_auth_when_revoke_fails() -> Result<()> {
+@@ -176,16 +168,14 @@ async fn logout_with_revoke_removes_auth_when_revoke_fails() -> Result<()> {
+ 
  #[serial_test::serial(auth_env)]
  #[tokio::test]
- async fn auth_manager_logout_with_revoke_uses_cached_auth() -> Result<()> {
+-async fn auth_manager_logout_with_revoke_uses_cached_auth() -> Result<()> {
 -    skip_if_no_network!(Ok(()));
 -
++async fn auth_manager_logout_rejects_legacy_cache_without_remote_revocation() -> Result<()> {
      let server = MockServer::start().await;
      Mock::given(method("POST"))
          .and(path("/oauth/revoke"))
-@@ -235,7 +225,7 @@ async fn auth_manager_logout_with_revoke_uses_cached_auth() -> Result<()> {
-         json!({
-             "token": REFRESH_TOKEN,
-             "token_type_hint": "refresh_token",
+         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+             "message": "success"
+         })))
+-        .expect(1)
++        .expect(0)
+         .mount(&server)
+         .await;
+     let _env_guard = EnvGuard::set(
+@@ -210,6 +200,7 @@ async fn auth_manager_logout_with_revoke_uses_cached_auth() -> Result<()> {
+         codex_login::test_support::transport_default_auth_route_config(),
+     )
+     .await;
++    assert!(manager.auth_cached().is_none());
+     save_auth(
+         codex_home.path(),
+         &chatgpt_auth_with_refresh_token("newer-disk-refresh-token"),
+@@ -227,17 +218,7 @@ async fn auth_manager_logout_with_revoke_uses_cached_auth() -> Result<()> {
+         .received_requests()
+         .await
+         .context("failed to fetch revoke requests")?;
+-    assert_eq!(requests.len(), 1);
+-    assert_eq!(
+-        requests[0]
+-            .body_json::<Value>()
+-            .context("revoke request should be JSON")?,
+-        json!({
+-            "token": REFRESH_TOKEN,
+-            "token_type_hint": "refresh_token",
 -            "client_id": CLIENT_ID,
-+            "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
-         })
-     );
+-        })
+-    );
++    assert!(requests.is_empty());
      server.verify().await;
-@@ -251,6 +241,7 @@ fn chatgpt_auth_with_refresh_token(refresh_token: &str) -> AuthDotJson {
+     Ok(())
+ }
+@@ -251,6 +232,7 @@ fn chatgpt_auth_with_refresh_token(refresh_token: &str) -> AuthDotJson {
          auth_mode: Some(AuthMode::Chatgpt),
          openai_api_key: None,
          tokens: Some(TokenData {
@@ -25460,3 +26746,879 @@ index 4275ed7..b17b584 100644
      });
  
      let output = tokio::process::Command::new(codex_utils_cargo_bin::cargo_bin("codex")?)
+diff --git a/codex-rs/app-server/tests/common/lib.rs b/codex-rs/app-server/tests/common/lib.rs
+index f7ebde5..bdcc1ba 100644
+--- a/codex-rs/app-server/tests/common/lib.rs
++++ b/codex-rs/app-server/tests/common/lib.rs
+@@ -18,6 +18,7 @@ pub use auth_fixtures::ChatGptIdTokenClaims;
+ pub use auth_fixtures::encode_id_token;
+ pub use auth_fixtures::mount_workspace_routing;
+ pub use auth_fixtures::write_chatgpt_auth;
++pub use auth_fixtures::write_external_chatgpt_auth;
+ use codex_app_server_protocol::JSONRPCResponse;
+ pub use config::MockResponsesConfig;
+ pub use config::write_mock_responses_config_toml;
+diff --git a/codex-rs/cli/tests/cloud_auth.rs b/codex-rs/cli/tests/cloud_auth.rs
+index 01e7eb8..4a977aa 100644
+--- a/codex-rs/cli/tests/cloud_auth.rs
++++ b/codex-rs/cli/tests/cloud_auth.rs
+@@ -21,7 +21,7 @@ async fn cloud_list_only_allows_trusted_credential_destinations() -> Result<()>
+     std::fs::write(
+         codex_home.path().join("auth.json"),
+         serde_json::to_vec(&json!({
+-            "auth_mode": "chatgpt",
++            "auth_mode": "chatgptAuthTokens",
+             "tokens": {
+                 "id_token": "eyJhbGciOiJub25lIn0.e30.c2ln",
+                 "access_token": "synthetic-cloud-access-token",
+diff --git a/codex-rs/cli/tests/cloud_config.rs b/codex-rs/cli/tests/cloud_config.rs
+index 7007b2d..d2ce5a3 100644
+--- a/codex-rs/cli/tests/cloud_config.rs
++++ b/codex-rs/cli/tests/cloud_config.rs
+@@ -6,7 +6,7 @@ use anyhow::Context;
+ use anyhow::Result;
+ use anyhow::ensure;
+ use app_test_support::ChatGptAuthFixture;
+-use app_test_support::write_chatgpt_auth;
++use app_test_support::write_external_chatgpt_auth;
+ use codex_config::ConfigLoadOptions;
+ use codex_config::types::AuthCredentialsStoreMode;
+ use codex_core::config::load_config_toml_with_layer_stack;
+@@ -73,7 +73,7 @@ impl CloudManagedConfigFixture {
+             return Ok(None);
+         }
+ 
+-        write_chatgpt_auth(
++        write_external_chatgpt_auth(
+             codex_home.path(),
+             ChatGptAuthFixture::new("chatgpt-token")
+                 .account_id("workspace-123")
+diff --git a/codex-rs/cli/tests/doctor_enterprise_network.rs b/codex-rs/cli/tests/doctor_enterprise_network.rs
+index 385e807..a5f9454 100644
+--- a/codex-rs/cli/tests/doctor_enterprise_network.rs
++++ b/codex-rs/cli/tests/doctor_enterprise_network.rs
+@@ -6,7 +6,7 @@ use std::process::Stdio;
+ use anyhow::Context as _;
+ use anyhow::Result;
+ use app_test_support::ChatGptAuthFixture;
+-use app_test_support::write_chatgpt_auth;
++use app_test_support::write_external_chatgpt_auth;
+ use codex_config::types::AuthCredentialsStoreMode;
+ use pretty_assertions::assert_eq;
+ use serde_json::Value;
+@@ -58,7 +58,7 @@ trust_level = "trusted"
+             workspace.path().join(".codex/config.toml"),
+             "cli_auth_credentials_store = \"file\"\n",
+         )?;
+-        write_chatgpt_auth(
++        write_external_chatgpt_auth(
+             codex_home.path(),
+             ChatGptAuthFixture::new("doctor-test-token")
+                 .account_id("doctor-workspace")
+diff --git a/codex-rs/cli/tests/features.rs b/codex-rs/cli/tests/features.rs
+index 4beebb0..f8c2295 100644
+--- a/codex-rs/cli/tests/features.rs
++++ b/codex-rs/cli/tests/features.rs
+@@ -3,7 +3,7 @@ use std::path::Path;
+ use anyhow::Context;
+ use anyhow::Result;
+ use app_test_support::ChatGptAuthFixture;
+-use app_test_support::write_chatgpt_auth;
++use app_test_support::write_external_chatgpt_auth;
+ use codex_config::ConfigLoadOptions;
+ use codex_config::types::AuthCredentialsStoreMode;
+ use codex_core::config::load_config_toml_with_layer_stack;
+@@ -240,7 +240,7 @@ async fn features_list_honors_cloud_managed_feature_requirements() -> Result<()>
+         return Ok(());
+     }
+ 
+-    write_chatgpt_auth(
++    write_external_chatgpt_auth(
+         codex_home.path(),
+         ChatGptAuthFixture::new("chatgpt-token")
+             .account_id("workspace-123")
+diff --git a/codex-rs/cli/tests/plugin_cli.rs b/codex-rs/cli/tests/plugin_cli.rs
+index b1c3168..3784f94 100644
+--- a/codex-rs/cli/tests/plugin_cli.rs
++++ b/codex-rs/cli/tests/plugin_cli.rs
+@@ -1,7 +1,7 @@
+ use anyhow::Result;
+ use anyhow::ensure;
+ use app_test_support::ChatGptAuthFixture;
+-use app_test_support::write_chatgpt_auth;
++use app_test_support::write_external_chatgpt_auth;
+ use codex_config::CONFIG_TOML_FILE;
+ use codex_config::MarketplaceConfigUpdate;
+ use codex_config::record_user_marketplace;
+@@ -1168,7 +1168,7 @@ impl RemoteMarketplaceFixture {
+                 server.uri()
+             ),
+         )?;
+-        write_chatgpt_auth(
++        write_external_chatgpt_auth(
+             home.path(),
+             ChatGptAuthFixture::new("chatgpt-token")
+                 .account_id("account-123")
+diff --git a/codex-rs/core/src/holycodex_identity_legacy.rs b/codex-rs/core/src/holycodex_identity_legacy.rs
+new file mode 100644
+index 0000000..2b9513a
+--- /dev/null
++++ b/codex-rs/core/src/holycodex_identity_legacy.rs
+@@ -0,0 +1,66 @@
++//! Narrow identity migration from reviewed PR12 head 4a92573d0240bb980bb4c1c5035db9307323321a.
++//! Historical bytes are used only to recognize persisted digests, never sent to a model.
++
++use super::*;
++use sha1::Digest;
++
++pub(super) const ROOT_INSTRUCTION_SHA1: &str = "bf90f51b3d888fa9ad2f49753025511aa6ece1c1";
++
++const SPECIALIST_INSTRUCTIONS: &str = r###"# Specialist
++
++Execute the bounded work in your Role.task. Preserve unrelated and concurrent work, make routine choices within scope, and complete the requested outcome with evidence proportionate to its acceptance criteria. Root owns user interaction and material decisions; do not contact the user or delegate. Return one concise terminal result with outcome, changed paths, checks and observable evidence, blockers, decisions needed from Root, and remaining risk.
++
++For code work, inspect the applicable contracts and local conventions before changing code. Preserve mergeability from the start: make a cohesive, complete change within scope using simple, idiomatic, readable code and existing abstractions. Avoid speculative behavior, unjustified refactors, and unnecessary dependencies. Where a regression check is applicable, demonstrate that it fails on the broken base and passes after the fix. If a relevant check already fails on the base, report the baseline and compare the candidate; if tools or environment limitations block a check, state the blocker and never imply it passed. Never weaken or tailor checks. Reviewers in any Reviewer.* role assess behavior, integration, maintainability, error paths, and compatibility, distinguish true blockers from optional style feedback, and apply the same mergeability bar if edits are authorized.
++
++For related follow-up work, continue this HolyCodex session when it preserves useful context. Keep updates to Root focused on new evidence and decisions; use relevant session context, provide deltas, and include only the file slices or log excerpts needed to verify the result. Maintain task quality and completeness throughout.
++"###;
++
++fn fragment(role: RoleTask) -> Option<&'static str> {
++    match role {
++        RoleTask::WorkerVisual => {
++            Some("Exercise the changed interaction in a render and report the visible result.")
++        }
++        RoleTask::ReviewerVisual => {
++            Some("Inspect relevant states and report material discrepancies with evidence.")
++        }
++        _ => Some(route_policy(role)?.assignment_fragment),
++    }
++}
++
++pub(super) fn instruction_sha1(contract: &NativeThreadContract) -> Option<String> {
++    if contract.role == RoleTask::Root && contract.assignment.is_none() {
++        return Some(ROOT_INSTRUCTION_SHA1.to_owned());
++    }
++    let text = if let Some(assignment) = &contract.assignment {
++        let mut task = assignment.clone();
++        task.specialist_id = None;
++        format!(
++            "{}\n{}\n\n{}",
++            SPECIALIST_INSTRUCTIONS,
++            fragment(assignment.role)?,
++            serde_json::to_string(&task).ok()?
++        )
++    } else {
++        format!("{}\n{}", SPECIALIST_INSTRUCTIONS, fragment(contract.role)?)
++    };
++    Some(format!("{:x}", sha1::Sha1::digest(text)))
++}
++
++/// Called only under the identity sidecar lock. The caller validates every unchanged
++/// authority/identity field before persisting any migrated record.
++pub(super) fn migrate_pr12_contract(contract: &mut NativeThreadContract) -> bool {
++    if Some(contract.instruction_sha1.as_str()) != instruction_sha1(contract).as_deref() {
++        return false;
++    }
++    if contract.role == RoleTask::Root
++        && contract.profile == Profile::High
++        && contract.effort == holycodex_policy::ReasoningEffort::Medium
++    {
++        contract.effort = holycodex_policy::ReasoningEffort::High;
++    }
++    contract.instruction_sha1 = contract.assignment.as_ref().map_or_else(
++        || super::instruction_sha1(contract.role),
++        super::assignment_instruction_sha1,
++    );
++    true
++}
+diff --git a/codex-rs/core/src/session/step_activation.rs b/codex-rs/core/src/session/step_activation.rs
+index c50b4b5..caed2f6 100644
+--- a/codex-rs/core/src/session/step_activation.rs
++++ b/codex-rs/core/src/session/step_activation.rs
+@@ -380,7 +380,7 @@ impl Session {
+         update: &StepSettingsUpdate,
+         environments: &[TurnEnvironmentSelection],
+     ) -> Result<ResolvedStepSettings, String> {
+-        let (requirements, overrides, trusted_guardian_reviewer) = {
++        let (requirements, overrides, trusted_guardian_reviewer, holycodex_allocation) = {
+             let state = self.state.lock().await;
+             let configuration = &state.session_configuration;
+             let stack = &configuration.original_config_do_not_use.config_layer_stack;
+@@ -388,9 +388,11 @@ impl Session {
+                 stack.requirements().clone(),
+                 configuration.model_info_overrides.clone(),
+                 configuration.trusted_guardian_reviewer,
++                crate::holycodex::native_prompt_role(&configuration.session_source).is_some(),
+             )
+         };
+         let constraints = StepSettingsConstraints {
++            holycodex_allocation,
+             requirements: &requirements,
+             guardian_approval_enabled: self.features.enabled(Feature::GuardianApproval),
+             trusted_guardian_reviewer,
+@@ -426,6 +428,10 @@ impl Session {
+             .config_layer_stack
+             .requirements();
+         settings.revalidate(&StepSettingsConstraints {
++            holycodex_allocation: crate::holycodex::native_prompt_role(
++                &configuration.session_source,
++            )
++            .is_some(),
+             requirements,
+             guardian_approval_enabled: self.features.enabled(Feature::GuardianApproval),
+             trusted_guardian_reviewer: configuration.trusted_guardian_reviewer,
+diff --git a/codex-rs/core/src/session/step_settings_tests.rs b/codex-rs/core/src/session/step_settings_tests.rs
+index 38fd6d1..8af67d4 100644
+--- a/codex-rs/core/src/session/step_settings_tests.rs
++++ b/codex-rs/core/src/session/step_settings_tests.rs
+@@ -310,6 +310,7 @@ fn configured_settings() -> StepSettings {
+ 
+ fn step_settings_constraints(requirements: &ConfigRequirements) -> StepSettingsConstraints<'_> {
+     StepSettingsConstraints {
++        holycodex_allocation: false,
+         requirements,
+         guardian_approval_enabled: false,
+         trusted_guardian_reviewer: false,
+diff --git a/codex-rs/core/tests/common/test_codex.rs b/codex-rs/core/tests/common/test_codex.rs
+index a34bcd4..a092a21 100644
+--- a/codex-rs/core/tests/common/test_codex.rs
++++ b/codex-rs/core/tests/common/test_codex.rs
+@@ -380,6 +380,7 @@ impl TestAuth {
+ }
+ 
+ pub struct TestCodexBuilder {
++    session_source: SessionSource,
+     config_mutators: Vec<Box<ConfigMutator>>,
+     thread_manager_configurer: Option<Box<dyn FnOnce(ThreadManager) -> ThreadManager + Send>>,
+     auth: TestAuth,
+@@ -402,6 +403,11 @@ pub struct TestCodexBuilder {
+ }
+ 
+ impl TestCodexBuilder {
++    pub fn with_session_source(mut self, session_source: SessionSource) -> Self {
++        self.session_source = session_source;
++        self
++    }
++
+     pub fn with_thread_store(mut self, thread_store: Arc<dyn ThreadStore>) -> Self {
+         self.thread_store = Some(thread_store);
+         self
+@@ -815,7 +821,7 @@ impl TestCodexBuilder {
+                 auth_manager.clone(),
+                 models_manager,
+                 codex_core::CodexAppsToolsCache::default(),
+-                SessionSource::Exec,
++                self.session_source.clone(),
+                 Arc::clone(&environment_manager),
+                 Arc::new(extensions.build()),
+                 user_instructions_provider,
+@@ -1456,6 +1462,7 @@ fn function_call_output<'a>(bodies: &'a [Value], call_id: &str) -> &'a Value {
+ 
+ pub fn test_codex() -> TestCodexBuilder {
+     TestCodexBuilder {
++        session_source: SessionSource::Exec,
+         thread_manager_configurer: None,
+         config_mutators: vec![Box::new(|config| {
+             config
+diff --git a/codex-rs/model-provider/src/auth.rs b/codex-rs/model-provider/src/auth.rs
+index f4d2764..ace7b30 100644
+--- a/codex-rs/model-provider/src/auth.rs
++++ b/codex-rs/model-provider/src/auth.rs
+@@ -194,6 +194,45 @@ pub(crate) fn auth_manager_for_provider(
+     }
+ }
+ 
++/// Resolve SIWC routing at the same boundary that selects its bearer credential.
++pub(crate) fn api_provider_for_auth(
++    provider: &ModelProviderInfo,
++    auth: Option<&CodexAuth>,
++) -> codex_protocol::error::Result<codex_api::Provider> {
++    let mut resolved = provider.to_api_provider(auth.map(CodexAuth::auth_mode))?;
++    if auth.is_some_and(CodexAuth::uses_siwc_api)
++        && provider.requires_openai_auth
++        && bearer_auth_for_provider(provider)?.is_none()
++    {
++        let resource = codex_login::siwc::RESOURCE;
++        if provider
++            .base_url
++            .as_deref()
++            .is_some_and(|url| url.trim_end_matches('/') != resource)
++            || provider
++                .model_catalog_url
++                .as_deref()
++                .is_some_and(|catalog| {
++                    let Ok(url) = url::Url::parse(catalog) else {
++                        return true;
++                    };
++                    url.scheme() != "https"
++                        || url.host_str() != Some("api.openai.com")
++                        || url.port_or_known_default() != Some(443)
++                        || !url.username().is_empty()
++                        || url.password().is_some()
++                        || !url.path().starts_with("/v1/")
++                })
++        {
++            return Err(CodexErr::UnsupportedOperation(
++                "SIWC credentials can only be used with the public OpenAI API resource".to_string(),
++            ));
++        }
++        resolved.base_url = resource.to_string();
++    }
++    Ok(resolved)
++}
++
+ pub(crate) fn resolve_provider_auth(
+     auth: Option<&CodexAuth>,
+     provider: &ModelProviderInfo,
+@@ -215,6 +254,10 @@ pub(crate) fn resolve_provider_auth(
+         ));
+     }
+ 
++    api_provider_for_auth(provider, auth)?;
++    if let Some(auth @ CodexAuth::Chatgpt(_)) = auth {
++        auth.get_token()?;
++    }
+     Ok(match auth {
+         Some(auth) => auth_provider_from_auth(auth),
+         None => unauthenticated_auth_provider(),
+@@ -232,6 +275,9 @@ pub(crate) async fn resolve_provider_auth_for_scope(
+         session_source,
+         agent_identity_session_fallback,
+     } = scope;
++    if let Some(auth @ CodexAuth::Chatgpt(_)) = auth {
++        auth.get_token()?;
++    }
+     if let Some(CodexAuth::AgentIdentity(agent_identity_auth)) = auth {
+         return Ok(ResolvedProviderAuth::for_agent_identity(
+             agent_identity_auth.clone(),
+@@ -287,6 +333,7 @@ fn should_bootstrap_chatgpt_agent_identity(
+ ) -> bool {
+     agent_identity_policy == AgentIdentityAuthPolicy::ChatGptAuth
+         && matches!(auth, Some(CodexAuth::Chatgpt(_)))
++        && auth.is_some_and(CodexAuth::uses_codex_backend)
+ }
+ 
+ fn bearer_auth_for_provider(
+@@ -360,11 +407,7 @@ mod tests {
+     use std::path::PathBuf;
+     use std::sync::atomic::AtomicUsize;
+     use std::sync::atomic::Ordering;
+-    use wiremock::Mock;
+     use wiremock::MockServer;
+-    use wiremock::ResponseTemplate;
+-    use wiremock::matchers::method;
+-    use wiremock::matchers::path;
+ 
+     use super::*;
+ 
+@@ -416,6 +459,15 @@ mod tests {
+     fn write_chatgpt_auth_json(codex_home: &Path) {
+         let auth_json = json!({
+             "tokens": {
++                "siwc": {
++                    "issuer": codex_login::siwc::ISSUER,
++                    "subject": "user-12345",
++                    "client_id": "oaiapp_scoped-auth-test",
++                    "ext_agent_host_id": "test-host",
++                    "scopes": ["openid", "resource.invoke", "chatgpt.tokens.use.direct"],
++                    "expires_at": 4_000_000_000_u64,
++                    "authorization_nonce": "test-nonce"
++                },
+                 "id_token": TEST_CHATGPT_ID_TOKEN,
+                 "access_token": "test-access-token",
+                 "refresh_token": "test-refresh-token",
+@@ -453,21 +505,6 @@ mod tests {
+         (codex_home, auth_manager, auth)
+     }
+ 
+-    async fn mount_transient_agent_registration(
+-        server: &MockServer,
+-        status: u16,
+-        registration_count: Arc<AtomicUsize>,
+-    ) {
+-        Mock::given(method("POST"))
+-            .and(path("/v1/agent/register"))
+-            .respond_with(move |_request: &wiremock::Request| {
+-                registration_count.fetch_add(1, Ordering::SeqCst);
+-                ResponseTemplate::new(status)
+-            })
+-            .mount(server)
+-            .await;
+-    }
+-
+     #[test]
+     fn unauthenticated_auth_provider_adds_no_headers() {
+         let provider =
+@@ -739,116 +776,44 @@ mod tests {
+     }
+ 
+     #[tokio::test]
+-    async fn chatgpt_bootstrap_unavailable_uses_session_bearer_fallback() {
++    async fn siwc_scoped_auth_never_bootstraps_or_engages_backend_fallback() {
+         let server = MockServer::start().await;
+-        let registration_count = Arc::new(AtomicUsize::new(0));
+-        mount_transient_agent_registration(
+-            &server,
+-            /*status*/ 503,
+-            Arc::clone(&registration_count),
+-        )
+-        .await;
+         let (_codex_home, auth_manager, auth) = chatgpt_auth_manager(server.uri()).await;
+         let provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+-        let fallback = AgentIdentitySessionFallback::default();
+-
+-        let provider_auth = resolve_provider_auth_for_scope(
+-            Some(auth_manager),
+-            Some(&auth),
+-            &provider,
+-            provider_auth_scope(AgentIdentityAuthPolicy::ChatGptAuth, fallback.clone()),
+-        )
+-        .await
+-        .expect("fallback should resolve bearer auth");
+-
+-        let headers = provider_auth.auth.to_auth_headers();
+-        assert_eq!(
+-            headers
+-                .get(http::header::AUTHORIZATION)
+-                .and_then(|value| value.to_str().ok()),
+-            Some("Bearer test-access-token")
+-        );
+-        assert_eq!(
+-            headers
+-                .get("ChatGPT-Account-ID")
+-                .and_then(|value| value.to_str().ok()),
+-            Some("account-123")
++        for policy in [
++            AgentIdentityAuthPolicy::JwtOnly,
++            AgentIdentityAuthPolicy::ChatGptAuth,
++        ] {
++            let fallback = AgentIdentitySessionFallback::default();
++            let resolved = resolve_provider_auth_for_scope(
++                Some(Arc::clone(&auth_manager)),
++                Some(&auth),
++                &provider,
++                provider_auth_scope(policy, fallback.clone()),
++            )
++            .await
++            .expect("SIWC bearer auth resolves");
++            assert_eq!(
++                resolved.auth.to_auth_headers().get(AUTHORIZATION),
++                Some(&HeaderValue::from_static("Bearer test-access-token"))
++            );
++            assert!(resolved.agent_identity_telemetry.is_none());
++            assert!(!fallback.is_engaged());
++        }
++        let legacy = CodexAuth::create_dummy_chatgpt_auth_for_testing();
++        assert!(
++            resolve_provider_auth_for_scope(
++                Some(auth_manager),
++                Some(&legacy),
++                &provider,
++                provider_auth_scope(
++                    AgentIdentityAuthPolicy::ChatGptAuth,
++                    AgentIdentitySessionFallback::default()
++                ),
++            )
++            .await
++            .is_err()
+         );
+-        assert!(fallback.is_engaged());
+-        assert_eq!(registration_count.load(Ordering::SeqCst), 3);
+-    }
+-
+-    #[tokio::test]
+-    async fn chatgpt_session_fallback_skips_later_agent_identity_bootstrap() {
+-        let server = MockServer::start().await;
+-        let registration_count = Arc::new(AtomicUsize::new(0));
+-        mount_transient_agent_registration(
+-            &server,
+-            /*status*/ 503,
+-            Arc::clone(&registration_count),
+-        )
+-        .await;
+-        let (_codex_home, auth_manager, auth) = chatgpt_auth_manager(server.uri()).await;
+-        let provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+-        let fallback = AgentIdentitySessionFallback::default();
+-
+-        resolve_provider_auth_for_scope(
+-            Some(Arc::clone(&auth_manager)),
+-            Some(&auth),
+-            &provider,
+-            provider_auth_scope(AgentIdentityAuthPolicy::ChatGptAuth, fallback.clone()),
+-        )
+-        .await
+-        .expect("first fallback should resolve bearer auth");
+-        resolve_provider_auth_for_scope(
+-            Some(auth_manager),
+-            Some(&auth),
+-            &provider,
+-            provider_auth_scope(AgentIdentityAuthPolicy::ChatGptAuth, fallback),
+-        )
+-        .await
+-        .expect("second fallback should resolve bearer auth");
+-
+-        assert_eq!(registration_count.load(Ordering::SeqCst), 3);
+-    }
+-
+-    #[tokio::test]
+-    async fn chatgpt_sessions_share_bootstrap_failure_cooldown() {
+-        let server = MockServer::start().await;
+-        let registration_count = Arc::new(AtomicUsize::new(0));
+-        mount_transient_agent_registration(
+-            &server,
+-            /*status*/ 503,
+-            Arc::clone(&registration_count),
+-        )
+-        .await;
+-        let (_codex_home, auth_manager, auth) = chatgpt_auth_manager(server.uri()).await;
+-        let provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+-        let first_fallback = AgentIdentitySessionFallback::default();
+-        let second_fallback = AgentIdentitySessionFallback::default();
+-
+-        resolve_provider_auth_for_scope(
+-            Some(Arc::clone(&auth_manager)),
+-            Some(&auth),
+-            &provider,
+-            provider_auth_scope(AgentIdentityAuthPolicy::ChatGptAuth, first_fallback.clone()),
+-        )
+-        .await
+-        .expect("first session fallback should resolve bearer auth");
+-        resolve_provider_auth_for_scope(
+-            Some(auth_manager),
+-            Some(&auth),
+-            &provider,
+-            provider_auth_scope(
+-                AgentIdentityAuthPolicy::ChatGptAuth,
+-                second_fallback.clone(),
+-            ),
+-        )
+-        .await
+-        .expect("second session fallback should resolve bearer auth");
+-
+-        assert!(first_fallback.is_engaged());
+-        assert!(second_fallback.is_engaged());
+-        assert_eq!(registration_count.load(Ordering::SeqCst), 3);
++        assert_eq!(server.received_requests().await.unwrap().len(), 0);
+     }
+ }
+diff --git a/codex-rs/model-provider/src/models_endpoint.rs b/codex-rs/model-provider/src/models_endpoint.rs
+index 6986451..e800e8c 100644
+--- a/codex-rs/model-provider/src/models_endpoint.rs
++++ b/codex-rs/model-provider/src/models_endpoint.rs
+@@ -109,7 +109,8 @@ impl OpenAiModelsEndpoint {
+         );
+         let identity = crate::models_identity::identity(&self.provider_info, auth.as_ref())?;
+         let auth_mode = auth.as_ref().map(CodexAuth::auth_mode);
+-        let mut api_provider = self.provider_info.to_api_provider(auth_mode)?;
++        let mut api_provider =
++            crate::auth::api_provider_for_auth(&self.provider_info, auth.as_ref())?;
+         if (auth.as_ref().is_some_and(CodexAuth::is_api_key_auth) || self.has_provider_api_key())
+             && self.supports_api_key_models()
+             && self.provider_info.base_url.is_none()
+@@ -521,7 +522,14 @@ mod tests {
+     async fn provider_api_key_without_endpoint_overrides_uses_codex_backend() {
+         for auth in [
+             None,
+-            Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
++            Some(
++                CodexAuth::from_external_chatgpt_tokens(
++                    "e30.e30.c2lnbmF0dXJl",
++                    "account_id",
++                    /*chatgpt_plan_type*/ None,
++                )
++                .expect("external ChatGPT fixture"),
++            ),
+         ] {
+             let capture = Arc::new(CaptureModelsUrl(Mutex::new(/*t*/ None)));
+             let auth_manager = auth.map(AuthManager::from_auth_for_testing);
+@@ -793,7 +801,12 @@ mod tests {
+     #[tokio::test]
+     async fn explicit_catalog_reuses_auth_headers_and_query_parameters() {
+         for auth in [
+-            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
++            CodexAuth::from_external_chatgpt_tokens(
++                "e30.e30.c2lnbmF0dXJl",
++                "account_id",
++                /*chatgpt_plan_type*/ None,
++            )
++            .expect("external ChatGPT fixture"),
+             CodexAuth::from_api_key("test-key"),
+         ] {
+             let server = MockServer::start().await;
+diff --git a/codex-rs/model-provider/src/models_identity.rs b/codex-rs/model-provider/src/models_identity.rs
+index 409ff83..ae4927b 100644
+--- a/codex-rs/model-provider/src/models_identity.rs
++++ b/codex-rs/model-provider/src/models_identity.rs
+@@ -14,7 +14,7 @@ pub(crate) fn identity(
+     provider_info: &ModelProviderInfo,
+     auth: Option<&CodexAuth>,
+ ) -> CoreResult<String> {
+-    let mut api_provider = provider_info.to_api_provider(auth.map(CodexAuth::auth_mode))?;
++    let mut api_provider = crate::auth::api_provider_for_auth(provider_info, auth)?;
+     let mut digest = Sha256::new();
+     // Length-prefix every field to avoid ambiguity between adjacent values.
+     let mut field = |value: &[u8]| {
+diff --git a/codex-rs/model-provider/src/provider.rs b/codex-rs/model-provider/src/provider.rs
+index 7d99c55..4460731 100644
+--- a/codex-rs/model-provider/src/provider.rs
++++ b/codex-rs/model-provider/src/provider.rs
+@@ -236,8 +236,7 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
+     fn api_provider(&self) -> ModelProviderFuture<'_, codex_protocol::error::Result<Provider>> {
+         Box::pin(async move {
+             let auth = self.auth().await;
+-            self.info()
+-                .to_api_provider(auth.as_ref().map(CodexAuth::auth_mode))
++            crate::auth::api_provider_for_auth(self.info(), auth.as_ref())
+         })
+     }
+ 
+@@ -255,7 +254,7 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
+             let mut redirect_policy = ClientRedirectPolicy::Default;
+             if provider_uses_first_party_auth_path(self.info())
+                 && self.info().supports_codex_backend_routes()
+-                && let Some(auth) = self.auth().await.filter(CodexAuth::is_chatgpt_auth)
++                && let Some(auth) = self.auth().await.filter(CodexAuth::uses_codex_backend)
+                 && let Some(auth_manager) = self.auth_manager()
+             {
+                 let mut previously_routed = routing_context.previously_routed.lock().await;
+@@ -655,6 +654,111 @@ mod tests {
+     use crate::auth::AgentIdentitySessionFallback;
+     use crate::shared_state::process_shared_state;
+ 
++    #[tokio::test]
++    async fn siwc_provider_uses_resource_without_workspace_or_agent_bootstrap()
++    -> Result<(), Box<dyn std::error::Error>> {
++        let home = tempfile::tempdir()?;
++        let server = MockServer::start().await;
++        let mut tokens = CodexAuth::from_external_chatgpt_tokens(
++            "e30.e30.c2lnbmF0dXJl",
++            "account_id",
++            /*chatgpt_plan_type*/ None,
++        )
++        .expect("external ChatGPT fixture")
++        .get_token_data()?;
++        tokens.access_token = "siwc-access-token".to_string();
++        tokens.id_token.raw_jwt = "e30.e30.c2lnbmF0dXJl".to_string();
++        tokens.siwc = Some(serde_json::from_value(json!({
++            "issuer": codex_login::siwc::ISSUER,
++            "subject": "test-subject",
++            "client_id": "oaiapp_provider-test",
++            "ext_agent_host_id": "test-host",
++            "scopes": ["openid", "resource.invoke", "chatgpt.tokens.use.direct"],
++            "expires_at": 4_000_000_000_u64,
++            "authorization_nonce": "test-nonce"
++        }))?);
++        std::fs::write(
++            home.path().join("auth.json"),
++            serde_json::to_vec(&json!({
++                "auth_mode": "chatgpt", "tokens": tokens,
++                "last_refresh": "2026-10-09T00:00:00Z"
++            }))?,
++        )?;
++        let auth = CodexAuth::from_auth_storage(
++            home.path(),
++            codex_login::AuthCredentialsStoreMode::File,
++            Some(&server.uri()),
++            codex_login::AuthKeyringBackendKind::Direct,
++            &codex_login::test_support::transport_default_auth_route_config(),
++        )
++        .await?
++        .expect("SIWC registration loads");
++        let provider = create_model_provider(
++            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
++            Some(AuthManager::from_auth_for_testing(auth.clone())),
++        );
++        let resolved = provider
++            .responses_api_provider(&WorkspaceRoutingContext::new(server.uri()))
++            .await?;
++        assert_eq!(resolved.provider.base_url, codex_login::siwc::RESOURCE);
++        let credentials = provider
++            .api_auth_for_scope(ProviderAuthScope {
++                agent_identity_policy: AgentIdentityAuthPolicy::ChatGptAuth,
++                session_source: SessionSource::Cli,
++                agent_identity_session_fallback: AgentIdentitySessionFallback::default(),
++            })
++            .await?;
++        assert_eq!(
++            credentials
++                .auth
++                .to_auth_headers()
++                .get("authorization")
++                .unwrap(),
++            "Bearer siwc-access-token"
++        );
++        assert!(credentials.agent_identity_telemetry.is_none());
++        assert_eq!(server.received_requests().await.unwrap().len(), 0);
++
++        for base_url in [
++            "https://chatgpt.com/backend-api/codex",
++            "https://other.invalid/v1",
++        ] {
++            let provider = create_model_provider(
++                ModelProviderInfo::create_openai_provider(Some(base_url.to_string())),
++                Some(AuthManager::from_auth_for_testing(auth.clone())),
++            );
++            assert!(provider.api_provider().await.is_err());
++            assert!(provider.api_auth().await.is_err());
++        }
++        for (catalog_url, allowed) in [
++            ("https://api.openai.com/v1/models", true),
++            ("https://other.invalid/v1/models", false),
++            ("https://api.openai.com/v1/../backend-api/models", false),
++        ] {
++            let mut info = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
++            info.model_catalog_url = Some(catalog_url.into());
++            let provider =
++                create_model_provider(info, Some(AuthManager::from_auth_for_testing(auth.clone())));
++            assert_eq!(provider.api_provider().await.is_ok(), allowed);
++            assert_eq!(provider.api_auth().await.is_ok(), allowed);
++        }
++        let mut custom = ModelProviderInfo::create_openai_provider(Some(server.uri()));
++        custom.experimental_bearer_token = Some("explicit-provider-token".into());
++        let provider =
++            create_model_provider(custom, Some(AuthManager::from_auth_for_testing(auth)));
++        assert_eq!(provider.api_provider().await?.base_url, server.uri());
++        assert_eq!(
++            provider
++                .api_auth()
++                .await?
++                .to_auth_headers()
++                .get("authorization")
++                .unwrap(),
++            "Bearer explicit-provider-token"
++        );
++        Ok(())
++    }
++
+     fn provider_info_with_command_auth() -> ModelProviderInfo {
+         ModelProviderInfo {
+             auth: Some(ModelProviderAuthInfo {
+@@ -833,7 +937,12 @@ mod tests {
+         let provider = create_model_provider(
+             ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+             Some(AuthManager::from_auth_for_testing(
+-                CodexAuth::create_dummy_chatgpt_auth_for_testing(),
++                CodexAuth::from_external_chatgpt_tokens(
++                    "e30.e30.c2lnbmF0dXJl",
++                    "account_id",
++                    /*chatgpt_plan_type*/ None,
++                )
++                .expect("external ChatGPT fixture"),
+             )),
+         );
+ 
+@@ -1173,7 +1282,12 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
+         let provider = create_model_provider(
+             ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+             Some(AuthManager::from_auth_for_testing(
+-                CodexAuth::create_dummy_chatgpt_auth_for_testing(),
++                CodexAuth::from_external_chatgpt_tokens(
++                    "e30.e30.c2lnbmF0dXJl",
++                    "account_id",
++                    /*chatgpt_plan_type*/ None,
++                )
++                .expect("external ChatGPT fixture"),
+             )),
+         );
+ 
+@@ -1408,7 +1522,14 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
+         )]));
+         for auth in [
+             None,
+-            Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
++            Some(
++                CodexAuth::from_external_chatgpt_tokens(
++                    "e30.e30.c2lnbmF0dXJl",
++                    "account_id",
++                    /*chatgpt_plan_type*/ None,
++                )
++                .expect("external ChatGPT fixture"),
++            ),
+         ] {
+             // Disabled discovery must ignore the catalog cached by the enabled run.
+             for enabled in [true, false] {
+diff --git a/codex-rs/model-provider/src/workspace_routing_tests.rs b/codex-rs/model-provider/src/workspace_routing_tests.rs
+index 65ddb2b..e91e90e 100644
+--- a/codex-rs/model-provider/src/workspace_routing_tests.rs
++++ b/codex-rs/model-provider/src/workspace_routing_tests.rs
+@@ -53,8 +53,14 @@ impl WorkspaceRoutingResolver for ChangedBootstrap {
+ #[tokio::test]
+ async fn concurrent_discovery_cannot_forget_established_routing() {
+     let context = WorkspaceRoutingContext::new("https://chatgpt.com/backend-api".into());
+-    let auth =
+-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
++    let auth = AuthManager::from_auth_for_testing(
++        CodexAuth::from_external_chatgpt_tokens(
++            "e30.e30.c2lnbmF0dXJl",
++            "account_id",
++            /*chatgpt_plan_type*/ None,
++        )
++        .expect("external ChatGPT fixture"),
++    );
+     let resolver = Arc::new(ChangedBootstrap {
+         first_lookup: std::sync::atomic::AtomicBool::new(true),
+         release_first: tokio::sync::Notify::new(),
+@@ -107,8 +113,14 @@ impl WorkspaceRoutingResolver for Routing {
+ #[tokio::test]
+ async fn workspace_routing_preserves_paths_and_excludes_other_providers() {
+     let routing_context = WorkspaceRoutingContext::new("https://chatgpt.com/backend-api".into());
+-    let auth =
+-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
++    let auth = AuthManager::from_auth_for_testing(
++        CodexAuth::from_external_chatgpt_tokens(
++            "e30.e30.c2lnbmF0dXJl",
++            "account_id",
++            /*chatgpt_plan_type*/ None,
++        )
++        .expect("external ChatGPT fixture"),
++    );
+     let resolver: Arc<dyn WorkspaceRoutingResolver> = Arc::new(Routing(WorkspaceRouting {
+         chatgpt_account_id: "account_id".into(),
+         backend_origin: "https://gov.chatgpt.com:8443".into(),
+@@ -172,8 +184,14 @@ async fn workspace_routing_preserves_paths_and_excludes_other_providers() {
+ #[tokio::test]
+ async fn missing_routing_owner_and_wrong_workspace_fail_closed() {
+     let routing_context = WorkspaceRoutingContext::new("https://chatgpt.com/backend-api".into());
+-    let auth =
+-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
++    let auth = AuthManager::from_auth_for_testing(
++        CodexAuth::from_external_chatgpt_tokens(
++            "e30.e30.c2lnbmF0dXJl",
++            "account_id",
++            /*chatgpt_plan_type*/ None,
++        )
++        .expect("external ChatGPT fixture"),
++    );
+     let resolver: Arc<dyn WorkspaceRoutingResolver> = Arc::new(Routing(WorkspaceRouting {
+         chatgpt_account_id: "other-account".into(),
+         backend_origin: "https://chatgpt.com".into(),
+diff --git a/codex-rs/tui/src/status/tests.rs b/codex-rs/tui/src/status/tests.rs
+index d2016ca..c800c69 100644
+--- a/codex-rs/tui/src/status/tests.rs
++++ b/codex-rs/tui/src/status/tests.rs
+@@ -379,6 +379,25 @@ async fn status_snapshot_shows_chatgpt_plan_without_email() {
+         AuthCredentialsStoreMode::File,
+     )
+     .expect("write email-less ChatGPT auth");
++    // This display fixture represents managed HolyCodex login, not a legacy Codex token.
++    let auth_path = temp_home.path().join("auth.json");
++    let mut auth: serde_json::Value =
++        serde_json::from_slice(&std::fs::read(&auth_path).expect("read auth fixture"))
++            .expect("parse auth fixture");
++    auth["tokens"]["siwc"] = serde_json::json!({
++        "issuer": codex_login::siwc::ISSUER,
++        "subject": "status-user",
++        "client_id": "oaiapp_status-test",
++        "ext_agent_host_id": "status-test-host",
++        "scopes": ["openid", "resource.invoke", "chatgpt.tokens.use.direct"],
++        "expires_at": 4_000_000_000_u64,
++        "authorization_nonce": "status-test-nonce"
++    });
++    std::fs::write(
++        &auth_path,
++        serde_json::to_vec(&auth).expect("serialize SIWC fixture"),
++    )
++    .expect("write SIWC auth fixture");
+     write_models_cache(temp_home.path())
+         .await
+         .expect("write models cache");

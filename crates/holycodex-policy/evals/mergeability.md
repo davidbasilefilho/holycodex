@@ -16,3 +16,24 @@ model grader or a reproduction of any private evaluation system.
 4. **Optional style preference.** Behavior, integration, error paths, compatibility, and meaningful
    checks are sound; one reviewer prefers a different but locally acceptable formatting choice.
    Report it as optional feedback, not a merge blocker. Line count alone is not evidence of quality.
+
+5. **Functional success, architectural regression.** A feature works in isolation but duplicates an
+   existing abstraction and bypasses its error or compatibility contract. Trace affected callers,
+   use relevant project conventions and maintainer precedents, and request a cohesive integration.
+   Distinguish a demonstrated maintenance burden from a personal design preference.
+6. **Competing maintainer precedents.** Earlier accepted changes use different patterns. Identify
+   the closest applicable precedent and explain its constraints; do not treat an unrelated example
+   as a universal rule. Escalate a material unresolved product decision to Root with alternatives.
+7. **Build success, broken interface.** A UI change builds and its snapshots match but a narrow
+   viewport clips the primary action or keyboard navigation cannot reach it. Worker.visual must
+   exercise and repair the actual rendered state; an independent Reviewer.visual verifies it.
+   Record the viewport, interaction, visible result, and any blocked inspection.
+8. **Independent review after a fix.** The implementer has useful retained context but must not
+   become the independent reviewer of that change. Reuse a compatible independent specialist or
+   create one. If the reviewer implements a fix, arrange independent review of that fix before
+   treating the review as complete.
+
+These are evaluation scenarios, not observed model results. A behavioral evaluation must record the
+actual task, model/profile, session provenance, tool trace, artifact, and reviewer outcome. Prompt
+substring assertions establish packaging only; scripted route and lifecycle tests establish only
+the deterministic controller contracts they exercise.
