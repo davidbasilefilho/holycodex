@@ -106,3 +106,43 @@ test('durable instructions are US English and derive authority from the current 
   assert.doesNotMatch(development, /[A-Z]:\\Users\\[^\s]+/i);
   assert.equal((development.match(/--upstream \.\.\/holycodex-upstream/g) || []).length, 3);
 });
+
+test('unimplemented operations are absent from the shipped and native expected skill inventories', () => {
+  const skills = path.join(__dirname, '../../overlay/holycodex/skills');
+  const shipped = fs.readdirSync(skills).filter((name) => fs.existsSync(path.join(skills, name, 'SKILL.md')));
+  const metadataNames = shipped.map((name) => {
+    const metadata = fs.readFileSync(path.join(skills, name, 'SKILL.md'), 'utf8');
+    return /^name: (.+)$/m.exec(metadata)?.[1];
+  });
+  for (const removed of ['auto-reset', 'handoff']) {
+    assert.ok(!shipped.includes(removed), `unimplemented ${removed} asset is still shipped`);
+    assert.ok(!metadataNames.includes(removed), `unimplemented ${removed} is still advertised`);
+  }
+  const patch = fs.readFileSync(path.join(__dirname, '../../patches/0001-native-runtime.patch'), 'utf8');
+  const inventory = /const HOLYCODEX_SKILLS: &\[&str\] = &\[([\s\S]*?)\+\s*\];/.exec(patch);
+  assert.ok(inventory, 'native embedded-skill inventory test must remain present');
+  const expected = [...inventory[1].matchAll(/^\+\s+"([^"]+)",$/gm)].map((match) => match[1]);
+  assert.deepEqual(expected.toSorted(), shipped.toSorted());
+});
+
+test('real external tools and renderers require verified current availability', () => {
+  const skills = path.join(__dirname, '../../overlay/holycodex/skills');
+  const context7 = fs.readFileSync(path.join(skills, 'context7-cli/SKILL.md'), 'utf8');
+  assert.ok(context7.includes('does not install or supply the Context7 CLI'));
+  assert.ok(context7.includes('verify that it is available in the current environment'));
+  assert.ok(context7.includes('official documentation'));
+  const visualization = fs.readFileSync(path.join(skills, 'visualize/SKILL.md'), 'utf8');
+  assert.ok(visualization.includes('capabilities actually exposed to the current account and workspace'));
+  assert.doesNotMatch(visualization, /ChatGPT web and desktop support rich visualizations/);
+});
+
+test('usage docs distinguish shipped guidance from operations and omit future enforcement promises', () => {
+  const root = path.join(__dirname, '../..');
+  const instructions = fs.readFileSync(path.join(root, 'docs/INSTRUCTIONS.md'), 'utf8');
+  assert.ok(instructions.includes('A bundled skill is guidance, not an installed integration or host operation'));
+  const modelPolicy = fs.readFileSync(path.join(root, 'docs/MODEL-POLICY.md'), 'utf8');
+  assert.ok(modelPolicy.includes('auto_reset'));
+  assert.ok(modelPolicy.includes('remains accepted for configuration compatibility'));
+  assert.ok(modelPolicy.includes('supplies no corresponding operation or active skill'));
+  assert.doesNotMatch(modelPolicy, /enforcement is deferred|until the host can provide/);
+});
