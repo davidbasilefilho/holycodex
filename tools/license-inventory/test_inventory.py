@@ -202,6 +202,28 @@ common = { path = "common", features = ["dev-extra"] }
         deleted = inventory.source_identity(self.root)
         self.assertNotEqual(changed["source_files_sha256"], deleted["source_files_sha256"])
 
+    @unittest.skipUnless(os.name == "posix", "Unix build-host dependency regression")
+    def test_cross_target_includes_conditional_build_host_dependency(self):
+        # Cargo tree resolves this dependency for the build host, while metadata
+        # filtered only to the Windows target omits its package record.
+        host_crate = self.root / "host-only"
+        (host_crate / "src").mkdir(parents=True)
+        (host_crate / "src" / "lib.rs").write_text("// build-host fixture\n")
+        (host_crate / "Cargo.toml").write_text(
+            '[package]\nname="host-only"\nversion="1.0.0"\nedition="2021"\nlicense="Apache-2.0"\n'
+        )
+        manifest = self.root / "Cargo.toml"
+        manifest.write_text(manifest.read_text().replace('[workspace]\n', '[workspace]\nexclude=["host-only"]\n'))
+        with (self.root / "build-helper" / "Cargo.toml").open("a") as helper:
+            helper.write('\n[target.\'cfg(unix)\'.dependencies]\nhost-only={path="../host-only"}\n')
+        subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=self.root, check=True, capture_output=True)
+        result = self.invoke("x86_64-pc-windows-msvc", "cross-host")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = json.loads((self.base / "cross-host" / "inventory.json").read_text())
+        self.assertEqual({package["name"] for package in report["packages"]}, {
+            "codex-cli", "common", "build-helper", "host-only", "optional-on", "windows-only"
+        })
+
     def test_missing_metadata_writes_incomplete_report_and_fails(self):
         path = self.root / "common" / "Cargo.toml"
         path.write_text(path.read_text().replace('license="Apache-2.0"', ''))

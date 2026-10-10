@@ -217,7 +217,11 @@ def collect(args):
     common = ["--manifest-path", str(manifest), "--locked", "--color", "never"]
     if args.offline:
         common.append("--offline")
-    metadata_command = [args.cargo, "metadata", "--format-version", "1", "--filter-platform", args.target, *common]
+    # Package identities must include conditional build-host dependencies too.
+    # Filtering metadata only to a cross target can omit packages that Cargo's
+    # target-specific production tree correctly includes for the build host.
+    # The tree below, not the full metadata package list, selects the inventory.
+    metadata_command = [args.cargo, "metadata", "--format-version", "1", *common]
     tree_command = [args.cargo, "tree", "--package", args.package, "--target", args.target, "--edges", "normal,build", "--prefix", "none", "--format", "{p}|{l}|{f}", *common]
     metadata_bytes = run(metadata_command, manifest.parent)
     tree_bytes = run(tree_command, manifest.parent)

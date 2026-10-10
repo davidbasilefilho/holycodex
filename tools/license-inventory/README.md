@@ -50,8 +50,13 @@ metadata and errors. A command failure before collection produces no report.
   excluded. Cargo handles cfg expressions and feature unification; the script
   does not attempt its own resolver or call every Cargo.lock entry a runtime
   dependency. The retained tree records selected feature sets.
-- `cargo metadata --locked --filter-platform TARGET --format-version 1`
-  provides package identities, versions, source revisions and declared licensing.
+- `cargo metadata --locked --format-version 1` provides package identities,
+  versions, source revisions and declared licensing. It is intentionally not
+  filtered to the target, because conditional build-host dependencies can be
+  absent from target-only metadata during cross-target collection. Only the
+  target-specific production tree selects packages for the inventory; collecting
+  all metadata does not make unrelated, dev-only or disabled packages runtime
+  dependencies. Metadata may need additional locked source downloads.
   Each selected identity must have exactly one matching Cargo.lock entry.
   Same-name/same-version packages from multiple sources fail as ambiguous rather
   than being guessed.
