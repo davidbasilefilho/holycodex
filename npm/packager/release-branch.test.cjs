@@ -56,3 +56,31 @@ test('canonical Root instructions own release naming, PR dependencies and unchan
   }
   assert.doesNotMatch(instructions, /release\/v[^\s`]*\/integration/);
 });
+
+test('Root follows the target codebase before choosing an applicable release fallback', () => {
+  const instructions = fs.readFileSync(path.join(__dirname, '../../overlay/holycodex/instructions/root.md'), 'utf8');
+  const conventions = instructions.indexOf('Follow the target codebase\'s established branch and PR conventions first');
+  const fallback = instructions.indexOf('release/v<version>/<semantic-change>');
+  assert.ok(conventions >= 0 && conventions < fallback, 'codebase conventions must precede the fallback');
+  for (const phrase of ['If no applicable convention exists', 'mergeable release-work fallback',
+    'compatible with the project\'s versioning and workflow triggers',
+    'Do not rename an already valid branch merely to adopt the fallback',
+    'For HolyCodex\'s own release stack, use the tested release-stack validator']) {
+    assert.ok(instructions.includes(phrase), `missing branch scope: ${phrase}`);
+  }
+  assert.doesNotMatch(instructions, /use .*with a zero-major version/);
+});
+
+test('durable instructions are US English and derive authority from the current owner', () => {
+  const instructions = fs.readFileSync(path.join(__dirname, '../../overlay/holycodex/instructions/root.md'), 'utf8');
+  for (const phrase of ['Serve the current owner and the projects they authorize',
+    'never import another owner\'s settings or approvals',
+    'Write durable model-facing instructions in US English',
+    'use the requested language for user-facing work']) {
+    assert.ok(instructions.includes(phrase), `missing owner-neutral instruction: ${phrase}`);
+  }
+  assert.doesNotMatch(instructions, /davidbasilefilho|C:\\Users\\basile|\bholydot\b/i);
+  const development = fs.readFileSync(path.join(__dirname, '../../docs/DEVELOPMENT.md'), 'utf8');
+  assert.doesNotMatch(development, /[A-Z]:\\Users\\[^\s]+/i);
+  assert.equal((development.match(/--upstream \.\.\/holycodex-upstream/g) || []).length, 3);
+});
