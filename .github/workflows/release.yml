@@ -31,6 +31,11 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        with:
+          install: true
+          install_args: --locked node
+          cache: true
       - id: version
         shell: bash
         env:
@@ -75,6 +80,7 @@ jobs:
       - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
           install: true
+          install_args: --locked
           cache: true
       - run: mise run fmt-check
       - run: mise run lint
@@ -108,13 +114,14 @@ jobs:
       - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
           install: true
+          install_args: --locked
           cache: true
       - name: Stage wrapper and run isolated npm install tests
         shell: bash
         run: |
           cargo run --locked -p holycodex-npm-packager -- wrapper .tmp/npm
           node npm/packager/channel.cjs stage .tmp/npm/holycodex "$PACKAGE_VERSION" "$PACKAGE_CHANNEL"
-          npm pack --pack-destination .tmp/npm .tmp/npm/holycodex
+          (cd .tmp/npm/holycodex && bun pm pack --destination .. --ignore-scripts)
           npm test --prefix npm/holycodex
       - name: Record source identity
         shell: bash
@@ -132,7 +139,7 @@ jobs:
           if-no-files-found: error
 
   native:
-    needs: [quality, prepare]
+    needs: [quality, prepare, wrapper]
     env:
       PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
       PACKAGE_CHANNEL: ${{ inputs.channel }}
@@ -172,6 +179,7 @@ jobs:
       - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
           install: true
+          install_args: --locked
           cache: true
       - name: Check runner matches advertised target
         run: node -e "const p=require('node:process');const t='${{ matrix.target }}';const ok={'linux-x64-gnu':p.platform==='linux'&&p.arch==='x64','darwin-arm64':p.platform==='darwin'&&p.arch==='arm64','win32-x64':p.platform==='win32'&&p.arch==='x64'};if(!ok[t])throw Error(t+' requires native runner; got '+p.platform+'-'+p.arch)"
@@ -258,7 +266,8 @@ jobs:
           test "$(printf '%s\n' "$cargo_version" | awk '{print $2}')" = "$expected_toolchain"
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-core --lib --test all -E 'test(/(?:holycodex|holy|all_specialist_routes_allocate_and_build_requests_for_each_profile|quality_command_artifacts_are_cached_per_specialist_workspace|quality_artifact_paths_survive_bash_apostrophes_and_metacharacters|specialist_shell_authorization_reuses_workspace_cache_across_workdirs|reserved_command_tools_reject_external_runtimes_without_a_builtin|registry_records_reserved_exec_command_when_a_matching_tool_exists|shell_snapshot_tests|npm_workspace_snapshot|snapshot.*(?:unix|executable|root.?links?|symlink|race|budgets?|retention)|(?:unix|executable|root.?links?|symlink|race|budgets?|retention).*snapshot|operational.*grant|grant.*operational|spawn.*rollback|rollback.*spawn)/)'
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-login -p codex-skills -p codex-skills-extension --lib -E 'test(/siwc::tests|embedded_holycodex_017_skill_inventory_is_complete|optional_workflows/)'
-          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-model-provider --lib -E 'test(siwc_provider_uses_resource_without_workspace_or_agent_bootstrap) | test(siwc_scoped_auth_never_bootstraps_or_engages_backend_fallback) | test(models_endpoint::tests::) | test(models_identity::tests::) | test(workspace_routing_tests::) | test(auth::tests::custom_provider_)'
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-model-provider --lib -E 'test(siwc_provider_uses_resource_without_workspace_or_agent_bootstrap) | test(siwc_scoped_auth_never_bootstraps_or_engages_backend_fallback) | test(models_endpoint::tests::) | test(models_endpoint::siwc_models_manager_tests::) | test(models_identity::tests::) | test(workspace_routing_tests::) | test(auth::tests::custom_provider_)'
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-models-manager --lib
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-model-provider-info --lib -E 'test(gateway_oauth_tests::)'
           # Render the snapshots whose visible release identity changes with this layer.
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-tui --lib -E 'test(status::tests::) | test(empty_state_animation_preserves_header_cursor_and_footer) | test(app_server_thread_replacement_clears_previous_transcript_before_replay) | test(switching_threads_keeps_the_source_voice_partial_only_on_reattach) | test(replay_reconciles_only_matching_voice_captions_one_for_one) | test(buffered_voice_items_reconcile_captions_after_thread_switch) | test(completed_voice_caption_survives_repeated_thread_replacement) | test(owned_startup_hides_tip_in_transcript) | test(session_info_availability_nux_tooltip_snapshot)'
@@ -326,13 +335,24 @@ jobs:
           CARGO_PROFILE_RELEASE_DEBUG: "0"
           CARGO_PROFILE_RELEASE_STRIP: symbols
         run: cargo run --locked -p holycodex-dev -- package --upstream .tmp/upstream --output .tmp/native --release
-      - name: Stage and pack platform npm package
+      - name: Stage, pack, and install the real native distribution
         shell: bash
         run: |
+          set -euo pipefail
           cargo run --locked -p holycodex-npm-packager -- ${{ matrix.target }} .tmp/native .tmp/npm
           node npm/packager/channel.cjs stage .tmp/npm/${{ matrix.package }} "$PACKAGE_VERSION" "$PACKAGE_CHANNEL"
-          npm pack --pack-destination .tmp/npm .tmp/npm/${{ matrix.package }}
+          (cd .tmp/npm/${{ matrix.package }} && bun pm pack --destination .. --ignore-scripts)
           node npm/packager/native-smoke.cjs ".tmp/npm/turndev-${{ matrix.package }}-$PACKAGE_VERSION.tgz" "${{ matrix.target }}" "$PACKAGE_VERSION"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: holycodex-${{ needs.prepare.outputs.version }}-wrapper-${{ github.sha }}
+          path: .tmp/wrapper-artifact
+      - name: Install the exact wrapper and native publication archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const assert=require('node:assert/strict');const {readSourceRevision}=require('./npm/packager/verify-release.cjs');assert.equal(readSourceRevision('.tmp/wrapper-artifact/source-revision.toml'),process.env.GITHUB_SHA)"
+          npm exec --offline --call "node npm/packager/installation-smoke.cjs .tmp/wrapper-artifact/holycodex-$PACKAGE_VERSION.tgz .tmp/npm/turndev-${{ matrix.package }}-$PACKAGE_VERSION.tgz ${{ matrix.target }} $PACKAGE_VERSION"
           npm test --prefix npm/holycodex
       - name: Record source identity
         shell: bash
@@ -348,3 +368,27 @@ jobs:
             .tmp/npm/turndev-${{ matrix.package }}-${{ needs.prepare.outputs.version }}.tgz
             .tmp/npm/source-revision.toml
           if-no-files-found: error
+
+  artifacts:
+    # Explicit all-platform barrier, also required by read-only validation runs.
+    # A failed build, pack, install, or upload prevents this job and publication.
+    needs: [prepare, wrapper, native]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        with:
+          install: true
+          install_args: --locked node
+          cache: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: holycodex-${{ needs.prepare.outputs.version }}-*-${{ github.sha }}
+          path: .tmp/release-artifacts
+          merge-multiple: false
+      - name: Verify the complete immutable publication set
+        env:
+          PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: node npm/packager/verify-release.cjs .tmp/release-artifacts "$GITHUB_SHA" "$PACKAGE_VERSION"
