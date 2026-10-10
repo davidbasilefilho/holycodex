@@ -37,8 +37,12 @@ rooted at `codex-cli`; record each exact package name, version, source/revision
 or registry checksum, license expression, license-file path, and applicable
 license/notice text. Include HolyCodex's own runtime additions and review
 target-specific and non-Cargo bundled components as well. Cargo.lock alone
-does not contain complete license metadata. Reconcile that inventory into
-this root notice before staging final source or binary packages.
+does not contain complete license metadata. The maintenance-only
+[license inventory tool](tools/license-inventory/README.md) collects a locked,
+target-specific `codex-cli` production tree and the available source/license/notice
+evidence; missing or conflicting evidence fails explicitly. Its output always
+leaves legal completeness unverified. Reconcile that inventory into this root
+notice before staging final source or binary packages.
 
 The development packager uses `serde_json`, `sha2`, and `toml` (each MIT OR
 Apache-2.0). Its dependencies must be included in the root Cargo.lock when
