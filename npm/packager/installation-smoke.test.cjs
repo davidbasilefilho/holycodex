@@ -73,8 +73,21 @@ function fixture(t, channel = 'dev') {
   return { root, target, version, bytes, digest, extension, nativeDirectory, wrapperDirectory, native, wrapper, repack };
 }
 
+function isVersionProbe(args) {
+  return args.some((arg) => arg === '--version' || /^(?:holycodex|codex)\.cmd --version$/.test(arg));
+}
+
+test('runtime response fixtures recognize direct and Windows cmd version probes', () => {
+  for (const alias of ['holycodex', 'codex']) {
+    for (const flag of ['--version', '--help']) {
+      assert.equal(isVersionProbe([flag]), flag === '--version');
+      assert.equal(isVersionProbe(['/d', '/s', '/c', `${alias}.cmd ${flag}`]), flag === '--version');
+    }
+  }
+});
+
 function runtimeOutput(args) {
-  return args.some((arg) => arg.includes('--version')) ? expectedRuntimeVersion() + '\n' : 'HolyCodex CLI\n\nUsage: holycodex [OPTIONS] [PROMPT]\n';
+  return isVersionProbe(args) ? expectedRuntimeVersion() + '\n' : 'HolyCodex CLI\n\nUsage: holycodex [OPTIONS] [PROMPT]\n';
 }
 
 // Header-only artifacts plus an injected runtime runner test the smoke gate's
@@ -194,7 +207,7 @@ nativeTest('wrong runtime version or help identity fails after an otherwise succ
     assert.throws(() => smokeInstallation(f.wrapper, f.native, f.target, f.version, { run(filename, args, options) {
       home = options.env.HOME;
       if (filename === process.execPath) return execFileSync(filename, args, options);
-      return args[0] === '--version' && output.includes('CLI') ? expectedRuntimeVersion() : output;
+      return isVersionProbe(args) && output.includes('CLI') ? expectedRuntimeVersion() : output;
     } }), message);
     assert.equal(fs.existsSync(home), false);
   }
