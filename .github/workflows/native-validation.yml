@@ -1,0 +1,27 @@
+name: native-bootstrap-validation
+
+on:
+  push:
+    branches: ["codex/native-validation/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - id: version
+        shell: bash
+        run: node npm/packager/channel.cjs version dev "$GITHUB_RUN_ID" | sed 's/^/version=/' >> "$GITHUB_OUTPUT"
+  validate:
+    needs: prepare
+    uses: ./.github/workflows/dev.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}

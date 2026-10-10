@@ -1,10 +1,27 @@
 {
-  "name": "holycodex-native-linux-x64-gnu",
+  "name": "@turndev/holycodex-native-linux-x64-gnu",
   "version": "0.17.0-1",
   "description": "HolyCodex native executables for Linux x64 (glibc)",
   "license": "Apache-2.0",
-  "os": ["linux"],
-  "cpu": ["x64"],
-  "libc": ["glibc"],
-  "files": ["bin/holycodex", "bin/codex", "payload.toml", "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md"]
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "libc": [
+    "glibc"
+  ],
+  "files": [
+    "bin/holycodex",
+    "bin/codex",
+    "payload.toml",
+    "LICENSE",
+    "NOTICE",
+    "THIRD-PARTY-NOTICES.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davidbasilefilho/holycodex.git"
+  }
 }

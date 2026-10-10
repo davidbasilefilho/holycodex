@@ -5,9 +5,9 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 
 function packageFor(platform, arch) {
-  if (platform === 'linux' && arch === 'x64') return 'holycodex-native-linux-x64-gnu';
-  if (platform === 'darwin' && arch === 'arm64') return 'holycodex-native-darwin-arm64';
-  if (platform === 'win32' && arch === 'x64') return 'holycodex-native-win32-x64';
+  if (platform === 'linux' && arch === 'x64') return '@turndev/holycodex-native-linux-x64-gnu';
+  if (platform === 'darwin' && arch === 'arm64') return '@turndev/holycodex-native-darwin-arm64';
+  if (platform === 'win32' && arch === 'x64') return '@turndev/holycodex-native-win32-x64';
   return undefined;
 }
 

@@ -1,9 +1,24 @@
 {
-  "name": "holycodex-native-darwin-arm64",
+  "name": "@turndev/holycodex-native-darwin-arm64",
   "version": "0.17.0-1",
   "description": "HolyCodex native executables for macOS Apple silicon",
   "license": "Apache-2.0",
-  "os": ["darwin"],
-  "cpu": ["arm64"],
-  "files": ["bin/holycodex", "bin/codex", "payload.toml", "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md"]
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin/holycodex",
+    "bin/codex",
+    "payload.toml",
+    "LICENSE",
+    "NOTICE",
+    "THIRD-PARTY-NOTICES.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davidbasilefilho/holycodex.git"
+  }
 }

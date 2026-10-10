@@ -164,8 +164,8 @@ test('missing payload, invalid metadata, and checksum mismatch leave placeholder
 test('payload proof parser rejects extra fields and malformed TOML values', () => {
   const filename = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'holycodex-payload-toml-')), 'payload.toml');
   try {
-    fs.writeFileSync(filename, `format = 1\npackage = "holycodex-native-linux-x64-gnu"\nversion = "${version}"\nsha256 = "${'a'.repeat(64)}"\n`);
-    assert.equal(readPayloadManifest(filename).package, 'holycodex-native-linux-x64-gnu');
+    fs.writeFileSync(filename, `format = 1\npackage = "@turndev/holycodex-native-linux-x64-gnu"\nversion = "${version}"\nsha256 = "${'a'.repeat(64)}"\n`);
+    assert.equal(readPayloadManifest(filename).package, '@turndev/holycodex-native-linux-x64-gnu');
     fs.appendFileSync(filename, 'unexpected = true\n');
     assert.throws(() => readPayloadManifest(filename), /TOML is invalid/);
   } finally {
@@ -202,7 +202,7 @@ test('clean offline npm install launches native fixture bins; ignored scripts le
   const build = spawnSync(process.env.HOLYCODEX_FIXTURE_RUSTC || 'rustc', [source, '-o', executable], { encoding: 'utf8', env: fixtureEnv });
   assert.equal(build.status, 0, build.error?.message || build.stderr);
   fs.copyFileSync(executable, path.join(native, 'bin', `codex${extension}`));
-  fs.writeFileSync(path.join(native, 'package.json'), JSON.stringify(require(path.join('..', packageName, 'package.json'))));
+  fs.writeFileSync(path.join(native, 'package.json'), JSON.stringify(require(path.join('..', packageName.replace('@turndev/', ''), 'package.json'))));
   fs.writeFileSync(path.join(native, 'payload.toml'), `format = 1\npackage = "${packageName}"\nversion = "${version}"\nsha256 = "${createHash('sha256').update(fs.readFileSync(executable)).digest('hex')}"\n`);
   const npmEnv = { ...process.env, npm_config_cache: path.join(root, 'cache'), npm_config_userconfig: path.join(root, 'npmrc'), npm_config_globalconfig: path.join(root, 'global-npmrc') };
   fs.writeFileSync(npmEnv.npm_config_userconfig, '');

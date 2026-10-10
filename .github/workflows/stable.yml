@@ -1,0 +1,18 @@
+name: stable-validation
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    uses: ./.github/workflows/release.yml
+    with:
+      channel: stable
+      version: ${{ inputs.version }}
