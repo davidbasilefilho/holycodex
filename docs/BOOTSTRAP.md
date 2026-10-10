@@ -1,43 +1,78 @@
-# First native DEV publication
+# Package registration and first native DEV publication
 
-This is a maintainer handoff, not an installation guide. Run no publishing or
-security-setting commands until Root coordinates the DEV action. Stable is not
-authorized. Do not create placeholder packages. The three platform packages
-must contain the real, validated release-profile executables.
+This is a maintainer handoff, not an installation guide. Registration-only
+bootstrap and the first installable native DEV release are separate operations.
+The owner may register the three absent platform names with the explicitly
+requested `0.0.0-bootstrap.1` prerelease and `bootstrap` tag. Those packages must
+plainly say that they contain no executable, installer, or runtime; they are not
+native acceptance evidence and must never be dependencies of a released wrapper.
+The principal `holycodex` package is not part of registration-only bootstrap.
+
+Pack and inspect all three registration archives before the first publication.
+On retry, require the same immutable version, archive integrity, and bootstrap
+tag; stop on a conflicting package. Verify registry tags after processing.
+npm assigns `latest` to the first publication even when another tag was
+requested. The owner's attempt to remove that initial `latest` returned HTTP
+400, consistent with [npm/cli issue 8490](https://github.com/npm/cli/issues/8490).
+Do not retry removing it or publish another placeholder to work around it.
+Keep the registration-only version clearly labeled until an authorized full
+stable publication replaces `latest`. The principal wrapper is unaffected.
+
+The runtime DEV instructions below require real, validated release-profile
+executables on all three platforms. Registration scaffolds cannot substitute
+for any of those tarballs. Stable publication and security-setting changes
+require their separate owner authorization.
 
 ## Why owner action is necessary
 
 The [npm trust CLI prerequisites](https://docs.npmjs.com/cli/v12/commands/npm-trust/)
 explicitly require the package to exist, write access, and account 2FA. The
 [scoped public publishing guide](https://docs.npmjs.com/creating-and-publishing-scoped-public-packages/)
-requires public access for these names. Thus the first real platform tarballs
-must be published by an npm maintainer authorized in `@turndev`; after that,
-the owner can configure their individual trusted publishers. GitHub write
+requires public access for these names. Thus package registration must be
+performed by an npm maintainer authorized in `@turndev`; after that, the owner
+can configure the individual trusted publishers. Alternatively, the owner may
+register them using the first real platform tarballs described below. GitHub write
 access does not prove npm scope ownership. No shared token is needed in this
 handoff: the owner uses their own interactive npm login and browser/2FA.
 
-At implementation time the registry had only the principal `holycodex`
+Before registration the registry had only the principal `holycodex`
 (`latest=0.16.12`, `dev=0.16.12-dev.124.1`); the three scoped native names returned
 404. The main wrapper is not published during bootstrap. Its dependencies must
 already exist before it can become installable.
 
-## Build in CI before any publication
+The owner registered all three scoped names as `0.0.0-bootstrap.1` on
+2026-10-10. Public tarball readback confirmed only README and package metadata,
+with no native runtime. npm initially exposed the accepted publications only
+after processing, and automatically assigned `latest` as well as `bootstrap`.
+Do not repeat an accepted publish because an immediate metadata read is 404.
+The initial native-package `latest` tags remain on the clearly labeled bootstrap;
+this is not a usable stable release. Future full DEV/stable publications must
+use one identical version for the wrapper, all three native packages, payload
+metadata, and the wrapper's exact optional dependencies.
+
+## Build all native artifacts before any runtime publication
 
 `native-validation.yml` has a dedicated push trigger for
 `codex/native-validation/**`, read-only repository permissions, and no publishing
 or OIDC job. A maintainer creates a fresh validation branch pointing at the
-reviewed PR12 SHA. Unlike manual dispatch, this push trigger does not require
+reviewed cumulative candidate SHA, including any successors of PR12. Unlike
+manual dispatch, this push trigger does not require
 registering the new workflow on the default branch. It calls the same DEV/native
-validation and uploads four tarballs without an npm or GitHub release.
+validation and uploads four tarballs without an npm or GitHub release. Each
+native runner also installs its real native archive with the unmodified wrapper
+in an isolated offline prefix and runs both aliases without Node on `PATH`.
+An aggregate job verifies the complete four-artifact set only after every
+build, pack, installation check, and upload succeeds. The publisher repeats
+that verification before its first registry write.
 `publish.yml` has no manual dispatch; do not use its old default-branch entry.
 
 The commands below are a template for a fresh PowerShell validation run, using
 existing authorized GitHub CLI access and Node 26/npm 12.2.0 for the owner
 operation. Owner publishing and settings commands have not been executed.
-The already started read-only run is `37811540553`, with payload source
+Historical read-only run `37811540553` used payload source
 `ec0453b86257ab5f84cf441c70894c6c938fa0c5`, branch
 `codex/native-validation/ec0453b86257ab5f84cf441c70894c6c938fa0c5`, and version
-`0.17.0-1.dev.37811540553`. Its current status must be checked before reuse.
+`0.17.0-1.dev.37811540553`. It is diagnostic only, as explained below.
 The reviewed large-payload verifier is commit
 `65e936fc93186b0917d898f7bddd455283b32425`. Do not start a duplicate run merely
 because the documentation or verifier commit differs from the payload source.
@@ -45,9 +80,13 @@ For a new run, keep it on the exact reviewed feature HEAD:
 
 ```powershell
 $Repo = 'davidbasilefilho/holycodex'
-$SourceBranch = 'codex/dev-publishing-entry'
-$SourceSha = gh pr view 12 --repo $Repo --json headRefOid --jq .headRefOid
-if ($LASTEXITCODE -ne 0) { throw 'Cannot read PR12 head' }
+$SourcePr = Read-Host 'Number of the reviewed cumulative candidate PR'
+$CandidateJson = gh pr view $SourcePr --repo $Repo --json headRefName,headRefOid
+if ($LASTEXITCODE -ne 0) { throw 'Cannot read candidate PR head' }
+$Candidate = $CandidateJson | ConvertFrom-Json
+$SourceBranch = $Candidate.headRefName
+$SourceSha = $Candidate.headRefOid
+if (-not $SourceBranch -or $SourceSha -notmatch '^[0-9a-f]{40}$') { throw 'Invalid candidate identity' }
 if (Test-Path 'holycodex-native-bootstrap') { throw 'Choose a fresh checkout directory' }
 git clone --single-branch --branch $SourceBranch "https://github.com/$Repo.git" holycodex-native-bootstrap
 if ($LASTEXITCODE -ne 0) { throw 'Source clone failed' }
@@ -72,7 +111,8 @@ gh run watch $RunId --repo $Repo --exit-status
 if ($LASTEXITCODE -ne 0) { throw 'Native validation failed; do not bootstrap' }
 $Run = gh run view $RunId --repo $Repo --json headSha,event,status,conclusion,headBranch | ConvertFrom-Json
 if ($Run.headSha -ne $SourceSha -or $Run.headBranch -ne $Branch -or $Run.event -ne 'push' -or $Run.conclusion -ne 'success') { throw 'Wrong source or run' }
-$Version = "0.17.0-dev.$RunId"
+$Version = node npm/packager/channel.cjs version dev $RunId
+if ($LASTEXITCODE -ne 0) { throw 'Cannot derive the validated source distribution version' }
 $Artifacts = '.tmp/bootstrap-artifacts'
 if (Test-Path $Artifacts) { throw 'Choose a fresh artifact destination' }
 gh run download $RunId --repo $Repo --pattern "holycodex-$Version-*-$SourceSha" --dir $Artifacts
@@ -81,7 +121,7 @@ node npm/packager/verify-release.cjs $Artifacts $SourceSha $Version
 if ($LASTEXITCODE -ne 0) { throw 'Artifact identity validation failed' }
 ```
 
-Run the verifier from a reviewed PR12 checkout and record its helper commit.
+Run the verifier from the reviewed cumulative checkout and record its helper commit.
 `$SourceSha` always identifies the native run's payload source. An independently
 reviewed verifier-only fix can use a different helper commit while still
 requiring every artifact to match `$SourceSha`. The verifier compares large
@@ -146,7 +186,11 @@ uses the already verified CI tarball and explicit `--provenance=false`.
 Subsequent automated publishes use OIDC/provenance. This does not weaken the
 native locked tests or artifact verifier. If publication/readback fails, stop
 and reconcile only the affected package through the owner; do not republish a
-conflicting version or advance the wrapper. These commands never use `latest`.
+conflicting version or advance the wrapper. npm does not provide an atomic
+transaction spanning all four packages: a registry failure can leave some
+platform versions published while the wrapper remains withheld. A retry must
+verify exact archive integrity and tag before skipping an existing version;
+it must never overwrite or silently substitute a conflicting artifact.
 
 ## Configure the four trusted publishers as owner
 
@@ -226,7 +270,11 @@ OIDC publish within two days according to the [npm trusted-publishing guide](htt
 ## Integration order for the first coordinated DEV
 
 Preserve the stack with merge commits, inspecting current heads/checks after
-each step. Do not merge PR10 first and publish an incomplete `next`:
+each step. First integrate the accepted successors from the tip back through
+PR13 into PR12, revalidating each updated head. PR13 contains the stable
+`0.17.0`/DEV version correction; later runtime/authentication fixes must not be
+left outside the accepted source. Do not merge PR10 first and publish an
+incomplete `next`:
 
 1. Merge PR12 into `codex/babysit-ci-upstream-boundary` (PR11's branch).
 2. Revalidate PR11's new head, then merge PR11 into `codex/pr9-c8b7d19-checkpoint` (PR10's branch).

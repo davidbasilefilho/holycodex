@@ -7,6 +7,7 @@ const { createHash } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const { install, packageFor, readPayloadManifest } = require('./install.cjs');
+const { installArguments, isolatedEnvironment } = require('../packager/installation-smoke.cjs');
 const version = require('./package.json').version;
 
 function fixture(t, platform = 'linux', arch = 'x64') {
@@ -208,38 +209,60 @@ test('clean offline npm install launches native fixture bins; ignored scripts le
   fs.writeFileSync(npmEnv.npm_config_userconfig, '');
   fs.writeFileSync(npmEnv.npm_config_globalconfig, '');
   function npm(args, cwd = root) {
-    const result = spawnSync(process.execPath, [process.env.npm_execpath, ...args], { cwd, env: npmEnv, encoding: 'utf8' });
+    const result = spawnSync(process.execPath, [process.env.npm_execpath, ...args], { cwd, env: npmEnv, encoding: 'utf8', timeout: 180_000 });
     assert.equal(result.status, 0, result.error?.message || result.stderr);
     return result.stdout;
   }
-  const nativeTar = JSON.parse(npm(['pack', native, '--json', '--pack-destination', tarballs]))[0].filename;
+  function pack(directory, name) {
+    // Match release packaging with Bun; npm remains the consumer under test.
+    const result = spawnSync(process.env.HOLYCODEX_FIXTURE_BUN || 'bun',
+      ['pm', 'pack', '--destination', tarballs, '--quiet', '--ignore-scripts'],
+      { cwd: directory, env: isolatedEnvironment(root), encoding: 'utf8', timeout: 180_000 });
+    assert.equal(result.status, 0, result.error?.message || result.stderr);
+    const filename = `${name.replace('@', '').replace('/', '-')}-${version}.tgz`;
+    assert.equal(path.resolve(directory, result.stdout.trim()), path.join(tarballs, filename), 'Bun pack filename mismatch');
+    assert.ok(fs.statSync(path.join(tarballs, filename)).size > 0, 'Bun pack must produce a nonempty archive');
+    const manifest = spawnSync('tar', ['-xzOf', `./${filename}`, 'package/package.json'],
+      { cwd: tarballs, encoding: 'utf8', timeout: 30_000 });
+    assert.equal(manifest.status, 0, manifest.error?.message || manifest.stderr);
+    const metadata = JSON.parse(manifest.stdout);
+    assert.equal(metadata.name, name, 'Bun pack package identity mismatch');
+    assert.equal(metadata.version, version, 'Bun pack version mismatch');
+    return filename;
+  }
+  const nativeTar = pack(native, packageName);
   const wrapperMetadata = { ...require('./package.json'), optionalDependencies: { [packageName]: `file:${path.join(tarballs, nativeTar).replaceAll('\\', '/')}` } };
   fs.writeFileSync(path.join(wrapper, 'package.json'), JSON.stringify(wrapperMetadata));
   fs.copyFileSync(path.join(__dirname, 'install.cjs'), path.join(wrapper, 'install.cjs'));
   for (const name of ['holycodex', 'codex']) fs.writeFileSync(path.join(wrapper, 'bin', `${name}.exe`), '');
-  const wrapperTar = JSON.parse(npm(['pack', wrapper, '--json', '--pack-destination', tarballs]))[0].filename;
+  const wrapperTar = pack(wrapper, 'holycodex');
+  const npmVersion = npm(['--version']).trim();
   for (const ignoreScripts of [false, true]) {
     const consumer = path.join(root, ignoreScripts ? 'ignored' : 'consumer');
-    fs.mkdirSync(consumer);
-    fs.writeFileSync(path.join(consumer, 'package.json'), '{"private":true}');
-    npm(['install', path.join(tarballs, wrapperTar), '--offline', '--no-audit', '--no-fund', ...(ignoreScripts ? ['--ignore-scripts'] : [])], consumer);
+    const modules = path.join(consumer, ...(process.platform === 'win32' ? [] : ['lib']), 'node_modules');
+    fs.mkdirSync(modules, { recursive: true });
+    // Global mode supports npm 12's exact-source per-command script approval;
+    // the disposable prefix never changes the user's npm configuration.
+    npm([...installArguments(path.join(tarballs, wrapperTar), path.join(tarballs, nativeTar), consumer, npmVersion),
+      ...(ignoreScripts ? ['--ignore-scripts'] : [])], consumer);
     for (const name of ['holycodex', 'codex']) {
-      const installed = path.join(consumer, 'node_modules/holycodex/bin', `${name}.exe`);
+      const installed = path.join(modules, 'holycodex/bin', `${name}.exe`);
       if (ignoreScripts) { assert.equal(fs.statSync(installed).size, 0); continue; }
       assert.deepEqual(fs.readFileSync(installed), fs.readFileSync(executable));
       const runtimeEnv = { ...process.env };
       for (const key of Object.keys(runtimeEnv)) if (key.toLowerCase() === 'path') delete runtimeEnv[key];
       runtimeEnv.PATH = '';
       assert.equal(runtimeEnv.PATH, '');
-      const launch = spawnSync(installed, [], { encoding: 'utf8', env: runtimeEnv, cwd: consumer });
+      const launch = spawnSync(installed, [], { encoding: 'utf8', env: runtimeEnv, cwd: consumer, timeout: 30_000 });
       assert.equal(launch.status, 0, launch.error?.message || launch.stderr);
       assert.equal(launch.stdout.trim(), 'holycodex native install fixture');
-      const link = path.join(consumer, 'node_modules/.bin', name + (process.platform === 'win32' ? '.cmd' : ''));
+      const binDirectory = process.platform === 'win32' ? consumer : path.join(consumer, 'bin');
+      const link = path.join(binDirectory, name + (process.platform === 'win32' ? '.cmd' : ''));
       assert.ok(fs.existsSync(link));
       if (process.platform === 'win32') assert.doesNotMatch(fs.readFileSync(link, 'utf8'), /node(?:\.exe)?[" ]/i);
       const linkedLaunch = process.platform === 'win32'
-        ? spawnSync(process.env.ComSpec, ['/d', '/s', '/c', `""${link}""`], { windowsVerbatimArguments: true, encoding: 'utf8', env: runtimeEnv, cwd: consumer })
-        : spawnSync(link, [], { encoding: 'utf8', env: runtimeEnv, cwd: consumer });
+        ? spawnSync(process.env.ComSpec, ['/d', '/s', '/c', `${name}.cmd`], { windowsVerbatimArguments: true, encoding: 'utf8', env: runtimeEnv, cwd: binDirectory, timeout: 30_000 })
+        : spawnSync(link, [], { encoding: 'utf8', env: runtimeEnv, cwd: consumer, timeout: 30_000 });
       assert.equal(linkedLaunch.status, 0, linkedLaunch.error?.message || linkedLaunch.stderr);
       assert.equal(linkedLaunch.stdout.trim(), 'holycodex native install fixture');
     }

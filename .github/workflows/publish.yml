@@ -25,6 +25,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        with:
+          install: true
+          install_args: --locked node
+          cache: true
       - id: route
         shell: bash
         run: |
@@ -56,29 +61,56 @@ jobs:
       (needs.route.outputs.channel == 'stable' && needs.stable.result == 'success'))
     runs-on: ubuntu-latest
     environment: holycodex-publish
+    # DEV and stable share npm packages and GitHub release metadata. Keep their
+    # preflight/write/readback sequences exclusive without serializing builds.
+    concurrency:
+      group: holycodex-registry-publication
+      cancel-in-progress: false
     permissions:
+      actions: read
       contents: write
       id-token: write
     env:
       PACKAGE_CHANNEL: ${{ needs.route.outputs.channel }}
       PACKAGE_VERSION: ${{ needs.route.outputs.version }}
+      NPM_CONFIG_REGISTRY: https://registry.npmjs.org
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
-          node-version: 26
-          registry-url: https://registry.npmjs.org
-      - name: Install pinned OIDC-capable npm
-        run: npm install --global npm@12.2.0
+          install: true
+          install_args: --locked bun node npm
+          cache: true
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: holycodex-${{ needs.route.outputs.version }}-*-${{ github.sha }}
           path: .tmp/release-artifacts
           merge-multiple: false
+      - name: Restore publication journals from prior attempts of this workflow run
+        if: github.run_attempt != '1'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: holycodex-publish-journal-${{ github.run_id }}-*
+          path: .tmp/publication-history
+          merge-multiple: false
+      - name: Prove missing prior receipts came from unstarted publication steps
+        if: github.run_attempt != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/publication-proof
+          for ((attempt=1; attempt<GITHUB_RUN_ATTEMPT; attempt++)); do
+            receipt=".tmp/publication-history/holycodex-publish-journal-$GITHUB_RUN_ID-$attempt/publication-journal.json"
+            if [[ ! -f "$receipt" ]]; then
+              gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$attempt/jobs?per_page=100" > ".tmp/publication-proof/attempt-$attempt.json"
+            fi
+          done
       - name: Recheck accepted remote source immediately before publishing
         shell: bash
         run: |
@@ -92,7 +124,23 @@ jobs:
           fi
       - name: Verify and publish all platforms before the wrapper
         shell: bash
-        run: node npm/packager/publish.cjs .tmp/release-artifacts "$GITHUB_SHA" "$PACKAGE_VERSION" "$PACKAGE_CHANNEL"
+        run: node npm/packager/publish.cjs .tmp/release-artifacts "$GITHUB_SHA" "$PACKAGE_VERSION" "$PACKAGE_CHANNEL" .tmp/publication-current/publication-journal.json .tmp/publication-history .tmp/publication-proof
+      - name: Preserve publication receipts even when verification fails
+        id: publication_receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: holycodex-publish-journal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .tmp/publication-current/publication-journal.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
+      - name: Require reconciliation if receipt retention failed
+        if: always() && steps.publication_receipts.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::error::Publication receipt upload failed. Do not republish or change versions; the owner must reconcile this attempt and registry state before retrying."
+          exit 1
       - name: Publish or recover matching GitHub release assets
         env:
           GH_TOKEN: ${{ github.token }}

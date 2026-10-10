@@ -233,7 +233,7 @@ const ROOT_ROUTE: RoutePolicy = route(
     [
         ReasoningEffort::Low,
         ReasoningEffort::Medium,
-        ReasoningEffort::Medium,
+        ReasoningEffort::High,
     ],
 );
 const ROUTES: [RoutePolicy; 18] = [
@@ -395,7 +395,12 @@ const ROUTES: [RoutePolicy; 18] = [
             Capability::VisualInspection,
         ],
         DISJOINT,
-        "Exercise the changed interaction in a render and report the visible result.",
+        concat!(
+            "Inspect the actual rendered interface at relevant viewports and states; exercise changed ",
+            "interactions, check accessibility and visual hierarchy, and repair material issues. ",
+            "Report observed evidence and any blocked inspection; a build or snapshot alone is not ",
+            "visual acceptance.",
+        ),
         [
             ReasoningEffort::High,
             ReasoningEffort::High,
@@ -478,7 +483,12 @@ const ROUTES: [RoutePolicy; 18] = [
         RO,
         &[Capability::RepositoryRead, Capability::VisualInspection],
         REVIEW,
-        "Inspect relevant states and report material discrepancies with evidence.",
+        concat!(
+            "Independently inspect the actual rendered interface and affected interactions against ",
+            "the request, including relevant viewports, states, accessibility, and visual hierarchy. ",
+            "Separate material discrepancies from preference and report observed evidence or blockers; ",
+            "do not infer visual acceptance from build success or implementation claims.",
+        ),
         [
             ReasoningEffort::High,
             ReasoningEffort::High,
@@ -1773,6 +1783,128 @@ mod tests {
     }
 
     #[test]
+    fn root_profiles_resolve_distinct_efforts_without_changing_context() {
+        let catalog = [model("gpt-6.1-sol", 400_000, None)];
+        for (profile, effort) in [
+            (Profile::Low, ReasoningEffort::Low),
+            (Profile::Default, ReasoningEffort::Medium),
+            (Profile::High, ReasoningEffort::High),
+        ] {
+            let allocation = allocate_model(RoleTask::Root, profile, &catalog).unwrap();
+            assert_eq!(allocation.model, ModelId::Gpt61Sol);
+            assert_eq!(allocation.effort, effort);
+            assert_eq!(allocation.context.normal_window_tokens, 372_000);
+            assert_eq!(allocation.context.model_maximum_tokens, 400_000);
+        }
+    }
+
+    #[test]
+    fn parallel_work_waits_for_owned_paths_but_preserves_unrelated_progress() {
+        let active = assignment(
+            "implementation",
+            RoleTask::WorkerImplementation,
+            AssignmentStatus::Running,
+            "src/widget",
+            &[],
+        );
+        let disjoint = assignment(
+            "docs",
+            RoleTask::WorkerMechanical,
+            AssignmentStatus::Ready,
+            "docs/widget",
+            &[],
+        );
+        assert_eq!(
+            validate_dispatch(&disjoint, std::slice::from_ref(&active)),
+            Ok(())
+        );
+        let dependent = assignment(
+            "integration",
+            RoleTask::WorkerIntegration,
+            AssignmentStatus::Ready,
+            "src/app",
+            &["implementation"],
+        );
+        assert!(matches!(
+            validate_dispatch(&dependent, std::slice::from_ref(&active)),
+            Err(LifecycleError::DependencyNotSuccessful { .. })
+        ));
+        let mut completed = active;
+        finish_assignment(&mut completed, "widget acceptance checks passed", true).unwrap();
+        assert_eq!(validate_dispatch(&dependent, &[completed]), Ok(()));
+    }
+
+    #[test]
+    fn visual_review_reuse_requires_independence_and_live_inspection_grants() {
+        let implemented = assignment(
+            "visual-change",
+            RoleTask::WorkerVisual,
+            AssignmentStatus::Succeeded,
+            "src/ui",
+            &[],
+        );
+        let mut review = assignment(
+            "visual-review",
+            RoleTask::ReviewerVisual,
+            AssignmentStatus::Ready,
+            "src/ui",
+            &["visual-change"],
+        );
+        review.mutability = Mutability::ReadOnly;
+        review
+            .metadata
+            .independent_review_of
+            .insert("visual-change".into());
+        let mut implementer = SpecialistContext {
+            id: "implementer".into(),
+            idle: true,
+            last_role: Some(RoleTask::WorkerVisual),
+            last_assignment_id: Some("visual-change".into()),
+            last_metadata: implemented.metadata.clone(),
+            last_status: Some(AssignmentStatus::Succeeded),
+            prior_assignment_ids: ["visual-change".into()].into(),
+            supports_role_rebinding: true,
+            available_capabilities: [Capability::RepositoryRead, Capability::VisualInspection]
+                .into(),
+        };
+        assert_eq!(
+            select_specialist(
+                &review,
+                std::slice::from_ref(&implemented),
+                &[implementer.clone()]
+            )
+            .unwrap(),
+            SpecialistSelection::CreateNew
+        );
+        // An independent retained context is usable only with a current visual grant.
+        implementer.id = "independent".into();
+        implementer.last_assignment_id = Some("previous-review".into());
+        implementer.prior_assignment_ids.clear();
+        implementer
+            .available_capabilities
+            .remove(&Capability::VisualInspection);
+        assert_eq!(
+            select_specialist(
+                &review,
+                std::slice::from_ref(&implemented),
+                &[implementer.clone()]
+            )
+            .unwrap(),
+            SpecialistSelection::CreateNew
+        );
+        implementer
+            .available_capabilities
+            .insert(Capability::VisualInspection);
+        assert_eq!(
+            select_specialist(&review, &[implemented], &[implementer]).unwrap(),
+            SpecialistSelection::Reuse {
+                specialist_id: "independent".into(),
+                reason: ReuseReason::RelevantContext
+            }
+        );
+    }
+
+    #[test]
     fn registry_and_profile_efforts_are_exact() {
         assert_eq!(specialist_registry().len(), 18);
         assert_eq!(RoleTask::SPECIALISTS.len(), 18);
@@ -1842,7 +1974,7 @@ mod tests {
         let root = allocate_model(RoleTask::Root, Profile::High, &catalog).unwrap();
         assert_eq!(
             (root.model, root.effort),
-            (ModelId::Gpt61Sol, ReasoningEffort::Medium)
+            (ModelId::Gpt61Sol, ReasoningEffort::High)
         );
         assert_eq!(
             allocate_model(RoleTask::WorkerDebugging, Profile::Low, &catalog)

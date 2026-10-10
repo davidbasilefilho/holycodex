@@ -14,9 +14,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
-          install: false
+          install: true
+          install_args: --locked
           cache: true
-      - run: mise install --locked rust
       - run: mise run fmt-check
       - run: mise run lint
       - run: mise run test
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        if: runner.os == 'Linux'
+        with:
+          python-version: "3.11"
+      - name: Test license inventory evidence collection
+        if: runner.os == 'Linux'
+        run: python -m unittest discover -s tools/license-inventory -p test_inventory.py

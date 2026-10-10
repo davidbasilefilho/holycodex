@@ -53,12 +53,21 @@ Read-only registry checks on 2026-10-08 found `holycodex` with
 `latest=0.16.12` and `dev=0.16.12-dev.124.1`. Neither the previous unscoped
 native names nor the intended `@turndev/holycodex-native-*` names existed.
 Registry 404 is an observation, not evidence that an account can claim a name.
+On 2026-10-10 the owner registered the three scoped names with
+`0.0.0-bootstrap.1`. Public readback verified the bootstrap marker, tarball
+integrities, and metadata/README-only contents. This is package registration,
+not a native release or proof of OIDC configuration.
 The workflow preflights existence of all four packages and fails before any
 publish if one is absent; it does not create placeholders or bootstrap accounts.
 
-An authorized npm owner must first establish the three real scoped packages
-using verified native tarballs (public access, DEV tag), confirm scope ownership,
-and configure trusted publishing for **each** platform package and `holycodex`:
+An authorized npm owner must first register the three scoped package names,
+confirm scope ownership, and configure trusted publishing for **each** platform
+package and `holycodex`. Registration may use the explicitly requested
+`0.0.0-bootstrap.1` scaffolds requested with the `bootstrap` tag, as described in
+`BOOTSTRAP.md`; npm also assigns initial `latest` and rejected its removal.
+These contain no runtime and are never release dependencies.
+The first full DEV publication replaces that registration-only state with the
+same validated version across all four packages. Trusted publishing uses:
 GitHub owner `davidbasilefilho`, repository `holycodex`, filename `publish.yml`,
 with environment **holycodex-publish** and direct `npm publish` allowed. The
 repository administrator must independently protect that environment with
@@ -138,7 +147,7 @@ runtime version, or dev/test diagnostics. Distributed executables consequently
 have less detailed native backtraces; debug builds remain available for diagnosis.
 Both native entrypoints remain byte-identical regular files.
 
-After `npm pack`, each native runner executes `native-smoke.cjs` against its
+After `bun pm pack`, each native runner executes `native-smoke.cjs` against its
 actual tarball. It verifies package/target/version metadata, payload digests,
 native ELF/Mach-O/PE architecture and both aliases, then launches each extracted
 binary with `--version` and `--help` in an isolated home. Each launch has a
@@ -147,6 +156,15 @@ is checked separately from the pinned runtime identity
 `holycodex 0.17.0 (Codex upstream 0.160.1)`. The smoke gate logs exact compressed
 and per-alias byte counts and the payload digest; it fails before artifact upload
 on any mismatch. Its unit fixtures test the gate only, not runtime acceptance.
+
+The same native runner then uses `installation-smoke.cjs` to install that exact
+archive together with an unchanged Bun-packed wrapper. It starts with an empty,
+offline npm cache and disposable global prefix, checks the installed payloads
+against the archive digest, and runs both native files and public command
+aliases with an empty `PATH`. npm consumer tests are intentional compatibility
+coverage; all publication tarballs are packed with Bun. npm 12's script approval
+is limited to the exact local wrapper tarball for that one command, with strict
+approval enabled; no user/global script policy is persisted.
 
 The shared release verifier also rejects any npm tarball above 256 MiB or native
 alias above 384 MiB. Run `37836254693` measured stripped Linux and Windows
@@ -158,6 +176,30 @@ bounded to 64 KiB chunks. Every tarball artifact includes `source-revision.toml`
 wrapper dependencies and platform payload metadata use the same distribution
 version. The shared verifier checks four distinct packages and their exact
 metadata before the publisher runs.
+
+The aggregate `artifacts` job depends on the wrapper and the complete native
+matrix. Publication cannot start until every build, pack, installation check,
+upload, and aggregate verification succeeds. DEV and stable publishing share
+a job-level concurrency lock while their builds can run in parallel. npm has
+no atomic multi-package transaction: platforms are published and read back
+before the wrapper, and retry skips only identical immutable tarballs with the
+expected tag. Any conflicting integrity or tag blocks all new writes.
+
+An accepted npm publication can remain absent from public registry reads while
+npm processes it. The publisher polls with bounded backoff for up to five
+minutes per package. Before each publish call it persists an attempt receipt;
+acceptance and exact registry confirmation update that receipt. The workflow
+uploads the cumulative journal even on failure. A retained attempted/accepted
+receipt never authorizes a duplicate publish just because reads return 404.
+DEV receipts preserve the original `latest` baseline across retries as well.
+
+Recover by rerunning the failed publishing job with the same source, version,
+artifacts and retained journal. Save the journal before rerunning all jobs or
+deleting artifacts: missing history after an executed or ambiguous publication
+fails closed and requires owner reconciliation. A rerun that has no publication
+journal may begin its first publication only when GitHub's prior-attempt job
+records prove that the publishing job or step was skipped. Waiting for registry
+processing does not justify changing versions or advancing the wrapper.
 
 Canonical CI quality passing is not a native build or runtime acceptance result.
 Manual/native visual/authentication/host gates and the license inventory remain
@@ -171,7 +213,7 @@ The Rust tool at `npm/packager` stages native output produced by
 records their common SHA-256 in `payload.toml`. It also stages the wrapper
 and copies the current root license and notices into both distributions.
 These staged directories, rather than the source template directories, are
-the inputs to `npm pack`.
+the inputs to `bun pm pack` (Bun 1.4.3, locked through mise).
 
 The packager is a member of the root Cargo workspace and is covered by the
 canonical `mise` formatting, Clippy, and test tasks. Staging validates Cargo

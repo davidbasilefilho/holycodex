@@ -197,14 +197,23 @@ test('calibrated expanded budget accepts verified aliases above the old 256 MiB 
 test('release build strips only distribution profiles and smoke runs before artifact upload', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '../../.github/workflows/release.yml'), 'utf8');
   const build = workflow.indexOf('- name: Build one native runtime under both names');
-  const stage = workflow.indexOf('- name: Stage and pack platform npm package', build);
+  const stage = workflow.indexOf('- name: Stage, pack, and install the real native distribution', build);
   const smoke = workflow.indexOf('node npm/packager/native-smoke.cjs', stage);
+  const install = workflow.indexOf('node npm/packager/installation-smoke.cjs', stage);
   const upload = workflow.indexOf('- uses: actions/upload-artifact@', stage);
-  assert.ok(build > 0 && stage > build && smoke > stage && upload > smoke);
+  assert.ok(build > 0 && stage > build && smoke > stage && install > smoke && upload > install);
   assert.match(workflow.slice(build, stage), /CARGO_PROFILE_RELEASE_DEBUG: "0"/);
   assert.match(workflow.slice(build, stage), /CARGO_PROFILE_RELEASE_STRIP: symbols/);
   assert.doesNotMatch(workflow.slice(0, build), /CARGO_PROFILE_RELEASE_(DEBUG|STRIP)/);
-  assert.match(workflow.slice(stage, smoke), /npm pack --pack-destination/);
+  assert.match(workflow.slice(stage, smoke), /bun pm pack --destination \.\. --ignore-scripts/);
+  assert.match(workflow, /native:\n    needs: \[quality, prepare, wrapper\]/);
+  assert.match(workflow.slice(smoke, install), /actions\/download-artifact@/);
+  assert.match(workflow.slice(smoke, install), /name: holycodex-\$\{\{ needs\.prepare\.outputs\.version \}\}-wrapper-\$\{\{ github\.sha \}\}/);
+  assert.match(workflow.slice(smoke, install), /readSourceRevision\('.tmp\/wrapper-artifact\/source-revision\.toml'\),process\.env\.GITHUB_SHA/);
+  assert.match(workflow.slice(smoke, install), /npm exec --offline --call "$/);
+  const aggregate = workflow.slice(workflow.indexOf('\n  artifacts:'));
+  assert.match(aggregate, /needs: \[prepare, wrapper, native\]/);
+  assert.match(aggregate, /node npm\/packager\/verify-release\.cjs/);
 });
 
 

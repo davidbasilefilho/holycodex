@@ -17,8 +17,8 @@ metadata survives, and no compaction threshold from the former 272K profile is r
 Session bootstrap allocates through the typed policy against the active catalog, validates exact
 required model availability, and rejects a conflicting configured model. Root uses `gpt-6.1-sol`;
 all specialists use `gpt-6-luna`. Under the default profile, Root uses medium effort and
-every specialist Role.task uses high effort. The low and high profiles retain their route-specific
-effort mappings. Compatibility controller spawns retain their already registry-validated prepared
+every specialist Role.task uses high effort. Root uses low, medium, and high effort for the low, default, and high profiles respectively.
+Specialists retain their route-specific effort mappings in all three profiles. Compatibility controller spawns retain their already registry-validated prepared
 effort when their agent role is `default`. Upstream review, compaction and internal safety/memory
 sessions retain their separate allocation contracts.
 
