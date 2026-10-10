@@ -175,7 +175,7 @@ native ELF/Mach-O/PE architecture and both aliases, then launches each extracted
 binary with `--version` and `--help` in an isolated home. Each launch has a
 30-second timeout and bounded captured output. DEV's npm distribution version
 is checked separately from the pinned runtime identity
-`holycodex 0.17.0 (Codex upstream 0.160.1)`. The smoke gate logs exact compressed
+`holycodex 0.17.0 (Codex upstream 0.162.1)`. The smoke gate logs exact compressed
 and per-alias byte counts and the payload digest; it fails before artifact upload
 on any mismatch. Its unit fixtures test the gate only, not runtime acceptance.
 
