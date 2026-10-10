@@ -1,14 +1,22 @@
-# HolyCodex 0.17 consolidation
+# Preserved HolyCodex 0.17 history
 
-The owner requested one release PR from `release/v0.17.0` to `main`, replacing
-the former `next` / PR9–PR14 stack. Release PR branches follow `release/v0.X.Y`.
-GitHub renamed `next` on 2026-10-10 without changing its commit, automatically
-closed PR9 (not merged), and retargeted PR10's base. Subsequent consolidation
-fast-forwards the renamed branch; no original commit is rewritten or dropped.
+The owner first requested one consolidated release PR, then superseded that
+request with separate semantic branches and PRs in a stack. The cumulative
+checkpoint `07ab5990c873272194734c078b3f5887257b70ee` preserves every active
+0.17 layer; its final publication-routing changes belong on
+`release/v0.17.0/release-routing`, targeting `native-followthrough` rather than
+creating a redundant aggregate PR. See [BRANCHES.md](BRANCHES.md).
+
+GitHub renamed `next` to `release/v0.17.0` on 2026-10-10 without changing its
+commit, automatically closing PR9. The authorized cumulative fast-forward
+caused GitHub to mark PR10 merged into that release branch; `main` was not
+changed. Subsequent semantic renames require replacement head PRs because
+GitHub closes open head PRs on rename. Keep links to the original discussions
+and unresolved findings. Verify actual remote state after each step.
 
 ## Preserved current work
 
-These exact heads are ancestors of the consolidated source:
+These exact heads are ancestors of the cumulative checkpoint:
 
 | Source | Preserved commit |
 | --- | --- |
@@ -53,7 +61,7 @@ historical branches rather than reintroducing an obsolete implementation:
   incompatible behavior. The complete source remains on that branch; this
   inventory does not claim every old workflow API was ported to native 0.17.
 
-No historical branch is deleted by this consolidation.
+No historical branch is deleted by this reorganization.
 
 ## Review and publication boundaries
 
@@ -63,8 +71,8 @@ text reconciliation and required host/platform compatibility evidence.
 The stable/DEV SemVer correction from PR13 is included and has regression
 coverage; explicit legacy prerelease ranges retain their documented meaning.
 
-Ordinary release-branch pushes only validate. DEV publication requires a
-separately authorized explicit `publish.yml` dispatch on `release/v0.17.0`
+Ordinary accepted-release-branch pushes only validate. DEV publication requires a
+separately authorized explicit `publish.yml` dispatch on `release/v0.17.0/release-routing`
 with `publish_dev=true`; all build/pack/install gates and external environment
 restrictions still apply. No merge, npm write or stable release is implied by
-branch consolidation or by opening the single review PR.
+branch reorganization or by opening review PRs.

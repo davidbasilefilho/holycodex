@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const BASE_VERSION = '0.17.0';
-const RELEASE_BRANCH = `release/v${BASE_VERSION}`;
+const RELEASE_BRANCH = `release/v${BASE_VERSION}/release-routing`;
 const PLATFORM_PACKAGES = [
   '@turndev/holycodex-native-darwin-arm64',
   '@turndev/holycodex-native-linux-x64-gnu',

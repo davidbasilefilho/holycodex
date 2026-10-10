@@ -17,13 +17,21 @@ default-branch registration step. Manual `release.yml` runs also only validate
 when that workflow exists on the default branch. See [bootstrap commands](BOOTSTRAP.md).
 All downloaded artifacts come from the same run and must carry the exact SHA.
 
-Release PRs use `release/v0.X.Y`; this release is `release/v0.17.0` →
-`main`. Ordinary pushes to that branch run the entire DEV build/test/pack
+Release branches use `release/v<version>/<semantic-change>`, with zero-major
+HolyCodex versions and optional version suffixes preserved exactly. A stack
+contains separate PRs: the first targets `main`, and each successor targets
+its immediate predecessor. Use semantic names, not numeric ordering labels;
+verify actual PR dependencies and never infer native stack registration from
+names alone. No redundant aggregate branch or PR is required. See the
+[release stack policy](BRANCHES.md).
+
+The currently selected DEV publication ref is
+`release/v0.17.0/release-routing`. Ordinary pushes to that branch run the entire DEV build/test/pack
 validation but **cannot publish**. Branch consolidation is therefore safe
 without authorizing a registry write.
 
 After the owner separately authorizes DEV publication and all gates below are
-satisfied, explicitly dispatch **publish.yml**, select `release/v0.17.0`, and
+satisfied, explicitly dispatch **publish.yml**, select `release/v0.17.0/release-routing`, and
 set the boolean `publish_dev` input to `true`. Its default is `false`; an
 unapproved/default dispatch, another branch, a tag dispatch, or a PR event is
 rejected. The publication job independently repeats these event/ref/input
@@ -54,11 +62,12 @@ moved accepted ref blocks publication. Stable release recovery also refuses
 to recreate a removed tag. Executing stable requires separate Root authorization.
 Do not create that tag merely to test the workflows.
 
-All active 0.17 work is consolidated into the single release PR. The former
-PR9–PR14 stack and the original `next` history are preserved in its ancestry;
-closing a superseded PR does not resolve its outstanding findings. See the
-[consolidation inventory](CONSOLIDATION-0.17.md) for exact preserved heads and
-historical branches. Do not create parallel feature stacks for this release.
+The active 0.17 changes retain separate PR layers. The original `next` and
+PR9–PR14 heads are preserved in cumulative history. Review findings survive
+renaming or PR replacement. See the [preservation inventory](CONSOLIDATION-0.17.md)
+for exact heads and intentionally historical branches. Publication requires
+the accepted ref to contain every approved successor; a green earlier layer
+is not evidence for later changes.
 
 ## npm bootstrap and OIDC handoff
 
@@ -84,7 +93,7 @@ same validated version across all four packages. Trusted publishing uses:
 GitHub owner `davidbasilefilho`, repository `holycodex`, filename `publish.yml`,
 with environment **holycodex-publish** and direct `npm publish` allowed. The
 repository administrator must independently protect that environment with
-selected branch `release/v0.17.0` / tag `v0.17.0` and protect those refs against
+selected branch `release/v0.17.0/release-routing` / tag `v0.17.0` and protect those refs against
 unauthorized writer changes. Owner review of accepted source and an explicitly authorized DEV dispatch
 permit publication after full validation; environment reviewers/self-review prevention are an
 optional additional per-release approval, not an npm requirement. The npm
@@ -121,7 +130,7 @@ and SHA-256 digests must match. Conflicting assets are not overwritten.
 
 Before creating `v0.17.0`, maintainers must verify all of the following:
 
-1. Root has accepted the final `release/v0.17.0` source and advanced `main` to that exact
+1. Root has accepted the final `release/v0.17.0/release-routing` source and advanced `main` to that exact
    commit; the tag, source archive, and all native/npm artifacts must resolve
    to that same full Git SHA.
 2. The upstream checkout is exactly the commit in `upstream.toml`, strict

@@ -2,7 +2,7 @@ name: publish-native-packages
 
 on:
   push:
-    branches: ["release/v0.17.0"]
+    branches: ["release/v0.17.0/release-routing"]
     tags: ["v0.17.0"]
   workflow_dispatch:
     inputs:
@@ -67,7 +67,7 @@ jobs:
       always() && needs.route.result == 'success' && needs.route.outputs.publish == 'true' &&
       ((needs.route.outputs.channel == 'dev' && needs.dev.result == 'success' &&
       github.event_name == 'workflow_dispatch' && inputs.publish_dev == true &&
-      github.ref == 'refs/heads/release/v0.17.0') ||
+      github.ref == 'refs/heads/release/v0.17.0/release-routing') ||
       (needs.route.outputs.channel == 'stable' && needs.stable.result == 'success' &&
       github.event_name == 'push'))
     runs-on: ubuntu-latest

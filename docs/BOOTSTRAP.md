@@ -201,8 +201,8 @@ Before enabling npm OIDC, the repository administrator must create and verify
 GitHub **Settings → Environments → holycodex-publish** with:
 
 - Deployment branches and tags set to **Selected branches and tags**, with
-  exactly branch `release/v0.17.0` and tag `v0.17.0`; no wildcard or pull-request refs.
-- Protect `release/v0.17.0` so repository writers cannot directly push, force-push or
+  exactly branch `release/v0.17.0/release-routing` and tag `v0.17.0`; no wildcard or pull-request refs.
+- Protect `release/v0.17.0/release-routing` so repository writers cannot directly push, force-push or
   delete it outside the authorized integration policy. Sensitive workflow,
   packager and runtime changes must receive the owner's authorized review
   before reaching that ref. Restrict bypass/merge authority to trusted release
@@ -214,7 +214,7 @@ GitHub **Settings → Environments → holycodex-publish** with:
 This is the minimum protected route under the finding's threat model: ordinary
 repository writers may create feature branches but cannot advance accepted
 release refs or change security settings without owner authorization. After an
-authorized DEV dispatch on `release/v0.17.0` with `publish_dev=true`, CI can
+authorized DEV dispatch on `release/v0.17.0/release-routing` with `publish_dev=true`, CI can
 publish after all builds/packs succeed without a second deployment approval.
 Ordinary branch pushes only validate; they cannot publish. Update the external
 environment branch restriction from the retired `next` name before any
@@ -272,23 +272,25 @@ Check package existence, the bootstrap version/integrity/dev tag and publisher
 settings before integration. Newly configured publishers need a first successful
 OIDC publish within two days according to the [npm trusted-publishing guide](https://docs.npmjs.com/trusted-publishers/).
 
-## Consolidated source and first coordinated DEV
+## Reviewed stack source and first coordinated DEV
 
-The release source is the single `release/v0.17.0` PR against `main`, preserving
-the original `next` commits and every active 0.17 correction. Historical
-branches remain recoverable; the [inventory](CONSOLIDATION-0.17.md) identifies
-obsolete implementations that must not overwrite the native runtime.
-Superseded PR findings stay open in the consolidated review checklist until
-verified in current code or completed by the authorized owner.
+The release uses semantic `release/v<version>/<change>` branches and separate
+PRs targeting their immediate predecessors, preserving the original `next`
+commits and every active 0.17 correction. The currently selected DEV ref is
+`release/v0.17.0/release-routing`; it must contain all approved successor work
+before any publication. Historical branches remain recoverable; the
+[inventory](CONSOLIDATION-0.17.md) identifies obsolete implementations that must
+not overwrite the native runtime. Renaming or replacing a PR never resolves
+its findings without current code, test or owner-configuration evidence.
 
-1. Push the consolidated release branch. `publish.yml` runs all three native
+1. Push the accepted release source after reconciling the stack. `publish.yml` runs all three native
    builds, tests, Bun packs, offline consumer installations and the aggregate
    four-artifact gate, with publication disabled for a branch push.
 2. Complete independent general/security review and applicable tests on the
    exact final commit; fix material findings and repeat. Complete license and
    external trusted-publisher/protected-ref prerequisites before publication.
 3. Only after explicit DEV publication authorization, dispatch `publish.yml`
-   on `release/v0.17.0` with `publish_dev=true`. The workflow must first be
+   on `release/v0.17.0/release-routing` with `publish_dev=true`. The workflow must first be
    registered on GitHub's default branch. A default/false dispatch cannot
    publish, and dispatches on any other ref fail closed.
 4. The authorized run produces one new DEV version for all four packages.
