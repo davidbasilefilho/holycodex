@@ -15777,7 +15777,7 @@ index 8772f46..e63c722 100644
  wiremock = { workspace = true }
  
 diff --git a/codex-rs/login/src/auth/auth_tests.rs b/codex-rs/login/src/auth/auth_tests.rs
-index 9927a60..afd90ff 100644
+index 9927a60..a4a2dec 100644
 --- a/codex-rs/login/src/auth/auth_tests.rs
 +++ b/codex-rs/login/src/auth/auth_tests.rs
 @@ -24,7 +24,6 @@ use tempfile::tempdir;
@@ -16222,6 +16222,24 @@ index 9927a60..afd90ff 100644
  #[tokio::test]
  #[serial(codex_auth_env)]
  async fn loads_api_key_from_auth_json() {
+@@ -1155,7 +866,7 @@ async fn unauthorized_recovery_reports_mode_and_step_names() {
+     let managed = UnauthorizedRecovery {
+         manager: Arc::clone(&manager),
+         step: UnauthorizedRecoveryStep::Reload,
+-        expected_account_id: None,
++        expected_auth: None,
+         mode: UnauthorizedRecoveryMode::Managed,
+     };
+     assert_eq!(managed.mode_name(), "managed");
+@@ -1164,7 +875,7 @@ async fn unauthorized_recovery_reports_mode_and_step_names() {
+     let external = UnauthorizedRecovery {
+         manager,
+         step: UnauthorizedRecoveryStep::ExternalRefresh,
+-        expected_account_id: None,
++        expected_auth: None,
+         mode: UnauthorizedRecoveryMode::External,
+     };
+     assert_eq!(external.mode_name(), "external");
 @@ -1774,12 +1485,26 @@ struct AuthFileParams {
      chatgpt_account_id: Option<String>,
  }
@@ -16249,7 +16267,7 @@ index 9927a60..afd90ff 100644
              "id_token": fake_jwt,
              "access_token": "test-access-token",
              "refresh_token": "test-refresh-token"
-@@ -3070,3 +2795,128 @@ async fn missing_plan_type_maps_to_unknown() {
+@@ -3070,3 +2795,610 @@ async fn missing_plan_type_maps_to_unknown() {
  
      pretty_assertions::assert_eq!(auth.account_plan_type(), Some(AccountPlanType::Unknown));
  }
@@ -16293,7 +16311,7 @@ index 9927a60..afd90ff 100644
 +}
 +
 +#[tokio::test]
-+async fn siwc_logout_revokes_cached_auth_before_clearing_storage() -> anyhow::Result<()> {
++async fn siwc_logout_revokes_rotated_auth_after_refresh_writer_finishes() -> anyhow::Result<()> {
 +    let codex_home = TempDir::new()?;
 +    write_auth_file(
 +        AuthFileParams {
@@ -16317,19 +16335,20 @@ index 9927a60..afd90ff 100644
 +    let auth_file = get_auth_file(codex_home.path());
 +    let mut newer_auth: serde_json::Value = serde_json::from_slice(&std::fs::read(&auth_file)?)?;
 +    newer_auth["tokens"]["refresh_token"] = json!("newer-disk-refresh-token");
-+    std::fs::write(&auth_file, serde_json::to_vec(&newer_auth)?)?;
++    newer_auth["tokens"]["siwc"]["expires_at"] = json!(4_000_000_100_u64);
++    let expected_auth: AuthDotJson = serde_json::from_value(newer_auth.clone())?;
 +    let invoked = std::sync::atomic::AtomicBool::new(false);
 +    // Simulate the refresh writer holding the same lock through persistence.
 +    let refresh_lock = crate::siwc_login::session_lock(codex_home.path()).await?;
-+    let mut logout = Box::pin(manager.logout_with_revoke_using(|auth| async {
-+        let tokens = auth.expect("cached auth").tokens.expect("cached tokens");
-+        assert_eq!(tokens.refresh_token, "test-refresh-token");
-+        assert_eq!(
-+            tokens.siwc.expect("SIWC registration").client_id().as_str(),
-+            "oaiapp_login-test"
++    let auth_file_for_revoke = &auth_file;
++    let invoked_for_revoke = &invoked;
++    let mut logout = Box::pin(manager.logout_with_revoke_using(|auth| async move {
++        assert_eq!(auth, Some(expected_auth));
++        assert!(
++            auth_file_for_revoke.exists(),
++            "revoke precedes local removal"
 +        );
-+        assert!(auth_file.exists(), "revoke precedes local removal");
-+        invoked.store(true, Ordering::SeqCst);
++        invoked_for_revoke.store(true, Ordering::SeqCst);
 +        Ok(())
 +    }));
 +    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
@@ -16376,6 +16395,487 @@ index 9927a60..afd90ff 100644
 +    assert!(logout.await?);
 +    assert!(manager.auth_cached().is_none());
 +    assert!(!get_auth_file(codex_home.path()).exists());
++    Ok(())
++}
++
++#[tokio::test]
++async fn siwc_logout_preserves_cached_revocation_when_storage_cannot_match() -> anyhow::Result<()> {
++    for case in [
++        "subject",
++        "client",
++        "host",
++        "account",
++        "workspace",
++        "legacy",
++        "external",
++        "api_key",
++        "invalid_token",
++        "invalid_json",
++    ] {
++        let home = TempDir::new()?;
++        write_auth_file(
++            AuthFileParams {
++                openai_api_key: None,
++                chatgpt_plan_type: None,
++                chatgpt_account_id: None,
++            },
++            home.path(),
++        )?;
++        let manager = AuthManager::new(
++            home.path().to_path_buf(),
++            /*enable_codex_api_key_env*/ false,
++            AuthCredentialsStoreMode::File,
++            /*forced_chatgpt_workspace_id*/ None,
++            /*chatgpt_base_url*/ None,
++            AuthKeyringBackendKind::default(),
++            crate::test_support::transport_default_auth_route_config(),
++        )
++        .await;
++        let cached = manager
++            .auth_cached()
++            .and_then(|auth| auth.get_current_auth_json());
++        let auth_file = get_auth_file(home.path());
++        let mut stored: serde_json::Value = serde_json::from_slice(&std::fs::read(&auth_file)?)?;
++        stored["tokens"]["refresh_token"] = json!("unrelated-refresh-token");
++        match case {
++            "subject" => stored["tokens"]["siwc"]["subject"] = json!("other-user"),
++            "client" => stored["tokens"]["siwc"]["client_id"] = json!("oaiapp_other"),
++            "host" => stored["tokens"]["siwc"]["ext_agent_host_id"] = json!("other-host"),
++            "account" => stored["tokens"]["account_id"] = json!("other-account"),
++            "workspace" => {
++                stored["tokens"]["id_token"] =
++                    json!(fake_jwt_for_auth_file_params(&AuthFileParams {
++                        openai_api_key: None,
++                        chatgpt_plan_type: None,
++                        chatgpt_account_id: Some("other-workspace".to_string()),
++                    })?);
++            }
++            "legacy" => stored["tokens"]["siwc"] = serde_json::Value::Null,
++            "external" => stored["auth_mode"] = json!(AuthMode::ChatgptAuthTokens),
++            "api_key" => stored["OPENAI_API_KEY"] = json!("test-api-key"),
++            "invalid_token" => stored["tokens"]["refresh_token"] = json!("  "),
++            "invalid_json" => {}
++            _ => unreachable!("known case"),
++        }
++        let contents = if case == "invalid_json" {
++            b"invalid auth data".to_vec()
++        } else {
++            serde_json::to_vec(&stored)?
++        };
++        std::fs::write(&auth_file, contents)?;
++        let auth_file_for_revoke = &auth_file;
++        assert!(
++            manager
++                .logout_with_revoke_using(|auth| async move {
++                    assert_eq!(auth, cached, "{case}");
++                    assert!(
++                        auth_file_for_revoke.exists(),
++                        "revoke precedes removal: {case}"
++                    );
++                    Ok(())
++                })
++                .await?
++        );
++        assert!(manager.auth_cached().is_none(), "{case}");
++        assert!(!auth_file.exists(), "{case}");
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn siwc_near_expiry_auth_reloads_rotation_without_private_account_claims()
++-> anyhow::Result<()> {
++    let home = TempDir::new()?;
++    write_auth_file(
++        AuthFileParams {
++            openai_api_key: None,
++            chatgpt_plan_type: None,
++            chatgpt_account_id: None,
++        },
++        home.path(),
++    )?;
++    let storage = FileAuthStorage::new(home.path().to_path_buf());
++    let mut initial = storage.load()?.expect("stored auth");
++    let tokens = initial.tokens.as_mut().expect("stored tokens");
++    let public_claims = base64::engine::general_purpose::URL_SAFE_NO_PAD
++        .encode(json!({"sub": "user-12345"}).to_string());
++    tokens.id_token = parse_chatgpt_jwt_claims(&format!("header.{public_claims}.signature"))?;
++    tokens.siwc = Some(siwc_registration().with_refreshed_grant(
++        siwc_registration().scopes().to_vec(),
++        jsonwebtoken::get_current_timestamp() + 60,
++    )?);
++    storage.save(&initial)?;
++    let manager = AuthManager::new(
++        home.path().to_path_buf(),
++        /*enable_codex_api_key_env*/ false,
++        AuthCredentialsStoreMode::File,
++        /*forced_chatgpt_workspace_id*/ None,
++        /*chatgpt_base_url*/ None,
++        AuthKeyringBackendKind::default(),
++        crate::test_support::transport_default_auth_route_config(),
++    )
++    .await;
++    let cached = manager.auth_cached().expect("cached SIWC auth");
++    assert_eq!(cached.get_account_id(), None);
++    assert_eq!(cached.get_chatgpt_user_id(), None);
++    assert!(AuthManager::should_refresh_proactively(&cached));
++    let before = *manager.auth_change_state_receiver().borrow();
++
++    let mut rotated = initial;
++    let tokens = rotated.tokens.as_mut().expect("stored tokens");
++    tokens.access_token = "rotated-access-token".to_string();
++    tokens.refresh_token = "rotated-refresh-token".to_string();
++    tokens.siwc = Some(siwc_registration());
++    storage.save(&rotated)?;
++    let current = manager.auth().await.expect("refreshed SIWC auth");
++    assert_eq!(current.get_current_auth_json(), Some(rotated.clone()));
++    assert_eq!(current.get_siwc_api_token()?, "rotated-access-token");
++    assert_eq!(storage.load()?, Some(rotated));
++    assert_eq!(
++        *manager.auth_change_state_receiver().borrow(),
++        AuthChangeState {
++            generation: before.generation + 1,
++            owner_generation: before.owner_generation,
++        },
++    );
++    Ok(())
++}
++
++#[tokio::test]
++async fn siwc_guarded_refresh_rejects_different_registration_without_private_claims()
++-> anyhow::Result<()> {
++    for field in ["subject", "client_id", "ext_agent_host_id"] {
++        let home = TempDir::new()?;
++        write_auth_file(
++            AuthFileParams {
++                openai_api_key: None,
++                chatgpt_plan_type: None,
++                chatgpt_account_id: None,
++            },
++            home.path(),
++        )?;
++        let manager = Arc::new(
++            AuthManager::new(
++                home.path().to_path_buf(),
++                /*enable_codex_api_key_env*/ false,
++                AuthCredentialsStoreMode::File,
++                /*forced_chatgpt_workspace_id*/ None,
++                /*chatgpt_base_url*/ None,
++                AuthKeyringBackendKind::default(),
++                crate::test_support::transport_default_auth_route_config(),
++            )
++            .await,
++        );
++        let cached = manager
++            .auth_cached()
++            .and_then(|auth| auth.get_current_auth_json());
++        let auth_file = get_auth_file(home.path());
++        let mut different: serde_json::Value = serde_json::from_slice(&std::fs::read(&auth_file)?)?;
++        different["tokens"]["siwc"][field] = json!("oaiapp_other");
++        different["tokens"]["refresh_token"] = json!("other-refresh-token");
++        std::fs::write(&auth_file, serde_json::to_vec(&different)?)?;
++        assert!(manager.refresh_token().await.is_err(), "{field}");
++        let mut recovery = manager.unauthorized_recovery();
++        assert!(recovery.next().await.is_err(), "{field}");
++        assert_eq!(
++            manager
++                .auth_cached()
++                .and_then(|auth| auth.get_current_auth_json()),
++            cached
++        );
++        assert_eq!(
++            serde_json::from_slice::<serde_json::Value>(&std::fs::read(&auth_file)?)?,
++            different
++        );
++    }
++    Ok(())
++}
++
++struct PausedAuthReload {
++    auth: CodexAuth,
++    resolve_count: AtomicUsize,
++    captured: tokio::sync::Notify,
++    resume: tokio::sync::Notify,
++}
++
++impl ExternalAuth for PausedAuthReload {
++    fn resolve(&self) -> ExternalAuthFuture<'_, CodexAuth> {
++        Box::pin(async {
++            let captured = self.auth.clone();
++            if self.resolve_count.fetch_add(1, Ordering::SeqCst) > 0 {
++                self.captured.notify_one();
++                self.resume.notified().await;
++            }
++            Ok(captured)
++        })
++    }
++
++    fn refresh(&self, _context: ExternalAuthRefreshContext) -> ExternalAuthFuture<'_, CodexAuth> {
++        Box::pin(async { Err(std::io::Error::other("unexpected authority refresh")) })
++    }
++}
++
++async fn manager_with_paused_siwc_reload()
++-> anyhow::Result<(TempDir, AuthManager, Arc<PausedAuthReload>)> {
++    let home = TempDir::new()?;
++    write_auth_file(
++        AuthFileParams {
++            openai_api_key: None,
++            chatgpt_plan_type: None,
++            chatgpt_account_id: None,
++        },
++        home.path(),
++    )?;
++    let manager = AuthManager::new(
++        home.path().to_path_buf(),
++        /*enable_codex_api_key_env*/ false,
++        AuthCredentialsStoreMode::File,
++        /*forced_chatgpt_workspace_id*/ None,
++        /*chatgpt_base_url*/ None,
++        AuthKeyringBackendKind::default(),
++        crate::test_support::transport_default_auth_route_config(),
++    )
++    .await;
++    let source = Arc::new(PausedAuthReload {
++        auth: manager.auth_cached().expect("cached SIWC auth"),
++        resolve_count: AtomicUsize::new(0),
++        captured: tokio::sync::Notify::new(),
++        resume: tokio::sync::Notify::new(),
++    });
++    manager.set_external_auth(source.clone()).await?;
++    Ok((home, manager, source))
++}
++
++#[tokio::test]
++async fn siwc_guarded_reload_cannot_restore_credentials_after_logout() -> anyhow::Result<()> {
++    let (home, manager, source) = manager_with_paused_siwc_reload().await?;
++    let mut refresh = Box::pin(manager.refresh_token());
++    tokio::select! {
++        _ = source.captured.notified() => {}
++        result = &mut refresh => panic!("reload did not pause: {result:?}"),
++    }
++    assert!(manager.logout().await?);
++    let logged_out = *manager.auth_change_state_receiver().borrow();
++    assert!(manager.auth_cached().is_none());
++    source.resume.notify_one();
++    assert!(refresh.await.is_err());
++    assert!(manager.auth_cached().is_none());
++    assert_eq!(*manager.auth_change_state_receiver().borrow(), logged_out);
++    assert!(!get_auth_file(home.path()).exists());
++    Ok(())
++}
++
++#[tokio::test]
++async fn siwc_proactive_auth_cannot_return_cached_credentials_after_logout() -> anyhow::Result<()> {
++    let home = TempDir::new()?;
++    write_auth_file(
++        AuthFileParams {
++            openai_api_key: None,
++            chatgpt_plan_type: None,
++            chatgpt_account_id: None,
++        },
++        home.path(),
++    )?;
++    let storage = FileAuthStorage::new(home.path().to_path_buf());
++    let mut initial = storage.load()?.expect("stored auth");
++    initial.tokens.as_mut().expect("stored tokens").siwc =
++        Some(siwc_registration().with_refreshed_grant(
++            siwc_registration().scopes().to_vec(),
++            jsonwebtoken::get_current_timestamp() + 60,
++        )?);
++    storage.save(&initial)?;
++    let manager = AuthManager::new(
++        home.path().to_path_buf(),
++        /*enable_codex_api_key_env*/ false,
++        AuthCredentialsStoreMode::File,
++        /*forced_chatgpt_workspace_id*/ None,
++        /*chatgpt_base_url*/ None,
++        AuthKeyringBackendKind::default(),
++        crate::test_support::transport_default_auth_route_config(),
++    )
++    .await;
++    let refresh_permit = manager.refresh_lock.acquire().await?;
++    let mut auth = Box::pin(manager.auth());
++    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
++    assert!(std::future::Future::poll(auth.as_mut(), &mut context).is_pending());
++    assert!(manager.logout().await?);
++    drop(refresh_permit);
++    assert!(auth.await.is_none());
++    assert!(manager.auth_cached().is_none());
++    Ok(())
++}
++
++#[tokio::test]
++async fn siwc_external_auth_reload_cannot_restore_credentials_after_logout() -> anyhow::Result<()> {
++    let (home, manager, source) = manager_with_paused_siwc_reload().await?;
++    let mut auth = Box::pin(manager.auth());
++    tokio::select! {
++        _ = source.captured.notified() => {}
++        result = &mut auth => panic!("reload did not pause: {result:?}"),
++    }
++    assert!(manager.logout().await?);
++    let logged_out = *manager.auth_change_state_receiver().borrow();
++    assert!(manager.auth_cached().is_none());
++    source.resume.notify_one();
++    assert!(auth.await.is_none());
++    assert!(manager.auth_cached().is_none());
++    assert_eq!(*manager.auth_change_state_receiver().borrow(), logged_out);
++    assert!(!get_auth_file(home.path()).exists());
++    Ok(())
++}
++
++struct PausedExternalRefresh {
++    initial: CodexAuth,
++    refreshed: CodexAuth,
++    captured: tokio::sync::Notify,
++    resume: tokio::sync::Notify,
++}
++
++impl ExternalAuth for PausedExternalRefresh {
++    fn resolve(&self) -> ExternalAuthFuture<'_, CodexAuth> {
++        Box::pin(async { Ok(self.initial.clone()) })
++    }
++
++    fn refresh(&self, _context: ExternalAuthRefreshContext) -> ExternalAuthFuture<'_, CodexAuth> {
++        Box::pin(async {
++            let refreshed = self.refreshed.clone();
++            self.captured.notify_one();
++            self.resume.notified().await;
++            Ok(refreshed)
++        })
++    }
++}
++
++fn external_refresh_fixture(account: &str, token: &str) -> CodexAuth {
++    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
++        json!({"jti": token, "https://api.openai.com/auth": {"chatgpt_user_id": "user-a"}})
++            .to_string(),
++    );
++    CodexAuth::from_external_chatgpt_tokens(
++        &format!("header.{payload}.signature"),
++        account,
++        /*chatgpt_plan_type*/ None,
++    )
++    .expect("external auth fixture")
++}
++
++async fn manager_with_paused_external_refresh()
++-> anyhow::Result<(TempDir, AuthManager, Arc<PausedExternalRefresh>)> {
++    let home = TempDir::new()?;
++    let manager = AuthManager::new(
++        home.path().to_path_buf(),
++        /*enable_codex_api_key_env*/ false,
++        AuthCredentialsStoreMode::File,
++        /*forced_chatgpt_workspace_id*/ None,
++        /*chatgpt_base_url*/ None,
++        AuthKeyringBackendKind::default(),
++        crate::test_support::transport_default_auth_route_config(),
++    )
++    .await;
++    let source = Arc::new(PausedExternalRefresh {
++        initial: external_refresh_fixture("workspace-a", "initial"),
++        refreshed: external_refresh_fixture("workspace-a", "refreshed"),
++        captured: tokio::sync::Notify::new(),
++        resume: tokio::sync::Notify::new(),
++    });
++    manager.set_external_auth(source.clone()).await?;
++    Ok((home, manager, source))
++}
++
++#[tokio::test]
++async fn external_refresh_cannot_persist_credentials_after_logout() -> anyhow::Result<()> {
++    let (home, manager, source) = manager_with_paused_external_refresh().await?;
++    let mut refresh = Box::pin(manager.refresh_token_from_authority());
++    tokio::select! {
++        _ = source.captured.notified() => {}
++        result = &mut refresh => panic!("refresh did not pause: {result:?}"),
++    }
++    assert!(manager.logout().await?);
++    let logged_out = *manager.auth_change_state_receiver().borrow();
++    source.resume.notify_one();
++    assert!(refresh.await.is_err());
++    assert!(manager.auth_cached().is_none());
++    assert_eq!(*manager.auth_change_state_receiver().borrow(), logged_out);
++    assert_eq!(
++        load_auth_dot_json(
++            home.path(),
++            AuthCredentialsStoreMode::Ephemeral,
++            AuthKeyringBackendKind::default(),
++        )?,
++        None
++    );
++    assert!(!get_auth_file(home.path()).exists());
++    Ok(())
++}
++
++#[tokio::test]
++async fn external_refresh_cannot_overwrite_replacement_provider_or_account() -> anyhow::Result<()> {
++    for replacement in [
++        external_refresh_fixture("workspace-a", "initial"),
++        external_refresh_fixture("workspace-b", "replacement"),
++    ] {
++        let (home, manager, source) = manager_with_paused_external_refresh().await?;
++        let mut refresh = Box::pin(manager.refresh_token_from_authority());
++        tokio::select! {
++            _ = source.captured.notified() => {}
++            result = &mut refresh => panic!("refresh did not pause: {result:?}"),
++        }
++        manager
++            .set_external_auth(Arc::new(StaticExternalAuth(replacement.clone())))
++            .await?;
++        let replaced = *manager.auth_change_state_receiver().borrow();
++        source.resume.notify_one();
++        assert!(refresh.await.is_err());
++        assert_eq!(
++            manager
++                .auth_cached()
++                .and_then(|auth| auth.get_current_auth_json()),
++            replacement.get_current_auth_json()
++        );
++        assert_eq!(
++            load_auth_dot_json(
++                home.path(),
++                AuthCredentialsStoreMode::Ephemeral,
++                AuthKeyringBackendKind::default(),
++            )?,
++            replacement.get_current_auth_json()
++        );
++        assert_eq!(*manager.auth_change_state_receiver().borrow(), replaced);
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn external_refresh_waits_for_logout_before_persisting_tokens() -> anyhow::Result<()> {
++    let (home, manager, source) = manager_with_paused_external_refresh().await?;
++    let mut refresh = Box::pin(manager.refresh_token_from_authority());
++    tokio::select! {
++        _ = source.captured.notified() => {}
++        result = &mut refresh => panic!("refresh did not pause: {result:?}"),
++    }
++    let logout_lock = crate::siwc_login::session_lock(home.path()).await?;
++    source.resume.notify_one();
++    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
++    assert!(std::future::Future::poll(refresh.as_mut(), &mut context).is_pending());
++    // Reproduce logout's deletion-before-invalidation ordering while retaining its lock.
++    assert!(logout_all_stores(
++        home.path(),
++        AuthCredentialsStoreMode::File,
++        AuthKeyringBackendKind::default()
++    )?);
++    manager.clear_external_auth();
++    manager.reload().await;
++    drop(logout_lock);
++    assert!(refresh.await.is_err());
++    assert!(manager.auth_cached().is_none());
++    assert_eq!(
++        load_auth_dot_json(
++            home.path(),
++            AuthCredentialsStoreMode::Ephemeral,
++            AuthKeyringBackendKind::default(),
++        )?,
++        None
++    );
 +    Ok(())
 +}
 diff --git a/codex-rs/login/src/auth/default_client.rs b/codex-rs/login/src/auth/default_client.rs
@@ -16470,10 +16970,18 @@ index 92d9bf2..d5fd91c 100644
      assert_eq!(is_first_party_originator("codex_vscode"), true);
      assert_eq!(is_first_party_originator("Codex Something Else"), true);
 diff --git a/codex-rs/login/src/auth/manager.rs b/codex-rs/login/src/auth/manager.rs
-index 14cfee9..c72d6ae 100644
+index 14cfee9..b290d5d 100644
 --- a/codex-rs/login/src/auth/manager.rs
 +++ b/codex-rs/login/src/auth/manager.rs
-@@ -209,7 +209,7 @@ const REFRESH_TOKEN_INVALIDATED_MESSAGE: &str = "Your access token could not be
+@@ -41,6 +41,7 @@ use super::agent_identity::require_agent_identity_authapi_base_url;
+ use super::agent_identity::verified_record_from_jwt;
+ use super::change_state::AuthChangeState;
+ use super::change_state::same_owner;
++use super::change_state::same_siwc_account;
+ use super::external_bearer::BearerTokenRefresher;
+ use super::revoke::revoke_auth_tokens;
+ use super::workload_identity::WorkloadIdentityExternalAuth;
+@@ -209,7 +210,7 @@ const REFRESH_TOKEN_INVALIDATED_MESSAGE: &str = "Your access token could not be
  const REFRESH_TOKEN_UNKNOWN_MESSAGE: &str =
      "Your access token could not be refreshed. Please log out and sign in again.";
  const REFRESH_TOKEN_ACCOUNT_MISMATCH_MESSAGE: &str = "Your access token could not be refreshed because you have since logged out or signed in to another account. Please sign in again.";
@@ -16482,7 +16990,7 @@ index 14cfee9..c72d6ae 100644
  pub(super) const REVOKE_TOKEN_URL: &str = "https://auth.openai.com/oauth/revoke";
  pub const REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR: &str = "CODEX_REFRESH_TOKEN_URL_OVERRIDE";
  pub const REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR: &str = "CODEX_REVOKE_TOKEN_URL_OVERRIDE";
-@@ -406,8 +406,20 @@ impl CodexAuth {
+@@ -406,8 +407,20 @@ impl CodexAuth {
              ));
          }
  
@@ -16504,7 +17012,7 @@ index 14cfee9..c72d6ae 100644
          let state = ChatgptAuthState {
              auth_dot_json: Arc::new(Mutex::new(Some(auth_dot_json))),
              client,
-@@ -548,7 +560,7 @@ impl CodexAuth {
+@@ -548,7 +561,7 @@ impl CodexAuth {
      }
  
      pub fn uses_codex_backend(&self) -> bool {
@@ -16513,7 +17021,7 @@ index 14cfee9..c72d6ae 100644
      }
  
      pub fn is_external_chatgpt_tokens(&self) -> bool {
-@@ -593,9 +605,13 @@ impl CodexAuth {
+@@ -593,9 +606,13 @@ impl CodexAuth {
      pub fn get_token(&self) -> Result<String, std::io::Error> {
          match self {
              Self::ApiKey(auth) => Ok(auth.api_key.clone()),
@@ -16530,7 +17038,7 @@ index 14cfee9..c72d6ae 100644
              }
              Self::AgentIdentity(_) => Err(std::io::Error::other(
                  "agent identity auth does not expose a bearer token",
-@@ -610,6 +626,36 @@ impl CodexAuth {
+@@ -610,6 +627,36 @@ impl CodexAuth {
          }
      }
  
@@ -16567,7 +17075,16 @@ index 14cfee9..c72d6ae 100644
      /// Returns `None` if Codex backend auth does not expose an account id.
      pub fn get_account_id(&self) -> Option<String> {
          match self {
-@@ -757,9 +803,10 @@ impl CodexAuth {
+@@ -716,7 +763,7 @@ impl CodexAuth {
+     }
+ 
+     /// Returns `None` if token-backed ChatGPT auth is unavailable.
+-    fn get_current_token_data(&self) -> Option<TokenData> {
++    pub(super) fn get_current_token_data(&self) -> Option<TokenData> {
+         self.get_current_auth_json().and_then(|t| t.tokens)
+     }
+ 
+@@ -757,9 +804,10 @@ impl CodexAuth {
              | Self::BedrockApiKey(_)
              | Self::BedrockAccessKeys(_) => Ok(None),
              Self::Chatgpt(_) => {
@@ -16579,7 +17096,7 @@ index 14cfee9..c72d6ae 100644
                  self.ensure_managed_chatgpt_agent_identity(
                      require_agent_identity_authapi_base_url(agent_identity_authapi_base_url)?,
                      forced_chatgpt_workspace_id,
-@@ -819,6 +866,7 @@ impl CodexAuth {
+@@ -819,6 +867,7 @@ impl CodexAuth {
              auth_mode: Some(AuthMode::Chatgpt),
              openai_api_key: None,
              tokens: Some(TokenData {
@@ -16587,7 +17104,7 @@ index 14cfee9..c72d6ae 100644
                  id_token: Default::default(),
                  access_token: "Access Token".to_string(),
                  refresh_token: "test".to_string(),
-@@ -997,6 +1045,7 @@ pub async fn logout_with_revoke(
+@@ -997,6 +1046,7 @@ pub async fn logout_with_revoke(
      keyring_backend_kind: AuthKeyringBackendKind,
      auth_route_config: &AuthRouteConfig,
  ) -> std::io::Result<bool> {
@@ -16595,7 +17112,7 @@ index 14cfee9..c72d6ae 100644
      let auth_dot_json = match load_auth_dot_json(
          codex_home,
          auth_credentials_store_mode,
-@@ -1010,6 +1059,7 @@ pub async fn logout_with_revoke(
+@@ -1010,6 +1060,7 @@ pub async fn logout_with_revoke(
      };
      if let Err(err) = revoke_auth_tokens(auth_dot_json.as_ref(), auth_route_config).await {
          tracing::warn!("failed to revoke auth tokens during logout: {err}");
@@ -16603,7 +17120,7 @@ index 14cfee9..c72d6ae 100644
      }
      logout_all_stores(
          codex_home,
-@@ -1626,15 +1676,22 @@ fn persist_tokens(
+@@ -1626,15 +1677,22 @@ fn persist_tokens(
  async fn request_chatgpt_token_refresh(
      refresh_token: String,
      client: &HttpClient,
@@ -16631,7 +17148,7 @@ index 14cfee9..c72d6ae 100644
              timeout: None,
              error_body_limit: ErrorBodyLimit::Unlimited,
          },
-@@ -1642,7 +1699,7 @@ async fn request_chatgpt_token_refresh(
+@@ -1642,7 +1700,7 @@ async fn request_chatgpt_token_refresh(
      match oauth
          .refresh(RefreshTokenGrant {
              refresh_token: &refresh_token,
@@ -16640,7 +17157,7 @@ index 14cfee9..c72d6ae 100644
          })
          .await
      {
-@@ -1708,24 +1765,26 @@ fn classify_refresh_token_failure(
+@@ -1708,24 +1766,26 @@ fn classify_refresh_token_failure(
  
  #[derive(Deserialize, Clone)]
  struct RefreshResponse {
@@ -16674,7 +17191,7 @@ index 14cfee9..c72d6ae 100644
  }
  
  impl AuthDotJson {
-@@ -1742,6 +1801,7 @@ impl AuthDotJson {
+@@ -1742,6 +1802,7 @@ impl AuthDotJson {
              .or(token_info.chatgpt_plan_type)
              .or(Some(InternalPlanType::Unknown("unknown".to_string())));
          let tokens = TokenData {
@@ -16682,7 +17199,234 @@ index 14cfee9..c72d6ae 100644
              id_token: token_info,
              access_token: access_token.to_string(),
              refresh_token: String::new(),
-@@ -2945,6 +3005,7 @@ impl AuthManager {
+@@ -1836,7 +1897,7 @@ enum ReloadOutcome {
+     ReloadedChanged,
+     /// Reload was performed and the cached auth remained the same
+     ReloadedNoChange,
+-    /// Reload was skipped (missing or mismatched account id)
++    /// Reload was skipped (missing or mismatched account identity)
+     Skipped,
+ }
+ 
+@@ -1852,7 +1913,7 @@ enum UnauthorizedRecoveryMode {
+ // For API key based authentication, we don't do anything and let the error bubble to the user.
+ //
+ // For ChatGPT based authentication, we:
+-// 1. Attempt to reload the auth data from disk. We only reload if the account id matches the one the current process is running as.
++// 1. Attempt to reload the auth data from disk. We only reload if the account identity matches the one the current process is running as.
+ // 2. Attempt to refresh the token using OAuth token refresh flow.
+ // If after both steps the server still responds with 401 we let the error bubble to the user.
+ //
+@@ -1862,7 +1923,7 @@ enum UnauthorizedRecoveryMode {
+ pub struct UnauthorizedRecovery {
+     manager: Arc<AuthManager>,
+     step: UnauthorizedRecoveryStep,
+-    expected_account_id: Option<String>,
++    expected_auth: Option<CodexAuth>,
+     mode: UnauthorizedRecoveryMode,
+ }
+ 
+@@ -1880,7 +1941,6 @@ impl UnauthorizedRecoveryStepResult {
+ impl UnauthorizedRecovery {
+     fn new(manager: Arc<AuthManager>) -> Self {
+         let cached_auth = manager.auth_cached();
+-        let expected_account_id = cached_auth.as_ref().and_then(CodexAuth::get_account_id);
+         let mode = if manager.has_external_auth() {
+             UnauthorizedRecoveryMode::External
+         } else {
+@@ -1893,7 +1953,7 @@ impl UnauthorizedRecovery {
+         Self {
+             manager,
+             step,
+-            expected_account_id,
++            expected_auth: cached_auth,
+             mode,
+         }
+     }
+@@ -1985,7 +2045,7 @@ impl UnauthorizedRecovery {
+             UnauthorizedRecoveryStep::Reload => {
+                 match self
+                     .manager
+-                    .reload_if_account_id_matches(self.expected_account_id.as_deref())
++                    .reload_if_auth_matches(self.expected_auth.as_ref())
+                     .await
+                 {
+                     ReloadOutcome::ReloadedChanged => {
+@@ -2401,7 +2461,6 @@ impl AuthManager {
+             && let Err(err) = self.refresh_token().await
+         {
+             tracing::error!("Failed to refresh token: {}", err);
+-            return Some(auth);
+         }
+         self.auth_cached()
+     }
+@@ -2480,38 +2539,59 @@ impl AuthManager {
+     /// Reloads auth from the active source. Returns whether the auth value changed.
+     pub async fn reload(&self) -> bool {
+         tracing::info!("Reloading auth");
++        let expected_generation = self.auth_change_state_tx.borrow().generation;
+         let new_auth = self.load_auth().await;
+-        self.set_cached_auth(new_auth)
++        let Ok(mut cached) = self.inner.write() else {
++            return false;
++        };
++        if self.auth_change_state_tx.borrow().generation != expected_generation {
++            tracing::info!("Skipping stale auth reload because cached credentials changed.");
++            return false;
++        }
++        self.set_cached_auth_locked(&mut cached, new_auth)
+     }
+ 
+-    async fn reload_if_account_id_matches(
+-        &self,
+-        expected_account_id: Option<&str>,
+-    ) -> ReloadOutcome {
+-        let expected_account_id = match expected_account_id {
+-            Some(account_id) => account_id,
+-            None => {
+-                tracing::info!("Skipping auth reload because no account id is available.");
+-                return ReloadOutcome::Skipped;
+-            }
++    async fn reload_if_auth_matches(&self, expected_auth: Option<&CodexAuth>) -> ReloadOutcome {
++        let expected_tokens = match expected_auth {
++            Some(CodexAuth::Chatgpt(auth)) => auth.current_token_data(),
++            _ => None,
+         };
++        let expected_siwc = expected_tokens
++            .as_ref()
++            .filter(|tokens| tokens.siwc.is_some());
++        let expected_account_id = expected_auth.and_then(CodexAuth::get_account_id);
++        if expected_siwc.is_none() && expected_account_id.is_none() {
++            tracing::info!("Skipping auth reload because no account identity is available.");
++            return ReloadOutcome::Skipped;
++        }
+ 
++        let expected_generation = self.auth_change_state_tx.borrow().generation;
+         let new_auth = self.load_auth().await;
+-        let new_account_id = new_auth.as_ref().and_then(CodexAuth::get_account_id);
+-
+-        if new_account_id.as_deref() != Some(expected_account_id) {
+-            let found_account_id = new_account_id.as_deref().unwrap_or("unknown");
+-            tracing::info!(
+-                "Skipping auth reload due to account id mismatch (expected: {expected_account_id}, found: {found_account_id})"
+-            );
++        let identity_matches = if let Some(expected_siwc) = expected_siwc {
++            match new_auth.as_ref() {
++                Some(CodexAuth::Chatgpt(auth)) => auth
++                    .current_token_data()
++                    .is_some_and(|tokens| same_siwc_account(expected_siwc, &tokens)),
++                _ => false,
++            }
++        } else {
++            new_auth.as_ref().and_then(CodexAuth::get_account_id) == expected_account_id
++        };
++        if !identity_matches {
++            tracing::info!("Skipping auth reload due to account identity mismatch.");
+             return ReloadOutcome::Skipped;
+         }
+ 
+-        tracing::info!("Reloading auth for account {expected_account_id}");
+-        let cached_before_reload = self.auth_cached();
+-        let auth_changed =
+-            !Self::auths_equal_for_refresh(cached_before_reload.as_ref(), new_auth.as_ref());
+-        self.set_cached_auth(new_auth);
++        let Ok(mut cached) = self.inner.write() else {
++            return ReloadOutcome::Skipped;
++        };
++        if self.auth_change_state_tx.borrow().generation != expected_generation {
++            tracing::info!("Skipping stale auth reload because cached credentials changed.");
++            return ReloadOutcome::Skipped;
++        }
++        tracing::info!("Reloading auth for the current account");
++        let auth_changed = !Self::auths_equal_for_refresh(cached.auth.as_ref(), new_auth.as_ref());
++        self.set_cached_auth_locked(&mut cached, new_auth);
+         if auth_changed {
+             ReloadOutcome::ReloadedChanged
+         } else {
+@@ -2628,38 +2708,41 @@ impl AuthManager {
+ 
+     fn set_cached_auth(&self, new_auth: Option<CodexAuth>) -> bool {
+         if let Ok(mut guard) = self.inner.write() {
+-            let previous = guard.auth.as_ref();
+-            let changed = !AuthManager::auths_equal(previous, new_auth.as_ref());
+-            let auth_changed_for_refresh =
+-                !Self::auths_equal_for_refresh(previous, new_auth.as_ref());
+-            let owner_changed =
+-                auth_changed_for_refresh && !same_owner(previous, new_auth.as_ref());
+-            if owner_changed {
+-                self.auth_route_config
+-                    .http_client_factory()
+-                    .network_policy()
+-                    .invalidate();
+-            }
+-            if auth_changed_for_refresh {
+-                guard.permanent_refresh_failure = None;
+-            }
+-            tracing::info!("Reloaded auth, changed: {changed}");
+-            guard.auth = new_auth;
+-            if auth_changed_for_refresh {
+-                self.auth_change_state_tx.send_modify(|state| {
+-                    state.generation += 1;
+-                    if owner_changed {
+-                        state.owner_generation += 1;
+-                    }
+-                });
+-                self.auth_change_tx.send_modify(|revision| *revision += 1);
+-            }
+-            changed
++            self.set_cached_auth_locked(&mut guard, new_auth)
+         } else {
+             false
+         }
+     }
+ 
++    // The caller holds the cache write lock through revision checks and publication.
++    fn set_cached_auth_locked(&self, guard: &mut CachedAuth, new_auth: Option<CodexAuth>) -> bool {
++        let previous = guard.auth.as_ref();
++        let changed = !AuthManager::auths_equal(previous, new_auth.as_ref());
++        let auth_changed_for_refresh = !Self::auths_equal_for_refresh(previous, new_auth.as_ref());
++        let owner_changed = auth_changed_for_refresh && !same_owner(previous, new_auth.as_ref());
++        if owner_changed {
++            self.auth_route_config
++                .http_client_factory()
++                .network_policy()
++                .invalidate();
++        }
++        if auth_changed_for_refresh {
++            guard.permanent_refresh_failure = None;
++        }
++        tracing::info!("Reloaded auth, changed: {changed}");
++        guard.auth = new_auth;
++        if auth_changed_for_refresh {
++            self.auth_change_state_tx.send_modify(|state| {
++                state.generation += 1;
++                if owner_changed {
++                    state.owner_generation += 1;
++                }
++            });
++            self.auth_change_tx.send_modify(|revision| *revision += 1);
++        }
++        changed
++    }
++
+     pub async fn set_external_auth(
+         &self,
+         external_auth: Arc<dyn ExternalAuth>,
+@@ -2859,12 +2942,8 @@ impl AuthManager {
+         {
+             return Ok(());
+         }
+-        let expected_account_id = auth_before_reload
+-            .as_ref()
+-            .and_then(CodexAuth::get_account_id);
+-
+         match self
+-            .reload_if_account_id_matches(expected_account_id.as_deref())
++            .reload_if_auth_matches(auth_before_reload.as_ref())
+             .await
+         {
+             ReloadOutcome::ReloadedChanged => {
+@@ -2945,6 +3024,7 @@ impl AuthManager {
      /// unauthenticated state.
      pub async fn logout(&self) -> std::io::Result<bool> {
          self.ensure_logout_allowed()?;
@@ -16690,7 +17434,7 @@ index 14cfee9..c72d6ae 100644
          let removed = logout_all_stores(
              &self.codex_home,
              self.auth_credentials_store_mode,
-@@ -2957,12 +3018,23 @@ impl AuthManager {
+@@ -2957,12 +3037,46 @@ impl AuthManager {
      }
  
      pub async fn logout_with_revoke(&self) -> std::io::Result<bool> {
@@ -16706,17 +17450,43 @@ index 14cfee9..c72d6ae 100644
 +        Fut: std::future::Future<Output = std::io::Result<()>>,
 +    {
          self.ensure_logout_allowed()?;
-+        let _session_lock = crate::siwc_login::session_lock(&self.codex_home).await?;
-         let auth_dot_json = self
-             .auth_cached()
-             .and_then(|auth| auth.get_current_auth_json());
+-        let auth_dot_json = self
+-            .auth_cached()
+-            .and_then(|auth| auth.get_current_auth_json());
 -        if let Err(err) = revoke_auth_tokens(auth_dot_json.as_ref(), &self.auth_route_config).await
 -        {
++        let _session_lock = crate::siwc_login::session_lock(&self.codex_home).await?;
++        let cached_auth = self.auth_cached();
++        let mut auth_dot_json = cached_auth
++            .as_ref()
++            .and_then(CodexAuth::get_current_auth_json);
++        if let Some(CodexAuth::Chatgpt(auth)) = cached_auth.as_ref() {
++            // A refresh in another process may have rotated the cached token while logout
++            // waited for the session lock. Only adopt its replacement for the same account.
++            match auth.storage().load() {
++                Ok(Some(stored))
++                    if stored.resolved_mode() == AuthMode::Chatgpt
++                        && stored.openai_api_key.is_none()
++                        && stored.tokens.as_ref().is_some_and(|current| {
++                            auth_dot_json
++                                .as_ref()
++                                .and_then(|cached| cached.tokens.as_ref())
++                                .is_some_and(|cached| same_siwc_account(cached, current))
++                                && crate::siwc_login::validate_token_string(&current.refresh_token)
++                                    .is_ok()
++                        }) =>
++                {
++                    auth_dot_json = Some(stored);
++                }
++                Err(err) => tracing::warn!("failed to load stored auth during logout: {err}"),
++                Ok(_) => {}
++            }
++        }
 +        if let Err(err) = revoke(auth_dot_json).await {
              tracing::warn!("failed to revoke auth tokens during logout: {err}");
          }
          let result = logout_all_stores(
-@@ -2997,8 +3069,9 @@ impl AuthManager {
+@@ -2997,8 +3111,9 @@ impl AuthManager {
      }
  
      pub fn current_auth_uses_codex_backend(&self) -> bool {
@@ -16728,7 +17498,7 @@ index 14cfee9..c72d6ae 100644
      }
  
      fn should_refresh_proactively(auth: &CodexAuth) -> bool {
-@@ -3011,6 +3084,22 @@ impl AuthManager {
+@@ -3011,6 +3126,22 @@ impl AuthManager {
              Some(auth_dot_json) => auth_dot_json,
              None => return false,
          };
@@ -16751,7 +17521,78 @@ index 14cfee9..c72d6ae 100644
          if let Some(tokens) = auth_dot_json.tokens.as_ref()
              && let Ok(Some(expires_at)) = parse_jwt_expiration(&tokens.access_token)
          {
-@@ -3094,15 +3183,96 @@ impl AuthManager {
+@@ -3034,6 +3165,7 @@ impl AuthManager {
+                 "external auth is not configured",
+             )));
+         };
++        let expected_generation = self.auth_change_state_tx.borrow().generation;
+         let previous_account_id = self
+             .auth_cached()
+             .as_ref()
+@@ -3048,11 +3180,51 @@ impl AuthManager {
+             .await
+             .map_err(|error| external_auth.classify_error(error))?;
+         self.validate_external_auth(&refreshed, external_auth.as_ref())?;
+-        self.commit_external_auth(refreshed)?;
+-        Ok(())
++        // Serialize token persistence with logout, but never hold this lock while
++        // waiting on the external provider. Header/bearer auth does not use storage.
++        let _session_lock = if refreshed.is_external_chatgpt_tokens() {
++            Some(crate::siwc_login::session_lock(&self.codex_home).await?)
++        } else {
++            None
++        };
++        let active_source = self
++            .external_auth
++            .read()
++            .map_err(|_| std::io::Error::other("external auth lock is poisoned"))?;
++        if !active_source
++            .as_ref()
++            .is_some_and(|current| Arc::ptr_eq(current, &external_auth))
++        {
++            return Err(std::io::Error::other(
++                "External auth changed while refreshing credentials",
++            )
++            .into());
++        }
++        let mut cached = self
++            .inner
++            .write()
++            .map_err(|_| std::io::Error::other("auth cache lock is poisoned"))?;
++        if self.auth_change_state_tx.borrow().generation != expected_generation {
++            return Err(
++                std::io::Error::other("Cached auth changed while refreshing credentials").into(),
++            );
++        }
++        self.commit_external_auth_locked(&mut cached, refreshed)
+     }
+ 
+     fn commit_external_auth(&self, auth: CodexAuth) -> Result<(), RefreshTokenError> {
++        let mut cached = self
++            .inner
++            .write()
++            .map_err(|_| std::io::Error::other("auth cache lock is poisoned"))?;
++        self.commit_external_auth_locked(&mut cached, auth)
++    }
++
++    fn commit_external_auth_locked(
++        &self,
++        cached: &mut CachedAuth,
++        auth: CodexAuth,
++    ) -> Result<(), RefreshTokenError> {
+         if auth.is_external_chatgpt_tokens() {
+             let auth_dot_json = auth.get_current_auth_json().ok_or_else(|| {
+                 RefreshTokenError::Transient(std::io::Error::other(
+@@ -3069,7 +3241,7 @@ impl AuthManager {
+             .map_err(RefreshTokenError::Transient)?;
+         }
+ 
+-        self.set_cached_auth(Some(auth));
++        self.set_cached_auth_locked(cached, Some(auth));
+         Ok(())
+     }
+ 
+@@ -3094,15 +3266,92 @@ impl AuthManager {
          auth: &ChatgptAuth,
          refresh_token: String,
      ) -> Result<(), RefreshTokenError> {
@@ -16780,11 +17621,7 @@ index 14cfee9..c72d6ae 100644
 +        let cached = auth
 +            .current_token_data()
 +            .ok_or_else(|| std::io::Error::other("Token data is not available"))?;
-+        let same_registration = match (&previous.siwc, &cached.siwc) {
-+            (Some(current), Some(cached)) => current.same_registration(cached),
-+            _ => false,
-+        };
-+        if !same_registration || previous.account_id != cached.account_id {
++        if !same_siwc_account(previous, &cached) {
 +            return Err(std::io::Error::other(
 +                "The active SIWC account changed; retry using the current account",
 +            )
@@ -16856,7 +17693,7 @@ index 14cfee9..c72d6ae 100644
          self.reload().await;
  
          Ok(())
-@@ -3122,6 +3292,80 @@ fn auth_config_from(config: &impl AuthManagerConfig) -> AuthConfig {
+@@ -3122,6 +3371,80 @@ fn auth_config_from(config: &impl AuthManagerConfig) -> AuthConfig {
      }
  }
  
@@ -22540,10 +23377,23 @@ index 159f750..05f0cee 100644
  codex-http-client = { workspace = true }
  codex-login = { workspace = true }
 diff --git a/codex-rs/models-manager/src/manager.rs b/codex-rs/models-manager/src/manager.rs
-index af73444..084ef75 100644
+index af73444..e25d4ba 100644
 --- a/codex-rs/models-manager/src/manager.rs
 +++ b/codex-rs/models-manager/src/manager.rs
-@@ -243,6 +243,29 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
+@@ -52,6 +52,12 @@ pub trait ModelsEndpointClient: fmt::Debug + Send + Sync {
+     /// Returns whether the currently resolved auth can use Codex backend-only models.
+     fn uses_codex_backend(&self) -> ModelsEndpointFuture<'_, bool>;
+ 
++    /// Whether effective provider auth uses the account-specific SIWC catalog.
++    /// Providers opt in explicitly so an unrelated first-party login cannot change their policy.
++    fn uses_siwc_api(&self) -> bool {
++        false
++    }
++
+     /// Returns whether this provider supports an authoritative catalog with OpenAI API keys.
+     fn supports_api_key_models(&self) -> bool {
+         false
+@@ -243,6 +249,29 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
          )
      }
  
@@ -22573,7 +23423,99 @@ index af73444..084ef75 100644
      /// Refresh models if the provided ETag differs from the cached ETag.
      ///
      /// Uses `Online` strategy to fetch latest models when ETags differ.
-@@ -896,8 +919,15 @@ pub(crate) fn construct_model_info_from_candidates(
+@@ -343,13 +372,19 @@ impl OpenAiModelsManager {
+         endpoint_client: Arc<dyn ModelsEndpointClient>,
+         auth_manager: Option<Arc<AuthManager>>,
+     ) -> Self {
++        let models = if endpoint_client.uses_siwc_api() {
++            // Bundled metadata is not evidence of this ChatGPT account's model access.
++            Vec::new()
++        } else {
++            load_remote_models_from_file().unwrap_or_default()
++        };
+         Self {
+             remote_models: RwLock::new(ModelsCacheEntry {
+                 fetched_at: Utc::now(),
+                 etag: None,
+                 client_version: Some(crate::client_version_to_whole()),
+                 identity: endpoint_client.identity(),
+-                models: load_remote_models_from_file().unwrap_or_default(),
++                models,
+             }),
+             cache,
+             api_key_model_discovery_enabled: AtomicBool::new(false),
+@@ -366,6 +401,14 @@ impl OpenAiModelsManager {
+         self.remote_models.get_mut().models.clear();
+         self
+     }
++
++    fn fallback_models(&self) -> Vec<ModelInfo> {
++        if self.endpoint_client.uses_siwc_api() {
++            Vec::new()
++        } else {
++            self.catalog_source.fallback_models().unwrap_or_default()
++        }
++    }
+ }
+ 
+ impl StaticModelsManager {
+@@ -432,7 +475,7 @@ impl ModelsManager for OpenAiModelsManager {
+             if entry.identity.is_some() && entry.identity == self.endpoint_client.identity() {
+                 entry.models.clone()
+             } else {
+-                self.catalog_source.fallback_models().unwrap_or_default()
++                self.fallback_models()
+             }
+         })
+     }
+@@ -443,7 +486,7 @@ impl ModelsManager for OpenAiModelsManager {
+             if entry.identity.is_some() && entry.identity == self.endpoint_client.identity() {
+                 entry.models.clone()
+             } else {
+-                self.catalog_source.fallback_models().unwrap_or_default()
++                self.fallback_models()
+             },
+         )
+     }
+@@ -664,6 +707,7 @@ impl OpenAiModelsManager {
+ 
+     async fn should_refresh_models(&self) -> bool {
+         self.endpoint_client.uses_codex_backend().await
++            || self.endpoint_client.uses_siwc_api()
+             || self.endpoint_client.has_command_auth()
+             || self.supports_api_key_discovery()
+     }
+@@ -674,16 +718,19 @@ impl OpenAiModelsManager {
+         if entry.identity != self.endpoint_client.identity() {
+             return false;
+         }
+-        let remote_only = entry
+-            .models
+-            .iter()
+-            .any(|model| model.visibility == ModelVisibility::List)
+-            && (self.supports_api_key_discovery()
+-                || self.auth_manager.as_ref().is_some_and(|auth_manager| {
+-                    auth_manager
+-                        .auth_mode()
+-                        .is_some_and(AuthMode::has_chatgpt_account)
+-                }));
++        // SIWC's account-specific catalog remains authoritative even when it is empty
++        // or contains no picker-visible models. Never infer access from bundled metadata.
++        let remote_only = self.endpoint_client.uses_siwc_api()
++            || entry
++                .models
++                .iter()
++                .any(|model| model.visibility == ModelVisibility::List)
++                && (self.supports_api_key_discovery()
++                    || self.auth_manager.as_ref().is_some_and(|auth_manager| {
++                        auth_manager
++                            .auth_mode()
++                            .is_some_and(AuthMode::has_chatgpt_account)
++                    }));
+         if !remote_only && let Some(mut models) = self.catalog_source.fallback_models() {
+             for model in entry.models {
+                 if let Some(index) = models
+@@ -896,8 +943,15 @@ pub(crate) fn construct_model_info_from_candidates(
  ) -> ModelInfo {
      // First use the normal longest-prefix match. If that misses, allow a narrowly scoped
      // retry for namespaced slugs like `custom/gpt-5.3-codex`.
@@ -27302,7 +28244,7 @@ index f4d2764..ace7b30 100644
      }
  }
 diff --git a/codex-rs/model-provider/src/models_endpoint.rs b/codex-rs/model-provider/src/models_endpoint.rs
-index 6986451..e800e8c 100644
+index 6986451..5f448e1 100644
 --- a/codex-rs/model-provider/src/models_endpoint.rs
 +++ b/codex-rs/model-provider/src/models_endpoint.rs
 @@ -109,7 +109,8 @@ impl OpenAiModelsEndpoint {
@@ -27315,7 +28257,36 @@ index 6986451..e800e8c 100644
          if (auth.as_ref().is_some_and(CodexAuth::is_api_key_auth) || self.has_provider_api_key())
              && self.supports_api_key_models()
              && self.provider_info.base_url.is_none()
-@@ -521,7 +522,14 @@ mod tests {
+@@ -210,6 +211,17 @@ impl OpenAiModelsEndpoint {
+ }
+ 
+ impl ModelsEndpointClient for OpenAiModelsEndpoint {
++    fn uses_siwc_api(&self) -> bool {
++        self.provider_info.requires_openai_auth
++            && !self.has_provider_api_key()
++            && !self.has_command_auth()
++            && self
++                .auth_manager
++                .as_ref()
++                .and_then(|manager| manager.auth_cached())
++                .is_some_and(|auth| auth.uses_siwc_api())
++    }
++
+     fn supports_api_key_models(&self) -> bool {
+         self.provider_info.model_catalog_url.is_some()
+             || (self.provider_info.is_openai() && self.provider_info.base_url.is_none())
+@@ -395,6 +407,10 @@ impl RequestTelemetry for ModelsRequestTelemetry {
+ #[path = "models_endpoint_timeout_tests.rs"]
+ mod timeout_tests;
+ 
++#[cfg(test)]
++#[path = "siwc_models_manager_tests.rs"]
++mod siwc_models_manager_tests;
++
+ #[cfg(test)]
+ mod tests {
+     use std::num::NonZeroU64;
+@@ -521,7 +537,14 @@ mod tests {
      async fn provider_api_key_without_endpoint_overrides_uses_codex_backend() {
          for auth in [
              None,
@@ -27331,7 +28302,7 @@ index 6986451..e800e8c 100644
          ] {
              let capture = Arc::new(CaptureModelsUrl(Mutex::new(/*t*/ None)));
              let auth_manager = auth.map(AuthManager::from_auth_for_testing);
-@@ -793,7 +801,12 @@ mod tests {
+@@ -793,7 +816,12 @@ mod tests {
      #[tokio::test]
      async fn explicit_catalog_reuses_auth_headers_and_query_parameters() {
          for auth in [
@@ -27346,7 +28317,7 @@ index 6986451..e800e8c 100644
          ] {
              let server = MockServer::start().await;
 diff --git a/codex-rs/model-provider/src/models_identity.rs b/codex-rs/model-provider/src/models_identity.rs
-index 409ff83..ae4927b 100644
+index 409ff83..2f24163 100644
 --- a/codex-rs/model-provider/src/models_identity.rs
 +++ b/codex-rs/model-provider/src/models_identity.rs
 @@ -14,7 +14,7 @@ pub(crate) fn identity(
@@ -27358,6 +28329,54 @@ index 409ff83..ae4927b 100644
      let mut digest = Sha256::new();
      // Length-prefix every field to avoid ambiguity between adjacent values.
      let mut field = |value: &[u8]| {
+@@ -56,15 +56,40 @@ pub(crate) fn identity(
+         );
+         field(&[u8::from(auth.is_fedramp_account())]);
+     }
+-    let has_stable_account = auth.is_some_and(|auth| {
+-        matches!(
+-            auth,
+-            CodexAuth::Chatgpt(_) | CodexAuth::ChatgptAuthTokens(_) | CodexAuth::AgentIdentity(_)
+-        ) && auth.get_account_id().is_some()
+-            && (auth.get_chatgpt_user_id().is_some() || auth.get_account_email().is_some())
+-    });
+     let explicit_bearer =
+         provider_info.api_key()?.is_some() || provider_info.experimental_bearer_token.is_some();
++    let siwc_registration = auth
++        .filter(|_| {
++            provider_info.requires_openai_auth
++                && !provider_info.has_command_auth()
++                && !explicit_bearer
++        })
++        .and_then(CodexAuth::siwc_registration);
++    if let Some(registration) = siwc_registration.as_ref() {
++        // SIWC's verified registration identifies the owner without optional private claims.
++        // Rotating access tokens and expiry must not invalidate a same-account catalog.
++        field(b"siwc-registration-v1");
++        field(registration.issuer().as_bytes());
++        field(registration.subject().as_bytes());
++        field(registration.client_id().as_str().as_bytes());
++        field(registration.host_id().as_str().as_bytes());
++        let mut scopes: Vec<_> = registration.scopes().iter().collect();
++        scopes.sort();
++        field(&(scopes.len() as u64).to_le_bytes());
++        for scope in scopes {
++            field(scope.as_bytes());
++        }
++    }
++    let has_stable_account = siwc_registration.is_some()
++        || auth.is_some_and(|auth| {
++            matches!(
++                auth,
++                CodexAuth::Chatgpt(_)
++                    | CodexAuth::ChatgptAuthTokens(_)
++                    | CodexAuth::AgentIdentity(_)
++            ) && auth.get_account_id().is_some()
++                && (auth.get_chatgpt_user_id().is_some() || auth.get_account_email().is_some())
++        });
+     // Command auth also returns opaque API keys. A changed key may belong to a
+     // different account, so only credentials with stable owner metadata can be reused.
+     if !has_stable_account || explicit_bearer {
 diff --git a/codex-rs/model-provider/src/provider.rs b/codex-rs/model-provider/src/provider.rs
 index 7d99c55..4460731 100644
 --- a/codex-rs/model-provider/src/provider.rs
@@ -27622,3 +28641,609 @@ index d2016ca..c800c69 100644
      write_models_cache(temp_home.path())
          .await
          .expect("write models cache");
+diff --git a/codex-rs/login/src/auth/change_state.rs b/codex-rs/login/src/auth/change_state.rs
+index 27d1399..acd5318 100644
+--- a/codex-rs/login/src/auth/change_state.rs
++++ b/codex-rs/login/src/auth/change_state.rs
+@@ -1,6 +1,7 @@
+ //! Tracks credential changes separately from ownership changes, before notifications coalesce.
+ 
+ use super::CodexAuth;
++use crate::token_data::TokenData;
+ 
+ /// Opaque revisions local to one auth manager. Consumers must reset on reconnect.
+ #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+@@ -19,6 +20,13 @@ pub(super) fn same_owner(previous: Option<&CodexAuth>, current: Option<&CodexAut
+     if previous.api_auth_mode() != current.api_auth_mode() {
+         return false;
+     }
++    if let (Some(previous), Some(current)) = (
++        previous.get_current_token_data(),
++        current.get_current_token_data(),
++    ) && (previous.siwc.is_some() || current.siwc.is_some())
++    {
++        return same_siwc_account(&previous, &current);
++    }
+     let (Some(user), Some(workspace)) = (previous.get_chatgpt_user_id(), previous.get_account_id())
+     else {
+         return false;
+@@ -28,3 +36,16 @@ pub(super) fn same_owner(previous: Option<&CodexAuth>, current: Option<&CodexAut
+         && current.get_chatgpt_user_id().as_ref() == Some(&user)
+         && current.get_account_id().as_ref() == Some(&workspace)
+ }
++
++/// SIWC ownership uses the verified registration, without requiring private ChatGPT claims.
++/// Retain any optional workspace binding when comparing persisted credentials.
++pub(super) fn same_siwc_account(previous: &TokenData, current: &TokenData) -> bool {
++    match (&previous.siwc, &current.siwc) {
++        (Some(previous_registration), Some(current_registration)) => {
++            previous_registration.same_registration(current_registration)
++                && previous.account_id == current.account_id
++                && previous.id_token.chatgpt_account_id == current.id_token.chatgpt_account_id
++        }
++        _ => false,
++    }
++}
+diff --git a/codex-rs/login/src/auth/change_state_tests.rs b/codex-rs/login/src/auth/change_state_tests.rs
+index 25abff1..e6bc8ba 100644
+--- a/codex-rs/login/src/auth/change_state_tests.rs
++++ b/codex-rs/login/src/auth/change_state_tests.rs
+@@ -131,3 +131,70 @@ async fn captured_credentials_are_revoked_if_account_changes_before_client_const
+         ))
+     ));
+ }
++
++#[tokio::test]
++async fn siwc_owner_generation_uses_stable_registration_without_private_claims()
++-> anyhow::Result<()> {
++    let home = tempfile::tempdir()?;
++    let mut manager = AuthManager::from_optional_auth_for_testing(/*auth*/ None);
++    let controller = NetworkPolicyController::default();
++    let policy = controller.policy();
++    Arc::get_mut(&mut manager).unwrap().auth_route_config =
++        AuthRouteConfig::from_http_client_factory(
++            manager
++                .http_client_factory()
++                .with_network_policy(policy.clone()),
++        );
++    let endpoint = "https://example.com/".parse()?;
++    let mut changes = manager.auth_change_state_receiver();
++    for (subject, client, token, generation, owner_generation) in [
++        ("user-a", "oaiapp_a", "token-1", 1, 1),
++        ("user-a", "oaiapp_a", "token-2", 2, 1),
++        ("user-b", "oaiapp_a", "token-3", 3, 2),
++        ("user-b", "oaiapp_b", "token-4", 4, 3),
++        ("user-b", "oaiapp_b", "token-5", 5, 3),
++    ] {
++        let mut stored = CodexAuth::create_dummy_chatgpt_auth_for_testing()
++            .get_current_auth_json()
++            .expect("fixture");
++        let tokens = stored.tokens.as_mut().expect("fixture tokens");
++        tokens.account_id = None;
++        tokens.access_token = token.to_string();
++        tokens.refresh_token = format!("refresh-{token}");
++        tokens.siwc = Some(serde_json::from_value(json!({
++            "issuer": crate::siwc::ISSUER,
++            "subject": subject,
++            "client_id": client,
++            "ext_agent_host_id": "test-host",
++            "scopes": ["openid", "resource.invoke", "chatgpt.tokens.use.direct"],
++            "expires_at": 4_000_000_000_u64 + generation,
++            "authorization_nonce": "test-nonce",
++        }))?);
++        let auth = CodexAuth::from_auth_dot_json(
++            home.path(),
++            stored,
++            AuthCredentialsStoreMode::File,
++            /*chatgpt_base_url*/ None,
++            AuthKeyringBackendKind::default(),
++            /*agent_identity_authapi_base_url*/ None,
++            &crate::test_support::transport_default_auth_route_config(),
++        )
++        .await?;
++        let previous_owner = changes.borrow().owner_generation;
++        let factory = manager.http_client_factory();
++        manager.set_cached_auth(Some(auth));
++        assert!(controller.publish(policy.revision(), DestinationPolicy::Unrestricted));
++        assert_eq!(
++            factory.network_policy().acquire(&endpoint).is_ok(),
++            owner_generation == previous_owner
++        );
++        assert_eq!(
++            *changes.borrow_and_update(),
++            AuthChangeState {
++                generation,
++                owner_generation
++            }
++        );
++    }
++    Ok(())
++}
+diff --git a/codex-rs/model-provider/src/siwc_models_manager_tests.rs b/codex-rs/model-provider/src/siwc_models_manager_tests.rs
+new file mode 100644
+index 0000000..0cd6bac
+--- /dev/null
++++ b/codex-rs/model-provider/src/siwc_models_manager_tests.rs
+@@ -0,0 +1,482 @@
++//! Manager coverage with production SIWC routing/auth and ModelsClient, using captured HTTP.
++//! The test adapter omits endpoint timeout/telemetry/composition and injects the transport;
++//! this does not execute the full OpenAiModelsEndpoint, and no requests leave the process.
++
++use super::*;
++use codex_http_client::HttpTransport;
++use codex_http_client::OutboundProxyPolicy;
++use codex_http_client::Request;
++use codex_http_client::Response;
++use codex_http_client::StreamResponse;
++use codex_models_manager::ModelsManagerConfig;
++use codex_models_manager::manager::ModelsManager;
++use codex_models_manager::manager::OpenAiModelsManager;
++use codex_models_manager::manager::RefreshStrategy;
++use codex_protocol::openai_models::ModelInfo;
++use codex_protocol::openai_models::ModelVisibility;
++use http::Method;
++use http::StatusCode;
++use pretty_assertions::assert_eq;
++use serde_json::json;
++use std::collections::VecDeque;
++use std::path::Path;
++use std::sync::Mutex;
++
++const HTTP_FACTORY: HttpClientFactory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
++
++#[derive(Clone, Debug, Default)]
++struct CapturedTransport {
++    requests: Arc<Mutex<Vec<Request>>>,
++    responses: Arc<Mutex<VecDeque<Result<serde_json::Value, TransportError>>>>,
++}
++
++impl CapturedTransport {
++    fn catalog(&self, models: Vec<ModelInfo>) {
++        self.responses
++            .lock()
++            .unwrap()
++            .push_back(Ok(json!({ "models": models })));
++    }
++
++    fn fail(&self) {
++        self.responses
++            .lock()
++            .unwrap()
++            .push_back(Err(TransportError::Build(
++                "test transport unavailable".into(),
++            )));
++    }
++
++    fn requests(&self) -> Vec<Request> {
++        self.requests.lock().unwrap().clone()
++    }
++}
++
++impl HttpTransport for CapturedTransport {
++    async fn execute(&self, request: Request) -> Result<Response, TransportError> {
++        self.requests.lock().unwrap().push(request);
++        let body = self
++            .responses
++            .lock()
++            .unwrap()
++            .pop_front()
++            .expect("unexpected catalog request")?;
++        Ok(Response {
++            status: StatusCode::OK,
++            headers: HeaderMap::from_iter([(http::header::ETAG, "catalog-etag".parse().unwrap())]),
++            body: serde_json::to_vec(&body).unwrap().into(),
++        })
++    }
++
++    async fn stream(&self, _request: Request) -> Result<StreamResponse, TransportError> {
++        panic!("model discovery must not stream")
++    }
++}
++
++#[derive(Debug)]
++struct CapturedEndpoint {
++    endpoint: OpenAiModelsEndpoint,
++    transport: CapturedTransport,
++}
++
++impl CapturedEndpoint {
++    fn new(auth: Arc<AuthManager>) -> Arc<Self> {
++        Arc::new(Self {
++            endpoint: OpenAiModelsEndpoint::new(
++                ModelProviderInfo::create_openai_provider(/*base_url*/ None),
++                Some(auth),
++                /*gateway_auth_manager*/ None,
++            ),
++            transport: CapturedTransport::default(),
++        })
++    }
++}
++
++impl ModelsEndpointClient for CapturedEndpoint {
++    fn identity(&self) -> Option<String> {
++        self.endpoint.identity()
++    }
++
++    fn has_command_auth(&self) -> bool {
++        self.endpoint.has_command_auth()
++    }
++
++    fn uses_codex_backend(&self) -> ModelsEndpointFuture<'_, bool> {
++        Box::pin(self.endpoint.uses_codex_backend())
++    }
++
++    fn uses_siwc_api(&self) -> bool {
++        self.endpoint.uses_siwc_api()
++    }
++
++    fn supports_api_key_models(&self) -> bool {
++        self.endpoint.supports_api_key_models()
++    }
++
++    fn has_provider_api_key(&self) -> bool {
++        self.endpoint.has_provider_api_key()
++    }
++
++    fn list_models<'a>(
++        &'a self,
++        client_version: &'a str,
++        _http_client_factory: HttpClientFactory,
++    ) -> ModelsEndpointFuture<'a, CoreResult<ModelsEndpointResponse>> {
++        Box::pin(async move {
++            let auth = self.endpoint.auth().await;
++            let info = &self.endpoint.provider_info;
++            let identity = crate::models_identity::identity(info, auth.as_ref())?;
++            let provider = crate::auth::api_provider_for_auth(info, auth.as_ref())?;
++            let api_auth = resolve_provider_auth(auth.as_ref(), info)?;
++            let request_url =
++                ModelsClient::<CapturedTransport>::request_url(&provider, client_version);
++            let (models, etag) = ModelsClient::new(self.transport.clone(), provider, api_auth)
++                .list_models(
++                    request_url,
++                    HeaderMap::new(),
++                    /*response_body_limit_bytes*/ None,
++                )
++                .await
++                .map_err(map_api_error)?;
++            Ok(ModelsEndpointResponse {
++                models,
++                etag,
++                identity,
++            })
++        })
++    }
++}
++
++async fn write_siwc_auth(home: &Path, subject: &str, access_token: &str) -> CodexAuth {
++    // Private workspace/user/email claims are optional in supported SIWC identity tokens.
++    std::fs::write(
++        home.join("auth.json"),
++        serde_json::to_vec(&json!({
++            "auth_mode": "chatgpt",
++            "tokens": {
++                "id_token": "e30.e30.c2lnbmF0dXJl",
++                "access_token": access_token,
++                "refresh_token": "test-refresh-token",
++                "siwc": {
++                    "issuer": codex_login::siwc::ISSUER,
++                    "subject": subject,
++                    "client_id": "oaiapp_models-test",
++                    "ext_agent_host_id": "models-test-host",
++                    "scopes": ["openid", "resource.invoke", "chatgpt.tokens.use.direct"],
++                    "expires_at": 4_000_000_000_u64,
++                    "authorization_nonce": "test-nonce"
++                }
++            },
++            "last_refresh": "2099-01-01T00:00:00Z"
++        }))
++        .unwrap(),
++    )
++    .unwrap();
++    CodexAuth::from_auth_storage(
++        home,
++        codex_login::AuthCredentialsStoreMode::File,
++        /*chatgpt_base_url*/ None,
++        codex_login::AuthKeyringBackendKind::Direct,
++        &codex_login::test_support::transport_default_auth_route_config(),
++    )
++    .await
++    .unwrap()
++    .expect("SIWC registration loads without private workspace claims")
++}
++
++async fn reload_siwc_auth(auth: &AuthManager, expected: &CodexAuth) {
++    let revisions = auth.auth_change_state_receiver();
++    let generation = revisions.borrow().generation;
++    // reload's bool compares auth modes for ChatGPT; it does not report credential changes.
++    auth.reload().await;
++    assert_eq!(
++        auth.auth_cached().unwrap().get_token_data().unwrap(),
++        expected.get_token_data().unwrap()
++    );
++    assert_eq!(revisions.borrow().generation, generation + 1);
++}
++
++fn catalog_model(slug: &str) -> ModelInfo {
++    let mut model = codex_models_manager::bundled_models_response()
++        .unwrap()
++        .models
++        .into_iter()
++        .find(|model| model.slug == "gpt-6.1-sol")
++        .unwrap();
++    model.slug = slug.into();
++    model
++}
++
++#[tokio::test]
++async fn siwc_models_manager_fetches_public_catalog_and_reuses_same_account_cache() {
++    let home = tempfile::tempdir().unwrap();
++    let auth = write_siwc_auth(home.path(), "account-one", "access-one").await;
++    let auth = AuthManager::from_auth_for_testing_with_home(auth, home.path().into());
++    let endpoint = CapturedEndpoint::new(auth.clone());
++    let models = vec![catalog_model("gpt-6.1-sol")];
++    endpoint.transport.catalog(models.clone());
++    let manager =
++        OpenAiModelsManager::new(home.path().into(), endpoint.clone(), Some(auth.clone()));
++    assert!(manager.get_remote_models().await.is_empty());
++    assert_eq!(
++        manager
++            .raw_model_catalog(RefreshStrategy::OnlineIfUncached, HTTP_FACTORY)
++            .await
++            .models,
++        models
++    );
++    manager
++        .validate_required_model("gpt-6.1-sol", &ModelsManagerConfig::default())
++        .await
++        .unwrap();
++    let requests = endpoint.transport.requests();
++    assert_eq!(requests.len(), 1);
++    let request = &requests[0];
++    assert_eq!(request.method, Method::GET);
++    assert_eq!(
++        request.url,
++        format!(
++            "https://api.openai.com/v1/models?client_version={}",
++            codex_models_manager::client_version_to_whole()
++        )
++    );
++    assert_eq!(
++        request.headers.get("authorization").unwrap(),
++        "Bearer access-one"
++    );
++    assert!(request.headers.get("chatgpt-account-id").is_none());
++
++    // Same-account token rotation preserves the registration-bound disk cache identity.
++    let rotated = write_siwc_auth(home.path(), "account-one", "rotated-access-one").await;
++    reload_siwc_auth(&auth, &rotated).await;
++    let restarted = OpenAiModelsManager::new(home.path().into(), endpoint.clone(), Some(auth));
++    assert_eq!(
++        restarted
++            .raw_model_catalog(RefreshStrategy::OnlineIfUncached, HTTP_FACTORY)
++            .await
++            .models,
++        models
++    );
++    assert_eq!(endpoint.transport.requests().len(), 1);
++    // A transient failure does not discard a previously verified same-account snapshot.
++    endpoint.transport.fail();
++    assert_eq!(
++        restarted
++            .raw_model_catalog(RefreshStrategy::Online, HTTP_FACTORY)
++            .await
++            .models,
++        models
++    );
++    assert_eq!(endpoint.transport.requests().len(), 2);
++}
++
++#[tokio::test]
++async fn siwc_catalog_identity_tracks_registration_and_grant_without_private_claims() {
++    let home = tempfile::tempdir().unwrap();
++    let auth = write_siwc_auth(home.path(), "account-one", "access-one").await;
++    let auth = AuthManager::from_auth_for_testing_with_home(auth, home.path().into());
++    let provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
++    let explicit_provider = ModelProviderInfo {
++        experimental_bearer_token: Some("provider-key".into()),
++        ..provider.clone()
++    };
++    let key = crate::models_identity::identity(&provider, auth.auth_cached().as_ref()).unwrap();
++    let explicit_key =
++        crate::models_identity::identity(&explicit_provider, auth.auth_cached().as_ref()).unwrap();
++    let original: serde_json::Value =
++        serde_json::from_slice(&std::fs::read(home.path().join("auth.json")).unwrap()).unwrap();
++    for (pointer, value, changes_identity) in [
++        ("/tokens/siwc/subject", json!("account-two"), true),
++        (
++            "/tokens/siwc/client_id",
++            json!("oaiapp_second-client"),
++            true,
++        ),
++        ("/tokens/siwc/ext_agent_host_id", json!("second-host"), true),
++        (
++            "/tokens/siwc/scopes",
++            json!([
++                "openid",
++                "resource.invoke",
++                "chatgpt.tokens.use.direct",
++                "profile"
++            ]),
++            true,
++        ),
++        (
++            "/tokens/siwc/scopes",
++            json!(["chatgpt.tokens.use.direct", "openid", "resource.invoke"]),
++            false,
++        ),
++        ("/tokens/siwc/expires_at", json!(4_100_000_000_u64), false),
++        ("/tokens/access_token", json!("rotated-access"), false),
++        ("/tokens/refresh_token", json!("rotated-refresh"), false),
++    ] {
++        let mut changed = original.clone();
++        *changed.pointer_mut(pointer).unwrap() = value;
++        std::fs::write(
++            home.path().join("auth.json"),
++            serde_json::to_vec(&changed).unwrap(),
++        )
++        .unwrap();
++        auth.reload().await;
++        let current = auth.auth_cached();
++        let changed_key = crate::models_identity::identity(&provider, current.as_ref()).unwrap();
++        assert_eq!(changed_key != key, changes_identity, "{pointer}");
++        assert_eq!(
++            crate::models_identity::identity(&explicit_provider, current.as_ref()).unwrap(),
++            explicit_key
++        );
++    }
++}
++
++#[tokio::test]
++async fn siwc_models_manager_account_switch_rejects_old_memory_and_disk_catalog() {
++    let home = tempfile::tempdir().unwrap();
++    let auth = write_siwc_auth(home.path(), "account-one", "access-one").await;
++    let auth = AuthManager::from_auth_for_testing_with_home(auth, home.path().into());
++    let endpoint = CapturedEndpoint::new(auth.clone());
++    endpoint
++        .transport
++        .catalog(vec![catalog_model("gpt-6.1-sol")]);
++    let manager =
++        OpenAiModelsManager::new(home.path().into(), endpoint.clone(), Some(auth.clone()));
++    manager
++        .raw_model_catalog(RefreshStrategy::Online, HTTP_FACTORY)
++        .await;
++    let second_account = write_siwc_auth(home.path(), "account-two", "access-two").await;
++    reload_siwc_auth(&auth, &second_account).await;
++    assert!(manager.get_remote_models().await.is_empty());
++    assert!(manager.try_get_remote_models().unwrap().is_empty());
++    let models = vec![catalog_model("different-account-model")];
++    endpoint.transport.catalog(models.clone());
++    manager.refresh_after_auth_change(HTTP_FACTORY).await;
++    assert_eq!(manager.get_remote_models().await, models);
++    assert!(
++        manager
++            .validate_required_model("gpt-6.1-sol", &ModelsManagerConfig::default())
++            .await
++            .is_err()
++    );
++    let requests = endpoint.transport.requests();
++    assert_eq!(requests.len(), 2);
++    assert_eq!(
++        requests[1].headers.get("authorization").unwrap(),
++        "Bearer access-two"
++    );
++}
++
++#[tokio::test]
++async fn siwc_models_manager_empty_and_hidden_only_catalogs_never_merge_bundled_models() {
++    let mut hidden = catalog_model("hidden-account-model");
++    hidden.visibility = ModelVisibility::None;
++    for models in [Vec::new(), vec![hidden]] {
++        let home = tempfile::tempdir().unwrap();
++        let auth = write_siwc_auth(home.path(), "account-one", "access-one").await;
++        let auth = AuthManager::from_auth_for_testing(auth);
++        let endpoint = CapturedEndpoint::new(auth.clone());
++        endpoint.transport.catalog(models.clone());
++        let manager =
++            OpenAiModelsManager::new(home.path().into(), endpoint.clone(), Some(auth.clone()));
++        assert_eq!(
++            manager
++                .raw_model_catalog(RefreshStrategy::Online, HTTP_FACTORY)
++                .await
++                .models,
++            models
++        );
++        assert!(
++            manager
++                .validate_required_model("gpt-6.1-sol", &ModelsManagerConfig::default())
++                .await
++                .is_err()
++        );
++        let restarted = OpenAiModelsManager::new(home.path().into(), endpoint.clone(), Some(auth));
++        assert_eq!(
++            restarted
++                .raw_model_catalog(RefreshStrategy::OnlineIfUncached, HTTP_FACTORY)
++                .await
++                .models,
++            models
++        );
++        assert_eq!(endpoint.transport.requests().len(), 1);
++    }
++}
++
++#[tokio::test]
++async fn siwc_models_manager_without_verified_catalog_fails_closed_on_transport_error() {
++    let home = tempfile::tempdir().unwrap();
++    let auth = write_siwc_auth(home.path(), "account-one", "access-one").await;
++    let auth = AuthManager::from_auth_for_testing_with_home(auth, home.path().into());
++    let endpoint = CapturedEndpoint::new(auth.clone());
++    let manager =
++        OpenAiModelsManager::new(home.path().into(), endpoint.clone(), Some(auth.clone()));
++    endpoint.transport.fail();
++    assert!(
++        manager
++            .raw_model_catalog(RefreshStrategy::Online, HTTP_FACTORY)
++            .await
++            .models
++            .is_empty()
++    );
++    assert!(
++        manager
++            .validate_required_model("gpt-6.1-sol", &ModelsManagerConfig::default())
++            .await
++            .is_err()
++    );
++
++    endpoint
++        .transport
++        .catalog(vec![catalog_model("gpt-6.1-sol")]);
++    manager
++        .raw_model_catalog(RefreshStrategy::Online, HTTP_FACTORY)
++        .await;
++    let second_account = write_siwc_auth(home.path(), "account-two", "access-two").await;
++    reload_siwc_auth(&auth, &second_account).await;
++    endpoint.transport.fail();
++    manager.refresh_after_auth_change(HTTP_FACTORY).await;
++    assert!(manager.get_remote_models().await.is_empty());
++    assert!(
++        manager
++            .validate_required_model("gpt-6.1-sol", &ModelsManagerConfig::default())
++            .await
++            .is_err()
++    );
++    assert_eq!(endpoint.transport.requests().len(), 3);
++}
++
++#[tokio::test]
++async fn siwc_login_does_not_enable_discovery_for_explicit_api_key_or_unrelated_provider() {
++    let home = tempfile::tempdir().unwrap();
++    let auth = write_siwc_auth(home.path(), "account-one", "access-one").await;
++    let auth = AuthManager::from_auth_for_testing(auth);
++    for provider in [
++        ModelProviderInfo {
++            experimental_bearer_token: Some("provider-key".into()),
++            ..ModelProviderInfo::create_openai_provider(/*base_url*/ None)
++        },
++        ModelProviderInfo {
++            requires_openai_auth: false,
++            ..ModelProviderInfo::create_openai_provider(Some("https://example.invalid/v1".into()))
++        },
++    ] {
++        let endpoint = Arc::new(CapturedEndpoint {
++            endpoint: OpenAiModelsEndpoint::new(
++                provider,
++                Some(auth.clone()),
++                /*gateway_auth_manager*/ None,
++            ),
++            transport: CapturedTransport::default(),
++        });
++        assert!(!endpoint.uses_siwc_api());
++        let manager = OpenAiModelsManager::new_without_cache(endpoint.clone(), Some(auth.clone()));
++        assert_eq!(
++            manager
++                .raw_model_catalog(RefreshStrategy::Online, HTTP_FACTORY)
++                .await,
++            codex_models_manager::bundled_models_response().unwrap()
++        );
++        assert!(endpoint.transport.requests().is_empty());
++    }
++}
