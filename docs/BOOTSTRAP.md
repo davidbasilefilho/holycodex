@@ -64,7 +64,8 @@ in an isolated offline prefix and runs both aliases without Node on `PATH`.
 An aggregate job verifies the complete four-artifact set only after every
 build, pack, installation check, and upload succeeds. The publisher repeats
 that verification before its first registry write.
-`publish.yml` has no manual dispatch; do not use its old default-branch entry.
+`publish.yml` now has a guarded DEV publication dispatch. Do not use it for
+bootstrap validation, and do not use an obsolete default-branch publisher.
 
 The commands below are a template for a fresh PowerShell validation run, using
 existing authorized GitHub CLI access and Node 26/npm 12.2.0 for the owner
@@ -200,8 +201,8 @@ Before enabling npm OIDC, the repository administrator must create and verify
 GitHub **Settings → Environments → holycodex-publish** with:
 
 - Deployment branches and tags set to **Selected branches and tags**, with
-  exactly branch `next` and tag `v0.17.0`; no wildcard or pull-request refs.
-- Protect `next` so repository writers cannot directly push, force-push or
+  exactly branch `release/v0.17.0/release-routing` and tag `v0.17.0`; no wildcard or pull-request refs.
+- Protect `release/v0.17.0/release-routing` so repository writers cannot directly push, force-push or
   delete it outside the authorized integration policy. Sensitive workflow,
   packager and runtime changes must receive the owner's authorized review
   before reaching that ref. Restrict bypass/merge authority to trusted release
@@ -210,10 +211,14 @@ GitHub **Settings → Environments → holycodex-publish** with:
   permitted release actors are the authorized owner(s), not all repository
   writers. This configuration does not authorize executing stable.
 
-This is the minimum automatic route under the finding's threat model: ordinary
+This is the minimum protected route under the finding's threat model: ordinary
 repository writers may create feature branches but cannot advance accepted
 release refs or change security settings without owner authorization. After an
-authorized merge to `next`, CI can publish without a second deployment approval.
+authorized DEV dispatch on `release/v0.17.0/release-routing` with `publish_dev=true`, CI can
+publish after all builds/packs succeed without a second deployment approval.
+Ordinary branch pushes only validate; they cannot publish. Update the external
+environment branch restriction from the retired `next` name before any
+publication. This document does not perform that security-setting change.
 The npm environment constraint is essential; a feature workflow that removes
 `environment:` no longer matches it, while one that retains it is denied by the
 external ref restrictions. Environment rules alone are insufficient if any
@@ -226,7 +231,7 @@ cannot approve their own run when self-review is prevented. This can require a
 second trusted maintainer; a solo owner may otherwise block their own releases.
 It is a GitHub protection option, not an npm requirement. Use it if Root wants
 that separate approval or accepted refs cannot be adequately protected; it is
-not required by this automatic release design. If enabled, restrict admin
+not required in addition to the explicit authorized publication dispatch. If enabled, restrict admin
 bypass according to the chosen independent-approval policy.
 
 [GitHub documents these external protections](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments).
@@ -267,24 +272,33 @@ Check package existence, the bootstrap version/integrity/dev tag and publisher
 settings before integration. Newly configured publishers need a first successful
 OIDC publish within two days according to the [npm trusted-publishing guide](https://docs.npmjs.com/trusted-publishers/).
 
-## Integration order for the first coordinated DEV
+## Reviewed stack source and first coordinated DEV
 
-Preserve the stack with merge commits, inspecting current heads/checks after
-each step. First integrate the accepted successors from the tip back through
-PR13 into PR12, revalidating each updated head. PR13 contains the stable
-`0.17.0`/DEV version correction; later runtime/authentication fixes must not be
-left outside the accepted source. Do not merge PR10 first and publish an
-incomplete `next`:
+The release uses semantic `release/v<version>/<change>` branches and separate
+PRs targeting their immediate predecessors, preserving the original `next`
+commits and every active 0.17 correction. The currently selected DEV ref is
+`release/v0.17.0/release-routing`; it must contain all approved successor work
+before any publication. Historical branches remain recoverable; the
+[inventory](CONSOLIDATION-0.17.md) identifies obsolete implementations that must
+not overwrite the native runtime. Renaming or replacing a PR never resolves
+its findings without current code, test or owner-configuration evidence.
 
-1. Merge PR12 into `codex/babysit-ci-upstream-boundary` (PR11's branch).
-2. Revalidate PR11's new head, then merge PR11 into `codex/pr9-c8b7d19-checkpoint` (PR10's branch).
-3. Revalidate PR10's new head, confirm npm bootstrap/settings, then merge PR10 into `next`.
-4. That final `next` push triggers the complete DEV build/publication. Its new
-   run ID produces a new exact DEV version for all four packages. Platform
-   readbacks precede the wrapper; GitHub prerelease follows all npm readbacks.
+1. Push the accepted release source after reconciling the stack. `publish.yml` runs all three native
+   builds, tests, Bun packs, offline consumer installations and the aggregate
+   four-artifact gate, with publication disabled for a branch push.
+2. Complete independent general/security review and applicable tests on the
+   exact final commit; fix material findings and repeat. Complete license and
+   external trusted-publisher/protected-ref prerequisites before publication.
+3. Only after explicit DEV publication authorization, dispatch `publish.yml`
+   on `release/v0.17.0/release-routing` with `publish_dev=true`. The workflow must first be
+   registered on GitHub's default branch. A default/false dispatch cannot
+   publish, and dispatches on any other ref fail closed.
+4. The authorized run produces one new DEV version for all four packages.
+   Platform readbacks precede the wrapper; the GitHub prerelease follows all
+   npm readbacks. Retries retain that run's version and immutable receipts.
 
-The initial bootstrap version is not reused for a different source/build/run.
-PR9 (`next` → `main`) is not required for this DEV route, and no stable tag is
-created. Manual dispatch is confined to validation workflows and has a
-different filename from the npm publisher. The dedicated validation branch is
-never an allowed deployment branch in `holycodex-publish`.
+The bootstrap version is not reused for different artifacts. No stable tag
+is created by consolidation or DEV validation/publication. Stable `v0.17.0`
+remains a separate authorized action after accepted `main` ancestry and all
+release gates. Dedicated `codex/native-validation/**` branches are validation
+only and must never be allowed deployment refs in `holycodex-publish`.

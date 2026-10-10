@@ -2,12 +2,13 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const { BASE_VERSION, RELEASE_BRANCH } = require('./channel.cjs');
 
 // git ls-remote emits both the tag object and ^{} commit for annotated tags.
 // Compare the peeled commit when available; never equate tag-object identity
 // or main ancestry with the current accepted source.
 function verifySelectedRef(output, ref, expectedSha) {
-  assert.ok(ref === 'refs/heads/next' || ref === 'refs/tags/v0.17.0', 'unsupported publication ref');
+  assert.ok(ref === `refs/heads/${RELEASE_BRANCH}` || ref === `refs/tags/v${BASE_VERSION}`, 'unsupported publication ref');
   assert.match(expectedSha, /^[a-f0-9]{40}$/);
   const records = new Map();
   for (const line of output.trim().split('\n').filter(Boolean)) {
