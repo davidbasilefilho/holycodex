@@ -49,7 +49,8 @@ test('namespace collision is fail-closed without renaming, deleting or rewriting
 
 test('canonical Root instructions own release naming, PR dependencies and unchanged authorization boundaries', () => {
   const instructions = fs.readFileSync(path.join(__dirname, '../../overlay/holycodex/instructions/root.md'), 'utf8');
-  for (const phrase of ['release/v<version>/<semantic-change>', 'preserve optional version suffixes',
+  for (const phrase of ['release/<version>/<type>/<change>', 'exp/<experiment>/<type>/<change>',
+    'preserve optional version suffixes',
     'one branch and one PR per substantial change', 'immediate predecessor',
     'Git prefix collision', 'does not authorize merge, publication, deployment, or security-setting changes']) {
     assert.ok(instructions.includes(phrase), `missing canonical release rule: ${phrase}`);
@@ -57,18 +58,39 @@ test('canonical Root instructions own release naming, PR dependencies and unchan
   assert.doesNotMatch(instructions, /release\/v[^\s`]*\/integration/);
 });
 
-test('Root follows the target codebase before choosing an applicable release fallback', () => {
+test('Root follows the target codebase before choosing the approved fallback families', () => {
   const instructions = fs.readFileSync(path.join(__dirname, '../../overlay/holycodex/instructions/root.md'), 'utf8');
   const conventions = instructions.indexOf('Follow the target codebase\'s established branch and PR conventions first');
-  const fallback = instructions.indexOf('release/v<version>/<semantic-change>');
+  const fallback = instructions.indexOf('release/<version>/<type>/<change>');
   assert.ok(conventions >= 0 && conventions < fallback, 'codebase conventions must precede the fallback');
-  for (const phrase of ['If no applicable convention exists', 'mergeable release-work fallback',
+  for (const phrase of ['If no applicable convention exists', 'only these fallback families',
     'compatible with the project\'s versioning and workflow triggers',
+    'preserve mergeability', 'examples do not define a mandatory type catalog',
     'Do not rename an already valid branch merely to adopt the fallback',
     'For HolyCodex\'s own release stack, use the tested release-stack validator']) {
     assert.ok(instructions.includes(phrase), `missing branch scope: ${phrase}`);
   }
   assert.doesNotMatch(instructions, /use .*with a zero-major version/);
+});
+
+test('Root and policy docs agree on the two four-segment fallback families', () => {
+  const root = path.join(__dirname, '../..');
+  const sources = [
+    fs.readFileSync(path.join(root, 'overlay/holycodex/instructions/root.md'), 'utf8'),
+    fs.readFileSync(path.join(root, 'docs/INSTRUCTIONS.md'), 'utf8'),
+    fs.readFileSync(path.join(root, 'docs/BRANCHES.md'), 'utf8').split('## HolyCodex repository convention')[0],
+  ];
+  for (const source of sources) {
+    const families = [...source.matchAll(/`([a-z]+\/<[^`]+>)`/g)].map((match) => match[1]);
+    assert.deepEqual(families, ['release/<version>/<type>/<change>', 'exp/<experiment>/<type>/<change>']);
+  }
+  assert.ok(sources[0].includes('release/v0.17.0/fix/windows-install'));
+  assert.ok(sources[0].includes('exp/sqlite-history/feat/storage'));
+  assert.ok(sources[0].includes('actual PR bases and dependencies determine the stack'));
+  const scenarios = fs.readFileSync(path.join(root, 'crates/holycodex-policy/evals/mergeability.md'), 'utf8');
+  assert.ok(scenarios.includes('release/v2.4.0-rc.1/fix/windows-install'));
+  assert.ok(scenarios.includes('exp/sqlite-history/feat/storage'));
+  assert.match(scenarios, /Keep the\s+existing repository-specific release validator unchanged/);
 });
 
 test('durable instructions are US English and derive authority from the current owner', () => {

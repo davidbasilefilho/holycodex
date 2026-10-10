@@ -42,9 +42,20 @@ model grader or a reproduction of any private evaluation system.
     actual base, checks, and workflow triggers before publishing authorized work.
 11. **Release fallback in a mature project.** A project preparing version `2.4.0-rc.1` has no
     applicable branch convention. If its workflow triggers permit an authorized review branch,
-    `release/v2.4.0-rc.1/<semantic-change>` is an applicable release-work fallback. Preserve the
+    `release/v2.4.0-rc.1/fix/windows-install` is an applicable release-work fallback. Preserve the
     version and suffix; do not run HolyCodex's zero-major validator against this other project.
     A matching name does not authorize publication or establish merge readiness.
+12. **Experimental fallback.** An owner authorizes a SQLite history experiment in a project with
+    no applicable branch convention. When its workflow triggers permit the work,
+    `exp/sqlite-history/feat/storage` is an applicable experimental fallback. Use the descriptive
+    type appropriate to the work without imposing a fixed type catalog or inventing another root
+    prefix. Verify actual PR bases and dependencies; the name does not put this experiment in a
+    release stack or authorize a merge, release, or deployment.
+13. **Valid existing HolyCodex stack.** Work continues on an authorized three-segment branch such
+    as `release/v0.17.0/owner-neutral-instructions`. Preserve it and its verified PR base; do not
+    rename it to satisfy a fallback meant for projects without applicable conventions. Keep the
+    existing repository-specific release validator unchanged and validate the actual dependency
+    chain separately from the branch spelling.
 
 These are evaluation scenarios, not observed model results. A behavioral evaluation must record the
 actual task, model/profile, session provenance, tool trace, artifact, and reviewer outcome. Prompt
