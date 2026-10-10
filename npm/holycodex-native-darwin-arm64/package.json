@@ -1,6 +1,6 @@
 {
   "name": "@turndev/holycodex-native-darwin-arm64",
-  "version": "0.17.0-1",
+  "version": "0.17.0",
   "description": "HolyCodex native executables for macOS Apple silicon",
   "license": "Apache-2.0",
   "os": [

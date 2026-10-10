@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 
-const BASE_VERSION = '0.17.0-1';
+const BASE_VERSION = '0.17.0';
 // Both compatibility entrypoints remain full native files. These bounds allow
 // release growth but reject accidental distribution of debug-heavy binaries.
 // Stripped run 37836254693 measured 283.6 MB Linux / 332.9 MB Windows aliases;

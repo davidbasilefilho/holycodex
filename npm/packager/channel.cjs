@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const BASE_VERSION = '0.17.0-1';
+const BASE_VERSION = '0.17.0';
 const PLATFORM_PACKAGES = [
   '@turndev/holycodex-native-darwin-arm64',
   '@turndev/holycodex-native-linux-x64-gnu',
@@ -13,7 +13,7 @@ const PLATFORM_PACKAGES = [
 
 function validateVersion(version, channel) {
   const stable = version === BASE_VERSION;
-  const dev = /^0\.17\.0-1\.dev\.[1-9][0-9]*$/.test(version);
+  const dev = /^0\.17\.0-dev\.[1-9][0-9]*$/.test(version);
   assert.ok(stable || dev, 'invalid HolyCodex distribution version');
   if (channel) assert.ok(channel === 'dev' ? dev : channel === 'stable' && stable,
     'version must match the selected channel');
@@ -22,15 +22,17 @@ function validateVersion(version, channel) {
 function distributionVersion(channel, runId, requested) {
   assert.ok(['dev', 'stable'].includes(channel), 'unknown publication channel');
   assert.match(runId, /^[1-9][0-9]*$/, 'invalid workflow run identity');
-  const version = requested || (channel === 'dev' ? `${BASE_VERSION}.dev.${runId}` : BASE_VERSION);
+  const expected = channel === 'dev' ? `${BASE_VERSION}-dev.${runId}` : BASE_VERSION;
+  const version = requested === undefined || requested === '' ? expected : requested;
   validateVersion(version, channel);
+  assert.equal(version, expected, 'version must match the current workflow run');
   return version;
 }
 
 function publicationRoute(event, ref) {
   assert.equal(event, 'push', 'publication requires a push event');
   if (ref === 'refs/heads/next') return { channel: 'dev', publish: true };
-  if (ref === 'refs/tags/v0.17.0-1') return { channel: 'stable', publish: true };
+  if (ref === 'refs/tags/v0.17.0') return { channel: 'stable', publish: true };
   throw new Error('DEV publishing requires next; stable requires accepted release tag push');
 }
 

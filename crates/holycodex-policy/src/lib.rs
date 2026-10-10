@@ -1,4 +1,4 @@
-//! Typed runtime policy primitives for HolyCodex 0.17.0-1.
+//! Typed runtime policy primitives for HolyCodex 0.17.0.
 //!
 //! The native Codex controller consumes this crate's routing, allocation,
 //! context-sizing, prompt, and Intent/Assignment contracts; controller state

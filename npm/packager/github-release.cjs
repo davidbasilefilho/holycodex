@@ -43,7 +43,7 @@ async function publishGithubRelease(root, sha, version, channel, request = githu
       tag_name: tag, target_commitish: sha, name: `HolyCodex ${version}`,
       prerelease: channel === 'dev', draft: false,
       make_latest: channel === 'dev' ? 'false' : 'true',
-      body: `Source: ${sha}\n\nDistribution: ${version}; runtime base: 0.17.0-1.\n\nInstall: npm install --global holycodex@${version}`,
+      body: `Source: ${sha}\n\nDistribution: ${version}; runtime base: 0.17.0.\n\nInstall: npm install --global holycodex@${version}`,
     });
   }
   assert.equal(release.tag_name, tag);

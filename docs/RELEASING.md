@@ -18,14 +18,21 @@ when that workflow exists on the default branch. See [bootstrap commands](BOOTST
 All downloaded artifacts come from the same run and must carry the exact SHA.
 
 `publish.yml` has no manual dispatch. A push to `next` triggers DEV. A DEV
-version is `0.17.0-1.dev.<github.run_id>`; retries retain
-that version. All four npm packages use dist-tag `dev`, and the GitHub release
+version is `0.17.0-dev.<github.run_id>`; retries retain
+that version. Explicit version overrides must match the current run ID exactly.
+All four npm packages use dist-tag `dev`, and the GitHub release
 is a prerelease with `latest=false`. DEV must preserve every existing `latest`
-tag. Runtime version remains the canonical `0.17.0-1`; DEV versioning adjusts
+tag. Runtime version remains the canonical `0.17.0`; DEV versioning adjusts
 only staged package/dependency/payload metadata, and release notes identify the
 source SHA and runtime base. No public version-bump command is introduced.
 
-Stable is implemented separately: an accepted `v0.17.0-1` tag push selects
+DEV is a SemVer prerelease, excluded from ordinary stable ranges such as
+`^0.17.0`, `~0.17.0`, `>=0.17.0 <0.18.0`, `0.17.x` and `*`. The legacy
+`^0.17.0-1` range explicitly opts into prereleases of that core version and
+still accepts `0.17.0-dev.<run_id>`; this change cannot retroactively isolate
+consumers using that old range.
+
+Stable is implemented separately: an accepted `v0.17.0` tag push selects
 `stable.yml`, verifies ancestry in `main`, and publishes all four packages
 with dist-tag `latest`. Immediately before npm publication, the remote
 branch/tag is resolved again, including annotated-tag peeling; a missing or
@@ -55,7 +62,7 @@ and configure trusted publishing for **each** platform package and `holycodex`:
 GitHub owner `davidbasilefilho`, repository `holycodex`, filename `publish.yml`,
 with environment **holycodex-publish** and direct `npm publish` allowed. The
 repository administrator must independently protect that environment with
-selected branch `next` / tag `v0.17.0-1` and protect those refs against
+selected branch `next` / tag `v0.17.0` and protect those refs against
 unauthorized writer changes. Owner review of accepted source permits automatic
 publication after merge; environment reviewers/self-review prevention are an
 optional additional per-release approval, not an npm requirement. The npm
@@ -90,7 +97,7 @@ and SHA-256 digests must match. Conflicting assets are not overwritten.
 
 ## Required release gates
 
-Before creating `v0.17.0-1`, maintainers must verify all of the following:
+Before creating `v0.17.0`, maintainers must verify all of the following:
 
 1. Root has accepted the final `next` source and advanced `main` to that exact
    commit; the tag, source archive, and all native/npm artifacts must resolve
@@ -137,7 +144,7 @@ native ELF/Mach-O/PE architecture and both aliases, then launches each extracted
 binary with `--version` and `--help` in an isolated home. Each launch has a
 30-second timeout and bounded captured output. DEV's npm distribution version
 is checked separately from the pinned runtime identity
-`holycodex 0.17.0-1 (Codex upstream 0.160.1)`. The smoke gate logs exact compressed
+`holycodex 0.17.0 (Codex upstream 0.160.1)`. The smoke gate logs exact compressed
 and per-alias byte counts and the payload digest; it fails before artifact upload
 on any mismatch. Its unit fixtures test the gate only, not runtime acceptance.
 

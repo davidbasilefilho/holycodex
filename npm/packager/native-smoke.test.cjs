@@ -106,7 +106,7 @@ for (const channel of ['dev', 'stable']) {
     assert.equal(result.compressedBytes, fs.statSync(f.archive).size);
     assert.equal(result.payloadSha256, f.digest);
     assert.equal(result.distributionVersion, f.version);
-    assert.equal(result.runtimeVersion, 'holycodex 0.17.0-1 (Codex upstream 0.160.1)');
+    assert.equal(result.runtimeVersion, 'holycodex 0.17.0 (Codex upstream 0.160.1)');
     for (const { filename, options } of calls) {
       assert.equal(fs.existsSync(filename), false);
       assert.equal(fs.existsSync(options.cwd), false);
@@ -116,7 +116,7 @@ for (const channel of ['dev', 'stable']) {
 
 nativeTest('wrong runtime identity, broken help, and subprocess failures block native artifacts', (t) => {
   const f = fixture(t);
-  for (const output of ['codex 0.160.1', `holycodex ${f.version} (Codex upstream 0.160.1)`, 'holycodex 0.17.0-1']) {
+  for (const output of ['codex 0.160.1', `holycodex ${f.version} (Codex upstream 0.160.1)`, 'holycodex 0.17.0']) {
     assert.throws(() => smokeNative(f.archive, f.target, f.version, () => output), /runtime identity\/version mismatch/);
   }
   for (const output of ['Codex CLI\nUsage: holycodex ', 'HolyCodex CLI\nUsage: codex ']) {
