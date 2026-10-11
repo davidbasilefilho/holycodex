@@ -33,13 +33,15 @@ modules.
 After runtime dependencies stabilize and the final patched CLI compiles,
 generate the source inventory from that workspace's locked Cargo metadata
 for each supported Rust target. Traverse the resolved dependency closure
-rooted at `codex-cli`; record each exact package name, version, source/revision
+rooted at `codex-cli`, `codex-code-mode-host`, and the platform sandbox helpers
+(`codex-bwrap` on Linux, `codex-windows-sandbox` on Windows); record each exact package name, version, source/revision
 or registry checksum, license expression, license-file path, and applicable
 license/notice text. Include HolyCodex's own runtime additions and review
-target-specific and non-Cargo bundled components as well. Cargo.lock alone
+target-specific and non-Cargo bundled components as well, including ripgrep,
+the patched zsh distribution, vendored bubblewrap/libcap, and V8. Cargo.lock alone
 does not contain complete license metadata. The maintenance-only
 [license inventory tool](tools/license-inventory/README.md) collects a locked,
-target-specific `codex-cli` production tree and the available source/license/notice
+target-specific production trees for all packaged Cargo executables and the available source/license/notice
 evidence; missing or conflicting evidence fails explicitly. Its output always
 leaves legal completeness unverified. Reconcile that inventory into this root
 notice before staging final source or binary packages.

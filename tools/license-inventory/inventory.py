@@ -68,6 +68,18 @@ def source_identity(root):
     }
 
 
+def distribution_roots(target):
+    """All Cargo executables assembled by the pinned native package builder."""
+    roots = ["codex-cli", "codex-code-mode-host"]
+    if target == "x86_64-unknown-linux-gnu":
+        roots.append("codex-bwrap")
+    elif target == "x86_64-pc-windows-msvc":
+        roots.append("codex-windows-sandbox")
+    elif target != "aarch64-apple-darwin":
+        raise InventoryError(f"Unsupported distribution inventory target: {target}")
+    return roots
+
+
 def select_packages(metadata, tree, root_package):
     """Cargo owns cfg/feature resolution; never treat every lock entry as runtime."""
     by_key = {}
@@ -91,9 +103,10 @@ def select_packages(metadata, tree, root_package):
             raise InventoryError(f"Conflicting tree/metadata license for {key}")
         entry = selected.setdefault(package["id"], {"package": package, "feature_sets": set()})
         entry["feature_sets"].add(tuple(sorted(filter(None, fields[2].split(",")))))
-    roots = [entry for entry in selected.values() if entry["package"]["name"] == root_package]
-    if len(roots) != 1:
-        raise InventoryError(f"Expected exactly one root package {root_package}")
+    for root in ([root_package] if isinstance(root_package, str) else root_package):
+        roots = [entry for entry in selected.values() if entry["package"]["name"] == root]
+        if len(roots) != 1:
+            raise InventoryError(f"Expected exactly one root package {root}")
     return sorted(selected.values(), key=lambda item: (item["package"]["name"], item["package"]["version"], item["package"]["id"]))
 
 
@@ -222,13 +235,17 @@ def collect(args):
     # target-specific production tree correctly includes for the build host.
     # The tree below, not the full metadata package list, selects the inventory.
     metadata_command = [args.cargo, "metadata", "--format-version", "1", *common]
-    tree_command = [args.cargo, "tree", "--package", args.package, "--target", args.target, "--edges", "normal,build", "--prefix", "none", "--format", "{p}|{l}|{f}", *common]
+    roots = args.package or distribution_roots(args.target)
+    if isinstance(roots, str):
+        roots = [roots]
+    package_args = [part for root in roots for part in ("--package", root)]
+    tree_command = [args.cargo, "tree", *package_args, "--target", args.target, "--edges", "normal,build", "--prefix", "none", "--format", "{p}|{l}|{f}", *common]
     metadata_bytes = run(metadata_command, manifest.parent)
     tree_bytes = run(tree_command, manifest.parent)
     metadata = json.loads(metadata_bytes)
     lock_path = Path(metadata["workspace_root"]) / "Cargo.lock"
     lock_bytes = read_file(lock_path, source_root)
-    selected = select_packages(metadata, tree_bytes.decode(), args.package)
+    selected = select_packages(metadata, tree_bytes.decode(), roots)
     lock_packages = tomllib.loads(lock_bytes.decode())["package"]
     report = {
         "schema_version": 1, "status": "incomplete", "legal_completeness": "unverified",
@@ -239,7 +256,9 @@ def collect(args):
             "Native libraries, vendored assets, runtime downloads, and other non-Cargo components require separate review.",
             "Source fingerprint excludes Git-ignored files; build against the same reviewed source and environment.",
         ],
-        "target": args.target, "root_package": args.package, "features": "default",
+        "target": args.target, "root_packages": roots, "features": "default",
+        "distribution_scope": not bool(args.package),
+        "non_cargo_review_required": ["bundled ripgrep", "bundled codex-zsh (Linux/macOS)", "vendored bubblewrap and libcap (Linux)", "Code Mode V8/native dependencies"],
         "source": before, "cargo_version": run([args.cargo, "--version", "--verbose"], manifest.parent).decode().strip(),
         "inventory_script_sha256": sha256(Path(__file__).read_bytes()),
         "workspace_manifest_sha256": sha256(read_file(Path(metadata["workspace_root"]) / "Cargo.toml", source_root)),
@@ -286,7 +305,7 @@ def main():
     parser.add_argument("--manifest-path", required=True, type=Path)
     parser.add_argument("--target", required=True)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--package", default="codex-cli")
+    parser.add_argument("--package", action="append", help="Explicit inspection roots (repeatable); omitting inventories all distribution Cargo helpers")
     parser.add_argument("--cargo", default="cargo")
     parser.add_argument("--offline", action="store_true")
     args = parser.parse_args()

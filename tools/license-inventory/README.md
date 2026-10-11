@@ -44,8 +44,12 @@ metadata and errors. A command failure before collection produces no report.
 
 ## Evidence and limits
 
-- Cargo's locked `tree --package codex-cli --target TARGET --edges normal,build`
-  selects the production source closure, including build dependencies and
+- Cargo's locked `tree --target TARGET --edges normal,build` selects the union
+  of production closures rooted at `codex-cli`, `codex-code-mode-host`, and
+  the target helper (`codex-bwrap` on Linux; `codex-windows-sandbox` on Windows).
+  macOS has no additional Cargo sandbox helper. Repeated `--package` flags can
+  explicitly inspect a narrower set, recorded as `distribution_scope: false`;
+  that output cannot represent the complete distribution. The default selects the production source closure, including build dependencies and
   procedural macros. Dev-only edges and disabled optional dependencies are
   excluded. Cargo handles cfg expressions and feature unification; the script
   does not attempt its own resolver or call every Cargo.lock entry a runtime
@@ -83,8 +87,8 @@ Even an exit status of zero means only `source_inventory_collected`.
 [cargo tree](https://doc.rust-lang.org/cargo/commands/cargo-tree.html) does not
 guarantee exact equivalence to compiled contents. This tool is not a linked
 binary scanner or legal approval. Run upstream's cargo-deny check, reconcile
-all missing/conflicting source evidence, review non-Cargo/vendored/native
-components and embedded assets, and incorporate approved texts/attributions
+all missing/conflicting source evidence, review bundled ripgrep and codex-zsh,
+vendored bubblewrap/libcap and V8/native components and embedded assets, and incorporate approved texts/attributions
 into the source and every native package before the existing release gate can
 be accepted. Never fill gaps by inventing text from a license expression.
 

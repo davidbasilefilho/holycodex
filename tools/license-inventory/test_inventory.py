@@ -173,7 +173,27 @@ common = { path = "common", features = ["dev-extra"] }
         subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=self.root, check=True, capture_output=True)
 
     def invoke(self, target, directory):
-        return subprocess.run([os.sys.executable, str(HERE / "inventory.py"), "--source-root", str(self.root), "--manifest-path", str(self.root / "Cargo.toml"), "--target", target, "--offline", "--output", str(self.base / directory)], capture_output=True, text=True)
+        return subprocess.run([os.sys.executable, str(HERE / "inventory.py"), "--source-root", str(self.root), "--manifest-path", str(self.root / "Cargo.toml"), "--target", target, "--package", "codex-cli", "--offline", "--output", str(self.base / directory)], capture_output=True, text=True)
+
+    def test_distribution_default_includes_independent_helper_closures(self):
+        for name in ["codex-code-mode-host", "codex-bwrap", "codex-windows-sandbox"]:
+            crate = self.root / name
+            (crate / "src").mkdir(parents=True)
+            (crate / "src/lib.rs").write_text("// fixture")
+            (crate / "Cargo.toml").write_text(f'[package]\nname="{name}"\nversion="1.0.0"\nedition="2021"\nlicense="Apache-2.0"\n')
+        manifest = self.root / "Cargo.toml"
+        manifest.write_text(manifest.read_text().replace('members = [', 'members = ["codex-code-mode-host", "codex-bwrap", "codex-windows-sandbox", '))
+        subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=self.root, check=True, capture_output=True)
+        for target in ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-pc-windows-msvc"]:
+            output = self.base / target
+            result = subprocess.run([os.sys.executable, str(HERE / "inventory.py"), "--source-root", str(self.root), "--manifest-path", str(manifest), "--target", target, "--offline", "--output", str(output)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report = json.loads((output / "inventory.json").read_text())
+            expected = inventory.distribution_roots(target)
+            self.assertEqual(report["root_packages"], expected)
+            self.assertTrue(report["distribution_scope"])
+            self.assertTrue(set(expected).issubset({p["name"] for p in report["packages"]}))
+            self.assertEqual(report["legal_completeness"], "unverified")
 
     def test_real_locked_target_closures_exclude_dev_and_disabled_optional(self):
         for target, specific in [("x86_64-unknown-linux-gnu", "linux-only"), ("x86_64-pc-windows-msvc", "windows-only")]:
