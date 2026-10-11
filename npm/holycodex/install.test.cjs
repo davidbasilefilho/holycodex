@@ -25,6 +25,7 @@ function fixture(t, platform = 'linux', arch = 'x64') {
     fs.writeFileSync(path.join(optional, 'bin', command + (platform === 'win32' ? '.exe' : '')), payload);
     fs.writeFileSync(path.join(root, 'bin', `${command}.exe`), 'placeholder');
   }
+  require('../packager/resource-fixture.cjs').resourceFixture(optional, name.replace('@turndev/holycodex-native-', ''));
   return { root, optional, options: { root, platform, arch, libc: 'glibc', resolvePackage: () => path.join(optional, 'package.json') } };
 }
 
@@ -35,8 +36,10 @@ test('install replaces placeholders with verified identical bytes on every targe
     const holy = fs.readFileSync(path.join(f.root, 'bin/holycodex.exe'));
     assert.deepEqual(holy, fs.readFileSync(path.join(f.root, 'bin/codex.exe')));
     assert.equal(holy.toString(), 'installer mechanics fixture');
+    const layout = JSON.parse(fs.readFileSync(path.join(f.root, 'codex-package.json')));
+    assert.deepEqual(fs.readFileSync(path.join(f.root, layout.entrypoint)), holy);
     if (process.platform !== 'win32' && platform !== 'win32') assert.equal(fs.statSync(path.join(f.root, 'bin/holycodex.exe')).mode & 0o111, 0o111);
-    assert.deepEqual(fs.readdirSync(path.join(f.root, 'bin')).sort(), ['codex.exe', 'holycodex.exe']);
+    assert.deepEqual(fs.readdirSync(path.join(f.root, 'bin')).sort(), ['codex.exe', 'holycodex.exe', `codex-code-mode-host${platform === 'win32' ? '.exe' : ''}`, ...(platform === 'win32' ? [] : ['codex', 'holycodex'])].sort());
   }
 });
 
@@ -144,7 +147,7 @@ test('a rollback failure reports both errors and keeps recovery copies', (t) => 
   const directory = path.join(f.root, 'bin');
   const recovery = fs.readdirSync(directory).find((entry) => entry.startsWith('.holycodex-install-'));
   assert.ok(recovery);
-  for (const name of ['holycodex', 'codex']) assert.equal(fs.readFileSync(path.join(directory, recovery, `${name}.exe.bak`), 'utf8'), 'placeholder');
+  for (const index of [0, 1]) assert.equal(fs.readFileSync(path.join(directory, recovery, `${index}.bak`), 'utf8'), 'placeholder');
 });
 
 test('missing payload, invalid metadata, and checksum mismatch leave placeholders untouched', (t) => {
@@ -230,10 +233,11 @@ test('clean offline npm install launches native fixture bins; ignored scripts le
     assert.equal(metadata.version, version, 'Bun pack version mismatch');
     return filename;
   }
+  require('../packager/resource-fixture.cjs').resourceFixture(native, packageName.replace('@turndev/holycodex-native-', ''), fs.readFileSync(executable));
   const nativeTar = pack(native, packageName);
   const wrapperMetadata = { ...require('./package.json'), optionalDependencies: { [packageName]: `file:${path.join(tarballs, nativeTar).replaceAll('\\', '/')}` } };
   fs.writeFileSync(path.join(wrapper, 'package.json'), JSON.stringify(wrapperMetadata));
-  fs.copyFileSync(path.join(__dirname, 'install.cjs'), path.join(wrapper, 'install.cjs'));
+  for (const filename of ['install.cjs', 'native-inventory.json']) fs.copyFileSync(path.join(__dirname, filename), path.join(wrapper, filename));
   for (const name of ['holycodex', 'codex']) fs.writeFileSync(path.join(wrapper, 'bin', `${name}.exe`), '');
   const wrapperTar = pack(wrapper, 'holycodex');
   const npmVersion = npm(['--version']).trim();
@@ -267,4 +271,46 @@ test('clean offline npm install launches native fixture bins; ignored scripts le
       assert.equal(linkedLaunch.stdout.trim(), 'holycodex native install fixture');
     }
   }
+});
+
+for (const platform of ['linux', 'darwin', 'win32']) {
+  test(`missing or corrupted helper prevents any installation on ${platform}`, (t) => {
+    const arch = platform === 'darwin' ? 'arm64' : 'x64';
+    for (const corrupt of [false, true]) {
+      const f = fixture(t, platform, arch);
+      const helper = path.join(f.optional, 'bin', `codex-code-mode-host${platform === 'win32' ? '.exe' : ''}`);
+      if (corrupt) fs.writeFileSync(helper, 'tampered'); else fs.rmSync(helper);
+      assert.throws(() => install(f.options));
+      assert.equal(fs.readFileSync(path.join(f.root, 'bin/holycodex.exe'), 'utf8'), 'placeholder');
+    }
+  });
+}
+
+test('inventory cannot add traversal paths or remove required helpers', (t) => {
+  for (const attack of ['traversal', 'missing', 'wrong-upstream']) {
+    const f = fixture(t);
+    const filename = path.join(f.optional, 'native-inventory.json');
+    const manifest = JSON.parse(fs.readFileSync(filename));
+    if (attack === 'traversal') manifest.files['../outside'] = Object.values(manifest.files)[0];
+    if (attack === 'missing') delete manifest.files['codex-resources/bwrap'];
+    if (attack === 'wrong-upstream') manifest.upstreamCommit = '0'.repeat(40);
+    fs.writeFileSync(filename, JSON.stringify(manifest));
+    assert.throws(() => install(f.options), /inventory|provenance/);
+  }
+});
+
+test('a late helper rename failure rolls back aliases and previously installed resources', (t) => {
+  const f = fixture(t);
+  const rename = fs.renameSync;
+  try {
+    fs.renameSync = (source, destination) => {
+      if (destination === path.join(f.root, 'codex-resources/bwrap')) throw new Error('helper locked');
+      return rename(source, destination);
+    };
+    assert.throws(() => install(f.options), /helper locked/);
+  } finally { fs.renameSync = rename; }
+  assert.equal(fs.readFileSync(path.join(f.root, 'bin/holycodex.exe'), 'utf8'), 'placeholder');
+  assert.equal(fs.readFileSync(path.join(f.root, 'bin/codex.exe'), 'utf8'), 'placeholder');
+  assert.equal(fs.existsSync(path.join(f.root, 'bin/codex-code-mode-host')), false);
+  assert.equal(fs.existsSync(path.join(f.root, 'codex-package.json')), false);
 });

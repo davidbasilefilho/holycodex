@@ -8,6 +8,8 @@ const { execFileSync } = require('node:child_process');
 const { BASE_VERSION, validateVersion, tarballName } = require('./channel.cjs');
 const { verifyNativeAliases, verifyArchiveSize, tarFile } = require('./verify-release.cjs');
 
+const { readResourceInventory, resourcePolicy } = require('../holycodex/install.cjs');
+
 const TARGETS = {
   'linux-x64-gnu': { platform: 'linux', arch: 'x64', os: ['linux'], cpu: ['x64'], libc: ['glibc'] },
   'darwin-arm64': { platform: 'darwin', arch: 'arm64', os: ['darwin'], cpu: ['arm64'] },
@@ -51,6 +53,30 @@ function verifyNativeHeader(filename, target) {
   }
 }
 
+// Extract only allowlisted regular resource bytes, then verify their full hashes
+// and native headers. This proves packaging integrity, not helper behavior.
+function verifyResourceArchive(archive, target) {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'holycodex-resource-proof-'));
+  try {
+    const required = [...resourcePolicy.targets[target].files, 'codex-package.json', 'native-inventory.json'];
+    for (const relative of required) {
+      const filename = path.join(temporary, relative);
+      fs.mkdirSync(path.dirname(filename), { recursive: true });
+      const output = fs.openSync(filename, 'wx', 0o600);
+      try {
+        execFileSync('tar', ['-xzOf', `./${path.basename(archive)}`, `package/${relative}`],
+          { cwd: path.dirname(path.resolve(archive)), stdio: ['ignore', output, 'pipe'], timeout: 120_000 });
+      } finally { fs.closeSync(output); }
+      assert.ok(fs.statSync(filename).size <= 384 * 1024 * 1024, 'native resource exceeds size limit');
+    }
+    const resources = readResourceInventory(temporary, target);
+    for (const { relative } of resources) {
+      if (relative !== 'codex-package.json') verifyNativeHeader(path.join(temporary, relative), target);
+    }
+    return resources.map(({ relative }) => relative);
+  } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
+}
+
 function smokeNative(archive, target, version, run = execFileSync) {
   validateVersion(version);
   assert.ok(Object.hasOwn(TARGETS, target), 'unsupported native target');
@@ -74,6 +100,7 @@ function smokeNative(archive, target, version, run = execFileSync) {
   assert.equal(proof[1], packageName, 'payload package identity mismatch');
   assert.equal(proof[2], version, 'payload distribution version mismatch');
 
+  const resourceFiles = verifyResourceArchive(archive, target);
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'holycodex-runtime-smoke-'));
   try {
     const home = path.join(temporary, 'codex-home');
@@ -95,7 +122,7 @@ function smokeNative(archive, target, version, run = execFileSync) {
       }
     });
     return { target, distributionVersion: version, runtimeVersion: expected, compressedBytes,
-      nativeBytes, payloadSha256: proof[3] };
+      nativeBytes, payloadSha256: proof[3], resourceFiles };
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
@@ -107,4 +134,4 @@ if (require.main === module) {
   console.log(JSON.stringify(smokeNative(path.resolve(archive), target, version)));
 }
 
-module.exports = { TARGETS, expectedRuntimeVersion, verifyNativeHeader, smokeNative };
+module.exports = { TARGETS, expectedRuntimeVersion, verifyNativeHeader, smokeNative, verifyResourceArchive };

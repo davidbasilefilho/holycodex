@@ -31,9 +31,10 @@ function fixture(t, channel = 'dev', nativeBytes = Buffer.from('native distribut
       fs.copyFileSync(path.join(__dirname, '..', '..', notice), path.join(stage, notice));
     }
     if (name === 'holycodex') {
-      fs.copyFileSync(path.join(template, 'install.cjs'), path.join(stage, 'install.cjs'));
+      for (const filename of ['install.cjs', 'native-inventory.json']) fs.copyFileSync(path.join(template, filename), path.join(stage, filename));
       for (const alias of ['holycodex.exe', 'codex.exe']) fs.writeFileSync(path.join(stage, 'bin', alias), '');
     } else {
+      require('./resource-fixture.cjs').resourceFixture(stage, name.replace('@turndev/holycodex-native-', ''));
       const bytes = nativeBytes;
       const extension = name.endsWith('win32-x64') ? '.exe' : '';
       for (const alias of ['holycodex', 'codex']) fs.writeFileSync(path.join(stage, 'bin', alias + extension), bytes);
@@ -710,4 +711,20 @@ for (const outcome of ['visible', 'delayed-response', 'transport-error', 'oversl
     if (outcome !== 'overslept') assert.deepEqual(confirmationReads.at(-1), { at: finalReadAt, timeout: finalReadBudget });
     assert.equal(r.waits.reduce((sum, delay) => sum + delay, 0), finalReadAt);
   });
+}
+
+for (const name of PLATFORM_PACKAGES) {
+  for (const corrupt of [false, true]) {
+    test(`${name}: ${corrupt ? 'corrupt' : 'missing'} helper blocks all registry operations`, async (t) => {
+      const f = fixture(t);
+      const r = registry(f);
+      const stage = path.join(path.dirname(f.artifacts), name.replace('@turndev/', ''), 'package');
+      const extension = name.endsWith('win32-x64') ? '.exe' : '';
+      const helper = path.join(stage, 'bin', `codex-code-mode-host${extension}`);
+      if (corrupt) fs.writeFileSync(helper, 'corrupt'); else fs.rmSync(helper);
+      execFileSync('tar', ['-czf', f.archives.get(name), '-C', path.dirname(stage), 'package']);
+      await assert.rejects(publishPackages(f.artifacts, SHA, f.version, 'dev', r.adapter));
+      assert.deepEqual(r.events, []);
+    });
+  }
 }

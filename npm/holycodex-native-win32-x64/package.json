@@ -10,8 +10,11 @@
     "x64"
   ],
   "files": [
-    "bin/holycodex.exe",
-    "bin/codex.exe",
+    "bin/",
+    "codex-path/",
+    "codex-resources/",
+    "codex-package.json",
+    "native-inventory.json",
     "payload.toml",
     "LICENSE",
     "NOTICE",

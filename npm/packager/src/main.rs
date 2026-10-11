@@ -92,7 +92,7 @@ fn stage_wrapper(npm: &Path, output: &Path) -> Result<PathBuf> {
     validated_wrapper(npm)?;
     let destination = output.join("holycodex");
     fs::create_dir_all(destination.join("bin"))?;
-    for name in ["package.json", "install.cjs"] {
+    for name in ["package.json", "install.cjs", "native-inventory.json"] {
         fs::copy(npm.join("holycodex").join(name), destination.join(name))?;
     }
     // npm needs bin targets present while it creates links/shims. Successful
@@ -115,7 +115,7 @@ fn stage_native(npm: &Path, target: &str, native: &Path, output: &Path) -> Resul
     let names = [format!("holycodex{extension}"), format!("codex{extension}")];
     let mut payloads = Vec::new();
     for name in &names {
-        let source = native.join(name);
+        let source = native.join("bin").join(name);
         if !fs::symlink_metadata(&source)?.file_type().is_file() {
             return Err(format!("payload must be a regular file: {}", source.display()).into());
         }
@@ -123,6 +123,50 @@ fn stage_native(npm: &Path, target: &str, native: &Path, output: &Path) -> Resul
     }
     if payloads[0].is_empty() || payloads[0] != payloads[1] {
         return Err("native payloads must be nonempty and byte-identical".into());
+    }
+    // Use the exact upstream package layout: the runtime discovers resources
+    // through codex-package.json relative to the executable, not through PATH.
+    let policy: Value =
+        serde_json::from_str(include_str!("../../holycodex/native-inventory.json"))?;
+    let pin: toml::Value =
+        fs::read_to_string(npm.parent().unwrap().join("upstream.toml"))?.parse()?;
+    if pin["commit"].as_str() != policy["upstreamCommit"].as_str() {
+        return Err("native inventory does not match upstream pin".into());
+    }
+    let spec = &policy["targets"][target];
+    let layout: Value = serde_json::from_slice(&fs::read(native.join("codex-package.json"))?)?;
+    if layout["layoutVersion"] != 1
+        || layout["target"] != spec["triple"]
+        || layout["version"] != env!("CARGO_PKG_VERSION")
+        || layout["variant"] != "codex"
+        || layout["resourcesDir"] != "codex-resources"
+        || layout["pathDir"] != "codex-path"
+        || layout["entrypoint"] != format!("bin/codex{extension}")
+    {
+        return Err("native package layout does not match the pinned target/runtime".into());
+    }
+    let mut resources = Vec::new();
+    for relative in spec["files"].as_array().ok_or("missing target inventory")? {
+        let relative = relative.as_str().ok_or("invalid inventory path")?;
+        let source = native.join(relative);
+        // Reject symlink ancestors as well as symlink payloads.
+        let mut ancestor = source.as_path();
+        while ancestor != native {
+            if fs::symlink_metadata(ancestor)?.file_type().is_symlink() {
+                return Err(
+                    format!("native resource must not traverse a symlink: {relative}").into(),
+                );
+            }
+            ancestor = ancestor.parent().ok_or("invalid resource parent")?;
+        }
+        if !fs::symlink_metadata(&source)?.file_type().is_file() {
+            return Err(format!("native resource must be a regular file: {relative}").into());
+        }
+        let bytes = fs::read(source)?;
+        if bytes.is_empty() {
+            return Err(format!("empty required native resource: {relative}").into());
+        }
+        resources.push((relative.to_owned(), bytes));
     }
     let metadata: Value = serde_json::from_slice(&fs::read(
         npm.join(package_name.trim_start_matches("@turndev/"))
@@ -151,6 +195,30 @@ fn stage_native(npm: &Path, target: &str, native: &Path, output: &Path) -> Resul
             fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
         }
     }
+    fs::write(
+        destination.join("codex-package.json"),
+        serde_json::to_vec_pretty(&layout)?,
+    )?;
+    let mut inventory = serde_json::Map::new();
+    for (relative, bytes) in &resources {
+        let path = destination.join(relative);
+        fs::create_dir_all(path.parent().unwrap())?;
+        fs::write(&path, bytes)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+        }
+        inventory.insert(relative.clone(), serde_json::json!({"sha256": format!("{:x}", Sha256::digest(bytes)), "bytes": bytes.len()}));
+    }
+    let layout_bytes = fs::read(destination.join("codex-package.json"))?;
+    inventory.insert("codex-package.json".into(), serde_json::json!({"sha256": format!("{:x}", Sha256::digest(&layout_bytes)), "bytes": layout_bytes.len()}));
+    fs::write(
+        destination.join("native-inventory.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "format": 1, "upstreamCommit": policy["upstreamCommit"], "target": target, "files": inventory
+        }))?,
+    )?;
     let manifest = format!(
         "format = 1\npackage = \"{package_name}\"\nversion = \"{}\"\nsha256 = \"{:x}\"\n",
         metadata["version"]
@@ -239,9 +307,10 @@ mod tests {
         let fixture = Fixture::new();
         let native = fixture.0.join("native");
         let output = fixture.0.join("packages");
-        fs::create_dir(&native).unwrap();
+        fs::create_dir_all(native.join("bin")).unwrap();
+        native_resources_fixture(&native, "linux-x64-gnu");
         for name in ["holycodex", "codex"] {
-            fs::write(native.join(name), b"abc").unwrap();
+            fs::write(native.join("bin").join(name), b"abc").unwrap();
         }
         let package = stage_native(&npm_root(), "linux-x64-gnu", &native, &output).unwrap();
         let manifest: toml::Value = fs::read_to_string(package.join("payload.toml"))
@@ -268,10 +337,60 @@ mod tests {
                 fs::read(npm_root().parent().unwrap().join(name)).unwrap()
             );
         }
-        fs::write(native.join("codex"), b"different").unwrap();
+        fs::write(native.join("bin/codex"), b"different").unwrap();
         let rejected = fixture.0.join("rejected");
         assert!(stage_native(&npm_root(), "linux-x64-gnu", &native, &rejected).is_err());
         assert!(!rejected.exists());
+    }
+
+    fn native_resources_fixture(native: &Path, target: &str) {
+        let policy: Value =
+            serde_json::from_str(include_str!("../../holycodex/native-inventory.json")).unwrap();
+        let spec = &policy["targets"][target];
+        for file in spec["files"].as_array().unwrap() {
+            let path = native.join(file.as_str().unwrap());
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, b"resource fixture, not an executable").unwrap();
+        }
+        fs::write(native.join("codex-package.json"), serde_json::to_vec(&json!({
+            "layoutVersion": 1, "target": spec["triple"], "version": "0.17.0", "variant": "codex",
+            "entrypoint": if target == "win32-x64" { "bin/codex.exe" } else { "bin/codex" },
+            "resourcesDir": "codex-resources", "pathDir": "codex-path"
+        })).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn every_target_requires_all_helpers_before_staging() {
+        for target in ["linux-x64-gnu", "darwin-arm64", "win32-x64"] {
+            let fixture = Fixture::new();
+            let native = fixture.0.join("native");
+            fs::create_dir_all(native.join("bin")).unwrap();
+            native_resources_fixture(&native, target);
+            let extension = if target == "win32-x64" { ".exe" } else { "" };
+            for alias in ["codex", "holycodex"] {
+                fs::write(native.join(format!("bin/{alias}{extension}")), b"abc").unwrap();
+            }
+            let output = fixture.0.join("out");
+            let package = stage_native(&npm_root(), target, &native, &output).unwrap();
+            let inventory: Value =
+                serde_json::from_slice(&fs::read(package.join("native-inventory.json")).unwrap())
+                    .unwrap();
+            assert_eq!(inventory["target"], target);
+            for relative in inventory["files"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .filter(|p| p.as_str() != "codex-package.json")
+            {
+                let source = native.join(relative);
+                let bytes = fs::read(&source).unwrap();
+                fs::remove_file(&source).unwrap();
+                let rejected = fixture.0.join("rejected");
+                assert!(stage_native(&npm_root(), target, &native, &rejected).is_err());
+                assert!(!rejected.exists());
+                fs::write(source, bytes).unwrap();
+            }
+        }
     }
 
     #[test]

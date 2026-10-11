@@ -18,6 +18,45 @@ function readPayloadManifest(filename) {
   return { format: Number(match[1]), package: match[2], version: match[3], sha256: match[4] };
 }
 
+// The allowlist is versioned with the pinned upstream layout. Never trust
+// archive-provided paths: they would otherwise become installer write targets.
+const resourcePolicy = require('./native-inventory.json');
+function readResourceInventory(root, target) {
+  const spec = resourcePolicy.targets[target];
+  if (!spec) throw new Error('unsupported native resource target');
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'native-inventory.json'), 'utf8'));
+  const expected = [...spec.files, 'codex-package.json'].sort();
+  if (manifest.format !== 1 || manifest.target !== target
+      || manifest.upstreamCommit !== resourcePolicy.upstreamCommit
+      || JSON.stringify(Object.keys(manifest.files || {}).sort()) !== JSON.stringify(expected)) {
+    throw new Error('invalid native resource inventory or upstream provenance');
+  }
+  const payloads = expected.map((relative) => {
+    const proof = manifest.files[relative];
+    if (!/^[a-f0-9]{64}$/.test(proof.sha256) || !Number.isSafeInteger(proof.bytes) || proof.bytes <= 0) {
+      throw new Error('invalid native resource integrity metadata');
+    }
+    const source = path.join(root, relative);
+    for (let current = source; current !== root; current = path.dirname(current)) {
+      if (fs.lstatSync(current).isSymbolicLink()) throw new Error(`native resource traverses symlink: ${relative}`);
+    }
+    if (!fs.lstatSync(source).isFile()) throw new Error(`missing native resource: ${relative}`);
+    const bytes = fs.readFileSync(source);
+    if (bytes.length !== proof.bytes || createHash('sha256').update(bytes).digest('hex') !== proof.sha256) {
+      throw new Error(`native resource checksum mismatch: ${relative}`);
+    }
+    return { relative, bytes };
+  });
+  const layout = JSON.parse(payloads.find((entry) => entry.relative === 'codex-package.json').bytes);
+  const extension = target === 'win32-x64' ? '.exe' : '';
+  if (layout.layoutVersion !== 1 || layout.target !== spec.triple || layout.variant !== 'codex'
+      || layout.entrypoint !== `bin/codex${extension}` || layout.resourcesDir !== 'codex-resources'
+      || layout.pathDir !== 'codex-path' || layout.version !== '0.17.0') {
+    throw new Error('invalid native resource runtime layout');
+  }
+  return payloads;
+}
+
 function install(options = {}) {
   const platform = options.platform || process.platform;
   const arch = options.arch || process.arch;
@@ -61,17 +100,34 @@ function install(options = {}) {
     return bytes;
   });
   if (!payloads[0].equals(payloads[1])) throw new Error('HolyCodex native aliases differ.');
+  const target = packageName.replace('@turndev/holycodex-native-', '');
+  const resources = readResourceInventory(binaryRoot, target);
   const destinationDir = path.join(root, 'bin');
   fs.mkdirSync(destinationDir, { recursive: true });
-  const destinations = ['holycodex', 'codex'].map((name) => path.join(destinationDir, `${name}.exe`));
+  // Preserve the canonical Unix entrypoint required by daemon package validation
+  // in addition to npm's cross-platform .exe link targets.
+  const canonical = platform === 'win32' ? [] : ['holycodex', 'codex'].map((name, index) => ({ relative: `bin/${name}`, bytes: payloads[index] }));
+  resources.push(...canonical);
+  const destinations = [
+    ...['holycodex', 'codex'].map((name) => path.join(destinationDir, `${name}.exe`)),
+    ...resources.map(({ relative }) => path.join(root, relative)),
+  ];
+  payloads.push(...resources.map(({ bytes }) => bytes));
   const stagingDir = fs.mkdtempSync(path.join(destinationDir, '.holycodex-install-'));
-  const temporary = destinations.map((destination) => path.join(stagingDir, path.basename(destination)));
-  const backups = destinations.map((destination) => path.join(stagingDir, `${path.basename(destination)}.bak`));
+  const temporary = destinations.map((_, index) => path.join(stagingDir, String(index)));
+  const backups = destinations.map((_, index) => path.join(stagingDir, `${index}.bak`));
   const hadOriginal = [];
   const replaced = [];
   let preserveBackups = false;
   try {
     for (let i = 0; i < temporary.length; i++) {
+      const parent = path.dirname(destinations[i]);
+      let current = root;
+      for (const part of path.relative(root, parent).split(path.sep).filter(Boolean)) {
+        current = path.join(current, part);
+        try { fs.mkdirSync(current); } catch (error) { if (error.code !== 'EEXIST') throw error; }
+        if (!fs.lstatSync(current).isDirectory()) throw new Error(`native destination is not a directory: ${current}`);
+      }
       fs.writeFileSync(temporary[i], payloads[i], { flag: 'wx', mode: 0o755 });
       if (platform !== 'win32') fs.chmodSync(temporary[i], 0o755);
       let original;
@@ -117,4 +173,4 @@ function install(options = {}) {
 
 if (require.main === module) install();
 
-module.exports = { install, packageFor, readPayloadManifest };
+module.exports = { install, packageFor, readPayloadManifest, readResourceInventory, resourcePolicy };

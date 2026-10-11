@@ -1,0 +1,31 @@
+{
+  "upstreamCommit": "092d3acd6bec3e3a14bdc7e7a2810ab628ab759d",
+  "targets": {
+    "linux-x64-gnu": {
+      "triple": "x86_64-unknown-linux-gnu",
+      "files": [
+        "bin/codex-code-mode-host",
+        "codex-path/rg",
+        "codex-resources/bwrap",
+        "codex-resources/zsh/bin/zsh"
+      ]
+    },
+    "darwin-arm64": {
+      "triple": "aarch64-apple-darwin",
+      "files": [
+        "bin/codex-code-mode-host",
+        "codex-path/rg",
+        "codex-resources/zsh/bin/zsh"
+      ]
+    },
+    "win32-x64": {
+      "triple": "x86_64-pc-windows-msvc",
+      "files": [
+        "bin/codex-code-mode-host.exe",
+        "codex-path/rg.exe",
+        "codex-resources/codex-command-runner.exe",
+        "codex-resources/codex-windows-sandbox-setup.exe"
+      ]
+    }
+  }
+}

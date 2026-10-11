@@ -8,7 +8,8 @@
     "bin/",
     "LICENSE",
     "NOTICE",
-    "THIRD-PARTY-NOTICES.md"
+    "THIRD-PARTY-NOTICES.md",
+    "native-inventory.json"
   ],
   "bin": {
     "holycodex": "bin/holycodex.exe",

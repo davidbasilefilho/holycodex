@@ -61,6 +61,8 @@ function fixture(t, channel = 'dev') {
     fs.writeFileSync(path.join(nativeDirectory, 'bin', alias + extension), bytes, { mode: 0o755 });
     fs.writeFileSync(path.join(wrapperDirectory, 'bin', `${alias}.exe`), '');
   }
+  require('./resource-fixture.cjs').resourceFixture(nativeDirectory, target, bytes);
+  fs.copyFileSync(path.join(__dirname, '../holycodex/native-inventory.json'), path.join(wrapperDirectory, 'native-inventory.json'));
   for (const directory of [nativeDirectory, wrapperDirectory]) stageChannel(directory, version, channel);
   const native = path.join(root, tarballName(name, version));
   const wrapper = path.join(root, tarballName('holycodex', version));
