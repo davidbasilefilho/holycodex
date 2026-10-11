@@ -857,6 +857,9 @@ impl AssignmentStatus {
 pub struct Assignment {
     pub id: Id,
     pub intent_id: Id,
+    /// Intent revision explicitly used to prepare this work. Zero means legacy/unknown.
+    #[serde(default, skip_serializing_if = "is_unknown_revision")]
+    pub intent_revision: u64,
     pub role: RoleTask,
     pub objective: String,
     pub bounded_scope: Vec<String>,
@@ -868,6 +871,10 @@ pub struct Assignment {
     pub status: AssignmentStatus,
     pub specialist_id: Option<Id>,
     pub result: Option<String>,
+}
+
+fn is_unknown_revision(revision: &u64) -> bool {
+    *revision == 0
 }
 
 /// Idle specialist and metadata for its retained terminal context.
@@ -986,6 +993,11 @@ pub enum LifecycleError {
     },
     NotRunning(Id),
     RevisionOverflow(Id),
+    StaleIntentRevision {
+        assignment: Id,
+        expected: u64,
+        actual: u64,
+    },
 }
 impl std::fmt::Display for LifecycleError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1377,6 +1389,13 @@ pub fn validate_dispatch_for_intent(
             intent: candidate.intent_id.clone(),
         });
     }
+    if candidate.intent_revision != intent.revision {
+        return Err(LifecycleError::StaleIntentRevision {
+            assignment: candidate.id.clone(),
+            expected: candidate.intent_revision,
+            actual: intent.revision,
+        });
+    }
     validate_dispatch(candidate, assignments)
 }
 
@@ -1764,6 +1783,7 @@ mod tests {
         Assignment {
             id: id.into(),
             intent_id: "i".into(),
+            intent_revision: 1,
             role,
             objective: "work".into(),
             bounded_scope: vec![path.into()],
@@ -2310,6 +2330,72 @@ mod tests {
             select_specialist(&candidate, &[], &[context]).unwrap(),
             SpecialistSelection::CreateNew
         );
+    }
+
+    #[test]
+    fn dispatch_rejects_work_prepared_before_requirement_change() {
+        let mut intent = Intent {
+            id: "i".into(),
+            objective: "goal".into(),
+            accepted_scope: vec!["src".into()],
+            requirements: vec![],
+            revision: 1,
+        };
+        let candidate = assignment(
+            "work",
+            RoleTask::WorkerImplementation,
+            AssignmentStatus::Ready,
+            "src",
+            &[],
+        );
+        assert!(validate_dispatch_for_intent(&intent, &candidate, &[]).is_ok());
+        // Dispatch prepares runtime authority asynchronously after reading revision 1.
+        // Another controller commits revised requirements before reservation.
+        update_intent(
+            &mut intent,
+            "goal".into(),
+            vec!["src".into()],
+            vec!["read the revised specification".into()],
+        )
+        .unwrap();
+        assert!(
+            validate_dispatch_for_intent(&intent, &candidate, &[]).is_err(),
+            "stale prepared work must not reserve against revised requirements"
+        );
+    }
+
+    #[test]
+    fn legacy_assignment_revision_is_unknown_and_cannot_authorize_dispatch() {
+        let task = assignment(
+            "legacy",
+            RoleTask::WorkerImplementation,
+            AssignmentStatus::Ready,
+            "src",
+            &[],
+        );
+        let mut wire = serde_json::to_value(&task).unwrap();
+        wire.as_object_mut().unwrap().remove("intent_revision");
+        let mut restored: Assignment = serde_json::from_value(wire).unwrap();
+        assert_eq!(restored.intent_revision, 0);
+        let intent = Intent {
+            id: "i".into(),
+            objective: "goal".into(),
+            accepted_scope: vec![],
+            requirements: vec![],
+            revision: 1,
+        };
+        assert!(matches!(
+            validate_dispatch_for_intent(&intent, &restored, &[]),
+            Err(LifecycleError::StaleIntentRevision {
+                expected: 0,
+                actual: 1,
+                ..
+            })
+        ));
+        restored.intent_revision = 1;
+        assert!(validate_dispatch_for_intent(&intent, &restored, &[]).is_ok());
+        restored.intent_revision = 2;
+        assert!(validate_dispatch_for_intent(&intent, &restored, &[]).is_err());
     }
 
     #[test]
