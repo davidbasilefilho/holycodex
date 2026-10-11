@@ -1,0 +1,152 @@
+diff --git a/codex-rs/cli/src/debug_sandbox/cloud_config_tests.rs b/codex-rs/cli/src/debug_sandbox/cloud_config_tests.rs
+index d91c6b5de2..51bc309003 100644
+--- a/codex-rs/cli/src/debug_sandbox/cloud_config_tests.rs
++++ b/codex-rs/cli/src/debug_sandbox/cloud_config_tests.rs
+@@ -1,6 +1,6 @@
+ use anyhow::Result;
+ use app_test_support::ChatGptAuthFixture;
+-use app_test_support::write_chatgpt_auth;
++use app_test_support::write_external_chatgpt_auth;
+ use codex_config::ConfigRequirementsToml;
+ use codex_config::LoaderOverrides;
+ use codex_config::types::AuthCredentialsStoreMode;
+@@ -64,7 +64,7 @@ async fn debug_sandbox_bootstraps_cloud_managed_permission_profile_from_backend(
+             server.uri(),
+         ),
+     )?;
+-    write_chatgpt_auth(
++    write_external_chatgpt_auth(
+         codex_home.path(),
+         ChatGptAuthFixture::new("chatgpt-token")
+             .account_id("workspace-123")
+diff --git a/codex-rs/cli/tests/app_server_daemon.rs b/codex-rs/cli/tests/app_server_daemon.rs
+index 0a865e0e43..32b3723602 100644
+--- a/codex-rs/cli/tests/app_server_daemon.rs
++++ b/codex-rs/cli/tests/app_server_daemon.rs
+@@ -130,9 +130,14 @@ fn managed_daemon_restarts_from_deleted_working_directory() -> Result<()> {
+         String::from_utf8_lossy(&started.stderr)
+     );
+     let old_pid = daemon.pid("app-server.pid")?;
+-    let old_updater_pid = daemon.pid("app-server-updater.pid")?;
+-    signal(old_updater_pid, libc::SIGTERM)?;
+-    wait_for_exit(old_updater_pid)?;
++    let updater_pid = daemon
++        .home
++        .path()
++        .join("app-server-daemon/app-server-updater.pid");
++    assert!(
++        !updater_pid.exists(),
++        "HolyCodex must not start the upstream updater"
++    );
+ 
+     // Delete the restart caller's cwd without changing the test process's cwd.
+     let restarted = Command::new("/bin/sh")
+@@ -154,20 +159,19 @@ fn managed_daemon_restarts_from_deleted_working_directory() -> Result<()> {
+     let restarted: Value = serde_json::from_slice(&restarted.stdout)?;
+     assert_eq!(restarted["status"], "restarted");
+     assert_ne!(daemon.pid("app-server.pid")?, old_pid);
+-    assert_ne!(daemon.pid("app-server-updater.pid")?, old_updater_pid);
++    assert!(
++        !updater_pid.exists(),
++        "restart must preserve the disabled updater"
++    );
+     assert_eq!(daemon.lifecycle("version")?["status"], "running");
+     let updater_socket = daemon
+         .home
+         .path()
+         .join("app-server-daemon/app-server-updater.sock");
+-    let deadline = Instant::now() + Duration::from_secs(30);
+-    while std::os::unix::net::UnixStream::connect(&updater_socket).is_err() {
+-        ensure!(
+-            Instant::now() < deadline,
+-            "replacement updater did not become ready"
+-        );
+-        std::thread::sleep(Duration::from_millis(50));
+-    }
++    assert!(
++        !updater_socket.exists(),
++        "restart must not expose an upstream updater socket"
++    );
+     Ok(())
+ }
+ 
+diff --git a/codex-rs/cli/tests/login.rs b/codex-rs/cli/tests/login.rs
+index ef56e19602..b7407dafb3 100644
+--- a/codex-rs/cli/tests/login.rs
++++ b/codex-rs/cli/tests/login.rs
+@@ -206,7 +206,7 @@ async fn logout_survives_enterprise_cleanup_failure_with_xaa_disabled() -> Resul
+             server.uri()
+         ),
+     )?;
+-    write_chatgpt_auth(
++    write_external_chatgpt_auth(
+         home.path(),
+         ChatGptAuthFixture::new("account-access")
+             .account_id("workspace")
+@@ -235,6 +235,15 @@ async fn logout_survives_enterprise_cleanup_failure_with_xaa_disabled() -> Resul
+             .stderr(contains("failed to delete enterprise authorization"));
+         assert!(home.path().join("auth.json").exists());
+     }
++    // Enterprise operations require supported auth; account logout must also clean
++    // up a legacy session and revoke its token even when enterprise cleanup fails.
++    write_chatgpt_auth(
++        home.path(),
++        ChatGptAuthFixture::new("account-access")
++            .account_id("workspace")
++            .chatgpt_user_id("user"),
++        AuthCredentialsStoreMode::File,
++    )?;
+     codex_command(home.path())?
+         .current_dir(home.path())
+         .env("NO_PROXY", "127.0.0.1,localhost")
+diff --git a/codex-rs/cli/tests/queue.rs b/codex-rs/cli/tests/queue.rs
+index 6d608c16d6..7f576d8095 100644
+--- a/codex-rs/cli/tests/queue.rs
++++ b/codex-rs/cli/tests/queue.rs
+@@ -286,6 +286,7 @@ async fn remote_session_commands_with_workload_identity_use_server_auth() -> Res
+     ])
+     .await;
+     MockResponsesConfig::new(&model.uri())
++        .with_model("gpt-6.1-sol")
+         .with_root_config("features.plugins = false\nanalytics.enabled = false")
+         .with_provider_config("env_key = \"CODEX_QUEUE_SERVER_API_KEY\"")
+         .write(codex_home.path())?;
+diff --git a/codex-rs/tui/src/analytics/client_tests.rs b/codex-rs/tui/src/analytics/client_tests.rs
+index 48bc4c1adb..69b535e9df 100644
+--- a/codex-rs/tui/src/analytics/client_tests.rs
++++ b/codex-rs/tui/src/analytics/client_tests.rs
+@@ -26,7 +26,7 @@ pub(in crate::analytics) fn sign_in(home: &std::path::Path, account: &str, user:
+     );
+     let token = format!("e30.{claims}.test");
+     let auth = serde_json::from_value(json!({
+-        "auth_mode": "chatgpt", "tokens": {"id_token": token, "access_token": token,
++        "auth_mode": "chatgptAuthTokens", "tokens": {"id_token": token, "access_token": token,
+             "refresh_token": "test-refresh", "account_id": account},
+         "last_refresh": chrono::Utc::now(),
+     }))
+@@ -139,6 +139,25 @@ async fn analytics_requires_local_chatgpt_authentication() {
+     }
+ }
+ 
++#[tokio::test]
++async fn analytics_rejects_legacy_credentials_before_contacting_backend() {
++    let server = MockServer::start().await;
++    let (home, live) = live(&server, "plus").await;
++    let path = home.path().join("auth.json");
++    let mut auth: serde_json::Value =
++        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
++    auth["auth_mode"] = json!("chatgpt");
++    let legacy = serde_json::to_vec(&auth).unwrap();
++    std::fs::write(&path, &legacy).unwrap();
++
++    assert_eq!(
++        live.session().await.err(),
++        Some("Sign in locally with ChatGPT to view Analytics.".to_string())
++    );
++    assert!(server.received_requests().await.unwrap().is_empty());
++    assert_eq!(std::fs::read(&path).unwrap(), legacy);
++}
++
+ #[tokio::test]
+ async fn analytics_requests_use_reloaded_credentials_for_the_same_identity() {
+     let server = MockServer::start().await;
