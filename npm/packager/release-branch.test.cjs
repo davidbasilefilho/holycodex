@@ -84,7 +84,7 @@ test('Root and policy docs agree on the two four-segment fallback families', () 
     const families = [...source.matchAll(/`([a-z]+\/<[^`]+>)`/g)].map((match) => match[1]);
     assert.deepEqual(families, ['release/<version>/<type>/<change>', 'exp/<experiment>/<type>/<change>']);
   }
-  assert.ok(sources[0].includes('release/v0.17.0/fix/windows-install'));
+  assert.ok(sources[0].includes('release/v2.4.0/fix/windows-install'));
   assert.ok(sources[0].includes('exp/sqlite-history/feat/storage'));
   assert.ok(sources[0].includes('actual PR bases and dependencies determine the stack'));
   const scenarios = fs.readFileSync(path.join(root, 'crates/holycodex-policy/evals/mergeability.md'), 'utf8');
@@ -145,4 +145,19 @@ test('usage docs distinguish shipped guidance from operations and omit future en
   assert.ok(modelPolicy.includes('remains accepted for configuration compatibility'));
   assert.ok(modelPolicy.includes('supplies no corresponding operation or active skill'));
   assert.doesNotMatch(modelPolicy, /enforcement is deferred|until the host can provide/);
+});
+
+test('HolyCodex recommended names and existing fix heads remain valid in the same stack', () => {
+  const root = fs.readFileSync(path.join(__dirname, '../../overlay/holycodex/instructions/root.md'), 'utf8');
+  assert.ok(root.includes('recommend `release/v0.17.0/windows-install`'));
+  assert.deepEqual(parseReleaseBranch('release/v0.17.0/windows-install'), { version: '0.17.0', change: 'windows-install' });
+  const existing = 'release/v0.17.0-rc.2/fix/assignment-revision-evidence';
+  assert.deepEqual(parseReleaseBranch(existing), { version: '0.17.0-rc.2', change: 'fix/assignment-revision-evidence' });
+  assert.equal(validateReleaseStack([
+    { head: existing, base: 'main' },
+    { head: 'release/v0.17.0-rc.2/polling-deadline', base: existing },
+  ], [existing]).layers, 2);
+  for (const head of ['release/v0.17.0/feat/new-work', 'release/v0.17.0/fix/nested/change']) {
+    assert.throws(() => parseReleaseBranch(head), /release branch/);
+  }
 });
