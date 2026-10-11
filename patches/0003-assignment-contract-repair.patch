@@ -1,0 +1,203 @@
+diff --git a/codex-rs/core/src/holycodex.rs b/codex-rs/core/src/holycodex.rs
+--- a/codex-rs/core/src/holycodex.rs
++++ b/codex-rs/core/src/holycodex.rs
+@@ -679,9 +679,10 @@
+             result: None,
+             acceptance: None,
+         };
+-        validate_dispatch_for_intent(&initial.intent, &candidate, &initial.assignments)?;
+-        // Preparation can suspend while another controller updates the Intent.
+-        // reserve rechecks this same explicit revision under the state lock.
++        // Preparation can suspend while another controller changes dependencies,
++        // ownership, or the Intent. Do not reject using the initial snapshot:
++        // reserve validates this explicit revision and all current Assignment
++        // state atomically under the state lock before any launch.
+         let prepared = self.authority.prepare(&candidate, self.profile).await?;
+         check_prepared(&prepared, candidate.role, self.profile)?;
+         let _operation = self.store.operation_lock(&candidate.id)?;
+@@ -2384,6 +2385,93 @@
+     }
+ 
+     #[tokio::test]
++    async fn dispatch_does_not_reject_from_preparation_snapshot_ownership() {
++        let dir = tempfile::tempdir().unwrap();
++        let controller = AssignmentController::open(
++            dir.path(),
++            LocalAgentControl::default(),
++            ThreadId::new(),
++            Profile::Default,
++            intent(),
++            Arc::new(DeniedAuthority),
++        )
++        .unwrap();
++        running(&controller.store, "src/a", RoleTask::WorkerImplementation);
++        let assignment = candidate("src/a", RoleTask::WorkerImplementation);
++        let request = DispatchRequest {
++            intent_revision: assignment.intent_revision,
++            role: assignment.role,
++            objective: assignment.objective,
++            bounded_scope: assignment.bounded_scope,
++            constraints: assignment.constraints,
++            acceptance_criteria: assignment.acceptance_criteria,
++            required_evidence: assignment.required_evidence,
++            mutability: assignment.mutability,
++            metadata: assignment.metadata,
++        };
++        let before = controller.snapshot().unwrap();
++        // Ownership may be released while authority prepares. This early
++        // snapshot must not bypass preparation with a stale ownership error.
++        assert!(matches!(
++            controller.dispatch(request).await,
++            Err(ControllerError::Authority(_))
++        ));
++        assert_eq!(controller.snapshot().unwrap(), before);
++    }
++
++    #[test]
++    fn independent_controllers_revalidate_released_ownership_and_restart() {
++        let dir = tempfile::tempdir().unwrap();
++        let dispatcher = StateStore::open(dir.path(), intent()).unwrap();
++        let updater = StateStore::open(dir.path(), intent()).unwrap();
++        let active = running(&updater, "src/a", RoleTask::WorkerImplementation);
++        let pending = candidate("src/a", RoleTask::WorkerImplementation);
++        let initial = dispatcher.read().unwrap();
++        assert!(
++            validate_dispatch_for_intent(&initial.intent, &pending, &initial.assignments).is_err()
++        );
++        updater
++            .transaction(|state| {
++                state.observe_terminal(
++                    &active.id,
++                    AssignmentStatus::Cancelled,
++                    "cancelled".into(),
++                    false,
++                )
++            })
++            .unwrap();
++        let (reserved, _) = dispatcher
++            .transaction(|state| state.reserve(pending, &grants(true), &BTreeMap::new()))
++            .unwrap();
++        let reopened = StateStore::open(dir.path(), intent()).unwrap();
++        let state = reopened.read().unwrap();
++        assert_eq!(state.intent.revision, initial.intent.revision);
++        assert_eq!(
++            state
++                .assignments
++                .iter()
++                .filter(|a| a.status == AssignmentStatus::Running)
++                .count(),
++            1
++        );
++        assert_eq!(
++            state.assignments.iter().find(|a| a.id == reserved.id),
++            Some(&reserved)
++        );
++        let before = state;
++        assert!(
++            reopened
++                .transaction(|state| state.reserve(
++                    candidate("src/a", RoleTask::WorkerImplementation),
++                    &grants(true),
++                    &BTreeMap::new()
++                ))
++                .is_err()
++        );
++        assert_eq!(reopened.read().unwrap(), before);
++    }
++
++    #[tokio::test]
+     async fn dispatch_rejects_mutability_above_selected_route() {
+         let dir = tempfile::tempdir().unwrap();
+         let controller = AssignmentController::open(
+diff --git a/codex-rs/core/src/tools/holycodex_tools.rs b/codex-rs/core/src/tools/holycodex_tools.rs
+--- a/codex-rs/core/src/tools/holycodex_tools.rs
++++ b/codex-rs/core/src/tools/holycodex_tools.rs
+@@ -50,6 +50,7 @@
+ use serde_json::json;
+ 
+ const ROOT_TOOLS: &[&str] = &[
++    "intent.read",
+     "intent.update",
+     "assignment.dispatch",
+     "assignment.wait",
+@@ -1315,6 +1316,10 @@
+         }
+         let controller = &self.binding.controller;
+         match self.name {
++            "intent.read" => {
++                decode_model_payload::<IntentRead>(&payload)?;
++                encode_model_result(&controller.snapshot().map_err(controller_error)?.intent)
++            }
+             "intent.update" => {
+                 let input: IntentUpdate = decode_model_payload(&payload)?;
+                 let changed = controller
+@@ -1508,6 +1513,7 @@
+ 
+ fn tool_definition(name: &str) -> (String, Value) {
+     let description = match name {
++        "intent.read" => "Read the current accepted Intent and its revision before dispatch; payload is an empty TOON object.".to_owned(),
+         "intent.update" => "Update accepted Intent facts; payload is TOON with objective, accepted_scope, and requirements.".to_owned(),
+         "assignment.dispatch" => "Create a bounded Assignment; TOON fields: intent_revision (the current Intent revision), role, objective, bounded_scope, constraints, acceptance_criteria, required_evidence, mutability, ownership_paths, symbols, domains, dependencies, independent_review_of.".to_owned(),
+         "assignment.followup" => "Create a new bounded Assignment; payload is TOON with prior_assignment_id and assignment fields including the current intent_revision.".to_owned(),
+@@ -1550,6 +1556,10 @@
+ struct ToolEnvelope {
+     payload: String,
+ }
++
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct IntentRead {}
+ 
+ #[derive(Deserialize)]
+ #[serde(deny_unknown_fields)]
+@@ -1902,7 +1912,7 @@
+         let contributor = HolyCodexToolContributor;
+         let empty = ExtensionData::new("test");
+         assert!(contributor.tools(&empty, &empty).is_empty());
+-        assert_eq!(ROOT_TOOLS.len(), 6);
++        assert_eq!(ROOT_TOOLS.len(), 7);
+         assert_eq!(SPECIALIST_TOOLS, &["assignment.finish"]);
+         assert!(
+             ROOT_TOOLS
+@@ -3030,6 +3040,41 @@
+     }
+ 
+     #[tokio::test]
++    async fn intent_read_exposes_initial_and_updated_revision_only_to_root() {
++        let (_dir, binding) = test_binding(HolyCodexPrincipal::root());
++        let tool = HolyCodexTool {
++            binding,
++            name: "intent.read",
++        };
++        let before = tool.binding.controller.snapshot().unwrap();
++        let payload = encode_toon(&json!({})).unwrap();
++        let output = tool.execute(payload.clone()).await.unwrap();
++        let read: holycodex_policy::Intent = decode_toon(&output).unwrap();
++        assert_eq!(read, before.intent);
++        assert!(read.revision > 0);
++        assert!(before.assignments.is_empty());
++        assert_eq!(tool.binding.controller.snapshot().unwrap(), before);
++        tool.binding
++            .controller
++            .update_intent("changed".into(), vec![], vec![])
++            .unwrap();
++        let current: holycodex_policy::Intent =
++            decode_toon(&tool.execute(payload.clone()).await.unwrap()).unwrap();
++        assert_eq!(current.revision, read.revision + 1);
++        let (_dir, binding) = test_binding(HolyCodexPrincipal::specialist("assigned".into()));
++        let specialist = HolyCodexTool {
++            binding,
++            name: "intent.read",
++        };
++        assert!(specialist.execute(payload).await.is_err());
++        assert!(
++            tool.execute(encode_toon(&json!({"revision": 900})).unwrap())
++                .await
++                .is_err()
++        );
++    }
++
++    #[tokio::test]
+     async fn intent_update_result_is_toon_text_not_json_output() {
+         let (_dir, binding) = test_binding(HolyCodexPrincipal::root());
+         let tool = HolyCodexTool {

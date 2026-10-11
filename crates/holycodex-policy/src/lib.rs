@@ -1006,6 +1006,7 @@ pub enum LifecycleError {
     },
     NotRunning(Id),
     RevisionOverflow(Id),
+    InvalidAcceptanceContract(Id),
     InsufficientAcceptanceEvidence(Id),
     ConflictingAcceptance(Id),
     StaleIntentRevision {
@@ -1321,6 +1322,15 @@ pub fn validate_dispatch(
         return Err(LifecycleError::RootNotSpecialist);
     }
     validate_assignment_shape(candidate)?;
+    // New work must declare a contract that Root can eventually accept. Keep
+    // this out of persisted shape validation so historical records still load.
+    for labels in [&candidate.acceptance_criteria, &candidate.required_evidence] {
+        if labels.is_empty() || labels.iter().any(|label| label.trim().is_empty()) {
+            return Err(LifecycleError::InvalidAcceptanceContract(
+                candidate.id.clone(),
+            ));
+        }
+    }
     if candidate.status != AssignmentStatus::Ready {
         return Err(LifecycleError::InconsistentAssignmentState {
             assignment: candidate.id.clone(),
@@ -2467,6 +2477,38 @@ mod tests {
             validate_dispatch_for_intent(&intent, &candidate, &[]).is_err(),
             "stale prepared work must not reserve against revised requirements"
         );
+    }
+
+    #[test]
+    fn dispatch_requires_acceptance_contract_without_rejecting_legacy_state() {
+        let valid = assignment(
+            "work",
+            RoleTask::WorkerImplementation,
+            AssignmentStatus::Ready,
+            "src",
+            &[],
+        );
+        for field in 0..2 {
+            for labels in [vec![], vec![" ".into()], vec!["valid".into(), "".into()]] {
+                let mut candidate = valid.clone();
+                if field == 0 {
+                    candidate.acceptance_criteria = labels;
+                } else {
+                    candidate.required_evidence = labels;
+                }
+                assert_eq!(
+                    validate_dispatch(&candidate, &[]),
+                    Err(LifecycleError::InvalidAcceptanceContract("work".into()))
+                );
+                // Legacy ready/running records remain readable; validation of
+                // stored shape must not reinterpret old contracts as new work.
+                assert!(validate_assignment_shape(&candidate).is_ok());
+                let serialized = serde_json::to_string(&candidate).unwrap();
+                let restored: Assignment = serde_json::from_str(&serialized).unwrap();
+                assert_eq!(serde_json::to_string(&restored).unwrap(), serialized);
+            }
+        }
+        assert!(validate_dispatch(&valid, &[]).is_ok());
     }
 
     fn evidence() -> AssignmentAcceptance {
