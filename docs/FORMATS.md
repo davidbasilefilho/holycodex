@@ -37,3 +37,26 @@ case in the pinned official encode and decode fixture files. The JSON fixture
 files are preserved byte-for-byte as the upstream protocol corpus; source,
 license, immutable spec revision, and SHA-256 are recorded in
 `tests/fixtures/toon/metadata.toml`.
+
+## Assignment revisions and acceptance
+
+Dispatch and follow-up payloads must carry the current `intent_revision`. The
+controller checks this before preparing a specialist and again atomically when
+reserving ownership. Historical records without a revision remain readable as
+unknown revision zero; they cannot authorize a new dispatch.
+
+`Succeeded` records execution completion, not Root acceptance. The Root-only
+`assignment.accept` tool takes `assignment_id` and an `acceptance` object with
+`intent_revision`, a substantive `rationale`, and `criteria_evidence` and
+`required_evidence` maps. Each map uses the exact declared labels and identifies
+nonempty observed support for each one. Unknown, missing, or blank support,
+unsuccessful execution, and stale revisions are rejected without changing state.
+The runtime verifies structural coverage; Root remains responsible for judging
+functional correctness, architectural fit, and the quality of independent review.
+A completion message or passing checks alone must not be described as acceptance.
+
+Dependencies require explicit acceptance at the candidate's current revision.
+Existing historical execution records remain readable and unaccepted; the runtime
+never backfills acceptance from a terminal status. A requirement change preserves
+old evidence but does not carry its acceptance into the new revision. Use a current
+bounded validation assignment to reassess evidence that remains applicable.
