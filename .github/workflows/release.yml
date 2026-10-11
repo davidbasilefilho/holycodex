@@ -30,6 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
@@ -66,6 +67,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Verify release tags belong to accepted main history
         if: startsWith(github.ref, 'refs/tags/')
@@ -110,6 +112,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
@@ -175,6 +178,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
@@ -268,9 +272,9 @@ jobs:
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-login -p codex-skills -p codex-skills-extension --lib -E 'test(/siwc::tests|embedded_holycodex_017_skill_inventory_is_complete|optional_workflows/)'
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-model-provider --lib -E 'test(siwc_provider_uses_resource_without_workspace_or_agent_bootstrap) | test(siwc_scoped_auth_never_bootstraps_or_engages_backend_fallback) | test(models_endpoint::tests::) | test(models_endpoint::siwc_models_manager_tests::) | test(models_identity::tests::) | test(workspace_routing_tests::) | test(auth::tests::custom_provider_)'
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-models-manager --lib
-          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-model-provider-info --lib -E 'test(gateway_oauth_tests::)'
-          # Render the snapshots whose visible release identity changes with this layer.
-          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-tui --lib -E 'test(status::tests::) | test(empty_state_animation_preserves_header_cursor_and_footer) | test(app_server_thread_replacement_clears_previous_transcript_before_replay) | test(switching_threads_keeps_the_source_voice_partial_only_on_reattach) | test(replay_reconciles_only_matching_voice_captions_one_for_one) | test(buffered_voice_items_reconcile_captions_after_thread_switch) | test(completed_voice_caption_survives_repeated_thread_replacement) | test(owned_startup_hides_tip_in_transcript) | test(session_info_availability_nux_tooltip_snapshot)'
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-model-provider-info --lib
+          # Run all TUI unit/snapshot regressions: upstream startup/layout changes cross modules.
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-tui --lib
           cd "$GITHUB_WORKSPACE"
           source_sha="$(git rev-parse HEAD)"
           test "$source_sha" = "$GITHUB_SHA"
@@ -377,6 +381,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:

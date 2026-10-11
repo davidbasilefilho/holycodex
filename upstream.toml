@@ -1,6 +1,6 @@
 holycodex_version = "0.17.0"
 repository = "https://github.com/openai/codex.git"
-commit = "d27764b82f7118f674371e6d6e76271d9d606edb"
-release = "rust-v0.160.1"
+commit = "092d3acd6bec3e3a14bdc7e7a2810ab628ab759d"
+release = "rust-v0.162.1"
 patch_series_format = 1
 codex_workspace = "codex-rs"

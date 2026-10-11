@@ -3,10 +3,19 @@ name: native-bootstrap-validation
 on:
   push:
     branches: ["codex/native-validation/**"]
+  pull_request:
+    paths:
+      - upstream.toml
+      - patches/**
+      - .github/workflows/native-validation.yml
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: native-validation-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   prepare:
@@ -16,6 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
