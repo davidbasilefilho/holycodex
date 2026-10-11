@@ -659,3 +659,55 @@ test('stable GitHub release uses existing accepted tag and latest metadata', asy
   assert.equal(api.release.make_latest, 'true');
   assert.equal(api.uploads.length, 4);
 });
+
+for (const outcome of ['visible', 'delayed-response', 'transport-error', 'overslept', 'late-response']) {
+  test(`final bounded readback ${outcome} preserves deadline and publication journal`, async (t) => {
+    const f = fixture(t);
+    const r = registry(f);
+    const pending = PLATFORM_PACKAGES[0];
+    const read = r.adapter.read;
+    let clock = 0;
+    const confirmationReads = [];
+    const finalReadAt = 286250;
+    const finalReadBudget = READBACK_TIMEOUT_MS - finalReadAt;
+    r.adapter.now = () => clock;
+    r.adapter.wait = async (delay) => {
+      r.waits.push(delay);
+      clock += delay;
+      if (outcome === 'overslept' && clock === finalReadAt) clock = READBACK_TIMEOUT_MS + 1;
+    };
+    r.adapter.read = async (name, timeout) => {
+      const metadata = await read(name);
+      if (name !== pending || !metadata.versions[f.version]) return metadata;
+      confirmationReads.push({ at: clock, timeout });
+      assert.ok(clock + timeout <= READBACK_TIMEOUT_MS, 'reads remain within the deadline');
+      if (clock < finalReadAt) return { ...metadata, versions: {} };
+      if (outcome === 'transport-error') throw new Error('registry transport unavailable');
+      if (outcome === 'delayed-response') {
+        assert.ok(timeout >= 1000, 'final read permits a realistic response latency');
+        clock += 1000;
+      }
+      if (outcome === 'late-response') clock += timeout + 1;
+      return metadata;
+    };
+    if (outcome === 'visible' || outcome === 'delayed-response') {
+      await publishPackages(f.artifacts, SHA, f.version, 'dev', r.adapter);
+      assert.deepEqual(r.calls.map(({ name }) => name), [...PLATFORM_PACKAGES, 'holycodex']);
+    } else {
+      await assert.rejects(publishPackages(f.artifacts, SHA, f.version, 'dev', r.adapter), /do not republish/);
+      assert.deepEqual(r.calls.map(({ name }) => name), [pending]);
+      const journalPath = path.join(path.dirname(f.artifacts), 'publication-journal.json');
+      const journal = JSON.parse(fs.readFileSync(journalPath));
+      assert.equal(journal.receipts[0].state, 'accepted');
+      assert.ok([...f.archives.values()].every((file) => fs.existsSync(file)));
+      // An ambiguous verification retry cannot initiate another npm write.
+      r.adapter.read = async () => { throw new Error('registry still unavailable'); };
+      await assert.rejects(publishPackages(f.artifacts, SHA, f.version, 'dev', r.adapter), /registry still unavailable/);
+      assert.equal(r.calls.length, 1);
+      assert.deepEqual(JSON.parse(fs.readFileSync(journalPath)).receipts, journal.receipts);
+    }
+    assert.equal(confirmationReads.length, POLL_DELAYS_MS.length + (outcome === 'overslept' ? 0 : 1));
+    if (outcome !== 'overslept') assert.deepEqual(confirmationReads.at(-1), { at: finalReadAt, timeout: finalReadBudget });
+    assert.equal(r.waits.reduce((sum, delay) => sum + delay, 0), finalReadAt);
+  });
+}
