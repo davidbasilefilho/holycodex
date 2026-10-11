@@ -1,5 +1,6 @@
 //! Ordered patch preflight without changing the receiving worktree or index.
 use anyhow::{Context, Result, ensure};
+use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -37,6 +38,10 @@ impl ScratchIndex {
     }
 
     fn run(&self, upstream: &Path, args: &[&OsStr]) -> Result<()> {
+        self.output(upstream, args).map(|_| ())
+    }
+
+    fn output(&self, upstream: &Path, args: &[&OsStr]) -> Result<Vec<u8>> {
         let output = Command::new("git")
             .args(args)
             .current_dir(upstream)
@@ -52,7 +57,7 @@ impl ScratchIndex {
             "patch-series Git operation failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
-        Ok(())
+        Ok(output.stdout)
     }
 }
 
@@ -112,17 +117,44 @@ pub(crate) fn verify(upstream: &Path, patches: &[PathBuf]) -> Result<()> {
         "HolyCodex patch layer is empty; refusing to package upstream Codex"
     );
     let scratch = ScratchIndex::new(upstream)?;
-    // Include newly created patch files and overlays without touching the real
-    // index or object store. Overlays outside the patch paths remain untouched.
-    scratch.run(
-        upstream,
-        &[
-            OsStr::new("add"),
-            OsStr::new("--all"),
-            OsStr::new("--"),
-            OsStr::new("."),
-        ],
-    )?;
+    // Derive the exact touched paths from Git's index changes. Build postimages
+    // in private storage first, including files ignored by the user's config.
+    // Keep intermediate paths too: a later patch can undo or delete an earlier
+    // addition, and unexpected files at those paths must still fail verification.
+    let mut touched = BTreeSet::new();
+    for patch in patches {
+        scratch.run(
+            upstream,
+            &[
+                OsStr::new("apply"),
+                OsStr::new("--cached"),
+                OsStr::new("--whitespace=nowarn"),
+                OsStr::new("--"),
+                patch.as_os_str(),
+            ],
+        )?;
+        let paths = scratch.output(
+            upstream,
+            &[
+                OsStr::new("diff"),
+                OsStr::new("--cached"),
+                OsStr::new("--name-only"),
+                OsStr::new("--no-renames"),
+                OsStr::new("-z"),
+                OsStr::new("HEAD"),
+                OsStr::new("--"),
+            ],
+        )?;
+        for path in paths
+            .split(|byte| *byte == 0)
+            .filter(|path| !path.is_empty())
+        {
+            let path = std::str::from_utf8(path)?;
+            super::materialization::validate_relative(path)?;
+            touched.insert(PathBuf::from(path));
+        }
+    }
+    refresh_patch_targets(&scratch, upstream, &touched)?;
     for patch in patches.iter().rev() {
         scratch
             .run(
@@ -141,6 +173,49 @@ pub(crate) fn verify(upstream: &Path, patches: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
+fn refresh_patch_targets(
+    scratch: &ScratchIndex,
+    upstream: &Path,
+    touched: &BTreeSet<PathBuf>,
+) -> Result<()> {
+    for path in touched {
+        match fs::symlink_metadata(upstream.join(path)) {
+            Ok(metadata) => {
+                ensure!(
+                    metadata.is_file() || metadata.file_type().is_symlink(),
+                    "patch target is not a file: {}",
+                    path.display()
+                );
+                // A literal, explicit file path prevents wildcard expansion and
+                // avoids importing unrelated ignored files into scratch storage.
+                scratch.run(
+                    upstream,
+                    &[
+                        OsStr::new("--literal-pathspecs"),
+                        OsStr::new("add"),
+                        OsStr::new("--force"),
+                        OsStr::new("--"),
+                        path.as_os_str(),
+                    ],
+                )?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                scratch.run(
+                    upstream,
+                    &[
+                        OsStr::new("update-index"),
+                        OsStr::new("--force-remove"),
+                        OsStr::new("--"),
+                        path.as_os_str(),
+                    ],
+                )?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,6 +226,7 @@ mod tests {
         fs::create_dir(&upstream).unwrap();
         for args in [
             vec!["init", "--quiet"],
+            vec!["config", "core.autocrlf", "false"],
             vec![
                 "-c",
                 "user.name=Test",
@@ -191,6 +267,62 @@ mod tests {
         );
         fs::write(upstream.join("new.rs"), "corrupted\n").unwrap();
         assert!(verify(&upstream, &patches).is_err());
+    }
+
+    #[test]
+    fn verification_includes_ignored_patch_targets_and_rejects_missing_or_corrupt_bytes() {
+        let (_dir, upstream, patches) = fixture();
+        fs::write(upstream.join(".git/info/exclude"), "*.rs\n").unwrap();
+        apply(&upstream, &patches).unwrap();
+        verify(&upstream, &patches).unwrap();
+        fs::write(upstream.join("new.rs"), "corrupted\n").unwrap();
+        assert!(verify(&upstream, &patches).is_err());
+        fs::remove_file(upstream.join("new.rs")).unwrap();
+        assert!(verify(&upstream, &patches).is_err());
+    }
+
+    #[test]
+    fn verification_handles_crlf_without_changing_worktree_bytes() {
+        let (_dir, upstream, patches) = fixture();
+        super::super::git(
+            &[
+                OsStr::new("config"),
+                OsStr::new("core.autocrlf"),
+                OsStr::new("true"),
+            ],
+            &upstream,
+        )
+        .unwrap();
+        apply(&upstream, &patches).unwrap();
+        let bytes = fs::read(upstream.join("new.rs")).unwrap();
+        assert_eq!(bytes, b"second\r\n");
+        verify(&upstream, &patches).unwrap();
+        assert_eq!(fs::read(upstream.join("new.rs")).unwrap(), bytes);
+    }
+
+    #[test]
+    fn verification_checks_intermediate_deleted_ignored_paths_without_importing_other_files() {
+        let (dir, upstream, mut patches) = fixture();
+        fs::write(upstream.join(".git/info/exclude"), "*.rs\n").unwrap();
+        let third = dir.path().join("0003.patch");
+        fs::write(&third, "diff --git a/new.rs b/new.rs\ndeleted file mode 100644\n--- a/new.rs\n+++ /dev/null\n@@ -1 +0,0 @@\n-second\n").unwrap();
+        patches.push(third);
+        apply(&upstream, &patches).unwrap();
+        fs::write(upstream.join("unrelated.rs"), "unrelated ignored content").unwrap();
+        verify(&upstream, &patches).unwrap();
+        fs::write(upstream.join("new.rs"), "second\n").unwrap();
+        assert!(verify(&upstream, &patches).is_err());
+        fs::remove_file(upstream.join("new.rs")).unwrap();
+        fs::create_dir(upstream.join("new.rs")).unwrap();
+        assert!(verify(&upstream, &patches).is_err());
+        let scratch = ScratchIndex::new(&upstream).unwrap();
+        fs::write(upstream.join("explicit.rs"), "patch target").unwrap();
+        let touched = [PathBuf::from("explicit.rs")].into();
+        refresh_patch_targets(&scratch, &upstream, &touched).unwrap();
+        let listed = scratch
+            .output(&upstream, &[OsStr::new("ls-files"), OsStr::new("-z")])
+            .unwrap();
+        assert_eq!(listed, b"explicit.rs\0");
     }
 
     #[test]
