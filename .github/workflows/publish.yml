@@ -44,7 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          node npm/packager/channel.cjs route "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$GITHUB_RUN_ID" "$PUBLISH_DEV" >> "$GITHUB_OUTPUT"
+          node npm/packager/publication-authorization.cjs >> "$GITHUB_OUTPUT"
           if [[ "$GITHUB_REF" == refs/tags/v0.17.0 ]]; then
             git fetch --no-tags origin main
             git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD
@@ -65,11 +65,13 @@ jobs:
     needs: [route, dev, stable]
     if: >-
       always() && needs.route.result == 'success' && needs.route.outputs.publish == 'true' &&
+      github.repository == 'davidbasilefilho/holycodex' &&
+      github.actor == 'davidbasilefilho' && github.triggering_actor == 'davidbasilefilho' &&
       ((needs.route.outputs.channel == 'dev' && needs.dev.result == 'success' &&
       github.event_name == 'workflow_dispatch' && inputs.publish_dev == true &&
       github.ref == 'refs/heads/release/v0.17.0/release-routing') ||
       (needs.route.outputs.channel == 'stable' && needs.stable.result == 'success' &&
-      github.event_name == 'push'))
+      github.event_name == 'push' && github.ref == 'refs/tags/v0.17.0'))
     runs-on: ubuntu-latest
     environment: holycodex-publish
     # DEV and stable share npm packages and GitHub release metadata. Keep their
@@ -123,10 +125,13 @@ jobs:
             fi
           done
       - name: Recheck accepted remote source immediately before publishing
+        env:
+          PUBLISH_DEV: ${{ inputs.publish_dev == true }}
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node npm/packager/publication-authorization.cjs
           git ls-remote origin "$GITHUB_REF" "$GITHUB_REF^{}" > .tmp/current-source.refs
           node npm/packager/source-gate.cjs .tmp/current-source.refs "$GITHUB_REF" "$GITHUB_SHA"
           if [[ "$PACKAGE_CHANNEL" == stable ]]; then
