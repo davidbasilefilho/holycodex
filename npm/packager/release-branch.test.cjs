@@ -152,7 +152,7 @@ test('HolyCodex recommended names and existing fix heads remain valid in the sam
   assert.ok(root.includes('recommend `release/v0.17.0/windows-install`'));
   assert.deepEqual(parseReleaseBranch('release/v0.17.0/windows-install'), { version: '0.17.0', change: 'windows-install' });
   const existing = 'release/v0.17.0-rc.2/fix/assignment-revision-evidence';
-  assert.deepEqual(parseReleaseBranch(existing), { version: '0.17.0-rc.2', change: 'fix/assignment-revision-evidence' });
+  assert.deepEqual(parseReleaseBranch(existing, [existing]), { version: '0.17.0-rc.2', change: 'fix/assignment-revision-evidence' });
   assert.equal(validateReleaseStack([
     { head: existing, base: 'main' },
     { head: 'release/v0.17.0-rc.2/polling-deadline', base: existing },
@@ -160,4 +160,30 @@ test('HolyCodex recommended names and existing fix heads remain valid in the sam
   for (const head of ['release/v0.17.0/feat/new-work', 'release/v0.17.0/fix/nested/change']) {
     assert.throws(() => parseReleaseBranch(head), /release branch/);
   }
+});
+
+
+test('only exact inventoried four-segment identities receive compatibility', () => {
+  // Published PR #25 and #26 heads, kept verbatim rather than renamed.
+  const existing = [
+    'release/v0.17.0/fix/assignment-revision-evidence',
+    'release/v0.17.0/fix/assignment-acceptance',
+  ];
+  const original = [...existing];
+  const layers = existing.map((head, index) => ({ head, base: index ? existing[index - 1] : 'main' }));
+  assert.equal(validateReleaseStack(layers, existing).tip, existing[1]);
+  for (const head of [...existing, 'release/v0.17.0/fix/brand-new-layer']) {
+    assert.throws(() => parseReleaseBranch(head), /must already exist/);
+    assert.throws(() => validateReleaseStack([{ head, base: 'main' }]), /must already exist/);
+  }
+  for (const head of ['release/v0.17.0/fix/brand-new-layer',
+    'release/v0.17.0-rc.2/fix/assignment-acceptance',
+    'release/v0.17.0+build.1/fix/assignment-acceptance']) {
+    assert.throws(() => parseReleaseBranch(head, existing), /must already exist/);
+    assert.throws(() => validateReleaseStack([...layers, { head, base: existing[1] }], existing), /must already exist/);
+  }
+  assert.deepEqual(existing, original);
+  assert.equal(validateReleaseStack([...layers, {
+    head: 'release/v0.17.0/new-layer', base: existing[1],
+  }], existing).layers, 3);
 });

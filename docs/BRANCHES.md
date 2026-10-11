@@ -28,8 +28,10 @@ Versions are zero-major SemVer. Preserve an optional version suffix exactly;
 semantic change name, not an arbitrary sequence number.
 Use the established three-segment convention for new HolyCodex work. Existing
 `release/v0.17.0/fix/assignment-revision-evidence` and other `/fix/` stack heads
-remain valid: the validator accepts this compatibility form and preserves its
-complete change path and version suffix. Do not rename these heads or change
+remain valid only when their exact full names appear in the supplied existing
+branch inventory. The parser and stack validator reject proposed four-segment
+heads absent from that inventory, including changed version suffixes. They
+preserve each existing complete change path and version suffix. Do not rename these heads or change
 their PR dependencies merely to adopt the three-segment recommendation. Other
 four-segment types are not part of this repository convention; the generic
 fallback families above apply only where no project convention exists.
