@@ -4216,10 +4216,10 @@ index 1eb2cdf..76ad444 100644
 +}
 diff --git a/codex-rs/core/src/holycodex.rs b/codex-rs/core/src/holycodex.rs
 new file mode 100644
-index 0000000..67cf455
+index 0000000..71553f9
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex.rs
-@@ -0,0 +1,2433 @@
+@@ -0,0 +1,2513 @@
 +//! Durable native Intent/Assignment control over the local Multi-Agent V2 runtime.
 +//!
 +//! OS sidecar locks serialize reload/validate/commit across controller instances.
@@ -4251,6 +4251,7 @@ index 0000000..67cf455
 +use codex_protocol::user_input::UserInput;
 +use futures::future::BoxFuture;
 +use holycodex_policy::Assignment;
++use holycodex_policy::AssignmentAcceptance;
 +use holycodex_policy::AssignmentMetadata;
 +use holycodex_policy::AssignmentStatus;
 +use holycodex_policy::Capability;
@@ -4262,6 +4263,7 @@ index 0000000..67cf455
 +use holycodex_policy::RoleTask;
 +use holycodex_policy::SpecialistContext;
 +use holycodex_policy::SpecialistSelection;
++use holycodex_policy::accept_assignment;
 +use holycodex_policy::formats::encode_toon;
 +use holycodex_policy::route_policy;
 +use holycodex_policy::select_specialist;
@@ -4457,6 +4459,7 @@ index 0000000..67cf455
 +    pub status: String,
 +    pub specialist_id: Option<String>,
 +    pub result: Option<String>,
++    pub acceptance: Option<AssignmentAcceptance>,
 +}
 +
 +#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -4515,6 +4518,7 @@ index 0000000..67cf455
 +        .to_owned(),
 +        specialist_id: assignment.specialist_id.clone(),
 +        result: assignment.result.clone(),
++        acceptance: assignment.acceptance.clone(),
 +    }
 +}
 +
@@ -4895,6 +4899,7 @@ index 0000000..67cf455
 +            status: AssignmentStatus::Ready,
 +            specialist_id: None,
 +            result: None,
++            acceptance: None,
 +        };
 +        validate_dispatch_for_intent(&initial.intent, &candidate, &initial.assignments)?;
 +        // Preparation can suspend while another controller updates the Intent.
@@ -5396,6 +5401,29 @@ index 0000000..67cf455
 +        })
 +    }
 +
++    /// Only Root may accept completed work after reviewing the declared evidence.
++    pub fn accept(
++        &self,
++        caller: ThreadId,
++        id: &str,
++        acceptance: AssignmentAcceptance,
++    ) -> Result<Assignment, ControllerError> {
++        if caller != self.root_thread {
++            return Err(ControllerError::Authority(
++                "only Root may accept Assignment evidence".into(),
++            ));
++        }
++        self.store.transaction(|state| {
++            let assignment = state
++                .assignments
++                .iter_mut()
++                .find(|assignment| assignment.id == id)
++                .ok_or_else(|| ControllerError::UnknownAssignment(id.into()))?;
++            accept_assignment(&state.intent, assignment, acceptance)?;
++            Ok(assignment.clone())
++        })
++    }
++
 +    fn assignment(&self, id: &str) -> Result<Assignment, ControllerError> {
 +        Ok(self.snapshot()?.assignment(id)?.clone())
 +    }
@@ -5717,6 +5745,7 @@ index 0000000..67cf455
 +            status: AssignmentStatus::Ready,
 +            specialist_id: None,
 +            result: None,
++            acceptance: None,
 +        }
 +    }
 +
@@ -6370,6 +6399,57 @@ index 0000000..67cf455
 +            .as_ref()
 +            .unwrap();
 +        assert!(!state.specialists[actual].idle);
++    }
++
++    #[test]
++    fn acceptance_authenticates_root_and_persists_review_separately_from_execution() {
++        let dir = tempfile::tempdir().unwrap();
++        let root = ThreadId::new();
++        let controller = AssignmentController::open(
++            dir.path(),
++            LocalAgentControl::default(),
++            root,
++            Profile::Default,
++            intent(),
++            Arc::new(DeniedAuthority),
++        )
++        .unwrap();
++        let assignment = running(&controller.store, "src/a", RoleTask::WorkerImplementation);
++        let proof = AssignmentAcceptance {
++            intent_revision: 1,
++            rationale: "reviewed actual result".into(),
++            criteria_evidence: [("checked".into(), "behavior verified".into())].into(),
++            required_evidence: [("result".into(), "focused tests passed".into())].into(),
++        };
++        let completed = controller
++            .complete(
++                &assignment.id,
++                AssignmentStatus::Succeeded,
++                "done".into(),
++                false,
++            )
++            .unwrap();
++        assert!(completed.acceptance.is_none());
++        let before = controller.snapshot().unwrap();
++        assert!(
++            controller
++                .accept(ThreadId::new(), &assignment.id, proof.clone())
++                .is_err()
++        );
++        assert_eq!(controller.snapshot().unwrap(), before);
++        let accepted = controller
++            .accept(root, &assignment.id, proof.clone())
++            .unwrap();
++        assert_eq!(accepted.status, AssignmentStatus::Succeeded);
++        assert_eq!(accepted.acceptance, Some(proof));
++        assert_eq!(
++            controller
++                .snapshot()
++                .unwrap()
++                .assignment(&assignment.id)
++                .unwrap(),
++            &accepted
++        );
 +    }
 +
 +    #[test]
@@ -8291,10 +8371,10 @@ index 0000000..1c5b192
 +mod tests;
 diff --git a/codex-rs/core/src/holycodex_identity_tests.rs b/codex-rs/core/src/holycodex_identity_tests.rs
 new file mode 100644
-index 0000000..c254f3e
+index 0000000..e5e8e6d
 --- /dev/null
 +++ b/codex-rs/core/src/holycodex_identity_tests.rs
-@@ -0,0 +1,426 @@
+@@ -0,0 +1,427 @@
 +use super::*;
 +use holycodex_policy::AssignmentMetadata;
 +use holycodex_policy::AssignmentStatus;
@@ -8414,6 +8494,7 @@ index 0000000..c254f3e
 +        status: AssignmentStatus::Ready,
 +        specialist_id: Some(thread.to_string()),
 +        result: None,
++        acceptance: None,
 +    };
 +    let grants = route.capabilities.iter().copied().collect::<BTreeSet<_>>();
 +    let effects = effects_for(&grants, Mutability::ScopedWrite);
@@ -11079,10 +11160,10 @@ index d834c24..277c260 100644
 +}
 diff --git a/codex-rs/core/src/tools/holycodex_tools.rs b/codex-rs/core/src/tools/holycodex_tools.rs
 new file mode 100644
-index 0000000..20480c0
+index 0000000..d93177b
 --- /dev/null
 +++ b/codex-rs/core/src/tools/holycodex_tools.rs
-@@ -0,0 +1,3165 @@
+@@ -0,0 +1,3192 @@
 +//! Native, role-scoped model tools for HolyCodex Intent and Assignments.
 +
 +use std::collections::BTreeSet;
@@ -11121,6 +11202,7 @@ index 0000000..20480c0
 +use codex_shell_command::parse_command::parse_shell_script;
 +use codex_tools::ResponsesApiTool;
 +use codex_utils_path_uri::PathUri;
++use holycodex_policy::AssignmentAcceptance;
 +use holycodex_policy::AssignmentMetadata;
 +use holycodex_policy::Capability;
 +use holycodex_policy::Mutability;
@@ -11139,6 +11221,7 @@ index 0000000..20480c0
 +    "assignment.wait",
 +    "assignment.followup",
 +    "assignment.cancel",
++    "assignment.accept",
 +];
 +const SPECIALIST_TOOLS: &[&str] = &["assignment.finish"];
 +const ASSIGNMENT_WAIT_DEFAULT_TIMEOUT_MS: u64 = 900_000;
@@ -12416,6 +12499,13 @@ index 0000000..20480c0
 +                    .map_err(controller_error)?;
 +                encode_assignment_result(&assignment)
 +            }
++            "assignment.accept" => {
++                let input: AcceptanceRequest = decode_model_payload(&payload)?;
++                let assignment = controller
++                    .accept(self.binding.caller, &input.assignment_id, input.acceptance)
++                    .map_err(controller_error)?;
++                encode_assignment_result(&assignment)
++            }
 +            "assignment.wait" => {
 +                let input: AssignmentWaitRequest = decode_model_payload(&payload)?;
 +                let timeout_ms = assignment_wait_timeout_ms(input.timeout_ms)?;
@@ -12589,6 +12679,7 @@ index 0000000..20480c0
 +        "assignment.followup" => "Create a new bounded Assignment; payload is TOON with prior_assignment_id and assignment fields including the current intent_revision.".to_owned(),
 +        "assignment.wait" => "Wait for one Assignment to finish or until timeout_ms; payload is TOON with assignment_id and optional timeout_ms (default and maximum 900000 milliseconds; minimum 1). On timeout, returns timed_out=true with the latest observed Assignment state so Root can continue or cancel.".to_owned(),
 +        "assignment.cancel" => "Cancel one Assignment; payload is TOON with assignment_id.".to_owned(),
++        "assignment.accept" => "Root accepts successfully executed work only after substantive evidence review; TOON fields: assignment_id, acceptance {intent_revision, rationale, criteria_evidence, required_evidence}. Each map must cover the exact declared labels with nonempty observed support. Execution success alone is not acceptance; dependencies require accepted evidence at the current Intent revision.".to_owned(),
 +        "assignment.finish" => "Record this specialist's result; payload is TOON with assignment_id, result, and success.".to_owned(),
 +        _ => String::new(),
 +    };
@@ -12673,6 +12764,13 @@ index 0000000..20480c0
 +    timed_out: bool,
 +    assignment: AssignmentProjection,
 +}
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct AcceptanceRequest {
++    assignment_id: String,
++    acceptance: AssignmentAcceptance,
++}
++
 +#[derive(Deserialize)]
 +#[serde(deny_unknown_fields)]
 +struct FinishRequest {
@@ -12970,7 +13068,7 @@ index 0000000..20480c0
 +        let contributor = HolyCodexToolContributor;
 +        let empty = ExtensionData::new("test");
 +        assert!(contributor.tools(&empty, &empty).is_empty());
-+        assert_eq!(ROOT_TOOLS.len(), 5);
++        assert_eq!(ROOT_TOOLS.len(), 6);
 +        assert_eq!(SPECIALIST_TOOLS, &["assignment.finish"]);
 +        assert!(
 +            ROOT_TOOLS
@@ -13123,6 +13221,12 @@ index 0000000..20480c0
 +            ),
 +            ("assignment.cancel", json!({"assignment_id":"a-1"})),
 +            (
++                "assignment.accept",
++                json!({"assignment_id":"a-1", "acceptance": {
++                    "intent_revision":1, "rationale":"reviewed", "criteria_evidence":{"works":"observed"}, "required_evidence":{"tests":"passed"}
++                }}),
++            ),
++            (
 +                "assignment.finish",
 +                json!({"assignment_id":"a-1","result":"done","success":true}),
 +            ),
@@ -13145,6 +13249,9 @@ index 0000000..20480c0
 +                }
 +                "assignment.wait" => {
 +                    decode_model_payload::<AssignmentWaitRequest>(&envelope.payload).unwrap();
++                }
++                "assignment.accept" => {
++                    decode_model_payload::<AcceptanceRequest>(&envelope.payload).unwrap();
 +                }
 +                "assignment.cancel" => {
 +                    decode_model_payload::<AssignmentId>(&envelope.payload).unwrap();
@@ -14125,6 +14232,7 @@ index 0000000..20480c0
 +            status: holycodex_policy::AssignmentStatus::Ready,
 +            specialist_id: None,
 +            result: None,
++            acceptance: None,
 +        };
 +        let text = encode_assignment_result(&assignment).unwrap();
 +        assert!(!text.trim_start().starts_with('{'));

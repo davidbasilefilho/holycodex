@@ -9,7 +9,7 @@ pub mod ci_watch;
 pub mod formats;
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Stable Root instructions supplied by the instruction overlay.
 pub const ROOT_INSTRUCTIONS: &str = include_str!("../../../overlay/holycodex/instructions/root.md");
@@ -852,6 +852,17 @@ impl AssignmentStatus {
     }
 }
 
+/// Root's explicit evidence review, separate from specialist execution success.
+/// Maps use the exact declared criterion/evidence labels; values identify observed support.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssignmentAcceptance {
+    pub intent_revision: u64,
+    pub rationale: String,
+    pub criteria_evidence: BTreeMap<String, String>,
+    pub required_evidence: BTreeMap<String, String>,
+}
+
 /// Persistable, typed Assignment contract and lifecycle record.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Assignment {
@@ -871,6 +882,8 @@ pub struct Assignment {
     pub status: AssignmentStatus,
     pub specialist_id: Option<Id>,
     pub result: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acceptance: Option<AssignmentAcceptance>,
 }
 
 fn is_unknown_revision(revision: &u64) -> bool {
@@ -993,6 +1006,8 @@ pub enum LifecycleError {
     },
     NotRunning(Id),
     RevisionOverflow(Id),
+    InsufficientAcceptanceEvidence(Id),
+    ConflictingAcceptance(Id),
     StaleIntentRevision {
         assignment: Id,
         expected: u64,
@@ -1347,7 +1362,10 @@ pub fn validate_dispatch(
         match assignments.iter().find(|a| &a.id == dependency) {
             Some(a)
                 if a.status == AssignmentStatus::Succeeded
-                    && a.intent_id == candidate.intent_id => {}
+                    && a.intent_id == candidate.intent_id
+                    && a.acceptance.as_ref().is_some_and(|acceptance| {
+                        acceptance.intent_revision == candidate.intent_revision
+                    }) => {}
             _ => {
                 return Err(LifecycleError::DependencyNotSuccessful {
                     assignment: candidate.id.clone(),
@@ -1427,6 +1445,9 @@ fn validate_assignment_shape(assignment: &Assignment) -> Result<(), LifecycleErr
             assignment: assignment.id.clone(),
             state: assignment.status,
         });
+    }
+    if let Some(acceptance) = &assignment.acceptance {
+        validate_acceptance_evidence(assignment, acceptance)?;
     }
     let valid = match assignment.status {
         AssignmentStatus::Ready => {
@@ -1686,6 +1707,75 @@ pub fn finish_assignment(
     Ok(())
 }
 
+/// Record Root acceptance only after successful execution and a complete evidence review.
+/// The runtime checks coverage, not the truth of evidence; Root owns substantive judgment.
+pub fn accept_assignment(
+    intent: &Intent,
+    assignment: &mut Assignment,
+    acceptance: AssignmentAcceptance,
+) -> Result<(), LifecycleError> {
+    validate_intent(intent)?;
+    validate_assignment_shape(assignment)?;
+    if assignment.intent_id != intent.id {
+        return Err(LifecycleError::UnknownIntent {
+            assignment: assignment.id.clone(),
+            intent: assignment.intent_id.clone(),
+        });
+    }
+    if assignment.intent_revision != intent.revision
+        || acceptance.intent_revision != intent.revision
+    {
+        return Err(LifecycleError::StaleIntentRevision {
+            assignment: assignment.id.clone(),
+            expected: assignment.intent_revision,
+            actual: intent.revision,
+        });
+    }
+    validate_acceptance_evidence(assignment, &acceptance)?;
+    if assignment
+        .acceptance
+        .as_ref()
+        .is_some_and(|prior| prior != &acceptance)
+    {
+        return Err(LifecycleError::ConflictingAcceptance(assignment.id.clone()));
+    }
+    assignment.acceptance = Some(acceptance);
+    Ok(())
+}
+
+fn validate_acceptance_evidence(
+    assignment: &Assignment,
+    acceptance: &AssignmentAcceptance,
+) -> Result<(), LifecycleError> {
+    let covers = |declared: &[String], evidence: &BTreeMap<String, String>| {
+        let labels = declared.iter().collect::<BTreeSet<_>>();
+        !labels.iter().any(|label| label.trim().is_empty())
+            && labels.len() == evidence.len()
+            && labels.into_iter().all(|label| {
+                evidence
+                    .get(label)
+                    .is_some_and(|support| !support.trim().is_empty())
+            })
+    };
+    if assignment.status != AssignmentStatus::Succeeded
+        || acceptance.intent_revision == 0
+        || acceptance.intent_revision != assignment.intent_revision
+        || acceptance.rationale.trim().is_empty()
+        || assignment.acceptance_criteria.is_empty()
+        || assignment.required_evidence.is_empty()
+        || !covers(
+            &assignment.acceptance_criteria,
+            &acceptance.criteria_evidence,
+        )
+        || !covers(&assignment.required_evidence, &acceptance.required_evidence)
+    {
+        return Err(LifecycleError::InsufficientAcceptanceEvidence(
+            assignment.id.clone(),
+        ));
+    }
+    Ok(())
+}
+
 /// Update accepted Intent facts and advance its revision only when material state changes.
 pub fn update_intent(
     intent: &mut Intent,
@@ -1788,8 +1878,8 @@ mod tests {
             objective: "work".into(),
             bounded_scope: vec![path.into()],
             constraints: vec![],
-            acceptance_criteria: vec![],
-            required_evidence: vec![],
+            acceptance_criteria: vec!["works".into()],
+            required_evidence: vec!["test result".into()],
             mutability: Mutability::ScopedWrite,
             metadata: AssignmentMetadata {
                 ownership_paths: [path.into()].into(),
@@ -1799,6 +1889,12 @@ mod tests {
             status,
             specialist_id,
             result,
+            acceptance: (status == AssignmentStatus::Succeeded).then(|| AssignmentAcceptance {
+                intent_revision: 1,
+                rationale: "reviewed observed result".into(),
+                criteria_evidence: [("works".into(), "focused test passed".into())].into(),
+                required_evidence: [("test result".into(), "focused test passed".into())].into(),
+            }),
         }
     }
 
@@ -1851,6 +1947,15 @@ mod tests {
         ));
         let mut completed = active;
         finish_assignment(&mut completed, "widget acceptance checks passed", true).unwrap();
+        assert!(validate_dispatch(&dependent, std::slice::from_ref(&completed)).is_err());
+        let intent = Intent {
+            id: "i".into(),
+            objective: "goal".into(),
+            accepted_scope: vec![],
+            requirements: vec![],
+            revision: 1,
+        };
+        accept_assignment(&intent, &mut completed, evidence()).unwrap();
         assert_eq!(validate_dispatch(&dependent, &[completed]), Ok(()));
     }
 
@@ -2361,6 +2466,99 @@ mod tests {
         assert!(
             validate_dispatch_for_intent(&intent, &candidate, &[]).is_err(),
             "stale prepared work must not reserve against revised requirements"
+        );
+    }
+
+    fn evidence() -> AssignmentAcceptance {
+        AssignmentAcceptance {
+            intent_revision: 1,
+            rationale: "reviewed behavior and focused tests".into(),
+            criteria_evidence: [("works".into(), "observed requested behavior".into())].into(),
+            required_evidence: [("test result".into(), "focused regression passed".into())].into(),
+        }
+    }
+
+    #[test]
+    fn acceptance_requires_complete_current_evidence_and_successful_execution() {
+        let intent = Intent {
+            id: "i".into(),
+            objective: "goal".into(),
+            accepted_scope: vec![],
+            requirements: vec![],
+            revision: 1,
+        };
+        let mut task = assignment(
+            "work",
+            RoleTask::WorkerImplementation,
+            AssignmentStatus::Running,
+            "src",
+            &[],
+        );
+        assert!(accept_assignment(&intent, &mut task, evidence()).is_err());
+        finish_assignment(&mut task, "done", true).unwrap();
+        for invalid in 0..6 {
+            let mut proof = evidence();
+            match invalid {
+                0 => proof.rationale.clear(),
+                1 => proof.criteria_evidence.clear(),
+                2 => proof.required_evidence.clear(),
+                3 => {
+                    proof.criteria_evidence.insert("works".into(), " ".into());
+                }
+                4 => {
+                    proof
+                        .required_evidence
+                        .insert("unknown".into(), "proof".into());
+                }
+                _ => proof.intent_revision = 0,
+            }
+            assert!(accept_assignment(&intent, &mut task, proof).is_err());
+            assert!(task.acceptance.is_none());
+        }
+        accept_assignment(&intent, &mut task, evidence()).unwrap();
+        accept_assignment(&intent, &mut task, evidence()).unwrap();
+        let accepted = task.clone();
+        let mut different = evidence();
+        different.rationale = "changed".into();
+        assert!(accept_assignment(&intent, &mut task, different).is_err());
+        assert_eq!(task, accepted);
+        let mut newer = intent.clone();
+        newer.revision = 2;
+        assert!(accept_assignment(&newer, &mut task, evidence()).is_err());
+        let mut next = assignment(
+            "next",
+            RoleTask::WorkerIntegration,
+            AssignmentStatus::Ready,
+            "other",
+            &["work"],
+        );
+        next.intent_revision = 2;
+        assert!(validate_dispatch(&next, &[task]).is_err());
+    }
+
+    #[test]
+    fn successful_execution_without_acceptance_cannot_unlock_dependency() {
+        let mut prior = assignment(
+            "prior",
+            RoleTask::WorkerImplementation,
+            AssignmentStatus::Succeeded,
+            "src",
+            &[],
+        );
+        prior.acceptance = None;
+        prior.acceptance_criteria = vec!["integration works".into()];
+        prior.required_evidence = vec!["integration test result".into()];
+        prior.result = Some("runtime turn completed".into());
+        let next = assignment(
+            "next",
+            RoleTask::WorkerIntegration,
+            AssignmentStatus::Ready,
+            "src",
+            &["prior"],
+        );
+        assert!(
+            validate_dispatch(&next, &[prior]).is_err(),
+            "execution completion alone must not unlock acceptance-dependent work"
         );
     }
 
