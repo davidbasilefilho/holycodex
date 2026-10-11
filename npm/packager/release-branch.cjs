@@ -4,11 +4,15 @@ const assert = require('node:assert/strict');
 
 // Names are identities: never strip a prerelease/build suffix or invent order
 // numbers. This checker describes a plan; it does not create refs or publish.
-function parseReleaseBranch(name) {
+function parseReleaseBranch(name, existingBranches = []) {
   assert.equal(typeof name, 'string', 'release branch must be a string');
-  // Preserve the existing /fix/ stack heads; new layers use the three-segment convention.
+  assert.ok(Array.isArray(existingBranches), 'existing branch inventory is required');
+  // Compatibility is limited to exact inventoried identities, never proposed heads.
   const match = /^release\/v([^/]+)\/((?:fix\/)?[a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/.exec(name);
   assert.ok(match, 'release branch requires release/v<version>/<semantic-change>');
+  if (match[2].startsWith('fix/')) {
+    assert.ok(existingBranches.includes(name), 'four-segment release branch must already exist in the supplied inventory');
+  }
   const version = match[1];
   const semver = /^0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(version);
   assert.ok(semver, 'HolyCodex release version must be zero-major SemVer');
@@ -26,7 +30,7 @@ function validateReleaseStack(layers, existingBranches = [], baseBranch = 'main'
   let version;
   let expectedBase = baseBranch;
   for (const layer of layers) {
-    const parsed = parseReleaseBranch(layer.head);
+    const parsed = parseReleaseBranch(layer.head, existingBranches);
     version ??= parsed.version;
     assert.equal(parsed.version, version, 'stack layers must preserve the exact release version including suffix');
     assert.ok(!heads.has(layer.head), 'duplicate release PR head');
