@@ -1,0 +1,407 @@
+diff --git a/codex-rs/tui/src/app/agents_overview_actions_tests.rs b/codex-rs/tui/src/app/agents_overview_actions_tests.rs
+index 5098d0c28b..7367d468a1 100644
+--- a/codex-rs/tui/src/app/agents_overview_actions_tests.rs
++++ b/codex-rs/tui/src/app/agents_overview_actions_tests.rs
+@@ -14,7 +14,7 @@ use pretty_assertions::assert_eq;
+ 
+ #[tokio::test]
+ async fn pin_action_updates_shared_section_state() -> Result<()> {
+-    let mut app = make_test_app().await;
++    let (mut app, _rx, _op_rx) = crate::app::tests::make_native_test_app_with_channels().await;
+     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+     app.app_event_tx = AppEventSender::new(tx);
+     let mut app_server = crate::start_embedded_app_server_for_picker(&app.config).await?;
+@@ -581,7 +581,7 @@ async fn hiding_rename_target_does_not_transfer_draft_to_neighbor() -> Result<()
+ 
+ #[tokio::test]
+ async fn hidden_task_stays_hidden_through_activity_and_seed_until_explicit_resume() -> Result<()> {
+-    let (mut app, mut rx, _op_rx) = crate::app::tests::make_test_app_with_channels().await;
++    let (mut app, mut rx, _op_rx) = crate::app::tests::make_native_test_app_with_channels().await;
+     let mut app_server = crate::start_embedded_app_server_for_picker(&app.config).await?;
+     let started = app_server.start_thread(&app.config).await?;
+     let id = started.session.thread_id;
+@@ -663,7 +663,7 @@ async fn hidden_task_stays_hidden_through_activity_and_seed_until_explicit_resum
+ 
+ #[tokio::test]
+ async fn rejected_delete_preserves_a_live_attachment_and_draft() -> Result<()> {
+-    let (mut app, _rx, _op_rx) = crate::app::tests::make_test_app_with_channels().await;
++    let (mut app, _rx, _op_rx) = crate::app::tests::make_native_test_app_with_channels().await;
+     app.config.ephemeral = true;
+     let mut app_server = crate::start_embedded_app_server_for_picker(&app.config).await?;
+     let started = app_server.start_thread(&app.config).await?;
+diff --git a/codex-rs/tui/src/app/agents_overview_tests.rs b/codex-rs/tui/src/app/agents_overview_tests.rs
+index f5313a25c3..e8e62be148 100644
+--- a/codex-rs/tui/src/app/agents_overview_tests.rs
++++ b/codex-rs/tui/src/app/agents_overview_tests.rs
+@@ -1648,7 +1648,7 @@ async fn root_switch_preserves_vim_line_yank() -> Result<()> {
+ #[tokio::test]
+ async fn root_switch_loads_local_preferences_from_disk() -> Result<()> {
+     // Keep the large setup and root-switch futures off the test thread's stack.
+-    let mut app = Box::pin(make_test_app()).await;
++    let mut app = Box::pin(crate::app::tests::make_native_test_app()).await;
+     trust_fixture_folders(&mut app);
+     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(
+         app.chat_widget.config_ref(),
+@@ -1688,7 +1688,7 @@ async fn root_switch_loads_local_preferences_from_disk() -> Result<()> {
+ 
+ #[tokio::test]
+ async fn root_switch_preserves_idle_root_with_running_subagent() -> Result<()> {
+-    let mut app = make_test_app().await;
++    let mut app = crate::app::tests::make_native_test_app().await;
+     trust_fixture_folders(&mut app);
+     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(
+         app.chat_widget.config_ref(),
+@@ -2064,7 +2064,7 @@ async fn overview_cold_resume_honors_working_directory_selection() -> Result<()>
+ 
+ #[tokio::test]
+ async fn restored_server_permission_profile_survives_cd_without_turn_override() -> Result<()> {
+-    let mut app = make_test_app().await;
++    let mut app = crate::app::tests::make_native_test_app().await;
+     let destination = app.config.codex_home.join("destination");
+     std::fs::create_dir(&destination)?;
+     crate::legacy_core::config::set_project_trust_level(
+diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
+index 7d73c88d61..e2c3b49ab9 100644
+--- a/codex-rs/tui/src/app/tests.rs
++++ b/codex-rs/tui/src/app/tests.rs
+@@ -1063,7 +1063,7 @@ async fn active_thread_drain_yields_after_frame_deadline_without_dropping_events
+ 
+ #[tokio::test]
+ async fn selected_side_thread_close_is_handled_by_foreground_event_owner() -> Result<()> {
+-    let mut app = make_test_app().await;
++    let mut app = crate::app::tests::make_native_test_app().await;
+     let mut app_server = crate::start_embedded_app_server_for_picker(&app.config).await?;
+     let primary = app_server.start_thread(&app.config).await?;
+     let primary_thread_id = primary.session.thread_id;
+@@ -5682,7 +5682,7 @@ async fn side_discard_selection_keeps_current_side_thread() {
+ #[tokio::test]
+ async fn discard_side_thread_removes_agent_navigation_entry() -> Result<()> {
+     Box::pin(async {
+-        let mut app = make_test_app().await;
++        let mut app = crate::app::tests::make_native_test_app().await;
+         let mut app_server =
+             crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref()).await?;
+         let mut side_config = app.chat_widget.config_ref().clone();
+@@ -6240,7 +6240,34 @@ pub(super) async fn make_test_app_with_channels() -> (
+     tokio::sync::mpsc::UnboundedReceiver<AppEvent>,
+     tokio::sync::mpsc::UnboundedReceiver<Op>,
+ ) {
+-    let (mut chat_widget, app_event_tx, rx, op_rx) = make_chatwidget_manual_with_sender().await;
++    make_test_app_with_channels_for_native_session(false).await
++}
++
++pub(super) async fn make_native_test_app() -> Box<App> {
++    let (app, _rx, _op_rx) = make_native_test_app_with_channels().await;
++    app
++}
++
++pub(super) async fn make_native_test_app_with_channels() -> (
++    Box<App>,
++    tokio::sync::mpsc::UnboundedReceiver<AppEvent>,
++    tokio::sync::mpsc::UnboundedReceiver<Op>,
++) {
++    make_test_app_with_channels_for_native_session(true).await
++}
++
++async fn make_test_app_with_channels_for_native_session(
++    native_session: bool,
++) -> (
++    Box<App>,
++    tokio::sync::mpsc::UnboundedReceiver<AppEvent>,
++    tokio::sync::mpsc::UnboundedReceiver<Op>,
++) {
++    let (mut chat_widget, app_event_tx, rx, op_rx) = if native_session {
++        crate::chatwidget::tests::make_native_chatwidget_manual_with_sender().await
++    } else {
++        make_chatwidget_manual_with_sender().await
++    };
+     let test_codex_home = chat_widget.test_codex_home.take();
+     let config = chat_widget.config_ref().clone();
+     let file_search = FileSearchManager::new(config.cwd.to_path_buf(), app_event_tx.clone());
+@@ -6358,10 +6385,37 @@ pub(super) async fn make_test_app_with_channels() -> (
+     )
+ }
+ 
++#[tokio::test]
++async fn native_session_fixture_preserves_root_model_enforcement() -> Result<()> {
++    let (app, _rx, _op_rx) = Box::pin(make_native_test_app_with_channels()).await;
++    assert_eq!(app.config.model.as_deref(), Some("gpt-6.1-sol"));
++    assert_eq!(
++        app.chat_widget.config_ref().model.as_deref(),
++        Some("gpt-6.1-sol")
++    );
++    let mut server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
++    let started = Box::pin(server.start_thread(&app.config)).await?;
++    assert_eq!(started.session.model, "gpt-6.1-sol");
++
++    let mut rejected = app.config.clone();
++    rejected.model = Some("gpt-5.6-sol".into());
++    let error = Box::pin(server.start_thread(&rejected))
++        .await
++        .err()
++        .expect("non-policy Root model must remain rejected");
++    assert!(
++        error
++            .to_string()
++            .contains("HolyCodex requires model gpt-6.1-sol")
++    );
++    server.shutdown().await?;
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn set_thread_goal_draft_materializes_long_objective_and_confirms_before_paste() -> Result<()>
+ {
+-    let mut app = make_test_app().await;
++    let mut app = crate::app::tests::make_native_test_app().await;
+     let mut app_server =
+         crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref()).await?;
+     let started = app_server
+@@ -9143,7 +9197,7 @@ async fn shutdown_first_exit_uses_app_server_shutdown_without_submitting_op() {
+ #[tokio::test]
+ async fn interrupt_without_active_turn_is_treated_as_handled() {
+     Box::pin(async {
+-        let mut app = make_test_app().await;
++        let mut app = crate::app::tests::make_native_test_app().await;
+         let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(
+             app.chat_widget.config_ref(),
+         ))
+diff --git a/codex-rs/tui/src/app/tests/background_exit_tests.rs b/codex-rs/tui/src/app/tests/background_exit_tests.rs
+index 3d2c8066de..ac534e244c 100644
+--- a/codex-rs/tui/src/app/tests/background_exit_tests.rs
++++ b/codex-rs/tui/src/app/tests/background_exit_tests.rs
+@@ -544,7 +544,8 @@ async fn exit_interrupts_before_requesting_shutdown() -> Result<()> {
+ 
+ #[tokio::test]
+ async fn daemon_ctrl_c_closes_running_side_thread_and_returns_to_parent() -> Result<()> {
+-    let (mut app, mut app_event_rx, mut op_rx) = make_test_app_with_channels().await;
++    let (mut app, mut app_event_rx, mut op_rx) =
++        crate::app::tests::make_native_test_app_with_channels().await;
+     let side_thread_id = prepare_running_local_daemon(&mut app)?;
+     let (mut app_server, mut tui) =
+         prepare_background_exit_test(&app, &mut app_event_rx, &mut op_rx).await?;
+diff --git a/codex-rs/tui/src/app/tests/background_task_defaults_tests.rs b/codex-rs/tui/src/app/tests/background_task_defaults_tests.rs
+index 16862db0fa..533a344eb8 100644
+--- a/codex-rs/tui/src/app/tests/background_task_defaults_tests.rs
++++ b/codex-rs/tui/src/app/tests/background_task_defaults_tests.rs
+@@ -659,7 +659,9 @@ async fn command_center_new_preserves_permissions_across_sessions() -> Result<()
+ 
+ #[tokio::test]
+ async fn command_center_new_preserves_only_selected_server_profiles() -> Result<()> {
+-    let mut app = make_test_app_with_channels().await.0;
++    let mut app = crate::app::tests::make_native_test_app_with_channels()
++        .await
++        .0;
+     trust_launch_folder(&mut app);
+     let home = tempdir()?;
+     std::fs::write(
+diff --git a/codex-rs/tui/src/app/tests/luna_reserve_recovery_tests.rs b/codex-rs/tui/src/app/tests/luna_reserve_recovery_tests.rs
+index 8dbceb0cda..64c09486a3 100644
+--- a/codex-rs/tui/src/app/tests/luna_reserve_recovery_tests.rs
++++ b/codex-rs/tui/src/app/tests/luna_reserve_recovery_tests.rs
+@@ -117,7 +117,8 @@ async fn luna_reserve_recovery_survives_task_reconstruction() -> Result<()> {
+ async fn luna_reserve_entry_dispatches_an_already_queued_turn_with_accepted_settings() -> Result<()>
+ {
+     for mode in [ModeKind::Default, ModeKind::Plan] {
+-        let (mut app, mut events, _ops) = make_test_app_with_channels().await;
++        let (mut app, mut events, _ops) =
++            crate::app::tests::make_native_test_app_with_channels().await;
+         let (mut server, requests, proxy) =
+             backend_banner_fallback_tests::start_fallback_thread(&mut app).await?;
+         configure_reserve_catalog(&mut app);
+diff --git a/codex-rs/tui/src/app/tests/new_session_tests.rs b/codex-rs/tui/src/app/tests/new_session_tests.rs
+index c816f2dc94..4483a50b6a 100644
+--- a/codex-rs/tui/src/app/tests/new_session_tests.rs
++++ b/codex-rs/tui/src/app/tests/new_session_tests.rs
+@@ -8,7 +8,7 @@ use pretty_assertions::assert_eq;
+ 
+ #[tokio::test]
+ async fn new_sessions_preserve_yolo_launch_and_later_permission_choices() -> Result<()> {
+-    let (mut app, _events, _ops) = make_test_app_with_channels().await;
++    let (mut app, _events, _ops) = crate::app::tests::make_native_test_app_with_channels().await;
+     app.harness_overrides.approval_policy = Some(AskForApproval::Never.to_core());
+     app.harness_overrides.sandbox_mode =
+         Some(codex_protocol::config_types::SandboxMode::DangerFullAccess);
+diff --git a/codex-rs/tui/src/app/tests/permission_selection_tests.rs b/codex-rs/tui/src/app/tests/permission_selection_tests.rs
+index d24946fa30..0a3feba97a 100644
+--- a/codex-rs/tui/src/app/tests/permission_selection_tests.rs
++++ b/codex-rs/tui/src/app/tests/permission_selection_tests.rs
+@@ -102,7 +102,8 @@ proxy_url = "http://127.0.0.1:43128"
+ 
+ #[tokio::test]
+ async fn matching_builtin_permission_selection_submits_pending_prompt() -> Result<()> {
+-    let (mut app, mut events, mut ops) = make_test_app_with_channels().await;
++    let (mut app, mut events, mut ops) =
++        crate::app::tests::make_native_test_app_with_channels().await;
+     let mut server = start_config_write_test_app_server(&app).await?;
+     let started = server.start_thread(&app.config).await?;
+     app.enqueue_primary_thread_session(started.session, started.turns)
+@@ -316,7 +317,8 @@ async fn custom_permission_selection_uses_server_definition_and_preserves_state_
+ #[tokio::test]
+ async fn accepted_permissions_survive_directory_change_before_notification() -> Result<()> {
+     for preserve_history in [false, true] {
+-        let (mut app, _events, _ops) = make_test_app_with_channels().await;
++        let (mut app, _events, _ops) =
++            crate::app::tests::make_native_test_app_with_channels().await;
+         app.config.ephemeral = false;
+         app.config
+             .permissions
+diff --git a/codex-rs/tui/src/app/tests/realtime_start.rs b/codex-rs/tui/src/app/tests/realtime_start.rs
+index 6c75e0d572..ec48f63aa4 100644
+--- a/codex-rs/tui/src/app/tests/realtime_start.rs
++++ b/codex-rs/tui/src/app/tests/realtime_start.rs
+@@ -142,7 +142,7 @@ async fn lifecycle_actions_stop_parked_voice_before_removing_owner() -> Result<(
+         (AgentsOverviewAction::Archive, true),
+         (AgentsOverviewAction::Delete, true),
+     ] {
+-        let (mut app, _, _) = make_test_app_with_channels().await;
++        let (mut app, _, _) = crate::app::tests::make_native_test_app_with_channels().await;
+         let (mut server, requests, proxy) = start_recording_remote_app_server(&app.config).await?;
+         let started = server.start_thread(&app.config).await?;
+         let root = started.session.thread_id;
+diff --git a/codex-rs/tui/src/app/tests/recap_generation_tests.rs b/codex-rs/tui/src/app/tests/recap_generation_tests.rs
+index 6199df7fd2..0404e237bf 100644
+--- a/codex-rs/tui/src/app/tests/recap_generation_tests.rs
++++ b/codex-rs/tui/src/app/tests/recap_generation_tests.rs
+@@ -228,7 +228,8 @@ stream_max_retries = 0
+ 
+ #[tokio::test]
+ async fn manual_recap_works_when_auto_recap_disabled() -> Result<()> {
+-    let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
++    let (mut app, mut app_event_rx, _op_rx) =
++        crate::app::tests::make_native_test_app_with_channels().await;
+     app.local_settings.tui.auto_recap = false;
+     let thread_id = ThreadId::new();
+     app.active_thread_id = Some(thread_id);
+@@ -441,7 +442,8 @@ async fn recap_generation_uses_remote_workspace_cwd() -> Result<()> {
+ 
+ #[tokio::test]
+ async fn temporary_recap_threads_disable_memories_and_remote_mcp_servers() -> Result<()> {
+-    let (mut app, _app_event_rx, _op_rx) = make_test_app_with_channels().await;
++    let (mut app, _app_event_rx, _op_rx) =
++        crate::app::tests::make_native_test_app_with_channels().await;
+     let codex_home = tempdir()?;
+     std::fs::write(
+         codex_home.path().join("config.toml"),
+diff --git a/codex-rs/tui/src/app/tests/resume_shutdown_tests.rs b/codex-rs/tui/src/app/tests/resume_shutdown_tests.rs
+index 654cc03742..c7608e3595 100644
+--- a/codex-rs/tui/src/app/tests/resume_shutdown_tests.rs
++++ b/codex-rs/tui/src/app/tests/resume_shutdown_tests.rs
+@@ -10,7 +10,8 @@ use tokio::net::TcpListener;
+ 
+ #[tokio::test]
+ async fn thread_close_exits_only_when_displayed_thread_is_unloaded() -> Result<()> {
+-    let (mut app, mut events, _commands) = make_test_app_with_channels().await;
++    let (mut app, mut events, _commands) =
++        crate::app::tests::make_native_test_app_with_channels().await;
+     app.config.thread_unload_delay = Duration::ZERO;
+     let mut server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
+     let started = server.start_thread(&app.config).await?;
+diff --git a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
+index 804fee6ab5..1a814f8315 100644
+--- a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
++++ b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
+@@ -1306,7 +1306,8 @@ async fn archive_current_thread_returns_shared_servers_to_agents() -> Result<()>
+ 
+ #[tokio::test]
+ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths() -> Result<()> {
+-    let (mut app, events, _ops) = Box::pin(make_test_app_with_channels()).await;
++    let (mut app, events, _ops) =
++        Box::pin(crate::app::tests::make_native_test_app_with_channels()).await;
+     // Invalid optional worktree settings must preserve both daemon start paths.
+     app.config.features.enable(Feature::Worktrees)?;
+     let codex_home = tempdir()?;
+diff --git a/codex-rs/tui/src/app/tests/turn_submission.rs b/codex-rs/tui/src/app/tests/turn_submission.rs
+index 15030ebae3..4bbe1644f3 100644
+--- a/codex-rs/tui/src/app/tests/turn_submission.rs
++++ b/codex-rs/tui/src/app/tests/turn_submission.rs
+@@ -191,7 +191,8 @@ async fn turn_start_failure_is_shown_without_exiting() -> Result<()> {
+ 
+ #[tokio::test]
+ async fn misalignment_policy_blocks_queued_turns_and_goal_resumption() -> Result<()> {
+-    let (mut app, _app_event_rx, mut op_rx) = make_test_app_with_channels().await;
++    let (mut app, _app_event_rx, mut op_rx) =
++        crate::app::tests::make_native_test_app_with_channels().await;
+     let checkout = tempfile::tempdir()?;
+     app.config.cwd = AbsolutePathBuf::from_absolute_path(checkout.path())?;
+     for args in [
+diff --git a/codex-rs/tui/src/app/tests/user_verification_routes_tests.rs b/codex-rs/tui/src/app/tests/user_verification_routes_tests.rs
+index c288b03a3e..27173a528b 100644
+--- a/codex-rs/tui/src/app/tests/user_verification_routes_tests.rs
++++ b/codex-rs/tui/src/app/tests/user_verification_routes_tests.rs
+@@ -96,7 +96,8 @@ async fn inactive_thread_user_verification_replays_queued_request_once() -> Resu
+ #[tokio::test]
+ async fn side_toggle_surfaces_pending_verification_from_an_inactive_thread() -> Result<()> {
+     Box::pin(async {
+-        let (mut app, _events, _ops) = make_test_app_with_channels().await;
++        let (mut app, _events, _ops) =
++            crate::app::tests::make_native_test_app_with_channels().await;
+         let mut app_server =
+             crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref()).await?;
+         let primary = app_server.start_thread(&app.config).await?;
+diff --git a/codex-rs/tui/src/app/thread_title_tests.rs b/codex-rs/tui/src/app/thread_title_tests.rs
+index ca73ee8d30..e6bd5c9886 100644
+--- a/codex-rs/tui/src/app/thread_title_tests.rs
++++ b/codex-rs/tui/src/app/thread_title_tests.rs
+@@ -97,7 +97,7 @@ async fn automatic_thread_title_respects_origin_metadata_after_switching() -> co
+         (true, Some("Manual title")),
+         (false, Some("Manual title")),
+     ] {
+-        let mut app = make_test_app().await;
++        let mut app = crate::app::tests::make_native_test_app().await;
+         let mut app_server = crate::start_embedded_app_server_for_picker(&app.config).await?;
+         let started = app_server.start_thread(&app.config).await?;
+         let thread_id = started.session.thread_id;
+@@ -442,7 +442,7 @@ async fn check_thread_title_generation(scenario: TitleScenario) -> color_eyre::R
+ 
+ #[tokio::test]
+ async fn canceled_thread_title_ignores_late_start_and_completion() -> color_eyre::Result<()> {
+-    let mut app = make_test_app().await;
++    let mut app = crate::app::tests::make_native_test_app().await;
+     let mut app_server = crate::start_embedded_app_server_for_picker(&app.config).await?;
+     let started = app_server.start_thread(&app.config).await?;
+     let thread_id = started.session.thread_id;
+@@ -757,7 +757,7 @@ fn title_agent_message(id: &str, text: &str, phase: Option<MessagePhase>) -> Thr
+ #[tokio::test]
+ async fn thread_title_progress_clears_failed_requests_and_follows_thread_switches()
+ -> color_eyre::Result<()> {
+-    let mut app = make_test_app().await;
++    let mut app = crate::app::tests::make_native_test_app().await;
+     app.local_settings.tui.animations = false;
+     app.chat_widget.local_settings.tui.animations = false;
+     let mut app_server = crate::start_embedded_app_server_for_picker(&app.config).await?;
+diff --git a/codex-rs/tui/src/chatwidget/tests.rs b/codex-rs/tui/src/chatwidget/tests.rs
+index fd24d3260b..eaf50ed79f 100644
+--- a/codex-rs/tui/src/chatwidget/tests.rs
++++ b/codex-rs/tui/src/chatwidget/tests.rs
+@@ -305,6 +305,7 @@ mod usage;
+ mod worktree_picker;
+ 
+ pub(crate) use helpers::make_chatwidget_manual_with_sender;
++pub(crate) use helpers::make_native_chatwidget_manual_with_sender;
+ pub(crate) use helpers::set_chatgpt_auth;
+ pub(crate) use helpers::set_fast_mode_test_catalog;
+ pub(super) use helpers::*;
+diff --git a/codex-rs/tui/src/chatwidget/tests/helpers.rs b/codex-rs/tui/src/chatwidget/tests/helpers.rs
+index 1db139d731..a398d83310 100644
+--- a/codex-rs/tui/src/chatwidget/tests/helpers.rs
++++ b/codex-rs/tui/src/chatwidget/tests/helpers.rs
+@@ -380,6 +380,18 @@ pub(crate) async fn make_chatwidget_manual_with_sender() -> (
+     (widget, app_event_tx, rx, op_rx)
+ }
+ 
++/// A real Root session needs the enforced model, independently of UI snapshot fixtures.
++pub(crate) async fn make_native_chatwidget_manual_with_sender() -> (
++    ChatWidget,
++    AppEventSender,
++    tokio::sync::mpsc::UnboundedReceiver<AppEvent>,
++    tokio::sync::mpsc::UnboundedReceiver<Op>,
++) {
++    let (widget, rx, op_rx) = make_chatwidget_manual(Some("gpt-6.1-sol")).await;
++    let app_event_tx = AppEventSender::new(widget.app_event_tx.app_event_tx.clone());
++    (widget, app_event_tx, rx, op_rx)
++}
++
+ pub(super) fn drain_insert_history(
+     rx: &mut tokio::sync::mpsc::UnboundedReceiver<AppEvent>,
+ ) -> Vec<Vec<ratatui::text::Line<'static>>> {
