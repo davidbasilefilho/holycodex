@@ -32,7 +32,7 @@ run = "cargo clippy --workspace --all-targets --locked -- -D warnings"
 
 [tasks.test]
 description = "Run locked Rust workspace tests"
-run = ["cargo test --workspace --locked", "cargo test --locked -p holycodex-toon --features de_direct", "cargo test --locked -p holycodex-toon --all-features", "cargo test --locked -p holycodex-toon --no-default-features --features std,serde", 'npm exec --offline --call "node --test npm/packager/publish.test.cjs npm/packager/native-smoke.test.cjs npm/packager/installation-smoke.test.cjs npm/packager/release-branch.test.cjs npm/packager/upstream-validation.test.cjs"']
+run = ["cargo test --workspace --locked", "cargo test --locked -p holycodex-toon --features de_direct", "cargo test --locked -p holycodex-toon --all-features", "cargo test --locked -p holycodex-toon --no-default-features --features std,serde", 'npm exec --offline --call "node --test npm/packager/publish.test.cjs npm/packager/native-smoke.test.cjs npm/packager/installation-smoke.test.cjs npm/packager/release-branch.test.cjs npm/packager/upstream-validation.test.cjs npm/packager/publication-authorization.test.cjs"']
 
 [tasks.pre-commit]
 description = "Run formatting, lint, and test checks"
