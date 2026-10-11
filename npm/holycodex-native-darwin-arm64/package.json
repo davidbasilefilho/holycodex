@@ -10,8 +10,11 @@
     "arm64"
   ],
   "files": [
-    "bin/holycodex",
-    "bin/codex",
+    "bin/",
+    "codex-path/",
+    "codex-resources/",
+    "codex-package.json",
+    "native-inventory.json",
     "payload.toml",
     "LICENSE",
     "NOTICE",

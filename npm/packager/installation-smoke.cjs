@@ -7,7 +7,7 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { PLATFORM_PACKAGES, validateVersion, tarballName } = require('./channel.cjs');
-const { TARGETS, expectedRuntimeVersion, verifyNativeHeader } = require('./native-smoke.cjs');
+const { TARGETS, expectedRuntimeVersion, verifyNativeHeader, verifyResourceArchive } = require('./native-smoke.cjs');
 const { MAX_NATIVE_BYTES, verifyArchiveSize } = require('./verify-release.cjs');
 
 function npmCli() {
@@ -121,6 +121,7 @@ function smokeInstallation(wrapperArchive, nativeArchive, target, version, optio
   for (const alias of ['holycodex', 'codex']) {
     assert.equal(archiveMember(wrapper, `bin/${alias}.exe`).length, 0, 'wrapper must start with empty link placeholders');
   }
+  const resourceFiles = verifyResourceArchive(native, target);
   const manifest = archiveMember(native, 'payload.toml');
   const proof = /^format = 1\npackage = "([^"\r\n]+)"\nversion = "([^"\r\n]+)"\nsha256 = "([a-f0-9]{64})"\n?$/.exec(manifest.toString('utf8'));
   assert.ok(proof, 'invalid native payload manifest');
@@ -161,6 +162,15 @@ function smokeInstallation(wrapperArchive, nativeArchive, target, version, optio
       ...executables,
     ], proof[3], target);
 
+    const { readResourceInventory } = require('../holycodex/install.cjs');
+    const resources = readResourceInventory(installedNative, target);
+    for (const { relative, bytes } of resources) {
+      assert.ok(fs.lstatSync(path.join(installedWrapper, relative)).isFile(), 'installed resource must be regular');
+      assert.ok(fs.readFileSync(path.join(installedWrapper, relative)).equals(bytes), 'installed helper differs from verified archive');
+      if (relative !== 'codex-package.json') verifyNativeHeader(path.join(installedWrapper, relative), target);
+    }
+    const layout = JSON.parse(fs.readFileSync(path.join(installedWrapper, 'codex-package.json')));
+    assert.ok(fs.readFileSync(path.join(installedWrapper, layout.entrypoint)).equals(fs.readFileSync(executables[1])), 'canonical daemon entrypoint differs from npm alias');
     const runtimeEnv = { ...env };
     for (const key of Object.keys(runtimeEnv)) if (key.toLowerCase() === 'path') delete runtimeEnv[key];
     runtimeEnv.PATH = '';
@@ -194,7 +204,7 @@ function smokeInstallation(wrapperArchive, nativeArchive, target, version, optio
     }
     return { target, distributionVersion: version, runtimeVersion, nodeVersion: process.version, npmVersion,
       installMode: 'isolated-global-offline', postinstallVerified: true, runtimePath: '',
-      aliases: ['holycodex', 'codex'], nativeBytes, payloadSha256: proof[3] };
+      aliases: ['holycodex', 'codex'], nativeBytes, payloadSha256: proof[3], resourceFiles };
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }

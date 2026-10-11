@@ -52,6 +52,7 @@ function fixture(t, channel = 'dev') {
   const extension = target === 'win32-x64' ? '.exe' : '';
   const bytes = header(target);
   for (const alias of ['holycodex', 'codex']) fs.writeFileSync(path.join(directory, 'bin', alias + extension), bytes);
+  require('./resource-fixture.cjs').resourceFixture(directory, target, bytes);
   const digest = createHash('sha256').update(bytes).digest('hex');
   fs.writeFileSync(path.join(directory, 'payload.toml'), `format = 1\npackage = "${name}"\nversion = "${BASE_VERSION}"\nsha256 = "${digest}"\n`);
   stageChannel(directory, version, channel);

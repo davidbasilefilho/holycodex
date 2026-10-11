@@ -192,14 +192,15 @@ jobs:
           python-version: "3.x"
       - name: Materialize pinned Codex with HolyCodex layer
         run: cargo run --locked -p holycodex-dev -- materialize --upstream .tmp/upstream
-      - name: Install Linux sandbox test dependency
+      - name: Install Linux sandbox build and test dependencies
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends bubblewrap
+          sudo apt-get install -y --no-install-recommends bubblewrap libcap-dev pkg-config
           bwrap --version
+          pkg-config --exists libcap
       - name: Enable namespaces on the disposable Linux CI runner
         if: runner.os == 'Linux'
         shell: bash

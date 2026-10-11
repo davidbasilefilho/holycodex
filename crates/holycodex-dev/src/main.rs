@@ -57,7 +57,7 @@ enum Operation {
         #[arg(long, default_value = DEFAULT_UPSTREAM)]
         upstream: PathBuf,
     },
-    /// Build the native Codex CLI and package the same executable under both names.
+    /// Build native aliases and all helpers in the pinned upstream package layout.
     Package {
         #[arg(long, default_value = DEFAULT_UPSTREAM)]
         upstream: PathBuf,
@@ -339,6 +339,31 @@ fn workspace(upstream: &Path, pin: &Manifest) -> Result<PathBuf> {
 fn cargo(upstream: &Path, pin: &Manifest, args: &[&OsStr]) -> Result<()> {
     run(OsStr::new("cargo"), args, &workspace(upstream, pin)?).map(|_| ())
 }
+/// The helper set follows scripts/codex_package/{cargo,layout}.py at the pin.
+fn native_package_inputs(
+    os: &str,
+    arch: &str,
+) -> Result<(&'static str, Vec<(&'static str, &'static str)>)> {
+    let mut helpers = vec![("--code-mode-host-bin", "codex-code-mode-host")];
+    let target = match (os, arch) {
+        ("linux", "x86_64") => {
+            helpers.push(("--bwrap-bin", "bwrap"));
+            "x86_64-unknown-linux-gnu"
+        }
+        ("macos", "aarch64") => "aarch64-apple-darwin",
+        ("windows", "x86_64") => {
+            helpers.push(("--codex-command-runner-bin", "codex-command-runner"));
+            helpers.push((
+                "--codex-windows-sandbox-setup-bin",
+                "codex-windows-sandbox-setup",
+            ));
+            "x86_64-pc-windows-msvc"
+        }
+        _ => anyhow::bail!("unsupported native distribution host: {os}-{arch}"),
+    };
+    Ok((target, helpers))
+}
+
 fn execute(operation: Operation, root: &Path) -> Result<()> {
     let mut pin = manifest(root)?;
     match operation {
@@ -436,42 +461,87 @@ fn execute(operation: Operation, root: &Path) -> Result<()> {
             let upstream = absolute_from(root, &upstream);
             verify_checkout(&upstream, &pin.commit)?;
             verify_materialized_layer(root, &upstream, &pin)?;
+            ensure!(
+                std::env::var_os("CODEX_SKIP_BWRAP_BUILD").is_none()
+                    && std::env::var_os("CODEX_BWRAP_SOURCE_DIR").is_none(),
+                "native distribution cannot disable or override the pinned bubblewrap build"
+            );
+            let (target, helpers) =
+                native_package_inputs(std::env::consts::OS, std::env::consts::ARCH)?;
             let mut args = vec![
                 OsStr::new("build"),
                 OsStr::new("--locked"),
                 OsStr::new("-p"),
                 OsStr::new("codex-cli"),
+                OsStr::new("--bin"),
+                OsStr::new("codex"),
             ];
+            for (_, binary) in &helpers {
+                let package = match *binary {
+                    "bwrap" => "codex-bwrap",
+                    "codex-command-runner" | "codex-windows-sandbox-setup" => {
+                        "codex-windows-sandbox"
+                    }
+                    _ => "codex-code-mode-host",
+                };
+                args.extend([
+                    OsStr::new("-p"),
+                    OsStr::new(package),
+                    OsStr::new("--bin"),
+                    OsStr::new(binary),
+                ]);
+            }
             if release {
                 args.push(OsStr::new("--release"));
             }
             cargo(&upstream, &pin, &args)?;
             let profile = if release { "release" } else { "debug" };
-            let binary = upstream
+            let binaries = upstream
                 .join(&pin.codex_workspace)
                 .join("target")
-                .join(profile)
-                .join(if cfg!(windows) { "codex.exe" } else { "codex" });
-            ensure!(
-                binary.is_file(),
-                "build did not produce {}",
-                binary.display()
-            );
+                .join(profile);
+            let extension = if cfg!(windows) { ".exe" } else { "" };
+            let binary = binaries.join(format!("codex{extension}"));
             let output = absolute_from(root, &output);
-            fs::create_dir_all(&output)?;
-            for name in [
-                if cfg!(windows) {
-                    "holycodex.exe"
-                } else {
-                    "holycodex"
-                },
-                if cfg!(windows) { "codex.exe" } else { "codex" },
-            ] {
-                fs::copy(&binary, output.join(name))
-                    .with_context(|| format!("packaging {name}"))?;
+            // Reuse the layout and hash-checked external rg/zsh fetches from the
+            // exact pinned upstream. Supply ALL Rust binaries so its assembler
+            // cannot silently rebuild with a different/unlocked toolchain.
+            let mut assembler =
+                ProcessCommand::new(if cfg!(windows) { "python" } else { "python3" });
+            assembler
+                .current_dir(&upstream)
+                .env("CODEX_REPO_ROOT", &upstream)
+                .arg(upstream.join("scripts/build_codex_package.py"))
+                .args([
+                    "--target",
+                    target,
+                    "--package-version",
+                    &pin.holycodex_version,
+                ])
+                .arg("--package-dir")
+                .arg(&output)
+                .arg("--entrypoint-bin")
+                .arg(&binary);
+            for (flag, name) in &helpers {
+                assembler
+                    .arg(flag)
+                    .arg(binaries.join(format!("{name}{extension}")));
             }
+            // No --force: a previous package is preserved for inspection.
+            let status = assembler
+                .status()
+                .context("assembling pinned upstream native resources")?;
+            ensure!(
+                status.success(),
+                "native resource assembly failed with {status}"
+            );
+            fs::copy(
+                output.join(format!("bin/codex{extension}")),
+                output.join(format!("bin/holycodex{extension}")),
+            )
+            .context("packaging HolyCodex compatibility alias")?;
             println!(
-                "packaged one native binary under holycodex and codex in {}",
+                "packaged native aliases and required upstream resources in {}",
                 output.display()
             );
         }
@@ -526,3 +596,21 @@ fn main() -> Result<()> {
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod native_package_tests {
+    use super::*;
+    #[test]
+    fn required_helpers_match_all_supported_platforms() {
+        for (os, arch, count) in [
+            ("linux", "x86_64", 2),
+            ("macos", "aarch64", 1),
+            ("windows", "x86_64", 3),
+        ] {
+            let (_, helpers) = native_package_inputs(os, arch).unwrap();
+            assert_eq!(helpers.len(), count);
+            assert!(helpers.contains(&("--code-mode-host-bin", "codex-code-mode-host")));
+        }
+        assert!(native_package_inputs("linux", "aarch64").is_err());
+    }
+}

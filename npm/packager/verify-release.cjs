@@ -123,6 +123,7 @@ function verifyRelease(artifactRoot, expectedSha, version = BASE_VERSION) {
         '@turndev/holycodex-native-linux-x64-gnu': version,
         '@turndev/holycodex-native-win32-x64': version,
       });
+      assert.deepEqual(JSON.parse(tarFile(archive, 'native-inventory.json')), require('../holycodex/native-inventory.json'), `${directory}: wrapper native resource policy mismatch`);
       continue;
     }
 
@@ -139,6 +140,9 @@ function verifyRelease(artifactRoot, expectedSha, version = BASE_VERSION) {
     assert.equal(match[2], version);
     const extension = metadata.name === '@turndev/holycodex-native-win32-x64' ? '.exe' : '';
     verifyNativeAliases(archive, extension, match[3], directory);
+    // Defer the import because native smoke shares the archive/alias primitives
+    // from this module. All resources are checked before publish can write.
+    require('./native-smoke.cjs').verifyResourceArchive(archive, metadata.name.replace('@turndev/holycodex-native-', ''));
   }
 
   assert.deepEqual([...packages].sort(), ['holycodex', ...Object.keys(PLATFORMS)].sort());
