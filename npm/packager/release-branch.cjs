@@ -6,7 +6,8 @@ const assert = require('node:assert/strict');
 // numbers. This checker describes a plan; it does not create refs or publish.
 function parseReleaseBranch(name) {
   assert.equal(typeof name, 'string', 'release branch must be a string');
-  const match = /^release\/v([^/]+)\/([a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/.exec(name);
+  // Preserve the existing /fix/ stack heads; new layers use the three-segment convention.
+  const match = /^release\/v([^/]+)\/((?:fix\/)?[a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/.exec(name);
   assert.ok(match, 'release branch requires release/v<version>/<semantic-change>');
   const version = match[1];
   const semver = /^0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(version);

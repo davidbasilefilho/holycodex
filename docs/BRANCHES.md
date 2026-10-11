@@ -26,8 +26,13 @@ HolyCodex's own release stack uses `release/v<version>/<semantic-change>`, for e
 Versions are zero-major SemVer. Preserve an optional version suffix exactly;
 `0.17.0` and `0.17.0-1` are different release identities. Choose a concise
 semantic change name, not an arbitrary sequence number.
-This established three-segment convention remains valid; the four-segment
-fallback families above do not require renaming existing HolyCodex branches.
+Use the established three-segment convention for new HolyCodex work. Existing
+`release/v0.17.0/fix/assignment-revision-evidence` and other `/fix/` stack heads
+remain valid: the validator accepts this compatibility form and preserves its
+complete change path and version suffix. Do not rename these heads or change
+their PR dependencies merely to adopt the three-segment recommendation. Other
+four-segment types are not part of this repository convention; the generic
+fallback families above apply only where no project convention exists.
 
 A stack has one branch and one normal PR per substantial change. The first
 PR targets the accepted base (normally `main`); every successor targets the
