@@ -29342,3 +29342,39 @@ index 0fe59df..7ed183f 100644
              let new_config = notify_contributors
                  .then(|| self.build_effective_session_config(&state.session_configuration));
              (previous_config, new_config)
+diff --git a/codex-rs/core/tests/suite/guardian_environments_tests.rs b/codex-rs/core/tests/suite/guardian_environments_tests.rs
+index d65866d..eaaf860 100644
+--- a/codex-rs/core/tests/suite/guardian_environments_tests.rs
++++ b/codex-rs/core/tests/suite/guardian_environments_tests.rs
+@@ -351,6 +351,7 @@ async fn guardian_reviews_with_offline_primary_executor() -> Result<()> {
+             bundled_skills_enabled: false,
+             cloud_skill_enabled: false,
+             shadow_selection_enabled: false,
++            holy_optional_workflows: Default::default(),
+         }
+     });
+     let test = test_codex()
+diff --git a/codex-rs/core/tests/suite/remote_env_required_skills_tests.rs b/codex-rs/core/tests/suite/remote_env_required_skills_tests.rs
+index 210d4fb..a2242d0 100644
+--- a/codex-rs/core/tests/suite/remote_env_required_skills_tests.rs
++++ b/codex-rs/core/tests/suite/remote_env_required_skills_tests.rs
+@@ -78,6 +78,7 @@ async fn required_environment_skill_gates_inference(availability: Availability)
+             bundled_skills_enabled: false,
+             cloud_skill_enabled: false,
+             shadow_selection_enabled: false,
++            holy_optional_workflows: Default::default(),
+         },
+     );
+     let server = start_mock_server().await;
+diff --git a/codex-rs/ext/skills/src/shadow_selection_experiment/experiment_tests.rs b/codex-rs/ext/skills/src/shadow_selection_experiment/experiment_tests.rs
+index b1154c3..72a2a83 100644
+--- a/codex-rs/ext/skills/src/shadow_selection_experiment/experiment_tests.rs
++++ b/codex-rs/ext/skills/src/shadow_selection_experiment/experiment_tests.rs
+@@ -81,6 +81,7 @@ async fn turn_input_and_history_advance_while_ranking_is_blocked()
+         bundled_skills_enabled: false,
+         cloud_skill_enabled: false,
+         shadow_selection_enabled: true,
++        holy_optional_workflows: Default::default(),
+     };
+     let session_store = ExtensionData::new("session");
+     let thread_store = ExtensionData::new("thread");
