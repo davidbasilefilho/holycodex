@@ -2497,24 +2497,25 @@ index 12bcba2..af3663e 100644
                  "Runningasadministrator:sharedbackgroundserverdisabled."
              } else {
 diff --git a/codex-rs/cli/tests/login.rs b/codex-rs/cli/tests/login.rs
-index 810ecad..e55273d 100644
+index 810ecad..ef56e19 100644
 --- a/codex-rs/cli/tests/login.rs
 +++ b/codex-rs/cli/tests/login.rs
-@@ -6,12 +6,10 @@ use std::sync::atomic::Ordering;
- use anyhow::Context;
+@@ -3,13 +3,12 @@ use std::sync::Arc;
+ use std::sync::atomic::AtomicUsize;
+ use std::sync::atomic::Ordering;
+ 
+-use anyhow::Context;
  use anyhow::Result;
  use app_test_support::ChatGptAuthFixture;
--use app_test_support::write_chatgpt_auth;
+ use app_test_support::write_chatgpt_auth;
 +use app_test_support::write_external_chatgpt_auth;
  use codex_config::types::AuthCredentialsStoreMode;
  use codex_login::AuthKeyringBackendKind;
 -use codex_login::CLIENT_ID;
  use codex_login::CODEX_ACCESS_TOKEN_ENV_VAR;
--use codex_login::REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR;
+ use codex_login::REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR;
  use codex_login::login_with_bedrock_access_keys;
- use codex_protocol::shell_environment::OPENAI_FEDERATION_RULE_ID_ENV_VAR;
- use codex_protocol::shell_environment::OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR;
-@@ -294,7 +292,7 @@ async fn debug_prompt_input_follows_authenticated_attribution_setting() -> Resul
+@@ -294,7 +293,7 @@ async fn debug_prompt_input_follows_authenticated_attribution_setting() -> Resul
              server.uri()
          ),
      )?;
@@ -2523,7 +2524,7 @@ index 810ecad..e55273d 100644
          codex_home.path(),
          ChatGptAuthFixture::new("chatgpt-token")
              .account_id("workspace-123")
-@@ -322,102 +320,34 @@ async fn debug_prompt_input_follows_authenticated_attribution_setting() -> Resul
+@@ -322,102 +321,34 @@ async fn debug_prompt_input_follows_authenticated_attribution_setting() -> Resul
  }
  
  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

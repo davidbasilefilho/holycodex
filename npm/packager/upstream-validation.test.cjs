@@ -40,3 +40,12 @@ test('native validation checkouts and artifact proofs use the same immutable can
   assert.match(release, /needs: \[prepare, wrapper, native\]/);
   assert.match(release, /verify-release\.cjs \.tmp\/release-artifacts "\$GITHUB_SHA"/);
 });
+
+test('native compatibility executes complete provider-info and TUI unit suites', () => {
+  const release = workflow('release.yml');
+  for (const crate of ['codex-model-provider-info', 'codex-tui']) {
+    assert.match(release, new RegExp(`test --locked --build-jobs 1 --test-threads 1 -p ${crate} --lib\\n`));
+  }
+  assert.doesNotMatch(release, /gateway_oauth_tests::/);
+  assert.doesNotMatch(release, /--no-tests[= ](?:pass|warn)/);
+});

@@ -272,7 +272,7 @@ jobs:
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-login -p codex-skills -p codex-skills-extension --lib -E 'test(/siwc::tests|embedded_holycodex_017_skill_inventory_is_complete|optional_workflows/)'
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-model-provider --lib -E 'test(siwc_provider_uses_resource_without_workspace_or_agent_bootstrap) | test(siwc_scoped_auth_never_bootstraps_or_engages_backend_fallback) | test(models_endpoint::tests::) | test(models_endpoint::siwc_models_manager_tests::) | test(models_identity::tests::) | test(workspace_routing_tests::) | test(auth::tests::custom_provider_)'
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-models-manager --lib
-          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-model-provider-info --lib -E 'test(gateway_oauth_tests::)'
+          "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-model-provider-info --lib
           # Run all TUI unit/snapshot regressions: upstream startup/layout changes cross modules.
           "$just_path" test --locked --build-jobs 1 --test-threads 1 -p codex-tui --lib
           cd "$GITHUB_WORKSPACE"
