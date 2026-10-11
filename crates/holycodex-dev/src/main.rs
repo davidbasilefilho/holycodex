@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 const DEFAULT_UPSTREAM: &str = ".tmp/upstream";
 mod materialization;
+mod patch_series;
 
 #[derive(Parser)]
 #[command(
@@ -309,62 +310,11 @@ fn patch_files(root: &Path) -> Result<Vec<PathBuf>> {
 }
 
 fn apply_patches(root: &Path, upstream: &Path) -> Result<()> {
-    let patches = patch_files(root)?;
-    if patches.is_empty() {
-        return Ok(());
-    }
-    let paths = patches
-        .iter()
-        .map(|path| path.as_os_str())
-        .collect::<Vec<_>>();
-    let mut strict_check_args = vec![
-        OsStr::new("apply"),
-        OsStr::new("--check"),
-        OsStr::new("--whitespace=error"),
-        OsStr::new("--exclude=*.snap"),
-        OsStr::new("--"),
-    ];
-    strict_check_args.extend(paths.iter().copied());
-    git(&strict_check_args, upstream)
-        .context("strict non-snapshot patch preflight failed; no patch was applied")?;
-    let mut check_args = vec![
-        OsStr::new("apply"),
-        OsStr::new("--check"),
-        OsStr::new("--whitespace=nowarn"),
-        OsStr::new("--"),
-    ];
-    check_args.extend(paths.iter().copied());
-    git(&check_args, upstream)
-        .context("patch applicability preflight failed; no patch was applied")?;
-    let mut apply_args = vec![
-        OsStr::new("apply"),
-        OsStr::new("--whitespace=nowarn"),
-        OsStr::new("--"),
-    ];
-    apply_args.extend(paths);
-    git(&apply_args, upstream).context("applying strict patch series")
+    patch_series::apply(upstream, &patch_files(root)?)
 }
 
 fn verify_patches_applied(root: &Path, upstream: &Path) -> Result<()> {
-    let patches = patch_files(root)?;
-    if patches.is_empty() {
-        anyhow::bail!("HolyCodex patch layer is empty; refusing to package upstream Codex");
-    }
-    let paths = patches
-        .iter()
-        .map(|path| path.as_os_str())
-        .collect::<Vec<_>>();
-    let mut args = vec![
-        OsStr::new("apply"),
-        OsStr::new("--reverse"),
-        OsStr::new("--check"),
-        OsStr::new("--whitespace=nowarn"),
-        OsStr::new("--"),
-    ];
-    args.extend(paths);
-    git(&args, upstream).context(
-        "HolyCodex patch series is not fully applied; run `holycodex-dev materialize` or `apply` before packaging",
-    )
+    patch_series::verify(upstream, &patch_files(root)?)
 }
 
 fn verify_materialized_layer(root: &Path, upstream: &Path, pin: &Manifest) -> Result<()> {
