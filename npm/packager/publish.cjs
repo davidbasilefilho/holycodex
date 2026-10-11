@@ -150,9 +150,16 @@ async function publishPackages(root, sha, version, channel, adapter = {}) {
       let metadata;
       try { metadata = await read(entry.name, Math.max(1, Math.min(30000, remaining))); }
       catch { /* A transport failure cannot establish absence or authorize a write. */ }
+      if (now() > deadline) break;
       if (accepts(metadata)) return metadata;
       if (attempt === POLL_DELAYS_MS.length) break;
-      const delay = Math.min(POLL_DELAYS_MS[attempt], READBACK_TIMEOUT_MS - waited, deadline - now());
+      // Leave a usable request budget inside the same deadline. Near the
+      // deadline split the remaining time between backoff and the next read;
+      // reserving only a millisecond produces an unusable real HTTP timeout.
+      const budget = Math.min(READBACK_TIMEOUT_MS - waited, deadline - now());
+      const requestBudget = Math.min(30000, Math.floor(budget / 2));
+      const delay = Math.min(POLL_DELAYS_MS[attempt], budget - requestBudget);
+      if (requestBudget <= 0) break;
       if (delay <= 0) break;
       await wait(delay);
       waited += delay;
